@@ -40,6 +40,15 @@ from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 import json
+# PARCHE SSL (fix PostgreSQL sobreescribe SSL_CERT_FILE)
+# ─────────────────────────────────────────────
+try:
+    import certifi
+    import os
+    os.environ["SSL_CERT_FILE"]      = certifi.where()
+    os.environ["REQUESTS_CA_BUNDLE"] = certifi.where()
+except ImportError:
+    pass
 
 # ─────────────────────────────────────────────
 # PARCHE WINDOWS
@@ -90,8 +99,11 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("telegram").setLevel(logging.WARNING)
 
 
-def get_logger(name: str) -> logging.Logger:
-    return logging.getLogger(name)
+try:
+    from hardening.logger import get_logger
+except ImportError:
+    def get_logger(name: str) -> logging.Logger:
+        return logging.getLogger(name)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -579,7 +591,7 @@ class BotWorker:
     STAGE_WAITING_ID   = "WAITING_ID"
     STAGE_WAITING_TYPE = "WAITING_TYPE"
 
-    def __init__(self, distribuidor_id: int):
+    def __init__(self, distribuidor_id: int, monitor=None):
         self.distribuidor_id = distribuidor_id
         self.logger = get_logger(f"Bot-{distribuidor_id}")
 
@@ -601,6 +613,7 @@ class BotWorker:
         self.active_msgs:       Dict[int, Dict[str, Any]] = {}   # msg_id → {exhibicion_id, ...}
         self.bot_hibernating    = False
         self.start_time         = time.time()
+        self.monitor            = monitor   # BotMonitor (puede ser None si corre standalone)
 
         self.logger.info(f"✅ BotWorker listo para: {self.nombre_dist}")
 
@@ -1223,6 +1236,10 @@ class BotWorker:
         Cada 30s busca exhibiciones evaluadas (desde Streamlit) que no
         tienen el mensaje de Telegram actualizado y lo edita.
         """
+        # Heartbeat al monitor de uptime
+        if self.monitor:
+            self.monitor.heartbeat(self.distribuidor_id, status="running")
+
         try:
             pendientes = await asyncio.to_thread(
                 self.db.get_pendientes_sync, self.distribuidor_id

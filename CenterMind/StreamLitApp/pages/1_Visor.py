@@ -19,6 +19,9 @@ from typing import Any, Dict, List, Optional
 
 import streamlit as st
 
+if "logged_in" not in st.session_state or not st.session_state.logged_in:
+    st.switch_page("app.py")
+
 # ─── Configuración de página ──────────────────────────────────────────────────
 st.set_page_config(
     page_title="CenterMind · Evaluación",
@@ -29,7 +32,7 @@ st.set_page_config(
 
 # ─── Paths ────────────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent
-DB_PATH  = BASE_DIR / "base_datos" / "centermind.db"
+DB_PATH = Path(__file__).resolve().parent.parent.parent / "base_datos" / "centermind.db"
 
 # ─── CSS ──────────────────────────────────────────────────────────────────────
 STYLE = """
@@ -423,16 +426,47 @@ div[data-testid="stSelectbox"] > div > div:focus-within {
 }
 div[data-testid="stSelectbox"] label { display: none !important; }
 
-/* ── Filtro activo badge ───────────────────────────────── */
-.filtro-activo {
-    display: inline-flex; align-items: center; gap: 6px;
-    padding: 3px 10px; border-radius: 20px;
-    font-size: 11px; letter-spacing: 1px;
-    background: rgba(34,211,238,0.12);
-    color: #22d3ee;
-    border: 1px solid rgba(34,211,238,0.25);
-    margin-left: 12px;
-    vertical-align: middle;
+/* ── Miniaturas de ráfaga ─────────────────────────────── */
+.thumbs-strip {
+    display: flex; gap: 8px;
+    padding: 10px 16px;
+    overflow-x: auto;
+    border-top: 1px solid rgba(255,255,255,0.05);
+    background: rgba(7,8,15,0.6);
+}
+.thumb-wrap {
+    flex-shrink: 0;
+    width: 64px; height: 64px;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 2px solid rgba(255,255,255,0.08);
+    cursor: pointer;
+    transition: border-color 0.15s, transform 0.15s;
+}
+.thumb-wrap.active {
+    border-color: #fbbf24;
+    box-shadow: 0 0 10px rgba(251,191,36,0.35);
+}
+.thumb-wrap img {
+    width: 100%; height: 100%;
+    object-fit: cover;
+}
+.foto-nav-bar {
+    display: flex; align-items: center; justify-content: center;
+    gap: 16px; padding: 6px 0 2px 0;
+}
+.foto-counter {
+    font-family: 'DM Mono', monospace;
+    font-size: 12px; color: rgba(226,232,240,0.5);
+    letter-spacing: 1px;
+}
+.rafaga-badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 2px 10px; border-radius: 20px;
+    font-size: 10px; letter-spacing: 1px; text-transform: uppercase;
+    background: rgba(251,191,36,0.12);
+    color: #fbbf24;
+    border: 1px solid rgba(251,191,36,0.25);
 }
 </style>
 """
@@ -461,6 +495,15 @@ def login_check(usuario: str, password: str) -> Optional[Dict]:
 
 
 def get_pendientes(distribuidor_id: int) -> List[Dict]:
+    """
+    Devuelve una lista de GRUPOS (ráfaga = varias fotos con el mismo
+    telegram_msg_id). Cada grupo tiene:
+      - vendedor, nro_cliente, tipo_pdv, fecha_hora, distribuidora
+      - fotos: [{ id_exhibicion, drive_link }, ...]
+      - telegram_msg_id, telegram_chat_id
+      - grupo_key: str usado como identificador único de grupo
+    Las exhibiciones sin telegram_msg_id se tratan como grupo individual.
+    """
     with get_conn() as c:
         rows = c.execute(
             """SELECT
@@ -483,7 +526,33 @@ def get_pendientes(distribuidor_id: int) -> List[Dict]:
                ORDER BY e.timestamp_subida ASC""",
             (distribuidor_id,),
         ).fetchall()
-    return [dict(r) for r in rows]
+
+    # Agrupar por telegram_msg_id (None → grupo propio por id)
+    grupos_dict: Dict[str, Dict] = {}
+    for r in rows:
+        d = dict(r)
+        msg_id = d.get("telegram_msg_id")
+        # Clave de grupo: msg_id si existe, sino el id propio
+        key = str(msg_id) if msg_id else f"solo_{d['id_exhibicion']}"
+
+        if key not in grupos_dict:
+            grupos_dict[key] = {
+                "grupo_key":       key,
+                "vendedor":        d["vendedor"],
+                "nro_cliente":     d["nro_cliente"],
+                "tipo_pdv":        d["tipo_pdv"],
+                "fecha_hora":      d["fecha_hora"],
+                "distribuidora":   d["distribuidora"],
+                "telegram_msg_id": d["telegram_msg_id"],
+                "telegram_chat_id":d["telegram_chat_id"],
+                "fotos":           [],
+            }
+        grupos_dict[key]["fotos"].append({
+            "id_exhibicion": d["id_exhibicion"],
+            "drive_link":    d["drive_link"],
+        })
+
+    return list(grupos_dict.values())
 
 
 def get_stats_hoy(distribuidor_id: int) -> Dict:
@@ -519,19 +588,21 @@ def get_vendedores_pendientes(distribuidor_id: int) -> List[str]:
     return [r["nombre_integrante"] for r in rows if r["nombre_integrante"]]
 
 
-def evaluar(id_exhibicion: int, estado: str, supervisor: str, comentario: str) -> bool:
+def evaluar(ids_exhibicion: List[int], estado: str, supervisor: str, comentario: str) -> bool:
+    """Evalúa todas las exhibiciones de un grupo (ráfaga) de una sola vez."""
     try:
         with get_conn() as c:
-            c.execute(
-                """UPDATE exhibiciones
-                   SET estado = ?,
-                       supervisor_nombre = ?,
-                       comentarios = ?,
-                       evaluated_at = CURRENT_TIMESTAMP,
-                       synced_telegram = 0
-                   WHERE id_exhibicion = ?""",
-                (estado, supervisor, comentario or None, id_exhibicion),
-            )
+            for id_ex in ids_exhibicion:
+                c.execute(
+                    """UPDATE exhibiciones
+                       SET estado = ?,
+                           supervisor_nombre = ?,
+                           comentarios = ?,
+                           evaluated_at = CURRENT_TIMESTAMP,
+                           synced_telegram = 0
+                       WHERE id_exhibicion = ?""",
+                    (estado, supervisor, comentario or None, id_ex),
+                )
             c.commit()
         return True
     except Exception as e:
@@ -568,13 +639,14 @@ def drive_thumbnail_url(url: str, size: int = 800) -> str:
 
 def init_state():
     defaults = {
-        "logged_in":      False,
-        "user":           None,
-        "pendientes":     [],
-        "idx":            0,
-        "flash":          None,
-        "flash_type":     "green",
-        "reload_trigger": 0,
+        "logged_in":       False,
+        "user":            None,
+        "pendientes":      [],
+        "idx":             0,
+        "foto_idx":        0,   # foto activa dentro del grupo (ráfaga)
+        "flash":           None,
+        "flash_type":      "green",
+        "reload_trigger":  0,
         "filtro_vendedor": "Todos",
     }
     for k, v in defaults.items():
@@ -588,6 +660,7 @@ def reload_pendientes():
         st.session_state.pendientes = get_pendientes(u["id_distribuidor"])
         if st.session_state.idx >= len(st.session_state.pendientes):
             st.session_state.idx = max(0, len(st.session_state.pendientes) - 1)
+        st.session_state.foto_idx = 0  # resetear foto interna al recargar
 
 
 def set_flash(msg: str, tipo: str = "green"):
@@ -781,16 +854,30 @@ def render_visor():
         if not pend_filtrada:
             render_empty_state()
         else:
-            ex = pend_filtrada[idx]
-            total = len(pend_filtrada)
-            drive_url = ex.get("drive_link", "")
+            ex       = pend_filtrada[idx]
+            total    = len(pend_filtrada)
+            fotos    = ex.get("fotos", [])
+            n_fotos  = len(fotos)
 
-            # Foto principal via iframe de Drive (no requiere auth adicional)
-            embed_url = drive_embed_url(drive_url)
+            # Clamp foto_idx
+            foto_idx = st.session_state.foto_idx
+            if foto_idx >= n_fotos:
+                foto_idx = 0
+                st.session_state.foto_idx = 0
+
+            drive_url  = fotos[foto_idx]["drive_link"] if fotos else ""
+            embed_url  = drive_embed_url(drive_url)
+
+            # Badge de ráfaga (solo si hay más de 1 foto)
+            rafaga_html = ""
+            if n_fotos > 1:
+                rafaga_html = f'<span class="rafaga-badge">📸 Ráfaga · {n_fotos} fotos</span>'
+
+            # Foto principal
             st.markdown(
                 f"""
                 <div style="background:#07080f; border-radius:12px; overflow:hidden;
-                            border:1px solid rgba(255,255,255,0.06); height:65vh; position:relative;">
+                            border:1px solid rgba(255,255,255,0.06); height:58vh; position:relative;">
                     <iframe src="{embed_url}"
                             style="width:100%;height:100%;border:none;"
                             allow="autoplay"
@@ -798,25 +885,72 @@ def render_visor():
                     </iframe>
                     <div style="position:absolute;bottom:0;left:0;right:0;
                                 background:linear-gradient(transparent,rgba(7,8,15,0.8));
-                                padding:16px 20px; pointer-events:none;">
+                                padding:12px 16px; pointer-events:none;
+                                display:flex; align-items:center; gap:10px;">
                         <span style="font-family:'DM Mono',monospace;font-size:11px;
                                      color:rgba(226,232,240,0.4);letter-spacing:1px;">
                             {ex.get('tipo_pdv','').upper()} · {ex.get('vendedor','').upper()} · CLIENTE {ex.get('nro_cliente','')}
                         </span>
+                        {rafaga_html}
                     </div>
                 </div>
                 """,
                 unsafe_allow_html=True,
             )
 
-            # Barra de progreso
+            # ── Navegación interna del grupo (ráfaga) ──────────────────────
+            if n_fotos > 1:
+                # Barra de flechas + contador
+                fn1, fn2, fn3 = st.columns([1, 3, 1])
+                with fn1:
+                    if st.button("← Foto", key="btn_foto_prev",
+                                 use_container_width=True, disabled=(foto_idx == 0)):
+                        st.session_state.foto_idx -= 1
+                        st.rerun()
+                with fn2:
+                    st.markdown(
+                        f'<div class="foto-nav-bar">'
+                        f'<span class="foto-counter">FOTO {foto_idx + 1} / {n_fotos}</span>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+                with fn3:
+                    if st.button("Foto →", key="btn_foto_next",
+                                 use_container_width=True, disabled=(foto_idx >= n_fotos - 1)):
+                        st.session_state.foto_idx += 1
+                        st.rerun()
+
+                # Tira de miniaturas clickeables
+                thumbs_html = '<div class="thumbs-strip">'
+                for i, f in enumerate(fotos):
+                    thumb_url = drive_thumbnail_url(f["drive_link"], size=128)
+                    active_cls = "active" if i == foto_idx else ""
+                    thumbs_html += (
+                        f'<div class="thumb-wrap {active_cls}" '
+                        f'title="Foto {i+1}">'
+                        f'<img src="{thumb_url}" loading="lazy">'
+                        f'</div>'
+                    )
+                thumbs_html += '</div>'
+
+                # Botones invisibles para cada miniatura (Streamlit workaround)
+                st.markdown(thumbs_html, unsafe_allow_html=True)
+                thumb_cols = st.columns(min(n_fotos, 8))
+                for i, col in enumerate(thumb_cols[:n_fotos]):
+                    with col:
+                        if st.button(f"{i+1}", key=f"thumb_{idx}_{i}",
+                                     use_container_width=True):
+                            st.session_state.foto_idx = i
+                            st.rerun()
+
+            # ── Barra de progreso entre grupos ─────────────────────────────
             pct = (idx + 1) / total * 100
             st.markdown(
                 f"""
-                <div style="display:flex;align-items:center;gap:12px;margin-top:10px;padding:0 2px;">
+                <div style="display:flex;align-items:center;gap:12px;margin-top:8px;padding:0 2px;">
                     <span style="font-family:'DM Mono',monospace;font-size:11px;
                                  color:rgba(226,232,240,0.35);white-space:nowrap;">
-                        {idx+1} / {total}
+                        GRUPO {idx+1} / {total}
                     </span>
                     <div class="progress-bar-wrap" style="flex:1;">
                         <div class="progress-bar-fill" style="width:{pct:.1f}%;"></div>
@@ -831,18 +965,20 @@ def render_visor():
                 unsafe_allow_html=True,
             )
 
-            # Navegación anterior / siguiente
-            st.markdown("<div style='margin-top:10px;'>", unsafe_allow_html=True)
+            # Navegación anterior / siguiente grupo
+            st.markdown("<div style='margin-top:8px;'>", unsafe_allow_html=True)
             nav1, nav2, nav3 = st.columns([1, 4, 1])
             with nav1:
                 if st.button("← ANTERIOR", key="btn_prev", use_container_width=True,
                              disabled=(idx == 0)):
                     st.session_state.idx -= 1
+                    st.session_state.foto_idx = 0
                     st.rerun()
             with nav3:
                 if st.button("SIGUIENTE →", key="btn_next", use_container_width=True,
                              disabled=(idx >= total - 1)):
                     st.session_state.idx += 1
+                    st.session_state.foto_idx = 0
                     st.rerun()
             st.markdown("</div>", unsafe_allow_html=True)
 
@@ -853,6 +989,9 @@ def render_visor():
             pass
         else:
             ex = pend_filtrada[idx]
+            fotos = ex.get("fotos", [])
+            ids_exhibicion = [f["id_exhibicion"] for f in fotos]
+            n_fotos = len(fotos)
 
             # Fecha formateada
             fecha_raw = ex.get("fecha_hora") or ""
@@ -863,6 +1002,10 @@ def render_visor():
                 fecha_fmt = fecha_raw
 
             # ── Card: Detalles de la exhibición ───────────────────────────────
+            fotos_line = (
+                render_detail_row("📸", "Fotos en ráfaga", str(n_fotos), accent=True)
+                if n_fotos > 1 else ""
+            )
             detalles_html = (
                 '<div class="card">'
                 '<div class="card-title">Exhibición</div>'
@@ -871,7 +1014,8 @@ def render_visor():
                 + render_detail_row("📍", "Tipo PDV",    ex.get("tipo_pdv") or "—", accent=True)
                 + render_detail_row("🕐", "Fecha / Hora",fecha_fmt, muted=True)
                 + render_detail_row("🏢", "Distribuidora",ex.get("distribuidora") or "—", muted=True)
-                + f'<div style="margin-top:14px;">{badge_html(ex.get("estado","Pendiente"))}</div>'
+                + fotos_line
+                + f'<div style="margin-top:14px;">{badge_html("Pendiente")}</div>'
                 + "</div>"
             )
             st.markdown(detalles_html, unsafe_allow_html=True)
@@ -879,7 +1023,13 @@ def render_visor():
             st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
 
             # ── Card: Evaluar ─────────────────────────────────────────────────
-            st.markdown('<div class="card"><div class="card-title">Evaluar</div>', unsafe_allow_html=True)
+            evaluar_titulo = (
+                f"Evaluar ({n_fotos} fotos)" if n_fotos > 1 else "Evaluar"
+            )
+            st.markdown(
+                f'<div class="card"><div class="card-title">{evaluar_titulo}</div>',
+                unsafe_allow_html=True,
+            )
 
             comentario = st.text_area(
                 "Comentario",
@@ -895,7 +1045,7 @@ def render_visor():
             with c1:
                 if st.button("✅\nAPROBAR", key="btn_ap", use_container_width=True,
                              help="Aprobar esta exhibición"):
-                    if evaluar(ex["id_exhibicion"], "Aprobado", supervisor, comentario):
+                    if evaluar(ids_exhibicion, "Aprobado", supervisor, comentario):
                         set_flash("✅  Exhibición Aprobada", "green")
                         reload_pendientes()
                         st.rerun()
@@ -903,7 +1053,7 @@ def render_visor():
             with c2:
                 if st.button("🔥\nDESTACAR", key="btn_dest", use_container_width=True,
                              help="Marcar como destacada"):
-                    if evaluar(ex["id_exhibicion"], "Destacado", supervisor, comentario):
+                    if evaluar(ids_exhibicion, "Destacado", supervisor, comentario):
                         set_flash("🔥  Marcada como Destacada", "amber")
                         reload_pendientes()
                         st.rerun()
@@ -911,7 +1061,7 @@ def render_visor():
             with c3:
                 if st.button("❌\nRECHAZAR", key="btn_rej", use_container_width=True,
                              help="Rechazar esta exhibición"):
-                    if evaluar(ex["id_exhibicion"], "Rechazado", supervisor, comentario):
+                    if evaluar(ids_exhibicion, "Rechazado", supervisor, comentario):
                         set_flash("❌  Exhibición Rechazada", "red")
                         reload_pendientes()
                         st.rerun()

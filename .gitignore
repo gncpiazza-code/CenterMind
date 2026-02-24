@@ -1,0 +1,20 @@
+# Ignorar archivos de credenciales JSON en CenterMind y sus subcarpetas
+CenterMind/**/*.json
+
+# Ignorar la base de datos (¡No queremos borrarla ni sobreescribirla al copiar el código!)
+CenterMind/base_datos/*.db
+*.db
+*.sqlite3
+
+# Ignorar la carpeta de archivos temporales de Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Ignorar entornos virtuales (si llegas a usar uno en el futuro)
+venv/
+env/
+.env
+
+# Ignorar archivos de registro (logs)
+*.log

@@ -1,0 +1,46 @@
+FASE 1: Los Cimientos de Datos (Dónde estamos ahora)
+El objetivo de esta fase es preparar el terreno en tu servidor y crear la "Biblioteca de Alejandría".
+
+✅ Paso 1.1: Estructura Física. Crear las carpetas de trabajo (CenterMind y Portal_Exhibiciones) para separar tu servidor de lo que verán tus clientes. (¡Ya lo hicimos!)
+
+✅ Paso 1.2: Construcción de la Base de Datos Maestra. Ejecutar el script para crear centermind.db con las tablas relacionales (Distribuidores, Usuarios, Integrantes, Exhibiciones). (¡Ya lo hicimos!)
+
+👉 Paso 1.3: Carga de Datos Piloto. Usar DB Browser para ingresar un "Distribuidor de Prueba" manualmente. Esto es vital para que, cuando construyamos el cerebro, tenga información real que leer para hacer sus pruebas.
+
+FASE 2: El "Cerebro" Orquestador (CenterMind)
+El objetivo de esta fase es que tu servidor pueda encender y manejar múltiples bots de Telegram al mismo tiempo, de forma independiente.
+
+Paso 2.1: Crear la "Plantilla" del Bot. Vamos a tomar el código de tu bot actual y lo vamos a reescribir como un "molde" (una Clase en programación). Le quitaremos toda la conexión a Google Sheets y haremos que sus registros y consultas vayan directo a la nueva base de datos SQL. Solo usará Google Drive para subir la foto física.
+
+Paso 2.2: Construir centermind_core.py. Este será el programa principal de tu PC. Al abrirlo, leerá la base de datos, verá cuántos clientes están "activos", y usando ese "molde" del Paso 2.1, inyectará el Token de cada cliente y prenderá todos los bots al mismo tiempo en segundo plano.
+
+Paso 2.3: Gestión de Memoria y Grupos. Asegurarnos de que cuando un bot recibe una foto, anote correctamente en la tabla exhibiciones a qué cliente pertenece, en qué grupo se subió y quién fue el vendedor.
+
+FASE 3: El Puente de Comunicación (La API)
+Como los clientes tendrán el "Portal" en sus computadoras y tu "CenterMind" está en tu servidor cerrado, necesitamos construir un puente seguro por internet para que se hablen.
+
+Paso 3.1: Construir la API. Crearemos un pequeño script en tu servidor (usaremos una tecnología muy fácil llamada FastAPI o Flask) que actuará como un telefonista. Estará escuchando 24/7.
+
+Paso 3.2: Las "Puertas" de Login. Le enseñaremos a la API a responder a una pregunta clave: "Hola, soy el usuario X con la clave Y del Portal, ¿puedo pasar?". La API revisará la base de datos y dirá "Sí, eres Evaluador de la Distribuidora Norte".
+
+Paso 3.3: Las "Puertas" de Datos. Crearemos comandos para que el Portal pueda pedir datos. Ejemplo: un comando para "Dame las 10 fotos pendientes de hoy" y otro comando para recibir la respuesta "La foto 5 fue Aprobada".
+
+FASE 4: El Frontend de los Clientes (Portal Exhibiciones)
+El objetivo aquí es crear los programas visuales y atractivos que usarán los distribuidores en sus computadoras. Ninguno de estos programas tocará la base de datos directamente; todos hablarán con el "Puente" (La API).
+
+Paso 4.1: Configuración y Login. Una pequeña interfaz donde el distribuidor pone su usuario y contraseña. Al validarse por la API, el programa le habilita los botones según su Rol (Espectador, Evaluador o Admin).
+
+Paso 4.2: El Nuevo Visor en Streamlit. Crearemos una aplicación web/local hermosísima y rápida. Leerá las fotos "Pendientes" mediante la API, las mostrará en pantalla, y tendrá los botones de "Aprobar", "Rechazar" y "Destacado". Al hacer clic, enviará la orden a la API para que CenterMind actualice la base de datos SQL.
+
+Paso 4.3: El Dashboard (Modo TV). Reconstruir tu pantalla de gráficos. Le pedirá a la API las estadísticas (vendedores con más fotos, estados de las exhibiciones) y dibujará los gráficos dinámicos.
+
+Paso 4.4: Módulo de Reportes (Reports.py). Una nueva pantalla donde un administrador o evaluador puede poner "Desde la fecha X hasta la fecha Y", ver una tabla de datos en crudo (tipo Excel) y tener un botón para exportarlo a un archivo .csv en su computadora.
+
+FASE 5: Panel de Superusuario y Empaquetado final
+El toque final para que el negocio sea gestionable y escalable.
+
+Paso 5.1: Panel Maestro (Opcional pero recomendado). Una interfaz gráfica simple solo para ti, instalada en CenterMind, donde puedas agregar nuevos Distribuidores (poner el nombre de la empresa, pegar su token y pegar el JSON de drive) con un solo clic, sin tener que usar el DB Browser.
+
+Paso 5.2: Pruebas de Estrés. Prender 3 bots al mismo tiempo y simular vendedores subiendo fotos para asegurar que la base de datos y la API no se traben.
+
+Paso 5.3: Creación de Ejecutables. Transformar tu carpeta de Portal_Exhibiciones en un .exe (o instalador) que puedas enviarle por WhatsApp o email al dueño de la distribuidora que contrató tu sistema. Él hace doble clic, pone sus credenciales, ¡y a disfrutar!

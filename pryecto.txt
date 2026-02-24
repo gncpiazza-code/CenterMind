@@ -1,0 +1,44 @@
+1. El Lado del Servidor: "CenterMind" (Programa Madre)
+¿Dónde vive? Única y exclusivamente en tu PC Servidor. Tus clientes nunca ven ni tocan esto.
+
+¿Cuál es su rol? Es el cerebro de la operación, el motor y la bóveda de seguridad.
+
+Sus componentes internos:
+
+La Base de Datos (SQLite): El archivo centermind.db. Contiene toda la información cruzada: distribuidores, usuarios, contraseñas, grupos de Telegram, vendedores y el registro histórico de cada foto subida.
+
+El Orquestador de Bots: Un script invisible que corre en segundo plano. Lee la base de datos y mantiene encendido un bot de Telegram distinto por cada distribuidor activo. Recibe las fotos, las sube a Drive, y anota los datos en SQL.
+
+La API (El Puente): Un programa "telefonista" que está encendido 24/7. Su único trabajo es escuchar los pedidos que llegan por internet desde las computadoras de tus clientes y responderles con datos autorizados.
+
+Tu Panel de Control (Opcional): Una pequeña pantalla solo para ti, donde puedes agregar clientes nuevos con dos clics o ver si algún bot se apagó.
+
+💻 2. El Lado del Cliente: "Portal Exhibiciones" (Programa Hijo)
+¿Dónde vive? En las computadoras de los distribuidores (tus clientes). Ellos lo descargan como un programa (un .exe).
+
+¿Cuál es su rol? Es la "cara" del sistema. Es una interfaz bonita, fácil de usar y rápida. No guarda datos, solo "pide" datos a CenterMind a través de internet (vía la API) y los dibuja en pantalla.
+
+Sus Servicios (Módulos):
+
+Módulo de Configuración (El Guardián): Es lo primero que se abre. Pide Usuario y Contraseña. Si el usuario es Administrador del distribuidor, desde aquí puede crear más usuarios (evaluadores, espectadores) y cambiar sus claves.
+
+Visor.py (El Evaluador en Streamlit): La herramienta de trabajo diario. Le dice a CenterMind: "Dame las fotos pendientes de mi empresa". Las muestra en grande, permite poner "Aprobado/Rechazado/Destacado" y enviar comentarios.
+
+Dashboard.py (Modo TV): Pensado para estar en una pantalla en la oficina. Pide estadísticas a CenterMind (ej. "Top 5 vendedores de hoy") y dibuja gráficos en tiempo real con animaciones para fomentar la competencia sana. No se puede evaluar desde aquí.
+
+Reports.py (La Lupa Analítica): El reemplazo de leer el Google Sheet crudo. Permite elegir fechas y filtros para generar un informe detallado de las exhibiciones, ver promedios y, si lo desean, descargar esos datos a un Excel local para reuniones de la empresa.
+
+🔄 3. El Flujo de Trabajo (Cómo se comunican)
+Para que quede 100% claro, así es como viaja la información en un día normal de trabajo:
+
+El Vendedor (en la calle): Saca una foto y la manda al grupo de Telegram de su distribuidora.
+
+CenterMind (en tu servidor): El Orquestador captura la foto. Revisa en la Base de Datos a qué distribuidor pertenece. Sube la foto al Google Drive de ese distribuidor y guarda la fecha y el autor en la base de datos.
+
+El Evaluador (en la oficina del cliente): Abre el Portal Exhibiciones en su computadora, pone su contraseña, y abre el Visor.
+
+La API (El puente invisible): El Portal manda la contraseña a CenterMind por internet. CenterMind verifica que sea correcta y envía de vuelta la foto que el vendedor acaba de subir.
+
+La Evaluación: El Evaluador hace clic en "Aprobar". El Portal manda un mensaje a CenterMind diciendo "El usuario Juan aprobó la foto ID 45".
+
+El Cierre: CenterMind actualiza la Base de Datos. Si la pantalla de la oficina tiene el Dashboard abierto, este nota el cambio y suma 1 punto al vendedor en los gráficos.

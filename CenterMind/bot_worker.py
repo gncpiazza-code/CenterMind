@@ -1137,6 +1137,27 @@ class BotWorker:
         chat_title     = session.get("chat_title") or str(chat_id)
         uploader_name  = q.from_user.first_name or "Usuario"
 
+        # ── Eliminar botones INMEDIATAMENTE ──────────────────────────────────
+        # UX: los botones desaparecen en < 1 segundo sin esperar la subida a Drive
+        _n_pics = len(photos)
+        _pics_str = f"{_n_pics} fotos" if _n_pics > 1 else "1 foto"
+        try:
+            await q.edit_message_text(
+                text=(
+                    f"✅ NRO CLIENTE: <code>{nro_cliente}</code>\n"
+                    f"📍 <b>{tipo_pdv}</b>\n\n"
+                    f"⏳ Registrando {_pics_str}..."
+                ),
+                parse_mode=ParseMode.HTML,
+                reply_markup=None,
+            )
+        except Exception:
+            # Si falla el edit de texto, al menos intentar quitar el markup
+            try:
+                await q.edit_message_reply_markup(reply_markup=None)
+            except Exception:
+                pass
+
         # ── Subida y registro ────────────────────────────────────
         procesadas   = 0
         fallidas     = 0
@@ -1197,12 +1218,6 @@ class BotWorker:
                 fallidas += 1
 
         self.logger.info(f"📊 RESUMEN: {procesadas} exitosas, {fallidas} fallidas")
-
-        # ── Borrar botones de selección ──
-        try:
-            await q.edit_message_reply_markup(reply_markup=None)
-        except Exception:
-            pass
 
         if procesadas > 0:
             primera_id = exhibicion_ids[0]

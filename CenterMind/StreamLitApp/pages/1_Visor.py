@@ -12,6 +12,7 @@ import re
 import sys
 import base64
 import sqlite3
+import urllib.request as _urllib_req
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -60,30 +61,20 @@ CENTERMIND_ROOT = DB_PATH.parent.parent   # CenterMind/
 # ─── CSS ──────────────────────────────────────────────────────────────────────
 VISOR_CSS = """
 <style>
-/* ── Stats grid ──────────────────────────────────── */
-.stats-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 10px;
-}
-.stat-box {
-    background: rgba(217,167,106,0.04);
-    border: 1px solid var(--border-soft);
-    border-radius: 10px;
-    padding: 14px 8px;
-    text-align: center;
-}
-.stat-num {
+/* ══════════════════════════════════════════════════
+   TOPBAR — STAT PILLS
+   ══════════════════════════════════════════════════ */
+.topbar-stat-pill {
+    display: inline-flex; align-items: center; gap: 3px;
     font-family: 'Bebas Neue', sans-serif;
-    font-size: 30px; line-height: 1; margin-bottom: 4px;
+    font-size: 13px; line-height: 1;
+    padding: 3px 10px; border-radius: 20px;
+    border: 1px solid transparent; white-space: nowrap;
 }
-.stat-lbl {
-    font-size: 9px; letter-spacing: 1px;
-    text-transform: uppercase; color: var(--text-dim); font-weight: 600;
-}
-.stat-green { color: var(--status-approved); }
-.stat-amber { color: var(--accent-amber); }
-.stat-red   { color: var(--status-rejected); }
+.top-stat-pend { color: var(--accent-amber);      border-color: rgba(217,167,106,.25); background: rgba(217,167,106,.07); }
+.top-stat-apro { color: var(--status-approved);   border-color: rgba(94,168,82,.25);   background: rgba(94,168,82,.07);   }
+.top-stat-dest { color: #F4A227;                  border-color: rgba(244,162,39,.25);  background: rgba(244,162,39,.07);  }
+.top-stat-rech { color: var(--status-rejected);   border-color: rgba(192,88,74,.25);   background: rgba(192,88,74,.07);   }
 
 /* ── Empty state ─────────────────────────────────── */
 .empty-state { text-align: center; padding: 50px 20px; color: var(--text-muted); }
@@ -110,7 +101,7 @@ div[data-testid="stExpander"] {
     background: transparent !important;
     border: 1px solid var(--border-soft) !important;
     border-radius: 10px !important;
-    margin: 4px 0 12px !important;
+    margin: 4px 0 10px !important;
 }
 div[data-testid="stExpander"] summary {
     font-family: 'Bebas Neue', sans-serif !important;
@@ -124,34 +115,44 @@ div[data-testid="stTextArea"] textarea {
 }
 
 /* ══════════════════════════════════════════════════
-   PANEL DE EVALUACIÓN
+   PANEL DE EVALUACIÓN (columna derecha)
    ══════════════════════════════════════════════════ */
 div[data-testid="stVerticalBlock"]:has(#eval-master-anchor) {
     background: var(--bg-card);
     border: 1px solid var(--border-soft);
-    border-radius: 12px;
-    padding: 16px !important;
+    border-radius: 14px;
+    padding: 18px !important;
     gap: 10px !important;
+    /* Sticky: el panel se queda visible mientras la izquierda scrollea */
+    position: sticky !important;
+    top: 72px !important;
 }
 
+/* Info del cliente / vendedor */
 .floating-info {
-    display: flex; flex-direction: column; gap: 6px;
-    margin-bottom: 8px; padding-bottom: 10px;
+    display: flex; flex-direction: column; gap: 7px;
+    margin-bottom: 8px; padding-bottom: 12px;
     border-bottom: 1px solid rgba(255,255,255,0.05);
 }
 .f-item {
     display: flex; align-items: center; gap: 8px;
-    font-size: 13px; color: var(--text-primary);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.f-icon { font-size: 15px; color: var(--accent-amber); flex-shrink: 0; }
+.f-icon { font-size: 14px; color: var(--accent-amber); flex-shrink: 0; }
+.f-name { font-size: 14px; font-weight: 700; color: var(--text-primary); }
+.f-num  { font-family: 'Bebas Neue', sans-serif; font-size: 17px;
+          letter-spacing: 1px; color: var(--accent-amber); }
+.f-dim  { font-size: 10px; color: var(--text-dim); margin-right: 2px; flex-shrink: 0; }
+.f-pdv  { font-size: 13px; color: var(--text-primary); }
+.f-date { font-size: 11px; color: var(--text-dim); font-family: monospace; letter-spacing: 0.5px; }
 
-/* Botones acción: DESKTOP → columnas apiladas verticalmente
-   Esto evita que el texto se corte: cada botón ocupa el 100% del panel */
+/* ── Botones de acción (APROBAR / DESTACAR / RECHAZAR) ──────────────────────
+   Desktop: apilados verticalmente (full-width del panel)
+   Mobile:  fila de 3 (override en @media) */
 [data-testid="stVerticalBlock"]:has(#eval-master-anchor)
     [data-testid="stHorizontalBlock"] {
     flex-direction: column !important;
-    gap: 6px !important;
+    gap: 7px !important;
 }
 [data-testid="stVerticalBlock"]:has(#eval-master-anchor)
     [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
@@ -159,62 +160,108 @@ div[data-testid="stVerticalBlock"]:has(#eval-master-anchor) {
     width: 100% !important;
     min-width: 100% !important;
 }
-
 [data-testid="stVerticalBlock"]:has(#eval-master-anchor)
     div[data-testid="stButton"] button {
     width: 100% !important;
-    font-size: 13px !important;
-    letter-spacing: 1.2px !important;
-    padding: 12px 8px !important;
-    min-height: 44px !important;
+    font-family: 'Bebas Neue', sans-serif !important;
+    font-size: 16px !important;
+    letter-spacing: 2px !important;
+    padding: 14px 8px !important;
+    min-height: 52px !important;
     height: auto !important;
     border: none !important;
-    border-radius: 10px !important;
+    border-radius: 12px !important;
     white-space: nowrap !important;
+    transition: filter .15s, transform .15s, box-shadow .15s !important;
 }
 /* APROBAR */
 [data-testid="stVerticalBlock"]:has(#eval-master-anchor)
     [data-testid="column"]:nth-child(1)
     div[data-testid="stButton"] button {
-    background: linear-gradient(135deg,#3A6B33,#7DAF6B) !important; color:#fff !important;
+    background: linear-gradient(135deg,#2E5A28,#5EA852) !important; color:#fff !important;
 }
 /* DESTACAR */
 [data-testid="stVerticalBlock"]:has(#eval-master-anchor)
     [data-testid="column"]:nth-child(2)
     div[data-testid="stButton"] button {
-    background: linear-gradient(135deg,#B8853E,#D9A76A) !important;
+    background: linear-gradient(135deg,#9A6E2A,#D9A76A) !important;
     color:#1A1311 !important; font-weight:800 !important;
 }
 /* RECHAZAR */
 [data-testid="stVerticalBlock"]:has(#eval-master-anchor)
     [data-testid="column"]:nth-child(3)
     div[data-testid="stButton"] button {
-    background: linear-gradient(135deg,#7A2D1E,#C0584A) !important; color:#fff !important;
+    background: linear-gradient(135deg,#6A2318,#C0584A) !important; color:#fff !important;
 }
 [data-testid="stVerticalBlock"]:has(#eval-master-anchor)
     div[data-testid="stButton"] button:hover {
-    filter: brightness(1.15) !important;
+    filter: brightness(1.18) !important;
     transform: translateY(-2px) !important;
-    box-shadow: 0 6px 16px rgba(0,0,0,0.40) !important;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.45) !important;
 }
 
-/* ── Botones F1/F2 (navegación fotos interna): ocultos visualmente ── */
-/* El JS del viewer los necesita en el DOM pero no deben verse */
+/* ── Acciones secundarias (RECARGAR / SALIR): ghost ─── */
+div[data-testid="stVerticalBlock"]:has(#secondary-actions-anchor)
+    div[data-testid="stButton"] button {
+    background: transparent !important;
+    border: 1px solid rgba(240,230,216,0.10) !important;
+    color: rgba(240,230,216,0.30) !important;
+    font-size: 10px !important;
+    font-family: 'Bebas Neue', sans-serif !important;
+    letter-spacing: 1.5px !important;
+    padding: 6px 10px !important;
+    min-height: 32px !important;
+    height: auto !important;
+    border-radius: 8px !important;
+    transition: all .15s !important;
+}
+div[data-testid="stVerticalBlock"]:has(#secondary-actions-anchor)
+    div[data-testid="stButton"] button:hover {
+    border-color: rgba(240,230,216,0.25) !important;
+    color: rgba(240,230,216,0.60) !important;
+    background: rgba(240,230,216,0.04) !important;
+}
+
+/* ── Botones de navegación ANTERIOR / SIGUIENTE: ghost ─ */
+div[data-testid="stVerticalBlock"]:has(#nav-anchor)
+    div[data-testid="stButton"] button {
+    background: transparent !important;
+    border: 1px solid rgba(240,230,216,0.12) !important;
+    color: var(--text-muted) !important;
+    font-size: 11px !important;
+    font-family: 'Bebas Neue', sans-serif !important;
+    letter-spacing: 1.2px !important;
+    padding: 8px 10px !important;
+    min-height: 36px !important;
+    height: auto !important;
+    border-radius: 8px !important;
+    transition: all .15s !important;
+}
+div[data-testid="stVerticalBlock"]:has(#nav-anchor)
+    div[data-testid="stButton"] button:hover {
+    border-color: rgba(217,167,106,0.35) !important;
+    color: var(--accent-amber) !important;
+    background: rgba(217,167,106,0.06) !important;
+}
+div[data-testid="stVerticalBlock"]:has(#nav-anchor)
+    div[data-testid="stButton"] button:disabled {
+    opacity: 0.2 !important;
+}
+
+/* ── Botones F1/F2 (ocultos en DOM, solo para JS) ── */
 div[data-testid="stVerticalBlock"]:has(#foto-nav-hidden) {
     height: 0 !important; overflow: hidden !important;
     opacity: 0 !important; pointer-events: none !important;
     margin: 0 !important; padding: 0 !important;
 }
 
-/* ── Stats móvil: 2 cols ─────────────────────────── */
-@media (max-width: 640px) {
-    .stats-grid { grid-template-columns: 1fr 1fr; }
-}
-
 /* ══════════════════════════════════════════════════
    MÓVIL — PANEL FIJO INFERIOR
    ══════════════════════════════════════════════════ */
 @media (max-width: 640px) {
+    /* Ocultar stat pills en topbar (sin espacio) */
+    .topbar-stat-pill { display: none; }
+
     /* Las dos columnas del layout se apilan */
     [data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; }
     [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
@@ -223,10 +270,11 @@ div[data-testid="stVerticalBlock"]:has(#foto-nav-hidden) {
         width: 100% !important;
     }
 
-    /* Panel fijo en la parte inferior */
+    /* Panel fijo inferior */
     div[data-testid="stVerticalBlock"]:has(#eval-master-anchor) {
         position: fixed !important;
         bottom: 0 !important; left: 0 !important; right: 0 !important;
+        top: auto !important;
         z-index: 9000 !important; margin: 0 !important;
         border-radius: 22px 22px 0 0 !important;
         padding: 4px 14px 22px !important; gap: 6px !important;
@@ -252,13 +300,15 @@ div[data-testid="stVerticalBlock"]:has(#foto-nav-hidden) {
     }
     .f-item { font-size: 11px !important; gap: 4px !important; }
     .f-icon { font-size: 12px !important; }
+    .f-name { font-size: 12px !important; }
+    .f-num  { font-size: 14px !important; }
 
     /* TextArea compacto */
     div[data-testid="stTextArea"] textarea {
         min-height: 36px !important; height: 36px !important; font-size: 13px !important;
     }
 
-    /* Botones: MÓVIL → revertir al row de 3 columnas 33% c/u */
+    /* Acciones: fila de 3 en móvil */
     [data-testid="stVerticalBlock"]:has(#eval-master-anchor)
         [data-testid="stHorizontalBlock"] {
         flex-direction: row !important;
@@ -275,15 +325,20 @@ div[data-testid="stVerticalBlock"]:has(#foto-nav-hidden) {
         div[data-testid="stButton"] button {
         min-height: 52px !important;
         border-radius: 14px !important;
-        font-size: 12px !important;
-        letter-spacing: 0.8px !important;
+        font-size: 13px !important;
+        letter-spacing: 1px !important;
         padding: 8px 2px !important;
         white-space: normal !important;
     }
 
+    /* Acciones secundarias ocultas en móvil */
+    div[data-testid="stVerticalBlock"]:has(#secondary-actions-anchor) {
+        display: none !important;
+    }
+
     /* Padding inferior para que el contenido no quede tapado */
     [data-testid="stMainBlockContainer"],
-    .block-container { padding-bottom: 230px !important; }
+    .block-container { padding-bottom: 240px !important; }
 }
 </style>
 """
@@ -291,14 +346,6 @@ div[data-testid="stVerticalBlock"]:has(#foto-nav-hidden) {
 STYLE = BASE_CSS + VISOR_CSS
 
 # ─── Funciones Auxiliares ──────────────────────────────────────────────────────
-
-def render_stats_box(num: str, label: str, color_class: str) -> str:
-    return (
-        f'<div class="stat-box">'
-        f'<div class="stat-num {color_class}">{num}</div>'
-        f'<div class="stat-lbl">{label}</div>'
-        f'</div>'
-    )
 
 # ─── DB helpers ───────────────────────────────────────────────────────────────
 
@@ -400,7 +447,55 @@ def evaluar(ids_exhibicion: List[int], estado: str, supervisor: str, comentario:
 _DRIVE_FILE_RE = re.compile(r"drive\.google\.com/file/d/([a-zA-Z0-9_-]+)")
 _DRIVE_UC_RE   = re.compile(r"drive\.google\.com/uc\?.*id=([a-zA-Z0-9_-]+)")
 
-# ─── Server-side image fetch (bypasa autenticación del browser) ───────────────
+def drive_file_id(url: str) -> Optional[str]:
+    for rx in (_DRIVE_FILE_RE, _DRIVE_UC_RE):
+        m = rx.search(url or "")
+        if m: return m.group(1)
+    return None
+
+# ─── Image fetch (server-side, con User-Agent para evitar bloqueos) ───────────
+
+_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/120.0.0.0 Safari/537.36"
+)
+
+def _get_image_b64(url: str, extra_headers: Optional[Dict] = None) -> str:
+    """
+    Descarga la URL con User-Agent de browser real y devuelve data URI base64.
+    Prueba primero 'requests' (más robusto), luego 'urllib' (siempre disponible).
+    Retorna '' si falla.
+    """
+    hdrs = {"User-Agent": _UA}
+    if extra_headers:
+        hdrs.update(extra_headers)
+
+    # ── Intento 1: requests ───────────────────────────────────────────────────
+    if HAS_REQUESTS:
+        try:
+            r  = _req.get(url, timeout=12, allow_redirects=True, headers=hdrs)
+            ct = r.headers.get("content-type", "")
+            if r.ok and ct.startswith("image/"):
+                b64 = base64.b64encode(r.content).decode()
+                return f"data:{ct.split(';')[0]};base64,{b64}"
+        except Exception:
+            pass
+
+    # ── Intento 2: urllib (siempre disponible, built-in) ─────────────────────
+    try:
+        req = _urllib_req.Request(url, headers=hdrs)
+        with _urllib_req.urlopen(req, timeout=12) as resp:
+            ct = resp.headers.get("Content-Type", "")
+            if ct.startswith("image/"):
+                data = resp.read()
+                b64  = base64.b64encode(data).decode()
+                return f"data:{ct.split(';')[0]};base64,{b64}"
+    except Exception:
+        pass
+
+    return ""
+
 
 def _get_dist_cred_path(distribuidor_id: int) -> str:
     """Devuelve la ruta relativa del credencial Drive del distribuidor."""
@@ -411,32 +506,27 @@ def _get_dist_cred_path(distribuidor_id: int) -> str:
         ).fetchone()
     return (row[0] or "") if row else ""
 
+
 @st.cache_data(ttl=600, show_spinner=False)
 def fetch_drive_b64(file_id: str, cred_path_rel: str = "", sz: int = 1000) -> str:
     """
-    Descarga una imagen de Google Drive server-side y la devuelve como
-    data URI base64. El browser nunca toca Google Drive directamente.
+    Obtiene imagen de Drive como data URI base64 para renderizado sin auth en browser.
 
     Estrategia:
-    1. Thumbnail URL pública  → funciona si el archivo está compartido "con link"
-    2. Service Account auth   → funciona para archivos privados (bot)
-    3. Retorna ""              → se mostrará placeholder en el viewer
+    1. Thumbnail URL pública (Google Drive) — con User-Agent de browser real
+    2. Service Account (archivos privados del bot)
+    3. Retorna "" → el viewer JS mostrará placeholder
     """
-    if not file_id or not HAS_REQUESTS:
+    if not file_id:
         return ""
 
-    # ── Intento 1: URL pública de thumbnail ───────────────────────────────────
-    try:
-        url = f"https://drive.google.com/thumbnail?id={file_id}&sz=w{sz}"
-        r   = _req.get(url, timeout=10, allow_redirects=True)
-        ct  = r.headers.get("content-type", "")
-        if r.ok and ct.startswith("image/"):
-            b64 = base64.b64encode(r.content).decode()
-            return f"data:{ct.split(';')[0]};base64,{b64}"
-    except Exception:
-        pass
+    # 1. URL pública de thumbnail
+    thumb_url = f"https://drive.google.com/thumbnail?id={file_id}&sz=w{sz}"
+    result = _get_image_b64(thumb_url)
+    if result:
+        return result
 
-    # ── Intento 2: Service Account (archivo privado del bot) ──────────────────
+    # 2. Service Account
     if not cred_path_rel or not HAS_GOOGLE_AUTH:
         return ""
     cred_path = CENTERMIND_ROOT / cred_path_rel
@@ -448,25 +538,13 @@ def fetch_drive_b64(file_id: str, cred_path_rel: str = "", sz: int = 1000) -> st
             scopes=["https://www.googleapis.com/auth/drive.readonly"],
         )
         creds.refresh(_ga_tr.Request())
-        url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"
-        r   = _req.get(
-            url,
-            headers={"Authorization": f"Bearer {creds.token}"},
-            timeout=20,
-        )
-        if r.ok:
-            ct  = r.headers.get("content-type", "image/jpeg")
-            b64 = base64.b64encode(r.content).decode()
-            return f"data:{ct.split(';')[0]};base64,{b64}"
+        api_url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"
+        result  = _get_image_b64(api_url, {"Authorization": f"Bearer {creds.token}"})
+        return result
     except Exception as e:
         print(f"[fetch_drive_b64] SA failed for {file_id}: {e}")
-    return ""
 
-def drive_file_id(url: str) -> Optional[str]:
-    for rx in (_DRIVE_FILE_RE, _DRIVE_UC_RE):
-        m = rx.search(url or "")
-        if m: return m.group(1)
-    return None
+    return ""
 
 # ─── Custom image viewer component ────────────────────────────────────────────
 
@@ -480,20 +558,21 @@ def build_viewer_html(
 ) -> str:
     """
     Genera el HTML completo del visualizador.
-    - img_src:    data URI base64 (server-side fetch) o URL pública
+    - img_src:    data URI base64 (server-side) o URL pública
     - thumb_srcs: lista de data URIs para miniaturas
+    - Fallback JS: prueba múltiples URLs si img_src falla en browser
     - Flechas superpuestas, swipe táctil, dots, miniaturas
-    - JS propaga clicks a botones Streamlit del DOM padre
     """
     n_fotos   = len(fotos)
     counter   = f"{idx+1}/{n_pend}" + (f" · F{foto_idx+1}/{n_fotos}" if n_fotos > 1 else "")
     show_prev = foto_idx > 0 or idx > 0
     show_next = foto_idx < n_fotos - 1 or idx < n_pend - 1
 
-    # Fallback si no llegó img_src (auth falla)
     fid = drive_file_id(fotos[foto_idx]["drive_link"]) or ""
-    if not img_src:
-        img_src = f"https://drive.google.com/thumbnail?id={fid}&sz=w1000" if fid else ""
+
+    # Fallback si no llegó img_src
+    if not img_src and fid:
+        img_src = f"https://drive.google.com/thumbnail?id={fid}&sz=w1000"
 
     # Dots
     dots = ""
@@ -517,16 +596,31 @@ def build_viewer_html(
                 f'<img src="{tsrc}" onerror="this.style.opacity=.3" loading="lazy"></div>'
             )
 
+    # JS fallback URLs (browser-side, si server-side falló)
+    fb_urls_js = "[]"
+    if fid:
+        fb_urls_js = (
+            f'["https://drive.google.com/thumbnail?id={fid}&sz=w800",'
+            f'"https://drive.google.com/uc?export=view&id={fid}"]'
+        )
+
     return f"""<!DOCTYPE html>
 <html><head>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 *{{box-sizing:border-box;margin:0;padding:0}}
 html,body{{background:transparent;overflow:hidden;height:100%;font-family:sans-serif}}
-#vw{{position:relative;width:100%;height:100%;background:#0a0705;
-     display:flex;align-items:center;justify-content:center;overflow:hidden}}
+#vw{{position:relative;width:100%;height:calc(100% - {65 if n_fotos > 1 else 0}px);
+     background:#0a0705;display:flex;align-items:center;justify-content:center;overflow:hidden}}
 #mi{{width:100%;height:100%;object-fit:contain;display:block;
-     touch-action:pinch-zoom;user-select:none;-webkit-user-drag:none;pointer-events:none}}
+     touch-action:pinch-zoom;user-select:none;-webkit-user-drag:none;pointer-events:none;
+     transition:opacity .2s}}
+/* placeholder si no hay imagen */
+#img-ph{{display:none;position:absolute;inset:0;flex-direction:column;
+         align-items:center;justify-content:center;gap:8px;pointer-events:none}}
+#img-ph .ph-icon{{font-size:52px;opacity:.3}}
+#img-ph .ph-txt{{font-size:10px;letter-spacing:2px;color:rgba(217,167,106,.35);
+                 text-transform:uppercase}}
 .ctr{{position:absolute;top:10px;left:12px;z-index:20;background:rgba(0,0,0,.65);
       color:#F0E6D8;font:10px/1 monospace;letter-spacing:1px;
       padding:3px 10px;border-radius:20px;backdrop-filter:blur(4px)}}
@@ -534,15 +628,15 @@ html,body{{background:transparent;overflow:hidden;height:100%;font-family:sans-s
       color:#D9A76A;border:1px solid rgba(217,167,106,.3);border-radius:20px;
       padding:3px 10px;font:600 10px sans-serif;letter-spacing:.5px;
       text-transform:uppercase;backdrop-filter:blur(4px)}}
-.chev{{position:absolute;top:0;bottom:0;width:16%;z-index:15;
+.chev{{position:absolute;top:0;bottom:0;width:15%;z-index:15;
        display:flex;align-items:center;justify-content:center;
        cursor:pointer;transition:background .15s;-webkit-tap-highlight-color:transparent}}
-.chev.L{{left:0;background:linear-gradient(90deg,rgba(0,0,0,.45),transparent)}}
-.chev.R{{right:0;background:linear-gradient(270deg,rgba(0,0,0,.45),transparent)}}
+.chev.L{{left:0;background:linear-gradient(90deg,rgba(0,0,0,.5),transparent)}}
+.chev.R{{right:0;background:linear-gradient(270deg,rgba(0,0,0,.5),transparent)}}
 .chev.h{{display:none}}
-.chev span{{font-size:46px;color:rgba(255,255,255,.75);line-height:1;
-            text-shadow:0 2px 8px rgba(0,0,0,.9);transition:transform .1s}}
-.chev:hover span{{transform:scale(1.1)}}
+.chev span{{font-size:50px;color:rgba(255,255,255,.80);line-height:1;
+            text-shadow:0 2px 10px rgba(0,0,0,.9);transition:transform .1s}}
+.chev:hover span{{transform:scale(1.12)}}
 .chev:active span{{transform:scale(.9)}}
 .dots{{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);
        display:flex;gap:6px;align-items:center;z-index:20}}
@@ -550,7 +644,8 @@ html,body{{background:transparent;overflow:hidden;height:100%;font-family:sans-s
 .da{{width:10px;height:10px;background:rgba(217,167,106,.9)}}
 #thumbs{{display:flex;gap:5px;padding:6px 4px;background:#0a0705;
          overflow-x:auto;scrollbar-width:thin;
-         scrollbar-color:rgba(217,167,106,.3) transparent}}
+         scrollbar-color:rgba(217,167,106,.3) transparent;
+         height:{65 if n_fotos > 1 else 0}px}}
 .th,.tha{{flex-shrink:0;width:52px;height:52px;border-radius:6px;overflow:hidden;
           border:2px solid transparent;cursor:pointer;transition:border-color .15s}}
 .th img,.tha img{{width:100%;height:100%;object-fit:cover}}
@@ -562,11 +657,13 @@ html,body{{background:transparent;overflow:hidden;height:100%;font-family:sans-s
   <div class="ctr">{counter}</div>
   {'<div class="raf">📸 ' + str(n_fotos) + ' fotos</div>' if n_fotos > 1 else ''}
   <div class="chev L{' h' if not show_prev else ''}" id="bp"><span>&#8249;</span></div>
-  <img id="mi" src="{img_src}" alt="exhibición"
-       onerror="this.style.opacity='0.15'"
-       draggable="false" loading="eager">
+  <img id="mi" src="{img_src}" alt="exhibición" draggable="false" loading="eager">
   <div class="chev R{' h' if not show_next else ''}" id="bn"><span>&#8250;</span></div>
   {dots}
+  <div id="img-ph">
+    <div class="ph-icon">📷</div>
+    <div class="ph-txt">Sin imagen</div>
+  </div>
 </div>
 {'<div id="thumbs">' + thumbs + '</div>' if n_fotos > 1 else ''}
 
@@ -576,38 +673,54 @@ html,body{{background:transparent;overflow:hidden;height:100%;font-family:sans-s
   const fi     = {foto_idx};
   const nf     = {n_fotos};
 
-  function stClick(txt){{
+  /* ── Fallback de imagen browser-side ─────────────────────────────────── */
+  const mi = document.getElementById('mi');
+  const fbUrls = {fb_urls_js};
+  let fbIdx = 0;
+  mi.onerror = function() {{
+    if (fbIdx < fbUrls.length) {{
+      mi.src = fbUrls[fbIdx++];
+    }} else {{
+      mi.style.opacity = '0.08';
+      mi.onerror = null;
+      const ph = document.getElementById('img-ph');
+      if (ph) ph.style.display = 'flex';
+    }}
+  }};
+
+  /* ── Navegación ──────────────────────────────────────────────────────── */
+  function stClick(txt) {{
     const pd = window.parent.document;
     const b  = Array.from(pd.querySelectorAll('button'))
-                    .find(b=>!b.disabled && b.innerText && b.innerText.includes(txt));
-    if(b) b.click();
+                    .find(b => !b.disabled && b.innerText && b.innerText.includes(txt));
+    if (b) b.click();
   }}
-  function clickFoto(i){{
+  function clickFoto(i) {{
     const pd = window.parent.document;
     const b  = Array.from(pd.querySelectorAll('button'))
-                    .find(b=>b.innerText && b.innerText.trim()==='F'+(i+1));
-    if(b) b.click();
+                    .find(b => b.innerText && b.innerText.trim() === 'F' + (i + 1));
+    if (b) b.click();
   }}
-  function goPrev(){{ if(isFoto&&fi>0){{clickFoto(fi-1)}}else{{stClick('ANTERIOR')}} }}
-  function goNext(){{ if(isFoto&&fi<nf-1){{clickFoto(fi+1)}}else{{stClick('SIGUIENTE')}} }}
+  function goPrev() {{ if (isFoto && fi > 0) {{ clickFoto(fi - 1); }} else {{ stClick('ANTERIOR'); }} }}
+  function goNext() {{ if (isFoto && fi < nf - 1) {{ clickFoto(fi + 1); }} else {{ stClick('SIGUIENTE'); }} }}
 
-  document.getElementById('bp').addEventListener('click',goPrev);
-  document.getElementById('bn').addEventListener('click',goNext);
+  document.getElementById('bp').addEventListener('click', goPrev);
+  document.getElementById('bn').addEventListener('click', goNext);
 
-  /* Swipe táctil */
-  let sx=0,sy=0,st=0;
-  const vw=document.getElementById('vw');
-  vw.addEventListener('touchstart',e=>{{sx=e.touches[0].clientX;sy=e.touches[0].clientY;st=Date.now();}},{{passive:true}});
-  vw.addEventListener('touchend',e=>{{
-    const dx=e.changedTouches[0].clientX-sx;
-    const dy=e.changedTouches[0].clientY-sy;
-    if(Date.now()-st>600||Math.abs(dx)<40||Math.abs(dy)>Math.abs(dx)*.8)return;
-    if(dx<0)goNext();else goPrev();
-  }},{{passive:true}});
+  /* ── Swipe táctil ────────────────────────────────────────────────────── */
+  let sx = 0, sy = 0, st = 0;
+  const vw = document.getElementById('vw');
+  vw.addEventListener('touchstart', e => {{ sx = e.touches[0].clientX; sy = e.touches[0].clientY; st = Date.now(); }}, {{ passive: true }});
+  vw.addEventListener('touchend', e => {{
+    const dx = e.changedTouches[0].clientX - sx;
+    const dy = e.changedTouches[0].clientY - sy;
+    if (Date.now() - st > 600 || Math.abs(dx) < 40 || Math.abs(dy) > Math.abs(dx) * .8) return;
+    if (dx < 0) goNext(); else goPrev();
+  }}, {{ passive: true }});
 
-  /* Miniaturas */
-  document.querySelectorAll('.th,.tha').forEach(el=>{{
-    el.addEventListener('click',()=>clickFoto(parseInt(el.dataset.i)));
+  /* ── Miniaturas ──────────────────────────────────────────────────────── */
+  document.querySelectorAll('.th,.tha').forEach(el => {{
+    el.addEventListener('click', () => clickFoto(parseInt(el.dataset.i)));
   }});
 }})();
 </script>
@@ -617,15 +730,15 @@ html,body{{background:transparent;overflow:hidden;height:100%;font-family:sans-s
 
 def init_state():
     defaults = {
-        "logged_in":      False,
-        "user":           None,
-        "pendientes":     [],
-        "idx":            0,
-        "foto_idx":       0,
-        "flash":          None,
-        "flash_type":     "green",
+        "logged_in":       False,
+        "user":            None,
+        "pendientes":      [],
+        "idx":             0,
+        "foto_idx":        0,
+        "flash":           None,
+        "flash_type":      "green",
         "filtro_vendedor": "Todos",
-        "_visor_loaded":  False,
+        "_visor_loaded":   False,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -655,7 +768,7 @@ def set_flash(msg: str, tipo: str = "green"):
 # ─── Main visor ───────────────────────────────────────────────────────────────
 
 def render_visor():
-    # Carga inicial: UNA SOLA VEZ por sesión
+    # Carga inicial
     if not st.session_state._visor_loaded:
         reload_pendientes()
         st.session_state._visor_loaded = True
@@ -667,33 +780,53 @@ def render_visor():
 
     st.markdown(STYLE, unsafe_allow_html=True)
 
-    u      = st.session_state.user
-    dist   = u.get("nombre_empresa", "")
-    n_pend = len(st.session_state.pendientes)
+    u    = st.session_state.user
+    dist = u.get("nombre_empresa", "")
 
-    # ── Topbar ────────────────────────────────────────────────────────────────
+    # ── Calcular estado ANTES del topbar (para incluir stats y counter) ───────
+    pend   = st.session_state.pendientes
+    filtro = st.session_state.filtro_vendedor
+    pend_filtrada = (
+        [p for p in pend if p.get("vendedor") == filtro]
+        if filtro != "Todos" else pend
+    )
+    idx = st.session_state.idx
+    if pend_filtrada and idx >= len(pend_filtrada):
+        st.session_state.idx = len(pend_filtrada) - 1
+        idx = st.session_state.idx
+    n_pend = len(pend_filtrada)
+
+    # Stats del día para topbar
+    stats = get_stats_hoy(u["id_distribuidor"])
+
+    # ── Topbar con stats integradas ───────────────────────────────────────────
+    counter_str = f"{idx+1}/{n_pend}" if pend_filtrada else "—"
     st.markdown(
         '<div class="topbar">'
-        '<div style="display:flex;align-items:center;gap:16px;">'
+        '<div style="display:flex;align-items:center;gap:10px;">'
         '<span class="topbar-logo">SHELFMIND</span>'
         f'<span class="topbar-meta">{dist}</span>'
+        '<span class="topbar-meta" style="opacity:.3;">·</span>'
+        f'<span class="topbar-meta" style="color:var(--accent-amber);font-weight:700;">'
+        f'{counter_str}</span>'
         '</div>'
-        '<div style="display:flex;align-items:center;gap:12px;">'
-        f'<span class="topbar-meta" style="color:var(--accent-amber);font-weight:bold;">'
-        f'{n_pend} Pendientes</span>'
+        '<div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;">'
+        f'<span class="topbar-stat-pill top-stat-pend">⏳ {stats.get("pendientes",0)}</span>'
+        f'<span class="topbar-stat-pill top-stat-apro">✅ {stats.get("aprobadas",0)}</span>'
+        f'<span class="topbar-stat-pill top-stat-dest">🔥 {stats.get("destacadas",0)}</span>'
+        f'<span class="topbar-stat-pill top-stat-rech">❌ {stats.get("rechazadas",0)}</span>'
         '</div>'
         '</div>',
         unsafe_allow_html=True,
     )
 
-    pend    = st.session_state.pendientes
-    vends   = get_vendedores_pendientes(u["id_distribuidor"])
+    # ── Filtro vendedor ───────────────────────────────────────────────────────
+    vends    = get_vendedores_pendientes(u["id_distribuidor"])
     opciones = ["Todos"] + vends
     filtro_actual = st.session_state.filtro_vendedor
     if filtro_actual not in opciones:
         opciones.append(filtro_actual)
 
-    # ── Filtro vendedor ───────────────────────────────────────────────────────
     if pend or filtro_actual != "Todos":
         with st.expander(f"🔍 FILTRAR: {filtro_actual.upper()}", expanded=False):
             sel = st.selectbox(
@@ -713,14 +846,6 @@ def render_visor():
                     st.session_state.idx = 0
                     st.rerun()
 
-    filtro        = st.session_state.filtro_vendedor
-    pend_filtrada = [p for p in pend if p.get("vendedor") == filtro] if filtro != "Todos" else pend
-
-    idx = st.session_state.idx
-    if pend_filtrada and idx >= len(pend_filtrada):
-        st.session_state.idx = len(pend_filtrada) - 1
-        idx = st.session_state.idx
-
     # ── Flash ─────────────────────────────────────────────────────────────────
     if st.session_state.flash:
         cf = {
@@ -736,14 +861,15 @@ def render_visor():
         )
         st.session_state.flash = None
 
-    # ── Layout ────────────────────────────────────────────────────────────────
-    left_col, right_col = st.columns([2.6, 1], gap="medium")
+    # ── Layout 70 / 30 ───────────────────────────────────────────────────────
+    left_col, right_col = st.columns([7, 3], gap="medium")
 
     # ══════════════════════════════════════════════════════════════════════════
-    # COLUMNA IZQUIERDA — FOTO + STATS
+    # COLUMNA IZQUIERDA — VISOR DE FOTOS + NAVEGACIÓN
     # ══════════════════════════════════════════════════════════════════════════
     with left_col:
         if not pend_filtrada:
+            # Estado vacío
             st.markdown(
                 '<div class="empty-state">'
                 '<div class="empty-icon">🎯</div>'
@@ -753,7 +879,7 @@ def render_visor():
                 '</div>',
                 unsafe_allow_html=True,
             )
-            st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
+            st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
             _, c2, _ = st.columns([1, 2, 1])
             with c2:
                 if st.button("↺ BUSCAR NUEVAS", key="btn_reload_empty", use_container_width=True):
@@ -763,17 +889,14 @@ def render_visor():
                     for k in list(st.session_state.keys()): del st.session_state[k]
                     st.rerun()
         else:
-            ex      = pend_filtrada[idx]
-            fotos   = ex.get("fotos", [])
-            n_fotos = len(fotos)
+            ex       = pend_filtrada[idx]
+            fotos    = ex.get("fotos", [])
+            n_fotos  = len(fotos)
             foto_idx = st.session_state.foto_idx
             if foto_idx >= n_fotos:
                 foto_idx = 0; st.session_state.foto_idx = 0
 
             # ── Fetch imagen server-side ─────────────────────────────────────
-            # Las imágenes están en Drive privado (solo service account).
-            # Las descargamos acá y las pasamos al viewer como base64.
-            # @st.cache_data las cachea 10 min para no re-descargar.
             cred_path = _get_dist_cred_path(u["id_distribuidor"])
             main_fid  = drive_file_id(fotos[foto_idx]["drive_link"]) or ""
             img_src   = fetch_drive_b64(main_fid, cred_path, sz=1000)
@@ -784,19 +907,19 @@ def render_visor():
                     tid = drive_file_id(f["drive_link"]) or ""
                     thumb_srcs.append(fetch_drive_b64(tid, cred_path, sz=150))
 
-            # ── Viewer personalizado ──────────────────────────────────────────
-            # Altura: imagen (~380px) + strip de miniaturas si hay ráfaga (+65px)
-            viewer_height = 380 + (65 if n_fotos > 1 else 0)
+            # ── Viewer ───────────────────────────────────────────────────────
+            viewer_height = 480 + (65 if n_fotos > 1 else 0)
             components.html(
-                build_viewer_html(fotos, foto_idx, idx, len(pend_filtrada),
-                                  img_src=img_src, thumb_srcs=thumb_srcs),
+                build_viewer_html(
+                    fotos, foto_idx, idx, n_pend,
+                    img_src=img_src, thumb_srcs=thumb_srcs,
+                ),
                 height=viewer_height,
                 scrolling=False,
             )
 
             # ── Navegación ANTERIOR / SIGUIENTE ──────────────────────────────
-            # Existen en el DOM para que el JS del viewer pueda clickearlos.
-            st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+            st.markdown('<div id="nav-anchor"></div>', unsafe_allow_html=True)
             c_prev, c_txt, c_next = st.columns([1, 2, 1])
             with c_prev:
                 if st.button("← ANTERIOR", key="btn_prev", disabled=(idx == 0)):
@@ -805,20 +928,20 @@ def render_visor():
                     st.rerun()
             with c_txt:
                 st.markdown(
-                    f'<div style="text-align:center;font-size:11px;color:var(--text-muted);'
-                    f'padding-top:14px;font-family:monospace;">'
-                    f'EXHIBICIÓN {idx+1} / {len(pend_filtrada)}</div>',
+                    f'<div style="text-align:center;font-size:11px;'
+                    f'color:var(--text-dim);padding-top:12px;font-family:monospace;'
+                    f'letter-spacing:1px;">'
+                    f'EXHIBICIÓN {idx+1} / {n_pend}</div>',
                     unsafe_allow_html=True,
                 )
             with c_next:
                 if st.button("SIGUIENTE →", key="btn_next",
-                             disabled=(idx >= len(pend_filtrada) - 1)):
+                             disabled=(idx >= n_pend - 1)):
                     st.session_state.idx += 1
                     st.session_state.foto_idx = 0
                     st.rerun()
 
-            # Botones F1…Fn: solo existen en el DOM para que el JS del viewer
-            # los encuentre. CSS los oculta vía #foto-nav-hidden anchor.
+            # Botones F1…Fn: solo en DOM para JS del viewer
             if n_fotos > 1:
                 st.markdown('<div id="foto-nav-hidden"></div>', unsafe_allow_html=True)
                 cols_f = st.columns(n_fotos)
@@ -827,22 +950,8 @@ def render_visor():
                         if st.button(f"F{i+1}", key=f"tmb_{i}"):
                             st.session_state.foto_idx = i; st.rerun()
 
-            # ── Stats del día ─────────────────────────────────────────────────
-            st.markdown("<div style='height:18px'></div>", unsafe_allow_html=True)
-            stats = get_stats_hoy(u["id_distribuidor"])
-            st.markdown(
-                '<div class="card"><div class="card-title">Estadísticas de Hoy</div>'
-                '<div class="stats-grid">'
-                + render_stats_box(str(stats.get("pendientes", 0)), "Pendientes", "stat-amber")
-                + render_stats_box(str(stats.get("aprobadas",  0)), "Aprobadas",  "stat-green")
-                + render_stats_box(str(stats.get("destacadas", 0)), "Destacadas", "stat-amber")
-                + render_stats_box(str(stats.get("rechazadas", 0)), "Rechazadas", "stat-red")
-                + "</div></div>",
-                unsafe_allow_html=True,
-            )
-
     # ══════════════════════════════════════════════════════════════════════════
-    # COLUMNA DERECHA — PANEL DE EVALUACIÓN
+    # COLUMNA DERECHA — PANEL DE EVALUACIÓN (sticky en desktop)
     # ══════════════════════════════════════════════════════════════════════════
     with right_col:
         if pend_filtrada:
@@ -854,17 +963,26 @@ def render_visor():
             with st.container():
                 st.markdown('<div id="eval-master-anchor"></div>', unsafe_allow_html=True)
 
-                # Info del vendedor/cliente
+                # Info del vendedor / cliente
                 st.markdown(
                     '<div class="floating-info">'
-                    f'<div class="f-item"><span class="f-icon">👤</span>'
-                    f' {ex.get("vendedor","—")}</div>'
-                    f'<div class="f-item"><span class="f-icon">🏪</span>'
-                    f' C: {ex.get("nro_cliente","—")}</div>'
-                    f'<div class="f-item"><span class="f-icon">📍</span>'
-                    f' {ex.get("tipo_pdv","—")}</div>'
-                    f'<div class="f-item"><span class="f-icon">🕐</span>'
-                    f'<span style="color:var(--text-muted)">{fecha_fmt}</span></div>'
+                    f'<div class="f-item">'
+                    f'  <span class="f-icon">👤</span>'
+                    f'  <span class="f-name">{ex.get("vendedor","—")}</span>'
+                    f'</div>'
+                    f'<div class="f-item">'
+                    f'  <span class="f-icon">🏪</span>'
+                    f'  <span class="f-dim">C·</span>'
+                    f'  <span class="f-num">{ex.get("nro_cliente","—")}</span>'
+                    f'</div>'
+                    f'<div class="f-item">'
+                    f'  <span class="f-icon">📍</span>'
+                    f'  <span class="f-pdv">{ex.get("tipo_pdv","—")}</span>'
+                    f'</div>'
+                    f'<div class="f-item">'
+                    f'  <span class="f-icon">🕐</span>'
+                    f'  <span class="f-date">{fecha_fmt}</span>'
+                    f'</div>'
                     '</div>',
                     unsafe_allow_html=True,
                 )
@@ -874,7 +992,7 @@ def render_visor():
                     key="comentario_field", label_visibility="collapsed",
                 )
 
-                # Botones: 3 columnas en móvil (CSS) / col única en desktop
+                # Botones acción (3 col → CSS los apila en desktop / fila en móvil)
                 cb1, cb2, cb3 = st.columns(3)
                 with cb1:
                     if st.button("✅ APROBAR", key="b_ap", use_container_width=True):
@@ -895,18 +1013,20 @@ def render_visor():
                         elif n == 0: set_flash("⚡ Ya evaluada", "amber")
                         reload_pendientes(); st.rerun()
 
-            # Recargar / Salir: peso visual mínimo, fuera del panel
+            # Acciones secundarias (ghost, bajo el panel)
             st.markdown(
-                "<div style='height:18px'></div>"
-                "<div style='opacity:0.35;'>",
+                "<div style='height:12px'></div>"
+                '<div id="secondary-actions-anchor"></div>',
                 unsafe_allow_html=True,
             )
-            if st.button("↺ RECARGAR", key="btn_reload_full", use_container_width=True):
-                reload_pendientes(); st.rerun()
-            if st.button("SALIR", key="btn_logout_full", type="secondary", use_container_width=True):
-                for k in list(st.session_state.keys()): del st.session_state[k]
-                st.rerun()
-            st.markdown("</div>", unsafe_allow_html=True)
+            sa1, sa2 = st.columns(2)
+            with sa1:
+                if st.button("↺ RECARGAR", key="btn_reload_full", use_container_width=True):
+                    reload_pendientes(); st.rerun()
+            with sa2:
+                if st.button("SALIR", key="btn_logout_full", use_container_width=True):
+                    for k in list(st.session_state.keys()): del st.session_state[k]
+                    st.rerun()
 
 
 def main():

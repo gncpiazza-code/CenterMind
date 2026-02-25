@@ -206,17 +206,89 @@ div[data-testid="stTextArea"] textarea {
     resize:     vertical !important;
 }
 
-/* ── Responsive móvil ────────────────────────────────────────── */
+/* ── Stats: 2 columnas en móvil ─────────────────────────────── */
 @media (max-width: 640px) {
-    div[data-testid="stVerticalBlock"]:has(#eval-master-anchor) { padding: 12px; }
     .stats-grid { grid-template-columns: 1fr 1fr; }
+}
 
-    /* Más espacio en móvil para los botones de acción */
+/* ══════════════════════════════════════════════════════════════
+   PANEL FLOTANTE MÓVIL — ESTILO TINDER
+   El panel de evaluación (ancla #eval-master-anchor) se fija
+   en la parte inferior de la pantalla como un bottom-sheet.
+   La foto ocupa toda la pantalla por encima.
+   ══════════════════════════════════════════════════════════════ */
+@media (max-width: 640px) {
+
+    /* ── Panel fijo al fondo ────────────────────────────────── */
+    div[data-testid="stVerticalBlock"]:has(#eval-master-anchor) {
+        position:   fixed !important;
+        bottom:     0    !important;
+        left:       0    !important;
+        right:      0    !important;
+        z-index:    9000 !important;
+        margin:     0    !important;
+
+        border-radius: 22px 22px 0 0 !important;
+        padding:    6px 16px 28px   !important;
+        gap:        8px             !important;
+
+        background: rgba(18, 12, 10, 0.97) !important;
+        backdrop-filter:         blur(28px) !important;
+        -webkit-backdrop-filter: blur(28px) !important;
+
+        border-top:    1px solid rgba(217, 167, 106, 0.22) !important;
+        border-left:   none !important;
+        border-right:  none !important;
+        border-bottom: none !important;
+
+        box-shadow: 0 -10px 40px rgba(0,0,0,0.70),
+                    0 -1px  0   rgba(217,167,106,0.10) !important;
+    }
+
+    /* Handle decorativo (la rayita de arrastre) */
+    div[data-testid="stVerticalBlock"]:has(#eval-master-anchor)::before {
+        content:       '' !important;
+        display:       block !important;
+        width:         40px;
+        height:        4px;
+        background:    rgba(240, 230, 216, 0.18);
+        border-radius: 2px;
+        margin:        0 auto 12px;
+    }
+
+    /* ── Info items: fila compacta en vez de columna ────────── */
+    .floating-info {
+        display:        flex !important;
+        flex-direction: row !important;
+        flex-wrap:      wrap !important;
+        gap:            2px 10px !important;
+        padding-bottom: 8px !important;
+        margin-bottom:  6px !important;
+    }
+    .f-item  { font-size: 11px !important; gap: 4px !important; }
+    .f-icon  { font-size: 12px !important; }
+
+    /* ── TextArea: compacto ─────────────────────────────────── */
+    div[data-testid="stTextArea"] textarea {
+        min-height: 38px !important;
+        height:     38px !important;
+        font-size:  13px !important;
+    }
+
+    /* ── Botones de acción: grandes y redondeados ───────────── */
     [data-testid="stVerticalBlock"]:has(#eval-master-anchor)
         div[data-testid="stButton"] button {
-        font-size:  12px !important;
-        padding:    10px 6px !important;
-        min-height: 48px !important;
+        min-height:     54px    !important;
+        border-radius:  16px    !important;
+        font-size:      13px    !important;
+        letter-spacing: 1px     !important;
+        padding:        10px 4px !important;
+    }
+
+    /* ── Padding inferior para que la foto no quede tapada ───── */
+    [data-testid="stMainBlockContainer"],
+    .block-container {
+        padding-bottom: 220px !important;
     }
 }
 </style>

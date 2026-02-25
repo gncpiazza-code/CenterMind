@@ -13,6 +13,7 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk, messagebox
 import queue
+import socket
 import sqlite3
 import subprocess
 import sys
@@ -68,6 +69,19 @@ def _fmt_size(b: int) -> str:
     if b < 1024:     return f"{b} B"
     if b < 1024**2:  return f"{b/1024:.1f} KB"
     return f"{b/1024**2:.2f} MB"
+
+def _get_local_ip() -> str:
+    """Devuelve la IP de la red local (LAN/WiFi).
+    Usa un UDP connect dummy a 8.8.8.8 — no envía datos reales,
+    solo fuerza al OS a elegir la interfaz correcta."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -270,6 +284,11 @@ class StreamlitManager:
     def url(self) -> str: return f"http://localhost:{self._port}"
 
     @property
+    def network_url(self) -> str:
+        """URL accesible desde otros dispositivos en la misma red (móvil, etc.)."""
+        return f"http://{_get_local_ip()}:{self._port}"
+
+    @property
     def uptime(self) -> str:
         if self.status != "running": return "—"
         s = int(time.time() - self._start_t)
@@ -409,11 +428,12 @@ class ShelfMindPanel:
         self._bot_row_refs:   Dict[int, Dict] = {}
 
         # Referencias a widgets de streamlit status
-        self._sm_lbl_status: Optional[tk.Label] = None
-        self._sm_lbl_uptime: Optional[tk.Label] = None
-        self._sm_lbl_pid:    Optional[tk.Label] = None
-        self._sm_lbl_url:    Optional[tk.Label] = None
-        self._sm_log_txt:    Optional[tk.Text]  = None
+        self._sm_lbl_status:      Optional[tk.Label] = None
+        self._sm_lbl_uptime:      Optional[tk.Label] = None
+        self._sm_lbl_pid:         Optional[tk.Label] = None
+        self._sm_lbl_url:         Optional[tk.Label] = None
+        self._sm_lbl_network_url: Optional[tk.Label] = None
+        self._sm_log_txt:         Optional[tk.Text]  = None
 
         # Console widget ref
         self._console_txt: Optional[tk.Text] = None
@@ -701,6 +721,35 @@ class ShelfMindPanel:
         self._sm_lbl_url.bind("<Button-1>", lambda e: self.sm.open_browser())
         self._sm_lbl_url.pack(side="left")
 
+        # ── Fila red local (acceso desde móvil / otros dispositivos) ────
+        row_net = tk.Frame(sc, bg=CARD)
+        row_net.pack(fill="x", padx=14, pady=(0, 6))
+
+        tk.Label(row_net, text="📱  Red local:", fg=MUTED, bg=CARD,
+                 font=("Segoe UI", 8)).pack(side="left", padx=(0, 8))
+
+        self._sm_lbl_network_url = tk.Label(
+            row_net, text=self.sm.network_url,
+            fg=SAND, bg=CARD, font=("Courier New", 9, "bold"), cursor="hand2"
+        )
+        self._sm_lbl_network_url.bind(
+            "<Button-1>", lambda e: webbrowser.open(self.sm.network_url)
+        )
+        self._sm_lbl_network_url.pack(side="left", padx=(0, 12))
+
+        def _copy_network_url() -> None:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(self.sm.network_url)
+            self._sm_log(f"📋 Copiado: {self.sm.network_url}")
+
+        _btn(row_net, "📋 Copiar", _copy_network_url,
+             fg=MUTED, bg=CARD).pack(side="left")
+
+        tk.Label(row_net,
+                 text="  ← compartí este link con tu móvil (misma red WiFi)",
+                 fg=MUTED, bg=CARD, font=("Segoe UI", 7, "italic")
+                 ).pack(side="left")
+
         row2 = tk.Frame(sc, bg=CARD)
         row2.pack(fill="x", padx=14, pady=(0, 10))
         for label_text, attr in [("Uptime", "_sm_lbl_uptime"), ("PID", "_sm_lbl_pid")]:
@@ -761,7 +810,8 @@ class ShelfMindPanel:
             p = int(self._port_var.get())
             if not (1024 <= p <= 65535): raise ValueError()
             self.sm.set_port(p)
-            if self._sm_lbl_url: self._sm_lbl_url.config(text=self.sm.url)
+            if self._sm_lbl_url:         self._sm_lbl_url.config(text=self.sm.url)
+            if self._sm_lbl_network_url: self._sm_lbl_network_url.config(text=self.sm.network_url)
             self._sm_log(f"Puerto actualizado a {p}.")
         except ValueError:
             self._sm_log("❌ Puerto inválido (1024-65535).")

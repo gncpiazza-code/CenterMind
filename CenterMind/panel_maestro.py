@@ -1608,4 +1608,4 @@ if __name__ == "__main__":
         except AttributeError:
             pass
 
-    ft.app.run(target=main)
+    ft.run(target=main)

@@ -1,12 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-CenterMind — Visor de Evaluación (Streamlit)
+ShelfMind — Visor de Evaluación (Streamlit)
 ============================================
 Ejecutar:
-    streamlit run visor_streamlit.py
-
-Requiere:
-    pip install streamlit
+    streamlit run app.py
 """
 
 from __future__ import annotations
@@ -19,12 +16,19 @@ from typing import Any, Dict, List, Optional
 
 import streamlit as st
 
+# Importamos la librería de Auto-Refresh (Requiere: pip install streamlit-autorefresh)
+try:
+    from streamlit_autorefresh import st_autorefresh
+    HAS_AUTOREFRESH = True
+except ImportError:
+    HAS_AUTOREFRESH = False
+
 if "logged_in" not in st.session_state or not st.session_state.logged_in:
     st.switch_page("app.py")
 
 # ─── Configuración de página ──────────────────────────────────────────────────
 st.set_page_config(
-    page_title="CenterMind · Evaluación",
+    page_title="ShelfMind · Evaluación",
     page_icon="🎯",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -39,437 +43,172 @@ STYLE = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap');
 
-/* ── Reset & base ─────────────────────────────────────────── */
+/* ── CSS Variables — Paleta ShelfMind Tobacco/Amber ────────── */
+:root {
+    --bg-darkest:   #1A1311;    
+    --bg-dark:      #211510;    
+    --bg-card:      rgba(42, 30, 24, 0.8);
+    --bg-card-alt:  rgba(33, 21, 16, 0.9);
+
+    --accent-amber: #D9A76A;    
+    --accent-sand:  #D9BD9C;    
+
+    --status-approved: #7DAF6B; 
+    --status-rejected: #C0584A; 
+    --status-featured: #FFC107; 
+
+    --text-primary:    #F0E6D8;
+    --text-muted:      rgba(240, 230, 216, 0.5);
+    --border-soft:     rgba(217, 167, 106, 0.15);
+    --border-light:    rgba(255, 255, 255, 0.06);
+}
+
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 html, body, [data-testid="stAppViewContainer"], [data-testid="stMain"] {
-    background: #07080f !important;
-    color: #e2e8f0 !important;
+    background: var(--bg-darkest) !important;
+    color: var(--text-primary) !important;
     font-family: 'DM Sans', sans-serif !important;
 }
 
-[data-testid="stHeader"] { display: none !important; }
-[data-testid="stToolbar"] { display: none !important; }
-[data-testid="stDecoration"] { display: none !important; }
-[data-testid="stMainBlockContainer"] { padding: 0 !important; max-width: 100% !important; }
-section[data-testid="stSidebar"] { display: none !important; }
-.block-container { padding: 0 !important; max-width: 100% !important; }
+[data-testid="stHeader"], [data-testid="stToolbar"], [data-testid="stDecoration"], section[data-testid="stSidebar"] { display: none !important; }
+
+/* ── Centrado absoluto en PC ──────────────────────────────── */
+[data-testid="stMainBlockContainer"], .block-container { 
+    padding: 24px 16px !important; 
+    max-width: 1100px !important; /* Limita el ancho máximo */
+    margin: 0 auto !important;    /* Lo centra en la pantalla */
+}
 
 /* ── Fondo con textura ────────────────────────────────────── */
 [data-testid="stAppViewContainer"]::before {
-    content: '';
-    position: fixed; inset: 0; z-index: 0;
+    content: ''; position: fixed; inset: 0; z-index: 0;
     background:
-        radial-gradient(ellipse 80% 50% at 10% 20%, rgba(251,191,36,0.04) 0%, transparent 60%),
-        radial-gradient(ellipse 60% 40% at 90% 80%, rgba(34,211,238,0.03) 0%, transparent 60%),
-        repeating-linear-gradient(0deg, transparent, transparent 39px, rgba(255,255,255,0.015) 40px),
-        repeating-linear-gradient(90deg, transparent, transparent 39px, rgba(255,255,255,0.015) 40px);
+        radial-gradient(ellipse 80% 50% at 10% 20%, rgba(217,167,106,0.05) 0%, transparent 60%),
+        repeating-linear-gradient(0deg, transparent, transparent 39px, rgba(255,255,255,0.008) 40px),
+        repeating-linear-gradient(90deg, transparent, transparent 39px, rgba(255,255,255,0.008) 40px);
     pointer-events: none;
-}
-
-/* ── Login ────────────────────────────────────────────────── */
-.login-wrap {
-    min-height: 100vh;
-    display: flex; align-items: center; justify-content: center;
-    padding: 40px 20px;
-}
-.login-card {
-    background: rgba(15,17,30,0.95);
-    border: 1px solid rgba(251,191,36,0.25);
-    border-radius: 20px;
-    padding: 52px 48px 44px;
-    width: 100%; max-width: 420px;
-    box-shadow: 0 0 60px rgba(251,191,36,0.08), 0 24px 64px rgba(0,0,0,0.6);
-    backdrop-filter: blur(12px);
-}
-.login-logo {
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: 48px; letter-spacing: 4px;
-    color: #fbbf24; text-align: center;
-    line-height: 1; margin-bottom: 4px;
-    text-shadow: 0 0 30px rgba(251,191,36,0.4);
-}
-.login-sub {
-    font-size: 11px; letter-spacing: 3px; text-transform: uppercase;
-    color: rgba(226,232,240,0.4); text-align: center; margin-bottom: 40px;
-}
-.login-label {
-    font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
-    color: rgba(226,232,240,0.5); margin-bottom: 8px; display: block;
 }
 
 /* ── Header bar ───────────────────────────────────────────── */
 .topbar {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 14px 32px;
-    background: rgba(10,12,22,0.9);
-    border-bottom: 1px solid rgba(251,191,36,0.12);
-    backdrop-filter: blur(8px);
-    position: sticky; top: 0; z-index: 100;
+    padding: 14px 24px; background: rgba(26, 19, 17, 0.95);
+    border-bottom: 1px solid var(--border-soft); border-radius: 16px;
+    position: sticky; top: 0; z-index: 100; margin-bottom: 20px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.4);
 }
-.topbar-logo {
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: 26px; letter-spacing: 3px; color: #fbbf24;
-}
-.topbar-meta { font-size: 12px; color: rgba(226,232,240,0.4); letter-spacing: 1px; }
-.topbar-user {
-    display: flex; align-items: center; gap: 10px;
-    font-size: 13px; color: rgba(226,232,240,0.6);
-}
-.user-dot {
-    width: 8px; height: 8px; border-radius: 50%; background: #4ade80;
-    box-shadow: 0 0 8px #4ade80;
+.topbar-logo { font-family: 'Bebas Neue', sans-serif; font-size: 24px; letter-spacing: 3px; color: var(--accent-amber); }
+.topbar-meta { font-size: 12px; color: var(--text-muted); }
+
+@media (max-width: 640px) {
+    .topbar { padding: 10px 16px; border-radius: 0; margin-bottom: 12px; }
+    .topbar-logo { font-size: 20px; }
+    .topbar > div:last-child { display: none; }
 }
 
-/* ── Main layout ──────────────────────────────────────────── */
-.main-grid {
-    display: grid;
-    grid-template-columns: 1fr 380px;
-    gap: 0;
-    height: calc(100vh - 57px);
-    overflow: hidden;
-}
-.photo-panel {
-    background: #07080f;
-    display: flex; flex-direction: column;
-    border-right: 1px solid rgba(255,255,255,0.06);
-    overflow: hidden;
-}
-.right-panel {
-    background: rgba(10,12,22,0.8);
-    display: flex; flex-direction: column;
-    overflow-y: auto;
-    padding: 24px 20px;
-    gap: 20px;
+/* ── Evaluador Maestro (El ancla) ─────────────────────────── */
+div[data-testid="stVerticalBlock"]:has(#eval-master-anchor) {
+    background: var(--bg-card); border: 1px solid var(--border-soft); border-radius: 12px; padding: 18px; gap: 12px !important;
 }
 
-/* ── Photo frame ──────────────────────────────────────────── */
-.photo-frame {
-    flex: 1;
-    display: flex; align-items: center; justify-content: center;
-    position: relative; overflow: hidden;
-    padding: 16px;
+.floating-info {
+    display: grid; grid-template-columns: 1fr; gap: 8px;
+    margin-bottom: 8px; padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.05);
 }
-.photo-frame img {
-    max-width: 100%; max-height: 100%;
-    object-fit: contain;
-    border-radius: 8px;
-    box-shadow: 0 8px 40px rgba(0,0,0,0.6);
-    transition: opacity 0.2s ease;
-}
-.photo-nav {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 12px 20px;
-    border-top: 1px solid rgba(255,255,255,0.05);
-}
-.nav-counter {
-    font-family: 'DM Mono', monospace;
-    font-size: 13px; color: rgba(226,232,240,0.4);
-    letter-spacing: 1px;
+.f-item { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.f-icon { font-size: 16px; color: var(--accent-amber); flex-shrink: 0; }
+.f-muted { color: var(--text-muted); font-size: 11px; }
+
+/* ── "TINDER MODE": Contenedor Flotante en Móvil ───────────── */
+@media (max-width: 768px) {
+    [data-testid="stMainBlockContainer"] { padding-bottom: 280px !important; }
+    
+    .photo-frame-wrapper {
+        height: calc(100dvh - 280px) !important;
+        border-radius: 12px !important; border: 1px solid var(--border-light) !important;
+    }
+
+    div[data-testid="stVerticalBlock"]:has(#eval-master-anchor) {
+        position: fixed !important; bottom: 0 !important; left: 0 !important; width: 100% !important;
+        background: rgba(18, 12, 10, 0.98) !important; padding: 16px 16px 24px 16px !important;
+        z-index: 9999 !important; border: none !important; border-top: 1px solid rgba(217, 167, 106, 0.3) !important;
+        border-radius: 24px 24px 0 0 !important; box-shadow: 0 -10px 40px rgba(0,0,0,0.9) !important; margin: 0 !important;
+    }
+
+    div[data-testid="stVerticalBlock"]:has(#eval-master-anchor) div[data-testid="stHorizontalBlock"] {
+        display: flex !important; flex-direction: row !important; gap: 10px !important;
+    }
+    div[data-testid="stVerticalBlock"]:has(#eval-master-anchor) div[data-testid="column"] {
+        width: 33.333% !important; flex: 1 1 0% !important; min-width: 0 !important;
+    }
+
+    .floating-info { grid-template-columns: 1fr 1fr; gap: 6px; padding-bottom: 8px; margin-bottom: 4px; }
+    .f-item { font-size: 11px; }
+    div[data-testid="stTextArea"] textarea { min-height: 48px !important; height: 48px !important; font-size: 13px !important; padding-top: 12px !important; }
 }
 
-/* ── Cards ────────────────────────────────────────────────── */
-.card {
-    background: rgba(20,23,40,0.8);
-    border: 1px solid rgba(255,255,255,0.07);
-    border-radius: 14px;
-    padding: 20px;
-}
-.card-title {
-    font-size: 10px; letter-spacing: 3px; text-transform: uppercase;
-    color: rgba(226,232,240,0.35); margin-bottom: 16px;
-    display: flex; align-items: center; gap: 8px;
-}
-.card-title::after {
-    content: ''; flex: 1; height: 1px;
-    background: rgba(255,255,255,0.06);
-}
-
-/* ── Detail rows ──────────────────────────────────────────── */
-.detail-row {
-    display: flex; align-items: flex-start;
-    gap: 12px; padding: 8px 0;
-    border-bottom: 1px solid rgba(255,255,255,0.04);
-}
-.detail-row:last-child { border-bottom: none; padding-bottom: 0; }
-.detail-icon { font-size: 16px; line-height: 1.4; flex-shrink: 0; }
-.detail-label {
-    font-size: 10px; letter-spacing: 1px; text-transform: uppercase;
-    color: rgba(226,232,240,0.3); line-height: 1;
-    margin-bottom: 3px;
-}
-.detail-value {
-    font-size: 14px; color: #e2e8f0; font-weight: 500;
-    line-height: 1.3;
-}
-.detail-value.accent { color: #22d3ee; }
-.detail-value.muted { color: rgba(226,232,240,0.5); font-size: 12px; }
-
-/* ── Estado badge ─────────────────────────────────────────── */
-.badge {
-    display: inline-flex; align-items: center; gap: 6px;
-    padding: 4px 12px; border-radius: 20px;
-    font-size: 11px; letter-spacing: 1px; text-transform: uppercase;
-    font-weight: 600;
-}
-.badge-pending   { background: rgba(251,191,36,0.15); color: #fbbf24; border: 1px solid rgba(251,191,36,0.3); }
-.badge-aprobado  { background: rgba(74,222,128,0.15); color: #4ade80; border: 1px solid rgba(74,222,128,0.3); }
-.badge-rechazado { background: rgba(248,113,113,0.15); color: #f87171; border: 1px solid rgba(248,113,113,0.3); }
-.badge-destacado { background: rgba(251,191,36,0.2);  color: #fbbf24; border: 1px solid rgba(251,191,36,0.5); }
-
-/* ── Stats grid ───────────────────────────────────────────── */
-.stats-grid {
-    display: grid; grid-template-columns: 1fr 1fr;
-    gap: 10px;
-}
-.stat-box {
-    background: rgba(255,255,255,0.03);
-    border: 1px solid rgba(255,255,255,0.06);
-    border-radius: 10px; padding: 12px 14px;
-    text-align: center;
-}
-.stat-num {
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: 32px; line-height: 1;
-    margin-bottom: 4px;
-}
-.stat-lbl { font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: rgba(226,232,240,0.35); }
-.stat-green  { color: #4ade80; }
-.stat-amber  { color: #fbbf24; }
-.stat-red    { color: #f87171; }
-.stat-cyan   { color: #22d3ee; }
-.stat-white  { color: #e2e8f0; }
-
-/* ── Action buttons ───────────────────────────────────────── */
-.action-row { display: flex; gap: 10px; margin-top: 4px; }
-
-/* Streamlit button overrides */
+/* ── Botones de Evaluación y Textos ────────────────────────────── */
 div[data-testid="stButton"] button {
-    font-family: 'Bebas Neue', sans-serif !important;
-    letter-spacing: 2px !important;
-    font-size: 16px !important;
-    border-radius: 10px !important;
-    height: 52px !important;
-    transition: all 0.15s ease !important;
-    width: 100% !important;
-    border: none !important;
+    font-family: 'Bebas Neue', sans-serif !important; letter-spacing: 1px !important; font-size: 14px !important;
+    border-radius: 10px !important; height: 48px !important; transition: all 0.15s ease !important; width: 100% !important; border: none !important;
+    white-space: nowrap !important; /* Fuerza a que no se rompa la palabra */
+}
+div[data-testid="stButton"] button p {
+    white-space: nowrap !important; /* Fuerza a que no se rompa la palabra */
+    margin: 0 !important;
 }
 
-/* Aprobar */
-div[data-testid="stButton"][aria-label="aprobar"] button,
-.btn-aprobar button {
-    background: linear-gradient(135deg, #15803d, #16a34a) !important;
-    color: white !important;
-    box-shadow: 0 4px 20px rgba(22,163,74,0.3) !important;
-}
-div[data-testid="stButton"][aria-label="aprobar"] button:hover {
-    background: linear-gradient(135deg, #16a34a, #22c55e) !important;
-    box-shadow: 0 4px 28px rgba(34,197,94,0.45) !important;
-    transform: translateY(-2px) !important;
+@media (max-width: 768px) {
+    div[data-testid="stButton"] button {
+        height: 56px !important; font-size: 13px !important; display: flex !important; flex-direction: column !important; justify-content: center !important;
+    }
 }
 
-/* Streamlit inputs */
-div[data-testid="stTextInput"] input,
-div[data-testid="stTextInput"] input:focus {
-    background: rgba(20,23,40,0.9) !important;
-    border: 1px solid rgba(255,255,255,0.1) !important;
-    border-radius: 10px !important;
-    color: #e2e8f0 !important;
-    font-family: 'DM Sans', sans-serif !important;
-    font-size: 14px !important;
-}
-div[data-testid="stTextInput"] input:focus {
-    border-color: rgba(251,191,36,0.4) !important;
-    box-shadow: 0 0 0 3px rgba(251,191,36,0.08) !important;
-}
+/* Colores de los 3 botones principales */
+[data-testid="stVerticalBlock"]:has(#eval-master-anchor) [data-testid="column"]:nth-child(1) div[data-testid="stButton"] button { background: linear-gradient(135deg, #5A8E52, #7DAF6B) !important; color: white !important; font-size: 13px !important; }
+[data-testid="stVerticalBlock"]:has(#eval-master-anchor) [data-testid="column"]:nth-child(2) div[data-testid="stButton"] button { background: linear-gradient(135deg, #C99552, #D9A76A) !important; color: #1A1311 !important; font-weight: 800 !important; font-size: 13px !important;}
+[data-testid="stVerticalBlock"]:has(#eval-master-anchor) [data-testid="column"]:nth-child(3) div[data-testid="stButton"] button { background: linear-gradient(135deg, #A64A35, #C0584A) !important; color: white !important; font-size: 13px !important;}
 
-div[data-testid="stTextArea"] textarea {
-    background: rgba(20,23,40,0.9) !important;
-    border: 1px solid rgba(255,255,255,0.1) !important;
-    border-radius: 10px !important;
-    color: #e2e8f0 !important;
-    font-family: 'DM Sans', sans-serif !important;
-    font-size: 13px !important;
-    resize: vertical !important;
-}
-div[data-testid="stTextArea"] textarea:focus {
-    border-color: rgba(251,191,36,0.4) !important;
-    box-shadow: 0 0 0 3px rgba(251,191,36,0.08) !important;
-}
+/* ── Extras ──────────────────────────────────────────────────────── */
+div[data-testid="stTextArea"] textarea { background: var(--bg-darkest) !important; border: 1px solid var(--border-soft) !important; border-radius: 8px !important; color: var(--text-primary) !important; font-family: 'DM Sans', sans-serif !important; }
+div[data-testid="stTextArea"] textarea:focus { border-color: var(--accent-amber) !important; }
+.stTextArea label { display: none !important; }
+.card { background: var(--bg-card); border: 1px solid var(--border-soft); border-radius: 12px; padding: 18px; margin-bottom: 12px; }
+.card-title { font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: var(--accent-amber); margin-bottom: 14px; display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.card-title::after { content: ''; flex: 1; height: 1px; background: var(--border-soft); }
 
-div[data-testid="stAlert"] {
-    background: rgba(248,113,113,0.1) !important;
-    border: 1px solid rgba(248,113,113,0.3) !important;
-    border-radius: 10px !important;
-    color: #f87171 !important;
-}
+/* Grid de Stats para PC (4 columnas) y Móvil (2 columnas) */
+.stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+@media (max-width: 768px) { .stats-grid { grid-template-columns: 1fr 1fr; } }
 
-/* hide streamlit default labels when custom ones used */
-.stTextInput label, .stTextArea label { display: none !important; }
+.stat-box { background: rgba(217,167,106,0.04); border: 1px solid var(--border-soft); border-radius: 10px; padding: 16px 10px; text-align: center; }
+.stat-num { font-family: 'Bebas Neue', sans-serif; font-size: 32px; line-height: 1; margin-bottom: 4px; font-weight: bold; }
+.stat-lbl { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--text-dim); font-weight: 600; }
+.stat-green { color: var(--status-approved); } .stat-amber { color: var(--accent-amber); } .stat-red { color: var(--status-rejected); } .stat-white { color: var(--text-primary); }
 
-/* Nav buttons */
-div[data-testid="stButton"] button[kind="secondary"] {
-    background: rgba(255,255,255,0.05) !important;
-    color: rgba(226,232,240,0.7) !important;
-    border: 1px solid rgba(255,255,255,0.1) !important;
-    font-size: 13px !important;
-    height: 40px !important;
-    letter-spacing: 1px !important;
-}
-div[data-testid="stButton"] button[kind="secondary"]:hover {
-    background: rgba(255,255,255,0.1) !important;
-    color: white !important;
-}
+.rafaga-badge { position: absolute; top: 12px; right: 12px; z-index: 10; display: inline-flex; align-items: center; gap: 5px; padding: 4px 12px; border-radius: 20px; font-size: 10px; letter-spacing: 0.5px; text-transform: uppercase; background: rgba(18, 12, 10, 0.85); color: var(--accent-amber); border: 1px solid var(--border-soft); font-weight: 600; backdrop-filter: blur(4px); }
+.empty-state { text-align: center; padding: 60px 20px; color: var(--text-muted); }
+.empty-icon { font-size: 48px; margin-bottom: 20px; }
+.empty-title { font-family: 'Bebas Neue', sans-serif; font-size: 28px; color: var(--text-primary); letter-spacing: 2px; margin-bottom: 8px; }
+.thumbs-strip { display: flex; gap: 8px; padding: 10px 0; overflow-x: auto; }
+.thumb-wrap { flex-shrink: 0; width: 64px; height: 64px; border-radius: 8px; overflow: hidden; border: 2px solid transparent; cursor: pointer; }
+.thumb-wrap.active { border-color: var(--accent-amber); box-shadow: 0 0 12px rgba(217,167,106,0.35); }
+.thumb-wrap img { width: 100%; height: 100%; object-fit: cover; }
+.flash-msg { position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); padding: 14px 28px; border-radius: 50px; font-size: 12px; font-weight: 600; z-index: 10000; animation: fadeup 0.3s ease, fadeout 0.4s ease 2s forwards; }
+@keyframes fadeup { from { opacity: 0; transform: translateX(-50%) translateY(10px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+@keyframes fadeout { to { opacity: 0; } }
 
-/* Scrollbar */
-::-webkit-scrollbar { width: 4px; height: 4px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(251,191,36,0.4); }
-
-/* Empty state */
-.empty-state {
-    text-align: center; padding: 60px 20px;
-    color: rgba(226,232,240,0.3);
-}
-.empty-icon { font-size: 64px; margin-bottom: 20px; }
-.empty-title {
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: 32px; color: rgba(226,232,240,0.5);
-    letter-spacing: 3px; margin-bottom: 8px;
-}
-.empty-sub { font-size: 14px; }
-
-/* Drive iframe container */
-.drive-embed {
-    width: 100%; height: 100%;
-    border: none; border-radius: 8px;
-    background: #111;
-}
-
-/* Toast-like flash */
-.flash-msg {
-    position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%);
-    padding: 12px 28px; border-radius: 50px;
-    font-size: 13px; font-weight: 600; letter-spacing: 1px;
-    z-index: 9999;
-    animation: fadeup 0.3s ease, fadeout 0.4s ease 2s forwards;
-}
-@keyframes fadeup {
-    from { opacity: 0; transform: translateX(-50%) translateY(10px); }
-    to   { opacity: 1; transform: translateX(-50%) translateY(0); }
-}
-@keyframes fadeout {
-    to { opacity: 0; }
-}
-
-/* Progress thin bar at top */
-.progress-bar-wrap {
-    height: 3px; background: rgba(255,255,255,0.05);
-    border-radius: 2px; overflow: hidden; margin-top: 12px;
-}
-.progress-bar-fill {
-    height: 100%; border-radius: 2px;
-    background: linear-gradient(90deg, #fbbf24, #22d3ee);
-    transition: width 0.4s ease;
-}
-
-/* Hotkey badge */
-.hotkey {
-    display: inline-flex; align-items: center; justify-content: center;
-    width: 22px; height: 22px; border-radius: 5px;
-    background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12);
-    font-family: 'DM Mono', monospace; font-size: 11px;
-    color: rgba(226,232,240,0.6);
-}
-
-/* Section divider */
-.sec-div {
-    height: 1px; background: rgba(255,255,255,0.05);
-    margin: 4px 0;
-}
-
-div[data-testid="stHorizontalBlock"] { gap: 8px !important; }
-div[data-testid="column"] { padding: 0 !important; }
-
-/* ── Expander (panel de filtros) ──────────────────────── */
-div[data-testid="stExpander"] {
-    background: rgba(20,23,40,0.7) !important;
-    border: 1px solid rgba(251,191,36,0.15) !important;
-    border-radius: 10px !important;
-    margin: 8px 0 4px 0 !important;
-}
-div[data-testid="stExpander"] summary {
-    font-family: 'Bebas Neue', sans-serif !important;
-    font-size: 15px !important;
-    letter-spacing: 2px !important;
-    color: rgba(251,191,36,0.8) !important;
-    padding: 10px 16px !important;
-}
-div[data-testid="stExpander"] summary:hover {
-    color: #fbbf24 !important;
-}
-div[data-testid="stExpander"] > div[data-testid="stExpanderDetails"] {
-    padding: 4px 16px 14px 16px !important;
-}
-
-/* ── Selectbox ────────────────────────────────────────── */
-div[data-testid="stSelectbox"] > div > div {
-    background: rgba(20,23,40,0.9) !important;
-    border: 1px solid rgba(255,255,255,0.1) !important;
-    border-radius: 10px !important;
-    color: #e2e8f0 !important;
-}
-div[data-testid="stSelectbox"] > div > div:focus-within {
-    border-color: rgba(251,191,36,0.4) !important;
-    box-shadow: 0 0 0 3px rgba(251,191,36,0.08) !important;
-}
-div[data-testid="stSelectbox"] label { display: none !important; }
-
-/* ── Miniaturas de ráfaga ─────────────────────────────── */
-.thumbs-strip {
-    display: flex; gap: 8px;
-    padding: 10px 16px;
-    overflow-x: auto;
-    border-top: 1px solid rgba(255,255,255,0.05);
-    background: rgba(7,8,15,0.6);
-}
-.thumb-wrap {
-    flex-shrink: 0;
-    width: 64px; height: 64px;
-    border-radius: 8px;
-    overflow: hidden;
-    border: 2px solid rgba(255,255,255,0.08);
-    cursor: pointer;
-    transition: border-color 0.15s, transform 0.15s;
-}
-.thumb-wrap.active {
-    border-color: #fbbf24;
-    box-shadow: 0 0 10px rgba(251,191,36,0.35);
-}
-.thumb-wrap img {
-    width: 100%; height: 100%;
-    object-fit: cover;
-}
-.foto-nav-bar {
-    display: flex; align-items: center; justify-content: center;
-    gap: 16px; padding: 6px 0 2px 0;
-}
-.foto-counter {
-    font-family: 'DM Mono', monospace;
-    font-size: 12px; color: rgba(226,232,240,0.5);
-    letter-spacing: 1px;
-}
-.rafaga-badge {
-    display: inline-flex; align-items: center; gap: 5px;
-    padding: 2px 10px; border-radius: 20px;
-    font-size: 10px; letter-spacing: 1px; text-transform: uppercase;
-    background: rgba(251,191,36,0.12);
-    color: #fbbf24;
-    border: 1px solid rgba(251,191,36,0.25);
-}
+div[data-testid="stExpander"] { background: transparent !important; border: 1px solid var(--border-soft) !important; border-radius: 10px !important; margin: 4px 0 12px 0 !important; }
+div[data-testid="stExpander"] summary { font-family: 'Bebas Neue', sans-serif !important; font-size: 14px !important; letter-spacing: 1.5px !important; color: var(--accent-amber) !important; padding: 10px 14px !important; }
+::-webkit-scrollbar { width: 0px; height: 0px; }
 </style>
 """
+
+# ─── Funciones Auxiliares (Components) ────────────────────────────────────────
+
+def render_stats_box(num: str, label: str, color_class: str) -> str:
+    return f'<div class="stat-box"><div class="stat-num {color_class}">{num}</div><div class="stat-lbl">{label}</div></div>'
 
 # ─── DB helpers ───────────────────────────────────────────────────────────────
 
@@ -477,642 +216,282 @@ def get_conn() -> sqlite3.Connection:
     conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
     return conn
 
-
-def login_check(usuario: str, password: str) -> Optional[Dict]:
-    with get_conn() as c:
-        row = c.execute(
-            """SELECT u.id_usuario, u.usuario_login, u.rol, u.id_distribuidor,
-                      d.nombre_empresa
-               FROM usuarios_portal u
-               JOIN distribuidores d ON d.id_distribuidor = u.id_distribuidor
-               WHERE u.usuario_login = ? AND u.password = ?""",
-            (usuario.strip(), password.strip()),
-        ).fetchone()
-    return dict(row) if row else None
-
-
 def get_pendientes(distribuidor_id: int) -> List[Dict]:
-    """
-    Devuelve una lista de GRUPOS (ráfaga = varias fotos con el mismo
-    telegram_msg_id). Cada grupo tiene:
-      - vendedor, nro_cliente, tipo_pdv, fecha_hora, distribuidora
-      - fotos: [{ id_exhibicion, drive_link }, ...]
-      - telegram_msg_id, telegram_chat_id
-      - grupo_key: str usado como identificador único de grupo
-    Las exhibiciones sin telegram_msg_id se tratan como grupo individual.
-    """
     with get_conn() as c:
         rows = c.execute(
-            """SELECT
-                   e.id_exhibicion,
-                   e.numero_cliente_local      AS nro_cliente,
-                   e.comentarios_telegram      AS tipo_pdv,
-                   e.url_foto_drive            AS drive_link,
-                   e.timestamp_subida          AS fecha_hora,
-                   e.estado,
-                   e.telegram_msg_id,
-                   e.telegram_chat_id,
-                   i.nombre_integrante         AS vendedor,
-                   d.nombre_empresa            AS distribuidora
-               FROM exhibiciones e
-               LEFT JOIN integrantes_grupo i
-                   ON i.id_integrante = e.id_integrante
-               LEFT JOIN distribuidores d
-                   ON d.id_distribuidor = e.id_distribuidor
-               WHERE e.id_distribuidor = ? AND e.estado = 'Pendiente'
-               ORDER BY e.timestamp_subida ASC""",
+            """SELECT e.id_exhibicion, e.numero_cliente_local AS nro_cliente, e.comentarios_telegram AS tipo_pdv, e.url_foto_drive AS drive_link, e.timestamp_subida AS fecha_hora, e.estado, e.telegram_msg_id, i.nombre_integrante AS vendedor
+               FROM exhibiciones e LEFT JOIN integrantes_grupo i ON i.id_integrante = e.id_integrante
+               WHERE e.id_distribuidor = ? AND e.estado = 'Pendiente' ORDER BY e.timestamp_subida ASC""",
             (distribuidor_id,),
         ).fetchall()
 
-    # Agrupar por telegram_msg_id (None → grupo propio por id)
     grupos_dict: Dict[str, Dict] = {}
     for r in rows:
         d = dict(r)
-        msg_id = d.get("telegram_msg_id")
-        # Clave de grupo: msg_id si existe, sino el id propio
-        key = str(msg_id) if msg_id else f"solo_{d['id_exhibicion']}"
-
+        key = str(d.get("telegram_msg_id")) if d.get("telegram_msg_id") else f"solo_{d['id_exhibicion']}"
         if key not in grupos_dict:
-            grupos_dict[key] = {
-                "grupo_key":       key,
-                "vendedor":        d["vendedor"],
-                "nro_cliente":     d["nro_cliente"],
-                "tipo_pdv":        d["tipo_pdv"],
-                "fecha_hora":      d["fecha_hora"],
-                "distribuidora":   d["distribuidora"],
-                "telegram_msg_id": d["telegram_msg_id"],
-                "telegram_chat_id":d["telegram_chat_id"],
-                "fotos":           [],
-            }
-        grupos_dict[key]["fotos"].append({
-            "id_exhibicion": d["id_exhibicion"],
-            "drive_link":    d["drive_link"],
-        })
-
+            grupos_dict[key] = {"vendedor": d["vendedor"], "nro_cliente": d["nro_cliente"], "tipo_pdv": d["tipo_pdv"], "fecha_hora": d["fecha_hora"], "fotos": []}
+        grupos_dict[key]["fotos"].append({"id_exhibicion": d["id_exhibicion"], "drive_link": d["drive_link"]})
     return list(grupos_dict.values())
-
 
 def get_stats_hoy(distribuidor_id: int) -> Dict:
     hoy = datetime.now().strftime("%Y-%m-%d")
     with get_conn() as c:
         row = c.execute(
-            """SELECT
-                   COUNT(*) total,
-                   SUM(CASE WHEN estado = 'Pendiente'  THEN 1 ELSE 0 END) pendientes,
-                   SUM(CASE WHEN estado = 'Aprobado'   THEN 1 ELSE 0 END) aprobadas,
-                   SUM(CASE WHEN estado = 'Rechazado'  THEN 1 ELSE 0 END) rechazadas,
-                   SUM(CASE WHEN estado = 'Destacado'  THEN 1 ELSE 0 END) destacadas
-               FROM exhibiciones
-               WHERE id_distribuidor = ?
-                 AND DATE(timestamp_subida) = ?""",
+            """SELECT COUNT(*) total, SUM(CASE WHEN estado = 'Pendiente' THEN 1 ELSE 0 END) pendientes,
+               SUM(CASE WHEN estado = 'Aprobado' THEN 1 ELSE 0 END) aprobadas,
+               SUM(CASE WHEN estado = 'Rechazado' THEN 1 ELSE 0 END) rechazadas,
+               SUM(CASE WHEN estado = 'Destacado' THEN 1 ELSE 0 END) destacadas
+               FROM exhibiciones WHERE id_distribuidor = ? AND DATE(timestamp_subida) = ?""",
             (distribuidor_id, hoy),
         ).fetchone()
     r = dict(row) if row else {}
     return {k: (v or 0) for k, v in r.items()}
 
-
 def get_vendedores_pendientes(distribuidor_id: int) -> List[str]:
-    """Devuelve lista de nombres de vendedores que tienen al menos una exhibición Pendiente."""
     with get_conn() as c:
         rows = c.execute(
-            """SELECT DISTINCT i.nombre_integrante
-               FROM exhibiciones e
-               LEFT JOIN integrantes_grupo i ON i.id_integrante = e.id_integrante
-               WHERE e.id_distribuidor = ? AND e.estado = 'Pendiente'
-               ORDER BY i.nombre_integrante ASC""",
+            "SELECT DISTINCT i.nombre_integrante FROM exhibiciones e LEFT JOIN integrantes_grupo i ON i.id_integrante = e.id_integrante WHERE e.id_distribuidor = ? AND e.estado = 'Pendiente' ORDER BY i.nombre_integrante ASC",
             (distribuidor_id,),
         ).fetchall()
     return [r["nombre_integrante"] for r in rows if r["nombre_integrante"]]
 
-
 def evaluar(ids_exhibicion: List[int], estado: str, supervisor: str, comentario: str) -> bool:
-    """Evalúa todas las exhibiciones de un grupo (ráfaga) de una sola vez."""
     try:
         with get_conn() as c:
             for id_ex in ids_exhibicion:
-                c.execute(
-                    """UPDATE exhibiciones
-                       SET estado = ?,
-                           supervisor_nombre = ?,
-                           comentarios = ?,
-                           evaluated_at = CURRENT_TIMESTAMP,
-                           synced_telegram = 0
-                       WHERE id_exhibicion = ?""",
-                    (estado, supervisor, comentario or None, id_ex),
-                )
+                c.execute("UPDATE exhibiciones SET estado=?, supervisor_nombre=?, comentarios=?, evaluated_at=CURRENT_TIMESTAMP, synced_telegram=0 WHERE id_exhibicion=?", (estado, supervisor, comentario or None, id_ex))
             c.commit()
         return True
-    except Exception as e:
-        st.error(f"Error al guardar: {e}")
+    except:
         return False
 
-
 # ─── Drive URL helpers ────────────────────────────────────────────────────────
-
 _DRIVE_FILE_RE = re.compile(r"drive\.google\.com/file/d/([a-zA-Z0-9_-]+)")
 _DRIVE_UC_RE   = re.compile(r"drive\.google\.com/uc\?.*id=([a-zA-Z0-9_-]+)")
 
 def drive_file_id(url: str) -> Optional[str]:
     for rx in (_DRIVE_FILE_RE, _DRIVE_UC_RE):
         m = rx.search(url or "")
-        if m:
-            return m.group(1)
+        if m: return m.group(1)
     return None
 
 def drive_embed_url(url: str) -> str:
     fid = drive_file_id(url)
-    if fid:
-        return f"https://drive.google.com/file/d/{fid}/preview"
-    return url
+    return f"https://drive.google.com/file/d/{fid}/preview" if fid else url
 
 def drive_thumbnail_url(url: str, size: int = 800) -> str:
     fid = drive_file_id(url)
-    if fid:
-        return f"https://drive.google.com/thumbnail?id={fid}&sz=w{size}"
-    return url
-
+    return f"https://drive.google.com/thumbnail?id={fid}&sz=w{size}" if fid else url
 
 # ─── State helpers ────────────────────────────────────────────────────────────
-
 def init_state():
-    defaults = {
-        "logged_in":       False,
-        "user":            None,
-        "pendientes":      [],
-        "idx":             0,
-        "foto_idx":        0,   # foto activa dentro del grupo (ráfaga)
-        "flash":           None,
-        "flash_type":      "green",
-        "reload_trigger":  0,
-        "filtro_vendedor": "Todos",
-    }
+    defaults = {"logged_in": False, "user": None, "pendientes": [], "idx": 0, "foto_idx": 0, "flash": None, "flash_type": "green", "filtro_vendedor": "Todos"}
     for k, v in defaults.items():
-        if k not in st.session_state:
-            st.session_state[k] = v
-
+        if k not in st.session_state: st.session_state[k] = v
 
 def reload_pendientes():
     u = st.session_state.user
     if u:
         st.session_state.pendientes = get_pendientes(u["id_distribuidor"])
-        if st.session_state.idx >= len(st.session_state.pendientes):
-            st.session_state.idx = max(0, len(st.session_state.pendientes) - 1)
-        st.session_state.foto_idx = 0  # resetear foto interna al recargar
+        if st.session_state.idx >= len(st.session_state.pendientes): st.session_state.idx = max(0, len(st.session_state.pendientes) - 1)
+        st.session_state.foto_idx = 0
 
+def reload_pendientes_silent():
+    u = st.session_state.user
+    if u:
+        nuevos = get_pendientes(u["id_distribuidor"])
+        if len(nuevos) != len(st.session_state.pendientes):
+            st.session_state.pendientes = nuevos
+            if st.session_state.idx >= len(st.session_state.pendientes): 
+                st.session_state.idx = max(0, len(st.session_state.pendientes) - 1)
 
 def set_flash(msg: str, tipo: str = "green"):
-    st.session_state.flash = msg
-    st.session_state.flash_type = tipo
-
-
-# ─── Components ───────────────────────────────────────────────────────────────
-
-def render_topbar():
-    u = st.session_state.user
-    dist = u.get("nombre_empresa", "") if u else ""
-    user_name = u.get("usuario_login", "") if u else ""
-    n_pend = len(st.session_state.pendientes)
-
-    st.markdown(f"""
-    <div class="topbar">
-        <div style="display:flex; align-items:center; gap:20px;">
-            <span class="topbar-logo">CENTERMIND</span>
-            <span class="topbar-meta">{dist}</span>
-        </div>
-        <div style="display:flex; align-items:center; gap:24px;">
-            <span class="topbar-meta">{n_pend} pendientes</span>
-            <div class="topbar-user">
-                <div class="user-dot"></div>
-                <span>{user_name}</span>
-            </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-
-def render_login():
-    st.markdown(STYLE, unsafe_allow_html=True)
-    st.markdown('<div class="login-wrap">', unsafe_allow_html=True)
-    st.markdown("""
-    <div class="login-card">
-        <div class="login-logo">CENTERMIND</div>
-        <div class="login-sub">Panel de Evaluación</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    with st.form("login_form"):
-        st.markdown('<span class="login-label">Usuario</span>', unsafe_allow_html=True)
-        usuario = st.text_input("u", placeholder="tu usuario", label_visibility="collapsed")
-        st.markdown('<span class="login-label" style="margin-top:16px;display:block">Contraseña</span>', unsafe_allow_html=True)
-        password = st.text_input("p", type="password", placeholder="••••••••", label_visibility="collapsed")
-        st.markdown("<br>", unsafe_allow_html=True)
-        submitted = st.form_submit_button("INGRESAR →", use_container_width=True)
-
-        if submitted:
-            if not usuario or not password:
-                st.error("Completá ambos campos")
-            else:
-                user = login_check(usuario, password)
-                if user:
-                    st.session_state.logged_in = True
-                    st.session_state.user = user
-                    reload_pendientes()
-                    st.rerun()
-                else:
-                    st.error("Usuario o contraseña incorrectos")
-
-    st.markdown('</div>', unsafe_allow_html=True)
-
-
-def render_empty_state():
-    st.markdown("""
-    <div class="empty-state">
-        <div class="empty-icon">🎯</div>
-        <div class="empty-title">TODO AL DÍA</div>
-        <div class="empty-sub">No hay exhibiciones pendientes en este momento.</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-
-def badge_html(estado: str) -> str:
-    cls = {
-        "Pendiente": "badge-pending",
-        "Aprobado":  "badge-aprobado",
-        "Rechazado": "badge-rechazado",
-        "Destacado": "badge-destacado",
-    }.get(estado, "badge-pending")
-    icons = {"Pendiente": "⏳", "Aprobado": "✅", "Rechazado": "❌", "Destacado": "🔥"}
-    return f'<span class="badge {cls}">{icons.get(estado, "")} {estado}</span>'
-
-
-def render_detail_row(icon: str, label: str, value: str, accent: bool = False, muted: bool = False) -> str:
-    cls = "accent" if accent else ("muted" if muted else "")
-    return f"""
-    <div class="detail-row">
-        <span class="detail-icon">{icon}</span>
-        <div>
-            <div class="detail-label">{label}</div>
-            <div class="detail-value {cls}">{value or '—'}</div>
-        </div>
-    </div>"""
-
-
-def render_stats_box(num: str, label: str, color_class: str) -> str:
-    return f"""
-    <div class="stat-box">
-        <div class="stat-num {color_class}">{num}</div>
-        <div class="stat-lbl">{label}</div>
-    </div>"""
-
+    st.session_state.flash = msg; st.session_state.flash_type = tipo
 
 # ─── Main visor ───────────────────────────────────────────────────────────────
 
 def render_visor():
+    if HAS_AUTOREFRESH:
+        count = st_autorefresh(interval=30000, limit=None, key="visor_autorefresh")
+        if count > 0:
+            reload_pendientes_silent()
+
     st.markdown(STYLE, unsafe_allow_html=True)
-    render_topbar()
+    
+    u = st.session_state.user
+    dist = u.get("nombre_empresa", "")
+    n_pend = len(st.session_state.pendientes)
 
-    u    = st.session_state.user
+    topbar_html = (
+        '<div class="topbar">'
+        '<div style="display:flex; align-items:center; gap:16px;">'
+        '<span class="topbar-logo">SHELFMIND</span>'
+        f'<span class="topbar-meta">{dist}</span>'
+        '</div>'
+        '<div style="display:flex; align-items:center; gap:12px;">'
+        f'<span class="topbar-meta" style="color:var(--accent-amber);font-weight:bold;">{n_pend} Pendientes</span>'
+        '</div>'
+        '</div>'
+    )
+    st.markdown(topbar_html, unsafe_allow_html=True)
+
     pend = st.session_state.pendientes
-
-    # ── Panel de filtros (colapsable) ──────────────────────────────────────────
     vendedores_con_pend = get_vendedores_pendientes(u["id_distribuidor"])
     opciones = ["Todos"] + vendedores_con_pend
-
-    # Si el vendedor filtrado ya no tiene pendientes, lo mantenemos en la lista
-    # igual (mostrará lista vacía, que es el comportamiento deseado).
-    # Pero si la opción ya no existe en el dropdown la agregamos de todas formas
-    # para que no explote el index.
     filtro_actual = st.session_state.filtro_vendedor
-    if filtro_actual not in opciones:
-        opciones.append(filtro_actual)
+    if filtro_actual not in opciones: opciones.append(filtro_actual)
 
-    filtro_label = (
-        f'<span class="filtro-activo">👤 {filtro_actual}</span>'
-        if filtro_actual != "Todos" else ""
-    )
+    if pend or filtro_actual != "Todos":
+        with st.expander(f"🔍 FILTRAR VENDEDOR: {filtro_actual.upper()}", expanded=False):
+            sel = st.selectbox("Vendedor", opciones, index=opciones.index(filtro_actual), key="sel_vendedor", label_visibility="collapsed")
+            col_aplicar, col_limpiar = st.columns([2, 1])
+            with col_aplicar:
+                if st.button("APLICAR FILTRO", key="btn_aplicar"):
+                    st.session_state.filtro_vendedor = sel; st.session_state.idx = 0; st.rerun()
+            with col_limpiar:
+                if st.button("✕ LIMPIAR", key="btn_limpiar", disabled=(filtro_actual == "Todos")):
+                    st.session_state.filtro_vendedor = "Todos"; st.session_state.idx = 0; st.rerun()
 
-    with st.expander(f"🔍  FILTRAR {filtro_label}", expanded=False):
-        sel = st.selectbox(
-            "Vendedor",
-            opciones,
-            index=opciones.index(filtro_actual),
-            key="sel_vendedor",
-            label_visibility="collapsed",
-        )
-        col_aplicar, col_limpiar = st.columns([2, 1])
-        with col_aplicar:
-            if st.button("APLICAR FILTRO", key="btn_aplicar_filtro", use_container_width=True):
-                if sel != st.session_state.filtro_vendedor:
-                    st.session_state.filtro_vendedor = sel
-                    st.session_state.idx = 0
-                st.rerun()
-        with col_limpiar:
-            if st.button("✕ LIMPIAR", key="btn_limpiar_filtro", use_container_width=True,
-                         disabled=(filtro_actual == "Todos")):
-                st.session_state.filtro_vendedor = "Todos"
-                st.session_state.idx = 0
-                st.rerun()
-
-    # ── Aplicar filtro a la lista ──────────────────────────────────────────────
     filtro = st.session_state.filtro_vendedor
-    if filtro and filtro != "Todos":
-        pend_filtrada = [p for p in pend if p.get("vendedor") == filtro]
-    else:
-        pend_filtrada = pend
+    pend_filtrada = [p for p in pend if p.get("vendedor") == filtro] if filtro != "Todos" else pend
 
-    # Clamp idx al tamaño de la lista filtrada
     idx = st.session_state.idx
-    if pend_filtrada and idx >= len(pend_filtrada):
-        st.session_state.idx = len(pend_filtrada) - 1
-        idx = st.session_state.idx
-    elif not pend_filtrada:
-        idx = 0
+    if pend_filtrada and idx >= len(pend_filtrada): st.session_state.idx = len(pend_filtrada) - 1; idx = st.session_state.idx
 
-    # ── Flash message ──────────────────────────────────────────────────────────
     if st.session_state.flash:
-        colors_flash = {
-            "green":  ("rgba(20,80,40,0.95)", "#4ade80", "1px solid rgba(74,222,128,0.4)"),
-            "red":    ("rgba(80,20,20,0.95)", "#f87171", "1px solid rgba(248,113,113,0.4)"),
-            "amber":  ("rgba(80,60,10,0.95)", "#fbbf24", "1px solid rgba(251,191,36,0.4)"),
-        }
+        colors_flash = {"green": ("rgba(20,80,40,0.95)", "#4ade80", "1px solid rgba(74,222,128,0.4)"), "red": ("rgba(80,20,20,0.95)", "#f87171", "1px solid rgba(248,113,113,0.4)"), "amber": ("rgba(80,60,10,0.95)", "#fbbf24", "1px solid rgba(251,191,36,0.4)")}
         bg, tc, bdr = colors_flash.get(st.session_state.flash_type, colors_flash["green"])
-        st.markdown(
-            f'<div class="flash-msg" style="background:{bg};color:{tc};border:{bdr};">'
-            f'{st.session_state.flash}</div>',
-            unsafe_allow_html=True,
-        )
+        st.markdown(f'<div class="flash-msg" style="background:{bg};color:{tc};border:{bdr};">{st.session_state.flash}</div>', unsafe_allow_html=True)
         st.session_state.flash = None
 
-    # ── Layout principal ───────────────────────────────────────────────────────
-    left_col, right_col = st.columns([3, 1], gap="small")
+    # Columna izquierda un poco más ancha para que la derecha tenga el espacio justo
+    left_col, right_col = st.columns([2.4, 1], gap="medium")
 
-    # ── COLUMNA IZQUIERDA: foto + navegación ───────────────────────────────────
+    # ── COLUMNA IZQUIERDA: FOTO + STATS ────────────────────────────────────────
     with left_col:
         if not pend_filtrada:
-            render_empty_state()
+            st.markdown('<div class="empty-state"><div class="empty-icon">🎯</div><div class="empty-title">TODO AL DÍA</div><div class="empty-sub">No hay exhibiciones pendientes para evaluar.</div></div>', unsafe_allow_html=True)
+            st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
+            c1, c2, c3 = st.columns([1, 2, 1])
+            with c2:
+                if st.button("↺ BUSCAR NUEVAS EXHIBICIONES", key="btn_reload_empty", use_container_width=True):
+                    reload_pendientes(); st.rerun()
+                st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+                if st.button("SALIR DEL SISTEMA", key="btn_logout_empty", type="secondary", use_container_width=True):
+                    for k in list(st.session_state.keys()): del st.session_state[k]
+                    st.rerun()
         else:
-            ex       = pend_filtrada[idx]
-            total    = len(pend_filtrada)
-            fotos    = ex.get("fotos", [])
-            n_fotos  = len(fotos)
-
-            # Clamp foto_idx
+            ex = pend_filtrada[idx]
+            fotos = ex.get("fotos", [])
+            n_fotos = len(fotos)
             foto_idx = st.session_state.foto_idx
-            if foto_idx >= n_fotos:
-                foto_idx = 0
-                st.session_state.foto_idx = 0
+            if foto_idx >= n_fotos: foto_idx = 0; st.session_state.foto_idx = 0
 
-            drive_url  = fotos[foto_idx]["drive_link"] if fotos else ""
-            embed_url  = drive_embed_url(drive_url)
+            drive_url = fotos[foto_idx]["drive_link"] if fotos else ""
+            embed_url = drive_embed_url(drive_url)
 
-            # Badge de ráfaga (solo si hay más de 1 foto)
-            rafaga_html = ""
-            if n_fotos > 1:
-                rafaga_html = f'<span class="rafaga-badge">📸 Ráfaga · {n_fotos} fotos</span>'
+            rafaga_html = f'<div class="rafaga-badge">📸 Ráfaga · {n_fotos} fotos</div>' if n_fotos > 1 else ""
 
-            # Foto principal
-            st.markdown(
-                f"""
-                <div style="background:#07080f; border-radius:12px; overflow:hidden;
-                            border:1px solid rgba(255,255,255,0.06); height:58vh; position:relative;">
-                    <iframe src="{embed_url}"
-                            style="width:100%;height:100%;border:none;"
-                            allow="autoplay"
-                            loading="lazy">
-                    </iframe>
-                    <div style="position:absolute;bottom:0;left:0;right:0;
-                                background:linear-gradient(transparent,rgba(7,8,15,0.8));
-                                padding:12px 16px; pointer-events:none;
-                                display:flex; align-items:center; gap:10px;">
-                        <span style="font-family:'DM Mono',monospace;font-size:11px;
-                                     color:rgba(226,232,240,0.4);letter-spacing:1px;">
-                            {ex.get('tipo_pdv','').upper()} · {ex.get('vendedor','').upper()} · CLIENTE {ex.get('nro_cliente','')}
-                        </span>
-                        {rafaga_html}
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
+            iframe_html = (
+                '<div class="photo-frame-wrapper" style="background:#000; overflow:hidden; position:relative; height:58vh;">'
+                f'{rafaga_html}'
+                f'<iframe src="{embed_url}" style="width:100%;height:100%;border:none;" allow="autoplay" loading="lazy"></iframe>'
+                '</div>'
             )
+            st.markdown(iframe_html, unsafe_allow_html=True)
 
-            # ── Navegación interna del grupo (ráfaga) ──────────────────────
             if n_fotos > 1:
-                # Barra de flechas + contador
-                fn1, fn2, fn3 = st.columns([1, 3, 1])
-                with fn1:
-                    if st.button("← Foto", key="btn_foto_prev",
-                                 use_container_width=True, disabled=(foto_idx == 0)):
-                        st.session_state.foto_idx -= 1
-                        st.rerun()
-                with fn2:
-                    st.markdown(
-                        f'<div class="foto-nav-bar">'
-                        f'<span class="foto-counter">FOTO {foto_idx + 1} / {n_fotos}</span>'
-                        f'</div>',
-                        unsafe_allow_html=True,
-                    )
-                with fn3:
-                    if st.button("Foto →", key="btn_foto_next",
-                                 use_container_width=True, disabled=(foto_idx >= n_fotos - 1)):
-                        st.session_state.foto_idx += 1
-                        st.rerun()
-
-                # Tira de miniaturas clickeables
                 thumbs_html = '<div class="thumbs-strip">'
                 for i, f in enumerate(fotos):
                     thumb_url = drive_thumbnail_url(f["drive_link"], size=128)
                     active_cls = "active" if i == foto_idx else ""
-                    thumbs_html += (
-                        f'<div class="thumb-wrap {active_cls}" '
-                        f'title="Foto {i+1}">'
-                        f'<img src="{thumb_url}" loading="lazy">'
-                        f'</div>'
-                    )
+                    thumbs_html += f'<div class="thumb-wrap {active_cls}"><img src="{thumb_url}"></div>'
                 thumbs_html += '</div>'
-
-                # Botones invisibles para cada miniatura (Streamlit workaround)
                 st.markdown(thumbs_html, unsafe_allow_html=True)
-                thumb_cols = st.columns(min(n_fotos, 8))
-                for i, col in enumerate(thumb_cols[:n_fotos]):
+                
+                cols = st.columns(min(n_fotos, 8))
+                for i, col in enumerate(cols[:n_fotos]):
                     with col:
-                        if st.button(f"{i+1}", key=f"thumb_{idx}_{i}",
-                                     use_container_width=True):
-                            st.session_state.foto_idx = i
-                            st.rerun()
+                        if st.button(f"F{i+1}", key=f"tmb_{i}", use_container_width=True):
+                            st.session_state.foto_idx = i; st.rerun()
 
-            # ── Barra de progreso entre grupos ─────────────────────────────
-            pct = (idx + 1) / total * 100
-            st.markdown(
-                f"""
-                <div style="display:flex;align-items:center;gap:12px;margin-top:8px;padding:0 2px;">
-                    <span style="font-family:'DM Mono',monospace;font-size:11px;
-                                 color:rgba(226,232,240,0.35);white-space:nowrap;">
-                        GRUPO {idx+1} / {total}
-                    </span>
-                    <div class="progress-bar-wrap" style="flex:1;">
-                        <div class="progress-bar-fill" style="width:{pct:.1f}%;"></div>
-                    </div>
-                    <a href="{drive_url}" target="_blank"
-                       style="font-size:11px;color:rgba(34,211,238,0.6);
-                              text-decoration:none;white-space:nowrap;letter-spacing:1px;">
-                        ↗ DRIVE
-                    </a>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+            st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+            c_prev, c_txt, c_next = st.columns([1, 2, 1])
+            with c_prev:
+                if st.button("← ANTERIOR", key="btn_prev", disabled=(idx == 0)):
+                    st.session_state.idx -= 1; st.session_state.foto_idx = 0; st.rerun()
+            with c_txt:
+                st.markdown(f'<div style="text-align:center;font-size:11px;color:var(--text-muted);padding-top:14px;font-family:monospace;">EXHIBICIÓN {idx+1} / {len(pend_filtrada)}</div>', unsafe_allow_html=True)
+            with c_next:
+                if st.button("SIGUIENTE →", key="btn_next", disabled=(idx >= len(pend_filtrada) - 1)):
+                    st.session_state.idx += 1; st.session_state.foto_idx = 0; st.rerun()
 
-            # Navegación anterior / siguiente grupo
-            st.markdown("<div style='margin-top:8px;'>", unsafe_allow_html=True)
-            nav1, nav2, nav3 = st.columns([1, 4, 1])
-            with nav1:
-                if st.button("← ANTERIOR", key="btn_prev", use_container_width=True,
-                             disabled=(idx == 0)):
-                    st.session_state.idx -= 1
-                    st.session_state.foto_idx = 0
-                    st.rerun()
-            with nav3:
-                if st.button("SIGUIENTE →", key="btn_next", use_container_width=True,
-                             disabled=(idx >= total - 1)):
-                    st.session_state.idx += 1
-                    st.session_state.foto_idx = 0
-                    st.rerun()
-            st.markdown("</div>", unsafe_allow_html=True)
+            # ── STATS MOVIDAS DEBAJO DE LA FOTO ──
+            st.markdown("<div style='height:30px'></div>", unsafe_allow_html=True)
+            if st.session_state.user:
+                stats = get_stats_hoy(st.session_state.user["id_distribuidor"])
+                st.markdown(
+                    '<div class="card"><div class="card-title">Estadísticas de Hoy</div><div class="stats-grid">'
+                    + render_stats_box(str(stats.get("pendientes", 0)), "Pendientes", "stat-amber")
+                    + render_stats_box(str(stats.get("aprobadas", 0)), "Aprobadas", "stat-green")
+                    + render_stats_box(str(stats.get("destacadas", 0)), "Destacadas", "stat-amber")
+                    + render_stats_box(str(stats.get("rechazadas", 0)), "Rechazadas", "stat-red")
+                    + "</div></div>", unsafe_allow_html=True
+                )
 
-    # ── COLUMNA DERECHA: detalles + acciones + stats ───────────────────────────
+    # ── COLUMNA DERECHA: EVALUACIÓN ────────────────────────────────────────────
     with right_col:
-        if not pend_filtrada:
-            # Panel de stats cuando no hay pendientes
-            pass
-        else:
+        if pend_filtrada:
             ex = pend_filtrada[idx]
-            fotos = ex.get("fotos", [])
-            ids_exhibicion = [f["id_exhibicion"] for f in fotos]
-            n_fotos = len(fotos)
+            ids_exhibicion = [f["id_exhibicion"] for f in ex.get("fotos", [])]
+            fecha_fmt = ex.get("fecha_hora", "")[:16]
 
-            # Fecha formateada
-            fecha_raw = ex.get("fecha_hora") or ""
-            try:
-                dt = datetime.strptime(fecha_raw[:16], "%Y-%m-%d %H:%M")
-                fecha_fmt = dt.strftime("%d/%m/%Y %H:%M")
-            except Exception:
-                fecha_fmt = fecha_raw
+            # ── EL BLOQUE MÁGICO DE EVALUACIÓN ──
+            eval_container = st.container()
+            with eval_container:
+                st.markdown('<div id="eval-master-anchor"></div>', unsafe_allow_html=True)
+                
+                info_html = (
+                    '<div class="floating-info">'
+                    f'<div class="f-item" title="Vendedor"><span class="f-icon">👤</span> {ex.get("vendedor", "—")}</div>'
+                    f'<div class="f-item" title="Cliente"><span class="f-icon">🏪</span> C: {ex.get("nro_cliente", "—")}</div>'
+                    f'<div class="f-item" title="Tipo PDV"><span class="f-icon">📍</span> {ex.get("tipo_pdv", "—")}</div>'
+                    f'<div class="f-item" title="Fecha"><span class="f-icon">🕐</span> <span class="f-muted">{fecha_fmt}</span></div>'
+                    '</div>'
+                )
+                st.markdown(info_html, unsafe_allow_html=True)
 
-            # ── Card: Detalles de la exhibición ───────────────────────────────
-            fotos_line = (
-                render_detail_row("📸", "Fotos en ráfaga", str(n_fotos), accent=True)
-                if n_fotos > 1 else ""
-            )
-            detalles_html = (
-                '<div class="card">'
-                '<div class="card-title">Exhibición</div>'
-                + render_detail_row("👤", "Vendedor",    ex.get("vendedor") or "—")
-                + render_detail_row("🏪", "Cliente",     ex.get("nro_cliente") or "—")
-                + render_detail_row("📍", "Tipo PDV",    ex.get("tipo_pdv") or "—", accent=True)
-                + render_detail_row("🕐", "Fecha / Hora",fecha_fmt, muted=True)
-                + render_detail_row("🏢", "Distribuidora",ex.get("distribuidora") or "—", muted=True)
-                + fotos_line
-                + f'<div style="margin-top:14px;">{badge_html("Pendiente")}</div>'
-                + "</div>"
-            )
-            st.markdown(detalles_html, unsafe_allow_html=True)
+                comentario = st.text_area("C", placeholder="Escribe un comentario opcional...", key="comentario_field", label_visibility="collapsed")
 
-            st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+                cb1, cb2, cb3 = st.columns(3)
+                supervisor = u.get("usuario_login", "supervisor")
+                
+                with cb1:
+                    if st.button("✅ APROBAR", key="b_ap"):
+                        if evaluar(ids_exhibicion, "Aprobado", supervisor, comentario): set_flash("✅ Aprobada", "green"); reload_pendientes(); st.rerun()
+                with cb2:
+                    if st.button("🔥 DESTACAR", key="b_dest"):
+                        if evaluar(ids_exhibicion, "Destacado", supervisor, comentario): set_flash("🔥 Destacada", "amber"); reload_pendientes(); st.rerun()
+                with cb3:
+                    if st.button("❌ RECHAZAR", key="b_rej"):
+                        if evaluar(ids_exhibicion, "Rechazado", supervisor, comentario): set_flash("❌ Rechazada", "red"); reload_pendientes(); st.rerun()
 
-            # ── Card: Evaluar ─────────────────────────────────────────────────
-            evaluar_titulo = (
-                f"Evaluar ({n_fotos} fotos)" if n_fotos > 1 else "Evaluar"
-            )
-            st.markdown(
-                f'<div class="card"><div class="card-title">{evaluar_titulo}</div>',
-                unsafe_allow_html=True,
-            )
-
-            comentario = st.text_area(
-                "Comentario",
-                placeholder="Comentario opcional para el vendedor...",
-                height=80,
-                key="comentario_field",
-                label_visibility="collapsed",
-            )
-
-            c1, c2, c3 = st.columns(3)
-            supervisor = u.get("usuario_login", "supervisor")
-
-            with c1:
-                if st.button("✅\nAPROBAR", key="btn_ap", use_container_width=True,
-                             help="Aprobar esta exhibición"):
-                    if evaluar(ids_exhibicion, "Aprobado", supervisor, comentario):
-                        set_flash("✅  Exhibición Aprobada", "green")
-                        reload_pendientes()
-                        st.rerun()
-
-            with c2:
-                if st.button("🔥\nDESTACAR", key="btn_dest", use_container_width=True,
-                             help="Marcar como destacada"):
-                    if evaluar(ids_exhibicion, "Destacado", supervisor, comentario):
-                        set_flash("🔥  Marcada como Destacada", "amber")
-                        reload_pendientes()
-                        st.rerun()
-
-            with c3:
-                if st.button("❌\nRECHAZAR", key="btn_rej", use_container_width=True,
-                             help="Rechazar esta exhibición"):
-                    if evaluar(ids_exhibicion, "Rechazado", supervisor, comentario):
-                        set_flash("❌  Exhibición Rechazada", "red")
-                        reload_pendientes()
-                        st.rerun()
-
-            st.markdown("</div>", unsafe_allow_html=True)
-
-            st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
-
-        # ── Card: Stats del día ────────────────────────────────────────────────
-        stats = get_stats_hoy(u["id_distribuidor"])
-
-        stats_html = (
-            '<div class="card"><div class="card-title">Hoy</div>'
-            '<div class="stats-grid">'
-            + render_stats_box(str(stats.get("pendientes",  0)), "Pendientes", "stat-amber")
-            + render_stats_box(str(stats.get("aprobadas",   0)), "Aprobadas",  "stat-green")
-            + render_stats_box(str(stats.get("destacadas",  0)), "Destacadas", "stat-amber")
-            + render_stats_box(str(stats.get("rechazadas",  0)), "Rechazadas", "stat-red")
-            + render_stats_box(str(stats.get("total",       0)), "Total día",  "stat-white")
-            + render_stats_box(
-                str(stats.get("aprobadas",0) + stats.get("destacadas",0)),
-                "Aprobadas+",
-                "stat-cyan",
-              )
-            + "</div></div>"
-        )
-        st.markdown(stats_html, unsafe_allow_html=True)
-
-        st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
-
-        # ── Recarga + cerrar sesión ────────────────────────────────────────────
-        col_r, col_l = st.columns(2)
-        with col_r:
-            if st.button("↺ RECARGAR", key="btn_reload", use_container_width=True):
-                reload_pendientes()
+            # Botones de Sistema en la columna derecha debajo de la evaluación
+            st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
+            if st.button("↺ RECARGAR PANTALLA", key="btn_reload_full", use_container_width=True):
+                reload_pendientes(); st.rerun()
+            st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+            if st.button("SALIR DEL SISTEMA", key="btn_logout_full", type="secondary", use_container_width=True):
+                for k in list(st.session_state.keys()): del st.session_state[k]
                 st.rerun()
-        with col_l:
-            if st.button("SALIR →", key="btn_logout", use_container_width=True):
-                for k in list(st.session_state.keys()):
-                    del st.session_state[k]
-                st.rerun()
-
-
-# ─── Entry point ──────────────────────────────────────────────────────────────
 
 def main():
     init_state()
-    if not st.session_state.logged_in:
-        render_login()
-    else:
-        render_visor()
+    if not st.session_state.logged_in: st.switch_page("app.py")
+    else: render_visor()
 
-
-main()
+if __name__ == "__main__":
+    main()

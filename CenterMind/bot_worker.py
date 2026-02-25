@@ -925,6 +925,7 @@ class BotWorker:
 
     async def handle_photo(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not update.message or not update.message.photo:
+            self.logger.debug("❌ handle_photo: No hay mensaje o foto")
             return
 
         chat_id  = update.message.chat.id
@@ -934,6 +935,8 @@ class BotWorker:
         msg_id   = update.message.message_id
         file_id  = update.message.photo[-1].file_id
 
+        self.logger.info(f"📸 Foto recibida de {username} (UID: {user_id}) en chat {chat_id}")
+
         # Registro silencioso del usuario
         asyncio.create_task(asyncio.to_thread(
             self._register_user,
@@ -942,15 +945,17 @@ class BotWorker:
 
         # Hibernación — no procesar fotos
         if self.bot_hibernating:
-            self.logger.debug(f"Foto ignorada (hibernando): {username}")
+            self.logger.debug(f"❌ Foto ignorada (hibernando): {username}")
             return
 
         # Verificar rol
         rol = await asyncio.to_thread(
             self.db.get_rol, self.distribuidor_id, chat_id, user_id
         )
+        self.logger.info(f"👤 Rol de {username}: {rol}")
+
         if rol == "observador":
-            self.logger.debug(f"Foto ignorada — observador: {username}")
+            self.logger.debug(f"❌ Foto ignorada — observador: {username}")
             return
 
         now = time.time()
@@ -1008,6 +1013,7 @@ class BotWorker:
             "last_photo_time": now,
         }
         self.upload_sessions[user_id]["photos"].append({"file_id": file_id, "message_id": msg_id})
+        self.logger.info(f"✅ Nueva sesión creada para {username}")
 
         await asyncio.sleep(0.5)  # Pequeño delay anti-race
 
@@ -1019,8 +1025,9 @@ class BotWorker:
 
         try:
             await update.message.reply_text(texto, parse_mode=ParseMode.HTML, reply_to_message_id=msg_id)
+            self.logger.info(f"✅ Respuesta enviada pidiendo NRO CLIENTE")
         except Exception as e:
-            self.logger.error(f"Error enviando respuesta: {e}")
+            self.logger.error(f"❌ Error enviando respuesta: {e}")
 
     # ─────────────────────────────────────────────────────────────
     # HANDLER DE TEXTO (NRO CLIENTE)
@@ -1135,6 +1142,8 @@ class BotWorker:
         fallidas     = 0
         exhibicion_ids: List[str] = []
 
+        self.logger.info(f"🚀 Iniciando procesamiento de {len(photos)} foto(s)...")
+
         for photo_data in photos:
             file_id    = photo_data["file_id"]
             ph_msg_id  = photo_data["message_id"]
@@ -1142,12 +1151,14 @@ class BotWorker:
             try:
                 file       = await context.bot.get_file(file_id)
                 file_bytes = await file.download_as_bytearray()
+                self.logger.info(f"✅ Foto descargada: {len(file_bytes)} bytes")
 
                 filename = (
                     f"{nro_cliente}_{clean_code}_{int(time.time())}.jpg"
                 )
 
                 # Subida a Drive en thread
+                self.logger.info(f"📤 Subiendo a Drive: {filename}...")
                 drive_link = await asyncio.to_thread(
                     self.drive.upload,
                     bytes(file_bytes),
@@ -1158,25 +1169,34 @@ class BotWorker:
                 )
 
                 if drive_link:
+                    self.logger.info(f"✅ Foto en Drive: {drive_link[:80]}...")
                     # Registro en SQL
-                    ex_id = await asyncio.to_thread(
-                        self.db.registrar_exhibicion,
-                        self.distribuidor_id,
-                        chat_id,
-                        uploader_id,
-                        uploader_name,
-                        nro_cliente,
-                        tipo_pdv,
-                        drive_link,
-                    )
-                    exhibicion_ids.append(ex_id)
-                    procesadas += 1
+                    try:
+                        ex_id = await asyncio.to_thread(
+                            self.db.registrar_exhibicion,
+                            self.distribuidor_id,
+                            chat_id,
+                            uploader_id,
+                            uploader_name,
+                            nro_cliente,
+                            tipo_pdv,
+                            drive_link,
+                        )
+                        self.logger.info(f"✅ Exhibición registrada: ID {ex_id}")
+                        exhibicion_ids.append(ex_id)
+                        procesadas += 1
+                    except Exception as db_err:
+                        self.logger.error(f"❌ ERROR REGISTRANDO EN BD: {db_err}")
+                        fallidas += 1
                 else:
+                    self.logger.warning(f"❌ Falló la subida a Drive (drive_link vacío)")
                     fallidas += 1
 
             except Exception as e:
-                self.logger.error(f"Error procesando foto: {e}")
+                self.logger.error(f"❌ ERROR PROCESANDO FOTO: {e}")
                 fallidas += 1
+
+        self.logger.info(f"📊 RESUMEN: {procesadas} exitosas, {fallidas} fallidas")
 
         # ── Borrar botones de selección ──
         try:

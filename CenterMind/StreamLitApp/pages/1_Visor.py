@@ -349,15 +349,31 @@ def get_vendedores_pendientes(distribuidor_id: int) -> List[str]:
         ).fetchall()
     return [r["nombre_integrante"] for r in rows if r["nombre_integrante"]]
 
-def evaluar(ids_exhibicion: List[int], estado: str, supervisor: str, comentario: str) -> bool:
+def evaluar(ids_exhibicion: List[int], estado: str, supervisor: str, comentario: str) -> int:
+    """
+    Evalúa las fotos de un grupo.
+    Usa 'AND estado = Pendiente' en el WHERE para manejar race conditions:
+    si dos evaluadores presionan al mismo tiempo, solo el primero en llegar
+    escribe; el segundo recibe rowcount=0 y sabe que ya fue evaluada.
+    Retorna: filas actualizadas (>0 OK, 0 = ya evaluada por otro, -1 = error)
+    """
     try:
+        affected = 0
         with get_conn() as c:
             for id_ex in ids_exhibicion:
-                c.execute("UPDATE exhibiciones SET estado=?, supervisor_nombre=?, comentarios=?, evaluated_at=CURRENT_TIMESTAMP, synced_telegram=0 WHERE id_exhibicion=?", (estado, supervisor, comentario or None, id_ex))
+                cur = c.execute(
+                    "UPDATE exhibiciones "
+                    "SET estado=?, supervisor_nombre=?, comentarios=?, "
+                    "    evaluated_at=CURRENT_TIMESTAMP, synced_telegram=0 "
+                    "WHERE id_exhibicion=? AND estado='Pendiente'",
+                    (estado, supervisor, comentario or None, id_ex),
+                )
+                affected += cur.rowcount
             c.commit()
-        return True
-    except:
-        return False
+        return affected
+    except Exception as e:
+        print(f"[ERROR evaluar] {e}")
+        return -1
 
 # ─── Drive URL helpers ────────────────────────────────────────────────────────
 _DRIVE_FILE_RE = re.compile(r"drive\.google\.com/file/d/([a-zA-Z0-9_-]+)")
@@ -379,7 +395,14 @@ def drive_thumbnail_url(url: str, size: int = 800) -> str:
 
 # ─── State helpers ────────────────────────────────────────────────────────────
 def init_state():
-    defaults = {"logged_in": False, "user": None, "pendientes": [], "idx": 0, "foto_idx": 0, "flash": None, "flash_type": "green", "filtro_vendedor": "Todos"}
+    defaults = {
+        "logged_in": False, "user": None,
+        "pendientes": [], "idx": 0, "foto_idx": 0,
+        "flash": None, "flash_type": "green",
+        "filtro_vendedor": "Todos",
+        # Flag de carga inicial: False hasta que se haga el primer fetch real
+        "_visor_loaded": False,
+    }
     for k, v in defaults.items():
         if k not in st.session_state: st.session_state[k] = v
 
@@ -405,6 +428,11 @@ def set_flash(msg: str, tipo: str = "green"):
 # ─── Main visor ───────────────────────────────────────────────────────────────
 
 def render_visor():
+    # ── Carga inicial: se ejecuta UNA SOLA VEZ por sesión al entrar al Visor ──
+    if not st.session_state._visor_loaded:
+        reload_pendientes()
+        st.session_state._visor_loaded = True
+
     if HAS_AUTOREFRESH:
         count = st_autorefresh(interval=30000, limit=None, key="visor_autorefresh")
         if count > 0:
@@ -579,16 +607,22 @@ def render_visor():
                 cb1, cb2, cb3 = st.columns(3)
                 with cb1:
                     if st.button("✅ APROBAR", key="b_ap"):
-                        if evaluar(ids_exhibicion, "Aprobado", supervisor, comentario):
-                            set_flash("✅ Aprobada", "green"); reload_pendientes(); st.rerun()
+                        n = evaluar(ids_exhibicion, "Aprobado", supervisor, comentario)
+                        if n > 0:   set_flash("✅ Aprobada", "green")
+                        elif n == 0: set_flash("⚡ Ya evaluada", "amber")
+                        reload_pendientes(); st.rerun()
                 with cb2:
                     if st.button("🔥 DESTACAR", key="b_dest"):
-                        if evaluar(ids_exhibicion, "Destacado", supervisor, comentario):
-                            set_flash("🔥 Destacada", "amber"); reload_pendientes(); st.rerun()
+                        n = evaluar(ids_exhibicion, "Destacado", supervisor, comentario)
+                        if n > 0:   set_flash("🔥 Destacada", "amber")
+                        elif n == 0: set_flash("⚡ Ya evaluada", "amber")
+                        reload_pendientes(); st.rerun()
                 with cb3:
                     if st.button("❌ RECHAZAR", key="b_rej"):
-                        if evaluar(ids_exhibicion, "Rechazado", supervisor, comentario):
-                            set_flash("❌ Rechazada", "red"); reload_pendientes(); st.rerun()
+                        n = evaluar(ids_exhibicion, "Rechazado", supervisor, comentario)
+                        if n > 0:   set_flash("❌ Rechazada", "red")
+                        elif n == 0: set_flash("⚡ Ya evaluada", "amber")
+                        reload_pendientes(); st.rerun()
 
             st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
             if st.button("↺ RECARGAR PANTALLA", key="btn_reload_full", use_container_width=True):

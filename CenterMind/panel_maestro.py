@@ -227,6 +227,49 @@ class BotManager:
     def stop_all(self) -> None:
         for b in self.all(): b.stop()
 
+    def kill_all_bot_processes(self) -> int:
+        """
+        Detiene todos los bots rastreados y mata cualquier proceso zombie
+        de bot_worker que esté colgado en el sistema (Python o EXE).
+        Retorna la cantidad total de procesos terminados por fuerza bruta.
+        """
+        self.stop_all()
+        killed = 0
+        try:
+            import psutil  # pip install psutil
+            for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+                try:
+                    cmdline = " ".join(proc.info.get("cmdline") or []).lower()
+                    name    = (proc.info.get("name") or "").lower()
+                    if "bot_worker" in cmdline or "bot_worker" in name:
+                        proc.kill()
+                        killed += 1
+                except Exception:
+                    pass
+        except ImportError:
+            # Fallback sin psutil
+            if sys.platform == "win32":
+                try:
+                    r = subprocess.run(
+                        ["wmic", "process", "where",
+                         "CommandLine like '%bot_worker%'",
+                         "call", "terminate"],
+                        capture_output=True, text=True, timeout=10,
+                    )
+                    killed = r.stdout.lower().count("successful")
+                except Exception:
+                    pass
+            else:
+                try:
+                    r = subprocess.run(
+                        ["pkill", "-f", "bot_worker"],
+                        capture_output=True, timeout=5,
+                    )
+                    killed = 1 if r.returncode == 0 else 0
+                except Exception:
+                    pass
+        return killed
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # STREAMLIT MANAGER
@@ -590,6 +633,9 @@ class ShelfMindPanel:
             _btn("↺  REFRESH DB",
                  lambda e: self._refresh_db_overview(),
                  color=SAND),
+            _btn("🔴  MATAR PROCESOS",
+                 lambda e: self._confirm_kill_all(),
+                 color="#FF5555"),
         ], spacing=8, wrap=True)
 
         # ── Bot cards ────────────────────────────────────────────────────────────
@@ -696,6 +742,50 @@ class ShelfMindPanel:
                 ft.TextButton("DETENER",
                               on_click=_do,
                               style=ft.ButtonStyle(color=RED)),
+            ],
+        )
+        self.page.dialog = dlg
+        dlg.open = True
+        self.page.update()
+
+    def _confirm_kill_all(self) -> None:
+        """Diálogo de confirmación antes de matar todos los procesos bot_worker."""
+        def _do(e):
+            dlg.open = False
+            self.page.update()
+            def _run():
+                killed = self.bm.kill_all_bot_processes()
+                if killed > 0:
+                    msg = f"✅ {killed} proceso(s) bot_worker terminado(s) a la fuerza."
+                else:
+                    msg = "✅ Todos los bots detenidos (no se encontraron zombies)."
+                self.page.snack_bar = ft.SnackBar(
+                    ft.Text(msg, color=TEXT), bgcolor=CARD, open=True)
+                try: self.page.update()
+                except: pass
+            threading.Thread(target=_run, daemon=True).start()
+
+        dlg = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("⚠️  Matar todos los procesos", color=RED),
+            content=ft.Text(
+                "Esto detendrá los bots rastreados Y terminará cualquier "
+                "proceso zombie de bot_worker (Python o EXE) que esté "
+                "colgado en el sistema.\n\n¿Continuar?",
+                color=TEXT,
+            ),
+            actions=[
+                ft.TextButton(
+                    "Cancelar",
+                    on_click=lambda e: (setattr(dlg, "open", False),
+                                        self.page.update()),
+                    style=ft.ButtonStyle(color=MUTED),
+                ),
+                ft.TextButton(
+                    "🔴  MATAR TODO",
+                    on_click=_do,
+                    style=ft.ButtonStyle(color=RED),
+                ),
             ],
         )
         self.page.dialog = dlg
@@ -1188,6 +1278,9 @@ class ShelfMindPanel:
                 _btn("↺  REFRESH DB",
                      lambda e: (self.bm.refresh(), build_rows()),
                      color=SAND),
+                _btn("🔴  MATAR PROCESOS",
+                     lambda e: self._confirm_kill_all(),
+                     color="#FF5555"),
             ], spacing=8),
             header,
             rows_col,

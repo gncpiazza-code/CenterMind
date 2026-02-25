@@ -16,6 +16,8 @@ import logging
 import asyncio
 import sqlite3
 import uuid
+import atexit
+import errno
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from pathlib import Path
@@ -104,6 +106,90 @@ try:
 except ImportError:
     def get_logger(name: str) -> logging.Logger:
         return logging.getLogger(name)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# INSTANCE LOCK — evita múltiples instancias del mismo bot
+# ═══════════════════════════════════════════════════════════════════
+
+def _pid_exists(pid: int) -> bool:
+    """
+    Verifica si un proceso con ese PID existe (cross-platform, sin psutil).
+    Windows: usa OpenProcess via ctypes.
+    Unix:    usa os.kill(pid, 0).
+    """
+    if pid <= 0:
+        return False
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            handle = ctypes.windll.kernel32.OpenProcess(
+                PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+            if handle:
+                ctypes.windll.kernel32.CloseHandle(handle)
+                return True
+        except Exception:
+            pass
+        return False
+    else:
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError as exc:
+            # EPERM = proceso existe pero sin permiso para señalarlo
+            return exc.errno == errno.EPERM
+
+
+def acquire_instance_lock(dist_id: int, log: logging.Logger) -> Optional[Path]:
+    """
+    Adquiere el lock de instancia única para este distribuidor.
+    - Si el lock existe y el PID sigue vivo → retorna None (no arrancar).
+    - Si el lock existe pero el PID murió (zombie cleanup) → lo sobreescribe.
+    - Si no existe → lo crea con nuestro PID.
+    Retorna el Path del lock file si se adquirió, None si hay conflicto.
+    """
+    lock_dir = BASE_DIR / "logs"
+    lock_dir.mkdir(exist_ok=True)
+    lf      = lock_dir / f"bot_{dist_id}.lock"
+    my_pid  = os.getpid()
+
+    if lf.exists():
+        try:
+            existing_pid = int(lf.read_text().strip())
+        except (ValueError, OSError):
+            existing_pid = 0
+
+        if existing_pid and existing_pid != my_pid:
+            if _pid_exists(existing_pid):
+                log.error(
+                    f"❌ Ya hay una instancia activa de bot_{dist_id} "
+                    f"(PID {existing_pid}). Saliendo para evitar "
+                    f"'Conflict: terminated by other getUpdates request'."
+                )
+                return None
+            log.warning(
+                f"⚠️ Lock zombie encontrado (PID {existing_pid} ya no existe). "
+                "Limpiando y continuando."
+            )
+
+    try:
+        lf.write_text(str(my_pid))
+    except OSError as exc:
+        log.warning(f"⚠️ No se pudo crear lock file: {exc} — continuando sin lock.")
+        return None
+    return lf
+
+
+def release_instance_lock(lf: Optional[Path]) -> None:
+    """Elimina el lock file al salir (registrado con atexit)."""
+    if not lf:
+        return
+    try:
+        if lf.exists() and int(lf.read_text().strip()) == os.getpid():
+            lf.unlink()
+    except Exception:
+        pass
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -1322,6 +1408,19 @@ class BotWorker:
         if isinstance(error, BadRequest):
             self.logger.warning(f"BadRequest ignorado: {error}")
             return
+
+        # ── Instancia duplicada — salida automática ──────────────────────
+        err_str = str(error).lower()
+        if "conflict" in err_str and "getupdates" in err_str:
+            self.logger.critical(
+                f"🔴 INSTANCIA DUPLICADA — bot_{self.distribuidor_id} ya está corriendo "
+                "en otro proceso. Esta instancia se auto-termina para evitar el conflicto."
+            )
+            time.sleep(0.3)   # Dar tiempo a que el logger vacíe el buffer
+            os._exit(1)
+            return
+        # ─────────────────────────────────────────────────────────────────
+
         self.logger.error(f"Error no manejado: {error}", exc_info=True)
 
     # ─────────────────────────────────────────────────────────────
@@ -1423,6 +1522,17 @@ if __name__ == "__main__":
         help="ID del distribuidor en la base de datos"
     )
     args = parser.parse_args()
+
+    # ── Verificar instancia única ─────────────────────────────────────────
+    _startup_log  = get_logger(f"Bot-{args.distribuidor_id}")
+    _lock_file    = acquire_instance_lock(args.distribuidor_id, _startup_log)
+    if _lock_file is None:
+        # Otra instancia activa → salir silenciosamente (el error ya fue logueado)
+        sys.exit(1)
+    # Registrar limpieza del lock al salir (funciona con exit() normal y excepciones;
+    # NOT con os._exit() ni SIGKILL, pero esos casos los cubre el PID check al arrancar)
+    atexit.register(release_instance_lock, _lock_file)
+    # ─────────────────────────────────────────────────────────────────────
 
     worker = BotWorker(distribuidor_id=args.distribuidor_id)
     worker.run()

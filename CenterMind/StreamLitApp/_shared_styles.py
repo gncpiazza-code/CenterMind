@@ -108,11 +108,49 @@ footer { display: none !important; }
     margin-bottom: 18px;
     box-shadow: 0 4px 20px rgba(0,0,0,0.4);
 }
-.topbar-logo {
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: 22px; letter-spacing: 3px;
-    color: var(--accent-amber);
+/* ── Logo animado — retroiluminación con movimiento ─────────── */
+/* Aplica a .topbar-logo (visor/admin) y .sm-logo-anim (app.py) */
+.topbar-logo,
+.sm-logo-anim {
+    font-family: 'Bebas Neue', sans-serif !important;
+    letter-spacing: 3px !important;
+
+    /* Degradado dorado que se desplaza → shimmer */
+    background: linear-gradient(
+        90deg,
+        #8C5A1F  0%,
+        #D9A76A  20%,
+        #FFE8B0  50%,
+        #D9A76A  80%,
+        #8C5A1F  100%
+    ) !important;
+    background-size: 250% 100% !important;
+    -webkit-background-clip: text !important;
+    -webkit-text-fill-color: transparent !important;
+    background-clip: text !important;
+
+    /* Glow pulsante (drop-shadow funciona con texto transparente) */
+    filter: drop-shadow(0 0 4px rgba(217,167,106,0.25));
+
+    animation:
+        sm-logo-shimmer 5s ease-in-out infinite,
+        sm-logo-glow    5s ease-in-out infinite;
 }
+.topbar-logo { font-size: 22px !important; }
+
+@keyframes sm-logo-shimmer {
+    0%   { background-position: 150% 0; }
+    50%  { background-position: -50% 0; }
+    100% { background-position: 150% 0; }
+}
+@keyframes sm-logo-glow {
+    0%, 100% { filter: drop-shadow(0 0 4px rgba(217,167,106,0.20)); }
+    45%      { filter: drop-shadow(0 0 14px rgba(255,215,120,0.80))
+                        drop-shadow(0 0 32px rgba(217,167,106,0.45)); }
+    65%      { filter: drop-shadow(0 0 18px rgba(255,225,140,0.95))
+                        drop-shadow(0 0 42px rgba(217,167,106,0.55)); }
+}
+
 .topbar-meta { font-size: 12px; color: var(--text-muted); }
 
 /* ── Tarjetas genéricas ─────────────────────────────────────── */

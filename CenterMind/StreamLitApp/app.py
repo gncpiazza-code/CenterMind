@@ -116,9 +116,16 @@ section[data-testid="stSidebar"] { display: none !important; }
 .login-logo {
     font-family: 'Bebas Neue', sans-serif;
     font-size: 56px; letter-spacing: 4px;
-    color: var(--sm-accent); text-align: center;
-    line-height: 1; margin-bottom: 4px;
-    text-shadow: 0 0 20px rgba(217, 167, 106, 0.2);
+    text-align: center; line-height: 1; margin-bottom: 4px;
+
+    /* Mismo shimmer+glow que _shared_styles */
+    background: linear-gradient(90deg, #8C5A1F 0%, #D9A76A 20%, #FFE8B0 50%, #D9A76A 80%, #8C5A1F 100%);
+    background-size: 250% 100%;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    filter: drop-shadow(0 0 4px rgba(217,167,106,0.25));
+    animation: sm-logo-shimmer 5s ease-in-out infinite, sm-logo-glow 5s ease-in-out infinite;
 }
 .login-sub {
     font-size: 11px; letter-spacing: 3px; text-transform: uppercase;
@@ -134,9 +141,15 @@ section[data-testid="stSidebar"] { display: none !important; }
 .menu-logo {
     font-family: 'Bebas Neue', sans-serif;
     font-size: 64px; letter-spacing: 5px;
-    color: var(--sm-accent);
-    text-shadow: 0 0 30px rgba(217, 167, 106, 0.2);
     line-height: 1;
+
+    background: linear-gradient(90deg, #8C5A1F 0%, #D9A76A 20%, #FFE8B0 50%, #D9A76A 80%, #8C5A1F 100%);
+    background-size: 250% 100%;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    filter: drop-shadow(0 0 4px rgba(217,167,106,0.25));
+    animation: sm-logo-shimmer 5s ease-in-out infinite, sm-logo-glow 5s ease-in-out infinite;
 }
 .menu-empresa {
     font-size: 14px; letter-spacing: 3px; text-transform: uppercase;
@@ -235,6 +248,20 @@ div[data-testid="stButton"] button[kind="secondary"]:hover {
     color: var(--sm-text) !important;
     border-color: var(--sm-text) !important;
     background: rgba(255,255,255,0.05) !important;
+}
+
+/* Keyframes del logo animado */
+@keyframes sm-logo-shimmer {
+    0%   { background-position: 150% 0; }
+    50%  { background-position: -50% 0; }
+    100% { background-position: 150% 0; }
+}
+@keyframes sm-logo-glow {
+    0%, 100% { filter: drop-shadow(0 0 4px rgba(217,167,106,0.20)); }
+    45%      { filter: drop-shadow(0 0 14px rgba(255,215,120,0.80))
+                        drop-shadow(0 0 32px rgba(217,167,106,0.45)); }
+    65%      { filter: drop-shadow(0 0 18px rgba(255,225,140,0.95))
+                        drop-shadow(0 0 42px rgba(217,167,106,0.55)); }
 }
 
 /* Alertas */

@@ -95,8 +95,22 @@ section[data-testid="stSidebar"] { display: none !important; }
 }
 .topbar-logo {
     font-family: 'Bebas Neue', sans-serif;
-    font-size: 26px; letter-spacing: 3px; color: var(--accent-amber);
-    text-shadow: 0 0 20px rgba(217, 167, 106, 0.3);
+    font-size: 26px; letter-spacing: 3px;
+    background: linear-gradient(90deg, #8C5A1F 0%, #D9A76A 20%, #FFE8B0 50%, #D9A76A 80%, #8C5A1F 100%);
+    background-size: 250% 100%;
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+    filter: drop-shadow(0 0 4px rgba(217,167,106,0.25));
+    animation: sm-logo-shimmer 5s ease-in-out infinite, sm-logo-glow 5s ease-in-out infinite;
+}
+@keyframes sm-logo-shimmer {
+    0%   { background-position: 150% 0; }
+    50%  { background-position: -50% 0; }
+    100% { background-position: 150% 0; }
+}
+@keyframes sm-logo-glow {
+    0%, 100% { filter: drop-shadow(0 0 4px rgba(217,167,106,0.20)); }
+    45%      { filter: drop-shadow(0 0 14px rgba(255,215,120,0.80)) drop-shadow(0 0 32px rgba(217,167,106,0.45)); }
+    65%      { filter: drop-shadow(0 0 18px rgba(255,225,140,0.95)) drop-shadow(0 0 42px rgba(217,167,106,0.55)); }
 }
 .topbar-meta { font-size: 12px; color: rgba(240, 230, 216, 0.4); letter-spacing: 1px; }
 .superadmin-badge {
@@ -306,14 +320,75 @@ def get_conn() -> sqlite3.Connection:
     return conn
 
 
-def get_distribuidoras() -> List[Dict]:
+def get_distribuidoras(solo_activas: bool = True) -> List[Dict]:
     with get_conn() as c:
-        rows = c.execute(
-            """SELECT id_distribuidor AS id, nombre_empresa AS nombre
-               FROM distribuidores WHERE estado = 'activo'
-               ORDER BY nombre_empresa"""
-        ).fetchall()
+        if solo_activas:
+            rows = c.execute(
+                """SELECT id_distribuidor AS id, nombre_empresa AS nombre, estado
+                   FROM distribuidores WHERE estado = 'activo'
+                   ORDER BY nombre_empresa"""
+            ).fetchall()
+        else:
+            rows = c.execute(
+                """SELECT id_distribuidor AS id, nombre_empresa AS nombre,
+                          token_bot, ruta_credencial_drive, id_carpeta_drive, estado
+                   FROM distribuidores ORDER BY nombre_empresa"""
+            ).fetchall()
     return [dict(r) for r in rows]
+
+def crear_distribuidora(nombre: str, token: str, carpeta_drive: str, ruta_cred: str) -> tuple[bool, str]:
+    try:
+        with get_conn() as c:
+            c.execute(
+                """INSERT INTO distribuidores
+                   (nombre_empresa, token_bot, id_carpeta_drive, ruta_credencial_drive, estado)
+                   VALUES (?,?,?,?,'activo')""",
+                (nombre.strip(), token.strip(), carpeta_drive.strip(), ruta_cred.strip()),
+            )
+            c.commit()
+        return True, ""
+    except sqlite3.IntegrityError as e:
+        msg = str(e)
+        if "nombre_empresa" in msg:
+            return False, "Ya existe una distribuidora con ese nombre."
+        if "token_bot" in msg:
+            return False, "Ese token de bot ya está registrado."
+        return False, f"Error de integridad: {msg}"
+    except Exception as e:
+        return False, str(e)
+
+def editar_distribuidora(dist_id: int, nombre: str, token: str, carpeta_drive: str, ruta_cred: str) -> tuple[bool, str]:
+    try:
+        with get_conn() as c:
+            c.execute(
+                """UPDATE distribuidores
+                   SET nombre_empresa=?, token_bot=?, id_carpeta_drive=?, ruta_credencial_drive=?
+                   WHERE id_distribuidor=?""",
+                (nombre.strip(), token.strip(), carpeta_drive.strip(), ruta_cred.strip(), dist_id),
+            )
+            c.commit()
+        return True, ""
+    except sqlite3.IntegrityError as e:
+        msg = str(e)
+        if "nombre_empresa" in msg:
+            return False, "Ya existe una distribuidora con ese nombre."
+        if "token_bot" in msg:
+            return False, "Ese token de bot ya está registrado."
+        return False, f"Error de integridad: {msg}"
+    except Exception as e:
+        return False, str(e)
+
+def toggle_distribuidora_estado(dist_id: int, nuevo_estado: str) -> bool:
+    try:
+        with get_conn() as c:
+            c.execute(
+                "UPDATE distribuidores SET estado=? WHERE id_distribuidor=?",
+                (nuevo_estado, dist_id),
+            )
+            c.commit()
+        return True
+    except Exception:
+        return False
 
 # ── Usuarios del portal ────────────────────────────────────────────────────────
 
@@ -591,7 +666,153 @@ def tab_usuarios():
         st.markdown('</div>', unsafe_allow_html=True)
 
 
-# ─── Tab 2: Integrantes de Telegram ──────────────────────────────────────────
+# ─── Tab 2: Distribuidoras ────────────────────────────────────────────────────
+
+def tab_distribuidoras():
+    """CRUD de distribuidoras. Solo superadmin."""
+    dists = get_distribuidoras(solo_activas=False)
+
+    col_f, col_nuevo = st.columns([3, 1])
+    with col_f:
+        st.markdown(
+            f'<div style="padding-top:6px;font-size:13px;color:var(--text-muted);">'
+            f'{len(dists)} distribuidora(s) registradas</div>',
+            unsafe_allow_html=True,
+        )
+    with col_nuevo:
+        nueva = st.button("+ NUEVA DISTRIBUIDORA", key="btn_nueva_dist", use_container_width=True)
+
+    # ── Listado ────────────────────────────────────────────────────────────────
+    st.markdown('<div class="card"><div class="card-title">Distribuidoras Registradas</div>', unsafe_allow_html=True)
+
+    if not dists:
+        st.markdown('<p style="color:var(--text-dim);font-size:13px;">No hay distribuidoras registradas.</p>', unsafe_allow_html=True)
+    else:
+        st.markdown("""
+        <div class="grid-header" style="grid-template-columns: 2.5fr 3fr 1.5fr 1.5fr 1.5fr;">
+            <div>EMPRESA</div><div>TOKEN BOT</div><div style="text-align:center;">ESTADO</div><div></div><div></div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        for d in dists:
+            estado_actual = d.get("estado", "activo")
+            token_short   = (d.get("token_bot") or "—")[:28] + "…" if len(d.get("token_bot") or "") > 28 else (d.get("token_bot") or "—")
+            estado_color  = "var(--status-approved, #7DAF6B)" if estado_actual == "activo" else "var(--text-dim)"
+            c1, c2, c3, c4, c5 = st.columns([2.5, 3, 1.5, 1.5, 1.5])
+            with c1:
+                st.markdown(
+                    f'<div class="cell-primary" style="margin-top:10px;">{d["nombre"]}</div>',
+                    unsafe_allow_html=True,
+                )
+            with c2:
+                st.markdown(
+                    f'<div class="cell-mono" style="margin-top:10px;font-size:11px;">{token_short}</div>',
+                    unsafe_allow_html=True,
+                )
+            with c3:
+                st.markdown(
+                    f'<div style="text-align:center;margin-top:10px;">'
+                    f'<span style="color:{estado_color};font-size:11px;font-weight:600;letter-spacing:1px;">'
+                    f'● {estado_actual.upper()}</span></div>',
+                    unsafe_allow_html=True,
+                )
+            with c4:
+                if st.button("EDITAR", key=f"edit_dist_{d['id']}", use_container_width=True):
+                    st.session_state["editando_dist"] = d
+                    st.rerun()
+            with c5:
+                nuevo_estado = "inactivo" if estado_actual == "activo" else "activo"
+                lbl_toggle   = "DESACTIVAR" if estado_actual == "activo" else "ACTIVAR"
+                if st.button(lbl_toggle, key=f"tog_dist_{d['id']}", use_container_width=True):
+                    toggle_distribuidora_estado(d["id"], nuevo_estado)
+                    st.rerun()
+            st.markdown('<div class="row-divider"></div>', unsafe_allow_html=True)
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # ── Formulario edición ─────────────────────────────────────────────────────
+    if "editando_dist" in st.session_state:
+        d_ed = st.session_state["editando_dist"]
+        st.markdown(f'<div class="card"><div class="card-title">Editando: {d_ed["nombre"]}</div>', unsafe_allow_html=True)
+        with st.form("form_editar_dist"):
+            nuevo_nombre  = st.text_input("Nombre empresa", value=d_ed.get("nombre", ""))
+            nuevo_token   = st.text_input("Token bot Telegram", value=d_ed.get("token_bot", ""),
+                                          type="password", placeholder="1234567890:ABCdef...")
+            nueva_carpeta = st.text_input("ID Carpeta Drive", value=d_ed.get("id_carpeta_drive", "") or "",
+                                          placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms")
+            nueva_cred    = st.text_input("Ruta credencial Drive (relativa)", value=d_ed.get("ruta_credencial_drive", "") or "",
+                                          placeholder="credencial_drive.json")
+            st.markdown("<br>", unsafe_allow_html=True)
+            cg, cc = st.columns(2)
+            with cg:
+                guardar = st.form_submit_button("GUARDAR CAMBIOS", use_container_width=True)
+            with cc:
+                cancelar = st.form_submit_button("CANCELAR", use_container_width=True)
+
+        if guardar:
+            if not nuevo_nombre or not nuevo_token:
+                st.error("Nombre y Token son obligatorios.")
+            else:
+                ok, err = editar_distribuidora(d_ed["id"], nuevo_nombre, nuevo_token, nueva_carpeta, nueva_cred)
+                if ok:
+                    st.success("Distribuidora actualizada.")
+                    del st.session_state["editando_dist"]
+                    st.rerun()
+                else:
+                    st.error(err)
+        if cancelar:
+            del st.session_state["editando_dist"]
+            st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # ── Formulario nueva distribuidora ─────────────────────────────────────────
+    if nueva or st.session_state.get("mostrar_form_nueva_dist"):
+        st.session_state["mostrar_form_nueva_dist"] = True
+        st.markdown('<div class="card"><div class="card-title">Nueva Distribuidora</div>', unsafe_allow_html=True)
+
+        st.markdown("""
+        <div style="background:rgba(217,167,106,0.06);border:1px solid rgba(217,167,106,0.2);
+                    border-radius:10px;padding:12px 16px;margin-bottom:14px;font-size:12px;color:var(--text-muted);">
+            💡 <strong style="color:var(--accent-amber);">Antes de crear:</strong>
+            Asegurate de tener el token del bot de Telegram listo (<code>@BotFather</code>),
+            el ID de la carpeta de Google Drive, y que la carpeta esté compartida con la Service Account.
+        </div>
+        """, unsafe_allow_html=True)
+
+        with st.form("form_nueva_dist"):
+            nuevo_nombre  = st.text_input("Nombre empresa *", placeholder="Distribuidora XYZ S.A.")
+            nuevo_token   = st.text_input("Token bot Telegram *", type="password",
+                                          placeholder="1234567890:ABCdefGHIjklMNOpqrSTUvwxYZ")
+            nueva_carpeta = st.text_input("ID Carpeta Google Drive",
+                                          placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms")
+            nueva_cred    = st.text_input("Ruta credencial Drive (relativa al bot)",
+                                          placeholder="credencial_drive.json")
+            st.markdown("<br>", unsafe_allow_html=True)
+            cc, cn = st.columns(2)
+            with cc:
+                crear  = st.form_submit_button("CREAR DISTRIBUIDORA", use_container_width=True)
+            with cn:
+                cerrar = st.form_submit_button("CANCELAR", use_container_width=True)
+
+        if crear:
+            if not nuevo_nombre or not nuevo_token:
+                st.error("Nombre y Token son obligatorios.")
+            else:
+                ok, err = crear_distribuidora(nuevo_nombre, nuevo_token, nueva_carpeta, nueva_cred)
+                if ok:
+                    st.success(f"✅ Distribuidora '{nuevo_nombre}' creada exitosamente.")
+                    del st.session_state["mostrar_form_nueva_dist"]
+                    st.rerun()
+                else:
+                    st.error(err)
+        if cerrar:
+            if "mostrar_form_nueva_dist" in st.session_state:
+                del st.session_state["mostrar_form_nueva_dist"]
+            st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+
+
+# ─── Tab 3: Integrantes de Telegram ──────────────────────────────────────────
 
 def tab_integrantes():
     dist_id_filtro: Optional[int]
@@ -665,9 +886,10 @@ def main():
     st.markdown("<div style='padding:0 24px 24px;'>", unsafe_allow_html=True)
 
     if IS_SUPER:
-        tab1, tab2 = st.tabs(["USUARIOS DEL PORTAL", "INTEGRANTES TELEGRAM"])
-        with tab1: tab_usuarios()
-        with tab2: tab_integrantes()
+        tab1, tab2, tab3 = st.tabs(["🏢 DISTRIBUIDORAS", "👤 USUARIOS PORTAL", "💬 INTEGRANTES TELEGRAM"])
+        with tab1: tab_distribuidoras()
+        with tab2: tab_usuarios()
+        with tab3: tab_integrantes()
     else:
         tab_integrantes()
 

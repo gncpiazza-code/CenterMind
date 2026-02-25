@@ -298,10 +298,10 @@ def _card(*controls, padding: int = 14, mb: int = 10) -> ft.Container:
     return ft.Container(
         content=ft.Column(list(controls), spacing=6, tight=True),
         bgcolor=CARD,
-        border=ft.border.all(1, BORDER),
+        border=ft.Border.all(1, BORDER),
         border_radius=8,
         padding=padding,
-        margin=ft.margin.only(bottom=mb),
+        margin=ft.Margin.only(bottom=mb),
     )
 
 def _lbl(text: str, color: str = MUTED, size: int = 9,
@@ -320,17 +320,16 @@ def _section_header(title: str, subtitle: str = "") -> ft.Column:
     ], spacing=4)
 
 def _btn(text: str, on_click, color: str = AMBER,
-         bgcolor: str = PANEL, width: Optional[int] = None) -> ft.ElevatedButton:
-    return ft.ElevatedButton(
-        text=text, on_click=on_click, width=width,
+         bgcolor: str = PANEL, width: Optional[int] = None) -> ft.Button:
+    return ft.Button(
+        content=ft.Text(text, color=color, size=10),
+        on_click=on_click, width=width,
         style=ft.ButtonStyle(
-            color={ft.ControlState.DEFAULT: color,
-                   ft.ControlState.HOVERED: color},
             bgcolor={ft.ControlState.DEFAULT: bgcolor,
                      ft.ControlState.HOVERED: HOVER_BG},
             shape=ft.RoundedRectangleBorder(radius=6),
             side=ft.BorderSide(1, BORDER),
-            padding=ft.padding.symmetric(horizontal=14, vertical=8),
+            padding=ft.Padding.symmetric(horizontal=14, vertical=8),
         )
     )
 
@@ -345,7 +344,7 @@ def _wrap_section(content: ft.Column) -> ft.Container:
         expand=True,
         bgcolor=BG,
         visible=False,
-        padding=ft.padding.only(left=24, right=24, top=20, bottom=20),
+        padding=ft.Padding.only(left=24, right=24, top=20, bottom=20),
     )
 
 
@@ -435,8 +434,8 @@ class ShelfMindPanel:
                 ft.Container(expand=True),
                 self._clock,
             ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            bgcolor=SIDEBAR_BG, height=46, padding=ft.padding.symmetric(horizontal=20),
-            border=ft.border.only(bottom=ft.BorderSide(1, BORDER)),
+            bgcolor=SIDEBAR_BG, height=46, padding=ft.Padding.symmetric(horizontal=20),
+            border=ft.Border.only(bottom=ft.BorderSide(1, BORDER)),
         )
 
         # ── Sidebar ────────────────────────────────────────────────────────────
@@ -447,7 +446,7 @@ class ShelfMindPanel:
                 content=lbl,
                 bgcolor=None,
                 border_radius=6,
-                padding=ft.padding.symmetric(horizontal=14, vertical=10),
+                padding=ft.Padding.symmetric(horizontal=14, vertical=10),
                 on_click=lambda e, k=key: self.show(k),
                 on_hover=lambda e, k=key, l=lbl: self._on_nav_hover(e, k, l),
                 width=200,
@@ -460,14 +459,14 @@ class ShelfMindPanel:
                 ft.Container(height=10),
                 ft.Text("NAVEGACIÓN", color=MUTED, size=7,
                         weight=ft.FontWeight.BOLD,
-                        padding=ft.padding.only(left=14, bottom=4)),
+                        padding=ft.Padding.only(left=14, bottom=4)),
                 *nav_items,
                 ft.Container(expand=True),
                 ft.Text("v3.0 · Flet · Febrero 2026", color=MUTED, size=7,
-                        padding=ft.padding.only(left=14, bottom=10)),
+                        padding=ft.Padding.only(left=14, bottom=10)),
             ], spacing=0, expand=True),
             bgcolor=SIDEBAR_BG, width=204,
-            border=ft.border.only(right=ft.BorderSide(1, BORDER)),
+            border=ft.Border.only(right=ft.BorderSide(1, BORDER)),
         )
 
         # ── Content stack ─────────────────────────────────────────────────────
@@ -559,7 +558,7 @@ class ShelfMindPanel:
                         target=self.sm.start, daemon=True).start(),
                     tooltip="Iniciar Streamlit",
                     bgcolor=PANEL, border_radius=4,
-                    padding=ft.padding.symmetric(horizontal=8, vertical=3),
+                    padding=ft.Padding.symmetric(horizontal=8, vertical=3),
                 ),
                 ft.Container(
                     content=ft.Text("■", color=RED, size=10,
@@ -567,14 +566,14 @@ class ShelfMindPanel:
                     on_click=lambda e: self.sm.stop(),
                     tooltip="Detener Streamlit",
                     bgcolor=PANEL, border_radius=4,
-                    padding=ft.padding.symmetric(horizontal=8, vertical=3),
+                    padding=ft.Padding.symmetric(horizontal=8, vertical=3),
                 ),
             ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             bgcolor=PANEL,
-            border=ft.border.all(1, BORDER),
+            border=ft.Border.all(1, BORDER),
             border_radius=6,
-            padding=ft.padding.symmetric(horizontal=12, vertical=6),
-            margin=ft.margin.only(bottom=6),
+            padding=ft.Padding.symmetric(horizontal=12, vertical=6),
+            margin=ft.Margin.only(bottom=6),
         )
 
         # ── Toolbar ─────────────────────────────────────────────────────────────
@@ -648,14 +647,14 @@ class ShelfMindPanel:
                     ], spacing=20),
                     ft.Divider(color=BORDER, height=1),
                     ft.Row([
-                        ft.IconButton(ft.icons.PLAY_ARROW, icon_color=GREEN,
+                        ft.IconButton(ft.Icons.PLAY_ARROW, icon_color=GREEN,
                                       tooltip="Iniciar",
                                       on_click=lambda e, b=bp: threading.Thread(
                                           target=b.start, daemon=True).start()),
-                        ft.IconButton(ft.icons.STOP, icon_color=RED,
+                        ft.IconButton(ft.Icons.STOP, icon_color=RED,
                                       tooltip="Detener",
                                       on_click=lambda e, b=bp: b.stop()),
-                        ft.IconButton(ft.icons.REFRESH, icon_color=AMBER,
+                        ft.IconButton(ft.Icons.REFRESH, icon_color=AMBER,
                                       tooltip="Reiniciar",
                                       on_click=lambda e, b=bp: threading.Thread(
                                           target=b.restart, daemon=True).start()),
@@ -663,7 +662,7 @@ class ShelfMindPanel:
                     stats_row,
                 ], spacing=6, tight=True),
                 bgcolor=CARD,
-                border=ft.border.all(1, BORDER),
+                border=ft.Border.all(1, BORDER),
                 border_radius=10,
                 padding=14,
                 width=280,
@@ -838,7 +837,7 @@ class ShelfMindPanel:
             ft.Container(
                 content=self._sm_log_lv,
                 bgcolor=CONSOLE_BG,
-                border=ft.border.all(1, BORDER),
+                border=ft.Border.all(1, BORDER),
                 border_radius=6,
                 padding=8,
                 height=160,
@@ -890,11 +889,12 @@ class ShelfMindPanel:
         dd_filter = ft.Dropdown(
             options=[ft.dropdown.Option(v) for v in
                      ["TODOS", "INFO", "WARNING", "ERROR"]],
-            value="TODOS", on_change=_set_filter,
+            value="TODOS",
             bgcolor=PANEL, color=TEXT,
             border_color=BORDER, focused_border_color=AMBER,
             width=130, text_size=9,
         )
+        dd_filter.on_change = _set_filter
         search_field = ft.TextField(
             hint_text="Buscar...",
             on_change=_set_search,
@@ -922,7 +922,7 @@ class ShelfMindPanel:
             ft.Container(
                 content=self._console_lv,
                 bgcolor=CONSOLE_BG,
-                border=ft.border.all(1, BORDER),
+                border=ft.Border.all(1, BORDER),
                 border_radius=8,
                 padding=8,
                 expand=True,
@@ -933,7 +933,7 @@ class ShelfMindPanel:
         return ft.Container(
             content=content,
             expand=True, bgcolor=BG, visible=False,
-            padding=ft.padding.only(left=24, right=24, top=20, bottom=20),
+            padding=ft.Padding.only(left=24, right=24, top=20, bottom=20),
         )
 
     def _append_console(self, line: str) -> None:
@@ -995,10 +995,10 @@ class ShelfMindPanel:
                         ft.Text(_fmt_size(size), color=MUTED, size=8),
                     ]),
                     bgcolor=PANEL, border_radius=4,
-                    padding=ft.padding.symmetric(horizontal=10, vertical=6),
+                    padding=ft.Padding.symmetric(horizontal=10, vertical=6),
                     on_click=lambda e, fp=f: open_file(fp),
                     on_hover=lambda e, c=None: None,
-                    margin=ft.margin.only(bottom=2),
+                    margin=ft.Margin.only(bottom=2),
                 )
                 file_list.controls.append(item)
             if not files:
@@ -1050,7 +1050,7 @@ class ShelfMindPanel:
                 ft.Container(content=file_list, expand=True),
                 _btn("↺ Actualizar", lambda e: load_files(), color=SAND),
             ], spacing=6, expand=True, tight=True),
-            bgcolor=CARD, border=ft.border.all(1, BORDER),
+            bgcolor=CARD, border=ft.Border.all(1, BORDER),
             border_radius=8, padding=10, width=260,
         )
 
@@ -1073,7 +1073,7 @@ class ShelfMindPanel:
                 ft.Container(
                     content=content_lv,
                     bgcolor=CONSOLE_BG,
-                    border=ft.border.all(1, BORDER),
+                    border=ft.Border.all(1, BORDER),
                     border_radius=6,
                     padding=8,
                     expand=True,
@@ -1091,7 +1091,7 @@ class ShelfMindPanel:
 
         return ft.Container(
             content=content, expand=True, bgcolor=BG, visible=False,
-            padding=ft.padding.only(left=24, right=24, top=20, bottom=20),
+            padding=ft.Padding.only(left=24, right=24, top=20, bottom=20),
         )
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -1124,16 +1124,16 @@ class ShelfMindPanel:
                                 weight=ft.FontWeight.BOLD, width=180),
                         st, up, pi, rs,
                         ft.Row([
-                            ft.IconButton(ft.icons.PLAY_ARROW,
+                            ft.IconButton(ft.Icons.PLAY_ARROW,
                                           icon_color=GREEN, icon_size=16,
                                           tooltip="Iniciar",
                                           on_click=lambda e, b=bp: threading.Thread(
                                               target=b.start, daemon=True).start()),
-                            ft.IconButton(ft.icons.STOP,
+                            ft.IconButton(ft.Icons.STOP,
                                           icon_color=RED, icon_size=16,
                                           tooltip="Detener",
                                           on_click=lambda e, b=bp: b.stop()),
-                            ft.IconButton(ft.icons.REFRESH,
+                            ft.IconButton(ft.Icons.REFRESH,
                                           icon_color=AMBER, icon_size=16,
                                           tooltip="Reiniciar",
                                           on_click=lambda e, b=bp: threading.Thread(
@@ -1141,9 +1141,9 @@ class ShelfMindPanel:
                         ], spacing=0),
                     ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                     bgcolor=CARD,
-                    border=ft.border.all(1, BORDER),
+                    border=ft.Border.all(1, BORDER),
                     border_radius=6,
-                    padding=ft.padding.symmetric(horizontal=12, vertical=8),
+                    padding=ft.Padding.symmetric(horizontal=12, vertical=8),
                 )
                 rows_col.controls.append(row)
 
@@ -1168,7 +1168,7 @@ class ShelfMindPanel:
                 ft.Text("Control",  color=MUTED, size=8),
             ], spacing=8),
             bgcolor=PANEL, border_radius=6,
-            padding=ft.padding.symmetric(horizontal=12, vertical=6),
+            padding=ft.Padding.symmetric(horizontal=12, vertical=6),
         )
 
         content = ft.Column([
@@ -1241,7 +1241,7 @@ class ShelfMindPanel:
                     ft.Text("Acciones", color=MUTED, size=8, width=140),
                 ], spacing=8),
                 bgcolor=PANEL, border_radius=6,
-                padding=ft.padding.symmetric(horizontal=12, vertical=6),
+                padding=ft.Padding.symmetric(horizontal=12, vertical=6),
             ))
             for d in DB.get_distribuidoras():
                 c = GREEN if d["estado"] == "activo" else MUTED
@@ -1266,9 +1266,9 @@ class ShelfMindPanel:
                                     color=RED if d["estado"] == "activo" else GREEN)),
                         ], spacing=0, width=140),
                     ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                    bgcolor=CARD, border=ft.border.all(1, BORDER),
+                    bgcolor=CARD, border=ft.Border.all(1, BORDER),
                     border_radius=6,
-                    padding=ft.padding.symmetric(horizontal=12, vertical=8),
+                    padding=ft.Padding.symmetric(horizontal=12, vertical=8),
                 )
                 table_col.controls.append(row)
             try: table_col.update()
@@ -1392,7 +1392,7 @@ class ShelfMindPanel:
                     ft.Text("Acción",     color=MUTED, size=8, width=80),
                 ], spacing=8),
                 bgcolor=PANEL, border_radius=6,
-                padding=ft.padding.symmetric(horizontal=12, vertical=6),
+                padding=ft.Padding.symmetric(horizontal=12, vertical=6),
             ))
 
             for f in bak_files:
@@ -1415,9 +1415,9 @@ class ShelfMindPanel:
                             style=ft.ButtonStyle(color=RED),
                         ),
                     ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                    bgcolor=CARD, border=ft.border.all(1, BORDER),
+                    bgcolor=CARD, border=ft.Border.all(1, BORDER),
                     border_radius=6,
-                    padding=ft.padding.symmetric(horizontal=12, vertical=7),
+                    padding=ft.Padding.symmetric(horizontal=12, vertical=7),
                 )
                 bak_col.controls.append(row)
 
@@ -1609,4 +1609,4 @@ if __name__ == "__main__":
         except AttributeError:
             pass
 
-    ft.app(target=main)
+    ft.run(main)

@@ -75,14 +75,21 @@ div[data-testid="stVerticalBlock"]:has(#eval-master-anchor) {
 [data-testid="stVerticalBlock"]:has(#eval-master-anchor)
     div[data-testid="stButton"] button {
     width:          100% !important;
-    font-size:      11px !important;
-    letter-spacing: 0.8px !important;
-    padding:        8px 4px !important;
+    /* evitar que se parta el texto pero respetar saltos de línea */
+    white-space:    pre-wrap !important;
+    /* icono arriba, texto abajo */
+    display:       flex !important;
+    flex-direction: column !important;
+    align-items:   center !important;
+    justify-content: center !important;
+
+    font-size:      10px !important;
+    letter-spacing: 0.4px !important;
+    padding:        6px 6px !important;
     min-height:     42px !important;
     height:         auto !important;
     border:         none !important;
     border-radius:  10px !important;
-    white-space:    normal !important;
 }
 /* Aprobar → verde */
 [data-testid="stVerticalBlock"]:has(#eval-master-anchor)
@@ -111,6 +118,12 @@ div[data-testid="stVerticalBlock"]:has(#eval-master-anchor) {
     filter:     brightness(1.12) !important;
     transform:  translateY(-2px) !important;
     box-shadow: 0 6px 14px rgba(0,0,0,0.35) !important;
+}
+/* pequeños iconos dentro del botón */
+[data-testid="stVerticalBlock"]:has(#eval-master-anchor)
+    div[data-testid="stButton"] button span {
+    display: block; /* permite el salto de línea entre emoji y texto */
+    line-height: 1.1;
 }
 
 /* ── Stats grid ─────────────────────────────────────────────── */
@@ -148,6 +161,79 @@ div[data-testid="stVerticalBlock"]:has(#eval-master-anchor) {
     background: rgba(18, 12, 10, 0.85); color: var(--accent-amber);
     border: 1px solid var(--border-soft); font-weight: 600;
     backdrop-filter: blur(4px);
+}
+
+/* ── Fotograma principal (optimizado) ─────────────────────────── */
+.photo-frame-wrapper {
+    /* use page background so the container blends with the card */
+    background: var(--bg-page);
+    overflow: hidden;
+    position: relative;
+    width: 100%;
+    max-height: 80vh;
+    aspect-ratio: 4 / 3;
+}
+.photo-frame-wrapper iframe {
+    width: 100%;
+    height: 100%;
+}
+
+/* flechas de navegación superpuestas */
+.photo-nav-button {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 40px;
+    height: 40px;
+    background: rgba(0,0,0,0.4);
+    border-radius: 20px;
+    cursor: pointer;
+    text-decoration: none;
+    z-index: 11;
+}
+.prev-overlay { left: 8px; }
+.next-overlay { right: 8px; }
+
+/* contador discreto */
+.photo-counter {
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.6);
+    color: #fff;
+    padding: 2px 6px;
+    font-size: 12px;
+    border-radius: 8px;
+    z-index: 12;
+}
+
+/* si por alguna razón el pie de página con los botones sigue presente, lo escondemos */
+[data-testid="stColumn"]:has(button[key="btn_prev"]) {
+    display: none !important;
+}
+
+@media (max-width: 640px) {
+    .photo-frame-wrapper { width: 100vw; }
+    .photo-nav-button { display: none !important; }
+    /* force the two-column layout to stack vertically */
+    .stColumns { flex-direction: column !important; }
+}
+
+/* utility buttons in the top bar */
+.topbar + div [data-testid="stButton"] button {
+    opacity: 0.6 !important;
+    font-size: 14px !important;
+    padding: 4px 6px !important;
+}
+.topbar + div [data-testid="stButton"] button:hover {
+    opacity: 1 !important;
+    color: var(--accent-amber) !important;
+}
+
+/* hover feedback for arrow overlays */
+.photo-nav-button:hover {
+    background: rgba(0,0,0,0.65);
 }
 
 /* ── Empty state ─────────────────────────────────────────────── */
@@ -444,8 +530,9 @@ def render_visor():
     dist   = u.get("nombre_empresa", "")
     n_pend = len(st.session_state.pendientes)
 
+    # ----- top bar (logo + pending count) -----
     topbar_html = (
-        '<div class="topbar">'
+        '<div class="topbar" style="position:relative;">'
         '<div style="display:flex; align-items:center; gap:16px;">'
         '<span class="topbar-logo">SHELFMIND</span>'
         f'<span class="topbar-meta">{dist}</span>'
@@ -456,6 +543,16 @@ def render_visor():
         '</div>'
     )
     st.markdown(topbar_html, unsafe_allow_html=True)
+
+    # top-right utility buttons moved out of the evaluation panel
+    c_tr1, c_tr2, c_tr3 = st.columns([4,1,1])
+    with c_tr2:
+        if st.button("↺", key="btn_reload_top", help="Buscar nuevas exhibiciones", type="secondary"):
+            reload_pendientes(); st.rerun()
+    with c_tr3:
+        if st.button("⏏", key="btn_logout_top", help="Salir del sistema", type="secondary"):
+            for k in list(st.session_state.keys()): del st.session_state[k]
+            st.rerun()
 
     pend = st.session_state.pendientes
     vendedores_con_pend = get_vendedores_pendientes(u["id_distribuidor"])
@@ -478,6 +575,17 @@ def render_visor():
     pend_filtrada = [p for p in pend if p.get("vendedor") == filtro] if filtro != "Todos" else pend
 
     idx = st.session_state.idx
+    # process navigation query param (used by overlay arrows)
+    params = st.experimental_get_query_params()
+    nav = params.get("nav", [None])[0]
+    if nav == "prev" and pend_filtrada and idx > 0:
+        st.session_state.idx -= 1; st.session_state.foto_idx = 0
+        st.experimental_set_query_params()
+        st.rerun()
+    if nav == "next" and pend_filtrada and idx < len(pend_filtrada) - 1:
+        st.session_state.idx += 1; st.session_state.foto_idx = 0
+        st.experimental_set_query_params()
+        st.rerun()
     if pend_filtrada and idx >= len(pend_filtrada): st.session_state.idx = len(pend_filtrada) - 1; idx = st.session_state.idx
 
     if st.session_state.flash:
@@ -501,18 +609,11 @@ def render_visor():
                 '<div class="empty-icon">🎯</div>'
                 '<div class="empty-title">TODO AL DÍA</div>'
                 '<div style="color:var(--text-muted);font-size:14px;">No hay exhibiciones pendientes para evaluar.</div>'
+                '<div style="font-size:12px;color:var(--text-muted);margin-top:8px;">Usá el botón ↺ en la cabecera para refrescar o ⏏ para salir.</div>'
                 '</div>',
                 unsafe_allow_html=True,
             )
-            st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
-            c1, c2, c3 = st.columns([1, 2, 1])
-            with c2:
-                if st.button("↺ BUSCAR NUEVAS EXHIBICIONES", key="btn_reload_empty", use_container_width=True):
-                    reload_pendientes(); st.rerun()
-                st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-                if st.button("SALIR DEL SISTEMA", key="btn_logout_empty", type="secondary", use_container_width=True):
-                    for k in list(st.session_state.keys()): del st.session_state[k]
-                    st.rerun()
+            # reload/logout now in topbar
         else:
             ex      = pend_filtrada[idx]
             fotos   = ex.get("fotos", [])
@@ -525,9 +626,15 @@ def render_visor():
 
             rafaga_html = f'<div class="rafaga-badge">📸 Ráfaga · {n_fotos} fotos</div>' if n_fotos > 1 else ""
 
+            # container now adapts to image ratio and includes overlay arrows/counter
             iframe_html = (
-                '<div class="photo-frame-wrapper" style="background:#000; overflow:hidden; position:relative; height:58vh;">'
+                '<div class="photo-frame-wrapper" style="overflow:hidden; position:relative; max-height:80vh; width:100%;">'
                 f'{rafaga_html}'
+                # navigation overlays
+                '<a href="?nav=prev" class="photo-nav-button prev-overlay">←</a>'
+                '<a href="?nav=next" class="photo-nav-button next-overlay">→</a>'
+                # counter badge
+                f'<div class="photo-counter">{idx+1} / {len(pend_filtrada)}</div>'
                 f'<iframe src="{embed_url}" style="width:100%;height:100%;border:none;" allow="autoplay" loading="lazy"></iframe>'
                 '</div>'
             )
@@ -548,20 +655,9 @@ def render_visor():
                         if st.button(f"F{i+1}", key=f"tmb_{i}", use_container_width=True):
                             st.session_state.foto_idx = i; st.rerun()
 
-            st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-            c_prev, c_txt, c_next = st.columns([1, 2, 1])
-            with c_prev:
-                if st.button("← ANTERIOR", key="btn_prev", disabled=(idx == 0)):
-                    st.session_state.idx -= 1; st.session_state.foto_idx = 0; st.rerun()
-            with c_txt:
-                st.markdown(
-                    f'<div style="text-align:center;font-size:11px;color:var(--text-muted);padding-top:14px;font-family:monospace;">'
-                    f'EXHIBICIÓN {idx+1} / {len(pend_filtrada)}</div>',
-                    unsafe_allow_html=True,
-                )
-            with c_next:
-                if st.button("SIGUIENTE →", key="btn_next", disabled=(idx >= len(pend_filtrada) - 1)):
-                    st.session_state.idx += 1; st.session_state.foto_idx = 0; st.rerun()
+            # hide original navigation row (now handled by overlay arrows)
+            # st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+            # nav buttons removed
 
             # ── Stats debajo de la foto ──
             st.markdown("<div style='height:24px'></div>", unsafe_allow_html=True)
@@ -606,31 +702,26 @@ def render_visor():
 
                 cb1, cb2, cb3 = st.columns(3)
                 with cb1:
-                    if st.button("✅ APROBAR", key="b_ap"):
+                    # label uses newline so icon and text are in separate rows
+                    if st.button("✅\nAPROBAR", key="b_ap"):
                         n = evaluar(ids_exhibicion, "Aprobado", supervisor, comentario)
                         if n > 0:   set_flash("✅ Aprobada", "green")
                         elif n == 0: set_flash("⚡ Ya evaluada", "amber")
                         reload_pendientes(); st.rerun()
                 with cb2:
-                    if st.button("🔥 DESTACAR", key="b_dest"):
+                    if st.button("🔥\nDESTACAR", key="b_dest"):
                         n = evaluar(ids_exhibicion, "Destacado", supervisor, comentario)
                         if n > 0:   set_flash("🔥 Destacada", "amber")
                         elif n == 0: set_flash("⚡ Ya evaluada", "amber")
                         reload_pendientes(); st.rerun()
                 with cb3:
-                    if st.button("❌ RECHAZAR", key="b_rej"):
+                    if st.button("❌\nRECHAZAR", key="b_rej"):
                         n = evaluar(ids_exhibicion, "Rechazado", supervisor, comentario)
                         if n > 0:   set_flash("❌ Rechazada", "red")
                         elif n == 0: set_flash("⚡ Ya evaluada", "amber")
                         reload_pendientes(); st.rerun()
 
-            st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
-            if st.button("↺ RECARGAR PANTALLA", key="btn_reload_full", use_container_width=True):
-                reload_pendientes(); st.rerun()
-            st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
-            if st.button("SALIR DEL SISTEMA", key="btn_logout_full", type="secondary", use_container_width=True):
-                for k in list(st.session_state.keys()): del st.session_state[k]
-                st.rerun()
+            # bottom reload/logout removed (topbar provides access)
 
 
 def main():

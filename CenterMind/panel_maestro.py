@@ -172,9 +172,19 @@ class BotProcess:
     def start(self) -> None:
         if self.status == "running": return
         script = BASE_DIR / "bot_worker.py"
+        LOGS_DIR.mkdir(exist_ok=True)
+        log_file = LOGS_DIR / f"bot_{self.dist_id}.log"
+        kwargs: dict = {
+            "cwd":   str(BASE_DIR),
+            "stdout": subprocess.DEVNULL,
+            "stderr": open(log_file, "a", encoding="utf-8"),
+            "stdin":  subprocess.DEVNULL,
+        }
+        if sys.platform == "win32":
+            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
         self._proc = subprocess.Popen(
             [sys.executable, str(script), "--distribuidor-id", str(self.dist_id)],
-            cwd=str(BASE_DIR), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            **kwargs
         )
         self._start_t = time.time()
 

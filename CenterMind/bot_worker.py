@@ -1412,6 +1412,11 @@ class BotWorker:
 if __name__ == "__main__":
     import argparse
 
+    # En Windows, ProactorEventLoop falla cuando el proceso no tiene consola
+    # (ej: lanzado desde una GUI como Flet). SelectorEventLoop funciona en todos los contextos.
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
     parser = argparse.ArgumentParser(description="CenterMind — Bot Worker")
     parser.add_argument(
         "--distribuidor-id", type=int, required=True,

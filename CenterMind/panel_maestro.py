@@ -457,13 +457,16 @@ class ShelfMindPanel:
         sidebar = ft.Container(
             content=ft.Column([
                 ft.Container(height=10),
-                ft.Text("NAVEGACIÓN", color=MUTED, size=7,
-                        weight=ft.FontWeight.BOLD,
-                        padding=ft.Padding.only(left=14, bottom=4)),
+                ft.Container(
+                    content=ft.Text("NAVEGACIÓN", color=MUTED, size=7,
+                                    weight=ft.FontWeight.BOLD),
+                    padding=ft.Padding.only(left=14, bottom=4)),
                 *nav_items,
                 ft.Container(expand=True),
-                ft.Text("v3.0 · Flet · Febrero 2026", color=MUTED, size=7,
-                        padding=ft.Padding.only(left=14, bottom=10)),
+                ft.Container(
+                    content=ft.Text("v3.0 · Flet · Febrero 2026",
+                                    color=MUTED, size=7),
+                    padding=ft.Padding.only(left=14, bottom=10)),
             ], spacing=0, expand=True),
             bgcolor=SIDEBAR_BG, width=204,
             border=ft.Border.only(right=ft.BorderSide(1, BORDER)),

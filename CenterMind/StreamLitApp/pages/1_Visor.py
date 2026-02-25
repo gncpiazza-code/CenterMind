@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 import sys
+import base64
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -17,6 +18,19 @@ from typing import Dict, List, Optional
 
 import streamlit as st
 import streamlit.components.v1 as components
+
+try:
+    import requests as _req
+    HAS_REQUESTS = True
+except ImportError:
+    HAS_REQUESTS = False
+
+try:
+    from google.oauth2.service_account import Credentials as _SACreds
+    import google.auth.transport.requests as _ga_tr
+    HAS_GOOGLE_AUTH = True
+except ImportError:
+    HAS_GOOGLE_AUTH = False
 
 # ── Shared styles ──────────────────────────────────────────────────────────────
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -40,7 +54,8 @@ st.set_page_config(
 )
 
 # ─── Paths ────────────────────────────────────────────────────────────────────
-DB_PATH = Path(__file__).resolve().parent.parent.parent / "base_datos" / "centermind.db"
+DB_PATH        = Path(__file__).resolve().parent.parent.parent / "base_datos" / "centermind.db"
+CENTERMIND_ROOT = DB_PATH.parent.parent   # CenterMind/
 
 # ─── CSS ──────────────────────────────────────────────────────────────────────
 VISOR_CSS = """
@@ -131,14 +146,27 @@ div[data-testid="stVerticalBlock"]:has(#eval-master-anchor) {
 }
 .f-icon { font-size: 15px; color: var(--accent-amber); flex-shrink: 0; }
 
-/* Botones acción: apilados en desktop → sin corte de texto */
+/* Botones acción: DESKTOP → columnas apiladas verticalmente
+   Esto evita que el texto se corte: cada botón ocupa el 100% del panel */
+[data-testid="stVerticalBlock"]:has(#eval-master-anchor)
+    [data-testid="stHorizontalBlock"] {
+    flex-direction: column !important;
+    gap: 6px !important;
+}
+[data-testid="stVerticalBlock"]:has(#eval-master-anchor)
+    [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+    flex: 0 0 auto !important;
+    width: 100% !important;
+    min-width: 100% !important;
+}
+
 [data-testid="stVerticalBlock"]:has(#eval-master-anchor)
     div[data-testid="stButton"] button {
     width: 100% !important;
-    font-size: 12px !important;
-    letter-spacing: 1px !important;
-    padding: 10px 6px !important;
-    min-height: 42px !important;
+    font-size: 13px !important;
+    letter-spacing: 1.2px !important;
+    padding: 12px 8px !important;
+    min-height: 44px !important;
     height: auto !important;
     border: none !important;
     border-radius: 10px !important;
@@ -230,12 +258,18 @@ div[data-testid="stVerticalBlock"]:has(#foto-nav-hidden) {
         min-height: 36px !important; height: 36px !important; font-size: 13px !important;
     }
 
-    /* Botones: 3 cols horizontales 33% c/u */
+    /* Botones: MÓVIL → revertir al row de 3 columnas 33% c/u */
     [data-testid="stVerticalBlock"]:has(#eval-master-anchor)
-        [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 8px !important; }
+        [data-testid="stHorizontalBlock"] {
+        flex-direction: row !important;
+        flex-wrap: nowrap !important;
+        gap: 8px !important;
+    }
     [data-testid="stVerticalBlock"]:has(#eval-master-anchor)
         [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
-        flex: 1 1 0 !important; min-width: 0 !important;
+        flex: 1 1 0 !important;
+        min-width: 0 !important;
+        width: auto !important;
     }
     [data-testid="stVerticalBlock"]:has(#eval-master-anchor)
         div[data-testid="stButton"] button {
@@ -366,6 +400,68 @@ def evaluar(ids_exhibicion: List[int], estado: str, supervisor: str, comentario:
 _DRIVE_FILE_RE = re.compile(r"drive\.google\.com/file/d/([a-zA-Z0-9_-]+)")
 _DRIVE_UC_RE   = re.compile(r"drive\.google\.com/uc\?.*id=([a-zA-Z0-9_-]+)")
 
+# ─── Server-side image fetch (bypasa autenticación del browser) ───────────────
+
+def _get_dist_cred_path(distribuidor_id: int) -> str:
+    """Devuelve la ruta relativa del credencial Drive del distribuidor."""
+    with get_conn() as c:
+        row = c.execute(
+            "SELECT ruta_credencial_drive FROM distribuidores WHERE id_distribuidor=?",
+            (distribuidor_id,),
+        ).fetchone()
+    return (row[0] or "") if row else ""
+
+@st.cache_data(ttl=600, show_spinner=False)
+def fetch_drive_b64(file_id: str, cred_path_rel: str = "", sz: int = 1000) -> str:
+    """
+    Descarga una imagen de Google Drive server-side y la devuelve como
+    data URI base64. El browser nunca toca Google Drive directamente.
+
+    Estrategia:
+    1. Thumbnail URL pública  → funciona si el archivo está compartido "con link"
+    2. Service Account auth   → funciona para archivos privados (bot)
+    3. Retorna ""              → se mostrará placeholder en el viewer
+    """
+    if not file_id or not HAS_REQUESTS:
+        return ""
+
+    # ── Intento 1: URL pública de thumbnail ───────────────────────────────────
+    try:
+        url = f"https://drive.google.com/thumbnail?id={file_id}&sz=w{sz}"
+        r   = _req.get(url, timeout=10, allow_redirects=True)
+        ct  = r.headers.get("content-type", "")
+        if r.ok and ct.startswith("image/"):
+            b64 = base64.b64encode(r.content).decode()
+            return f"data:{ct.split(';')[0]};base64,{b64}"
+    except Exception:
+        pass
+
+    # ── Intento 2: Service Account (archivo privado del bot) ──────────────────
+    if not cred_path_rel or not HAS_GOOGLE_AUTH:
+        return ""
+    cred_path = CENTERMIND_ROOT / cred_path_rel
+    if not cred_path.exists():
+        return ""
+    try:
+        creds = _SACreds.from_service_account_file(
+            str(cred_path),
+            scopes=["https://www.googleapis.com/auth/drive.readonly"],
+        )
+        creds.refresh(_ga_tr.Request())
+        url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"
+        r   = _req.get(
+            url,
+            headers={"Authorization": f"Bearer {creds.token}"},
+            timeout=20,
+        )
+        if r.ok:
+            ct  = r.headers.get("content-type", "image/jpeg")
+            b64 = base64.b64encode(r.content).decode()
+            return f"data:{ct.split(';')[0]};base64,{b64}"
+    except Exception as e:
+        print(f"[fetch_drive_b64] SA failed for {file_id}: {e}")
+    return ""
+
 def drive_file_id(url: str) -> Optional[str]:
     for rx in (_DRIVE_FILE_RE, _DRIVE_UC_RE):
         m = rx.search(url or "")
@@ -374,26 +470,30 @@ def drive_file_id(url: str) -> Optional[str]:
 
 # ─── Custom image viewer component ────────────────────────────────────────────
 
-def build_viewer_html(fotos: List[Dict], foto_idx: int, idx: int, n_pend: int) -> str:
+def build_viewer_html(
+    fotos: List[Dict],
+    foto_idx: int,
+    idx: int,
+    n_pend: int,
+    img_src: str = "",
+    thumb_srcs: Optional[List[str]] = None,
+) -> str:
     """
     Genera el HTML completo del visualizador.
-    Renderizado via st.components.v1.html() (mismo origen que Streamlit).
-    - Usa <img> con thumbnail URL → funciona en móvil (no más iframe de Drive)
-    - Flechas superpuestas izquierda / derecha
-    - Swipe táctil con JS
-    - Puntos indicadores para ráfaga
-    - Miniaturas clickeables
-    - El JS propaga clicks a los botones Streamlit del DOM padre
+    - img_src:    data URI base64 (server-side fetch) o URL pública
+    - thumb_srcs: lista de data URIs para miniaturas
+    - Flechas superpuestas, swipe táctil, dots, miniaturas
+    - JS propaga clicks a botones Streamlit del DOM padre
     """
-    n_fotos  = len(fotos)
-    foto     = fotos[foto_idx]
-    fid      = drive_file_id(foto["drive_link"]) or ""
-    img_src  = f"https://drive.google.com/thumbnail?id={fid}&sz=w1200" if fid else foto["drive_link"]
-    img_fb   = f"https://drive.google.com/uc?export=view&id={fid}" if fid else ""
-
-    counter  = f"{idx+1}/{n_pend}" + (f" · F{foto_idx+1}/{n_fotos}" if n_fotos > 1 else "")
+    n_fotos   = len(fotos)
+    counter   = f"{idx+1}/{n_pend}" + (f" · F{foto_idx+1}/{n_fotos}" if n_fotos > 1 else "")
     show_prev = foto_idx > 0 or idx > 0
     show_next = foto_idx < n_fotos - 1 or idx < n_pend - 1
+
+    # Fallback si no llegó img_src (auth falla)
+    fid = drive_file_id(fotos[foto_idx]["drive_link"]) or ""
+    if not img_src:
+        img_src = f"https://drive.google.com/thumbnail?id={fid}&sz=w1000" if fid else ""
 
     # Dots
     dots = ""
@@ -408,8 +508,10 @@ def build_viewer_html(fotos: List[Dict], foto_idx: int, idx: int, n_pend: int) -
     thumbs = ""
     if n_fotos > 1:
         for i, f in enumerate(fotos):
-            tid  = drive_file_id(f["drive_link"]) or ""
-            tsrc = f"https://drive.google.com/thumbnail?id={tid}&sz=w200" if tid else ""
+            tsrc = (thumb_srcs[i] if thumb_srcs and i < len(thumb_srcs) else "") or ""
+            if not tsrc:
+                tid  = drive_file_id(f["drive_link"]) or ""
+                tsrc = f"https://drive.google.com/thumbnail?id={tid}&sz=w150" if tid else ""
             thumbs += (
                 f'<div class="th{"a" if i == foto_idx else ""}" data-i="{i}">'
                 f'<img src="{tsrc}" onerror="this.style.opacity=.3" loading="lazy"></div>'
@@ -461,7 +563,7 @@ html,body{{background:transparent;overflow:hidden;height:100%;font-family:sans-s
   {'<div class="raf">📸 ' + str(n_fotos) + ' fotos</div>' if n_fotos > 1 else ''}
   <div class="chev L{' h' if not show_prev else ''}" id="bp"><span>&#8249;</span></div>
   <img id="mi" src="{img_src}" alt="exhibición"
-       onerror="this.onerror=null;this.src='{img_fb}';"
+       onerror="this.style.opacity='0.15'"
        draggable="false" loading="eager">
   <div class="chev R{' h' if not show_next else ''}" id="bn"><span>&#8250;</span></div>
   {dots}
@@ -668,11 +770,26 @@ def render_visor():
             if foto_idx >= n_fotos:
                 foto_idx = 0; st.session_state.foto_idx = 0
 
+            # ── Fetch imagen server-side ─────────────────────────────────────
+            # Las imágenes están en Drive privado (solo service account).
+            # Las descargamos acá y las pasamos al viewer como base64.
+            # @st.cache_data las cachea 10 min para no re-descargar.
+            cred_path = _get_dist_cred_path(u["id_distribuidor"])
+            main_fid  = drive_file_id(fotos[foto_idx]["drive_link"]) or ""
+            img_src   = fetch_drive_b64(main_fid, cred_path, sz=1000)
+
+            thumb_srcs: List[str] = []
+            if n_fotos > 1:
+                for f in fotos:
+                    tid = drive_file_id(f["drive_link"]) or ""
+                    thumb_srcs.append(fetch_drive_b64(tid, cred_path, sz=150))
+
             # ── Viewer personalizado ──────────────────────────────────────────
             # Altura: imagen (~380px) + strip de miniaturas si hay ráfaga (+65px)
             viewer_height = 380 + (65 if n_fotos > 1 else 0)
             components.html(
-                build_viewer_html(fotos, foto_idx, idx, len(pend_filtrada)),
+                build_viewer_html(fotos, foto_idx, idx, len(pend_filtrada),
+                                  img_src=img_src, thumb_srcs=thumb_srcs),
                 height=viewer_height,
                 scrolling=False,
             )

@@ -320,17 +320,16 @@ def _section_header(title: str, subtitle: str = "") -> ft.Column:
     ], spacing=4)
 
 def _btn(text: str, on_click, color: str = AMBER,
-         bgcolor: str = PANEL, width: Optional[int] = None) -> ft.ElevatedButton:
-    return ft.ElevatedButton(
-        text=text, on_click=on_click, width=width,
+         bgcolor: str = PANEL, width: Optional[int] = None) -> ft.Button:
+    return ft.Button(
+        content=ft.Text(text, color=color, size=10),
+        on_click=on_click, width=width,
         style=ft.ButtonStyle(
-            color={ft.ControlState.DEFAULT: color,
-                   ft.ControlState.HOVERED: color},
             bgcolor={ft.ControlState.DEFAULT: bgcolor,
                      ft.ControlState.HOVERED: HOVER_BG},
             shape=ft.RoundedRectangleBorder(radius=6),
             side=ft.BorderSide(1, BORDER),
-            padding=ft.padding.symmetric(horizontal=14, vertical=8),
+            padding=ft.Padding.symmetric(horizontal=14, vertical=8),
         )
     )
 

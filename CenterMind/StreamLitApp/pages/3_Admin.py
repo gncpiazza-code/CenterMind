@@ -1,12 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-CenterMind — Panel Admin
+ShelfMind — Panel Admin
 ========================
-Solo accesible para usuarios con rol 'superadmin'.
-
-Secciones:
-  - Usuarios del portal (CRUD)
-  - Integrantes de Telegram (ver + cambiar rol)
+Acceso:
+  - superadmin: todo (usuarios del portal + Telegram)
+  - admin: solo gestión de roles de Telegram (su propia distribuidora)
 """
 
 from __future__ import annotations
@@ -21,12 +19,16 @@ import streamlit as st
 if "logged_in" not in st.session_state or not st.session_state.logged_in:
     st.switch_page("app.py")
 
-if st.session_state.user.get("rol") != "superadmin":
+ROL_PORTAL = (st.session_state.user.get("rol") or "").lower()
+IS_SUPER   = ROL_PORTAL == "superadmin"
+IS_ADMIN   = ROL_PORTAL == "admin"
+
+if ROL_PORTAL not in ("superadmin", "admin"):
     st.switch_page("app.py")
 
 # ─── Configuración de página ──────────────────────────────────────────────────
 st.set_page_config(
-    page_title="CenterMind · Admin",
+    page_title="ShelfMind · Admin",
     page_icon="⚙️",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -41,28 +43,43 @@ STYLE = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap');
 
+/* ── CSS Variables — Paleta Tobacco/Amber ShelfMind ─────────────────────── */
+:root {
+    --bg-darkest:   #140E0C;
+    --bg-card:      rgba(42, 30, 24, 0.5);
+    --accent-amber: #D9A76A;
+    --accent-sand:  #D9BD9C;
+    
+    --role-superadmin: #FFD700;
+    --role-admin:      #D9BD9C;
+    --role-evaluador:  #7DAF6B;
+    --role-vendedor:   #CBD5E1;
+    --role-observador: #94A3B8;
+
+    --text-primary:    #F0E6D8;
+    --text-muted:      rgba(240, 230, 216, 0.5);
+    --text-dim:        rgba(240, 230, 216, 0.3);
+    --border-soft:     rgba(217, 167, 106, 0.15);
+    --border-light:    rgba(255, 255, 255, 0.04);
+}
+
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 html, body, [data-testid="stAppViewContainer"], [data-testid="stMain"] {
-    background: #07080f !important;
-    color: #e2e8f0 !important;
+    background: var(--bg-darkest) !important;
+    color: var(--text-primary) !important;
     font-family: 'DM Sans', sans-serif !important;
 }
-[data-testid="stHeader"],
-[data-testid="stToolbar"],
-[data-testid="stDecoration"]        { display: none !important; }
+[data-testid="stHeader"], [data-testid="stToolbar"], [data-testid="stDecoration"] { display: none !important; }
 [data-testid="stMainBlockContainer"]{ padding: 0 !important; max-width: 100% !important; }
-section[data-testid="stSidebar"]    { display: none !important; }
-.block-container { padding: 0 !important; max-width: 100% !important; }
+section[data-testid="stSidebar"] { display: none !important; }
 
 [data-testid="stAppViewContainer"]::before {
-    content: '';
-    position: fixed; inset: 0; z-index: 0;
+    content: ''; position: fixed; inset: 0; z-index: 0;
     background:
-        radial-gradient(ellipse 80% 50% at 10% 20%, rgba(251,191,36,0.04) 0%, transparent 60%),
-        radial-gradient(ellipse 60% 40% at 90% 80%, rgba(34,211,238,0.03) 0%, transparent 60%),
-        repeating-linear-gradient(0deg, transparent, transparent 39px, rgba(255,255,255,0.015) 40px),
-        repeating-linear-gradient(90deg, transparent, transparent 39px, rgba(255,255,255,0.015) 40px);
+        radial-gradient(ellipse 80% 50% at 10% 20%, rgba(217,167,106,0.04) 0%, transparent 60%),
+        repeating-linear-gradient(0deg, transparent, transparent 39px, rgba(255,255,255,0.008) 40px),
+        repeating-linear-gradient(90deg, transparent, transparent 39px, rgba(255,255,255,0.008) 40px);
     pointer-events: none;
 }
 
@@ -70,141 +87,212 @@ section[data-testid="stSidebar"]    { display: none !important; }
 .topbar {
     display: flex; align-items: center; justify-content: space-between;
     padding: 14px 32px;
-    background: rgba(10,12,22,0.9);
-    border-bottom: 1px solid rgba(251,191,36,0.12);
+    background: rgba(20, 14, 12, 0.95);
+    border-bottom: 1px solid var(--border-soft);
     backdrop-filter: blur(8px);
     position: sticky; top: 0; z-index: 100;
-    margin-bottom: 28px;
+    margin-bottom: 24px;
 }
 .topbar-logo {
     font-family: 'Bebas Neue', sans-serif;
-    font-size: 26px; letter-spacing: 3px; color: #fbbf24;
+    font-size: 26px; letter-spacing: 3px; color: var(--accent-amber);
+    text-shadow: 0 0 20px rgba(217, 167, 106, 0.3);
 }
-.topbar-meta { font-size: 12px; color: rgba(226,232,240,0.4); letter-spacing: 1px; }
+.topbar-meta { font-size: 12px; color: rgba(240, 230, 216, 0.4); letter-spacing: 1px; }
 .superadmin-badge {
     display: inline-flex; align-items: center; gap: 6px;
     padding: 4px 14px; border-radius: 999px;
     font-size: 11px; letter-spacing: 1px; text-transform: uppercase;
-    background: rgba(139,92,246,0.15);
-    border: 1px solid rgba(139,92,246,0.35);
-    color: #a78bfa;
+    background: rgba(255, 215, 0, 0.12);
+    border: 1px solid rgba(255, 215, 0, 0.3);
+    color: var(--role-superadmin);
+    box-shadow: 0 0 12px rgba(255, 215, 0, 0.15);
 }
 
 /* ── Tabs ─────────────────────────────────────────────────── */
 div[data-testid="stTabs"] [role="tablist"] {
-    background: rgba(15,17,30,0.6) !important;
-    border-radius: 12px !important;
-    padding: 4px !important;
-    border: 1px solid rgba(255,255,255,0.06) !important;
-    gap: 4px !important;
+    background: rgba(42, 30, 24, 0.4) !important;
+    border-radius: 12px !important; padding: 4px !important;
+    border: 1px solid var(--border-soft) !important; gap: 4px !important;
 }
 div[data-testid="stTabs"] [role="tab"] {
     font-family: 'Bebas Neue', sans-serif !important;
-    letter-spacing: 2px !important;
-    font-size: 15px !important;
-    color: rgba(226,232,240,0.4) !important;
-    border-radius: 8px !important;
-    padding: 8px 20px !important;
-    border: none !important;
+    letter-spacing: 2px !important; font-size: 15px !important;
+    color: var(--text-dim) !important; border-radius: 8px !important;
+    padding: 8px 20px !important; border: none !important;
+    transition: all 0.2s ease !important;
 }
 div[data-testid="stTabs"] [role="tab"][aria-selected="true"] {
-    background: rgba(251,191,36,0.12) !important;
-    color: #fbbf24 !important;
-    border: 1px solid rgba(251,191,36,0.25) !important;
-}
-div[data-testid="stTabs"] [role="tabpanel"] {
-    padding-top: 24px !important;
+    background: rgba(217, 167, 106, 0.15) !important;
+    color: var(--accent-amber) !important;
+    border: 1px solid var(--border-soft) !important;
 }
 
-/* ── Cards ────────────────────────────────────────────────── */
+/* ── Cards & Formularios ──────────────────────────────────── */
 .card {
-    background: rgba(20,23,40,0.8);
-    border: 1px solid rgba(255,255,255,0.07);
+    background: var(--bg-card);
+    border: 1px solid var(--border-soft);
     border-radius: 14px;
-    padding: 20px 22px;
-    margin-bottom: 16px;
+    backdrop-filter: blur(12px);
+    padding: 20px 22px; margin-bottom: 16px;
 }
 .card-title {
     font-size: 10px; letter-spacing: 3px; text-transform: uppercase;
-    color: rgba(226,232,240,0.35); margin-bottom: 16px;
-    display: flex; align-items: center; gap: 8px;
+    color: var(--accent-amber); margin-bottom: 16px;
+    display: flex; align-items: center; gap: 8px; font-weight: 600;
 }
-.card-title::after {
-    content: ''; flex: 1; height: 1px;
-    background: rgba(255,255,255,0.06);
-}
+.card-title::after { content: ''; flex: 1; height: 1px; background: var(--border-soft); }
 
-/* ── Table ────────────────────────────────────────────────── */
-.admin-table {
-    width: 100%; border-collapse: collapse;
-    font-size: 13px;
+[data-testid="stForm"] {
+    background: rgba(20, 14, 12, 0.8) !important;
+    border: 1px solid var(--border-soft) !important;
+    border-radius: 16px !important;
+    padding: 24px !important;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.5) !important;
 }
-.admin-table th {
-    font-size: 10px; letter-spacing: 2px; text-transform: uppercase;
-    color: rgba(226,232,240,0.35);
-    padding: 8px 12px; text-align: left;
-    border-bottom: 1px solid rgba(255,255,255,0.06);
-}
-.admin-table td {
-    padding: 10px 12px;
-    border-bottom: 1px solid rgba(255,255,255,0.04);
-    color: #e2e8f0;
-    vertical-align: middle;
-}
-.admin-table tr:last-child td { border-bottom: none; }
-.admin-table tr:hover td { background: rgba(255,255,255,0.02); }
 
 /* ── Role badges ──────────────────────────────────────────── */
 .role-badge {
     display: inline-flex; align-items: center;
-    padding: 2px 10px; border-radius: 20px;
-    font-size: 10px; letter-spacing: 1px; text-transform: uppercase;
-    font-weight: 600;
+    padding: 4px 12px; border-radius: 20px;
+    font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; font-weight: 700;
 }
-.role-superadmin { background: rgba(139,92,246,0.15); color: #a78bfa; border: 1px solid rgba(139,92,246,0.3); }
-.role-admin      { background: rgba(251,191,36,0.12); color: #fbbf24; border: 1px solid rgba(251,191,36,0.25); }
-.role-evaluador  { background: rgba(34,211,238,0.1);  color: #22d3ee; border: 1px solid rgba(34,211,238,0.2); }
-.role-vendedor   { background: rgba(74,222,128,0.1);  color: #4ade80; border: 1px solid rgba(74,222,128,0.2); }
-.role-observador { background: rgba(148,163,184,0.1); color: #94a3b8; border: 1px solid rgba(148,163,184,0.2); }
+.role-superadmin { background: rgba(255, 215, 0, 0.15); color: var(--role-superadmin); border: 1px solid rgba(255, 215, 0, 0.35); }
+.role-admin { background: rgba(217, 189, 156, 0.12); color: var(--role-admin); border: 1px solid rgba(217, 189, 156, 0.25); }
+.role-evaluador { background: rgba(125, 175, 107, 0.12); color: var(--role-evaluador); border: 1px solid rgba(125, 175, 107, 0.25); }
+.role-vendedor { background: rgba(203, 213, 225, 0.08); color: var(--role-vendedor); border: 1px solid rgba(203, 213, 225, 0.2); }
+.role-observador { background: rgba(148, 163, 184, 0.08); color: var(--role-observador); border: 1px solid rgba(148, 163, 184, 0.2); }
 
-/* ── Form ─────────────────────────────────────────────────── */
-div[data-testid="stTextInput"] input {
-    background: rgba(20,23,40,0.9) !important;
-    border: 1px solid rgba(255,255,255,0.1) !important;
-    border-radius: 10px !important;
-    color: #e2e8f0 !important;
-    font-family: 'DM Sans', sans-serif !important;
+/* ── Inputs y Botones Generales ───────────────────────────── */
+div[data-testid="stTextInput"] input, div[data-testid="stSelectbox"] > div > div {
+    background: rgba(20, 15, 12, 0.8) !important;
+    border: 1px solid rgba(217, 167, 106, 0.2) !important;
+    border-radius: 10px !important; color: var(--text-primary) !important;
 }
-div[data-testid="stTextInput"] input:focus {
-    border-color: rgba(251,191,36,0.4) !important;
-    box-shadow: 0 0 0 3px rgba(251,191,36,0.08) !important;
+div[data-testid="stTextInput"] input:focus, div[data-testid="stSelectbox"] > div > div:focus-within {
+    border-color: var(--accent-amber) !important;
+    box-shadow: 0 0 0 3px rgba(217, 167, 106, 0.1) !important;
 }
-div[data-testid="stSelectbox"] > div > div {
-    background: rgba(20,23,40,0.9) !important;
-    border: 1px solid rgba(255,255,255,0.1) !important;
-    border-radius: 10px !important;
-    color: #e2e8f0 !important;
-}
+
 div[data-testid="stButton"] button {
     font-family: 'Bebas Neue', sans-serif !important;
     letter-spacing: 2px !important; font-size: 14px !important;
-    border-radius: 10px !important; height: 44px !important;
-    transition: all 0.15s ease !important;
+    border-radius: 8px !important; height: 40px !important;
+    background: rgba(217, 167, 106, 0.1) !important;
+    border: 1px solid rgba(217, 167, 106, 0.25) !important;
+    color: var(--accent-amber) !important;
+    transition: all 0.2s ease !important;
+}
+div[data-testid="stButton"] button:hover {
+    background: rgba(217, 167, 106, 0.2) !important;
+    border-color: var(--accent-amber) !important;
+    transform: translateY(-2px) !important;
 }
 div[data-testid="stAlert"] {
-    background: rgba(248,113,113,0.1) !important;
-    border: 1px solid rgba(248,113,113,0.3) !important;
+    background: rgba(220, 38, 38, 0.1) !important;
+    border: 1px solid rgba(220, 38, 38, 0.3) !important;
     border-radius: 10px !important; color: #f87171 !important;
 }
 div[data-testid="stSuccess"] {
-    background: rgba(74,222,128,0.1) !important;
-    border: 1px solid rgba(74,222,128,0.3) !important;
-    border-radius: 10px !important; color: #4ade80 !important;
+    background: rgba(22, 163, 74, 0.1) !important;
+    border: 1px solid rgba(22, 163, 74, 0.3) !important;
+    border-radius: 10px !important; color: #86EFAC !important;
 }
 
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+::-webkit-scrollbar-thumb { background: rgba(217, 167, 106, 0.15); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(217, 167, 106, 0.3); }
+
+/* ── ESTILOS DEL LISTADO (TABLA EN DESKTOP, CARDS EN MÓVIL) ── */
+.grid-header {
+    display: grid; gap: 16px; padding: 0 16px 12px 16px;
+    border-bottom: 1px solid var(--border-soft); margin-bottom: 8px;
+    color: rgba(226,232,240,0.35); font-size: 10px; letter-spacing: 2px;
+    text-transform: uppercase; font-weight: 600;
+}
+.row-divider { height: 1px; background: var(--border-light); margin: 6px 0; }
+.cell-primary { font-weight: 600; font-size: 14px; color: var(--text-primary); }
+.cell-secondary { font-size: 13px; color: var(--text-muted); }
+.cell-mono { font-family: 'DM Mono', monospace; font-size: 12px; color: var(--accent-sand); }
+
+/* Efecto hover en desktop para toda la fila */
+div[data-testid="stHorizontalBlock"]:has(.admin-row) {
+    align-items: center; padding: 4px 8px; border-radius: 8px;
+    transition: background 0.2s;
+}
+div[data-testid="stHorizontalBlock"]:has(.admin-row):hover {
+    background: rgba(217, 167, 106, 0.05);
+}
+
+/* Botón Peligro (El 5to botón en Usuarios) */
+div[data-testid="stHorizontalBlock"]:has(.admin-row-user) > div:nth-child(5) div[data-testid="stButton"] button {
+    background: rgba(220, 38, 38, 0.1) !important;
+    border: 1px solid rgba(220, 38, 38, 0.25) !important;
+    color: #DC2626 !important;
+}
+div[data-testid="stHorizontalBlock"]:has(.admin-row-user) > div:nth-child(5) div[data-testid="stButton"] button:hover {
+    background: rgba(220, 38, 38, 0.25) !important; border-color: #DC2626 !important;
+}
+div[data-testid="stHorizontalBlock"]:has(.admin-row-user) > div:nth-child(5) div[data-testid="stButton"] button:disabled {
+    opacity: 0.3 !important; cursor: not-allowed !important; transform: none !important;
+}
+
+/* ── RESPONSIVE MÓVIL (CARD STACKING) ─────────────────────── */
+@media (max-width: 768px) {
+    .grid-header, .row-divider { display: none; }
+    
+    div[data-testid="stButton"] button { height: 44px !important; }
+
+    /* Transformar la fila en una tarjeta */
+    div[data-testid="stHorizontalBlock"]:has(.admin-row) {
+        display: grid !important;
+        background: var(--bg-card) !important;
+        border: 1px solid var(--border-soft) !important;
+        border-radius: 12px !important;
+        padding: 16px !important;
+        margin-bottom: 12px !important;
+        gap: 8px !important;
+        align-items: center !important;
+    }
+    div[data-testid="column"] { width: 100% !important; min-width: 100% !important; }
+
+    /* Template Areas - Usuarios */
+    div[data-testid="stHorizontalBlock"]:has(.admin-row-user) {
+        grid-template-columns: 1fr auto !important;
+        grid-template-areas:
+            "name role"
+            "dist dist"
+            "btn1 btn2" !important;
+    }
+    div[data-testid="stHorizontalBlock"]:has(.admin-row-user) > div:nth-child(1) { grid-area: name; }
+    div[data-testid="stHorizontalBlock"]:has(.admin-row-user) > div:nth-child(2) { grid-area: dist; margin-bottom: 8px !important;}
+    div[data-testid="stHorizontalBlock"]:has(.admin-row-user) > div:nth-child(3) { grid-area: role; text-align: right; }
+    div[data-testid="stHorizontalBlock"]:has(.admin-row-user) > div:nth-child(4) { grid-area: btn1; }
+    div[data-testid="stHorizontalBlock"]:has(.admin-row-user) > div:nth-child(5) { grid-area: btn2; }
+
+    /* Template Areas - Integrantes */
+    div[data-testid="stHorizontalBlock"]:has(.admin-row-int) {
+        grid-template-columns: 1fr auto !important;
+        grid-template-areas:
+            "name role"
+            "dist dist"
+            "group group"
+            "tgid tgid"
+            "btn btn" !important;
+    }
+    div[data-testid="stHorizontalBlock"]:has(.admin-row-int) > div:nth-child(1) { grid-area: name; }
+    div[data-testid="stHorizontalBlock"]:has(.admin-row-int) > div:nth-child(2) { grid-area: dist; }
+    div[data-testid="stHorizontalBlock"]:has(.admin-row-int) > div:nth-child(3) { grid-area: group; }
+    div[data-testid="stHorizontalBlock"]:has(.admin-row-int) > div:nth-child(4) { grid-area: tgid; margin-bottom: 8px !important;}
+    div[data-testid="stHorizontalBlock"]:has(.admin-row-int) > div:nth-child(5) { grid-area: role; text-align: right; }
+    div[data-testid="stHorizontalBlock"]:has(.admin-row-int) > div:nth-child(6) { grid-area: btn; }
+
+    /* Textos inyectados para móvil */
+    .mobile-lbl-dist::before { content: "Distribuidora: "; font-weight: bold; color: var(--text-dim); }
+    .mobile-lbl-grp::before { content: "Grupo: "; font-weight: bold; color: var(--text-dim); }
+    .cell-primary { font-size: 16px; }
+}
 </style>
 """
 
@@ -226,7 +314,6 @@ def get_distribuidoras() -> List[Dict]:
                ORDER BY nombre_empresa"""
         ).fetchall()
     return [dict(r) for r in rows]
-
 
 # ── Usuarios del portal ────────────────────────────────────────────────────────
 
@@ -252,7 +339,6 @@ def get_usuarios(distribuidor_id: Optional[int] = None) -> List[Dict]:
             ).fetchall()
     return [dict(r) for r in rows]
 
-
 def crear_usuario(dist_id: int, login: str, password: str, rol: str) -> bool:
     try:
         with get_conn() as c:
@@ -264,7 +350,6 @@ def crear_usuario(dist_id: int, login: str, password: str, rol: str) -> bool:
         return True
     except sqlite3.IntegrityError:
         return False
-
 
 def editar_usuario(user_id: int, login: str, rol: str, password: Optional[str] = None) -> bool:
     try:
@@ -284,7 +369,6 @@ def editar_usuario(user_id: int, login: str, rol: str, password: Optional[str] =
     except sqlite3.IntegrityError:
         return False
 
-
 def eliminar_usuario(user_id: int) -> bool:
     try:
         with get_conn() as c:
@@ -293,7 +377,6 @@ def eliminar_usuario(user_id: int) -> bool:
         return True
     except Exception:
         return False
-
 
 # ── Integrantes de Telegram ────────────────────────────────────────────────────
 
@@ -321,19 +404,24 @@ def get_integrantes(distribuidor_id: Optional[int] = None) -> List[Dict]:
             ).fetchall()
     return [dict(r) for r in rows]
 
-
-def set_rol_integrante(id_integrante: int, rol: str) -> bool:
+def set_rol_integrante(id_integrante: int, rol: str, distribuidor_id: Optional[int] = None) -> bool:
     try:
         with get_conn() as c:
-            c.execute(
-                "UPDATE integrantes_grupo SET rol_telegram=? WHERE id_integrante=?",
-                (rol, id_integrante)
-            )
+            if distribuidor_id is None:
+                c.execute(
+                    "UPDATE integrantes_grupo SET rol_telegram=? WHERE id_integrante=?",
+                    (rol, id_integrante)
+                )
+            else:
+                c.execute(
+                    "UPDATE integrantes_grupo SET rol_telegram=? WHERE id_integrante=? AND id_distribuidor=?",
+                    (rol, id_integrante, distribuidor_id)
+                )
+            changed = c.execute("SELECT changes()").fetchone()[0]
             c.commit()
-        return True
+        return bool(changed)
     except Exception:
         return False
-
 
 # ─── Helpers de render ────────────────────────────────────────────────────────
 
@@ -347,17 +435,17 @@ def role_badge(rol: str) -> str:
     }.get(rol, "role-evaluador")
     return f'<span class="role-badge {cls}">{rol}</span>'
 
-
 def render_topbar():
     u = st.session_state.user
+    badge = "\u2605" if IS_SUPER else "\u25CF"
     st.markdown(f"""
     <div class="topbar">
         <div style="display:flex;align-items:center;gap:20px;">
-            <span class="topbar-logo">CENTERMIND · ADMIN</span>
-            <span class="topbar-meta">Panel de Administración</span>
+            <span class="topbar-logo">SHELFMIND · ADMIN</span>
+            <span class="topbar-meta">Gestión de Accesos</span>
         </div>
         <div style="display:flex;align-items:center;gap:12px;">
-            <span class="superadmin-badge">&#x2605; {u.get('usuario_login','')}</span>
+            <span class="superadmin-badge">{badge} {u.get('usuario_login','')} · {u.get('rol','')}</span>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -385,61 +473,56 @@ def tab_usuarios():
     dist_id_filtro = dist_opciones_con_todos[filtro_dist]
     usuarios = get_usuarios(dist_id_filtro)
 
-    # ── Tabla de usuarios ─────────────────────────────────────────────────────
+    # ── Listado de Usuarios (Grilla CSS + Columnas Streamlit) ─────────────────
     st.markdown('<div class="card"><div class="card-title">Usuarios Registrados</div>', unsafe_allow_html=True)
 
     if not usuarios:
-        st.markdown('<p style="color:rgba(226,232,240,0.3);font-size:13px;">No hay usuarios registrados.</p>', unsafe_allow_html=True)
+        st.markdown('<p style="color:var(--text-dim);font-size:13px;">No hay usuarios registrados.</p>', unsafe_allow_html=True)
     else:
+        # Encabezado (Visible solo en desktop)
+        st.markdown("""
+        <div class="grid-header" style="grid-template-columns: 3fr 3fr 2fr 2fr 2fr;">
+            <div>USUARIO</div><div>DISTRIBUIDORA</div><div style="text-align:center;">ROL</div><div></div><div></div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        yo = st.session_state.user.get("id_usuario")
+
+        # Filas nativas (OJO AQUÍ: Quité el vertical_alignment="center")
         for u in usuarios:
-            col_nombre, col_dist, col_rol, col_edit, col_del = st.columns([2, 2, 1.5, 0.8, 0.8])
-            with col_nombre:
-                st.markdown(
-                    f'<div style="font-size:14px;font-weight:600;color:#e2e8f0;padding-top:8px;">'
-                    f'{u["usuario_login"]}</div>',
-                    unsafe_allow_html=True,
-                )
-            with col_dist:
-                st.markdown(
-                    f'<div style="font-size:12px;color:rgba(226,232,240,0.5);padding-top:9px;">'
-                    f'{u["nombre_empresa"]}</div>',
-                    unsafe_allow_html=True,
-                )
-            with col_rol:
-                st.markdown(
-                    f'<div style="padding-top:6px;">{role_badge(u["rol"])}</div>',
-                    unsafe_allow_html=True,
-                )
-            with col_edit:
+            c1, c2, c3, c4, c5 = st.columns([3, 3, 2, 2, 2])
+            with c1:
+                st.markdown(f'<span class="admin-row admin-row-user"></span><div class="cell-primary" style="margin-top:10px;">{u["usuario_login"]}</div>', unsafe_allow_html=True)
+            with c2:
+                st.markdown(f'<div class="cell-secondary mobile-lbl-dist" style="margin-top:10px;">{u["nombre_empresa"]}</div>', unsafe_allow_html=True)
+            with c3:
+                st.markdown(f'<div style="text-align:center;margin-top:10px;">{role_badge(u["rol"])}</div>', unsafe_allow_html=True)
+            with c4:
                 if st.button("EDITAR", key=f"edit_usr_{u['id_usuario']}", use_container_width=True):
                     st.session_state["editando_usuario"] = u
                     st.rerun()
-            with col_del:
-                # Proteger: no puede eliminarse a sí mismo
-                yo = st.session_state.user.get("id_usuario")
+            with c5:
                 disabled = (u["id_usuario"] == yo)
-                if st.button("BORRAR", key=f"del_usr_{u['id_usuario']}",
-                             use_container_width=True, disabled=disabled):
+                if st.button("BORRAR", key=f"del_usr_{u['id_usuario']}", use_container_width=True, disabled=disabled):
                     st.session_state["confirmar_borrar_usr"] = u
                     st.rerun()
-
-            st.markdown('<hr style="border:none;border-top:1px solid rgba(255,255,255,0.04);margin:2px 0;">', unsafe_allow_html=True)
+            st.markdown('<div class="row-divider"></div>', unsafe_allow_html=True)
 
     st.markdown('</div>', unsafe_allow_html=True)
 
     # ── Confirmación de borrado ───────────────────────────────────────────────
     if "confirmar_borrar_usr" in st.session_state:
         u_del = st.session_state["confirmar_borrar_usr"]
-        st.warning(f"¿Eliminar al usuario **{u_del['usuario_login']}**? Esta acción no se puede deshacer.")
+        st.error(f"⚠️ ¿Eliminar permanentemente al usuario **{u_del['usuario_login']}**?")
         c1, c2, _ = st.columns([1, 1, 4])
         with c1:
-            if st.button("SI, ELIMINAR", key="confirm_del_usr"):
+            if st.button("SÍ, ELIMINAR", key="confirm_del_usr", use_container_width=True):
                 if eliminar_usuario(u_del["id_usuario"]):
-                    st.success("Usuario eliminado.")
+                    st.success("Usuario eliminado correctamente.")
                     del st.session_state["confirmar_borrar_usr"]
                     st.rerun()
         with c2:
-            if st.button("CANCELAR", key="cancel_del_usr"):
+            if st.button("CANCELAR", key="cancel_del_usr", use_container_width=True):
                 del st.session_state["confirmar_borrar_usr"]
                 st.rerun()
 
@@ -454,6 +537,7 @@ def tab_usuarios():
                                        if u_ed["rol"] in ["evaluador","admin","superadmin"] else 0)
             nueva_pass  = st.text_input("Nueva contraseña (dejar vacío para no cambiar)",
                                         type="password", placeholder="••••••••")
+            st.markdown("<br>", unsafe_allow_html=True)
             c1, c2 = st.columns(2)
             with c1:
                 guardar = st.form_submit_button("GUARDAR CAMBIOS", use_container_width=True)
@@ -483,6 +567,7 @@ def tab_usuarios():
             nuevo_login = st.text_input("Usuario", placeholder="nombre_usuario")
             nuevo_pass  = st.text_input("Contraseña", type="password", placeholder="••••••••")
             nuevo_rol   = st.selectbox("Rol", ["evaluador", "admin", "superadmin"])
+            st.markdown("<br>", unsafe_allow_html=True)
             c1, c2 = st.columns(2)
             with c1:
                 crear = st.form_submit_button("CREAR USUARIO", use_container_width=True)
@@ -509,66 +594,64 @@ def tab_usuarios():
 # ─── Tab 2: Integrantes de Telegram ──────────────────────────────────────────
 
 def tab_integrantes():
-    distribuidoras = get_distribuidoras()
-    dist_opciones  = {d["nombre"]: d["id"] for d in distribuidoras}
-    dist_opciones_con_todos = {"Todas": None, **dist_opciones}
+    dist_id_filtro: Optional[int]
+    if IS_ADMIN:
+        dist_id_filtro = st.session_state.user.get("id_distribuidor")
+        st.info(f"Distribuidora: **{st.session_state.user.get('nombre_empresa','')}** (solo tu entorno)")
+    else:
+        distribuidoras = get_distribuidoras()
+        dist_opciones  = {d["nombre"]: d["id"] for d in distribuidoras}
+        dist_opciones_con_todos = {"Todas": None, **dist_opciones}
 
-    filtro_dist = st.selectbox(
-        "Filtrar por distribuidora",
-        list(dist_opciones_con_todos.keys()),
-        key="int_filtro_dist",
-    )
-    dist_id_filtro = dist_opciones_con_todos[filtro_dist]
-    integrantes    = get_integrantes(dist_id_filtro)
+        filtro_dist = st.selectbox(
+            "Filtrar por distribuidora",
+            list(dist_opciones_con_todos.keys()),
+            key="int_filtro_dist",
+        )
+        dist_id_filtro = dist_opciones_con_todos[filtro_dist]
+        
+    integrantes = get_integrantes(dist_id_filtro)
 
     st.markdown('<div class="card"><div class="card-title">Integrantes de Telegram</div>', unsafe_allow_html=True)
 
     if not integrantes:
-        st.markdown('<p style="color:rgba(226,232,240,0.3);font-size:13px;">No hay integrantes registrados.</p>', unsafe_allow_html=True)
+        st.markdown('<p style="color:var(--text-dim);font-size:13px;">No hay integrantes registrados.</p>', unsafe_allow_html=True)
     else:
-        for ig in integrantes:
-            col_nom, col_dist, col_grupo, col_tg, col_rol = st.columns([2, 2, 1.5, 1.5, 1.5])
-            with col_nom:
-                st.markdown(
-                    f'<div style="font-size:14px;font-weight:600;color:#e2e8f0;padding-top:8px;">'
-                    f'{ig["nombre_integrante"] or "Sin nombre"}</div>',
-                    unsafe_allow_html=True,
-                )
-            with col_dist:
-                st.markdown(
-                    f'<div style="font-size:12px;color:rgba(226,232,240,0.5);padding-top:9px;">'
-                    f'{ig["nombre_empresa"]}</div>',
-                    unsafe_allow_html=True,
-                )
-            with col_grupo:
-                grupo = ig.get("nombre_grupo") or f"ID {ig.get('telegram_group_id','—')}"
-                st.markdown(
-                    f'<div style="font-size:11px;color:rgba(226,232,240,0.4);padding-top:9px;">'
-                    f'{grupo}</div>',
-                    unsafe_allow_html=True,
-                )
-            with col_tg:
-                st.markdown(
-                    f'<div style="font-family:\'DM Mono\',monospace;font-size:11px;'
-                    f'color:rgba(34,211,238,0.6);padding-top:9px;">'
-                    f'{ig["telegram_user_id"]}</div>',
-                    unsafe_allow_html=True,
-                )
-            with col_rol:
-                rol_actual = ig["rol_telegram"] or "vendedor"
-                nuevo_rol  = "observador" if rol_actual == "vendedor" else "vendedor"
-                label      = "-> OBSERVADOR" if rol_actual == "vendedor" else "-> VENDEDOR"
-                if st.button(label, key=f"rol_ig_{ig['id_integrante']}", use_container_width=True):
-                    if set_rol_integrante(ig["id_integrante"], nuevo_rol):
-                        st.rerun()
+        # Encabezado (Visible solo en desktop)
+        st.markdown("""
+        <div class="grid-header" style="grid-template-columns: 2.5fr 2.5fr 2.5fr 2fr 1.5fr 2fr;">
+            <div>NOMBRE</div><div>DISTRIBUIDORA</div><div>GRUPO</div><div>TELEGRAM ID</div><div style="text-align:center;">ROL</div><div style="text-align:center;">ACCIÓN</div>
+        </div>
+        """, unsafe_allow_html=True)
 
-            st.markdown(
-                f'<div style="display:flex;align-items:center;gap:8px;padding:2px 0 6px 0;">'
-                f'{role_badge(rol_actual)}'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-            st.markdown('<hr style="border:none;border-top:1px solid rgba(255,255,255,0.04);margin:2px 0;">', unsafe_allow_html=True)
+        for ig in integrantes:
+            rol_actual = ig["rol_telegram"] or "vendedor"
+            nuevo_rol  = "observador" if rol_actual == "vendedor" else "vendedor"
+            label      = "→ OBSERVADOR" if rol_actual == "vendedor" else "→ VENDEDOR"
+            grupo      = ig.get("nombre_grupo") or f"ID {ig.get('telegram_group_id','—')}"
+
+            # Filas nativas (OJO AQUÍ: Quité el vertical_alignment="center")
+            c1, c2, c3, c4, c5, c6 = st.columns([2.5, 2.5, 2.5, 2, 1.5, 2])
+            with c1:
+                st.markdown(f'<span class="admin-row admin-row-int"></span><div class="cell-primary" style="margin-top:10px;">{ig["nombre_integrante"] or "Sin nombre"}</div>', unsafe_allow_html=True)
+            with c2:
+                st.markdown(f'<div class="cell-secondary mobile-lbl-dist" style="margin-top:10px;">{ig["nombre_empresa"]}</div>', unsafe_allow_html=True)
+            with c3:
+                st.markdown(f'<div class="cell-secondary mobile-lbl-grp" style="margin-top:10px;">{grupo}</div>', unsafe_allow_html=True)
+            with c4:
+                st.markdown(f'<div class="cell-mono mobile-lbl-tg" style="margin-top:10px;">TG ID: {ig["telegram_user_id"]}</div>', unsafe_allow_html=True)
+            with c5:
+                st.markdown(f'<div style="text-align:center;margin-top:10px;">{role_badge(rol_actual)}</div>', unsafe_allow_html=True)
+            with c6:
+                if st.button(label, key=f"rol_ig_{ig['id_integrante']}", use_container_width=True):
+                    if set_rol_integrante(
+                        ig["id_integrante"], nuevo_rol,
+                        st.session_state.user.get("id_distribuidor") if IS_ADMIN else None
+                    ):
+                        st.rerun()
+                    else:
+                        st.error("No tenés permisos para modificar este integrante.")
+            st.markdown('<div class="row-divider"></div>', unsafe_allow_html=True)
 
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -581,12 +664,11 @@ def main():
 
     st.markdown("<div style='padding:0 24px 24px;'>", unsafe_allow_html=True)
 
-    tab1, tab2 = st.tabs(["USUARIOS DEL PORTAL", "INTEGRANTES TELEGRAM"])
-
-    with tab1:
-        tab_usuarios()
-
-    with tab2:
+    if IS_SUPER:
+        tab1, tab2 = st.tabs(["USUARIOS DEL PORTAL", "INTEGRANTES TELEGRAM"])
+        with tab1: tab_usuarios()
+        with tab2: tab_integrantes()
+    else:
         tab_integrantes()
 
     # Botón volver al menú
@@ -596,5 +678,5 @@ def main():
 
     st.markdown("</div>", unsafe_allow_html=True)
 
-
-main()
+if __name__ == "__main__":
+    main()

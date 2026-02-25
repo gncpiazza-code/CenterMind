@@ -16,6 +16,8 @@ import logging
 import asyncio
 import sqlite3
 import uuid
+import atexit
+import errno
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from pathlib import Path
@@ -104,6 +106,90 @@ try:
 except ImportError:
     def get_logger(name: str) -> logging.Logger:
         return logging.getLogger(name)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# INSTANCE LOCK — evita múltiples instancias del mismo bot
+# ═══════════════════════════════════════════════════════════════════
+
+def _pid_exists(pid: int) -> bool:
+    """
+    Verifica si un proceso con ese PID existe (cross-platform, sin psutil).
+    Windows: usa OpenProcess via ctypes.
+    Unix:    usa os.kill(pid, 0).
+    """
+    if pid <= 0:
+        return False
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            handle = ctypes.windll.kernel32.OpenProcess(
+                PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+            if handle:
+                ctypes.windll.kernel32.CloseHandle(handle)
+                return True
+        except Exception:
+            pass
+        return False
+    else:
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError as exc:
+            # EPERM = proceso existe pero sin permiso para señalarlo
+            return exc.errno == errno.EPERM
+
+
+def acquire_instance_lock(dist_id: int, log: logging.Logger) -> Optional[Path]:
+    """
+    Adquiere el lock de instancia única para este distribuidor.
+    - Si el lock existe y el PID sigue vivo → retorna None (no arrancar).
+    - Si el lock existe pero el PID murió (zombie cleanup) → lo sobreescribe.
+    - Si no existe → lo crea con nuestro PID.
+    Retorna el Path del lock file si se adquirió, None si hay conflicto.
+    """
+    lock_dir = BASE_DIR / "logs"
+    lock_dir.mkdir(exist_ok=True)
+    lf      = lock_dir / f"bot_{dist_id}.lock"
+    my_pid  = os.getpid()
+
+    if lf.exists():
+        try:
+            existing_pid = int(lf.read_text().strip())
+        except (ValueError, OSError):
+            existing_pid = 0
+
+        if existing_pid and existing_pid != my_pid:
+            if _pid_exists(existing_pid):
+                log.error(
+                    f"❌ Ya hay una instancia activa de bot_{dist_id} "
+                    f"(PID {existing_pid}). Saliendo para evitar "
+                    f"'Conflict: terminated by other getUpdates request'."
+                )
+                return None
+            log.warning(
+                f"⚠️ Lock zombie encontrado (PID {existing_pid} ya no existe). "
+                "Limpiando y continuando."
+            )
+
+    try:
+        lf.write_text(str(my_pid))
+    except OSError as exc:
+        log.warning(f"⚠️ No se pudo crear lock file: {exc} — continuando sin lock.")
+        return None
+    return lf
+
+
+def release_instance_lock(lf: Optional[Path]) -> None:
+    """Elimina el lock file al salir (registrado con atexit)."""
+    if not lf:
+        return
+    try:
+        if lf.exists() and int(lf.read_text().strip()) == os.getpid():
+            lf.unlink()
+    except Exception:
+        pass
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -839,6 +925,7 @@ class BotWorker:
 
     async def handle_photo(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not update.message or not update.message.photo:
+            self.logger.debug("❌ handle_photo: No hay mensaje o foto")
             return
 
         chat_id  = update.message.chat.id
@@ -848,6 +935,8 @@ class BotWorker:
         msg_id   = update.message.message_id
         file_id  = update.message.photo[-1].file_id
 
+        self.logger.info(f"📸 Foto recibida de {username} (UID: {user_id}) en chat {chat_id}")
+
         # Registro silencioso del usuario
         asyncio.create_task(asyncio.to_thread(
             self._register_user,
@@ -856,15 +945,17 @@ class BotWorker:
 
         # Hibernación — no procesar fotos
         if self.bot_hibernating:
-            self.logger.debug(f"Foto ignorada (hibernando): {username}")
+            self.logger.debug(f"❌ Foto ignorada (hibernando): {username}")
             return
 
         # Verificar rol
         rol = await asyncio.to_thread(
             self.db.get_rol, self.distribuidor_id, chat_id, user_id
         )
+        self.logger.info(f"👤 Rol de {username}: {rol}")
+
         if rol == "observador":
-            self.logger.debug(f"Foto ignorada — observador: {username}")
+            self.logger.debug(f"❌ Foto ignorada — observador: {username}")
             return
 
         now = time.time()
@@ -922,6 +1013,7 @@ class BotWorker:
             "last_photo_time": now,
         }
         self.upload_sessions[user_id]["photos"].append({"file_id": file_id, "message_id": msg_id})
+        self.logger.info(f"✅ Nueva sesión creada para {username}")
 
         await asyncio.sleep(0.5)  # Pequeño delay anti-race
 
@@ -933,8 +1025,9 @@ class BotWorker:
 
         try:
             await update.message.reply_text(texto, parse_mode=ParseMode.HTML, reply_to_message_id=msg_id)
+            self.logger.info(f"✅ Respuesta enviada pidiendo NRO CLIENTE")
         except Exception as e:
-            self.logger.error(f"Error enviando respuesta: {e}")
+            self.logger.error(f"❌ Error enviando respuesta: {e}")
 
     # ─────────────────────────────────────────────────────────────
     # HANDLER DE TEXTO (NRO CLIENTE)
@@ -1049,6 +1142,8 @@ class BotWorker:
         fallidas     = 0
         exhibicion_ids: List[str] = []
 
+        self.logger.info(f"🚀 Iniciando procesamiento de {len(photos)} foto(s)...")
+
         for photo_data in photos:
             file_id    = photo_data["file_id"]
             ph_msg_id  = photo_data["message_id"]
@@ -1056,12 +1151,14 @@ class BotWorker:
             try:
                 file       = await context.bot.get_file(file_id)
                 file_bytes = await file.download_as_bytearray()
+                self.logger.info(f"✅ Foto descargada: {len(file_bytes)} bytes")
 
                 filename = (
                     f"{nro_cliente}_{clean_code}_{int(time.time())}.jpg"
                 )
 
                 # Subida a Drive en thread
+                self.logger.info(f"📤 Subiendo a Drive: {filename}...")
                 drive_link = await asyncio.to_thread(
                     self.drive.upload,
                     bytes(file_bytes),
@@ -1072,25 +1169,34 @@ class BotWorker:
                 )
 
                 if drive_link:
+                    self.logger.info(f"✅ Foto en Drive: {drive_link[:80]}...")
                     # Registro en SQL
-                    ex_id = await asyncio.to_thread(
-                        self.db.registrar_exhibicion,
-                        self.distribuidor_id,
-                        chat_id,
-                        uploader_id,
-                        uploader_name,
-                        nro_cliente,
-                        tipo_pdv,
-                        drive_link,
-                    )
-                    exhibicion_ids.append(ex_id)
-                    procesadas += 1
+                    try:
+                        ex_id = await asyncio.to_thread(
+                            self.db.registrar_exhibicion,
+                            self.distribuidor_id,
+                            chat_id,
+                            uploader_id,
+                            uploader_name,
+                            nro_cliente,
+                            tipo_pdv,
+                            drive_link,
+                        )
+                        self.logger.info(f"✅ Exhibición registrada: ID {ex_id}")
+                        exhibicion_ids.append(ex_id)
+                        procesadas += 1
+                    except Exception as db_err:
+                        self.logger.error(f"❌ ERROR REGISTRANDO EN BD: {db_err}")
+                        fallidas += 1
                 else:
+                    self.logger.warning(f"❌ Falló la subida a Drive (drive_link vacío)")
                     fallidas += 1
 
             except Exception as e:
-                self.logger.error(f"Error procesando foto: {e}")
+                self.logger.error(f"❌ ERROR PROCESANDO FOTO: {e}")
                 fallidas += 1
+
+        self.logger.info(f"📊 RESUMEN: {procesadas} exitosas, {fallidas} fallidas")
 
         # ── Borrar botones de selección ──
         try:
@@ -1322,6 +1428,19 @@ class BotWorker:
         if isinstance(error, BadRequest):
             self.logger.warning(f"BadRequest ignorado: {error}")
             return
+
+        # ── Instancia duplicada — salida automática ──────────────────────
+        err_str = str(error).lower()
+        if "conflict" in err_str and "getupdates" in err_str:
+            self.logger.critical(
+                f"🔴 INSTANCIA DUPLICADA — bot_{self.distribuidor_id} ya está corriendo "
+                "en otro proceso. Esta instancia se auto-termina para evitar el conflicto."
+            )
+            time.sleep(0.3)   # Dar tiempo a que el logger vacíe el buffer
+            os._exit(1)
+            return
+        # ─────────────────────────────────────────────────────────────────
+
         self.logger.error(f"Error no manejado: {error}", exc_info=True)
 
     # ─────────────────────────────────────────────────────────────
@@ -1412,12 +1531,28 @@ class BotWorker:
 if __name__ == "__main__":
     import argparse
 
+    # En Windows, ProactorEventLoop falla cuando el proceso no tiene consola
+    # (ej: lanzado desde una GUI como Flet). SelectorEventLoop funciona en todos los contextos.
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
     parser = argparse.ArgumentParser(description="CenterMind — Bot Worker")
     parser.add_argument(
         "--distribuidor-id", type=int, required=True,
         help="ID del distribuidor en la base de datos"
     )
     args = parser.parse_args()
+
+    # ── Verificar instancia única ─────────────────────────────────────────
+    _startup_log  = get_logger(f"Bot-{args.distribuidor_id}")
+    _lock_file    = acquire_instance_lock(args.distribuidor_id, _startup_log)
+    if _lock_file is None:
+        # Otra instancia activa → salir silenciosamente (el error ya fue logueado)
+        sys.exit(1)
+    # Registrar limpieza del lock al salir (funciona con exit() normal y excepciones;
+    # NOT con os._exit() ni SIGKILL, pero esos casos los cubre el PID check al arrancar)
+    atexit.register(release_instance_lock, _lock_file)
+    # ─────────────────────────────────────────────────────────────────────
 
     worker = BotWorker(distribuidor_id=args.distribuidor_id)
     worker.run()

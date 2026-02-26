@@ -73,10 +73,17 @@ VISOR_CSS = """
 }
 section[data-testid="stSidebar"] { display: none !important; }
 
-/* Para que position:sticky del panel derecho funcione,
-   el flex-container de columnas debe usar align-items:start */
-[data-testid="stHorizontalBlock"] {
-    align-items: flex-start !important;
+/* ── Desktop: forzar side-by-side sin wrap ──────────────
+   Streamlit tiene CSS responsive interno que apila columnas
+   en pantallas intermedias. Estos overrides lo anulan.   */
+@media (min-width: 641px) {
+    [data-testid="stHorizontalBlock"] {
+        flex-wrap:     nowrap !important;
+        align-items:   flex-start !important; /* habilita position:sticky */
+    }
+    [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+        min-width: 0 !important; /* evita overflow implícito que causa wrap */
+    }
 }
 
 /* ══════════════════════════════════════════════════

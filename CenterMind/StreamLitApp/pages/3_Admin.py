@@ -34,6 +34,14 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
+# Inyectar fondo oscuro inmediatamente para evitar el flash blanco
+st.markdown(
+    "<style>html,body,[data-testid='stAppViewContainer'],"
+    "[data-testid='stMain']{background:#140E0C!important}"
+    "section[data-testid='stSidebar']{display:none!important}</style>",
+    unsafe_allow_html=True,
+)
+
 # ─── Paths ────────────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH  = BASE_DIR.parent.parent / "base_datos" / "centermind.db"

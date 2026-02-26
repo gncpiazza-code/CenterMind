@@ -4,6 +4,14 @@ ShelfMind — Visor de Evaluación (Streamlit)
 ============================================
 Ejecutar:
     streamlit run app.py
+
+CAMBIOS v2:
+  FIX-1  Sin flash negro al navegar — se eliminó transition:opacity del <img>
+         y se fijó fondo oscuro persistente en el contenedor del iframe.
+  FIX-2  Ráfaga obligatoria — los botones de evaluación se desbloquean
+         automáticamente cuando foto_idx llega a la última foto de la ráfaga.
+  FIX-3  APROBAR verde vivo con glow verde en hover.
+         DESTACAR con animación de retroiluminación ámbar sutil y continua.
 """
 
 from __future__ import annotations
@@ -97,10 +105,6 @@ section[data-testid="stSidebar"] { display: none !important; }
     grid-column: 2 !important;
 }
 
-
-
-
-
 /* keep the panel visible as the user scrolls */
 div[data-testid="stVerticalBlock"]:has(#eval-master-anchor) {
     position: sticky !important;
@@ -109,6 +113,25 @@ div[data-testid="stVerticalBlock"]:has(#eval-master-anchor) {
     z-index: 50 !important;
 }
 
+/* ══════════════════════════════════════════════════
+   FIX-1: Evitar flash negro / overlay oscuro al navegar
+   Streamlit recarga el iframe del componente en cada rerun.
+   Durante ese instante el contenedor queda en blanco o negro.
+   Forzamos el mismo fondo oscuro del visor en el wrapper del
+   iframe para que el cambio sea imperceptible.
+   ══════════════════════════════════════════════════ */
+[data-testid="stCustomComponentV1"],
+[data-testid="stCustomComponentV1"] iframe,
+div[class*="stIFrame"],
+div[class*="stIFrame"] iframe {
+    background: #0a0705 !important;
+}
+
+/* Ocultar el spinner/overlay de "running" de Streamlit que oscurece
+   la pantalla entera durante cada rerun de navegación */
+[data-testid="stStatusWidget"]       { display: none !important; }
+[data-testid="stDecoration"]         { display: none !important; }
+div[class*="StatusWidget"]           { display: none !important; }
 
 /* ══════════════════════════════════════════════════
    TOPBAR — STAT PILLS
@@ -192,8 +215,36 @@ div[data-testid="stVerticalBlock"]:has(#eval-master-anchor) {
 .f-pdv  { font-size: 13px; color: var(--text-primary); }
 .f-date { font-size: 11px; color: var(--text-dim); font-family: monospace; letter-spacing: 0.5px; }
 
-/* ── Botones de acción (APROBAR / DESTACAR / RECHAZAR) ──────────────────────
-   Desktop: fila de 3 (width auto, wrapping enabled) */
+/* ── FIX-2: Hint ráfaga — aviso de fotos pendientes de ver ──────── */
+.rafaga-hint {
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    background: rgba(217,167,106,.08);
+    border: 1px solid rgba(217,167,106,.22);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 12px; letter-spacing: 1.2px;
+    color: var(--accent-amber);
+    text-align: center;
+}
+
+/* ══════════════════════════════════════════════════
+   BOTONES DE ACCIÓN — APROBAR / DESTACAR / RECHAZAR
+   FIX-3: Verde vivo para APROBAR, glow ámbar animado para DESTACAR
+   ══════════════════════════════════════════════════ */
+
+/* Animación sutil para DESTACAR — retroiluminación ámbar que pulsa */
+@keyframes destacar-glow {
+  0%,  100% {
+    box-shadow: 0 4px 10px rgba(217,167,106,0.15),
+                0 0  0px  0px rgba(217,167,106,0.0);
+  }
+  50% {
+    box-shadow: 0 4px 18px rgba(217,167,106,0.40),
+                0 0  14px  3px rgba(217,167,106,0.18);
+  }
+}
+
 [data-testid="stVerticalBlock"]:has(#eval-master-anchor)
     [data-testid="stHorizontalBlock"] {
     flex-direction: row !important;
@@ -222,30 +273,65 @@ div[data-testid="stVerticalBlock"]:has(#eval-master-anchor) {
     overflow-wrap: break-word !important;
     transition: filter .15s, transform .15s, box-shadow .15s !important;
 }
-/* APROBAR */
+
+/* ── APROBAR — verde vivo, glow verde en hover ── */
 [data-testid="stVerticalBlock"]:has(#eval-master-anchor)
     [data-testid="stColumn"]:nth-child(1)
     div[data-testid="stButton"] button {
-    background: linear-gradient(135deg,#2E5A28,#5EA852) !important; color:#fff !important;
+    background: linear-gradient(135deg, #1b6612, #3ec234) !important;
+    color: #fff !important;
+    box-shadow: 0 4px 12px rgba(62,194,52,0.20) !important;
 }
-/* DESTACAR */
+[data-testid="stVerticalBlock"]:has(#eval-master-anchor)
+    [data-testid="stColumn"]:nth-child(1)
+    div[data-testid="stButton"] button:hover:not(:disabled) {
+    filter: brightness(1.12) !important;
+    transform: translateY(-2px) !important;
+    box-shadow: 0 6px 22px rgba(62,194,52,0.48) !important;
+}
+
+/* ── DESTACAR — ámbar clásico + pulso de retroiluminación sutil ── */
 [data-testid="stVerticalBlock"]:has(#eval-master-anchor)
     [data-testid="stColumn"]:nth-child(2)
     div[data-testid="stButton"] button {
-    background: linear-gradient(135deg,#9A6E2A,#D9A76A) !important;
-    color:#1A1311 !important; font-weight:800 !important;
+    background: linear-gradient(135deg, #9A6E2A, #D9A76A) !important;
+    color: #1A1311 !important;
+    font-weight: 800 !important;
+    animation: destacar-glow 2.8s ease-in-out infinite !important;
 }
-/* RECHAZAR */
+[data-testid="stVerticalBlock"]:has(#eval-master-anchor)
+    [data-testid="stColumn"]:nth-child(2)
+    div[data-testid="stButton"] button:hover:not(:disabled) {
+    filter: brightness(1.15) !important;
+    transform: translateY(-2px) !important;
+}
+
+/* ── RECHAZAR — rojo oscuro original ── */
 [data-testid="stVerticalBlock"]:has(#eval-master-anchor)
     [data-testid="stColumn"]:nth-child(3)
     div[data-testid="stButton"] button {
-    background: linear-gradient(135deg,#6A2318,#C0584A) !important; color:#fff !important;
+    background: linear-gradient(135deg, #6A2318, #C0584A) !important;
+    color: #fff !important;
 }
+
+/* hover genérico para los tres (solo cuando están habilitados) */
 [data-testid="stVerticalBlock"]:has(#eval-master-anchor)
-    div[data-testid="stButton"] button:hover {
+    div[data-testid="stButton"] button:hover:not(:disabled) {
     filter: brightness(1.18) !important;
     transform: translateY(-2px) !important;
     box-shadow: 0 6px 20px rgba(0,0,0,0.45) !important;
+}
+
+/* Estado deshabilitado — botones grises, sin animación */
+[data-testid="stVerticalBlock"]:has(#eval-master-anchor)
+    div[data-testid="stButton"] button:disabled {
+    background: rgba(255,255,255,0.07) !important;
+    color: rgba(240,230,216,0.30) !important;
+    box-shadow: none !important;
+    animation: none !important;
+    cursor: not-allowed !important;
+    transform: none !important;
+    filter: none !important;
 }
 
 /* ── Acciones secundarias (RECARGAR / SALIR) dentro del panel ───
@@ -260,6 +346,7 @@ div[data-testid="stVerticalBlock"]:has(#eval-master-anchor)
     height: auto !important;
     border-radius: 8px !important;
     white-space: normal !important;
+    animation: none !important;
 }
 
 /* ── Botones de navegación ANTERIOR / SIGUIENTE: ghost ─ */
@@ -276,6 +363,7 @@ div[data-testid="stVerticalBlock"]:has(#nav-anchor)
     height: auto !important;
     border-radius: 8px !important;
     transition: all .15s !important;
+    animation: none !important;
 }
 div[data-testid="stVerticalBlock"]:has(#nav-anchor)
     div[data-testid="stButton"] button:hover {
@@ -487,6 +575,9 @@ def build_viewer_html(
     - thumb_srcs: lista de data URIs para miniaturas
     - Fallback JS: prueba múltiples URLs si img_src falla en browser
     - Flechas superpuestas, swipe táctil, dots, miniaturas
+
+    FIX-1: Se eliminó 'transition:opacity .2s' del #mi para evitar el
+    efecto de difuminado/fade que disparaba el flash oscuro al navegar.
     """
     n_fotos   = len(fotos)
     counter   = f"{idx+1}/{n_pend}" + (f" · F{foto_idx+1}/{n_fotos}" if n_fotos > 1 else "")
@@ -536,12 +627,12 @@ def build_viewer_html(
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 *{{box-sizing:border-box;margin:0;padding:0}}
-html,body{{background:transparent;overflow:hidden;height:100%;font-family:sans-serif}}
+html,body{{background:#0a0705;overflow:hidden;height:100%;font-family:sans-serif}}
 #vw{{position:relative;width:100%;height:calc(100% - {65 if n_fotos > 1 else 0}px);
      background:#0a0705;display:flex;align-items:center;justify-content:center;overflow:hidden}}
 #mi{{width:100%;height:100%;object-fit:contain;display:block;
-     touch-action:pinch-zoom;user-select:none;-webkit-user-drag:none;pointer-events:none;
-     transition:opacity .2s}}
+     touch-action:pinch-zoom;user-select:none;-webkit-user-drag:none;pointer-events:none}}
+/* SIN transition:opacity — evita el difuminado/flash al navegar (FIX-1) */
 /* placeholder si no hay imagen */
 #img-ph{{display:none;position:absolute;inset:0;flex-direction:column;
          align-items:center;justify-content:center;gap:8px;pointer-events:none}}
@@ -583,9 +674,9 @@ html,body{{background:transparent;overflow:hidden;height:100%;font-family:sans-s
 <div id="vw">
   <div class="ctr">{counter}</div>
   {'<div class="raf">📸 ' + str(n_fotos) + ' fotos</div>' if n_fotos > 1 else ''}
-  <div class="chev L{' h' if not show_prev else ''}" id="bp"><span>&#8249;</span></div>
+  <div class="chev L{' h' if not show_prev else ''}" id="bp"><span>‹</span></div>
   <img id="mi" src="{img_src}" alt="exhibición" draggable="false" loading="eager">
-  <div class="chev R{' h' if not show_next else ''}" id="bn"><span>&#8250;</span></div>
+  <div class="chev R{' h' if not show_next else ''}" id="bn"><span>›</span></div>
   {dots}
   <div id="img-ph">
     <div class="ph-icon">📷</div>
@@ -666,6 +757,10 @@ def init_state():
         "flash_type":      "green",
         "filtro_vendedor": "Todos",
         "_visor_loaded":   False,
+        # FIX-2: tracking de fotos vistas por ráfaga.
+        # Dict[int, int] → idx_exhibicion → max foto_idx que llegó a ver el evaluador.
+        # Se limpia al recargar pendientes para evitar datos viejos.
+        "fotos_vistas":    {},
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -677,7 +772,8 @@ def reload_pendientes():
         st.session_state.pendientes = get_pendientes(u["id_distribuidor"])
         if st.session_state.idx >= len(st.session_state.pendientes):
             st.session_state.idx = max(0, len(st.session_state.pendientes) - 1)
-        st.session_state.foto_idx = 0
+        st.session_state.foto_idx   = 0
+        st.session_state.fotos_vistas = {}   # FIX-2: resetear al recargar
 
 def reload_pendientes_silent():
     u = st.session_state.user
@@ -687,6 +783,7 @@ def reload_pendientes_silent():
             st.session_state.pendientes = nuevos
             if st.session_state.idx >= len(st.session_state.pendientes):
                 st.session_state.idx = max(0, len(st.session_state.pendientes) - 1)
+            st.session_state.fotos_vistas = {}   # FIX-2: resetear al recargar silencioso
 
 def set_flash(msg: str, tipo: str = "green"):
     st.session_state.flash = msg
@@ -789,17 +886,11 @@ def render_visor():
         st.session_state.flash = None
 
     # ══════════════════════════════════════════════════════════════════════════
-    # ══════════════════════════════════════════════════════════════════════════
     # VISOR DE FOTOS + NAVEGACIÓN (ancho completo) + PANEL DE EVALUACIÓN
-    # ahora usamos columnas nativas 70/30; CSS solo actúa en móvil
     # ══════════════════════════════════════════════════════════════════════════
     col_visor, col_panel = st.columns([7, 3])
 
     with col_visor:
-        # Contenido del visor en la columna izquierda. El panel de evaluación
-        # se renderiza en la columna derecha (col_panel), más abajo en el flujo
-        # DOM. El CSS móvil continúa controlando el comportamiento bottom-sheet.
-        # ══════════════════════════════════════════════════════════════════════════
         if not pend_filtrada:
             # Estado vacío
             st.markdown(
@@ -827,7 +918,14 @@ def render_visor():
             foto_idx = st.session_state.foto_idx
             if foto_idx >= n_fotos:
                 foto_idx = 0; st.session_state.foto_idx = 0
-    
+
+            # ── FIX-2: Actualizar el máximo de fotos vistas para esta exhibición ──
+            # El dict usa el idx como clave. Cada vez que foto_idx avanza lo registramos.
+            fv = st.session_state.fotos_vistas
+            if foto_idx > fv.get(idx, 0):
+                fv[idx] = foto_idx
+                st.session_state.fotos_vistas = fv
+
             # ── Fetch imagen server-side ──────────────────────────────────────
             main_fid = drive_file_id(fotos[foto_idx]["drive_link"]) or ""
             img_src  = fetch_drive_b64(main_fid, sz=1000)
@@ -837,7 +935,7 @@ def render_visor():
                 for f in fotos:
                     tid = drive_file_id(f["drive_link"]) or ""
                     thumb_srcs.append(fetch_drive_b64(tid, sz=150))
-    
+
             # ── Viewer (más alto ahora que ocupa el ancho completo) ───────────
             viewer_height = 540 + (65 if n_fotos > 1 else 0)
             components.html(
@@ -848,54 +946,61 @@ def render_visor():
                 height=viewer_height,
                 scrolling=False,
             )
-    
-            # ── Navegación ANTERIOR / SIGUIENTE ──────────────────────────────
-            st.markdown('<div id="nav-anchor"></div>', unsafe_allow_html=True)
-            c_prev, c_txt, c_next = st.columns([1, 2, 1])
-            with c_prev:
-                if st.button("← ANTERIOR", key="btn_prev", disabled=(idx == 0)):
-                    st.session_state.idx -= 1
-                    st.session_state.foto_idx = 0
-                    st.rerun()
-            with c_txt:
-                st.markdown(
-                    f'<div style="text-align:center;font-size:11px;'
-                    f'color:var(--text-dim);padding-top:12px;font-family:monospace;'
-                    f'letter-spacing:1px;">'
-                    f'EXHIBICIÓN {idx+1} / {n_pend}</div>',
-                    unsafe_allow_html=True,
-                )
-            with c_next:
-                if st.button("SIGUIENTE →", key="btn_next",
-                             disabled=(idx >= n_pend - 1)):
-                    st.session_state.idx += 1
-                    st.session_state.foto_idx = 0
-                    st.rerun()
-    
-            # Botones F1…Fn: solo en DOM para JS del viewer (ocultos vía CSS)
+
+            # ── Navegación ANTERIOR / SIGUIENTE (AHORA ENVUELTO EN st.container) ──
+            with st.container():
+                st.markdown('<div id="nav-anchor"></div>', unsafe_allow_html=True)
+                c_prev, c_txt, c_next = st.columns([1, 2, 1])
+                with c_prev:
+                    if st.button("← ANTERIOR", key="btn_prev", disabled=(idx == 0)):
+                        st.session_state.idx -= 1
+                        st.session_state.foto_idx = 0
+                        st.rerun()
+                with c_txt:
+                    st.markdown(
+                        f'<div style="text-align:center;font-size:11px;'
+                        f'color:var(--text-dim);padding-top:12px;font-family:monospace;'
+                        f'letter-spacing:1px;">'
+                        f'EXHIBICIÓN {idx+1} / {n_pend}</div>',
+                        unsafe_allow_html=True,
+                    )
+                with c_next:
+                    if st.button("SIGUIENTE →", key="btn_next",
+                                 disabled=(idx >= n_pend - 1)):
+                        st.session_state.idx += 1
+                        st.session_state.foto_idx = 0
+                        st.rerun()
+
+            # Botones F1…Fn (AHORA ENVUELTOS EN st.container Y CON CLAVES DINÁMICAS)
             if n_fotos > 1:
-                st.markdown('<div id="foto-nav-hidden"></div>', unsafe_allow_html=True)
-                cols_f = st.columns(n_fotos)
-                for i, col in enumerate(cols_f):
-                    with col:
-                        if st.button(f"F{i+1}", key=f"tmb_{i}"):
-                            st.session_state.foto_idx = i; st.rerun()
-    
-        # ══════════════════════════════════════════════════════════════════════════
+                with st.container():
+                    st.markdown('<div id="foto-nav-hidden"></div>', unsafe_allow_html=True)
+                    cols_f = st.columns(n_fotos)
+                    for i, col in enumerate(cols_f):
+                        with col:
+                            if st.button(f"F{i+1}", key=f"tmb_{idx}_{i}"):
+                                st.session_state.foto_idx = i; st.rerun()
+
     with col_panel:
-            # PANEL DE EVALUACIÓN
-            # CSS lo posiciona: sticky a la derecha (diseño solo para PC).
-            # Se renderiza DESPUÉS del visor en el flujo DOM para que :has() funcione.
-            # ══════════════════════════════════════════════════════════════════════════
             if pend_filtrada:
                 ex             = pend_filtrada[idx]
-                ids_exhibicion = [f["id_exhibicion"] for f in ex.get("fotos", [])]
+                fotos          = ex.get("fotos", [])
+                n_fotos        = len(fotos)
+                foto_idx       = st.session_state.foto_idx
+                ids_exhibicion = [f["id_exhibicion"] for f in fotos]
                 fecha_fmt      = ex.get("fecha_hora", "")[:16]
                 supervisor     = u.get("usuario_login", "supervisor")
-        
+
+                # ── FIX-2: Calcular si el evaluador ya vio todas las fotos ──────
+                # Una exhibición de foto única siempre está "vista".
+                # Una ráfaga requiere que foto_idx haya llegado al final al menos una vez.
+                max_vista   = st.session_state.fotos_vistas.get(idx, foto_idx)
+                todas_vistas = (n_fotos <= 1) or (max_vista >= n_fotos - 1)
+                fotos_faltan = (n_fotos - 1 - max_vista) if not todas_vistas else 0
+
                 with st.container():
                     st.markdown('<div id="eval-master-anchor"></div>', unsafe_allow_html=True)
-        
+
                     # Info del vendedor / cliente
                     st.markdown(
                         '<div class="floating-info">'
@@ -919,34 +1024,58 @@ def render_visor():
                         '</div>',
                         unsafe_allow_html=True,
                     )
-        
+
+                    # CLAVE DINÁMICA: evita arrastrar comentarios a la siguiente exhibición
                     comentario = st.text_area(
                         "C", placeholder="Comentario opcional...",
-                        key="comentario_field", label_visibility="collapsed",
+                        key=f"comentario_field_{idx}", label_visibility="collapsed",
                     )
-        
-                    # Botones acción (3 col → CSS los apila en desktop / fila en móvil)
+
+                    # ── FIX-2: Hint visual cuando quedan fotos de ráfaga por ver ──
+                    if not todas_vistas:
+                        faltan_txt = f"F{max_vista + 2}" if fotos_faltan == 1 else f"F{max_vista + 2}–F{n_fotos}"
+                        st.markdown(
+                            f'<div class="rafaga-hint">'
+                            f'📸 Ver {faltan_txt} para desbloquear evaluación'
+                            f'</div>',
+                            unsafe_allow_html=True,
+                        )
+
+                    # Botones de acción CON CLAVES DINÁMICAS
+                    # disabled=not todas_vistas bloquea hasta ver la última foto (FIX-2)
                     cb1, cb2, cb3 = st.columns(3)
                     with cb1:
-                        if st.button("✅ APROBAR", key="b_ap", use_container_width=True):
+                        if st.button(
+                            "✅ APROBAR", key=f"b_ap_{idx}",
+                            use_container_width=True,
+                            disabled=not todas_vistas,
+                        ):
                             n = evaluar(ids_exhibicion, "Aprobado", supervisor, comentario)
                             if n > 0:    set_flash("✅ Aprobada", "green")
                             elif n == 0: set_flash("⚡ Ya evaluada", "amber")
                             reload_pendientes(); st.rerun()
                     with cb2:
-                        if st.button("🔥 DESTACAR", key="b_dest", use_container_width=True):
+                        if st.button(
+                            "🔥 DESTACAR", key=f"b_dest_{idx}",
+                            use_container_width=True,
+                            disabled=not todas_vistas,
+                        ):
                             n = evaluar(ids_exhibicion, "Destacado", supervisor, comentario)
                             if n > 0:    set_flash("🔥 Destacada", "amber")
                             elif n == 0: set_flash("⚡ Ya evaluada", "amber")
                             reload_pendientes(); st.rerun()
                     with cb3:
-                        if st.button("❌ RECHAZAR", key="b_rej", use_container_width=True):
+                        if st.button(
+                            "❌ RECHAZAR", key=f"b_rej_{idx}",
+                            use_container_width=True,
+                            disabled=not todas_vistas,
+                        ):
                             n = evaluar(ids_exhibicion, "Rechazado", supervisor, comentario)
                             if n > 0:    set_flash("❌ Rechazada", "red")
                             elif n == 0: set_flash("⚡ Ya evaluada", "amber")
                             reload_pendientes(); st.rerun()
-        
-                    # Acciones secundarias dentro del panel (ghost, ocultas en móvil)
+
+                    # Acciones secundarias
                     st.markdown(
                         "<div style='height:10px'></div>"
                         '<div id="secondary-actions-anchor"></div>',
@@ -960,8 +1089,7 @@ def render_visor():
                         if st.button("SALIR", key="btn_logout_full", use_container_width=True):
                             for k in list(st.session_state.keys()): del st.session_state[k]
                             st.rerun()
-        
-        
+
 def main():
     init_state()
     if not st.session_state.logged_in:

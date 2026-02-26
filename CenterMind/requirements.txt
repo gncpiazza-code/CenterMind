@@ -1,6 +1,13 @@
 # Interfaz Web
 streamlit>=1.20.0
 
+# HTTP client (llamadas al backend API desde Streamlit)
+requests>=2.28.0
+
+# Backend API (FastAPI + servidor ASGI) — solo necesario en la PC local
+fastapi>=0.100.0
+uvicorn>=0.22.0
+
 # Bot de Telegram (usamos python-telegram-bot, no 'telegram')
 python-telegram-bot>=20.0
 

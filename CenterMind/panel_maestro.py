@@ -306,7 +306,7 @@ class StreamlitManager:
                 [sys.executable, "-m", "streamlit", "run", str(STREAMLIT_APP),
                  "--server.port", str(self._port), "--server.headless", "true",
                  "--server.address", "0.0.0.0", "--browser.gatherUsageStats", "false"],
-                cwd=str(BASE_DIR), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                cwd=str(STREAMLIT_APP.parent), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
             )
             self._start_t = time.time()
             return f"✅ Streamlit iniciado → {self.url}"

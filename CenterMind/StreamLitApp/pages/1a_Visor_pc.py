@@ -583,9 +583,9 @@ html,body{{background:transparent;overflow:hidden;height:100%;font-family:sans-s
 <div id="vw">
   <div class="ctr">{counter}</div>
   {'<div class="raf">📸 ' + str(n_fotos) + ' fotos</div>' if n_fotos > 1 else ''}
-  <div class="chev L{' h' if not show_prev else ''}" id="bp"><span>&#8249;</span></div>
+  <div class="chev L{' h' if not show_prev else ''}" id="bp"><span>‹</span></div>
   <img id="mi" src="{img_src}" alt="exhibición" draggable="false" loading="eager">
-  <div class="chev R{' h' if not show_next else ''}" id="bn"><span>&#8250;</span></div>
+  <div class="chev R{' h' if not show_next else ''}" id="bn"><span>›</span></div>
   {dots}
   <div id="img-ph">
     <div class="ph-icon">📷</div>
@@ -789,17 +789,11 @@ def render_visor():
         st.session_state.flash = None
 
     # ══════════════════════════════════════════════════════════════════════════
-    # ══════════════════════════════════════════════════════════════════════════
     # VISOR DE FOTOS + NAVEGACIÓN (ancho completo) + PANEL DE EVALUACIÓN
-    # ahora usamos columnas nativas 70/30; CSS solo actúa en móvil
     # ══════════════════════════════════════════════════════════════════════════
     col_visor, col_panel = st.columns([7, 3])
 
     with col_visor:
-        # Contenido del visor en la columna izquierda. El panel de evaluación
-        # se renderiza en la columna derecha (col_panel), más abajo en el flujo
-        # DOM. El CSS móvil continúa controlando el comportamiento bottom-sheet.
-        # ══════════════════════════════════════════════════════════════════════════
         if not pend_filtrada:
             # Estado vacío
             st.markdown(
@@ -849,44 +843,41 @@ def render_visor():
                 scrolling=False,
             )
     
-            # ── Navegación ANTERIOR / SIGUIENTE ──────────────────────────────
-            st.markdown('<div id="nav-anchor"></div>', unsafe_allow_html=True)
-            c_prev, c_txt, c_next = st.columns([1, 2, 1])
-            with c_prev:
-                if st.button("← ANTERIOR", key="btn_prev", disabled=(idx == 0)):
-                    st.session_state.idx -= 1
-                    st.session_state.foto_idx = 0
-                    st.rerun()
-            with c_txt:
-                st.markdown(
-                    f'<div style="text-align:center;font-size:11px;'
-                    f'color:var(--text-dim);padding-top:12px;font-family:monospace;'
-                    f'letter-spacing:1px;">'
-                    f'EXHIBICIÓN {idx+1} / {n_pend}</div>',
-                    unsafe_allow_html=True,
-                )
-            with c_next:
-                if st.button("SIGUIENTE →", key="btn_next",
-                             disabled=(idx >= n_pend - 1)):
-                    st.session_state.idx += 1
-                    st.session_state.foto_idx = 0
-                    st.rerun()
+            # ── Navegación ANTERIOR / SIGUIENTE (AHORA ENVUELTO EN st.container) ──
+            with st.container():
+                st.markdown('<div id="nav-anchor"></div>', unsafe_allow_html=True)
+                c_prev, c_txt, c_next = st.columns([1, 2, 1])
+                with c_prev:
+                    if st.button("← ANTERIOR", key="btn_prev", disabled=(idx == 0)):
+                        st.session_state.idx -= 1
+                        st.session_state.foto_idx = 0
+                        st.rerun()
+                with c_txt:
+                    st.markdown(
+                        f'<div style="text-align:center;font-size:11px;'
+                        f'color:var(--text-dim);padding-top:12px;font-family:monospace;'
+                        f'letter-spacing:1px;">'
+                        f'EXHIBICIÓN {idx+1} / {n_pend}</div>',
+                        unsafe_allow_html=True,
+                    )
+                with c_next:
+                    if st.button("SIGUIENTE →", key="btn_next",
+                                 disabled=(idx >= n_pend - 1)):
+                        st.session_state.idx += 1
+                        st.session_state.foto_idx = 0
+                        st.rerun()
     
-            # Botones F1…Fn: solo en DOM para JS del viewer (ocultos vía CSS)
+            # Botones F1…Fn (AHORA ENVUELTOS EN st.container Y CON CLAVES DINÁMICAS)
             if n_fotos > 1:
-                st.markdown('<div id="foto-nav-hidden"></div>', unsafe_allow_html=True)
-                cols_f = st.columns(n_fotos)
-                for i, col in enumerate(cols_f):
-                    with col:
-                        if st.button(f"F{i+1}", key=f"tmb_{i}"):
-                            st.session_state.foto_idx = i; st.rerun()
+                with st.container():
+                    st.markdown('<div id="foto-nav-hidden"></div>', unsafe_allow_html=True)
+                    cols_f = st.columns(n_fotos)
+                    for i, col in enumerate(cols_f):
+                        with col:
+                            if st.button(f"F{i+1}", key=f"tmb_{idx}_{i}"):
+                                st.session_state.foto_idx = i; st.rerun()
     
-        # ══════════════════════════════════════════════════════════════════════════
     with col_panel:
-            # PANEL DE EVALUACIÓN
-            # CSS lo posiciona: sticky a la derecha (diseño solo para PC).
-            # Se renderiza DESPUÉS del visor en el flujo DOM para que :has() funcione.
-            # ══════════════════════════════════════════════════════════════════════════
             if pend_filtrada:
                 ex             = pend_filtrada[idx]
                 ids_exhibicion = [f["id_exhibicion"] for f in ex.get("fotos", [])]
@@ -920,33 +911,34 @@ def render_visor():
                         unsafe_allow_html=True,
                     )
         
+                    # CLAVE DINÁMICA: evita arrastrar comentarios a la siguiente exhibición
                     comentario = st.text_area(
                         "C", placeholder="Comentario opcional...",
-                        key="comentario_field", label_visibility="collapsed",
+                        key=f"comentario_field_{idx}", label_visibility="collapsed",
                     )
         
-                    # Botones acción (3 col → CSS los apila en desktop / fila en móvil)
+                    # Botones de acción CON CLAVES DINÁMICAS
                     cb1, cb2, cb3 = st.columns(3)
                     with cb1:
-                        if st.button("✅ APROBAR", key="b_ap", use_container_width=True):
+                        if st.button("✅ APROBAR", key=f"b_ap_{idx}", use_container_width=True):
                             n = evaluar(ids_exhibicion, "Aprobado", supervisor, comentario)
                             if n > 0:    set_flash("✅ Aprobada", "green")
                             elif n == 0: set_flash("⚡ Ya evaluada", "amber")
                             reload_pendientes(); st.rerun()
                     with cb2:
-                        if st.button("🔥 DESTACAR", key="b_dest", use_container_width=True):
+                        if st.button("🔥 DESTACAR", key=f"b_dest_{idx}", use_container_width=True):
                             n = evaluar(ids_exhibicion, "Destacado", supervisor, comentario)
                             if n > 0:    set_flash("🔥 Destacada", "amber")
                             elif n == 0: set_flash("⚡ Ya evaluada", "amber")
                             reload_pendientes(); st.rerun()
                     with cb3:
-                        if st.button("❌ RECHAZAR", key="b_rej", use_container_width=True):
+                        if st.button("❌ RECHAZAR", key=f"b_rej_{idx}", use_container_width=True):
                             n = evaluar(ids_exhibicion, "Rechazado", supervisor, comentario)
                             if n > 0:    set_flash("❌ Rechazada", "red")
                             elif n == 0: set_flash("⚡ Ya evaluada", "amber")
                             reload_pendientes(); st.rerun()
         
-                    # Acciones secundarias dentro del panel (ghost, ocultas en móvil)
+                    # Acciones secundarias
                     st.markdown(
                         "<div style='height:10px'></div>"
                         '<div id="secondary-actions-anchor"></div>',
@@ -960,7 +952,6 @@ def render_visor():
                         if st.button("SALIR", key="btn_logout_full", use_container_width=True):
                             for k in list(st.session_state.keys()): del st.session_state[k]
                             st.rerun()
-        
         
 def main():
     init_state()

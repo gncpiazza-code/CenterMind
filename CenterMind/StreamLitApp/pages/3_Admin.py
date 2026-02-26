@@ -857,7 +857,6 @@ def tab_integrantes():
             rol_actual = ig["rol_telegram"] or "vendedor"
             nuevo_rol  = "observador" if rol_actual == "vendedor" else "vendedor"
             label      = "→ OBSERVADOR" if rol_actual == "vendedor" else "→ VENDEDOR"
-            grupo      = ig.get("nombre_grupo") or f"ID {ig.get('telegram_group_id','—')}"
 
             # Filas nativas (OJO AQUÍ: Quité el vertical_alignment="center")
             c1, c2, c3, c4, c5, c6 = st.columns([2.5, 2.5, 2.5, 2, 1.5, 2])
@@ -866,7 +865,18 @@ def tab_integrantes():
             with c2:
                 st.markdown(f'<div class="cell-secondary mobile-lbl-dist" style="margin-top:10px;">{ig["nombre_empresa"]}</div>', unsafe_allow_html=True)
             with c3:
-                st.markdown(f'<div class="cell-secondary mobile-lbl-grp" style="margin-top:10px;">{grupo}</div>', unsafe_allow_html=True)
+                # Mostrar nombre del grupo + ID del grupo en dos líneas
+                nombre_grupo = ig.get("nombre_grupo")
+                id_grupo = ig.get("telegram_group_id")
+                grupo_html = '<div style="margin-top:10px;">'
+                if nombre_grupo:
+                    grupo_html += f'<div class="cell-primary" style="font-size:13px;margin-bottom:4px;">{nombre_grupo}</div>'
+                if id_grupo:
+                    grupo_html += f'<div class="cell-mono" style="font-size:11px;">ID: {id_grupo}</div>'
+                if not nombre_grupo and not id_grupo:
+                    grupo_html += '<div class="cell-secondary">—</div>'
+                grupo_html += '</div>'
+                st.markdown(grupo_html, unsafe_allow_html=True)
             with c4:
                 st.markdown(f'<div class="cell-mono mobile-lbl-tg" style="margin-top:10px;">TG ID: {ig["telegram_user_id"]}</div>', unsafe_allow_html=True)
             with c5:

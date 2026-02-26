@@ -197,7 +197,10 @@ div[data-testid="stButton"] button {
 
     /* Permite que el texto se envuelva si no entra en una línea */
     white-space: normal !important;
-    word-break:  normal !important;
+    /* evitar que palabras sin espacios se partan letra a letra */
+    word-break: keep-all !important;
+    /* solo romper en puntos de palabra o de guion si es necesario */
+    overflow-wrap: break-word !important;
     overflow:    visible !important;
 
     transition: all 0.15s ease !important;

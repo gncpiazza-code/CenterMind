@@ -1,0 +1,16 @@
+# Interfaz Web
+streamlit>=1.20.0
+
+# Bot de Telegram (usamos python-telegram-bot, no 'telegram')
+python-telegram-bot>=20.0
+
+# API de Google Drive y Autenticación
+google-api-python-client>=2.0.0
+google-auth>=2.0.0
+google-auth-oauthlib>=1.0.0
+
+# Certificados de seguridad (utilizado en tus parches de SSL)
+certifi>=2023.0.0
+
+# Gestión de procesos en el sistema operativo (para matar procesos zombie)
+psutil>=5.9.0

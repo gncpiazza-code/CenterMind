@@ -73,18 +73,48 @@ VISOR_CSS = """
 }
 section[data-testid="stSidebar"] { display: none !important; }
 
-/* ── Desktop: forzar side-by-side sin wrap ──────────────
-   Streamlit tiene CSS responsive interno que apila columnas
-   en pantallas intermedias. Estos overrides lo anulan.   */
-@media (min-width: 641px) {
-    [data-testid="stHorizontalBlock"] {
-        flex-wrap:     nowrap !important;
-        align-items:   flex-start !important; /* habilita position:sticky */
-    }
-    [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
-        min-width: 0 !important; /* evita overflow implícito que causa wrap */
-    }
+/* ── Desktop: layout nativo con columnas ───────────────────
+   Ahora el ajuste de ancho se maneja usando st.columns([7,3]) en
+   el código de Python. El CSS ya no fija ni restringe el ancho del
+   panel; solo queda activo cuando se detecta un dispositivo móvil
+   (<640px) para convertir esa columna en bottom-sheet. */
+
+/* Force 70/30 layout ONLY on the main content block that has the eval panel */
+[data-testid="stHorizontalBlock"]:has(div[data-testid="stVerticalBlock"]:has(#eval-master-anchor)) {
+    display: grid !important;
+    grid-template-columns: 1fr 0.428fr !important;
+    gap: 16px !important;
+    width: 100% !important;
+    align-items: start !important;
 }
+
+[data-testid="stHorizontalBlock"]:has(div[data-testid="stVerticalBlock"]:has(#eval-master-anchor)) > div,
+[data-testid="stHorizontalBlock"]:has(div[data-testid="stVerticalBlock"]:has(#eval-master-anchor)) > [data-testid="stColumn"] {
+    min-width: 0 !important;
+}
+
+[data-testid="stHorizontalBlock"]:has(div[data-testid="stVerticalBlock"]:has(#eval-master-anchor)) > div:nth-of-type(1),
+[data-testid="stHorizontalBlock"]:has(div[data-testid="stVerticalBlock"]:has(#eval-master-anchor)) > [data-testid="stColumn"]:nth-of-type(1) {
+    grid-column: 1 !important;
+}
+
+[data-testid="stHorizontalBlock"]:has(div[data-testid="stVerticalBlock"]:has(#eval-master-anchor)) > div:nth-of-type(2),
+[data-testid="stHorizontalBlock"]:has(div[data-testid="stVerticalBlock"]:has(#eval-master-anchor)) > [data-testid="stColumn"]:nth-of-type(2) {
+    grid-column: 2 !important;
+}
+
+
+
+
+
+/* keep the panel visible as the user scrolls */
+div[data-testid="stVerticalBlock"]:has(#eval-master-anchor) {
+    position: sticky !important;
+    top: 90px !important;
+    align-self: flex-start !important;
+    z-index: 50 !important;
+}
+
 
 /* ══════════════════════════════════════════════════
    TOPBAR — STAT PILLS
@@ -148,9 +178,6 @@ div[data-testid="stVerticalBlock"]:has(#eval-master-anchor) {
     border-radius: 14px;
     padding: 18px !important;
     gap: 10px !important;
-    /* Sticky: el panel se queda visible mientras la izquierda scrollea */
-    position: sticky !important;
-    top: 72px !important;
 }
 
 /* Info del cliente / vendedor */
@@ -172,31 +199,33 @@ div[data-testid="stVerticalBlock"]:has(#eval-master-anchor) {
 .f-date { font-size: 11px; color: var(--text-dim); font-family: monospace; letter-spacing: 0.5px; }
 
 /* ── Botones de acción (APROBAR / DESTACAR / RECHAZAR) ──────────────────────
-   Desktop: apilados verticalmente (full-width del panel)
-   Mobile:  fila de 3 (override en @media) */
+   Desktop: fila de 3 (width auto, wrapping enabled) */
 [data-testid="stVerticalBlock"]:has(#eval-master-anchor)
     [data-testid="stHorizontalBlock"] {
-    flex-direction: column !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
     gap: 7px !important;
 }
 [data-testid="stVerticalBlock"]:has(#eval-master-anchor)
     [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
-    flex: 0 0 auto !important;
-    width: 100% !important;
-    min-width: 100% !important;
+    flex: 1 1 0 !important;
+    min-width: 0 !important;
+    width: auto !important;
 }
 [data-testid="stVerticalBlock"]:has(#eval-master-anchor)
     div[data-testid="stButton"] button {
     width: 100% !important;
     font-family: 'Bebas Neue', sans-serif !important;
-    font-size: 16px !important;
-    letter-spacing: 2px !important;
-    padding: 14px 8px !important;
-    min-height: 52px !important;
+    font-size: 13px !important;
+    letter-spacing: 1px !important;
+    padding: 12px 4px !important;
+    min-height: 48px !important;
     height: auto !important;
     border: none !important;
-    border-radius: 12px !important;
-    white-space: nowrap !important;
+    border-radius: 10px !important;
+    white-space: normal !important;
+    word-wrap: break-word !important;
+    overflow-wrap: break-word !important;
     transition: filter .15s, transform .15s, box-shadow .15s !important;
 }
 /* APROBAR */
@@ -225,26 +254,18 @@ div[data-testid="stVerticalBlock"]:has(#eval-master-anchor) {
     box-shadow: 0 6px 20px rgba(0,0,0,0.45) !important;
 }
 
-/* ── Acciones secundarias (RECARGAR / SALIR): ghost ─── */
-div[data-testid="stVerticalBlock"]:has(#secondary-actions-anchor)
-    div[data-testid="stButton"] button {
-    background: transparent !important;
-    border: 1px solid rgba(240,230,216,0.10) !important;
-    color: rgba(240,230,216,0.30) !important;
-    font-size: 10px !important;
+/* ── Acciones secundarias (RECARGAR / SALIR) dentro del panel ───
+   Se usan botones type="secondary" (kind="secondary") para el ghost look.         */
+div[data-testid="stVerticalBlock"]:has(#eval-master-anchor)
+    div[data-testid="stButton"] button[kind="secondary"] {
+    font-size: 9px !important;
     font-family: 'Bebas Neue', sans-serif !important;
     letter-spacing: 1.5px !important;
-    padding: 6px 10px !important;
+    padding: 6px 8px !important;
     min-height: 32px !important;
     height: auto !important;
     border-radius: 8px !important;
-    transition: all .15s !important;
-}
-div[data-testid="stVerticalBlock"]:has(#secondary-actions-anchor)
-    div[data-testid="stButton"] button:hover {
-    border-color: rgba(240,230,216,0.25) !important;
-    color: rgba(240,230,216,0.60) !important;
-    background: rgba(240,230,216,0.04) !important;
+    white-space: normal !important;
 }
 
 /* ── Botones de navegación ANTERIOR / SIGUIENTE: ghost ─ */
@@ -280,92 +301,7 @@ div[data-testid="stVerticalBlock"]:has(#foto-nav-hidden) {
     margin: 0 !important; padding: 0 !important;
 }
 
-/* ══════════════════════════════════════════════════
-   MÓVIL — PANEL FIJO INFERIOR
-   ══════════════════════════════════════════════════ */
-@media (max-width: 640px) {
-    /* Ocultar stat pills en topbar (sin espacio) */
-    .topbar-stat-pill { display: none; }
-
-    /* Las dos columnas del layout se apilan */
-    [data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; }
-    [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
-        flex: 0 0 100% !important;
-        min-width: 100% !important;
-        width: 100% !important;
-    }
-
-    /* Panel fijo inferior */
-    div[data-testid="stVerticalBlock"]:has(#eval-master-anchor) {
-        position: fixed !important;
-        bottom: 0 !important; left: 0 !important; right: 0 !important;
-        top: auto !important;
-        z-index: 9000 !important; margin: 0 !important;
-        border-radius: 22px 22px 0 0 !important;
-        padding: 4px 14px 22px !important; gap: 6px !important;
-        background: rgba(14,9,7,0.97) !important;
-        backdrop-filter: blur(28px) !important;
-        -webkit-backdrop-filter: blur(28px) !important;
-        border-top: 1px solid rgba(217,167,106,0.22) !important;
-        border-left: none !important; border-right: none !important; border-bottom: none !important;
-        box-shadow: 0 -12px 50px rgba(0,0,0,0.75) !important;
-    }
-    div[data-testid="stVerticalBlock"]:has(#eval-master-anchor)::before {
-        content:'' !important; display:block !important;
-        width:38px; height:4px;
-        background:rgba(240,230,216,0.15); border-radius:2px;
-        margin:6px auto 8px;
-    }
-
-    /* Info items en fila */
-    .floating-info {
-        flex-direction: row !important; flex-wrap: wrap !important;
-        gap: 2px 10px !important; padding-bottom: 6px !important;
-        margin-bottom: 4px !important;
-    }
-    .f-item { font-size: 11px !important; gap: 4px !important; }
-    .f-icon { font-size: 12px !important; }
-    .f-name { font-size: 12px !important; }
-    .f-num  { font-size: 14px !important; }
-
-    /* TextArea compacto */
-    div[data-testid="stTextArea"] textarea {
-        min-height: 36px !important; height: 36px !important; font-size: 13px !important;
-    }
-
-    /* Acciones: fila de 3 en móvil */
-    [data-testid="stVerticalBlock"]:has(#eval-master-anchor)
-        [data-testid="stHorizontalBlock"] {
-        flex-direction: row !important;
-        flex-wrap: nowrap !important;
-        gap: 8px !important;
-    }
-    [data-testid="stVerticalBlock"]:has(#eval-master-anchor)
-        [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
-        flex: 1 1 0 !important;
-        min-width: 0 !important;
-        width: auto !important;
-    }
-    [data-testid="stVerticalBlock"]:has(#eval-master-anchor)
-        div[data-testid="stButton"] button {
-        min-height: 52px !important;
-        border-radius: 14px !important;
-        font-size: 13px !important;
-        letter-spacing: 1px !important;
-        padding: 8px 2px !important;
-        white-space: normal !important;
-    }
-
-    /* Acciones secundarias ocultas en móvil */
-    div[data-testid="stVerticalBlock"]:has(#secondary-actions-anchor) {
-        display: none !important;
-    }
-
-    /* Padding inferior para que el contenido no quede tapado */
-    [data-testid="stMainBlockContainer"],
-    .block-container { padding-bottom: 240px !important; }
-}
-</style>
+/* mobile styles removed – application now targets desktop only */</style>
 """
 
 STYLE = BASE_CSS + VISOR_CSS
@@ -886,13 +822,18 @@ def render_visor():
         )
         st.session_state.flash = None
 
-    # ── Layout 70 / 30 ───────────────────────────────────────────────────────
-    left_col, right_col = st.columns([7, 3], gap="medium")
+    # ══════════════════════════════════════════════════════════════════════════
+    # ══════════════════════════════════════════════════════════════════════════
+    # VISOR DE FOTOS + NAVEGACIÓN (ancho completo) + PANEL DE EVALUACIÓN
+    # ahora usamos columnas nativas 70/30; CSS solo actúa en móvil
+    # ══════════════════════════════════════════════════════════════════════════
+    col_visor, col_panel = st.columns([7, 3])
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # COLUMNA IZQUIERDA — VISOR DE FOTOS + NAVEGACIÓN
-    # ══════════════════════════════════════════════════════════════════════════
-    with left_col:
+    with col_visor:
+        # Contenido del visor en la columna izquierda. El panel de evaluación
+        # se renderiza en la columna derecha (col_panel), más abajo en el flujo
+        # DOM. El CSS móvil continúa controlando el comportamiento bottom-sheet.
+        # ══════════════════════════════════════════════════════════════════════════
         if not pend_filtrada:
             # Estado vacío
             st.markdown(
@@ -920,20 +861,20 @@ def render_visor():
             foto_idx = st.session_state.foto_idx
             if foto_idx >= n_fotos:
                 foto_idx = 0; st.session_state.foto_idx = 0
-
-            # ── Fetch imagen server-side ─────────────────────────────────────
+    
+            # ── Fetch imagen server-side ──────────────────────────────────────
             cred_path = _get_dist_cred_path(u["id_distribuidor"])
             main_fid  = drive_file_id(fotos[foto_idx]["drive_link"]) or ""
             img_src   = fetch_drive_b64(main_fid, cred_path, sz=1000)
-
+    
             thumb_srcs: List[str] = []
             if n_fotos > 1:
                 for f in fotos:
                     tid = drive_file_id(f["drive_link"]) or ""
                     thumb_srcs.append(fetch_drive_b64(tid, cred_path, sz=150))
-
-            # ── Viewer ───────────────────────────────────────────────────────
-            viewer_height = 480 + (65 if n_fotos > 1 else 0)
+    
+            # ── Viewer (más alto ahora que ocupa el ancho completo) ───────────
+            viewer_height = 540 + (65 if n_fotos > 1 else 0)
             components.html(
                 build_viewer_html(
                     fotos, foto_idx, idx, n_pend,
@@ -942,7 +883,7 @@ def render_visor():
                 height=viewer_height,
                 scrolling=False,
             )
-
+    
             # ── Navegación ANTERIOR / SIGUIENTE ──────────────────────────────
             st.markdown('<div id="nav-anchor"></div>', unsafe_allow_html=True)
             c_prev, c_txt, c_next = st.columns([1, 2, 1])
@@ -965,8 +906,8 @@ def render_visor():
                     st.session_state.idx += 1
                     st.session_state.foto_idx = 0
                     st.rerun()
-
-            # Botones F1…Fn: solo en DOM para JS del viewer
+    
+            # Botones F1…Fn: solo en DOM para JS del viewer (ocultos vía CSS)
             if n_fotos > 1:
                 st.markdown('<div id="foto-nav-hidden"></div>', unsafe_allow_html=True)
                 cols_f = st.columns(n_fotos)
@@ -974,86 +915,88 @@ def render_visor():
                     with col:
                         if st.button(f"F{i+1}", key=f"tmb_{i}"):
                             st.session_state.foto_idx = i; st.rerun()
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # COLUMNA DERECHA — PANEL DE EVALUACIÓN (sticky en desktop)
-    # ══════════════════════════════════════════════════════════════════════════
-    with right_col:
-        if pend_filtrada:
-            ex             = pend_filtrada[idx]
-            ids_exhibicion = [f["id_exhibicion"] for f in ex.get("fotos", [])]
-            fecha_fmt      = ex.get("fecha_hora", "")[:16]
-            supervisor     = u.get("usuario_login", "supervisor")
-
-            with st.container():
-                st.markdown('<div id="eval-master-anchor"></div>', unsafe_allow_html=True)
-
-                # Info del vendedor / cliente
-                st.markdown(
-                    '<div class="floating-info">'
-                    f'<div class="f-item">'
-                    f'  <span class="f-icon">👤</span>'
-                    f'  <span class="f-name">{ex.get("vendedor","—")}</span>'
-                    f'</div>'
-                    f'<div class="f-item">'
-                    f'  <span class="f-icon">🏪</span>'
-                    f'  <span class="f-dim">C·</span>'
-                    f'  <span class="f-num">{ex.get("nro_cliente","—")}</span>'
-                    f'</div>'
-                    f'<div class="f-item">'
-                    f'  <span class="f-icon">📍</span>'
-                    f'  <span class="f-pdv">{ex.get("tipo_pdv","—")}</span>'
-                    f'</div>'
-                    f'<div class="f-item">'
-                    f'  <span class="f-icon">🕐</span>'
-                    f'  <span class="f-date">{fecha_fmt}</span>'
-                    f'</div>'
-                    '</div>',
-                    unsafe_allow_html=True,
-                )
-
-                comentario = st.text_area(
-                    "C", placeholder="Comentario opcional...",
-                    key="comentario_field", label_visibility="collapsed",
-                )
-
-                # Botones acción (3 col → CSS los apila en desktop / fila en móvil)
-                cb1, cb2, cb3 = st.columns(3)
-                with cb1:
-                    if st.button("✅ APROBAR", key="b_ap", use_container_width=True):
-                        n = evaluar(ids_exhibicion, "Aprobado", supervisor, comentario)
-                        if n > 0:    set_flash("✅ Aprobada", "green")
-                        elif n == 0: set_flash("⚡ Ya evaluada", "amber")
-                        reload_pendientes(); st.rerun()
-                with cb2:
-                    if st.button("🔥 DESTACAR", key="b_dest", use_container_width=True):
-                        n = evaluar(ids_exhibicion, "Destacado", supervisor, comentario)
-                        if n > 0:    set_flash("🔥 Destacada", "amber")
-                        elif n == 0: set_flash("⚡ Ya evaluada", "amber")
-                        reload_pendientes(); st.rerun()
-                with cb3:
-                    if st.button("❌ RECHAZAR", key="b_rej", use_container_width=True):
-                        n = evaluar(ids_exhibicion, "Rechazado", supervisor, comentario)
-                        if n > 0:    set_flash("❌ Rechazada", "red")
-                        elif n == 0: set_flash("⚡ Ya evaluada", "amber")
-                        reload_pendientes(); st.rerun()
-
-            # Acciones secundarias (ghost, bajo el panel)
-            st.markdown(
-                "<div style='height:12px'></div>"
-                '<div id="secondary-actions-anchor"></div>',
-                unsafe_allow_html=True,
-            )
-            sa1, sa2 = st.columns(2)
-            with sa1:
-                if st.button("↺ RECARGAR", key="btn_reload_full", use_container_width=True):
-                    reload_pendientes(); st.rerun()
-            with sa2:
-                if st.button("SALIR", key="btn_logout_full", use_container_width=True):
-                    for k in list(st.session_state.keys()): del st.session_state[k]
-                    st.rerun()
-
-
+    
+        # ══════════════════════════════════════════════════════════════════════════
+    with col_panel:
+            # PANEL DE EVALUACIÓN
+            # CSS lo posiciona: sticky a la derecha (diseño solo para PC).
+            # Se renderiza DESPUÉS del visor en el flujo DOM para que :has() funcione.
+            # ══════════════════════════════════════════════════════════════════════════
+            if pend_filtrada:
+                ex             = pend_filtrada[idx]
+                ids_exhibicion = [f["id_exhibicion"] for f in ex.get("fotos", [])]
+                fecha_fmt      = ex.get("fecha_hora", "")[:16]
+                supervisor     = u.get("usuario_login", "supervisor")
+        
+                with st.container():
+                    st.markdown('<div id="eval-master-anchor"></div>', unsafe_allow_html=True)
+        
+                    # Info del vendedor / cliente
+                    st.markdown(
+                        '<div class="floating-info">'
+                        f'<div class="f-item">'
+                        f'  <span class="f-icon">👤</span>'
+                        f'  <span class="f-name">{ex.get("vendedor","—")}</span>'
+                        f'</div>'
+                        f'<div class="f-item">'
+                        f'  <span class="f-icon">🏪</span>'
+                        f'  <span class="f-dim">C·</span>'
+                        f'  <span class="f-num">{ex.get("nro_cliente","—")}</span>'
+                        f'</div>'
+                        f'<div class="f-item">'
+                        f'  <span class="f-icon">📍</span>'
+                        f'  <span class="f-pdv">{ex.get("tipo_pdv","—")}</span>'
+                        f'</div>'
+                        f'<div class="f-item">'
+                        f'  <span class="f-icon">🕐</span>'
+                        f'  <span class="f-date">{fecha_fmt}</span>'
+                        f'</div>'
+                        '</div>',
+                        unsafe_allow_html=True,
+                    )
+        
+                    comentario = st.text_area(
+                        "C", placeholder="Comentario opcional...",
+                        key="comentario_field", label_visibility="collapsed",
+                    )
+        
+                    # Botones acción (3 col → CSS los apila en desktop / fila en móvil)
+                    cb1, cb2, cb3 = st.columns(3)
+                    with cb1:
+                        if st.button("✅ APROBAR", key="b_ap", use_container_width=True):
+                            n = evaluar(ids_exhibicion, "Aprobado", supervisor, comentario)
+                            if n > 0:    set_flash("✅ Aprobada", "green")
+                            elif n == 0: set_flash("⚡ Ya evaluada", "amber")
+                            reload_pendientes(); st.rerun()
+                    with cb2:
+                        if st.button("🔥 DESTACAR", key="b_dest", use_container_width=True):
+                            n = evaluar(ids_exhibicion, "Destacado", supervisor, comentario)
+                            if n > 0:    set_flash("🔥 Destacada", "amber")
+                            elif n == 0: set_flash("⚡ Ya evaluada", "amber")
+                            reload_pendientes(); st.rerun()
+                    with cb3:
+                        if st.button("❌ RECHAZAR", key="b_rej", use_container_width=True):
+                            n = evaluar(ids_exhibicion, "Rechazado", supervisor, comentario)
+                            if n > 0:    set_flash("❌ Rechazada", "red")
+                            elif n == 0: set_flash("⚡ Ya evaluada", "amber")
+                            reload_pendientes(); st.rerun()
+        
+                    # Acciones secundarias dentro del panel (ghost, ocultas en móvil)
+                    st.markdown(
+                        "<div style='height:10px'></div>"
+                        '<div id="secondary-actions-anchor"></div>',
+                        unsafe_allow_html=True,
+                    )
+                    sa1, sa2 = st.columns(2)
+                    with sa1:
+                        if st.button("↺ RECARGAR", key="btn_reload_full", use_container_width=True):
+                            reload_pendientes(); st.rerun()
+                    with sa2:
+                        if st.button("SALIR", key="btn_logout_full", use_container_width=True):
+                            for k in list(st.session_state.keys()): del st.session_state[k]
+                            st.rerun()
+        
+        
 def main():
     init_state()
     if not st.session_state.logged_in:

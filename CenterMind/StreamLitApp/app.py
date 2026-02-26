@@ -2,16 +2,20 @@
 """
 ShelfMind — Entry Point
 ========================
-Login unificado + menú de servicios.
+Login unificado + Selección de Dispositivo + Menú de servicios.
 
-Estructura de carpetas:
+Estructura de carpetas actual:
     streamlit_app/
     ├── app.py              ← este archivo
     └── pages/
-        ├── 1_Visor.py
-        └── 2_Dashboard.py
-        ├── 3_Admin.py
-        └── 4_Reportes.py
+        ├── 1a_Visor_pc.py
+        ├── 1b_Visor_mobile.py
+        ├── 2a_Dashboard_pc.py
+        ├── 2b_Dashboard_mobile.py
+        ├── 3a_Admin_pc.py
+        ├── 3b_Admin_mobile.py
+        ├── 4a_Reportes_pc.py
+        └── 4b_Reportes_mobile.py
 
 Ejecutar:
     streamlit run app.py
@@ -56,7 +60,6 @@ STYLE = """
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-/* ── Matar el scroll por completo (Pantalla fija) ─────── */
 html, body {
     background: var(--sm-bg) !important;
     color: var(--sm-text) !important;
@@ -71,12 +74,10 @@ html, body {
     height: 100vh !important;
 }
 
-/* Ocultar UI inútil de Streamlit */
 [data-testid="stHeader"], [data-testid="stToolbar"], [data-testid="stDecoration"], footer { 
     display: none !important; 
 }
 
-/* Contenedor centralizado y sin márgenes extra */
 [data-testid="stMainBlockContainer"] { 
     padding: 0 !important; 
     max-width: 100% !important;
@@ -88,7 +89,6 @@ html, body {
 }
 section[data-testid="stSidebar"] { display: none !important; }
 
-/* Fondo textura sutil */
 [data-testid="stAppViewContainer"]::before {
     content: '';
     position: fixed; inset: 0; z-index: -1;
@@ -117,8 +117,6 @@ section[data-testid="stSidebar"] { display: none !important; }
     font-family: 'Bebas Neue', sans-serif;
     font-size: 56px; letter-spacing: 4px;
     text-align: center; line-height: 1; margin-bottom: 4px;
-
-    /* Mismo shimmer+glow que _shared_styles */
     background: linear-gradient(90deg, #8C5A1F 0%, #D9A76A 20%, #FFE8B0 50%, #D9A76A 80%, #8C5A1F 100%);
     background-size: 250% 100%;
     -webkit-background-clip: text;
@@ -142,7 +140,6 @@ section[data-testid="stSidebar"] { display: none !important; }
     font-family: 'Bebas Neue', sans-serif;
     font-size: 64px; letter-spacing: 5px;
     line-height: 1;
-
     background: linear-gradient(90deg, #8C5A1F 0%, #D9A76A 20%, #FFE8B0 50%, #D9A76A 80%, #8C5A1F 100%);
     background-size: 250% 100%;
     -webkit-background-clip: text;
@@ -168,7 +165,6 @@ section[data-testid="stSidebar"] { display: none !important; }
     display: inline-block;
 }
 
-/* ── Inputs Generales ─────────────── */
 div[data-testid="stTextInput"] input {
     background: rgba(0,0,0,0.3) !important;
     border: 1px solid var(--sm-border) !important;
@@ -183,7 +179,6 @@ div[data-testid="stTextInput"] input:focus {
 }
 .stTextInput label { display: none !important; }
 
-/* ── 1. BOTÓN DE LOGIN (El formulario) ───────────────── */
 div[data-testid="stFormSubmitButton"] button {
     font-family: 'Bebas Neue', sans-serif !important;
     letter-spacing: 2px !important; font-size: 18px !important;
@@ -199,7 +194,6 @@ div[data-testid="stFormSubmitButton"] button:hover {
     box-shadow: 0 6px 20px rgba(217, 167, 106, 0.3) !important;
 }
 
-/* ── 2. TARJETAS DEL MENÚ (Botones Primary) ───────── */
 div[data-testid="column"] { padding: 0 10px !important; }
 
 div[data-testid="stButton"] button[kind="primary"] {
@@ -221,16 +215,14 @@ div[data-testid="stButton"] button[kind="primary"] {
     justify-content: center !important;
 }
 
-/* 🔥 EFECTO HOVER ENFATIZADO PARA LAS TARJETAS 🔥 */
 div[data-testid="stButton"] button[kind="primary"]:hover {
-    background: rgba(217, 167, 106, 0.12) !important; /* Más ámbar en el fondo */
+    background: rgba(217, 167, 106, 0.12) !important;
     border-color: var(--sm-accent-hover) !important;
     color: var(--sm-text) !important;
-    transform: translateY(-10px) scale(1.04) !important; /* Sube más y crece más */
-    box-shadow: 0 20px 40px rgba(0,0,0,0.6), 0 0 30px rgba(217, 167, 106, 0.3) !important; /* Resplandor gigante */
+    transform: translateY(-10px) scale(1.04) !important;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.6), 0 0 30px rgba(217, 167, 106, 0.3) !important;
 }
 
-/* ── 3. BOTÓN DE SALIR (Botones Secondary) ───────── */
 div[data-testid="stButton"] button[kind="secondary"] {
     min-height: 44px !important;
     height: 44px !important;
@@ -242,7 +234,7 @@ div[data-testid="stButton"] button[kind="secondary"] {
     letter-spacing: 2px !important;
     font-size: 16px !important;
     transition: all 0.2s ease !important;
-    margin-top: 10px !important; /* Separación sutil */
+    margin-top: 10px !important;
 }
 div[data-testid="stButton"] button[kind="secondary"]:hover {
     color: var(--sm-text) !important;
@@ -250,7 +242,6 @@ div[data-testid="stButton"] button[kind="secondary"]:hover {
     background: rgba(255,255,255,0.05) !important;
 }
 
-/* Keyframes del logo animado */
 @keyframes sm-logo-shimmer {
     0%   { background-position: 150% 0; }
     50%  { background-position: -50% 0; }
@@ -264,7 +255,6 @@ div[data-testid="stButton"] button[kind="secondary"]:hover {
                         drop-shadow(0 0 42px rgba(217,167,106,0.55)); }
 }
 
-/* Alertas */
 div[data-testid="stAlert"] {
     background: rgba(192, 88, 74, 0.1) !important;
     border: 1px solid rgba(192, 88, 74, 0.3) !important;
@@ -273,7 +263,6 @@ div[data-testid="stAlert"] {
     padding: 10px 14px !important;
 }
 
-/* Media Query Móvil */
 @media (max-width: 768px) {
     div[data-testid="column"] { width: 100% !important; flex: 1 1 100% !important; padding: 0 !important; }
     [data-testid="stMainBlockContainer"] { justify-content: flex-start; padding: 20px 16px !important; overflow-y: auto !important;}
@@ -306,12 +295,12 @@ def login_check(usuario: str, password: str) -> Optional[Dict]:
 # ─── State ────────────────────────────────────────────────────────────────────
 
 def init_state():
-    defaults = {"logged_in": False, "user": None}
+    defaults = {"logged_in": False, "user": None, "device_type": None}
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
 
-# ─── Render: Login ────────────────────────────────────────────────────────────
+# ─── Render: Login (Paso 1) ───────────────────────────────────────────────────
 
 def render_login():
     st.markdown(STYLE, unsafe_allow_html=True)
@@ -346,7 +335,48 @@ def render_login():
                 else:
                     st.error("Usuario o contraseña incorrectos.")
 
-# ─── Render: Menú de servicios ────────────────────────────────────────────────
+# ─── Render: Selección de Dispositivo (Paso 2) ────────────────────────────────
+
+def render_seleccion_dispositivo():
+    st.markdown(STYLE, unsafe_allow_html=True)
+    
+    u = st.session_state.user
+    login = u.get("usuario_login", "")
+
+    st.markdown(f"""
+    <div class="menu-header">
+        <div class="menu-logo">SHELFMIND</div>
+        <div class="menu-empresa">SELECCIONA TU ENTORNO DE TRABAJO</div>
+        <div style="display:flex;justify-content:center;">
+            <div class="menu-user">
+                <span class="menu-dot"></span>
+                {login}
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    spacer_left, col_pc, col_mob, spacer_right = st.columns([1, 4, 4, 1])
+
+    with col_pc:
+        if st.button("💻\n\nVERSIÓN PC\n\nExperiencia completa\ny diseño extendido\npara monitores.", type="primary", key="btn_pc", use_container_width=True):
+            st.session_state.device_type = "PC"
+            st.rerun()
+            
+    with col_mob:
+        if st.button("📱\n\nVERSIÓN MÓVIL\n\nInterfaz táctil,\nrápida y optimizada\npara celulares.", type="primary", key="btn_mobile", use_container_width=True):
+            st.session_state.device_type = "Mobile"
+            st.rerun()
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    _, col_s, _ = st.columns([4, 2, 4])
+    with col_s:
+        if st.button("SALIR DEL SISTEMA", type="secondary", key="logout_seleccion", use_container_width=True):
+            for k in list(st.session_state.keys()):
+                del st.session_state[k]
+            st.rerun()
+
+# ─── Render: Menú de servicios (Paso 3) ───────────────────────────────────────
 
 def render_menu():
     st.markdown(STYLE, unsafe_allow_html=True)
@@ -361,10 +391,12 @@ def render_menu():
     es_eval  = rol_raw == "evaluador"
     puede_admin = es_super or es_admin
 
+    device_label = "🖥️ MODO PC" if st.session_state.device_type == "PC" else "📱 MODO MÓVIL"
+
     st.markdown(f"""
     <div class="menu-header">
         <div class="menu-logo">SHELFMIND</div>
-        <div class="menu-empresa">{empresa}</div>
+        <div class="menu-empresa">{empresa} &nbsp;|&nbsp; {device_label}</div>
         <div style="display:flex;justify-content:center;">
             <div class="menu-user">
                 <span class="menu-dot"></span>
@@ -374,7 +406,6 @@ def render_menu():
     </div>
     """, unsafe_allow_html=True)
 
-    # Contenedor central de tarjetas
     spacer_left, content, spacer_right = st.columns([1, 10, 1])
 
     with content:
@@ -385,18 +416,27 @@ def render_menu():
             cols = st.columns(3)
             col_visor, col_dash, col_rep = cols[0], cols[1], cols[2]
 
-        # OJO AQUÍ: Las tarjetas usan type="primary"
+        # ── ENRUTAMIENTO EXACTO (Basado en la captura) ──
         with col_visor:
             if st.button("🎯\n\nVISOR\n\nEvaluá exhibiciones pendientes.\nAprobá, rechazá o destacá\nfotos de tus vendedores.", type="primary", key="go_visor", use_container_width=True):
-                st.switch_page("pages/1_Visor.py")
+                if st.session_state.device_type == "PC":
+                    st.switch_page("pages/1a_Visor_pc.py")
+                else:
+                    st.switch_page("pages/1b_Visor_mobile.py")
 
         with col_dash:
             if st.button("📺\n\nDASHBOARD\n\nRanking en tiempo real.\nPensado para pantalla\nen la oficina.", type="primary", key="go_dashboard", use_container_width=True):
-                st.switch_page("pages/2_Dashboard.py")
+                if st.session_state.device_type == "PC":
+                    st.switch_page("pages/2a_Dashboard_pc.py")
+                else:
+                    st.switch_page("pages/2b_Dashboard_mobile.py")
 
         with col_rep:
             if st.button("📊\n\nREPORTES\n\nAnalizá el historial.\nFiltros, gráficos interactivos\ny exportación Excel.", type="primary", key="go_reportes", use_container_width=True):
-                st.switch_page("pages/4_Reportes.py")
+                if st.session_state.device_type == "PC":
+                    st.switch_page("pages/4a_Reportes_pc.py")
+                else:
+                    st.switch_page("pages/4b_Reportes_mobile.py")
 
         if puede_admin:
             with col_admin:
@@ -406,12 +446,20 @@ def render_menu():
                     else "⚙️\n\nADMIN\n\nGestioná roles de grupos\ny vendedores de Telegram."
                 )
                 if st.button(label_admin, type="primary", key="go_admin", use_container_width=True):
-                    st.switch_page("pages/3_Admin.py")
+                    if st.session_state.device_type == "PC":
+                        st.switch_page("pages/3a_Admin_pc.py")
+                    else:
+                        st.switch_page("pages/3b_Admin_mobile.py")
 
-    # Botón Salir
-    # OJO AQUÍ: El botón salir usa type="secondary"
-    _, col_s, _ = st.columns([4, 2, 4])
-    with col_s:
+    st.markdown("<br>", unsafe_allow_html=True)
+    _, col_change, col_logout, _ = st.columns([3, 2, 2, 3])
+    
+    with col_change:
+        if st.button("🔄 CAMBIAR VISTA", type="secondary", key="change_view", use_container_width=True):
+            st.session_state.device_type = None
+            st.rerun()
+            
+    with col_logout:
         if st.button("SALIR DEL SISTEMA", type="secondary", key="logout", use_container_width=True):
             for k in list(st.session_state.keys()):
                 del st.session_state[k]
@@ -421,8 +469,11 @@ def render_menu():
 
 def main():
     init_state()
+    
     if not st.session_state.logged_in:
         render_login()
+    elif not st.session_state.device_type:
+        render_seleccion_dispositivo()
     else:
         render_menu()
 

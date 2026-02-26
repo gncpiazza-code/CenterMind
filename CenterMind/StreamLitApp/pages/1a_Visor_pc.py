@@ -11,9 +11,7 @@ from __future__ import annotations
 import re
 import sys
 import base64
-import sqlite3
 import urllib.request as _urllib_req
-from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -53,10 +51,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed",
 )
-
-# ─── Paths ────────────────────────────────────────────────────────────────────
-DB_PATH        = Path(__file__).resolve().parent.parent.parent / "base_datos" / "centermind.db"
-CENTERMIND_ROOT = DB_PATH.parent.parent   # CenterMind/
 
 # ─── CSS ──────────────────────────────────────────────────────────────────────
 VISOR_CSS = """
@@ -308,108 +302,82 @@ STYLE = BASE_CSS + VISOR_CSS
 
 # ─── Funciones Auxiliares ──────────────────────────────────────────────────────
 
-# ─── DB helpers ───────────────────────────────────────────────────────────────
+# ─── API helpers ──────────────────────────────────────────────────────────────
 
-def get_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    return conn
+def _api_conf():
+    """Lee URL y API Key desde st.secrets (con fallback local para desarrollo)."""
+    try:
+        return st.secrets["API_URL"].rstrip("/"), st.secrets["API_KEY"]
+    except Exception:
+        return "http://localhost:8000", ""
+
+
+def _api_get(path: str):
+    if not HAS_REQUESTS:
+        return None
+    base, key = _api_conf()
+    try:
+        r = _req.get(f"{base}{path}", headers={"x-api-key": key}, timeout=15)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        print(f"[API GET] {path}: {e}")
+        return None
+
+
+def _api_post(path: str, data: dict):
+    if not HAS_REQUESTS:
+        return None
+    base, key = _api_conf()
+    try:
+        r = _req.post(f"{base}{path}", json=data, headers={"x-api-key": key}, timeout=15)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        print(f"[API POST] {path}: {e}")
+        return None
+
 
 def get_pendientes(distribuidor_id: int) -> List[Dict]:
-    with get_conn() as c:
-        rows = c.execute(
-            """SELECT e.id_exhibicion,
-                      e.numero_cliente_local  AS nro_cliente,
-                      e.comentarios_telegram  AS tipo_pdv,
-                      e.url_foto_drive        AS drive_link,
-                      e.timestamp_subida      AS fecha_hora,
-                      e.estado,
-                      e.telegram_msg_id,
-                      i.nombre_integrante     AS vendedor
-               FROM exhibiciones e
-               LEFT JOIN integrantes_grupo i ON i.id_integrante = e.id_integrante
-               WHERE e.id_distribuidor = ? AND e.estado = 'Pendiente'
-               ORDER BY e.timestamp_subida ASC""",
-            (distribuidor_id,),
-        ).fetchall()
+    result = _api_get(f"/pendientes/{distribuidor_id}")
+    return result if isinstance(result, list) else []
 
-    grupos: Dict[str, Dict] = {}
-    for r in rows:
-        d   = dict(r)
-        key = str(d.get("telegram_msg_id")) if d.get("telegram_msg_id") else f"solo_{d['id_exhibicion']}"
-        if key not in grupos:
-            grupos[key] = {
-                "vendedor":    d["vendedor"],
-                "nro_cliente": d["nro_cliente"],
-                "tipo_pdv":    d["tipo_pdv"],
-                "fecha_hora":  d["fecha_hora"],
-                "fotos":       [],
-            }
-        grupos[key]["fotos"].append({
-            "id_exhibicion": d["id_exhibicion"],
-            "drive_link":    d["drive_link"],
-        })
-    return list(grupos.values())
 
 def get_stats_hoy(distribuidor_id: int) -> Dict:
-    hoy = datetime.now().strftime("%Y-%m-%d")
-    with get_conn() as c:
-        row = c.execute(
-            """SELECT COUNT(*) total,
-               SUM(CASE WHEN estado='Pendiente' THEN 1 ELSE 0 END)  pendientes,
-               SUM(CASE WHEN estado='Aprobado'  THEN 1 ELSE 0 END)  aprobadas,
-               SUM(CASE WHEN estado='Rechazado' THEN 1 ELSE 0 END)  rechazadas,
-               SUM(CASE WHEN estado='Destacado' THEN 1 ELSE 0 END)  destacadas
-               FROM exhibiciones
-               WHERE id_distribuidor=? AND DATE(timestamp_subida)=?""",
-            (distribuidor_id, hoy),
-        ).fetchone()
-    r = dict(row) if row else {}
-    return {k: (v or 0) for k, v in r.items()}
+    result = _api_get(f"/stats/{distribuidor_id}")
+    return result if isinstance(result, dict) else {}
+
 
 def get_vendedores_pendientes(distribuidor_id: int) -> List[str]:
-    with get_conn() as c:
-        rows = c.execute(
-            """SELECT DISTINCT i.nombre_integrante
-               FROM exhibiciones e
-               LEFT JOIN integrantes_grupo i ON i.id_integrante = e.id_integrante
-               WHERE e.id_distribuidor=? AND e.estado='Pendiente'
-               ORDER BY i.nombre_integrante ASC""",
-            (distribuidor_id,),
-        ).fetchall()
-    return [r["nombre_integrante"] for r in rows if r["nombre_integrante"]]
+    result = _api_get(f"/vendedores/{distribuidor_id}")
+    return result if isinstance(result, list) else []
+
 
 def evaluar(ids_exhibicion: List[int], estado: str, supervisor: str, comentario: str) -> int:
     """
-    Race-condition safe: AND estado='Pendiente' en el WHERE
+    Race-condition safe: el WHERE estado='Pendiente' en la API
     garantiza que solo el primer evaluador escribe.
     Retorna: filas actualizadas (>0 OK | 0 ya evaluada | -1 error)
     """
-    try:
-        affected = 0
-        with get_conn() as c:
-            for id_ex in ids_exhibicion:
-                cur = c.execute(
-                    "UPDATE exhibiciones "
-                    "SET estado=?, supervisor_nombre=?, comentarios=?, "
-                    "    evaluated_at=CURRENT_TIMESTAMP, synced_telegram=0 "
-                    "WHERE id_exhibicion=? AND estado='Pendiente'",
-                    (estado, supervisor, comentario or None, id_ex),
-                )
-                affected += cur.rowcount
-            c.commit()
-        return affected
-    except Exception as e:
-        print(f"[ERROR evaluar] {e}")
+    result = _api_post("/evaluar", {
+        "ids_exhibicion": ids_exhibicion,
+        "estado": estado,
+        "supervisor": supervisor,
+        "comentario": comentario or "",
+    })
+    if result is None:
         return -1
+    return result.get("affected", 0)
 
 # ─── Drive URL helpers ────────────────────────────────────────────────────────
-_DRIVE_FILE_RE = re.compile(r"drive\.google\.com/file/d/([a-zA-Z0-9_-]+)")
-_DRIVE_UC_RE   = re.compile(r"drive\.google\.com/uc\?.*id=([a-zA-Z0-9_-]+)")
+_DRIVE_PATTERNS = [
+    re.compile(r"drive\.google\.com/file/d/([a-zA-Z0-9_-]+)"),
+    re.compile(r"drive\.google\.com/(?:uc|open)\?.*?id=([a-zA-Z0-9_-]+)"),
+    re.compile(r"id=([a-zA-Z0-9_-]{25,})"),          # id= genérico (fallback)
+]
 
 def drive_file_id(url: str) -> Optional[str]:
-    for rx in (_DRIVE_FILE_RE, _DRIVE_UC_RE):
+    for rx in _DRIVE_PATTERNS:
         m = rx.search(url or "")
         if m: return m.group(1)
     return None
@@ -458,50 +426,46 @@ def _get_image_b64(url: str, extra_headers: Optional[Dict] = None) -> str:
     return ""
 
 
-def _get_dist_cred_path(distribuidor_id: int) -> str:
-    """Devuelve la ruta relativa del credencial Drive del distribuidor."""
-    with get_conn() as c:
-        row = c.execute(
-            "SELECT ruta_credencial_drive FROM distribuidores WHERE id_distribuidor=?",
-            (distribuidor_id,),
-        ).fetchone()
-    return (row[0] or "") if row else ""
-
-
 @st.cache_data(ttl=600, show_spinner=False)
-def fetch_drive_b64(file_id: str, cred_path_rel: str = "", sz: int = 1000) -> str:
+def fetch_drive_b64(file_id: str, sz: int = 1000) -> str:
     """
     Obtiene imagen de Drive como data URI base64 para renderizado sin auth en browser.
 
-    Estrategia:
-    1. Thumbnail URL pública (Google Drive) — con User-Agent de browser real
-    2. Service Account (archivos privados del bot)
-    3. Retorna "" → el viewer JS mostrará placeholder
+    Estrategia (en orden de confiabilidad):
+    1. CDN directa lh3.googleusercontent.com — sin página de confirmación antivirus
+    2. Thumbnail URL pública (Drive) — funciona para imágenes pequeñas
+    3. Service Account vía st.secrets["google_credentials"] (archivos privados)
+    4. Retorna "" → el viewer JS mostrará placeholder
     """
     if not file_id:
         return ""
 
-    # 1. URL pública de thumbnail
+    # 1. CDN directa de Google (no muestra página de confirmación antivirus)
+    cdn_url = f"https://lh3.googleusercontent.com/d/{file_id}"
+    result = _get_image_b64(cdn_url)
+    if result:
+        return result
+
+    # 2. Thumbnail URL pública
     thumb_url = f"https://drive.google.com/thumbnail?id={file_id}&sz=w{sz}"
     result = _get_image_b64(thumb_url)
     if result:
         return result
 
-    # 2. Service Account
-    if not cred_path_rel or not HAS_GOOGLE_AUTH:
-        return ""
-    cred_path = CENTERMIND_ROOT / cred_path_rel
-    if not cred_path.exists():
+    # 3. Service Account desde Streamlit Secrets
+    if not HAS_GOOGLE_AUTH:
         return ""
     try:
-        creds = _SACreds.from_service_account_file(
-            str(cred_path),
+        cred_info = dict(st.secrets.get("google_credentials", {}))
+        if not cred_info:
+            return ""
+        creds = _SACreds.from_service_account_info(
+            cred_info,
             scopes=["https://www.googleapis.com/auth/drive.readonly"],
         )
         creds.refresh(_ga_tr.Request())
         api_url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"
-        result  = _get_image_b64(api_url, {"Authorization": f"Bearer {creds.token}"})
-        return result
+        return _get_image_b64(api_url, {"Authorization": f"Bearer {creds.token}"})
     except Exception as e:
         print(f"[fetch_drive_b64] SA failed for {file_id}: {e}")
 
@@ -531,9 +495,9 @@ def build_viewer_html(
 
     fid = drive_file_id(fotos[foto_idx]["drive_link"]) or ""
 
-    # Fallback si no llegó img_src
+    # Fallback si no llegó img_src: usar CDN lh3 (más confiable que thumbnail)
     if not img_src and fid:
-        img_src = f"https://drive.google.com/thumbnail?id={fid}&sz=w1000"
+        img_src = f"https://lh3.googleusercontent.com/d/{fid}"
 
     # Dots
     dots = ""
@@ -558,10 +522,12 @@ def build_viewer_html(
             )
 
     # JS fallback URLs (browser-side, si server-side falló)
+    # Orden: CDN directa lh3 → thumbnail → uc export=view
     fb_urls_js = "[]"
     if fid:
         fb_urls_js = (
-            f'["https://drive.google.com/thumbnail?id={fid}&sz=w800",'
+            f'["https://lh3.googleusercontent.com/d/{fid}",'
+            f'"https://drive.google.com/thumbnail?id={fid}&sz=w800",'
             f'"https://drive.google.com/uc?export=view&id={fid}"]'
         )
 
@@ -863,15 +829,14 @@ def render_visor():
                 foto_idx = 0; st.session_state.foto_idx = 0
     
             # ── Fetch imagen server-side ──────────────────────────────────────
-            cred_path = _get_dist_cred_path(u["id_distribuidor"])
-            main_fid  = drive_file_id(fotos[foto_idx]["drive_link"]) or ""
-            img_src   = fetch_drive_b64(main_fid, cred_path, sz=1000)
-    
+            main_fid = drive_file_id(fotos[foto_idx]["drive_link"]) or ""
+            img_src  = fetch_drive_b64(main_fid, sz=1000)
+
             thumb_srcs: List[str] = []
             if n_fotos > 1:
                 for f in fotos:
                     tid = drive_file_id(f["drive_link"]) or ""
-                    thumb_srcs.append(fetch_drive_b64(tid, cred_path, sz=150))
+                    thumb_srcs.append(fetch_drive_b64(tid, sz=150))
     
             # ── Viewer (más alto ahora que ocupa el ancho completo) ───────────
             viewer_height = 540 + (65 if n_fotos > 1 else 0)

@@ -23,10 +23,9 @@ Ejecutar:
 
 from __future__ import annotations
 
-import sqlite3
-from pathlib import Path
 from typing import Dict, Optional
 
+import requests
 import streamlit as st
 
 # ─── Configuración de página ──────────────────────────────────────────────────
@@ -36,10 +35,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed",
 )
-
-# ─── Paths ────────────────────────────────────────────────────────────────────
-BASE_DIR = Path(__file__).resolve().parent
-DB_PATH = Path(__file__).resolve().parent.parent / "base_datos" / "centermind.db"
 
 # ─── CSS ──────────────────────────────────────────────────────────────────────
 STYLE = """
@@ -272,25 +267,29 @@ div[data-testid="stAlert"] {
 </style>
 """
 
-# ─── DB helpers ───────────────────────────────────────────────────────────────
+# ─── API helpers ──────────────────────────────────────────────────────────────
 
-def get_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    return conn
+def _api_conf():
+    """Lee la URL y API Key desde st.secrets (con fallback local para desarrollo)."""
+    try:
+        return st.secrets["API_URL"].rstrip("/"), st.secrets["API_KEY"]
+    except Exception:
+        return "http://localhost:8000", ""
+
 
 def login_check(usuario: str, password: str) -> Optional[Dict]:
-    with get_conn() as c:
-        row = c.execute(
-            """SELECT u.id_usuario, u.usuario_login, u.rol, u.id_distribuidor,
-                      d.nombre_empresa
-               FROM usuarios_portal u
-               JOIN distribuidores d ON d.id_distribuidor = u.id_distribuidor
-               WHERE u.usuario_login = ? AND u.password = ?""",
-            (usuario.strip(), password.strip()),
-        ).fetchone()
-    return dict(row) if row else None
+    base, key = _api_conf()
+    try:
+        r = requests.post(
+            f"{base}/login",
+            json={"usuario": usuario, "password": password},
+            headers={"x-api-key": key},
+            timeout=15,
+        )
+        return r.json() if r.status_code == 200 else None
+    except Exception as e:
+        print(f"[login_check] API error: {e}")
+        return None
 
 # ─── State ────────────────────────────────────────────────────────────────────
 

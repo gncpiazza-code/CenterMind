@@ -62,6 +62,24 @@ CENTERMIND_ROOT = DB_PATH.parent.parent   # CenterMind/
 VISOR_CSS = """
 <style>
 /* ══════════════════════════════════════════════════
+   LAYOUT — ANCHO COMPLETO (override shared styles)
+   Sin max-width: 1100px para que las columnas 70/30
+   puedan usar todo el viewport disponible.
+   ══════════════════════════════════════════════════ */
+[data-testid="stMainBlockContainer"],
+.block-container {
+    max-width: 100% !important;
+    padding: 12px 16px !important;
+}
+section[data-testid="stSidebar"] { display: none !important; }
+
+/* Para que position:sticky del panel derecho funcione,
+   el flex-container de columnas debe usar align-items:start */
+[data-testid="stHorizontalBlock"] {
+    align-items: flex-start !important;
+}
+
+/* ══════════════════════════════════════════════════
    TOPBAR — STAT PILLS
    ══════════════════════════════════════════════════ */
 .topbar-stat-pill {
@@ -176,20 +194,20 @@ div[data-testid="stVerticalBlock"]:has(#eval-master-anchor) {
 }
 /* APROBAR */
 [data-testid="stVerticalBlock"]:has(#eval-master-anchor)
-    [data-testid="column"]:nth-child(1)
+    [data-testid="stColumn"]:nth-child(1)
     div[data-testid="stButton"] button {
     background: linear-gradient(135deg,#2E5A28,#5EA852) !important; color:#fff !important;
 }
 /* DESTACAR */
 [data-testid="stVerticalBlock"]:has(#eval-master-anchor)
-    [data-testid="column"]:nth-child(2)
+    [data-testid="stColumn"]:nth-child(2)
     div[data-testid="stButton"] button {
     background: linear-gradient(135deg,#9A6E2A,#D9A76A) !important;
     color:#1A1311 !important; font-weight:800 !important;
 }
 /* RECHAZAR */
 [data-testid="stVerticalBlock"]:has(#eval-master-anchor)
-    [data-testid="column"]:nth-child(3)
+    [data-testid="stColumn"]:nth-child(3)
     div[data-testid="stButton"] button {
     background: linear-gradient(135deg,#6A2318,#C0584A) !important; color:#fff !important;
 }

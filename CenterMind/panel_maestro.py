@@ -425,6 +425,8 @@ class ShelfMindPanel:
         self._console_paused  = False
         self._console_filter  = "TODOS"
         self._console_search  = ""
+        self._bot_filter      = "TODOS"          # filtro por archivo de log
+        self._tail_restart    = threading.Event() # señal para reiniciar tail
         self._bot_row_refs:   Dict[int, Dict] = {}
 
         # Referencias a widgets de streamlit status
@@ -834,7 +836,7 @@ class ShelfMindPanel:
         tk.Frame(parent, bg=BG, height=18).pack()
         tk.Label(parent, text="Consola en Vivo", fg=AMBER, bg=BG,
                  font=("Segoe UI", 16, "bold"), padx=24).pack(anchor="w")
-        tk.Label(parent, text="Tail del archivo .log en tiempo real",
+        tk.Label(parent, text="Histórico completo + tail en vivo, filtrable por bot y nivel",
                  fg=MUTED, bg=BG, font=("Segoe UI", 8), padx=24).pack(anchor="w")
         _sep(parent).pack(fill="x", padx=24, pady=(6, 10))
 
@@ -846,6 +848,20 @@ class ShelfMindPanel:
         self._pause_btn.pack(side="left", padx=(0, 6))
         _btn(ctrl, "🗑  LIMPIAR", self._clear_console, fg=RED).pack(side="left", padx=(0, 16))
 
+        # ── Filtro Bot ──────────────────────────────────────────────────────
+        tk.Label(ctrl, text="Bot:", fg=MUTED, bg=BG,
+                 font=("Segoe UI", 9)).pack(side="left", padx=(0, 4))
+        bot_opts = ["TODOS"] + [
+            f"bot_{bp.dist_id}.log"
+            for bp in sorted(self.bm.all(), key=lambda b: b.dist_id)
+        ]
+        self._bot_var = tk.StringVar(value="TODOS")
+        self._bot_cb  = ttk.Combobox(ctrl, textvariable=self._bot_var, width=12,
+                                     values=bot_opts, state="readonly")
+        self._bot_cb.pack(side="left", padx=(0, 12))
+        self._bot_cb.bind("<<ComboboxSelected>>", self._on_bot_filter_change)
+
+        # ── Filtro Nivel ────────────────────────────────────────────────────
         tk.Label(ctrl, text="Nivel:", fg=MUTED, bg=BG,
                  font=("Segoe UI", 9)).pack(side="left", padx=(0, 4))
         self._filter_var = tk.StringVar(value="TODOS")
@@ -904,6 +920,12 @@ class ShelfMindPanel:
         self._console_txt.config(state="disabled")
         if self._console_count_lbl:
             self._console_count_lbl.config(text="0 líneas")
+
+    def _on_bot_filter_change(self, event=None) -> None:
+        """Cambia el bot/archivo monitoreado: limpia consola y reinicia el tail."""
+        self._bot_filter = self._bot_var.get()
+        self._clear_console()
+        self._tail_restart.set()   # señaliza al thread de fondo para reiniciar
 
     # ══════════════════════════════════════════════════════════════════════
     # TAB: HISTORIAL DE LOGS
@@ -1312,28 +1334,84 @@ class ShelfMindPanel:
     # ══════════════════════════════════════════════════════════════════════
 
     def _tail_logs(self) -> None:
+        """Lee histórico completo y hace tail en vivo respetando _bot_filter.
+
+        · TODOS      → carga todas las líneas de todos los .log y luego
+                        hace poll cada 250 ms sobre todos los archivos.
+        · bot_N.log  → carga todas las líneas de ese archivo y hace tail
+                        solo sobre él.
+        Cuando _tail_restart se activa (cambio de filtro), reinicia el ciclo.
+        """
         while self._running:
+            self._tail_restart.clear()
             LOGS_DIR.mkdir(exist_ok=True)
-            log_files = sorted(LOGS_DIR.glob("*.log"), reverse=True)
-            if not log_files:
-                time.sleep(1); continue
-            log_file = log_files[0]
-            try:
-                with open(log_file, "r", encoding="utf-8", errors="replace") as f:
-                    content   = f.read()
-                    last_100  = content.splitlines()[-100:]
-                    for line in last_100:
-                        if line.strip(): self._log_queue.put(line)
-                    while self._running:
-                        line = f.readline()
-                        if line:
-                            self._log_queue.put(line.rstrip())
-                        else:
-                            time.sleep(0.15)
-                            new_files = sorted(LOGS_DIR.glob("*.log"), reverse=True)
-                            if new_files and new_files[0] != log_file: break
-            except Exception:
-                time.sleep(2)
+
+            bot_filter = self._bot_filter
+            all_files  = sorted(LOGS_DIR.glob("*.log"), key=lambda f: f.name)
+
+            if not all_files:
+                time.sleep(1)
+                continue
+
+            # ── Cargar histórico completo ──────────────────────────────────
+            if bot_filter == "TODOS":
+                hist_files = all_files
+            else:
+                target = LOGS_DIR / bot_filter
+                hist_files = [target] if target.exists() else []
+
+            for lf in hist_files:
+                try:
+                    with open(lf, "r", encoding="utf-8", errors="replace") as fh:
+                        for line in fh:
+                            line = line.rstrip()
+                            if line:
+                                self._log_queue.put(line)
+                except Exception:
+                    pass
+
+            # ── Tail en vivo: poll cada 250 ms sobre los archivos activos ─
+            tail_files = (
+                sorted(LOGS_DIR.glob("*.log"), key=lambda f: f.name)
+                if bot_filter == "TODOS"
+                else hist_files
+            )
+            # Guardar posición actual (fin del archivo) para cada uno
+            positions: Dict[Path, int] = {}
+            for lf in tail_files:
+                try:
+                    positions[lf] = lf.stat().st_size
+                except Exception:
+                    positions[lf] = 0
+
+            while self._running and not self._tail_restart.is_set():
+                try:
+                    # En modo TODOS: detectar archivos nuevos que aparezcan
+                    if bot_filter == "TODOS":
+                        for lf in sorted(LOGS_DIR.glob("*.log"), key=lambda f: f.name):
+                            if lf not in positions:
+                                positions[lf] = 0
+
+                    for lf, pos in list(positions.items()):
+                        try:
+                            new_size = lf.stat().st_size
+                        except Exception:
+                            continue
+                        if new_size > pos:
+                            try:
+                                with open(lf, "r", encoding="utf-8",
+                                          errors="replace") as fh:
+                                    fh.seek(pos)
+                                    for raw in fh:
+                                        raw = raw.rstrip()
+                                        if raw:
+                                            self._log_queue.put(raw)
+                                positions[lf] = new_size
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+                time.sleep(0.25)
 
     def _drain_log_queue(self) -> None:
         """Drena hasta 50 líneas por tick desde la cola y las agrega a la consola."""

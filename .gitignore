@@ -1,21 +1,38 @@
-# Ignorar archivos de credenciales JSON en CenterMind y sus subcarpetas
-CenterMind/**/*.json
+# ==========================================
+# .GITIGNORE - PLATAFORMA DE AUDITORIA
+# ==========================================
 
-# Ignorar la base de datos (¡No queremos borrarla ni sobreescribirla al copiar el código!)
+# 1. Credenciales y Seguridad (Riesgo Crítico)
+CenterMind/**/*.json
+.streamlit/secrets.toml
+.streamlit/
+.env
+
+# 2. Base de Datos SQLite (Evita sobreescritura y corrupción)
 CenterMind/base_datos/*.db
 *.db
 *.sqlite3
+*.db-shm
+*.db-wal
 
-# Ignorar la carpeta de archivos temporales de Python
-CenterMind/pssss
+# 3. Archivos Temporales y Basura (Rutas relativas correctas)
+CenterMind/pssss/
+pssss/
+psss/
+SANDBOX/
+
+# 4. Entornos Virtuales y Caché de Python
 __pycache__/
 *.pyc
 *.pyo
-
-# Ignorar entornos virtuales (si llegas a usar uno en el futuro)
 venv/
 env/
-.env
 
-# Ignorar archivos de registro (logs)
+# 5. Herramientas de IA y Logs
+.claude/
 *.log
+
+# 6. Respaldo de editores y Windows
+* - copia.py
+*.bak
+*.tmp

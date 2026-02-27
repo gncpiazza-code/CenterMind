@@ -29,7 +29,7 @@ from pydantic import BaseModel
 # Configura esta clave antes de usar. Puedes pasarla como variable de entorno:
 #   set SHELFMIND_API_KEY=tu-clave-secreta   (Windows)
 #   export SHELFMIND_API_KEY=tu-clave-secreta (Linux/Mac)
-API_KEY = os.environ.get("SHELFMIND_API_KEY", "CAMBIA-ESTA-CLAVE-SECRETA")
+API_KEY = os.environ.get("SHELFMIND_API_KEY", "shelfmind-clave-2025")
 
 DB_PATH = Path(__file__).resolve().parent / "base_datos" / "centermind.db"
 
@@ -188,8 +188,6 @@ def evaluar(req: EvaluarRequest, _=Depends(verify_key)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-<<<<<<< Updated upstream
-=======
 @app.post("/revertir", summary="Revertir evaluación a Pendiente")
 def revertir(req: RevertirRequest, _=Depends(verify_key)):
     try:
@@ -211,7 +209,6 @@ def revertir(req: RevertirRequest, _=Depends(verify_key)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
->>>>>>> Stashed changes
 # ─── Entry point (desarrollo) ─────────────────────────────────────────────────
 
 if __name__ == "__main__":

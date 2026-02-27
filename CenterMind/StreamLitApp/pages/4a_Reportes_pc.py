@@ -288,9 +288,9 @@ def get_vendedores(distribuidor_id: int) -> List[str]:
 def get_tipos_pdv(distribuidor_id: int) -> List[str]:
     with get_conn() as c:
         rows = c.execute(
-            """SELECT DISTINCT comentarios_telegram FROM exhibiciones
-               WHERE id_distribuidor = ? AND comentarios_telegram IS NOT NULL
-               ORDER BY comentarios_telegram""",
+            """SELECT DISTINCT tipo_pdv FROM exhibiciones
+               WHERE id_distribuidor = ? AND tipo_pdv IS NOT NULL
+               ORDER BY tipo_pdv""",
             (distribuidor_id,)
         ).fetchall()
     return [r[0] for r in rows if r[0]]
@@ -323,27 +323,28 @@ def query_exhibiciones(
 
     if tipos_pdv:
         placeholders = ",".join("?" * len(tipos_pdv))
-        wheres.append(f"e.comentarios_telegram IN ({placeholders})")
+        wheres.append(f"e.tipo_pdv IN ({placeholders})")
         params.extend(tipos_pdv)
 
     if nro_cliente.strip():
-        wheres.append("e.numero_cliente_local LIKE ?")
+        wheres.append("c.numero_cliente_local LIKE ?")
         params.append(f"%{nro_cliente.strip()}%")
 
     sql = f"""
         SELECT
             e.id_exhibicion,
             i.nombre_integrante             AS vendedor,
-            e.numero_cliente_local          AS cliente,
-            e.comentarios_telegram          AS tipo_pdv,
+            c.numero_cliente_local          AS cliente,
+            e.tipo_pdv,
             e.estado,
             e.supervisor_nombre             AS supervisor,
-            e.comentarios                   AS comentario,
+            e.comentario_evaluacion         AS comentario,
             e.timestamp_subida              AS fecha_carga,
             e.evaluated_at                  AS fecha_evaluacion,
             e.url_foto_drive                AS link_foto
         FROM exhibiciones e
         LEFT JOIN integrantes_grupo i ON i.id_integrante = e.id_integrante
+        LEFT JOIN clientes c          ON c.id_cliente    = e.id_cliente
         WHERE {" AND ".join(wheres)}
         ORDER BY e.timestamp_subida DESC
     """

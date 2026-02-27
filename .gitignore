@@ -7,6 +7,7 @@ CenterMind/base_datos/*.db
 *.sqlite3
 
 # Ignorar la carpeta de archivos temporales de Python
+CenterMind/pssss
 __pycache__/
 *.pyc
 *.pyo

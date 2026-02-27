@@ -536,11 +536,12 @@ def get_ultimas_evaluadas(distribuidor_id: int, n: int = CAROUSEL_MAX) -> List[D
                    e.url_foto_drive       AS drive_link,
                    e.estado,
                    e.evaluated_at,
-                   e.numero_cliente_local AS nro_cliente,
-                   e.comentarios_telegram AS tipo_pdv,
+                   c.numero_cliente_local AS nro_cliente,
+                   e.tipo_pdv,
                    i.nombre_integrante    AS vendedor
                FROM exhibiciones e
                LEFT JOIN integrantes_grupo i ON i.id_integrante = e.id_integrante
+               LEFT JOIN clientes c          ON c.id_cliente    = e.id_cliente
                WHERE e.id_distribuidor = ?
                  AND e.estado IN ('Aprobado','Destacado')
                  AND e.url_foto_drive IS NOT NULL

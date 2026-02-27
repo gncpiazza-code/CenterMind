@@ -468,10 +468,11 @@ def get_integrantes(distribuidor_id: Optional[int] = None) -> List[Dict]:
         if distribuidor_id:
             rows = c.execute(
                 """SELECT i.id_integrante, i.nombre_integrante, i.telegram_user_id,
-                          i.rol_telegram, i.telegram_group_id, i.nombre_grupo,
+                          i.rol_telegram, i.telegram_group_id, g.nombre_grupo,
                           d.nombre_empresa
                    FROM integrantes_grupo i
-                   JOIN distribuidores d ON d.id_distribuidor = i.id_distribuidor
+                   JOIN distribuidores d  ON d.id_distribuidor   = i.id_distribuidor
+                   LEFT JOIN grupos g     ON g.telegram_chat_id  = i.telegram_group_id
                    WHERE i.id_distribuidor = ?
                    ORDER BY i.rol_telegram, i.nombre_integrante""",
                 (distribuidor_id,)
@@ -479,10 +480,11 @@ def get_integrantes(distribuidor_id: Optional[int] = None) -> List[Dict]:
         else:
             rows = c.execute(
                 """SELECT i.id_integrante, i.nombre_integrante, i.telegram_user_id,
-                          i.rol_telegram, i.telegram_group_id, i.nombre_grupo,
+                          i.rol_telegram, i.telegram_group_id, g.nombre_grupo,
                           d.nombre_empresa
                    FROM integrantes_grupo i
-                   JOIN distribuidores d ON d.id_distribuidor = i.id_distribuidor
+                   JOIN distribuidores d  ON d.id_distribuidor   = i.id_distribuidor
+                   LEFT JOIN grupos g     ON g.telegram_chat_id  = i.telegram_group_id
                    ORDER BY d.nombre_empresa, i.rol_telegram, i.nombre_integrante"""
             ).fetchall()
     return [dict(r) for r in rows]

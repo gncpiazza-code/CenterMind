@@ -102,14 +102,15 @@ def get_pendientes(id_distribuidor: int, _=Depends(verify_key)):
     with get_conn() as c:
         rows = c.execute(
             """SELECT e.id_exhibicion,
-                      e.numero_cliente_local  AS nro_cliente,
-                      e.comentarios_telegram  AS tipo_pdv,
+                      c.numero_cliente_local  AS nro_cliente,
+                      e.tipo_pdv,
                       e.url_foto_drive        AS drive_link,
                       e.timestamp_subida      AS fecha_hora,
                       e.telegram_msg_id,
                       i.nombre_integrante     AS vendedor
                FROM exhibiciones e
                LEFT JOIN integrantes_grupo i ON i.id_integrante = e.id_integrante
+               LEFT JOIN clientes c          ON c.id_cliente    = e.id_cliente
                WHERE e.id_distribuidor = ? AND e.estado = 'Pendiente'
                ORDER BY e.timestamp_subida ASC""",
             (id_distribuidor,),
@@ -174,7 +175,7 @@ def evaluar(req: EvaluarRequest, _=Depends(verify_key)):
         for id_ex in req.ids_exhibicion:
             cur = conn.execute(
                 "UPDATE exhibiciones "
-                "SET estado=?, supervisor_nombre=?, comentarios=?, "
+                "SET estado=?, supervisor_nombre=?, comentario_evaluacion=?, "
                 "    evaluated_at=CURRENT_TIMESTAMP, synced_telegram=0 "
                 "WHERE id_exhibicion=? AND estado='Pendiente'",
                 (req.estado, req.supervisor, req.comentario or None, id_ex),
@@ -187,6 +188,30 @@ def evaluar(req: EvaluarRequest, _=Depends(verify_key)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+<<<<<<< Updated upstream
+=======
+@app.post("/revertir", summary="Revertir evaluación a Pendiente")
+def revertir(req: RevertirRequest, _=Depends(verify_key)):
+    try:
+        affected = 0
+        conn = get_conn()
+        for id_ex in req.ids_exhibicion:
+            cur = conn.execute(
+                "UPDATE exhibiciones "
+                "SET estado='Pendiente', supervisor_nombre=NULL, comentario_evaluacion=NULL, "
+                "    evaluated_at=NULL, synced_telegram=0 "
+                "WHERE id_exhibicion=?",
+                (id_ex,),
+            )
+            affected += cur.rowcount
+        conn.commit()
+        conn.close()
+        return {"affected": affected}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+>>>>>>> Stashed changes
 # ─── Entry point (desarrollo) ─────────────────────────────────────────────────
 
 if __name__ == "__main__":

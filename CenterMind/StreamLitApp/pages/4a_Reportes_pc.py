@@ -9,9 +9,7 @@ Vista previa en tabla + gráficos + exportar a Excel con branding.
 from __future__ import annotations
 
 import io
-import sqlite3
 from datetime import date, datetime, timedelta
-from pathlib import Path
 from typing import Dict, List, Optional
 
 import streamlit as st
@@ -27,10 +25,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed",
 )
-
-# ─── Paths ────────────────────────────────────────────────────────────────────
-BASE_DIR = Path(__file__).resolve().parent
-DB_PATH  = BASE_DIR.parent.parent / "base_datos" / "centermind.db"
 
 # ─── Imports opcionales ───────────────────────────────────────────────────────
 try:
@@ -269,31 +263,41 @@ MESES_ES = {
 
 # ─── DB helpers ───────────────────────────────────────────────────────────────
 
-def get_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    return conn
+# ─── API helpers ──────────────────────────────────────────────────────────────
+
+def _api_conf():
+    try:
+        return st.secrets["API_URL"].rstrip("/"), st.secrets["API_KEY"]
+    except Exception:
+        return "http://localhost:8000", "shelfmind-clave-2025"
+
+def _api_get(path: str):
+    try:
+        import requests
+        url, key = _api_conf()
+        r = requests.get(f"{url}{path}", headers={"x-api-key": key}, timeout=15)
+        r.raise_for_status()
+        return r.json()
+    except Exception:
+        return None
+
+def _api_post(path: str, body: dict):
+    try:
+        import requests
+        url, key = _api_conf()
+        r = requests.post(f"{url}{path}", json=body, headers={"x-api-key": key}, timeout=15)
+        r.raise_for_status()
+        return r.json()
+    except Exception:
+        return None
 
 def get_vendedores(distribuidor_id: int) -> List[str]:
-    with get_conn() as c:
-        rows = c.execute(
-            """SELECT DISTINCT nombre_integrante FROM integrantes_grupo
-               WHERE id_distribuidor = ? AND nombre_integrante IS NOT NULL
-               ORDER BY nombre_integrante""",
-            (distribuidor_id,)
-        ).fetchall()
-    return [r[0] for r in rows]
+    data = _api_get(f"/reportes/vendedores/{distribuidor_id}")
+    return data if isinstance(data, list) else []
 
 def get_tipos_pdv(distribuidor_id: int) -> List[str]:
-    with get_conn() as c:
-        rows = c.execute(
-            """SELECT DISTINCT tipo_pdv FROM exhibiciones
-               WHERE id_distribuidor = ? AND tipo_pdv IS NOT NULL
-               ORDER BY tipo_pdv""",
-            (distribuidor_id,)
-        ).fetchall()
-    return [r[0] for r in rows if r[0]]
+    data = _api_get(f"/reportes/tipos-pdv/{distribuidor_id}")
+    return data if isinstance(data, list) else []
 
 def query_exhibiciones(
     distribuidor_id: int,
@@ -304,53 +308,16 @@ def query_exhibiciones(
     tipos_pdv: List[str],
     nro_cliente: str,
 ) -> List[Dict]:
-    wheres = [
-        "e.id_distribuidor = ?",
-        "DATE(e.timestamp_subida) >= ?",
-        "DATE(e.timestamp_subida) <= ?",
-    ]
-    params: list = [distribuidor_id, fecha_desde.isoformat(), fecha_hasta.isoformat()]
-
-    if vendedores:
-        placeholders = ",".join("?" * len(vendedores))
-        wheres.append(f"i.nombre_integrante IN ({placeholders})")
-        params.extend(vendedores)
-
-    if estados:
-        placeholders = ",".join("?" * len(estados))
-        wheres.append(f"e.estado IN ({placeholders})")
-        params.extend(estados)
-
-    if tipos_pdv:
-        placeholders = ",".join("?" * len(tipos_pdv))
-        wheres.append(f"e.tipo_pdv IN ({placeholders})")
-        params.extend(tipos_pdv)
-
-    if nro_cliente.strip():
-        wheres.append("c.numero_cliente_local LIKE ?")
-        params.append(f"%{nro_cliente.strip()}%")
-
-    sql = f"""
-        SELECT
-            e.id_exhibicion,
-            i.nombre_integrante             AS vendedor,
-            c.numero_cliente_local          AS cliente,
-            e.tipo_pdv,
-            e.estado,
-            e.supervisor_nombre             AS supervisor,
-            e.comentario_evaluacion         AS comentario,
-            e.timestamp_subida              AS fecha_carga,
-            e.evaluated_at                  AS fecha_evaluacion,
-            e.url_foto_drive                AS link_foto
-        FROM exhibiciones e
-        LEFT JOIN integrantes_grupo i ON i.id_integrante = e.id_integrante
-        LEFT JOIN clientes c          ON c.id_cliente    = e.id_cliente
-        WHERE {" AND ".join(wheres)}
-        ORDER BY e.timestamp_subida DESC
-    """
-    with get_conn() as c:
-        rows = c.execute(sql, params).fetchall()
-    return [dict(r) for r in rows]
+    body = {
+        "fecha_desde":  fecha_desde.isoformat(),
+        "fecha_hasta":  fecha_hasta.isoformat(),
+        "vendedores":   vendedores,
+        "estados":      estados,
+        "tipos_pdv":    tipos_pdv,
+        "nro_cliente":  nro_cliente,
+    }
+    data = _api_post(f"/reportes/exhibiciones/{distribuidor_id}", body)
+    return data if isinstance(data, list) else []
 
 # ─── Excel export (Branding Premium) ──────────────────────────────────────────
 

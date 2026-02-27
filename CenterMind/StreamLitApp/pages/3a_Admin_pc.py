@@ -9,8 +9,6 @@ Acceso:
 
 from __future__ import annotations
 
-import sqlite3
-from pathlib import Path
 from typing import Dict, List, Optional
 
 import streamlit as st
@@ -41,10 +39,6 @@ st.markdown(
     "section[data-testid='stSidebar']{display:none!important}</style>",
     unsafe_allow_html=True,
 )
-
-# ─── Paths ────────────────────────────────────────────────────────────────────
-BASE_DIR = Path(__file__).resolve().parent
-DB_PATH  = BASE_DIR.parent.parent / "base_datos" / "centermind.db"
 
 # ─── CSS ──────────────────────────────────────────────────────────────────────
 STYLE = """
@@ -318,195 +312,127 @@ div[data-testid="stHorizontalBlock"]:has(.admin-row-user) > div:nth-child(5) div
 </style>
 """
 
-# ─── DB helpers ───────────────────────────────────────────────────────────────
+# ─── API helpers ──────────────────────────────────────────────────────────────
 
-def get_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    return conn
+def _api_conf():
+    try:
+        return st.secrets["API_URL"].rstrip("/"), st.secrets["API_KEY"]
+    except Exception:
+        return "http://localhost:8000", "shelfmind-clave-2025"
 
+def _api_get(path: str):
+    try:
+        import requests
+        url, key = _api_conf()
+        r = requests.get(f"{url}{path}", headers={"x-api-key": key}, timeout=10)
+        r.raise_for_status()
+        return r.json()
+    except Exception:
+        return None
+
+def _api_post(path: str, body: dict):
+    try:
+        import requests
+        url, key = _api_conf()
+        r = requests.post(f"{url}{path}", json=body, headers={"x-api-key": key}, timeout=10)
+        r.raise_for_status()
+        return r.json()
+    except Exception:
+        return None
+
+def _api_put(path: str, body: dict):
+    try:
+        import requests
+        url, key = _api_conf()
+        r = requests.put(f"{url}{path}", json=body, headers={"x-api-key": key}, timeout=10)
+        r.raise_for_status()
+        return r.json()
+    except Exception:
+        return None
+
+def _api_patch(path: str, params: dict = {}):
+    try:
+        import requests
+        url, key = _api_conf()
+        r = requests.patch(f"{url}{path}", params=params, headers={"x-api-key": key}, timeout=10)
+        r.raise_for_status()
+        return r.json()
+    except Exception:
+        return None
+
+def _api_delete(path: str):
+    try:
+        import requests
+        url, key = _api_conf()
+        r = requests.delete(f"{url}{path}", headers={"x-api-key": key}, timeout=10)
+        r.raise_for_status()
+        return r.json()
+    except Exception:
+        return None
+
+# ── Distribuidoras ─────────────────────────────────────────────────────────────
 
 def get_distribuidoras(solo_activas: bool = True) -> List[Dict]:
-    with get_conn() as c:
-        if solo_activas:
-            rows = c.execute(
-                """SELECT id_distribuidor AS id, nombre_empresa AS nombre, estado
-                   FROM distribuidores WHERE estado = 'activo'
-                   ORDER BY nombre_empresa"""
-            ).fetchall()
-        else:
-            rows = c.execute(
-                """SELECT id_distribuidor AS id, nombre_empresa AS nombre,
-                          token_bot, ruta_credencial_drive, id_carpeta_drive, estado
-                   FROM distribuidores ORDER BY nombre_empresa"""
-            ).fetchall()
-    return [dict(r) for r in rows]
+    data = _api_get(f"/admin/distribuidoras?solo_activas={'true' if solo_activas else 'false'}")
+    return data if isinstance(data, list) else []
 
 def crear_distribuidora(nombre: str, token: str, carpeta_drive: str, ruta_cred: str) -> tuple[bool, str]:
-    try:
-        with get_conn() as c:
-            c.execute(
-                """INSERT INTO distribuidores
-                   (nombre_empresa, token_bot, id_carpeta_drive, ruta_credencial_drive, estado)
-                   VALUES (?,?,?,?,'activo')""",
-                (nombre.strip(), token.strip(), carpeta_drive.strip(), ruta_cred.strip()),
-            )
-            c.commit()
+    data = _api_post("/admin/distribuidoras", {
+        "nombre": nombre, "token": token,
+        "carpeta_drive": carpeta_drive, "ruta_cred": ruta_cred,
+    })
+    if data and data.get("ok"):
         return True, ""
-    except sqlite3.IntegrityError as e:
-        msg = str(e)
-        if "nombre_empresa" in msg:
-            return False, "Ya existe una distribuidora con ese nombre."
-        if "token_bot" in msg:
-            return False, "Ese token de bot ya está registrado."
-        return False, f"Error de integridad: {msg}"
-    except Exception as e:
-        return False, str(e)
+    return False, "Error al crear distribuidora (nombre o token duplicado)."
 
 def editar_distribuidora(dist_id: int, nombre: str, token: str, carpeta_drive: str, ruta_cred: str) -> tuple[bool, str]:
-    try:
-        with get_conn() as c:
-            c.execute(
-                """UPDATE distribuidores
-                   SET nombre_empresa=?, token_bot=?, id_carpeta_drive=?, ruta_credencial_drive=?
-                   WHERE id_distribuidor=?""",
-                (nombre.strip(), token.strip(), carpeta_drive.strip(), ruta_cred.strip(), dist_id),
-            )
-            c.commit()
+    data = _api_put(f"/admin/distribuidoras/{dist_id}", {
+        "nombre": nombre, "token": token,
+        "carpeta_drive": carpeta_drive, "ruta_cred": ruta_cred,
+    })
+    if data and data.get("ok"):
         return True, ""
-    except sqlite3.IntegrityError as e:
-        msg = str(e)
-        if "nombre_empresa" in msg:
-            return False, "Ya existe una distribuidora con ese nombre."
-        if "token_bot" in msg:
-            return False, "Ese token de bot ya está registrado."
-        return False, f"Error de integridad: {msg}"
-    except Exception as e:
-        return False, str(e)
+    return False, "Error al editar distribuidora (nombre o token duplicado)."
 
 def toggle_distribuidora_estado(dist_id: int, nuevo_estado: str) -> bool:
-    try:
-        with get_conn() as c:
-            c.execute(
-                "UPDATE distribuidores SET estado=? WHERE id_distribuidor=?",
-                (nuevo_estado, dist_id),
-            )
-            c.commit()
-        return True
-    except Exception:
-        return False
+    data = _api_patch(f"/admin/distribuidoras/{dist_id}/estado", {"estado": nuevo_estado})
+    return bool(data and data.get("ok"))
 
 # ── Usuarios del portal ────────────────────────────────────────────────────────
 
 def get_usuarios(distribuidor_id: Optional[int] = None) -> List[Dict]:
-    with get_conn() as c:
-        if distribuidor_id:
-            rows = c.execute(
-                """SELECT u.id_usuario, u.usuario_login, u.rol, u.id_distribuidor,
-                          d.nombre_empresa
-                   FROM usuarios_portal u
-                   JOIN distribuidores d ON d.id_distribuidor = u.id_distribuidor
-                   WHERE u.id_distribuidor = ?
-                   ORDER BY u.rol, u.usuario_login""",
-                (distribuidor_id,)
-            ).fetchall()
-        else:
-            rows = c.execute(
-                """SELECT u.id_usuario, u.usuario_login, u.rol, u.id_distribuidor,
-                          d.nombre_empresa
-                   FROM usuarios_portal u
-                   JOIN distribuidores d ON d.id_distribuidor = u.id_distribuidor
-                   ORDER BY d.nombre_empresa, u.rol, u.usuario_login"""
-            ).fetchall()
-    return [dict(r) for r in rows]
+    path = f"/admin/usuarios?dist_id={distribuidor_id}" if distribuidor_id else "/admin/usuarios"
+    data = _api_get(path)
+    return data if isinstance(data, list) else []
 
 def crear_usuario(dist_id: int, login: str, password: str, rol: str) -> bool:
-    try:
-        with get_conn() as c:
-            c.execute(
-                "INSERT INTO usuarios_portal (id_distribuidor, usuario_login, password, rol) VALUES (?,?,?,?)",
-                (dist_id, login.strip(), password.strip(), rol)
-            )
-            c.commit()
-        return True
-    except sqlite3.IntegrityError:
-        return False
+    data = _api_post("/admin/usuarios", {
+        "dist_id": dist_id, "login": login, "password": password, "rol": rol,
+    })
+    return bool(data and data.get("ok"))
 
 def editar_usuario(user_id: int, login: str, rol: str, password: Optional[str] = None) -> bool:
-    try:
-        with get_conn() as c:
-            if password:
-                c.execute(
-                    "UPDATE usuarios_portal SET usuario_login=?, rol=?, password=? WHERE id_usuario=?",
-                    (login.strip(), rol, password.strip(), user_id)
-                )
-            else:
-                c.execute(
-                    "UPDATE usuarios_portal SET usuario_login=?, rol=? WHERE id_usuario=?",
-                    (login.strip(), rol, user_id)
-                )
-            c.commit()
-        return True
-    except sqlite3.IntegrityError:
-        return False
+    data = _api_put(f"/admin/usuarios/{user_id}", {
+        "login": login, "rol": rol, "password": password or "",
+    })
+    return bool(data and data.get("ok"))
 
 def eliminar_usuario(user_id: int) -> bool:
-    try:
-        with get_conn() as c:
-            c.execute("DELETE FROM usuarios_portal WHERE id_usuario=?", (user_id,))
-            c.commit()
-        return True
-    except Exception:
-        return False
+    data = _api_delete(f"/admin/usuarios/{user_id}")
+    return bool(data and data.get("ok"))
 
 # ── Integrantes de Telegram ────────────────────────────────────────────────────
 
 def get_integrantes(distribuidor_id: Optional[int] = None) -> List[Dict]:
-    with get_conn() as c:
-        if distribuidor_id:
-            rows = c.execute(
-                """SELECT i.id_integrante, i.nombre_integrante, i.telegram_user_id,
-                          i.rol_telegram, i.telegram_group_id, g.nombre_grupo,
-                          d.nombre_empresa
-                   FROM integrantes_grupo i
-                   JOIN distribuidores d  ON d.id_distribuidor   = i.id_distribuidor
-                   LEFT JOIN grupos g     ON g.telegram_chat_id  = i.telegram_group_id
-                   WHERE i.id_distribuidor = ?
-                   ORDER BY i.rol_telegram, i.nombre_integrante""",
-                (distribuidor_id,)
-            ).fetchall()
-        else:
-            rows = c.execute(
-                """SELECT i.id_integrante, i.nombre_integrante, i.telegram_user_id,
-                          i.rol_telegram, i.telegram_group_id, g.nombre_grupo,
-                          d.nombre_empresa
-                   FROM integrantes_grupo i
-                   JOIN distribuidores d  ON d.id_distribuidor   = i.id_distribuidor
-                   LEFT JOIN grupos g     ON g.telegram_chat_id  = i.telegram_group_id
-                   ORDER BY d.nombre_empresa, i.rol_telegram, i.nombre_integrante"""
-            ).fetchall()
-    return [dict(r) for r in rows]
+    path = f"/admin/integrantes?dist_id={distribuidor_id}" if distribuidor_id else "/admin/integrantes"
+    data = _api_get(path)
+    return data if isinstance(data, list) else []
 
 def set_rol_integrante(id_integrante: int, rol: str, distribuidor_id: Optional[int] = None) -> bool:
-    try:
-        with get_conn() as c:
-            if distribuidor_id is None:
-                c.execute(
-                    "UPDATE integrantes_grupo SET rol_telegram=? WHERE id_integrante=?",
-                    (rol, id_integrante)
-                )
-            else:
-                c.execute(
-                    "UPDATE integrantes_grupo SET rol_telegram=? WHERE id_integrante=? AND id_distribuidor=?",
-                    (rol, id_integrante, distribuidor_id)
-                )
-            changed = c.execute("SELECT changes()").fetchone()[0]
-            c.commit()
-        return bool(changed)
-    except Exception:
-        return False
+    data = _api_put(f"/admin/integrantes/{id_integrante}/rol", {
+        "rol": rol, "distribuidor_id": distribuidor_id,
+    })
+    return bool(data and data.get("ok"))
 
 # ─── Helpers de render ────────────────────────────────────────────────────────
 

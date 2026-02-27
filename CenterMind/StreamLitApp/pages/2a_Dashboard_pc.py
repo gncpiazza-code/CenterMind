@@ -12,10 +12,8 @@ Se actualiza solo cada 60 segundos.
 from __future__ import annotations
 
 import re
-import sqlite3
 import time
 from datetime import datetime
-from pathlib import Path
 from typing import Dict, List, Optional
 from zoneinfo import ZoneInfo
 
@@ -32,9 +30,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# ─── Paths & constantes ───────────────────────────────────────────────────────
-BASE_DIR     = Path(__file__).resolve().parent
-DB_PATH = Path(__file__).resolve().parent.parent.parent / "base_datos" / "centermind.db"
+# ─── Constantes ───────────────────────────────────────────────────────────────
 AR_TZ        = ZoneInfo("America/Argentina/Buenos_Aires")
 REFRESH_SECS = 60        # auto-refresh del dashboard
 CAROUSEL_MAX = 8         # máximo de fotos en el carrusel
@@ -444,112 +440,42 @@ div[data-testid="stButton"] button:hover {
 </style>
 """
 
-# ─── DB helpers ───────────────────────────────────────────────────────────────
+# ─── API helpers ──────────────────────────────────────────────────────────────
 
-def get_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    return conn
+def _api_conf():
+    try:
+        return st.secrets["API_URL"].rstrip("/"), st.secrets["API_KEY"]
+    except Exception:
+        return "http://localhost:8000", "shelfmind-clave-2025"
 
-
-def get_distribuidoras() -> List[Dict]:
-    with get_conn() as c:
-        rows = c.execute(
-            "SELECT id_distribuidor AS id, nombre_empresa AS nombre FROM distribuidores WHERE estado='activo'"
-        ).fetchall()
-    return [dict(r) for r in rows]
+def _api_get(path: str) -> Optional[Dict | List]:
+    try:
+        import requests
+        url, key = _api_conf()
+        r = requests.get(f"{url}{path}", headers={"x-api-key": key}, timeout=10)
+        r.raise_for_status()
+        return r.json()
+    except Exception:
+        return None
 
 
 def get_kpis(distribuidor_id: int, periodo: str) -> Dict:
-    """KPIs según período: hoy / mes / historico."""
-    where_extra = ""
-    now = datetime.now(AR_TZ)
-    if periodo == "hoy":
-        hoy = now.strftime("%Y-%m-%d")
-        where_extra = f" AND DATE(timestamp_subida) = '{hoy}'"
-    elif periodo == "mes":
-        mes_inicio = now.replace(day=1).strftime("%Y-%m-%d")
-        where_extra = f" AND timestamp_subida >= '{mes_inicio}'"
-
-    with get_conn() as c:
-        row = c.execute(
-            f"""SELECT
-                   COUNT(*) total,
-                   SUM(CASE WHEN estado='Aprobado'  THEN 1 ELSE 0 END) aprobadas,
-                   SUM(CASE WHEN estado='Destacado' THEN 1 ELSE 0 END) destacadas,
-                   SUM(CASE WHEN estado='Rechazado' THEN 1 ELSE 0 END) rechazadas,
-                   SUM(CASE WHEN estado='Pendiente' THEN 1 ELSE 0 END) pendientes
-               FROM exhibiciones
-               WHERE id_distribuidor = ?{where_extra}""",
-            (distribuidor_id,),
-        ).fetchone()
-    r = dict(row) if row else {}
-    return {k: (v or 0) for k, v in r.items()}
+    data = _api_get(f"/dashboard/kpis/{distribuidor_id}?periodo={periodo}")
+    return data if isinstance(data, dict) else {}
 
 
 def get_ranking(distribuidor_id: int, periodo: str) -> List[Dict]:
-    now = datetime.now(AR_TZ)
-    where_extra = ""
-    if periodo == "hoy":
-        hoy = now.strftime("%Y-%m-%d")
-        where_extra = f" AND DATE(e.timestamp_subida) = '{hoy}'"
-    elif periodo == "mes":
-        mes_inicio = now.replace(day=1).strftime("%Y-%m-%d")
-        where_extra = f" AND e.timestamp_subida >= '{mes_inicio}'"
-
-    with get_conn() as c:
-        rows = c.execute(
-            f"""SELECT
-                   i.nombre_integrante                                         AS vendedor,
-                   SUM(CASE WHEN e.estado IN ('Aprobado','Destacado') THEN 1 ELSE 0 END) aprobadas,
-                   SUM(CASE WHEN e.estado = 'Destacado' THEN 1 ELSE 0 END)   destacadas,
-                   SUM(CASE WHEN e.estado = 'Rechazado' THEN 1 ELSE 0 END)   rechazadas,
-                   COUNT(*) total
-               FROM exhibiciones e
-               LEFT JOIN integrantes_grupo i ON i.id_integrante = e.id_integrante
-               WHERE e.id_distribuidor = ?{where_extra}
-               GROUP BY e.id_integrante
-               ORDER BY aprobadas DESC, destacadas DESC
-               LIMIT ?""",
-            (distribuidor_id, TOP_N),
-        ).fetchall()
-    ranking = []
-    for r in rows:
-        puntos = r["aprobadas"] + r["destacadas"]
-        ranking.append({
-            "vendedor":   r["vendedor"] or "Sin nombre",
-            "aprobadas":  r["aprobadas"],
-            "destacadas": r["destacadas"],
-            "rechazadas": r["rechazadas"],
-            "total":      r["total"],
-            "puntos":     puntos,
-        })
-    return ranking
+    data = _api_get(f"/dashboard/ranking/{distribuidor_id}?periodo={periodo}&top={TOP_N}")
+    if isinstance(data, list):
+        for r in data:
+            r.setdefault("vendedor", "Sin nombre")
+        return data
+    return []
 
 
 def get_ultimas_evaluadas(distribuidor_id: int, n: int = CAROUSEL_MAX) -> List[Dict]:
-    """Últimas N exhibiciones aprobadas o destacadas con su foto."""
-    with get_conn() as c:
-        rows = c.execute(
-            """SELECT
-                   e.url_foto_drive       AS drive_link,
-                   e.estado,
-                   e.evaluated_at,
-                   c.numero_cliente_local AS nro_cliente,
-                   e.tipo_pdv,
-                   i.nombre_integrante    AS vendedor
-               FROM exhibiciones e
-               LEFT JOIN integrantes_grupo i ON i.id_integrante = e.id_integrante
-               LEFT JOIN clientes c          ON c.id_cliente    = e.id_cliente
-               WHERE e.id_distribuidor = ?
-                 AND e.estado IN ('Aprobado','Destacado')
-                 AND e.url_foto_drive IS NOT NULL
-               ORDER BY e.evaluated_at DESC
-               LIMIT ?""",
-            (distribuidor_id, n),
-        ).fetchall()
-    return [dict(r) for r in rows]
+    data = _api_get(f"/dashboard/ultimas-evaluadas/{distribuidor_id}?n={n}")
+    return data if isinstance(data, list) else []
 
 
 # ─── Drive URL helpers ────────────────────────────────────────────────────────

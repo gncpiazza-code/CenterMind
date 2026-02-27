@@ -23,7 +23,17 @@ Ejecutar:
 
 from __future__ import annotations
 
+import os
 from typing import Dict, Optional
+
+# ── Fix SSL: PostgreSQL 18 setea REQUESTS_CA_BUNDLE a una ruta inválida.
+# Sobreescribimos con el bundle correcto de certifi antes de importar requests.
+try:
+    import certifi as _certifi
+    os.environ["REQUESTS_CA_BUNDLE"] = _certifi.where()
+    os.environ["SSL_CERT_FILE"]      = _certifi.where()
+except ImportError:
+    pass
 
 import requests
 import streamlit as st
@@ -286,7 +296,10 @@ def login_check(usuario: str, password: str) -> Optional[Dict]:
             headers={"x-api-key": key},
             timeout=15,
         )
-        return r.json() if r.status_code == 200 else None
+        if r.status_code == 200:
+            return r.json()
+        print(f"[login_check] 401 detail: {r.text}  | key_sent={repr(key[:6]+'...' if key else '(vacío)')}")
+        return None
     except Exception as e:
         print(f"[login_check] API error: {e}")
         return None

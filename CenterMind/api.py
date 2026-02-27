@@ -29,7 +29,7 @@ from pydantic import BaseModel
 # Configura esta clave antes de usar. Puedes pasarla como variable de entorno:
 #   set SHELFMIND_API_KEY=tu-clave-secreta   (Windows)
 #   export SHELFMIND_API_KEY=tu-clave-secreta (Linux/Mac)
-API_KEY = os.environ.get("SHELFMIND_API_KEY", "CAMBIA-ESTA-CLAVE-SECRETA")
+API_KEY = os.environ.get("SHELFMIND_API_KEY", "shelfmind-clave-2025")
 
 DB_PATH = Path(__file__).resolve().parent / "base_datos" / "centermind.db"
 
@@ -72,6 +72,10 @@ class EvaluarRequest(BaseModel):
     estado: str
     supervisor: str
     comentario: str = ""
+
+
+class RevertirRequest(BaseModel):
+    ids_exhibicion: List[int]
 
 
 # ─── Endpoints ────────────────────────────────────────────────────────────────
@@ -178,6 +182,27 @@ def evaluar(req: EvaluarRequest, _=Depends(verify_key)):
                 "    evaluated_at=CURRENT_TIMESTAMP, synced_telegram=0 "
                 "WHERE id_exhibicion=? AND estado='Pendiente'",
                 (req.estado, req.supervisor, req.comentario or None, id_ex),
+            )
+            affected += cur.rowcount
+        conn.commit()
+        conn.close()
+        return {"affected": affected}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/revertir", summary="Revertir evaluación a Pendiente")
+def revertir(req: RevertirRequest, _=Depends(verify_key)):
+    try:
+        affected = 0
+        conn = get_conn()
+        for id_ex in req.ids_exhibicion:
+            cur = conn.execute(
+                "UPDATE exhibiciones "
+                "SET estado='Pendiente', supervisor_nombre=NULL, comentarios=NULL, "
+                "    evaluated_at=NULL, synced_telegram=0 "
+                "WHERE id_exhibicion=?",
+                (id_ex,),
             )
             affected += cur.rowcount
         conn.commit()

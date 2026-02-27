@@ -16,12 +16,23 @@ CAMBIOS v2:
 
 from __future__ import annotations
 
+import os
 import re
 import sys
 import base64
+import time
+import threading
 import urllib.request as _urllib_req
 from pathlib import Path
 from typing import Dict, List, Optional
+
+# ── Fix SSL: PostgreSQL 18 setea REQUESTS_CA_BUNDLE a una ruta inválida.
+try:
+    import certifi as _certifi
+    os.environ["REQUESTS_CA_BUNDLE"] = _certifi.where()
+    os.environ["SSL_CERT_FILE"]      = _certifi.where()
+except ImportError:
+    pass
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -134,6 +145,32 @@ div[class*="stIFrame"] iframe {
 div[class*="StatusWidget"]           { display: none !important; }
 
 /* ══════════════════════════════════════════════════
+   FIX-STALE: Evitar que Streamlit difumine/desvanezca
+   la pantalla completa durante reruns (estado "stale").
+   Streamlit aplica opacity:0.33 + transition a elementos
+   que aún no fueron re-renderizados. Esto causa el efecto
+   de "todo se va en negro" que no se recupera.
+   ══════════════════════════════════════════════════ */
+.stale,
+[data-stale="true"],
+div[class*="stale"],
+span[class*="stale"] {
+    opacity: 1 !important;
+    transition: none !important;
+    filter: none !important;
+}
+/* Evitar transición en el contenedor principal durante reruns */
+[data-testid="stApp"],
+[data-testid="stMain"],
+[data-testid="stAppViewContainer"],
+[data-testid="stMainBlockContainer"],
+.stApp, .main {
+    opacity: 1 !important;
+    filter: none !important;
+    transition: opacity 0s !important;
+}
+
+/* ══════════════════════════════════════════════════
    TOPBAR — STAT PILLS
    ══════════════════════════════════════════════════ */
 .topbar-stat-pill {
@@ -162,11 +199,11 @@ div[class*="StatusWidget"]           { display: none !important; }
     transform: translateX(-50%);
     padding: 12px 26px; border-radius: 50px;
     font-size: 12px; font-weight: 600; z-index: 10000;
-    animation: fadeup 0.3s ease, fadeout 0.4s ease 2s forwards;
+    animation: sm-flash-fadeup 0.3s ease, sm-flash-fadeout 0.4s ease 2s forwards;
     pointer-events: none;
 }
-@keyframes fadeup  { from{opacity:0;transform:translateX(-50%) translateY(10px)} to{opacity:1;transform:translateX(-50%) translateY(0)} }
-@keyframes fadeout { to{opacity:0} }
+@keyframes sm-flash-fadeup  { from{opacity:0;transform:translateX(-50%) translateY(10px)} to{opacity:1;transform:translateX(-50%) translateY(0)} }
+@keyframes sm-flash-fadeout { to{opacity:0} }
 
 /* ── Expander filtro ─────────────────────────────── */
 div[data-testid="stExpander"] {
@@ -349,38 +386,58 @@ div[data-testid="stVerticalBlock"]:has(#eval-master-anchor)
     animation: none !important;
 }
 
-/* ── Botones de navegación ANTERIOR / SIGUIENTE: ghost ─ */
-div[data-testid="stVerticalBlock"]:has(#nav-anchor)
-    div[data-testid="stButton"] button {
+/* ── Botones de navegación ANTERIOR/SIGUIENTE: ocultos en DOM, solo para JS ─
+   Selector MUY PRECISO basado en el anchor ID propio del container:
+   stVerticalBlock → hijo directo stMarkdownContainer → hijo directo #nav-anchor
+   Esto identifica ÚNICAMENTE el st.container() de navegación, sin afectar
+   ningún ancestro, hermano ni elemento durante reruns.
+   position:fixed + top:-9999px saca el elemento del flujo de layout sin
+   ocultarlo del DOM → JS puede hacer b.click() sin problemas. */
+div[data-testid="stVerticalBlock"]:has(> [data-testid="stMarkdownContainer"] #nav-anchor) {
+    position: fixed !important;
+    top: -9999px !important;
+    left: -9999px !important;
+    pointer-events: none !important;
+}
+
+/* ── Acciones secundarias (REVERTIR / RECARGAR / SALIR): estilo ghost neutro ─
+   Override necesario: los selectores :nth-child(1/2/3) de arriba también
+   aplican a las columnas de la fila secundaria. Este bloque los neutraliza. */
+div:has(> #secondary-actions-anchor) ~ [data-testid="stHorizontalBlock"]
+    [data-testid="stButton"] button {
     background: transparent !important;
     border: 1px solid rgba(240,230,216,0.12) !important;
     color: var(--text-muted) !important;
-    font-size: 11px !important;
+    font-size: 9px !important;
     font-family: 'Bebas Neue', sans-serif !important;
-    letter-spacing: 1.2px !important;
-    padding: 8px 10px !important;
-    min-height: 36px !important;
-    height: auto !important;
-    border-radius: 8px !important;
-    transition: all .15s !important;
+    letter-spacing: 1.5px !important;
+    padding: 6px 8px !important;
+    min-height: 32px !important;
     animation: none !important;
+    box-shadow: none !important;
 }
-div[data-testid="stVerticalBlock"]:has(#nav-anchor)
-    div[data-testid="stButton"] button:hover {
-    border-color: rgba(217,167,106,0.35) !important;
-    color: var(--accent-amber) !important;
-    background: rgba(217,167,106,0.06) !important;
+div:has(> #secondary-actions-anchor) ~ [data-testid="stHorizontalBlock"]
+    [data-testid="stButton"] button:hover:not(:disabled) {
+    background: rgba(255,255,255,0.04) !important;
+    border-color: rgba(240,230,216,0.30) !important;
+    color: var(--text-primary) !important;
+    transform: none !important;
+    box-shadow: none !important;
+    filter: none !important;
 }
-div[data-testid="stVerticalBlock"]:has(#nav-anchor)
-    div[data-testid="stButton"] button:disabled {
-    opacity: 0.2 !important;
+div:has(> #secondary-actions-anchor) ~ [data-testid="stHorizontalBlock"]
+    [data-testid="stButton"] button:disabled {
+    opacity: 0.28 !important;
+    cursor: not-allowed !important;
+    transform: none !important;
 }
 
 /* ── Botones F1/F2 (ocultos en DOM, solo para JS) ── */
-div[data-testid="stVerticalBlock"]:has(#foto-nav-hidden) {
-    height: 0 !important; overflow: hidden !important;
-    opacity: 0 !important; pointer-events: none !important;
-    margin: 0 !important; padding: 0 !important;
+div[data-testid="stVerticalBlock"]:has(> [data-testid="stMarkdownContainer"] #foto-nav-hidden) {
+    position: fixed !important;
+    top: -9999px !important;
+    left: -9999px !important;
+    pointer-events: none !important;
 }
 
 /* mobile styles removed – application now targets desktop only */</style>
@@ -431,11 +488,13 @@ def get_pendientes(distribuidor_id: int) -> List[Dict]:
     return result if isinstance(result, list) else []
 
 
+@st.cache_data(ttl=30, show_spinner=False)
 def get_stats_hoy(distribuidor_id: int) -> Dict:
     result = _api_get(f"/stats/{distribuidor_id}")
     return result if isinstance(result, dict) else {}
 
 
+@st.cache_data(ttl=60, show_spinner=False)
 def get_vendedores_pendientes(distribuidor_id: int) -> List[str]:
     result = _api_get(f"/vendedores/{distribuidor_id}")
     return result if isinstance(result, list) else []
@@ -453,6 +512,14 @@ def evaluar(ids_exhibicion: List[int], estado: str, supervisor: str, comentario:
         "supervisor": supervisor,
         "comentario": comentario or "",
     })
+    if result is None:
+        return -1
+    return result.get("affected", 0)
+
+
+def revertir(ids_exhibicion: List[int]) -> int:
+    """Revierte exhibiciones evaluadas a estado Pendiente."""
+    result = _api_post("/revertir", {"ids_exhibicion": ids_exhibicion})
     if result is None:
         return -1
     return result.get("affected", 0)
@@ -491,7 +558,7 @@ def _get_image_b64(url: str, extra_headers: Optional[Dict] = None) -> str:
     # ── Intento 1: requests ───────────────────────────────────────────────────
     if HAS_REQUESTS:
         try:
-            r  = _req.get(url, timeout=12, allow_redirects=True, headers=hdrs)
+            r  = _req.get(url, timeout=6, allow_redirects=True, headers=hdrs)
             ct = r.headers.get("content-type", "")
             if r.ok and ct.startswith("image/"):
                 b64 = base64.b64encode(r.content).decode()
@@ -502,7 +569,7 @@ def _get_image_b64(url: str, extra_headers: Optional[Dict] = None) -> str:
     # ── Intento 2: urllib (siempre disponible, built-in) ─────────────────────
     try:
         req = _urllib_req.Request(url, headers=hdrs)
-        with _urllib_req.urlopen(req, timeout=12) as resp:
+        with _urllib_req.urlopen(req, timeout=6) as resp:
             ct = resp.headers.get("Content-Type", "")
             if ct.startswith("image/"):
                 data = resp.read()
@@ -559,6 +626,44 @@ def fetch_drive_b64(file_id: str, sz: int = 1000) -> str:
 
     return ""
 
+# ─── Prefetch queue — pre-carga imágenes del siguiente mensaje en background ──
+# Usa un dict a nivel de módulo (persiste entre reruns, compartido por el proceso).
+# El hilo usa solo _get_image_b64() sin st.secrets → sin conflictos de contexto.
+_img_prefetch: dict = {}          # fid → data_uri (listo para usar)
+_img_prefetch_busy: set = set()   # fids actualmente siendo descargados
+
+
+def _prefetch_worker(fid: str) -> None:
+    """Hilo de fondo: descarga imagen y la deposita en _img_prefetch."""
+    global _img_prefetch, _img_prefetch_busy
+    try:
+        for url in (
+            f"https://lh3.googleusercontent.com/d/{fid}",
+            f"https://drive.google.com/thumbnail?id={fid}&sz=w1000",
+        ):
+            result = _get_image_b64(url)
+            if result:
+                _img_prefetch[fid] = result
+                return
+    except Exception:
+        pass
+    finally:
+        _img_prefetch_busy.discard(fid)
+
+
+def _trigger_prefetch(pend_filtrada: List[Dict], current_idx: int) -> None:
+    """Lanza prefetch en background para las próximas 4 exhibiciones."""
+    for i in range(1, 5):
+        ni = current_idx + i
+        if ni >= len(pend_filtrada):
+            break
+        for f in pend_filtrada[ni].get("fotos", []):
+            fid = drive_file_id(f.get("drive_link", ""))
+            if fid and fid not in _img_prefetch and fid not in _img_prefetch_busy:
+                _img_prefetch_busy.add(fid)
+                threading.Thread(target=_prefetch_worker, args=(fid,), daemon=True).start()
+
+
 # ─── Custom image viewer component ────────────────────────────────────────────
 
 def build_viewer_html(
@@ -580,15 +685,25 @@ def build_viewer_html(
     efecto de difuminado/fade que disparaba el flash oscuro al navegar.
     """
     n_fotos   = len(fotos)
+    # Guard: si no hay fotos, no se puede indexar
+    if n_fotos == 0:
+        foto_idx = 0
+    elif foto_idx >= n_fotos:
+        foto_idx = 0
     counter   = f"{idx+1}/{n_pend}" + (f" · F{foto_idx+1}/{n_fotos}" if n_fotos > 1 else "")
     show_prev = foto_idx > 0 or idx > 0
     show_next = foto_idx < n_fotos - 1 or idx < n_pend - 1
 
-    fid = drive_file_id(fotos[foto_idx]["drive_link"]) or ""
+    fid = drive_file_id(fotos[foto_idx]["drive_link"]) if n_fotos > 0 else ""
+    fid = fid or ""
 
-    # Fallback si no llegó img_src: usar CDN lh3 (más confiable que thumbnail)
-    if not img_src and fid:
+    # Fallback si no llegó img_src: usar CDN lh3 directo (browser carga async)
+    # use_browser_load=True → spinner visible + fbIdx empieza en 1 (ya probamos lh3)
+    use_browser_load = not img_src and bool(fid)
+    if use_browser_load:
         img_src = f"https://lh3.googleusercontent.com/d/{fid}"
+    overlay_display = "flex" if use_browser_load else "none"
+    fb_start_idx    = 1 if use_browser_load else 0
 
     # Dots
     dots = ""
@@ -669,6 +784,15 @@ html,body{{background:#0a0705;overflow:hidden;height:100%;font-family:sans-serif
 .th img,.tha img{{width:100%;height:100%;object-fit:cover}}
 .th:hover{{border-color:rgba(217,167,106,.5)}}
 .tha{{border-color:#D9A76A;box-shadow:0 0 8px rgba(217,167,106,.4)}}
+/* ── Overlay de carga (cuando la imagen llega desde browser, no desde servidor) ── */
+#load-overlay{{display:{overlay_display};position:absolute;inset:0;z-index:8;
+  background:#0a0705;flex-direction:column;align-items:center;justify-content:center;gap:12px;
+  transition:opacity .2s}}
+.spin-ring{{width:44px;height:44px;border-radius:50%;
+  border:3px solid rgba(217,167,106,.12);border-top-color:rgba(217,167,106,.75);
+  animation:spin .85s linear infinite}}
+@keyframes spin{{to{{transform:rotate(360deg)}}}}
+.spin-lbl{{font-size:9px;letter-spacing:2px;color:rgba(217,167,106,.35);text-transform:uppercase}}
 </style></head>
 <body>
 <div id="vw">
@@ -678,6 +802,10 @@ html,body{{background:#0a0705;overflow:hidden;height:100%;font-family:sans-serif
   <img id="mi" src="{img_src}" alt="exhibición" draggable="false" loading="eager">
   <div class="chev R{' h' if not show_next else ''}" id="bn"><span>›</span></div>
   {dots}
+  <div id="load-overlay">
+    <div class="spin-ring"></div>
+    <div class="spin-lbl">cargando</div>
+  </div>
   <div id="img-ph">
     <div class="ph-icon">📷</div>
     <div class="ph-txt">Sin imagen</div>
@@ -694,30 +822,50 @@ html,body{{background:#0a0705;overflow:hidden;height:100%;font-family:sans-serif
   /* ── Fallback de imagen browser-side ─────────────────────────────────── */
   const mi = document.getElementById('mi');
   const fbUrls = {fb_urls_js};
-  let fbIdx = 0;
+  // Si la imagen principal ya ES la lh3 URL (browser load), empezar desde thumbnail
+  let fbIdx = {fb_start_idx};
+  function _hideOverlay() {{
+    const ov = document.getElementById('load-overlay');
+    if (ov) ov.style.display = 'none';
+  }}
+  mi.onload  = function() {{ _hideOverlay(); }};
   mi.onerror = function() {{
     if (fbIdx < fbUrls.length) {{
       mi.src = fbUrls[fbIdx++];
     }} else {{
       mi.style.opacity = '0.08';
       mi.onerror = null;
+      _hideOverlay();
       const ph = document.getElementById('img-ph');
       if (ph) ph.style.display = 'flex';
     }}
   }};
 
-  /* ── Navegación ──────────────────────────────────────────────────────── */
+  /* ── Navegación (con debounce para evitar múltiples reruns simultáneos) ── */
+  let _lastNav = 0;
+  function _canNav() {{
+    const now = Date.now();
+    if (now - _lastNav < 900) return false;
+    _lastNav = now;
+    return true;
+  }}
   function stClick(txt) {{
-    const pd = window.parent.document;
-    const b  = Array.from(pd.querySelectorAll('button'))
-                    .find(b => !b.disabled && b.innerText && b.innerText.includes(txt));
-    if (b) b.click();
+    if (!_canNav()) return;
+    try {{
+      const pd = window.parent.document;
+      const b  = Array.from(pd.querySelectorAll('button'))
+                      .find(b => !b.disabled && b.textContent && b.textContent.trim().includes(txt));
+      if (b) b.click();
+    }} catch(e) {{}}
   }}
   function clickFoto(i) {{
-    const pd = window.parent.document;
-    const b  = Array.from(pd.querySelectorAll('button'))
-                    .find(b => b.innerText && b.innerText.trim() === 'F' + (i + 1));
-    if (b) b.click();
+    if (!_canNav()) return;
+    try {{
+      const pd = window.parent.document;
+      const b  = Array.from(pd.querySelectorAll('button'))
+                      .find(b => b.textContent && b.textContent.trim() === 'F' + (i + 1));
+      if (b) b.click();
+    }} catch(e) {{}}
   }}
   function goPrev() {{ if (isFoto && fi > 0) {{ clickFoto(fi - 1); }} else {{ stClick('ANTERIOR'); }} }}
   function goNext() {{ if (isFoto && fi < nf - 1) {{ clickFoto(fi + 1); }} else {{ stClick('SIGUIENTE'); }} }}
@@ -761,6 +909,8 @@ def init_state():
         # Dict[int, int] → idx_exhibicion → max foto_idx que llegó a ver el evaluador.
         # Se limpia al recargar pendientes para evitar datos viejos.
         "fotos_vistas":    {},
+        # IDs de la última exhibición evaluada (para poder revertir).
+        "_last_eval_ids":  [],
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -785,6 +935,37 @@ def reload_pendientes_silent():
                 st.session_state.idx = max(0, len(st.session_state.pendientes) - 1)
             st.session_state.fotos_vistas = {}   # FIX-2: resetear al recargar silencioso
 
+def _optimistic_remove(ids_evaluados: List[int]) -> None:
+    """
+    Elimina localmente las exhibiciones evaluadas sin llamar a la API.
+    Evita el roundtrip de reload_pendientes() después de cada evaluación.
+    """
+    ids_set = set(ids_evaluados)
+    st.session_state.pendientes = [
+        p for p in st.session_state.pendientes
+        if not any(f.get("id_exhibicion") in ids_set for f in p.get("fotos", []))
+    ]
+    n_pend = len(st.session_state.pendientes)
+    if st.session_state.idx >= n_pend:
+        st.session_state.idx = max(0, n_pend - 1)
+    st.session_state.foto_idx = 0
+    st.session_state.fotos_vistas = {}
+
+
+# Errores de evaluación en background (CPython GIL garantiza append/pop thread-safe)
+_eval_errors: list = []
+
+
+def _bg_evaluar(ids_exhibicion: List[int], estado: str, supervisor: str, comentario: str) -> None:
+    """Envía la evaluación a la API en un hilo de fondo sin bloquear el render."""
+    try:
+        n = evaluar(ids_exhibicion, estado, supervisor, comentario)
+        if n < 0:
+            _eval_errors.append(ids_exhibicion)
+    except Exception:
+        _eval_errors.append(ids_exhibicion)
+
+
 def set_flash(msg: str, tipo: str = "green"):
     st.session_state.flash = msg
     st.session_state.flash_type = tipo
@@ -796,6 +977,12 @@ def render_visor():
     if not st.session_state._visor_loaded:
         reload_pendientes()
         st.session_state._visor_loaded = True
+
+    # Errores de evaluaciones enviadas en background
+    if _eval_errors:
+        _eval_errors.clear()
+        set_flash("⚠ Error al guardar evaluación — se reintentará", "red")
+        reload_pendientes()  # restaurar si falló
 
     if HAS_AUTOREFRESH:
         count = st_autorefresh(interval=30000, limit=None, key="visor_autorefresh")
@@ -916,6 +1103,17 @@ def render_visor():
             fotos    = ex.get("fotos", [])
             n_fotos  = len(fotos)
             foto_idx = st.session_state.foto_idx
+            # Guard: si no hay fotos en la exhibición, mostrar placeholder
+            if n_fotos == 0:
+                components.html(
+                    '<!DOCTYPE html><html><body style="background:#0a0705;display:flex;'
+                    'align-items:center;justify-content:center;height:100vh;'
+                    'font-family:sans-serif;color:rgba(217,167,106,.4);font-size:13px;'
+                    'letter-spacing:2px;">SIN FOTOS</body></html>',
+                    height=540,
+                    scrolling=False,
+                )
+                st.stop()
             if foto_idx >= n_fotos:
                 foto_idx = 0; st.session_state.foto_idx = 0
 
@@ -926,15 +1124,32 @@ def render_visor():
                 fv[idx] = foto_idx
                 st.session_state.fotos_vistas = fv
 
-            # ── Fetch imagen server-side ──────────────────────────────────────
+            # ── Fetch imagen: prefetch cache → espera breve → server-side ─────────
+            # Las URLs de Drive NO son accesibles desde el browser (requieren auth).
+            # El servidor SÍ puede descargarlas; fetch_drive_b64 usa @st.cache_data.
             main_fid = drive_file_id(fotos[foto_idx]["drive_link"]) or ""
-            img_src  = fetch_drive_b64(main_fid, sz=1000)
+            img_src  = _img_prefetch.get(main_fid, "")
 
+            if not img_src and main_fid:
+                # Si hay un prefetch en vuelo, esperar hasta ~1.5s para aprovecharlo
+                _w = 3
+                while _w > 0 and main_fid in _img_prefetch_busy:
+                    time.sleep(0.5)
+                    img_src = _img_prefetch.get(main_fid, "")
+                    if img_src:
+                        break
+                    _w -= 1
+                # Aún vacío: fetch server-side (rápido si ya fue cacheado previamente)
+                if not img_src:
+                    img_src = fetch_drive_b64(main_fid, sz=1000)
+
+            # Thumbnails: caché de prefetch; fallback a URL thumbnail de Drive en el viewer
+            # (drive.google.com/thumbnail funciona desde el browser para archivos compartidos)
             thumb_srcs: List[str] = []
             if n_fotos > 1:
                 for f in fotos:
                     tid = drive_file_id(f["drive_link"]) or ""
-                    thumb_srcs.append(fetch_drive_b64(tid, sz=150))
+                    thumb_srcs.append(_img_prefetch.get(tid, ""))
 
             # ── Viewer (más alto ahora que ocupa el ancho completo) ───────────
             viewer_height = 540 + (65 if n_fotos > 1 else 0)
@@ -946,6 +1161,9 @@ def render_visor():
                 height=viewer_height,
                 scrolling=False,
             )
+
+            # Pre-cargar imágenes de las próximas exhibiciones en background
+            _trigger_prefetch(pend_filtrada, idx)
 
             # ── Navegación ANTERIOR / SIGUIENTE (AHORA ENVUELTO EN st.container) ──
             with st.container():
@@ -1050,30 +1268,45 @@ def render_visor():
                             use_container_width=True,
                             disabled=not todas_vistas,
                         ):
-                            n = evaluar(ids_exhibicion, "Aprobado", supervisor, comentario)
-                            if n > 0:    set_flash("✅ Aprobada", "green")
-                            elif n == 0: set_flash("⚡ Ya evaluada", "amber")
-                            reload_pendientes(); st.rerun()
+                            st.session_state._last_eval_ids = list(ids_exhibicion)
+                            set_flash("✅ Aprobada", "green")
+                            _optimistic_remove(ids_exhibicion)
+                            threading.Thread(
+                                target=_bg_evaluar,
+                                args=(ids_exhibicion, "Aprobado", supervisor, comentario),
+                                daemon=True,
+                            ).start()
+                            st.rerun()
                     with cb2:
                         if st.button(
                             "🔥 DESTACAR", key=f"b_dest_{idx}",
                             use_container_width=True,
                             disabled=not todas_vistas,
                         ):
-                            n = evaluar(ids_exhibicion, "Destacado", supervisor, comentario)
-                            if n > 0:    set_flash("🔥 Destacada", "amber")
-                            elif n == 0: set_flash("⚡ Ya evaluada", "amber")
-                            reload_pendientes(); st.rerun()
+                            st.session_state._last_eval_ids = list(ids_exhibicion)
+                            set_flash("🔥 Destacada", "amber")
+                            _optimistic_remove(ids_exhibicion)
+                            threading.Thread(
+                                target=_bg_evaluar,
+                                args=(ids_exhibicion, "Destacado", supervisor, comentario),
+                                daemon=True,
+                            ).start()
+                            st.rerun()
                     with cb3:
                         if st.button(
                             "❌ RECHAZAR", key=f"b_rej_{idx}",
                             use_container_width=True,
                             disabled=not todas_vistas,
                         ):
-                            n = evaluar(ids_exhibicion, "Rechazado", supervisor, comentario)
-                            if n > 0:    set_flash("❌ Rechazada", "red")
-                            elif n == 0: set_flash("⚡ Ya evaluada", "amber")
-                            reload_pendientes(); st.rerun()
+                            st.session_state._last_eval_ids = list(ids_exhibicion)
+                            set_flash("❌ Rechazada", "red")
+                            _optimistic_remove(ids_exhibicion)
+                            threading.Thread(
+                                target=_bg_evaluar,
+                                args=(ids_exhibicion, "Rechazado", supervisor, comentario),
+                                daemon=True,
+                            ).start()
+                            st.rerun()
 
                     # Acciones secundarias
                     st.markdown(
@@ -1081,11 +1314,21 @@ def render_visor():
                         '<div id="secondary-actions-anchor"></div>',
                         unsafe_allow_html=True,
                     )
-                    sa1, sa2 = st.columns(2)
+                    sa1, sa2, sa3 = st.columns(3)
                     with sa1:
-                        if st.button("↺ RECARGAR", key="btn_reload_full", use_container_width=True):
+                        last_ids = st.session_state.get("_last_eval_ids", [])
+                        if st.button("↩ REVERTIR", key="btn_revertir",
+                                     use_container_width=True, disabled=not last_ids):
+                            n = revertir(last_ids)
+                            if n > 0:
+                                st.session_state._last_eval_ids = []
+                                set_flash("↩ Revertida", "amber")
+                                get_stats_hoy.clear()
                             reload_pendientes(); st.rerun()
                     with sa2:
+                        if st.button("↺ RECARGAR", key="btn_reload_full", use_container_width=True):
+                            reload_pendientes(); st.rerun()
+                    with sa3:
                         if st.button("SALIR", key="btn_logout_full", use_container_width=True):
                             for k in list(st.session_state.keys()): del st.session_state[k]
                             st.rerun()

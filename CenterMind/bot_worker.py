@@ -42,6 +42,7 @@ from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 import json
+
 # PARCHE SSL (fix PostgreSQL sobreescribe SSL_CERT_FILE)
 # ─────────────────────────────────────────────
 try:
@@ -243,9 +244,21 @@ class Database:
             ).fetchall()
             return [dict(r) for r in rows]
 
+    # ── Grupos ──────────────────────────────────────────────────────
+
+    def upsert_grupo(self, distribuidor_id: int, chat_id: int, chat_title: str) -> None:
+        """Registra o actualiza el nombre del grupo de Telegram."""
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT INTO grupos (id_distribuidor, telegram_chat_id, nombre_grupo)
+                   VALUES (?, ?, ?)
+                   ON CONFLICT(id_distribuidor, telegram_chat_id)
+                   DO UPDATE SET nombre_grupo = excluded.nombre_grupo""",
+                (distribuidor_id, chat_id, chat_title)
+            )
+            conn.commit()
+
     # ── Integrantes / Roles ─────────────────────────────────────────
-    # Columnas reales: id_integrante, id_distribuidor, telegram_user_id,
-    #                  nombre_integrante, rol_telegram, telegram_group_id, nombre_grupo
 
     def get_rol(self, distribuidor_id: int, chat_id: int, user_id: int) -> str:
         with self._conn() as conn:
@@ -291,17 +304,12 @@ class Database:
             conn.commit()
 
     # ── Exhibiciones ────────────────────────────────────────────────
-    # Columnas reales: id_exhibicion, id_distribuidor, id_grupo, id_integrante,
-    #                  numero_cliente_local, url_foto_drive, estado,
-    #                  telegram_msg_id, telegram_chat_id, synced_telegram,
-    #                  supervisor_nombre, comentarios, evaluated_at, timestamp_subida
 
     def registrar_exhibicion(
         self,
         distribuidor_id: int,
         chat_id: int,
         vendedor_id: int,
-        vendedor_nombre: str,
         nro_cliente: str,
         tipo_pdv: str,
         drive_link: str,
@@ -309,37 +317,47 @@ class Database:
         telegram_chat_id: Optional[int] = None,
     ) -> str:
         with self._conn() as conn:
-            # Resolver PK real de integrantes_grupo a partir del telegram_user_id
+            # 1. Obtener ID del integrante (Vendedor)
             row = conn.execute(
                 """SELECT id_integrante FROM integrantes_grupo
-                   WHERE id_distribuidor = ? AND telegram_group_id = ? AND telegram_user_id = ?
+                   WHERE id_distribuidor = ? AND telegram_user_id = ?
                    LIMIT 1""",
-                (distribuidor_id, chat_id, vendedor_id)
+                (distribuidor_id, vendedor_id)
             ).fetchone()
-            if row is None:
-                row = conn.execute(
-                    """SELECT id_integrante FROM integrantes_grupo
-                       WHERE id_distribuidor = ? AND telegram_user_id = ?
-                       LIMIT 1""",
-                    (distribuidor_id, vendedor_id)
-                ).fetchone()
             if row is None:
                 raise ValueError(f"Vendedor {vendedor_id} no encontrado en integrantes_grupo")
             pk_integrante = row[0]
 
+            # 2. Buscar o crear el Cliente (Lógica de Clientes)
+            cliente_row = conn.execute(
+                """SELECT id_cliente FROM clientes
+                   WHERE id_distribuidor = ? AND numero_cliente_local = ? LIMIT 1""",
+                (distribuidor_id, nro_cliente)
+            ).fetchone()
+
+            if cliente_row:
+                id_cliente = cliente_row["id_cliente"]
+            else:
+                cur_cliente = conn.execute(
+                    """INSERT INTO clientes (id_distribuidor, numero_cliente_local)
+                       VALUES (?, ?)""",
+                    (distribuidor_id, nro_cliente)
+                )
+                id_cliente = cur_cliente.lastrowid
+
+            # 3. Insertar la Exhibición limpia (usando id_cliente)
             cur = conn.execute(
                 """INSERT INTO exhibiciones
-                   (id_distribuidor, id_grupo, id_integrante,
-                    numero_cliente_local, comentarios_telegram, url_foto_drive,
+                   (id_distribuidor, id_integrante, id_cliente,
+                    tipo_pdv, url_foto_drive,
                     estado, telegram_msg_id, telegram_chat_id, synced_telegram)
-                   VALUES (?, ?, ?, ?, ?, ?, 'Pendiente', ?, ?, 0)""",
-                (distribuidor_id, chat_id, pk_integrante,
-                 nro_cliente, tipo_pdv, drive_link,
+                   VALUES (?, ?, ?, ?, ?, 'Pendiente', ?, ?, 0)""",
+                (distribuidor_id, pk_integrante, id_cliente,
+                 tipo_pdv, drive_link,
                  telegram_msg_id, telegram_chat_id)
             )
             conn.commit()
-            new_id = str(cur.lastrowid)
-        return new_id
+            return str(cur.lastrowid)
 
     def update_telegram_refs(
         self, exhibicion_id: str, telegram_msg_id: int, telegram_chat_id: int
@@ -357,32 +375,32 @@ class Database:
         with self._conn() as conn:
             rows = conn.execute(
                 """SELECT
-                       id_exhibicion        AS id,
-                       id_distribuidor,
-                       id_grupo             AS chat_id,
-                       id_integrante        AS vendedor_id,
-                       numero_cliente_local AS nro_cliente,
-                       comentarios_telegram AS tipo_pdv,
-                       url_foto_drive       AS drive_link,
-                       estado,
-                       supervisor_nombre,
-                       comentarios,
-                       telegram_msg_id,
-                       telegram_chat_id
-                   FROM exhibiciones
-                   WHERE id_distribuidor = ?
-                     AND estado != 'Pendiente'
-                     AND synced_telegram = 0
-                     AND telegram_msg_id IS NOT NULL
-                     AND telegram_chat_id IS NOT NULL""",
+                       e.id_exhibicion        AS id,
+                       e.id_distribuidor,
+                       e.telegram_chat_id     AS chat_id,
+                       e.id_integrante        AS vendedor_id,
+                       c.numero_cliente_local       AS nro_cliente,
+                       e.tipo_pdv             AS tipo_pdv,
+                       e.url_foto_drive       AS drive_link,
+                       e.estado,
+                       e.supervisor_nombre,
+                       e.comentario_evaluacion AS comentarios,
+                       e.telegram_msg_id,
+                       e.telegram_chat_id
+                   FROM exhibiciones e
+                   LEFT JOIN clientes c ON e.id_cliente = c.id_cliente
+                   WHERE e.id_distribuidor = ?
+                     AND e.estado != 'Pendiente'
+                     AND e.synced_telegram = 0
+                     AND e.telegram_msg_id IS NOT NULL
+                     AND e.telegram_chat_id IS NOT NULL""",
                 (distribuidor_id,)
             ).fetchall()
-            # Necesitamos vendor_nombre — hacemos join en memoria
+            
             result = []
             for r in rows:
                 d = dict(r)
-                nombre = self._get_nombre_integrante(distribuidor_id, d["vendedor_id"])
-                d["vendedor_nombre"] = nombre
+                d["vendedor_nombre"] = self._get_nombre_integrante(distribuidor_id, d["vendedor_id"])
                 result.append(d)
             return result
 
@@ -510,10 +528,11 @@ class Database:
     ) -> List[Dict]:
         with self._conn() as conn:
             rows = conn.execute(
-                """SELECT comentarios_telegram AS tipo_pdv, estado, timestamp_subida AS created_at
-                   FROM exhibiciones
-                   WHERE id_distribuidor = ? AND id_grupo = ? AND numero_cliente_local = ?
-                   ORDER BY timestamp_subida DESC LIMIT ?""",
+                """SELECT e.tipo_pdv, e.estado, e.timestamp_subida AS created_at
+                   FROM exhibiciones e
+                   JOIN clientes c ON e.id_cliente = c.id_cliente
+                   WHERE e.id_distribuidor = ? AND e.telegram_chat_id = ? AND c.numero_cliente_local = ?
+                   ORDER BY e.timestamp_subida DESC LIMIT ?""",
                 (distribuidor_id, chat_id, nro_cliente, limit)
             ).fetchall()
         result = []
@@ -735,12 +754,13 @@ class BotWorker:
         except Exception as e:
             self.logger.warning(f"⚠️ No se pudo notificar admin: {e}")
 
-    def _register_user(self, distribuidor_id, chat_id, user_id, username, nombre) -> None:
-        """Upsert del usuario (fire-and-forget en thread)."""
+    def _register_user_and_group(self, distribuidor_id, chat_id, chat_title, user_id, username, nombre) -> None:
+        """Actualiza la información del usuario y del grupo en la base de datos."""
         try:
             self.db.upsert_integrante(distribuidor_id, chat_id, user_id, username, nombre)
+            self.db.upsert_grupo(distribuidor_id, chat_id, chat_title)
         except Exception as e:
-            self.logger.debug(f"Error registrando usuario: {e}")
+            self.logger.debug(f"Error registrando usuario/grupo: {e}")
 
     # ─────────────────────────────────────────────────────────────
     # HIBERNACIÓN
@@ -779,9 +799,11 @@ class BotWorker:
         if not update.message:
             return
         m = update.message
+        chat_title = getattr(m.chat, "title", None) or getattr(m.chat, "username", "Privado")
+        
         asyncio.create_task(asyncio.to_thread(
-            self._register_user,
-            self.distribuidor_id, m.chat.id, m.from_user.id,
+            self._register_user_and_group,
+            self.distribuidor_id, m.chat.id, chat_title, m.from_user.id,
             m.from_user.username or "", m.from_user.first_name or "Usuario"
         ))
         await m.reply_text(
@@ -839,9 +861,11 @@ class BotWorker:
             return
         uid = update.message.from_user.id
         m = update.message
+        chat_title = getattr(m.chat, "title", None) or getattr(m.chat, "username", "Privado")
+        
         asyncio.create_task(asyncio.to_thread(
-            self._register_user,
-            self.distribuidor_id, m.chat.id, uid,
+            self._register_user_and_group,
+            self.distribuidor_id, m.chat.id, chat_title, uid,
             m.from_user.username or "", m.from_user.first_name or "Usuario"
         ))
         try:
@@ -928,19 +952,20 @@ class BotWorker:
             self.logger.debug("❌ handle_photo: No hay mensaje o foto")
             return
 
-        chat_id  = update.message.chat.id
-        user_id  = update.message.from_user.id
-        username = update.message.from_user.username or ""
-        nombre   = update.message.from_user.first_name or "Usuario"
-        msg_id   = update.message.message_id
-        file_id  = update.message.photo[-1].file_id
+        chat_id    = update.message.chat.id
+        chat_title = getattr(update.message.chat, "title", None) or getattr(update.message.chat, "username", "Privado")
+        user_id    = update.message.from_user.id
+        username   = update.message.from_user.username or ""
+        nombre     = update.message.from_user.first_name or "Usuario"
+        msg_id     = update.message.message_id
+        file_id    = update.message.photo[-1].file_id
 
         self.logger.info(f"📸 Foto recibida de {username} (UID: {user_id}) en chat {chat_id}")
 
-        # Registro silencioso del usuario
+        # Registro silencioso del usuario y grupo
         asyncio.create_task(asyncio.to_thread(
-            self._register_user,
-            self.distribuidor_id, chat_id, user_id, username, nombre
+            self._register_user_and_group,
+            self.distribuidor_id, chat_id, chat_title, user_id, username, nombre
         ))
 
         # Hibernación — no procesar fotos
@@ -995,11 +1020,6 @@ class BotWorker:
                     pass
 
         # ── Nueva sesión ──
-        chat_title = (
-            getattr(update.message.chat, "title", None)
-            or getattr(update.message.chat, "username", None)
-            or str(chat_id)
-        )
         self.upload_sessions[user_id] = {
             "chat_id":         chat_id,
             "chat_title":      chat_title,
@@ -1037,16 +1057,17 @@ class BotWorker:
         if not update.message or not update.message.text:
             return
 
-        chat_id  = update.message.chat.id
-        user_id  = update.message.from_user.id
-        username = update.message.from_user.username or ""
-        nombre   = update.message.from_user.first_name or "Usuario"
-        msg_id   = update.message.message_id
-        text     = update.message.text.strip()
+        chat_id    = update.message.chat.id
+        chat_title = getattr(update.message.chat, "title", None) or getattr(update.message.chat, "username", "Privado")
+        user_id    = update.message.from_user.id
+        username   = update.message.from_user.username or ""
+        nombre     = update.message.from_user.first_name or "Usuario"
+        msg_id     = update.message.message_id
+        text       = update.message.text.strip()
 
         asyncio.create_task(asyncio.to_thread(
-            self._register_user,
-            self.distribuidor_id, chat_id, user_id, username, nombre
+            self._register_user_and_group,
+            self.distribuidor_id, chat_id, chat_title, user_id, username, nombre
         ))
 
         if self.bot_hibernating:
@@ -1195,13 +1216,14 @@ class BotWorker:
                     try:
                         ex_id = await asyncio.to_thread(
                             self.db.registrar_exhibicion,
-                            self.distribuidor_id,
-                            chat_id,
-                            uploader_id,
-                            uploader_name,
-                            nro_cliente,
-                            tipo_pdv,
-                            drive_link,
+                            distribuidor_id=self.distribuidor_id,
+                            chat_id=chat_id,
+                            vendedor_id=uploader_id,
+                            nro_cliente=nro_cliente,
+                            tipo_pdv=tipo_pdv,
+                            drive_link=drive_link,
+                            telegram_msg_id=ph_msg_id,
+                            telegram_chat_id=chat_id
                         )
                         self.logger.info(f"✅ Exhibición registrada: ID {ex_id}")
                         exhibicion_ids.append(ex_id)

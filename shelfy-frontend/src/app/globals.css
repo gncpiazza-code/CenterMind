@@ -1,0 +1,46 @@
+@import "tailwindcss";
+
+/* ── Paleta Shelfy ── */
+:root {
+  --shelfy-bg:        #1A0B3B;
+  --shelfy-panel:     #261052;
+  --shelfy-primary:   #7C3AED;
+  --shelfy-primary-2: #4B10A3;
+  --shelfy-border:    rgba(167, 139, 250, 0.28);
+  --shelfy-text:      #F0EEFF;
+  --shelfy-muted:     #C4B8E8;
+  --shelfy-glow:      rgba(124, 58, 237, 0.4);
+  --shelfy-success:   #10B981;
+  --shelfy-error:     #EF4444;
+  --shelfy-warning:   #F59E0B;
+}
+
+@theme inline {
+  --color-background: var(--shelfy-bg);
+  --color-foreground: var(--shelfy-text);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background-color: var(--shelfy-bg);
+  color: var(--shelfy-text);
+  font-family: 'Inter', 'Geist', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Scrollbar personalizada ── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--shelfy-panel);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--shelfy-primary-2);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--shelfy-primary);
+}

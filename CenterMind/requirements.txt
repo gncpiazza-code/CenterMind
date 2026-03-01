@@ -1,5 +1,8 @@
-# Interfaz Web
+# Interfaz Web (Streamlit — mantener hasta migración completa a React)
 streamlit>=1.20.0
+
+# JWT para el frontend React
+python-jose[cryptography]>=3.3.0
 
 # HTTP client (llamadas al backend API desde Streamlit)
 requests>=2.28.0

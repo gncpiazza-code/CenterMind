@@ -3,18 +3,27 @@
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { loginApi, type AuthResponse } from "@/lib/api";
-import { TOKEN_KEY } from "@/lib/constants";
+import { TOKEN_KEY, JWT_EXPIRE_HOURS } from "@/lib/constants";
+
+// Guarda en localStorage Y en cookie (el proxy de Next.js lee cookies)
+function setToken(token: string) {
+  localStorage.setItem(TOKEN_KEY, token);
+  document.cookie = `${TOKEN_KEY}=${token}; path=/; max-age=${JWT_EXPIRE_HOURS * 3600}; SameSite=Lax`;
+}
+
+function clearToken() {
+  localStorage.removeItem(TOKEN_KEY);
+  document.cookie = `${TOKEN_KEY}=; path=/; max-age=0`;
+}
 
 function getStoredUser(): AuthResponse | null {
   if (typeof window === "undefined") return null;
   const token = localStorage.getItem(TOKEN_KEY);
   if (!token) return null;
   try {
-    // Decodifica el payload del JWT (no verifica firma — eso es del backend)
     const payload = JSON.parse(atob(token.split(".")[1]));
-    // Verifica expiración
     if (payload.exp && Date.now() / 1000 > payload.exp) {
-      localStorage.removeItem(TOKEN_KEY);
+      clearToken();
       return null;
     }
     return {
@@ -42,7 +51,7 @@ export function useAuth() {
     setError(null);
     try {
       const data = await loginApi(usuario, password);
-      localStorage.setItem(TOKEN_KEY, data.access_token);
+      setToken(data.access_token);
       setUser(data);
       router.push("/dashboard");
     } catch (e: unknown) {
@@ -53,7 +62,7 @@ export function useAuth() {
   }, [router]);
 
   const logout = useCallback(() => {
-    localStorage.removeItem(TOKEN_KEY);
+    clearToken();
     setUser(null);
     router.push("/login");
   }, [router]);

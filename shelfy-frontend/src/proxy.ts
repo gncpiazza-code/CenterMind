@@ -3,7 +3,7 @@ import { TOKEN_KEY } from "@/lib/constants";
 
 const PUBLIC_PATHS = ["/login"];
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Rutas públicas — no requieren auth

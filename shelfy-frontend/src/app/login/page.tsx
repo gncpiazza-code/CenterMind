@@ -1,16 +1,20 @@
 "use client";
 
-import { useState, FormEvent } from "react";
+import { useState, FormEvent, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/Button";
 
 export default function LoginPage() {
+  const router = useRouter();
   const { login, loading, error, isAuthenticated } = useAuth();
   const [usuario, setUsuario] = useState("");
   const [password, setPassword] = useState("");
 
-  // Si ya está autenticado, el middleware lo redirigirá
-  if (isAuthenticated) return null;
+  // Si ya está autenticado, redirige explícitamente
+  useEffect(() => {
+    if (isAuthenticated) router.replace("/dashboard");
+  }, [isAuthenticated, router]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();

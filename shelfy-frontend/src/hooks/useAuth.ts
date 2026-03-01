@@ -1,11 +1,10 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { loginApi, type AuthResponse } from "@/lib/api";
 import { TOKEN_KEY, JWT_EXPIRE_HOURS } from "@/lib/constants";
 
-// Guarda en localStorage Y en cookie (el proxy de Next.js lee cookies)
 function setToken(token: string) {
   localStorage.setItem(TOKEN_KEY, token);
   document.cookie = `${TOKEN_KEY}=${token}; path=/; max-age=${JWT_EXPIRE_HOURS * 3600}; SameSite=Lax`;
@@ -16,8 +15,7 @@ function clearToken() {
   document.cookie = `${TOKEN_KEY}=; path=/; max-age=0`;
 }
 
-function getStoredUser(): AuthResponse | null {
-  if (typeof window === "undefined") return null;
+function parseStoredUser(): AuthResponse | null {
   const token = localStorage.getItem(TOKEN_KEY);
   if (!token) return null;
   try {
@@ -42,9 +40,15 @@ function getStoredUser(): AuthResponse | null {
 
 export function useAuth() {
   const router = useRouter();
-  const [user, setUser] = useState<AuthResponse | null>(() => getStoredUser());
+  // Siempre arranca en null (SSR y primera renderización del cliente son iguales)
+  // useEffect popula el user solo en el cliente tras montar → sin hydration mismatch
+  const [user, setUser] = useState<AuthResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setUser(parseStoredUser());
+  }, []);
 
   const login = useCallback(async (usuario: string, password: string) => {
     setLoading(true);

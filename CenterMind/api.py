@@ -99,6 +99,36 @@ def verify_jwt(authorization: str = Header(..., description="Bearer <token>")):
         raise HTTPException(status_code=401, detail="Token JWT inválido o expirado")
 
 
+# ─── Seguridad combinada: acepta API Key (bot/Streamlit) O JWT (React) ────────
+
+def verify_auth(
+    x_api_key: str = Header(None),
+    authorization: str = Header(None),
+):
+    """Acepta cualquiera de los dos métodos de autenticación:
+    - X-Api-Key: <clave>  → bot de Telegram, Streamlit (compatibilidad)
+    - Authorization: Bearer <jwt> → frontend React
+    """
+    if x_api_key:
+        if x_api_key != API_KEY:
+            raise HTTPException(status_code=401, detail="API Key inválida")
+        return {"method": "api_key"}
+
+    if authorization:
+        if not JWT_AVAILABLE:
+            raise HTTPException(status_code=503, detail="JWT no disponible")
+        try:
+            scheme, _, token = authorization.partition(" ")
+            if scheme.lower() != "bearer" or not token:
+                raise HTTPException(status_code=401, detail="Formato inválido")
+            payload = _jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+            return payload
+        except JWTError:
+            raise HTTPException(status_code=401, detail="Token JWT inválido o expirado")
+
+    raise HTTPException(status_code=401, detail="Se requiere autenticación (X-Api-Key o Bearer token)")
+
+
 # ─── Modelos Pydantic ─────────────────────────────────────────────────────────
 
 class LoginRequest(BaseModel):
@@ -160,7 +190,7 @@ def health():
 
 
 @app.post("/login", summary="Autenticación de usuario")
-def login(req: LoginRequest, _=Depends(verify_key)):
+def login(req: LoginRequest, _=Depends(verify_auth)):
     with get_conn() as c:
         row = c.execute(
             """SELECT u.id_usuario, u.usuario_login, u.rol, u.id_distribuidor,
@@ -220,7 +250,7 @@ def auth_login(req: LoginRequest):
 
 
 @app.get("/pendientes/{id_distribuidor}", summary="Exhibiciones pendientes agrupadas por mensaje")
-def get_pendientes(id_distribuidor: int, _=Depends(verify_key)):
+def get_pendientes(id_distribuidor: int, _=Depends(verify_auth)):
     with get_conn() as c:
         rows = c.execute(
             """SELECT e.id_exhibicion,
@@ -258,7 +288,7 @@ def get_pendientes(id_distribuidor: int, _=Depends(verify_key)):
 
 
 @app.get("/stats/{id_distribuidor}", summary="Estadísticas del día actual")
-def get_stats(id_distribuidor: int, _=Depends(verify_key)):
+def get_stats(id_distribuidor: int, _=Depends(verify_auth)):
     hoy = datetime.now().strftime("%Y-%m-%d")
     with get_conn() as c:
         row = c.execute(
@@ -276,7 +306,7 @@ def get_stats(id_distribuidor: int, _=Depends(verify_key)):
 
 
 @app.get("/vendedores/{id_distribuidor}", summary="Lista de vendedores con pendientes")
-def get_vendedores(id_distribuidor: int, _=Depends(verify_key)):
+def get_vendedores(id_distribuidor: int, _=Depends(verify_auth)):
     with get_conn() as c:
         rows = c.execute(
             """SELECT DISTINCT i.nombre_integrante
@@ -290,7 +320,7 @@ def get_vendedores(id_distribuidor: int, _=Depends(verify_key)):
 
 
 @app.post("/evaluar", summary="Aprobar / Destacar / Rechazar una exhibición")
-def evaluar(req: EvaluarRequest, _=Depends(verify_key)):
+def evaluar(req: EvaluarRequest, _=Depends(verify_auth)):
     try:
         affected = 0
         conn = get_conn()
@@ -311,7 +341,7 @@ def evaluar(req: EvaluarRequest, _=Depends(verify_key)):
 
 
 @app.post("/revertir", summary="Revertir evaluación a Pendiente")
-def revertir(req: RevertirRequest, _=Depends(verify_key)):
+def revertir(req: RevertirRequest, _=Depends(verify_auth)):
     try:
         affected = 0
         conn = get_conn()
@@ -334,7 +364,7 @@ def revertir(req: RevertirRequest, _=Depends(verify_key)):
 # ─── Admin: Distribuidoras ───────────────────────────────────────────────────
 
 @app.get("/admin/distribuidoras", summary="Lista de distribuidoras")
-def admin_get_distribuidoras(solo_activas: str = "true", _=Depends(verify_key)):
+def admin_get_distribuidoras(solo_activas: str = "true", _=Depends(verify_auth)):
     filtro = "WHERE estado='activo'" if solo_activas.lower() == "true" else ""
     with get_conn() as c:
         rows = c.execute(
@@ -346,7 +376,7 @@ def admin_get_distribuidoras(solo_activas: str = "true", _=Depends(verify_key)):
 
 
 @app.post("/admin/distribuidoras", summary="Crear distribuidora")
-def admin_crear_distribuidora(req: DistribuidoraRequest, _=Depends(verify_key)):
+def admin_crear_distribuidora(req: DistribuidoraRequest, _=Depends(verify_auth)):
     try:
         with get_conn() as c:
             c.execute(
@@ -361,7 +391,7 @@ def admin_crear_distribuidora(req: DistribuidoraRequest, _=Depends(verify_key)):
 
 
 @app.put("/admin/distribuidoras/{dist_id}", summary="Editar distribuidora")
-def admin_editar_distribuidora(dist_id: int, req: DistribuidoraRequest, _=Depends(verify_key)):
+def admin_editar_distribuidora(dist_id: int, req: DistribuidoraRequest, _=Depends(verify_auth)):
     try:
         with get_conn() as c:
             c.execute(
@@ -377,7 +407,7 @@ def admin_editar_distribuidora(dist_id: int, req: DistribuidoraRequest, _=Depend
 
 
 @app.patch("/admin/distribuidoras/{dist_id}/estado", summary="Activar/desactivar distribuidora")
-def admin_toggle_distribuidora(dist_id: int, estado: str, _=Depends(verify_key)):
+def admin_toggle_distribuidora(dist_id: int, estado: str, _=Depends(verify_auth)):
     if estado not in ("activo", "inactivo"):
         raise HTTPException(status_code=400, detail="estado debe ser 'activo' o 'inactivo'")
     with get_conn() as c:
@@ -389,7 +419,7 @@ def admin_toggle_distribuidora(dist_id: int, estado: str, _=Depends(verify_key))
 # ─── Admin: Usuarios del portal ───────────────────────────────────────────────
 
 @app.get("/admin/usuarios", summary="Lista de usuarios del portal")
-def admin_get_usuarios(dist_id: int = None, _=Depends(verify_key)):
+def admin_get_usuarios(dist_id: int = None, _=Depends(verify_auth)):
     where = "WHERE u.id_distribuidor=?" if dist_id else ""
     params = (dist_id,) if dist_id else ()
     with get_conn() as c:
@@ -406,7 +436,7 @@ def admin_get_usuarios(dist_id: int = None, _=Depends(verify_key)):
 
 
 @app.post("/admin/usuarios", summary="Crear usuario del portal")
-def admin_crear_usuario(req: UsuarioRequest, _=Depends(verify_key)):
+def admin_crear_usuario(req: UsuarioRequest, _=Depends(verify_auth)):
     try:
         with get_conn() as c:
             c.execute(
@@ -420,7 +450,7 @@ def admin_crear_usuario(req: UsuarioRequest, _=Depends(verify_key)):
 
 
 @app.put("/admin/usuarios/{user_id}", summary="Editar usuario del portal")
-def admin_editar_usuario(user_id: int, req: UsuarioEditRequest, _=Depends(verify_key)):
+def admin_editar_usuario(user_id: int, req: UsuarioEditRequest, _=Depends(verify_auth)):
     try:
         with get_conn() as c:
             if req.password:
@@ -440,7 +470,7 @@ def admin_editar_usuario(user_id: int, req: UsuarioEditRequest, _=Depends(verify
 
 
 @app.delete("/admin/usuarios/{user_id}", summary="Eliminar usuario del portal")
-def admin_eliminar_usuario(user_id: int, _=Depends(verify_key)):
+def admin_eliminar_usuario(user_id: int, _=Depends(verify_auth)):
     with get_conn() as c:
         c.execute("DELETE FROM usuarios_portal WHERE id_usuario=?", (user_id,))
         c.execute("COMMIT")
@@ -450,7 +480,7 @@ def admin_eliminar_usuario(user_id: int, _=Depends(verify_key)):
 # ─── Admin: Integrantes de Telegram ──────────────────────────────────────────
 
 @app.get("/admin/integrantes", summary="Lista de integrantes de Telegram")
-def admin_get_integrantes(dist_id: int = None, _=Depends(verify_key)):
+def admin_get_integrantes(dist_id: int = None, _=Depends(verify_auth)):
     where = "WHERE ig.id_distribuidor=?" if dist_id else ""
     params = (dist_id,) if dist_id else ()
     with get_conn() as c:
@@ -470,7 +500,7 @@ def admin_get_integrantes(dist_id: int = None, _=Depends(verify_key)):
 
 
 @app.put("/admin/integrantes/{id_integrante}/rol", summary="Cambiar rol de integrante")
-def admin_set_rol_integrante(id_integrante: int, req: IntegranteRolRequest, _=Depends(verify_key)):
+def admin_set_rol_integrante(id_integrante: int, req: IntegranteRolRequest, _=Depends(verify_auth)):
     if req.rol not in ("vendedor", "observador"):
         raise HTTPException(status_code=400, detail="rol debe ser 'vendedor' u 'observador'")
     with get_conn() as c:
@@ -494,7 +524,7 @@ def admin_set_rol_integrante(id_integrante: int, req: IntegranteRolRequest, _=De
 # ─── Admin: Monitor (sesiones, métricas, alertas) ────────────────────────────
 
 @app.get("/admin/monitor/sesiones", summary="Sesiones activas del portal")
-def admin_monitor_sesiones(_=Depends(verify_key)):
+def admin_monitor_sesiones(_=Depends(verify_auth)):
     """Devuelve sesiones activas (activa=1) con datos de usuario y distribuidora."""
     with get_conn() as c:
         rows = c.execute(
@@ -512,7 +542,7 @@ def admin_monitor_sesiones(_=Depends(verify_key)):
 
 
 @app.get("/admin/monitor/metricas", summary="Métricas del día")
-def admin_monitor_metricas(_=Depends(verify_key)):
+def admin_monitor_metricas(_=Depends(verify_auth)):
     """KPIs del día: logins, usuarios únicos, exportaciones, pantalla top."""
     hoy = datetime.now().strftime("%Y-%m-%d")
     with get_conn() as c:
@@ -550,7 +580,7 @@ def admin_monitor_metricas(_=Depends(verify_key)):
 
 
 @app.get("/admin/monitor/alertas", summary="Alertas activas")
-def admin_monitor_alertas(_=Depends(verify_key)):
+def admin_monitor_alertas(_=Depends(verify_auth)):
     """Genera alertas automáticas basadas en el estado de sesiones y eventos recientes."""
     alertas = []
     now = datetime.utcnow()
@@ -611,7 +641,7 @@ def _periodo_where(periodo: str) -> str:
 
 
 @app.get("/dashboard/kpis/{distribuidor_id}", summary="KPIs del dashboard por período")
-def dashboard_kpis(distribuidor_id: int, periodo: str = "mes", _=Depends(verify_key)):
+def dashboard_kpis(distribuidor_id: int, periodo: str = "mes", _=Depends(verify_auth)):
     pw = _periodo_where(periodo)
     with get_conn() as c:
         row = c.execute(
@@ -629,7 +659,7 @@ def dashboard_kpis(distribuidor_id: int, periodo: str = "mes", _=Depends(verify_
 
 
 @app.get("/dashboard/ranking/{distribuidor_id}", summary="Ranking de vendedores por período")
-def dashboard_ranking(distribuidor_id: int, periodo: str = "mes", top: int = 15, _=Depends(verify_key)):
+def dashboard_ranking(distribuidor_id: int, periodo: str = "mes", top: int = 15, _=Depends(verify_auth)):
     pw = _periodo_where(periodo)
     with get_conn() as c:
         rows = c.execute(
@@ -652,7 +682,7 @@ def dashboard_ranking(distribuidor_id: int, periodo: str = "mes", top: int = 15,
 
 
 @app.get("/dashboard/ultimas-evaluadas/{distribuidor_id}", summary="Últimas fotos evaluadas con fallback de días")
-def dashboard_ultimas(distribuidor_id: int, n: int = 8, _=Depends(verify_key)):
+def dashboard_ultimas(distribuidor_id: int, n: int = 8, _=Depends(verify_auth)):
     """Busca las últimas N fotos aprobadas/destacadas.
     Si no hay fotos hoy, retrocede un día a la vez hasta encontrar (máx. 90 días)."""
     # Fecha actual en Argentina (UTC-3): evita que a las 21hs ARG el día ya sea "mañana" en UTC
@@ -743,7 +773,7 @@ class ReporteQuery(BaseModel):
 
 
 @app.get("/reportes/vendedores/{distribuidor_id}", summary="Vendedores únicos para filtro de reportes")
-def reportes_vendedores(distribuidor_id: int, _=Depends(verify_key)):
+def reportes_vendedores(distribuidor_id: int, _=Depends(verify_auth)):
     with get_conn() as c:
         rows = c.execute(
             """SELECT DISTINCT i.nombre_integrante
@@ -757,7 +787,7 @@ def reportes_vendedores(distribuidor_id: int, _=Depends(verify_key)):
 
 
 @app.get("/reportes/tipos-pdv/{distribuidor_id}", summary="Tipos de PDV únicos para filtro de reportes")
-def reportes_tipos_pdv(distribuidor_id: int, _=Depends(verify_key)):
+def reportes_tipos_pdv(distribuidor_id: int, _=Depends(verify_auth)):
     with get_conn() as c:
         rows = c.execute(
             """SELECT DISTINCT tipo_pdv FROM exhibiciones
@@ -769,7 +799,7 @@ def reportes_tipos_pdv(distribuidor_id: int, _=Depends(verify_key)):
 
 
 @app.post("/reportes/exhibiciones/{distribuidor_id}", summary="Consulta de exhibiciones con filtros")
-def reportes_exhibiciones(distribuidor_id: int, q: ReporteQuery, _=Depends(verify_key)):
+def reportes_exhibiciones(distribuidor_id: int, q: ReporteQuery, _=Depends(verify_auth)):
     conditions = [
         "e.id_distribuidor = ?",
         "DATE(e.timestamp_subida, '-3 hours') >= ?",
@@ -833,7 +863,7 @@ class BonusConfigPayload(BaseModel):
 
 
 @app.get("/bonos/config/{id_distribuidor}", summary="Obtener config de bonos del mes")
-def bonos_get_config(id_distribuidor: int, anio: int, mes: int, _=Depends(verify_key)):
+def bonos_get_config(id_distribuidor: int, anio: int, mes: int, _=Depends(verify_auth)):
     """Devuelve la configuración de bonos + puestos para un mes dado.
     Si no existe la fila, devuelve valores en cero (config vacía)."""
     with get_conn() as c:
@@ -860,7 +890,7 @@ def bonos_get_config(id_distribuidor: int, anio: int, mes: int, _=Depends(verify
 
 
 @app.post("/bonos/config/{id_distribuidor}/guardar", summary="Guardar config de bonos del mes")
-def bonos_guardar_config(id_distribuidor: int, payload: BonusConfigPayload, _=Depends(verify_key)):
+def bonos_guardar_config(id_distribuidor: int, payload: BonusConfigPayload, _=Depends(verify_auth)):
     """Upsert de bonos_config + reescribe filas de bonos_ranking.
     Rechaza si edicion_bloqueada=1."""
     with get_conn() as c:
@@ -901,7 +931,7 @@ def bonos_guardar_config(id_distribuidor: int, payload: BonusConfigPayload, _=De
 
 
 @app.post("/bonos/config/{id_distribuidor}/bloquear", summary="Bloquear/desbloquear config (superadmin)")
-def bonos_bloquear(id_distribuidor: int, anio: int, mes: int, bloquear: int = 1, _=Depends(verify_key)):
+def bonos_bloquear(id_distribuidor: int, anio: int, mes: int, bloquear: int = 1, _=Depends(verify_auth)):
     """bloquear=1 bloquea, bloquear=0 desbloquea. Solo superadmin debería llamar esto."""
     with get_conn() as c:
         c.execute(
@@ -913,7 +943,7 @@ def bonos_bloquear(id_distribuidor: int, anio: int, mes: int, bloquear: int = 1,
 
 
 @app.get("/bonos/liquidacion/{id_distribuidor}", summary="Liquidación de bonos del mes")
-def bonos_liquidacion(id_distribuidor: int, anio: int, mes: int, _=Depends(verify_key)):
+def bonos_liquidacion(id_distribuidor: int, anio: int, mes: int, _=Depends(verify_auth)):
     """Calcula el bono final de cada vendedor para el mes dado.
     Lógica:
       - puntos = COUNT(Aprobado)*1 + COUNT(Destacado)*2
@@ -986,7 +1016,7 @@ def bonos_liquidacion(id_distribuidor: int, anio: int, mes: int, _=Depends(verif
 
 
 @app.get("/bonos/detalle/{id_distribuidor}", summary="Detalle de exhibiciones de un vendedor en el mes")
-def bonos_detalle(id_distribuidor: int, id_integrante: int, anio: int, mes: int, _=Depends(verify_key)):
+def bonos_detalle(id_distribuidor: int, id_integrante: int, anio: int, mes: int, _=Depends(verify_auth)):
     """Devuelve cada exhibición evaluada de un vendedor en el mes, para auditoría."""
     with get_conn() as c:
         rows = c.execute(
@@ -1015,7 +1045,7 @@ class AsignarVendedorRequest(BaseModel):
 
 
 @app.get("/admin/locations/{dist_id}", summary="Sucursales de un distribuidor")
-def admin_get_locations(dist_id: int, _=Depends(verify_key)):
+def admin_get_locations(dist_id: int, _=Depends(verify_auth)):
     """Retorna todas las sucursales (locations) de un distribuidor."""
     with get_conn() as c:
         rows = c.execute(
@@ -1029,7 +1059,7 @@ def admin_get_locations(dist_id: int, _=Depends(verify_key)):
 
 
 @app.get("/admin/vendedores-by-location/{location_id}", summary="Vendedores de una sucursal")
-def admin_vendedores_by_location(location_id: int, dist_id: int, _=Depends(verify_key)):
+def admin_vendedores_by_location(location_id: int, dist_id: int, _=Depends(verify_auth)):
     """
     Retorna los vendedores asignados a una sucursal específica.
     Agrupa por telegram_user_id para evitar duplicados multi-grupo.
@@ -1053,7 +1083,7 @@ def admin_get_clientes(
     location_id: int = None,
     id_vendedor: int = None,
     sin_asignar: bool = False,
-    _=Depends(verify_key),
+    _=Depends(verify_auth),
 ):
     """
     Lista clientes con nombre del vendedor asignado.
@@ -1099,7 +1129,7 @@ def admin_get_clientes(
 
 @app.put("/admin/clientes/{id_cliente}/vendedor", summary="Asignar o reasignar vendedor a un cliente")
 def admin_asignar_vendedor(
-    id_cliente: int, req: AsignarVendedorRequest, _=Depends(verify_key)
+    id_cliente: int, req: AsignarVendedorRequest, _=Depends(verify_auth)
 ):
     """
     Asigna (o des-asigna con id_integrante=null) el vendedor de un cliente.
@@ -1119,7 +1149,7 @@ def admin_asignar_vendedor(
 # ─── Dashboard: stats por sucursal ───────────────────────────────────────────
 
 @app.get("/dashboard/por-sucursal/{distribuidor_id}", summary="Exhibiciones agrupadas por sucursal")
-def dashboard_por_sucursal(distribuidor_id: int, periodo: str = "mes", _=Depends(verify_key)):
+def dashboard_por_sucursal(distribuidor_id: int, periodo: str = "mes", _=Depends(verify_auth)):
     """
     Retorna aprobadas y rechazadas agrupadas por sucursal (location).
     Útil para el gráfico de barras comparativo del Dashboard.

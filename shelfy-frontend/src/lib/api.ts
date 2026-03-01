@@ -12,17 +12,15 @@ export interface AuthResponse {
   nombre_empresa: string;
 }
 
-export interface Exhibicion {
-  id_exhibicion: number;
-  vendedor: string;
-  nro_cliente: string;
-  tipo_pdv: string;
-  estado: string;
-  drive_link: string;
-  fecha_hora: string;
+export interface KPIs {
+  total: number;
+  pendientes: number;
+  aprobadas: number;
+  rechazadas: number;
+  destacadas: number;
 }
 
-export interface KPIs {
+export interface StatsHoy {
   total: number;
   pendientes: number;
   aprobadas: number;
@@ -38,6 +36,37 @@ export interface VendedorRanking {
   puntos: number;
 }
 
+export interface UltimaEvaluada {
+  id_exhibicion: number;
+  drive_link: string;
+  estado: string;
+  tipo_pdv: string;
+  nro_cliente: string;
+  vendedor: string;
+  timestamp_subida: string;
+}
+
+export interface SucursalStats {
+  sucursal: string;
+  location_id: number;
+  aprobadas: number;
+  rechazadas: number;
+  total: number;
+}
+
+export interface FotoGrupo {
+  id_exhibicion: number;
+  drive_link: string;
+}
+
+export interface GrupoPendiente {
+  vendedor: string;
+  nro_cliente: string;
+  tipo_pdv: string;
+  fecha_hora: string;
+  fotos: FotoGrupo[];
+}
+
 export interface UsuarioPortal {
   id_usuario: number;
   usuario_login: string;
@@ -46,7 +75,25 @@ export interface UsuarioPortal {
   nombre_empresa: string;
 }
 
-// ── Helper fetch con JWT ────────────────────────────────────────────────────
+// ── Image helpers ───────────────────────────────────────────────────────────
+
+/** Extrae el file ID de una URL de Google Drive */
+export function extractDriveId(url: string): string | null {
+  if (!url) return null;
+  const m1 = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+  if (m1) return m1[1];
+  const m2 = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  if (m2) return m2[1];
+  if (/^[a-zA-Z0-9_-]{20,}$/.test(url)) return url;
+  return null;
+}
+
+/** URL del proxy de imagen (no requiere auth — el file_id es el token opaco) */
+export function getImageUrl(fileId: string): string {
+  return `${API_URL}/dashboard/imagen/${fileId}`;
+}
+
+// ── Fetch helper con JWT ────────────────────────────────────────────────────
 
 function getHeaders(): HeadersInit {
   const token = typeof window !== "undefined" ? localStorage.getItem(TOKEN_KEY) : null;
@@ -88,18 +135,26 @@ export async function fetchRanking(distribuidorId: number, periodo: string = "me
   return apiFetch<VendedorRanking[]>(`/dashboard/ranking/${distribuidorId}?periodo=${periodo}`);
 }
 
-export async function fetchUltimasEvaluadas(distribuidorId: number, n: number = 8) {
-  return apiFetch(`/dashboard/ultimas-evaluadas/${distribuidorId}?n=${n}`);
+export async function fetchUltimasEvaluadas(distribuidorId: number, n: number = 8): Promise<UltimaEvaluada[]> {
+  return apiFetch<UltimaEvaluada[]>(`/dashboard/ultimas-evaluadas/${distribuidorId}?n=${n}`);
 }
 
-export async function fetchPorSucursal(distribuidorId: number, periodo: string = "mes") {
-  return apiFetch(`/dashboard/por-sucursal/${distribuidorId}?periodo=${periodo}`);
+export async function fetchPorSucursal(distribuidorId: number, periodo: string = "mes"): Promise<SucursalStats[]> {
+  return apiFetch<SucursalStats[]>(`/dashboard/por-sucursal/${distribuidorId}?periodo=${periodo}`);
 }
 
-// ── Pendientes (Visor) ───────────────────────────────────────────────────────
+// ── Visor ───────────────────────────────────────────────────────────────────
 
-export async function fetchPendientes(distribuidorId: number) {
-  return apiFetch(`/pendientes/${distribuidorId}`);
+export async function fetchStatsHoy(distribuidorId: number): Promise<StatsHoy> {
+  return apiFetch<StatsHoy>(`/stats/${distribuidorId}`);
+}
+
+export async function fetchVendedores(distribuidorId: number): Promise<string[]> {
+  return apiFetch<string[]>(`/vendedores/${distribuidorId}`);
+}
+
+export async function fetchPendientes(distribuidorId: number): Promise<GrupoPendiente[]> {
+  return apiFetch<GrupoPendiente[]>(`/pendientes/${distribuidorId}`);
 }
 
 export async function evaluar(ids: number[], estado: string, supervisor: string, comentario: string = "") {

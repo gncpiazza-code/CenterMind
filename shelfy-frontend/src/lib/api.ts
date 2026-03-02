@@ -213,3 +213,107 @@ export async function fetchReporteExhibiciones(distId: number, query: {
     body: JSON.stringify(query),
   });
 }
+
+// ── Admin: Distribuidoras (superadmin only) ──────────────────────────────────
+
+export interface Distribuidora {
+  id: number;
+  nombre: string;
+  estado: string;
+}
+
+export async function fetchDistribuidoras(soloActivas = false): Promise<Distribuidora[]> {
+  return apiFetch<Distribuidora[]>(`/admin/distribuidoras?solo_activas=${soloActivas}`);
+}
+
+export async function crearDistribuidora(data: { nombre: string; token: string; carpeta_drive?: string; ruta_cred?: string }) {
+  return apiFetch("/admin/distribuidoras", { method: "POST", body: JSON.stringify(data) });
+}
+
+export async function editarDistribuidora(id: number, data: { nombre: string; token: string; carpeta_drive?: string; ruta_cred?: string }) {
+  return apiFetch(`/admin/distribuidoras/${id}`, { method: "PUT", body: JSON.stringify(data) });
+}
+
+export async function toggleDistribuidora(id: number, estado: "activo" | "inactivo") {
+  return apiFetch(`/admin/distribuidoras/${id}/estado`, { method: "PATCH", body: JSON.stringify({ estado }) });
+}
+
+// ── Admin: Integrantes Telegram ──────────────────────────────────────────────
+
+export interface Integrante {
+  id_integrante: number;
+  nombre_integrante: string;
+  telegram_user_id: number;
+  rol_telegram: string;
+  telegram_group_id: number;
+  nombre_empresa: string;
+}
+
+export async function fetchIntegrantes(distId?: number): Promise<Integrante[]> {
+  const q = distId ? `?dist_id=${distId}` : "";
+  return apiFetch<Integrante[]>(`/admin/integrantes${q}`);
+}
+
+export async function setRolIntegrante(id: number, rol: string, distribuidorId?: number) {
+  return apiFetch(`/admin/integrantes/${id}/rol`, {
+    method: "PUT",
+    body: JSON.stringify({ rol, distribuidor_id: distribuidorId ?? null }),
+  });
+}
+
+// ── Bonos ────────────────────────────────────────────────────────────────────
+
+export interface PuestoRanking {
+  puesto: number;
+  premio_si_llego: number;
+  premio_si_no_llego: number;
+}
+
+export interface BonoConfig {
+  umbral: number;
+  monto_bono_fijo: number;
+  monto_por_punto: number;
+  puestos: PuestoRanking[];
+  edicion_bloqueada: 0 | 1;
+}
+
+export interface LiquidacionVendedor {
+  puesto: number;
+  vendedor: string;
+  puntos: number;
+  aprobadas: number;
+  destacadas: number;
+  llego_umbral: boolean;
+  bono: number;
+}
+
+export interface DetalleExhibicion {
+  id_exhibicion: number;
+  fecha: string;
+  estado: string;
+  nro_cliente: string;
+  tipo_pdv: string;
+}
+
+export async function fetchBonoConfig(distId: number, anio: number, mes: number): Promise<BonoConfig> {
+  return apiFetch<BonoConfig>(`/bonos/config/${distId}?anio=${anio}&mes=${mes}`);
+}
+
+export async function guardarBonoConfig(distId: number, data: {
+  anio: number; mes: number; umbral: number;
+  monto_bono_fijo: number; monto_por_punto: number; puestos: PuestoRanking[];
+}) {
+  return apiFetch(`/bonos/config/${distId}/guardar`, { method: "POST", body: JSON.stringify(data) });
+}
+
+export async function bloquearBonoConfig(distId: number, anio: number, mes: number, bloquear: 0 | 1) {
+  return apiFetch(`/bonos/config/${distId}/bloquear?anio=${anio}&mes=${mes}&bloquear=${bloquear}`, { method: "POST" });
+}
+
+export async function fetchLiquidacion(distId: number, anio: number, mes: number): Promise<{ umbral: number; vendedores: LiquidacionVendedor[] }> {
+  return apiFetch(`/bonos/liquidacion/${distId}?anio=${anio}&mes=${mes}`);
+}
+
+export async function fetchBonoDetalle(distId: number, integranteId: number, anio: number, mes: number): Promise<DetalleExhibicion[]> {
+  return apiFetch(`/bonos/detalle/${distId}?id_integrante=${integranteId}&anio=${anio}&mes=${mes}`);
+}

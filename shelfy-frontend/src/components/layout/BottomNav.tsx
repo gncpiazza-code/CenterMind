@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Eye, Users, BarChart2 } from "lucide-react";
+import { LayoutDashboard, Eye, Users, BarChart2, Gift } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 
 const ALL_NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["superadmin", "admin", "supervisor"] },
   { href: "/visor",     label: "Evaluar",   icon: Eye,             roles: ["superadmin", "admin", "supervisor"] },
   { href: "/reportes",  label: "Reportes",  icon: BarChart2,       roles: ["superadmin", "admin", "supervisor"] },
+  { href: "/bonos",     label: "Bonos",     icon: Gift,            roles: ["superadmin", "admin"] },
   { href: "/admin",     label: "Admin",     icon: Users,           roles: ["superadmin", "admin"] },
 ];
 

@@ -7,9 +7,9 @@ import { PageSpinner } from "@/components/ui/Spinner";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/hooks/useAuth";
-import { useState } from "react";
-import { fetchReporteExhibiciones } from "@/lib/api";
-import { Download } from "lucide-react";
+import { useEffect, useState } from "react";
+import { fetchReporteExhibiciones, fetchReporteVendedores, fetchReporteTiposPdv } from "@/lib/api";
+import { Download, Search, X } from "lucide-react";
 
 interface Fila {
   id_exhibicion: number;
@@ -24,23 +24,83 @@ interface Fila {
   link_foto: string;
 }
 
+const ESTADOS = ["Aprobado", "Destacado", "Rechazado", "Pendiente"];
+
 function hoy() {
-  const d = new Date();
-  return d.toISOString().slice(0, 10);
+  return new Date().toISOString().slice(0, 10);
 }
 function inicioMes() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
 }
 
+// ── Multi-select chip component ───────────────────────────────────────────────
+
+function MultiSelect({
+  label, options, selected, onChange,
+}: {
+  label: string;
+  options: string[];
+  selected: string[];
+  onChange: (v: string[]) => void;
+}) {
+  const toggle = (v: string) =>
+    onChange(selected.includes(v) ? selected.filter((x) => x !== v) : [...selected, v]);
+
+  return (
+    <div>
+      <label className="block text-xs text-[var(--shelfy-muted)] mb-1.5 font-medium">{label}</label>
+      <div className="flex flex-wrap gap-1.5">
+        {options.map((o) => (
+          <button
+            key={o}
+            type="button"
+            onClick={() => toggle(o)}
+            className={`text-xs px-2.5 py-1 rounded-full border font-medium transition-all ${
+              selected.includes(o)
+                ? "bg-[var(--shelfy-primary)] text-white border-[var(--shelfy-primary)]"
+                : "bg-[var(--shelfy-bg)] text-[var(--shelfy-muted)] border-[var(--shelfy-border)] hover:border-[var(--shelfy-primary)] hover:text-[var(--shelfy-text)]"
+            }`}
+          >
+            {o}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function ReportesPage() {
   const { user } = useAuth();
+
+  // Filtros
   const [desde, setDesde] = useState(inicioMes());
   const [hasta, setHasta] = useState(hoy());
+  const [vendedoresList, setVendedoresList] = useState<string[]>([]);
+  const [tiposPdvList, setTiposPdvList] = useState<string[]>([]);
+  const [selectedVendedores, setSelectedVendedores] = useState<string[]>([]);
+  const [selectedEstados, setSelectedEstados] = useState<string[]>([]);
+  const [selectedTipos, setSelectedTipos] = useState<string[]>([]);
+  const [nroCliente, setNroCliente] = useState("");
+
+  // Resultados
   const [filas, setFilas] = useState<Fila[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingOpts, setLoadingOpts] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searched, setSearched] = useState(false);
+
+  // Cargar listas de filtros al montar
+  useEffect(() => {
+    if (!user) return;
+    Promise.all([
+      fetchReporteVendedores(user.id_distribuidor),
+      fetchReporteTiposPdv(user.id_distribuidor),
+    ])
+      .then(([v, t]) => { setVendedoresList(v); setTiposPdvList(t); })
+      .catch(() => {})
+      .finally(() => setLoadingOpts(false));
+  }, [user]);
 
   async function handleBuscar() {
     if (!user) return;
@@ -50,6 +110,10 @@ export default function ReportesPage() {
       const data = await fetchReporteExhibiciones(user.id_distribuidor, {
         fecha_desde: desde,
         fecha_hasta: hasta,
+        vendedores: selectedVendedores.length > 0 ? selectedVendedores : undefined,
+        estados: selectedEstados.length > 0 ? selectedEstados : undefined,
+        tipos_pdv: selectedTipos.length > 0 ? selectedTipos : undefined,
+        nro_cliente: nroCliente.trim() || undefined,
       });
       setFilas(data as Fila[]);
       setSearched(true);
@@ -58,6 +122,15 @@ export default function ReportesPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  function handleLimpiar() {
+    setSelectedVendedores([]);
+    setSelectedEstados([]);
+    setSelectedTipos([]);
+    setNroCliente("");
+    setDesde(inicioMes());
+    setHasta(hoy());
   }
 
   function handleExportCSV() {
@@ -77,6 +150,8 @@ export default function ReportesPage() {
     URL.revokeObjectURL(url);
   }
 
+  const hayFiltrosActivos = selectedVendedores.length > 0 || selectedEstados.length > 0 || selectedTipos.length > 0 || nroCliente.trim();
+
   return (
     <div className="flex min-h-screen bg-[var(--shelfy-bg)]">
       <Sidebar />
@@ -86,25 +161,77 @@ export default function ReportesPage() {
         <main className="flex-1 p-4 md:p-6 pb-20 md:pb-6 overflow-auto">
 
           {/* Filtros */}
-          <Card className="mb-6">
-            <h3 className="text-[var(--shelfy-text)] font-semibold text-sm mb-4">Filtros de búsqueda</h3>
-            <div className="flex flex-wrap items-end gap-4">
-              <div>
-                <label className="block text-xs text-[var(--shelfy-muted)] mb-1.5 font-medium">Desde</label>
-                <input
-                  type="date" value={desde} onChange={(e) => setDesde(e.target.value)}
-                  className="rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-[var(--shelfy-text)] px-3 py-2 text-sm focus:outline-none focus:border-[var(--shelfy-primary)]"
-                />
+          <Card className="mb-5">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-[var(--shelfy-text)] font-semibold text-sm">Filtros de búsqueda</h3>
+              {hayFiltrosActivos && (
+                <button onClick={handleLimpiar}
+                  className="flex items-center gap-1 text-xs text-[var(--shelfy-muted)] hover:text-[var(--shelfy-error)] transition-colors">
+                  <X size={12} /> Limpiar filtros
+                </button>
+              )}
+            </div>
+
+            <div className="flex flex-col gap-4">
+              {/* Fecha */}
+              <div className="flex flex-wrap items-end gap-4">
+                <div>
+                  <label className="block text-xs text-[var(--shelfy-muted)] mb-1.5 font-medium">Desde</label>
+                  <input
+                    type="date" value={desde} onChange={(e) => setDesde(e.target.value)}
+                    className="rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-[var(--shelfy-text)] px-3 py-2 text-sm focus:outline-none focus:border-[var(--shelfy-primary)]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-[var(--shelfy-muted)] mb-1.5 font-medium">Hasta</label>
+                  <input
+                    type="date" value={hasta} onChange={(e) => setHasta(e.target.value)}
+                    className="rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-[var(--shelfy-text)] px-3 py-2 text-sm focus:outline-none focus:border-[var(--shelfy-primary)]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-[var(--shelfy-muted)] mb-1.5 font-medium">N° Cliente</label>
+                  <input
+                    type="text" value={nroCliente} onChange={(e) => setNroCliente(e.target.value)}
+                    placeholder="Buscar cliente..."
+                    className="rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-[var(--shelfy-text)] px-3 py-2 text-sm focus:outline-none focus:border-[var(--shelfy-primary)] w-44"
+                  />
+                </div>
               </div>
-              <div>
-                <label className="block text-xs text-[var(--shelfy-muted)] mb-1.5 font-medium">Hasta</label>
-                <input
-                  type="date" value={hasta} onChange={(e) => setHasta(e.target.value)}
-                  className="rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-[var(--shelfy-text)] px-3 py-2 text-sm focus:outline-none focus:border-[var(--shelfy-primary)]"
+
+              {/* Estado */}
+              <MultiSelect
+                label="Estado"
+                options={ESTADOS}
+                selected={selectedEstados}
+                onChange={setSelectedEstados}
+              />
+
+              {/* Tipo PDV */}
+              {!loadingOpts && tiposPdvList.length > 0 && (
+                <MultiSelect
+                  label="Tipo PDV"
+                  options={tiposPdvList}
+                  selected={selectedTipos}
+                  onChange={setSelectedTipos}
                 />
-              </div>
-              <div className="flex gap-2">
-                <Button onClick={handleBuscar} loading={loading}>Buscar</Button>
+              )}
+
+              {/* Vendedores */}
+              {!loadingOpts && vendedoresList.length > 0 && (
+                <MultiSelect
+                  label="Supervisor"
+                  options={vendedoresList}
+                  selected={selectedVendedores}
+                  onChange={setSelectedVendedores}
+                />
+              )}
+
+              {/* Acciones */}
+              <div className="flex gap-2 pt-1">
+                <Button onClick={handleBuscar} loading={loading}>
+                  <Search size={14} /> Buscar
+                </Button>
                 {filas.length > 0 && (
                   <Button variant="secondary" onClick={handleExportCSV}>
                     <Download size={14} /> Exportar CSV
@@ -122,19 +249,19 @@ export default function ReportesPage() {
           {loading && <PageSpinner />}
 
           {!loading && searched && filas.length === 0 && (
-            <p className="text-[var(--shelfy-muted)] text-sm">Sin resultados para el período seleccionado.</p>
+            <p className="text-[var(--shelfy-muted)] text-sm">Sin resultados para los filtros seleccionados.</p>
           )}
 
           {!loading && filas.length > 0 && (
             <Card>
               <div className="flex items-center justify-between mb-3">
-                <p className="text-xs text-[var(--shelfy-muted)]">{filas.length} registros encontrados</p>
+                <p className="text-sm font-semibold text-[var(--shelfy-text)]">{filas.length} registros</p>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="text-[var(--shelfy-muted)] text-left border-b border-[var(--shelfy-border)]">
-                      {["ID", "Vendedor", "Cliente", "PDV", "Estado", "Fecha carga"].map((h) => (
+                      {["ID", "Vendedor/Sup.", "Cliente", "PDV", "Estado", "Fecha carga"].map((h) => (
                         <th key={h} className="pb-3 pr-4 whitespace-nowrap font-semibold">{h}</th>
                       ))}
                     </tr>
@@ -142,7 +269,7 @@ export default function ReportesPage() {
                   <tbody>
                     {filas.map((f) => (
                       <tr key={f.id_exhibicion} className="border-b border-[var(--shelfy-border)] last:border-0 hover:bg-[var(--shelfy-bg)] transition-colors">
-                        <td className="py-2.5 pr-4 text-[var(--shelfy-muted)]">{f.id_exhibicion}</td>
+                        <td className="py-2.5 pr-4 text-[var(--shelfy-muted)] tabular-nums">{f.id_exhibicion}</td>
                         <td className="py-2.5 pr-4 text-[var(--shelfy-text)] font-medium">{f.vendedor}</td>
                         <td className="py-2.5 pr-4 text-[var(--shelfy-muted)]">{f.cliente}</td>
                         <td className="py-2.5 pr-4 text-[var(--shelfy-muted)]">{f.tipo_pdv}</td>

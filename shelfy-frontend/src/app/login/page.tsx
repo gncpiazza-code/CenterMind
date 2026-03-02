@@ -37,7 +37,7 @@ export default function LoginPage() {
         </div>
 
         {/* Card */}
-        <div className="bg-[var(--shelfy-panel)] rounded-2xl border border-[var(--shelfy-border)] p-8 shadow-[0_0_40px_var(--shelfy-glow)]">
+        <div className="bg-[var(--shelfy-panel)] rounded-2xl border border-[var(--shelfy-border)] p-8 shadow-lg">
           <h2 className="text-[var(--shelfy-text)] text-xl font-semibold mb-1">Iniciar sesión</h2>
           <p className="text-[var(--shelfy-muted)] text-sm mb-6">Ingresá tus credenciales para continuar</p>
 
@@ -69,7 +69,7 @@ export default function LoginPage() {
             </div>
 
             {error && (
-              <p className="text-[var(--shelfy-error)] text-sm bg-red-950/30 border border-red-800/40 rounded-lg px-3 py-2">
+              <p className="text-red-700 text-sm bg-red-50 border border-red-200 rounded-lg px-3 py-2">
                 {error}
               </p>
             )}

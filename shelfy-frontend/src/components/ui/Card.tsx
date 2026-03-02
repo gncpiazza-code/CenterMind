@@ -9,7 +9,7 @@ export function Card({ glow, className = "", children, ...props }: CardProps) {
     <div
       className={`
         rounded-xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] p-4
-        ${glow ? "shadow-[0_0_20px_var(--shelfy-glow)]" : ""}
+        ${glow ? "shadow-lg shadow-[var(--shelfy-glow)]" : "shadow-sm"}
         ${className}
       `}
       {...props}

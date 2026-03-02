@@ -8,13 +8,13 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
   ({ variant = "primary", size = "md", loading, children, disabled, className = "", ...props }, ref) => {
-    const base = "inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed";
+    const base = "inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-all focus:outline-none focus:ring-2 focus:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed";
 
     const variants = {
       primary:   "bg-[var(--shelfy-primary)] hover:bg-[var(--shelfy-primary-2)] text-white focus:ring-[var(--shelfy-primary)]",
-      secondary: "bg-[var(--shelfy-panel)] hover:bg-[var(--shelfy-border)] text-[var(--shelfy-text)] border border-[var(--shelfy-border)]",
-      ghost:     "bg-transparent hover:bg-[var(--shelfy-panel)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]",
-      danger:    "bg-[var(--shelfy-error)] hover:opacity-90 text-white",
+      secondary: "bg-white hover:bg-[var(--shelfy-bg)] text-[var(--shelfy-text)] border border-[var(--shelfy-border)] focus:ring-[var(--shelfy-primary)]",
+      ghost:     "bg-transparent hover:bg-[var(--shelfy-bg)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] focus:ring-[var(--shelfy-border)]",
+      danger:    "bg-[var(--shelfy-error)] hover:opacity-90 text-white focus:ring-[var(--shelfy-error)]",
     };
 
     const sizes = {

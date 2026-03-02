@@ -1,18 +1,18 @@
 @import "tailwindcss";
 
-/* ── Paleta Shelfy ── */
+/* ── Paleta Shelfy — Light Theme ── */
 :root {
-  --shelfy-bg:        #1A0B3B;
-  --shelfy-panel:     #261052;
+  --shelfy-bg:        #F5F3FF;
+  --shelfy-panel:     #FFFFFF;
   --shelfy-primary:   #7C3AED;
-  --shelfy-primary-2: #4B10A3;
-  --shelfy-border:    rgba(167, 139, 250, 0.28);
-  --shelfy-text:      #F0EEFF;
-  --shelfy-muted:     #C4B8E8;
-  --shelfy-glow:      rgba(124, 58, 237, 0.4);
-  --shelfy-success:   #10B981;
-  --shelfy-error:     #EF4444;
-  --shelfy-warning:   #F59E0B;
+  --shelfy-primary-2: #6D28D9;
+  --shelfy-border:    #E5E7EB;
+  --shelfy-text:      #111827;
+  --shelfy-muted:     #6B7280;
+  --shelfy-glow:      rgba(124, 58, 237, 0.08);
+  --shelfy-success:   #059669;
+  --shelfy-error:     #DC2626;
+  --shelfy-warning:   #D97706;
 }
 
 @theme inline {
@@ -35,10 +35,10 @@ body {
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: var(--shelfy-panel);
+  background: var(--shelfy-bg);
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--shelfy-primary-2);
+  background: var(--shelfy-border);
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {

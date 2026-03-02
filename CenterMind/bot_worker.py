@@ -757,10 +757,13 @@ class BotWorker:
     def _register_user_and_group(self, distribuidor_id, chat_id, chat_title, user_id, username, nombre) -> None:
         """Actualiza la información del usuario y del grupo en la base de datos."""
         try:
-            self.db.upsert_integrante(distribuidor_id, chat_id, user_id, username, nombre)
+            # 1. PRIMERO creamos/actualizamos el grupo
             self.db.upsert_grupo(distribuidor_id, chat_id, chat_title)
+            # 2. DESPUÉS insertamos al integrante, así la base de datos ya conoce el ID del grupo
+            self.db.upsert_integrante(distribuidor_id, chat_id, user_id, username, nombre)
         except Exception as e:
-            self.logger.debug(f"Error registrando usuario/grupo: {e}")
+            # Usamos .error para facilitar la depuración si vuelve a fallar
+            self.logger.error(f"Error registrando usuario/grupo: {e}")
 
     # ─────────────────────────────────────────────────────────────
     # HIBERNACIÓN

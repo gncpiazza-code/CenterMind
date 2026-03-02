@@ -23,63 +23,88 @@ const PERIODO_LABELS: Record<string, string> = {
   historico: "HISTÓRICO",
 };
 
-// ── Carousel de últimas evaluadas ────────────────────────────────────────────
+// ── Carousel grande centrado ─────────────────────────────────────────────────
 
-function Carousel({ items }: { items: UltimaEvaluada[] }) {
+function CarouselGrande({ items }: { items: UltimaEvaluada[] }) {
   const [ci, setCi] = useState(0);
   const [imgErr, setImgErr] = useState(false);
+
   if (items.length === 0) return null;
+
   const item = items[ci];
   const fileId = extractDriveId(item.drive_link);
   const imgSrc = fileId ? getImageUrl(fileId) : null;
 
-  return (
-    <Card>
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-[var(--shelfy-text)] font-semibold text-sm">Últimas evaluadas</h3>
-        <span className="text-xs text-[var(--shelfy-muted)]">{ci + 1} / {items.length}</span>
-      </div>
+  const prev = () => { setCi((i) => Math.max(0, i - 1)); setImgErr(false); };
+  const next = () => { setCi((i) => Math.min(items.length - 1, i + 1)); setImgErr(false); };
 
-      <div className="relative aspect-video bg-[var(--shelfy-bg)] rounded-lg overflow-hidden mb-3">
+  return (
+    <Card className="overflow-hidden p-0">
+      {/* Imagen principal */}
+      <div className="relative w-full bg-gray-900" style={{ minHeight: 480 }}>
         {imgSrc && !imgErr ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={imgSrc} alt="Exhibición evaluada" className="w-full h-full object-cover"
-            onError={() => setImgErr(true)} />
+          <img
+            src={imgSrc}
+            alt="Exhibición evaluada"
+            className="w-full object-cover"
+            style={{ minHeight: 480, maxHeight: 600 }}
+            onError={() => setImgErr(true)}
+          />
         ) : (
-          <div className="flex items-center justify-center h-full text-[var(--shelfy-muted)]">
-            <ImageOff size={32} className="opacity-40" />
+          <div className="flex items-center justify-center text-gray-500" style={{ minHeight: 480 }}>
+            <ImageOff size={56} className="opacity-30" />
           </div>
         )}
-        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-3">
-          <p className="text-white text-sm font-medium">{item.vendedor}</p>
-          <div className="flex items-center gap-2 mt-0.5">
-            <span className="text-white/70 text-xs">{item.nro_cliente} · {item.tipo_pdv}</span>
-            <span className={`text-[10px] px-1.5 py-0.5 rounded-full text-white font-medium
-              ${item.estado === "Destacado" ? "bg-purple-500/80" : item.estado === "Rechazado" ? "bg-red-500/80" : "bg-green-500/80"}`}>
+
+        {/* Overlay info en la parte inferior */}
+        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent px-6 py-5">
+          <div className="flex items-end justify-between">
+            <div>
+              <p className="text-white font-bold text-xl leading-tight">{item.vendedor}</p>
+              <p className="text-white/70 text-sm mt-1">{item.nro_cliente} · {item.tipo_pdv}</p>
+            </div>
+            <span className={`text-sm px-3 py-1 rounded-full text-white font-semibold shrink-0
+              ${item.estado === "Destacado" ? "bg-purple-500" : item.estado === "Rechazado" ? "bg-red-500" : "bg-green-500"}`}>
               {item.estado}
             </span>
           </div>
         </div>
+
+        {/* Botones navegación sobre la imagen */}
+        <button
+          onClick={prev}
+          disabled={ci === 0}
+          className="absolute left-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/50 hover:bg-black/70 text-white flex items-center justify-center disabled:opacity-20 transition-all"
+        >
+          <ChevronLeft size={22} />
+        </button>
+        <button
+          onClick={next}
+          disabled={ci >= items.length - 1}
+          className="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/50 hover:bg-black/70 text-white flex items-center justify-center disabled:opacity-20 transition-all"
+        >
+          <ChevronRight size={22} />
+        </button>
+
+        {/* Contador top-right */}
+        <div className="absolute top-3 right-3 bg-black/50 text-white text-xs font-medium px-2.5 py-1 rounded-full">
+          {ci + 1} / {items.length}
+        </div>
       </div>
 
-      <div className="flex items-center justify-between">
-        <button onClick={() => { setCi((i) => Math.max(0, i - 1)); setImgErr(false); }}
-          disabled={ci === 0}
-          className="p-1 text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] disabled:opacity-30">
-          <ChevronLeft size={20} />
-        </button>
+      {/* Dots + título */}
+      <div className="flex items-center justify-between px-5 py-3 border-t border-[var(--shelfy-border)]">
+        <span className="text-sm font-semibold text-[var(--shelfy-text)]">Últimas evaluadas</span>
         <div className="flex gap-1.5">
           {items.slice(0, 8).map((_, i) => (
-            <button key={i} onClick={() => { setCi(i); setImgErr(false); }}
-              className={`w-1.5 h-1.5 rounded-full transition-colors
-                ${i === ci ? "bg-[var(--shelfy-primary)]" : "bg-[var(--shelfy-border)]"}`} />
+            <button
+              key={i}
+              onClick={() => { setCi(i); setImgErr(false); }}
+              className={`rounded-full transition-all ${i === ci ? "bg-[var(--shelfy-primary)] w-4 h-2" : "bg-[var(--shelfy-border)] w-2 h-2"}`}
+            />
           ))}
         </div>
-        <button onClick={() => { setCi((i) => Math.min(items.length - 1, i + 1)); setImgErr(false); }}
-          disabled={ci >= items.length - 1}
-          className="p-1 text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] disabled:opacity-30">
-          <ChevronRight size={20} />
-        </button>
       </div>
     </Card>
   );
@@ -141,7 +166,6 @@ export default function DashboardPage() {
   }, [user, periodo]);
 
   useEffect(() => { cargar(); }, [cargar]);
-
   useEffect(() => {
     const t = setInterval(() => cargar(), 60_000);
     return () => clearInterval(t);
@@ -162,21 +186,17 @@ export default function DashboardPage() {
         <main className="flex-1 p-4 md:p-6 pb-20 md:pb-6 overflow-auto">
 
           {/* ── Header ── */}
-          <div className="flex flex-col sm:flex-row sm:items-center gap-3 justify-between mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 justify-between mb-5">
             <div>
               <h2 className="text-lg font-bold text-[var(--shelfy-text)]">Resumen general</h2>
               <p className="text-sm text-[var(--shelfy-muted)]">{user?.nombre_empresa}</p>
             </div>
             <div className="flex items-center gap-2">
-              {/* Selector de período */}
               <div className="flex gap-1 bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-lg p-1">
                 {["hoy", "mes", "historico"].map((p) => (
                   <button key={p} onClick={() => cambiarPeriodo(p)}
                     className={`px-3 py-1 rounded-md text-xs font-semibold transition-all
-                      ${periodo === p
-                        ? "bg-[var(--shelfy-primary)] text-white shadow-sm"
-                        : "text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
-                      }`}>
+                      ${periodo === p ? "bg-[var(--shelfy-primary)] text-white shadow-sm" : "text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"}`}>
                     {PERIODO_LABELS[p]}
                   </button>
                 ))}
@@ -196,20 +216,23 @@ export default function DashboardPage() {
           )}
 
           {!loading && kpis && (
-            <div className="grid grid-cols-1 xl:grid-cols-[1fr_300px] gap-6">
-              {/* ── Columna izquierda ── */}
-              <div className="flex flex-col gap-6">
-                {/* KPI cards */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <KpiCard label="Pendientes" value={kpis.pendientes} icon={<Clock size={20} />}       color="#D97706" bgColor="bg-amber-50" />
-                  <KpiCard label="Aprobadas"  value={kpis.aprobadas}  icon={<CheckCircle size={20} />} color="#059669" bgColor="bg-emerald-50" />
-                  <KpiCard label="Destacadas" value={kpis.destacadas} icon={<Star size={20} />}        color="#7C3AED" bgColor="bg-violet-50" />
-                  <KpiCard label="Rechazadas" value={kpis.rechazadas} icon={<XCircle size={20} />}     color="#DC2626" bgColor="bg-red-50" />
-                </div>
+            <div className="flex flex-col gap-5">
 
-                {/* Gráfico sucursales */}
-                <GraficoSucursales data={sucursales} />
+              {/* ── Fila 1: KPIs ── */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <KpiCard label="Pendientes" value={kpis.pendientes} icon={<Clock size={20} />}       color="#D97706" bgColor="bg-amber-50" />
+                <KpiCard label="Aprobadas"  value={kpis.aprobadas}  icon={<CheckCircle size={20} />} color="#059669" bgColor="bg-emerald-50" />
+                <KpiCard label="Destacadas" value={kpis.destacadas} icon={<Star size={20} />}        color="#7C3AED" bgColor="bg-violet-50" />
+                <KpiCard label="Rechazadas" value={kpis.rechazadas} icon={<XCircle size={20} />}     color="#DC2626" bgColor="bg-red-50" />
+              </div>
 
+              {/* ── Fila 2: Carousel GRANDE centrado ── */}
+              {ultimas.length > 0 && (
+                <CarouselGrande items={ultimas} />
+              )}
+
+              {/* ── Fila 3: Ranking + Sucursales ── */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                 {/* Ranking */}
                 {ranking.length > 0 && (
                   <Card>
@@ -251,24 +274,23 @@ export default function DashboardPage() {
                     </div>
                   </Card>
                 )}
+
+                {/* Sucursales + Total */}
+                <div className="flex flex-col gap-5">
+                  <GraficoSucursales data={sucursales} />
+                  <Card>
+                    <p className="text-xs text-[var(--shelfy-muted)] mb-1 uppercase tracking-wide font-semibold">Total exhibiciones</p>
+                    <p className="text-4xl font-bold text-[var(--shelfy-text)]">{kpis.total}</p>
+                    <p className="text-xs text-[var(--shelfy-muted)] mt-1">{PERIODO_LABELS[periodo]}</p>
+                    <div className="mt-3 flex gap-1.5 flex-wrap">
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-medium">{kpis.aprobadas} aprob.</span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 font-medium">{kpis.destacadas} dest.</span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-medium">{kpis.rechazadas} rech.</span>
+                    </div>
+                  </Card>
+                </div>
               </div>
 
-              {/* ── Columna derecha ── */}
-              <div className="flex flex-col gap-4">
-                <Carousel items={ultimas} />
-
-                {/* Total card */}
-                <Card>
-                  <p className="text-xs text-[var(--shelfy-muted)] mb-1 uppercase tracking-wide font-semibold">Total exhibiciones</p>
-                  <p className="text-4xl font-bold text-[var(--shelfy-text)]">{kpis.total}</p>
-                  <p className="text-xs text-[var(--shelfy-muted)] mt-1">{PERIODO_LABELS[periodo]}</p>
-                  <div className="mt-3 flex gap-1.5 flex-wrap">
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-medium">{kpis.aprobadas} aprob.</span>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 font-medium">{kpis.destacadas} dest.</span>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-medium">{kpis.rechazadas} rech.</span>
-                  </div>
-                </Card>
-              </div>
             </div>
           )}
         </main>
@@ -277,14 +299,8 @@ export default function DashboardPage() {
   );
 }
 
-function KpiCard({
-  label, value, icon, color, bgColor,
-}: {
-  label: string;
-  value: number;
-  icon: React.ReactNode;
-  color: string;
-  bgColor: string;
+function KpiCard({ label, value, icon, color, bgColor }: {
+  label: string; value: number; icon: React.ReactNode; color: string; bgColor: string;
 }) {
   return (
     <Card>

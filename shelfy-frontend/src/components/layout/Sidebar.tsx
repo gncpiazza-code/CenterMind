@@ -27,9 +27,8 @@ export function Sidebar() {
   return (
     <aside className="hidden md:flex flex-col w-60 min-h-screen bg-[var(--shelfy-panel)] border-r border-[var(--shelfy-border)] px-3 py-6 gap-2 shrink-0">
       {/* Logo */}
-      <div className="flex items-center gap-2 px-3 mb-8">
-        <img src="/shelfy_logo_clean.svg" alt="Shelfy" className="h-8 w-auto" />
-        <span className="text-[var(--shelfy-primary)] font-bold text-xl">Shelfy</span>
+      <div className="flex items-center px-3 mb-8">
+        <img src="/shelfy_logo_clean.svg" alt="Shelfy" className="h-9 w-auto" />
       </div>
 
       {/* Nav section label */}

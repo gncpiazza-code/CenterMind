@@ -22,7 +22,8 @@ const ROL_LABEL: Record<string, string> = {
   supervisor: "Supervisor",
 };
 
-const ROLES_TELEGRAM = ["supervisor", "admin", "inactivo"];
+// Roles del grupo de Telegram (distintos a los roles del portal)
+const ROLES_TELEGRAM = ["vendedor", "observador"];
 
 const INPUT_CLS = "rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-[var(--shelfy-text)] px-3 py-2 text-sm focus:outline-none focus:border-[var(--shelfy-primary)]";
 

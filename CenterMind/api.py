@@ -627,7 +627,14 @@ AR_OFFSET = "-3 hours"  # UTC → America/Argentina/Buenos_Aires (UTC-3, sin DST
 def _periodo_where(periodo: str) -> str:
     """Devuelve fragmento SQL WHERE para el período dado (sin el AND inicial).
     Usa offset UTC-3 para que el cambio de día ocurra a medianoche argentina,
-    no a las 21:00 (que es cuando 'now' UTC pasa al día siguiente)."""
+    no a las 21:00 (que es cuando 'now' UTC pasa al día siguiente).
+
+    Formatos aceptados:
+      - "hoy"        → solo hoy (fecha argentina)
+      - "mes"        → mes en curso (año+mes argentino actual)
+      - "YYYY-MM"    → mes específico (ej: "2025-11" para noviembre 2025)
+      - "historico"  → sin filtro de fecha
+    """
     if periodo == "hoy":
         return (
             f"AND DATE(e.timestamp_subida, '{AR_OFFSET}') = DATE('now', '{AR_OFFSET}')"
@@ -637,7 +644,14 @@ def _periodo_where(periodo: str) -> str:
             f"AND strftime('%Y-%m', e.timestamp_subida, '{AR_OFFSET}') "
             f"= strftime('%Y-%m', 'now', '{AR_OFFSET}')"
         )
-    return ""  # historico: sin filtro de fecha
+    elif len(periodo) == 7 and periodo[4] == "-":
+        # Formato "YYYY-MM" — mes específico pasado o futuro
+        import re as _re
+        if _re.match(r"^\d{4}-\d{2}$", periodo):
+            return (
+                f"AND strftime('%Y-%m', e.timestamp_subida, '{AR_OFFSET}') = '{periodo}'"
+            )
+    return ""  # historico o cualquier valor desconocido: sin filtro
 
 
 @app.get("/dashboard/kpis/{distribuidor_id}", summary="KPIs del dashboard por período")

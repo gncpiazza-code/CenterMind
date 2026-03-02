@@ -249,13 +249,22 @@ class Database:
     def upsert_grupo(self, distribuidor_id: int, chat_id: int, chat_title: str) -> None:
         """Registra o actualiza el nombre del grupo de Telegram."""
         with self._conn() as conn:
-            conn.execute(
-                """INSERT INTO grupos (id_distribuidor, telegram_chat_id, nombre_grupo)
-                   VALUES (?, ?, ?)
-                   ON CONFLICT(id_distribuidor, telegram_chat_id)
-                   DO UPDATE SET nombre_grupo = excluded.nombre_grupo""",
-                (distribuidor_id, chat_id, chat_title)
-            )
+            row = conn.execute(
+                """SELECT id_grupo FROM grupos
+                   WHERE id_distribuidor = ? AND telegram_chat_id = ? LIMIT 1""",
+                (distribuidor_id, chat_id)
+            ).fetchone()
+            if row:
+                conn.execute(
+                    "UPDATE grupos SET nombre_grupo = ? WHERE id_distribuidor = ? AND telegram_chat_id = ?",
+                    (chat_title, distribuidor_id, chat_id)
+                )
+            else:
+                conn.execute(
+                    """INSERT INTO grupos (id_distribuidor, telegram_chat_id, nombre_grupo)
+                       VALUES (?, ?, ?)""",
+                    (distribuidor_id, chat_id, chat_title)
+                )
             conn.commit()
 
     # ── Integrantes / Roles ─────────────────────────────────────────
@@ -284,14 +293,27 @@ class Database:
         username: str, nombre: str, rol: str = "vendedor"
     ) -> None:
         with self._conn() as conn:
-            conn.execute(
-                """INSERT INTO integrantes_grupo
-                       (id_distribuidor, telegram_group_id, telegram_user_id, nombre_integrante, rol_telegram)
-                   VALUES (?, ?, ?, ?, ?)
-                   ON CONFLICT(id_distribuidor, telegram_group_id, telegram_user_id)
-                   DO UPDATE SET nombre_integrante = excluded.nombre_integrante""",
-                (distribuidor_id, chat_id, user_id, nombre, rol)
-            )
+            row = conn.execute(
+                """SELECT id_integrante FROM integrantes_grupo
+                   WHERE id_distribuidor = ? AND telegram_group_id = ? AND telegram_user_id = ?
+                   LIMIT 1""",
+                (distribuidor_id, chat_id, user_id)
+            ).fetchone()
+            if row:
+                # Solo actualizar nombre_integrante (no sobreescribir rol que puede haber sido cambiado manualmente)
+                conn.execute(
+                    """UPDATE integrantes_grupo
+                       SET nombre_integrante = ?
+                       WHERE id_integrante = ?""",
+                    (nombre, row[0])
+                )
+            else:
+                conn.execute(
+                    """INSERT INTO integrantes_grupo
+                           (id_distribuidor, telegram_group_id, telegram_user_id, nombre_integrante, rol_telegram)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (distribuidor_id, chat_id, user_id, nombre, rol)
+                )
             conn.commit()
 
     def set_rol(self, distribuidor_id: int, chat_id: int, user_id: int, rol: str) -> None:
@@ -405,10 +427,11 @@ class Database:
             return result
 
     def _get_nombre_integrante(self, distribuidor_id: int, user_id: int) -> str:
+        """Busca el nombre por id_integrante (PK interna), NO por telegram_user_id."""
         with self._conn() as conn:
             row = conn.execute(
                 """SELECT nombre_integrante FROM integrantes_grupo
-                   WHERE id_distribuidor = ? AND telegram_user_id = ? LIMIT 1""",
+                   WHERE id_distribuidor = ? AND id_integrante = ? LIMIT 1""",
                 (distribuidor_id, user_id)
             ).fetchone()
             return row["nombre_integrante"] if row else "Vendedor"
@@ -504,7 +527,7 @@ class Database:
                    FROM exhibiciones e
                    LEFT JOIN integrantes_grupo i
                        ON i.id_distribuidor = e.id_distribuidor
-                      AND i.telegram_user_id = e.id_integrante
+                      AND i.id_integrante = e.id_integrante
                    WHERE e.id_distribuidor = ? AND e.timestamp_subida >= ?
                    GROUP BY e.id_integrante
                    ORDER BY aprobadas DESC, destacadas DESC""",

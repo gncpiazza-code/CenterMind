@@ -15,6 +15,7 @@ export default function TabGenerarInforme() {
     const [success, setSuccess] = useState(false);
     const [error, setError] = useState("");
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const [tutorialStep, setTutorialStep] = useState(1);
 
     const handleDragOver = (e: React.DragEvent) => {
         e.preventDefault();
@@ -156,8 +157,21 @@ export default function TabGenerarInforme() {
                             Sube tu reporte estándar de Cuentas Corrientes. Nuestro motor procesará cruzando la información con tus <b>Alertas de Crédito</b> y generará un informe dinámico, separado por cada vendedor, y con gráficos automatizados listos para presentar.
                         </p>
                     </div>
-                    <div className="w-full md:w-1/3 aspect-video bg-white/60 backdrop-blur rounded-2xl border border-white flex items-center justify-center text-indigo-300 font-medium shadow-sm">
-                        [ Espacio Reservado / GIF Tutorial ]
+                    <div className="w-full md:w-1/3 aspect-video bg-white/60 backdrop-blur rounded-2xl border border-white flex flex-col items-center justify-center text-indigo-300 font-medium shadow-sm relative overflow-hidden group">
+                        {tutorialStep === 1 && <video src="/saldo pt1.mp4" autoPlay loop muted playsInline className="w-full h-full object-cover" />}
+                        {tutorialStep === 2 && <video src="/saldo pt2.mp4" autoPlay loop muted playsInline className="w-full h-full object-cover" />}
+                        {tutorialStep === 3 && <img src="/saldo pt3.jpg" alt="Tutorial paso 3" className="w-full h-full object-cover" />}
+
+                        <div className="absolute inset-x-0 bottom-4 flex justify-center gap-2 z-10 transition-opacity duration-300 opacity-60 group-hover:opacity-100">
+                            {[1, 2, 3].map((step) => (
+                                <button
+                                    key={step}
+                                    onClick={() => setTutorialStep(step)}
+                                    className={`w-2.5 h-2.5 rounded-full transition-all ${tutorialStep === step ? 'bg-indigo-600 scale-125' : 'bg-slate-300 hover:bg-indigo-300'
+                                        }`}
+                                />
+                            ))}
+                        </div>
                     </div>
                 </div>
             </Card>

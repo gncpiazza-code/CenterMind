@@ -7,9 +7,28 @@ import { PageSpinner } from "@/components/ui/Spinner";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/hooks/useAuth";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import { fetchReporteExhibiciones, fetchReporteVendedores, fetchReporteTiposPdv } from "@/lib/api";
-import { Download, Search, X } from "lucide-react";
+import { Printer, Download, Search, X, ChevronDown, Check, BarChart3, Trophy } from "lucide-react";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+
+// Hook para clicks fuera del elemento
+function useOnClickOutside(ref: React.RefObject<HTMLElement | null>, handler: () => void) {
+  useEffect(() => {
+    const listener = (event: MouseEvent | TouchEvent) => {
+      if (!ref.current || ref.current.contains(event.target as Node)) {
+        return;
+      }
+      handler();
+    };
+    document.addEventListener("mousedown", listener);
+    document.addEventListener("touchstart", listener);
+    return () => {
+      document.removeEventListener("mousedown", listener);
+      document.removeEventListener("touchstart", listener);
+    };
+  }, [ref, handler]);
+}
 
 interface Fila {
   id_exhibicion: number;
@@ -36,35 +55,82 @@ function inicioMes() {
 
 // ── Multi-select chip component ───────────────────────────────────────────────
 
-function MultiSelect({
-  label, options, selected, onChange,
+function DropdownMultiSelect({
+  label, options, selected, onChange, placeholder = "Seleccionar..."
 }: {
   label: string;
   options: string[];
   selected: string[];
   onChange: (v: string[]) => void;
+  placeholder?: string;
 }) {
-  const toggle = (v: string) =>
-    onChange(selected.includes(v) ? selected.filter((x) => x !== v) : [...selected, v]);
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const ref = useRef<HTMLDivElement>(null);
+  useOnClickOutside(ref, () => setOpen(false));
+
+  const filtered = options.filter(o => o.toLowerCase().includes(search.toLowerCase()));
+
+  const toggle = (v: string) => {
+    onChange(selected.includes(v) ? selected.filter(x => x !== v) : [...selected, v]);
+  };
+
+  const selectAll = () => onChange(filtered);
+  const clear = () => onChange([]);
 
   return (
-    <div>
+    <div className="relative flex-1 min-w-[150px]" ref={ref}>
       <label className="block text-xs text-[var(--shelfy-muted)] mb-1.5 font-medium">{label}</label>
-      <div className="flex flex-wrap gap-1.5">
-        {options.map((o) => (
-          <button
-            key={o}
-            type="button"
-            onClick={() => toggle(o)}
-            className={`text-xs px-2.5 py-1 rounded-full border font-medium transition-all ${selected.includes(o)
-              ? "bg-[var(--shelfy-primary)] text-white border-[var(--shelfy-primary)]"
-              : "bg-[var(--shelfy-bg)] text-[var(--shelfy-muted)] border-[var(--shelfy-border)] hover:border-[var(--shelfy-primary)] hover:text-[var(--shelfy-text)]"
-              }`}
-          >
-            {o}
-          </button>
-        ))}
-      </div>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between gap-2 rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] px-3 py-2 text-sm text-[var(--shelfy-text)] hover:border-[var(--shelfy-primary)] focus:outline-none transition-colors"
+      >
+        <span className="truncate">
+          {selected.length === 0 ? placeholder : `${selected.length} seleccionados`}
+        </span>
+        <ChevronDown size={14} className="text-[var(--shelfy-muted)]" />
+      </button>
+
+      {open && (
+        <div className="absolute z-50 top-full mt-1 left-0 min-w-full w-64 bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] shadow-xl rounded-xl overflow-hidden flex flex-col">
+          <div className="p-2 border-b border-[var(--shelfy-border)] relative">
+            <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--shelfy-muted)]" />
+            <input
+              type="text"
+              placeholder="Buscar..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="w-full pl-8 pr-3 py-1.5 bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-md text-xs text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-primary)]"
+            />
+          </div>
+          <div className="flex px-2 py-1.5 gap-2 border-b border-[var(--shelfy-border)] bg-[var(--shelfy-bg)]">
+            <button type="button" onClick={selectAll} className="text-[11px] font-medium text-[var(--shelfy-primary)] hover:underline">Select visibles</button>
+            <span className="text-[var(--shelfy-muted)]">•</span>
+            <button type="button" onClick={clear} className="text-[11px] font-medium text-[var(--shelfy-muted)] hover:text-red-600 hover:underline">Limpiar</button>
+          </div>
+          <div className="max-h-56 overflow-y-auto p-1 custom-scrollbar">
+            {filtered.length === 0 ? (
+              <div className="px-3 py-4 text-center text-xs text-[var(--shelfy-muted)]">Sin resultados</div>
+            ) : (
+              filtered.map(o => {
+                const isSel = selected.includes(o);
+                return (
+                  <button
+                    key={o}
+                    type="button"
+                    onClick={() => toggle(o)}
+                    className="w-full flex items-center justify-between px-3 py-2 text-left text-sm hover:bg-[var(--shelfy-bg)] rounded-md transition-colors"
+                  >
+                    <span className="truncate pr-2">{o}</span>
+                    {isSel && <Check size={14} className="text-[var(--shelfy-primary)] shrink-0" />}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -132,6 +198,53 @@ export default function ReportesPage() {
     setHasta(hoy());
   }
 
+  // Cálculos para Gráficos
+  const timelineData = useMemo(() => {
+    if (filas.length === 0) return [];
+    const counts: Record<string, number> = {};
+    filas.forEach(f => {
+      if (!f.fecha_carga) return;
+      const dateStr = f.fecha_carga.substring(0, 10);
+      counts[dateStr] = (counts[dateStr] || 0) + 1;
+    });
+
+    return Object.keys(counts).sort().map(dateStr => {
+      const [y, m, d] = dateStr.split("-").map(Number);
+      const dateObj = new Date(y, m - 1, d);
+      const dayStr = dateObj.toLocaleDateString("es-ES", { weekday: "short" });
+      return {
+        fechaOriginal: dateStr,
+        fecha: `${d}/${m} (${dayStr})`,
+        cantidad: counts[dateStr]
+      };
+    });
+  }, [filas]);
+
+  // Cálculos para Ranking
+  const rankingData = useMemo(() => {
+    if (filas.length === 0) return [];
+    const map: Record<string, { vendedor: string; puntos: number; aprobados: number; destacados: number }> = {};
+
+    filas.forEach(f => {
+      if (!f.vendedor) return;
+      if (!map[f.vendedor]) {
+        map[f.vendedor] = { vendedor: f.vendedor, puntos: 0, aprobados: 0, destacados: 0 };
+      }
+      if (f.estado === "Destacado") {
+        map[f.vendedor].puntos += 2;
+        map[f.vendedor].destacados += 1;
+      } else if (f.estado === "Aprobado") {
+        map[f.vendedor].puntos += 1;
+        map[f.vendedor].aprobados += 1;
+      }
+    });
+
+    return Object.values(map)
+      .filter(r => r.puntos > 0)
+      .sort((a, b) => b.puntos - a.puntos)
+      .slice(0, 50); // Top 50 máximo en UI
+  }, [filas]);
+
   function handleExportCSV() {
     if (filas.length === 0) return;
     const headers = ["ID", "Vendedor", "Cliente", "Tipo PDV", "Estado", "Supervisor", "Comentario", "Fecha carga", "Fecha evaluación"];
@@ -152,140 +265,248 @@ export default function ReportesPage() {
   const hayFiltrosActivos = selectedVendedores.length > 0 || selectedEstados.length > 0 || selectedTipos.length > 0 || nroCliente.trim();
 
   return (
-    <div className="flex min-h-screen bg-[var(--shelfy-bg)]">
-      <Sidebar />
-      <BottomNav />
-      <div className="flex flex-col flex-1 min-w-0">
-        <Topbar title="Reportes" />
-        <main className="flex-1 p-4 md:p-6 pb-20 md:pb-6 overflow-auto">
+    <>
+      <style>{`
+        @media print {
+          body { background: white !important; }
+          .no-print { display: none !important; }
+          .print-only { display: block !important; }
+          .dashboard-container { padding: 0 !important; width: 100% !important; margin: 0 !important; }
+          .print-card { box-shadow: none !important; border: 1px solid #ddd !important; break-inside: avoid; margin-bottom: 20px; }
+        }
+        .print-only { display: none; }
+      `}</style>
 
-          {/* Filtros */}
-          <Card className="mb-5">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-[var(--shelfy-text)] font-semibold text-sm">Filtros de búsqueda</h3>
+      <div className="flex min-h-screen bg-[var(--shelfy-bg)] dashboard-container">
+        <div className="no-print"><Sidebar /></div>
+        <div className="no-print"><BottomNav /></div>
+        <div className="flex flex-col flex-1 min-w-0">
+          <div className="no-print"><Topbar title="Reportes" /></div>
+
+          <main className="flex-1 p-4 md:p-6 pb-20 md:pb-6 overflow-auto w-full">
+            {/* Cabecera Impresión */}
+            <div className="print-only mb-6 pb-4 border-b border-gray-300">
+              <div className="flex items-center justify-between">
+                <img src="/LOGO_NUEVO.svg" alt="Shelfy" className="h-8 grayscale" />
+                <div className="text-right">
+                  <h1 className="text-xl font-bold text-gray-800">Reporte de Exhibiciones</h1>
+                  <p className="text-xs text-gray-500">Generado el {new Date().toLocaleString("es-ES")}</p>
+                </div>
+              </div>
               {hayFiltrosActivos && (
-                <button onClick={handleLimpiar}
-                  className="flex items-center gap-1 text-xs text-[var(--shelfy-muted)] hover:text-[var(--shelfy-error)] transition-colors">
-                  <X size={12} /> Limpiar filtros
-                </button>
+                <div className="mt-4 text-xs text-gray-600">
+                  <strong>Filtros aplicados:</strong> Desde {desde} Hasta {hasta}
+                  {nroCliente && ` | Cliente: ${nroCliente}`}
+                  {selectedEstados.length > 0 && ` | Estados: ${selectedEstados.join(", ")}`}
+                </div>
               )}
             </div>
 
-            <div className="flex flex-col gap-4">
-              {/* Fecha */}
-              <div className="flex flex-wrap items-end gap-4">
-                <div>
-                  <label className="block text-xs text-[var(--shelfy-muted)] mb-1.5 font-medium">Desde</label>
-                  <input
-                    type="date" value={desde} onChange={(e) => setDesde(e.target.value)}
-                    className="rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-[var(--shelfy-text)] px-3 py-2 text-sm focus:outline-none focus:border-[var(--shelfy-primary)]"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-[var(--shelfy-muted)] mb-1.5 font-medium">Hasta</label>
-                  <input
-                    type="date" value={hasta} onChange={(e) => setHasta(e.target.value)}
-                    className="rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-[var(--shelfy-text)] px-3 py-2 text-sm focus:outline-none focus:border-[var(--shelfy-primary)]"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-[var(--shelfy-muted)] mb-1.5 font-medium">N° Cliente</label>
-                  <input
-                    type="text" value={nroCliente} onChange={(e) => setNroCliente(e.target.value)}
-                    placeholder="Buscar cliente..."
-                    className="rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-[var(--shelfy-text)] px-3 py-2 text-sm focus:outline-none focus:border-[var(--shelfy-primary)] w-44"
-                  />
-                </div>
-              </div>
-
-              {/* Estado */}
-              <MultiSelect
-                label="Estado"
-                options={ESTADOS}
-                selected={selectedEstados}
-                onChange={setSelectedEstados}
-              />
-
-              {/* Tipo PDV */}
-              {!loadingOpts && tiposPdvList.length > 0 && (
-                <MultiSelect
-                  label="Tipo PDV"
-                  options={tiposPdvList}
-                  selected={selectedTipos}
-                  onChange={setSelectedTipos}
-                />
-              )}
-
-              {/* Vendedores */}
-              {!loadingOpts && vendedoresList.length > 0 && (
-                <MultiSelect
-                  label="Supervisor"
-                  options={vendedoresList}
-                  selected={selectedVendedores}
-                  onChange={setSelectedVendedores}
-                />
-              )}
-
-              {/* Acciones */}
-              <div className="flex gap-2 pt-1">
-                <Button onClick={handleBuscar} loading={loading}>
-                  <Search size={14} /> Buscar
-                </Button>
-                {filas.length > 0 && (
-                  <Button variant="secondary" onClick={handleExportCSV}>
-                    <Download size={14} /> Exportar CSV
-                  </Button>
+            {/* Filtros */}
+            <Card className="mb-5 no-print">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-[var(--shelfy-text)] font-semibold text-sm">Filtros de búsqueda</h3>
+                {hayFiltrosActivos && (
+                  <button onClick={handleLimpiar}
+                    className="flex items-center gap-1 text-xs text-[var(--shelfy-muted)] hover:text-[var(--shelfy-error)] transition-colors">
+                    <X size={12} /> Limpiar filtros
+                  </button>
                 )}
               </div>
-            </div>
-          </Card>
 
-          {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm mb-4">
-              {error}
-            </div>
-          )}
-          {loading && <PageSpinner />}
+              <div className="flex flex-col gap-4">
+                <div className="flex flex-wrap items-end gap-3 z-20 relative">
+                  {/* Fecha */}
+                  <div>
+                    <label className="block text-xs text-[var(--shelfy-muted)] mb-1.5 font-medium">Desde</label>
+                    <input
+                      type="date" value={desde} onChange={(e) => setDesde(e.target.value)}
+                      className="rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-[var(--shelfy-text)] px-3 py-2 text-sm focus:outline-none focus:border-[var(--shelfy-primary)] w-[140px]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-[var(--shelfy-muted)] mb-1.5 font-medium">Hasta</label>
+                    <input
+                      type="date" value={hasta} onChange={(e) => setHasta(e.target.value)}
+                      className="rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-[var(--shelfy-text)] px-3 py-2 text-sm focus:outline-none focus:border-[var(--shelfy-primary)] w-[140px]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-[var(--shelfy-muted)] mb-1.5 font-medium">N° Cliente / Local</label>
+                    <input
+                      type="text" value={nroCliente} onChange={(e) => setNroCliente(e.target.value)}
+                      placeholder="Buscar..."
+                      className="rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-[var(--shelfy-text)] px-3 py-2 text-sm focus:outline-none focus:border-[var(--shelfy-primary)] w-36"
+                    />
+                  </div>
 
-          {!loading && searched && filas.length === 0 && (
-            <p className="text-[var(--shelfy-muted)] text-sm">Sin resultados para los filtros seleccionados.</p>
-          )}
+                  {/* Estado */}
+                  <DropdownMultiSelect
+                    label="Estado"
+                    options={ESTADOS}
+                    selected={selectedEstados}
+                    onChange={setSelectedEstados}
+                  />
 
-          {!loading && filas.length > 0 && (
-            <Card>
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-sm font-semibold text-[var(--shelfy-text)]">{filas.length} registros</p>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-[var(--shelfy-muted)] text-left border-b border-[var(--shelfy-border)]">
-                      {["ID", "Vendedor", "Cliente", "PDV", "Estado", "Fecha carga"].map((h) => (
-                        <th key={h} className="pb-3 pr-4 whitespace-nowrap font-semibold">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filas.map((f) => (
-                      <tr key={f.id_exhibicion} className="border-b border-[var(--shelfy-border)] last:border-0 hover:bg-[var(--shelfy-bg)] transition-colors">
-                        <td className="py-2.5 pr-4 text-[var(--shelfy-muted)] tabular-nums">{f.id_exhibicion}</td>
-                        <td className="py-2.5 pr-4 text-[var(--shelfy-text)] font-medium">{f.vendedor}</td>
-                        <td className="py-2.5 pr-4 text-[var(--shelfy-muted)]">{f.cliente}</td>
-                        <td className="py-2.5 pr-4 text-[var(--shelfy-muted)]">{f.tipo_pdv}</td>
-                        <td className="py-2.5 pr-4">
-                          <EstadoBadge estado={f.estado} />
-                        </td>
-                        <td className="py-2.5 text-[var(--shelfy-muted)] whitespace-nowrap">{f.fecha_carga?.slice(0, 16)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                  {/* Tipo PDV */}
+                  {!loadingOpts && tiposPdvList.length > 0 && (
+                    <DropdownMultiSelect
+                      label="Tipo PDV"
+                      options={tiposPdvList}
+                      selected={selectedTipos}
+                      onChange={setSelectedTipos}
+                    />
+                  )}
+
+                  {/* Vendedores */}
+                  {!loadingOpts && vendedoresList.length > 0 && (
+                    <DropdownMultiSelect
+                      label="Supervisor"
+                      options={vendedoresList}
+                      selected={selectedVendedores}
+                      onChange={setSelectedVendedores}
+                    />
+                  )}
+                </div>
+
+                {/* Acciones */}
+                <div className="flex gap-2 pt-1">
+                  <Button onClick={handleBuscar} loading={loading}>
+                    <Search size={14} /> Buscar
+                  </Button>
+                  {filas.length > 0 && (
+                    <Button variant="secondary" onClick={handleExportCSV}>
+                      <Download size={14} /> Exportar
+                    </Button>
+                  )}
+                  {filas.length > 0 && (
+                    <Button variant="secondary" onClick={() => window.print()}>
+                      <Printer size={14} /> Imprimir (PDF)
+                    </Button>
+                  )}
+                </div>
               </div>
             </Card>
-          )}
-        </main>
+
+            {error && (
+              <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm mb-4">
+                {error}
+              </div>
+            )}
+            {loading && <PageSpinner />}
+
+            {!loading && searched && filas.length === 0 && (
+              <p className="text-[var(--shelfy-muted)] text-sm no-print">Sin resultados para los filtros seleccionados.</p>
+            )}
+
+            {!loading && filas.length > 0 && (
+              <div className="flex flex-col gap-6">
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* Timeline Gráfico */}
+                  <Card className="print-card">
+                    <div className="flex items-center gap-2 mb-4 text-[var(--shelfy-text)] font-semibold text-sm">
+                      <BarChart3 size={16} className="text-[var(--shelfy-primary)]" />
+                      Evolución de Cargas
+                    </div>
+                    <div className="h-64 w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={timelineData}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                          <XAxis dataKey="fecha" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
+                          <YAxis allowDecimals={false} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
+                          <Tooltip
+                            cursor={{ fill: "rgba(124, 58, 237, 0.05)" }}
+                            contentStyle={{ borderRadius: "8px", border: "none", boxShadow: "0 4px 12px rgba(0,0,0,0.1)" }}
+                          />
+                          <Bar dataKey="cantidad" fill="url(#colorPrimary)" radius={[4, 4, 0, 0]} name="Exhibiciones" />
+                          <defs>
+                            <linearGradient id="colorPrimary" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor="#7c3aed" stopOpacity={0.9} />
+                              <stop offset="100%" stopColor="#4f46e5" stopOpacity={0.6} />
+                            </linearGradient>
+                          </defs>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </Card>
+
+                  {/* Ranking de Puntajes */}
+                  <Card className="print-card">
+                    <div className="flex items-center gap-2 mb-4 text-[var(--shelfy-text)] font-semibold text-sm">
+                      <Trophy size={16} className="text-yellow-500" />
+                      Puntuación y Ranking
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm text-left">
+                        <thead>
+                          <tr className="text-[var(--shelfy-muted)] border-b border-[var(--shelfy-border)]">
+                            <th className="pb-2 pr-3 w-8">#</th>
+                            <th className="pb-2 pr-3">Vendedor</th>
+                            <th className="pb-2 pr-3 text-center">Aprob</th>
+                            <th className="pb-2 pr-3 text-center">Dest</th>
+                            <th className="pb-2 text-right">Pts Totales</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {rankingData.slice(0, 10).map((r, i) => (
+                            <tr key={r.vendedor} className="border-b border-[var(--shelfy-border)] last:border-0 hover:bg-[var(--shelfy-bg)] transition-colors">
+                              <td className="py-2.5 pr-3 text-[var(--shelfy-muted)] tabular-nums">{i + 1}</td>
+                              <td className="py-2.5 pr-3 font-medium text-[var(--shelfy-text)] truncate max-w-[120px]">{r.vendedor}</td>
+                              <td className="py-2.5 pr-3 text-center text-green-600">{r.aprobados}</td>
+                              <td className="py-2.5 pr-3 text-center text-purple-600">{r.destacados}</td>
+                              <td className="py-2.5 text-right font-bold tabular-nums text-[var(--shelfy-primary)]">{r.puntos}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {rankingData.length > 10 && (
+                        <p className="text-xs text-[var(--shelfy-muted)] mt-3 text-center no-print">
+                          Mostrando el top 10 de {rankingData.length} vendedores puntuados.
+                        </p>
+                      )}
+                    </div>
+                  </Card>
+                </div>
+
+                {/* Data Table */}
+                <Card className="print-card">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-sm font-semibold text-[var(--shelfy-text)]">{filas.length} registros detallados</p>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-[var(--shelfy-muted)] text-left border-b border-[var(--shelfy-border)]">
+                          {["ID", "Vendedor", "Cliente", "PDV", "Estado", "Fecha carga"].map((h) => (
+                            <th key={h} className="pb-3 pr-3 whitespace-nowrap font-semibold">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filas.map((f) => (
+                          <tr key={f.id_exhibicion} className="border-b border-[var(--shelfy-border)] last:border-0 hover:bg-[var(--shelfy-bg)] transition-colors">
+                            <td className="py-2.5 pr-3 text-[var(--shelfy-muted)] tabular-nums">{f.id_exhibicion}</td>
+                            <td className="py-2.5 pr-3 text-[var(--shelfy-text)] font-medium max-w-[150px] truncate">{f.vendedor}</td>
+                            <td className="py-2.5 pr-3 text-[var(--shelfy-muted)] truncate max-w-[150px]">{f.cliente}</td>
+                            <td className="py-2.5 pr-3 text-[var(--shelfy-muted)] truncate max-w-[100px]">{f.tipo_pdv}</td>
+                            <td className="py-2.5 pr-3">
+                              <EstadoBadge estado={f.estado} />
+                            </td>
+                            <td className="py-2.5 text-[var(--shelfy-muted)] whitespace-nowrap tabular-nums">{f.fecha_carga?.slice(0, 16)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </Card>
+
+              </div>
+            )}
+          </main>
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 

@@ -200,12 +200,17 @@ export async function fetchReporteTiposPdv(distId: number): Promise<string[]> {
   return apiFetch<string[]>(`/reportes/tipos-pdv/${distId}`);
 }
 
+export async function fetchReporteSucursales(distId: number): Promise<string[]> {
+  return apiFetch<string[]>(`/reportes/sucursales/${distId}`);
+}
+
 export async function fetchReporteExhibiciones(distId: number, query: {
   fecha_desde: string;
   fecha_hasta: string;
   vendedores?: string[];
   estados?: string[];
   tipos_pdv?: string[];
+  sucursales?: string[];
   nro_cliente?: string;
 }) {
   return apiFetch(`/reportes/exhibiciones/${distId}`, {

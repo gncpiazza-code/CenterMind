@@ -794,6 +794,7 @@ class ReporteQuery(BaseModel):
     vendedores: List[str] = []
     estados: List[str] = []
     tipos_pdv: List[str] = []
+    sucursales: List[str] = []
     nro_cliente: str = ""
 
 
@@ -823,6 +824,21 @@ def reportes_tipos_pdv(distribuidor_id: int, _=Depends(verify_auth)):
     return [r["tipo_pdv"] for r in rows]
 
 
+@app.get("/reportes/sucursales/{distribuidor_id}", summary="Sucursales únicas para filtro de reportes")
+def reportes_sucursales(distribuidor_id: int, _=Depends(verify_auth)):
+    with get_conn() as c:
+        rows = c.execute(
+            """SELECT DISTINCT l.label
+               FROM exhibiciones e
+               JOIN integrantes_grupo i ON i.id_integrante = e.id_integrante
+               JOIN locations l ON l.location_id = i.location_id
+               WHERE e.id_distribuidor = ? AND l.label IS NOT NULL
+               ORDER BY l.label""",
+            (distribuidor_id,),
+        ).fetchall()
+    return [r["label"] for r in rows]
+
+
 @app.post("/reportes/exhibiciones/{distribuidor_id}", summary="Consulta de exhibiciones con filtros")
 def reportes_exhibiciones(distribuidor_id: int, q: ReporteQuery, _=Depends(verify_auth)):
     conditions = [
@@ -847,6 +863,11 @@ def reportes_exhibiciones(distribuidor_id: int, q: ReporteQuery, _=Depends(verif
         conditions.append(f"e.tipo_pdv IN ({placeholders})")
         params.extend(q.tipos_pdv)
 
+    if q.sucursales:
+        placeholders = ",".join("?" * len(q.sucursales))
+        conditions.append(f"l.label IN ({placeholders})")
+        params.extend(q.sucursales)
+
     if q.nro_cliente.strip():
         conditions.append("cl.numero_cliente_local LIKE ?")
         params.append(f"%{q.nro_cliente.strip()}%")
@@ -858,6 +879,7 @@ def reportes_exhibiciones(distribuidor_id: int, q: ReporteQuery, _=Depends(verif
             f"""SELECT
                     e.id_exhibicion,
                     COALESCE(i.nombre_integrante, 'Sin nombre') AS vendedor,
+                    COALESCE(l.label, '') AS sucursal,
                     COALESCE(cl.numero_cliente_local, CAST(e.id_cliente AS TEXT), '') AS cliente,
                     COALESCE(e.tipo_pdv, '') AS tipo_pdv,
                     e.estado,
@@ -868,6 +890,7 @@ def reportes_exhibiciones(distribuidor_id: int, q: ReporteQuery, _=Depends(verif
                     COALESCE(e.url_foto_drive, '') AS link_foto
                FROM exhibiciones e
                LEFT JOIN integrantes_grupo i ON i.id_integrante = e.id_integrante
+               LEFT JOIN locations l          ON l.location_id   = i.location_id
                LEFT JOIN clientes cl          ON cl.id_cliente   = e.id_cliente
                WHERE {where}
                ORDER BY e.timestamp_subida DESC""",

@@ -8,7 +8,7 @@ import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/hooks/useAuth";
 import { useEffect, useState, useRef, useMemo } from "react";
-import { fetchReporteExhibiciones, fetchReporteVendedores, fetchReporteTiposPdv } from "@/lib/api";
+import { fetchReporteExhibiciones, fetchReporteVendedores, fetchReporteTiposPdv, fetchReporteSucursales } from "@/lib/api";
 import { Printer, Download, Search, X, ChevronDown, Check, BarChart3, Trophy } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
@@ -34,6 +34,7 @@ interface Fila {
   id_exhibicion: number;
   vendedor: string;
   cliente: string;
+  sucursal: string;
   tipo_pdv: string;
   estado: string;
   supervisor: string;
@@ -143,9 +144,11 @@ export default function ReportesPage() {
   const [hasta, setHasta] = useState(hoy());
   const [vendedoresList, setVendedoresList] = useState<string[]>([]);
   const [tiposPdvList, setTiposPdvList] = useState<string[]>([]);
+  const [sucursalesList, setSucursalesList] = useState<string[]>([]);
   const [selectedVendedores, setSelectedVendedores] = useState<string[]>([]);
   const [selectedEstados, setSelectedEstados] = useState<string[]>([]);
   const [selectedTipos, setSelectedTipos] = useState<string[]>([]);
+  const [selectedSucursales, setSelectedSucursales] = useState<string[]>([]);
   const [nroCliente, setNroCliente] = useState("");
 
   // Resultados
@@ -161,8 +164,9 @@ export default function ReportesPage() {
     Promise.all([
       fetchReporteVendedores(user.id_distribuidor),
       fetchReporteTiposPdv(user.id_distribuidor),
+      fetchReporteSucursales(user.id_distribuidor),
     ])
-      .then(([v, t]) => { setVendedoresList(v); setTiposPdvList(t); })
+      .then(([v, t, s]) => { setVendedoresList(v); setTiposPdvList(t); setSucursalesList(s); })
       .catch(() => { })
       .finally(() => setLoadingOpts(false));
   }, [user]);
@@ -178,6 +182,7 @@ export default function ReportesPage() {
         vendedores: selectedVendedores.length > 0 ? selectedVendedores : undefined,
         estados: selectedEstados.length > 0 ? selectedEstados : undefined,
         tipos_pdv: selectedTipos.length > 0 ? selectedTipos : undefined,
+        sucursales: selectedSucursales.length > 0 ? selectedSucursales : undefined,
         nro_cliente: nroCliente.trim() || undefined,
       });
       setFilas(data as Fila[]);
@@ -193,6 +198,7 @@ export default function ReportesPage() {
     setSelectedVendedores([]);
     setSelectedEstados([]);
     setSelectedTipos([]);
+    setSelectedSucursales([]);
     setNroCliente("");
     setDesde(inicioMes());
     setHasta(hoy());
@@ -247,9 +253,9 @@ export default function ReportesPage() {
 
   function handleExportCSV() {
     if (filas.length === 0) return;
-    const headers = ["ID", "Vendedor", "Cliente", "Tipo PDV", "Estado", "Supervisor", "Comentario", "Fecha carga", "Fecha evaluación"];
+    const headers = ["ID", "Vendedor", "Sucursal", "Cliente", "Tipo PDV", "Estado", "Supervisor", "Comentario", "Fecha carga", "Fecha evaluación"];
     const rows = filas.map((f) => [
-      f.id_exhibicion, f.vendedor, f.cliente, f.tipo_pdv, f.estado,
+      f.id_exhibicion, f.vendedor, f.sucursal, f.cliente, f.tipo_pdv, f.estado,
       f.supervisor, f.comentario, f.fecha_carga, f.fecha_evaluacion,
     ].map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(","));
     const csv = [headers.join(","), ...rows].join("\n");
@@ -262,7 +268,7 @@ export default function ReportesPage() {
     URL.revokeObjectURL(url);
   }
 
-  const hayFiltrosActivos = selectedVendedores.length > 0 || selectedEstados.length > 0 || selectedTipos.length > 0 || nroCliente.trim();
+  const hayFiltrosActivos = selectedVendedores.length > 0 || selectedEstados.length > 0 || selectedTipos.length > 0 || selectedSucursales.length > 0 || nroCliente.trim();
 
   return (
     <>
@@ -355,6 +361,16 @@ export default function ReportesPage() {
                       options={tiposPdvList}
                       selected={selectedTipos}
                       onChange={setSelectedTipos}
+                    />
+                  )}
+
+                  {/* Sucursales */}
+                  {!loadingOpts && sucursalesList.length > 0 && (
+                    <DropdownMultiSelect
+                      label="Sucursales"
+                      options={sucursalesList}
+                      selected={selectedSucursales}
+                      onChange={setSelectedSucursales}
                     />
                   )}
 
@@ -478,7 +494,7 @@ export default function ReportesPage() {
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="text-[var(--shelfy-muted)] text-left border-b border-[var(--shelfy-border)]">
-                          {["ID", "Vendedor", "Cliente", "PDV", "Estado", "Fecha carga"].map((h) => (
+                          {["ID", "Vendedor", "Sucursal", "Cliente", "PDV", "Estado", "Fecha carga"].map((h) => (
                             <th key={h} className="pb-3 pr-3 whitespace-nowrap font-semibold">{h}</th>
                           ))}
                         </tr>
@@ -488,6 +504,7 @@ export default function ReportesPage() {
                           <tr key={f.id_exhibicion} className="border-b border-[var(--shelfy-border)] last:border-0 hover:bg-[var(--shelfy-bg)] transition-colors">
                             <td className="py-2.5 pr-3 text-[var(--shelfy-muted)] tabular-nums">{f.id_exhibicion}</td>
                             <td className="py-2.5 pr-3 text-[var(--shelfy-text)] font-medium max-w-[150px] truncate">{f.vendedor}</td>
+                            <td className="py-2.5 pr-3 text-[var(--shelfy-muted)] text-xs truncate max-w-[120px]">{f.sucursal}</td>
                             <td className="py-2.5 pr-3 text-[var(--shelfy-muted)] truncate max-w-[150px]">{f.cliente}</td>
                             <td className="py-2.5 pr-3 text-[var(--shelfy-muted)] truncate max-w-[100px]">{f.tipo_pdv}</td>
                             <td className="py-2.5 pr-3">

@@ -15,7 +15,11 @@ import {
   fetchIntegrantes, setRolIntegrante, editarIntegranteAdmin, type Integrante,
   fetchLocations, crearLocation, editarLocation, type Location
 } from "@/lib/api";
-import { Trash2, UserPlus, Shield, Building2, Users, ToggleLeft, ToggleRight, RefreshCw, MapPin, Edit2, Search } from "lucide-react";
+import { ChevronLeft, ChevronRight, Lock, Unlock, Plus, Trash2, Edit2, Shield, Search, RefreshCw, Building2, MapPin, Users, Copy } from "lucide-react";
+
+import "leaflet/dist/leaflet.css";
+import { MapContainer, TileLayer, Marker, useMapEvents } from "react-leaflet";
+import L from "leaflet";
 
 const ROL_LABEL: Record<string, string> = {
   superadmin: "Super Admin",
@@ -452,13 +456,14 @@ function TabIntegrantes({ isSuperadmin, distId }: { isSuperadmin: boolean; distI
                 </tr>
               </thead>
               <tbody>
-                {integrantes.filter(ig =>
-                  ig.nombre_integrante.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                  (ig.nombre_empresa && ig.nombre_empresa.toLowerCase().includes(searchQuery.toLowerCase())) ||
-                  (ig.sucursal_label && ig.sucursal_label.toLowerCase().includes(searchQuery.toLowerCase())) ||
-                  (ig.nombre_grupo && ig.nombre_grupo.toLowerCase().includes(searchQuery.toLowerCase())) ||
-                  (ig.rol_telegram && ig.rol_telegram.toLowerCase().includes(searchQuery.toLowerCase()))
-                ).map((ig) => (
+                {integrantes.filter(ig => {
+                  const q = searchQuery.toLowerCase();
+                  return (ig.nombre_integrante || "").toLowerCase().includes(q) ||
+                    (ig.nombre_empresa || "").toLowerCase().includes(q) ||
+                    (ig.sucursal_label || "").toLowerCase().includes(q) ||
+                    (ig.nombre_grupo || "").toLowerCase().includes(q) ||
+                    (ig.rol_telegram || "").toLowerCase().includes(q);
+                }).map((ig) => (
                   <tr key={ig.id_integrante} className="border-b border-[var(--shelfy-border)] last:border-0 hover:bg-[var(--shelfy-bg)] transition-colors">
 
                     <td className="py-3 pr-4">
@@ -537,6 +542,23 @@ function TabIntegrantes({ isSuperadmin, distId }: { isSuperadmin: boolean; distI
 }
 
 // ── Tab: Sucursales (Locations) ──────────────────────────────────────────────────
+
+// Arreglar ícono por defecto de Leaflet en Next.js
+delete (L.Icon.Default.prototype as any)._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png",
+  iconUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
+  shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
+});
+
+function LocationPicker({ position, setPosition }: { position: [number, number]; setPosition: (p: [number, number]) => void }) {
+  useMapEvents({
+    click(e) {
+      setPosition([e.latlng.lat, e.latlng.lng]);
+    },
+  });
+  return position[0] !== 0 ? <Marker position={position} /> : null;
+}
 
 function TabSucursales({ isSuperadmin, distId }: { isSuperadmin: boolean; distId: number }) {
   const [locations, setLocations] = useState<Location[]>([]);
@@ -642,17 +664,28 @@ function TabSucursales({ isSuperadmin, distId }: { isSuperadmin: boolean; distId
                 onChange={(e) => setForm((f) => ({ ...f, provincia: e.target.value }))} className={INPUT_CLS + " w-full"} />
             </div>
 
-            <div className="col-span-1 md:col-span-2 lg:col-span-3 grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs text-[var(--shelfy-muted)] mb-1">Latitud</label>
-                <input type="number" step="any" placeholder="-34.6037" value={form.lat}
-                  onChange={(e) => setForm((f) => ({ ...f, lat: parseFloat(e.target.value) || 0 }))} className={INPUT_CLS + " w-full"} />
+            <div className="col-span-1 md:col-span-2 lg:col-span-3">
+              <label className="block text-xs text-[var(--shelfy-muted)] mb-2 mt-2">
+                Ubicación en el Mapa (Clic central para asignar coordenadas)
+              </label>
+              <div className="h-[250px] w-full rounded-lg overflow-hidden border border-[var(--shelfy-border)] mb-2 z-0 relative">
+                <MapContainer
+                  center={form.lat && form.lon ? [form.lat, form.lon] : [-34.6037, -58.3816]}
+                  zoom={form.lat && form.lon ? 13 : 4}
+                  scrollWheelZoom={true}
+                  className="h-full w-full"
+                  style={{ zIndex: 0 }}
+                >
+                  <TileLayer url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" />
+                  <LocationPicker
+                    position={[form.lat, form.lon]}
+                    setPosition={(p) => setForm((f) => ({ ...f, lat: p[0], lon: p[1] }))}
+                  />
+                </MapContainer>
               </div>
-              <div>
-                <label className="block text-xs text-[var(--shelfy-muted)] mb-1">Longitud</label>
-                <input type="number" step="any" placeholder="-58.3816" value={form.lon}
-                  onChange={(e) => setForm((f) => ({ ...f, lon: parseFloat(e.target.value) || 0 }))} className={INPUT_CLS + " w-full"} />
-              </div>
+              <p className="text-xs font-mono text-[var(--shelfy-muted)] bg-[var(--shelfy-bg)] p-2 rounded inline-block border border-[var(--shelfy-border)]">
+                {form.lat.toFixed(5)}, {form.lon.toFixed(5)}
+              </p>
             </div>
 
             <div className="md:col-span-2 lg:col-span-3 flex gap-2 pt-2">

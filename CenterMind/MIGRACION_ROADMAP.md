@@ -530,7 +530,7 @@ src/components/reportes/
 - [ ] Agregar manejo de errores global (interceptor de Axios)
 - [ ] Configurar variables de entorno en Vercel
 - [ ] Configurar dominio personalizado si se tiene
-- [ ] Eliminar `streamlit` de `requirements.txt`
+- [x] Eliminar `streamlit` de `requirements.txt`
 - [ ] Actualizar README con la nueva arquitectura
 - [ ] Ajustar Cloudflare Tunnel para permitir CORS desde el dominio de Vercel
 

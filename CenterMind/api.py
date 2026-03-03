@@ -430,7 +430,7 @@ def admin_toggle_distribuidora(dist_id: int, estado: str, _=Depends(verify_auth)
 # ─── Admin: Usuarios del portal ───────────────────────────────────────────────
 
 @app.get("/admin/usuarios", summary="Lista de usuarios del portal")
-def admin_get_usuarios(dist_id: int = None, _=Depends(verify_auth)):
+def admin_get_usuarios(dist_id: int | None = None, _=Depends(verify_auth)):
     where = "WHERE u.id_distribuidor=?" if dist_id else ""
     params = (dist_id,) if dist_id else ()
     with get_conn() as c:
@@ -490,19 +490,21 @@ def admin_eliminar_usuario(user_id: int, _=Depends(verify_auth)):
 
 # ─── Admin: Integrantes de Telegram ──────────────────────────────────────────
 
-@app.get("/admin/integrantes", summary="Lista de integrantes de Telegram")
-def admin_get_integrantes(dist_id: int = None, _=Depends(verify_auth)):
-    where = "WHERE ig.id_distribuidor=?" if dist_id else ""
-    params = (dist_id,) if dist_id else ()
+@app.get("/admin/integrantes", summary="Lista de integrantes")
+def admin_get_integrantes(distribuidor_id: int | None = None, _=Depends(verify_auth)):
     with get_conn() as c:
+        where = "WHERE ig.id_distribuidor=?" if distribuidor_id else ""
+        params = (distribuidor_id,) if distribuidor_id else ()
+        
         rows = c.execute(
-            f"""SELECT ig.id_integrante, ig.nombre_integrante, ig.telegram_user_id,
-                       ig.rol_telegram, ig.telegram_group_id,
-                       g.nombre_grupo,
+            f"""SELECT ig.id_integrante, ig.nombre_integrante, ig.id_distribuidor,
+                       ig.telegram_user_id, ig.location_id,
+                       l.label AS sucursal_label,
                        d.nombre_empresa
                 FROM integrantes_grupo ig
                 JOIN distribuidores d ON d.id_distribuidor = ig.id_distribuidor
                 LEFT JOIN grupos g ON g.telegram_chat_id = ig.telegram_group_id
+                LEFT JOIN locations l ON l.id = ig.location_id
                 {where}
                 ORDER BY d.nombre_empresa, ig.nombre_integrante""",
             params,
@@ -801,13 +803,16 @@ class ReporteQuery(BaseModel):
 @app.get("/reportes/vendedores/{distribuidor_id}", summary="Vendedores únicos para filtro de reportes")
 def reportes_vendedores(distribuidor_id: int, _=Depends(verify_auth)):
     with get_conn() as c:
+        where = "WHERE e.id_distribuidor = ? AND i.nombre_integrante IS NOT NULL" if distribuidor_id > 0 else "WHERE i.nombre_integrante IS NOT NULL"
+        params = (distribuidor_id,) if distribuidor_id > 0 else ()
+        
         rows = c.execute(
-            """SELECT DISTINCT i.nombre_integrante
+            f"""SELECT DISTINCT i.nombre_integrante
                FROM exhibiciones e
                JOIN integrantes_grupo i ON i.id_integrante = e.id_integrante
-               WHERE e.id_distribuidor = ? AND i.nombre_integrante IS NOT NULL
+               {where}
                ORDER BY i.nombre_integrante""",
-            (distribuidor_id,),
+            params,
         ).fetchall()
     return [r["nombre_integrante"] for r in rows]
 
@@ -815,11 +820,14 @@ def reportes_vendedores(distribuidor_id: int, _=Depends(verify_auth)):
 @app.get("/reportes/tipos-pdv/{distribuidor_id}", summary="Tipos de PDV únicos para filtro de reportes")
 def reportes_tipos_pdv(distribuidor_id: int, _=Depends(verify_auth)):
     with get_conn() as c:
+        where = "WHERE e.id_distribuidor = ? AND e.tipo_pdv IS NOT NULL AND e.tipo_pdv != ''" if distribuidor_id > 0 else "WHERE e.tipo_pdv IS NOT NULL AND e.tipo_pdv != ''"
+        params = (distribuidor_id,) if distribuidor_id > 0 else ()
+        
         rows = c.execute(
-            """SELECT DISTINCT tipo_pdv FROM exhibiciones
-               WHERE id_distribuidor = ? AND tipo_pdv IS NOT NULL AND tipo_pdv != ''
+            f"""SELECT DISTINCT tipo_pdv FROM exhibiciones e
+               {where}
                ORDER BY tipo_pdv""",
-            (distribuidor_id,),
+            params,
         ).fetchall()
     return [r["tipo_pdv"] for r in rows]
 
@@ -827,14 +835,17 @@ def reportes_tipos_pdv(distribuidor_id: int, _=Depends(verify_auth)):
 @app.get("/reportes/sucursales/{distribuidor_id}", summary="Sucursales únicas para filtro de reportes")
 def reportes_sucursales(distribuidor_id: int, _=Depends(verify_auth)):
     with get_conn() as c:
+        where = "WHERE e.id_distribuidor = ? AND l.label IS NOT NULL" if distribuidor_id > 0 else "WHERE l.label IS NOT NULL"
+        params = (distribuidor_id,) if distribuidor_id > 0 else ()
+        
         rows = c.execute(
-            """SELECT DISTINCT l.label
+            f"""SELECT DISTINCT l.label
                FROM exhibiciones e
                JOIN integrantes_grupo i ON i.id_integrante = e.id_integrante
                JOIN locations l ON l.location_id = i.location_id
-               WHERE e.id_distribuidor = ? AND l.label IS NOT NULL
+               {where}
                ORDER BY l.label""",
-            (distribuidor_id,),
+            params,
         ).fetchall()
     return [r["label"] for r in rows]
 
@@ -842,11 +853,14 @@ def reportes_sucursales(distribuidor_id: int, _=Depends(verify_auth)):
 @app.post("/reportes/exhibiciones/{distribuidor_id}", summary="Consulta de exhibiciones con filtros")
 def reportes_exhibiciones(distribuidor_id: int, q: ReporteQuery, _=Depends(verify_auth)):
     conditions = [
-        "e.id_distribuidor = ?",
         "DATE(e.timestamp_subida, '-3 hours') >= ?",
         "DATE(e.timestamp_subida, '-3 hours') <= ?",
     ]
-    params: list = [distribuidor_id, q.fecha_desde, q.fecha_hasta]
+    params: list = [q.fecha_desde, q.fecha_hasta]
+    
+    if distribuidor_id > 0:
+        conditions.append("e.id_distribuidor = ?")
+        params.append(distribuidor_id)
 
     if q.vendedores:
         placeholders = ",".join("?" * len(q.vendedores))
@@ -1096,12 +1110,15 @@ class AsignarVendedorRequest(BaseModel):
 def admin_get_locations(dist_id: int, _=Depends(verify_auth)):
     """Retorna todas las sucursales (locations) de un distribuidor, incluyendo coordenadas."""
     with get_conn() as c:
+        where = "WHERE dist_id = ?" if dist_id > 0 else ""
+        params = (dist_id,) if dist_id > 0 else ()
+        
         rows = c.execute(
-            """SELECT location_id, ciudad, provincia, label, lat, lon
+            f"""SELECT location_id, ciudad, provincia, label, lat, lon
                FROM locations
-               WHERE dist_id = ?
+               {where}
                ORDER BY label""",
-            (dist_id,),
+            params,
         ).fetchall()
     return [dict(r) for r in rows]
 
@@ -1126,20 +1143,23 @@ def admin_update_location(location_id: int, req: LocationRequest, _=Depends(veri
         return {"ok": True}
 
 @app.get("/admin/usuarios/{dist_id}", summary="Listar todos los integrantes (Telegram)")
-def admin_get_usuarios(dist_id: int, _=Depends(verify_auth)):
+def admin_get_usuarios_telegram(dist_id: int, _=Depends(verify_auth)):
     """Retorna todos los usuarios de Telegram de un distribuidor con nombre de grupo y sucursal."""
     with get_conn() as c:
+        where = "WHERE i.id_distribuidor = ?" if dist_id > 0 else ""
+        params = (dist_id,) if dist_id > 0 else ()
+        
         rows = c.execute(
-            """SELECT i.id_integrante, i.telegram_user_id, i.nombre_integrante, 
+            f"""SELECT i.id_integrante, i.telegram_user_id, i.nombre_integrante, 
                       i.rol_telegram, i.location_id, i.telegram_group_id,
                       COALESCE(g.nombre_grupo, '') AS nombre_grupo,
                       COALESCE(l.label, '') AS sucursal_label
                FROM integrantes_grupo i
                LEFT JOIN grupos g ON g.telegram_chat_id = i.telegram_group_id
                LEFT JOIN locations l ON l.location_id = i.location_id
-               WHERE i.id_distribuidor = ?
+               {where}
                ORDER BY i.nombre_integrante""",
-            (dist_id,)
+            params
         ).fetchall()
     return [dict(r) for r in rows]
 

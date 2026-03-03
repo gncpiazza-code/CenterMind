@@ -15,6 +15,11 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Shelfy",
   description: "Panel de gestión Shelfy",
+  icons: {
+    icon: "/WEBICON.svg",
+    shortcut: "/WEBICON.svg",
+    apple: "/WEBICON.svg",
+  },
 };
 
 export default function RootLayout({

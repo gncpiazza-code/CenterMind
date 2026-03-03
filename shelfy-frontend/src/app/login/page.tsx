@@ -25,11 +25,11 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-[var(--shelfy-bg)] px-4">
       <div className="w-full max-w-sm">
         {/* Logo */}
-        <div className="flex justify-center mb-8">
+        <div className="flex justify-center mb-10">
           <img
-            src="/shelfy_logo_clean.svg"
+            src="/LOGO_NUEVO.svg"
             alt="Shelfy"
-            className="h-14 w-auto"
+            className="h-20 w-auto"
             onError={(e) => {
               (e.target as HTMLImageElement).style.display = "none";
             }}

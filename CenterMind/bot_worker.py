@@ -1400,6 +1400,19 @@ class BotWorker:
     # JOB: Sincronizar evaluaciones web → Telegram
     # ─────────────────────────────────────────────────────────────
 
+    async def handle_new_chat_title(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Captura cuando un admin cambia el nombre de un grupo de Telegram en vivo."""
+        if not update.message or not update.message.new_chat_title:
+            return
+        chat_id = update.message.chat.id
+        new_title = update.message.new_chat_title
+        self.logger.info(f"🔄 Grupo {chat_id} cambió su nombre a: {new_title}")
+        
+        asyncio.create_task(asyncio.to_thread(
+            self.db.upsert_grupo,
+            self.distribuidor_id, chat_id, new_title
+        ))
+
     async def sync_evaluaciones_job(self, context: ContextTypes.DEFAULT_TYPE) -> None:
         """
         Cada 30s busca exhibiciones evaluadas que no
@@ -1557,6 +1570,9 @@ class BotWorker:
         # Foto y texto
         app.add_handler(MessageHandler(filters.PHOTO, self.handle_photo))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_text))
+        
+        # Eventos de grupo
+        app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_TITLE, self.handle_new_chat_title))
 
         # Callbacks (solo selección de tipo PDV — sin evaluación)
         app.add_handler(CallbackQueryHandler(self.button_callback, pattern="^TYPE_"))

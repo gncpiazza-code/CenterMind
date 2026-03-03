@@ -10,7 +10,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  fetchUsuarios, crearUsuario, eliminarUsuario, type UsuarioPortal,
+  fetchUsuarios, crearUsuario, editarUsuario, eliminarUsuario, type UsuarioPortal,
   fetchDistribuidoras, crearDistribuidora, toggleDistribuidora, type Distribuidora,
   fetchIntegrantes, setRolIntegrante, editarIntegranteAdmin, type Integrante,
   fetchLocations, crearLocation, editarLocation, type Location
@@ -29,6 +29,10 @@ const ROL_LABEL: Record<string, string> = {
 
 // Roles del grupo de Telegram (distintos a los roles del portal)
 const ROLES_TELEGRAM = ["vendedor", "observador"];
+const ROL_TELEGRAM_LABEL: Record<string, string> = {
+  vendedor: "Vendedor",
+  observador: "Observador"
+};
 
 const INPUT_CLS = "rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-[var(--shelfy-text)] px-3 py-2 text-sm focus:outline-none focus:border-[var(--shelfy-primary)]";
 
@@ -43,7 +47,12 @@ function TabUsuarios({ isSuperadmin, distId }: { isSuperadmin: boolean; distId: 
   const [saving, setSaving] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
-  const rolesDisponibles = isSuperadmin ? ["supervisor", "admin", "superadmin"] : ["supervisor"];
+  // States para edición inline de usuario portal
+  const [editingUserId, setEditingUserId] = useState<number | null>(null);
+  const [editUserForm, setEditUserForm] = useState({ login: "", password: "", rol: "supervisor" });
+  const [changingUserId, setChangingUserId] = useState<number | null>(null);
+
+  const rolesDisponibles = isSuperadmin ? ["supervisor", "admin", "superadmin"] : ["supervisor", "admin"];
 
   const load = () => {
     setLoading(true);
@@ -68,6 +77,25 @@ function TabUsuarios({ isSuperadmin, distId }: { isSuperadmin: boolean; distId: 
       setError(e instanceof Error ? e.message : "Error al crear usuario");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleGuardarEdicion(id: number) {
+    if (!editUserForm.login.trim()) return;
+    setChangingUserId(id);
+    setError(null);
+    try {
+      await editarUsuario(id, {
+        login: editUserForm.login.trim(),
+        rol: editUserForm.rol,
+        password: editUserForm.password || undefined
+      });
+      setEditingUserId(null);
+      load();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Error al editar usuario");
+    } finally {
+      setChangingUserId(null);
     }
   }
 
@@ -159,17 +187,66 @@ function TabUsuarios({ isSuperadmin, distId }: { isSuperadmin: boolean; distId: 
                   u.rol.toLowerCase().includes(searchQuery.toLowerCase())
                 ).map((u) => (
                   <tr key={u.id_usuario} className="border-b border-[var(--shelfy-border)] last:border-0 hover:bg-[var(--shelfy-bg)] transition-colors">
-                    <td className="py-3 pr-4 text-[var(--shelfy-text)] font-medium">{u.usuario_login}</td>
-                    <td className="py-3 pr-4"><RolBadge rol={u.rol} /></td>
-                    <td className="py-3 pr-4 text-[var(--shelfy-muted)]">{u.nombre_empresa}</td>
-                    <td className="py-3">
-                      {(isSuperadmin || u.rol === "supervisor") && (
-                        <button onClick={() => handleEliminar(u.id_usuario)}
-                          className="text-[var(--shelfy-muted)] hover:text-[var(--shelfy-error)] transition-colors p-1 rounded hover:bg-red-50">
-                          <Trash2 size={14} />
-                        </button>
-                      )}
-                    </td>
+                    {editingUserId === u.id_usuario ? (
+                      <>
+                        <td className="py-2 pr-4">
+                          <input
+                            value={editUserForm.login}
+                            onChange={e => setEditUserForm(f => ({ ...f, login: e.target.value }))}
+                            className={INPUT_CLS + " !py-1 w-full"}
+                            placeholder="Usuario"
+                          />
+                          <input
+                            value={editUserForm.password}
+                            onChange={e => setEditUserForm(f => ({ ...f, password: e.target.value }))}
+                            className={INPUT_CLS + " !py-1 mt-1 w-full"}
+                            placeholder="Nueva contraseña (opcional)"
+                            type="password"
+                          />
+                        </td>
+                        <td className="py-2 pr-4">
+                          <select
+                            value={editUserForm.rol}
+                            onChange={e => setEditUserForm(f => ({ ...f, rol: e.target.value }))}
+                            className={INPUT_CLS + " !py-1"}
+                          >
+                            {rolesDisponibles.map((r) => (
+                              <option key={r} value={r}>{ROL_LABEL[r] ?? r}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="py-2 pr-4 text-[var(--shelfy-muted)]">{u.nombre_empresa}</td>
+                        <td className="py-2 flex gap-1 items-center justify-end h-full">
+                          <Button size="sm" loading={changingUserId === u.id_usuario} onClick={() => handleGuardarEdicion(u.id_usuario)}>OK</Button>
+                          <Button size="sm" variant="ghost" onClick={() => setEditingUserId(null)}>X</Button>
+                        </td>
+                      </>
+                    ) : (
+                      <>
+                        <td className="py-3 pr-4 text-[var(--shelfy-text)] font-medium">
+                          {u.usuario_login}
+                        </td>
+                        <td className="py-3 pr-4"><RolBadge rol={u.rol} /></td>
+                        <td className="py-3 pr-4 text-[var(--shelfy-muted)]">{u.nombre_empresa}</td>
+                        <td className="py-3 flex gap-2 justify-end">
+                          {(isSuperadmin || u.rol === "supervisor" || u.rol === "admin") && (
+                            <>
+                              <button onClick={() => {
+                                setEditingUserId(u.id_usuario);
+                                setEditUserForm({ login: u.usuario_login, password: "", rol: u.rol });
+                              }}
+                                className="text-[var(--shelfy-muted)] hover:text-[var(--shelfy-primary)] transition-colors p-1 rounded hover:bg-slate-50">
+                                <Edit2 size={14} />
+                              </button>
+                              <button onClick={() => handleEliminar(u.id_usuario)}
+                                className="text-[var(--shelfy-muted)] hover:text-[var(--shelfy-error)] transition-colors p-1 rounded hover:bg-red-50">
+                                <Trash2 size={14} />
+                              </button>
+                            </>
+                          )}
+                        </td>
+                      </>
+                    )}
                   </tr>
                 ))}
                 {usuarios.length === 0 && (
@@ -357,7 +434,7 @@ function TabIntegrantes({ isSuperadmin, distId }: { isSuperadmin: boolean; distI
     setLoading(true);
     Promise.all([
       fetchIntegrantes(isSuperadmin ? undefined : distId),
-      fetchLocations(isSuperadmin ? 1 : distId)
+      fetchLocations(isSuperadmin ? 0 : distId)
     ])
       .then(([ints, locs]) => {
         setIntegrantes(ints);
@@ -518,7 +595,7 @@ function TabIntegrantes({ isSuperadmin, distId }: { isSuperadmin: boolean; distI
                         className="rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-[var(--shelfy-text)] px-2 py-1 text-xs focus:outline-none focus:border-[var(--shelfy-primary)]"
                       >
                         {ROLES_TELEGRAM.map((r) => (
-                          <option key={r} value={r}>{r}</option>
+                          <option key={r} value={r}>{ROL_TELEGRAM_LABEL[r] ?? r}</option>
                         ))}
                       </select>
                     </td>

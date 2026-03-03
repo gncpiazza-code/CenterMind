@@ -12,11 +12,31 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [showPass, setShowPass] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [slotIdx, setSlotIdx] = useState(0);
+  const [slotAnim, setSlotAnim] = useState<"in" | "out">("in");
+
+  const SLOTS = [
+    { word: "CONQUISTAR", color: "#ef4444", icon: "⚔️" },
+    { word: "MANTENER", color: "#22c55e", icon: "🛡️" },
+  ];
 
   useEffect(() => {
     setMounted(true);
     if (isAuthenticated) router.replace("/dashboard");
   }, [isAuthenticated, router]);
+
+  // Slot machine cycle
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setSlotAnim("out");
+      setTimeout(() => {
+        setSlotIdx(i => (i + 1) % SLOTS.length);
+        setSlotAnim("in");
+      }, 350);
+    }, 2800);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -38,6 +58,16 @@ export default function LoginPage() {
           0%, 100% { transform: translateY(0px); }
           50%       { transform: translateY(-8px); }
         }
+        @keyframes slotIn {
+          from { transform: translateY(-28px); opacity: 0; }
+          to   { transform: translateY(0);     opacity: 1; }
+        }
+        @keyframes slotOut {
+          from { transform: translateY(0);    opacity: 1; }
+          to   { transform: translateY(28px); opacity: 0; }
+        }
+        .slot-in  { animation: slotIn  0.35s cubic-bezier(0.22,1,0.36,1) both; }
+        .slot-out { animation: slotOut 0.35s ease-in both; }
         @keyframes pulse-ring {
           0%   { transform: scale(1);    opacity: 0.4; }
           100% { transform: scale(1.6); opacity: 0; }
@@ -126,9 +156,23 @@ export default function LoginPage() {
             <h1 className="text-2xl font-bold text-center" style={{ color: "#1e1b4b", letterSpacing: "-0.02em" }}>
               Acceso al Portal
             </h1>
-            <p className="text-sm text-center mt-1" style={{ color: "#6d28d9" }}>
-              Mentalidad enfocada en <strong>GANAR</strong> la góndola
-            </p>
+            <div className="flex flex-wrap items-center justify-center gap-x-1.5 text-sm mt-1" style={{ color: "#6d28d9" }}>
+              <span>Mentalidad enfocada en</span>
+              <span
+                className="inline-flex items-center gap-1 font-black overflow-hidden"
+                style={{ minWidth: 180, justifyContent: "center" }}
+              >
+                <span
+                  key={slotIdx}
+                  className={slotAnim === "in" ? "slot-in" : "slot-out"}
+                  style={{ color: SLOTS[slotIdx].color, display: "inline-flex", alignItems: "center", gap: 4 }}
+                >
+                  <span>{SLOTS[slotIdx].icon}</span>
+                  {SLOTS[slotIdx].word}
+                </span>
+              </span>
+              <span>la góndola</span>
+            </div>
           </div>
 
           {/* Card */}

@@ -6,34 +6,39 @@
     </linearGradient>
   </defs>
 
-  <!-- ── Icono cuadrado 120x120 ── -->
+  <!-- Icono cuadrado 120x120 -->
   <rect x="0" y="0" width="120" height="120" rx="26" ry="26" fill="#42129A"/>
 
-  <!-- Grilla 2×2: padding=14, gap=8, celda aprox 42×42 -->
+  <!--
+    Grilla 2×2 dentro del cuadrado 120×120
+    padding=14, gap=8
+    TL center=(35,35)  TR center=(85,35)
+    BL center=(35,85)  BR center=(85,79) ← estrella sube 6px
+  -->
 
-  <!-- TL: Reloj — centro=(35,35) r=19 -->
-  <circle cx="35" cy="35" r="19" fill="#F97316"/>
-  <line x1="35" y1="35" x2="35" y2="23" stroke="#42129A" stroke-width="3.5" stroke-linecap="round"/>
+  <!-- TL: Reloj — centro=(35,35) r=18 -->
+  <circle cx="35" cy="35" r="18" fill="#F97316"/>
+  <line x1="35" y1="35" x2="35" y2="22" stroke="#42129A" stroke-width="3.5" stroke-linecap="round"/>
   <line x1="35" y1="35" x2="44" y2="35" stroke="#42129A" stroke-width="3.5" stroke-linecap="round"/>
 
-  <!-- TR: Checkmark — bounding (64,14)-(106,56) -->
-  <polyline points="68,37 80,49 104,20" fill="none" stroke="#22C55E" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- TR: Checkmark — bounding (63,15)-(107,55) -->
+  <polyline points="67,37 80,49 105,20" fill="none" stroke="#22C55E" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
 
   <!-- BL: Cruz — centro=(35,85) -->
   <line x1="21" y1="71" x2="49" y2="99" stroke="#EF4444" stroke-width="7" stroke-linecap="round"/>
   <line x1="49" y1="71" x2="21" y2="99" stroke="#EF4444" stroke-width="7" stroke-linecap="round"/>
 
-  <!-- BR: Estrella 5 puntas — centro=(85,85) -->
+  <!-- BR: Estrella 5 puntas — centro=(85,79) R=17, r=7 -->
   <polygon
-    points="85,66 91,80 106,82 95,92 98,107 85,100 72,107 75,92 64,82 79,80"
+    points="85,62 89.9,74.5 103,75.7 93.5,84.3 96.4,97 85,90 73.6,97 76.5,84.3 67,75.7 80.1,74.5"
     fill="url(#starG)"/>
 
-  <!-- ── Texto "Shelfy" ── -->
+  <!-- Texto "Shelfy" -->
   <text
     x="140"
-    y="84"
+    y="83"
     font-family="'Geist', 'Inter', -apple-system, Arial, sans-serif"
-    font-size="68"
+    font-size="66"
     font-weight="700"
     fill="#42129A"
     letter-spacing="-2">Shelfy</text>

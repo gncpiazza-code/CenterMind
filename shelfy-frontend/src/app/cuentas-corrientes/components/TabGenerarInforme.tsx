@@ -101,7 +101,7 @@ export default function TabGenerarInforme() {
             // Configured for local dev standard port 8000, assuming it runs there or proxied
             const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-            const res = await fetch(`${apiUrl}/procesar-cuentas-corrientes`, {
+            const res = await fetch(`${apiUrl}/api/procesar-cuentas-corrientes`, {
                 method: "POST",
                 body: formData,
                 headers: headersInit

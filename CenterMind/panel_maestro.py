@@ -31,7 +31,7 @@ BASE_DIR      = Path(__file__).resolve().parent
 DB_PATH       = BASE_DIR / "base_datos" / "centermind.db"
 LOGS_DIR      = BASE_DIR / "logs"
 BAK_DIR       = BASE_DIR / "backups"
-STREAMLIT_APP = BASE_DIR / "StreamLitApp" / "app.py"
+API_SCRIPT    = BASE_DIR / "api.py"
 AR_TZ         = ZoneInfo("America/Argentina/Buenos_Aires")
 sys.path.insert(0, str(BASE_DIR))
 
@@ -265,13 +265,14 @@ class BotManager:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STREAMLIT MANAGER
+# ══════════════════════════════════════════════════════════════════════════════
+# API MANAGER
 # ══════════════════════════════════════════════════════════════════════════════
 
-class StreamlitManager:
+class ApiManager:
     def __init__(self):
         self._proc: Optional[subprocess.Popen] = None
-        self._port  = 8501
+        self._port  = 8000
         self._start_t = 0.0
 
     @property
@@ -282,11 +283,6 @@ class StreamlitManager:
 
     @property
     def url(self) -> str: return f"http://localhost:{self._port}"
-
-    @property
-    def network_url(self) -> str:
-        """URL accesible desde otros dispositivos en la misma red (móvil, etc.)."""
-        return f"http://{_get_local_ip()}:{self._port}"
 
     @property
     def uptime(self) -> str:
@@ -300,16 +296,16 @@ class StreamlitManager:
 
     def start(self) -> str:
         if self.status == "running": return f"Ya corriendo en :{self._port}"
-        if not STREAMLIT_APP.exists(): return f"❌ No encontrado: {STREAMLIT_APP}"
+        if not API_SCRIPT.exists(): return f"❌ No encontrado: {API_SCRIPT}"
         try:
             self._proc = subprocess.Popen(
-                [sys.executable, "-m", "streamlit", "run", str(STREAMLIT_APP),
-                 "--server.port", str(self._port), "--server.headless", "true",
-                 "--server.address", "0.0.0.0", "--browser.gatherUsageStats", "false"],
-                cwd=str(STREAMLIT_APP.parent), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                [sys.executable, "-m", "uvicorn", "api:app",
+                 "--host", "0.0.0.0", "--port", str(self._port), "--reload"],
+                cwd=str(API_SCRIPT.parent),
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
             )
             self._start_t = time.time()
-            return f"✅ Streamlit iniciado → {self.url}"
+            return f"✅ API iniciada → {self.url}"
         except Exception as e:
             return f"❌ Error: {e}"
 
@@ -320,16 +316,142 @@ class StreamlitManager:
                 try: self._proc.kill()
                 except Exception: pass
         self._proc = None; self._start_t = 0.0
-        return "⏹ Streamlit detenido."
+        return "⏹ API detenida."
 
     def restart(self) -> str:
         self.stop(); time.sleep(1); return self.start()
 
-    def open_browser(self) -> None:
-        webbrowser.open(self.url)
 
-    def set_port(self, p: int) -> None:
-        self._port = int(p)
+# ══════════════════════════════════════════════════════════════════════════════
+# CLOUDFLARE TUNNEL MANAGER
+# ══════════════════════════════════════════════════════════════════════════════
+
+CLOUDFLARED_SEARCH_PATHS = [
+    Path("C:/cloudflared.exe"),
+    Path.home() / "cloudflared.exe",
+    Path.home() / "Downloads/cloudflared.exe",
+    Path("C:/Program Files/cloudflared/cloudflared.exe"),
+    Path("C:/Program Files (x86)/cloudflared/cloudflared.exe"),
+]
+
+# Nombre del tunnel con nombre fijo (creado con: cloudflared tunnel create centermind)
+CF_TUNNEL_NAME   = "centermind"
+CF_PUBLIC_URL    = "https://api.shelfycenter.com"
+CF_API_PORT      = 8000
+
+
+def _find_cloudflared() -> Optional[Path]:
+    """Busca cloudflared.exe en ubicaciones comunes y en el PATH."""
+    for p in CLOUDFLARED_SEARCH_PATHS:
+        if p.exists():
+            return p
+    # Buscar en PATH
+    import shutil
+    found = shutil.which("cloudflared")
+    if found:
+        return Path(found)
+    return None
+
+
+class CloudflareManager:
+    """
+    Administra el tunnel de Cloudflare.
+    Soporta dos modos:
+      - Tunnel nombrado (CF_TUNNEL_NAME): URL fija → api.shelfycenter.com
+      - Tunnel temporal (--url):          URL dinámica (trycloudflare.com)
+    """
+
+    def __init__(self):
+        self._proc: Optional[subprocess.Popen] = None
+        self._start_t = 0.0
+        self._log_lines: list[str] = []
+        self._last_url  = ""
+        self._mode      = "named"   # "named" | "temp"
+        self._log_cb    = None      # callback para UI
+
+    def set_log_callback(self, cb) -> None:
+        self._log_cb = cb
+
+    @property
+    def status(self) -> str:
+        if self._proc is None:        return "stopped"
+        if self._proc.poll() is None: return "running"
+        return "crashed"
+
+    @property
+    def uptime(self) -> str:
+        if self.status != "running": return "—"
+        s = int(time.time() - self._start_t)
+        return f"{s//3600:02d}:{(s%3600)//60:02d}:{s%60:02d}"
+
+    @property
+    def pid(self) -> str:
+        return str(self._proc.pid) if self._proc and self._proc.poll() is None else "—"
+
+    @property
+    def public_url(self) -> str:
+        if self._mode == "named":
+            return CF_PUBLIC_URL if self.status == "running" else "—"
+        return self._last_url or "(esperando URL...)"
+
+    def _log(self, msg: str) -> None:
+        ts = datetime.now(AR_TZ).strftime("%H:%M:%S")
+        line = f"[{ts}]  {msg}"
+        self._log_lines.append(line)
+        if self._log_cb:
+            self._log_cb(line)
+
+    def _find_exe(self) -> Optional[Path]:
+        return _find_cloudflared()
+
+    def start(self, mode: str = "named") -> str:
+        if self.status == "running":
+            return f"Ya corriendo (PID {self.pid})"
+        exe = self._find_exe()
+        if not exe:
+            return (
+                "❌ cloudflared.exe no encontrado.\n"
+                "   Descargalo de: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/\n"
+                "   y colocalo en C:\\cloudflared.exe"
+            )
+        self._mode = mode
+        LOGS_DIR.mkdir(exist_ok=True)
+        log_file = LOGS_DIR / "cloudflare.log"
+
+        if mode == "named":
+            cmd = [str(exe), "tunnel", "--url", f"http://localhost:{CF_API_PORT}",
+                   "run", CF_TUNNEL_NAME]
+        else:
+            cmd = [str(exe), "tunnel", "--url", f"http://localhost:{CF_API_PORT}"]
+
+        kwargs: dict = {
+            "cwd":    str(BASE_DIR),
+            "stdout": open(log_file, "a", encoding="utf-8"),
+            "stderr": subprocess.STDOUT,
+            "stdin":  subprocess.DEVNULL,
+        }
+        if sys.platform == "win32":
+            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+
+        self._proc = subprocess.Popen(cmd, **kwargs)
+        self._start_t = time.time()
+
+        mode_label = f"tunnel '{CF_TUNNEL_NAME}' → {CF_PUBLIC_URL}" if mode == "named" else "tunnel temporal"
+        return f"✅ Cloudflare iniciado ({mode_label})  PID={self.pid}"
+
+    def stop(self) -> str:
+        if self._proc:
+            try: self._proc.terminate(); self._proc.wait(timeout=5)
+            except Exception:
+                try: self._proc.kill()
+                except Exception: pass
+        self._proc = None; self._start_t = 0.0
+        return "⏹ Cloudflare tunnel detenido."
+
+    def restart(self, mode: str = "named") -> str:
+        self.stop()
+        time.sleep(1)
+        return self.start(mode)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -417,7 +539,8 @@ class ShelfMindPanel:
     def __init__(self, root: tk.Tk):
         self.root  = root
         self.bm    = BotManager()
-        self.sm    = StreamlitManager()
+        self.am    = ApiManager()
+        self.cfm   = CloudflareManager()
         self.bm.load()
 
         self._running         = True
@@ -429,17 +552,24 @@ class ShelfMindPanel:
         self._tail_restart    = threading.Event() # señal para reiniciar tail
         self._bot_row_refs:   Dict[int, Dict] = {}
 
-        # Referencias a widgets de streamlit status
-        self._sm_lbl_status:      Optional[tk.Label] = None
-        self._sm_lbl_uptime:      Optional[tk.Label] = None
-        self._sm_lbl_pid:         Optional[tk.Label] = None
-        self._sm_lbl_url:         Optional[tk.Label] = None
-        self._sm_lbl_network_url: Optional[tk.Label] = None
-        self._sm_log_txt:         Optional[tk.Text]  = None
+        # Referencias a widgets de API status
+        self._am_lbl_status: Optional[tk.Label] = None
+        self._am_lbl_uptime: Optional[tk.Label] = None
+        self._am_lbl_pid:    Optional[tk.Label] = None
+        self._am_lbl_url:    Optional[tk.Label] = None
+        self._am_log_txt:    Optional[tk.Text]  = None
 
         # Console widget ref
         self._console_txt: Optional[tk.Text] = None
         self._console_count_lbl: Optional[tk.Label] = None
+
+        # Referencias a widgets cloudflare
+        self._cf_lbl_status:  Optional[tk.Label] = None
+        self._cf_lbl_uptime:  Optional[tk.Label] = None
+        self._cf_lbl_pid:     Optional[tk.Label] = None
+        self._cf_lbl_url:     Optional[tk.Label] = None
+        self._cf_log_txt:     Optional[tk.Text]  = None
+        self._cf_mode_var     = tk.StringVar(value="named")
 
         self._setup_window()
         self._setup_style()
@@ -531,7 +661,8 @@ class ShelfMindPanel:
 
         tabs = [
             ("🤖  Bots",          self._build_tab_bots),
-            ("🌐  Streamlit",     self._build_tab_streamlit),
+            ("⚡  API",           self._build_tab_api),
+            ("☁️  Cloudflare",    self._build_tab_cloudflare),
             ("📋  Consola",       self._build_tab_console),
             ("📁  Logs",          self._build_tab_logs),
             ("👥  Distribuidoras",self._build_tab_distribuidoras),
@@ -696,14 +827,14 @@ class ShelfMindPanel:
     # TAB: STREAMLIT
     # ══════════════════════════════════════════════════════════════════════
 
-    def _build_tab_streamlit(self, parent: tk.Frame) -> None:
+    def _build_tab_api(self, parent: tk.Frame) -> None:
         parent.configure(bg=BG)
         pad = dict(padx=24)
 
         tk.Frame(parent, bg=BG, height=18).pack()
-        tk.Label(parent, text="Servidor Streamlit", fg=AMBER, bg=BG,
+        tk.Label(parent, text="Servidor API (FastAPI)", fg=AMBER, bg=BG,
                  font=("Segoe UI", 16, "bold"), **pad).pack(anchor="w")
-        tk.Label(parent, text="App web accesible por los distribuidores desde el navegador",
+        tk.Label(parent, text="API REST en puerto 8000 — exposición via Cloudflare Tunnel",
                  fg=MUTED, bg=BG, font=("Segoe UI", 8), **pad).pack(anchor="w")
         _sep(parent).pack(fill="x", padx=24, pady=(6, 10))
 
@@ -715,46 +846,17 @@ class ShelfMindPanel:
         row1 = tk.Frame(sc, bg=CARD)
         row1.pack(fill="x", padx=14, pady=(10, 4))
 
-        self._sm_lbl_status = tk.Label(row1, text="○ DETENIDO", fg=MUTED, bg=CARD,
+        self._am_lbl_status = tk.Label(row1, text="○ DETENIDA", fg=MUTED, bg=CARD,
                                        font=("Segoe UI", 14, "bold"))
-        self._sm_lbl_status.pack(side="left", padx=(0, 16))
-        self._sm_lbl_url = tk.Label(row1, text=self.sm.url, fg=AMBER, bg=CARD,
+        self._am_lbl_status.pack(side="left", padx=(0, 16))
+        self._am_lbl_url = tk.Label(row1, text=self.am.url, fg=AMBER, bg=CARD,
                                     font=("Segoe UI", 9), cursor="hand2")
-        self._sm_lbl_url.bind("<Button-1>", lambda e: self.sm.open_browser())
-        self._sm_lbl_url.pack(side="left")
-
-        # ── Fila red local (acceso desde móvil / otros dispositivos) ────
-        row_net = tk.Frame(sc, bg=CARD)
-        row_net.pack(fill="x", padx=14, pady=(0, 6))
-
-        tk.Label(row_net, text="📱  Red local:", fg=MUTED, bg=CARD,
-                 font=("Segoe UI", 8)).pack(side="left", padx=(0, 8))
-
-        self._sm_lbl_network_url = tk.Label(
-            row_net, text=self.sm.network_url,
-            fg=SAND, bg=CARD, font=("Courier New", 9, "bold"), cursor="hand2"
-        )
-        self._sm_lbl_network_url.bind(
-            "<Button-1>", lambda e: webbrowser.open(self.sm.network_url)
-        )
-        self._sm_lbl_network_url.pack(side="left", padx=(0, 12))
-
-        def _copy_network_url() -> None:
-            self.root.clipboard_clear()
-            self.root.clipboard_append(self.sm.network_url)
-            self._sm_log(f"📋 Copiado: {self.sm.network_url}")
-
-        _btn(row_net, "📋 Copiar", _copy_network_url,
-             fg=MUTED, bg=CARD).pack(side="left")
-
-        tk.Label(row_net,
-                 text="  ← compartí este link con tu móvil (misma red WiFi)",
-                 fg=MUTED, bg=CARD, font=("Segoe UI", 7, "italic")
-                 ).pack(side="left")
+        self._am_lbl_url.bind("<Button-1>", lambda e: webbrowser.open(self.am.url))
+        self._am_lbl_url.pack(side="left")
 
         row2 = tk.Frame(sc, bg=CARD)
         row2.pack(fill="x", padx=14, pady=(0, 10))
-        for label_text, attr in [("Uptime", "_sm_lbl_uptime"), ("PID", "_sm_lbl_pid")]:
+        for label_text, attr in [("Uptime", "_am_lbl_uptime"), ("PID", "_am_lbl_pid")]:
             tk.Label(row2, text=f"{label_text}:", fg=MUTED, bg=CARD,
                      font=("Segoe UI", 8)).pack(side="left", padx=(0, 4))
             lbl = tk.Label(row2, text="—", fg=TEXT, bg=CARD,
@@ -767,64 +869,180 @@ class ShelfMindPanel:
         btns.pack(fill="x", padx=24, pady=(0, 10))
         _btn(btns, "▶  INICIAR",
              lambda: threading.Thread(
-                 target=lambda: self._sm_log(self.sm.start()), daemon=True).start(),
+                 target=lambda: self._api_log(self.am.start()), daemon=True).start(),
              fg=GREEN).pack(side="left", padx=(0, 6))
         _btn(btns, "■  DETENER",
-             lambda: self._sm_log(self.sm.stop()),
+             lambda: self._api_log(self.am.stop()),
              fg=RED).pack(side="left", padx=(0, 6))
         _btn(btns, "↺  REINICIAR",
              lambda: threading.Thread(
-                 target=lambda: self._sm_log(self.sm.restart()), daemon=True).start(),
+                 target=lambda: self._api_log(self.am.restart()), daemon=True).start(),
              fg=AMBER).pack(side="left", padx=(0, 6))
-        _btn(btns, "🌐  ABRIR NAVEGADOR",
-             self.sm.open_browser, fg=SAND).pack(side="left", padx=(0, 6))
+        _btn(btns, "🌐  ABRIR DOCS",
+             lambda: webbrowser.open(f"{self.am.url}/docs"), fg=SAND).pack(side="left", padx=(0, 6))
 
-        # Config de puerto
-        pc = tk.Frame(parent, bg=CARD)
-        pc.pack(fill="x", padx=24, pady=(0, 10))
-        inner_pc = tk.Frame(pc, bg=CARD)
-        inner_pc.pack(padx=14, pady=10, anchor="w")
-        tk.Label(inner_pc, text="Puerto:", fg=MUTED, bg=CARD,
-                 font=("Segoe UI", 9)).pack(side="left", padx=(0, 8))
-        self._port_var = tk.StringVar(value=str(self.sm._port))
-        port_e = ttk.Entry(inner_pc, textvariable=self._port_var, width=8)
-        port_e.pack(side="left", padx=(0, 8))
-        _btn(inner_pc, "Aplicar", self._apply_port, fg=AMBER, bg=CARD).pack(side="left")
-        tk.Label(inner_pc, text="  Reiniciá Streamlit para aplicar.",
-                 fg=MUTED, bg=CARD, font=("Segoe UI", 8)).pack(side="left")
+        # Info
+        info = tk.Frame(parent, bg=CARD)
+        info.pack(fill="x", padx=24, pady=(0, 10))
+        ii = tk.Frame(info, bg=CARD)
+        ii.pack(padx=14, pady=8, anchor="w")
+        tk.Label(ii, text=f"Script: {API_SCRIPT}",
+                 fg=MUTED, bg=CARD, font=("Segoe UI", 8)).pack(anchor="w")
+        tk.Label(ii,
+                 text="Uvicorn con --reload. Para producción desactivar --reload en ApiManager.start().",
+                 fg=MUTED, bg=CARD, font=("Segoe UI", 7, "italic")).pack(anchor="w", pady=(4, 0))
 
         # Log de acciones
         tk.Label(parent, text="REGISTRO DE ACCIONES", fg=AMBER, bg=BG,
                  font=("Segoe UI", 8, "bold"), padx=24).pack(anchor="w")
         log_fr = tk.Frame(parent, bg=CONSOLE_BG, bd=1, relief="flat")
         log_fr.pack(fill="x", padx=24, pady=(4, 0))
-        self._sm_log_txt = tk.Text(log_fr, bg=CONSOLE_BG, fg=CONSOLE_T, height=7,
+        self._am_log_txt = tk.Text(log_fr, bg=CONSOLE_BG, fg=CONSOLE_T, height=7,
                                    font=("Courier New", 8), state="disabled",
                                    wrap="word", relief="flat", bd=0,
                                    insertbackground=CONSOLE_T)
-        vsb = ttk.Scrollbar(log_fr, command=self._sm_log_txt.yview)
-        self._sm_log_txt.config(yscrollcommand=vsb.set)
+        vsb = ttk.Scrollbar(log_fr, command=self._am_log_txt.yview)
+        self._am_log_txt.config(yscrollcommand=vsb.set)
         vsb.pack(side="right", fill="y")
-        self._sm_log_txt.pack(fill="x", padx=4, pady=4)
+        self._am_log_txt.pack(fill="x", padx=4, pady=4)
 
-    def _apply_port(self) -> None:
-        try:
-            p = int(self._port_var.get())
-            if not (1024 <= p <= 65535): raise ValueError()
-            self.sm.set_port(p)
-            if self._sm_lbl_url:         self._sm_lbl_url.config(text=self.sm.url)
-            if self._sm_lbl_network_url: self._sm_lbl_network_url.config(text=self.sm.network_url)
-            self._sm_log(f"Puerto actualizado a {p}.")
-        except ValueError:
-            self._sm_log("❌ Puerto inválido (1024-65535).")
-
-    def _sm_log(self, msg: str) -> None:
-        if not self._sm_log_txt: return
+    def _api_log(self, msg: str) -> None:
+        if not self._am_log_txt: return
         ts = _now()
-        self._sm_log_txt.config(state="normal")
-        self._sm_log_txt.insert("end", f"[{ts}]  {msg}\n")
-        self._sm_log_txt.see("end")
-        self._sm_log_txt.config(state="disabled")
+        self._am_log_txt.config(state="normal")
+        self._am_log_txt.insert("end", f"[{ts}]  {msg}\n")
+        self._am_log_txt.see("end")
+        self._am_log_txt.config(state="disabled")
+
+    # ══════════════════════════════════════════════════════════════════════
+    # TAB: CLOUDFLARE TUNNEL
+    # ══════════════════════════════════════════════════════════════════════
+
+    def _build_tab_cloudflare(self, parent: tk.Frame) -> None:
+        parent.configure(bg=BG)
+        pad = dict(padx=24)
+
+        tk.Frame(parent, bg=BG, height=18).pack()
+        tk.Label(parent, text="Cloudflare Tunnel", fg=AMBER, bg=BG,
+                 font=("Segoe UI", 16, "bold"), **pad).pack(anchor="w")
+        tk.Label(parent, text="Expone la API al mundo con URL fija · api.shelfycenter.com",
+                 fg=MUTED, bg=BG, font=("Segoe UI", 8), **pad).pack(anchor="w")
+        _sep(parent).pack(fill="x", padx=24, pady=(6, 10))
+
+        # ── Status card ────────────────────────────────────────────────
+        sc = tk.Frame(parent, bg=CARD)
+        sc.pack(fill="x", padx=24, pady=(0, 10))
+        tk.Frame(sc, bg=BORDER, height=1).pack(fill="x", side="bottom")
+
+        row1 = tk.Frame(sc, bg=CARD)
+        row1.pack(fill="x", padx=14, pady=(10, 4))
+
+        self._cf_lbl_status = tk.Label(row1, text="○ DETENIDO", fg=MUTED, bg=CARD,
+                                       font=("Segoe UI", 14, "bold"))
+        self._cf_lbl_status.pack(side="left", padx=(0, 16))
+
+        self._cf_lbl_url = tk.Label(row1, text="—", fg=AMBER, bg=CARD,
+                                    font=("Segoe UI", 9), cursor="hand2")
+        self._cf_lbl_url.bind("<Button-1>", lambda e: webbrowser.open(CF_PUBLIC_URL))
+        self._cf_lbl_url.pack(side="left")
+
+        row2 = tk.Frame(sc, bg=CARD)
+        row2.pack(fill="x", padx=14, pady=(0, 10))
+        for label_text, attr in [("Uptime", "_cf_lbl_uptime"), ("PID", "_cf_lbl_pid")]:
+            tk.Label(row2, text=f"{label_text}:", fg=MUTED, bg=CARD,
+                     font=("Segoe UI", 8)).pack(side="left", padx=(0, 4))
+            lbl = tk.Label(row2, text="—", fg=TEXT, bg=CARD,
+                           font=("Segoe UI", 8, "bold"))
+            lbl.pack(side="left", padx=(0, 20))
+            setattr(self, attr, lbl)
+
+        # ── Modo ───────────────────────────────────────────────────────
+        mode_fr = tk.Frame(parent, bg=CARD)
+        mode_fr.pack(fill="x", padx=24, pady=(0, 10))
+        inner_m = tk.Frame(mode_fr, bg=CARD)
+        inner_m.pack(padx=14, pady=10, anchor="w")
+
+        tk.Label(inner_m, text="Modo:", fg=MUTED, bg=CARD,
+                 font=("Segoe UI", 9)).pack(side="left", padx=(0, 8))
+        tk.Radiobutton(inner_m, text="Nombrado (api.shelfycenter.com)",
+                       variable=self._cf_mode_var, value="named",
+                       bg=CARD, fg=TEXT, selectcolor=SEL, activebackground=CARD,
+                       font=("Segoe UI", 9)).pack(side="left", padx=(0, 20))
+        tk.Radiobutton(inner_m, text="Temporal (trycloudflare.com)",
+                       variable=self._cf_mode_var, value="temp",
+                       bg=CARD, fg=MUTED, selectcolor=SEL, activebackground=CARD,
+                       font=("Segoe UI", 9)).pack(side="left")
+
+        # ── Botones ────────────────────────────────────────────────────
+        btns = tk.Frame(parent, bg=BG)
+        btns.pack(fill="x", padx=24, pady=(0, 10))
+
+        def _start_cf():
+            mode = self._cf_mode_var.get()
+            def _run():
+                msg = self.cfm.start(mode)
+                self.root.after(0, lambda: self._cf_log(msg))
+            threading.Thread(target=_run, daemon=True).start()
+
+        def _stop_cf():
+            self._cf_log(self.cfm.stop())
+
+        def _restart_cf():
+            mode = self._cf_mode_var.get()
+            def _run():
+                msg = self.cfm.restart(mode)
+                self.root.after(0, lambda: self._cf_log(msg))
+            threading.Thread(target=_run, daemon=True).start()
+
+        _btn(btns, "▶  INICIAR",   _start_cf,   fg=GREEN).pack(side="left", padx=(0, 6))
+        _btn(btns, "■  DETENER",   _stop_cf,     fg=RED).pack(side="left", padx=(0, 6))
+        _btn(btns, "↺  REINICIAR", _restart_cf,  fg=AMBER).pack(side="left", padx=(0, 6))
+        _btn(btns, "🌐  ABRIR URL",
+             lambda: webbrowser.open(CF_PUBLIC_URL), fg=SAND).pack(side="left", padx=(0, 6))
+
+        # ── Instrucciones primer uso ───────────────────────────────────
+        info_fr = tk.Frame(parent, bg=CARD)
+        info_fr.pack(fill="x", padx=24, pady=(0, 10))
+        info_inner = tk.Frame(info_fr, bg=CARD)
+        info_inner.pack(padx=14, pady=10, anchor="w")
+        tk.Label(info_inner,
+                 text="Primera vez: ejecutá estos comandos en la terminal del servidor:",
+                 fg=MUTED, bg=CARD, font=("Segoe UI", 8, "bold")).pack(anchor="w")
+        for cmd_txt in [
+            "  cloudflared tunnel login",
+            "  cloudflared tunnel create centermind",
+            "  cloudflared tunnel route dns centermind api.shelfycenter.com",
+        ]:
+            tk.Label(info_inner, text=cmd_txt, fg=SAND, bg=CARD,
+                     font=("Courier New", 8)).pack(anchor="w")
+        tk.Label(info_inner,
+                 text="Luego usá ▶ INICIAR (modo Nombrado). Nunca más cambia la URL.",
+                 fg=MUTED, bg=CARD, font=("Segoe UI", 8, "italic")).pack(anchor="w", pady=(4, 0))
+
+        # ── Log de acciones ────────────────────────────────────────────
+        tk.Label(parent, text="REGISTRO DE ACCIONES", fg=AMBER, bg=BG,
+                 font=("Segoe UI", 8, "bold"), padx=24).pack(anchor="w")
+        log_fr = tk.Frame(parent, bg=CONSOLE_BG, bd=1, relief="flat")
+        log_fr.pack(fill="x", padx=24, pady=(4, 0))
+        self._cf_log_txt = tk.Text(log_fr, bg=CONSOLE_BG, fg=CONSOLE_T, height=7,
+                                   font=("Courier New", 8), state="disabled",
+                                   wrap="word", relief="flat", bd=0,
+                                   insertbackground=CONSOLE_T)
+        vsb_cf = ttk.Scrollbar(log_fr, command=self._cf_log_txt.yview)
+        self._cf_log_txt.config(yscrollcommand=vsb_cf.set)
+        vsb_cf.pack(side="right", fill="y")
+        self._cf_log_txt.pack(fill="x", padx=4, pady=4)
+
+        self.cfm.set_log_callback(lambda msg: self.root.after(0, lambda m=msg: self._cf_log(m)))
+
+    def _cf_log(self, msg: str) -> None:
+        if not self._cf_log_txt:
+            return
+        ts = _now()
+        self._cf_log_txt.config(state="normal")
+        self._cf_log_txt.insert("end", f"[{ts}]  {msg}\n")
+        self._cf_log_txt.see("end")
+        self._cf_log_txt.config(state="disabled")
 
     # ══════════════════════════════════════════════════════════════════════
     # TAB: CONSOLA EN VIVO
@@ -1303,10 +1521,11 @@ class ShelfMindPanel:
     # ══════════════════════════════════════════════════════════════════════
 
     def _after_refresh(self) -> None:
-        """Actualiza status de bots y Streamlit cada REFRESH_MS ms."""
+        """Actualiza status de bots, API y Cloudflare cada REFRESH_MS ms."""
         if not self._running: return
         self._refresh_bot_rows()
-        self._refresh_sm_status()
+        self._refresh_am_status()
+        self._refresh_cf_status()
         self.root.after(REFRESH_MS, self._after_refresh)
 
     def _refresh_bot_rows(self) -> None:
@@ -1320,14 +1539,25 @@ class ShelfMindPanel:
             refs["restarts"].config(text=str(bp.restarts))
             refs["accent"].config(bg=color)
 
-    def _refresh_sm_status(self) -> None:
-        st = self.sm.status
-        if self._sm_lbl_status:
-            self._sm_lbl_status.config(text=f"{_si(st)} {st.upper()}", fg=_sc(st))
-        if self._sm_lbl_uptime:
-            self._sm_lbl_uptime.config(text=self.sm.uptime)
-        if self._sm_lbl_pid:
-            self._sm_lbl_pid.config(text=self.sm.pid)
+    def _refresh_am_status(self) -> None:
+        st = self.am.status
+        if self._am_lbl_status:
+            self._am_lbl_status.config(text=f"{_si(st)} {st.upper()}", fg=_sc(st))
+        if self._am_lbl_uptime:
+            self._am_lbl_uptime.config(text=self.am.uptime)
+        if self._am_lbl_pid:
+            self._am_lbl_pid.config(text=self.am.pid)
+
+    def _refresh_cf_status(self) -> None:
+        st = self.cfm.status
+        if self._cf_lbl_status:
+            self._cf_lbl_status.config(text=f"{_si(st)} {st.upper()}", fg=_sc(st))
+        if self._cf_lbl_uptime:
+            self._cf_lbl_uptime.config(text=self.cfm.uptime)
+        if self._cf_lbl_pid:
+            self._cf_lbl_pid.config(text=self.cfm.pid)
+        if self._cf_lbl_url:
+            self._cf_lbl_url.config(text=self.cfm.public_url)
 
     # ══════════════════════════════════════════════════════════════════════
     # LOG TAIL (background thread → queue → main thread)
@@ -1462,7 +1692,8 @@ class ShelfMindPanel:
 
     def _shutdown(self) -> None:
         self.bm.stop_all()
-        self.sm.stop()
+        self.am.stop()
+        self.cfm.stop()
         self.root.after(500, self.root.destroy)
 
 

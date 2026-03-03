@@ -419,8 +419,8 @@ export default function AdminPage() {
   const isSuperadmin = user?.rol === "superadmin";
 
   const TABS = [
-    { id: "usuarios",       label: "Usuarios",       icon: Shield    },
-    { id: "integrantes",    label: "Integrantes",    icon: Users     },
+    { id: "usuarios", label: "Usuarios", icon: Shield },
+    { id: "integrantes", label: "Integrantes", icon: Users },
     ...(isSuperadmin ? [{ id: "distribuidoras", label: "Distribuidoras", icon: Building2 }] : []),
   ];
 
@@ -477,7 +477,7 @@ export default function AdminPage() {
 function RolBadge({ rol }: { rol: string }) {
   const colors: Record<string, string> = {
     superadmin: "bg-purple-100 text-purple-700",
-    admin:      "bg-blue-100 text-blue-700",
+    admin: "bg-blue-100 text-blue-700",
     supervisor: "bg-green-100 text-green-700",
   };
   return (

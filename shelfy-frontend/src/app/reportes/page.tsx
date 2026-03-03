@@ -56,11 +56,10 @@ function MultiSelect({
             key={o}
             type="button"
             onClick={() => toggle(o)}
-            className={`text-xs px-2.5 py-1 rounded-full border font-medium transition-all ${
-              selected.includes(o)
+            className={`text-xs px-2.5 py-1 rounded-full border font-medium transition-all ${selected.includes(o)
                 ? "bg-[var(--shelfy-primary)] text-white border-[var(--shelfy-primary)]"
                 : "bg-[var(--shelfy-bg)] text-[var(--shelfy-muted)] border-[var(--shelfy-border)] hover:border-[var(--shelfy-primary)] hover:text-[var(--shelfy-text)]"
-            }`}
+              }`}
           >
             {o}
           </button>
@@ -98,7 +97,7 @@ export default function ReportesPage() {
       fetchReporteTiposPdv(user.id_distribuidor),
     ])
       .then(([v, t]) => { setVendedoresList(v); setTiposPdvList(t); })
-      .catch(() => {})
+      .catch(() => { })
       .finally(() => setLoadingOpts(false));
   }, [user]);
 
@@ -135,7 +134,7 @@ export default function ReportesPage() {
 
   function handleExportCSV() {
     if (filas.length === 0) return;
-    const headers = ["ID", "Vendedor", "Cliente", "Tipo PDV", "Estado", "Supervisor", "Comentario", "Fecha carga", "Fecha evaluación"];
+    const headers = ["ID", "Vendedor", "Cliente", "Tipo PDV", "Estado", "Evaluador", "Comentario", "Fecha carga", "Fecha evaluación"];
     const rows = filas.map((f) => [
       f.id_exhibicion, f.vendedor, f.cliente, f.tipo_pdv, f.estado,
       f.supervisor, f.comentario, f.fecha_carga, f.fecha_evaluacion,
@@ -220,7 +219,7 @@ export default function ReportesPage() {
               {/* Vendedores */}
               {!loadingOpts && vendedoresList.length > 0 && (
                 <MultiSelect
-                  label="Supervisor"
+                  label="Vendedor"
                   options={vendedoresList}
                   selected={selectedVendedores}
                   onChange={setSelectedVendedores}
@@ -292,7 +291,7 @@ export default function ReportesPage() {
 
 function EstadoBadge({ estado }: { estado: string }) {
   const colors: Record<string, string> = {
-    Aprobado:  "bg-green-100 text-green-700",
+    Aprobado: "bg-green-100 text-green-700",
     Destacado: "bg-purple-100 text-purple-700",
     Rechazado: "bg-red-100 text-red-700",
     Pendiente: "bg-yellow-100 text-yellow-700",

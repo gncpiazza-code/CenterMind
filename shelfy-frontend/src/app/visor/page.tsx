@@ -67,10 +67,11 @@ export default function VisorPage() {
   const cargar = useCallback(async () => {
     if (!user) return;
     try {
+      const distId = user?.id_distribuidor || 0;
       const [pend, st, vend] = await Promise.all([
-        fetchPendientes(user.id_distribuidor),
-        fetchStatsHoy(user.id_distribuidor),
-        fetchVendedores(user.id_distribuidor),
+        fetchPendientes(distId),
+        fetchStatsHoy(distId),
+        fetchVendedores(distId),
       ]);
       setGrupos(pend);
       setStats(st);

@@ -139,6 +139,8 @@ class LoginRequest(BaseModel):
 class EvaluarRequest(BaseModel):
     ids_exhibicion: List[int]
     estado: str
+    supervisor: str
+    comentario: str = ""
 
 class IntegranteUpdateRequest(BaseModel):
     nombre_integrante: str
@@ -150,8 +152,6 @@ class LocationRequest(BaseModel):
     label: str
     lat: float | None = 0.0
     lon: float | None = 0.0
-    supervisor: str
-    comentario: str = ""
 
 
 class RevertirRequest(BaseModel):
@@ -263,8 +263,11 @@ def auth_login(req: LoginRequest):
 @app.get("/pendientes/{id_distribuidor}", summary="Exhibiciones pendientes agrupadas por mensaje")
 def get_pendientes(id_distribuidor: int, _=Depends(verify_auth)):
     with get_conn() as c:
+        where_dist = "AND e.id_distribuidor = ?" if id_distribuidor > 0 else ""
+        params = (id_distribuidor,) if id_distribuidor > 0 else ()
+        
         rows = c.execute(
-            """SELECT e.id_exhibicion,
+            f"""SELECT e.id_exhibicion,
                       c.numero_cliente_local  AS nro_cliente,
                       e.tipo_pdv,
                       e.url_foto_drive        AS drive_link,
@@ -274,9 +277,9 @@ def get_pendientes(id_distribuidor: int, _=Depends(verify_auth)):
                FROM exhibiciones e
                LEFT JOIN integrantes_grupo i ON i.id_integrante = e.id_integrante
                LEFT JOIN clientes c          ON c.id_cliente    = e.id_cliente
-               WHERE e.id_distribuidor = ? AND e.estado = 'Pendiente'
+               WHERE e.estado = 'Pendiente' {where_dist}
                ORDER BY e.timestamp_subida ASC""",
-            (id_distribuidor,),
+            params,
         ).fetchall()
 
     grupos: dict = {}
@@ -302,15 +305,18 @@ def get_pendientes(id_distribuidor: int, _=Depends(verify_auth)):
 def get_stats(id_distribuidor: int, _=Depends(verify_auth)):
     hoy = datetime.now().strftime("%Y-%m-%d")
     with get_conn() as c:
+        where_dist = "id_distribuidor=? AND " if id_distribuidor > 0 else ""
+        params = (id_distribuidor, hoy) if id_distribuidor > 0 else (hoy,)
+        
         row = c.execute(
-            """SELECT COUNT(*) total,
+            f"""SELECT COUNT(*) total,
                SUM(CASE WHEN estado='Pendiente' THEN 1 ELSE 0 END) pendientes,
                SUM(CASE WHEN estado='Aprobado'  THEN 1 ELSE 0 END) aprobadas,
                SUM(CASE WHEN estado='Rechazado' THEN 1 ELSE 0 END) rechazadas,
                SUM(CASE WHEN estado='Destacado' THEN 1 ELSE 0 END) destacadas
                FROM exhibiciones
-               WHERE id_distribuidor=? AND DATE(timestamp_subida)=?""",
-            (id_distribuidor, hoy),
+               WHERE {where_dist}DATE(timestamp_subida)=?""",
+            params,
         ).fetchone()
     r = dict(row) if row else {}
     return {k: (v or 0) for k, v in r.items()}
@@ -319,13 +325,16 @@ def get_stats(id_distribuidor: int, _=Depends(verify_auth)):
 @app.get("/vendedores/{id_distribuidor}", summary="Lista de vendedores con pendientes")
 def get_vendedores(id_distribuidor: int, _=Depends(verify_auth)):
     with get_conn() as c:
+        where_dist = "e.id_distribuidor=? AND " if id_distribuidor > 0 else ""
+        params = (id_distribuidor,) if id_distribuidor > 0 else ()
+        
         rows = c.execute(
-            """SELECT DISTINCT i.nombre_integrante
+            f"""SELECT DISTINCT i.nombre_integrante
                FROM exhibiciones e
                LEFT JOIN integrantes_grupo i ON i.id_integrante = e.id_integrante
-               WHERE e.id_distribuidor=? AND e.estado='Pendiente'
+               WHERE {where_dist}e.estado='Pendiente'
                ORDER BY i.nombre_integrante ASC""",
-            (id_distribuidor,),
+            params,
         ).fetchall()
     return [r["nombre_integrante"] for r in rows if r["nombre_integrante"]]
 

@@ -263,7 +263,7 @@ export async function setRolIntegrante(id: number, rol: string, distribuidorId?:
   });
 }
 
-export async function editarIntegranteAdmin(id: number, data: { nombre_integrante: string, rol_telegram?: string }) {
+export async function editarIntegranteAdmin(id: number, data: { nombre_integrante: string, rol_telegram?: string, location_id?: number | null }) {
   return apiFetch(`/admin/integrantes/${id}`, {
     method: "PUT",
     body: JSON.stringify(data),

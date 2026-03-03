@@ -293,7 +293,7 @@ export default function VisorPage() {
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-bold text-slate-900 truncate">{grupo.vendedor || "Sin asignar"}</p>
-                          <p className="text-xs font-medium text-slate-500">Supervisor de Campo</p>
+                          <p className="text-xs font-medium text-slate-500">Vendedor</p>
                         </div>
                       </div>
 

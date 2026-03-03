@@ -32,8 +32,8 @@ export default function LoginPage() {
       setTimeout(() => {
         setSlotIdx(i => (i + 1) % SLOTS.length);
         setSlotAnim("in");
-      }, 350);
-    }, 2800);
+      }, 250);
+    }, 2000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -150,24 +150,25 @@ export default function LoginPage() {
             {/* Slot subtitle — 2 líneas para no cortarse */}
             <div className="flex flex-col items-center mt-1.5" style={{ color: "#6d28d9", fontSize: 13 }}>
               <span>Mentalidad enfocada en</span>
-              <span className="overflow-hidden" style={{ height: 28 }}>
+              <div className="flex items-center gap-1.5 mt-0.5 overflow-hidden" style={{ height: 32 }}>
                 <span
                   key={slotIdx}
                   className={slotAnim === "in" ? "slot-in" : "slot-out"}
                   style={{
                     fontWeight: 900,
-                    fontSize: 15,
+                    fontSize: 20,
                     display: "inline-flex",
                     alignItems: "center",
                     gap: 6,
+                    color: SLOTS[slotIdx].color
                   }}
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={SLOTS[slotIdx].icon} alt={SLOTS[slotIdx].iconAlt} style={{ width: 16, height: 16, objectFit: "contain" }} />
-                  <span style={{ color: SLOTS[slotIdx].color }}>{SLOTS[slotIdx].word}</span>
-                  <span className="ml-1" style={{ color: "#6d28d9" }}>la góndola</span>
+                  <img src={SLOTS[slotIdx].icon} alt={SLOTS[slotIdx].iconAlt} style={{ width: 18, height: 18, objectFit: "contain" }} />
+                  {SLOTS[slotIdx].word}
                 </span>
-              </span>
+                <span style={{ fontSize: 14, fontWeight: 700, color: "#6d28d9" }}>la góndola</span>
+              </div>
             </div>
           </div>
 

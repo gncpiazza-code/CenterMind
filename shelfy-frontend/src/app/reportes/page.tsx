@@ -57,8 +57,8 @@ function MultiSelect({
             type="button"
             onClick={() => toggle(o)}
             className={`text-xs px-2.5 py-1 rounded-full border font-medium transition-all ${selected.includes(o)
-                ? "bg-[var(--shelfy-primary)] text-white border-[var(--shelfy-primary)]"
-                : "bg-[var(--shelfy-bg)] text-[var(--shelfy-muted)] border-[var(--shelfy-border)] hover:border-[var(--shelfy-primary)] hover:text-[var(--shelfy-text)]"
+              ? "bg-[var(--shelfy-primary)] text-white border-[var(--shelfy-primary)]"
+              : "bg-[var(--shelfy-bg)] text-[var(--shelfy-muted)] border-[var(--shelfy-border)] hover:border-[var(--shelfy-primary)] hover:text-[var(--shelfy-text)]"
               }`}
           >
             {o}
@@ -260,7 +260,7 @@ export default function ReportesPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="text-[var(--shelfy-muted)] text-left border-b border-[var(--shelfy-border)]">
-                      {["ID", "Vendedor/Sup.", "Cliente", "PDV", "Estado", "Fecha carga"].map((h) => (
+                      {["ID", "Vendedor", "Cliente", "PDV", "Estado", "Fecha carga"].map((h) => (
                         <th key={h} className="pb-3 pr-4 whitespace-nowrap font-semibold">{h}</th>
                       ))}
                     </tr>

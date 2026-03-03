@@ -3,8 +3,8 @@
 """
 Bot de Telegram por distribuidor.
 - Solo carga exhibiciones (sin evaluación en chat)
-- Evaluación desde la app Streamlit
-- Edita mensajes cuando Streamlit evalúa (sync job)
+- Evaluación desde la app React / NextJS
+- Edita mensajes cuando se evalúa (sync job)
 - SQL (SQLite) en lugar de Google Sheets
 - Drive con service account
 """
@@ -1397,12 +1397,12 @@ class BotWorker:
         del self.upload_sessions[uploader_id]
 
     # ─────────────────────────────────────────────────────────────
-    # JOB: Sincronizar evaluaciones de Streamlit → Telegram
+    # JOB: Sincronizar evaluaciones web → Telegram
     # ─────────────────────────────────────────────────────────────
 
     async def sync_evaluaciones_job(self, context: ContextTypes.DEFAULT_TYPE) -> None:
         """
-        Cada 30s busca exhibiciones evaluadas (desde Streamlit) que no
+        Cada 30s busca exhibiciones evaluadas que no
         tienen el mensaje de Telegram actualizado y lo edita.
         """
         # Heartbeat al monitor de uptime

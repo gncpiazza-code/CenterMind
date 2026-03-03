@@ -56,7 +56,7 @@ DB_PATH = Path(__file__).resolve().parent / "base_datos" / "centermind.db"
 
 app = FastAPI(title="Shelfy API", version="1.0.0")
 
-# CORS: permite peticiones desde Streamlit Cloud (y cualquier origen)
+# CORS: permite peticiones desde cualquier origen
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -106,7 +106,7 @@ def verify_auth(
     authorization: str = Header(None),
 ):
     """Acepta cualquiera de los dos métodos de autenticación:
-    - X-Api-Key: <clave>  → bot de Telegram, Streamlit (compatibilidad)
+    - X-Api-Key: <clave>  → bot de Telegram (compatibilidad)
     - Authorization: Bearer <jwt> → frontend React
     """
     if x_api_key:

@@ -168,7 +168,7 @@ def aplicar_alertas_credito(df: pd.DataFrame, config: dict) -> pd.DataFrame:
     return df
 
 # --- Generador Principal ---
-def procesar_cuentas_corrientes_service(path_excel: str, out_dir: str, config: dict):
+def procesar_cuentas_corrientes_service(input_path: str, out_dir: str, config: dict, sucursales_map: dict = None) -> dict:
     """
     Lee, procesa, aplica alertas y devuelve:
     (path_al_excel_resultado, json_data_para_previsualizar)

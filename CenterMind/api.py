@@ -814,6 +814,19 @@ def dashboard_imagen(file_id: str):
 
 # ─── Módulo Cuentas Corrientes ───────────────────────────────────────────────
 
+from fastapi.responses import JSONResponse
+
+@app.options("/api/procesar-cuentas-corrientes")
+def options_procesar_cuentas_corrientes():
+    return JSONResponse(
+        content="OK",
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "POST, OPTIONS",
+            "Access-Control-Allow-Headers": "*",
+        },
+    )
+
 @app.post("/api/procesar-cuentas-corrientes", summary="Procesar Excel de Cuentas Corrientes y Alertas de Crédito")
 async def procesar_cuentas_corrientes(
     file: UploadFile = File(...),

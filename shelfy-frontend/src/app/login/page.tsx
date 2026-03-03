@@ -117,10 +117,10 @@ export default function LoginPage() {
             <div className="anim-float mb-4">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src="/WEBICON.svg"
-                alt="Shelfy icon"
-                className="w-16 h-16 rounded-2xl shadow-lg"
-                style={{ boxShadow: "0 8px 32px rgba(124,58,237,0.30)" }}
+                src="/LOGO_NUEVO.svg"
+                alt="Shelfy"
+                className="h-20 w-auto"
+                style={{ filter: "drop-shadow(0 8px 24px rgba(124,58,237,0.25))" }}
               />
             </div>
             <h1 className="text-2xl font-bold text-center" style={{ color: "#1e1b4b", letterSpacing: "-0.02em" }}>

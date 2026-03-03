@@ -27,29 +27,56 @@ function FotoViewer({
   driveUrl: string;
   className?: string;
 }) {
-  const [err, setErr] = useState(false);
+  const [status, setStatus] = useState<"loading" | "ok" | "err">("loading");
+  const [errMsg, setErrMsg] = useState("");
   const fileId = extractDriveId(driveUrl);
   const src = fileId ? getImageUrl(fileId) : null;
 
-  // reset solo en cambio de URL
-  useEffect(() => { setErr(false); }, [driveUrl]);
+  useEffect(() => { setStatus("loading"); setErrMsg(""); }, [driveUrl]);
 
-  if (!src || err) {
+  if (!src) {
     return (
-      <div className={`flex flex-col items-center justify-center text-[var(--shelfy-muted)] gap-3 bg-[var(--shelfy-bg)] ${className}`}>
-        <ImageOff size={42} className="opacity-30" />
-        <span className="text-xs">Sin imagen disponible</span>
+      <div className={`flex flex-col items-center justify-center text-[var(--shelfy-muted)] gap-2 bg-[var(--shelfy-bg)] ${className}`}>
+        <ImageOff size={36} className="opacity-30" />
+        <span className="text-xs">Sin link de imagen</span>
+        <span className="text-[10px] opacity-50 px-2 text-center break-all">{driveUrl || "(vacío)"}</span>
       </div>
     );
   }
+
   return (
-    <div className={`overflow-hidden ${className}`}>
+    <div className={`overflow-hidden relative ${className}`}>
+      {status !== "ok" && (
+        <div className={`absolute inset-0 flex flex-col items-center justify-center gap-2 bg-[var(--shelfy-bg)] z-10 ${status === "loading" ? "" : "text-[var(--shelfy-muted)]"}`}>
+          {status === "loading" ? (
+            <div className="w-7 h-7 border-2 border-[var(--shelfy-primary)] border-t-transparent rounded-full animate-spin" />
+          ) : (
+            <>
+              <ImageOff size={36} className="opacity-30" />
+              <span className="text-xs">Error al cargar imagen</span>
+              {errMsg && <span className="text-[10px] opacity-60 px-3 text-center">{errMsg}</span>}
+            </>
+          )}
+        </div>
+      )}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={src}
         alt="Exhibición"
         className="w-full h-full object-cover"
-        onError={() => setErr(true)}
+        style={{ opacity: status === "ok" ? 1 : 0 }}
+        onLoad={() => setStatus("ok")}
+        onError={async () => {
+          // Intentar obtener el mensaje de error del backend
+          try {
+            const r = await fetch(src);
+            const body = await r.json().catch(() => ({ detail: `HTTP ${r.status}` }));
+            setErrMsg(body?.detail ?? `HTTP ${r.status}`);
+          } catch {
+            setErrMsg("Sin conexión con el servidor");
+          }
+          setStatus("err");
+        }}
       />
     </div>
   );

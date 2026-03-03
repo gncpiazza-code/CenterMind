@@ -207,7 +207,7 @@ export default function VisorPage() {
                       <FotoViewer driveUrl={grupo.fotos[fotoIdx]?.drive_link ?? ""} />
 
                       {/* Overlay Superior de Info (como en el mockup: Título, Cliente, Distribuidora, Fecha) */}
-                      <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/80 via-black/40 to-transparent pt-6 pb-12 px-5 text-white">
+                      <div className="absolute top-0 left-0 right-0 bg-black/60 backdrop-blur-md pt-6 pb-6 px-5 text-white border-b border-white/20">
                         <h2 className="text-xl font-extrabold tracking-tight mb-2 drop-shadow-md">
                           Exhibición #{grupo.fotos[fotoIdx]?.id_exhibicion || "---"}
                         </h2>

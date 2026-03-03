@@ -15,7 +15,7 @@ import {
   fetchIntegrantes, setRolIntegrante, editarIntegranteAdmin, type Integrante,
   fetchLocations, crearLocation, editarLocation, type Location
 } from "@/lib/api";
-import { Trash2, UserPlus, Shield, Building2, Users, ToggleLeft, ToggleRight, RefreshCw, MapPin, Edit2 } from "lucide-react";
+import { Trash2, UserPlus, Shield, Building2, Users, ToggleLeft, ToggleRight, RefreshCw, MapPin, Edit2, Search } from "lucide-react";
 
 const ROL_LABEL: Record<string, string> = {
   superadmin: "Super Admin",
@@ -37,6 +37,7 @@ function TabUsuarios({ isSuperadmin, distId }: { isSuperadmin: boolean; distId: 
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ login: "", password: "", rol: "supervisor", dist_id: distId });
   const [saving, setSaving] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const rolesDisponibles = isSuperadmin ? ["supervisor", "admin", "superadmin"] : ["supervisor"];
 
@@ -78,11 +79,23 @@ function TabUsuarios({ isSuperadmin, distId }: { isSuperadmin: boolean; distId: 
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <p className="text-[var(--shelfy-muted)] text-sm">{usuarios.length} usuarios</p>
-        <Button size="sm" onClick={() => setShowForm(!showForm)}>
-          <UserPlus size={14} /> Nuevo usuario
-        </Button>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--shelfy-muted)]" size={14} />
+            <input
+              type="text"
+              placeholder="Buscar usuario..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-8 rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-[var(--shelfy-text)] px-3 py-1.5 text-sm focus:outline-none focus:border-[var(--shelfy-primary)] w-[200px]"
+            />
+          </div>
+          <Button size="sm" onClick={() => setShowForm(!showForm)}>
+            <UserPlus size={14} /> Nuevo usuario
+          </Button>
+        </div>
       </div>
 
       {error && (
@@ -136,7 +149,11 @@ function TabUsuarios({ isSuperadmin, distId }: { isSuperadmin: boolean; distId: 
                 </tr>
               </thead>
               <tbody>
-                {usuarios.map((u) => (
+                {usuarios.filter(u =>
+                  u.usuario_login.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                  (u.nombre_empresa && u.nombre_empresa.toLowerCase().includes(searchQuery.toLowerCase())) ||
+                  u.rol.toLowerCase().includes(searchQuery.toLowerCase())
+                ).map((u) => (
                   <tr key={u.id_usuario} className="border-b border-[var(--shelfy-border)] last:border-0 hover:bg-[var(--shelfy-bg)] transition-colors">
                     <td className="py-3 pr-4 text-[var(--shelfy-text)] font-medium">{u.usuario_login}</td>
                     <td className="py-3 pr-4"><RolBadge rol={u.rol} /></td>
@@ -330,6 +347,7 @@ function TabIntegrantes({ isSuperadmin, distId }: { isSuperadmin: boolean; distI
   // Edición Inline
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editName, setEditName] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const load = () => {
     setLoading(true);
@@ -394,11 +412,23 @@ function TabIntegrantes({ isSuperadmin, distId }: { isSuperadmin: boolean; distI
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <p className="text-[var(--shelfy-muted)] text-sm">{integrantes.length} integrantes de Telegram</p>
-        <button onClick={load} className="p-2 text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] border border-[var(--shelfy-border)] rounded-lg bg-[var(--shelfy-panel)] transition-colors">
-          <RefreshCw size={13} />
-        </button>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--shelfy-muted)]" size={14} />
+            <input
+              type="text"
+              placeholder="Buscar integrante..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-8 rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-[var(--shelfy-text)] px-3 py-1.5 text-sm focus:outline-none focus:border-[var(--shelfy-primary)] w-[200px]"
+            />
+          </div>
+          <button onClick={load} className="p-2 text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] border border-[var(--shelfy-border)] rounded-lg bg-[var(--shelfy-panel)] transition-colors">
+            <RefreshCw size={13} />
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -422,7 +452,13 @@ function TabIntegrantes({ isSuperadmin, distId }: { isSuperadmin: boolean; distI
                 </tr>
               </thead>
               <tbody>
-                {integrantes.map((ig) => (
+                {integrantes.filter(ig =>
+                  ig.nombre_integrante.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                  (ig.nombre_empresa && ig.nombre_empresa.toLowerCase().includes(searchQuery.toLowerCase())) ||
+                  (ig.sucursal_label && ig.sucursal_label.toLowerCase().includes(searchQuery.toLowerCase())) ||
+                  (ig.nombre_grupo && ig.nombre_grupo.toLowerCase().includes(searchQuery.toLowerCase())) ||
+                  (ig.rol_telegram && ig.rol_telegram.toLowerCase().includes(searchQuery.toLowerCase()))
+                ).map((ig) => (
                   <tr key={ig.id_integrante} className="border-b border-[var(--shelfy-border)] last:border-0 hover:bg-[var(--shelfy-bg)] transition-colors">
 
                     <td className="py-3 pr-4">
@@ -508,6 +544,7 @@ function TabSucursales({ isSuperadmin, distId }: { isSuperadmin: boolean; distId
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Para form de creación o edición
   const [editingLoc, setEditingLoc] = useState<Location | null>(null);
@@ -557,11 +594,23 @@ function TabSucursales({ isSuperadmin, distId }: { isSuperadmin: boolean; distId
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <p className="text-[var(--shelfy-muted)] text-sm">{locations.length} sucursales</p>
-        <Button size="sm" onClick={handleOpenCrear}>
-          <MapPin size={14} /> Nueva sucursal
-        </Button>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--shelfy-muted)]" size={14} />
+            <input
+              type="text"
+              placeholder="Buscar sucursal..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-8 rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-[var(--shelfy-text)] px-3 py-1.5 text-sm focus:outline-none focus:border-[var(--shelfy-primary)] w-[200px]"
+            />
+          </div>
+          <Button size="sm" onClick={handleOpenCrear}>
+            <MapPin size={14} /> Nueva sucursal
+          </Button>
+        </div>
       </div>
 
       {error && (
@@ -627,7 +676,11 @@ function TabSucursales({ isSuperadmin, distId }: { isSuperadmin: boolean; distId
                 </tr>
               </thead>
               <tbody>
-                {locations.map((loc) => (
+                {locations.filter(loc =>
+                  loc.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                  loc.ciudad.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                  loc.provincia.toLowerCase().includes(searchQuery.toLowerCase())
+                ).map((loc) => (
                   <tr key={loc.location_id} className="border-b border-[var(--shelfy-border)] last:border-0 hover:bg-[var(--shelfy-bg)] transition-colors">
                     <td className="py-3 pr-4 text-[var(--shelfy-text)] font-medium">{loc.label}</td>
                     <td className="py-3 pr-4 text-[var(--shelfy-muted)]">{loc.ciudad}, {loc.provincia}</td>

@@ -293,29 +293,30 @@ export default function BonosPage() {
                 <Lock size={11} /> Edición bloqueada
               </span>
             )}
+
+            {!bloqueado && (
+              <button
+                onClick={handleCopiarMesAnterior}
+                disabled={fetchingMesAnterior}
+                title="Trae la configuración (valores y puestos) del mes anterior"
+                className="flex items-center gap-1.5 text-xs text-[var(--shelfy-primary)] hover:opacity-80 transition-opacity disabled:opacity-50 border border-[var(--shelfy-primary)] bg-[var(--shelfy-primary)]/10 rounded-lg px-3 py-1.5 font-semibold ml-auto"
+              >
+                <Copy size={14} />
+                {fetchingMesAnterior ? "Copiando..." : "Traer config mes anterior"}
+              </button>
+            )}
           </div>
 
           {error && <p className="text-[var(--shelfy-error)] text-sm mb-4 bg-red-50 border border-red-200 rounded-lg px-4 py-2">{error}</p>}
           {loading && <PageSpinner />}
 
           {!loading && (
-            <div className="grid grid-cols-1 xl:grid-cols-[420px_1fr] gap-6">
+            <div className="grid grid-cols-1 xl:grid-cols-[400px_1fr] gap-6">
               {/* ── IZQUIERDA: Configuración ── */}
               <div className="flex flex-col gap-4">
                 <Card>
-                  <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-[var(--shelfy-text)] font-semibold">Configuración</h2>
-                    {!bloqueado && (
-                      <button
-                        onClick={handleCopiarMesAnterior}
-                        disabled={fetchingMesAnterior}
-                        title="Trae la configuración (valores y puestos) del mes anterior"
-                        className="flex items-center gap-1.5 text-xs text-[var(--shelfy-primary)] hover:opacity-80 transition-opacity disabled:opacity-50 border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] rounded-lg px-2.5 py-1.5 font-medium"
-                      >
-                        <Copy size={13} />
-                        {fetchingMesAnterior ? "Copiando..." : "Copiar mes anterior"}
-                      </button>
-                    )}
+                  <div className="flex items-center justify-between mb-4 mt-2">
+                    <h2 className="text-[var(--shelfy-text)] font-semibold">Configuración General</h2>
                   </div>
 
                   <div className="flex flex-col gap-4">

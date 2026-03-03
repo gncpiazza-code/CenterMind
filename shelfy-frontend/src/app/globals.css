@@ -1,46 +1,66 @@
 @import "tailwindcss";
 
-/* ── Paleta Shelfy — Light Theme ── */
+/* ── Paleta Shelfy — Premium Light Theme ── */
 :root {
-  --shelfy-bg:        #F5F3FF;
+  --shelfy-bg:        #F9FAFB;
   --shelfy-panel:     #FFFFFF;
   --shelfy-primary:   #7C3AED;
-  --shelfy-primary-2: #6D28D9;
-  --shelfy-border:    #E5E7EB;
+  --shelfy-primary-2: #4F46E5;
+  --shelfy-border:    #F3F4F6;
   --shelfy-text:      #111827;
-  --shelfy-muted:     #6B7280;
-  --shelfy-glow:      rgba(124, 58, 237, 0.08);
-  --shelfy-success:   #059669;
-  --shelfy-error:     #DC2626;
-  --shelfy-warning:   #D97706;
+  --shelfy-text-soft: #4B5563;
+  --shelfy-muted:     #9CA3AF;
+  --shelfy-glow:      rgba(124, 58, 237, 0.05);
+  --shelfy-success:   #10B981;
+  --shelfy-error:     #EF4444;
+  --shelfy-warning:   #F59E0B;
 }
 
 @theme inline {
   --color-background: var(--shelfy-bg);
   --color-foreground: var(--shelfy-text);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: 'Inter', var(--font-geist-sans), ui-sans-serif, system-ui;
   --font-mono: var(--font-geist-mono);
 }
 
 body {
   background-color: var(--shelfy-bg);
   color: var(--shelfy-text);
-  font-family: 'Inter', 'Geist', Arial, sans-serif;
+  font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Glassmorphism Utility ── */
+.glass-card {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.04);
 }
 
 /* ── Scrollbar personalizada ── */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
-  background: var(--shelfy-bg);
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--shelfy-border);
-  border-radius: 3px;
+  background: #E5E7EB;
+  border-radius: 10px;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--shelfy-primary);
+}
+
+/* ── Animations ── */
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-slide-up {
+  animation: slideUp 0.4s ease-out forwards;
 }

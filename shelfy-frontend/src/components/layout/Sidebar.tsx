@@ -26,10 +26,10 @@ export function Sidebar() {
   const navItems = ALL_NAV.filter(i => (i.roles as string[]).includes(rol));
 
   return (
-    <aside className="hidden md:flex flex-col w-60 min-h-screen bg-[var(--shelfy-panel)] border-r border-[var(--shelfy-border)] px-3 py-6 gap-2 shrink-0">
+    <aside className="hidden md:flex flex-col w-64 min-h-screen bg-white/80 backdrop-blur-xl border-r border-violet-100 px-4 py-8 gap-2 shrink-0 shadow-[4px_0_24px_rgba(124,58,237,0.03)] sticky top-0">
       {/* Logo */}
-      <div className="flex items-center px-3 mb-8">
-        <img src="/shelfy_logo_clean.svg" alt="Shelfy" className="h-9 w-auto" />
+      <div className="flex items-center px-2 mb-10">
+        <img src="/LOGO_NUEVO.svg" alt="Shelfy" className="h-10 w-auto" style={{ filter: "drop-shadow(0 4px 12px rgba(124,58,237,0.15))" }} />
       </div>
 
       {/* Nav section label */}
@@ -38,20 +38,20 @@ export function Sidebar() {
       </p>
 
       {/* Nav items */}
-      <nav className="flex flex-col gap-0.5 flex-1">
+      <nav className="flex flex-col gap-1.5 flex-1">
         {navItems.map(({ href, label, icon: Icon }) => {
           const active = pathname.startsWith(href);
           return (
             <Link
               key={href}
               href={href}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all
+              className={`flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-semibold transition-all duration-200
                 ${active
-                  ? "bg-[var(--shelfy-primary)] text-white shadow-sm"
-                  : "text-[var(--shelfy-muted)] hover:bg-[var(--shelfy-bg)] hover:text-[var(--shelfy-text)]"
+                  ? "bg-gradient-to-br from-violet-600 to-indigo-600 text-white shadow-lg shadow-violet-200 translate-x-1"
+                  : "text-slate-500 hover:bg-violet-50 hover:text-violet-700"
                 }`}
             >
-              <Icon size={17} />
+              <Icon size={18} strokeWidth={active ? 2.5 : 2} />
               {label}
             </Link>
           );
@@ -59,34 +59,36 @@ export function Sidebar() {
       </nav>
 
       {/* System section */}
-      <div className="mt-auto">
-        <p className="px-3 text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider mb-2">
-          Sistema
-        </p>
+      <div className="mt-auto space-y-4">
+        <div className="pt-4 border-t border-violet-50">
+          <p className="px-4 text-[10px] font-bold text-slate-400 uppercase tracking-[0.15em] mb-3">
+            Sistema
+          </p>
 
-        {/* User info */}
-        {user && (
-          <div className="flex items-center gap-3 px-3 py-2.5 mb-1 rounded-xl bg-[var(--shelfy-bg)]">
-            <div className="w-8 h-8 rounded-full bg-[var(--shelfy-primary)] flex items-center justify-center text-white text-xs font-bold shrink-0">
-              {user.usuario.charAt(0).toUpperCase()}
+          {/* User info */}
+          {user && (
+            <div className="flex items-center gap-3 px-4 py-3 mb-2 rounded-2xl bg-violet-50/50 border border-violet-100/50">
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center text-white text-xs font-black shadow-inner">
+                {user.usuario.charAt(0).toUpperCase()}
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm text-slate-900 font-bold truncate">{user.usuario}</p>
+                <p className="text-[10px] text-violet-600 font-medium truncate">
+                  {ROL_LABEL[user.rol] ?? user.rol}
+                </p>
+              </div>
             </div>
-            <div className="min-w-0">
-              <p className="text-sm text-[var(--shelfy-text)] font-semibold truncate">{user.usuario}</p>
-              <p className="text-[10px] text-[var(--shelfy-muted)] truncate">
-                {ROL_LABEL[user.rol] ?? user.rol} · {user.nombre_empresa}
-              </p>
-            </div>
-          </div>
-        )}
+          )}
 
-        {/* Logout */}
-        <button
-          onClick={logout}
-          className="flex items-center gap-2 px-3 py-2 w-full text-sm text-[var(--shelfy-muted)] hover:text-[var(--shelfy-error)] hover:bg-red-50 rounded-xl transition-colors"
-        >
-          <LogOut size={15} />
-          Cerrar sesión
-        </button>
+          {/* Logout */}
+          <button
+            onClick={logout}
+            className="flex items-center gap-3 px-4 py-3 w-full text-sm font-bold text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-2xl transition-all duration-200 active:scale-95"
+          >
+            <LogOut size={16} />
+            Cerrar sesión
+          </button>
+        </div>
       </div>
     </aside>
   );

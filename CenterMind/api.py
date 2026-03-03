@@ -28,11 +28,18 @@ try:
 except ImportError:
     pass
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Query, UploadFile, File, Form, Header
+from fastapi.security.api_key import APIKeyHeader
+from fastapi.security import OAuth2PasswordBearer
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+import json
+import base64
+
+from utils import SUCURSALES_MAP
+from services.cuentas_corrientes_service import procesar_cuentas_corrientes_service
 
 # JWT (python-jose) — opcional: si no está instalado, /auth/login no estará disponible
 try:
@@ -804,6 +811,55 @@ def dashboard_imagen(file_id: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e))
+
+
+# ─── Módulo Cuentas Corrientes ───────────────────────────────────────────────
+
+@app.post("/procesar-cuentas-corrientes", summary="Procesar Excel de ERP y generar alertas")
+def procesar_cuentas_corrientes(
+    file: UploadFile = File(...),
+    config: str = Form(...),
+    _=Depends(verify_auth)
+):
+    try:
+        config_data = json.loads(config)
+    except Exception:
+        raise HTTPException(status_code=400, detail="El campo 'config' debe ser un JSON válido.")
+
+    if not file.filename.endswith(('.xlsx', '.xls')):
+        raise HTTPException(status_code=400, detail="El archivo debe ser un Excel (.xlsx, .xls)")
+
+    # Guardar temporalmente el archivo subido
+    temp_dir = Path("temp_cuentas")
+    temp_dir.mkdir(exist_ok=True)
+    temp_path = temp_dir / file.filename
+    
+    try:
+        with open(temp_path, "wb") as f:
+            f.write(file.file.read())
+
+        out_path, json_data = procesar_cuentas_corrientes_service(str(temp_path), str(temp_dir), config_data)
+        
+        # Leer el excel generado a base64
+        with open(out_path, "rb") as f:
+            b64_file = base64.b64encode(f.read()).decode("utf-8")
+            
+        # Limpieza de archivos físicos inmediatos
+        os.remove(temp_path)
+        os.remove(out_path)
+        
+        return {
+            "ok": True,
+            "filename": os.path.basename(out_path),
+            "file_b64": b64_file,
+            "data": json_data
+        }
+
+    except Exception as e:
+        # Intentar limpiar en caso de error
+        if temp_path.exists(): os.remove(temp_path)
+        print(f"Error procesando Cuentas Corrientes: {e}")
+        raise HTTPException(status_code=500, detail=f"Error procesando el archivo: {str(e)}")
 
 
 # ─── Reportes endpoints ───────────────────────────────────────────────────────

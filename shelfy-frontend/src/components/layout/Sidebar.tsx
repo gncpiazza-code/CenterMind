@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Eye, Users, BarChart2, Gift, LogOut } from "lucide-react";
+import { LayoutDashboard, Eye, Users, BarChart2, Gift, LogOut, Briefcase } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 
 const ALL_NAV = [
@@ -10,6 +10,7 @@ const ALL_NAV = [
   { href: "/visor", label: "Evaluación", icon: Eye, roles: ["superadmin", "admin", "supervisor"] },
   { href: "/reportes", label: "Reportes", icon: BarChart2, roles: ["superadmin", "admin", "supervisor"] },
   { href: "/bonos", label: "Bonos", icon: Gift, roles: ["superadmin", "admin"] },
+  { href: "/cuentas-corrientes", label: "Cuentas Corrientes", icon: Briefcase, roles: ["superadmin", "admin"] },
   { href: "/admin", label: "Administrar", icon: Users, roles: ["superadmin", "admin"] },
 ];
 

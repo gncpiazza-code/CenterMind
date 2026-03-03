@@ -145,10 +145,10 @@ export default function LoginPage() {
               />
             </div>
             {/* Slot subtitle — 2 líneas para no cortarse */}
-            <div className="flex flex-col items-center mt-6 mb-2" style={{ color: "#6d28d9", fontSize: 13 }}>
-              <span>Mentalidad enfocada en</span>
-              <div className="flex items-center gap-1.5 mt-0.5 overflow-hidden" style={{ height: 32 }}>
-                <div style={{ width: 140 }} className="flex justify-end">
+            <div className="flex flex-col items-center mt-6 mb-3">
+              <span className="text-slate-900 font-semibold text-[14px] tracking-tight">Mentalidad enfocada en</span>
+              <div className="flex items-center gap-2 mt-0.5 overflow-hidden" style={{ height: 36 }}>
+                <div style={{ width: 180 }} className="flex justify-end">
                   <span
                     key={slotIdx}
                     className={slotAnim === "in" ? "slot-in" : "slot-out"}
@@ -157,17 +157,17 @@ export default function LoginPage() {
                       fontSize: 20,
                       display: "inline-flex",
                       alignItems: "center",
-                      gap: 6,
+                      gap: 8,
                       color: SLOTS[slotIdx].color,
                       textShadow: `0 0 10px ${SLOTS[slotIdx].color}80, 0 0 20px ${SLOTS[slotIdx].color}40`,
                     }}
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={SLOTS[slotIdx].icon} alt={SLOTS[slotIdx].iconAlt} style={{ width: 18, height: 18, objectFit: "contain" }} />
-                    {SLOTS[slotIdx].word}
+                    <img src={SLOTS[slotIdx].icon} alt={SLOTS[slotIdx].iconAlt} style={{ width: 20, height: 20, objectFit: "contain" }} />
+                    <span style={{ letterSpacing: "-0.02em" }}>{SLOTS[slotIdx].word}</span>
                   </span>
                 </div>
-                <span style={{ fontSize: 14, fontWeight: 700, color: "#6d28d9" }}>la góndola</span>
+                <span className="text-[15px] font-bold text-violet-700">la góndola</span>
               </div>
             </div>
           </div>

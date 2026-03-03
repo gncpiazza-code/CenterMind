@@ -139,6 +139,17 @@ class LoginRequest(BaseModel):
 class EvaluarRequest(BaseModel):
     ids_exhibicion: List[int]
     estado: str
+
+class IntegranteUpdateRequest(BaseModel):
+    nombre_integrante: str
+    rol_telegram: str | None = None
+
+class LocationRequest(BaseModel):
+    ciudad: str
+    provincia: str
+    label: str
+    lat: float | None = 0.0
+    lon: float | None = 0.0
     supervisor: str
     comentario: str = ""
 
@@ -1060,16 +1071,67 @@ class AsignarVendedorRequest(BaseModel):
 
 @app.get("/admin/locations/{dist_id}", summary="Sucursales de un distribuidor")
 def admin_get_locations(dist_id: int, _=Depends(verify_auth)):
-    """Retorna todas las sucursales (locations) de un distribuidor."""
+    """Retorna todas las sucursales (locations) de un distribuidor, incluyendo coordenadas."""
     with get_conn() as c:
         rows = c.execute(
-            """SELECT location_id, ciudad, provincia, label
+            """SELECT location_id, ciudad, provincia, label, lat, lon
                FROM locations
                WHERE dist_id = ?
                ORDER BY label""",
             (dist_id,),
         ).fetchall()
     return [dict(r) for r in rows]
+
+@app.post("/admin/locations/{dist_id}", summary="Crear sucursal")
+def admin_create_location(dist_id: int, req: LocationRequest, _=Depends(verify_auth)):
+    with get_conn() as c:
+        cur = c.execute(
+            "INSERT INTO locations (dist_id, ciudad, provincia, label, lat, lon) VALUES (?, ?, ?, ?, ?, ?)",
+            (dist_id, req.ciudad, req.provincia, req.label, req.lat, req.lon)
+        )
+        c.execute("COMMIT")
+        return {"ok": True, "location_id": cur.lastrowid}
+
+@app.put("/admin/locations/{location_id}", summary="Editar sucursal")
+def admin_update_location(location_id: int, req: LocationRequest, _=Depends(verify_auth)):
+    with get_conn() as c:
+        c.execute(
+            "UPDATE locations SET ciudad=?, provincia=?, label=?, lat=?, lon=? WHERE location_id=?",
+            (req.ciudad, req.provincia, req.label, req.lat, req.lon, location_id)
+        )
+        c.execute("COMMIT")
+        return {"ok": True}
+
+@app.get("/admin/usuarios/{dist_id}", summary="Listar todos los integrantes (Telegram)")
+def admin_get_usuarios(dist_id: int, _=Depends(verify_auth)):
+    """Retorna todos los usuarios de Telegram de un distribuidor con nombre de grupo y sucursal."""
+    with get_conn() as c:
+        rows = c.execute(
+            """SELECT i.id_integrante, i.telegram_user_id, i.nombre_integrante, 
+                      i.rol_telegram, i.location_id, i.telegram_group_id,
+                      COALESCE(g.nombre_grupo, '') AS nombre_grupo,
+                      COALESCE(l.label, '') AS sucursal_label
+               FROM integrantes_grupo i
+               LEFT JOIN grupos g ON g.telegram_chat_id = i.telegram_group_id
+               LEFT JOIN locations l ON l.location_id = i.location_id
+               WHERE i.id_distribuidor = ?
+               ORDER BY i.nombre_integrante""",
+            (dist_id,)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+@app.put("/admin/integrantes/{id_integrante}", summary="Editar nombre/rol de integrante")
+def admin_update_integrante(id_integrante: int, req: IntegranteUpdateRequest, _=Depends(verify_auth)):
+    """Permite al SuperAdmin cambiar el nombre y rol del integrante independientemente de Telegram."""
+    with get_conn() as c:
+        if req.rol_telegram:
+            c.execute("UPDATE integrantes_grupo SET nombre_integrante=?, rol_telegram=? WHERE id_integrante=?",
+                      (req.nombre_integrante, req.rol_telegram, id_integrante))
+        else:
+            c.execute("UPDATE integrantes_grupo SET nombre_integrante=? WHERE id_integrante=?",
+                      (req.nombre_integrante, id_integrante))
+        c.execute("COMMIT")
+        return {"ok": True}
 
 
 @app.get("/admin/vendedores-by-location/{location_id}", summary="Vendedores de una sucursal")

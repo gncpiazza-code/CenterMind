@@ -601,7 +601,7 @@ export default function AdminPage() {
             <TabIntegrantes isSuperadmin={isSuperadmin} distId={user.id_distribuidor} />
           )}
           {tab === "sucursales" && (
-            <TabSucursales isSuperadmin={isSuperadmin} distId={user.id_distribuidor} />
+            <TabSucursales isSuperadmin={isSuperadmin} distId={user.id_distribuidor} role={user.rol} />
           )}
 
         </main>

@@ -38,7 +38,6 @@ from pydantic import BaseModel
 import json
 import base64
 
-from utils import SUCURSALES_MAP
 from services.cuentas_corrientes_service import procesar_cuentas_corrientes_service
 
 # JWT (python-jose) — opcional: si no está instalado, /auth/login no estará disponible
@@ -815,31 +814,51 @@ def dashboard_imagen(file_id: str):
 
 # ─── Módulo Cuentas Corrientes ───────────────────────────────────────────────
 
-@app.post("/procesar-cuentas-corrientes", summary="Procesar Excel de ERP y generar alertas")
-def procesar_cuentas_corrientes(
+@app.post("/api/procesar-cuentas-corrientes", summary="Procesar Excel de Cuentas Corrientes y Alertas de Crédito")
+async def procesar_cuentas_corrientes(
     file: UploadFile = File(...),
     config: str = Form(...),
-    _=Depends(verify_auth)
 ):
+    """
+    Endpoint para recibir un Excel con Cuentas Corrientes,
+    las reglas de Alertas de Crédito (en JSON),
+    y retornar el Excel enriquecido (Base64) + JSON para previsualización.
+    """
     try:
+        if not file.filename.endswith(('.xlsx', '.xls')):
+            raise HTTPException(status_code=400, detail="El archivo proporcionado no es un Excel válido (.xlsx o .xls)")
+
         config_data = json.loads(config)
-    except Exception:
-        raise HTTPException(status_code=400, detail="El campo 'config' debe ser un JSON válido.")
 
-    if not file.filename.endswith(('.xlsx', '.xls')):
-        raise HTTPException(status_code=400, detail="El archivo debe ser un Excel (.xlsx, .xls)")
-
-    # Guardar temporalmente el archivo subido
-    temp_dir = Path("temp_cuentas")
-    temp_dir.mkdir(exist_ok=True)
-    temp_path = temp_dir / file.filename
-    
-    try:
-        with open(temp_path, "wb") as f:
-            f.write(file.file.read())
-
-        out_path, json_data = procesar_cuentas_corrientes_service(str(temp_path), str(temp_dir), config_data)
+        # Crear carpeta temporal
+        temp_dir = os.path.join(os.path.dirname(__file__), "temp_cuentas")
+        os.makedirs(temp_dir, exist_ok=True)
         
+        # Guardar archivo subido temporalmente
+        timestamp = int(datetime.now().timestamp())
+        temp_file_path = os.path.join(temp_dir, f"upload_{timestamp}_{file.filename}")
+        
+        with open(temp_file_path, "wb") as f:
+            f.write(await file.read())
+
+        # Construir mapa de sucursales desde la Base de Datos
+        mapa_sucursales = {}
+        try:
+            with get_conn() as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT location_id, label FROM locations WHERE label IS NOT NULL")
+                for row in cur.fetchall():
+                    mapa_sucursales[str(row["location_id"])] = row["label"]
+        except Exception as db_e:
+            print(f"Advertencia: No se pudo cargar el mapa de sucursales desde BDD. {db_e}")
+
+        # Ejecutar el servicio y pasarle el mapa
+        out_path, json_data = procesar_cuentas_corrientes_service(
+            input_path=temp_file_path,
+            out_dir=temp_dir,
+            config=config_data,
+            sucursales_map=mapa_sucursales
+        )
         # Leer el excel generado a base64
         with open(out_path, "rb") as f:
             b64_file = base64.b64encode(f.read()).decode("utf-8")
@@ -1179,6 +1198,13 @@ def bonos_detalle(id_distribuidor: int, id_integrante: int, anio: int, mes: int,
 class AsignarVendedorRequest(BaseModel):
     id_integrante: int | None = None   # None = desasignar (poner NULL)
 
+class IntegranteCreateRequest(BaseModel):
+    nombre_integrante: str
+    rol_telegram: str = "vendedor"
+    location_id: int | None = None
+    telegram_user_id: int | None = None
+    telegram_group_id: int | None = None
+
 
 @app.get("/admin/locations/{dist_id}", summary="Sucursales de un distribuidor")
 def admin_get_locations(dist_id: int, _=Depends(verify_auth)):
@@ -1236,6 +1262,19 @@ def admin_get_usuarios_telegram(dist_id: int, _=Depends(verify_auth)):
             params
         ).fetchall()
     return [dict(r) for r in rows]
+
+@app.post("/admin/integrantes/{dist_id}", summary="Crear un nuevo integrante manualmente")
+def admin_create_integrante(dist_id: int, req: IntegranteCreateRequest, _=Depends(verify_auth)):
+    """Permite crear manualmente un usuario (ej. vendedor) sin que haya interactuado con el bot primero."""
+    with get_conn() as c:
+        cur = c.execute(
+            """INSERT INTO integrantes_grupo 
+               (id_distribuidor, telegram_user_id, nombre_integrante, rol_telegram, location_id, telegram_group_id)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (dist_id, req.telegram_user_id or 0, req.nombre_integrante, req.rol_telegram, req.location_id, req.telegram_group_id or 0)
+        )
+        c.execute("COMMIT")
+        return {"ok": True, "id_integrante": cur.lastrowid}
 
 @app.put("/admin/integrantes/{id_integrante}", summary="Editar nombre/rol de integrante")
 def admin_update_integrante(id_integrante: int, req: IntegranteUpdateRequest, _=Depends(verify_auth)):

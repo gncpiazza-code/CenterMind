@@ -13,13 +13,13 @@ import {
   fetchLiquidacion, fetchBonoDetalle,
   type BonoConfig, type PuestoRanking, type LiquidacionVendedor, type DetalleExhibicion,
 } from "@/lib/api";
-import { ChevronLeft, ChevronRight, Lock, Unlock, Plus, Trash2, ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronLeft, ChevronRight, Lock, Unlock, Plus, Trash2, ChevronDown, ChevronUp, Copy } from "lucide-react";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const MESES = [
-  "Enero","Febrero","Marzo","Abril","Mayo","Junio",
-  "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre",
+  "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
 ];
 
 const INPUT_CLS =
@@ -56,7 +56,7 @@ function DetalleRow({
   }
 
   const ESTADO_COLOR: Record<string, string> = {
-    Aprobado:  "text-green-700",
+    Aprobado: "text-green-700",
     Destacado: "text-purple-700",
     Rechazado: "text-red-600",
   };
@@ -132,22 +132,23 @@ export default function BonosPage() {
   // Período
   const now = new Date();
   const [anio, setAnio] = useState(now.getFullYear());
-  const [mes,  setMes]  = useState(now.getMonth() + 1);
+  const [mes, setMes] = useState(now.getMonth() + 1);
 
   // Config
-  const [config, setConfig]     = useState<BonoConfig | null>(null);
-  const [umbral, setUmbral]     = useState(0);
+  const [config, setConfig] = useState<BonoConfig | null>(null);
+  const [umbral, setUmbral] = useState(0);
   const [bonoFijo, setBonoFijo] = useState(0);
   const [porPunto, setPorPunto] = useState(0);
-  const [puestos, setPuestos]   = useState<PuestoRanking[]>([]);
-  const [saving, setSaving]     = useState(false);
-  const [locking, setLocking]   = useState(false);
+  const [puestos, setPuestos] = useState<PuestoRanking[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [locking, setLocking] = useState(false);
 
   // Liquidación
   const [liquidacion, setLiquidacion] = useState<{ umbral: number; vendedores: LiquidacionVendedor[] } | null>(null);
-  const [loadingLiq, setLoadingLiq]   = useState(false);
+  const [loadingLiq, setLoadingLiq] = useState(false);
+  const [fetchingMesAnterior, setFetchingMesAnterior] = useState(false);
 
-  const [error, setError]    = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   // ── Cargar config ──
@@ -207,6 +208,27 @@ export default function BonosPage() {
   }
   function updatePuesto(i: number, field: keyof PuestoRanking, value: number) {
     setPuestos((p) => p.map((x, j) => j === i ? { ...x, [field]: value } : x));
+  }
+
+  // ── Copiar mes anterior ──
+  async function handleCopiarMesAnterior() {
+    if (!user) return;
+    setFetchingMesAnterior(true);
+    setError(null);
+    try {
+      const pAnio = mes === 1 ? anio - 1 : anio;
+      const pMes = mes === 1 ? 12 : mes - 1;
+      const cfg = await fetchBonoConfig(user.id_distribuidor, pAnio, pMes);
+      // Actualizamos solo el estado local para que el usuario revise y guarde
+      setUmbral(cfg.umbral);
+      setBonoFijo(cfg.monto_bono_fijo);
+      setPorPunto(cfg.monto_por_punto);
+      setPuestos(cfg.puestos);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Error al obtener mes anterior");
+    } finally {
+      setFetchingMesAnterior(false);
+    }
   }
 
   // ── Guardar ──
@@ -281,7 +303,20 @@ export default function BonosPage() {
               {/* ── IZQUIERDA: Configuración ── */}
               <div className="flex flex-col gap-4">
                 <Card>
-                  <h2 className="text-[var(--shelfy-text)] font-semibold mb-4">Configuración</h2>
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-[var(--shelfy-text)] font-semibold">Configuración</h2>
+                    {!bloqueado && (
+                      <button
+                        onClick={handleCopiarMesAnterior}
+                        disabled={fetchingMesAnterior}
+                        title="Trae la configuración (valores y puestos) del mes anterior"
+                        className="flex items-center gap-1.5 text-xs text-[var(--shelfy-primary)] hover:opacity-80 transition-opacity disabled:opacity-50 border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] rounded-lg px-2.5 py-1.5 font-medium"
+                      >
+                        <Copy size={13} />
+                        {fetchingMesAnterior ? "Copiando..." : "Copiar mes anterior"}
+                      </button>
+                    )}
+                  </div>
 
                   <div className="flex flex-col gap-4">
                     <div>
@@ -323,7 +358,7 @@ export default function BonosPage() {
                           {puestos.map((p, i) => (
                             <tr key={i} className="border-b border-[var(--shelfy-border)]">
                               <td className="py-1.5 pr-2 text-[var(--shelfy-muted)] font-bold w-8">
-                                {["👑","🥈","🥉"][i] ?? `#${p.puesto}`}
+                                {["👑", "🥈", "🥉"][i] ?? `#${p.puesto}`}
                               </td>
                               <td className="py-1.5 pr-2">
                                 <input type="number" min={0} step={0.01} value={p.premio_si_llego} disabled={bloqueado}
@@ -389,10 +424,10 @@ export default function BonosPage() {
                     <p>• Aprobado = <span className="text-green-700 font-mono">1 punto</span></p>
                     <p>• Destacado = <span className="text-purple-700 font-mono">2 puntos</span></p>
                     <p className="pt-2 border-t border-[var(--shelfy-border)]">
-                      Si puntos ≥ umbral:<br/>
+                      Si puntos ≥ umbral:<br />
                       <span className="font-mono text-[var(--shelfy-text)]">bono = fijo + premio_llegó[puesto]</span>
                     </p>
-                    <p>Si puntos &lt; umbral:<br/>
+                    <p>Si puntos &lt; umbral:<br />
                       <span className="font-mono text-[var(--shelfy-text)]">bono = pts × por_punto + premio_no_llegó[puesto]</span>
                     </p>
                   </div>

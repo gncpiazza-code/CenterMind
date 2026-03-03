@@ -155,7 +155,6 @@ export default function LoginPage() {
                   key={slotIdx}
                   className={slotAnim === "in" ? "slot-in" : "slot-out"}
                   style={{
-                    color: SLOTS[slotIdx].color,
                     fontWeight: 900,
                     fontSize: 15,
                     display: "inline-flex",
@@ -165,7 +164,8 @@ export default function LoginPage() {
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={SLOTS[slotIdx].icon} alt={SLOTS[slotIdx].iconAlt} style={{ width: 16, height: 16, objectFit: "contain" }} />
-                  {SLOTS[slotIdx].word} la góndola
+                  <span style={{ color: SLOTS[slotIdx].color }}>{SLOTS[slotIdx].word}</span>
+                  <span className="ml-1" style={{ color: "#6d28d9" }}>la góndola</span>
                 </span>
               </span>
             </div>

@@ -12,9 +12,10 @@ import { useRouter } from "next/navigation";
 import {
   fetchUsuarios, crearUsuario, eliminarUsuario, type UsuarioPortal,
   fetchDistribuidoras, crearDistribuidora, toggleDistribuidora, type Distribuidora,
-  fetchIntegrantes, setRolIntegrante, type Integrante,
+  fetchIntegrantes, setRolIntegrante, editarIntegranteAdmin, type Integrante,
+  fetchLocations, crearLocation, editarLocation, type Location
 } from "@/lib/api";
-import { Trash2, UserPlus, Shield, Building2, Users, ToggleLeft, ToggleRight, RefreshCw } from "lucide-react";
+import { Trash2, UserPlus, Shield, Building2, Users, ToggleLeft, ToggleRight, RefreshCw, MapPin, Edit2 } from "lucide-react";
 
 const ROL_LABEL: Record<string, string> = {
   superadmin: "Super Admin",
@@ -325,6 +326,10 @@ function TabIntegrantes({ isSuperadmin, distId }: { isSuperadmin: boolean; distI
   const [error, setError] = useState<string | null>(null);
   const [changingId, setChangingId] = useState<number | null>(null);
 
+  // Edición Inline
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editName, setEditName] = useState("");
+
   const load = () => {
     setLoading(true);
     fetchIntegrantes(isSuperadmin ? undefined : distId)
@@ -343,6 +348,24 @@ function TabIntegrantes({ isSuperadmin, distId }: { isSuperadmin: boolean; distI
       load();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Error al cambiar rol");
+    } finally {
+      setChangingId(null);
+    }
+  }
+
+  async function handleGuardarNombre(ig: Integrante) {
+    if (!editName.trim() || editName === ig.nombre_integrante) {
+      setEditingId(null);
+      return;
+    }
+    setChangingId(ig.id_integrante);
+    setError(null);
+    try {
+      await editarIntegranteAdmin(ig.id_integrante, { nombre_integrante: editName.trim() });
+      setEditingId(null);
+      load();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Error al editar nombre");
     } finally {
       setChangingId(null);
     }
@@ -369,22 +392,54 @@ function TabIntegrantes({ isSuperadmin, distId }: { isSuperadmin: boolean; distI
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-[var(--shelfy-muted)] text-left border-b border-[var(--shelfy-border)]">
-                  <th className="pb-3 pr-4">Nombre</th>
+                  <th className="pb-3 pr-4">Nombre / Alias</th>
                   {isSuperadmin && <th className="pb-3 pr-4">Distribuidora</th>}
-                  <th className="pb-3 pr-4">Telegram ID</th>
-                  <th className="pb-3 pr-4">Rol</th>
+                  <th className="pb-3 pr-4">Sucursal</th>
+                  <th className="pb-3 pr-4">Grupo Tel.</th>
+                  <th className="pb-3 pr-4">Rol en App</th>
+                  <th className="pb-3 w-8"></th>
                 </tr>
               </thead>
               <tbody>
                 {integrantes.map((ig) => (
                   <tr key={ig.id_integrante} className="border-b border-[var(--shelfy-border)] last:border-0 hover:bg-[var(--shelfy-bg)] transition-colors">
-                    <td className="py-3 pr-4 text-[var(--shelfy-text)] font-medium">{ig.nombre_integrante}</td>
+
+                    <td className="py-3 pr-4">
+                      {editingId === ig.id_integrante ? (
+                        <div className="flex items-center gap-2">
+                          <input
+                            autoFocus
+                            value={editName}
+                            onChange={e => setEditName(e.target.value)}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') handleGuardarNombre(ig);
+                              if (e.key === 'Escape') setEditingId(null);
+                            }}
+                            className={INPUT_CLS + " max-w-[150px] !py-1"}
+                          />
+                          <Button size="sm" loading={changingId === ig.id_integrante} onClick={() => handleGuardarNombre(ig)}>OK</Button>
+                        </div>
+                      ) : (
+                        <div className="text-[var(--shelfy-text)] font-medium flex items-center gap-2">
+                          {ig.nombre_integrante}
+                          {isSuperadmin && (
+                            <button onClick={() => { setEditingId(ig.id_integrante); setEditName(ig.nombre_integrante); }} className="text-[var(--shelfy-muted)] hover:text-[var(--shelfy-primary)]">
+                              <Edit2 size={12} />
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </td>
+
                     {isSuperadmin && <td className="py-3 pr-4 text-[var(--shelfy-muted)] text-xs">{ig.nombre_empresa}</td>}
-                    <td className="py-3 pr-4 text-[var(--shelfy-muted)] tabular-nums text-xs">{ig.telegram_user_id || "—"}</td>
+
+                    <td className="py-3 pr-4 text-[var(--shelfy-muted)] text-xs">{ig.sucursal_label || "No asignada"}</td>
+                    <td className="py-3 pr-4 text-[var(--shelfy-muted)] text-xs">{ig.nombre_grupo || ig.telegram_group_id || "—"}</td>
+
                     <td className="py-3 pr-4">
                       <select
                         value={ig.rol_telegram ?? "supervisor"}
-                        disabled={changingId === ig.id_integrante}
+                        disabled={changingId === ig.id_integrante || (!isSuperadmin && ig.rol_telegram === 'superadmin')}
                         onChange={(e) => handleCambiarRol(ig.id_integrante, e.target.value, ig.telegram_group_id)}
                         className="rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-[var(--shelfy-text)] px-2 py-1 text-xs focus:outline-none focus:border-[var(--shelfy-primary)]"
                       >
@@ -393,14 +448,166 @@ function TabIntegrantes({ isSuperadmin, distId }: { isSuperadmin: boolean; distI
                         ))}
                       </select>
                     </td>
+                    <td className="py-3"></td>
                   </tr>
                 ))}
                 {integrantes.length === 0 && (
                   <tr>
-                    <td colSpan={isSuperadmin ? 4 : 3} className="py-8 text-center text-[var(--shelfy-muted)]">
+                    <td colSpan={isSuperadmin ? 6 : 5} className="py-8 text-center text-[var(--shelfy-muted)]">
                       No hay integrantes registrados
                     </td>
                   </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// ── Tab: Sucursales (Locations) ──────────────────────────────────────────────────
+
+function TabSucursales({ isSuperadmin, distId }: { isSuperadmin: boolean; distId: number }) {
+  const [locations, setLocations] = useState<Location[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  // Para form de creación o edición
+  const [editingLoc, setEditingLoc] = useState<Location | null>(null);
+  const [form, setForm] = useState({ ciudad: "", provincia: "", label: "", lat: 0, lon: 0 });
+
+  const load = () => {
+    setLoading(true);
+    fetchLocations(isSuperadmin ? 1 : distId) // Superadmin globalmente puede ver de dist 1 o agregar selector (simplificado acá con prop. user.id_distribuidor)
+      .then(setLocations)
+      .catch((e: Error) => setError(e.message))
+      .finally(() => setLoading(false));
+  };
+
+  // En superadmin obligamos a cargar las del distribuidor actual
+  useEffect(() => { load(); }, [distId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function handleOpenCrear() {
+    setEditingLoc(null);
+    setForm({ ciudad: "", provincia: "", label: "", lat: 0, lon: 0 });
+    setShowForm(true);
+  }
+
+  function handleOpenEditar(loc: Location) {
+    setEditingLoc(loc);
+    setForm({ ciudad: loc.ciudad, provincia: loc.provincia, label: loc.label, lat: loc.lat || 0, lon: loc.lon || 0 });
+    setShowForm(true);
+  }
+
+  async function handleGuardar(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+    try {
+      if (editingLoc) {
+        await editarLocation(editingLoc.location_id, form);
+      } else {
+        await crearLocation(distId, form);
+      }
+      setShowForm(false);
+      load();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Error al guardar sucursal");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center justify-between">
+        <p className="text-[var(--shelfy-muted)] text-sm">{locations.length} sucursales</p>
+        <Button size="sm" onClick={handleOpenCrear}>
+          <MapPin size={14} /> Nueva sucursal
+        </Button>
+      </div>
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">
+          {error}
+        </div>
+      )}
+
+      {showForm && (
+        <Card>
+          <h3 className="text-[var(--shelfy-text)] font-semibold mb-4 flex items-center gap-2">
+            <MapPin size={16} className="text-[var(--shelfy-primary)]" />
+            {editingLoc ? "Editar sucursal" : "Crear sucursal"}
+          </h3>
+          <form onSubmit={handleGuardar} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-xs text-[var(--shelfy-muted)] mb-1">Nombre / Título *</label>
+              <input required placeholder="Depósito Norte" value={form.label}
+                onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))} className={INPUT_CLS + " w-full"} />
+            </div>
+            <div>
+              <label className="block text-xs text-[var(--shelfy-muted)] mb-1">Ciudad *</label>
+              <input required placeholder="Ciudad" value={form.ciudad}
+                onChange={(e) => setForm((f) => ({ ...f, ciudad: e.target.value }))} className={INPUT_CLS + " w-full"} />
+            </div>
+            <div>
+              <label className="block text-xs text-[var(--shelfy-muted)] mb-1">Provincia *</label>
+              <input required placeholder="Provincia" value={form.provincia}
+                onChange={(e) => setForm((f) => ({ ...f, provincia: e.target.value }))} className={INPUT_CLS + " w-full"} />
+            </div>
+
+            <div className="col-span-1 md:col-span-2 lg:col-span-3 grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs text-[var(--shelfy-muted)] mb-1">Latitud</label>
+                <input type="number" step="any" placeholder="-34.6037" value={form.lat}
+                  onChange={(e) => setForm((f) => ({ ...f, lat: parseFloat(e.target.value) || 0 }))} className={INPUT_CLS + " w-full"} />
+              </div>
+              <div>
+                <label className="block text-xs text-[var(--shelfy-muted)] mb-1">Longitud</label>
+                <input type="number" step="any" placeholder="-58.3816" value={form.lon}
+                  onChange={(e) => setForm((f) => ({ ...f, lon: parseFloat(e.target.value) || 0 }))} className={INPUT_CLS + " w-full"} />
+              </div>
+            </div>
+
+            <div className="md:col-span-2 lg:col-span-3 flex gap-2 pt-2">
+              <Button type="submit" loading={saving} size="sm">Guardar</Button>
+              <Button type="button" variant="ghost" size="sm" onClick={() => setShowForm(false)}>Cancelar</Button>
+            </div>
+          </form>
+        </Card>
+      )}
+
+      {loading ? <PageSpinner /> : (
+        <Card>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-[var(--shelfy-muted)] text-left border-b border-[var(--shelfy-border)]">
+                  <th className="pb-3 pr-4">Nombre (Label)</th>
+                  <th className="pb-3 pr-4">Ubicación</th>
+                  <th className="pb-3 pr-4">Coordenadas</th>
+                  <th className="pb-3 w-8"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {locations.map((loc) => (
+                  <tr key={loc.location_id} className="border-b border-[var(--shelfy-border)] last:border-0 hover:bg-[var(--shelfy-bg)] transition-colors">
+                    <td className="py-3 pr-4 text-[var(--shelfy-text)] font-medium">{loc.label}</td>
+                    <td className="py-3 pr-4 text-[var(--shelfy-muted)]">{loc.ciudad}, {loc.provincia}</td>
+                    <td className="py-3 pr-4 text-[var(--shelfy-muted)] text-xs font-mono">{loc.lat}, {loc.lon}</td>
+                    <td className="py-3 text-right">
+                      <button onClick={() => handleOpenEditar(loc)} className="text-[var(--shelfy-muted)] hover:text-[var(--shelfy-primary)] transition-colors p-1 rounded">
+                        <Edit2 size={14} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {locations.length === 0 && (
+                  <tr><td colSpan={4} className="py-8 text-center text-[var(--shelfy-muted)]">No hay sucursales registradas</td></tr>
                 )}
               </tbody>
             </table>
@@ -421,6 +628,7 @@ export default function AdminPage() {
   const TABS = [
     { id: "usuarios", label: "Usuarios", icon: Shield },
     { id: "integrantes", label: "Integrantes", icon: Users },
+    { id: "sucursales", label: "Sucursales", icon: MapPin },
     ...(isSuperadmin ? [{ id: "distribuidoras", label: "Distribuidoras", icon: Building2 }] : []),
   ];
 
@@ -466,6 +674,9 @@ export default function AdminPage() {
           )}
           {tab === "integrantes" && (
             <TabIntegrantes isSuperadmin={isSuperadmin} distId={user.id_distribuidor} />
+          )}
+          {tab === "sucursales" && (
+            <TabSucursales isSuperadmin={isSuperadmin} distId={user.id_distribuidor} />
           )}
 
         </main>

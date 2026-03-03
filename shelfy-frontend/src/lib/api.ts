@@ -247,17 +247,56 @@ export interface Integrante {
   rol_telegram: string;
   telegram_group_id: number;
   nombre_empresa: string;
+  nombre_grupo: string;
+  sucursal_label: string;
 }
 
 export async function fetchIntegrantes(distId?: number): Promise<Integrante[]> {
   const q = distId ? `?dist_id=${distId}` : "";
-  return apiFetch<Integrante[]>(`/admin/integrantes${q}`);
+  return apiFetch<Integrante[]>(`/admin/usuarios${q}`); // usando el de listado global
 }
 
 export async function setRolIntegrante(id: number, rol: string, distribuidorId?: number) {
   return apiFetch(`/admin/integrantes/${id}/rol`, {
     method: "PUT",
     body: JSON.stringify({ rol, distribuidor_id: distribuidorId ?? null }),
+  });
+}
+
+export async function editarIntegranteAdmin(id: number, data: { nombre_integrante: string, rol_telegram?: string }) {
+  return apiFetch(`/admin/integrantes/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+// ── Admin: Sucursales (Locations) ────────────────────────────────────────────
+
+export interface Location {
+  location_id: number;
+  dist_id: number;
+  ciudad: string;
+  provincia: string;
+  label: string;
+  lat: number;
+  lon: number;
+}
+
+export async function fetchLocations(distId: number): Promise<Location[]> {
+  return apiFetch<Location[]>(`/admin/locations/${distId}`);
+}
+
+export async function crearLocation(distId: number, data: { ciudad: string; provincia: string; label: string; lat: number; lon: number }) {
+  return apiFetch(`/admin/locations/${distId}`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function editarLocation(locationId: number, data: { ciudad: string; provincia: string; label: string; lat: number; lon: number }) {
+  return apiFetch(`/admin/locations/${locationId}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
   });
 }
 

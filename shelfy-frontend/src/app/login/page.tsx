@@ -144,32 +144,7 @@ export default function LoginPage() {
                 style={{ filter: "drop-shadow(0 8px 24px rgba(124,58,237,0.25))" }}
               />
             </div>
-            {/* Slot subtitle — 2 líneas para no cortarse */}
-            <div className="flex flex-col items-center mt-6 mb-3">
-              <span className="text-slate-900 font-semibold text-[14px] tracking-tight">Mentalidad enfocada en</span>
-              <div className="flex items-center gap-2 mt-0.5 overflow-hidden" style={{ height: 36 }}>
-                <div style={{ width: 180 }} className="flex justify-end">
-                  <span
-                    key={slotIdx}
-                    className={slotAnim === "in" ? "slot-in" : "slot-out"}
-                    style={{
-                      fontWeight: 900,
-                      fontSize: 20,
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 8,
-                      color: SLOTS[slotIdx].color,
-                      textShadow: `0 0 10px ${SLOTS[slotIdx].color}80, 0 0 20px ${SLOTS[slotIdx].color}40`,
-                    }}
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={SLOTS[slotIdx].icon} alt={SLOTS[slotIdx].iconAlt} style={{ width: 20, height: 20, objectFit: "contain" }} />
-                    <span style={{ letterSpacing: "-0.02em" }}>{SLOTS[slotIdx].word}</span>
-                  </span>
-                </div>
-                <span className="text-[15px] font-bold text-violet-700">la góndola</span>
-              </div>
-            </div>
+            {/* Slot subtitle movido hacia abajo */}
           </div>
 
           {/* Card */}
@@ -235,6 +210,33 @@ export default function LoginPage() {
                 </button>
               </div>
             </form>
+          </div>
+
+          {/* Animación "Mentalidad enfocada en" debajo del Login */}
+          <div className={`flex flex-col items-center mt-8 mb-4 ${mounted ? "anim-fade-up delay-400" : "opacity-0"}`}>
+            <span className="text-slate-800 font-semibold text-[14.5px] tracking-tight">Mentalidad enfocada en</span>
+            <div className="flex items-center gap-2 mt-1 py-1 overflow-hidden" style={{ height: 42 }}>
+              <div style={{ width: 185 }} className="flex justify-end">
+                <span
+                  key={slotIdx}
+                  className={slotAnim === "in" ? "slot-in" : "slot-out"}
+                  style={{
+                    fontWeight: 900,
+                    fontSize: 21,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 8,
+                    color: SLOTS[slotIdx].color,
+                    textShadow: `0 0 10px ${SLOTS[slotIdx].color}60, 0 0 20px ${SLOTS[slotIdx].color}30`,
+                  }}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={SLOTS[slotIdx].icon} alt={SLOTS[slotIdx].iconAlt} style={{ width: 22, height: 22, objectFit: "contain" }} />
+                  <span style={{ letterSpacing: "-0.02em" }}>{SLOTS[slotIdx].word}</span>
+                </span>
+              </div>
+              <span className="text-[16px] font-bold" style={{ color: "#4f46e5" }}>la góndola</span>
+            </div>
           </div>
         </div>
 

@@ -250,11 +250,7 @@ class Database:
         """Registra o actualiza el nombre del grupo de Telegram."""
         with self._conn() as conn:
             row = conn.execute(
-<<<<<<< HEAD
-                """SELECT id_grupo FROM grupos
-=======
                 """SELECT 1 FROM grupos
->>>>>>> 5221c0c (feat: redesign visor mobile/desktop UI + fix etiquetas Supervisor/Vendedor)
                    WHERE id_distribuidor = ? AND telegram_chat_id = ? LIMIT 1""",
                 (distribuidor_id, chat_id)
             ).fetchone()

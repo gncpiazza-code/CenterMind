@@ -26,7 +26,7 @@ export function Sidebar() {
   const navItems = ALL_NAV.filter(i => (i.roles as string[]).includes(rol));
 
   return (
-    <aside className="hidden md:flex flex-col w-60 h-screen bg-[var(--shelfy-panel)] border-r border-[var(--shelfy-border)] px-3 py-6 gap-2 shrink-0 sticky top-0">
+    <aside className="hidden md:flex flex-col w-60 min-h-screen bg-[var(--shelfy-panel)] border-r border-[var(--shelfy-border)] px-3 py-6 gap-2 shrink-0">
       {/* Logo */}
       <div className="flex items-center px-3 mb-8">
         <img src="/shelfy_logo_clean.svg" alt="Shelfy" className="h-9 w-auto" />

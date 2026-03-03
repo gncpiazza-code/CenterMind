@@ -134,7 +134,7 @@ export default function ReportesPage() {
 
   function handleExportCSV() {
     if (filas.length === 0) return;
-    const headers = ["ID", "Vendedor", "Cliente", "Tipo PDV", "Estado", "Evaluador", "Comentario", "Fecha carga", "Fecha evaluación"];
+    const headers = ["ID", "Vendedor", "Cliente", "Tipo PDV", "Estado", "Supervisor", "Comentario", "Fecha carga", "Fecha evaluación"];
     const rows = filas.map((f) => [
       f.id_exhibicion, f.vendedor, f.cliente, f.tipo_pdv, f.estado,
       f.supervisor, f.comentario, f.fecha_carga, f.fecha_evaluacion,
@@ -219,7 +219,7 @@ export default function ReportesPage() {
               {/* Vendedores */}
               {!loadingOpts && vendedoresList.length > 0 && (
                 <MultiSelect
-                  label="Vendedor"
+                  label="Supervisor"
                   options={vendedoresList}
                   selected={selectedVendedores}
                   onChange={setSelectedVendedores}

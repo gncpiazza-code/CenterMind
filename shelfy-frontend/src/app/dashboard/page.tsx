@@ -359,11 +359,12 @@ export default function DashboardPage() {
     if (!user) return;
     setError(null);
     try {
+      const distId = user?.id_distribuidor || 0;
       const [k, r, u, s] = await Promise.all([
-        fetchKPIs(user.id_distribuidor, p),
-        fetchRanking(user.id_distribuidor, p),
-        fetchUltimasEvaluadas(user.id_distribuidor, 8),
-        fetchPorSucursal(user.id_distribuidor, p),
+        fetchKPIs(distId, p),
+        fetchRanking(distId, p),
+        fetchUltimasEvaluadas(distId, 8),
+        fetchPorSucursal(distId, p),
       ]);
       setKpis(k); setRanking(r); setUltimas(u); setSucursales(s);
     } catch (e: unknown) {

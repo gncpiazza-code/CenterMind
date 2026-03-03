@@ -680,6 +680,9 @@ def _periodo_where(periodo: str) -> str:
 def dashboard_kpis(distribuidor_id: int, periodo: str = "mes", _=Depends(verify_auth)):
     pw = _periodo_where(periodo)
     with get_conn() as c:
+        where_dist = "AND e.id_distribuidor = ?" if distribuidor_id > 0 else ""
+        params = (distribuidor_id,) if distribuidor_id > 0 else ()
+        
         row = c.execute(
             f"""SELECT COUNT(*) AS total,
                 SUM(CASE WHEN estado = 'Pendiente'                    THEN 1 ELSE 0 END) AS pendientes,
@@ -687,8 +690,8 @@ def dashboard_kpis(distribuidor_id: int, periodo: str = "mes", _=Depends(verify_
                 SUM(CASE WHEN estado = 'Rechazado'                     THEN 1 ELSE 0 END) AS rechazadas,
                 SUM(CASE WHEN estado = 'Destacado'                     THEN 1 ELSE 0 END) AS destacadas
                 FROM exhibiciones e
-                WHERE e.id_distribuidor = ? {pw}""",
-            (distribuidor_id,),
+                WHERE 1=1 {where_dist} {pw}""",
+            params,
         ).fetchone()
     r = dict(row) if row else {}
     return {k: (v or 0) for k, v in r.items()}
@@ -698,6 +701,9 @@ def dashboard_kpis(distribuidor_id: int, periodo: str = "mes", _=Depends(verify_
 def dashboard_ranking(distribuidor_id: int, periodo: str = "mes", top: int = 15, _=Depends(verify_auth)):
     pw = _periodo_where(periodo)
     with get_conn() as c:
+        where_dist = "AND e.id_distribuidor = ?" if distribuidor_id > 0 else ""
+        params = (distribuidor_id, top) if distribuidor_id > 0 else (top,)
+        
         rows = c.execute(
             f"""SELECT i.nombre_integrante AS vendedor,
                     COUNT(CASE WHEN e.estado IN ('Aprobado','Destacado') THEN 1 END) AS aprobadas,
@@ -707,12 +713,12 @@ def dashboard_ranking(distribuidor_id: int, periodo: str = "mes", top: int = 15,
                      + COUNT(CASE WHEN e.estado = 'Destacado' THEN 1 END) * 2) AS puntos
                 FROM exhibiciones e
                 JOIN integrantes_grupo i ON i.id_integrante = e.id_integrante
-                WHERE e.id_distribuidor = ? {pw}
+                WHERE 1=1 {where_dist} {pw}
                 GROUP BY i.id_integrante, i.nombre_integrante
                 HAVING puntos > 0
                 ORDER BY puntos DESC, aprobadas DESC
                 LIMIT ?""",
-            (distribuidor_id, top),
+            params,
         ).fetchall()
     return [dict(r) for r in rows]
 
@@ -725,9 +731,12 @@ def dashboard_ultimas(distribuidor_id: int, n: int = 8, _=Depends(verify_auth)):
     ar_today = (datetime.utcnow() - timedelta(hours=3)).date()
     with get_conn() as c:
         for days_back in range(90):
+            where_dist = "AND e.id_distribuidor = ?" if distribuidor_id > 0 else ""
             fecha = (ar_today - timedelta(days=days_back)).isoformat()
+            params = (distribuidor_id, fecha, n) if distribuidor_id > 0 else (fecha, n)
+            
             rows = c.execute(
-                """SELECT e.id_exhibicion,
+                f"""SELECT e.id_exhibicion,
                           e.url_foto_drive                              AS drive_link,
                           e.estado,
                           COALESCE(e.tipo_pdv, '')                      AS tipo_pdv,
@@ -738,12 +747,12 @@ def dashboard_ultimas(distribuidor_id: int, n: int = 8, _=Depends(verify_auth)):
                    FROM exhibiciones e
                    LEFT JOIN integrantes_grupo i  ON i.id_integrante = e.id_integrante
                    LEFT JOIN clientes cl          ON cl.id_cliente   = e.id_cliente
-                   WHERE e.id_distribuidor = ?
-                     AND e.estado IN ('Aprobado', 'Destacado')
+                   WHERE e.estado IN ('Aprobado', 'Destacado')
+                     {where_dist}
                      AND DATE(e.timestamp_subida, '-3 hours') = ?
                    ORDER BY e.timestamp_subida DESC
                    LIMIT ?""",
-                (distribuidor_id, fecha, n),
+                params,
             ).fetchall()
             if rows:
                 return [dict(r) for r in rows]
@@ -1285,6 +1294,9 @@ def dashboard_por_sucursal(distribuidor_id: int, periodo: str = "mes", _=Depends
     """
     pw = _periodo_where(periodo)
     with get_conn() as c:
+        where_dist = "AND e.id_distribuidor = ?" if distribuidor_id > 0 else ""
+        params = (distribuidor_id,) if distribuidor_id > 0 else ()
+        
         rows = c.execute(
             f"""SELECT
                    COALESCE(l.label, l.ciudad, 'Sin sucursal') AS sucursal,
@@ -1295,10 +1307,10 @@ def dashboard_por_sucursal(distribuidor_id: int, periodo: str = "mes", _=Depends
                FROM exhibiciones e
                JOIN integrantes_grupo ig ON ig.id_integrante = e.id_integrante
                LEFT JOIN locations l ON l.location_id = ig.location_id
-               WHERE e.id_distribuidor = ? {pw}
+               WHERE 1=1 {where_dist} {pw}
                GROUP BY ig.location_id
                ORDER BY aprobadas DESC""",
-            (distribuidor_id,),
+            params,
         ).fetchall()
     return [dict(r) for r in rows]
 

@@ -207,7 +207,8 @@ export default function VisorPage() {
                       <FotoViewer driveUrl={grupo.fotos[fotoIdx]?.drive_link ?? ""} />
 
                       {/* Overlay Superior de Info (como en el mockup: Título, Cliente, Distribuidora, Fecha) */}
-                      <div className="absolute top-0 left-0 right-0 bg-black/60 backdrop-blur-md pt-6 pb-6 px-5 text-white border-b border-white/20">
+                      {/* En PC (md:), este bloque se oculta a pedido del usuario */}
+                      <div className="absolute top-0 left-0 right-0 bg-black/60 backdrop-blur-md pt-6 pb-6 px-5 text-white border-b border-white/20 md:hidden">
                         <h2 className="text-xl font-extrabold tracking-tight mb-2 drop-shadow-md">
                           Exhibición #{grupo.fotos[fotoIdx]?.id_exhibicion || "---"}
                         </h2>
@@ -227,19 +228,20 @@ export default function VisorPage() {
                       </div>
 
                       {/* Overlay Inferior de Info & Textarea superpuesto */}
-                      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/95 via-black/70 to-transparent pt-24 pb-6 px-5 text-white">
+                      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/95 via-black/70 to-transparent pt-24 pb-6 px-5 text-white md:bg-black/40 md:backdrop-blur-sm md:pt-6 md:pb-6">
                         <h3 className="text-[11px] font-black tracking-widest uppercase mb-2 text-white/80 drop-shadow-md">
                           Observaciones Adicionales
                         </h3>
                         <textarea
                           placeholder="Escribe comentarios sobre la ejecución..."
-                          className="w-full bg-white/20 hover:bg-white/25 focus:bg-white/30 backdrop-blur-md border border-white/30 rounded-2xl p-3.5 text-sm text-white placeholder-white/50 outline-none transition-all resize-none shadow-inner"
+                          className="w-full bg-white/20 hover:bg-white/25 focus:bg-white/30 md:bg-black/50 md:focus:bg-black/70 backdrop-blur-md border border-white/30 md:border-white/10 rounded-2xl p-3.5 text-sm text-white placeholder-white/50 md:placeholder-white/40 outline-none transition-all resize-none shadow-inner"
                           rows={2}
                           value={comentario}
                           onChange={(e) => setComentario(e.target.value)}
                         />
                       </div>
 
+                      {/* Info adicional Solo en PC superpuesta (pequeña y discreta, o nada) */}
                       {/* Controles de paginación de fotos si hay más de 1 */}
                       {grupo.fotos.length > 1 && (
                         <div className="absolute top-4 right-4 flex gap-1 bg-black/30 backdrop-blur-md p-1 rounded-full text-white">

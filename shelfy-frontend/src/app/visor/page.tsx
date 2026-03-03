@@ -29,11 +29,20 @@ function FotoViewer({
 }) {
   const [err, setErr] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const imgRef = useRef<HTMLImageElement>(null);
   const fileId = extractDriveId(driveUrl);
   const src = fileId ? getImageUrl(fileId) : null;
 
   // reset on url change
   useEffect(() => { setErr(false); setLoaded(false); }, [driveUrl]);
+
+  // Si la imagen ya estaba cacheada, onLoad no dispara — chequeamos img.complete
+  useEffect(() => {
+    const img = imgRef.current;
+    if (!img) return;
+    if (img.complete && img.naturalWidth) setLoaded(true);
+    else if (img.complete && !img.naturalWidth) setErr(true);
+  });
 
   if (!src || err) {
     return (
@@ -47,9 +56,10 @@ function FotoViewer({
     <div className={`relative overflow-hidden ${className}`}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
+        ref={imgRef}
         src={src}
         alt="Exhibición"
-        className="w-full h-full object-cover transition-opacity duration-300"
+        className="w-full h-full object-cover transition-opacity duration-500"
         style={{ opacity: loaded ? 1 : 0 }}
         onLoad={() => setLoaded(true)}
         onError={() => setErr(true)}

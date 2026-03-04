@@ -877,7 +877,7 @@ async def procesar_cuentas_corrientes(
             b64_file = base64.b64encode(f.read()).decode("utf-8")
             
         # Limpieza de archivos físicos inmediatos
-        os.remove(temp_path)
+        os.remove(temp_file_path)
         os.remove(out_path)
         
         return {
@@ -889,7 +889,8 @@ async def procesar_cuentas_corrientes(
 
     except Exception as e:
         # Intentar limpiar en caso de error
-        if temp_path.exists(): os.remove(temp_path)
+        if 'temp_file_path' in locals() and os.path.exists(temp_file_path): 
+            os.remove(temp_file_path)
         print(f"Error procesando Cuentas Corrientes: {e}")
         raise HTTPException(status_code=500, detail=f"Error procesando el archivo: {str(e)}")
 

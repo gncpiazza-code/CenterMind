@@ -177,7 +177,7 @@ def procesar_cuentas_corrientes_service(input_path: str, out_dir: str, config: d
     os.makedirs(subfolder_path, exist_ok=True)
     
     # 1. Leer archivo
-    df_raw = leer_excel(path_excel)
+    df_raw = leer_excel(input_path)
     mapping = map_columns(df_raw)
     mapping_inverso = {v: k for k, v in mapping.items()}
     df = df_raw.rename(columns=mapping_inverso).copy()

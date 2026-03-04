@@ -4,6 +4,7 @@ import { useState, useRef } from "react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { FileSpreadsheet, UploadCloud, X, Loader2, Sparkles, CheckCircle2, AlertCircle } from "lucide-react";
+import { API_URL } from "@/lib/constants";
 
 import VisorMultitablas from "./VisorMultitablas";
 
@@ -98,10 +99,8 @@ export default function TabGenerarInforme() {
             const headersInit: HeadersInit = {};
             if (token) headersInit["Authorization"] = `Bearer ${token}`;
 
-            // Configured for local dev standard port 8000, assuming it runs there or proxied
-            const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-
-            const res = await fetch(`${apiUrl}/api/procesar-cuentas-corrientes`, {
+            // Use central API_URL instead of recreating logic
+            const res = await fetch(`${API_URL}/api/procesar-cuentas-corrientes`, {
                 method: "POST",
                 body: formData,
                 headers: headersInit

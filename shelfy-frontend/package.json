@@ -21,7 +21,8 @@
     "react-hook-form": "^7.71.2",
     "react-hot-toast": "^2.6.0",
     "react-leaflet": "^5.0.0",
-    "recharts": "^3.7.0"
+    "recharts": "^3.7.0",
+    "sileo": "^0.1.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

@@ -35,6 +35,9 @@ class ERPIngestionService:
         col_vendedor = "d_vendedor"
         col_sucursal = "dssucur"
         col_id_int   = "IdClienteInterno"
+        col_lat      = "xcoord"
+        col_lon      = "ycoord"
+        col_pago     = "FormaPago"
 
         records_to_upsert = []
         
@@ -53,6 +56,9 @@ class ERPIngestionService:
                 "nombre_fantasia": str(row.get(col_fantasia, "")),
                 "vendedor_erp": str(row.get(col_vendedor, "")),
                 "sucursal_erp": str(row.get(col_sucursal, "")),
+                "lat": float(row.get(col_lat, 0)) if row.get(col_lat) else None,
+                "lon": float(row.get(col_lon, 0)) if row.get(col_lon) else None,
+                "forma_pago": str(row.get(col_pago, "")),
             }
             records_to_upsert.append(record)
 
@@ -113,6 +119,7 @@ class ERPIngestionService:
                 "unidades": float(row.get(col_unidades, 0)),
                 "vendedor_erp": str(row.get(col_vendedor, "")),
                 "sucursal_erp": str(row.get(col_sucursal, "")),
+                "tipo_documento": str(row.get("cod_tipo_docs", "")),
             }
             records_to_upsert.append(record)
 

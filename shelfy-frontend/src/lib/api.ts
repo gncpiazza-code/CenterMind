@@ -432,6 +432,57 @@ export async function uploadERPFile(tipo: "ventas" | "clientes", file: File): Pr
 }
 
 export async function fetchERPDeuda(distId: number): Promise<ERPDeuda[]> {
-  // Este endpoint se asume que existe en la API (basado en la tabla erp_deuda_clientes)
   return apiFetch<ERPDeuda[]>(`/api/admin/erp/deuda/${distId}`);
+}
+
+export async function fetchERPConfig(distId: number) {
+  return apiFetch<any>(`/api/admin/erp/config/${distId}`);
+}
+
+export async function saveERPConfig(distId: number, config: any) {
+  return apiFetch<any>(`/api/admin/erp/config/${distId}`, {
+    method: "POST",
+    body: JSON.stringify(config),
+  });
+}
+
+export async function fetchRecaudacionSummary(distId: number, desde?: string, hasta?: string, vendedor?: string) {
+  const q = new URLSearchParams();
+  if (desde) q.append("desde", desde);
+  if (hasta) q.append("hasta", hasta);
+  if (vendedor) q.append("vendedor", vendedor);
+  return apiFetch<any>(`/api/reportes/recaudacion/${distId}?${q.toString()}`);
+}
+
+export async function fetchRecaudacionDetallada(distId: number, desde?: string, hasta?: string, vendedor?: string) {
+  const q = new URLSearchParams();
+  if (desde) q.append("desde", desde);
+  if (hasta) q.append("hasta", hasta);
+  if (vendedor) q.append("vendedor", vendedor);
+  return apiFetch<any[]>(`/api/reportes/recaudacion-detallada/${distId}?${q.toString()}`);
+}
+
+export async function fetchERPVendedores(distId: number): Promise<string[]> {
+  return apiFetch<string[]>(`/api/admin/erp/vendedores/${distId}`);
+}
+
+export async function fetchClientesMuertos(distId: number, dias: number = 30) {
+  return apiFetch<any[]>(`/api/reportes/clientes-muertos/${distId}?dias=${dias}`);
+}
+
+export async function fetchERPMappings(): Promise<any[]> {
+  return apiFetch<any[]>("/api/admin/erp/mappings");
+}
+
+export async function saveERPMapping(data: { nombre_erp: string; id_distribuidor: number }) {
+  return apiFetch("/api/admin/erp/mappings", {
+    method: "POST",
+    body: JSON.stringify(data)
+  });
+}
+
+export async function deleteERPMapping(nombre_erp: string) {
+  return apiFetch(`/api/admin/erp/mappings/${encodeURIComponent(nombre_erp)}`, {
+    method: "DELETE"
+  });
 }

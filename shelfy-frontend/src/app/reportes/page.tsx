@@ -9,11 +9,12 @@ import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/hooks/useAuth";
 import { useEffect, useState, useRef, useMemo } from "react";
 import { fetchReporteExhibiciones, fetchReporteVendedores, fetchReporteTiposPdv, fetchReporteSucursales } from "@/lib/api";
-import { Printer, Download, Search, X, ChevronDown, Check, BarChart3, Trophy, Briefcase, SwitchCamera, PieChart } from "lucide-react";
+import { Printer, Download, Search, X, ChevronDown, Check, BarChart3, Trophy, Briefcase, SwitchCamera, PieChart, AlertTriangle } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
 import TabGenerarInforme from "@/app/academy/cuentas-corrientes/components/TabGenerarInforme";
 import TabAlertasCredito from "@/app/academy/cuentas-corrientes/components/TabAlertasCredito";
+import TabSeguimientoRecaudacion from "@/app/academy/cuentas-corrientes/components/TabSeguimientoRecaudacion";
 
 // Hook para clicks fuera del elemento
 function useOnClickOutside(ref: React.RefObject<HTMLElement | null>, handler: () => void) {
@@ -142,7 +143,7 @@ function DropdownMultiSelect({
 export default function HerramientasReportePage() {
   const { user } = useAuth();
   const [activeMainTab, setActiveMainTab] = useState("exhibiciones");
-  const [ccTab, setCcTab] = useState("generar");
+  const [ccTab, setCcTab] = useState<"generar" | "alertas" | "recaudacion">("recaudacion");
 
   // Filtros
   const [desde, setDesde] = useState(inicioMes());
@@ -337,6 +338,17 @@ export default function HerramientasReportePage() {
               <div className="fade-in animate-in slide-in-from-bottom-2 duration-300">
                 <div className="flex gap-1 mb-4">
                   <button
+                    onClick={() => setCcTab("recaudacion")}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-200
+                                ${ccTab === "recaudacion"
+                        ? "bg-violet-100 text-violet-700"
+                        : "text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
+                      }`}
+                  >
+                    <BarChart3 size={14} />
+                    Seguimiento de Recaudación
+                  </button>
+                  <button
                     onClick={() => setCcTab("generar")}
                     className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-200
                                 ${ccTab === "generar"
@@ -347,8 +359,21 @@ export default function HerramientasReportePage() {
                     <Briefcase size={14} />
                     Generar Informe
                   </button>
+                  <button
+                    onClick={() => setCcTab("alertas")}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-200
+                                ${ccTab === "alertas"
+                        ? "bg-violet-100 text-violet-700"
+                        : "text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
+                      }`}
+                  >
+                    <AlertTriangle size={14} />
+                    Configurar Alertas
+                  </button>
                 </div>
                 {ccTab === "generar" && <TabGenerarInforme />}
+                {ccTab === "alertas" && user && <TabAlertasCredito distId={user.id_distribuidor} />}
+                {ccTab === "recaudacion" && user && <TabSeguimientoRecaudacion distId={user.id_distribuidor} />}
               </div>
             )}
 

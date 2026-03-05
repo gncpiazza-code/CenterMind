@@ -136,44 +136,57 @@ export default function TabGenerarInforme() {
     return (
         <div className="flex flex-col gap-6 animate-in slide-in-from-bottom-4 duration-500">
 
-            {/* Sección Educativa */}
-            <Card className="bg-gradient-to-br from-indigo-50 to-violet-50 border border-indigo-100 overflow-hidden relative">
-                <div className="absolute top-0 right-0 p-8 opacity-20 pointer-events-none">
-                    <Sparkles size={120} className="text-indigo-400" />
-                </div>
+            {/* Sección Educativa (Acordeón) */}
+            <details className="group bg-white rounded-2xl border border-indigo-100 shadow-sm overflow-hidden animate-in slide-in-from-bottom-4 duration-500">
+                <summary className="cursor-pointer p-5 bg-gradient-to-r from-indigo-50 to-violet-50 flex items-center justify-between outline-none">
+                    <div className="flex items-center gap-3">
+                        <div className="p-2 bg-indigo-100 text-indigo-700 rounded-lg">
+                            <Sparkles size={20} />
+                        </div>
+                        <h2 className="text-xl font-bold text-slate-800">¿Cómo construir el informe?</h2>
+                    </div>
+                    <div className="text-indigo-400 group-open:rotate-180 transition-transform duration-300">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                    </div>
+                </summary>
 
-                <div className="relative z-10 flex flex-col md:flex-row gap-6 items-center p-2">
-                    <div className="flex-1">
+                <div className="flex flex-col md:flex-row gap-6 items-center p-6 bg-gradient-to-br from-indigo-50/50 to-violet-50/50 relative">
+                    <div className="absolute top-0 right-0 p-8 opacity-10 pointer-events-none">
+                        <Sparkles size={120} className="text-indigo-400" />
+                    </div>
+                    <div className="flex-1 relative z-10">
                         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold uppercase tracking-wider mb-4">
                             <span className="relative flex h-2 w-2">
                                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
                                 <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
                             </span>
-                            Nuevo Módulo
+                            NUEVO MÓDULO DE DEUDAS
                         </div>
-                        <h2 className="text-xl font-bold text-slate-800 mb-2">Transforma tus reportes de ERP en segundos</h2>
+                        <h3 className="text-xl font-bold text-slate-800 mb-2">Transforma tus reportes de ERP en segundos</h3>
                         <p className="text-slate-600 text-sm leading-relaxed mb-4">
-                            Sube tu reporte estándar de Cuentas Corrientes. Nuestro motor procesará cruzando la información con tus <b>Alertas de Crédito</b> y generará un informe dinámico, separado por cada vendedor, y con gráficos automatizados listos para presentar.
+                            Descarga tu reporte crudo de Cuentas Corrientes y súbelo aquí. Nuestro motor lo analizará usando tus <b>Alertas de Crédito</b> y generará un informe procesado, agrupado por cada vendedor, junto con gráficos interactivos dinámicos y totales calculados.
                         </p>
+                        <p className="text-slate-600 text-sm font-medium">Revisa las guías en imagen/video a la derecha para ver cómo utilizar el sistema paso a paso.</p>
                     </div>
-                    <div className="w-full md:w-1/3 aspect-video bg-white/60 backdrop-blur rounded-2xl border border-white flex flex-col items-center justify-center text-indigo-300 font-medium shadow-sm relative overflow-hidden group">
+
+                    <div className="w-full md:w-1/3 aspect-video bg-white/60 backdrop-blur rounded-2xl border border-white flex flex-col items-center justify-center text-indigo-300 shadow-sm relative overflow-hidden group/video">
                         {tutorialStep === 1 && <video src="/saldo pt1.mp4" autoPlay muted playsInline onEnded={() => setTutorialStep(2)} className="w-full h-full object-contain bg-slate-100" />}
                         {tutorialStep === 2 && <video src="/saldo pt2.mp4" autoPlay muted playsInline onEnded={() => setTutorialStep(3)} className="w-full h-full object-contain bg-slate-100" />}
                         {tutorialStep === 3 && <img src="/saldo pt3.jpg" alt="Tutorial paso 3" className="w-full h-full object-contain bg-slate-100" />}
 
-                        <div className="absolute inset-x-0 bottom-4 flex justify-center gap-2 z-10 transition-opacity duration-300 opacity-60 group-hover:opacity-100">
+                        <div className="absolute inset-x-0 bottom-4 flex justify-center gap-2 z-10 opacity-70 transition-opacity duration-300 group-hover/video:opacity-100">
                             {[1, 2, 3].map((step) => (
                                 <button
                                     key={step}
-                                    onClick={() => setTutorialStep(step)}
-                                    className={`w-2.5 h-2.5 rounded-full transition-all ${tutorialStep === step ? 'bg-indigo-600 scale-125' : 'bg-slate-300 hover:bg-indigo-300'
+                                    onClick={(e) => { e.preventDefault(); setTutorialStep(step); }}
+                                    className={`w-2 h-2 rounded-full transition-all ${tutorialStep === step ? 'bg-indigo-600 scale-125' : 'bg-slate-400 hover:bg-indigo-300'
                                         }`}
                                 />
                             ))}
                         </div>
                     </div>
                 </div>
-            </Card>
+            </details>
 
             {/* Carga de Archivos */}
             <Card>

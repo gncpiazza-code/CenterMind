@@ -11,12 +11,19 @@ class ERPIngestionService:
         self.mapping: Dict[str, int] = {}
         self._load_mappings()
 
+    def reload_mappings(self):
+        """Recarga el mapeo forzadamente."""
+        self._load_mappings()
+
     def _load_mappings(self):
         """Carga el mapeo de Nombre ERP -> ID Distribuidor desde Supabase."""
         try:
+            # Forzamos limpieza para evitar basura
+            self.mapping = {}
             res = sb.table("erp_empresa_mapping").select("nombre_erp, id_distribuidor").execute()
-            self.mapping = {row["nombre_erp"]: row["id_distribuidor"] for row in res.data}
-            logger.info(f"Mapeos ERP cargados: {len(self.mapping)}")
+            # Guardamos las keys en minúsculas y sin espacios extras para máxima robustez
+            self.mapping = {str(row["nombre_erp"]).strip().lower(): row["id_distribuidor"] for row in res.data}
+            logger.info(f"Mapeos ERP (re)cargados: {len(self.mapping)} -> {self.mapping}")
         except Exception as e:
             logger.error(f"Error cargando mapeos ERP: {e}")
 
@@ -42,7 +49,7 @@ class ERPIngestionService:
         records_to_upsert = []
         
         for _, row in df.iterrows():
-            nombre_empresa_erp = str(row.get(col_empresa, "")).strip()
+            nombre_empresa_erp = str(row.get(col_empresa, "")).strip().lower()
             dist_id = self.mapping.get(nombre_empresa_erp)
             
             if not dist_id:
@@ -96,7 +103,7 @@ class ERPIngestionService:
         records_to_upsert = []
 
         for _, row in df.iterrows():
-            nombre_empresa_erp = str(row.get(col_empresa, "")).strip()
+            nombre_empresa_erp = str(row.get(col_empresa, "")).strip().lower()
             dist_id = self.mapping.get(nombre_empresa_erp)
 
             if not dist_id:

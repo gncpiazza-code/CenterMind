@@ -239,7 +239,7 @@ function RankingTable({
           <tbody>
             {ranking.map((v, i) => (
               <tr
-                key={v.vendedor}
+                key={`${v.vendedor}-${i}`}
                 className="border-b border-[var(--shelfy-border)] last:border-0 hover:bg-[var(--shelfy-bg)] transition-all"
                 style={{
                   opacity: visible[i] ? 1 : 0,

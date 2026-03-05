@@ -321,6 +321,17 @@ export default function HerramientasReportePage() {
                 Reporte de Exhibiciones
               </button>
               <button
+                onClick={() => setActiveMainTab("recaudacion")}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200
+                     ${activeMainTab === "recaudacion"
+                    ? "bg-gradient-to-br from-violet-600 to-indigo-600 text-white shadow-md shadow-violet-200/50"
+                    : "text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] hover:bg-[var(--shelfy-bg)]"
+                  }`}
+              >
+                <PieChart size={16} />
+                Seguimiento de Recaudación
+              </button>
+              <button
                 onClick={() => setActiveMainTab("cuentas_corrientes")}
                 className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200
                      ${activeMainTab === "cuentas_corrientes"
@@ -328,26 +339,22 @@ export default function HerramientasReportePage() {
                     : "text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] hover:bg-[var(--shelfy-bg)]"
                   }`}
               >
-                <PieChart size={16} />
+                <Briefcase size={16} />
                 Cuentas Corrientes
               </button>
             </div>
+
+            {/* Contenido Dinámico: Recaudación */}
+            {activeMainTab === "recaudacion" && user && (
+              <div className="fade-in animate-in slide-in-from-bottom-2 duration-300">
+                <TabSeguimientoRecaudacion distId={user.id_distribuidor} />
+              </div>
+            )}
 
             {/* Contenido Dinámico: Cuentas Corrientes */}
             {activeMainTab === "cuentas_corrientes" && (
               <div className="fade-in animate-in slide-in-from-bottom-2 duration-300">
                 <div className="flex gap-1 mb-4">
-                  <button
-                    onClick={() => setCcTab("recaudacion")}
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-200
-                                ${ccTab === "recaudacion"
-                        ? "bg-violet-100 text-violet-700"
-                        : "text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
-                      }`}
-                  >
-                    <BarChart3 size={14} />
-                    Seguimiento de Recaudación
-                  </button>
                   <button
                     onClick={() => setCcTab("generar")}
                     className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-200
@@ -373,7 +380,6 @@ export default function HerramientasReportePage() {
                 </div>
                 {ccTab === "generar" && <TabGenerarInforme />}
                 {ccTab === "alertas" && user && <TabAlertasCredito distId={user.id_distribuidor} />}
-                {ccTab === "recaudacion" && user && <TabSeguimientoRecaudacion distId={user.id_distribuidor} />}
               </div>
             )}
 

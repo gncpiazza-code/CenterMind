@@ -30,6 +30,10 @@ import json
 import base64
 
 from services.cuentas_corrientes_service import procesar_cuentas_corrientes_service
+from services.erp_ingestion_service import erp_service
+from services.erp_summary_service import erp_summary_service
+import io
+from apscheduler.schedulers.background import BackgroundScheduler
 
 # JWT (python-jose) — opcional: si no está instalado, /auth/login no estará disponible
 try:
@@ -67,6 +71,31 @@ logger = logging.getLogger("ShelfyAPI")
 
 bots = {}
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL") # E.g. https://midominio.com
+scheduler = BackgroundScheduler()
+
+def erp_automatic_sync():
+    """Tarea programada para buscar y procesar archivos en Downloads automáticamente."""
+    logger.info("⏰ Ejecutando sincronización automática ERP...")
+    # Rutas por defecto basadas en los ejemplos del usuario
+    downloads_path = str(Path.home() / "Downloads")
+    clientes_file = os.path.join(downloads_path, "resultados_Reporte.PadronDeClientes (3).xlsx")
+    ventas_file   = os.path.join(downloads_path, "resultados_Reporte.InformeDeVentas (3).xlsx")
+    
+    try:
+        if os.path.exists(clientes_file):
+            logger.info(f"Procesando clientes desde {clientes_file}")
+            erp_service.ingest_clientes(clientes_file)
+        if os.path.exists(ventas_file):
+            logger.info(f"Procesando ventas desde {ventas_file}")
+            erp_service.ingest_ventas(ventas_file)
+            
+        # --- Cruce de datos (Fase C) ---
+        # Consolidamos deudas para T&H (ID 3 de ejemplo) y otros mapeados
+        for dist_id in erp_service.mapping.values():
+            erp_summary_service.consolidate_debt(dist_id)
+            
+    except Exception as e:
+        logger.error(f"❌ Error en sincronización automática: {e}")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -98,6 +127,12 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"❌ Error iniciando bot {d_id}: {e}")
             
+    # --- Scheduler Startup ---
+    # Programado para las 04:00 AM todos los días
+    scheduler.add_job(erp_automatic_sync, 'cron', hour=4, minute=0)
+    scheduler.start()
+    logger.info("📅 Scheduler iniciado (ERP Sync programado 04:00 AM)")
+
     yield
     
     # ─── Shutdown ─────────────────────────────────────────────────────────────
@@ -109,6 +144,10 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"Error deteniendo bot {d_id}: {e}")
     bots.clear()
+    
+    # --- Scheduler Shutdown ---
+    scheduler.shutdown()
+    logger.info("📅 Scheduler detenido")
 
 
 app = FastAPI(title="Shelfy API", version="2.0.0", lifespan=lifespan)
@@ -273,6 +312,36 @@ class TokenResponse(BaseModel):
 @app.get("/health", summary="Health check")
 def health():
     return {"status": "ok"}
+
+
+# ─── Módulo ERP: Carga Manual (Fase A) ───────────────────────────────────────
+
+@app.post("/api/admin/erp/upload-global", tags=["ERP Admin"], summary="Carga manual de archivos globales del ERP")
+async def erp_upload_global(
+    tipo: str = Query(..., description="Tipo de archivo: 'ventas' o 'clientes'"),
+    file: UploadFile = File(...),
+    _=Depends(verify_auth)
+):
+    """Permite subir los archivos globales InformeDeVentas o PadronDeClientes."""
+    if tipo not in ["ventas", "clientes"]:
+        raise HTTPException(status_code=400, detail="Tipo inválido. Usa 'ventas' o 'clientes'.")
+    
+    try:
+        content = await file.read()
+        file_io = io.BytesIO(content)
+        
+        if tipo == "clientes":
+            processed = erp_service.ingest_clientes(file_io)
+            msg = f"Iniciado procesamiento de Padrón de Clientes. {processed} registros identificados."
+        else:
+            processed = erp_service.ingest_ventas(file_io)
+            msg = f"Iniciado procesamiento de Informe de Ventas. {processed} registros identificados."
+            
+        return {"status": "success", "message": msg, "count": processed}
+    except Exception as e:
+        logger.error(f"Error en carga manual ERP ({tipo}): {e}")
+        raise HTTPException(status_code=500, detail=f"Error procesando archivo: {str(e)}")
+
 
 
 @app.get("/api/public/landing-stats", summary="Estadisticas publicas para la Landing Page")

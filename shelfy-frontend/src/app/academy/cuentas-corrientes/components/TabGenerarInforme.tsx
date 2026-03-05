@@ -66,6 +66,9 @@ export default function TabGenerarInforme() {
         if (fileInputRef.current) fileInputRef.current.value = "";
     };
 
+    const [loadingProgress, setLoadingProgress] = useState(0);
+    const [loadingMessage, setLoadingMessage] = useState("");
+
     const handleProcesar = async () => {
         if (!file) return;
 
@@ -73,6 +76,30 @@ export default function TabGenerarInforme() {
         setSuccess(false);
         setError("");
         setResponseData(null);
+        setLoadingProgress(0);
+        setLoadingMessage("Iniciando análisis del archivo...");
+
+        // Simulated progress interval for better UX
+        const loadingSteps = [
+            { threshold: 15, msg: "Leyendo documento Excel..." },
+            { threshold: 40, msg: "Cruzando datos con Alertas de Crédito..." },
+            { threshold: 65, msg: "Agrupando saldos por vendedor..." },
+            { threshold: 85, msg: "Generando gráficos interactivos..." },
+            { threshold: 95, msg: "Finalizando reporte..." }
+        ];
+
+        let currentProgress = 0;
+        const progressInterval = setInterval(() => {
+            currentProgress += Math.floor(Math.random() * 5) + 2; // Incremento aleatorio entre 2 y 6
+            if (currentProgress > 95) currentProgress = 95; // Capping at 95% until API really finishes
+
+            setLoadingProgress(currentProgress);
+
+            const currentStep = loadingSteps.slice().reverse().find(step => currentProgress >= step.threshold);
+            if (currentStep) {
+                setLoadingMessage(currentStep.msg);
+            }
+        }, 500);
 
         try {
             // 1. Gather config
@@ -112,6 +139,10 @@ export default function TabGenerarInforme() {
 
             const resJson = await res.json();
 
+            clearInterval(progressInterval);
+            setLoadingProgress(100);
+            setLoadingMessage("¡Reporte completado!");
+
             // Automatic Download Strategy
             if (resJson.file_b64) {
                 const link = document.createElement("a");
@@ -122,11 +153,15 @@ export default function TabGenerarInforme() {
                 document.body.removeChild(link);
             }
 
-            setResponseData(resJson.data); // Store for preview
-            setSuccess(true);
-            setIsProcessing(false);
+            // Small delay to let user see 100% before transitioning
+            setTimeout(() => {
+                setResponseData(resJson.data); // Store for preview
+                setSuccess(true);
+                setIsProcessing(false);
+            }, 800);
 
         } catch (err: any) {
+            clearInterval(progressInterval);
             setError(err.message || "Error de red al procesar el archivo. Revisa la consola.");
             setIsProcessing(false);
         }
@@ -248,10 +283,21 @@ export default function TabGenerarInforme() {
                     )}
 
                     {isProcessing && (
-                        <Button disabled className="w-full sm:flex-1 bg-violet-600/50 text-white rounded-xl py-6 text-base font-bold cursor-not-allowed">
-                            <Loader2 className="animate-spin mr-2" size={20} />
-                            Analizando Cuentas y Limpiando Datos...
-                        </Button>
+                        <div className="w-full sm:flex-1 bg-white border border-indigo-100 rounded-xl p-4 shadow-inner relative overflow-hidden">
+                            <div className="flex justify-between items-center mb-2">
+                                <p className="text-sm font-bold text-indigo-700 flex items-center gap-2">
+                                    <Loader2 className="animate-spin" size={16} />
+                                    {loadingMessage}
+                                </p>
+                                <span className="text-sm font-bold text-slate-500">{loadingProgress}%</span>
+                            </div>
+                            <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
+                                <div
+                                    className="bg-indigo-600 h-2.5 rounded-full transition-all duration-300 ease-out"
+                                    style={{ width: `${loadingProgress}%` }}
+                                ></div>
+                            </div>
+                        </div>
                     )}
 
                     {success && (

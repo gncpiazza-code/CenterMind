@@ -2,21 +2,21 @@
 
 import Link from "next/link";
 import { ArrowRight, Play, GraduationCap, PieChart, Store, CheckCircle2, ChevronRight, Activity, Users, Shield } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { toast, Toaster } from "sonner";
 
 // Mock data type from API
 type LandingStats = {
-  auditorias_pdv: string | number;
-  miembros_activos: string | number;
-  sucursales_vinculadas: string | number;
+  auditorias_pdv: number;
+  miembros_activos: number;
+  sucursales_vinculadas: number;
 };
 
 export default function LandingPage() {
   const [stats, setStats] = useState<LandingStats>({
-    auditorias_pdv: "+2.5K",
-    miembros_activos: "+150",
-    sucursales_vinculadas: "+350"
+    auditorias_pdv: 2500,
+    miembros_activos: 150,
+    sucursales_vinculadas: 350
   });
   const [scrollY, setScrollY] = useState(0);
 
@@ -156,15 +156,21 @@ export default function LandingPage() {
       <div id="stats" className="w-full max-w-5xl mx-auto px-6 mb-24 -translate-y-4">
         <div className="bg-white/10 backdrop-blur-2xl rounded-3xl p-8 border border-white/10 shadow-2xl flex flex-col md:flex-row justify-around items-center gap-8 divide-y md:divide-y-0 md:divide-x divide-white/10">
           <div className="flex flex-col items-center justify-center w-full py-2">
-            <div className="text-4xl md:text-5xl font-black text-white mb-1">{stats.auditorias_pdv}</div>
+            <div className="text-4xl md:text-5xl font-black text-white mb-1">
+              <AnimatedCounter end={stats.auditorias_pdv as number} suffix="+" />
+            </div>
             <div className="text-sm font-bold text-slate-300 uppercase tracking-wider">Auditorias Realizadas</div>
           </div>
           <div className="flex flex-col items-center justify-center w-full py-2">
-            <div className="text-4xl md:text-5xl font-black text-[#a855f7] mb-1">{stats.miembros_activos}</div>
+            <div className="text-4xl md:text-5xl font-black text-[#a855f7] mb-1">
+              <AnimatedCounter end={stats.miembros_activos as number} suffix="+" />
+            </div>
             <div className="text-sm font-bold text-slate-300 uppercase tracking-wider">Integrantes Activos</div>
           </div>
           <div className="flex flex-col items-center justify-center w-full py-2">
-            <div className="text-4xl md:text-5xl font-black text-white mb-1">{stats.sucursales_vinculadas}</div>
+            <div className="text-4xl md:text-5xl font-black text-white mb-1">
+              <AnimatedCounter end={stats.sucursales_vinculadas as number} suffix="+" />
+            </div>
             <div className="text-sm font-bold text-slate-300 uppercase tracking-wider">Sucursales Conectadas</div>
           </div>
         </div>
@@ -286,6 +292,48 @@ export default function LandingPage() {
           </div>
         </div>
       </footer>
+    </div>
+  );
+}
+
+// Subcomponente: Contador Animado
+function AnimatedCounter({ end, duration = 3000, suffix = "" }: { end: number, duration?: number, suffix?: string }) {
+  const [count, setCount] = useState(0);
+  const [isVisible, setIsVisible] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) {
+        setIsVisible(true);
+      }
+    });
+    if (ref.current) observer.observe(ref.current);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!isVisible) return;
+    let startTimestamp: number | null = null;
+    const step = (timestamp: number) => {
+      if (!startTimestamp) startTimestamp = timestamp;
+      const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+      // easeOutExpo function for a realistic slowing down roll
+      const easeProgress = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress);
+      setCount(Math.floor(easeProgress * end));
+      if (progress < 1) {
+        window.requestAnimationFrame(step);
+      }
+    };
+    window.requestAnimationFrame(step);
+  }, [isVisible, end, duration]);
+
+  // Formatear a miliares: 2500 -> 2,500
+  const formattedCount = new Intl.NumberFormat("en-US").format(count);
+
+  return (
+    <div ref={ref} className="inline-block tabular-nums">
+      {formattedCount}{suffix}
     </div>
   );
 }

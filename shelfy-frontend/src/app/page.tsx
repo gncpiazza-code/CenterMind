@@ -38,7 +38,7 @@ export default function LandingPage() {
   }, []);
 
   return (
-    <div className="relative min-h-screen bg-gradient-to-br from-slate-50 via-[#F7F6F8] to-purple-50/30 text-[#0F172A] overflow-hidden font-sans selection:bg-[#7311D4]/20 selection:text-[#7311D4]">
+    <div className="relative min-h-screen bg-gradient-to-br from-purple-50 via-fuchsia-50/50 to-indigo-50 text-[#0F172A] overflow-hidden font-sans selection:bg-[#7311D4]/20 selection:text-[#7311D4]">
       {/* Custom CSS for Scroll Animations & Blobs */}
       <style dangerouslySetInnerHTML={{
         __html: `
@@ -68,13 +68,13 @@ export default function LandingPage() {
 
       {/* Ambient Gradient Blobs (Body.svg #7311D4 palette) */}
       <div className="fixed top-0 left-0 w-full h-full overflow-hidden -z-10 pointer-events-none">
-        <div className="absolute -top-40 -right-40 w-[500px] h-[500px] bg-[#7311D4]/10 rounded-full mix-blend-multiply filter blur-3xl opacity-60 animate-blob"></div>
-        <div className="absolute top-40 -left-20 w-96 h-96 bg-purple-300/20 rounded-full mix-blend-multiply filter blur-3xl opacity-50 animate-blob animation-delay-2000"></div>
-        <div className="absolute -bottom-40 left-1/2 w-[600px] h-[600px] bg-slate-300/30 rounded-full mix-blend-multiply filter blur-3xl opacity-40 animate-blob animation-delay-4000"></div>
+        <div className="absolute -top-20 -right-20 w-[600px] h-[600px] bg-purple-300/40 rounded-full mix-blend-multiply filter blur-[100px] opacity-80 animate-blob"></div>
+        <div className="absolute top-40 -left-20 w-[500px] h-[500px] bg-fuchsia-300/30 rounded-full mix-blend-multiply filter blur-[100px] opacity-80 animate-blob animation-delay-2000"></div>
+        <div className="absolute -bottom-40 left-1/2 w-[700px] h-[700px] bg-indigo-300/30 rounded-full mix-blend-multiply filter blur-[120px] opacity-70 animate-blob animation-delay-4000"></div>
       </div>
 
       {/* Navbar */}
-      <nav className="relative z-50 w-full max-w-7xl mx-auto px-6 py-6 flex justify-between items-center animate-in fade-in slide-in-from-top-4 duration-700">
+      <nav className="relative z-50 w-full max-w-7xl mx-auto px-6 py-4 flex justify-between items-center animate-in fade-in slide-in-from-top-4 duration-700">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center shadow-lg shadow-slate-200 border border-slate-100 overflow-hidden relative group">
             {/* Integrating the requested Logo */}
@@ -98,9 +98,9 @@ export default function LandingPage() {
       </nav>
 
       {/* Hero Section */}
-      <main className="relative z-10 w-full max-w-6xl mx-auto px-6 pt-24 pb-20 text-center animate-in fade-in zoom-in-95 duration-700 delay-150 fill-mode-forwards opacity-0">
+      <main className="relative z-10 w-full max-w-6xl mx-auto px-6 pt-10 pb-12 text-center animate-in fade-in zoom-in-95 duration-700 delay-150 fill-mode-forwards opacity-0">
 
-        <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white border border-[#7311D4]/20 text-[#7311D4] text-xs font-bold uppercase tracking-widest mb-10 shadow-sm">
+        <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/60 backdrop-blur-md border border-[#7311D4]/20 text-[#7311D4] text-xs font-bold uppercase tracking-widest mb-6 shadow-sm">
           <span className="relative flex h-2.5 w-2.5">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#7311D4] opacity-50"></span>
             <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#7311D4]"></span>
@@ -128,8 +128,8 @@ export default function LandingPage() {
       </main>
 
       {/* Real Statistics Segment */}
-      <div id="stats" className="w-full max-w-5xl mx-auto px-6 mb-32 -translate-y-4">
-        <div className="bg-white/80 backdrop-blur-2xl rounded-3xl p-8 border border-white shadow-2xl shadow-slate-200/50 flex flex-col md:flex-row justify-around items-center gap-8 divide-y md:divide-y-0 md:divide-x divide-slate-100">
+      <div id="stats" className="w-full max-w-5xl mx-auto px-6 mb-24 -translate-y-4">
+        <div className="bg-white/70 backdrop-blur-2xl rounded-3xl p-8 border border-white shadow-2xl shadow-purple-900/5 flex flex-col md:flex-row justify-around items-center gap-8 divide-y md:divide-y-0 md:divide-x divide-purple-100">
           <div className="flex flex-col items-center justify-center w-full py-2">
             <div className="text-4xl md:text-5xl font-black text-[#0F172A] mb-1">{stats.auditorias_pdv}</div>
             <div className="text-sm font-bold text-[#64748B] uppercase tracking-wider">Auditorias Realizadas</div>
@@ -230,9 +230,9 @@ export default function LandingPage() {
                 <div className="w-3 h-3 rounded-full bg-[#FFBD2E] border border-[#DEA123]"></div>
                 <div className="w-3 h-3 rounded-full bg-[#27C93F] border border-[#1AAB29]"></div>
               </div>
-              <div className="w-full aspect-video bg-black relative">
-                <video className="w-full h-full object-cover" autoPlay loop muted playsInline poster="/REAL_ACADEMY_LOGO.png">
-                  <source src="/SALDOSFINAL.mp4" type="video/mp4" />
+              <div className="w-full aspect-video bg-black relative overflow-hidden">
+                <video className="w-full h-full object-cover scale-[1.15] translate-y-[2%]" autoPlay loop muted playsInline poster="/REAL_ACADEMY_LOGO.png">
+                  <source src="/libro_bg.mp4" type="video/mp4" />
                 </video>
               </div>
             </div>

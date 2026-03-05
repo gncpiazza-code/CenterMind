@@ -9,8 +9,11 @@ import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/hooks/useAuth";
 import { useEffect, useState, useRef, useMemo } from "react";
 import { fetchReporteExhibiciones, fetchReporteVendedores, fetchReporteTiposPdv, fetchReporteSucursales } from "@/lib/api";
-import { Printer, Download, Search, X, ChevronDown, Check, BarChart3, Trophy } from "lucide-react";
+import { Printer, Download, Search, X, ChevronDown, Check, BarChart3, Trophy, Briefcase, SwitchCamera, PieChart } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+
+import TabGenerarInforme from "@/app/academy/cuentas-corrientes/components/TabGenerarInforme";
+import TabAlertasCredito from "@/app/academy/cuentas-corrientes/components/TabAlertasCredito";
 
 // Hook para clicks fuera del elemento
 function useOnClickOutside(ref: React.RefObject<HTMLElement | null>, handler: () => void) {
@@ -136,8 +139,10 @@ function DropdownMultiSelect({
   );
 }
 
-export default function ReportesPage() {
+export default function HerramientasReportePage() {
   const { user } = useAuth();
+  const [activeMainTab, setActiveMainTab] = useState("exhibiciones");
+  const [ccTab, setCcTab] = useState("generar");
 
   // Filtros
   const [desde, setDesde] = useState(inicioMes());
@@ -287,237 +292,299 @@ export default function ReportesPage() {
         <div className="no-print"><Sidebar /></div>
         <div className="no-print"><BottomNav /></div>
         <div className="flex flex-col flex-1 min-w-0">
-          <div className="no-print"><Topbar title="Reportes" /></div>
+          <div className="no-print"><Topbar title="Herramientas de Reporte" /></div>
 
-          <main className="flex-1 p-4 md:p-6 pb-20 md:pb-6 overflow-auto w-full">
-            {/* Cabecera Impresión */}
-            <div className="print-only mb-6 pb-4 border-b border-gray-300">
-              <div className="flex items-center justify-between">
-                <img src="/LOGO_NUEVO.svg" alt="Shelfy" className="h-8 grayscale" />
-                <div className="text-right">
-                  <h1 className="text-xl font-bold text-gray-800">Reporte de Exhibiciones</h1>
-                  <p className="text-xs text-gray-500">Generado el {new Date().toLocaleString("es-ES")}</p>
-                </div>
-              </div>
-              {hayFiltrosActivos && (
-                <div className="mt-4 text-xs text-gray-600">
-                  <strong>Filtros aplicados:</strong> Desde {desde} Hasta {hasta}
-                  {nroCliente && ` | Cliente: ${nroCliente}`}
-                  {selectedEstados.length > 0 && ` | Estados: ${selectedEstados.join(", ")}`}
-                </div>
-              )}
+          <main className="flex-1 p-4 md:p-6 pb-20 md:pb-6 overflow-auto w-full max-w-7xl mx-auto">
+
+            {/* Cabecera Principal */}
+            <div className="mb-6 no-print">
+              <h1 className="text-2xl font-black text-[var(--shelfy-text)] tracking-tight">
+                Herramientas de Reporte
+              </h1>
+              <p className="text-sm text-[var(--shelfy-muted)] mt-1">
+                Analiza la evaluación corporativa en PDV o gestiona tus Cuentas Corrientes.
+              </p>
             </div>
 
-            {/* Filtros */}
-            <Card className="mb-5 no-print">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-[var(--shelfy-text)] font-semibold text-sm">Filtros de búsqueda</h3>
-                {hayFiltrosActivos && (
-                  <button onClick={handleLimpiar}
-                    className="flex items-center gap-1 text-xs text-[var(--shelfy-muted)] hover:text-[var(--shelfy-error)] transition-colors">
-                    <X size={12} /> Limpiar filtros
+            {/* Selector de Herramienta Principal */}
+            <div className="flex gap-1 bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-xl p-1 w-fit mb-6 shadow-sm no-print">
+              <button
+                onClick={() => setActiveMainTab("exhibiciones")}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200
+                     ${activeMainTab === "exhibiciones"
+                    ? "bg-gradient-to-br from-violet-600 to-indigo-600 text-white shadow-md shadow-violet-200/50"
+                    : "text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] hover:bg-[var(--shelfy-bg)]"
+                  }`}
+              >
+                <BarChart3 size={16} />
+                Reporte de Exhibiciones
+              </button>
+              <button
+                onClick={() => setActiveMainTab("cuentas_corrientes")}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200
+                     ${activeMainTab === "cuentas_corrientes"
+                    ? "bg-gradient-to-br from-violet-600 to-indigo-600 text-white shadow-md shadow-violet-200/50"
+                    : "text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] hover:bg-[var(--shelfy-bg)]"
+                  }`}
+              >
+                <PieChart size={16} />
+                Cuentas Corrientes
+              </button>
+            </div>
+
+            {/* Contenido Dinámico: Cuentas Corrientes */}
+            {activeMainTab === "cuentas_corrientes" && (
+              <div className="fade-in animate-in slide-in-from-bottom-2 duration-300">
+                <div className="flex gap-1 mb-4">
+                  <button
+                    onClick={() => setCcTab("generar")}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-200
+                                ${ccTab === "generar"
+                        ? "bg-violet-100 text-violet-700"
+                        : "text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
+                      }`}
+                  >
+                    <Briefcase size={14} />
+                    Generar Informe
                   </button>
-                )}
+                </div>
+                {ccTab === "generar" && <TabGenerarInforme />}
               </div>
+            )}
 
-              <div className="flex flex-col gap-4">
-                <div className="flex flex-wrap items-end gap-3 z-20 relative">
-                  {/* Fecha */}
-                  <div>
-                    <label className="block text-xs text-[var(--shelfy-muted)] mb-1.5 font-medium">Desde</label>
-                    <input
-                      type="date" value={desde} onChange={(e) => setDesde(e.target.value)}
-                      className="rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-[var(--shelfy-text)] px-3 py-2 text-sm focus:outline-none focus:border-[var(--shelfy-primary)] w-[140px]"
-                    />
+            {/* Contenido Dinámico: Exhibiciones */}
+            {activeMainTab === "exhibiciones" && (
+              <div className="fade-in animate-in slide-in-from-bottom-2 duration-300">
+                {/* Cabecera Impresión */}
+                <div className="print-only mb-6 pb-4 border-b border-gray-300">
+                  <div className="flex items-center justify-between">
+                    <img src="/LOGO_NUEVO.svg" alt="Shelfy" className="h-8 grayscale" />
+                    <div className="text-right">
+                      <h1 className="text-xl font-bold text-gray-800">Reporte de Exhibiciones</h1>
+                      <p className="text-xs text-gray-500">Generado el {new Date().toLocaleString("es-ES")}</p>
+                    </div>
                   </div>
-                  <div>
-                    <label className="block text-xs text-[var(--shelfy-muted)] mb-1.5 font-medium">Hasta</label>
-                    <input
-                      type="date" value={hasta} onChange={(e) => setHasta(e.target.value)}
-                      className="rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-[var(--shelfy-text)] px-3 py-2 text-sm focus:outline-none focus:border-[var(--shelfy-primary)] w-[140px]"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-[var(--shelfy-muted)] mb-1.5 font-medium">N° Cliente / Local</label>
-                    <input
-                      type="text" value={nroCliente} onChange={(e) => setNroCliente(e.target.value)}
-                      placeholder="Buscar..."
-                      className="rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-[var(--shelfy-text)] px-3 py-2 text-sm focus:outline-none focus:border-[var(--shelfy-primary)] w-36"
-                    />
-                  </div>
-
-                  {/* Estado */}
-                  <DropdownMultiSelect
-                    label="Estado"
-                    options={ESTADOS}
-                    selected={selectedEstados}
-                    onChange={setSelectedEstados}
-                  />
-
-                  {/* Tipo PDV */}
-                  {!loadingOpts && tiposPdvList.length > 0 && (
-                    <DropdownMultiSelect
-                      label="Tipo PDV"
-                      options={tiposPdvList}
-                      selected={selectedTipos}
-                      onChange={setSelectedTipos}
-                    />
-                  )}
-
-                  {/* Sucursales */}
-                  {!loadingOpts && sucursalesList.length > 0 && (
-                    <DropdownMultiSelect
-                      label="Sucursales"
-                      options={sucursalesList}
-                      selected={selectedSucursales}
-                      onChange={setSelectedSucursales}
-                    />
-                  )}
-
-                  {/* Vendedores */}
-                  {!loadingOpts && vendedoresList.length > 0 && (
-                    <DropdownMultiSelect
-                      label="Supervisor"
-                      options={vendedoresList}
-                      selected={selectedVendedores}
-                      onChange={setSelectedVendedores}
-                    />
+                  {hayFiltrosActivos && (
+                    <div className="mt-4 text-xs text-gray-600">
+                      <strong>Filtros aplicados:</strong> Desde {desde} Hasta {hasta}
+                      {nroCliente && ` | Cliente: ${nroCliente}`}
+                      {selectedEstados.length > 0 && ` | Estados: ${selectedEstados.join(", ")}`}
+                    </div>
                   )}
                 </div>
 
-                {/* Acciones */}
-                <div className="flex gap-2 pt-1">
-                  <Button onClick={handleBuscar} loading={loading}>
-                    <Search size={14} /> Buscar
-                  </Button>
-                  {filas.length > 0 && (
-                    <Button variant="secondary" onClick={handleExportCSV}>
-                      <Download size={14} /> Exportar
-                    </Button>
-                  )}
-                  {filas.length > 0 && (
-                    <Button variant="secondary" onClick={() => window.print()}>
-                      <Printer size={14} /> Imprimir (PDF)
-                    </Button>
-                  )}
-                </div>
-              </div>
-            </Card>
+                {/* Filtros */}
+                <Card className="mb-5 no-print">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-[var(--shelfy-text)] font-semibold text-sm">Filtros de búsqueda</h3>
+                    {hayFiltrosActivos && (
+                      <button onClick={handleLimpiar}
+                        className="flex items-center gap-1 text-xs text-[var(--shelfy-muted)] hover:text-[var(--shelfy-error)] transition-colors">
+                        <X size={12} /> Limpiar filtros
+                      </button>
+                    )}
+                  </div>
 
-            {error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm mb-4">
-                {error}
-              </div>
-            )}
-            {loading && <PageSpinner />}
+                  <div className="flex flex-col gap-4">
+                    <div className="flex flex-wrap items-end gap-3 z-20 relative">
+                      {/* Fecha */}
+                      <div>
+                        <label className="block text-xs text-[var(--shelfy-muted)] mb-1.5 font-medium">Desde</label>
+                        <input
+                          type="date" value={desde} onChange={(e) => setDesde(e.target.value)}
+                          className="rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-[var(--shelfy-text)] px-3 py-2 text-sm focus:outline-none focus:border-[var(--shelfy-primary)] w-[140px]"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-[var(--shelfy-muted)] mb-1.5 font-medium">Hasta</label>
+                        <input
+                          type="date" value={hasta} onChange={(e) => setHasta(e.target.value)}
+                          className="rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-[var(--shelfy-text)] px-3 py-2 text-sm focus:outline-none focus:border-[var(--shelfy-primary)] w-[140px]"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-[var(--shelfy-muted)] mb-1.5 font-medium">N° Cliente / Local</label>
+                        <input
+                          type="text" value={nroCliente} onChange={(e) => setNroCliente(e.target.value)}
+                          placeholder="Buscar..."
+                          className="rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-[var(--shelfy-text)] px-3 py-2 text-sm focus:outline-none focus:border-[var(--shelfy-primary)] w-36"
+                        />
+                      </div>
 
-            {!loading && searched && filas.length === 0 && (
-              <p className="text-[var(--shelfy-muted)] text-sm no-print">Sin resultados para los filtros seleccionados.</p>
-            )}
+                      {/* Estado */}
+                      <DropdownMultiSelect
+                        label="Estado"
+                        options={ESTADOS}
+                        selected={selectedEstados}
+                        onChange={setSelectedEstados}
+                      />
 
-            {!loading && filas.length > 0 && (
-              <div className="flex flex-col gap-6">
+                      {/* Tipo PDV */}
+                      {!loadingOpts && tiposPdvList.length > 0 && (
+                        <DropdownMultiSelect
+                          label="Tipo PDV"
+                          options={tiposPdvList}
+                          selected={selectedTipos}
+                          onChange={setSelectedTipos}
+                        />
+                      )}
 
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {/* Timeline Gráfico */}
-                  <Card className="print-card">
-                    <div className="flex items-center gap-2 mb-4 text-[var(--shelfy-text)] font-semibold text-sm">
-                      <BarChart3 size={16} className="text-[var(--shelfy-primary)]" />
-                      Evolución de Cargas
-                    </div>
-                    <div className="h-64 w-full">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={timelineData}>
-                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-                          <XAxis dataKey="fecha" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-                          <YAxis allowDecimals={false} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-                          <Tooltip
-                            cursor={{ fill: "rgba(124, 58, 237, 0.05)" }}
-                            contentStyle={{ borderRadius: "8px", border: "none", boxShadow: "0 4px 12px rgba(0,0,0,0.1)" }}
-                          />
-                          <Bar dataKey="cantidad" fill="url(#colorPrimary)" radius={[4, 4, 0, 0]} name="Exhibiciones" />
-                          <defs>
-                            <linearGradient id="colorPrimary" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="0%" stopColor="#7c3aed" stopOpacity={0.9} />
-                              <stop offset="100%" stopColor="#4f46e5" stopOpacity={0.6} />
-                            </linearGradient>
-                          </defs>
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </Card>
+                      {/* Sucursales */}
+                      {!loadingOpts && sucursalesList.length > 0 && (
+                        <DropdownMultiSelect
+                          label="Sucursales"
+                          options={sucursalesList}
+                          selected={selectedSucursales}
+                          onChange={setSelectedSucursales}
+                        />
+                      )}
 
-                  {/* Ranking de Puntajes */}
-                  <Card className="print-card">
-                    <div className="flex items-center gap-2 mb-4 text-[var(--shelfy-text)] font-semibold text-sm">
-                      <Trophy size={16} className="text-yellow-500" />
-                      Puntuación y Ranking
-                    </div>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm text-left">
-                        <thead>
-                          <tr className="text-[var(--shelfy-muted)] border-b border-[var(--shelfy-border)]">
-                            <th className="pb-2 pr-3 w-8">#</th>
-                            <th className="pb-2 pr-3">Vendedor</th>
-                            <th className="pb-2 pr-3 text-center">Aprob</th>
-                            <th className="pb-2 pr-3 text-center">Dest</th>
-                            <th className="pb-2 text-right">Pts Totales</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {rankingData.slice(0, 10).map((r, i) => (
-                            <tr key={r.vendedor} className="border-b border-[var(--shelfy-border)] last:border-0 hover:bg-[var(--shelfy-bg)] transition-colors">
-                              <td className="py-2.5 pr-3 text-[var(--shelfy-muted)] tabular-nums">{i + 1}</td>
-                              <td className="py-2.5 pr-3 font-medium text-[var(--shelfy-text)] truncate max-w-[120px]">{r.vendedor}</td>
-                              <td className="py-2.5 pr-3 text-center text-green-600">{r.aprobados}</td>
-                              <td className="py-2.5 pr-3 text-center text-purple-600">{r.destacados}</td>
-                              <td className="py-2.5 text-right font-bold tabular-nums text-[var(--shelfy-primary)]">{r.puntos}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                      {rankingData.length > 10 && (
-                        <p className="text-xs text-[var(--shelfy-muted)] mt-3 text-center no-print">
-                          Mostrando el top 10 de {rankingData.length} vendedores puntuados.
-                        </p>
+                      {/* Vendedores */}
+                      {!loadingOpts && vendedoresList.length > 0 && (
+                        <DropdownMultiSelect
+                          label="Supervisor"
+                          options={vendedoresList}
+                          selected={selectedVendedores}
+                          onChange={setSelectedVendedores}
+                        />
                       )}
                     </div>
-                  </Card>
-                </div>
 
-                {/* Data Table */}
-                <Card className="print-card">
-                  <div className="flex items-center justify-between mb-3">
-                    <p className="text-sm font-semibold text-[var(--shelfy-text)]">{filas.length} registros detallados</p>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="text-[var(--shelfy-muted)] text-left border-b border-[var(--shelfy-border)]">
-                          {["ID", "Vendedor", "Sucursal", "Cliente", "PDV", "Estado", "Fecha carga"].map((h) => (
-                            <th key={h} className="pb-3 pr-3 whitespace-nowrap font-semibold">{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filas.map((f) => (
-                          <tr key={f.id_exhibicion} className="border-b border-[var(--shelfy-border)] last:border-0 hover:bg-[var(--shelfy-bg)] transition-colors">
-                            <td className="py-2.5 pr-3 text-[var(--shelfy-muted)] tabular-nums">{f.id_exhibicion}</td>
-                            <td className="py-2.5 pr-3 text-[var(--shelfy-text)] font-medium max-w-[150px] truncate">{f.vendedor}</td>
-                            <td className="py-2.5 pr-3 text-[var(--shelfy-muted)] text-xs truncate max-w-[120px]">{f.sucursal}</td>
-                            <td className="py-2.5 pr-3 text-[var(--shelfy-muted)] truncate max-w-[150px]">{f.cliente}</td>
-                            <td className="py-2.5 pr-3 text-[var(--shelfy-muted)] truncate max-w-[100px]">{f.tipo_pdv}</td>
-                            <td className="py-2.5 pr-3">
-                              <EstadoBadge estado={f.estado} />
-                            </td>
-                            <td className="py-2.5 text-[var(--shelfy-muted)] whitespace-nowrap tabular-nums">{f.fecha_carga?.slice(0, 16)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                    {/* Acciones */}
+                    <div className="flex gap-2 pt-1">
+                      <Button onClick={handleBuscar} loading={loading}>
+                        <Search size={14} /> Buscar
+                      </Button>
+                      {filas.length > 0 && (
+                        <Button variant="secondary" onClick={handleExportCSV}>
+                          <Download size={14} /> Exportar
+                        </Button>
+                      )}
+                      {filas.length > 0 && (
+                        <Button variant="secondary" onClick={() => window.print()}>
+                          <Printer size={14} /> Imprimir (PDF)
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 </Card>
 
+                {error && (
+                  <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm mb-4">
+                    {error}
+                  </div>
+                )}
+                {loading && <PageSpinner />}
+
+                {!loading && searched && filas.length === 0 && (
+                  <p className="text-[var(--shelfy-muted)] text-sm no-print">Sin resultados para los filtros seleccionados.</p>
+                )}
+
+                {!loading && filas.length > 0 && (
+                  <div className="flex flex-col gap-6">
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      {/* Timeline Gráfico */}
+                      <Card className="print-card">
+                        <div className="flex items-center gap-2 mb-4 text-[var(--shelfy-text)] font-semibold text-sm">
+                          <BarChart3 size={16} className="text-[var(--shelfy-primary)]" />
+                          Evolución de Cargas
+                        </div>
+                        <div className="h-64 w-full">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={timelineData}>
+                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                              <XAxis dataKey="fecha" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
+                              <YAxis allowDecimals={false} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
+                              <Tooltip
+                                cursor={{ fill: "rgba(124, 58, 237, 0.05)" }}
+                                contentStyle={{ borderRadius: "8px", border: "none", boxShadow: "0 4px 12px rgba(0,0,0,0.1)" }}
+                              />
+                              <Bar dataKey="cantidad" fill="url(#colorPrimary)" radius={[4, 4, 0, 0]} name="Exhibiciones" />
+                              <defs>
+                                <linearGradient id="colorPrimary" x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="0%" stopColor="#7c3aed" stopOpacity={0.9} />
+                                  <stop offset="100%" stopColor="#4f46e5" stopOpacity={0.6} />
+                                </linearGradient>
+                              </defs>
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </Card>
+
+                      {/* Ranking de Puntajes */}
+                      <Card className="print-card">
+                        <div className="flex items-center gap-2 mb-4 text-[var(--shelfy-text)] font-semibold text-sm">
+                          <Trophy size={16} className="text-yellow-500" />
+                          Puntuación y Ranking
+                        </div>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm text-left">
+                            <thead>
+                              <tr className="text-[var(--shelfy-muted)] border-b border-[var(--shelfy-border)]">
+                                <th className="pb-2 pr-3 w-8">#</th>
+                                <th className="pb-2 pr-3">Vendedor</th>
+                                <th className="pb-2 pr-3 text-center">Aprob</th>
+                                <th className="pb-2 pr-3 text-center">Dest</th>
+                                <th className="pb-2 text-right">Pts Totales</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {rankingData.slice(0, 10).map((r, i) => (
+                                <tr key={r.vendedor} className="border-b border-[var(--shelfy-border)] last:border-0 hover:bg-[var(--shelfy-bg)] transition-colors">
+                                  <td className="py-2.5 pr-3 text-[var(--shelfy-muted)] tabular-nums">{i + 1}</td>
+                                  <td className="py-2.5 pr-3 font-medium text-[var(--shelfy-text)] truncate max-w-[120px]">{r.vendedor}</td>
+                                  <td className="py-2.5 pr-3 text-center text-green-600">{r.aprobados}</td>
+                                  <td className="py-2.5 pr-3 text-center text-purple-600">{r.destacados}</td>
+                                  <td className="py-2.5 text-right font-bold tabular-nums text-[var(--shelfy-primary)]">{r.puntos}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                          {rankingData.length > 10 && (
+                            <p className="text-xs text-[var(--shelfy-muted)] mt-3 text-center no-print">
+                              Mostrando el top 10 de {rankingData.length} vendedores puntuados.
+                            </p>
+                          )}
+                        </div>
+                      </Card>
+                    </div>
+
+                    {/* Data Table */}
+                    <Card className="print-card">
+                      <div className="flex items-center justify-between mb-3">
+                        <p className="text-sm font-semibold text-[var(--shelfy-text)]">{filas.length} registros detallados</p>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="text-[var(--shelfy-muted)] text-left border-b border-[var(--shelfy-border)]">
+                              {["ID", "Vendedor", "Sucursal", "Cliente", "PDV", "Estado", "Fecha carga"].map((h) => (
+                                <th key={h} className="pb-3 pr-3 whitespace-nowrap font-semibold">{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {filas.map((f) => (
+                              <tr key={f.id_exhibicion} className="border-b border-[var(--shelfy-border)] last:border-0 hover:bg-[var(--shelfy-bg)] transition-colors">
+                                <td className="py-2.5 pr-3 text-[var(--shelfy-muted)] tabular-nums">{f.id_exhibicion}</td>
+                                <td className="py-2.5 pr-3 text-[var(--shelfy-text)] font-medium max-w-[150px] truncate">{f.vendedor}</td>
+                                <td className="py-2.5 pr-3 text-[var(--shelfy-muted)] text-xs truncate max-w-[120px]">{f.sucursal}</td>
+                                <td className="py-2.5 pr-3 text-[var(--shelfy-muted)] truncate max-w-[150px]">{f.cliente}</td>
+                                <td className="py-2.5 pr-3 text-[var(--shelfy-muted)] truncate max-w-[100px]">{f.tipo_pdv}</td>
+                                <td className="py-2.5 pr-3">
+                                  <EstadoBadge estado={f.estado} />
+                                </td>
+                                <td className="py-2.5 text-[var(--shelfy-muted)] whitespace-nowrap tabular-nums">{f.fecha_carga?.slice(0, 16)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </Card>
+
+                  </div>
+                )}
               </div>
             )}
           </main>

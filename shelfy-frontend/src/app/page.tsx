@@ -38,7 +38,7 @@ export default function LandingPage() {
   }, []);
 
   return (
-    <div className="relative min-h-screen bg-[#F7F6F8] text-[#0F172A] overflow-hidden font-sans selection:bg-[#7311D4]/20 selection:text-[#7311D4]">
+    <div className="relative min-h-screen bg-gradient-to-br from-slate-50 via-[#F7F6F8] to-purple-50/30 text-[#0F172A] overflow-hidden font-sans selection:bg-[#7311D4]/20 selection:text-[#7311D4]">
       {/* Custom CSS for Scroll Animations & Blobs */}
       <style dangerouslySetInnerHTML={{
         __html: `
@@ -78,10 +78,9 @@ export default function LandingPage() {
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center shadow-lg shadow-slate-200 border border-slate-100 overflow-hidden relative group">
             {/* Integrating the requested Logo */}
-            <img src="/REAL_ACADEMY_LOGO.png" alt="Logo" className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
-            <div className="absolute inset-0 bg-[#7311D4] text-white font-black text-xl flex items-center justify-center group-hover:opacity-0 transition-opacity duration-300" style={{ display: 'none' /* Fallback if img breaks */ }}>S</div>
+            <div className="w-full h-full bg-[#7311D4] text-white font-black text-2xl flex items-center justify-center transition-transform duration-500 group-hover:scale-110">S</div>
           </div>
-          <span className="text-2xl font-black tracking-tight text-[#0F172A]">Real<span className="text-[#7311D4]">Academy</span></span>
+          <span className="text-2xl font-black tracking-tight text-[#0F172A]">Shelfy<span className="text-[#7311D4]">Center</span></span>
         </div>
         <div className="hidden md:flex items-center gap-10 text-[15px] font-bold text-[#64748B]">
           <Link href="/en-construccion" className="hover:text-[#7311D4] transition-colors">Plataforma</Link>
@@ -164,7 +163,7 @@ export default function LandingPage() {
           </div>
           <div className="lg:w-1/2 w-full">
             {/* Mac OS Window Wrapper */}
-            <div className="bg-[#1E293B] rounded-2xl overflow-hidden shadow-2xl shadow-emerald-500/20 ring-1 ring-white/10 mt-10 lg:mt-0 transform lg:rotate-2 hover:rotate-0 hover:scale-105 transition-all duration-500">
+            <div className="bg-[#1E293B] rounded-2xl overflow-hidden shadow-2xl shadow-emerald-500/20 ring-1 ring-white/10 mt-10 lg:mt-0 transform transition-all duration-500 hover:scale-[1.03] hover:shadow-emerald-500/40">
               <div className="h-10 bg-[#0F172A] flex items-center px-4 gap-2">
                 <div className="w-3 h-3 rounded-full bg-[#FF5F56] border border-[#E0443E]"></div>
                 <div className="w-3 h-3 rounded-full bg-[#FFBD2E] border border-[#DEA123]"></div>
@@ -195,7 +194,7 @@ export default function LandingPage() {
           </div>
           <div className="lg:w-1/2 w-full">
             {/* Mac OS Window Wrapper */}
-            <div className="bg-[#1E293B] rounded-2xl overflow-hidden shadow-2xl shadow-blue-500/20 ring-1 ring-white/10 mt-10 lg:mt-0 transform lg:-rotate-2 hover:rotate-0 hover:scale-105 transition-all duration-500">
+            <div className="bg-[#1E293B] rounded-2xl overflow-hidden shadow-2xl shadow-blue-500/20 ring-1 ring-white/10 mt-10 lg:mt-0 transform transition-all duration-500 hover:scale-[1.03] hover:shadow-blue-500/40">
               <div className="h-10 bg-[#0F172A] flex items-center px-4 gap-2">
                 <div className="w-3 h-3 rounded-full bg-[#FF5F56] border border-[#E0443E]"></div>
                 <div className="w-3 h-3 rounded-full bg-[#FFBD2E] border border-[#DEA123]"></div>
@@ -225,7 +224,7 @@ export default function LandingPage() {
           </div>
           <div className="lg:w-1/2 w-full">
             {/* Mac OS Window Wrapper */}
-            <div className="bg-[#1E293B] rounded-2xl overflow-hidden shadow-2xl shadow-[#7311D4]/20 ring-1 ring-white/10 mt-10 lg:mt-0 transform lg:rotate-2 hover:rotate-0 hover:scale-105 transition-all duration-500">
+            <div className="bg-[#1E293B] rounded-2xl overflow-hidden shadow-2xl shadow-[#7311D4]/20 ring-1 ring-white/10 mt-10 lg:mt-0 transform transition-all duration-500 hover:scale-[1.03] hover:shadow-[#7311D4]/40">
               <div className="h-10 bg-[#0F172A] flex items-center px-4 gap-2">
                 <div className="w-3 h-3 rounded-full bg-[#FF5F56] border border-[#E0443E]"></div>
                 <div className="w-3 h-3 rounded-full bg-[#FFBD2E] border border-[#DEA123]"></div>

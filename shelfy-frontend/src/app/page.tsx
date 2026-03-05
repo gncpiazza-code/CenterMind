@@ -1,12 +1,45 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, Play, GraduationCap, PieChart, Store, CheckCircle2 } from "lucide-react";
+import { ArrowRight, Play, GraduationCap, PieChart, Store, CheckCircle2, ChevronRight, Activity, Users, Shield } from "lucide-react";
+import { useEffect, useState } from "react";
+
+// Mock data type from API
+type LandingStats = {
+  auditorias_pdv: string | number;
+  miembros_activos: string | number;
+  sucursales_vinculadas: string | number;
+};
 
 export default function LandingPage() {
+  const [stats, setStats] = useState<LandingStats>({
+    auditorias_pdv: "+2.5K",
+    miembros_activos: "+150",
+    sucursales_vinculadas: "+50"
+  });
+
+  useEffect(() => {
+    // Fetch real metrics from public unauthenticated API
+    const fetchStats = async () => {
+      try {
+        const res = await fetch("http://localhost:8000/api/public/landing-stats");
+        if (res.ok) {
+          const data = await res.json();
+          // Solo actualizamos si nos devuelve números válidos (fallará calladamente en error)
+          if (data.auditorias_pdv !== undefined) {
+            setStats(data);
+          }
+        }
+      } catch (error) {
+        console.error("No se pudo obtener las stats", error);
+      }
+    };
+    fetchStats();
+  }, []);
+
   return (
-    <div className="relative min-h-screen bg-[#FAFAFC] text-slate-900 overflow-hidden font-sans selection:bg-indigo-200">
-      {/* Custom CSS for Background Blob Animations */}
+    <div className="relative min-h-screen bg-[#F7F6F8] text-[#0F172A] overflow-hidden font-sans selection:bg-[#7311D4]/20 selection:text-[#7311D4]">
+      {/* Custom CSS for Scroll Animations & Blobs */}
       <style dangerouslySetInnerHTML={{
         __html: `
                 @keyframes blob {
@@ -24,187 +57,209 @@ export default function LandingPage() {
                 .animation-delay-4000 {
                     animation-delay: 4s;
                 }
+                .scroll-fade-in {
+                   animation: fadeIn 1s forwards;
+                   opacity: 0;
+                }
+                @keyframes fadeIn {
+                   to { opacity: 1; transform: translateY(0); }
+                }
             `}} />
 
-      {/* Ambient Backgrounds (Apple-style subtle gradients) */}
-      <div className="absolute top-0 left-0 w-full h-full overflow-hidden -z-10 pointer-events-none">
-        <div className="absolute -top-40 -right-40 w-96 h-96 bg-indigo-200 rounded-full mix-blend-multiply filter blur-3xl opacity-50 animate-blob"></div>
-        <div className="absolute top-40 -left-20 w-72 h-72 bg-violet-200 rounded-full mix-blend-multiply filter blur-3xl opacity-50 animate-blob animation-delay-2000"></div>
-        <div className="absolute -bottom-40 left-1/2 w-96 h-96 bg-emerald-200 rounded-full mix-blend-multiply filter blur-3xl opacity-40 animate-blob animation-delay-4000"></div>
+      {/* Ambient Gradient Blobs (Body.svg #7311D4 palette) */}
+      <div className="fixed top-0 left-0 w-full h-full overflow-hidden -z-10 pointer-events-none">
+        <div className="absolute -top-40 -right-40 w-[500px] h-[500px] bg-[#7311D4]/10 rounded-full mix-blend-multiply filter blur-3xl opacity-60 animate-blob"></div>
+        <div className="absolute top-40 -left-20 w-96 h-96 bg-purple-300/20 rounded-full mix-blend-multiply filter blur-3xl opacity-50 animate-blob animation-delay-2000"></div>
+        <div className="absolute -bottom-40 left-1/2 w-[600px] h-[600px] bg-slate-300/30 rounded-full mix-blend-multiply filter blur-3xl opacity-40 animate-blob animation-delay-4000"></div>
       </div>
 
       {/* Navbar */}
       <nav className="relative z-50 w-full max-w-7xl mx-auto px-6 py-6 flex justify-between items-center animate-in fade-in slide-in-from-top-4 duration-700">
-        <div className="flex items-center gap-2">
-          <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white font-black text-xl shadow-lg shadow-indigo-200">
-            S
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center shadow-lg shadow-slate-200 border border-slate-100 overflow-hidden relative group">
+            {/* Integrating the requested Logo */}
+            <img src="/REAL_ACADEMY_LOGO.png" alt="Logo" className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+            <div className="absolute inset-0 bg-[#7311D4] text-white font-black text-xl flex items-center justify-center group-hover:opacity-0 transition-opacity duration-300" style={{ display: 'none' /* Fallback if img breaks */ }}>S</div>
           </div>
-          <span className="text-xl font-bold tracking-tight text-slate-800">Shelfy<span className="text-indigo-600">Center</span></span>
+          <span className="text-2xl font-black tracking-tight text-[#0F172A]">Real<span className="text-[#7311D4]">Academy</span></span>
         </div>
-        <div className="hidden md:flex items-center gap-8 text-sm font-bold text-slate-500">
-          <a href="#features" className="hover:text-indigo-600 transition-colors">Características</a>
-          <a href="#demo" className="hover:text-indigo-600 transition-colors">Demostración</a>
-          <a href="#academy" className="hover:text-indigo-600 transition-colors">Real Academy</a>
+        <div className="hidden md:flex items-center gap-10 text-[15px] font-bold text-[#64748B]">
+          <Link href="/en-construccion" className="hover:text-[#7311D4] transition-colors">Plataforma</Link>
+          <Link href="/en-construccion" className="hover:text-[#7311D4] transition-colors">Soluciones</Link>
+          <a href="#stats" className="hover:text-[#7311D4] transition-colors">Impacto</a>
         </div>
         <div className="flex items-center gap-4">
-          <Link href="/login" className="hidden sm:block text-sm font-bold text-slate-600 hover:text-indigo-600 transition-colors">
-            Iniciar Sesión
+          <Link href="/login" className="hidden sm:block text-[15px] font-bold text-[#64748B] hover:text-[#7311D4] transition-colors">
+            Inicia sesión
           </Link>
-          <Link href="/login" className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-sm font-bold rounded-full shadow-lg shadow-slate-300 hover:shadow-xl transition-all hover:-translate-y-0.5">
-            Ingresar
+          <Link href="/login" className="px-6 py-3 bg-[#7311D4] hover:bg-[#580ca6] text-white text-[15px] font-bold rounded-2xl shadow-xl shadow-[#7311D4]/30 transition-all hover:-translate-y-1">
+            Empieza gratis hoy
           </Link>
         </div>
       </nav>
 
       {/* Hero Section */}
-      <main className="relative z-10 w-full max-w-7xl mx-auto px-6 pt-24 pb-32 text-center animate-in fade-in zoom-in-95 duration-700 delay-150 fill-mode-forwards opacity-0">
-        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-600 text-[10px] md:text-xs font-bold uppercase tracking-widest mb-8 shadow-sm">
-          <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
+      <main className="relative z-10 w-full max-w-6xl mx-auto px-6 pt-24 pb-20 text-center animate-in fade-in zoom-in-95 duration-700 delay-150 fill-mode-forwards opacity-0">
+
+        <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white border border-[#7311D4]/20 text-[#7311D4] text-xs font-bold uppercase tracking-widest mb-10 shadow-sm">
+          <span className="relative flex h-2.5 w-2.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#7311D4] opacity-50"></span>
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#7311D4]"></span>
           </span>
-          La evolución de tu gestión comercial
+          La nueva era de Trade Marketing
         </div>
 
-        <h1 className="text-5xl md:text-7xl lg:text-[5rem] font-black tracking-tighter text-slate-900 mb-8 max-w-5xl mx-auto leading-[1.05]">
-          Centraliza, Analiza y <br className="hidden md:block" /> <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 via-violet-600 to-indigo-500">Haz Crecer</span> tu Negocio.
+        <h1 className="text-6xl md:text-[5.5rem] font-black tracking-tighter text-[#0F172A] mb-8 leading-[1.02]">
+          Todo tu negocio,<br className="hidden md:block" /> en <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#7311D4] to-purple-400">un solo lugar.</span>
         </h1>
 
-        <p className="text-lg md:text-xl text-slate-500 mb-12 max-w-2xl mx-auto leading-relaxed font-medium">
-          ShelfyCenter unifica la visualización de tus Cuentas Corrientes, evalúa el Trade Marketing en puntos de venta y capacita a tu equipo en la nueva Real Academy.
+        <p className="text-lg md:text-2xl text-[#64748B] mb-14 max-w-3xl mx-auto leading-normal font-medium">
+          Descubre el poder de evaluar exhibiciones en puntos de venta, capacitar a tu equipo con aulas virtuales, y controlar tus cuentas corrientes al milímetro.
         </p>
 
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-          <Link href="/dashboard" className="w-full sm:w-auto px-8 py-4 bg-indigo-600 hover:bg-indigo-700 text-white text-lg font-bold rounded-2xl shadow-xl shadow-indigo-200 hover:-translate-y-1 transition-all flex items-center justify-center gap-2 group">
-            Comenzar Ahora
-            <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-5">
+          <Link href="/login" className="w-full sm:w-auto px-10 py-5 bg-[#0F172A] hover:bg-[#1e293b] text-white text-lg font-bold rounded-[1.25rem] shadow-2xl shadow-slate-400/50 hover:shadow-slate-500/50 hover:-translate-y-1 transition-all flex items-center justify-center gap-3 group">
+            Ir a mi Dashboard
+            <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
           </Link>
-          <a href="#demo" className="w-full sm:w-auto px-8 py-4 bg-white/80 backdrop-blur-sm text-slate-700 border border-slate-200 hover:border-slate-300 hover:bg-white text-lg font-bold rounded-2xl shadow-sm hover:-translate-y-1 transition-all flex items-center justify-center gap-2">
-            <Play className="w-5 h-5 text-indigo-600" />
-            Ver Demostración
+          <a href="#demo-videos" className="w-full sm:w-auto px-10 py-5 bg-white/60 backdrop-blur-md text-[#0F172A] border border-slate-200 hover:border-[#7311D4]/50 hover:bg-white text-lg font-bold rounded-[1.25rem] shadow-sm hover:shadow-xl hover:shadow-[#7311D4]/10 hover:-translate-y-1 transition-all flex items-center justify-center gap-3">
+            Ver funcionamiento
           </a>
         </div>
       </main>
 
-      {/* Features Glass Grid */}
-      <section id="features" className="relative z-10 w-full max-w-7xl mx-auto px-6 pb-32">
-        <div className="text-center mb-16 animate-in fade-in slide-in-from-bottom-8 duration-700 delay-300 fill-mode-forwards opacity-0">
-          <h2 className="text-3xl md:text-4xl font-black tracking-tight text-slate-900 mb-4">Un ecosistema potente e integrado</h2>
-          <p className="text-slate-500 font-medium max-w-2xl mx-auto">Herramientas diseñadas para optimizar el rendimiento de tus vendedores y maximizar la inteligencia comercial.</p>
+      {/* Real Statistics Segment */}
+      <div id="stats" className="w-full max-w-5xl mx-auto px-6 mb-32 -translate-y-4">
+        <div className="bg-white/80 backdrop-blur-2xl rounded-3xl p-8 border border-white shadow-2xl shadow-slate-200/50 flex flex-col md:flex-row justify-around items-center gap-8 divide-y md:divide-y-0 md:divide-x divide-slate-100">
+          <div className="flex flex-col items-center justify-center w-full py-2">
+            <div className="text-4xl md:text-5xl font-black text-[#0F172A] mb-1">{stats.auditorias_pdv}</div>
+            <div className="text-sm font-bold text-[#64748B] uppercase tracking-wider">Auditorias Realizadas</div>
+          </div>
+          <div className="flex flex-col items-center justify-center w-full py-2">
+            <div className="text-4xl md:text-5xl font-black text-[#7311D4] mb-1">{stats.miembros_activos}</div>
+            <div className="text-sm font-bold text-[#64748B] uppercase tracking-wider">Integrantes Activos</div>
+          </div>
+          <div className="flex flex-col items-center justify-center w-full py-2">
+            <div className="text-4xl md:text-5xl font-black text-[#0F172A] mb-1">{stats.sucursales_vinculadas}</div>
+            <div className="text-sm font-bold text-[#64748B] uppercase tracking-wider">Sucursales Conectadas</div>
+          </div>
         </div>
+      </div>
 
-        <div className="grid md:grid-cols-3 gap-8">
-          {/* Feature 1: Trade Marketing */}
-          <div className="bg-white/70 backdrop-blur-xl border border-white p-8 rounded-[2rem] shadow-xl shadow-slate-200/50 hover:shadow-2xl hover:shadow-emerald-100 hover:-translate-y-2 transition-all duration-500 group">
-            <div className="w-14 h-14 bg-emerald-50 rounded-2xl flex items-center justify-center mb-6 border border-emerald-100 group-hover:scale-110 group-hover:rotate-3 transition-transform">
-              <Store className="w-7 h-7 text-emerald-600" />
+      {/* MacOS Videos Section (The 3 Image Slots from Body.svg) */}
+      <section id="demo-videos" className="relative z-10 w-full max-w-7xl mx-auto px-6 pb-40 space-y-32">
+
+        {/* Row 1: Trade Marketing / Dashboard */}
+        <div className="flex flex-col lg:flex-row items-center gap-16">
+          <div className="lg:w-1/2 space-y-8">
+            <div className="w-16 h-16 bg-emerald-50 rounded-3xl flex items-center justify-center shadow-lg shadow-emerald-100 border border-emerald-200">
+              <Activity className="w-8 h-8 text-emerald-600" />
             </div>
-            <h3 className="text-xl font-bold text-slate-800 mb-3">Trade Marketing</h3>
-            <p className="text-slate-500 text-sm leading-relaxed mb-6 font-medium">
-              Evaluación exhaustiva de exhibiciones en el punto de venta (PDV). Obtén tableros interactivos sobre el impacto de tu estrategia visual e incentiva el perfeccionamiento continuo.
-            </p>
-            <ul className="space-y-2">
-              <li className="flex items-center gap-2 text-sm text-slate-600 font-bold"><CheckCircle2 className="w-4 h-4 text-emerald-500" /> Dashboard de Resultados</li>
-              <li className="flex items-center gap-2 text-sm text-slate-600 font-bold"><CheckCircle2 className="w-4 h-4 text-emerald-500" /> Auditoría Fotográfica PDV</li>
+            <h2 className="text-4xl md:text-5xl font-black text-[#0F172A] leading-tight">Métricas precisas al instante.</h2>
+            <p className="text-lg text-[#64748B] font-medium leading-relaxed">Monitorea la performance de cada integrante de tu equipo, analiza encuestas Trade Marketing cargadas desde el móvil y visualiza un semaforo integral corporativo en tu Dashboard Principal.</p>
+            <ul className="space-y-4">
+              <li className="flex items-center gap-3 text-[#0F172A] font-bold"><CheckCircle2 className="w-6 h-6 text-emerald-500" /> Control total de Exhibiciones</li>
+              <li className="flex items-center gap-3 text-[#0F172A] font-bold"><CheckCircle2 className="w-6 h-6 text-emerald-500" /> Georreferenciación de puntos</li>
             </ul>
           </div>
-
-          {/* Feature 2: Saldos */}
-          <div className="bg-white/70 backdrop-blur-xl border border-white p-8 rounded-[2rem] shadow-xl shadow-slate-200/50 hover:shadow-2xl hover:shadow-indigo-100 hover:-translate-y-2 transition-all duration-500 group relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/5 rounded-full blur-2xl -mr-10 -mt-10"></div>
-            <div className="w-14 h-14 bg-indigo-50 rounded-2xl flex items-center justify-center mb-6 border border-indigo-100 group-hover:scale-110 group-hover:-rotate-3 transition-transform relative z-10">
-              <PieChart className="w-7 h-7 text-indigo-600" />
+          <div className="lg:w-1/2 w-full">
+            {/* Mac OS Window Wrapper */}
+            <div className="bg-[#1E293B] rounded-2xl overflow-hidden shadow-2xl shadow-emerald-500/20 ring-1 ring-white/10 mt-10 lg:mt-0 transform lg:rotate-2 hover:rotate-0 hover:scale-105 transition-all duration-500">
+              <div className="h-10 bg-[#0F172A] flex items-center px-4 gap-2">
+                <div className="w-3 h-3 rounded-full bg-[#FF5F56] border border-[#E0443E]"></div>
+                <div className="w-3 h-3 rounded-full bg-[#FFBD2E] border border-[#DEA123]"></div>
+                <div className="w-3 h-3 rounded-full bg-[#27C93F] border border-[#1AAB29]"></div>
+              </div>
+              <div className="w-full aspect-video bg-black relative">
+                {/* Placeholder video local */}
+                <video className="w-full h-full object-cover" autoPlay loop muted playsInline poster="/REAL_ACADEMY_LOGO.png">
+                  <source src="/SALDOSFINAL.mp4" type="video/mp4" />
+                </video>
+              </div>
             </div>
-            <h3 className="text-xl font-bold text-slate-800 mb-3 relative z-10">Cuentas Corrientes</h3>
-            <p className="text-slate-500 text-sm leading-relaxed mb-6 font-medium relative z-10">
-              Analiza la composición de saldos de clientes con alertas de crédito automatizadas. Transforma reportes estáticos de tu ERP en paneles dinámicos en cuestión de segundos.
-            </p>
-            <ul className="space-y-2 relative z-10">
-              <li className="flex items-center gap-2 text-sm text-slate-600 font-bold"><CheckCircle2 className="w-4 h-4 text-indigo-500" /> Visor Gráfico Interactivo</li>
-              <li className="flex items-center gap-2 text-sm text-slate-600 font-bold"><CheckCircle2 className="w-4 h-4 text-indigo-500" /> Alertas de Riesgo Dinámicas</li>
+          </div>
+        </div>
+
+        {/* Row 2: Cuentas Corrientes (Inverted) */}
+        <div className="flex flex-col lg:flex-row-reverse items-center gap-16">
+          <div className="lg:w-1/2 space-y-8 pl-0 lg:pl-10">
+            <div className="w-16 h-16 bg-blue-50 rounded-3xl flex items-center justify-center shadow-lg shadow-blue-100 border border-blue-200">
+              <Shield className="w-8 h-8 text-blue-600" />
+            </div>
+            <h2 className="text-4xl md:text-5xl font-black text-[#0F172A] leading-tight">Finanzas claras bajo control.</h2>
+            <p className="text-lg text-[#64748B] font-medium leading-relaxed">Toma el archivo crudo de los saldos pendientes y conviértelo en una tabla dinámica y gráfica que detecta saldos vencidos y alertas de riesgo automáticamente.</p>
+            <ul className="space-y-4">
+              <li className="flex items-center gap-3 text-[#0F172A] font-bold"><CheckCircle2 className="w-6 h-6 text-blue-500" /> Conversión ERP Automática</li>
+              <li className="flex items-center gap-3 text-[#0F172A] font-bold"><CheckCircle2 className="w-6 h-6 text-blue-500" /> Distribución gráfica interactiva</li>
             </ul>
           </div>
-
-          {/* Feature 3: Real Academy */}
-          <div id="academy" className="bg-white/70 backdrop-blur-xl border border-white p-8 rounded-[2rem] shadow-xl shadow-slate-200/50 hover:shadow-2xl hover:shadow-violet-100 hover:-translate-y-2 transition-all duration-500 group">
-            <div className="w-14 h-14 bg-violet-50 rounded-2xl flex items-center justify-center mb-6 border border-violet-100 group-hover:scale-110 group-hover:rotate-3 transition-transform">
-              <GraduationCap className="w-7 h-7 text-violet-600" />
+          <div className="lg:w-1/2 w-full">
+            {/* Mac OS Window Wrapper */}
+            <div className="bg-[#1E293B] rounded-2xl overflow-hidden shadow-2xl shadow-blue-500/20 ring-1 ring-white/10 mt-10 lg:mt-0 transform lg:-rotate-2 hover:rotate-0 hover:scale-105 transition-all duration-500">
+              <div className="h-10 bg-[#0F172A] flex items-center px-4 gap-2">
+                <div className="w-3 h-3 rounded-full bg-[#FF5F56] border border-[#E0443E]"></div>
+                <div className="w-3 h-3 rounded-full bg-[#FFBD2E] border border-[#DEA123]"></div>
+                <div className="w-3 h-3 rounded-full bg-[#27C93F] border border-[#1AAB29]"></div>
+              </div>
+              <div className="w-full aspect-video bg-black relative">
+                <video className="w-full h-full object-cover" autoPlay loop muted playsInline poster="/REAL_ACADEMY_LOGO.png">
+                  <source src="/SALDOSFINAL.mp4" type="video/mp4" />
+                </video>
+              </div>
             </div>
-            <h3 className="text-xl font-bold text-slate-800 mb-3">Real Academy</h3>
-            <p className="text-slate-500 text-sm leading-relaxed mb-6 font-medium">
-              El aula virtual definitiva. Sube contenidos de entrenamiento, evalúa a tu fuerza de ventas y administra una jerarquía estructurada de permisos en un solo lugar.
-            </p>
-            <ul className="space-y-2">
-              <li className="flex items-center gap-2 text-sm text-slate-600 font-bold"><CheckCircle2 className="w-4 h-4 text-violet-500" /> Exámenes y Multimedia</li>
-              <li className="flex items-center gap-2 text-sm text-slate-600 font-bold"><CheckCircle2 className="w-4 h-4 text-violet-500" /> Tracking de Progreso (SuperAdmin)</li>
+          </div>
+        </div>
+
+        {/* Row 3: Real Academy / Usuarios */}
+        <div className="flex flex-col lg:flex-row items-center gap-16">
+          <div className="lg:w-1/2 space-y-8">
+            <div className="w-16 h-16 bg-[#7311D4]/10 rounded-3xl flex items-center justify-center shadow-lg shadow-[#7311D4]/20 border border-[#7311D4]/30">
+              <Users className="w-8 h-8 text-[#7311D4]" />
+            </div>
+            <h2 className="text-4xl md:text-5xl font-black text-[#0F172A] leading-tight">La educación a tu nivel.</h2>
+            <p className="text-lg text-[#64748B] font-medium leading-relaxed">Con Real Academy, empodera a tus asesores de salón con aulas virtuales con contenido subido en crudo, generando métricas de aprendizaje por sucursal en vistas centralizadas.</p>
+            <ul className="space-y-4">
+              <li className="flex items-center gap-3 text-[#0F172A] font-bold"><CheckCircle2 className="w-6 h-6 text-[#7311D4]" /> Aulas y Evaluaciones</li>
+              <li className="flex items-center gap-3 text-[#0F172A] font-bold"><CheckCircle2 className="w-6 h-6 text-[#7311D4]" /> Jerarquía SuperAdmin & Miembros</li>
             </ul>
           </div>
-        </div>
-      </section>
-
-      {/* Video Demo Section (Macbook style window) */}
-      <section id="demo" className="relative z-10 w-full max-w-5xl mx-auto px-6 pb-40">
-        <div className="text-center mb-10">
-          <h2 className="text-3xl font-black tracking-tight text-slate-900 mb-3">La plataforma en acción</h2>
-          <p className="text-slate-500 font-medium max-w-xl mx-auto">Conoce cómo ShelfyCenter procesa información vital de tu negocio de forma inteligente.</p>
-        </div>
-
-        <div className="bg-slate-900 rounded-[2rem] p-3 md:p-6 shadow-2xl shadow-indigo-900/20 relative overflow-hidden ring-1 ring-slate-800 group hover:shadow-indigo-500/30 transition-shadow duration-700">
-          {/* Inner glow */}
-          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-3/4 h-1/2 bg-indigo-500/10 blur-[100px] rounded-full pointer-events-none group-hover:bg-indigo-500/20 transition-colors duration-700"></div>
-
-          <div className="relative flex items-center justify-between mb-4 px-4 bg-slate-900">
-            <div className="flex gap-2">
-              <div className="w-3 h-3 rounded-full bg-red-400 border border-red-500"></div>
-              <div className="w-3 h-3 rounded-full bg-amber-400 border border-amber-500"></div>
-              <div className="w-3 h-3 rounded-full bg-emerald-400 border border-emerald-500"></div>
+          <div className="lg:w-1/2 w-full">
+            {/* Mac OS Window Wrapper */}
+            <div className="bg-[#1E293B] rounded-2xl overflow-hidden shadow-2xl shadow-[#7311D4]/20 ring-1 ring-white/10 mt-10 lg:mt-0 transform lg:rotate-2 hover:rotate-0 hover:scale-105 transition-all duration-500">
+              <div className="h-10 bg-[#0F172A] flex items-center px-4 gap-2">
+                <div className="w-3 h-3 rounded-full bg-[#FF5F56] border border-[#E0443E]"></div>
+                <div className="w-3 h-3 rounded-full bg-[#FFBD2E] border border-[#DEA123]"></div>
+                <div className="w-3 h-3 rounded-full bg-[#27C93F] border border-[#1AAB29]"></div>
+              </div>
+              <div className="w-full aspect-video bg-black relative">
+                <video className="w-full h-full object-cover" autoPlay loop muted playsInline poster="/REAL_ACADEMY_LOGO.png">
+                  <source src="/SALDOSFINAL.mp4" type="video/mp4" />
+                </video>
+              </div>
             </div>
-            <div className="text-slate-500 text-xs font-mono font-bold tracking-wider opacity-70">visor_cuentas_corrientes.exe</div>
-            <div className="w-16"></div> {/* Spacer */}
-          </div>
-
-          <div className="relative aspect-video bg-black rounded-xl overflow-hidden shadow-inner ring-1 ring-white/10">
-            <video
-              src="/SALDOSFINAL.mp4"
-              autoPlay
-              muted
-              loop
-              playsInline
-              className="w-full h-full object-cover opacity-90 hover:opacity-100 transition-opacity duration-700"
-            ></video>
           </div>
         </div>
+
       </section>
 
-      {/* Sub-CTA */}
-      <section className="relative w-full max-w-4xl mx-auto px-6 pb-32 text-center">
-        <div className="bg-gradient-to-br from-indigo-600 to-violet-700 rounded-[2.5rem] p-12 shadow-2xl shadow-indigo-200 relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl -mr-10 -mt-10"></div>
-          <div className="absolute bottom-0 left-0 w-64 h-64 bg-indigo-900/40 rounded-full blur-3xl -ml-10 -mb-10"></div>
-          <h2 className="text-3xl md:text-5xl font-black text-white mb-6 relative z-10">Potencia a tu equipo hoy.</h2>
-          <p className="text-indigo-100 text-lg mb-8 max-w-xl mx-auto font-medium relative z-10">Únete a la evolución de la administración comercial. Capacitación, marketing y saldos en una sola plataforma integradora.</p>
-          <Link href="/login" className="relative z-10 inline-flex items-center gap-2 px-8 py-4 bg-white text-indigo-700 text-lg font-black rounded-2xl shadow-xl hover:-translate-y-1 hover:shadow-white/20 transition-all">
-            Iniciar Sesión
-            <ArrowRight className="w-5 h-5" />
-          </Link>
-        </div>
-      </section>
-
-      {/* Footer */}
-      <footer className="w-full border-t border-slate-200 bg-white">
-        <div className="max-w-7xl mx-auto px-6 py-12 flex flex-col md:flex-row items-center justify-between gap-6">
-          <div className="flex items-center gap-2 opacity-80 hover:opacity-100 transition-opacity">
-            <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-black text-sm">
-              S
+      {/* CTA Footer */}
+      <footer className="relative z-10 w-full bg-[#0F172A] text-white pt-24 pb-12 mt-20 rounded-t-[3rem]">
+        <div className="max-w-4xl mx-auto px-6 text-center space-y-8">
+          <h2 className="text-4xl md:text-5xl font-black">Evoluciona hoy mismo.</h2>
+          <p className="text-slate-400 text-xl font-medium max-w-2xl mx-auto">Únete a la transformación comercial inteligente. Centraliza tus KPIs en segundos.</p>
+          <div className="pt-8 mb-16">
+            <Link href="/login" className="inline-flex px-12 py-5 bg-[#7311D4] hover:bg-[#5f0ea6] text-white text-xl font-bold rounded-[1.25rem] shadow-2xl shadow-[#7311D4]/40 hover:-translate-y-1 transition-all items-center justify-center gap-3">
+              Inicia Sesión Ahora
+              <ArrowRight className="w-6 h-6" />
+            </Link>
+          </div>
+          <div className="border-t border-slate-800 pt-8 flex flex-col md:flex-row justify-between items-center text-sm font-bold text-slate-500">
+            <p>© 2026 Real Academy Platform. ShelfyCenter.</p>
+            <div className="flex gap-6 mt-4 md:mt-0">
+              <Link href="/en-construccion" className="hover:text-white transition-colors">Términos de Servicio</Link>
+              <Link href="/en-construccion" className="hover:text-white transition-colors">Privacidad</Link>
             </div>
-            <span className="text-lg font-bold text-slate-800 tracking-tight">ShelfyCenter</span>
           </div>
-          <div className="flex gap-6 text-sm font-bold text-slate-400">
-            <a href="#" className="hover:text-indigo-600 transition-colors">Soporte</a>
-            <a href="#" className="hover:text-indigo-600 transition-colors">Políticas</a>
-            <a href="#" className="hover:text-indigo-600 transition-colors">Contacto</a>
-          </div>
-          <p className="text-slate-400 text-sm font-medium">© {new Date().getFullYear()} ShelfyCenter. Todos los derechos reservados.</p>
         </div>
       </footer>
     </div>

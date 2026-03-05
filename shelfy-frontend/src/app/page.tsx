@@ -18,6 +18,15 @@ export default function LandingPage() {
     miembros_activos: "+150",
     sucursales_vinculadas: "+50"
   });
+  const [scrollY, setScrollY] = useState(0);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setScrollY(window.scrollY);
+    };
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
 
   useEffect(() => {
     // Fetch real metrics from public unauthenticated API
@@ -39,7 +48,7 @@ export default function LandingPage() {
   }, []);
 
   return (
-    <div className="relative min-h-screen bg-gradient-to-br from-purple-50 via-fuchsia-50/50 to-indigo-50 text-[#0F172A] overflow-hidden font-sans selection:bg-[#7311D4]/20 selection:text-[#7311D4]">
+    <div className="relative min-h-screen text-white overflow-hidden font-sans selection:bg-[#7311D4]/40 selection:text-white">
       <Toaster position="top-center" richColors />
       {/* Custom CSS for Scroll Animations & Blobs */}
       <style dangerouslySetInnerHTML={{
@@ -76,12 +85,14 @@ export default function LandingPage() {
                 }
             `}} />
 
-      {/* Ambient Gradient Blobs (Body.svg #7311D4 palette) */}
-      <div className="fixed top-0 left-0 w-full h-full overflow-hidden -z-10 pointer-events-none">
-        <div className="absolute -top-20 -right-20 w-[600px] h-[600px] bg-purple-300/40 rounded-full mix-blend-multiply filter blur-[100px] opacity-80 animate-blob"></div>
-        <div className="absolute top-40 -left-20 w-[500px] h-[500px] bg-fuchsia-300/30 rounded-full mix-blend-multiply filter blur-[100px] opacity-80 animate-blob animation-delay-2000"></div>
-        <div className="absolute -bottom-40 left-1/2 w-[700px] h-[700px] bg-indigo-300/30 rounded-full mix-blend-multiply filter blur-[120px] opacity-70 animate-blob animation-delay-4000"></div>
-      </div>
+      {/* Dynamic Deep Violet Ambient Background linked to Scroll */}
+      <div
+        className="fixed top-0 left-0 w-full h-full -z-10 bg-[url('/bg_violet.png')] bg-cover bg-center transition-all duration-100 ease-out"
+        style={{
+          filter: `hue-rotate(${scrollY * 0.05}deg) brightness(${1 - scrollY * 0.0001})`,
+          backgroundPosition: `50% ${50 + scrollY * 0.05}%`
+        }}
+      ></div>
 
       {/* Navbar */}
       <nav className="relative z-50 w-full max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
@@ -89,15 +100,15 @@ export default function LandingPage() {
           <div className="w-12 h-12 rounded-xl flex items-center justify-center overflow-hidden relative group">
             <img src="/LOGO_NUEVO.svg" alt="Shelfy Logo" className="w-full h-full object-contain transition-transform duration-500 group-hover:scale-110" />
           </div>
-          <span className="text-2xl font-black tracking-tight text-[#0F172A]">Shelfy</span>
+          <span className="text-2xl font-black tracking-tight text-white">Shelfy</span>
         </div>
-        <div className="hidden md:flex items-center gap-10 text-[15px] font-bold text-[#64748B]">
+        <div className="hidden md:flex items-center gap-10 text-[15px] font-bold text-slate-300">
           <Link href="/en-construccion" className="hover:text-[#7311D4] transition-colors">Plataforma</Link>
           <Link href="/en-construccion" className="hover:text-[#7311D4] transition-colors">Soluciones</Link>
           <a href="#stats" className="hover:text-[#7311D4] transition-colors">Impacto</a>
         </div>
         <div className="flex items-center gap-4">
-          <Link href="/login" className="hidden sm:block text-[15px] font-bold text-[#64748B] hover:text-[#7311D4] transition-colors">
+          <Link href="/login" className="hidden sm:block text-[15px] font-bold text-slate-300 hover:text-[#7311D4] transition-colors">
             Inicia sesión
           </Link>
           <button
@@ -126,20 +137,20 @@ export default function LandingPage() {
           La nueva era de Trade Marketing
         </div>
 
-        <h1 className="text-6xl md:text-[5.5rem] font-black tracking-tighter text-[#0F172A] mb-8 leading-[1.02] uppercase">
+        <h1 className="text-6xl md:text-[5.5rem] font-black tracking-tighter text-white mb-8 leading-[1.02] uppercase">
           Enfócate en ganar <br className="hidden md:block" /><span className="text-transparent bg-clip-text bg-gradient-to-r from-[#7311D4] to-purple-400 animate-text-glow inline-block">la góndola.</span>
         </h1>
 
-        <p className="text-lg md:text-2xl text-[#64748B] mb-14 max-w-3xl mx-auto leading-normal font-medium">
+        <p className="text-lg md:text-2xl text-slate-300 mb-14 max-w-3xl mx-auto leading-normal font-medium">
           Descubre el poder de evaluar exhibiciones en puntos de venta, capacitar a tu equipo con aulas virtuales, y controlar tus cuentas corrientes al milímetro.
         </p>
 
         <div className="flex flex-col sm:flex-row items-center justify-center gap-5">
-          <Link href="/login" className="w-full sm:w-auto px-10 py-5 bg-[#0F172A] hover:bg-[#1e293b] text-white text-lg font-bold rounded-[1.25rem] shadow-2xl shadow-slate-400/50 hover:shadow-slate-500/50 hover:-translate-y-1 transition-all flex items-center justify-center gap-3 group">
+          <Link href="/login" className="w-full sm:w-auto px-10 py-5 bg-white hover:bg-slate-100 text-[#7311D4] text-lg font-bold rounded-[1.25rem] shadow-2xl hover:-translate-y-1 transition-all flex items-center justify-center gap-3 group">
             Ir a mi Dashboard
             <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
           </Link>
-          <a href="#demo-videos" className="w-full sm:w-auto px-10 py-5 bg-white/60 backdrop-blur-md text-[#0F172A] border border-slate-200 hover:border-[#7311D4]/50 hover:bg-white text-lg font-bold rounded-[1.25rem] shadow-sm hover:shadow-xl hover:shadow-[#7311D4]/10 hover:-translate-y-1 transition-all flex items-center justify-center gap-3">
+          <a href="#demo-videos" className="w-full sm:w-auto px-10 py-5 bg-white/10 backdrop-blur-md text-white border border-slate-700 hover:border-[#7311D4]/50 hover:bg-white/20 text-lg font-bold rounded-[1.25rem] shadow-sm hover:shadow-xl hover:shadow-[#7311D4]/10 hover:-translate-y-1 transition-all flex items-center justify-center gap-3">
             Ver funcionamiento
           </a>
         </div>
@@ -147,18 +158,18 @@ export default function LandingPage() {
 
       {/* Real Statistics Segment */}
       <div id="stats" className="w-full max-w-5xl mx-auto px-6 mb-24 -translate-y-4">
-        <div className="bg-white/70 backdrop-blur-2xl rounded-3xl p-8 border border-white shadow-2xl shadow-purple-900/5 flex flex-col md:flex-row justify-around items-center gap-8 divide-y md:divide-y-0 md:divide-x divide-purple-100">
+        <div className="bg-white/10 backdrop-blur-2xl rounded-3xl p-8 border border-white/10 shadow-2xl flex flex-col md:flex-row justify-around items-center gap-8 divide-y md:divide-y-0 md:divide-x divide-white/10">
           <div className="flex flex-col items-center justify-center w-full py-2">
-            <div className="text-4xl md:text-5xl font-black text-[#0F172A] mb-1">{stats.auditorias_pdv}</div>
-            <div className="text-sm font-bold text-[#64748B] uppercase tracking-wider">Auditorias Realizadas</div>
+            <div className="text-4xl md:text-5xl font-black text-white mb-1">{stats.auditorias_pdv}</div>
+            <div className="text-sm font-bold text-slate-300 uppercase tracking-wider">Auditorias Realizadas</div>
           </div>
           <div className="flex flex-col items-center justify-center w-full py-2">
-            <div className="text-4xl md:text-5xl font-black text-[#7311D4] mb-1">{stats.miembros_activos}</div>
-            <div className="text-sm font-bold text-[#64748B] uppercase tracking-wider">Integrantes Activos</div>
+            <div className="text-4xl md:text-5xl font-black text-[#a855f7] mb-1">{stats.miembros_activos}</div>
+            <div className="text-sm font-bold text-slate-300 uppercase tracking-wider">Integrantes Activos</div>
           </div>
           <div className="flex flex-col items-center justify-center w-full py-2">
-            <div className="text-4xl md:text-5xl font-black text-[#0F172A] mb-1">{stats.sucursales_vinculadas}</div>
-            <div className="text-sm font-bold text-[#64748B] uppercase tracking-wider">Sucursales Conectadas</div>
+            <div className="text-4xl md:text-5xl font-black text-white mb-1">{stats.sucursales_vinculadas}</div>
+            <div className="text-sm font-bold text-slate-300 uppercase tracking-wider">Sucursales Conectadas</div>
           </div>
         </div>
       </div>
@@ -172,11 +183,11 @@ export default function LandingPage() {
             <div className="w-16 h-16 bg-emerald-50 rounded-3xl flex items-center justify-center shadow-lg shadow-emerald-100 border border-emerald-200 animate-bounce">
               <Activity className="w-8 h-8 text-emerald-600" />
             </div>
-            <h2 className="text-4xl md:text-5xl font-black text-[#0F172A] leading-tight">Métricas precisas al instante.</h2>
-            <p className="text-lg text-[#64748B] font-medium leading-relaxed">Monitorea la performance de cada integrante de tu equipo, analiza encuestas Trade Marketing cargadas desde el móvil y visualiza un semaforo integral corporativo en tu Dashboard Principal.</p>
+            <h2 className="text-4xl md:text-5xl font-black text-white leading-tight">Métricas precisas al instante.</h2>
+            <p className="text-lg text-slate-300 font-medium leading-relaxed">Monitorea la performance de cada integrante de tu equipo, analiza encuestas Trade Marketing cargadas desde el móvil y visualiza un semaforo integral corporativo en tu Dashboard Principal.</p>
             <ul className="space-y-4">
-              <li className="flex items-center gap-3 text-[#0F172A] font-bold"><CheckCircle2 className="w-6 h-6 text-emerald-500" /> Control total de Exhibiciones</li>
-              <li className="flex items-center gap-3 text-[#0F172A] font-bold"><CheckCircle2 className="w-6 h-6 text-emerald-500" /> Georreferenciación de puntos</li>
+              <li className="flex items-center gap-3 text-white font-bold"><CheckCircle2 className="w-6 h-6 text-emerald-500" /> Control total de Exhibiciones</li>
+              <li className="flex items-center gap-3 text-white font-bold"><CheckCircle2 className="w-6 h-6 text-emerald-500" /> Georreferenciación de puntos</li>
             </ul>
           </div>
           <div className="lg:w-1/2 w-full">
@@ -203,11 +214,11 @@ export default function LandingPage() {
             <div className="w-16 h-16 bg-blue-50 rounded-3xl flex items-center justify-center shadow-lg shadow-blue-100 border border-blue-200 animate-bounce" style={{ animationDelay: "200ms" }}>
               <Shield className="w-8 h-8 text-blue-600" />
             </div>
-            <h2 className="text-4xl md:text-5xl font-black text-[#0F172A] leading-tight">Finanzas claras bajo control.</h2>
-            <p className="text-lg text-[#64748B] font-medium leading-relaxed">Toma el archivo crudo de los saldos pendientes y conviértelo en una tabla dinámica y gráfica que detecta saldos vencidos y alertas de riesgo automáticamente.</p>
+            <h2 className="text-4xl md:text-5xl font-black text-white leading-tight">Finanzas claras bajo control.</h2>
+            <p className="text-lg text-slate-300 font-medium leading-relaxed">Toma el archivo crudo de los saldos pendientes y conviértelo en una tabla dinámica y gráfica que detecta saldos vencidos y alertas de riesgo automáticamente.</p>
             <ul className="space-y-4">
-              <li className="flex items-center gap-3 text-[#0F172A] font-bold"><CheckCircle2 className="w-6 h-6 text-blue-500" /> Conversión ERP Automática</li>
-              <li className="flex items-center gap-3 text-[#0F172A] font-bold"><CheckCircle2 className="w-6 h-6 text-blue-500" /> Distribución gráfica interactiva</li>
+              <li className="flex items-center gap-3 text-white font-bold"><CheckCircle2 className="w-6 h-6 text-blue-500" /> Conversión ERP Automática</li>
+              <li className="flex items-center gap-3 text-white font-bold"><CheckCircle2 className="w-6 h-6 text-blue-500" /> Distribución gráfica interactiva</li>
             </ul>
           </div>
           <div className="lg:w-1/2 w-full">
@@ -233,11 +244,11 @@ export default function LandingPage() {
             <div className="w-16 h-16 bg-[#7311D4]/10 rounded-3xl flex items-center justify-center shadow-lg shadow-[#7311D4]/20 border border-[#7311D4]/30 animate-bounce" style={{ animationDelay: "400ms" }}>
               <Users className="w-8 h-8 text-[#7311D4]" />
             </div>
-            <h2 className="text-4xl md:text-5xl font-black text-[#0F172A] leading-tight">La educación a tu nivel.</h2>
-            <p className="text-lg text-[#64748B] font-medium leading-relaxed">Con Real Academy, empodera a tus asesores de salón con aulas virtuales con contenido subido en crudo, generando métricas de aprendizaje por sucursal en vistas centralizadas.</p>
+            <h2 className="text-4xl md:text-5xl font-black text-white leading-tight">La educación a tu nivel.</h2>
+            <p className="text-lg text-slate-300 font-medium leading-relaxed">Con Real Academy, empodera a tus asesores de salón con aulas virtuales con contenido subido en crudo, generando métricas de aprendizaje por sucursal en vistas centralizadas.</p>
             <ul className="space-y-4">
-              <li className="flex items-center gap-3 text-[#0F172A] font-bold"><CheckCircle2 className="w-6 h-6 text-[#7311D4]" /> Aulas y Evaluaciones</li>
-              <li className="flex items-center gap-3 text-[#0F172A] font-bold"><CheckCircle2 className="w-6 h-6 text-[#7311D4]" /> Jerarquía SuperAdmin & Miembros</li>
+              <li className="flex items-center gap-3 text-white font-bold"><CheckCircle2 className="w-6 h-6 text-[#a855f7]" /> Aulas y Evaluaciones</li>
+              <li className="flex items-center gap-3 text-white font-bold"><CheckCircle2 className="w-6 h-6 text-[#a855f7]" /> Jerarquía SuperAdmin & Miembros</li>
             </ul>
           </div>
           <div className="lg:w-1/2 w-full">
@@ -260,7 +271,7 @@ export default function LandingPage() {
       </section>
 
       {/* CTA Footer */}
-      <footer className="relative z-10 w-full bg-[#0F172A] text-white pt-24 pb-12 mt-20 rounded-t-[3rem]">
+      <footer className="relative z-10 w-full bg-white/5 backdrop-blur-3xl border-t border-white/10 text-white pt-24 pb-12 mt-20 rounded-t-[3rem]">
         <div className="max-w-4xl mx-auto px-6 text-center space-y-8">
           <h2 className="text-4xl md:text-5xl font-black">Evoluciona hoy mismo.</h2>
           <p className="text-slate-400 text-xl font-medium max-w-2xl mx-auto">Únete a la transformación comercial inteligente. Centraliza tus KPIs en segundos.</p>
@@ -270,8 +281,8 @@ export default function LandingPage() {
               <ArrowRight className="w-6 h-6" />
             </Link>
           </div>
-          <div className="border-t border-slate-800 pt-8 flex flex-col md:flex-row justify-between items-center text-sm font-bold text-slate-500">
-            <p>© 2026 Real Academy Platform. ShelfyCenter.</p>
+          <div className="border-t border-white/10 pt-8 flex flex-col md:flex-row justify-between items-center text-sm font-bold text-slate-500">
+            <p>© 2026 Real Academy Platform. Shelfy.</p>
             <div className="flex gap-6 mt-4 md:mt-0">
               <Link href="/en-construccion" className="hover:text-white transition-colors">Términos de Servicio</Link>
               <Link href="/en-construccion" className="hover:text-white transition-colors">Privacidad</Link>

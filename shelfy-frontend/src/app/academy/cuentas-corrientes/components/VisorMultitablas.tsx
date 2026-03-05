@@ -240,11 +240,11 @@ function VendedorTab({ data, vendName }: { data: any, vendName: string }) {
             </div>
 
             <div className="p-6 flex flex-col xl:flex-row gap-8">
-                {/* Gráfico Analítico Recharts (Sólo Torta Animada) */}
+                {/* Gráfico Analítico Recharts (Torta Animada + Tabla) */}
                 <div className="w-full xl:w-2/5 flex flex-col gap-4 transition-all duration-500 hover:scale-[1.01]">
                     <h3 className="font-bold text-slate-800 flex items-center gap-2">
                         <PieChartIcon size={20} className="text-indigo-500" />
-                        Composición de Saldos (Interactivo)
+                        Composición de Saldos
                     </h3>
 
                     <div className="bg-white/80 backdrop-blur border text-xs border-indigo-100 rounded-[2rem] p-6 shadow-xl shadow-indigo-100/50 h-[450px] flex items-center justify-center relative overflow-hidden group">
@@ -254,14 +254,15 @@ function VendedorTab({ data, vendName }: { data: any, vendName: string }) {
 
                         <ResponsiveContainer width="100%" height="100%">
                             <PieChart>
+                                {/* @ts-ignore - Recharts types for Pie activeIndex/activeShape are incomplete in this version */}
                                 <Pie
                                     activeIndex={activeIndex}
                                     activeShape={renderActiveShape}
                                     data={chartData}
                                     cx="50%"
                                     cy="50%"
-                                    innerRadius={70}
-                                    outerRadius={100}
+                                    innerRadius={55}
+                                    outerRadius={85}
                                     paddingAngle={3}
                                     dataKey="saldo"
                                     onMouseEnter={onPieEnter}
@@ -281,6 +282,35 @@ function VendedorTab({ data, vendName }: { data: any, vendName: string }) {
                                 </Pie>
                             </PieChart>
                         </ResponsiveContainer>
+                    </div>
+
+                    {/* Tabla Resumen Composición */}
+                    <div className="overflow-x-auto border border-slate-200 rounded-xl bg-white shadow-sm mt-2">
+                        <table className="w-full text-xs text-left">
+                            <thead className="bg-slate-50 text-slate-500 uppercase font-bold tracking-wider border-b">
+                                <tr>
+                                    <th className="py-2 px-3">Antigüedad</th>
+                                    <th className="py-2 px-3 text-right">% Info</th>
+                                    <th className="py-2 px-3 text-right">Monto</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                                {grafico_analisis?.map((a: any, i: number) => {
+                                    const VIBRANT_COLORS = ['#10b981', '#f59e0b', '#ef4444', '#3b82f6', '#0f172a'];
+                                    const dotColor = VIBRANT_COLORS[i % VIBRANT_COLORS.length];
+                                    return (
+                                        <tr key={i} className="hover:bg-slate-50">
+                                            <td className="py-2 px-3 font-medium text-slate-700 flex items-center gap-2">
+                                                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: dotColor }}></div>
+                                                {a.rango_antiguedad}
+                                            </td>
+                                            <td className="py-2 px-3 text-right text-slate-500">{(a.porc_clientes * 100).toFixed(1)}%</td>
+                                            <td className="py-2 px-3 text-right font-bold text-slate-800">${a.saldo_total?.toLocaleString()}</td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
                     </div>
                 </div>
 

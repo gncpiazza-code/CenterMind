@@ -16,7 +16,7 @@ export default function LandingPage() {
   const [stats, setStats] = useState<LandingStats>({
     auditorias_pdv: "+2.5K",
     miembros_activos: "+150",
-    sucursales_vinculadas: "+50"
+    sucursales_vinculadas: "+350"
   });
   const [scrollY, setScrollY] = useState(0);
 
@@ -87,21 +87,17 @@ export default function LandingPage() {
 
       {/* Dynamic Deep Violet Ambient Background linked to Scroll */}
       <div
-        className="fixed top-0 left-0 w-full h-full -z-10 bg-[url('/bg_violet.png')] bg-cover bg-center transition-all duration-100 ease-out"
+        className="fixed top-0 left-0 w-full h-screen -z-10 bg-[url('/bg_violet.png')] bg-cover bg-center transition-all duration-100 ease-out"
         style={{
-          filter: `hue-rotate(${scrollY * 0.05}deg) brightness(${1 - scrollY * 0.0001})`,
-          backgroundPosition: `50% ${50 + scrollY * 0.05}%`
+          filter: `hue-rotate(${scrollY * 0.05}deg)`
         }}
       ></div>
 
       {/* Navbar */}
       <nav className="relative z-50 w-full max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
-        <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-xl flex items-center justify-center overflow-hidden relative group">
-            <img src="/LOGO_NUEVO.svg" alt="Shelfy Logo" className="w-full h-full object-contain transition-transform duration-500 group-hover:scale-110" />
-          </div>
-          <span className="text-2xl font-black tracking-tight text-white">Shelfy</span>
-        </div>
+        <Link href="/" className="w-40 h-12 flex items-center justify-start relative group cursor-pointer block">
+          <img src="/LOGO_NUEVO.svg" alt="Shelfy Logo" className="w-full h-full object-contain object-left transition-transform duration-500 group-hover:scale-[1.03]" />
+        </Link>
         <div className="hidden md:flex items-center gap-10 text-[15px] font-bold text-slate-300">
           <Link href="/en-construccion" className="hover:text-[#7311D4] transition-colors">Plataforma</Link>
           <Link href="/en-construccion" className="hover:text-[#7311D4] transition-colors">Soluciones</Link>
@@ -138,7 +134,7 @@ export default function LandingPage() {
         </div>
 
         <h1 className="text-6xl md:text-[5.5rem] font-black tracking-tighter text-white mb-8 leading-[1.02] uppercase">
-          Enfócate en ganar <br className="hidden md:block" /><span className="text-transparent bg-clip-text bg-gradient-to-r from-[#7311D4] to-purple-400 animate-text-glow inline-block">la góndola.</span>
+          Enfócate en ganar <br className="hidden md:block" /><span className="text-transparent bg-clip-text bg-gradient-to-r from-[#7311D4] to-purple-400">la <span className="animate-text-glow inline-block text-transparent bg-clip-text bg-gradient-to-r from-[#7311D4] to-purple-400">góndola.</span></span>
         </h1>
 
         <p className="text-lg md:text-2xl text-slate-300 mb-14 max-w-3xl mx-auto leading-normal font-medium">
@@ -259,10 +255,13 @@ export default function LandingPage() {
                 <div className="w-3 h-3 rounded-full bg-[#FFBD2E] border border-[#DEA123]"></div>
                 <div className="w-3 h-3 rounded-full bg-[#27C93F] border border-[#1AAB29]"></div>
               </div>
-              <div className="w-full aspect-video bg-black relative overflow-hidden">
-                <video className="w-full h-full object-cover scale-[1.3] -translate-x-4 -translate-y-4" autoPlay loop muted playsInline poster="/REAL_ACADEMY_LOGO.png">
+              <div className="w-full aspect-video bg-black relative overflow-hidden flex items-center justify-center">
+                <video className="w-full h-full object-cover scale-[1.02]" autoPlay loop muted playsInline poster="/REAL_ACADEMY_LOGO.png">
                   <source src="/libro_bg.mp4" type="video/mp4" />
                 </video>
+                {/* Black overlay mask to hide bottom-right watermark without cropping the center shield */}
+                <div className="absolute bottom-[-20px] right-[-20px] w-64 h-32 bg-black blur-2xl z-10"></div>
+                <div className="absolute bottom-0 right-0 w-56 h-20 bg-black z-20"></div>
               </div>
             </div>
           </div>

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { ArrowRight, Play, GraduationCap, PieChart, Store, CheckCircle2, ChevronRight, Activity, Users, Shield } from "lucide-react";
 import { useEffect, useState } from "react";
+import { toast, Toaster } from "sonner";
 
 // Mock data type from API
 type LandingStats = {
@@ -39,6 +40,7 @@ export default function LandingPage() {
 
   return (
     <div className="relative min-h-screen bg-gradient-to-br from-purple-50 via-fuchsia-50/50 to-indigo-50 text-[#0F172A] overflow-hidden font-sans selection:bg-[#7311D4]/20 selection:text-[#7311D4]">
+      <Toaster position="top-center" richColors />
       {/* Custom CSS for Scroll Animations & Blobs */}
       <style dangerouslySetInnerHTML={{
         __html: `
@@ -76,9 +78,8 @@ export default function LandingPage() {
       {/* Navbar */}
       <nav className="relative z-50 w-full max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
         <div className="flex items-center gap-3">
-          <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center shadow-lg shadow-slate-200 border border-slate-100 overflow-hidden relative group">
-            {/* Integrating the requested Logo */}
-            <div className="w-full h-full bg-[#7311D4] text-white font-black text-2xl flex items-center justify-center transition-transform duration-500 group-hover:scale-110">S</div>
+          <div className="w-12 h-12 rounded-xl flex items-center justify-center overflow-hidden relative group">
+            <img src="/LOGO_NUEVO.svg" alt="Shelfy Logo" className="w-full h-full object-contain transition-transform duration-500 group-hover:scale-110" />
           </div>
           <span className="text-2xl font-black tracking-tight text-[#0F172A]">Shelfy</span>
         </div>
@@ -91,9 +92,18 @@ export default function LandingPage() {
           <Link href="/login" className="hidden sm:block text-[15px] font-bold text-[#64748B] hover:text-[#7311D4] transition-colors">
             Inicia sesión
           </Link>
-          <Link href="/login" className="px-6 py-3 bg-[#7311D4] hover:bg-[#580ca6] text-white text-[15px] font-bold rounded-2xl shadow-xl shadow-[#7311D4]/30 transition-all hover:-translate-y-1">
+          <button
+            onClick={() => {
+              toast.promise(new Promise(resolve => setTimeout(resolve, 1500)), {
+                loading: 'Preparando tu entorno...',
+                success: '¡Redirigiendo a registro seguro!',
+                error: 'Error de conexión'
+              });
+              setTimeout(() => window.location.href = '/login', 1500);
+            }}
+            className="px-6 py-3 bg-[#7311D4] hover:bg-[#580ca6] text-white text-[15px] font-bold rounded-2xl shadow-xl shadow-[#7311D4]/30 transition-all hover:-translate-y-1">
             Empieza gratis hoy
-          </Link>
+          </button>
         </div>
       </nav>
 
@@ -108,8 +118,8 @@ export default function LandingPage() {
           La nueva era de Trade Marketing
         </div>
 
-        <h1 className="text-6xl md:text-[5.5rem] font-black tracking-tighter text-[#0F172A] mb-8 leading-[1.02]">
-          Todo tu negocio,<br className="hidden md:block" /> en <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#7311D4] to-purple-400">un solo lugar.</span>
+        <h1 className="text-6xl md:text-[5.5rem] font-black tracking-tighter text-[#0F172A] mb-8 leading-[1.02] uppercase">
+          Enfócate en ganar <br className="hidden md:block" /><span className="text-transparent bg-clip-text bg-gradient-to-r from-[#7311D4] to-purple-400">la góndola.</span>
         </h1>
 
         <p className="text-lg md:text-2xl text-[#64748B] mb-14 max-w-3xl mx-auto leading-normal font-medium">
@@ -151,7 +161,7 @@ export default function LandingPage() {
         {/* Row 1: Trade Marketing / Dashboard */}
         <div className="flex flex-col lg:flex-row items-center gap-16">
           <div className="lg:w-1/2 space-y-8">
-            <div className="w-16 h-16 bg-emerald-50 rounded-3xl flex items-center justify-center shadow-lg shadow-emerald-100 border border-emerald-200">
+            <div className="w-16 h-16 bg-emerald-50 rounded-3xl flex items-center justify-center shadow-lg shadow-emerald-100 border border-emerald-200 animate-bounce">
               <Activity className="w-8 h-8 text-emerald-600" />
             </div>
             <h2 className="text-4xl md:text-5xl font-black text-[#0F172A] leading-tight">Métricas precisas al instante.</h2>
@@ -182,7 +192,7 @@ export default function LandingPage() {
         {/* Row 2: Cuentas Corrientes (Inverted) */}
         <div className="flex flex-col lg:flex-row-reverse items-center gap-16">
           <div className="lg:w-1/2 space-y-8 pl-0 lg:pl-10">
-            <div className="w-16 h-16 bg-blue-50 rounded-3xl flex items-center justify-center shadow-lg shadow-blue-100 border border-blue-200">
+            <div className="w-16 h-16 bg-blue-50 rounded-3xl flex items-center justify-center shadow-lg shadow-blue-100 border border-blue-200 animate-bounce" style={{ animationDelay: "200ms" }}>
               <Shield className="w-8 h-8 text-blue-600" />
             </div>
             <h2 className="text-4xl md:text-5xl font-black text-[#0F172A] leading-tight">Finanzas claras bajo control.</h2>
@@ -212,7 +222,7 @@ export default function LandingPage() {
         {/* Row 3: Real Academy / Usuarios */}
         <div className="flex flex-col lg:flex-row items-center gap-16">
           <div className="lg:w-1/2 space-y-8">
-            <div className="w-16 h-16 bg-[#7311D4]/10 rounded-3xl flex items-center justify-center shadow-lg shadow-[#7311D4]/20 border border-[#7311D4]/30">
+            <div className="w-16 h-16 bg-[#7311D4]/10 rounded-3xl flex items-center justify-center shadow-lg shadow-[#7311D4]/20 border border-[#7311D4]/30 animate-bounce" style={{ animationDelay: "400ms" }}>
               <Users className="w-8 h-8 text-[#7311D4]" />
             </div>
             <h2 className="text-4xl md:text-5xl font-black text-[#0F172A] leading-tight">La educación a tu nivel.</h2>
@@ -231,7 +241,7 @@ export default function LandingPage() {
                 <div className="w-3 h-3 rounded-full bg-[#27C93F] border border-[#1AAB29]"></div>
               </div>
               <div className="w-full aspect-video bg-black relative overflow-hidden">
-                <video className="w-full h-full object-cover scale-[1.05]" autoPlay loop muted playsInline poster="/REAL_ACADEMY_LOGO.png">
+                <video className="w-full h-full object-cover scale-[1.3] -translate-x-4 -translate-y-4" autoPlay loop muted playsInline poster="/REAL_ACADEMY_LOGO.png">
                   <source src="/libro_bg.mp4" type="video/mp4" />
                 </video>
               </div>

@@ -1168,6 +1168,22 @@ def get_erp_vendedores(dist_id: int, _=Depends(verify_auth)):
     vendedores = sorted(list(set(row["vendedor_erp"] for row in res.data if row["vendedor_erp"])))
     return vendedores
 
+@app.get("/api/admin/erp/mappings", summary="Obtener todos los mapeos ERP")
+def get_erp_mappings(_=Depends(verify_auth)):
+    res = sb.table("erp_empresa_mapping").select("nombre_erp, id_distribuidor, distribuidores(nombre_empresa)").execute()
+    return res.data or []
+
+@app.post("/api/admin/erp/mappings", summary="Crear o actualizar mapeo ERP")
+def save_erp_mapping(data: dict, _=Depends(verify_auth)):
+    # data: {nombre_erp: str, id_distribuidor: int}
+    res = sb.table("erp_empresa_mapping").upsert(data).execute()
+    return {"message": "Mapeo guardado"}
+
+@app.delete("/api/admin/erp/mappings/{nombre_erp}", summary="Eliminar mapeo ERP")
+def delete_erp_mapping(nombre_erp: str, _=Depends(verify_auth)):
+    res = sb.table("erp_empresa_mapping").delete().eq("nombre_erp", nombre_erp).execute()
+    return {"message": "Mapeo eliminado"}
+
 # ─── ERP: Configuración y Reportes ───────────────────────────────────────────
 
 class ERPConfigAlertas(BaseModel):

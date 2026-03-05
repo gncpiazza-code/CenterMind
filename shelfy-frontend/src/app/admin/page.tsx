@@ -14,7 +14,7 @@ import {
   fetchDistribuidoras, crearDistribuidora, toggleDistribuidora, type Distribuidora,
   fetchIntegrantes, setRolIntegrante, editarIntegranteAdmin, type Integrante,
   fetchLocations, crearLocation, editarLocation, type Location,
-  uploadERPFile
+  uploadERPFile, fetchERPMappings, saveERPMapping, deleteERPMapping
 } from "@/lib/api";
 import { ChevronLeft, ChevronRight, Lock, Unlock, Plus, Trash2, Edit2, Shield, Search, RefreshCw, Building2, MapPin, Users, Copy, UserPlus, ToggleRight, ToggleLeft, FileSpreadsheet, UploadCloud, AlertTriangle } from "lucide-react";
 
@@ -627,6 +627,46 @@ function TabERP({ distId }: { distId: number }) {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{ msg: string; type: "ok" | "err" } | null>(null);
 
+  const [mappings, setMappings] = useState<any[]>([]);
+  const [showMapForm, setShowMapForm] = useState(false);
+  const [mapForm, setMapForm] = useState({ nombre_erp: "", id_distribuidor: distId });
+
+  useEffect(() => {
+    loadMappings();
+  }, []);
+
+  async function loadMappings() {
+    try {
+      const data = await fetchERPMappings();
+      setMappings(data);
+    } catch (e) { console.error(e); }
+  }
+
+  async function handleSaveMapping(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      await saveERPMapping(mapForm);
+      setShowMapForm(false);
+      setMapForm({ nombre_erp: "", id_distribuidor: distId });
+      loadMappings();
+    } catch (e: any) {
+      setResult({ msg: `❌ Error: ${e.message}`, type: "err" });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleDeleteMapping(nombre: string) {
+    if (!confirm("¿Eliminar este mapeo?")) return;
+    try {
+      await deleteERPMapping(nombre);
+      loadMappings();
+    } catch (e: any) {
+      setResult({ msg: `❌ Error: ${e.message}`, type: "err" });
+    }
+  }
+
   async function handleUpload(tipo: "ventas" | "clientes") {
     const file = tipo === "ventas" ? fileVentas : fileClientes;
     if (!file) return;
@@ -719,16 +759,79 @@ function TabERP({ distId }: { distId: number }) {
           </div>
         </div>
 
+        <div className="mt-8 pt-8 border-t border-[var(--shelfy-border)]">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-bold flex items-center gap-2">
+              <Building2 size={16} className="text-blue-500" /> Mapeo de Empresas
+            </h3>
+            <Button size="sm" onClick={() => setShowMapForm(!showMapForm)}>
+              <Plus size={14} /> Nuevo Mapeo
+            </Button>
+          </div>
+
+          {showMapForm && (
+            <Card className="mb-4 bg-slate-50/50">
+              <form onSubmit={handleSaveMapping} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-[10px] uppercase font-bold text-slate-500 mb-1">Nombre en Excel (dsempresa)</label>
+                  <input required placeholder="Ej: REAL DISTRIBUCION - T&H" value={mapForm.nombre_erp}
+                    onChange={(e) => setMapForm(f => ({ ...f, nombre_erp: e.target.value }))}
+                    className={INPUT_CLS + " w-full"} />
+                </div>
+                <div>
+                  <label className="block text-[10px] uppercase font-bold text-slate-500 mb-1">ID Distribuidora Shelfy</label>
+                  <input required type="number" value={mapForm.id_distribuidor}
+                    onChange={(e) => setMapForm(f => ({ ...f, id_distribuidor: Number(e.target.value) }))}
+                    className={INPUT_CLS + " w-full"} />
+                </div>
+                <div className="lg:pt-5">
+                  <Button type="submit" size="sm" loading={loading} className="w-full">Guardar Mapeo</Button>
+                </div>
+              </form>
+            </Card>
+          )}
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-slate-500 border-b border-[var(--shelfy-border)]">
+                  <th className="py-2 text-left">Nombre ERP (Excel)</th>
+                  <th className="py-2 text-left">Distribuidora Shelfy</th>
+                  <th className="py-2 w-8"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {mappings.map((m, i) => (
+                  <tr key={i} className="border-b border-[var(--shelfy-border)] last:border-0">
+                    <td className="py-2 font-medium">{m.nombre_erp}</td>
+                    <td className="py-2">
+                      <span className="text-blue-600 font-bold">#{m.id_distribuidor}</span>
+                      <span className="ml-2 text-slate-400">({m.distribuidores?.nombre_empresa})</span>
+                    </td>
+                    <td className="py-2">
+                      <button onClick={() => handleDeleteMapping(m.nombre_erp)} className="text-slate-300 hover:text-red-500 transition-colors">
+                        <Trash2 size={14} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {mappings.length === 0 && (
+                  <tr><td colSpan={3} className="py-4 text-center text-slate-400 italic">No hay mapeos configurados</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
         <div className="mt-8 p-4 bg-amber-50 rounded-xl border border-amber-200 flex gap-3">
           <AlertTriangle className="text-amber-600 shrink-0" size={18} />
           <div className="text-[11px] text-amber-800 leading-relaxed font-medium">
-            <strong>ADVERTENCIA:</strong> Los archivos deben mantener exactamente el formato original exportado del ERP.
-            El sistema mapeará automáticamente los datos a cada distribuidora según el nombre de la empresa interna.
-            Las alertas de crédito se recalculan automáticamente al finalizar la carga de ventas.
+            <strong>IMPORTANTE:</strong> El "Nombre en Excel" debe coincidir EXACTAMENTE con el texto de la columna <strong>dsempresa</strong>.
+            Si un archivo contiene datos de múltiples empresas, solo se procesarán aquellas que tengan un mapeo configurado aquí.
           </div>
         </div>
-      </Card>
-    </div>
+      </Card >
+    </div >
   );
 }
 

@@ -33,7 +33,17 @@ export function Sidebar() {
   const pathname = usePathname();
   const { user, logout } = useAuth();
   const rol = user?.rol ?? "";
-  const navItems = ALL_NAV.filter(i => (i.roles as string[]).includes(rol));
+  const navItems = ALL_NAV.filter(i => {
+    if (!(i.roles as string[]).includes(rol)) return false;
+
+    // Only 'NachoPiazza' can see all modules. Others only see Dashboard, Evaluar, and Real Academy.
+    if (user?.usuario !== "NachoPiazza") {
+      const allowedHrefs = ["/visor", "/dashboard", "/academy-hub"];
+      if (!allowedHrefs.includes(i.href)) return false;
+    }
+
+    return true;
+  });
 
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({ "/academy-hub": true });
 
@@ -42,7 +52,7 @@ export function Sidebar() {
   };
 
   return (
-    <aside className="hidden md:flex flex-col w-64 h-screen overflow-hidden bg-[var(--shelfy-panel)] backdrop-blur-3xl border-r border-[var(--shelfy-border)] px-4 py-8 gap-2 shrink-0 shadow-xl sticky top-0 text-white">
+    <aside className="hidden md:flex flex-col w-64 h-screen overflow-hidden bg-[var(--shelfy-panel)] backdrop-blur-3xl border-r border-[var(--shelfy-border)] px-4 py-8 gap-2 shrink-0 shadow-xl sticky top-0 text-[var(--shelfy-text)]">
       {/* Logo */}
       <div className="flex items-center px-2 mb-10">
         <img src="/LOGO_NUEVO.svg" alt="Shelfy" className="h-10 w-auto" style={{ filter: "drop-shadow(0 4px 12px rgba(124,58,237,0.15))" }} />
@@ -73,7 +83,7 @@ export function Sidebar() {
                   onClick={() => toggleSection(href)}
                   className={`flex items-center justify-between px-4 py-3 rounded-2xl text-sm font-semibold transition-all duration-200
                       ? "bg-[var(--shelfy-primary)] text-white font-bold shadow-lg shadow-[var(--shelfy-glow)]"
-                      : "text-[var(--shelfy-text-soft)] hover:bg-white/5 hover:text-white"}`}
+                      : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"}`}
                 >
                   <div className="flex items-center gap-3">
                     <Icon size={18} strokeWidth={active ? 2.5 : 2} />
@@ -92,7 +102,7 @@ export function Sidebar() {
                           className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-[13px] font-semibold transition-all duration-200
                                  ${subActive
                               ? "bg-[var(--shelfy-primary-2)] text-white shadow-md shadow-[var(--shelfy-glow)] translate-x-1"
-                              : "text-[var(--shelfy-text-soft)] hover:text-white hover:bg-white/5"
+                              : "text-[var(--shelfy-text-soft)] hover:text-[var(--shelfy-primary)] hover:bg-slate-100"
                             }`}
                         >
                           <sub.icon size={15} strokeWidth={subActive ? 2.5 : 2} />
@@ -114,7 +124,7 @@ export function Sidebar() {
               className={`flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-semibold transition-all duration-200
                 ${active
                   ? "bg-[var(--shelfy-primary)] text-white shadow-lg shadow-[var(--shelfy-glow)] translate-x-1"
-                  : "text-[var(--shelfy-text-soft)] hover:bg-white/5 hover:text-white"
+                  : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
                 }`}
             >
               <Icon size={18} strokeWidth={active ? 2.5 : 2} />
@@ -133,12 +143,12 @@ export function Sidebar() {
 
           {/* User info */}
           {user && (
-            <div className="flex items-center gap-3 px-4 py-3 mb-2 rounded-2xl bg-white/5 border border-white/10">
+            <div className="flex items-center gap-3 px-4 py-3 mb-2 rounded-2xl bg-white/50 border border-slate-200">
               <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center text-white text-xs font-black shadow-inner">
                 {user.usuario.charAt(0).toUpperCase()}
               </div>
               <div className="min-w-0 flex-1">
-                <p className="text-sm text-white font-bold truncate">{user.usuario}</p>
+                <p className="text-sm font-bold truncate">{user.usuario}</p>
                 <p className="text-[10px] text-[var(--shelfy-primary)] font-medium truncate">
                   {ROL_LABEL[user.rol] ?? user.rol}
                 </p>
@@ -149,7 +159,7 @@ export function Sidebar() {
           {/* Logout */}
           <button
             onClick={logout}
-            className="flex items-center gap-3 px-4 py-3 w-full text-sm font-bold text-[var(--shelfy-text-soft)] hover:text-red-400 hover:bg-red-500/10 rounded-2xl transition-all duration-200 active:scale-95"
+            className="flex items-center gap-3 px-4 py-3 w-full text-sm font-bold text-[var(--shelfy-text-soft)] hover:text-red-600 hover:bg-red-50 rounded-2xl transition-all duration-200 active:scale-95"
           >
             <LogOut size={16} />
             Cerrar sesión

@@ -26,7 +26,7 @@ export function Topbar({ title }: TopbarProps) {
           <button
             onClick={logout}
             title="Cerrar sesión"
-            className="md:hidden p-2 rounded-xl text-[var(--shelfy-muted)] hover:text-[var(--shelfy-error)] hover:bg-red-500/10 transition-colors"
+            className="md:hidden p-2 rounded-xl text-[var(--shelfy-muted)] hover:text-[var(--shelfy-error)] hover:bg-red-50 transition-colors"
           >
             <LogOut size={18} />
           </button>

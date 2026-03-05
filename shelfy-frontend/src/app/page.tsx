@@ -35,16 +35,22 @@ export default function LandingPage() {
         const res = await fetch("http://localhost:8000/api/public/landing-stats");
         if (res.ok) {
           const data = await res.json();
-          // Solo actualizamos si nos devuelve números válidos (fallará calladamente en error)
           if (data.auditorias_pdv !== undefined) {
-            setStats(data);
+            setStats({
+              auditorias_pdv: Number(String(data.auditorias_pdv).replace(/\D/g, "")) || 0,
+              miembros_activos: Number(String(data.miembros_activos).replace(/\D/g, "")) || 0,
+              sucursales_vinculadas: Number(String(data.sucursales_vinculadas).replace(/\D/g, "")) || 0,
+            });
           }
         }
       } catch (error) {
         console.error("No se pudo obtener las stats", error);
       }
     };
+
     fetchStats();
+    const intervalId = setInterval(fetchStats, 10000);
+    return () => clearInterval(intervalId);
   }, []);
 
   return (
@@ -157,19 +163,19 @@ export default function LandingPage() {
         <div className="bg-white/10 backdrop-blur-2xl rounded-3xl p-8 border border-white/10 shadow-2xl flex flex-col md:flex-row justify-around items-center gap-8 divide-y md:divide-y-0 md:divide-x divide-white/10">
           <div className="flex flex-col items-center justify-center w-full py-2">
             <div className="text-4xl md:text-5xl font-black text-white mb-1">
-              <AnimatedCounter end={stats.auditorias_pdv as number} suffix="+" />
+              <AnimatedCounter end={stats.auditorias_pdv as number} />
             </div>
             <div className="text-sm font-bold text-slate-300 uppercase tracking-wider">Auditorias Realizadas</div>
           </div>
           <div className="flex flex-col items-center justify-center w-full py-2">
             <div className="text-4xl md:text-5xl font-black text-[#a855f7] mb-1">
-              <AnimatedCounter end={stats.miembros_activos as number} suffix="+" />
+              <AnimatedCounter end={stats.miembros_activos as number} />
             </div>
             <div className="text-sm font-bold text-slate-300 uppercase tracking-wider">Integrantes Activos</div>
           </div>
           <div className="flex flex-col items-center justify-center w-full py-2">
             <div className="text-4xl md:text-5xl font-black text-white mb-1">
-              <AnimatedCounter end={stats.sucursales_vinculadas as number} suffix="+" />
+              <AnimatedCounter end={stats.sucursales_vinculadas as number} />
             </div>
             <div className="text-sm font-bold text-slate-300 uppercase tracking-wider">Sucursales Conectadas</div>
           </div>

@@ -2,18 +2,19 @@
 
 /* ── Paleta Shelfy — Premium Light Theme ── */
 :root {
-  --shelfy-bg:        transparent;
-  --shelfy-panel:     rgba(15, 23, 42, 0.65);
-  --shelfy-primary:   #a855f7;
-  --shelfy-primary-2: #8b5cf6;
-  --shelfy-border:    rgba(255, 255, 255, 0.1);
-  --shelfy-text:      #FFFFFF;
-  --shelfy-text-soft: #CBD5E1;
-  --shelfy-muted:     #94A3B8;
-  --shelfy-glow:      rgba(168, 85, 247, 0.15);
-  --shelfy-success:   #10B981;
-  --shelfy-error:     #EF4444;
-  --shelfy-warning:   #F59E0B;
+  --shelfy-bg: #F9FAFB;
+  --shelfy-panel: rgba(255, 255, 255, 0.85);
+  /* Slightly translucent for liveliness */
+  --shelfy-primary: #7C3AED;
+  --shelfy-primary-2: #4F46E5;
+  --shelfy-border: #F3F4F6;
+  --shelfy-text: #111827;
+  --shelfy-text-soft: #4B5563;
+  --shelfy-muted: #9CA3AF;
+  --shelfy-glow: rgba(124, 58, 237, 0.05);
+  --shelfy-success: #10B981;
+  --shelfy-error: #EF4444;
+  --shelfy-warning: #F59E0B;
 }
 
 @theme inline {
@@ -24,11 +25,8 @@
 }
 
 body {
-  background-image: url('/bg_dashboard.svg');
-  background-size: cover;
+  background: linear-gradient(135deg, #F8FAFC 0%, #F1F5F9 50%, #F3E8FF 100%);
   background-attachment: fixed;
-  background-position: center;
-  background-color: #0F172A; /* Fallback */
   color: var(--shelfy-text);
   font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
@@ -48,21 +46,31 @@ body {
   width: 5px;
   height: 5px;
 }
+
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
 ::-webkit-scrollbar-thumb {
   background: #E5E7EB;
   border-radius: 10px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
   background: var(--shelfy-primary);
 }
 
 /* ── Animations ── */
 @keyframes slideUp {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .animate-slide-up {

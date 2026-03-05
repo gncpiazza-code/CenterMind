@@ -18,7 +18,16 @@ export function BottomNav() {
   const pathname = usePathname();
   const { user } = useAuth();
   const rol = user?.rol ?? "";
-  const navItems = ALL_NAV.filter(i => (i.roles as string[]).includes(rol));
+  const navItems = ALL_NAV.filter(i => {
+    if (!(i.roles as string[]).includes(rol)) return false;
+
+    if (user?.usuario !== "NachoPiazza") {
+      const allowedHrefs = ["/visor", "/dashboard", "/academy", "/reportes"];
+      if (!allowedHrefs.includes(i.href)) return false;
+    }
+
+    return true;
+  });
 
   if (!user) return null;
 

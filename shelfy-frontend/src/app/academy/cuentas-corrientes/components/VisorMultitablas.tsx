@@ -205,7 +205,7 @@ function VendedorTab({ data, vendName }: { data: any, vendName: string }) {
                                     tickLine={false}
                                 />
                                 <Tooltip
-                                    formatter={(val: number) => [`$${val.toLocaleString()}`, 'Deuda']}
+                                    formatter={(val: number | string | undefined) => [`$${Number(val || 0).toLocaleString()}`, 'Deuda']}
                                     labelStyle={{ color: '#0F172A', fontWeight: 'bold' }}
                                     cursor={{ fill: '#F1F5F9' }}
                                     contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
@@ -234,7 +234,7 @@ function VendedorTab({ data, vendName }: { data: any, vendName: string }) {
                                     outerRadius={100}
                                     paddingAngle={2}
                                     dataKey="saldo"
-                                    label={({ name, percent }) => percent > 0 ? `${name} ${(percent * 100).toFixed(0)}%` : ""}
+                                    label={({ name, percent }: any) => percent && percent > 0 ? `${name} ${(percent * 100).toFixed(0)}%` : ""}
                                     labelLine={false}
                                 >
                                     {chartData.map((entry: any, index: number) => {
@@ -243,7 +243,7 @@ function VendedorTab({ data, vendName }: { data: any, vendName: string }) {
                                     })}
                                 </Pie>
                                 <Tooltip
-                                    formatter={(val: number) => [`$${val.toLocaleString()}`, 'Deuda']}
+                                    formatter={(val: number | string | undefined) => [`$${Number(val || 0).toLocaleString()}`, 'Deuda']}
                                     contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                                 />
                             </PieChart>

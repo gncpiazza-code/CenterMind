@@ -90,16 +90,17 @@ export default function TabGenerarInforme() {
 
         let currentProgress = 0;
         const progressInterval = setInterval(() => {
-            currentProgress += Math.floor(Math.random() * 5) + 2; // Incremento aleatorio entre 2 y 6
-            if (currentProgress > 95) currentProgress = 95; // Capping at 95% until API really finishes
+            // Un incremento más lento para coincidir con los ~15/20 seg reales del backend
+            currentProgress += Math.random() * 1.5 + 0.5; // Entre 0.5 y 2.0 por tick
+            if (currentProgress > 95) currentProgress = 95; // Capping 
 
-            setLoadingProgress(currentProgress);
+            setLoadingProgress(Math.floor(currentProgress));
 
             const currentStep = loadingSteps.slice().reverse().find(step => currentProgress >= step.threshold);
             if (currentStep) {
                 setLoadingMessage(currentStep.msg);
             }
-        }, 500);
+        }, 300);
 
         try {
             // 1. Gather config

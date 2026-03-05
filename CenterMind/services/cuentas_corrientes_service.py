@@ -200,7 +200,7 @@ def procesar_cuentas_corrientes_service(input_path: str, out_dir: str, config: d
     sucursal_nombre = str(sucursales[0]) if len(sucursales) > 0 else "Sucursal"
     fecha_hoy_str = dt.datetime.now().strftime("%d-%m-%Y")
     
-    out_name = f"Reporte_Ventas_{sucursal_nombre}_{fecha_hoy_str}_{dt.datetime.now().timestamp()}.xlsx"
+    out_name = f"Cuentas Corrientes - {sucursal_nombre} - {fecha_hoy_str}.xlsx"
     out_path = os.path.join(subfolder_path, out_name)
     temp_excel_path = os.path.join(subfolder_path, f"temp_{out_name}")
     

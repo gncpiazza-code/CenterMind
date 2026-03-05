@@ -66,6 +66,14 @@ export default function LandingPage() {
                 @keyframes fadeIn {
                    to { opacity: 1; transform: translateY(0); }
                 }
+                @keyframes textGlow {
+                    0% { filter: drop-shadow(0 0 5px rgba(168, 85, 247, 0.4)); }
+                    50% { filter: drop-shadow(0 0 20px rgba(168, 85, 247, 0.9)) drop-shadow(0 0 35px rgba(115, 17, 212, 0.6)); }
+                    100% { filter: drop-shadow(0 0 5px rgba(168, 85, 247, 0.4)); }
+                }
+                .animate-text-glow {
+                    animation: textGlow 2.5s infinite alternate ease-in-out;
+                }
             `}} />
 
       {/* Ambient Gradient Blobs (Body.svg #7311D4 palette) */}
@@ -119,7 +127,7 @@ export default function LandingPage() {
         </div>
 
         <h1 className="text-6xl md:text-[5.5rem] font-black tracking-tighter text-[#0F172A] mb-8 leading-[1.02] uppercase">
-          Enfócate en ganar <br className="hidden md:block" /><span className="text-transparent bg-clip-text bg-gradient-to-r from-[#7311D4] to-purple-400">la góndola.</span>
+          Enfócate en ganar <br className="hidden md:block" /><span className="text-transparent bg-clip-text bg-gradient-to-r from-[#7311D4] to-purple-400 animate-text-glow inline-block">la góndola.</span>
         </h1>
 
         <p className="text-lg md:text-2xl text-[#64748B] mb-14 max-w-3xl mx-auto leading-normal font-medium">

@@ -11,9 +11,14 @@ from pathlib import Path
 from dotenv import load_dotenv
 from supabase import create_client, Client
 
-# Cargar .env desde la misma carpeta que este archivo
+# Intentar cargar .env local si existe (para desarrollo)
 _env_path = Path(__file__).resolve().parent / ".env"
-load_dotenv(_env_path)
+if _env_path.exists():
+    load_dotenv(_env_path)
+else:
+    # En Railway/Producción las variables ya están en el sistema, 
+    # pero esto ayuda si se subió un .env a la raíz (no recomendado)
+    load_dotenv()
 
 SUPABASE_URL: str = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY: str = os.environ.get("SUPABASE_KEY", "")

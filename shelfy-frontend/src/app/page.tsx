@@ -74,13 +74,13 @@ export default function LandingPage() {
       </div>
 
       {/* Navbar */}
-      <nav className="relative z-50 w-full max-w-7xl mx-auto px-6 py-4 flex justify-between items-center animate-in fade-in slide-in-from-top-4 duration-700">
+      <nav className="relative z-50 w-full max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center shadow-lg shadow-slate-200 border border-slate-100 overflow-hidden relative group">
             {/* Integrating the requested Logo */}
             <div className="w-full h-full bg-[#7311D4] text-white font-black text-2xl flex items-center justify-center transition-transform duration-500 group-hover:scale-110">S</div>
           </div>
-          <span className="text-2xl font-black tracking-tight text-[#0F172A]">Shelfy<span className="text-[#7311D4]">Center</span></span>
+          <span className="text-2xl font-black tracking-tight text-[#0F172A]">Shelfy</span>
         </div>
         <div className="hidden md:flex items-center gap-10 text-[15px] font-bold text-[#64748B]">
           <Link href="/en-construccion" className="hover:text-[#7311D4] transition-colors">Plataforma</Link>
@@ -98,7 +98,7 @@ export default function LandingPage() {
       </nav>
 
       {/* Hero Section */}
-      <main className="relative z-10 w-full max-w-6xl mx-auto px-6 pt-10 pb-12 text-center animate-in fade-in zoom-in-95 duration-700 delay-150 fill-mode-forwards opacity-0">
+      <main className="relative z-10 w-full max-w-6xl mx-auto px-6 pt-10 pb-12 text-center">
 
         <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/60 backdrop-blur-md border border-[#7311D4]/20 text-[#7311D4] text-xs font-bold uppercase tracking-widest mb-6 shadow-sm">
           <span className="relative flex h-2.5 w-2.5">
@@ -231,7 +231,7 @@ export default function LandingPage() {
                 <div className="w-3 h-3 rounded-full bg-[#27C93F] border border-[#1AAB29]"></div>
               </div>
               <div className="w-full aspect-video bg-black relative overflow-hidden">
-                <video className="w-full h-full object-cover scale-[1.15] translate-y-[2%]" autoPlay loop muted playsInline poster="/REAL_ACADEMY_LOGO.png">
+                <video className="w-full h-full object-cover scale-[1.05]" autoPlay loop muted playsInline poster="/REAL_ACADEMY_LOGO.png">
                   <source src="/libro_bg.mp4" type="video/mp4" />
                 </video>
               </div>

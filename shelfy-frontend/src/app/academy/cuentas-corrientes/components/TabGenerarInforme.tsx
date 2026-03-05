@@ -16,7 +16,6 @@ export default function TabGenerarInforme() {
     const [success, setSuccess] = useState(false);
     const [error, setError] = useState("");
     const fileInputRef = useRef<HTMLInputElement>(null);
-    const [tutorialStep, setTutorialStep] = useState(1);
 
     const handleDragOver = (e: React.DragEvent) => {
         e.preventDefault();
@@ -169,21 +168,14 @@ export default function TabGenerarInforme() {
                         <p className="text-slate-600 text-sm font-medium">Revisa las guías en imagen/video a la derecha para ver cómo utilizar el sistema paso a paso.</p>
                     </div>
 
-                    <div className="w-full md:w-1/3 aspect-video bg-white/60 backdrop-blur rounded-2xl border border-white flex flex-col items-center justify-center text-indigo-300 shadow-sm relative overflow-hidden group/video">
-                        {tutorialStep === 1 && <video src="/saldo pt1.mp4" autoPlay muted playsInline onEnded={() => setTutorialStep(2)} className="w-full h-full object-contain bg-slate-100" />}
-                        {tutorialStep === 2 && <video src="/saldo pt2.mp4" autoPlay muted playsInline onEnded={() => setTutorialStep(3)} className="w-full h-full object-contain bg-slate-100" />}
-                        {tutorialStep === 3 && <img src="/saldo pt3.jpg" alt="Tutorial paso 3" className="w-full h-full object-contain bg-slate-100" />}
-
-                        <div className="absolute inset-x-0 bottom-4 flex justify-center gap-2 z-10 opacity-70 transition-opacity duration-300 group-hover/video:opacity-100">
-                            {[1, 2, 3].map((step) => (
-                                <button
-                                    key={step}
-                                    onClick={(e) => { e.preventDefault(); setTutorialStep(step); }}
-                                    className={`w-2 h-2 rounded-full transition-all ${tutorialStep === step ? 'bg-indigo-600 scale-125' : 'bg-slate-400 hover:bg-indigo-300'
-                                        }`}
-                                />
-                            ))}
-                        </div>
+                    <div className="w-full lg:w-1/2 xl:w-3/5 aspect-video bg-white/60 backdrop-blur rounded-2xl border border-indigo-100 flex flex-col items-center justify-center text-indigo-300 shadow-xl overflow-hidden group">
+                        <video
+                            src="/SALDOSFINAL.mp4"
+                            controls
+                            autoPlay
+                            muted
+                            className="w-full h-full object-cover bg-slate-900"
+                        />
                     </div>
                 </div>
             </details>

@@ -9,7 +9,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useEffect, useState, useCallback, useRef } from "react";
 import {
   fetchKPIs, fetchRanking, fetchUltimasEvaluadas, fetchPorSucursal,
-  extractDriveId, getImageUrl,
+  resolveImageUrl,
   type KPIs, type VendedorRanking, type UltimaEvaluada, type SucursalStats,
 } from "@/lib/api";
 import {
@@ -51,8 +51,7 @@ function CarouselGrande({ items }: { items: UltimaEvaluada[] }) {
   if (items.length === 0) return null;
 
   const item = items[ci];
-  const fileId = extractDriveId(item.drive_link);
-  const imgSrc = fileId ? getImageUrl(fileId) : null;
+  const imgSrc = resolveImageUrl(item.drive_link, item.id_exhibicion);
 
   const prev = () => { setCi((i) => Math.max(0, i - 1)); setImgErr(false); setLoaded(false); };
   const next = () => { setCi((i) => Math.min(items.length - 1, i + 1)); setImgErr(false); setLoaded(false); };

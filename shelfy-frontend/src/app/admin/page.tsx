@@ -13,9 +13,10 @@ import {
   fetchUsuarios, crearUsuario, editarUsuario, eliminarUsuario, type UsuarioPortal,
   fetchDistribuidoras, crearDistribuidora, toggleDistribuidora, type Distribuidora,
   fetchIntegrantes, setRolIntegrante, editarIntegranteAdmin, type Integrante,
-  fetchLocations, crearLocation, editarLocation, type Location
+  fetchLocations, crearLocation, editarLocation, type Location,
+  uploadERPFile
 } from "@/lib/api";
-import { ChevronLeft, ChevronRight, Lock, Unlock, Plus, Trash2, Edit2, Shield, Search, RefreshCw, Building2, MapPin, Users, Copy, UserPlus, ToggleRight, ToggleLeft } from "lucide-react";
+import { ChevronLeft, ChevronRight, Lock, Unlock, Plus, Trash2, Edit2, Shield, Search, RefreshCw, Building2, MapPin, Users, Copy, UserPlus, ToggleRight, ToggleLeft, FileSpreadsheet, UploadCloud, AlertTriangle } from "lucide-react";
 
 import dynamic from "next/dynamic";
 const TabSucursales = dynamic(() => import("./TabSucursales"), { ssr: false });
@@ -618,6 +619,119 @@ function TabIntegrantes({ isSuperadmin, distId }: { isSuperadmin: boolean; distI
   );
 }
 
+// ── Tab: ERP ──────────────────────────────────────────────────────────────────
+
+function TabERP({ distId }: { distId: number }) {
+  const [fileVentas, setFileVentas] = useState<File | null>(null);
+  const [fileClientes, setFileClientes] = useState<File | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<{ msg: string; type: "ok" | "err" } | null>(null);
+
+  async function handleUpload(tipo: "ventas" | "clientes") {
+    const file = tipo === "ventas" ? fileVentas : fileClientes;
+    if (!file) return;
+
+    setLoading(true);
+    setResult(null);
+    try {
+      const res = await uploadERPFile(tipo, file);
+      setResult({ msg: `✅ ${res.message} (${res.count} registros)`, type: "ok" });
+      if (tipo === "ventas") setFileVentas(null);
+      else setFileClientes(null);
+    } catch (e: any) {
+      setResult({ msg: `❌ Error: ${e.message}`, type: "err" });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-6 max-w-4xl">
+      <Card>
+        <div className="flex items-center gap-3 mb-6">
+          <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center text-blue-600">
+            <FileSpreadsheet size={20} />
+          </div>
+          <div>
+            <h1 className="text-lg font-bold text-slate-900">Importación Manual ERP</h1>
+            <p className="text-sm text-slate-500">Sube los archivos globales para actualizar la base de datos.</p>
+          </div>
+        </div>
+
+        {result && (
+          <div className={`mb-6 p-4 rounded-xl text-sm font-medium border ${result.type === "ok" ? "bg-green-50 border-green-200 text-green-700" : "bg-red-50 border-red-200 text-red-700"
+            }`}>
+            {result.msg}
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Ventas */}
+          <div className="p-6 rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50/50 flex flex-col items-center text-center gap-4">
+            <div className="w-12 h-12 rounded-full bg-white shadow-sm flex items-center justify-center text-slate-400">
+              <UploadCloud size={24} />
+            </div>
+            <div>
+              <p className="font-bold text-slate-900 text-sm">Informe de Ventas</p>
+              <p className="text-xs text-slate-500">Excel (.xlsx)</p>
+            </div>
+            <input
+              type="file"
+              accept=".xlsx"
+              onChange={e => setFileVentas(e.target.files?.[0] || null)}
+              className="text-xs w-full file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer"
+            />
+            <Button
+              size="sm"
+              disabled={!fileVentas || loading}
+              loading={loading && !!fileVentas}
+              onClick={() => handleUpload("ventas")}
+              className="w-full mt-2"
+            >
+              Procesar Ventas
+            </Button>
+          </div>
+
+          {/* Clientes */}
+          <div className="p-6 rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50/50 flex flex-col items-center text-center gap-4">
+            <div className="w-12 h-12 rounded-full bg-white shadow-sm flex items-center justify-center text-slate-400">
+              <UploadCloud size={24} />
+            </div>
+            <div>
+              <p className="font-bold text-slate-900 text-sm">Padrón de Clientes</p>
+              <p className="text-xs text-slate-500">Excel (.xlsx)</p>
+            </div>
+            <input
+              type="file"
+              accept=".xlsx"
+              onChange={e => setFileClientes(e.target.files?.[0] || null)}
+              className="text-xs w-full file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer"
+            />
+            <Button
+              size="sm"
+              disabled={!fileClientes || loading}
+              loading={loading && !!fileClientes}
+              onClick={() => handleUpload("clientes")}
+              className="w-full mt-2"
+            >
+              Procesar Clientes
+            </Button>
+          </div>
+        </div>
+
+        <div className="mt-8 p-4 bg-amber-50 rounded-xl border border-amber-200 flex gap-3">
+          <AlertTriangle className="text-amber-600 shrink-0" size={18} />
+          <div className="text-[11px] text-amber-800 leading-relaxed font-medium">
+            <strong>ADVERTENCIA:</strong> Los archivos deben mantener exactamente el formato original exportado del ERP.
+            El sistema mapeará automáticamente los datos a cada distribuidora según el nombre de la empresa interna.
+            Las alertas de crédito se recalculan automáticamente al finalizar la carga de ventas.
+          </div>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
 
 
 // ── Página principal ──────────────────────────────────────────────────────────
@@ -631,6 +745,7 @@ export default function AdminPage() {
     { id: "usuarios", label: "Usuarios", icon: Shield },
     { id: "integrantes", label: "Integrantes", icon: Users },
     { id: "sucursales", label: "Sucursales", icon: MapPin },
+    { id: "erp", label: "ERP", icon: FileSpreadsheet },
     ...(isSuperadmin ? [{ id: "distribuidoras", label: "Distribuidoras", icon: Building2 }] : []),
   ];
 
@@ -679,6 +794,9 @@ export default function AdminPage() {
           )}
           {tab === "sucursales" && (
             <TabSucursales isSuperadmin={isSuperadmin} distId={user.id_distribuidor} role={user.rol} />
+          )}
+          {tab === "erp" && (
+            <TabERP distId={user.id_distribuidor} />
           )}
 
         </main>

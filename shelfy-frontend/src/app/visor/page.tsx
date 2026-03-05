@@ -9,17 +9,16 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import {
   fetchPendientes, fetchStatsHoy, fetchVendedores,
   evaluar, revertir,
-  extractDriveId, getImageUrl,
+  resolveImageUrl,
   type GrupoPendiente, type StatsHoy,
 } from "@/lib/api";
 import { Check, X, Flame, RotateCcw, RefreshCw, ChevronLeft, ChevronRight, ImageOff, Info, User } from "lucide-react";
 
 // ── Componente foto ──────────────────────────────────────────────────────────
 
-function FotoViewer({ driveUrl }: { driveUrl: string }) {
+function FotoViewer({ driveUrl, idExhibicion }: { driveUrl: string, idExhibicion?: number }) {
   const [err, setErr] = useState(false);
-  const fileId = extractDriveId(driveUrl);
-  const src = fileId ? getImageUrl(fileId) : null;
+  const src = resolveImageUrl(driveUrl, idExhibicion);
 
   if (!src || err) {
     return (
@@ -205,7 +204,7 @@ export default function VisorPage() {
                   <div className="flex flex-col flex-1 relative h-[calc(100vh-140px)] md:h-auto min-h-[500px]">
                     {/* Contenedor de la Imagen - Ocupa casi todo en mobile */}
                     <div className="w-full h-full md:aspect-[4/5] lg:aspect-auto lg:h-[600px] rounded-t-[32px] md:rounded-3xl overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.08)] bg-[#111] border border-slate-100 group relative">
-                      <FotoViewer driveUrl={grupo.fotos[fotoIdx]?.drive_link ?? ""} />
+                      <FotoViewer driveUrl={grupo.fotos[fotoIdx]?.drive_link ?? ""} idExhibicion={grupo.fotos[fotoIdx]?.id_exhibicion} />
 
                       {/* Overlay Superior de Info (como en el mockup: Título, Cliente, Distribuidora, Fecha) */}
                       {/* En PC (md:), este bloque se oculta a pedido del usuario */}

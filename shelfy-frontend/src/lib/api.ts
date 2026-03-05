@@ -12,6 +12,23 @@ export interface AuthResponse {
   nombre_empresa: string;
 }
 
+export interface ERPUploadResponse {
+  status: string;
+  message: string;
+  count: number;
+}
+
+export interface ERPDeuda {
+  id_deuda: number;
+  id_cliente_erp_local: string;
+  nombre_cliente: string;
+  saldo_total: number;
+  cant_cbte: number;
+  antiguedad_max_dias: number;
+  alerta_texto: string;
+  fecha_snapshot: string;
+}
+
 export interface KPIs {
   total: number;
   pendientes: number;
@@ -88,9 +105,38 @@ export function extractDriveId(url: string): string | null {
   return null;
 }
 
-/** URL del proxy de imagen (no requiere auth — el file_id es el token opaco) */
+/** URL del proxy de imagen para Google Drive (legacy) o Supabase (directo) */
 export function getImageUrl(fileId: string): string {
-  return `${API_URL}/dashboard/imagen/${fileId}`;
+  // Fallback para IDs puros si no vienen como URL full
+  if (fileId.length < 40) { // IDs de Drive suelen ser cortos
+    return `${API_URL}/dashboard/imagen/${fileId}`;
+  }
+  return fileId; // Si parece URL, devolverla
+}
+
+/** Resuelve una URL de imagen, soportando tanto Supabase como Google Drive */
+export function resolveImageUrl(driveLink: string | null | undefined, exhibicionId?: number): string | null {
+  if (!driveLink) return null;
+
+  // 1. Si ya es una URL de Supabase (las nuevas se guardan así), devolverla
+  if (driveLink.startsWith("http") && driveLink.includes("supabase.co")) {
+    return driveLink;
+  }
+
+  // 2. Si es una URL de Google Drive, extraer ID y usar el proxy del backend
+  const driveId = extractDriveId(driveLink);
+  if (driveId) {
+    return `${API_URL}/dashboard/imagen/${driveId}`;
+  }
+
+  // 3. Fallback: Si tenemos el ID de exhibicion, construir ruta de Supabase (Bucket público)
+  if (exhibicionId) {
+    const SUPABASE_STORAGE_URL = "https://xjwadmzuuzctxbrvgopx.supabase.co/storage/v1/object/public/Exhibiciones-PDV";
+    // Nota: El bot worker sube con un filename complejo, pero podemos normalizarlo en el futuro
+    // Por ahora, confiamos en que driveLink traiga la URL correcta si es Supabase.
+  }
+
+  return driveLink.startsWith("http") ? driveLink : null;
 }
 
 // ── Fetch helper con JWT ────────────────────────────────────────────────────
@@ -360,4 +406,32 @@ export async function fetchLiquidacion(distId: number, anio: number, mes: number
 
 export async function fetchBonoDetalle(distId: number, integranteId: number, anio: number, mes: number): Promise<DetalleExhibicion[]> {
   return apiFetch(`/bonos/detalle/${distId}?id_integrante=${integranteId}&anio=${anio}&mes=${mes}`);
+}
+
+// ── ERP ─────────────────────────────────────────────────────────────────────
+
+export async function uploadERPFile(tipo: "ventas" | "clientes", file: File): Promise<ERPUploadResponse> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const token = typeof window !== "undefined" ? localStorage.getItem(TOKEN_KEY) : null;
+
+  const res = await fetch(`${API_URL}/api/admin/erp/upload-global?tipo=${tipo}`, {
+    method: "POST",
+    body: formData,
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail ?? `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function fetchERPDeuda(distId: number): Promise<ERPDeuda[]> {
+  // Este endpoint se asume que existe en la API (basado en la tabla erp_deuda_clientes)
+  return apiFetch<ERPDeuda[]>(`/api/admin/erp/deuda/${distId}`);
 }

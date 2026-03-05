@@ -42,7 +42,7 @@ export function Sidebar() {
   };
 
   return (
-    <aside className="hidden md:flex flex-col w-64 min-h-screen bg-white/80 backdrop-blur-xl border-r border-violet-100 px-4 py-8 gap-2 shrink-0 shadow-[4px_0_24px_rgba(124,58,237,0.03)] sticky top-0">
+    <aside className="hidden md:flex flex-col w-64 h-screen overflow-hidden bg-[var(--shelfy-panel)] backdrop-blur-3xl border-r border-[var(--shelfy-border)] px-4 py-8 gap-2 shrink-0 shadow-xl sticky top-0 text-white">
       {/* Logo */}
       <div className="flex items-center px-2 mb-10">
         <img src="/LOGO_NUEVO.svg" alt="Shelfy" className="h-10 w-auto" style={{ filter: "drop-shadow(0 4px 12px rgba(124,58,237,0.15))" }} />
@@ -54,7 +54,7 @@ export function Sidebar() {
       </p>
 
       {/* Nav items */}
-      <nav className="flex flex-col gap-1.5 flex-1">
+      <nav className="flex flex-col gap-1.5 flex-1 overflow-y-auto pr-1 pb-4">
         {navItems.map((item) => {
           const { href, label, icon: Icon, subItems } = item;
           const isExactActive = pathname === href;
@@ -72,9 +72,8 @@ export function Sidebar() {
                 <button
                   onClick={() => toggleSection(href)}
                   className={`flex items-center justify-between px-4 py-3 rounded-2xl text-sm font-semibold transition-all duration-200
-                        ${active
-                      ? "bg-violet-50 text-violet-700 font-bold"
-                      : "text-slate-500 hover:bg-violet-50 hover:text-violet-700"}`}
+                      ? "bg-[var(--shelfy-primary)] text-white font-bold shadow-lg shadow-[var(--shelfy-glow)]"
+                      : "text-[var(--shelfy-text-soft)] hover:bg-white/5 hover:text-white"}`}
                 >
                   <div className="flex items-center gap-3">
                     <Icon size={18} strokeWidth={active ? 2.5 : 2} />
@@ -92,8 +91,8 @@ export function Sidebar() {
                           href={sub.href}
                           className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-[13px] font-semibold transition-all duration-200
                                  ${subActive
-                              ? "bg-gradient-to-br from-violet-600 to-indigo-600 text-white shadow-md shadow-violet-200 translate-x-1"
-                              : "text-slate-500 hover:text-violet-700 hover:bg-violet-50/50"
+                              ? "bg-[var(--shelfy-primary-2)] text-white shadow-md shadow-[var(--shelfy-glow)] translate-x-1"
+                              : "text-[var(--shelfy-text-soft)] hover:text-white hover:bg-white/5"
                             }`}
                         >
                           <sub.icon size={15} strokeWidth={subActive ? 2.5 : 2} />
@@ -114,8 +113,8 @@ export function Sidebar() {
               href={href}
               className={`flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-semibold transition-all duration-200
                 ${active
-                  ? "bg-gradient-to-br from-violet-600 to-indigo-600 text-white shadow-lg shadow-violet-200 translate-x-1"
-                  : "text-slate-500 hover:bg-violet-50 hover:text-violet-700"
+                  ? "bg-[var(--shelfy-primary)] text-white shadow-lg shadow-[var(--shelfy-glow)] translate-x-1"
+                  : "text-[var(--shelfy-text-soft)] hover:bg-white/5 hover:text-white"
                 }`}
             >
               <Icon size={18} strokeWidth={active ? 2.5 : 2} />
@@ -126,21 +125,21 @@ export function Sidebar() {
       </nav>
 
       {/* System section */}
-      <div className="mt-auto space-y-4">
-        <div className="pt-4 border-t border-violet-50">
-          <p className="px-4 text-[10px] font-bold text-slate-400 uppercase tracking-[0.15em] mb-3">
+      <div className="mt-auto space-y-4 shrink-0 pb-2">
+        <div className="pt-4 border-t border-[var(--shelfy-border)]">
+          <p className="px-4 text-[10px] font-bold text-[var(--shelfy-muted)] uppercase tracking-[0.15em] mb-3">
             Sistema
           </p>
 
           {/* User info */}
           {user && (
-            <div className="flex items-center gap-3 px-4 py-3 mb-2 rounded-2xl bg-violet-50/50 border border-violet-100/50">
+            <div className="flex items-center gap-3 px-4 py-3 mb-2 rounded-2xl bg-white/5 border border-white/10">
               <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center text-white text-xs font-black shadow-inner">
                 {user.usuario.charAt(0).toUpperCase()}
               </div>
-              <div className="min-w-0">
-                <p className="text-sm text-slate-900 font-bold truncate">{user.usuario}</p>
-                <p className="text-[10px] text-violet-600 font-medium truncate">
+              <div className="min-w-0 flex-1">
+                <p className="text-sm text-white font-bold truncate">{user.usuario}</p>
+                <p className="text-[10px] text-[var(--shelfy-primary)] font-medium truncate">
                   {ROL_LABEL[user.rol] ?? user.rol}
                 </p>
               </div>
@@ -150,7 +149,7 @@ export function Sidebar() {
           {/* Logout */}
           <button
             onClick={logout}
-            className="flex items-center gap-3 px-4 py-3 w-full text-sm font-bold text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-2xl transition-all duration-200 active:scale-95"
+            className="flex items-center gap-3 px-4 py-3 w-full text-sm font-bold text-[var(--shelfy-text-soft)] hover:text-red-400 hover:bg-red-500/10 rounded-2xl transition-all duration-200 active:scale-95"
           >
             <LogOut size={16} />
             Cerrar sesión

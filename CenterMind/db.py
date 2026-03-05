@@ -18,10 +18,10 @@ load_dotenv(_env_path)
 SUPABASE_URL: str = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY: str = os.environ.get("SUPABASE_KEY", "")
 
-if not SUPABASE_URL or not SUPABASE_KEY:
-    raise RuntimeError(
-        "Faltan las variables SUPABASE_URL y/o SUPABASE_KEY en el archivo .env"
-    )
+if not SUPABASE_URL:
+    raise RuntimeError("Falta la variable de entorno SUPABASE_URL. Si estás en Railway, agregala en la pestaña Variables.")
+if not SUPABASE_KEY:
+    raise RuntimeError("Falta la variable de entorno SUPABASE_KEY. Si estás en Railway, agregala en la pestaña Variables.")
 
 # Cliente Supabase singleton
 sb: Client = create_client(SUPABASE_URL, SUPABASE_KEY)

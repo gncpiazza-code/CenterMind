@@ -2,8 +2,8 @@
 
 import { useState, useMemo } from "react";
 import { Card } from "@/components/ui/Card";
-import { Table, LayoutList, TrendingUp, AlertTriangle, ArrowUpDown, PieChart, Users, DollarSign } from "lucide-react";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from "recharts";
+import { Table, LayoutList, TrendingUp, AlertTriangle, ArrowUpDown, PieChart as PieChartIcon, Users, DollarSign } from "lucide-react";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell, PieChart, Pie, Legend } from "recharts";
 
 interface VisorData {
     resumen_alertas: any[];
@@ -52,7 +52,7 @@ export default function VisorMultitablas({ data }: { data: VisorData }) {
                                 ? "text-indigo-600 border-indigo-600 bg-indigo-50/50"
                                 : "text-slate-500 border-transparent hover:text-slate-700 hover:bg-slate-100/50"}`}
                     >
-                        <PieChart size={16} />
+                        <PieChartIcon size={16} />
                         {v}
                     </button>
                 ))}
@@ -219,25 +219,35 @@ function VendedorTab({ data, vendName }: { data: any, vendName: string }) {
                         </ResponsiveContainer>
                     </div>
 
-                    <div className="overflow-x-auto border border-slate-200 rounded-xl">
-                        <table className="w-full text-xs text-left">
-                            <thead className="bg-slate-50 text-slate-500 uppercase font-bold tracking-wider border-b">
-                                <tr>
-                                    <th className="py-2 px-3">Rango</th>
-                                    <th className="py-2 px-3 text-right">% Casos</th>
-                                    <th className="py-2 px-3 text-right">Saldo</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100">
-                                {grafico_analisis?.map((a: any, i: number) => (
-                                    <tr key={i} className="hover:bg-slate-50">
-                                        <td className="py-2 px-3 font-medium text-slate-700">{a.rango_antiguedad}</td>
-                                        <td className="py-2 px-3 text-right text-slate-500">{(a.porc_clientes * 100).toFixed(1)}%</td>
-                                        <td className="py-2 px-3 text-right font-bold text-slate-800">${a.saldo_total?.toLocaleString()}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                    <h3 className="font-bold text-slate-800 flex items-center gap-2 mt-4">
+                        <PieChartIcon size={18} className="text-indigo-500" />
+                        Composición de Deuda Replicada
+                    </h3>
+                    <div className="bg-white border text-xs border-slate-200 rounded-2xl p-4 shadow-sm h-[320px]">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                                <Pie
+                                    data={chartData}
+                                    cx="50%"
+                                    cy="50%"
+                                    innerRadius={60}
+                                    outerRadius={100}
+                                    paddingAngle={2}
+                                    dataKey="saldo"
+                                    label={({ name, percent }) => percent > 0 ? `${name} ${(percent * 100).toFixed(0)}%` : ""}
+                                    labelLine={false}
+                                >
+                                    {chartData.map((entry: any, index: number) => {
+                                        const COLORS = ['#34a853', '#fa9c0f', '#F32b26', '#4285f4', '#000000'];
+                                        return <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />;
+                                    })}
+                                </Pie>
+                                <Tooltip
+                                    formatter={(val: number) => [`$${val.toLocaleString()}`, 'Deuda']}
+                                    contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                                />
+                            </PieChart>
+                        </ResponsiveContainer>
                     </div>
                 </div>
 

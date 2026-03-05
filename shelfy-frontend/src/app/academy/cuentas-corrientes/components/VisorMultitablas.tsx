@@ -3,7 +3,7 @@
 import { useState, useMemo } from "react";
 import { Card } from "@/components/ui/Card";
 import { Table, LayoutList, TrendingUp, AlertTriangle, ArrowUpDown, PieChart as PieChartIcon, Users, DollarSign } from "lucide-react";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell, PieChart, Pie, Legend } from "recharts";
+import { Tooltip, ResponsiveContainer, Cell, PieChart, Pie, Sector } from "recharts";
 
 interface VisorData {
     resumen_alertas: any[];
@@ -12,6 +12,54 @@ interface VisorData {
         grafico_analisis: any[];
     }>;
 }
+
+const renderActiveShape = (props: any) => {
+    const RADIAN = Math.PI / 180;
+    const { cx, cy, midAngle, innerRadius, outerRadius, startAngle, endAngle, fill, payload, percent, value } = props;
+    const sin = Math.sin(-RADIAN * midAngle);
+    const cos = Math.cos(-RADIAN * midAngle);
+    const sx = cx + (outerRadius + 10) * cos;
+    const sy = cy + (outerRadius + 10) * sin;
+    const mx = cx + (outerRadius + 30) * cos;
+    const my = cy + (outerRadius + 30) * sin;
+    const ex = mx + (cos >= 0 ? 1 : -1) * 22;
+    const ey = my;
+    const textAnchor = cos >= 0 ? 'start' : 'end';
+
+    return (
+        <g>
+            <text x={cx} y={cy} dy={8} textAnchor="middle" fill={fill} className="font-bold text-lg drop-shadow-sm">
+                {payload.name}
+            </text>
+            <Sector
+                cx={cx}
+                cy={cy}
+                innerRadius={innerRadius}
+                outerRadius={outerRadius + 12}
+                startAngle={startAngle}
+                endAngle={endAngle}
+                fill={fill}
+                style={{ filter: `drop-shadow(0px 8px 16px ${fill}66)` }}
+            />
+            <Sector
+                cx={cx}
+                cy={cy}
+                startAngle={startAngle}
+                endAngle={endAngle}
+                innerRadius={outerRadius + 14}
+                outerRadius={outerRadius + 22}
+                fill={fill}
+                opacity={0.4}
+            />
+            <path d={`M${sx},${sy}L${mx},${my}L${ex},${ey}`} stroke={fill} strokeWidth={2} fill="none" />
+            <circle cx={ex} cy={ey} r={4} fill={fill} stroke="white" strokeWidth={2} />
+            <text x={ex + (cos >= 0 ? 1 : -1) * 12} y={ey} textAnchor={textAnchor} fill="#334155" className="font-extrabold text-sm">{`$${value.toLocaleString()}`}</text>
+            <text x={ex + (cos >= 0 ? 1 : -1) * 12} y={ey} dy={18} textAnchor={textAnchor} fill="#64748b" className="text-xs font-semibold">
+                {`( ${(percent * 100).toFixed(1)}% )`}
+            </text>
+        </g>
+    );
+};
 
 export default function VisorMultitablas({ data }: { data: VisorData }) {
     const [activeTab, setActiveTab] = useState<string>("resumen");
@@ -25,7 +73,7 @@ export default function VisorMultitablas({ data }: { data: VisorData }) {
                         <LayoutList size={22} />
                     </div>
                     <div>
-                        <h2 className="text-xl font-bold text-slate-800 tracking-tight">Reporte Interactivo de Deuda</h2>
+                        <h2 className="text-xl font-bold text-slate-800 tracking-tight">Reporte Interactivo de Saldos</h2>
                         <p className="text-sm text-slate-500">Puedes ordenar las columnas y visualizar los gráficos generados dinámicamente.</p>
                     </div>
                 </div>
@@ -118,6 +166,11 @@ function ResumenTabla({ rows }: { rows: any[] }) {
 function VendedorTab({ data, vendName }: { data: any, vendName: string }) {
     const [sortKey, setSortKey] = useState<string>("Saldo Total");
     const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+    const [activeIndex, setActiveIndex] = useState(0);
+
+    const onPieEnter = (_: any, index: number) => {
+        setActiveIndex(index);
+    };
 
     const handleSort = (key: string) => {
         if (sortKey === key) {
@@ -165,7 +218,7 @@ function VendedorTab({ data, vendName }: { data: any, vendName: string }) {
                         <DollarSign size={20} />
                     </div>
                     <div>
-                        <p className="text-xs text-slate-500 font-bold uppercase tracking-wide">Deuda Total</p>
+                        <p className="text-xs text-slate-500 font-bold uppercase tracking-wide">Saldo Pendiente</p>
                         <p className="text-lg font-black text-slate-800">${totalSaldo.toLocaleString()}</p>
                     </div>
                 </div>
@@ -187,65 +240,45 @@ function VendedorTab({ data, vendName }: { data: any, vendName: string }) {
             </div>
 
             <div className="p-6 flex flex-col xl:flex-row gap-8">
-                {/* Gráfico Analítico Recharts */}
-                <div className="w-full xl:w-2/5 flex flex-col gap-4">
+                {/* Gráfico Analítico Recharts (Sólo Torta Animada) */}
+                <div className="w-full xl:w-2/5 flex flex-col gap-4 transition-all duration-500 hover:scale-[1.01]">
                     <h3 className="font-bold text-slate-800 flex items-center gap-2">
-                        <TrendingUp size={18} className="text-indigo-500" />
-                        Distribución por Antigüedad
+                        <PieChartIcon size={20} className="text-indigo-500" />
+                        Composición de Saldos (Interactivo)
                     </h3>
-                    <div className="bg-white border text-xs border-slate-200 rounded-2xl p-4 shadow-sm h-[320px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={chartData} margin={{ top: 20, right: 20, left: 0, bottom: 0 }}>
-                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
-                                <XAxis dataKey="name" tick={{ fill: '#64748B' }} axisLine={false} tickLine={false} />
-                                <YAxis
-                                    tickFormatter={(val) => `$${(val / 1000).toFixed(0)}k`}
-                                    tick={{ fill: '#64748B' }}
-                                    axisLine={false}
-                                    tickLine={false}
-                                />
-                                <Tooltip
-                                    formatter={(val: number | string | undefined) => [`$${Number(val || 0).toLocaleString()}`, 'Deuda']}
-                                    labelStyle={{ color: '#0F172A', fontWeight: 'bold' }}
-                                    cursor={{ fill: '#F1F5F9' }}
-                                    contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                                />
-                                <Bar dataKey="saldo" radius={[4, 4, 0, 0]} maxBarSize={50}>
-                                    {chartData.map((entry: any, index: number) => (
-                                        <Cell key={`cell-${index}`} fill={entry.saldo > 0 ? '#6366F1' : '#CBD5E1'} />
-                                    ))}
-                                </Bar>
-                            </BarChart>
-                        </ResponsiveContainer>
-                    </div>
 
-                    <h3 className="font-bold text-slate-800 flex items-center gap-2 mt-4">
-                        <PieChartIcon size={18} className="text-indigo-500" />
-                        Composición de Deuda Replicada
-                    </h3>
-                    <div className="bg-white border text-xs border-slate-200 rounded-2xl p-4 shadow-sm h-[320px]">
+                    <div className="bg-white/80 backdrop-blur border text-xs border-indigo-100 rounded-[2rem] p-6 shadow-xl shadow-indigo-100/50 h-[450px] flex items-center justify-center relative overflow-hidden group">
+
+                        {/* Decorative background glow */}
+                        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-indigo-500/5 rounded-full blur-3xl group-hover:bg-indigo-500/10 transition-colors duration-700 pointer-events-none"></div>
+
                         <ResponsiveContainer width="100%" height="100%">
                             <PieChart>
                                 <Pie
+                                    activeIndex={activeIndex}
+                                    activeShape={renderActiveShape}
                                     data={chartData}
                                     cx="50%"
                                     cy="50%"
-                                    innerRadius={60}
+                                    innerRadius={70}
                                     outerRadius={100}
-                                    paddingAngle={2}
+                                    paddingAngle={3}
                                     dataKey="saldo"
-                                    label={({ name, percent }: any) => percent && percent > 0 ? `${name} ${(percent * 100).toFixed(0)}%` : ""}
-                                    labelLine={false}
+                                    onMouseEnter={onPieEnter}
+                                    stroke="none"
                                 >
                                     {chartData.map((entry: any, index: number) => {
-                                        const COLORS = ['#34a853', '#fa9c0f', '#F32b26', '#4285f4', '#000000'];
-                                        return <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />;
+                                        // Vibrant colors inspired by the original excel colors
+                                        const VIBRANT_COLORS = ['#10b981', '#f59e0b', '#ef4444', '#3b82f6', '#0f172a'];
+                                        return (
+                                            <Cell
+                                                key={`cell-${index}`}
+                                                fill={VIBRANT_COLORS[index % VIBRANT_COLORS.length]}
+                                                className="cursor-pointer transition-all duration-500 focus:outline-none"
+                                            />
+                                        );
                                     })}
                                 </Pie>
-                                <Tooltip
-                                    formatter={(val: number | string | undefined) => [`$${Number(val || 0).toLocaleString()}`, 'Deuda']}
-                                    contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                                />
                             </PieChart>
                         </ResponsiveContainer>
                     </div>
@@ -271,7 +304,7 @@ function VendedorTab({ data, vendName }: { data: any, vendName: string }) {
                                         <div className="flex items-center justify-center gap-1">Edad <ArrowUpDown size={12} className="opacity-50 group-hover:opacity-100" /></div>
                                     </th>
                                     <th className="px-3 py-3 border-l cursor-pointer hover:bg-slate-100 transition-colors group text-right text-indigo-700 bg-indigo-50/50" onClick={() => handleSort('Saldo Total')}>
-                                        <div className="flex items-center justify-end gap-1">Deuda <ArrowUpDown size={12} className="opacity-50 group-hover:opacity-100" /></div>
+                                        <div className="flex items-center justify-end gap-1">Saldo <ArrowUpDown size={12} className="opacity-50 group-hover:opacity-100" /></div>
                                     </th>
                                 </tr>
                             </thead>

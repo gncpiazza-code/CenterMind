@@ -257,11 +257,8 @@ export default function LandingPage() {
               </div>
               <div className="w-full aspect-video bg-black relative overflow-hidden flex items-center justify-center">
                 <video className="w-full h-full object-cover scale-[1.02]" autoPlay loop muted playsInline poster="/REAL_ACADEMY_LOGO.png">
-                  <source src="/libro_bg.mp4" type="video/mp4" />
+                  <source src="/VideoProject1.mp4" type="video/mp4" />
                 </video>
-                {/* Black overlay mask to hide bottom-right watermark without cropping the center shield */}
-                <div className="absolute bottom-[-20px] right-[-20px] w-64 h-32 bg-black blur-2xl z-10"></div>
-                <div className="absolute bottom-0 right-0 w-56 h-20 bg-black z-20"></div>
               </div>
             </div>
           </div>

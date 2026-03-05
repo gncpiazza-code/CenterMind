@@ -1162,6 +1162,82 @@ def dashboard_por_sucursal(distribuidor_id: int, periodo: str = "mes", _=Depends
     return result.data or []
 
 
+@app.get("/api/admin/erp/vendedores/{dist_id}", summary="Obtener lista de vendedores activos en ERP")
+def get_erp_vendedores(dist_id: int, _=Depends(verify_auth)):
+    res = sb.table("erp_ventas_raw").select("vendedor_erp").eq("id_distribuidor", dist_id).execute()
+    vendedores = sorted(list(set(row["vendedor_erp"] for row in res.data if row["vendedor_erp"])))
+    return vendedores
+
+# ─── ERP: Configuración y Reportes ───────────────────────────────────────────
+
+class ERPConfigAlertas(BaseModel):
+    limite_dinero: float
+    limite_cbte: int
+    limite_dias: int
+    activo: bool = True
+
+@app.get("/api/admin/erp/config/{dist_id}", summary="Obtener configuración de alertas ERP")
+def get_erp_config(dist_id: int, _=Depends(verify_auth)):
+    res = sb.table("erp_config_alertas").select("*").eq("id_distribuidor", dist_id).execute()
+    if not res.data:
+        # Valores por defecto si no existe
+        return {
+            "id_distribuidor": dist_id,
+            "limite_dinero": 500000,
+            "limite_cbte": 5,
+            "limite_dias": 30,
+            "activo": True
+        }
+    return res.data[0]
+
+@app.post("/api/admin/erp/config/{dist_id}", summary="Guardar configuración de alertas ERP")
+def save_erp_config(dist_id: int, req: ERPConfigAlertas, _=Depends(verify_auth)):
+    data = req.dict()
+    data["id_distribuidor"] = dist_id
+    res = sb.table("erp_config_alertas").upsert(data, on_conflict="id_distribuidor").execute()
+    return {"ok": True, "data": res.data[0] if res.data else None}
+
+@app.get("/api/reportes/recaudacion/{dist_id}", summary="Resumen de recaudación y KPIs")
+def get_recaudacion_summary(
+    dist_id: int, 
+    desde: str = Query(None), 
+    hasta: str = Query(None), 
+    vendedor: str = Query(None),
+    _=Depends(verify_auth)
+):
+    # Usamos RPC para cálculos complejos
+    res = sb.rpc("fn_reporte_recaudacion_kpis", {
+        "p_dist_id": dist_id,
+        "p_desde": desde or (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d"),
+        "p_hasta": hasta or datetime.now().strftime("%Y-%m-%d"),
+        "p_vendedor": vendedor
+    }).execute()
+    return res.data or {}
+
+@app.get("/api/reportes/recaudacion-detallada/{dist_id}", summary="Tabla detallada de ventas")
+def get_recaudacion_detallada(
+    dist_id: int, 
+    desde: str = Query(None), 
+    hasta: str = Query(None), 
+    vendedor: str = Query(None),
+    _=Depends(verify_auth)
+):
+    res = sb.rpc("fn_reporte_recaudacion_detallada", {
+        "p_dist_id": dist_id,
+        "p_desde": desde or (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d"),
+        "p_hasta": hasta or datetime.now().strftime("%Y-%m-%d"),
+        "p_vendedor": vendedor
+    }).execute()
+    return res.data or []
+
+@app.get("/api/reportes/clientes-muertos/{dist_id}", summary="Listado de clientes sin ventas")
+def get_clientes_muertos(dist_id: int, dias: int = 30, _=Depends(verify_auth)):
+    res = sb.rpc("fn_reporte_clientes_muertos", {
+        "p_dist_id": dist_id,
+        "p_dias": dias
+    }).execute()
+    return res.data or []
+
 # ─── Entry point (desarrollo) ─────────────────────────────────────────────────
 
 if __name__ == "__main__":

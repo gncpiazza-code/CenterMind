@@ -5,6 +5,8 @@ import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Settings2, Plus, Trash2, Search, SlidersHorizontal, ShieldAlert, BadgeInfo } from "lucide-react";
 
+import { fetchERPConfig, saveERPConfig } from "@/lib/api";
+
 export interface ReglaCredito {
     activo: boolean;
     valor: number;
@@ -30,25 +32,31 @@ const DEFAULT_REGLAS: ReglasGenerales = {
     limite_dias: { activo: false, valor: 0 },
 };
 
-export default function TabAlertasCredito() {
+export default function TabAlertasCredito({ distId }: { distId: number }) {
     const [reglas, setReglas] = useState<ReglasGenerales>(DEFAULT_REGLAS);
     const [excepciones, setExcepciones] = useState<Excepcion[]>([]);
     const [montoExt, setMontoExt] = useState("");
     const [cbteExt, setCbteExt] = useState("");
     const [diasExt, setDiasExt] = useState("");
     const [toastMessage, setToastMessage] = useState("");
+    const [loading, setLoading] = useState(false);
 
     // Search state for exceptions
     const [searchExcepcion, setSearchExcepcion] = useState("");
 
     useEffect(() => {
-        // Load config from LocalStorage on mount
-        const savedReglas = localStorage.getItem("shelfy_alertas_reglas");
-        const savedExcepciones = localStorage.getItem("shelfy_alertas_excepciones");
-
-        if (savedReglas) setReglas(JSON.parse(savedReglas));
-        if (savedExcepciones) setExcepciones(JSON.parse(savedExcepciones));
-    }, []);
+        setLoading(true);
+        fetchERPConfig(distId)
+            .then(data => {
+                setReglas({
+                    limite_dinero: { activo: true, valor: data.limite_dinero },
+                    limite_cbte: { activo: true, valor: data.limite_cbte },
+                    limite_dias: { activo: true, valor: data.limite_dias },
+                });
+            })
+            .catch(console.error)
+            .finally(() => setLoading(false));
+    }, [distId]);
 
     // Hydrate local states based on variables
     useEffect(() => {
@@ -57,20 +65,25 @@ export default function TabAlertasCredito() {
         setDiasExt(reglas.limite_dias.valor.toString());
     }, [reglas]);
 
-    const handleSave = () => {
-        const newReglas: ReglasGenerales = {
-            limite_dinero: { activo: reglas.limite_dinero.activo, valor: Number(montoExt) || 0 },
-            limite_cbte: { activo: reglas.limite_cbte.activo, valor: Number(cbteExt) || 0 },
-            limite_dias: { activo: reglas.limite_dias.activo, valor: Number(diasExt) || 0 },
-        };
+    const handleSave = async () => {
+        setLoading(true);
+        try {
+            await saveERPConfig(distId, {
+                limite_dinero: Number(montoExt) || 0,
+                limite_cbte: Number(cbteExt) || 0,
+                limite_dias: Number(diasExt) || 0,
+                activo: true
+            });
 
-        localStorage.setItem("shelfy_alertas_reglas", JSON.stringify(newReglas));
-        localStorage.setItem("shelfy_alertas_excepciones", JSON.stringify(excepciones));
-        setReglas(newReglas);
-
-        // Show toast
-        setToastMessage("Configuración guardada exitosamente");
-        setTimeout(() => setToastMessage(""), 3000);
+            // Show toast
+            setToastMessage("Configuración guardada exitosamente");
+            setTimeout(() => setToastMessage(""), 3000);
+        } catch (e) {
+            setToastMessage("Error al guardar");
+            setTimeout(() => setToastMessage(""), 3000);
+        } finally {
+            setLoading(false);
+        }
     };
 
     const handleAddException = () => {

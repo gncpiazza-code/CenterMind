@@ -26,3 +26,10 @@ python-multipart>=0.0.6
 xlrd>=2.0.1
 xlsxwriter>=3.1.0
 requests>=2.31.0
+
+# Dependencies added during Architecture Webhook Migration
+supabase>=2.3.0
+python-dotenv>=1.0.0
+apscheduler>=3.10.0
+psycopg2-binary>=2.9.9
+httpx>=0.25.0

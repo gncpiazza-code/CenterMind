@@ -1,0 +1,27 @@
+# -*- coding: utf-8 -*-
+"""
+Shelfy -- Modulo de conexion a Supabase (reemplaza get_conn() de SQLite)
+========================================================================
+Usa exclusivamente el cliente REST de Supabase (sin psycopg2).
+Para queries complejas con JOINs, creamos funciones RPC en Supabase.
+"""
+
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+from supabase import create_client, Client
+
+# Cargar .env desde la misma carpeta que este archivo
+_env_path = Path(__file__).resolve().parent / ".env"
+load_dotenv(_env_path)
+
+SUPABASE_URL: str = os.environ.get("SUPABASE_URL", "")
+SUPABASE_KEY: str = os.environ.get("SUPABASE_KEY", "")
+
+if not SUPABASE_URL or not SUPABASE_KEY:
+    raise RuntimeError(
+        "Faltan las variables SUPABASE_URL y/o SUPABASE_KEY en el archivo .env"
+    )
+
+# Cliente Supabase singleton
+sb: Client = create_client(SUPABASE_URL, SUPABASE_KEY)

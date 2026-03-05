@@ -36,11 +36,7 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from google.auth.transport.requests import Request
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
+# Google Drive imports eliminados — fotos van a Supabase Storage
 import json
 
 # PARCHE SSL (fix PostgreSQL sobreescribe SSL_CERT_FILE)
@@ -68,10 +64,6 @@ if sys.platform == "win32":
 # ─────────────────────────────────────────────
 AR_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
 
-# ============================================================
-# CONFIGURACIÓN RÁPIDA — Editá estos valores según necesites
-# ============================================================
-HIBERNACION_ACTIVA: bool = False   # True = 22:00-06:00 sin fotos | False = siempre activo
 # ============================================================
 # TIPOS DE PDV — Editá esta lista para agregar/quitar tipos
 # ============================================================
@@ -110,87 +102,6 @@ except ImportError:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# INSTANCE LOCK — evita múltiples instancias del mismo bot
-# ═══════════════════════════════════════════════════════════════════
-
-def _pid_exists(pid: int) -> bool:
-    """
-    Verifica si un proceso con ese PID existe (cross-platform, sin psutil).
-    Windows: usa OpenProcess via ctypes.
-    Unix:    usa os.kill(pid, 0).
-    """
-    if pid <= 0:
-        return False
-    if sys.platform == "win32":
-        try:
-            import ctypes
-            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-            handle = ctypes.windll.kernel32.OpenProcess(
-                PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
-            if handle:
-                ctypes.windll.kernel32.CloseHandle(handle)
-                return True
-        except Exception:
-            pass
-        return False
-    else:
-        try:
-            os.kill(pid, 0)
-            return True
-        except OSError as exc:
-            # EPERM = proceso existe pero sin permiso para señalarlo
-            return exc.errno == errno.EPERM
-
-
-def acquire_instance_lock(dist_id: int, log: logging.Logger) -> Optional[Path]:
-    """
-    Adquiere el lock de instancia única para este distribuidor.
-    - Si el lock existe y el PID sigue vivo → retorna None (no arrancar).
-    - Si el lock existe pero el PID murió (zombie cleanup) → lo sobreescribe.
-    - Si no existe → lo crea con nuestro PID.
-    Retorna el Path del lock file si se adquirió, None si hay conflicto.
-    """
-    lock_dir = BASE_DIR / "logs"
-    lock_dir.mkdir(exist_ok=True)
-    lf      = lock_dir / f"bot_{dist_id}.lock"
-    my_pid  = os.getpid()
-
-    if lf.exists():
-        try:
-            existing_pid = int(lf.read_text().strip())
-        except (ValueError, OSError):
-            existing_pid = 0
-
-        if existing_pid and existing_pid != my_pid:
-            if _pid_exists(existing_pid):
-                log.error(
-                    f"❌ Ya hay una instancia activa de bot_{dist_id} "
-                    f"(PID {existing_pid}). Saliendo para evitar "
-                    f"'Conflict: terminated by other getUpdates request'."
-                )
-                return None
-            log.warning(
-                f"⚠️ Lock zombie encontrado (PID {existing_pid} ya no existe). "
-                "Limpiando y continuando."
-            )
-
-    try:
-        lf.write_text(str(my_pid))
-    except OSError as exc:
-        log.warning(f"⚠️ No se pudo crear lock file: {exc} — continuando sin lock.")
-        return None
-    return lf
-
-
-def release_instance_lock(lf: Optional[Path]) -> None:
-    """Elimina el lock file al salir (registrado con atexit)."""
-    if not lf:
-        return
-    try:
-        if lf.exists() and int(lf.read_text().strip()) == os.getpid():
-            lf.unlink()
-    except Exception:
-        pass
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -201,129 +112,85 @@ class Database:
     """Interfaz SQLite para CenterMind."""
 
     def __init__(self, db_path: Path = DB_PATH):
-        self.db_path = db_path
         self.logger = get_logger("Database")
-
-    def _conn(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA foreign_keys=ON")
-        return conn
+        try:
+            from db import sb
+            self.sb = sb
+        except ImportError as e:
+            self.logger.error(f"Error importing Supabase client: {e}")
+            self.sb = None
 
     # ── Distribuidores ──────────────────────────────────────────────
 
     def get_distribuidor(self, distribuidor_id: int) -> Optional[Dict]:
-        with self._conn() as conn:
-            row = conn.execute(
-                """SELECT
-                       id_distribuidor  AS id,
-                       nombre_empresa   AS nombre,
-                       token_bot,
-                       id_carpeta_drive AS drive_folder_id,
-                       estado,
-                       admin_telegram_id
-                   FROM distribuidores
-                   WHERE id_distribuidor = ? AND estado = 'activo'""",
-                (distribuidor_id,)
-            ).fetchone()
-            return dict(row) if row else None
+        res = self.sb.table("distribuidores").select("id_distribuidor, nombre_empresa, token_bot, id_carpeta_drive, estado, admin_telegram_id").eq("id_distribuidor", distribuidor_id).eq("estado", "activo").execute()
+        if res.data:
+            d = res.data[0]
+            return {
+                "id": d["id_distribuidor"],
+                "nombre": d["nombre_empresa"],
+                "token_bot": d["token_bot"],
+                "drive_folder_id": d["id_carpeta_drive"],
+                "estado": d["estado"],
+                "admin_telegram_id": d["admin_telegram_id"]
+            }
+        return None
 
     def get_all_distribuidores_activos(self) -> List[Dict]:
-        with self._conn() as conn:
-            rows = conn.execute(
-                """SELECT
-                       id_distribuidor  AS id,
-                       nombre_empresa   AS nombre,
-                       token_bot,
-                       id_carpeta_drive AS drive_folder_id,
-                       estado,
-                       admin_telegram_id
-                   FROM distribuidores
-                   WHERE estado = 'activo'"""
-            ).fetchall()
-            return [dict(r) for r in rows]
+        res = self.sb.table("distribuidores").select("id_distribuidor, nombre_empresa, token_bot, id_carpeta_drive, estado, admin_telegram_id").eq("estado", "activo").execute()
+        out = []
+        for d in res.data:
+            out.append({
+                "id": d["id_distribuidor"],
+                "nombre": d["nombre_empresa"],
+                "token_bot": d["token_bot"],
+                "drive_folder_id": d["id_carpeta_drive"],
+                "estado": d["estado"],
+                "admin_telegram_id": d["admin_telegram_id"]
+            })
+        return out
 
     # ── Grupos ──────────────────────────────────────────────────────
 
     def upsert_grupo(self, distribuidor_id: int, chat_id: int, chat_title: str) -> None:
         """Registra o actualiza el nombre del grupo de Telegram."""
-        with self._conn() as conn:
-            row = conn.execute(
-                """SELECT 1 FROM grupos
-                   WHERE id_distribuidor = ? AND telegram_chat_id = ? LIMIT 1""",
-                (distribuidor_id, chat_id)
-            ).fetchone()
-            if row:
-                conn.execute(
-                    "UPDATE grupos SET nombre_grupo = ? WHERE id_distribuidor = ? AND telegram_chat_id = ?",
-                    (chat_title, distribuidor_id, chat_id)
-                )
-            else:
-                conn.execute(
-                    """INSERT INTO grupos (id_distribuidor, telegram_chat_id, nombre_grupo)
-                       VALUES (?, ?, ?)""",
-                    (distribuidor_id, chat_id, chat_title)
-                )
-            conn.commit()
+        try:
+            self.sb.table("grupos").upsert({
+                "telegram_chat_id": chat_id,
+                "id_distribuidor": distribuidor_id,
+                "nombre_grupo": chat_title
+            }, on_conflict="telegram_chat_id").execute()
+        except Exception as e:
+            self.logger.error(f"Error en upsert_grupo: {e}")
 
     # ── Integrantes / Roles ─────────────────────────────────────────
 
     def get_rol(self, distribuidor_id: int, chat_id: int, user_id: int) -> str:
-        with self._conn() as conn:
-            row = conn.execute(
-                """SELECT rol_telegram AS rol FROM integrantes_grupo
-                   WHERE id_distribuidor = ? AND telegram_group_id = ? AND telegram_user_id = ?""",
-                (distribuidor_id, chat_id, user_id)
-            ).fetchone()
-            return row["rol"] if row else "vendedor"
+        res = self.sb.table("integrantes_grupo").select("rol_telegram").eq("id_distribuidor", distribuidor_id).eq("telegram_group_id", chat_id).eq("telegram_user_id", user_id).execute()
+        return res.data[0]["rol_telegram"] if res.data else "vendedor"
 
     def get_rol_global(self, distribuidor_id: int, user_id: int) -> Optional[str]:
-        with self._conn() as conn:
-            row = conn.execute(
-                """SELECT rol_telegram AS rol FROM integrantes_grupo
-                   WHERE id_distribuidor = ? AND telegram_user_id = ?
-                   LIMIT 1""",
-                (distribuidor_id, user_id)
-            ).fetchone()
-            return row["rol"] if row else None
+        res = self.sb.table("integrantes_grupo").select("rol_telegram").eq("id_distribuidor", distribuidor_id).eq("telegram_user_id", user_id).limit(1).execute()
+        return res.data[0]["rol_telegram"] if res.data else None
 
     def upsert_integrante(
         self, distribuidor_id: int, chat_id: int, user_id: int,
         username: str, nombre: str, rol: str = "vendedor"
     ) -> None:
-        with self._conn() as conn:
-            row = conn.execute(
-                """SELECT id_integrante FROM integrantes_grupo
-                   WHERE id_distribuidor = ? AND telegram_group_id = ? AND telegram_user_id = ?
-                   LIMIT 1""",
-                (distribuidor_id, chat_id, user_id)
-            ).fetchone()
-            if row:
-                # Solo actualizar nombre_integrante (no sobreescribir rol que puede haber sido cambiado manualmente)
-                conn.execute(
-                    """UPDATE integrantes_grupo
-                       SET nombre_integrante = ?
-                       WHERE id_integrante = ?""",
-                    (nombre, row[0])
-                )
-            else:
-                conn.execute(
-                    """INSERT INTO integrantes_grupo
-                           (id_distribuidor, telegram_group_id, telegram_user_id, nombre_integrante, rol_telegram)
-                       VALUES (?, ?, ?, ?, ?)""",
-                    (distribuidor_id, chat_id, user_id, nombre, rol)
-                )
-            conn.commit()
+        res = self.sb.table("integrantes_grupo").select("id_integrante").eq("id_distribuidor", distribuidor_id).eq("telegram_group_id", chat_id).eq("telegram_user_id", user_id).limit(1).execute()
+        if res.data:
+            self.sb.table("integrantes_grupo").update({"nombre_integrante": nombre}).eq("id_integrante", res.data[0]["id_integrante"]).execute()
+        else:
+            self.sb.table("integrantes_grupo").insert({
+                "id_distribuidor": distribuidor_id,
+                "telegram_group_id": chat_id,
+                "telegram_user_id": user_id,
+                "nombre_integrante": nombre,
+                "rol_telegram": rol
+            }).execute()
 
     def set_rol(self, distribuidor_id: int, chat_id: int, user_id: int, rol: str) -> None:
-        with self._conn() as conn:
-            conn.execute(
-                """UPDATE integrantes_grupo SET rol_telegram = ?
-                   WHERE id_distribuidor = ? AND telegram_group_id = ? AND telegram_user_id = ?""",
-                (rol, distribuidor_id, chat_id, user_id)
-            )
-            conn.commit()
+        self.sb.table("integrantes_grupo").update({"rol_telegram": rol}).eq("id_distribuidor", distribuidor_id).eq("telegram_group_id", chat_id).eq("telegram_user_id", user_id).execute()
 
     # ── Exhibiciones ────────────────────────────────────────────────
 
@@ -338,142 +205,54 @@ class Database:
         telegram_msg_id: Optional[int] = None,
         telegram_chat_id: Optional[int] = None,
     ) -> str:
-        with self._conn() as conn:
-            # 1. Obtener ID del integrante (Vendedor)
-            row = conn.execute(
-                """SELECT id_integrante FROM integrantes_grupo
-                   WHERE id_distribuidor = ? AND telegram_user_id = ?
-                   LIMIT 1""",
-                (distribuidor_id, vendedor_id)
-            ).fetchone()
-            if row is None:
-                raise ValueError(f"Vendedor {vendedor_id} no encontrado en integrantes_grupo")
-            pk_integrante = row[0]
-
-            # 2. Buscar o crear el Cliente (Lógica de Clientes)
-            cliente_row = conn.execute(
-                """SELECT id_cliente FROM clientes
-                   WHERE id_distribuidor = ? AND numero_cliente_local = ? LIMIT 1""",
-                (distribuidor_id, nro_cliente)
-            ).fetchone()
-
-            if cliente_row:
-                id_cliente = cliente_row["id_cliente"]
-            else:
-                cur_cliente = conn.execute(
-                    """INSERT INTO clientes (id_distribuidor, numero_cliente_local)
-                       VALUES (?, ?)""",
-                    (distribuidor_id, nro_cliente)
-                )
-                id_cliente = cur_cliente.lastrowid
-
-            # 3. Insertar la Exhibición limpia (usando id_cliente)
-            cur = conn.execute(
-                """INSERT INTO exhibiciones
-                   (id_distribuidor, id_integrante, id_cliente,
-                    tipo_pdv, url_foto_drive,
-                    estado, telegram_msg_id, telegram_chat_id, synced_telegram)
-                   VALUES (?, ?, ?, ?, ?, 'Pendiente', ?, ?, 0)""",
-                (distribuidor_id, pk_integrante, id_cliente,
-                 tipo_pdv, drive_link,
-                 telegram_msg_id, telegram_chat_id)
-            )
-            conn.commit()
-            return str(cur.lastrowid)
+        # Usar RPC asíncrono internamente para simplificar el worker
+        res = self.sb.rpc("fn_bot_registrar_exhibicion", {
+            "p_distribuidor_id": distribuidor_id,
+            "p_vendedor_id": vendedor_id,
+            "p_nro_cliente": nro_cliente,
+            "p_tipo_pdv": tipo_pdv,
+            "p_drive_link": drive_link,
+            "p_telegram_msg_id": telegram_msg_id,
+            "p_telegram_chat_id": telegram_chat_id
+        }).execute()
+        return str(res.data)
 
     def update_telegram_refs(
         self, exhibicion_id: str, telegram_msg_id: int, telegram_chat_id: int
     ) -> None:
-        with self._conn() as conn:
-            conn.execute(
-                """UPDATE exhibiciones
-                   SET telegram_msg_id = ?, telegram_chat_id = ?
-                   WHERE id_exhibicion = ?""",
-                (telegram_msg_id, telegram_chat_id, exhibicion_id)
-            )
-            conn.commit()
+        self.sb.table("exhibiciones").update({
+            "telegram_msg_id": telegram_msg_id,
+            "telegram_chat_id": telegram_chat_id
+        }).eq("id_exhibicion", exhibicion_id).execute()
 
     def get_pendientes_sync(self, distribuidor_id: int) -> List[Dict]:
-        with self._conn() as conn:
-            rows = conn.execute(
-                """SELECT
-                       e.id_exhibicion        AS id,
-                       e.id_distribuidor,
-                       e.telegram_chat_id     AS chat_id,
-                       e.id_integrante        AS vendedor_id,
-                       c.numero_cliente_local AS nro_cliente,
-                       e.tipo_pdv             AS tipo_pdv,
-                       e.url_foto_drive       AS drive_link,
-                       e.estado,
-                       e.supervisor_nombre,
-                       e.comentario_evaluacion AS comentarios,
-                       e.telegram_msg_id,
-                       e.telegram_chat_id
-                   FROM exhibiciones e
-                   LEFT JOIN clientes c ON e.id_cliente = c.id_cliente
-                   WHERE e.id_distribuidor = ?
-                     AND e.estado != 'Pendiente'
-                     AND e.synced_telegram = 0
-                     AND e.telegram_msg_id IS NOT NULL
-                     AND e.telegram_chat_id IS NOT NULL""",
-                (distribuidor_id,)
-            ).fetchall()
-            
-            result = []
-            for r in rows:
-                d = dict(r)
-                d["vendedor_nombre"] = self._get_nombre_integrante(distribuidor_id, d["vendedor_id"])
-                result.append(d)
-            return result
-
-    def _get_nombre_integrante(self, distribuidor_id: int, user_id: int) -> str:
-        """Busca el nombre por id_integrante (PK interna), NO por telegram_user_id."""
-        with self._conn() as conn:
-            row = conn.execute(
-                """SELECT nombre_integrante FROM integrantes_grupo
-                   WHERE id_distribuidor = ? AND id_integrante = ? LIMIT 1""",
-                (distribuidor_id, user_id)
-            ).fetchone()
-            return row["nombre_integrante"] if row else "Vendedor"
+        res = self.sb.rpc("fn_bot_pendientes_sync", {"p_distribuidor_id": distribuidor_id}).execute()
+        return res.data if res.data else []
 
     def marcar_synced(self, exhibicion_id: str) -> None:
-        with self._conn() as conn:
-            conn.execute(
-                "UPDATE exhibiciones SET synced_telegram = 1 WHERE id_exhibicion = ?",
-                (exhibicion_id,)
-            )
-            conn.commit()
+        self.sb.table("exhibiciones").update({"synced_telegram": 1}).eq("id_exhibicion", exhibicion_id).execute()
 
     def get_stats_vendedor(self, distribuidor_id: int, vendedor_id: int) -> Dict:
-        with self._conn() as conn:
-            hist = conn.execute(
-                """SELECT
-                       SUM(CASE WHEN estado = 'Aprobado'   THEN 1 ELSE 0 END) aprobadas,
-                       SUM(CASE WHEN estado = 'Destacado'  THEN 1 ELSE 0 END) destacadas,
-                       SUM(CASE WHEN estado = 'Rechazado'  THEN 1 ELSE 0 END) rechazadas,
-                       SUM(CASE WHEN estado = 'Pendiente'  THEN 1 ELSE 0 END) pendientes,
-                       COUNT(*) total
-                   FROM exhibiciones
-                   WHERE id_distribuidor = ? AND id_integrante = ?""",
-                (distribuidor_id, vendedor_id)
-            ).fetchone()
+        # Identificar PK interna del vendedor por su telegram_user_id
+        ig_res = self.sb.table("integrantes_grupo").select("id_integrante").eq("id_distribuidor", distribuidor_id).eq("telegram_user_id", vendedor_id).limit(1).execute()
+        pk_integrante = ig_res.data[0]["id_integrante"] if ig_res.data else 0
 
-            mes_inicio = datetime.now(AR_TZ).replace(day=1).strftime("%Y-%m-%d")
-            mes = conn.execute(
-                """SELECT
-                       SUM(CASE WHEN estado = 'Aprobado'   THEN 1 ELSE 0 END) aprobadas,
-                       SUM(CASE WHEN estado = 'Destacado'  THEN 1 ELSE 0 END) destacadas,
-                       SUM(CASE WHEN estado = 'Rechazado'  THEN 1 ELSE 0 END) rechazadas,
-                       SUM(CASE WHEN estado = 'Pendiente'  THEN 1 ELSE 0 END) pendientes,
-                       COUNT(*) total
-                   FROM exhibiciones
-                   WHERE id_distribuidor = ? AND id_integrante = ?
-                     AND timestamp_subida >= ?""",
-                (distribuidor_id, vendedor_id, mes_inicio)
-            ).fetchone()
+        res = self.sb.rpc("fn_bot_stats_vendedor", {
+            "p_distribuidor_id": distribuidor_id,
+            "p_vendedor_id": pk_integrante
+        }).execute()
+        
+        hist = {"aprobadas": 0, "destacadas": 0, "rechazadas": 0, "pendientes": 0, "total": 0}
+        mes = {"aprobadas": 0, "destacadas": 0, "rechazadas": 0, "pendientes": 0, "total": 0}
+        
+        if res.data:
+            for row in res.data:
+                if row["rango"] == "historico":
+                    hist = row
+                else:
+                    mes = row
 
-        def safe(row, key):
-            return row[key] if row and row[key] is not None else 0
+        def safe(d, key): return d.get(key) or 0
 
         return {
             "historico": {
@@ -495,209 +274,104 @@ class Database:
         }
 
     def get_racha_vendedor(self, distribuidor_id: int, vendedor_id: int) -> int:
-        """Racha actual: cuantas exhibiciones consecutivas aprobadas/destacadas
-        contando desde la mas reciente hacia atras (sin contar pendientes)."""
-        with self._conn() as conn:
-            rows = conn.execute(
-                """SELECT estado FROM exhibiciones
-                   WHERE id_distribuidor = ? AND id_integrante = ?
-                     AND estado IN ('Aprobado','Destacado','Rechazado')
-                   ORDER BY timestamp_subida DESC
-                   LIMIT 30""",
-                (distribuidor_id, vendedor_id)
-            ).fetchall()
+        """Racha actual: cuantas exhibiciones consecutivas aprobadas/destacadas."""
+        # Get internal id_integrante
+        ig_res = self.sb.table("integrantes_grupo").select("id_integrante").eq("id_distribuidor", distribuidor_id).eq("telegram_user_id", vendedor_id).limit(1).execute()
+        if not ig_res.data:
+            return 0
+        pk_integrante = ig_res.data[0]["id_integrante"]
+
+        res = self.sb.table("exhibiciones").select("estado").eq("id_distribuidor", distribuidor_id).eq("id_integrante", pk_integrante).in_("estado", ["Aprobado", "Destacado", "Rechazado"]).order("timestamp_subida", desc=True).limit(30).execute()
+        
         racha = 0
-        for row in rows:
-            if row["estado"] in ("Aprobado", "Destacado"):
-                racha += 1
-            else:
-                break
+        if res.data:
+            for row in res.data:
+                if row["estado"] in ("Aprobado", "Destacado"):
+                    racha += 1
+                else:
+                    break
         return racha
 
     def get_ranking_mes(self, distribuidor_id: int) -> List[Dict]:
-        mes_inicio = datetime.now(AR_TZ).replace(day=1).strftime("%Y-%m-%d")
-        with self._conn() as conn:
-            rows = conn.execute(
-                """SELECT
-                       i.nombre_integrante AS vendedor_nombre,
-                       SUM(CASE WHEN e.estado IN ('Aprobado','Destacado') THEN 1 ELSE 0 END) aprobadas,
-                       SUM(CASE WHEN e.estado = 'Destacado' THEN 1 ELSE 0 END) destacadas,
-                       SUM(CASE WHEN e.estado = 'Rechazado' THEN 1 ELSE 0 END) rechazadas,
-                       COUNT(*) total
-                   FROM exhibiciones e
-                   LEFT JOIN integrantes_grupo i
-                       ON i.id_distribuidor = e.id_distribuidor
-                      AND i.id_integrante = e.id_integrante
-                   WHERE e.id_distribuidor = ? AND e.timestamp_subida >= ?
-                   GROUP BY e.id_integrante
-                   ORDER BY aprobadas DESC, destacadas DESC""",
-                (distribuidor_id, mes_inicio)
-            ).fetchall()
+        res = self.sb.rpc("fn_dashboard_ranking", {"p_dist_id": distribuidor_id, "p_periodo": "mes", "p_top": 100}).execute()
         ranking = []
-        for r in rows:
-            puntos = r["aprobadas"] + r["destacadas"]
-            ranking.append({
-                "vendedor":   r["vendedor_nombre"] or "Sin nombre",
-                "puntos":     puntos,
-                "aprobadas":  r["aprobadas"],
-                "destacadas": r["destacadas"],
-                "rechazadas": r["rechazadas"],
-                "total":      r["total"],
-            })
+        if res.data:
+            for r in res.data:
+                ranking.append({
+                    "vendedor":   r["vendedor"] or "Sin nombre",
+                    "puntos":     r["puntos"],
+                    "aprobadas":  r["aprobadas"],
+                    "destacadas": r["destacadas"],
+                    "rechazadas": r["rechazadas"],
+                    "total":      r["aprobadas"] + r["destacadas"] + r["rechazadas"]
+                })
         return ranking
 
     def get_historial_cliente(
         self, distribuidor_id: int, chat_id: int, nro_cliente: str, limit: int = 5
     ) -> List[Dict]:
-        with self._conn() as conn:
-            rows = conn.execute(
-                """SELECT e.tipo_pdv, e.estado, e.timestamp_subida AS created_at
-                   FROM exhibiciones e
-                   JOIN clientes c ON e.id_cliente = c.id_cliente
-                   WHERE e.id_distribuidor = ? AND e.telegram_chat_id = ? AND c.numero_cliente_local = ?
-                   ORDER BY e.timestamp_subida DESC LIMIT ?""",
-                (distribuidor_id, chat_id, nro_cliente, limit)
-            ).fetchall()
-        result = []
-        for r in rows:
-            fecha = r["created_at"][:10] if r["created_at"] else ""
-            try:
-                dt = datetime.strptime(fecha, "%Y-%m-%d")
-                fecha = dt.strftime("%d/%m")
-            except Exception:
-                pass
-            result.append({
-                "fecha":    fecha,
-                "tipo_pdv": r["tipo_pdv"],
-                "estado":   r["estado"],
-            })
-        return result
+        res = self.sb.rpc("fn_bot_historial_cliente", {
+            "p_distribuidor_id": distribuidor_id,
+            "p_chat_id": chat_id,
+            "p_nro_cliente": nro_cliente,
+            "p_limit": limit
+        }).execute()
+        
+        return res.data if res.data else []
 
 # ═══════════════════════════════════════════════════════════════════
-# DRIVE (Service Account)
+# SUPABASE STORAGE (reemplaza Google Drive)
 # ═══════════════════════════════════════════════════════════════════
 
-class DriveUploader:
-    """Sube fotos a Google Drive usando OAuth2 (usuario real, sin límite de cuota)."""
+class SupabaseUploader:
+    """Sube fotos a Supabase Storage (bucket público exhibiciones-pdv)."""
 
-    SCOPES = ["https://www.googleapis.com/auth/drive"]
+    BUCKET = "Exhibiciones-PDV"
 
-    def __init__(self, cred_path: Path = CRED_PATH, token_path: Path = TOKEN_PATH):
-        self.logger     = get_logger("DriveUploader")
-        self._service   = None
-        self._folder_cache: Dict[Tuple[str, str], str] = {}
+    def __init__(self):
+        self.logger = get_logger("SupabaseUploader")
         try:
-            creds = None
-            # Cargar token guardado si existe
-            if token_path.exists():
-                creds = Credentials.from_authorized_user_file(str(token_path), self.SCOPES)
-
-            # Refrescar si expiró
-            if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-                token_path.write_text(creds.to_json())
-                self.logger.info("🔄 Token de Drive refrescado automáticamente")
-
-            if not creds or not creds.valid:
-                raise RuntimeError(
-                    f"Token de Drive no encontrado o inválido.\n"
-                    f"Ejecutá: python setup_drive_oauth.py"
-                )
-
-            self._service = build("drive", "v3", credentials=creds, cache_discovery=False)
-            self.logger.info("✅ DriveUploader conectado con OAuth2")
+            from db import sb as _sb
+            self._sb = _sb
+            self.logger.info("✅ SupabaseUploader conectado")
         except Exception as e:
-            self.logger.error(f"❌ Error conectando Drive: {e}")
-
-    def _ensure_folder(self, parent_id: str, name: str) -> str:
-        key = (parent_id, name)
-        if key in self._folder_cache:
-            return self._folder_cache[key]
-
-        safe = name.replace("'", "\\'")
-        q = (
-            f"mimeType='application/vnd.google-apps.folder' and trashed=false "
-            f"and name='{safe}' and '{parent_id}' in parents"
-        )
-        try:
-            res = self._service.files().list(q=q, fields="files(id)", pageSize=5).execute()
-            files = res.get("files", [])
-            if files:
-                fid = files[0]["id"]
-                self._folder_cache[key] = fid
-                return fid
-        except Exception:
-            pass
-
-        # Crear carpeta
-        meta = {
-            "name": name,
-            "mimeType": "application/vnd.google-apps.folder",
-            "parents": [parent_id],
-        }
-        created = self._service.files().create(body=meta, fields="id").execute()
-        fid = created.get("id", "")
-        if fid:
-            self._folder_cache[key] = fid
-        return fid
+            self._sb = None
+            self.logger.error(f"❌ Error conectando Supabase Storage: {e}")
 
     def upload(
         self,
         file_bytes: bytes,
         filename: str,
-        root_folder_id: str,
         distribuidor_nombre: str,
-        group_title: str,
     ) -> str:
         """
-        Sube foto y devuelve el webViewLink.
+        Sube foto al bucket público y devuelve la URL pública directa.
 
-        Estructura en Drive:
-        root_folder/
-        └── [Distribuidor]/
-            └── [Grupo]/
-                └── [DD-MM-YYYY]/
-                    └── filename.jpg
+        Estructura en Storage:
+        exhibiciones-pdv/
+        └── {distribuidor_nombre}/
+            └── {YYYY-MM-DD}/
+                └── filename.jpg
         """
-        if not self._service:
+        if not self._sb:
             return ""
 
-        date_folder = datetime.now(AR_TZ).strftime("%d-%m-%Y")
-
-        try:
-            dist_id   = self._ensure_folder(root_folder_id, distribuidor_nombre)
-            group_id  = self._ensure_folder(dist_id, group_title or "SIN_GRUPO")
-            date_id   = self._ensure_folder(group_id, date_folder)
-        except Exception as e:
-            self.logger.error(f"❌ Error creando carpetas Drive: {e}")
-            return ""
+        date_folder = datetime.now(AR_TZ).strftime("%Y-%m-%d")
+        # Limpiar nombre de distribuidora para path seguro
+        safe_dist = "".join(c if c.isalnum() or c in "-_ " else "" for c in distribuidor_nombre).strip().replace(" ", "_")
+        storage_path = f"{safe_dist}/{date_folder}/{filename}"
 
         for attempt in range(1, 4):
             try:
-                meta  = {"name": filename, "parents": [date_id]}
-                media = MediaIoBaseUpload(
-                    io.BytesIO(file_bytes), mimetype="image/jpeg", resumable=True
+                self._sb.storage.from_(self.BUCKET).upload(
+                    path=storage_path,
+                    file=file_bytes,
+                    file_options={"content-type": "image/jpeg", "upsert": "true"},
                 )
-                f = self._service.files().create(
-                    body=meta,
-                    media_body=media,
-                    fields="id,webViewLink",
-                ).execute()
-                file_id = f.get("id", "")
-                link    = f.get("webViewLink", "")
-
-                # Hacer el archivo visible con el link
-                if file_id:
-                    try:
-                        self._service.permissions().create(
-                            fileId=file_id,
-                            body={"type": "anyone", "role": "reader"},
-                        ).execute()
-                    except Exception as perm_err:
-                        self.logger.warning(f"⚠️ No se pudo setear permisos públicos: {perm_err}")
-
-                self.logger.info(f"✅ Foto subida: {filename}")
-                return link
+                # Construir URL pública
+                url = self._sb.storage.from_(self.BUCKET).get_public_url(storage_path)
+                self.logger.info(f"✅ Foto subida a Supabase: {filename}")
+                return url
             except Exception as e:
                 self.logger.warning(f"⚠️ Intento {attempt}/3 fallido: {e}")
                 time.sleep(attempt * 2)
@@ -723,8 +397,8 @@ class BotWorker:
         self.distribuidor_id = distribuidor_id
         self.logger = get_logger(f"Bot-{distribuidor_id}")
 
-        self.db     = Database()
-        self.drive  = DriveUploader()
+        self.db      = Database()
+        self.storage = SupabaseUploader()
 
         # Cargar config del distribuidor
         dist = self.db.get_distribuidor(distribuidor_id)
@@ -733,13 +407,11 @@ class BotWorker:
 
         self.token              = dist["token_bot"]
         self.nombre_dist        = dist["nombre"]
-        self.drive_folder_id    = dist["drive_folder_id"]
         self.admin_telegram_id  = dist.get("admin_telegram_id")  # opcional en la tabla
 
         # Estado en memoria
         self.upload_sessions:   Dict[int, Dict[str, Any]] = {}
         self.active_msgs:       Dict[int, Dict[str, Any]] = {}   # msg_id → {exhibicion_id, ...}
-        self.bot_hibernating    = False
         self.start_time         = time.time()
         self.monitor            = monitor   # BotMonitor (puede ser None si corre standalone)
 
@@ -788,34 +460,6 @@ class BotWorker:
             # Usamos .error para facilitar la depuración si vuelve a fallar
             self.logger.error(f"Error registrando usuario/grupo: {e}")
 
-    # ─────────────────────────────────────────────────────────────
-    # HIBERNACIÓN
-    # ─────────────────────────────────────────────────────────────
-
-    def _is_hibernation_time(self) -> bool:
-        if not HIBERNACION_ACTIVA:
-            return False
-        hour = datetime.now(AR_TZ).hour
-        return hour >= 22 or hour < 6
-
-    async def _start_hibernation(self, context: ContextTypes.DEFAULT_TYPE) -> None:
-        self.bot_hibernating = True
-        self.logger.info("🌙 Hibernación iniciada (22:00-06:00)")
-        await self._notify_admin(
-            context,
-            f"🌙 <b>{self.nombre_dist} — Bot en hibernación</b>\n"
-            f"Horario: 22:00-06:00 (ARG)\n"
-            f"✅ Sync de evaluaciones sigue activo"
-        )
-
-    async def _end_hibernation(self, context: ContextTypes.DEFAULT_TYPE) -> None:
-        self.bot_hibernating = False
-        self.logger.info("☀️ Hibernación finalizada")
-        await self._notify_admin(
-            context,
-            f"☀️ <b>{self.nombre_dist} — Bot operativo</b>\n"
-            f"✅ Todos los sistemas activos"
-        )
 
     # ─────────────────────────────────────────────────────────────
     # COMANDOS
@@ -873,10 +517,9 @@ class BotWorker:
         if not self._is_admin(uid):
             await update.message.reply_text("❌ Solo el administrador puede usar /status")
             return
-        estado = "🌙 HIBERNANDO" if self.bot_hibernating else "☀️ OPERATIVO"
         msg = (
             f"🤖 <b>Estado del Bot — {self.nombre_dist}</b>\n\n"
-            f"Estado: {estado}\n"
+            f"Estado: ☀️ OPERATIVO 24/7\n"
             f"⏱️ Uptime: {self._uptime()}\n"
             f"📋 Sesiones activas: {len(self.upload_sessions)}\n"
         )
@@ -994,10 +637,7 @@ class BotWorker:
             self.distribuidor_id, chat_id, chat_title, user_id, username, nombre
         ))
 
-        # Hibernación — no procesar fotos
-        if self.bot_hibernating:
-            self.logger.debug(f"❌ Foto ignorada (hibernando): {username}")
-            return
+
 
         # Verificar rol
         rol = await asyncio.to_thread(
@@ -1096,8 +736,7 @@ class BotWorker:
             self.distribuidor_id, chat_id, chat_title, user_id, username, nombre
         ))
 
-        if self.bot_hibernating:
-            return
+
 
         session = self.upload_sessions.get(user_id)
         if not session:
@@ -1225,19 +864,17 @@ class BotWorker:
                     f"{nro_cliente}_{clean_code}_{int(time.time())}.jpg"
                 )
 
-                # Subida a Drive en thread
-                self.logger.info(f"📤 Subiendo a Drive: {filename}...")
+                # Subida a Supabase Storage en thread
+                self.logger.info(f"📤 Subiendo a Supabase: {filename}...")
                 drive_link = await asyncio.to_thread(
-                    self.drive.upload,
+                    self.storage.upload,
                     bytes(file_bytes),
                     filename,
-                    self.drive_folder_id,
                     self.nombre_dist,
-                    chat_title,
                 )
 
                 if drive_link:
-                    self.logger.info(f"✅ Foto en Drive: {drive_link[:80]}...")
+                    self.logger.info(f"✅ Foto en Supabase: {drive_link[:80]}...")
                     # Registro en SQL
                     try:
                         ex_id = await asyncio.to_thread(
@@ -1258,7 +895,7 @@ class BotWorker:
                         self.logger.error(f"❌ ERROR REGISTRANDO EN BD: {db_err}")
                         fallidas += 1
                 else:
-                    self.logger.warning(f"❌ Falló la subida a Drive (drive_link vacío)")
+                    self.logger.warning(f"❌ Falló la subida a Supabase (drive_link vacío)")
                     fallidas += 1
 
             except Exception as e:
@@ -1328,19 +965,8 @@ class BotWorker:
 
             fotos_text = f"📸 <b>{procesadas} fotos subidas</b>\n\n" if procesadas > 1 else ""
 
-            # Obtener link real de Drive
-            drive_link_url = ""
-            try:
-                with self.db._conn() as conn:
-                    row = conn.execute(
-                        "SELECT url_foto_drive FROM exhibiciones WHERE id_exhibicion = ?", (primera_id,)
-                    ).fetchone()
-                    if row:
-                        drive_link_url = row[0]
-            except Exception:
-                pass
-
-            foto_line = f"🔗 <a href='{drive_link_url}'>Ver foto en Drive</a>\n" if drive_link_url else ""
+            # Link a la foto (ya tenemos la URL de Supabase de la última subida)
+            foto_line = f"🔗 <a href='{drive_link}'>Ver foto</a>\n" if drive_link else ""
 
             msg_text = (
                 f"📋 <b>Exhibición registrada</b>\n\n"
@@ -1526,10 +1152,7 @@ class BotWorker:
     async def post_init(self, application: Application) -> None:
         await self._ensure_ready(application.bot)
 
-        # Verificar hibernación al iniciar
-        if self._is_hibernation_time():
-            self.bot_hibernating = True
-            self.logger.warning("🌙 Bot iniciado en horario de hibernación")
+
 
         # Configurar menú de comandos
         try:
@@ -1546,12 +1169,12 @@ class BotWorker:
             application,
             f"🚀 <b>{self.nombre_dist} — Bot iniciado</b>\n"
             f"🕐 {datetime.now(AR_TZ).strftime('%H:%M:%S')}\n"
-            f"{'🌙 Modo hibernación' if self.bot_hibernating else '✅ Todos los sistemas activos'}"
+            f"✅ Bot 24/7 — Todos los sistemas activos"
         )
         self.logger.info(f"🚀 {self.nombre_dist} — Bot online")
 
-    def run(self) -> None:
-        """Construye y corre el bot (bloqueante)."""
+    def build_app(self) -> Application:
+        """Construye y retorna la app del bot."""
         if not self.token:
             raise ValueError("Token de bot vacío")
 
@@ -1584,34 +1207,20 @@ class BotWorker:
         app.job_queue.run_repeating(self.sync_evaluaciones_job, interval=30, first=10)
         app.job_queue.run_repeating(self.cleanup_sessions_job,  interval=300, first=60)
 
-        # Jobs de hibernación (22:00-06:00 Argentina)
-        from datetime import time as dt_time
-        app.job_queue.run_daily(
-            lambda ctx: asyncio.create_task(self._start_hibernation(ctx)),
-            time=dt_time(22, 0, tzinfo=AR_TZ),
-            name="hibernation_start",
-        )
-        app.job_queue.run_daily(
-            lambda ctx: asyncio.create_task(self._end_hibernation(ctx)),
-            time=dt_time(6, 0, tzinfo=AR_TZ),
-            name="hibernation_end",
-        )
 
         app.post_init = self.post_init
 
-        self.logger.info(f"🤖 Iniciando polling: {self.nombre_dist}")
-        app.run_polling()
+        self.logger.info(f"🤖 App construida: {self.nombre_dist}")
+        return app
 
 
 # ═══════════════════════════════════════════════════════════════════
-# ENTRY POINT (un solo bot)
+# ═══════════════════════════════════════════════════════════════════
+# Si se ejecuta este archivo se levantará el bot por polling como testeo rápido.
 # ═══════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
     import argparse
-
-    # En Windows, ProactorEventLoop falla cuando el proceso no tiene consola
-    # (ej: lanzado desde una GUI como Flet). SelectorEventLoop funciona en todos los contextos.
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
@@ -1622,16 +1231,6 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    # ── Verificar instancia única ─────────────────────────────────────────
-    _startup_log  = get_logger(f"Bot-{args.distribuidor_id}")
-    _lock_file    = acquire_instance_lock(args.distribuidor_id, _startup_log)
-    if _lock_file is None:
-        # Otra instancia activa → salir silenciosamente (el error ya fue logueado)
-        sys.exit(1)
-    # Registrar limpieza del lock al salir (funciona con exit() normal y excepciones;
-    # NOT con os._exit() ni SIGKILL, pero esos casos los cubre el PID check al arrancar)
-    atexit.register(release_instance_lock, _lock_file)
-    # ─────────────────────────────────────────────────────────────────────
-
     worker = BotWorker(distribuidor_id=args.distribuidor_id)
-    worker.run()
+    app = worker.build_app()
+    app.run_polling()

@@ -56,15 +56,28 @@ from bot_worker import BotWorker
 
 from db import sb  # Supabase client singleton
 
+import logging
+
+# Configuración de logging para producción (Railway)
+logging.basicConfig(
+    format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+    level=logging.INFO
+)
+logger = logging.getLogger("ShelfyAPI")
+
 bots = {}
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL") # E.g. https://midominio.com
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ─── Startup ──────────────────────────────────────────────────────────────
-    print("Iniciando gestor de bots Webhook...")
-    res = sb.table("distribuidores").select("id_distribuidor, nombre_empresa").eq("estado", "activo").execute()
-    distribuidores = res.data if res.data else []
+    logger.info("🚀 Iniciando gestor de bots Webhook...")
+    try:
+        res = sb.table("distribuidores").select("id_distribuidor, nombre_empresa").eq("estado", "activo").execute()
+        distribuidores = res.data if res.data else []
+    except Exception as e:
+        logger.error(f"❌ Error consultando distribuidores: {e}")
+        distribuidores = []
     
     for dist in distribuidores:
         d_id = dist["id_distribuidor"]
@@ -74,31 +87,41 @@ async def lifespan(app: FastAPI):
             await ptb_app.initialize()
             
             if WEBHOOK_URL:
-                webhook_path = f"{WEBHOOK_URL}/api/telegram/webhook/{d_id}"
+                webhook_path = f"{WEBHOOK_URL.rstrip('/')}/api/telegram/webhook/{d_id}"
                 await ptb_app.bot.set_webhook(url=webhook_path)
-                print(f"✅ Bot {d_id} ({dist['nombre_empresa']}) - Webhook OK: {webhook_path}")
+                logger.info(f"✅ Bot {d_id} ({dist['nombre_empresa']}) - Webhook OK: {webhook_path}")
             else:
-                print(f"⚠️ Bot {d_id} ({dist['nombre_empresa']}) - WEBHOOK_URL no definida en .env")
+                logger.warning(f"⚠️ Bot {d_id} ({dist['nombre_empresa']}) - WEBHOOK_URL no definida")
                 
             await ptb_app.start()
             bots[d_id] = ptb_app
         except Exception as e:
-            print(f"❌ Error iniciando bot {d_id}: {e}")
+            logger.error(f"❌ Error iniciando bot {d_id}: {e}")
             
     yield
     
     # ─── Shutdown ─────────────────────────────────────────────────────────────
-    print("Deteniendo bots...")
+    logger.info("🛑 Deteniendo bots...")
     for d_id, ptb_app in bots.items():
         try:
             await ptb_app.stop()
             await ptb_app.shutdown()
         except Exception as e:
-            print(f"Error deteniendo bot {d_id}: {e}")
+            logger.error(f"Error deteniendo bot {d_id}: {e}")
     bots.clear()
 
 
 app = FastAPI(title="Shelfy API", version="2.0.0", lifespan=lifespan)
+
+# ─── Health Check (para Railway) ──────────────────────────────────────────────
+@app.get("/")
+@app.get("/health")
+async def health_check():
+    return {
+        "status": "online",
+        "bots_active": list(bots.keys()),
+        "webhook_url": WEBHOOK_URL
+    }
 
 # CORS: permite peticiones desde cualquier origen
 app.add_middleware(
@@ -112,7 +135,7 @@ app.add_middleware(
 @app.post("/api/telegram/webhook/{id_distribuidor}", tags=["Telegram Webhook"])
 async def telegram_webhook(id_distribuidor: int, request: Request):
     if id_distribuidor not in bots:
-        print(f"⚠️ Webhook recibido para bot inactivo: {id_distribuidor}")
+        logger.warning(f"⚠️ Webhook recibido para bot inactivo: {id_distribuidor}")
         raise HTTPException(status_code=404, detail="Bot inactivo o no encontrado")
     
     ptb_app = bots[id_distribuidor]
@@ -122,7 +145,7 @@ async def telegram_webhook(id_distribuidor: int, request: Request):
         await ptb_app.process_update(update)
         return {"ok": True}
     except Exception as e:
-        print(f"❌ Error procesando webhook para bot {id_distribuidor}: {e}")
+        logger.error(f"❌ Error procesando webhook para bot {id_distribuidor}: {e}")
         return {"ok": False, "error": str(e)}
 
 

@@ -149,32 +149,29 @@ export default function TabGenerarInforme() {
                     </div>
                 </summary>
 
-                <div className="flex flex-col md:flex-row gap-6 items-center p-6 bg-gradient-to-br from-indigo-50/50 to-violet-50/50 relative">
+                <div className="flex flex-col xl:flex-row gap-4 items-center p-4 bg-gradient-to-br from-indigo-50/50 to-violet-50/50 relative">
                     <div className="absolute top-0 right-0 p-8 opacity-10 pointer-events-none">
                         <Sparkles size={120} className="text-indigo-400" />
                     </div>
-                    <div className="flex-1 relative z-10">
-                        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold uppercase tracking-wider mb-4">
-                            <span className="relative flex h-2 w-2">
-                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
-                                <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
-                            </span>
-                            NUEVO MÓDULO DE DEUDAS
+
+                    {/* Texto explicativo 10% */}
+                    <div className="w-full xl:w-[10%] relative z-10 flex flex-col justify-center">
+                        <div className="inline-flex items-center gap-1 px-2 py-1 rounded mb-2 bg-indigo-100 text-indigo-700 text-[10px] font-bold uppercase tracking-wider self-start">
+                            INFO
                         </div>
-                        <h3 className="text-xl font-bold text-slate-800 mb-2">Transforma tus reportes de ERP en segundos</h3>
-                        <p className="text-slate-600 text-sm leading-relaxed mb-4">
-                            Descarga tu reporte crudo de Cuentas Corrientes y súbelo aquí. Nuestro motor lo analizará usando tus <b>Alertas de Crédito</b> y generará un informe procesado, agrupado por cada vendedor, junto con gráficos interactivos dinámicos y totales calculados.
+                        <p className="text-slate-600 text-xs">
+                            (Espacio reservado para texto explicativo)
                         </p>
-                        <p className="text-slate-600 text-sm font-medium">Revisa las guías en imagen/video a la derecha para ver cómo utilizar el sistema paso a paso.</p>
                     </div>
 
-                    <div className="w-full lg:w-1/2 xl:w-3/5 aspect-video bg-white/60 backdrop-blur rounded-2xl border border-indigo-100 flex flex-col items-center justify-center text-indigo-300 shadow-xl overflow-hidden group">
+                    {/* Video 90% sin cortes */}
+                    <div className="w-full xl:w-[90%] bg-slate-900 rounded-xl border border-indigo-200 flex items-center justify-center shadow-2xl overflow-hidden">
                         <video
                             src="/SALDOSFINAL.mp4"
                             controls
                             autoPlay
                             muted
-                            className="w-full h-full object-cover bg-slate-900"
+                            className="w-full h-auto max-h-[80vh] object-contain"
                         />
                     </div>
                 </div>

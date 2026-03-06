@@ -382,33 +382,39 @@ def login(req: LoginRequest, _=Depends(verify_auth)):
 def auth_login(req: LoginRequest):
     if not JWT_AVAILABLE:
         raise HTTPException(status_code=503, detail="JWT no disponible")
-    result = sb.rpc("fn_login", {"p_usuario": req.usuario.strip(), "p_password": req.password.strip()}).execute()
-    if not result.data:
-        raise HTTPException(status_code=401, detail="Credenciales invalidas")
-    user = result.data[0]
-    payload = {
-        "sub":               user["usuario_login"],
-        "id_usuario":        user["id_usuario"],
-        "rol":               user["rol"],
-        "id_distribuidor":   user.get("id_distribuidor"),
-        "nombre_empresa":    user.get("nombre_empresa"),
-        "is_superadmin":     user.get("is_superadmin") or user["rol"] == "superadmin",
-        "usa_quarentena":    user.get("usa_quarentena", False),
-        "usa_contexto_erp":   user.get("usa_contexto_erp", False),
-        "usa_mapeo_vendedores": user.get("usa_mapeo_vendedores", False),
-        "exp":               datetime.utcnow() + timedelta(hours=JWT_EXPIRE_HOURS),
-    }
-    token = _jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
-    return TokenResponse(
-        access_token=token, token_type="bearer",
-        usuario=user["usuario_login"], rol=user["rol"],
-        id_usuario=user["id_usuario"], id_distribuidor=user.get("id_distribuidor"),
-        nombre_empresa=user.get("nombre_empresa"),
-        is_superadmin=payload["is_superadmin"],
-        usa_quarentena=payload["usa_quarentena"],
-        usa_contexto_erp=payload["usa_contexto_erp"],
-        usa_mapeo_vendedores=payload["usa_mapeo_vendedores"]
-    )
+    try:
+        result = sb.rpc("fn_login", {"p_usuario": req.usuario.strip(), "p_password": req.password.strip()}).execute()
+        if not result.data:
+            raise HTTPException(status_code=401, detail="Credenciales invalidas")
+        user = result.data[0]
+        payload = {
+            "sub":               user["usuario_login"],
+            "id_usuario":        user["id_usuario"],
+            "rol":               user["rol"],
+            "id_distribuidor":   user.get("id_distribuidor"),
+            "nombre_empresa":    user.get("nombre_empresa"),
+            "is_superadmin":     user.get("is_superadmin") or user["rol"] == "superadmin",
+            "usa_quarentena":    user.get("usa_quarentena", False),
+            "usa_contexto_erp":   user.get("usa_contexto_erp", False),
+            "usa_mapeo_vendedores": user.get("usa_mapeo_vendedores", False),
+            "exp":               datetime.utcnow() + timedelta(hours=JWT_EXPIRE_HOURS),
+        }
+        token = _jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+        return TokenResponse(
+            access_token=token, token_type="bearer",
+            usuario=user["usuario_login"], rol=user["rol"],
+            id_usuario=user["id_usuario"], id_distribuidor=user.get("id_distribuidor"),
+            nombre_empresa=user.get("nombre_empresa"),
+            is_superadmin=payload["is_superadmin"],
+            usa_quarentena=payload["usa_quarentena"],
+            usa_contexto_erp=payload["usa_contexto_erp"],
+            usa_mapeo_vendedores=payload["usa_mapeo_vendedores"]
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error en auth_login: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error en el servidor: {str(e)}")
 
 
 @app.get("/pendientes/{id_distribuidor}", summary="Exhibiciones pendientes agrupadas por mensaje")

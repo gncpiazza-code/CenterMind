@@ -901,7 +901,7 @@ class BotWorker:
                     # Registro en SQL (PASO 5: la función ahora devuelve JSON)
                     try:
                         rpc_result = await asyncio.to_thread(
-                            self.db.insert_exhibicion,
+                            self.db.registrar_exhibicion,
                             distribuidor_id=self.distribuidor_id,
                             chat_id=chat_id,
                             vendedor_id=uploader_id,

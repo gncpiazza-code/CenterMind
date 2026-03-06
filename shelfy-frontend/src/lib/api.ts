@@ -10,6 +10,7 @@ export interface AuthResponse {
   id_usuario: number;
   id_distribuidor: number;
   nombre_empresa: string;
+  is_superadmin?: boolean;
 }
 
 export interface ERPUploadResponse {
@@ -74,6 +75,7 @@ export interface SucursalStats {
 export interface FotoGrupo {
   id_exhibicion: number;
   drive_link: string;
+  estado?: string; // PASO 7: puede ser 'Cuarentena' para bloquear la evaluación
 }
 
 export interface GrupoPendiente {

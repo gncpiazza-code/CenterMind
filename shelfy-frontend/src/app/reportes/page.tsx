@@ -8,8 +8,11 @@ import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/hooks/useAuth";
 import { useEffect, useState, useRef, useMemo } from "react";
-import { fetchReporteExhibiciones, fetchReporteVendedores, fetchReporteTiposPdv, fetchReporteSucursales } from "@/lib/api";
-import { Printer, Download, Search, X, ChevronDown, Check, BarChart3, Trophy, Briefcase, SwitchCamera, PieChart, AlertTriangle, Users, MapPin } from "lucide-react";
+import {
+  fetchReporteExhibiciones, fetchReporteVendedores, fetchReporteTiposPdv, fetchReporteSucursales,
+  fetchROI, type ROIAnalitico
+} from "@/lib/api";
+import { Printer, Download, Search, X, ChevronDown, Check, BarChart3, Trophy, Briefcase, SwitchCamera, PieChart, AlertTriangle, Users, MapPin, Flame, RefreshCw } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
 import TabGenerarInforme from "@/app/academy/cuentas-corrientes/components/TabGenerarInforme";
@@ -144,9 +147,11 @@ function DropdownMultiSelect({
 
 export default function HerramientasReportePage() {
   const { user } = useAuth();
-  const [activeMainTab, setActiveMainTab] = useState<"exhibiciones" | "recaudacion" | "padron" | "cuentas_corrientes">("exhibiciones");
+  const [activeMainTab, setActiveMainTab] = useState<"exhibiciones" | "recaudacion" | "padron" | "cuentas_corrientes" | "roi">("exhibiciones");
   const [ccpTab, setCcpTab] = useState<"resumen" | "alertas" | "informe">("resumen");
-  const [ccTab, setCcTab] = useState<"generar" | "alertas" | "recaudacion">("recaudacion");
+  const [ccTab, setCcTab] = useState<"generar" | "alertas">("generar");
+  const [erpRoi, setErpRoi] = useState<ROIAnalitico | null>(null);
+  const [loadingRoi, setLoadingRoi] = useState(false);
 
   // Filtros
   const [desde, setDesde] = useState(inicioMes());
@@ -202,6 +207,16 @@ export default function HerramientasReportePage() {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    if (activeMainTab === "roi" && user && !erpRoi) {
+      setLoadingRoi(true);
+      fetchROI(user.id_distribuidor)
+        .then(setErpRoi)
+        .catch(console.error)
+        .finally(() => setLoadingRoi(false));
+    }
+  }, [activeMainTab, user, erpRoi]);
 
   function handleLimpiar() {
     setSelectedVendedores([]);
@@ -356,12 +371,115 @@ export default function HerramientasReportePage() {
                 <Briefcase size={16} />
                 Cuentas Corrientes
               </button>
+
+              {user?.usa_contexto_erp && (
+                <button
+                  onClick={() => setActiveMainTab("roi")}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200
+                       ${activeMainTab === "roi"
+                      ? "bg-gradient-to-br from-emerald-600 to-teal-600 text-white shadow-md shadow-emerald-200/50"
+                      : "text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] hover:bg-[var(--shelfy-bg)]"
+                    }`}
+                >
+                  <BarChart3 size={16} />
+                  ROI Analítico
+                </button>
+              )}
             </div>
 
             {/* Contenido Dinámico: Padrón de Clientes */}
-            {activeMainTab === "padron" && user && (
+            {activeMainTab === "padron" && (
               <div className="fade-in animate-in slide-in-from-bottom-2 duration-300">
-                <TabPadronClientes distId={user.id_distribuidor} />
+                <TabPadronClientes />
+              </div>
+            )}
+
+            {/* Contenido Dinámico: ROI Analítico (PASO 10) */}
+            {activeMainTab === "roi" && user && (
+              <div className="fade-in animate-in slide-in-from-bottom-2 duration-300 md:px-4">
+                <div className="flex flex-col gap-6">
+                  <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-100 relative overflow-hidden">
+                    <div className="absolute top-0 right-0 p-8 opacity-5">
+                      <BarChart3 size={120} />
+                    </div>
+                    <div className="relative z-10">
+                      <h2 className="text-xl font-black text-slate-900 mb-2">Impacto en Ventas (ROI)</h2>
+                      <p className="text-sm text-slate-500 mb-8 max-w-2xl">
+                        Comparamos el desempeño comercial de los clientes que poseen **Exhibiciones Destacadas** frente a aquellos que no tienen exhibiciones activas en el sistema.
+                      </p>
+
+                      {loadingRoi ? (
+                        <div className="py-20 flex flex-col items-center justify-center gap-4">
+                          <RefreshCw className="animate-spin text-emerald-500" size={40} />
+                          <span className="text-sm font-bold text-slate-400 uppercase tracking-widest">Cruzando datos del ERP...</span>
+                        </div>
+                      ) : erpRoi && (
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                          {/* Card Uplift */}
+                          <div className="md:col-span-3 bg-gradient-to-r from-emerald-500 to-teal-600 rounded-3xl p-6 text-white shadow-lg shadow-emerald-200 flex items-center justify-between">
+                            <div>
+                              <p className="text-xs font-black uppercase tracking-widest opacity-80 mb-1">Incremento de Venta (Uplift)</p>
+                              <h3 className="text-4xl font-black">{erpRoi.uplift_pct > 0 ? `+${erpRoi.uplift_pct.toFixed(1)}%` : `${erpRoi.uplift_pct.toFixed(1)}%`}</h3>
+                            </div>
+                            <div className="hidden sm:block">
+                              <Flame size={60} className="fill-white/20 text-white/40" />
+                            </div>
+                          </div>
+
+                          {/* Clientes con Exhibición */}
+                          <div className="bg-slate-50 rounded-2xl p-6 border border-slate-100">
+                            <h4 className="flex items-center gap-2 text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-4">
+                              <Check size={14} className="bg-emerald-100 rounded-full p-0.5" /> Clientes Destacados
+                            </h4>
+                            <div className="space-y-4">
+                              <div>
+                                <p className="text-2xl font-black text-slate-900">${erpRoi.con_exhibicion.facturacion_promedio.toLocaleString()}</p>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase">Venta Promedio</p>
+                              </div>
+                              <div className="pt-4 border-t border-slate-200">
+                                <p className="text-sm font-bold text-slate-700">{erpRoi.con_exhibicion.clientes}</p>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase">Base de Clientes</p>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Clientes sin Exhibición */}
+                          <div className="bg-slate-50 rounded-2xl p-6 border border-slate-100 opacity-60">
+                            <h4 className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">
+                              <X size={14} className="bg-slate-200 rounded-full p-0.5" /> Sin Exhibición
+                            </h4>
+                            <div className="space-y-4">
+                              <div>
+                                <p className="text-2xl font-black text-slate-900">${erpRoi.sin_exhibicion.facturacion_promedio.toLocaleString()}</p>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase">Venta Promedio</p>
+                              </div>
+                              <div className="pt-4 border-t border-slate-200">
+                                <p className="text-sm font-bold text-slate-700">{erpRoi.sin_exhibicion.clientes}</p>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase">Base de Clientes</p>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Facturación Total de la Muestra */}
+                          <div className="bg-slate-900 rounded-2xl p-6 text-white shadow-xl">
+                            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Facturación Total (Sample)</h4>
+                            <div className="space-y-4">
+                              <p className="text-2xl font-black text-emerald-400">${(erpRoi.con_exhibicion.facturacion_total + erpRoi.sin_exhibicion.facturacion_total).toLocaleString()}</p>
+                              <p className="text-[10px] font-black text-slate-500 uppercase">Sumatoria facturado 30 días</p>
+                              <div className="h-2 w-full bg-slate-800 rounded-full overflow-hidden mt-4">
+                                <div
+                                  className="h-full bg-emerald-500 rounded-full"
+                                  style={{ width: `${(erpRoi.con_exhibicion.facturacion_total / (erpRoi.con_exhibicion.facturacion_total + erpRoi.sin_exhibicion.facturacion_total) * 100)}%` }}
+                                />
+                              </div>
+                              <p className="text-[9px] text-slate-400 italic">La barra muestra el peso de los clientes con exhibición vs el total.</p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
 

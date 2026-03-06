@@ -11,22 +11,22 @@ from pathlib import Path
 from dotenv import load_dotenv
 from supabase import create_client, Client
 
-# Intentar cargar .env local si existe (para desarrollo)
-_env_path = Path(__file__).resolve().parent / ".env"
-if _env_path.exists():
-    load_dotenv(_env_path)
-else:
-    # En Railway/Producción las variables ya están en el sistema, 
-    # pero esto ayuda si se subió un .env a la raíz (no recomendado)
-    load_dotenv()
-
 SUPABASE_URL: str = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY: str = os.environ.get("SUPABASE_KEY", "")
 
+# Debug para Railway (se verá en Deploy Logs)
+print(f"DEBUG: SUPABASE_URL detected? {'SÍ' if SUPABASE_URL else 'NO'}")
+if SUPABASE_URL:
+    print(f"DEBUG: URL prefix: {SUPABASE_URL[:10]}...")
+print(f"DEBUG: SUPABASE_KEY detected? {'SÍ' if SUPABASE_KEY else 'NO'}")
+
 if not SUPABASE_URL:
-    raise RuntimeError("Falta la variable de entorno SUPABASE_URL. Si estás en Railway, agregala en la pestaña Variables.")
+    # Mostrar todas las keys disponibles (solo nombres) para diagnosticar
+    available_keys = list(os.environ.keys())
+    print(f"DEBUG: Available env keys: {available_keys}")
+    raise RuntimeError("Falta la variable de entorno SUPABASE_URL. Si estás en Railway, agregala en la pestaña Variables del SERVICIO (no solo en Shared).")
 if not SUPABASE_KEY:
-    raise RuntimeError("Falta la variable de entorno SUPABASE_KEY. Si estás en Railway, agregala en la pestaña Variables.")
+    raise RuntimeError("Falta la variable de entorno SUPABASE_KEY. Si estás en Railway, agregala en la pestaña Variables del SERVICIO.")
 
 # Cliente Supabase singleton
 sb: Client = create_client(SUPABASE_URL, SUPABASE_KEY)

@@ -33,7 +33,7 @@ function FotoViewer({ driveUrl, idExhibicion }: { driveUrl: string, idExhibicion
     <img
       src={src}
       alt="Exhibición"
-      className="w-full h-full object-cover rounded-3xl shadow-md"
+      className="w-full h-full object-contain rounded-3xl shadow-md bg-[#0d0d0d]"
       onError={() => setErr(true)}
     />
   );
@@ -49,6 +49,7 @@ export default function VisorPage() {
   const [filtroVendedor, setFiltroVendedor] = useState("Todos");
   const [idx, setIdx] = useState(0);
   const [fotoIdx, setFotoIdx] = useState(0);
+  const [vistas, setVistas] = useState<Set<number>>(new Set([0])); // Track de fotos vistas por IDX
   const [comentario, setComentario] = useState("");
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
@@ -62,6 +63,8 @@ export default function VisorPage() {
 
   const grupo = filtrados[idx] ?? null;
   const totalGrupos = filtrados.length;
+  const totalFotos = grupo?.fotos.length ?? 0;
+  const todasVistas = vistas.size >= totalFotos;
 
   const cargar = useCallback(async () => {
     if (!user) return;
@@ -77,6 +80,7 @@ export default function VisorPage() {
       setVendedores(vend);
       setIdx(0);
       setFotoIdx(0);
+      setVistas(new Set([0]));
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Error al cargar");
     } finally {
@@ -91,7 +95,11 @@ export default function VisorPage() {
     return () => clearInterval(t);
   }, [cargar]);
 
-  useEffect(() => { setFotoIdx(0); setComentario(""); }, [idx, filtroVendedor]);
+  useEffect(() => {
+    setFotoIdx(0);
+    setVistas(new Set([0]));
+    setComentario("");
+  }, [idx, filtroVendedor]);
 
   function showFlash(msg: string, type: "ok" | "err") {
     setFlash({ msg, type });
@@ -99,7 +107,7 @@ export default function VisorPage() {
   }
 
   async function handleEvaluar(estado: "Aprobado" | "Destacado" | "Rechazado") {
-    if (!grupo || !user || actionLoading) return;
+    if (!grupo || !user || actionLoading || !todasVistas) return;
     const ids = grupo.fotos.map((f) => f.id_exhibicion);
     setActionLoading(true);
     try {
@@ -121,6 +129,16 @@ export default function VisorPage() {
       setActionLoading(false);
     }
   }
+
+  const handleNextFoto = () => {
+    const nextIdx = Math.min(totalFotos - 1, fotoIdx + 1);
+    setFotoIdx(nextIdx);
+    setVistas(prev => new Set([...prev, nextIdx]));
+  };
+
+  const handlePrevFoto = () => {
+    setFotoIdx(prev => Math.max(0, prev - 1));
+  };
 
   async function handleRevertir() {
     if (!lastEvalIds.current.length || actionLoading) return;
@@ -245,13 +263,13 @@ export default function VisorPage() {
                       {/* Controles de paginación de fotos si hay más de 1 */}
                       {grupo.fotos.length > 1 && (
                         <div className="absolute top-4 right-4 flex gap-1 bg-black/30 backdrop-blur-md p-1 rounded-full text-white">
-                          <button onClick={() => setFotoIdx((i) => Math.max(0, i - 1))} disabled={fotoIdx === 0} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-black/40 disabled:opacity-30 transition-colors">
+                          <button onClick={handlePrevFoto} disabled={fotoIdx === 0} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-black/40 disabled:opacity-30 transition-colors">
                             <ChevronLeft size={18} />
                           </button>
                           <span className="w-8 flex items-center justify-center text-xs font-bold font-mono">
                             {fotoIdx + 1}/{grupo.fotos.length}
                           </span>
-                          <button onClick={() => setFotoIdx((i) => Math.min(grupo.fotos.length - 1, i + 1))} disabled={fotoIdx >= grupo.fotos.length - 1} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-black/40 disabled:opacity-30 transition-colors">
+                          <button onClick={handleNextFoto} disabled={fotoIdx >= grupo.fotos.length - 1} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-black/40 disabled:opacity-30 transition-colors">
                             <ChevronRight size={18} />
                           </button>
                         </div>
@@ -271,24 +289,27 @@ export default function VisorPage() {
 
                       <button
                         onClick={() => handleEvaluar("Rechazado")}
-                        disabled={actionLoading}
-                        className="w-[58px] h-[58px] sm:w-16 sm:h-16 flex items-center justify-center rounded-full bg-[#fa5252] text-white shadow-[0_8px_24px_rgba(250,82,82,0.4)] hover:-translate-y-1 disabled:opacity-50 transition-all duration-200 active:scale-95 z-10"
+                        disabled={actionLoading || !todasVistas}
+                        title={!todasVistas ? "Debes ver todas las fotos" : "Rechazar"}
+                        className={`w-[58px] h-[58px] sm:w-16 sm:h-16 flex items-center justify-center rounded-full bg-[#fa5252] text-white shadow-[0_8px_24px_rgba(250,82,82,0.4)] hover:-translate-y-1 disabled:opacity-20 transition-all duration-200 active:scale-95 z-10`}
                       >
                         <X size={28} strokeWidth={3.5} />
                       </button>
 
                       <button
                         onClick={() => handleEvaluar("Destacado")}
-                        disabled={actionLoading}
-                        className="w-[64px] h-[64px] sm:w-20 sm:h-20 flex items-center justify-center rounded-full bg-[#f97316] text-white shadow-[0_10px_28px_rgba(249,115,22,0.45)] hover:-translate-y-1 disabled:opacity-50 transition-all duration-200 active:scale-95 z-20"
+                        disabled={actionLoading || !todasVistas}
+                        title={!todasVistas ? "Debes ver todas las fotos" : "Destacar"}
+                        className="w-[64px] h-[64px] sm:w-20 sm:h-20 flex items-center justify-center rounded-full bg-[#f97316] text-white shadow-[0_10px_28px_rgba(249,115,22,0.45)] hover:-translate-y-1 disabled:opacity-20 transition-all duration-200 active:scale-95 z-20"
                       >
                         <Flame size={32} strokeWidth={3} className="fill-white/20" />
                       </button>
 
                       <button
                         onClick={() => handleEvaluar("Aprobado")}
-                        disabled={actionLoading}
-                        className="w-[58px] h-[58px] sm:w-16 sm:h-16 flex items-center justify-center rounded-full bg-[#10b981] text-white shadow-[0_8px_24px_rgba(16,185,129,0.4)] hover:-translate-y-1 disabled:opacity-50 transition-all duration-200 active:scale-95 z-10"
+                        disabled={actionLoading || !todasVistas}
+                        title={!todasVistas ? "Debes ver todas las fotos" : "Aprobar"}
+                        className="w-[58px] h-[58px] sm:w-16 sm:h-16 flex items-center justify-center rounded-full bg-[#10b981] text-white shadow-[0_8px_24px_rgba(16,185,129,0.4)] hover:-translate-y-1 disabled:opacity-20 transition-all duration-200 active:scale-95 z-10"
                       >
                         <Check size={28} strokeWidth={3.5} />
                       </button>

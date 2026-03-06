@@ -16,6 +16,7 @@ import TabGenerarInforme from "@/app/academy/cuentas-corrientes/components/TabGe
 import TabAlertasCredito from "@/app/academy/cuentas-corrientes/components/TabAlertasCredito";
 import TabSeguimientoRecaudacion from "@/app/academy/cuentas-corrientes/components/TabSeguimientoRecaudacion";
 import TabPadronClientes from "@/app/academy/cuentas-corrientes/components/TabPadronClientes";
+// Nota: Para saldos se usa el TabSeguimientoRecaudacion que ya integra el VisorMultitablas
 
 // Hook para clicks fuera del elemento
 function useOnClickOutside(ref: React.RefObject<HTMLElement | null>, handler: () => void) {
@@ -143,7 +144,8 @@ function DropdownMultiSelect({
 
 export default function HerramientasReportePage() {
   const { user } = useAuth();
-  const [activeMainTab, setActiveMainTab] = useState("exhibiciones");
+  const [activeMainTab, setActiveMainTab] = useState<"exhibiciones" | "recaudacion" | "padron" | "cuentas_corrientes">("exhibiciones");
+  const [ccpTab, setCcpTab] = useState<"resumen" | "alertas" | "informe">("resumen");
   const [ccTab, setCcTab] = useState<"generar" | "alertas" | "recaudacion">("recaudacion");
 
   // Filtros
@@ -343,6 +345,17 @@ export default function HerramientasReportePage() {
                 <Users size={16} />
                 Padrón de Clientes
               </button>
+              <button
+                onClick={() => setActiveMainTab("cuentas_corrientes")}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200
+                     ${activeMainTab === "cuentas_corrientes"
+                    ? "bg-gradient-to-br from-violet-600 to-indigo-600 text-white shadow-md shadow-violet-200/50"
+                    : "text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] hover:bg-[var(--shelfy-bg)]"
+                  }`}
+              >
+                <Briefcase size={16} />
+                Cuentas Corrientes
+              </button>
             </div>
 
             {/* Contenido Dinámico: Padrón de Clientes */}
@@ -356,6 +369,21 @@ export default function HerramientasReportePage() {
             {activeMainTab === "recaudacion" && user && (
               <div className="fade-in animate-in slide-in-from-bottom-2 duration-300">
                 <TabSeguimientoRecaudacion distId={user.id_distribuidor} />
+              </div>
+            )}
+
+            {/* Contenido Dinámico: Cuentas Corrientes */}
+            {activeMainTab === "cuentas_corrientes" && user && (
+              <div className="flex flex-col gap-6 fade-in animate-in slide-in-from-bottom-2 duration-300">
+                <div className="flex flex-wrap items-center gap-2 bg-[var(--shelfy-panel)] p-1 rounded-xl border border-[var(--shelfy-border)] w-fit no-print">
+                  <button onClick={() => setCcpTab("resumen")} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${ccpTab === 'resumen' ? 'bg-[var(--shelfy-primary)] text-white shadow-sm' : 'text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]'}`}>Saldos y Alertas</button>
+                  <button onClick={() => setCcpTab("alertas")} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${ccpTab === 'alertas' ? 'bg-[var(--shelfy-primary)] text-white shadow-sm' : 'text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]'}`}>Configurar Alertas</button>
+                  <button onClick={() => setCcpTab("informe")} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${ccpTab === 'informe' ? 'bg-[var(--shelfy-primary)] text-white shadow-sm' : 'text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]'}`}>Reporte PDF</button>
+                </div>
+
+                {ccpTab === "resumen" && <TabSeguimientoRecaudacion distId={user.id_distribuidor} />}
+                {ccpTab === "alertas" && <TabAlertasCredito distId={user.id_distribuidor} />}
+                {ccpTab === "informe" && <TabGenerarInforme distId={user.id_distribuidor} />}
               </div>
             )}
 

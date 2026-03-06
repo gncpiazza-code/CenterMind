@@ -51,7 +51,7 @@ class ERPIngestionService:
         col_ult_com   = "fecha_ultima_compra"
         col_localidad = "descloca"
         col_provincia = "desprovincia"
-        col_domicilio = "domicli"
+        col_domicilio = "domicli" # Nombre exacto en el Excel del ERP
         col_telefono  = "telefos"
         col_movil     = "movil"
         col_ruta      = "ruta"

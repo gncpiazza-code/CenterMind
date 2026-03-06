@@ -730,11 +730,19 @@ def dashboard_imagen(file_id: str):
     
     try:
         if token_json:
-            creds = Credentials.from_authorized_user_info(json.loads(token_json))
+            try:
+                creds_info = json.loads(token_json)
+                creds = Credentials.from_authorized_user_info(creds_info)
+                logger.info(f"📸 Proxy: Usando DRIVE_TOKEN_JSON para {file_id}")
+            except Exception as json_e:
+                logger.error(f"❌ Error parseando DRIVE_TOKEN_JSON: {json_e}")
+                raise HTTPException(status_code=500, detail="DRIVE_TOKEN_JSON tiene formato invalido")
         elif token_path.exists():
             creds = Credentials.from_authorized_user_file(str(token_path))
+            logger.info(f"📸 Proxy: Usando token_drive.json para {file_id}")
         else:
-            raise HTTPException(status_code=503, detail="No se encontraron credenciales de Google Drive (DRIVE_TOKEN_JSON o token_drive.json)")
+            logger.warning(f"⚠️ Sin credenciales Drive para {file_id}, verificando si es Supabase...")
+            raise HTTPException(status_code=503, detail="No se encontraron credenciales de Google Drive")
 
         if not creds.valid and creds.refresh_token:
             import google.auth.transport.requests as _gtr
@@ -746,7 +754,10 @@ def dashboard_imagen(file_id: str):
             timeout=20,
             verify=_CA,
         )
+        if r.status_code != 200:
+            logger.error(f"❌ Google Drive error {r.status_code} para {file_id}: {r.text[:100]}")
         r.raise_for_status()
+        
         mime = r.headers.get("Content-Type", "image/jpeg").split(";")[0]
         return Response(
             content=r.content,

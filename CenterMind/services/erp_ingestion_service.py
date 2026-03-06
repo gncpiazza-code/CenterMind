@@ -110,10 +110,19 @@ class ERPIngestionService:
                 continue
 
             fecha = row.get(col_fecha)
-            if isinstance(fecha, datetime):
-                fecha_str = fecha.strftime("%Y-%m-%d")
-            else:
-                fecha_str = str(fecha)
+            try:
+                # Convertimos a datetime de forma robusta (soporta DD/MM/YYYY y otros)
+                # 'coerce' pone NaT si falla, 'dayfirst' es clave para 16/02/2026
+                dt_fecha = pd.to_datetime(fecha, dayfirst=True, errors='coerce')
+                
+                if pd.isna(dt_fecha):
+                    logger.warning(f"⚠️ Fecha inválida omitida: {fecha}")
+                    continue
+                
+                fecha_str = dt_fecha.strftime("%Y-%m-%d")
+            except Exception as e:
+                logger.warning(f"⚠️ Error parseando fecha {fecha}: {e}")
+                continue
 
             record = {
                 "id_distribuidor": dist_id,

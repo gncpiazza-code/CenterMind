@@ -118,7 +118,9 @@ export function getImageUrl(fileId: string): string {
 export function resolveImageUrl(driveLink: string | null | undefined, exhibicionId?: number): string | null {
   if (!driveLink) return null;
 
-  // 1. Si ya es una URL de Supabase (las nuevas se guardan así), devolverla
+  const SUPABASE_STORAGE_URL = "https://xjwadmzuuzctxbrvgopx.supabase.co/storage/v1/object/public/Exhibiciones-PDV";
+
+  // 1. Si ya es una URL de Supabase full, devolverla
   if (driveLink.startsWith("http") && driveLink.includes("supabase.co")) {
     return driveLink;
   }
@@ -129,11 +131,11 @@ export function resolveImageUrl(driveLink: string | null | undefined, exhibicion
     return `${API_URL}/dashboard/imagen/${driveId}`;
   }
 
-  // 3. Fallback: Si tenemos el ID de exhibicion, construir ruta de Supabase (Bucket público)
-  if (exhibicionId) {
-    const SUPABASE_STORAGE_URL = "https://xjwadmzuuzctxbrvgopx.supabase.co/storage/v1/object/public/Exhibiciones-PDV";
-    // Nota: El bot worker sube con un filename complejo, pero podemos normalizarlo en el futuro
-    // Por ahora, confiamos en que driveLink traiga la URL correcta si es Supabase.
+  // 3. Si no empieza con http (es un path relativo de Supabase), anteponer el bucket URL
+  if (!driveLink.startsWith("http")) {
+    // Limpiar el path por si viene con barra inicial
+    const cleanPath = driveLink.startsWith("/") ? driveLink.slice(1) : driveLink;
+    return `${SUPABASE_STORAGE_URL}/${cleanPath}`;
   }
 
   return driveLink.startsWith("http") ? driveLink : null;

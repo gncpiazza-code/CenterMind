@@ -724,12 +724,18 @@ def dashboard_imagen(file_id: str):
     # PostgreSQL puede setear REQUESTS_CA_BUNDLE a un path inválido; forzamos certifi
     _CA = certifi.where()
 
+    # Intentar cargar credenciales desde variable de entorno o archivo
+    token_json = os.environ.get("DRIVE_TOKEN_JSON")
     token_path = Path(__file__).resolve().parent / "token_drive.json"
-    if not token_path.exists():
-        raise HTTPException(status_code=503, detail="token_drive.json no encontrado")
-
+    
     try:
-        creds = Credentials.from_authorized_user_file(str(token_path))
+        if token_json:
+            creds = Credentials.from_authorized_user_info(json.loads(token_json))
+        elif token_path.exists():
+            creds = Credentials.from_authorized_user_file(str(token_path))
+        else:
+            raise HTTPException(status_code=503, detail="No se encontraron credenciales de Google Drive (DRIVE_TOKEN_JSON o token_drive.json)")
+
         if not creds.valid and creds.refresh_token:
             import google.auth.transport.requests as _gtr
             creds.refresh(_gtr.Request(session=_req.Session()))

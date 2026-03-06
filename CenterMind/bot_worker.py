@@ -206,8 +206,10 @@ class Database:
         drive_link: str,
         telegram_msg_id: Optional[int] = None,
         telegram_chat_id: Optional[int] = None,
-    ) -> str:
-        # Usar RPC asíncrono internamente para simplificar el worker
+    ) -> dict:
+        """Registra una exhibición vía RPC con soporte de cuarentena (PASO 5).
+        Retorna: {'id_exhibicion': <id>, 'en_cuarentena': <bool>, 'error': <str|None>}
+        """
         res = self.sb.rpc("fn_bot_registrar_exhibicion", {
             "p_distribuidor_id": distribuidor_id,
             "p_vendedor_id": vendedor_id,
@@ -217,7 +219,12 @@ class Database:
             "p_telegram_msg_id": telegram_msg_id,
             "p_telegram_chat_id": telegram_chat_id
         }).execute()
-        return str(res.data)
+        # La nueva función devuelve un JSON object
+        if isinstance(res.data, dict):
+            return res.data
+        elif isinstance(res.data, list) and res.data:
+            return res.data[0]
+        return {"id_exhibicion": None, "en_cuarentena": False, "error": "No data returned"}
 
     def update_telegram_refs(
         self, exhibicion_id: str, telegram_msg_id: int, telegram_chat_id: int
@@ -891,10 +898,10 @@ class BotWorker:
 
                 if drive_link:
                     self.logger.info(f"✅ Foto en Supabase: {drive_link[:80]}...")
-                    # Registro en SQL
+                    # Registro en SQL (PASO 5: la función ahora devuelve JSON)
                     try:
-                        ex_id = await asyncio.to_thread(
-                            self.db.registrar_exhibicion,
+                        rpc_result = await asyncio.to_thread(
+                            self.db.insert_exhibicion,
                             distribuidor_id=self.distribuidor_id,
                             chat_id=chat_id,
                             vendedor_id=uploader_id,
@@ -904,9 +911,25 @@ class BotWorker:
                             telegram_msg_id=ph_msg_id,
                             telegram_chat_id=chat_id
                         )
-                        self.logger.info(f"✅ Exhibición registrada: ID {ex_id}")
-                        exhibicion_ids.append(ex_id)
-                        procesadas += 1
+
+                        # PASO 3: Vendedor no mapeado
+                        if rpc_result.get("error") == "PENDIENTE_MAPEO":
+                            await context.bot.send_message(
+                                chat_id=chat_id,
+                                text=rpc_result.get("message", "⚠️ Tu usuario no tiene legajo asignado."),
+                                parse_mode=ParseMode.HTML,
+                                reply_to_message_id=ph_msg_id,
+                            )
+                            del self.upload_sessions[uploader_id]
+                            return
+
+                        ex_id = rpc_result.get("id_exhibicion")
+                        en_cuarentena = rpc_result.get("en_cuarentena", False)
+
+                        if ex_id:
+                            self.logger.info(f"✅ Exhibición registrada: ID {ex_id} | Cuarentena: {en_cuarentena}")
+                            exhibicion_ids.append({"id": ex_id, "en_cuarentena": en_cuarentena})
+                            procesadas += 1
                     except Exception as db_err:
                         self.logger.error(f"❌ ERROR REGISTRANDO EN BD: {db_err}")
                         fallidas += 1
@@ -921,7 +944,8 @@ class BotWorker:
         self.logger.info(f"📊 RESUMEN: {procesadas} exitosas, {fallidas} fallidas")
 
         if procesadas > 0:
-            primera_id = exhibicion_ids[0]
+            primera_id = exhibicion_ids[0]["id"]
+            en_cuarentena_flag = any(e["en_cuarentena"] for e in exhibicion_ids)
 
             # Historial del cliente en este grupo
             historial = []
@@ -985,6 +1009,12 @@ class BotWorker:
             # Link a la foto (ya tenemos la URL de Supabase de la última subida)
             foto_line = f"🔗 <a href='{drive_link}'>Ver foto</a>\n" if drive_link else ""
 
+            estado_label = (
+                f"⚠️ <b>Estado: CUARENTENA</b> — Pendiente de validación ERP"
+                if en_cuarentena_flag else
+                "⏳ <b>Estado:</b> Pendiente de evaluación"
+            )
+
             msg_text = (
                 f"📋 <b>Exhibición registrada</b>\n\n"
                 f"{fotos_text}"
@@ -992,7 +1022,7 @@ class BotWorker:
                 f"🏪 <b>Cliente:</b> {nro_cliente}\n"
                 f"📍 <b>Tipo:</b> {tipo_pdv}\n"
                 f"{foto_line}"
-                f"⏳ <b>Estado:</b> Pendiente de evaluación"
+                f"{estado_label}"
                 f"{stats_text}"
                 f"{historial_text}"
             )
@@ -1005,10 +1035,34 @@ class BotWorker:
             )
 
             # Guardar referencias Telegram en todas las exhibiciones
-            for ex_id in exhibicion_ids:
+            for ex_data in exhibicion_ids:
                 await asyncio.to_thread(
                     self.db.update_telegram_refs,
-                    ex_id, sent_msg.message_id, chat_id
+                    ex_data["id"], sent_msg.message_id, chat_id
+                )
+
+            # PASO 6: Mensaje de cuarentena con cuenta regresiva
+            if en_cuarentena_flag:
+                from datetime import timezone
+                now_ar = datetime.now(AR_TZ)
+                # Próxima ejecución del ETL → 03:00 AM hora Argentina
+                etl_hour = 3
+                next_etl = now_ar.replace(hour=etl_hour, minute=0, second=0, microsecond=0)
+                if now_ar >= next_etl:
+                    next_etl = next_etl.replace(day=next_etl.day + 1)
+                delta = next_etl - now_ar
+                horas = int(delta.total_seconds() // 3600)
+                minutos = int((delta.total_seconds() % 3600) // 60)
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=(
+                        f"⚠️ <b>CLIENTE NUEVO DETECTADO.</b> Esta exhibición ha sido puesta en "
+                        f"<b>CUARENTENA</b> y se validará al actualizar la base de clientes "
+                        f"en <b>{horas}h {minutos}m</b>.\n\n"
+                        f"Si te equivocaste de número, ignorá este mensaje y volvé a enviar la foto con el código correcto."
+                    ),
+                    parse_mode=ParseMode.HTML,
+                    reply_to_message_id=photos[0]["message_id"],
                 )
 
             # Cache local para sync

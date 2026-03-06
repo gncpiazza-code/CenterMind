@@ -303,8 +303,8 @@ class TokenResponse(BaseModel):
     usuario: str
     rol: str
     id_usuario: int
-    id_distribuidor: int
-    nombre_empresa: str
+    id_distribuidor: int | None = None
+    nombre_empresa: str | None = None
     is_superadmin: bool = False
     usa_quarentena: bool = False
     usa_contexto_erp: bool = False
@@ -390,8 +390,8 @@ def auth_login(req: LoginRequest):
         "sub":               user["usuario_login"],
         "id_usuario":        user["id_usuario"],
         "rol":               user["rol"],
-        "id_distribuidor":   user["id_distribuidor"],
-        "nombre_empresa":    user["nombre_empresa"],
+        "id_distribuidor":   user.get("id_distribuidor"),
+        "nombre_empresa":    user.get("nombre_empresa"),
         "is_superadmin":     user.get("is_superadmin") or user["rol"] == "superadmin",
         "usa_quarentena":    user.get("usa_quarentena", False),
         "usa_contexto_erp":   user.get("usa_contexto_erp", False),
@@ -402,8 +402,8 @@ def auth_login(req: LoginRequest):
     return TokenResponse(
         access_token=token, token_type="bearer",
         usuario=user["usuario_login"], rol=user["rol"],
-        id_usuario=user["id_usuario"], id_distribuidor=user["id_distribuidor"],
-        nombre_empresa=user["nombre_empresa"],
+        id_usuario=user["id_usuario"], id_distribuidor=user.get("id_distribuidor"),
+        nombre_empresa=user.get("nombre_empresa"),
         is_superadmin=payload["is_superadmin"],
         usa_quarentena=payload["usa_quarentena"],
         usa_contexto_erp=payload["usa_contexto_erp"],

@@ -8,8 +8,8 @@ export interface AuthResponse {
   usuario: string;
   rol: string;
   id_usuario: number;
-  id_distribuidor: number;
-  nombre_empresa: string;
+  id_distribuidor: number | null;
+  nombre_empresa: string | null;
   is_superadmin?: boolean;
   usa_quarentena?: boolean;
   usa_contexto_erp?: boolean;

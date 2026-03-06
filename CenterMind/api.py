@@ -162,12 +162,17 @@ async def health_check():
         "webhook_url": WEBHOOK_URL
     }
 
-# CORS: permite peticiones desde cualquier origen
+# CORS: permite peticiones desde local y producción Vercel
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:3000",
+        "https://shelfycenter.vercel.app",
+        "*"  # Permitir todo temporalmente para asegurar el switch
+    ],
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_credentials=True,
 )
 
 # ─── Webhook Endpoint ────────────────────────────────────────────────────────

@@ -354,6 +354,18 @@ def public_landing_stats():
     except Exception:
         return {"auditorias_pdv": 2500, "miembros_activos": 150, "sucursales_vinculadas": 50}
 
+def check_distributor_status(dist_id: int, user_payload: dict):
+    """Verifica si la distribuidora está bloqueada. Los SuperAdmins hacen bypass."""
+    if user_payload.get("is_superadmin"):
+        return
+    
+    res = sb.table("distribuidores").select("estado_operativo, motivo_bloqueo").eq("id_distribuidor", dist_id).execute()
+    if res.data:
+        status = res.data[0].get("estado_operativo", "Activo")
+        if status != "Activo":
+            motivo = res.data[0].get("motivo_bloqueo") or "Bloqueo por administración"
+            raise HTTPException(status_code=403, detail=f"Distribuidora bloqueada: {motivo}")
+
 @app.post("/login", summary="Autenticacion de usuario")
 def login(req: LoginRequest, _=Depends(verify_auth)):
     result = sb.rpc("fn_login", {"p_usuario": req.usuario.strip(), "p_password": req.password.strip()}).execute()
@@ -376,6 +388,7 @@ def auth_login(req: LoginRequest):
         "rol":               user["rol"],
         "id_distribuidor":   user["id_distribuidor"],
         "nombre_empresa":    user["nombre_empresa"],
+        "is_superadmin":     user.get("is_superadmin") or user["rol"] == "superadmin",
         "exp":               datetime.utcnow() + timedelta(hours=JWT_EXPIRE_HOURS),
     }
     token = _jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
@@ -384,6 +397,7 @@ def auth_login(req: LoginRequest):
         usuario=user["usuario_login"], rol=user["rol"],
         id_usuario=user["id_usuario"], id_distribuidor=user["id_distribuidor"],
         nombre_empresa=user["nombre_empresa"],
+        is_superadmin=payload["is_superadmin"]
     )
 
 
@@ -422,11 +436,20 @@ def evaluar(req: EvaluarRequest, _=Depends(verify_auth)):
     try:
         affected = 0
         for id_ex in req.ids_exhibicion:
+            # Primero validamos que la exhibición pertenezca a la dist_id del usuario (si no es superadmin)
+            ex_res = sb.table("exhibiciones").select("id_distribuidor").eq("id_exhibicion", id_ex).execute()
+            if not ex_res.data: continue
+            dist_id = ex_res.data[0]["id_distribuidor"]
+            
+            # Check de bloqueo
+            check_distributor_status(dist_id, user_payload)
+
             r = sb.table("exhibiciones").update({
                 "estado": req.estado,
                 "supervisor_nombre": req.supervisor,
                 "comentario_evaluacion": req.comentario or None,
                 "evaluated_at": datetime.utcnow().isoformat(),
+                "evaluado_por_id": user_payload.get("id_usuario"),
                 "synced_telegram": 0,
             }).eq("id_exhibicion", id_ex).eq("estado", "Pendiente").execute()
             affected += len(r.data) if r.data else 0

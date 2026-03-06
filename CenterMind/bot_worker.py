@@ -123,7 +123,7 @@ class Database:
     # ── Distribuidores ──────────────────────────────────────────────
 
     def get_distribuidor(self, distribuidor_id: int) -> Optional[Dict]:
-        res = self.sb.table("distribuidores").select("id_distribuidor, nombre_empresa, token_bot, id_carpeta_drive, estado, admin_telegram_id").eq("id_distribuidor", distribuidor_id).eq("estado", "activo").execute()
+        res = self.sb.table("distribuidores").select("id_distribuidor, nombre_empresa, token_bot, id_carpeta_drive, estado, admin_telegram_id, estado_operativo, motivo_bloqueo").eq("id_distribuidor", distribuidor_id).execute()
         if res.data:
             d = res.data[0]
             return {
@@ -132,7 +132,9 @@ class Database:
                 "token_bot": d["token_bot"],
                 "drive_folder_id": d["id_carpeta_drive"],
                 "estado": d["estado"],
-                "admin_telegram_id": d["admin_telegram_id"]
+                "admin_telegram_id": d["admin_telegram_id"],
+                "estado_operativo": d.get("estado_operativo", "Activo"),
+                "motivo_bloqueo": d.get("motivo_bloqueo")
             }
         return None
 
@@ -407,7 +409,9 @@ class BotWorker:
 
         self.token              = dist["token_bot"]
         self.nombre_dist        = dist["nombre"]
-        self.admin_telegram_id  = dist.get("admin_telegram_id")  # opcional en la tabla
+        self.admin_telegram_id  = dist.get("admin_telegram_id")
+        self.estado_operativo   = dist.get("estado_operativo", "Activo")
+        self.motivo_bloqueo     = dist.get("motivo_bloqueo")
 
         # Estado en memoria
         self.upload_sessions:   Dict[int, Dict[str, Any]] = {}
@@ -630,6 +634,18 @@ class BotWorker:
         file_id    = update.message.photo[-1].file_id
 
         self.logger.info(f"📸 Foto recibida de {username} (UID: {user_id}) en chat {chat_id}")
+
+        # --- PASO 0: BLOQUEO OPERATIVO ---
+        if self.estado_operativo != "Activo":
+            motivo = self.motivo_bloqueo or "Consultar con soporte"
+            await update.message.reply_text(
+                f"⚠️ <b>Carga pausada por disposición de Casa Matriz.</b>\n\n"
+                f"Motivo: <i>{motivo}</i>",
+                parse_mode=ParseMode.HTML,
+                reply_to_message_id=msg_id
+            )
+            return
+        # --------------------------------
 
         # Registro silencioso del usuario y grupo
         asyncio.create_task(asyncio.to_thread(

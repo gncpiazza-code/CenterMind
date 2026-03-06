@@ -11,6 +11,9 @@ export interface AuthResponse {
   id_distribuidor: number;
   nombre_empresa: string;
   is_superadmin?: boolean;
+  usa_quarentena?: boolean;
+  usa_contexto_erp?: boolean;
+  usa_mapeo_vendedores?: boolean;
 }
 
 export interface ERPUploadResponse {
@@ -84,6 +87,27 @@ export interface GrupoPendiente {
   tipo_pdv: string;
   fecha_hora: string;
   fotos: FotoGrupo[];
+}
+
+// PASO 9: Contexto ERP del cliente durante evaluación
+export interface ERPContexto {
+  encontrado: boolean;
+  nombre: string;
+  fantasia?: string;
+  ultima_compra?: string;
+  vendedor_erp?: string;
+  sucursal_erp?: string;
+  total_30d: number;
+  promedio_factura: number;
+  cant_facturas: number;
+  deuda_total: number;
+}
+
+// PASO 10: ROI Analítico
+export interface ROIAnalitico {
+  con_exhibicion: { clientes: number; facturacion_promedio: number; facturacion_total: number };
+  sin_exhibicion: { clientes: number; facturacion_promedio: number; facturacion_total: number };
+  uplift_pct: number;
 }
 
 export interface UsuarioPortal {
@@ -219,6 +243,14 @@ export async function revertir(ids: number[]) {
     method: "POST",
     body: JSON.stringify({ ids_exhibicion: ids }),
   });
+}
+
+export async function fetchERPContexto(distribuidorId: number, nroCliente: string): Promise<ERPContexto> {
+  return apiFetch<ERPContexto>(`/erp/contexto-cliente/${distribuidorId}/${nroCliente}`);
+}
+
+export async function fetchROI(distribuidorId: number): Promise<ROIAnalitico> {
+  return apiFetch<ROIAnalitico>(`/erp/roi/${distribuidorId}`);
 }
 
 // ── Admin: Usuarios ─────────────────────────────────────────────────────────

@@ -32,6 +32,10 @@ function parseStoredUser(): AuthResponse | null {
       id_usuario: payload.id_usuario,
       id_distribuidor: payload.id_distribuidor,
       nombre_empresa: payload.nombre_empresa,
+      is_superadmin: payload.is_superadmin,
+      usa_quarentena: payload.usa_quarentena,
+      usa_contexto_erp: payload.usa_contexto_erp,
+      usa_mapeo_vendedores: payload.usa_mapeo_vendedores,
     };
   } catch {
     return null;

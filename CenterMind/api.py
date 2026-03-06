@@ -305,6 +305,10 @@ class TokenResponse(BaseModel):
     id_usuario: int
     id_distribuidor: int
     nombre_empresa: str
+    is_superadmin: bool = False
+    usa_quarentena: bool = False
+    usa_contexto_erp: bool = False
+    usa_mapeo_vendedores: bool = False
 
 
 # ─── Endpoints ────────────────────────────────────────────────────────────────
@@ -389,6 +393,9 @@ def auth_login(req: LoginRequest):
         "id_distribuidor":   user["id_distribuidor"],
         "nombre_empresa":    user["nombre_empresa"],
         "is_superadmin":     user.get("is_superadmin") or user["rol"] == "superadmin",
+        "usa_quarentena":    user.get("usa_quarentena", False),
+        "usa_contexto_erp":   user.get("usa_contexto_erp", False),
+        "usa_mapeo_vendedores": user.get("usa_mapeo_vendedores", False),
         "exp":               datetime.utcnow() + timedelta(hours=JWT_EXPIRE_HOURS),
     }
     token = _jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
@@ -397,7 +404,10 @@ def auth_login(req: LoginRequest):
         usuario=user["usuario_login"], rol=user["rol"],
         id_usuario=user["id_usuario"], id_distribuidor=user["id_distribuidor"],
         nombre_empresa=user["nombre_empresa"],
-        is_superadmin=payload["is_superadmin"]
+        is_superadmin=payload["is_superadmin"],
+        usa_quarentena=payload["usa_quarentena"],
+        usa_contexto_erp=payload["usa_contexto_erp"],
+        usa_mapeo_vendedores=payload["usa_mapeo_vendedores"]
     )
 
 
@@ -454,6 +464,33 @@ def evaluar(req: EvaluarRequest, _=Depends(verify_auth)):
             }).eq("id_exhibicion", id_ex).eq("estado", "Pendiente").execute()
             affected += len(r.data) if r.data else 0
         return {"affected": affected}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── PASO 9: Contexto ERP durante evaluación ─────────────────────────────────
+
+@app.get("/erp/contexto-cliente/{id_distribuidor}/{nro_cliente}", summary="Datos ERP del cliente al evaluar")
+def get_erp_contexto(id_distribuidor: int, nro_cliente: str, user_payload=Depends(verify_auth)):
+    """PASO 9: Contexto ERP del cliente para la tarjeta de evaluación."""
+    try:
+        res = sb.rpc("fn_erp_contexto_cliente", {
+            "p_distribuidor_id": id_distribuidor,
+            "p_nro_cliente": nro_cliente
+        }).execute()
+        return res.data if res.data else {"encontrado": False}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── PASO 10: ROI Analítico ───────────────────────────────────────────────────
+
+@app.get("/erp/roi/{id_distribuidor}", summary="ROI: facturacion con vs sin exhibiciones destacadas")
+def get_roi_analitico(id_distribuidor: int, user_payload=Depends(verify_auth)):
+    """PASO 10: Compara clientes con/sin exhibiciones Destacadas en los últimos 30 días."""
+    try:
+        res = sb.rpc("fn_roi_analitico", {"p_distribuidor_id": id_distribuidor}).execute()
+        return res.data if res.data else {"con_exhibicion": {}, "sin_exhibicion": {}, "uplift_pct": 0}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

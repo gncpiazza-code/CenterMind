@@ -10,7 +10,8 @@ import {
   fetchPendientes, fetchStatsHoy, fetchVendedores,
   evaluar, revertir,
   resolveImageUrl,
-  type GrupoPendiente, type StatsHoy,
+  fetchERPContexto,
+  type GrupoPendiente, type StatsHoy, type ERPContexto,
 } from "@/lib/api";
 import { Check, X, Flame, RotateCcw, RefreshCw, ChevronLeft, ChevronRight, ImageOff, Info, User, Lock } from "lucide-react";
 
@@ -55,6 +56,8 @@ export default function VisorPage() {
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState<{ msg: string; type: "ok" | "err" } | null>(null);
+  const [erpContext, setErpContext] = useState<ERPContexto | null>(null);
+  const [loadingERP, setLoadingERP] = useState(false);
   const lastEvalIds = useRef<number[]>([]);
 
   const filtrados = filtroVendedor === "Todos"
@@ -65,8 +68,8 @@ export default function VisorPage() {
   const totalGrupos = filtrados.length;
   const totalFotos = grupo?.fotos.length ?? 0;
   const todasVistas = vistas.size >= totalFotos;
-  // PASO 7: Cuarentena — bloquear evaluación si alguna foto está en cuarentena
-  const isQuarantena = grupo?.fotos.some(f => f.estado === "Cuarentena") ?? false;
+  // PASO 7: Cuarentena — bloquear evaluación si alguna foto está en cuarentena (solo si la feature está activa)
+  const isQuarantena = (grupo?.fotos.some(f => f.estado === "Cuarentena") ?? false) && user?.usa_quarentena;
 
   const cargar = useCallback(async () => {
     if (!user) return;
@@ -101,7 +104,25 @@ export default function VisorPage() {
     setFotoIdx(0);
     setVistas(new Set([0]));
     setComentario("");
+    setErpContext(null); // Reset al cambiar
   }, [idx, filtroVendedor]);
+
+  // PASO 9: Cargar contexto ERP al cambiar de cliente (solo si la feature está activa)
+  useEffect(() => {
+    if (!grupo || !user || !user.usa_contexto_erp) return;
+    const cargarContexto = async () => {
+      setLoadingERP(true);
+      try {
+        const ctx = await fetchERPContexto(user.id_distribuidor, grupo.nro_cliente);
+        setErpContext(ctx);
+      } catch (e) {
+        console.error("Error cargando contexto ERP:", e);
+      } finally {
+        setLoadingERP(false);
+      }
+    };
+    cargarContexto();
+  }, [grupo, user]);
 
   function showFlash(msg: string, type: "ok" | "err") {
     setFlash({ msg, type });
@@ -369,6 +390,57 @@ export default function VisorPage() {
                         </div>
                       </div>
                     </div>
+
+                    {/* PASO 9: Contexto ERP */}
+                    {(erpContext || loadingERP) && (
+                      <div className={`bg-slate-900 rounded-3xl p-6 shadow-xl border border-slate-800 text-white relative overflow-hidden transition-all duration-300 ${loadingERP ? 'opacity-50 grayscale' : 'opacity-100'}`}>
+                        <div className="absolute top-0 right-0 p-4 opacity-10">
+                          <Info size={60} />
+                        </div>
+                        <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-4">Contexto ERP (30 días)</h3>
+
+                        {!erpContext && loadingERP ? (
+                          <div className="py-10 flex flex-col items-center justify-center gap-2">
+                            <RefreshCw className="animate-spin text-slate-600" size={24} />
+                            <span className="text-[10px] font-bold text-slate-600 uppercase">Consultando ERP...</span>
+                          </div>
+                        ) : erpContext?.encontrado ? (
+                          <>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div className="bg-slate-800/50 rounded-2xl p-3 border border-slate-700">
+                                <p className="text-[10px] font-bold text-slate-500 uppercase mb-1 line-clamp-1">Prom. Factura</p>
+                                <p className="text-lg font-black text-emerald-400">${erpContext.promedio_factura?.toLocaleString()}</p>
+                              </div>
+                              <div className="bg-slate-800/50 rounded-2xl p-3 border border-slate-700">
+                                <p className="text-[10px] font-bold text-slate-500 uppercase mb-1 line-clamp-1">Deuda Total</p>
+                                <p className={`text-lg font-black ${erpContext.deuda_total > 0 ? 'text-red-400' : 'text-slate-300'}`}>
+                                  ${erpContext.deuda_total?.toLocaleString()}
+                                </p>
+                              </div>
+                              <div className="bg-slate-800/50 rounded-2xl p-3 border border-slate-700">
+                                <p className="text-[10px] font-bold text-slate-500 uppercase mb-1 line-clamp-1">Facturas 30d</p>
+                                <p className="text-lg font-black text-sky-400">{erpContext.cant_facturas}</p>
+                              </div>
+                              <div className="bg-slate-800/50 rounded-2xl p-3 border border-slate-700">
+                                <p className="text-[10px] font-bold text-slate-500 uppercase mb-1 line-clamp-1">Última Compra</p>
+                                <p className="text-xs font-bold text-slate-200 truncate">{erpContext.ultima_compra || 'Sin datos'}</p>
+                              </div>
+                            </div>
+
+                            {erpContext.vendedor_erp && (
+                              <div className="mt-4 pt-4 border-t border-slate-800 flex items-center justify-between">
+                                <span className="text-[10px] font-bold text-slate-500 uppercase">Vendedor ERP</span>
+                                <span className="text-[10px] font-bold text-slate-300 uppercase truncate max-w-[150px]">{erpContext.vendedor_erp}</span>
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <div className="py-6 flex flex-col items-center justify-center text-center opacity-40 italic">
+                            <span className="text-xs">Sin datos en el padrón ERP</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {/* Comentarios */}
                     <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100">

@@ -4,7 +4,8 @@ from dotenv import load_dotenv
 
 load_dotenv(".env")
 password = os.getenv("PG_PASS")
-conn_str = f"postgres://postgres.xjwadmzuuzctxbrvgopx:{password}@aws-0-sa-east-1.pooler.supabase.com:6543/postgres"
+# Usamos conexión directa al host de la DB (puerto 5432)
+conn_str = f"postgresql://postgres:{password}@db.xjwadmzuuzctxbrvgopx.supabase.co:5432/postgres"
 
 print("Connecting to DB...")
 with psycopg2.connect(conn_str) as conn:

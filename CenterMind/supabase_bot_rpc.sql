@@ -139,10 +139,12 @@ RETURNS TABLE (
     destacadas BIGINT,
     rechazadas BIGINT,
     pendientes BIGINT,
-    total BIGINT
+    total BIGINT,
+    puntos BIGINT
 ) AS $$
 DECLARE
-    v_mes_inicio DATE := DATE_TRUNC('month', CURRENT_DATE AT TIME ZONE 'America/Argentina/Buenos_Aires');
+    v_hoy_ar TIMESTAMP := (CURRENT_TIMESTAMP AT TIME ZONE 'America/Argentina/Buenos_Aires');
+    v_mes_inicio DATE := DATE_TRUNC('month', v_hoy_ar)::DATE;
 BEGIN
     -- Histórico
     RETURN QUERY
@@ -151,7 +153,9 @@ BEGIN
            COUNT(*) FILTER (WHERE estado = 'Destacado') AS destacadas,
            COUNT(*) FILTER (WHERE estado = 'Rechazado') AS rechazadas,
            COUNT(*) FILTER (WHERE estado = 'Pendiente') AS pendientes,
-           COUNT(*) AS total
+           COUNT(*) AS total,
+           (COUNT(*) FILTER (WHERE estado = 'Aprobado') * 1 +
+            COUNT(*) FILTER (WHERE estado = 'Destacado') * 2) AS puntos
     FROM exhibiciones
     WHERE id_distribuidor = p_distribuidor_id AND id_integrante = p_vendedor_id;
 
@@ -162,9 +166,11 @@ BEGIN
            COUNT(*) FILTER (WHERE estado = 'Destacado') AS destacadas,
            COUNT(*) FILTER (WHERE estado = 'Rechazado') AS rechazadas,
            COUNT(*) FILTER (WHERE estado = 'Pendiente') AS pendientes,
-           COUNT(*) AS total
+           COUNT(*) AS total,
+           (COUNT(*) FILTER (WHERE estado = 'Aprobado') * 1 +
+            COUNT(*) FILTER (WHERE estado = 'Destacado') * 2) AS puntos
     FROM exhibiciones
     WHERE id_distribuidor = p_distribuidor_id AND id_integrante = p_vendedor_id
-      AND DATE(timestamp_subida AT TIME ZONE 'America/Argentina/Buenos_Aires') >= v_mes_inicio;
+      AND (timestamp_subida AT TIME ZONE 'America/Argentina/Buenos_Aires')::DATE >= v_mes_inicio;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

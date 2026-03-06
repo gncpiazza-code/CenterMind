@@ -9,12 +9,13 @@ import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/hooks/useAuth";
 import { useEffect, useState, useRef, useMemo } from "react";
 import { fetchReporteExhibiciones, fetchReporteVendedores, fetchReporteTiposPdv, fetchReporteSucursales } from "@/lib/api";
-import { Printer, Download, Search, X, ChevronDown, Check, BarChart3, Trophy, Briefcase, SwitchCamera, PieChart, AlertTriangle } from "lucide-react";
+import { Printer, Download, Search, X, ChevronDown, Check, BarChart3, Trophy, Briefcase, SwitchCamera, PieChart, AlertTriangle, Users, MapPin } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
 import TabGenerarInforme from "@/app/academy/cuentas-corrientes/components/TabGenerarInforme";
 import TabAlertasCredito from "@/app/academy/cuentas-corrientes/components/TabAlertasCredito";
 import TabSeguimientoRecaudacion from "@/app/academy/cuentas-corrientes/components/TabSeguimientoRecaudacion";
+import TabPadronClientes from "@/app/academy/cuentas-corrientes/components/TabPadronClientes";
 
 // Hook para clicks fuera del elemento
 function useOnClickOutside(ref: React.RefObject<HTMLElement | null>, handler: () => void) {
@@ -332,17 +333,24 @@ export default function HerramientasReportePage() {
                 Seguimiento de Recaudación
               </button>
               <button
-                onClick={() => setActiveMainTab("cuentas_corrientes")}
+                onClick={() => setActiveMainTab("padron")}
                 className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200
-                     ${activeMainTab === "cuentas_corrientes"
+                     ${activeMainTab === "padron"
                     ? "bg-gradient-to-br from-violet-600 to-indigo-600 text-white shadow-md shadow-violet-200/50"
                     : "text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] hover:bg-[var(--shelfy-bg)]"
                   }`}
               >
-                <Briefcase size={16} />
-                Cuentas Corrientes
+                <Users size={16} />
+                Padrón de Clientes
               </button>
             </div>
+
+            {/* Contenido Dinámico: Padrón de Clientes */}
+            {activeMainTab === "padron" && user && (
+              <div className="fade-in animate-in slide-in-from-bottom-2 duration-300">
+                <TabPadronClientes distId={user.id_distribuidor} />
+              </div>
+            )}
 
             {/* Contenido Dinámico: Recaudación */}
             {activeMainTab === "recaudacion" && user && (

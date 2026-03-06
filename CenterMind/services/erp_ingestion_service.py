@@ -42,13 +42,21 @@ class ERPIngestionService:
         col_vendedor = "d_vendedor"
         col_sucursal = "dssucur"
         col_id_int   = "IdClienteInterno"
-        col_lat      = "xcoord"
-        col_lon      = "ycoord"
+        col_lat      = "ycoord"
+        col_lon      = "xcoord"
         col_pago     = "FormaPago"
+        
+        # Nuevas columnas de enriquecimiento
+        col_alta      = "fecalta"
+        col_ult_com   = "fecha_ultima_compra"
+        col_localidad = "descloca"
+        col_provincia = "desprovincia"
+        col_domicilio = "domicli"
+        col_telefono  = "telefos"
+        col_movil     = "movil"
+        col_ruta      = "ruta"
 
         # Usamos un diccionario para deduplicar: clave = (dist_id, id_local)
-        # Esto evita el error 'ON CONFLICT DO UPDATE cannot affect row a second time'
-        # si el Excel trae el mismo cliente dos veces en el mismo batch.
         records_to_upsert: Dict[tuple, Dict[str, Any]] = {}
         
         for _, row in df.iterrows():
@@ -59,6 +67,18 @@ class ERPIngestionService:
                 continue
 
             id_local = str(row.get(col_id_erp))
+            
+            # Parsing de fechas
+            f_alta = None
+            if row.get(col_alta):
+                try: f_alta = pd.to_datetime(row[col_alta], dayfirst=True, errors='coerce').strftime("%Y-%m-%d")
+                except: pass
+            
+            f_ult = None
+            if row.get(col_ult_com):
+                try: f_ult = pd.to_datetime(row[col_ult_com], dayfirst=True, errors='coerce').strftime("%Y-%m-%d")
+                except: pass
+
             record = {
                 "id_distribuidor": dist_id,
                 "id_cliente_erp_local": id_local,
@@ -70,6 +90,15 @@ class ERPIngestionService:
                 "lat": float(row.get(col_lat, 0)) if row.get(col_lat) else None,
                 "lon": float(row.get(col_lon, 0)) if row.get(col_lon) else None,
                 "forma_pago": str(row.get(col_pago, "")),
+                # Enriquecimiento
+                "fecha_alta": f_alta,
+                "fecha_ultima_compra": f_ult,
+                "localidad": str(row.get(col_localidad, "")),
+                "provincia": str(row.get(col_provincia, "")),
+                "domicilio": str(row.get(col_domicilio, "")),
+                "telefono": str(row.get(col_telefono, "")),
+                "movil": str(row.get(col_movil, "")),
+                "ruta": str(row.get(col_ruta, "")),
             }
             # Sobreescribimos si ya existe el mismo cliente en este batch
             records_to_upsert[(dist_id, id_local)] = record
@@ -107,9 +136,10 @@ class ERPIngestionService:
         col_vendedor  = "dsvendedor"
         col_sucursal  = "dssucur"
 
-        # Usamos un diccionario para AGREGAR: clave = (dist_id, nro_documento)
-        # Si un nro_documento aparece varias veces (ej: una fila por producto),
-        # sumamos los importes y unidades para tener el total de la factura.
+        col_articulo  = "descrip" # Columna AK
+
+        # Usamos un diccionario para AGREGAR: clave = (dist_id, nro_documento, articulo)
+        # Ahora bajamos a nivel artículo para el gráfico de Top Ventas.
         records_to_upsert: Dict[tuple, Dict[str, Any]] = {}
 
         for _, row in df.iterrows():
@@ -120,7 +150,8 @@ class ERPIngestionService:
                 continue
 
             nro_doc = str(row.get(col_nro_doc))
-            key = (dist_id, nro_doc)
+            articulo = str(row.get(col_articulo, "SIN NOMBRE"))
+            key = (dist_id, nro_doc, articulo)
 
             fecha = row.get(col_fecha)
             try:
@@ -148,6 +179,7 @@ class ERPIngestionService:
                 records_to_upsert[key] = {
                     "id_distribuidor": dist_id,
                     "nro_documento": nro_doc,
+                    "articulo": articulo,
                     "fecha_factura": fecha_str,
                     "codi_cliente": str(row.get(col_id_cli)),
                     "nomcli": str(row.get(col_nom_cli, "")),
@@ -165,9 +197,9 @@ class ERPIngestionService:
             try:
                 sb.table("erp_ventas_raw").upsert(
                     final_records,
-                    on_conflict="id_distribuidor, nro_documento"
+                    on_conflict="id_distribuidor, nro_documento, articulo"
                 ).execute()
-                logger.info(f"✅ Ventas ERP: {len(final_records)} registros procesados (agregados).")
+                logger.info(f"✅ Ventas ERP: {len(final_records)} registros procesados (artículos).")
                 return len(final_records)
             except Exception as e:
                 logger.error(f"Error en upsert de ventas: {e}")

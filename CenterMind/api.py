@@ -767,7 +767,15 @@ def dashboard_imagen(file_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=502, detail=str(e))
+        import traceback
+        err_trace = traceback.format_exc()
+        logger.error(f"❌ ERROR CRITICO PROXY IMAGEN ({file_id}):\n{err_trace}")
+        
+        # Log de debug para la variable (primeros 20 chars para no filtrar secretos)
+        token_preview = (token_json[:20] + "...") if token_json else "None"
+        logger.info(f"🔍 Debug Variable: DRIVE_TOKEN_JSON={token_preview}")
+        
+        raise HTTPException(status_code=502, detail=f"Proxy Error: {str(e)}")
 
 
 # ─── Módulo Cuentas Corrientes ───────────────────────────────────────────────

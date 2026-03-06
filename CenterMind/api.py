@@ -448,7 +448,7 @@ def get_vendedores(id_distribuidor: int, _=Depends(verify_auth)):
 
 
 @app.post("/evaluar", summary="Aprobar / Destacar / Rechazar una exhibicion")
-def evaluar(req: EvaluarRequest, _=Depends(verify_auth)):
+def evaluar(req: EvaluarRequest, user_payload=Depends(verify_auth)):
     try:
         affected = 0
         for id_ex in req.ids_exhibicion:

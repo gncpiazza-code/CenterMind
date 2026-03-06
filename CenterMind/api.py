@@ -1283,6 +1283,23 @@ def get_clientes_muertos(dist_id: int, dias: int = 30, _=Depends(verify_auth)):
 
 # ─── Entry point (desarrollo) ─────────────────────────────────────────────────
 
+@app.get("/api/reportes/clientes/stats/{dist_id}", summary="KPIs de Padrón de Clientes")
+def get_clientes_stats(dist_id: int, _=Depends(verify_auth)):
+    res = sb.rpc("fn_reporte_clientes_stats", {"p_dist_id": dist_id}).execute()
+    return res.data or {}
+
+@app.get("/api/reportes/clientes/temporal/{dist_id}", summary="Altas de clientes por mes")
+def get_clientes_temporal(dist_id: int, _=Depends(verify_auth)):
+    res = sb.rpc("fn_reporte_clientes_temporal", {"p_dist_id": dist_id}).execute()
+    return res.data or []
+
+@app.get("/api/reportes/clientes/desglose/{dist_id}", summary="Análisis de clientes por Vendedor, Localidad o Provincia")
+def get_clientes_desglose(dist_id: int, tipo: str = Query("vendedor"), _=Depends(verify_auth)):
+    # tipo: 'vendedor', 'localidad', 'provincia'
+    res = sb.rpc("fn_reporte_clientes_desglose", {"p_dist_id": dist_id, "p_tipo": tipo}).execute()
+    return res.data or []
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

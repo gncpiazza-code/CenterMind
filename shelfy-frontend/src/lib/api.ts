@@ -479,3 +479,24 @@ export async function fetchClientesTemporal(distId: number) {
 export async function fetchClientesDesglose(distId: number, tipo: "vendedor" | "localidad" | "provincia") {
   return apiFetch<any[]>(`/api/reportes/clientes/desglose/${distId}?tipo=${tipo}`);
 }
+
+export async function fetchClientesMuertos(distId: number, dias: number = 30) {
+  return apiFetch<any[]>(`/api/reportes/clientes-muertos/${distId}?dias=${dias}`);
+}
+
+export async function fetchERPMappings(): Promise<any[]> {
+  return apiFetch<any[]>("/api/admin/erp/mappings");
+}
+
+export async function saveERPMapping(data: { nombre_erp: string; id_distribuidor: number }) {
+  return apiFetch("/api/admin/erp/mappings", {
+    method: "POST",
+    body: JSON.stringify(data)
+  });
+}
+
+export async function deleteERPMapping(nombre_erp: string) {
+  return apiFetch(`/api/admin/erp/mappings/${encodeURIComponent(nombre_erp)}`, {
+    method: "DELETE"
+  });
+}

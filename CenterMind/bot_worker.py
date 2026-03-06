@@ -242,34 +242,34 @@ class Database:
             "p_vendedor_id": pk_integrante
         }).execute()
         
-        hist = {"aprobadas": 0, "destacadas": 0, "rechazadas": 0, "pendientes": 0, "total": 0}
-        mes = {"aprobadas": 0, "destacadas": 0, "rechazadas": 0, "pendientes": 0, "total": 0}
+        mes_actual = {"aprobadas": 0, "destacadas": 0, "rechazadas": 0, "pendientes": 0, "total": 0}
+        mes_anterior = {"aprobadas": 0, "destacadas": 0, "rechazadas": 0, "pendientes": 0, "total": 0}
         
         if res.data:
             for row in res.data:
-                if row["rango"] == "historico":
-                    hist = row
-                else:
-                    mes = row
+                if row["rango"] == "mes_actual":
+                    mes_actual = row
+                elif row["rango"] == "mes_anterior":
+                    mes_anterior = row
 
         def safe(d, key): return d.get(key) or 0
 
         return {
-            "historico": {
-                "aprobadas":  safe(hist, "aprobadas"),
-                "destacadas": safe(hist, "destacadas"),
-                "rechazadas": safe(hist, "rechazadas"),
-                "pendientes": safe(hist, "pendientes"),
-                "total":      safe(hist, "total"),
-                "puntos":     safe(hist, "aprobadas") + safe(hist, "destacadas") * 2,
+            "mes_actual": {
+                "aprobadas":  safe(mes_actual, "aprobadas"),
+                "destacadas": safe(mes_actual, "destacadas"),
+                "rechazadas": safe(mes_actual, "rechazadas"),
+                "pendientes": safe(mes_actual, "pendientes"),
+                "total":      safe(mes_actual, "total"),
+                "puntos":     safe(mes_actual, "aprobadas") + safe(mes_actual, "destacadas") * 2,
             },
-            "mes": {
-                "aprobadas":  safe(mes, "aprobadas"),
-                "destacadas": safe(mes, "destacadas"),
-                "rechazadas": safe(mes, "rechazadas"),
-                "pendientes": safe(mes, "pendientes"),
-                "total":      safe(mes, "total"),
-                "puntos":     safe(mes, "aprobadas") + safe(mes, "destacadas") * 2,
+            "mes_anterior": {
+                "aprobadas":  safe(mes_anterior, "aprobadas"),
+                "destacadas": safe(mes_anterior, "destacadas"),
+                "rechazadas": safe(mes_anterior, "rechazadas"),
+                "pendientes": safe(mes_anterior, "pendientes"),
+                "total":      safe(mes_anterior, "total"),
+                "puntos":     safe(mes_anterior, "aprobadas") + safe(mes_anterior, "destacadas") * 2,
             },
         }
 
@@ -541,20 +541,20 @@ class BotWorker:
             stats = await asyncio.to_thread(
                 self.db.get_stats_vendedor, self.distribuidor_id, uid
             )
-            h = stats["historico"]
-            mes = stats["mes"]
+            actual = stats["mes_actual"]
+            anterior = stats["mes_anterior"]
             msg = (
                 f"📊 <b>Tus Estadísticas — {self.nombre_dist}</b>\n\n"
-                f"📅 <b>Histórico total:</b>\n"
-                f"   • Aprobadas:  {h['aprobadas']}\n"
-                f"   • Rechazadas: {h['rechazadas']}\n"
-                f"   • Pendientes: {h['pendientes']}\n"
-                f"   • Total:      {h['total']}\n\n"
-                f"🗓️ <b>Este mes:</b>\n"
-                f"   • Aprobadas:  {mes['aprobadas']}\n"
-                f"   • Rechazadas: {mes['rechazadas']}\n"
-                f"   • Pendientes: {mes['pendientes']}\n"
-                f"   • Total:      {mes['total']}"
+                f"🗓️ <b>Este mes ({datetime.now(AR_TZ).strftime('%B')}):</b>\n"
+                f"   • ✅ Aprobadas:  {actual['aprobadas']}\n"
+                f"   • 🔥 Destacadas: {actual['destacadas']}\n"
+                f"   • ❌ Rechazadas: {actual['rechazadas']}\n"
+                f"   • ⏳ Pendientes: {actual['pendientes']}\n"
+                f"   • 📈 Total:      {actual['total']}\n\n"
+                f"📅 <b>Mes anterior:</b>\n"
+                f"   • ✅ Aprobadas:  {anterior['aprobadas']}\n"
+                f"   • 🔥 Destacadas: {anterior['destacadas']}\n"
+                f"   • 📈 Total:      {anterior['total']}"
             )
             await m.reply_text(msg, parse_mode=ParseMode.HTML)
         except Exception as e:

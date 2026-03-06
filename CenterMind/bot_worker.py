@@ -918,27 +918,28 @@ class BotWorker:
                 pass
 
             # Stats y racha del vendedor
-            stats = {"mes": {}, "historico": {}}
+            stats = {"mes_actual": {}, "mes_anterior": {}}
             racha = 0
             try:
-                with self.db._conn() as conn:
-                    r = conn.execute(
-                        """SELECT id_integrante FROM integrantes_grupo
-                           WHERE id_distribuidor = ? AND telegram_user_id = ? LIMIT 1""",
-                        (self.distribuidor_id, uploader_id)
-                    ).fetchone()
-                    pk_vend = r[0] if r else None
-                if pk_vend:
-                    stats = await asyncio.to_thread(
-                        self.db.get_stats_vendedor, self.distribuidor_id, pk_vend
-                    )
+                # Obtenemos stats directamente usando el telegram_user_id (uploader_id)
+                # La función get_stats_vendedor ya se encarga de buscar el id_integrante internamente.
+                stats = await asyncio.to_thread(
+                    self.db.get_stats_vendedor, self.distribuidor_id, uploader_id
+                )
+                
+                # Para la racha sí necesitamos el PK interno (esto se podría optimizar en el futuro)
+                ig_res = self.db.sb.table("integrantes_grupo").select("id_integrante").eq("id_distribuidor", self.distribuidor_id).eq("telegram_user_id", uploader_id).limit(1).execute()
+                pk_integrante = ig_res.data[0]["id_integrante"] if ig_res.data else 0
+                
+                if pk_integrante:
                     racha = await asyncio.to_thread(
-                        self.db.get_racha_vendedor, self.distribuidor_id, pk_vend
+                        self.db.get_racha_vendedor, self.distribuidor_id, pk_integrante
                     )
-            except Exception:
+            except Exception as e:
+                self.logger.error(f"Error cargando stats/racha post-upload: {e}")
                 pass
 
-            mes = stats.get("mes", {})
+            mes = stats.get("mes_actual", {})
             racha_text = f"   🔥 Racha: {racha} consecutivas aprobadas\n" if racha >= 2 else ""
             stats_text = (
                 f"\n\n📊 <b>Tu mes ({datetime.now(AR_TZ).strftime('%B').capitalize()}):</b>\n"

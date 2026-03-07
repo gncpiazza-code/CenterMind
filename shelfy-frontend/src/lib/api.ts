@@ -315,15 +315,15 @@ export async function eliminarUsuario(id: number) {
 // ── Reportes ────────────────────────────────────────────────────────────────
 
 export async function fetchReporteVendedores(distId: number): Promise<string[]> {
-  return apiFetch<string[]>(`/reportes/vendedores/${distId}`);
+  return apiFetch<string[]>(`/api/reportes/vendedores/${distId}`);
 }
 
 export async function fetchReporteTiposPdv(distId: number): Promise<string[]> {
-  return apiFetch<string[]>(`/reportes/tipos-pdv/${distId}`);
+  return apiFetch<string[]>(`/api/reportes/tipos-pdv/${distId}`);
 }
 
 export async function fetchReporteSucursales(distId: number): Promise<string[]> {
-  return apiFetch<string[]>(`/reportes/sucursales/${distId}`);
+  return apiFetch<string[]>(`/api/reportes/sucursales/${distId}`);
 }
 
 export async function fetchReporteExhibiciones(distId: number, query: {
@@ -335,7 +335,7 @@ export async function fetchReporteExhibiciones(distId: number, query: {
   sucursales?: string[];
   nro_cliente?: string;
 }) {
-  return apiFetch(`/reportes/exhibiciones/${distId}`, {
+  return apiFetch(`/api/reportes/exhibiciones/${distId}`, {
     method: "POST",
     body: JSON.stringify(query),
   });
@@ -350,19 +350,19 @@ export interface Distribuidora {
 }
 
 export async function fetchDistribuidoras(soloActivas = false): Promise<Distribuidora[]> {
-  return apiFetch<Distribuidora[]>(`/admin/distribuidoras?solo_activas=${soloActivas}`);
+  return apiFetch<Distribuidora[]>(`/api/admin/distribuidoras?solo_activas=${soloActivas}`);
 }
 
 export async function crearDistribuidora(data: { nombre: string; token: string; carpeta_drive?: string; ruta_cred?: string }) {
-  return apiFetch("/admin/distribuidoras", { method: "POST", body: JSON.stringify(data) });
+  return apiFetch("/api/admin/distribuidoras", { method: "POST", body: JSON.stringify(data) });
 }
 
 export async function editarDistribuidora(id: number, data: { nombre: string; token: string; carpeta_drive?: string; ruta_cred?: string }) {
-  return apiFetch(`/admin/distribuidoras/${id}`, { method: "PUT", body: JSON.stringify(data) });
+  return apiFetch(`/api/admin/distribuidoras/${id}`, { method: "PUT", body: JSON.stringify(data) });
 }
 
 export async function toggleDistribuidora(id: number, estado: "activo" | "inactivo") {
-  return apiFetch(`/admin/distribuidoras/${id}/estado`, { method: "PATCH", body: JSON.stringify({ estado }) });
+  return apiFetch(`/api/admin/distribuidoras/${id}/estado`, { method: "PATCH", body: JSON.stringify({ estado }) });
 }
 
 // ── Admin: Integrantes Telegram ──────────────────────────────────────────────
@@ -385,14 +385,14 @@ export async function fetchIntegrantes(distId?: number): Promise<Integrante[]> {
 }
 
 export async function setRolIntegrante(id: number, rol: string, distribuidorId?: number) {
-  return apiFetch(`/admin/integrantes/${id}/rol`, {
+  return apiFetch(`/api/admin/integrantes/${id}/rol`, {
     method: "PUT",
     body: JSON.stringify({ rol, distribuidor_id: distribuidorId ?? null }),
   });
 }
 
 export async function editarIntegranteAdmin(id: number, data: { nombre_integrante: string, rol_telegram?: string, location_id?: number | null }) {
-  return apiFetch(`/admin/integrantes/${id}`, {
+  return apiFetch(`/api/admin/integrantes/${id}`, {
     method: "PUT",
     body: JSON.stringify(data),
   });
@@ -411,7 +411,7 @@ export interface Location {
 }
 
 export async function fetchLocations(distId: number): Promise<Location[]> {
-  return apiFetch<Location[]>(`/admin/locations/${distId}`);
+  return apiFetch<Location[]>(`/api/admin/locations/${distId}`);
 }
 
 export async function crearLocation(distId: number, data: { ciudad: string; provincia: string; label: string; lat: number; lon: number }) {
@@ -422,7 +422,7 @@ export async function crearLocation(distId: number, data: { ciudad: string; prov
 }
 
 export async function editarLocation(locationId: number, data: { ciudad: string; provincia: string; label: string; lat: number; lon: number }) {
-  return apiFetch(`/admin/locations/${locationId}`, {
+  return apiFetch(`/api/admin/locations/${locationId}`, {
     method: "PUT",
     body: JSON.stringify(data),
   });

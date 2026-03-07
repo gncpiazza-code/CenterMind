@@ -30,6 +30,7 @@ import json
 import base64
 
 from services.erp_summary_service import erp_summary_service
+from services.erp_ingestion_service import erp_service
 from services.system_monitoring_service import monitor_service
 import io
 import psutil
@@ -796,7 +797,7 @@ async def admin_toggle_distribuidora(dist_id: int, estado: str, payload=Depends(
 
 # ─── Admin: Usuarios del portal ───────────────────────────────────────────────
 
-@app.get("/admin/usuarios", summary="Lista de usuarios del portal")
+@app.get("/api/admin/usuarios", summary="Lista de usuarios del portal")
 def admin_get_usuarios(dist_id: int | None = None, payload=Depends(verify_auth)):
     actual_dist_id = dist_id if payload.get("is_superadmin") else payload.get("id_distribuidor")
     if actual_dist_id is None:
@@ -806,7 +807,7 @@ def admin_get_usuarios(dist_id: int | None = None, payload=Depends(verify_auth))
     return result.data or []
 
 
-@app.post("/admin/usuarios", summary="Crear usuario del portal")
+@app.post("/api/admin/usuarios", summary="Crear usuario del portal")
 def admin_crear_usuario(req: UsuarioRequest, payload=Depends(verify_auth)):
     check_dist_permission(payload, req.dist_id)
     try:
@@ -819,7 +820,7 @@ def admin_crear_usuario(req: UsuarioRequest, payload=Depends(verify_auth)):
         raise HTTPException(status_code=409, detail=str(e))
 
 
-@app.put("/admin/usuarios/{user_id}", summary="Editar usuario del portal")
+@app.put("/api/admin/usuarios/{user_id}", summary="Editar usuario del portal")
 def admin_editar_usuario(user_id: int, req: UsuarioEditRequest, payload=Depends(verify_auth)):
     try:
         # Validar pertenencia del usuario a editar
@@ -836,7 +837,7 @@ def admin_editar_usuario(user_id: int, req: UsuarioEditRequest, payload=Depends(
         raise HTTPException(status_code=409, detail=str(e))
 
 
-@app.delete("/admin/usuarios/{user_id}", summary="Eliminar usuario del portal")
+@app.delete("/api/admin/usuarios/{user_id}", summary="Eliminar usuario del portal")
 def admin_eliminar_usuario(user_id: int, payload=Depends(verify_auth)):
     # Validar pertenencia
     check_q = sb.table("usuarios_portal").select("id_distribuidor").eq("id_usuario", user_id).execute()
@@ -849,7 +850,7 @@ def admin_eliminar_usuario(user_id: int, payload=Depends(verify_auth)):
 
 # ─── Admin: Integrantes de Telegram ──────────────────────────────────────────
 
-@app.get("/admin/integrantes", summary="Lista de integrantes")
+@app.get("/api/admin/integrantes", summary="Lista de integrantes")
 def admin_get_integrantes(distribuidor_id: int | None = None, payload=Depends(verify_auth)):
     actual_dist_id = distribuidor_id if payload.get("is_superadmin") else payload.get("id_distribuidor")
     if actual_dist_id is None:
@@ -859,7 +860,7 @@ def admin_get_integrantes(distribuidor_id: int | None = None, payload=Depends(ve
     return result.data or []
 
 
-@app.put("/admin/integrantes/{id_integrante}/rol", summary="Cambiar rol de integrante")
+@app.put("/api/admin/integrantes/{id_integrante}/rol", summary="Cambiar rol de integrante")
 def admin_set_rol_integrante(id_integrante: int, req: IntegranteRolRequest, payload=Depends(verify_auth)):
     if req.distribuidor_id:
         check_dist_permission(payload, req.distribuidor_id)
@@ -879,14 +880,14 @@ def admin_set_rol_integrante(id_integrante: int, req: IntegranteRolRequest, payl
 
 # --- Admin: Monitor (sesiones, metricas, alertas) ---
 
-@app.get("/admin/monitor/sesiones", summary="Sesiones activas del portal")
+@app.get("/api/admin/monitor/sesiones", summary="Sesiones activas del portal")
 def admin_monitor_sesiones(_=Depends(verify_auth)):
     # Simple query on sessions table - no complex JOINs needed for now
     result = sb.table("sessions").select("*").eq("activa", True).order("last_seen_at", desc=True).execute()
     return result.data or []
 
 
-@app.get("/admin/monitor/metricas", summary="Metricas del dia")
+@app.get("/api/admin/monitor/metricas", summary="Metricas del dia")
 def admin_monitor_metricas(_=Depends(verify_auth)):
     hoy = datetime.now().strftime("%Y-%m-%d")
     # Sessions and events tables are empty in the migration - return defaults
@@ -896,7 +897,7 @@ def admin_monitor_metricas(_=Depends(verify_auth)):
     }
 
 
-@app.get("/admin/monitor/alertas", summary="Alertas activas")
+@app.get("/api/admin/monitor/alertas", summary="Alertas activas")
 def admin_monitor_alertas(_=Depends(verify_auth)):
     # Sessions table is empty - return empty alerts
     return []
@@ -1363,7 +1364,7 @@ def admin_get_usuarios_telegram(dist_id: int, _=Depends(verify_auth)):
     result = sb.rpc("fn_usuarios_telegram", {"p_dist_id": dist_id}).execute()
     return result.data or []
 
-@app.post("/admin/integrantes/{dist_id}", summary="Crear un nuevo integrante manualmente")
+@app.post("/api/admin/integrantes/{dist_id}", summary="Crear un nuevo integrante manualmente")
 def admin_create_integrante(dist_id: int, req: IntegranteCreateRequest, _=Depends(verify_auth)):
     """Permite crear manualmente un usuario (ej. vendedor) sin que haya interactuado con el bot primero."""
     result = sb.table("integrantes_grupo").insert({
@@ -1374,7 +1375,7 @@ def admin_create_integrante(dist_id: int, req: IntegranteCreateRequest, _=Depend
     new_id = result.data[0]["id_integrante"] if result.data else None
     return {"ok": True, "id_integrante": new_id}
 
-@app.put("/admin/integrantes/{id_integrante}", summary="Editar nombre/rol de integrante")
+@app.put("/api/admin/integrantes/{id_integrante}", summary="Editar nombre/rol de integrante")
 def admin_update_integrante(id_integrante: int, req: IntegranteUpdateRequest, _=Depends(verify_auth)):
     """Permite al SuperAdmin cambiar el nombre y rol del integrante independientemente de Telegram."""
     update_data = {"nombre_integrante": req.nombre_integrante}
@@ -1384,7 +1385,7 @@ def admin_update_integrante(id_integrante: int, req: IntegranteUpdateRequest, _=
     return {"ok": True}
 
 
-@app.get("/admin/vendedores-by-location/{location_id}", summary="Vendedores de una sucursal")
+@app.get("/api/admin/vendedores-by-location/{location_id}", summary="Vendedores de una sucursal")
 def admin_vendedores_by_location(location_id: int, dist_id: int, _=Depends(verify_auth)):
     """
     Retorna los vendedores asignados a una sucursal específica.
@@ -1398,7 +1399,7 @@ def admin_vendedores_by_location(location_id: int, dist_id: int, _=Depends(verif
     return result.data or []
 
 
-@app.get("/admin/clientes", summary="Clientes con filtros en cascada")
+@app.get("/api/admin/clientes", summary="Clientes con filtros en cascada")
 def admin_get_clientes(
     dist_id: int,
     location_id: int | None = None,
@@ -1422,7 +1423,7 @@ def admin_get_clientes(
     return result.data or []
 
 
-@app.put("/admin/clientes/{id_cliente}/vendedor", summary="Asignar o reasignar vendedor a un cliente")
+@app.put("/api/admin/clientes/{id_cliente}/vendedor", summary="Asignar o reasignar vendedor a un cliente")
 def admin_asignar_vendedor(
     id_cliente: int, req: AsignarVendedorRequest, _=Depends(verify_auth)
 ):
@@ -1438,7 +1439,7 @@ def admin_asignar_vendedor(
 
 # ─── Dashboard: stats por sucursal ───────────────────────────────────────────
 
-@app.get("/dashboard/por-sucursal/{distribuidor_id}", summary="Exhibiciones agrupadas por sucursal")
+@app.get("/api/dashboard/por-sucursal/{distribuidor_id}", summary="Exhibiciones agrupadas por sucursal")
 def dashboard_por_sucursal(distribuidor_id: int, periodo: str = "mes", _=Depends(verify_auth)):
     """
     Retorna aprobadas y rechazadas agrupadas por sucursal (location).

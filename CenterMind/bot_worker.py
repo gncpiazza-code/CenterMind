@@ -495,21 +495,23 @@ class BotWorker:
         except Exception as e:
             self.logger.warning(f"⚠️ No se pudo notificar admin: {e}")
 
-    def _register_user_and_group(self, distribuidor_id, chat_id, chat_title, user_id, username, nombre) -> None:
+    def _register_user_and_group(self, distribuidor_id, chat_id, chat_title, user_id, username, nombre) -> bool:
         """Actualiza la información del usuario y del grupo en la base de datos."""
         try:
             # 1. PRIMERO creamos/actualizamos el grupo
             self.db.upsert_grupo(distribuidor_id, chat_id, chat_title)
             
-            # 2. Buscamos si el grupo tiene un id_vendedor_erp asignado (Fase 1 Improvements)
+            # 2. Buscamos si el grupo tiene un id_vendedor_erp asignado
             res_grupo = self.db.sb.table("grupos").select("id_vendedor_erp").eq("telegram_chat_id", chat_id).execute()
             id_vendedor_erp = res_grupo.data[0].get("id_vendedor_erp") if res_grupo.data else None
             
             # 3. DESPUÉS insertamos al integrante, pasando el mapeo si existe
             self.db.upsert_integrante(distribuidor_id, chat_id, user_id, username, nombre, id_vendedor_erp=id_vendedor_erp)
+            self.logger.debug(f"✅ Registro exitoso: {nombre} ({user_id}) en {chat_id}")
+            return True
         except Exception as e:
-            # Usamos .error para facilitar la depuración si vuelve a fallar
-            self.logger.error(f"Error registrando usuario/grupo: {e}")
+            self.logger.error(f"❌ Error registrando usuario/grupo: {e}")
+            return False
 
 
     # ─────────────────────────────────────────────────────────────
@@ -1018,22 +1020,33 @@ class BotWorker:
 
                 if drive_link:
                     self.logger.info(f"✅ Foto en Supabase: {drive_link[:80]}...")
-                    # Registro en SQL (PASO 5: la función ahora devuelve JSON)
-                    try:
-                        rpc_result = await asyncio.to_thread(
-                            self.db.registrar_exhibicion,
-                            distribuidor_id=self.distribuidor_id,
-                            chat_id=chat_id,
-                            vendedor_id=uploader_id,
-                            nro_cliente=nro_cliente,
-                            tipo_pdv=tipo_pdv,
-                            drive_link=drive_link,
-                            telegram_msg_id=ph_msg_id,
-                            telegram_chat_id=chat_id
-                        )
+                        # Registro en SQL (PASO 5: la función ahora devuelve JSON)
+                        try:
+                            params = {
+                                "distribuidor_id": self.distribuidor_id,
+                                "chat_id": chat_id,
+                                "vendedor_id": uploader_id,
+                                "nro_cliente": nro_cliente,
+                                "tipo_pdv": tipo_pdv,
+                                "drive_link": drive_link,
+                                "telegram_msg_id": ph_msg_id,
+                                "telegram_chat_id": chat_id
+                            }
+                            rpc_result = await asyncio.to_thread(self.db.registrar_exhibicion, **params)
 
-                        # PASO 3: Vendedor no mapeado -> Silencioso, forzar Revisión
-                        if rpc_result.get("error") == "PENDIENTE_MAPEO":
+                            # REINTENTO SI NO ESTÁ REGISTRADO
+                            if rpc_result.get("error") == "VENDEDOR_NO_REGISTRADO":
+                                self.logger.warning(f"⚠️ Vendedor {uploader_id} no registrado en DB. Reintentando registro...")
+                                success = await asyncio.to_thread(
+                                    self._register_user_and_group,
+                                    self.distribuidor_id, chat_id, chat_title, uploader_id,
+                                    q.from_user.username or "", uploader_name
+                                )
+                                if success:
+                                    rpc_result = await asyncio.to_thread(self.db.registrar_exhibicion, **params)
+
+                            # PASO 3: Vendedor no mapeado -> Silencioso, forzar Revisión
+                            if rpc_result.get("error") == "PENDIENTE_MAPEO":
                             en_cuarentena = True # Forzamos revisión silenciosa
                         else:
                             en_cuarentena = rpc_result.get("en_cuarentena", False)

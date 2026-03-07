@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import Map, { Marker, Popup, NavigationControl } from "react-map-gl";
+import Map, { Marker, Popup, NavigationControl } from "react-map-gl/maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { LiveMapEvent, getImageUrl } from "@/lib/api";
 import { format } from "date-fns";
@@ -13,10 +13,13 @@ interface MapaExhibicionesProps {
     theme?: "dark" | "light";
 }
 
+// Read from environment, fallback to temporary development key
+const MAPTILER_KEY = process.env.NEXT_PUBLIC_MAPTILER_KEY || "G6B85Hh6h0w6WXZlE8S8";
+
 // MapTiler style URLs
 const STYLES = {
-    dark: "https://api.maptiler.com/maps/darkmatter/style.json?key=G6B85Hh6h0w6WXZlE8S8", // Replace with real key later
-    light: "https://api.maptiler.com/maps/voyager/style.json?key=G6B85Hh6h0w6WXZlE8S8"
+    dark: `https://api.maptiler.com/maps/darkmatter/style.json?key=${MAPTILER_KEY}`,
+    light: `https://api.maptiler.com/maps/voyager/style.json?key=${MAPTILER_KEY}`
 };
 
 export default function MapaExhibiciones({ events, height = "600px", theme = "dark" }: MapaExhibicionesProps) {

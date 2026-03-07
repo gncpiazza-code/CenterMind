@@ -34,7 +34,7 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
     const [desgloseLocalidades, setDesgloseLocalidades] = useState<any[]>([]);
     const [clientesList, setClientesList] = useState<any[]>([]);
     const [search, setSearch] = useState("");
-    const [view, setView] = useState<"general" | "vendedores" | "geografia" | "listado">("general");
+    const [view, setView] = useState<"general" | "vendedores" | "geografia" | "listado" | "inactivos">("general");
     const [loadingList, setLoadingList] = useState(false);
 
     const loadData = async () => {
@@ -74,13 +74,26 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
     }, [distId]);
 
     useEffect(() => {
-        if (view === "listado") {
+        if (view === "listado" || view === "inactivos") {
             const timer = setTimeout(() => {
                 loadListado();
             }, 500);
             return () => clearTimeout(timer);
         }
     }, [view, search, distId]);
+
+    // Estados para los filtros en cascada de Inactivos
+    const [selSucursal, setSelSucursal] = useState<string>("");
+    const [selVendedor, setSelVendedor] = useState<string>("");
+
+    // Derived state para inactivos
+    const inactivosList = clientesList.filter(c => c.estado === "inactivo" || c.estado === "INACTIVO" || (c.estado && c.estado.toLowerCase().includes("inactivo")));
+    const sucursalesInactivas = Array.from(new Set(inactivosList.map(c => c.sucursal_erp || "SIN SUCURSAL"))).sort();
+    const vendedoresInactivos = Array.from(new Set(inactivosList.filter(c => (c.sucursal_erp || "SIN SUCURSAL") === selSucursal).map(c => c.vendedor_erp || "SIN VENDEDOR"))).sort();
+    const clientesFiltrados = inactivosList.filter(c =>
+        (c.sucursal_erp || "SIN SUCURSAL") === selSucursal &&
+        (c.vendedor_erp || "SIN VENDEDOR") === selVendedor
+    );
 
     if (loading && !stats) return <PageSpinner />;
 
@@ -112,6 +125,12 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
                         className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${view === 'listado' ? 'bg-[var(--shelfy-primary)] text-white shadow-md' : 'text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]'}`}
                     >
                         Listado Maestro
+                    </button>
+                    <button
+                        onClick={() => setView("inactivos")}
+                        className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${view === 'inactivos' ? 'bg-red-500 text-white shadow-md' : 'text-red-400 hover:text-red-600'}`}
+                    >
+                        Inactivos
                     </button>
                 </div>
 
@@ -336,6 +355,95 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
                         <span>Mostrando {clientesList.length} clientes</span>
                         <span>Listado Rama 1.A (Master Data)</span>
                     </div>
+                </Card>
+            )}
+
+            {view === "inactivos" && (
+                <Card>
+                    <div className="flex flex-col mb-6">
+                        <h3 className="text-sm font-bold flex items-center gap-2 text-red-600">
+                            <UserMinus size={16} />
+                            Filtro Jerárquico de Clientes Inactivos
+                        </h3>
+                        <p className="text-xs text-[var(--shelfy-muted)] mt-1">
+                            Selecciona una Sucursal y un Vendedor para ver sus clientes inactivos.
+                        </p>
+                    </div>
+
+                    {loadingList ? (
+                        <div className="py-20 flex flex-col items-center justify-center gap-4">
+                            <PageSpinner />
+                        </div>
+                    ) : (
+                        <div className="space-y-6 min-h-[400px]">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="flex flex-col gap-1.5">
+                                    <label className="text-xs font-bold text-[var(--shelfy-muted)]">1. Sucursal</label>
+                                    <select
+                                        className="p-2 border border-slate-200 rounded-lg text-sm bg-white outline-none focus:ring-2 focus:ring-violet-500"
+                                        value={selSucursal}
+                                        onChange={(e) => {
+                                            setSelSucursal(e.target.value);
+                                            setSelVendedor("");
+                                        }}
+                                    >
+                                        <option value="">-- Seleccionar Sucursal --</option>
+                                        {sucursalesInactivas.map(s => <option key={s} value={s}>{s}</option>)}
+                                    </select>
+                                </div>
+                                <div className="flex flex-col gap-1.5">
+                                    <label className="text-xs font-bold text-[var(--shelfy-muted)]">2. Vendedor</label>
+                                    <select
+                                        className="p-2 border border-slate-200 rounded-lg text-sm bg-white outline-none focus:ring-2 focus:ring-violet-500"
+                                        value={selVendedor}
+                                        onChange={(e) => setSelVendedor(e.target.value)}
+                                        disabled={!selSucursal}
+                                    >
+                                        <option value="">-- Seleccionar Vendedor --</option>
+                                        {vendedoresInactivos.map(v => <option key={v} value={v}>{v}</option>)}
+                                    </select>
+                                </div>
+                            </div>
+
+                            {selVendedor && clientesFiltrados.length > 0 && (
+                                <div className="mt-6 border border-slate-100 rounded-xl overflow-hidden shadow-sm">
+                                    <table className="w-full text-sm">
+                                        <thead className="bg-slate-50 border-b border-slate-100">
+                                            <tr className="text-slate-500 text-left">
+                                                <th className="p-3 font-semibold">N° Cliente</th>
+                                                <th className="p-3 font-semibold">Cliente / Razón Social</th>
+                                                <th className="p-3 font-semibold">Domicilio</th>
+                                                <th className="p-3 font-semibold text-right">Última Compra</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {clientesFiltrados.map((client) => (
+                                                <tr key={client.id_cliente_erp_local} className="border-b border-slate-50 hover:bg-slate-50/50">
+                                                    <td className="p-3 font-mono text-xs text-slate-500">{client.id_cliente_erp_local}</td>
+                                                    <td className="p-3">
+                                                        <div className="font-bold text-slate-800">{client.nombre_cliente}</div>
+                                                        <div className="text-xs text-slate-400 mt-0.5">{client.razon_social && client.razon_social !== "nan" ? client.razon_social : (client.nombre_fantasia || "-")}</div>
+                                                    </td>
+                                                    <td className="p-3 text-xs text-slate-600">{client.domicilio || "-"}</td>
+                                                    <td className="p-3 text-right">
+                                                        <span className="text-xs font-medium text-amber-600 bg-amber-50 px-2 py-1 rounded border border-amber-100">
+                                                            {client.fecha_ultima_compra ? new Date(client.fecha_ultima_compra).toLocaleDateString("es-AR") : "Desconocida"}
+                                                        </span>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+
+                            {selVendedor && clientesFiltrados.length === 0 && (
+                                <div className="py-12 text-center border border-dashed border-slate-200 rounded-xl bg-slate-50">
+                                    <p className="text-sm font-bold text-slate-600">No hay inactivos para este vendedor.</p>
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </Card>
             )}
         </div>

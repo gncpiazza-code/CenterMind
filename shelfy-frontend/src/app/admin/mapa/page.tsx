@@ -9,28 +9,16 @@ import { fetchLiveMapEvents, type LiveMapEvent } from "@/lib/api";
 import { useEffect, useState, useMemo } from "react";
 import { MapPin, Zap, Clock, Users, Building2 } from "lucide-react";
 import dynamic from "next/dynamic";
-import "leaflet/dist/leaflet.css";
 import { formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 
-// Import Leaflet components dynamically to avoid SSR issues
-const MapContainer = dynamic(() => import("react-leaflet").then(m => m.MapContainer), { ssr: false });
-const TileLayer = dynamic(() => import("react-leaflet").then(m => m.TileLayer), { ssr: false });
-const Marker = dynamic(() => import("react-leaflet").then(m => m.Marker), { ssr: false });
-const Popup = dynamic(() => import("react-leaflet").then(m => m.Popup), { ssr: false });
+// Import new MapLibre component dynamically (CSR only)
+const MapaExhibiciones = dynamic(() => import("../components/MapaExhibiciones"), { ssr: false });
 
 export default function LiveMapPage() {
     const { user } = useAuth();
     const [events, setEvents] = useState<LiveMapEvent[]>([]);
     const [loading, setLoading] = useState(true);
-    const [L, setL] = useState<any>(null);
-
-    // Load Leaflet on client side
-    useEffect(() => {
-        import("leaflet").then(leaflet => {
-            setL(leaflet);
-        });
-    }, []);
 
     const loadEvents = async () => {
         try {
@@ -51,21 +39,7 @@ export default function LiveMapPage() {
         return () => clearInterval(interval);
     }, [user]);
 
-    // Icono personalizado para los puntitos (PULSING)
-    const pulsingIcon = useMemo(() => {
-        if (!L) return null;
-        return L.divIcon({
-            className: "custom-div-icon",
-            html: `
-        <div class="relative flex items-center justify-center">
-          <div class="absolute w-6 h-6 bg-violet-500 rounded-full animate-ping opacity-75"></div>
-          <div class="relative w-3 h-3 bg-violet-600 rounded-full border-2 border-white shadow-sm"></div>
-        </div>
-      `,
-            iconSize: [24, 24],
-            iconAnchor: [12, 12]
-        });
-    }, [L]);
+
 
     if (user?.rol !== "superadmin") return null;
 
@@ -122,48 +96,9 @@ export default function LiveMapPage() {
                         </div>
                     </div>
 
-                    {/* Mapa Full Screen */}
-                    <div className="flex-1 h-full relative z-10">
-                        {typeof window !== "undefined" && L && (
-                            <MapContainer
-                                center={[-34.6037, -58.3816]} // Buenos Aires aprox
-                                zoom={5}
-                                style={{ height: "100%", width: "100%" }}
-                                className="z-0"
-                            >
-                                <TileLayer
-                                    url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-                                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-                                />
-
-                                {events.map((ev) => (
-                                    <Marker
-                                        key={ev.id_ex}
-                                        position={[Number(ev.lat), Number(ev.lon)]}
-                                        icon={pulsingIcon ?? undefined}
-                                    >
-                                        <Popup className="custom-popup">
-                                            <div className="p-1">
-                                                <h4 className="font-black text-slate-900 leading-tight mb-1">{ev.vendedor_nombre}</h4>
-                                                <div className="flex flex-col gap-1">
-                                                    <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500">
-                                                        <Building2 size={12} className="text-violet-500" />
-                                                        {ev.nombre_dist}
-                                                    </div>
-                                                    <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500">
-                                                        <Users size={12} className="text-emerald-500" />
-                                                        Cliente #{ev.nro_cliente}
-                                                    </div>
-                                                    <div className="mt-2 text-[9px] text-slate-400 italic border-t pt-1">
-                                                        {new Date(ev.timestamp_evento).toLocaleString('es-AR')}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </Popup>
-                                    </Marker>
-                                ))}
-                            </MapContainer>
-                        )}
+                    {/* Mapa Full Screen (MapLibre) */}
+                    <div className="flex-1 h-full relative z-10 bg-[#1e1e1e]">
+                        <MapaExhibiciones events={events} height="100%" theme="dark" />
 
                         {/* Overlay Info */}
                         <div className="absolute top-4 right-4 z-20 flex flex-col gap-2 pointer-events-none">
@@ -181,19 +116,7 @@ export default function LiveMapPage() {
                 </div>
             </div>
 
-            <style jsx global>{`
-        .custom-popup .leaflet-popup-content-wrapper {
-          border-radius: 12px;
-          padding: 0;
-          overflow: hidden;
-          box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
-          border: 1px solid rgba(0,0,0,0.05);
-        }
-        .leaflet-div-icon {
-          background: transparent;
-          border: none;
-        }
-      `}</style>
+
         </div>
     );
 }

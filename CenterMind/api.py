@@ -1659,10 +1659,18 @@ def sync_hierarchy_from_erp(dist_id: int, user_payload=Depends(verify_auth)):
         updated_count = 0
         for ig in integrantes:
             ig_nombre = str(ig["nombre_integrante"]).strip().upper()
-            # Si el nombre del integrante coincide con un vendedor del ERP
-            if ig_nombre in erp_mappings:
-                v_erp_id = ig_nombre # Usamos el nombre como ID si no hay uno numérico claro aún
-                s_name = erp_mappings[ig_nombre]
+            
+            matched_erp_name = None
+            for erp_vend_name in erp_mappings.keys():
+                # Substring matching: 'MATIAS' in 'GOMEZ MATIAS' or vice versa
+                if ig_nombre in erp_vend_name or erp_vend_name in ig_nombre:
+                    matched_erp_name = erp_vend_name
+                    break
+            
+            # Si el nombre del integrante coincide parcialmente con un vendedor del ERP
+            if matched_erp_name:
+                v_erp_id = matched_erp_name # Usamos el nombre como ID si no hay uno numérico claro aún
+                s_name = erp_mappings[matched_erp_name]
                 loc_id = loc_map.get(s_name.upper()) if s_name else None
                 
                 # Actualizar si cambió algo

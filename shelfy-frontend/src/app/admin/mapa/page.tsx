@@ -3,11 +3,11 @@
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
 import { Card } from "@/components/ui/Card";
-import { PageSpinner } from "@/components/ui/Spinner";
+import { PageSpinner, Spinner } from "@/components/ui/Spinner";
 import { useAuth } from "@/hooks/useAuth";
-import { fetchLiveMapEvents, type LiveMapEvent } from "@/lib/api";
+import { MapPin, Zap, Clock, Users, Building2, BarChart2, ChevronRight, Target, Info } from "lucide-react";
+import { fetchLiveMapEvents, fetchSucursalesCruce, type LiveMapEvent, type BranchCruce } from "@/lib/api";
 import { useEffect, useState, useMemo } from "react";
-import { MapPin, Zap, Clock, Users, Building2, BarChart2, ChevronRight } from "lucide-react";
 import dynamic from "next/dynamic";
 import { formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
@@ -20,6 +20,9 @@ export default function LiveMapPage() {
     const [events, setEvents] = useState<LiveMapEvent[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
+    const [branchStats, setBranchStats] = useState<Record<string, BranchCruce[]>>({});
+    const [loadingBranches, setLoadingBranches] = useState<string | null>(null);
+    const [expandedDist, setExpandedDist] = useState<string | null>(null);
 
     const loadEvents = async () => {
         try {
@@ -42,13 +45,15 @@ export default function LiveMapPage() {
 
     // Estadísticas agrupadas por distribuidora
     const statsByDist = useMemo(() => {
-        const groups: Record<string, { count: number; lastActivity: string; color: string }> = {};
+        const groups: Record<string, { id: number; count: number; lastActivity: string; color: string }> = {};
         const DIST_COLORS = ["#8b5cf6", "#ec4899", "#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#06b6d4", "#84cc16", "#6366f1", "#d946ef"];
 
-        events.forEach((ev) => {
+        events.forEach((ev: LiveMapEvent) => {
             if (!groups[ev.nombre_dist]) {
                 const colorIdx = Object.keys(groups).length % DIST_COLORS.length;
-                groups[ev.nombre_dist] = { count: 0, lastActivity: ev.timestamp_evento, color: DIST_COLORS[colorIdx] };
+                // Intentamos adivinar el ID del dist por los eventos
+                // @ts-ignore
+                groups[ev.nombre_dist] = { id: ev.id_dist || 0, count: 0, lastActivity: ev.timestamp_evento, color: DIST_COLORS[colorIdx] };
             }
             groups[ev.nombre_dist].count++;
             if (new Date(ev.timestamp_evento) > new Date(groups[ev.nombre_dist].lastActivity)) {
@@ -60,6 +65,34 @@ export default function LiveMapPage() {
             .sort((a, b) => b[1].count - a[1].count)
             .map(([name, data]) => ({ name, ...data }));
     }, [events]);
+
+    const handleToggleDist = async (dist: any) => {
+        if (expandedDist === dist.name) {
+            setExpandedDist(null);
+            return;
+        }
+
+        setExpandedDist(dist.name);
+        if (!branchStats[dist.name]) {
+            setLoadingBranches(dist.name);
+            try {
+                // Buscamos el ID del distribuidor en los eventos
+                const firstEv = events.find((e: LiveMapEvent) => e.nombre_dist === dist.name);
+                if (firstEv) {
+                    // @ts-ignore
+                    const distId = firstEv.id_dist || 0;
+                    if (distId) {
+                        const res = await fetchSucursalesCruce(distId, "mes");
+                        setBranchStats(prev => ({ ...prev, [dist.name]: res }));
+                    }
+                }
+            } catch (err) {
+                console.error("Error fetching branch stats", err);
+            } finally {
+                setLoadingBranches(null);
+            }
+        }
+    };
 
     if (user?.rol !== "superadmin") return null;
 
@@ -156,48 +189,92 @@ export default function LiveMapPage() {
 
                         <div className="flex-1 overflow-y-auto p-4 space-y-3 scrollbar-thin">
                             {loading && <div className="p-8 text-center"><PageSpinner /></div>}
-                            {!loading && statsByDist.map((dist, i) => (
-                                <div
-                                    key={dist.name}
-                                    className="p-4 bg-white rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-all group overflow-hidden relative"
-                                >
-                                    {/* Decorator line */}
+                            {!loading && statsByDist.map((dist, i) => {
+                                const isExpanded = expandedDist === dist.name;
+                                const branches = branchStats[dist.name] || [];
+
+                                return (
                                     <div
-                                        className="absolute left-0 top-0 bottom-0 w-1.5"
-                                        style={{ backgroundColor: dist.color }}
-                                    />
+                                        key={dist.name}
+                                        className={`bg-white rounded-3xl border transition-all group overflow-hidden relative
+                                            ${isExpanded ? "ring-2 ring-violet-500/20 shadow-lg" : "border-slate-100 shadow-sm hover:shadow-md"}`}
+                                    >
+                                        {/* Decorator line */}
+                                        <div
+                                            className="absolute left-0 top-0 bottom-0 w-1.5"
+                                            style={{ backgroundColor: dist.color }}
+                                        />
 
-                                    <div className="flex items-start justify-between">
-                                        <div className="min-w-0 flex-1 pr-2">
-                                            <p className="text-[11px] font-black text-slate-400 uppercase tracking-tight mb-0.5 truncate">
-                                                {dist.name}
-                                            </p>
-                                            <p className="text-xl font-black text-slate-900 leading-none">
-                                                {dist.count} <span className="text-[10px] text-slate-400 font-bold">EVENTOS</span>
-                                            </p>
-                                        </div>
-                                        <div className="p-2.5 rounded-2xl bg-slate-50 text-slate-400 group-hover:bg-violet-50 group-hover:text-violet-600 transition-colors">
-                                            <BarChart2 size={16} />
-                                        </div>
-                                    </div>
-
-                                    <div className="mt-4 pt-3 border-t border-slate-50 flex items-center justify-between">
-                                        <div className="flex items-center gap-1.5 text-[9px] font-bold text-slate-500 uppercase">
-                                            <Clock size={10} />
-                                            Últ: {formatDistanceToNow(new Date(dist.lastActivity), { addSuffix: false, locale: es })}
-                                        </div>
-                                        <button
-                                            onClick={() => {
-                                                const lastEv = events.find(e => e.nombre_dist === dist.name);
-                                                if (lastEv) setSelectedEventId(lastEv.id_ex);
-                                            }}
-                                            className="text-[9px] font-black text-violet-600 hover:text-violet-700 uppercase tracking-widest flex items-center gap-1 group/btn"
+                                        <div
+                                            className="p-4 cursor-pointer"
+                                            onClick={() => handleToggleDist(dist)}
                                         >
-                                            Ver Mapa <ChevronRight size={10} className="transition-transform group-hover/btn:translate-x-0.5" />
-                                        </button>
+                                            <div className="flex items-start justify-between">
+                                                <div className="min-w-0 flex-1 pr-2">
+                                                    <p className="text-[11px] font-black text-slate-400 uppercase tracking-tight mb-0.5 truncate">
+                                                        {dist.name}
+                                                    </p>
+                                                    <p className="text-xl font-black text-slate-900 leading-none">
+                                                        {dist.count} <span className="text-[10px] text-slate-400 font-bold">EVENTOS</span>
+                                                    </p>
+                                                </div>
+                                                <div className={`p-2.5 rounded-2xl transition-colors ${isExpanded ? 'bg-violet-600 text-white' : 'bg-slate-50 text-slate-400 group-hover:bg-violet-50 group-hover:text-violet-600'}`}>
+                                                    <BarChart2 size={16} />
+                                                </div>
+                                            </div>
+
+                                            <div className="mt-4 pt-3 border-t border-slate-50 flex items-center justify-between">
+                                                <div className="flex items-center gap-1.5 text-[9px] font-bold text-slate-500 uppercase">
+                                                    <Clock size={10} />
+                                                    Últ: {formatDistanceToNow(new Date(dist.lastActivity), { addSuffix: false, locale: es })}
+                                                </div>
+                                                <div className="text-[9px] font-black text-violet-600 uppercase tracking-widest flex items-center gap-1">
+                                                    {isExpanded ? "Cerrar" : "Detalle"} <ChevronRight size={10} className={`transition-all ${isExpanded ? 'rotate-90' : ''}`} />
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Detalle de Sucursales (Cruce ERP) */}
+                                        {isExpanded && (
+                                            <div className="px-4 pb-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                                                <div className="bg-slate-50 rounded-2xl p-3 border border-slate-100 space-y-3">
+                                                    <div className="flex items-center justify-between mb-1">
+                                                        <span className="text-[10px] font-black text-slate-500 uppercase">Sucursal / Cobertura</span>
+                                                        <Target size={12} className="text-slate-400" />
+                                                    </div>
+
+                                                    {loadingBranches === dist.name ? (
+                                                        <div className="py-4 flex justify-center"><Spinner size="sm" /></div>
+                                                    ) : branches.length === 0 ? (
+                                                        <div className="py-2 text-center text-[10px] font-bold text-slate-400 italic">No hay datos ERP</div>
+                                                    ) : (
+                                                        <div className="space-y-3">
+                                                            {branches.map(b => (
+                                                                <div key={b.location_id} className="space-y-1">
+                                                                    <div className="flex items-center justify-between text-[11px] font-bold">
+                                                                        <span className="text-slate-700 truncate max-w-[140px]">{b.sucursal_name}</span>
+                                                                        <span className="text-violet-600">{b.cobertura_pct}%</span>
+                                                                    </div>
+                                                                    <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                                                                        <div
+                                                                            className={`h-full rounded-full transition-all duration-1000 ${b.cobertura_pct > 70 ? 'bg-green-500' : b.cobertura_pct > 30 ? 'bg-violet-500' : 'bg-amber-500'}`}
+                                                                            style={{ width: `${b.cobertura_pct}%` }}
+                                                                        />
+                                                                    </div>
+                                                                    <div className="flex items-center justify-between text-[9px] text-slate-400 font-bold uppercase tracking-tighter">
+                                                                        <span>Vis: {b.clientes_visitados} / {b.total_clientes_erp}</span>
+                                                                        <span>Ex: {b.total_exhibiciones}</span>
+                                                                    </div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
-                                </div>
-                            ))}
+                                );
+                            })}
 
                             {!loading && statsByDist.length === 0 && (
                                 <div className="p-8 text-center text-slate-400 italic text-sm">

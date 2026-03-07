@@ -1731,6 +1731,16 @@ def get_clientes_desglose(dist_id: int, tipo: str = Query("vendedor"), _=Depends
     res = sb.rpc("fn_reporte_clientes_desglose", {"p_dist_id": dist_id, "p_tipo": tipo}).execute()
     return res.data or []
 
+@app.get("/api/reportes/sucursales/cruce/{dist_id}", summary="Cruce de datos ERP vs Shelfy por sucursal", tags=["Reportes"])
+def get_sucursales_cruce(dist_id: int, periodo: str = Query("mes"), user_payload=Depends(verify_auth)):
+    check_dist_permission(user_payload, dist_id)
+    try:
+        res = sb.rpc("fn_reporte_sucursales_cruce", {"p_dist_id": dist_id, "p_periodo": periodo}).execute()
+        return res.data or []
+    except Exception as e:
+        logger.error(f"Error en cruce de sucursales: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/api/admin/distribuidores", tags=["Admin"])
 def list_distribuidores(user_payload=Depends(verify_auth)):

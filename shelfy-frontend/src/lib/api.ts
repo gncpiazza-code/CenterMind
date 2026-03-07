@@ -138,6 +138,16 @@ export interface LiveMapEvent {
   nro_cliente: string;
 }
 
+export interface BranchCruce {
+  location_id: number;
+  sucursal_name: string;
+  total_clientes_erp: number;
+  total_exhibiciones: number;
+  clientes_visitados: number;
+  aprobadas: number;
+  cobertura_pct: number;
+}
+
 export interface SystemHealth {
   hardware: {
     cpu_percent: number;
@@ -591,6 +601,10 @@ export async function fetchGlobalMonitoring(): Promise<GlobalStressMonitor[]> {
 
 export async function fetchLiveMapEvents(minutos: number = 60): Promise<LiveMapEvent[]> {
   return apiFetch<LiveMapEvent[]>(`/api/admin/live-map-events?minutos=${minutos}`);
+}
+
+export async function fetchSucursalesCruce(distId: number, periodo: string = "mes"): Promise<BranchCruce[]> {
+  return apiFetch<BranchCruce[]>(`/api/reportes/sucursales/cruce/${distId}?periodo=${periodo}`);
 }
 
 export async function fetchSystemHealth(): Promise<SystemHealth> {

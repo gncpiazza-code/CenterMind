@@ -355,7 +355,10 @@ class Database:
         return racha
 
     def get_ranking_mes(self, distribuidor_id: int) -> List[Dict]:
-        res = self.sb.rpc("fn_dashboard_ranking", {"p_dist_id": distribuidor_id, "p_periodo": "mes", "p_top": 100}).execute()
+        return self.get_ranking_periodo(distribuidor_id, "mes")
+
+    def get_ranking_periodo(self, distribuidor_id: int, periodo: str) -> List[Dict]:
+        res = self.sb.rpc("fn_dashboard_ranking", {"p_dist_id": distribuidor_id, "p_periodo": periodo, "p_top": 100}).execute()
         ranking = []
         if res.data:
             for r in res.data:
@@ -365,7 +368,7 @@ class Database:
                     "aprobadas":  r["aprobadas"],
                     "destacadas": r["destacadas"],
                     "rechazadas": r["rechazadas"],
-                    "total":      r["aprobadas"] + r["destacadas"] + r["rechazadas"]
+                    "total":      (r["aprobadas"] or 0) + (r["destacadas"] or 0) + (r["rechazadas"] or 0)
                 })
         return ranking
 
@@ -942,13 +945,14 @@ class BotWorker:
                 # Por ahora, si es el mes actual usamos get_ranking_mes.
                 # Si es otro, necesitamos extender la lógica.
                 # Por simplicidad en este paso, simularemos o usaremos el actual si coincide.
+                # Construir periodo formato YYYY-MM
+                periodo = f"{year}-{month:02d}"
                 now = datetime.now(AR_TZ)
-                is_current = (now.month == month and now.year == year)
+                if now.month == month and now.year == year:
+                    periodo = "mes"
                 
-                # TODO: Implementar fn_dashboard_ranking con soporte de fechas en DB.
-                # Por ahora usamos el del mes actual para validar la UI.
                 ranking = await asyncio.to_thread(
-                    self.db.get_ranking_mes, self.distribuidor_id
+                    self.db.get_ranking_periodo, self.distribuidor_id, periodo
                 )
                 
                 if not ranking:

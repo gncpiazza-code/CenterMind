@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
-import { LayoutDashboard, Eye, Users, BarChart2, Gift, LogOut, ChevronDown, ChevronRight, GraduationCap, Activity, MapPin, Globe } from "lucide-react";
+import { LayoutDashboard, Eye, Users, BarChart2, Gift, LogOut, ChevronDown, ChevronRight, GraduationCap, Activity, MapPin, Globe, PanelLeftClose, PanelLeft } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { fetchDistribuidores } from "@/lib/api";
 
@@ -47,6 +47,19 @@ export function Sidebar() {
   const { user, logout, switchDistributor } = useAuth();
   const [dists, setDists] = useState<{ id_distribuidor: number; nombre_dist: string }[]>([]);
   const [showSwitch, setShowSwitch] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(false);
+
+  // Persistence for sidebar state
+  useEffect(() => {
+    const saved = localStorage.getItem("sidebar-collapsed");
+    if (saved === "true") setIsCollapsed(true);
+  }, []);
+
+  const toggleSidebar = () => {
+    const newState = !isCollapsed;
+    setIsCollapsed(newState);
+    localStorage.setItem("sidebar-collapsed", String(newState));
+  };
 
   const rol = user?.rol ?? "";
   const navItems = ALL_NAV.filter(i => {
@@ -74,16 +87,23 @@ export function Sidebar() {
   }, [user?.rol]);
 
   return (
-    <aside className="hidden md:flex flex-col w-64 h-screen overflow-hidden bg-[var(--shelfy-panel)] backdrop-blur-3xl border-r border-[var(--shelfy-border)] px-4 py-8 gap-2 shrink-0 shadow-xl sticky top-0 text-[var(--shelfy-text)]">
+    <aside className={`hidden md:flex flex-col h-screen overflow-hidden bg-[var(--shelfy-panel)] backdrop-blur-3xl border-r border-[var(--shelfy-border)] px-3 py-8 gap-2 shrink-0 shadow-xl sticky top-0 text-[var(--shelfy-text)] transition-all duration-300 ease-in-out ${isCollapsed ? "w-20" : "w-64"}`}>
       {/* Logo */}
-      <div className="flex items-center px-2 mb-10">
-        <img src="/LOGO_NUEVO.svg" alt="Shelfy" className="h-10 w-auto" style={{ filter: "drop-shadow(0 4px 12px rgba(124,58,237,0.15))" }} />
+      <div className={`flex items-center mb-10 transition-all duration-300 ${isCollapsed ? "justify-center px-0" : "px-2"}`}>
+        <img
+          src={isCollapsed ? "/LOGO_ICON.svg" : "/LOGO_NUEVO.svg"}
+          alt="Shelfy"
+          className="h-10 w-auto transition-all duration-300"
+          style={{ filter: "drop-shadow(0 4px 12px rgba(124,58,237,0.15))" }}
+        />
       </div>
 
       {/* Nav section label */}
-      <p className="px-3 text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider mb-1">
-        Menú principal
-      </p>
+      {!isCollapsed && (
+        <p className="px-3 text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider mb-1 animate-in fade-in duration-500">
+          Menú principal
+        </p>
+      )}
 
       {/* Nav items */}
       <nav className="flex flex-col gap-1.5 flex-1 overflow-y-auto pr-1 pb-4 scrollbar-thin">
@@ -108,11 +128,11 @@ export function Sidebar() {
                       ? "bg-[var(--shelfy-primary)] text-white font-bold shadow-lg shadow-[var(--shelfy-glow)]"
                       : "text-[var(--shelfy-muted)] hover:bg-white/5 hover:text-white"}`}
                 >
-                  <div className="flex items-center gap-3">
-                    <Icon size={18} strokeWidth={active ? 2.5 : 2} />
-                    {label}
+                  <div className={`flex items-center gap-3 ${isCollapsed ? "justify-center w-full" : ""}`}>
+                    <Icon size={18} strokeWidth={active ? 2.5 : 2} className="shrink-0" />
+                    {!isCollapsed && <span className="truncate">{label}</span>}
                   </div>
-                  {isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                  {!isCollapsed && (isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />)}
                 </button>
                 {isOpen && (
                   <div className="flex flex-col gap-1 pl-4 mt-1 border-l-2 border-white/10 ml-6">
@@ -128,8 +148,8 @@ export function Sidebar() {
                               : "text-[var(--shelfy-muted)] hover:text-white hover:bg-white/5"
                             }`}
                         >
-                          <sub.icon size={15} strokeWidth={subActive ? 2.5 : 2} />
-                          {sub.label}
+                          <sub.icon size={15} strokeWidth={subActive ? 2.5 : 2} className="shrink-0" />
+                          {!isCollapsed && <span className="truncate">{sub.label}</span>}
                         </Link>
                       );
                     })}
@@ -150,8 +170,8 @@ export function Sidebar() {
                   : "text-[var(--shelfy-muted)] hover:bg-white/5 hover:text-white"
                 }`}
             >
-              <Icon size={18} strokeWidth={active ? 2.5 : 2} />
-              {label}
+              <Icon size={18} strokeWidth={active ? 2.5 : 2} className="shrink-0" />
+              {!isCollapsed && <span className="truncate">{label}</span>}
             </Link>
           );
         })}
@@ -160,28 +180,32 @@ export function Sidebar() {
       {/* System section */}
       <div className="mt-auto space-y-4 shrink-0 pb-2">
         <div className="pt-4 border-t border-[var(--shelfy-border)]">
-          <p className="px-4 text-[10px] font-bold text-[var(--shelfy-muted)] uppercase tracking-[0.15em] mb-3">
-            Sistema
-          </p>
+          {!isCollapsed && (
+            <p className="px-4 text-[10px] font-bold text-[var(--shelfy-muted)] uppercase tracking-[0.15em] mb-3 animate-in fade-in duration-500">
+              Sistema
+            </p>
+          )}
 
           {/* User info */}
           {user && (
             <div className="flex flex-col gap-2 mb-2">
-              <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-white/5 border border-white/10">
-                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center text-white text-xs font-black shadow-inner">
+              <div className={`flex items-center gap-3 px-3 py-3 rounded-2xl bg-white/5 border border-white/10 transition-all ${isCollapsed ? "justify-center" : ""}`}>
+                <div className="w-9 h-9 shrink-0 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center text-white text-xs font-black shadow-inner">
                   {user.usuario.charAt(0).toUpperCase()}
                 </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-bold truncate text-white">{user.usuario}</p>
-                  <p className="text-[10px] text-[var(--shelfy-primary)] font-medium truncate uppercase tracking-tighter">
-                    {ROL_LABEL[user.rol] ?? user.rol}
-                  </p>
-                </div>
+                {!isCollapsed && (
+                  <div className="min-w-0 flex-1 animate-in fade-in slide-in-from-left-2 duration-300">
+                    <p className="text-sm font-bold truncate text-white">{user.usuario}</p>
+                    <p className="text-[10px] text-[var(--shelfy-primary)] font-medium truncate uppercase tracking-tighter">
+                      {ROL_LABEL[user.rol] ?? user.rol}
+                    </p>
+                  </div>
+                )}
               </div>
 
               {/* Switcher para SuperAdmin (Debajo del user) */}
-              {user.rol === "superadmin" && (
-                <div className="relative px-1">
+              {user.rol === "superadmin" && !isCollapsed && (
+                <div className="relative px-1 animate-in fade-in duration-500">
                   <button
                     onClick={() => setShowSwitch(!showSwitch)}
                     className="w-full h-10 flex items-center justify-between px-3 py-1 rounded-xl bg-[var(--shelfy-primary-2)] hover:bg-[var(--shelfy-primary)] text-white text-[11px] font-black border border-white/10 transition-all uppercase tracking-tight group"
@@ -223,10 +247,23 @@ export function Sidebar() {
           {/* Logout */}
           <button
             onClick={logout}
-            className="flex items-center gap-3 px-4 py-3 w-full text-sm font-bold text-[var(--shelfy-muted)] hover:text-red-400 hover:bg-red-400/10 rounded-2xl transition-all duration-200 active:scale-95"
+            className={`flex items-center gap-3 px-4 py-3 w-full text-sm font-bold text-[var(--shelfy-muted)] hover:text-red-400 hover:bg-red-400/10 rounded-2xl transition-all duration-200 active:scale-95 ${isCollapsed ? "justify-center" : ""}`}
           >
-            <LogOut size={16} />
-            Cerrar sesión
+            <LogOut size={16} className="shrink-0" />
+            {!isCollapsed && <span>Cerrar sesión</span>}
+          </button>
+
+          {/* Toggle Sidebar Button */}
+          <button
+            onClick={toggleSidebar}
+            className={`flex items-center gap-3 px-4 py-3 w-full text-sm font-bold text-[var(--shelfy-muted)] hover:text-white hover:bg-white/5 rounded-2xl transition-all duration-200 ${isCollapsed ? "justify-center" : ""}`}
+          >
+            {isCollapsed ? <PanelLeft size={18} /> : (
+              <>
+                <PanelLeftClose size={18} />
+                <span>Colapsar menú</span>
+              </>
+            )}
           </button>
         </div>
       </div>

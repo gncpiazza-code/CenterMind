@@ -13,18 +13,27 @@ class SystemMonitoringService:
 
     def get_system_metrics(self) -> Dict[str, Any]:
         """Captura métricas de hardware (Capa Nivel 0)."""
-        cpu_usage = psutil.cpu_percent(interval=1)
-        ram = psutil.virtual_memory()
-        
-        # En Railway/Linux, podemos obtener más detalle
-        return {
-            "cpu_usage": cpu_usage,
-            "ram_used_gb": round(ram.used / (1024**3), 2),
-            "ram_total_gb": round(ram.total / (1024**3), 2),
-            "ram_percent": ram.percent,
-            "uptime_seconds": int(time.time() - self.start_time),
-            "process_count": len(psutil.pids())
-        }
+        try:
+            # interval=None lo hace no bloqueante (devuelve promedio desde última llamada)
+            cpu_usage = psutil.cpu_percent(interval=None)
+            ram = psutil.virtual_memory()
+            
+            # En Railway/Linux, podemos obtener más detalle
+            return {
+                "cpu_usage": cpu_usage,
+                "ram_used_gb": round(ram.used / (1024**3), 2),
+                "ram_total_gb": round(ram.total / (1024**3), 2),
+                "ram_percent": ram.percent,
+                "uptime_seconds": int(time.time() - self.start_time),
+                "process_count": len(psutil.pids())
+            }
+        except Exception as e:
+            logger.error(f"Error capturando métricas de hardware: {e}")
+            return {
+                "cpu_usage": 0, "ram_used_gb": 0, "ram_total_gb": 0,
+                "ram_percent": 0, "uptime_seconds": 0, "process_count": 0,
+                "error": str(e)
+            }
 
     def get_db_stats(self) -> Dict[str, Any]:
         """Consulta métricas de almacenamiento en Supabase."""

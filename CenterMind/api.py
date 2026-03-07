@@ -573,7 +573,7 @@ def switch_context(dist_id: int, payload=Depends(verify_auth)):
     )
 
 
-@app.get("/pendientes/{id_distribuidor}", summary="Exhibiciones pendientes agrupadas por mensaje")
+@app.get("/api/pendientes/{id_distribuidor}", summary="Exhibiciones pendientes agrupadas por mensaje")
 def get_pendientes(id_distribuidor: int, payload=Depends(verify_auth)):
     check_dist_permission(payload, id_distribuidor)
     result = sb.rpc("fn_pendientes", {"p_dist_id": id_distribuidor}).execute()
@@ -590,7 +590,7 @@ def get_pendientes(id_distribuidor: int, payload=Depends(verify_auth)):
     return list(grupos.values())
 
 
-@app.get("/stats/{id_distribuidor}", summary="Estadisticas del dia actual")
+@app.get("/api/stats/{id_distribuidor}", summary="Estadisticas del dia actual")
 def get_stats(id_distribuidor: int, payload=Depends(verify_auth)):
     check_dist_permission(payload, id_distribuidor)
     hoy = datetime.now().strftime("%Y-%m-%d")
@@ -599,14 +599,14 @@ def get_stats(id_distribuidor: int, payload=Depends(verify_auth)):
     return {k: (v or 0) for k, v in r.items()}
 
 
-@app.get("/vendedores/{id_distribuidor}", summary="Lista de vendedores con pendientes")
+@app.get("/api/vendedores/{id_distribuidor}", summary="Lista de vendedores con pendientes")
 def get_vendedores(id_distribuidor: int, payload=Depends(verify_auth)):
     check_dist_permission(payload, id_distribuidor)
     result = sb.rpc("fn_vendedores_pendientes", {"p_dist_id": id_distribuidor}).execute()
     return [r["nombre_integrante"] for r in (result.data or [])]
 
 
-@app.post("/evaluar", summary="Aprobar / Destacar / Rechazar una exhibicion")
+@app.post("/api/evaluar", summary="Aprobar / Destacar / Rechazar una exhibicion")
 def evaluar(req: EvaluarRequest, user_payload=Depends(verify_auth)):
     try:
         affected = 0
@@ -636,7 +636,7 @@ def evaluar(req: EvaluarRequest, user_payload=Depends(verify_auth)):
 
 # ─── PASO 9: Contexto ERP durante evaluación ─────────────────────────────────
 
-@app.get("/erp/contexto-cliente/{id_distribuidor}/{nro_cliente}", summary="Datos ERP del cliente al evaluar")
+@app.get("/api/erp/contexto-cliente/{id_distribuidor}/{nro_cliente}", summary="Datos ERP del cliente al evaluar")
 def get_erp_contexto(id_distribuidor: int, nro_cliente: str, user_payload=Depends(verify_auth)):
     """PASO 9: Contexto ERP del cliente para la tarjeta de evaluación."""
     check_dist_permission(user_payload, id_distribuidor)
@@ -652,7 +652,7 @@ def get_erp_contexto(id_distribuidor: int, nro_cliente: str, user_payload=Depend
 
 # ─── PASO 10: ROI Analítico ───────────────────────────────────────────────────
 
-@app.get("/erp/roi/{id_distribuidor}", summary="ROI: facturacion con vs sin exhibiciones destacadas")
+@app.get("/api/erp/roi/{id_distribuidor}", summary="ROI: facturacion con vs sin exhibiciones destacadas")
 def get_roi_analitico(id_distribuidor: int, user_payload=Depends(verify_auth)):
     """PASO 10: Compara clientes con/sin exhibiciones Destacadas en los últimos 30 días."""
     check_dist_permission(user_payload, id_distribuidor)
@@ -663,7 +663,7 @@ def get_roi_analitico(id_distribuidor: int, user_payload=Depends(verify_auth)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/revertir", summary="Revertir evaluacion a Pendiente")
+@app.post("/api/revertir", summary="Revertir evaluacion a Pendiente")
 def revertir(req: RevertirRequest, _=Depends(verify_auth)):
     try:
         affected = 0
@@ -937,7 +937,7 @@ def _periodo_where(periodo: str) -> str:
     return ""  # historico o cualquier valor desconocido: sin filtro
 
 
-@app.get("/dashboard/kpis/{distribuidor_id}", summary="KPIs del dashboard por período")
+@app.get("/api/dashboard/kpis/{distribuidor_id}", summary="KPIs del dashboard por período")
 def dashboard_kpis(distribuidor_id: int, periodo: str = "mes", payload=Depends(verify_auth)):
     check_dist_permission(payload, distribuidor_id)
     result = sb.rpc("fn_dashboard_kpis", {"p_dist_id": distribuidor_id, "p_periodo": periodo}).execute()
@@ -945,14 +945,14 @@ def dashboard_kpis(distribuidor_id: int, periodo: str = "mes", payload=Depends(v
     return {k: (v or 0) for k, v in r.items()}
 
 
-@app.get("/dashboard/ranking/{distribuidor_id}", summary="Ranking de vendedores por período")
+@app.get("/api/dashboard/ranking/{distribuidor_id}", summary="Ranking de vendedores por período")
 def dashboard_ranking(distribuidor_id: int, periodo: str = "mes", top: int = 15, payload=Depends(verify_auth)):
     check_dist_permission(payload, distribuidor_id)
     result = sb.rpc("fn_dashboard_ranking", {"p_dist_id": distribuidor_id, "p_periodo": periodo, "p_top": top}).execute()
     return result.data or []
 
 
-@app.get("/dashboard/ultimas-evaluadas/{distribuidor_id}", summary="Últimas fotos evaluadas con fallback de días")
+@app.get("/api/dashboard/ultimas-evaluadas/{distribuidor_id}", summary="Últimas fotos evaluadas con fallback de días")
 def dashboard_ultimas(distribuidor_id: int, n: int = 8, payload=Depends(verify_auth)):
     check_dist_permission(payload, distribuidor_id)
     """Busca las últimas N fotos aprobadas/destacadas.
@@ -971,7 +971,7 @@ def dashboard_ultimas(distribuidor_id: int, n: int = 8, payload=Depends(verify_a
 
 # ─── Proxy de imagen Drive ────────────────────────────────────────────────────
 
-@app.get("/dashboard/imagen/{file_id}", summary="Proxy de imagen privada de Google Drive")
+@app.get("/api/dashboard/imagen/{file_id}", summary="Proxy de imagen privada de Google Drive")
 def dashboard_imagen(file_id: str):
     """Descarga la imagen de Drive con el token OAuth del bot y la sirve directamente.
     No requiere API key: el file_id actúa como token de acceso opaco."""
@@ -1227,7 +1227,7 @@ class BonusConfigPayload(BaseModel):
     puestos: List[dict] = []   # [{puesto, premio_si_llego, premio_si_no_llego}]
 
 
-@app.get("/bonos/config/{id_distribuidor}", summary="Obtener config de bonos del mes")
+@app.get("/api/bonos/config/{id_distribuidor}", summary="Obtener config de bonos del mes")
 def bonos_get_config(id_distribuidor: int, anio: int, mes: int, _=Depends(verify_auth)):
     result = sb.table("bonos_config").select("*").eq("id_distribuidor", id_distribuidor).eq("anio", anio).eq("mes", mes).execute()
     if not result.data:
@@ -1242,7 +1242,7 @@ def bonos_get_config(id_distribuidor: int, anio: int, mes: int, _=Depends(verify
     return cfg
 
 
-@app.post("/bonos/config/{id_distribuidor}/guardar", summary="Guardar config de bonos del mes")
+@app.post("/api/bonos/config/{id_distribuidor}/guardar", summary="Guardar config de bonos del mes")
 def bonos_guardar_config(id_distribuidor: int, payload: BonusConfigPayload, _=Depends(verify_auth)):
     # Check existing config
     existing = sb.table("bonos_config").select("id_config, edicion_bloqueada").eq("id_distribuidor", id_distribuidor).eq("anio", payload.anio).eq("mes", payload.mes).execute()
@@ -1267,13 +1267,13 @@ def bonos_guardar_config(id_distribuidor: int, payload: BonusConfigPayload, _=De
     return {"ok": True, "id_config": id_config}
 
 
-@app.post("/bonos/config/{id_distribuidor}/bloquear", summary="Bloquear/desbloquear config (superadmin)")
+@app.post("/api/bonos/config/{id_distribuidor}/bloquear", summary="Bloquear/desbloquear config (superadmin)")
 def bonos_bloquear(id_distribuidor: int, anio: int, mes: int, bloquear: int = 1, _=Depends(verify_auth)):
     sb.table("bonos_config").update({"edicion_bloqueada": bloquear}).eq("id_distribuidor", id_distribuidor).eq("anio", anio).eq("mes", mes).execute()
     return {"ok": True, "edicion_bloqueada": bloquear}
 
 
-@app.get("/bonos/liquidacion/{id_distribuidor}", summary="Liquidacion de bonos del mes")
+@app.get("/api/bonos/liquidacion/{id_distribuidor}", summary="Liquidacion de bonos del mes")
 def bonos_liquidacion(id_distribuidor: int, anio: int, mes: int, _=Depends(verify_auth)):
     # Config del mes
     cfg_result = sb.table("bonos_config").select("*").eq("id_distribuidor", id_distribuidor).eq("anio", anio).eq("mes", mes).execute()
@@ -1312,7 +1312,7 @@ def bonos_liquidacion(id_distribuidor: int, anio: int, mes: int, _=Depends(verif
     }
 
 
-@app.get("/bonos/detalle/{id_distribuidor}", summary="Detalle de exhibiciones de un vendedor en el mes")
+@app.get("/api/bonos/detalle/{id_distribuidor}", summary="Detalle de exhibiciones de un vendedor en el mes")
 def bonos_detalle(id_distribuidor: int, id_integrante: int, anio: int, mes: int, _=Depends(verify_auth)):
     result = sb.rpc("fn_bonos_detalle", {
         "p_dist_id": id_distribuidor, "p_integrante": id_integrante,

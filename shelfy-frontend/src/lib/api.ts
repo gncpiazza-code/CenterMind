@@ -242,74 +242,74 @@ export async function loginApi(usuario: string, password: string): Promise<AuthR
 // ── Dashboard ───────────────────────────────────────────────────────────────
 
 export async function fetchKPIs(distribuidorId: number, periodo: string = "mes"): Promise<KPIs> {
-  return apiFetch<KPIs>(`/dashboard/kpis/${distribuidorId}?periodo=${periodo}`);
+  return apiFetch<KPIs>(`/api/dashboard/kpis/${distribuidorId}?periodo=${periodo}`);
 }
 
 export async function fetchRanking(distribuidorId: number, periodo: string = "mes"): Promise<VendedorRanking[]> {
-  return apiFetch<VendedorRanking[]>(`/dashboard/ranking/${distribuidorId}?periodo=${periodo}`);
+  return apiFetch<VendedorRanking[]>(`/api/dashboard/ranking/${distribuidorId}?periodo=${periodo}`);
 }
 
 export async function fetchUltimasEvaluadas(distribuidorId: number, n: number = 8): Promise<UltimaEvaluada[]> {
-  return apiFetch<UltimaEvaluada[]>(`/dashboard/ultimas-evaluadas/${distribuidorId}?n=${n}`);
+  return apiFetch<UltimaEvaluada[]>(`/api/dashboard/ultimas-evaluadas/${distribuidorId}?n=${n}`);
 }
 
 export async function fetchPorSucursal(distribuidorId: number, periodo: string = "mes"): Promise<SucursalStats[]> {
-  return apiFetch<SucursalStats[]>(`/dashboard/por-sucursal/${distribuidorId}?periodo=${periodo}`);
+  return apiFetch<SucursalStats[]>(`/api/dashboard/por-sucursal/${distribuidorId}?periodo=${periodo}`);
 }
 
 // ── Visor ───────────────────────────────────────────────────────────────────
 
 export async function fetchStatsHoy(distribuidorId: number): Promise<StatsHoy> {
-  return apiFetch<StatsHoy>(`/stats/${distribuidorId}`);
+  return apiFetch<StatsHoy>(`/api/stats/${distribuidorId}`);
 }
 
 export async function fetchVendedores(distribuidorId: number): Promise<string[]> {
-  return apiFetch<string[]>(`/vendedores/${distribuidorId}`);
+  return apiFetch<string[]>(`/api/vendedores/${distribuidorId}`);
 }
 
 export async function fetchPendientes(distribuidorId: number): Promise<GrupoPendiente[]> {
-  return apiFetch<GrupoPendiente[]>(`/pendientes/${distribuidorId}`);
+  return apiFetch<GrupoPendiente[]>(`/api/pendientes/${distribuidorId}`);
 }
 
 export async function evaluar(ids: number[], estado: string, supervisor: string, comentario: string = "") {
-  return apiFetch("/evaluar", {
+  return apiFetch("/api/evaluar", {
     method: "POST",
     body: JSON.stringify({ ids_exhibicion: ids, estado, supervisor, comentario }),
   });
 }
 
 export async function revertir(ids: number[]) {
-  return apiFetch("/revertir", {
+  return apiFetch("/api/revertir", {
     method: "POST",
     body: JSON.stringify({ ids_exhibicion: ids }),
   });
 }
 
 export async function fetchERPContexto(distribuidorId: number, nroCliente: string): Promise<ERPContexto> {
-  return apiFetch<ERPContexto>(`/erp/contexto-cliente/${distribuidorId}/${nroCliente}`);
+  return apiFetch<ERPContexto>(`/api/erp/contexto-cliente/${distribuidorId}/${nroCliente}`);
 }
 
 export async function fetchROI(distribuidorId: number): Promise<ROIAnalitico> {
-  return apiFetch<ROIAnalitico>(`/erp/roi/${distribuidorId}`);
+  return apiFetch<ROIAnalitico>(`/api/erp/roi/${distribuidorId}`);
 }
 
 // ── Admin: Usuarios ─────────────────────────────────────────────────────────
 
 export async function fetchUsuarios(distId?: number): Promise<UsuarioPortal[]> {
   const q = distId ? `?dist_id=${distId}` : "";
-  return apiFetch<UsuarioPortal[]>(`/admin/usuarios${q}`);
+  return apiFetch<UsuarioPortal[]>(`/api/admin/usuarios${q}`);
 }
 
 export async function crearUsuario(data: { dist_id: number; login: string; password: string; rol: string }) {
-  return apiFetch("/admin/usuarios", { method: "POST", body: JSON.stringify(data) });
+  return apiFetch("/api/admin/usuarios", { method: "POST", body: JSON.stringify(data) });
 }
 
 export async function editarUsuario(id: number, data: { login: string; rol: string; password?: string }) {
-  return apiFetch(`/admin/usuarios/${id}`, { method: "PUT", body: JSON.stringify(data) });
+  return apiFetch(`/api/admin/usuarios/${id}`, { method: "PUT", body: JSON.stringify(data) });
 }
 
 export async function eliminarUsuario(id: number) {
-  return apiFetch(`/admin/usuarios/${id}`, { method: "DELETE" });
+  return apiFetch(`/api/admin/usuarios/${id}`, { method: "DELETE" });
 }
 
 // ── Reportes ────────────────────────────────────────────────────────────────
@@ -380,7 +380,7 @@ export interface Integrante {
 }
 
 export async function fetchIntegrantes(distId?: number): Promise<Integrante[]> {
-  const path = distId ? `/api/admin/usuarios/${distId}` : "/api/admin/usuarios";
+  const path = distId ? `/api/admin/integrantes?distribuidor_id=${distId}` : "/api/admin/integrantes";
   return apiFetch<Integrante[]>(path);
 }
 
@@ -415,7 +415,7 @@ export async function fetchLocations(distId: number): Promise<Location[]> {
 }
 
 export async function crearLocation(distId: number, data: { ciudad: string; provincia: string; label: string; lat: number; lon: number }) {
-  return apiFetch(`/admin/locations/${distId}`, {
+  return apiFetch(`/api/admin/locations/${distId}`, {
     method: "POST",
     body: JSON.stringify(data),
   });
@@ -463,26 +463,26 @@ export interface DetalleExhibicion {
 }
 
 export async function fetchBonoConfig(distId: number, anio: number, mes: number): Promise<BonoConfig> {
-  return apiFetch<BonoConfig>(`/bonos/config/${distId}?anio=${anio}&mes=${mes}`);
+  return apiFetch<BonoConfig>(`/api/bonos/config/${distId}?anio=${anio}&mes=${mes}`);
 }
 
 export async function guardarBonoConfig(distId: number, data: {
   anio: number; mes: number; umbral: number;
   monto_bono_fijo: number; monto_por_punto: number; puestos: PuestoRanking[];
 }) {
-  return apiFetch(`/bonos/config/${distId}/guardar`, { method: "POST", body: JSON.stringify(data) });
+  return apiFetch(`/api/bonos/config/${distId}/guardar`, { method: "POST", body: JSON.stringify(data) });
 }
 
 export async function bloquearBonoConfig(distId: number, anio: number, mes: number, bloquear: 0 | 1) {
-  return apiFetch(`/bonos/config/${distId}/bloquear?anio=${anio}&mes=${mes}&bloquear=${bloquear}`, { method: "POST" });
+  return apiFetch(`/api/bonos/config/${distId}/bloquear?anio=${anio}&mes=${mes}&bloquear=${bloquear}`, { method: "POST" });
 }
 
 export async function fetchLiquidacion(distId: number, anio: number, mes: number): Promise<{ umbral: number; vendedores: LiquidacionVendedor[] }> {
-  return apiFetch(`/bonos/liquidacion/${distId}?anio=${anio}&mes=${mes}`);
+  return apiFetch(`/api/bonos/liquidacion/${distId}?anio=${anio}&mes=${mes}`);
 }
 
 export async function fetchBonoDetalle(distId: number, integranteId: number, anio: number, mes: number): Promise<DetalleExhibicion[]> {
-  return apiFetch(`/bonos/detalle/${distId}?id_integrante=${integranteId}&anio=${anio}&mes=${mes}`);
+  return apiFetch(`/api/bonos/detalle/${distId}?id_integrante=${integranteId}&anio=${anio}&mes=${mes}`);
 }
 
 // ── ERP ─────────────────────────────────────────────────────────────────────

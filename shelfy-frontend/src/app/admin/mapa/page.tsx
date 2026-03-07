@@ -7,7 +7,7 @@ import { PageSpinner } from "@/components/ui/Spinner";
 import { useAuth } from "@/hooks/useAuth";
 import { fetchLiveMapEvents, type LiveMapEvent } from "@/lib/api";
 import { useEffect, useState, useMemo } from "react";
-import { MapPin, Zap, Clock, Users, Building2 } from "lucide-react";
+import { MapPin, Zap, Clock, Users, Building2, BarChart2, ChevronRight } from "lucide-react";
 import dynamic from "next/dynamic";
 import { formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
@@ -19,6 +19,7 @@ export default function LiveMapPage() {
     const { user } = useAuth();
     const [events, setEvents] = useState<LiveMapEvent[]>([]);
     const [loading, setLoading] = useState(true);
+    const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
 
     const loadEvents = async () => {
         try {
@@ -35,11 +36,30 @@ export default function LiveMapPage() {
     useEffect(() => {
         if (user?.rol !== "superadmin") return;
         loadEvents();
-        const interval = setInterval(loadEvents, 45000); // 45s refresh
+        const interval = setInterval(loadEvents, 30000); // 30s refresh (más agresivo)
         return () => clearInterval(interval);
     }, [user]);
 
+    // Estadísticas agrupadas por distribuidora
+    const statsByDist = useMemo(() => {
+        const groups: Record<string, { count: number; lastActivity: string; color: string }> = {};
+        const DIST_COLORS = ["#8b5cf6", "#ec4899", "#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#06b6d4", "#84cc16", "#6366f1", "#d946ef"];
 
+        events.forEach((ev) => {
+            if (!groups[ev.nombre_dist]) {
+                const colorIdx = Object.keys(groups).length % DIST_COLORS.length;
+                groups[ev.nombre_dist] = { count: 0, lastActivity: ev.timestamp_evento, color: DIST_COLORS[colorIdx] };
+            }
+            groups[ev.nombre_dist].count++;
+            if (new Date(ev.timestamp_evento) > new Date(groups[ev.nombre_dist].lastActivity)) {
+                groups[ev.nombre_dist].lastActivity = ev.timestamp_evento;
+            }
+        });
+
+        return Object.entries(groups)
+            .sort((a, b) => b[1].count - a[1].count)
+            .map(([name, data]) => ({ name, ...data }));
+    }, [events]);
 
     if (user?.rol !== "superadmin") return null;
 
@@ -47,46 +67,56 @@ export default function LiveMapPage() {
         <div className="flex h-screen bg-[var(--shelfy-bg)] overflow-hidden">
             <Sidebar />
             <div className="flex-1 flex flex-col min-w-0 h-full">
-                <Topbar title="Mapa de Actividad en Vivo" />
+                <Topbar title="Monitoreo de Actividad Global" />
 
-                <div className="flex-1 flex flex-col lg:flex-row relative">
+                <div className="flex-1 flex flex-col xl:flex-row relative">
 
-                    {/* Feed Lateral (Live Stream) */}
-                    <div className="w-full lg:w-80 bg-white border-r border-slate-200 z-20 flex flex-col shadow-2xl">
+                    {/* Feed Lateral Izquierdo (Live Stream) - Ocultable en móvil eventualmente */}
+                    <div className="w-full xl:w-72 bg-white border-r border-slate-200 z-20 flex flex-col shadow-xl shrink-0">
                         <div className="p-4 border-b border-slate-100 bg-slate-50/50">
-                            <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
+                            <h3 className="text-[11px] font-black text-slate-900 uppercase tracking-[0.2em] flex items-center gap-2">
                                 <Zap size={14} className="text-amber-500 fill-amber-500" />
-                                Live Stream
+                                Actividad Reciente
                             </h3>
-                            <p className="text-[10px] text-slate-500 font-bold uppercase mt-1">Últimas interacciones detectadas</p>
+                            <p className="text-[9px] text-slate-400 font-bold uppercase mt-1">Sincronizado cada 30s</p>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto p-2 space-y-2">
+                        <div className="flex-1 overflow-y-auto p-2 space-y-2 scrollbar-thin">
                             {loading ? <div className="p-8 text-center"><PageSpinner /></div> : (
-                                events.map((ev, i) => (
-                                    <div
-                                        key={ev.id_ex}
-                                        className="p-3 rounded-xl bg-slate-50 border border-slate-100 hover:border-violet-200 hover:bg-violet-50/30 transition-all cursor-pointer group"
-                                        style={{ animation: `slideUp 0.3s ease-out ${i * 0.05}s forwards`, opacity: 0 }}
-                                    >
-                                        <div className="flex items-center justify-between mb-1">
-                                            <span className="text-[10px] font-black text-violet-600 bg-violet-100 px-1.5 py-0.5 rounded uppercase">
-                                                {ev.nombre_dist}
-                                            </span>
-                                            <span className="text-[10px] text-slate-400 font-medium flex items-center gap-1">
-                                                <Clock size={10} />
-                                                {formatDistanceToNow(new Date(ev.timestamp_evento), { addSuffix: true, locale: es })}
-                                            </span>
+                                events.map((ev, i) => {
+                                    const distColor = statsByDist.find(s => s.name === ev.nombre_dist)?.color || "#6366f1";
+                                    return (
+                                        <div
+                                            key={ev.id_ex}
+                                            onClick={() => setSelectedEventId(ev.id_ex)}
+                                            className={`p-3 rounded-2xl border transition-all cursor-pointer group hover:shadow-md
+                                                ${selectedEventId === ev.id_ex
+                                                    ? "bg-violet-50 border-violet-200 ring-2 ring-violet-500/20 translate-x-1"
+                                                    : "bg-white border-slate-100 hover:border-violet-100 hover:bg-slate-50/50"}`}
+                                            style={{ animation: `slideUp 0.3s ease-out ${i * 0.03}s forwards`, opacity: 0 }}
+                                        >
+                                            <div className="flex items-center justify-between mb-1.5">
+                                                <span
+                                                    className="text-[9px] font-black px-1.5 py-0.5 rounded shadow-sm border border-black/5 text-white uppercase"
+                                                    style={{ backgroundColor: distColor }}
+                                                >
+                                                    {ev.nombre_dist}
+                                                </span>
+                                                <span className="text-[9px] text-slate-400 font-bold flex items-center gap-1">
+                                                    <Clock size={10} />
+                                                    {formatDistanceToNow(new Date(ev.timestamp_evento), { addSuffix: true, locale: es }).replace("alrededor de", "~")}
+                                                </span>
+                                            </div>
+                                            <p className="text-[13px] font-bold text-slate-900 group-hover:text-violet-700 truncate">
+                                                {ev.vendedor_nombre}
+                                            </p>
+                                            <div className="flex items-center gap-2 mt-1 opacity-70">
+                                                <MapPin size={10} className="text-slate-400" />
+                                                <span className="text-[10px] text-slate-500 font-semibold truncate leading-none">Cliente {ev.nro_cliente}</span>
+                                            </div>
                                         </div>
-                                        <p className="text-sm font-bold text-slate-900 group-hover:text-violet-700 truncate">
-                                            {ev.vendedor_nombre}
-                                        </p>
-                                        <div className="flex items-center gap-2 mt-1">
-                                            <MapPin size={10} className="text-slate-400" />
-                                            <span className="text-[10px] text-slate-500 font-medium truncate">Cliente {ev.nro_cliente}</span>
-                                        </div>
-                                    </div>
-                                ))
+                                    );
+                                })
                             )}
                             {!loading && events.length === 0 && (
                                 <div className="p-8 text-center text-slate-400 italic text-sm">
@@ -96,27 +126,117 @@ export default function LiveMapPage() {
                         </div>
                     </div>
 
-                    {/* Mapa Full Screen (MapLibre) */}
-                    <div className="flex-1 h-full relative z-10 bg-[#1e1e1e]">
-                        <MapaExhibiciones events={events} height="100%" theme="dark" />
+                    {/* Mapa Central (MapLibre) */}
+                    <div className="flex-1 h-full relative z-10 bg-[#1e1e1e] flex flex-col">
+                        <MapaExhibiciones events={events} height="100%" theme="dark" selectedEventId={selectedEventId} />
 
-                        {/* Overlay Info */}
-                        <div className="absolute top-4 right-4 z-20 flex flex-col gap-2 pointer-events-none">
-                            <Card className="p-3 glass-card border-none ring-1 ring-white/20 shadow-2xl bg-white/80 backdrop-blur-md">
-                                <div className="flex items-center gap-2">
-                                    <div className="w-2 h-2 bg-violet-500 rounded-full animate-pulse" />
-                                    <span className="text-[10px] font-black text-slate-900 uppercase tracking-tighter">
-                                        {events.length} Eventos detectados (2h)
+                        {/* Breadcrumb Map Overlay */}
+                        <div className="absolute top-4 left-4 z-20 pointer-events-none">
+                            <Card className="px-4 py-2 border-none ring-1 ring-white/10 shadow-2xl bg-slate-900/80 backdrop-blur-xl rounded-2xl">
+                                <div className="flex items-center gap-3">
+                                    <div className="flex -space-x-1.5 overflow-hidden">
+                                        <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                                    </div>
+                                    <span className="text-[11px] font-black text-white uppercase tracking-wider">
+                                        Live Feed <span className="text-violet-400 ml-1">{events.length}</span> interacciones
                                     </span>
                                 </div>
                             </Card>
                         </div>
                     </div>
 
+                    {/* Panel Estadístico Derecho (Distribuidores) */}
+                    <div className="w-full xl:w-80 bg-slate-50 border-l border-slate-200 z-20 flex flex-col shadow-2xl shrink-0 overflow-hidden">
+                        <div className="p-5 border-b border-slate-200 bg-white">
+                            <h3 className="text-[11px] font-black text-slate-900 uppercase tracking-[0.2em] flex items-center gap-2">
+                                <Building2 size={14} className="text-violet-500" />
+                                Por Distribuidora
+                            </h3>
+                            <p className="text-[9px] text-slate-400 font-bold uppercase mt-1">Resumen de performance (2h)</p>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto p-4 space-y-3 scrollbar-thin">
+                            {statsByDist.map((dist, i) => (
+                                <div
+                                    key={dist.name}
+                                    className="p-4 bg-white rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-all group overflow-hidden relative"
+                                    style={{ animation: `slideLeft 0.3s ease-out ${i * 0.05}s forwards`, opacity: 0 }}
+                                >
+                                    {/* Decorator line */}
+                                    <div
+                                        className="absolute left-0 top-0 bottom-0 w-1.5"
+                                        style={{ backgroundColor: dist.color }}
+                                    />
+
+                                    <div className="flex items-start justify-between">
+                                        <div className="min-w-0 flex-1 pr-2">
+                                            <p className="text-[11px] font-black text-slate-400 uppercase tracking-tight mb-0.5 truncate">
+                                                {dist.name}
+                                            </p>
+                                            <p className="text-xl font-black text-slate-900 leading-none">
+                                                {dist.count} <span className="text-[10px] text-slate-400 font-bold">EVENTOS</span>
+                                            </p>
+                                        </div>
+                                        <div className="p-2.5 rounded-2xl bg-slate-50 text-slate-400 group-hover:bg-violet-50 group-hover:text-violet-600 transition-colors">
+                                            <BarChart2 size={16} />
+                                        </div>
+                                    </div>
+
+                                    <div className="mt-4 pt-3 border-t border-slate-50 flex items-center justify-between">
+                                        <div className="flex items-center gap-1.5 text-[9px] font-bold text-slate-500 uppercase">
+                                            <Clock size={10} />
+                                            Últ: {formatDistanceToNow(new Date(dist.lastActivity), { addSuffix: false, locale: es })}
+                                        </div>
+                                        <button
+                                            onClick={() => {
+                                                const lastEv = events.find(e => e.nombre_dist === dist.name);
+                                                if (lastEv) setSelectedEventId(lastEv.id_ex);
+                                            }}
+                                            className="text-[9px] font-black text-violet-600 hover:text-violet-700 uppercase tracking-widest flex items-center gap-1 group/btn"
+                                        >
+                                            Ver Mapa <ChevronRight size={10} className="transition-transform group-hover/btn:translate-x-0.5" />
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+
+                            {!loading && statsByDist.length === 0 && (
+                                <div className="p-8 text-center text-slate-400 italic text-sm">
+                                    No hay data acumulada.
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Global Stat Footer */}
+                        <div className="p-5 bg-violet-600 shrink-0">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2 bg-white/20 rounded-xl">
+                                    <Users size={18} className="text-white" />
+                                </div>
+                                <div>
+                                    <p className="text-[10px] font-bold text-violet-200 uppercase tracking-widest leading-none mb-1">Total Actividad</p>
+                                    <p className="text-xl font-black text-white leading-none">{events.length} Capturas</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                 </div>
             </div>
 
-
+            <style jsx global>{`
+                @keyframes slideUp {
+                    from { opacity: 0; transform: translateY(10px); }
+                    to { opacity: 1; transform: translateY(0); }
+                }
+                @keyframes slideLeft {
+                    from { opacity: 0; transform: translateX(10px); }
+                    to { opacity: 1; transform: translateX(0); }
+                }
+                .scrollbar-thin::-webkit-scrollbar { width: 4px; }
+                .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+                .scrollbar-thin::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+            `}</style>
         </div>
     );
 }

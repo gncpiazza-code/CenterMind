@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
-import { LayoutDashboard, Eye, Users, BarChart2, Gift, LogOut, ChevronDown, ChevronRight, GraduationCap, Activity, MapPin } from "lucide-react";
+import { useState, useEffect } from "react";
+import { LayoutDashboard, Eye, Users, BarChart2, Gift, LogOut, ChevronDown, ChevronRight, GraduationCap, Activity, MapPin, Globe } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { fetchDistribuidores } from "@/lib/api";
 
 const ALL_NAV = [
   { href: "/visor", label: "Evaluar", icon: Eye, roles: ["superadmin", "admin", "supervisor"] },
@@ -43,7 +44,10 @@ const ROL_LABEL: Record<string, string> = {
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { user, logout } = useAuth();
+  const { user, logout, switchDistributor } = useAuth();
+  const [dists, setDists] = useState<{ id_distribuidor: number; nombre_dist: string }[]>([]);
+  const [showSwitch, setShowSwitch] = useState(false);
+
   const rol = user?.rol ?? "";
   const navItems = ALL_NAV.filter(i => {
     if (!(i.roles as string[]).includes(rol)) return false;
@@ -63,6 +67,12 @@ export function Sidebar() {
     setOpenSections(prev => ({ ...prev, [href]: !prev[href] }));
   };
 
+  useEffect(() => {
+    if (user?.rol === "superadmin") {
+      fetchDistribuidores().then(setDists).catch(console.error);
+    }
+  }, [user?.rol]);
+
   return (
     <aside className="hidden md:flex flex-col w-64 h-screen overflow-hidden bg-[var(--shelfy-panel)] backdrop-blur-3xl border-r border-[var(--shelfy-border)] px-4 py-8 gap-2 shrink-0 shadow-xl sticky top-0 text-[var(--shelfy-text)]">
       {/* Logo */}
@@ -76,7 +86,7 @@ export function Sidebar() {
       </p>
 
       {/* Nav items */}
-      <nav className="flex flex-col gap-1.5 flex-1 overflow-y-auto pr-1 pb-4">
+      <nav className="flex flex-col gap-1.5 flex-1 overflow-y-auto pr-1 pb-4 scrollbar-thin">
         {navItems.map((item) => {
           const { href, label, icon: Icon, subItems } = item;
           const isExactActive = pathname === href;
@@ -94,8 +104,9 @@ export function Sidebar() {
                 <button
                   onClick={() => toggleSection(href)}
                   className={`flex items-center justify-between px-4 py-3 rounded-2xl text-sm font-semibold transition-all duration-200
+                      ${active
                       ? "bg-[var(--shelfy-primary)] text-white font-bold shadow-lg shadow-[var(--shelfy-glow)]"
-                      : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"}`}
+                      : "text-[var(--shelfy-muted)] hover:bg-white/5 hover:text-white"}`}
                 >
                   <div className="flex items-center gap-3">
                     <Icon size={18} strokeWidth={active ? 2.5 : 2} />
@@ -104,7 +115,7 @@ export function Sidebar() {
                   {isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                 </button>
                 {isOpen && (
-                  <div className="flex flex-col gap-1 pl-4 mt-1 border-l-2 border-violet-100 ml-6">
+                  <div className="flex flex-col gap-1 pl-4 mt-1 border-l-2 border-white/10 ml-6">
                     {allowedSubItems.map(sub => {
                       const subActive = pathname.startsWith(sub.href);
                       return (
@@ -114,7 +125,7 @@ export function Sidebar() {
                           className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-[13px] font-semibold transition-all duration-200
                                  ${subActive
                               ? "bg-[var(--shelfy-primary-2)] text-white shadow-md shadow-[var(--shelfy-glow)] translate-x-1"
-                              : "text-[var(--shelfy-text-soft)] hover:text-[var(--shelfy-primary)] hover:bg-slate-100"
+                              : "text-[var(--shelfy-muted)] hover:text-white hover:bg-white/5"
                             }`}
                         >
                           <sub.icon size={15} strokeWidth={subActive ? 2.5 : 2} />
@@ -136,7 +147,7 @@ export function Sidebar() {
               className={`flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-semibold transition-all duration-200
                 ${active
                   ? "bg-[var(--shelfy-primary)] text-white shadow-lg shadow-[var(--shelfy-glow)] translate-x-1"
-                  : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                  : "text-[var(--shelfy-muted)] hover:bg-white/5 hover:text-white"
                 }`}
             >
               <Icon size={18} strokeWidth={active ? 2.5 : 2} />
@@ -155,23 +166,64 @@ export function Sidebar() {
 
           {/* User info */}
           {user && (
-            <div className="flex items-center gap-3 px-4 py-3 mb-2 rounded-2xl bg-white/50 border border-slate-200">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center text-white text-xs font-black shadow-inner">
-                {user.usuario.charAt(0).toUpperCase()}
+            <div className="flex flex-col gap-2 mb-2">
+              <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-white/5 border border-white/10">
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center text-white text-xs font-black shadow-inner">
+                  {user.usuario.charAt(0).toUpperCase()}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-bold truncate text-white">{user.usuario}</p>
+                  <p className="text-[10px] text-[var(--shelfy-primary)] font-medium truncate uppercase tracking-tighter">
+                    {ROL_LABEL[user.rol] ?? user.rol}
+                  </p>
+                </div>
               </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-bold truncate">{user.usuario}</p>
-                <p className="text-[10px] text-[var(--shelfy-primary)] font-medium truncate">
-                  {ROL_LABEL[user.rol] ?? user.rol}
-                </p>
-              </div>
+
+              {/* Switcher para SuperAdmin (Debajo del user) */}
+              {user.rol === "superadmin" && (
+                <div className="relative px-1">
+                  <button
+                    onClick={() => setShowSwitch(!showSwitch)}
+                    className="w-full h-10 flex items-center justify-between px-3 py-1 rounded-xl bg-[var(--shelfy-primary-2)] hover:bg-[var(--shelfy-primary)] text-white text-[11px] font-black border border-white/10 transition-all uppercase tracking-tight group"
+                  >
+                    <div className="flex items-center gap-2 overflow-hidden">
+                      <Globe size={14} className="shrink-0 text-violet-200" />
+                      <span className="truncate">{user.nombre_empresa || "Global"}</span>
+                    </div>
+                    <ChevronDown size={14} className={`shrink-0 transition-transform ${showSwitch ? 'rotate-180' : ''}`} />
+                  </button>
+
+                  {showSwitch && (
+                    <div className="absolute bottom-full left-0 mb-2 w-full bg-white border border-slate-100 shadow-2xl rounded-2xl overflow-hidden z-[100] animate-in fade-in slide-in-from-bottom-2">
+                      <div className="p-3 bg-slate-50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                        Contexto Operativo
+                      </div>
+                      <div className="max-h-60 overflow-y-auto">
+                        {dists.map(d => (
+                          <button
+                            key={d.id_distribuidor}
+                            onClick={() => {
+                              switchDistributor(d.id_distribuidor, d.nombre_dist);
+                              setShowSwitch(false);
+                            }}
+                            className={`w-full text-left px-4 py-2.5 text-xs font-bold hover:bg-violet-50 transition-colors flex items-center justify-between ${user.id_distribuidor === d.id_distribuidor ? 'text-violet-600 bg-violet-50/50' : 'text-slate-600'}`}
+                          >
+                            {d.nombre_dist}
+                            {user.id_distribuidor === d.id_distribuidor && <div className="w-1.5 h-1.5 rounded-full bg-violet-500" />}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
           {/* Logout */}
           <button
             onClick={logout}
-            className="flex items-center gap-3 px-4 py-3 w-full text-sm font-bold text-[var(--shelfy-text-soft)] hover:text-red-600 hover:bg-red-50 rounded-2xl transition-all duration-200 active:scale-95"
+            className="flex items-center gap-3 px-4 py-3 w-full text-sm font-bold text-[var(--shelfy-muted)] hover:text-red-400 hover:bg-red-400/10 rounded-2xl transition-all duration-200 active:scale-95"
           >
             <LogOut size={16} />
             Cerrar sesión

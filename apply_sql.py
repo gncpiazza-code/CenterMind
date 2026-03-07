@@ -15,7 +15,7 @@ password = password.strip('"').strip("'")
 project_ref = "xjwadmzuuzctxbrvgopx"
 
 # We use the pooler connection string for Supabase
-conn_str = f"postgresql://postgres.{project_ref}:{quote_plus(password)}@aws-0-sa-east-1.pooler.supabase.com:6543/postgres"
+conn_str = f"postgresql://postgres.{project_ref}:{quote_plus(password)}@aws-0-sa-east-1.pooler.supabase.com:6543/postgres?options=endpoint%3D{project_ref}"
 
 print("Connecting to Supabase PostgreSQL...")
 try:
@@ -23,7 +23,7 @@ try:
     conn.autocommit = True
     cur = conn.cursor()
     
-    with open("fix_global_panel.sql", "r", encoding="utf-8") as f:
+    with open(r"sql_history/fix_rpc_optional_mapping.sql", "r", encoding="utf-8") as f:
         sql = f.read()
         
     print("Executing SQL script...")

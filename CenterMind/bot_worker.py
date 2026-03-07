@@ -226,11 +226,14 @@ class Database:
             "p_telegram_msg_id": telegram_msg_id,
             "p_telegram_chat_id": telegram_chat_id
         }).execute()
-        # La nueva función devuelve un JSON object
+        # La nueva función devuelve un JSON object o una lista
         if isinstance(res.data, dict):
             return res.data
         elif isinstance(res.data, list) and res.data:
             return res.data[0]
+        elif isinstance(res.data, (int, str)):
+            return {"id_exhibicion": res.data, "en_cuarentena": False, "error": None}
+            
         return {"id_exhibicion": None, "en_cuarentena": False, "error": "No data returned"}
 
     def update_telegram_refs(
@@ -1042,6 +1045,9 @@ class BotWorker:
                             self.logger.info(f"✅ Exhibición registrada: ID {ex_id} | Cuarentena: {en_cuarentena}")
                             exhibicion_ids.append({"id": ex_id, "en_cuarentena": en_cuarentena})
                             procesadas += 1
+                        else:
+                            self.logger.warning(f"❌ Falló validación de data rpc, ex_id vacía.")
+                            fallidas += 1
                     except Exception as db_err:
                         self.logger.error(f"❌ ERROR REGISTRANDO EN BD: {db_err}")
                         fallidas += 1

@@ -118,6 +118,26 @@ export interface UsuarioPortal {
   nombre_empresa: string;
 }
 
+export interface GlobalStressMonitor {
+  id_dist: number;
+  nombre_dist: string;
+  total_exhibiciones: number;
+  total_ventas_erp: number;
+  total_clientes_erp: number;
+  ultima_actividad: string | null;
+  estado_bot: string;
+}
+
+export interface LiveMapEvent {
+  id_ex: number;
+  nombre_dist: string;
+  vendedor_nombre: string;
+  lat: number;
+  lon: number;
+  timestamp_evento: string;
+  nro_cliente: string;
+}
+
 // ── Image helpers ───────────────────────────────────────────────────────────
 
 /** Extrae el file ID de una URL de Google Drive */
@@ -336,6 +356,7 @@ export interface Integrante {
   nombre_empresa: string;
   nombre_grupo: string;
   sucursal_label: string;
+  id_vendedor_erp: string | null;
 }
 
 export async function fetchIntegrantes(distId?: number): Promise<Integrante[]> {
@@ -533,4 +554,14 @@ export async function deleteERPMapping(nombre_erp: string) {
   return apiFetch(`/api/admin/erp/mappings/${encodeURIComponent(nombre_erp)}`, {
     method: "DELETE"
   });
+}
+
+// ── SuperAdmin: Monitoreo y Mapa ──────────────────────────────────────────
+
+export async function fetchGlobalMonitoring(): Promise<GlobalStressMonitor[]> {
+  return apiFetch<GlobalStressMonitor[]>("/api/admin/global-monitoring");
+}
+
+export async function fetchLiveMapEvents(minutos: number = 60): Promise<LiveMapEvent[]> {
+  return apiFetch<LiveMapEvent[]>(`/api/admin/live-map-events?minutos=${minutos}`);
 }

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { LayoutDashboard, Eye, Users, BarChart2, Gift, LogOut, ChevronDown, ChevronRight, GraduationCap } from "lucide-react";
+import { LayoutDashboard, Eye, Users, BarChart2, Gift, LogOut, ChevronDown, ChevronRight, GraduationCap, Activity, MapPin } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 
 const ALL_NAV = [
@@ -21,6 +21,18 @@ const ALL_NAV = [
     ]
   },
   { href: "/admin", label: "Administrar", icon: Users, roles: ["superadmin", "admin"] },
+  {
+    href: "/admin/dashboard",
+    label: "Panel Global",
+    icon: Activity,
+    roles: ["superadmin"]
+  },
+  {
+    href: "/admin/mapa",
+    label: "Mapa en Vivo",
+    icon: MapPin,
+    roles: ["superadmin"]
+  },
 ];
 
 const ROL_LABEL: Record<string, string> = {
@@ -36,8 +48,8 @@ export function Sidebar() {
   const navItems = ALL_NAV.filter(i => {
     if (!(i.roles as string[]).includes(rol)) return false;
 
-    // Only 'NachoPiazza' can see all modules. Others only see Dashboard, Evaluar, and Real Academy.
-    if (user?.usuario !== "NachoPiazza") {
+    // Only 'NachoPiazza' or roles with superadmin see most logic. 
+    if (user?.usuario !== "NachoPiazza" && rol !== "superadmin") {
       const allowedHrefs = ["/visor", "/dashboard", "/academy-hub"];
       if (!allowedHrefs.includes(i.href)) return false;
     }

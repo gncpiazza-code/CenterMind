@@ -528,6 +528,7 @@ function TabIntegrantes({ isSuperadmin, distId }: { isSuperadmin: boolean; distI
                   <th className="pb-3 pr-4">Nombre / Alias</th>
                   {isSuperadmin && <th className="pb-3 pr-4">Distribuidora</th>}
                   <th className="pb-3 pr-4">Sucursal</th>
+                  <th className="pb-3 pr-4">ID ERP (Vendedor)</th>
                   <th className="pb-3 pr-4">Grupo Tel.</th>
                   <th className="pb-3 pr-4">Rol en App</th>
                   <th className="pb-3 w-8"></th>
@@ -539,6 +540,7 @@ function TabIntegrantes({ isSuperadmin, distId }: { isSuperadmin: boolean; distI
                   return (ig.nombre_integrante || "").toLowerCase().includes(q) ||
                     (ig.nombre_empresa || "").toLowerCase().includes(q) ||
                     (ig.sucursal_label || "").toLowerCase().includes(q) ||
+                    (ig.id_vendedor_erp || "").toLowerCase().includes(q) ||
                     (ig.nombre_grupo || "").toLowerCase().includes(q) ||
                     (ig.rol_telegram || "").toLowerCase().includes(q);
                 }).map((ig) => (
@@ -585,6 +587,11 @@ function TabIntegrantes({ isSuperadmin, distId }: { isSuperadmin: boolean; distI
                           <option key={loc.location_id} value={loc.location_id}>{loc.label}</option>
                         ))}
                       </select>
+                    </td>
+                    <td className="py-3 pr-4">
+                      <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-slate-100 border border-slate-200 text-[10px] font-bold text-slate-600 w-fit">
+                        {ig.id_vendedor_erp || "—"}
+                      </div>
                     </td>
                     <td className="py-3 pr-4 text-[var(--shelfy-muted)] text-xs">{ig.nombre_grupo || ig.telegram_group_id || "—"}</td>
 
@@ -887,19 +894,19 @@ export default function AdminPage() {
           </div>
 
           {tab === "usuarios" && (
-            <TabUsuarios isSuperadmin={isSuperadmin} distId={user.id_distribuidor} />
+            <TabUsuarios isSuperadmin={isSuperadmin} distId={user?.id_distribuidor || 0} />
           )}
           {tab === "distribuidoras" && isSuperadmin && (
             <TabDistribuidoras />
           )}
           {tab === "integrantes" && (
-            <TabIntegrantes isSuperadmin={isSuperadmin} distId={user.id_distribuidor} />
+            <TabIntegrantes isSuperadmin={isSuperadmin} distId={user?.id_distribuidor || 0} />
           )}
           {tab === "sucursales" && (
-            <TabSucursales isSuperadmin={isSuperadmin} distId={user.id_distribuidor} role={user.rol} />
+            <TabSucursales isSuperadmin={isSuperadmin} distId={user?.id_distribuidor || 0} role={user?.rol || ""} />
           )}
           {tab === "erp" && (
-            <TabERP distId={user.id_distribuidor} />
+            <TabERP distId={user?.id_distribuidor || 0} />
           )}
 
         </main>

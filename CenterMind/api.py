@@ -226,7 +226,8 @@ def verify_auth(
     if x_api_key:
         if x_api_key != API_KEY:
             raise HTTPException(status_code=401, detail="API Key inválida")
-        return {"method": "api_key"}
+        # Para compatibilidad, el bot actúa como superadmin total
+        return {"method": "api_key", "is_superadmin": True, "rol": "admin"}
 
     if authorization:
         if not JWT_AVAILABLE:
@@ -236,11 +237,32 @@ def verify_auth(
             if scheme.lower() != "bearer" or not token:
                 raise HTTPException(status_code=401, detail="Formato inválido")
             payload = _jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+            
+            # Aseguramos que los campos booleanos existan
+            payload["is_superadmin"] = payload.get("is_superadmin", False) or payload.get("rol") == "superadmin"
             return payload
         except JWTError:
             raise HTTPException(status_code=401, detail="Token JWT inválido o expirado")
 
     raise HTTPException(status_code=401, detail="Se requiere autenticación (X-Api-Key o Bearer token)")
+
+
+def check_dist_permission(payload: dict, required_dist_id: int):
+    """
+    Helper para validar que un usuario no acceda a datos de otra distribuidora.
+    Los SuperAdmins pueden ver CUALQUIER distribuidora.
+    """
+    if payload.get("is_superadmin"):
+        return True
+    
+    user_dist_id = payload.get("id_distribuidor")
+    if user_dist_id != required_dist_id:
+        logger.warning(f"🚫 Intento de acceso no autorizado: Usuario dist {user_dist_id} -> Recurso dist {required_dist_id}")
+        raise HTTPException(
+            status_code=403, 
+            detail=f"No tienes permisos para acceder a esta distribuidora ({required_dist_id})"
+        )
+    return True
 
 
 # ─── Modelos Pydantic ─────────────────────────────────────────────────────────
@@ -303,8 +325,8 @@ class TokenResponse(BaseModel):
     usuario: str
     rol: str
     id_usuario: int
-    id_distribuidor: int | None = None
-    nombre_empresa: str | None = None
+    id_distribuidor: Optional[int] = None
+    nombre_empresa: Optional[str] = None
     is_superadmin: bool = False
     usa_quarentena: bool = False
     usa_contexto_erp: bool = False
@@ -348,6 +370,62 @@ async def erp_upload_global(
 
 
 
+@app.get("/api/reports/performance/{id_distribuidor}", tags=["Reports"], summary="Reporte general de objetivos: Venta vs Exhibicion")
+def get_reporte_performance(id_distribuidor: int, mes: int = Query(...), anio: int = Query(...), user_payload=Depends(verify_auth)):
+    """Cruza datos de ventas ERP con exhibiciones de Shelfy."""
+    check_dist_permission(user_payload, id_distribuidor)
+
+    try:
+        res = sb.rpc("fn_reporte_vendedor_objetivos", {
+            "p_dist_id": id_distribuidor,
+            "p_mes": mes,
+            "p_anio": anio
+        }).execute()
+        return res.data or []
+    except Exception as e:
+        logger.error(f"Error en reporte performance: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/admin/erp/sync-status/{id_distribuidor}", tags=["ERP Admin"], summary="Estado de sincronización y matching de datos")
+def get_erp_sync_status(id_distribuidor: int, user_payload=Depends(verify_auth)):
+    """Informa cuántos datos hay cargados y el % de emparejamiento con Telegram."""
+    check_dist_permission(user_payload, id_distribuidor)
+
+    try:
+        res = sb.rpc("fn_admin_erp_sync_status", {"p_dist_id": id_distribuidor}).execute()
+        return res.data if res.data else {}
+    except Exception as e:
+        logger.error(f"Error en status sync ERP: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/admin/global-monitoring", tags=["SuperAdmin"], summary="Monitoreo de estrés y volumen de todas las distribuidoras")
+def get_global_monitoring(user_payload=Depends(verify_auth)):
+    """Vista global para SuperAdmin: volumen de datos y salud del sistema."""
+    if not user_payload.get("is_superadmin"):
+        raise HTTPException(status_code=403, detail="Solo accesible para SuperAdmin")
+    
+    try:
+        res = sb.rpc("fn_admin_global_monitoring", {}).execute()
+        return res.data or []
+    except Exception as e:
+        logger.error(f"Error en monitoreo global: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/admin/live-map-events", tags=["SuperAdmin"], summary="Eventos en vivo con coordenadas para el mapa")
+def get_live_map_events(minutos: int = 60, user_payload=Depends(verify_auth)):
+    """Retorna exhibiciones recientes con Lat/Lon para encender puntitos en el mapa."""
+    if not user_payload.get("is_superadmin"):
+        raise HTTPException(status_code=403, detail="Solo accesible para SuperAdmin")
+        
+    try:
+        res = sb.rpc("fn_get_live_map_events", {"p_minutes_back": minutos}).execute()
+        return res.data or []
+    except Exception as e:
+        logger.error(f"Error en eventos de mapa: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/api/public/landing-stats", summary="Estadisticas publicas para la Landing Page")
 def public_landing_stats():
     try:
@@ -387,6 +465,11 @@ def auth_login(req: LoginRequest):
         if not result.data:
             raise HTTPException(status_code=401, detail="Credenciales invalidas")
         user = result.data[0]
+        
+        # --- Fase 1 Improvements: Bloqueo de usuarios ---
+        if not user.get("activo", True):
+            raise HTTPException(status_code=403, detail="Tu usuario ha sido desactivado. Contacta al administrador.")
+
         payload = {
             "sub":               user["usuario_login"],
             "id_usuario":        user["id_usuario"],
@@ -417,8 +500,40 @@ def auth_login(req: LoginRequest):
         raise HTTPException(status_code=500, detail=f"Error en el servidor: {str(e)}")
 
 
+@app.post("/auth/switch-context/{dist_id}", summary="Superadmin cambia de distribuidora activa", response_model=TokenResponse)
+def switch_context(dist_id: int, payload=Depends(verify_auth)):
+    if not payload.get("is_superadmin"):
+        raise HTTPException(status_code=403, detail="Solo el superadmin puede cambiar de contexto")
+    
+    # 1. Buscar la nueva distribuidora
+    res = sb.table("distribuidores").select("id_distribuidor, nombre_empresa").eq("id_distribuidor", dist_id).execute()
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Distribuidora no encontrada")
+    dist = res.data[0]
+    
+    # 2. Generar nuevo token con el id_distribuidor actualizado en el payload
+    new_payload = dict(payload)
+    new_payload["id_distribuidor"] = dist["id_distribuidor"]
+    new_payload["nombre_empresa"]  = dist["nombre_empresa"]
+    # No extendemos la expiración original, mantenemos la que tenía
+    
+    token = _jwt.encode(new_payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+    
+    return TokenResponse(
+        access_token=token, token_type="bearer",
+        usuario=new_payload.get("sub", ""), rol=new_payload.get("rol", ""),
+        id_usuario=new_payload.get("id_usuario", 0), id_distribuidor=dist["id_distribuidor"],
+        nombre_empresa=dist["nombre_empresa"],
+        is_superadmin=True,
+        usa_quarentena=new_payload.get("usa_quarentena", False),
+        usa_contexto_erp=new_payload.get("usa_contexto_erp", False),
+        usa_mapeo_vendedores=new_payload.get("usa_mapeo_vendedores", False)
+    )
+
+
 @app.get("/pendientes/{id_distribuidor}", summary="Exhibiciones pendientes agrupadas por mensaje")
-def get_pendientes(id_distribuidor: int, _=Depends(verify_auth)):
+def get_pendientes(id_distribuidor: int, payload=Depends(verify_auth)):
+    check_dist_permission(payload, id_distribuidor)
     result = sb.rpc("fn_pendientes", {"p_dist_id": id_distribuidor}).execute()
     rows = result.data or []
     grupos: dict = {}
@@ -434,7 +549,8 @@ def get_pendientes(id_distribuidor: int, _=Depends(verify_auth)):
 
 
 @app.get("/stats/{id_distribuidor}", summary="Estadisticas del dia actual")
-def get_stats(id_distribuidor: int, _=Depends(verify_auth)):
+def get_stats(id_distribuidor: int, payload=Depends(verify_auth)):
+    check_dist_permission(payload, id_distribuidor)
     hoy = datetime.now().strftime("%Y-%m-%d")
     result = sb.rpc("fn_stats_hoy", {"p_dist_id": id_distribuidor, "p_fecha": hoy}).execute()
     r = result.data[0] if result.data else {}
@@ -442,7 +558,8 @@ def get_stats(id_distribuidor: int, _=Depends(verify_auth)):
 
 
 @app.get("/vendedores/{id_distribuidor}", summary="Lista de vendedores con pendientes")
-def get_vendedores(id_distribuidor: int, _=Depends(verify_auth)):
+def get_vendedores(id_distribuidor: int, payload=Depends(verify_auth)):
+    check_dist_permission(payload, id_distribuidor)
     result = sb.rpc("fn_vendedores_pendientes", {"p_dist_id": id_distribuidor}).execute()
     return [r["nombre_integrante"] for r in (result.data or [])]
 
@@ -457,7 +574,8 @@ def evaluar(req: EvaluarRequest, user_payload=Depends(verify_auth)):
             if not ex_res.data: continue
             dist_id = ex_res.data[0]["id_distribuidor"]
             
-            # Check de bloqueo
+            check_dist_permission(user_payload, dist_id)
+            # Check de bloqueo operativo
             check_distributor_status(dist_id, user_payload)
 
             r = sb.table("exhibiciones").update({
@@ -479,6 +597,7 @@ def evaluar(req: EvaluarRequest, user_payload=Depends(verify_auth)):
 @app.get("/erp/contexto-cliente/{id_distribuidor}/{nro_cliente}", summary="Datos ERP del cliente al evaluar")
 def get_erp_contexto(id_distribuidor: int, nro_cliente: str, user_payload=Depends(verify_auth)):
     """PASO 9: Contexto ERP del cliente para la tarjeta de evaluación."""
+    check_dist_permission(user_payload, id_distribuidor)
     try:
         res = sb.rpc("fn_erp_contexto_cliente", {
             "p_distribuidor_id": id_distribuidor,
@@ -494,6 +613,7 @@ def get_erp_contexto(id_distribuidor: int, nro_cliente: str, user_payload=Depend
 @app.get("/erp/roi/{id_distribuidor}", summary="ROI: facturacion con vs sin exhibiciones destacadas")
 def get_roi_analitico(id_distribuidor: int, user_payload=Depends(verify_auth)):
     """PASO 10: Compara clientes con/sin exhibiciones Destacadas en los últimos 30 días."""
+    check_dist_permission(user_payload, id_distribuidor)
     try:
         res = sb.rpc("fn_roi_analitico", {"p_distribuidor_id": id_distribuidor}).execute()
         return res.data if res.data else {"con_exhibicion": {}, "sin_exhibicion": {}, "uplift_pct": 0}
@@ -522,7 +642,9 @@ def revertir(req: RevertirRequest, _=Depends(verify_auth)):
 # ─── Admin: Distribuidoras ───────────────────────────────────────────────────
 
 @app.get("/admin/distribuidoras", summary="Lista de distribuidoras")
-def admin_get_distribuidoras(solo_activas: str = "true", _=Depends(verify_auth)):
+def admin_get_distribuidoras(solo_activas: str = "true", payload=Depends(verify_auth)):
+    if not payload.get("is_superadmin"):
+        raise HTTPException(status_code=403, detail="Acceso denegado")
     q = sb.table("distribuidores").select("id_distribuidor, nombre_empresa, token_bot, estado, id_carpeta_drive, ruta_credencial_drive")
     if solo_activas.lower() == "true":
         q = q.eq("estado", "activo")
@@ -532,7 +654,9 @@ def admin_get_distribuidoras(solo_activas: str = "true", _=Depends(verify_auth))
 
 
 @app.post("/admin/distribuidoras", summary="Crear distribuidora")
-async def admin_crear_distribuidora(req: DistribuidoraRequest, _=Depends(verify_auth)):
+async def admin_crear_distribuidora(req: DistribuidoraRequest, payload=Depends(verify_auth)):
+    if not payload.get("is_superadmin"):
+        raise HTTPException(status_code=403, detail="Acceso denegado")
     try:
         res = sb.table("distribuidores").insert({
             "nombre_empresa": req.nombre.strip(), "token_bot": req.token.strip(),
@@ -561,7 +685,9 @@ async def admin_crear_distribuidora(req: DistribuidoraRequest, _=Depends(verify_
 
 
 @app.put("/admin/distribuidoras/{dist_id}", summary="Editar distribuidora")
-async def admin_editar_distribuidora(dist_id: int, req: DistribuidoraRequest, _=Depends(verify_auth)):
+async def admin_editar_distribuidora(dist_id: int, req: DistribuidoraRequest, payload=Depends(verify_auth)):
+    if not payload.get("is_superadmin"):
+        raise HTTPException(status_code=403, detail="Acceso denegado")
     try:
         res = sb.table("distribuidores").update({
             "nombre_empresa": req.nombre.strip(), "token_bot": req.token.strip(),
@@ -597,7 +723,9 @@ async def admin_editar_distribuidora(dist_id: int, req: DistribuidoraRequest, _=
 
 
 @app.patch("/admin/distribuidoras/{dist_id}/estado", summary="Activar/desactivar distribuidora")
-async def admin_toggle_distribuidora(dist_id: int, estado: str, _=Depends(verify_auth)):
+async def admin_toggle_distribuidora(dist_id: int, estado: str, payload=Depends(verify_auth)):
+    if not payload.get("is_superadmin"):
+        raise HTTPException(status_code=403, detail="Acceso denegado")
     if estado not in ("activo", "inactivo"):
         raise HTTPException(status_code=400, detail="estado debe ser 'activo' o 'inactivo'")
     sb.table("distribuidores").update({"estado": estado}).eq("id_distribuidor", dist_id).execute()
@@ -628,13 +756,18 @@ async def admin_toggle_distribuidora(dist_id: int, estado: str, _=Depends(verify
 # ─── Admin: Usuarios del portal ───────────────────────────────────────────────
 
 @app.get("/admin/usuarios", summary="Lista de usuarios del portal")
-def admin_get_usuarios(dist_id: int | None = None, _=Depends(verify_auth)):
-    result = sb.rpc("fn_usuarios_portal", {"p_dist_id": dist_id or 0}).execute()
+def admin_get_usuarios(dist_id: int | None = None, payload=Depends(verify_auth)):
+    actual_dist_id = dist_id if payload.get("is_superadmin") else payload.get("id_distribuidor")
+    if actual_dist_id is None:
+        actual_dist_id = 0 # 0 para superadmin viendo todos
+    
+    result = sb.rpc("fn_usuarios_portal", {"p_dist_id": actual_dist_id}).execute()
     return result.data or []
 
 
 @app.post("/admin/usuarios", summary="Crear usuario del portal")
-def admin_crear_usuario(req: UsuarioRequest, _=Depends(verify_auth)):
+def admin_crear_usuario(req: UsuarioRequest, payload=Depends(verify_auth)):
+    check_dist_permission(payload, req.dist_id)
     try:
         sb.table("usuarios_portal").insert({
             "id_distribuidor": req.dist_id, "usuario_login": req.login.strip(),
@@ -646,8 +779,13 @@ def admin_crear_usuario(req: UsuarioRequest, _=Depends(verify_auth)):
 
 
 @app.put("/admin/usuarios/{user_id}", summary="Editar usuario del portal")
-def admin_editar_usuario(user_id: int, req: UsuarioEditRequest, _=Depends(verify_auth)):
+def admin_editar_usuario(user_id: int, req: UsuarioEditRequest, payload=Depends(verify_auth)):
     try:
+        # Validar pertenencia del usuario a editar
+        check_q = sb.table("usuarios_portal").select("id_distribuidor").eq("id_usuario", user_id).execute()
+        if check_q.data:
+            check_dist_permission(payload, check_q.data[0]["id_distribuidor"])
+            
         update_data = {"usuario_login": req.login.strip(), "rol": req.rol}
         if req.password:
             update_data["password"] = req.password
@@ -658,7 +796,12 @@ def admin_editar_usuario(user_id: int, req: UsuarioEditRequest, _=Depends(verify
 
 
 @app.delete("/admin/usuarios/{user_id}", summary="Eliminar usuario del portal")
-def admin_eliminar_usuario(user_id: int, _=Depends(verify_auth)):
+def admin_eliminar_usuario(user_id: int, payload=Depends(verify_auth)):
+    # Validar pertenencia
+    check_q = sb.table("usuarios_portal").select("id_distribuidor").eq("id_usuario", user_id).execute()
+    if check_q.data:
+        check_dist_permission(payload, check_q.data[0]["id_distribuidor"])
+        
     sb.table("usuarios_portal").delete().eq("id_usuario", user_id).execute()
     return {"ok": True}
 
@@ -666,18 +809,27 @@ def admin_eliminar_usuario(user_id: int, _=Depends(verify_auth)):
 # ─── Admin: Integrantes de Telegram ──────────────────────────────────────────
 
 @app.get("/admin/integrantes", summary="Lista de integrantes")
-def admin_get_integrantes(distribuidor_id: int | None = None, _=Depends(verify_auth)):
-    result = sb.rpc("fn_integrantes", {"p_dist_id": distribuidor_id or 0}).execute()
+def admin_get_integrantes(distribuidor_id: int | None = None, payload=Depends(verify_auth)):
+    actual_dist_id = distribuidor_id if payload.get("is_superadmin") else payload.get("id_distribuidor")
+    if actual_dist_id is None:
+        actual_dist_id = 0
+        
+    result = sb.rpc("fn_integrantes", {"p_dist_id": actual_dist_id or 0}).execute()
     return result.data or []
 
 
 @app.put("/admin/integrantes/{id_integrante}/rol", summary="Cambiar rol de integrante")
-def admin_set_rol_integrante(id_integrante: int, req: IntegranteRolRequest, _=Depends(verify_auth)):
+def admin_set_rol_integrante(id_integrante: int, req: IntegranteRolRequest, payload=Depends(verify_auth)):
+    if req.distribuidor_id:
+        check_dist_permission(payload, req.distribuidor_id)
+    
     if req.rol not in ("vendedor", "observador"):
         raise HTTPException(status_code=400, detail="rol debe ser 'vendedor' u 'observador'")
+    
     q = sb.table("integrantes_grupo").update({"rol_telegram": req.rol}).eq("id_integrante", id_integrante)
-    if req.distribuidor_id:
-        q = q.eq("id_distribuidor", req.distribuidor_id)
+    if not payload.get("is_superadmin"):
+        q = q.eq("id_distribuidor", payload.get("id_distribuidor"))
+    
     r = q.execute()
     if not r.data:
         raise HTTPException(status_code=403, detail="Sin permisos o integrante no encontrado")
@@ -744,20 +896,23 @@ def _periodo_where(periodo: str) -> str:
 
 
 @app.get("/dashboard/kpis/{distribuidor_id}", summary="KPIs del dashboard por período")
-def dashboard_kpis(distribuidor_id: int, periodo: str = "mes", _=Depends(verify_auth)):
+def dashboard_kpis(distribuidor_id: int, periodo: str = "mes", payload=Depends(verify_auth)):
+    check_dist_permission(payload, distribuidor_id)
     result = sb.rpc("fn_dashboard_kpis", {"p_dist_id": distribuidor_id, "p_periodo": periodo}).execute()
     r = result.data[0] if result.data else {}
     return {k: (v or 0) for k, v in r.items()}
 
 
 @app.get("/dashboard/ranking/{distribuidor_id}", summary="Ranking de vendedores por período")
-def dashboard_ranking(distribuidor_id: int, periodo: str = "mes", top: int = 15, _=Depends(verify_auth)):
+def dashboard_ranking(distribuidor_id: int, periodo: str = "mes", top: int = 15, payload=Depends(verify_auth)):
+    check_dist_permission(payload, distribuidor_id)
     result = sb.rpc("fn_dashboard_ranking", {"p_dist_id": distribuidor_id, "p_periodo": periodo, "p_top": top}).execute()
     return result.data or []
 
 
 @app.get("/dashboard/ultimas-evaluadas/{distribuidor_id}", summary="Últimas fotos evaluadas con fallback de días")
-def dashboard_ultimas(distribuidor_id: int, n: int = 8, _=Depends(verify_auth)):
+def dashboard_ultimas(distribuidor_id: int, n: int = 8, payload=Depends(verify_auth)):
+    check_dist_permission(payload, distribuidor_id)
     """Busca las últimas N fotos aprobadas/destacadas.
     Si no hay fotos hoy, retrocede un día a la vez hasta encontrar (máx. 90 días)."""
     # Fecha actual en Argentina (UTC-3): evita que a las 21hs ARG el día ya sea "mañana" en UTC

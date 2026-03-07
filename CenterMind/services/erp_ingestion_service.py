@@ -85,7 +85,7 @@ class ERPIngestionService:
                 "id_cliente_interno": str(row.get(col_id_int)),
                 "nombre_cliente": str(row.get(col_nombre, "")),
                 "nombre_fantasia": str(row.get(col_fantasia, "")),
-                "vendedor_erp": str(row.get(col_vendedor, "")),
+                "vendedor_erp": str(row.get(col_vendedor, "")).strip().upper(),
                 "sucursal_erp": str(row.get(col_sucursal, "")),
                 "lat": float(row.get(col_lat, 0)) if row.get(col_lat) else None,
                 "lon": float(row.get(col_lon, 0)) if row.get(col_lon) else None,
@@ -186,7 +186,7 @@ class ERPIngestionService:
                     "importe_neto": v_neto,
                     "importe_final": v_final,
                     "unidades": v_unid,
-                    "vendedor_erp": str(row.get(col_vendedor, "")),
+                    "vendedor_erp": str(row.get(col_vendedor, "")).strip().upper(),
                     "sucursal_erp": str(row.get(col_sucursal, "")),
                     "tipo_documento": str(row.get("cod_tipo_docs", "")),
                 }
@@ -205,5 +205,14 @@ class ERPIngestionService:
                 logger.error(f"Error en upsert de ventas: {e}")
                 raise e
         return 0
+
+    def get_sync_stats(self, dist_id: int):
+        """Obtiene resumen de sincronización desde la DB."""
+        try:
+            res = sb.rpc("fn_admin_erp_sync_status", {"p_dist_id": dist_id}).execute()
+            return res.data if res.data else {}
+        except Exception as e:
+            logger.error(f"Error obteniendo sync stats: {e}")
+            return {}
 
 erp_service = ERPIngestionService()

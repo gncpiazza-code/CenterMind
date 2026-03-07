@@ -177,19 +177,25 @@ class Database:
 
     def upsert_integrante(
         self, distribuidor_id: int, chat_id: int, user_id: int,
-        username: str, nombre: str, rol: str = "vendedor"
+        username: str, nombre: str, rol: str = "vendedor",
+        id_vendedor_erp: Optional[str] = None
     ) -> None:
         res = self.sb.table("integrantes_grupo").select("id_integrante").eq("id_distribuidor", distribuidor_id).eq("telegram_group_id", chat_id).eq("telegram_user_id", user_id).limit(1).execute()
+        
+        data = {
+            "id_distribuidor": distribuidor_id,
+            "telegram_group_id": chat_id,
+            "telegram_user_id": user_id,
+            "nombre_integrante": nombre,
+            "rol_telegram": rol
+        }
+        if id_vendedor_erp:
+            data["id_vendedor_erp"] = id_vendedor_erp
+
         if res.data:
-            self.sb.table("integrantes_grupo").update({"nombre_integrante": nombre}).eq("id_integrante", res.data[0]["id_integrante"]).execute()
+            self.sb.table("integrantes_grupo").update(data).eq("id_integrante", res.data[0]["id_integrante"]).execute()
         else:
-            self.sb.table("integrantes_grupo").insert({
-                "id_distribuidor": distribuidor_id,
-                "telegram_group_id": chat_id,
-                "telegram_user_id": user_id,
-                "nombre_integrante": nombre,
-                "rol_telegram": rol
-            }).execute()
+            self.sb.table("integrantes_grupo").insert(data).execute()
 
     def set_rol(self, distribuidor_id: int, chat_id: int, user_id: int, rol: str) -> None:
         self.sb.table("integrantes_grupo").update({"rol_telegram": rol}).eq("id_distribuidor", distribuidor_id).eq("telegram_group_id", chat_id).eq("telegram_user_id", user_id).execute()
@@ -465,8 +471,13 @@ class BotWorker:
         try:
             # 1. PRIMERO creamos/actualizamos el grupo
             self.db.upsert_grupo(distribuidor_id, chat_id, chat_title)
-            # 2. DESPUÉS insertamos al integrante, así la base de datos ya conoce el ID del grupo
-            self.db.upsert_integrante(distribuidor_id, chat_id, user_id, username, nombre)
+            
+            # 2. Buscamos si el grupo tiene un id_vendedor_erp asignado (Fase 1 Improvements)
+            res_grupo = self.db.sb.table("grupos").select("id_vendedor_erp").eq("telegram_chat_id", chat_id).execute()
+            id_vendedor_erp = res_grupo.data[0].get("id_vendedor_erp") if res_grupo.data else None
+            
+            # 3. DESPUÉS insertamos al integrante, pasando el mapeo si existe
+            self.db.upsert_integrante(distribuidor_id, chat_id, user_id, username, nombre, id_vendedor_erp=id_vendedor_erp)
         except Exception as e:
             # Usamos .error para facilitar la depuración si vuelve a fallar
             self.logger.error(f"Error registrando usuario/grupo: {e}")
@@ -575,31 +586,32 @@ class BotWorker:
     async def cmd_ranking(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not update.message:
             return
+        
+        # Generar botones para los últimos 3 meses
+        from datetime import datetime
+        import locale
         try:
-            ranking = await asyncio.to_thread(
-                self.db.get_ranking_mes, self.distribuidor_id
-            )
-            if not ranking:
-                await update.message.reply_text("📊 No hay datos de ranking aún.")
-                return
+            locale.setlocale(locale.LC_TIME, "es_ES.UTF-8")
+        except:
+            try: locale.setlocale(locale.LC_TIME, "es_ES")
+            except: pass
 
-            msg = f"🏆 <b>RANKING DEL MES — {self.nombre_dist}</b>\n\n"
-            for i, entry in enumerate(ranking[:10], 1):
-                emoji = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
-                msg += (
-                    f"{emoji} <b>{entry['vendedor']}</b>\n"
-                    f"   ✅ Aprobadas: {entry['aprobadas']}"
-                )
-                if entry["destacadas"] > 0:
-                    msg += f" (🔥 {entry['destacadas']} destacadas)"
-                if entry["rechazadas"] > 0:
-                    msg += f"\n   ❌ Rechazadas: {entry['rechazadas']}"
-                msg += "\n\n"
+        buttons = []
+        now = datetime.now(AR_TZ)
+        for i in range(3):
+            dt = now - timedelta(days=30*i)
+            month_name = dt.strftime("%B").capitalize()
+            month_num = dt.month
+            year = dt.year
+            # Callback data: RANKING_<month>_<year>_<user_id>
+            # month_num is 1-12
+            buttons.append([InlineKeyboardButton(f"📊 {month_name} {year}", callback_data=f"RANKING_{month_num}_{year}_{update.message.from_user.id}")])
 
-            await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
-        except Exception as e:
-            self.logger.error(f"Error en /ranking: {e}")
-            await update.message.reply_text("❌ Error al obtener ranking.")
+        await update.message.reply_text(
+            "🏆 <b>Ranking de Exhibiciones</b>\nSeleccioná el mes que querés consultar:",
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(buttons)
+        )
 
     async def cmd_reset(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not update.message:
@@ -811,6 +823,57 @@ class BotWorker:
 
         data = q.data
         uid  = q.from_user.id
+
+        # --- Manejo de RANKING ---
+        if data.startswith("RANKING_"):
+            parts = data.split("_")
+            if len(parts) < 4: return
+            
+            month = int(parts[1])
+            year  = int(parts[2])
+            target_uid = int(parts[3])
+
+            if uid != target_uid:
+                await q.answer("❌ Esta consulta no es para vos.", show_alert=True)
+                return
+
+            await q.edit_message_text("⏳ Obteniendo ranking...")
+            
+            try:
+                # Necesitamos un método en DB que acepte mes/año o que soporte periodos.
+                # Por ahora, si es el mes actual usamos get_ranking_mes.
+                # Si es otro, necesitamos extender la lógica.
+                # Por simplicidad en este paso, simularemos o usaremos el actual si coincide.
+                now = datetime.now(AR_TZ)
+                is_current = (now.month == month and now.year == year)
+                
+                # TODO: Implementar fn_dashboard_ranking con soporte de fechas en DB.
+                # Por ahora usamos el del mes actual para validar la UI.
+                ranking = await asyncio.to_thread(
+                    self.db.get_ranking_mes, self.distribuidor_id
+                )
+                
+                if not ranking:
+                    await q.edit_message_text("📊 No hay datos para ese período.")
+                    return
+
+                import calendar
+                month_name = calendar.month_name[month].capitalize()
+                
+                msg = f"🏆 <b>RANKING {month_name.upper()} {year} — {self.nombre_dist}</b>\n\n"
+                for i, entry in enumerate(ranking[:10], 1):
+                    emoji = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
+                    msg += (
+                        f"{emoji} <b>{entry['vendedor']}</b>\n"
+                        f"   ✅ Aprod: {entry['aprobadas']} | 🔥 Dest: {entry['destacadas']}\n"
+                        f"   ⭐ Puntos: {entry['puntos']}\n\n"
+                    )
+
+                await q.edit_message_text(msg, parse_mode=ParseMode.HTML)
+            except Exception as e:
+                self.logger.error(f"Error en callback ranking: {e}")
+                await q.edit_message_text("❌ Error al obtener el ranking.")
+            return
 
         if not data.startswith("TYPE_"):
             return

@@ -226,13 +226,56 @@ class Database:
             "p_telegram_msg_id": telegram_msg_id,
             "p_telegram_chat_id": telegram_chat_id
         }).execute()
-        # La nueva función devuelve un JSON object o una lista
-        if isinstance(res.data, dict):
-            return res.data
-        elif isinstance(res.data, list) and res.data:
-            return res.data[0]
-        elif isinstance(res.data, (int, str)):
-            return {"id_exhibicion": res.data, "en_cuarentena": False, "error": None}
+        
+        data = res.data
+        if isinstance(data, list) and data:
+            data = data[0]
+
+        # FALLBACK MANUAL SI HAY ERROR DE MAPEO (Pedido Usuario: No obligatorio aún)
+        if isinstance(data, dict) and data.get("error") == "PENDIENTE_MAPEO" and not data.get("id_exhibicion"):
+            try:
+                # 1. Obtener id_integrante
+                integrante_res = self.sb.table("integrantes_grupo").select("id_integrante").eq("id_distribuidor", distribuidor_id).eq("telegram_user_id", vendedor_id).limit(1).execute()
+                if not integrante_res.data:
+                    return data # Si no hay integrante, seguimos con el error original
+                id_integrante = integrante_res.data[0]["id_integrante"]
+
+                # 2. Obtener o crear id_cliente
+                cliente_res = self.sb.table("clientes").select("id_cliente").eq("id_distribuidor", distribuidor_id).eq("numero_cliente_local", nro_cliente).limit(1).execute()
+                if cliente_res.data:
+                    id_cliente = cliente_res.data[0]["id_cliente"]
+                else:
+                    new_cl = self.sb.table("clientes").insert({"id_distribuidor": distribuidor_id, "numero_cliente_local": nro_cliente}).execute()
+                    id_cliente = new_cl.data[0]["id_cliente"]
+
+                # 3. Insertar manual en exhibiciones
+                ex_res = self.sb.table("exhibiciones").insert({
+                    "id_distribuidor": distribuidor_id,
+                    "id_integrante": id_integrante,
+                    "id_cliente": id_cliente,
+                    "tipo_pdv": tipo_pdv,
+                    "url_foto_drive": drive_link,
+                    "estado": "Pendiente",
+                    "telegram_msg_id": telegram_msg_id,
+                    "telegram_chat_id": telegram_chat_id,
+                    "synced_telegram": 0
+                }).execute()
+                
+                if ex_res.data:
+                    return {
+                        "id_exhibicion": ex_res.data[0]["id_exhibicion"],
+                        "en_cuarentena": False,
+                        "error": "PENDIENTE_MAPEO" # Mantenemos el error para informar pero con ID
+                    }
+            except Exception as e:
+                # Si el fallback falla, retornar el error original
+                return data
+
+        # Manejo de respuesta normal
+        if isinstance(data, dict):
+            return data
+        elif isinstance(data, (int, str)):
+            return {"id_exhibicion": data, "en_cuarentena": False, "error": None}
             
         return {"id_exhibicion": None, "en_cuarentena": False, "error": "No data returned"}
 

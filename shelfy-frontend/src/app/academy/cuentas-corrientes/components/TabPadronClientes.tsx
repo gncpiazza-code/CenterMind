@@ -23,6 +23,11 @@ import {
     PieChart, Pie, Cell, Legend
 } from "recharts";
 import { fetchClientesStats, fetchClientesTemporal, fetchClientesDesglose, fetchClientesListado } from "@/lib/api";
+import Map, { Marker, NavigationControl } from "react-map-gl/maplibre";
+import "maplibre-gl/dist/maplibre-gl.css";
+
+const MAPTILER_KEY = process.env.NEXT_PUBLIC_MAPTILER_KEY || "G6B85Hh6h0w6WXZlE8S8";
+const MAP_STYLE = `https://api.maptiler.com/maps/voyager/style.json?key=${MAPTILER_KEY}`;
 
 const COLORS = ['#7c3aed', '#ec4899', '#f59e0b', '#10b981', '#3b82f6', '#6366f1'];
 
@@ -118,7 +123,7 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
                         onClick={() => setView("geografia")}
                         className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${view === 'geografia' ? 'bg-[var(--shelfy-primary)] text-white shadow-md' : 'text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]'}`}
                     >
-                        Geografía
+                        Mapa
                     </button>
                     <button
                         onClick={() => setView("listado")}
@@ -253,34 +258,56 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
                 </Card>
             )}
 
-            <Card className="min-h-[400px] p-0 overflow-hidden relative border-none shadow-xl">
-                <div className="absolute top-4 left-4 z-[1000] bg-white/90 backdrop-blur-md p-3 rounded-2xl border border-slate-200 shadow-xl">
-                    <h3 className="text-sm font-black text-slate-900 flex items-center gap-2">
-                        <Globe size={16} className="text-cyan-500" />
-                        Mapa de Calor de Clientes
-                    </h3>
-                    <p className="text-[10px] font-bold text-slate-500 mt-1">Visualizando {clientesList.filter(c => c.latitud && c.longitud).length} ubicaciones exactas</p>
-                </div>
-
-                <div className="h-[400px] w-full bg-slate-100 flex items-center justify-center">
-                    {/* Cargamos el mapa dinámicamente si hay datos */}
-                    {typeof window !== 'undefined' && (
-                        <iframe
-                            src={`https://www.google.com/maps/embed/v1/search?key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY || ""}&q=clientes+en+argentina&zoom=4`}
-                            className="w-full h-full border-none opacity-50 grayscale"
-                            title="Heatmap Placeholder"
-                        />
-                    )}
-                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/40 backdrop-blur-sm">
-                        <MapPin size={48} className="mb-4 text-cyan-500 animate-bounce" />
-                        <p className="text-lg font-black text-slate-900">Heatmap Engine Activo</p>
-                        <p className="text-xs text-slate-500 font-bold max-w-xs text-center mt-2 px-6">
-                            Se han procesado {clientesList.filter(c => c.latitud && c.longitud).length} coordenadas.
-                            El motor de clustering está renderizando la densidad comercial.
-                        </p>
+            {view === "geografia" && (
+                <Card className="min-h-[600px] p-0 overflow-hidden relative border-none shadow-xl">
+                    <div className="absolute top-4 left-4 z-[1000] bg-white/90 backdrop-blur-md p-3 rounded-2xl border border-slate-200 shadow-xl flex flex-col gap-1">
+                        <h3 className="text-sm font-black text-slate-900 flex items-center gap-2">
+                            <Globe size={16} className="text-violet-600" />
+                            Mapa de Padrón de Clientes
+                        </h3>
+                        {loadingList ? (
+                            <p className="text-[10px] font-bold text-slate-500 flex items-center gap-2">
+                                <span className="w-2 h-2 rounded-full bg-violet-400 animate-pulse"></span>
+                                Cargando nube de puntos...
+                            </p>
+                        ) : (
+                            <p className="text-[10px] font-bold text-slate-500">Visualizando {clientesList.filter(c => c.latitud && c.longitud).length} ubicaciones exactas</p>
+                        )}
                     </div>
-                </div>
-            </Card>
+
+                    <div className="h-[600px] w-full bg-slate-100 flex items-center justify-center">
+                        <Map
+                            initialViewState={{
+                                longitude: -64.1833,
+                                latitude: -31.4167,
+                                zoom: 4
+                            }}
+                            mapStyle={MAP_STYLE}
+                            attributionControl={false}
+                        >
+                            <NavigationControl position="top-right" />
+                            {clientesList.filter(c => c.latitud && c.longitud).map((client) => {
+                                const lat = parseFloat(client.latitud as string);
+                                const lon = parseFloat(client.longitud as string);
+                                if (isNaN(lat) || isNaN(lon)) return null;
+
+                                return (
+                                    <Marker
+                                        key={client.id_cliente_erp_local}
+                                        longitude={lon}
+                                        latitude={lat}
+                                    >
+                                        <div
+                                            className="w-4 h-4 rounded-full bg-violet-500 opacity-70 border border-white cursor-pointer hover:bg-violet-400 hover:scale-150 transition-transform hover:z-50"
+                                            title={`${client.nombre_fantasia || client.razon_social} (${client.id_cliente_erp_local})`}
+                                        ></div>
+                                    </Marker>
+                                );
+                            })}
+                        </Map>
+                    </div>
+                </Card>
+            )}
 
             {view === "listado" && (
                 <Card>

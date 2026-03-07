@@ -69,10 +69,10 @@ export default function LiveMapPage() {
             <div className="flex-1 flex flex-col min-w-0 h-full">
                 <Topbar title="Monitoreo de Actividad Global" />
 
-                <div className="flex-1 flex flex-col xl:flex-row relative">
+                <div className="flex-1 flex flex-col lg:flex-row relative">
 
                     {/* Feed Lateral Izquierdo (Live Stream) - Ocultable en móvil eventualmente */}
-                    <div className="w-full xl:w-72 bg-white border-r border-slate-200 z-20 flex flex-col shadow-xl shrink-0">
+                    <div className="w-full lg:w-72 bg-white border-r border-slate-200 z-20 flex flex-col shadow-xl shrink-0">
                         <div className="p-4 border-b border-slate-100 bg-slate-50/50">
                             <h3 className="text-[11px] font-black text-slate-900 uppercase tracking-[0.2em] flex items-center gap-2">
                                 <Zap size={14} className="text-amber-500 fill-amber-500" />
@@ -93,7 +93,6 @@ export default function LiveMapPage() {
                                                 ${selectedEventId === ev.id_ex
                                                     ? "bg-violet-50 border-violet-200 ring-2 ring-violet-500/20 translate-x-1"
                                                     : "bg-white border-slate-100 hover:border-violet-100 hover:bg-slate-50/50"}`}
-                                            style={{ animation: `slideUp 0.3s ease-out ${i * 0.03}s forwards`, opacity: 0 }}
                                         >
                                             <div className="flex items-center justify-between mb-1.5">
                                                 <span
@@ -146,7 +145,7 @@ export default function LiveMapPage() {
                     </div>
 
                     {/* Panel Estadístico Derecho (Distribuidores) */}
-                    <div className="w-full xl:w-80 bg-slate-50 border-l border-slate-200 z-20 flex flex-col shadow-2xl shrink-0 overflow-hidden">
+                    <div className="w-full lg:w-80 bg-slate-50 border-l border-slate-200 z-20 flex flex-col shadow-2xl shrink-0 overflow-hidden">
                         <div className="p-5 border-b border-slate-200 bg-white">
                             <h3 className="text-[11px] font-black text-slate-900 uppercase tracking-[0.2em] flex items-center gap-2">
                                 <Building2 size={14} className="text-violet-500" />
@@ -156,11 +155,11 @@ export default function LiveMapPage() {
                         </div>
 
                         <div className="flex-1 overflow-y-auto p-4 space-y-3 scrollbar-thin">
-                            {statsByDist.map((dist, i) => (
+                            {loading && <div className="p-8 text-center"><PageSpinner /></div>}
+                            {!loading && statsByDist.map((dist, i) => (
                                 <div
                                     key={dist.name}
                                     className="p-4 bg-white rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-all group overflow-hidden relative"
-                                    style={{ animation: `slideLeft 0.3s ease-out ${i * 0.05}s forwards`, opacity: 0 }}
                                 >
                                     {/* Decorator line */}
                                     <div

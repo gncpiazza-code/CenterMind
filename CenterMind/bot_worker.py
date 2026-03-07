@@ -1020,36 +1020,36 @@ class BotWorker:
 
                 if drive_link:
                     self.logger.info(f"✅ Foto en Supabase: {drive_link[:80]}...")
-                        # Registro en SQL (PASO 5: la función ahora devuelve JSON)
-                        try:
-                            params = {
-                                "distribuidor_id": self.distribuidor_id,
-                                "chat_id": chat_id,
-                                "vendedor_id": uploader_id,
-                                "nro_cliente": nro_cliente,
-                                "tipo_pdv": tipo_pdv,
-                                "drive_link": drive_link,
-                                "telegram_msg_id": ph_msg_id,
-                                "telegram_chat_id": chat_id
-                            }
-                            rpc_result = await asyncio.to_thread(self.db.registrar_exhibicion, **params)
+                    # Registro en SQL (PASO 5: la función ahora devuelve JSON)
+                    try:
+                        params = {
+                            "distribuidor_id": self.distribuidor_id,
+                            "chat_id": chat_id,
+                            "vendedor_id": uploader_id,
+                            "nro_cliente": nro_cliente,
+                            "tipo_pdv": tipo_pdv,
+                            "drive_link": drive_link,
+                            "telegram_msg_id": ph_msg_id,
+                            "telegram_chat_id": chat_id
+                        }
+                        rpc_result = await asyncio.to_thread(self.db.registrar_exhibicion, **params)
 
-                            # REINTENTO SI NO ESTÁ REGISTRADO
-                            if rpc_result.get("error") == "VENDEDOR_NO_REGISTRADO":
-                                self.logger.warning(f"⚠️ Vendedor {uploader_id} no registrado en DB. Reintentando registro...")
-                                success = await asyncio.to_thread(
-                                    self._register_user_and_group,
-                                    self.distribuidor_id, chat_id, chat_title, uploader_id,
-                                    q.from_user.username or "", uploader_name
-                                )
-                                if success:
-                                    rpc_result = await asyncio.to_thread(self.db.registrar_exhibicion, **params)
+                        # REINTENTO SI NO ESTÁ REGISTRADO
+                        if rpc_result.get("error") == "VENDEDOR_NO_REGISTRADO":
+                            self.logger.warning(f"⚠️ Vendedor {uploader_id} no registrado en DB. Reintentando registro...")
+                            success = await asyncio.to_thread(
+                                self._register_user_and_group,
+                                self.distribuidor_id, chat_id, chat_title, uploader_id,
+                                q.from_user.username or "", uploader_name
+                            )
+                            if success:
+                                rpc_result = await asyncio.to_thread(self.db.registrar_exhibicion, **params)
 
-                            # PASO 3: Vendedor no mapeado -> Ya no forzamos revisión (Pedido Usuario: No obligatorio aún)
-                            if rpc_result.get("error") == "PENDIENTE_MAPEO":
-                                en_cuarentena = False
-                            else:
-                                en_cuarentena = rpc_result.get("en_cuarentena", False)
+                        # PASO 3: Vendedor no mapeado -> Ya no forzamos revisión (Pedido Usuario: No obligatorio aún)
+                        if rpc_result.get("error") == "PENDIENTE_MAPEO":
+                            en_cuarentena = False
+                        else:
+                            en_cuarentena = rpc_result.get("en_cuarentena", False)
 
                         ex_id = rpc_result.get("id_exhibicion")
                         # en_cuarentena ya se determinó arriba

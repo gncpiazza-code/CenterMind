@@ -14,13 +14,15 @@ import {
     Download,
     BarChart3,
     PieChart as PieChartIcon,
-    Globe
+    Globe,
+    Search,
+    X
 } from "lucide-react";
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
     PieChart, Pie, Cell, Legend
 } from "recharts";
-import { fetchClientesStats, fetchClientesTemporal, fetchClientesDesglose } from "@/lib/api";
+import { fetchClientesStats, fetchClientesTemporal, fetchClientesDesglose, fetchClientesListado } from "@/lib/api";
 
 const COLORS = ['#7c3aed', '#ec4899', '#f59e0b', '#10b981', '#3b82f6', '#6366f1'];
 
@@ -30,7 +32,10 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
     const [temporal, setTemporal] = useState<any[]>([]);
     const [desgloseVendedores, setDesgloseVendedores] = useState<any[]>([]);
     const [desgloseLocalidades, setDesgloseLocalidades] = useState<any[]>([]);
-    const [view, setView] = useState<"general" | "vendedores" | "geografia">("general");
+    const [clientesList, setClientesList] = useState<any[]>([]);
+    const [search, setSearch] = useState("");
+    const [view, setView] = useState<"general" | "vendedores" | "geografia" | "listado">("general");
+    const [loadingList, setLoadingList] = useState(false);
 
     const loadData = async () => {
         setLoading(true);
@@ -52,9 +57,30 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
         }
     };
 
+    const loadListado = async () => {
+        setLoadingList(true);
+        try {
+            const data = await fetchClientesListado(distId, search);
+            setClientesList(data);
+        } catch (e) {
+            console.error("Error al cargar listado de clientes:", e);
+        } finally {
+            setLoadingList(false);
+        }
+    };
+
     useEffect(() => {
         loadData();
     }, [distId]);
+
+    useEffect(() => {
+        if (view === "listado") {
+            const timer = setTimeout(() => {
+                loadListado();
+            }, 500);
+            return () => clearTimeout(timer);
+        }
+    }, [view, search, distId]);
 
     if (loading && !stats) return <PageSpinner />;
 
@@ -80,6 +106,12 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
                         className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${view === 'geografia' ? 'bg-[var(--shelfy-primary)] text-white shadow-md' : 'text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]'}`}
                     >
                         Geografía
+                    </button>
+                    <button
+                        onClick={() => setView("listado")}
+                        className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${view === 'listado' ? 'bg-[var(--shelfy-primary)] text-white shadow-md' : 'text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]'}`}
+                    >
+                        Listado Maestro
                     </button>
                 </div>
 
@@ -230,6 +262,82 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
                         </p>
                     </Card>
                 </div>
+            )}
+
+            {view === "listado" && (
+                <Card>
+                    <div className="flex flex-col md:flex-row items-center justify-between gap-4 mb-6">
+                        <h3 className="text-sm font-bold flex items-center gap-2">
+                            <Users size={16} className="text-[var(--shelfy-primary)]" />
+                            Listado Detallado de Clientes
+                        </h3>
+                        <div className="relative w-full md:w-80">
+                            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--shelfy-muted)]" />
+                            <input
+                                type="text"
+                                placeholder="Buscar por nombre o número..."
+                                value={search}
+                                onChange={(e) => setSearch(e.target.value)}
+                                className="w-full pl-10 pr-4 py-2 bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-xl text-sm focus:outline-none focus:border-[var(--shelfy-primary)] transition-all"
+                            />
+                            {search && (
+                                <button
+                                    onClick={() => setSearch("")}
+                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--shelfy-muted)] hover:text-[var(--shelfy-error)]"
+                                >
+                                    <X size={14} />
+                                </button>
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="overflow-x-auto min-h-[400px]">
+                        {loadingList ? (
+                            <div className="py-20 flex flex-col items-center justify-center gap-4">
+                                <PageSpinner />
+                                <span className="text-xs font-bold text-[var(--shelfy-muted)]">Cargando clientes...</span>
+                            </div>
+                        ) : clientesList.length > 0 ? (
+                            <table className="w-full text-sm">
+                                <thead>
+                                    <tr className="text-[var(--shelfy-muted)] text-left border-b border-[var(--shelfy-border)]">
+                                        <th className="pb-3 pr-4 font-semibold">N° Cliente</th>
+                                        <th className="pb-3 pr-4 font-semibold">Nombre Fantasía</th>
+                                        <th className="pb-3 pr-4 font-semibold">Razón Social</th>
+                                        <th className="pb-3 pr-4 font-semibold">Localidad</th>
+                                        <th className="pb-3 pr-4 font-semibold text-center">Estado ERP</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {clientesList.map((client) => (
+                                        <tr key={client.id_cliente_erp_local} className="border-b border-[var(--shelfy-border)] last:border-0 hover:bg-[var(--shelfy-bg)] transition-colors group">
+                                            <td className="py-3 pr-4 font-mono text-xs text-[var(--shelfy-muted)]">{client.id_cliente_erp_local}</td>
+                                            <td className="py-3 pr-4 font-bold text-[var(--shelfy-text)]">{client.nombre_fantasia || "-"}</td>
+                                            <td className="py-3 pr-4 text-xs text-[var(--shelfy-muted)]">{client.razon_social || "-"}</td>
+                                            <td className="py-3 pr-4 text-[var(--shelfy-text)]">{client.localidad || client.ciudad || "-"}</td>
+                                            <td className="py-3 pr-4 text-center">
+                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${client.estado === 'activo' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                                                    {client.estado || 'activo'}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        ) : (
+                            <div className="py-20 flex flex-col items-center justify-center text-[var(--shelfy-muted)]">
+                                <Users size={40} className="mb-4 opacity-10" />
+                                <p className="text-sm font-bold">No se encontraron clientes</p>
+                                <p className="text-xs">Intenta ajustar tu búsqueda</p>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="mt-4 pt-4 border-t border-[var(--shelfy-border)] flex items-center justify-between text-[10px] text-[var(--shelfy-muted)] font-bold uppercase tracking-widest">
+                        <span>Mostrando {clientesList.length} clientes</span>
+                        <span>Listado Rama 1.A (Master Data)</span>
+                    </div>
+                </Card>
             )}
         </div>
     );

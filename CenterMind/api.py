@@ -29,10 +29,10 @@ from pydantic import BaseModel
 import json
 import base64
 
-from services.cuentas_corrientes_service import procesar_cuentas_corrientes_service
-from services.erp_ingestion_service import erp_service
 from services.erp_summary_service import erp_summary_service
+from services.system_monitoring_service import monitor_service
 import io
+import psutil
 from apscheduler.schedulers.background import BackgroundScheduler
 
 # JWT (python-jose) — opcional: si no está instalado, /auth/login no estará disponible
@@ -262,6 +262,10 @@ def check_dist_permission(payload: dict, required_dist_id: int):
             status_code=403, 
             detail=f"No tienes permisos para acceder a esta distribuidora ({required_dist_id})"
         )
+    
+    # --- La Ley del Sistema: Bloqueo de Compliance ---
+    check_distributor_status(required_dist_id, payload)
+    
     return True
 
 
@@ -426,6 +430,27 @@ def get_live_map_events(minutos: int = 60, user_payload=Depends(verify_auth)):
         logger.error(f"Error en eventos de mapa: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/admin/system-health", tags=["SuperAdmin"], summary="Métricas de hardware y base de datos (Nivel 0)")
+def get_system_health(user_payload=Depends(verify_auth)):
+    """Retorna RAM, CPU, Storage y saturación global."""
+    if not user_payload.get("is_superadmin"):
+        raise HTTPException(status_code=403, detail="Solo accesible para SuperAdmin")
+    
+    try:
+        metrics = monitor_service.get_system_metrics()
+        db_stats = monitor_service.get_db_stats()
+        sessions = monitor_service.get_active_sessions(bots)
+        
+        return {
+            "hardware": metrics,
+            "database": db_stats,
+            "sessions": sessions,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Error en health monitor: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/api/public/landing-stats", summary="Estadisticas publicas para la Landing Page")
 def public_landing_stats():
     try:
@@ -470,23 +495,35 @@ def auth_login(req: LoginRequest):
         if not user.get("activo", True):
             raise HTTPException(status_code=403, detail="Tu usuario ha sido desactivado. Contacta al administrador.")
 
+        # --- Fase Architecture V3: Feature Flags desde DB ---
+        dist_id = user.get("id_distribuidor")
+        flags = {"usa_quarentena": False, "usa_contexto_erp": False, "usa_mapeo_vendedores": False}
+        if dist_id:
+            dist_res = sb.table("distribuidores").select("feature_flags, estado_operativo").eq("id_distribuidor", dist_id).execute()
+            if dist_res.data:
+                d_data = dist_res.data[0]
+                flags = d_data.get("feature_flags") or flags
+                # Si el tenant está bloqueado, forzamos flags a false o informamos
+                if d_data.get("estado_operativo") != "Activo":
+                    logger.warning(f"⚠️ Tenant {dist_id} logueando en modo lectura (Bloqueado)")
+
         payload = {
             "sub":               user["usuario_login"],
             "id_usuario":        user["id_usuario"],
             "rol":               user["rol"],
-            "id_distribuidor":   user.get("id_distribuidor"),
+            "id_distribuidor":   dist_id,
             "nombre_empresa":    user.get("nombre_empresa"),
             "is_superadmin":     user.get("is_superadmin") or user["rol"] == "superadmin",
-            "usa_quarentena":    user.get("usa_quarentena", False),
-            "usa_contexto_erp":   user.get("usa_contexto_erp", False),
-            "usa_mapeo_vendedores": user.get("usa_mapeo_vendedores", False),
+            "usa_quarentena":    flags.get("usa_quarentena", False),
+            "usa_contexto_erp":   flags.get("usa_contexto_erp", False),
+            "usa_mapeo_vendedores": flags.get("usa_mapeo_vendedores", False),
             "exp":               datetime.utcnow() + timedelta(hours=JWT_EXPIRE_HOURS),
         }
         token = _jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
         return TokenResponse(
             access_token=token, token_type="bearer",
             usuario=user["usuario_login"], rol=user["rol"],
-            id_usuario=user["id_usuario"], id_distribuidor=user.get("id_distribuidor"),
+            id_usuario=user["id_usuario"], id_distribuidor=dist_id,
             nombre_empresa=user.get("nombre_empresa"),
             is_superadmin=payload["is_superadmin"],
             usa_quarentena=payload["usa_quarentena"],
@@ -505,17 +542,20 @@ def switch_context(dist_id: int, payload=Depends(verify_auth)):
     if not payload.get("is_superadmin"):
         raise HTTPException(status_code=403, detail="Solo el superadmin puede cambiar de contexto")
     
-    # 1. Buscar la nueva distribuidora
-    res = sb.table("distribuidores").select("id_distribuidor, nombre_empresa").eq("id_distribuidor", dist_id).execute()
+    # 1. Buscar la nueva distribuidora e incluir sus flags
+    res = sb.table("distribuidores").select("id_distribuidor, nombre_empresa, feature_flags").eq("id_distribuidor", dist_id).execute()
     if not res.data:
         raise HTTPException(status_code=404, detail="Distribuidora no encontrada")
     dist = res.data[0]
+    flags = dist.get("feature_flags") or {}
     
-    # 2. Generar nuevo token con el id_distribuidor actualizado en el payload
+    # 2. Generar nuevo token con el id_distribuidor actualizado y sus flags
     new_payload = dict(payload)
     new_payload["id_distribuidor"] = dist["id_distribuidor"]
     new_payload["nombre_empresa"]  = dist["nombre_empresa"]
-    # No extendemos la expiración original, mantenemos la que tenía
+    new_payload["usa_quarentena"]      = flags.get("usa_quarentena", False)
+    new_payload["usa_contexto_erp"]    = flags.get("usa_contexto_erp", False)
+    new_payload["usa_mapeo_vendedores"] = flags.get("usa_mapeo_vendedores", False)
     
     token = _jwt.encode(new_payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
     
@@ -525,9 +565,9 @@ def switch_context(dist_id: int, payload=Depends(verify_auth)):
         id_usuario=new_payload.get("id_usuario", 0), id_distribuidor=dist["id_distribuidor"],
         nombre_empresa=dist["nombre_empresa"],
         is_superadmin=True,
-        usa_quarentena=new_payload.get("usa_quarentena", False),
-        usa_contexto_erp=new_payload.get("usa_contexto_erp", False),
-        usa_mapeo_vendedores=new_payload.get("usa_mapeo_vendedores", False)
+        usa_quarentena=new_payload["usa_quarentena"],
+        usa_contexto_erp=new_payload["usa_contexto_erp"],
+        usa_mapeo_vendedores=new_payload["usa_mapeo_vendedores"]
     )
 
 
@@ -1504,7 +1544,75 @@ def get_clientes_muertos(dist_id: int, dias: int = 30, _=Depends(verify_auth)):
 
 # ─── Entry point (desarrollo) ─────────────────────────────────────────────────
 
-@app.get("/api/reportes/clientes/stats/{dist_id}", summary="KPIs de Padrón de Clientes")
+@app.get("/api/admin/hierarchy/{dist_id}", tags=["Admin"])
+def get_hierarchy(dist_id: int, user_payload=Depends(verify_auth)):
+    """Consolidado de jerarquía: Sucursal -> Vendedores/Telegram."""
+    check_dist_permission(user_payload, dist_id)
+    
+    try:
+        # 1. Sucursales
+        locs = sb.table("locations").select("*").eq("dist_id", dist_id).execute().data or []
+        
+        # 2. Vendedores (Integrantes)
+        vendedores = sb.table("integrantes_grupo").select("*").eq("id_distribuidor", dist_id).execute().data or []
+        
+        # 3. Armar estructura
+        hierarchy = []
+        for loc in locs:
+            sucursal_node = {
+                **loc,
+                "vendedores": [v for v in vendedores if v.get("location_id") == loc["location_id"]]
+            }
+            hierarchy.append(sucursal_node)
+            
+        # Añadir vendedores sin sucursal
+        sin_sucursal = [v for v in vendedores if not v.get("location_id")]
+        if sin_sucursal:
+            hierarchy.append({
+                "location_id": None,
+                "label": "Sin Sucursal",
+                "ciudad": "-",
+                "provincia": "-",
+                "vendedores": sin_sucursal
+            })
+            
+        return hierarchy
+    except Exception as e:
+        logger.error(f"Error en jerarquía: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/admin/hierarchy/map-seller", tags=["Admin"])
+def map_seller_erp(data: dict, user_payload=Depends(verify_auth)):
+    """Mapeo atómico de vendedor Telegram a ID ERP."""
+    dist_id = data.get("dist_id")
+    check_dist_permission(user_payload, dist_id)
+    
+    id_integrante = data.get("id_integrante")
+    id_vendedor_erp = data.get("id_vendedor_erp")
+    
+    try:
+        res = sb.table("integrantes_grupo").update({"id_vendedor_erp": id_vendedor_erp}).eq("id_integrante", id_integrante).execute()
+        return res.data[0] if res.data else {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/reportes/clientes/listado/{dist_id}", tags=["Reportes"])
+def get_clientes_listado(dist_id: int, search: str = "", limit: int = 200, user_payload=Depends(verify_auth)):
+    """Retorna listado maestro de clientes para el Padrón."""
+    check_dist_permission(user_payload, dist_id)
+    
+    try:
+        query = sb.table("erp_clientes_raw").select("*").eq("id_distribuidor", dist_id)
+        if search:
+            query = query.or_(f"nombre_fantasia.ilike.%{search}%,id_cliente_erp_local.ilike.%{search}%,razon_social.ilike.%{search}%")
+        
+        res = query.order("nombre_fantasia", desc=False).limit(limit).execute()
+        return res.data or []
+    except Exception as e:
+        logger.error(f"Error en listado de clientes: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/reportes/clientes/stats/{dist_id}", summary="KPIs de Padrón de Clientes", tags=["Reportes"])
 def get_clientes_stats(dist_id: int, _=Depends(verify_auth)):
     res = sb.rpc("fn_reporte_clientes_stats", {"p_dist_id": dist_id}).execute()
     return res.data or {}

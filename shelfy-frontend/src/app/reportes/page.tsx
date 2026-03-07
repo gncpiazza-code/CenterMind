@@ -174,11 +174,13 @@ export default function HerramientasReportePage() {
 
   // Cargar listas de filtros al montar
   useEffect(() => {
-    if (!user) return;
+    if (!user?.id_distribuidor) return;
+    setLoadingOpts(true);
+    const dId = user.id_distribuidor;
     Promise.all([
-      fetchReporteVendedores(user.id_distribuidor),
-      fetchReporteTiposPdv(user.id_distribuidor),
-      fetchReporteSucursales(user.id_distribuidor),
+      fetchReporteVendedores(dId),
+      fetchReporteTiposPdv(dId),
+      fetchReporteSucursales(dId),
     ])
       .then(([v, t, s]) => { setVendedoresList(v); setTiposPdvList(t); setSucursalesList(s); })
       .catch(() => { })
@@ -186,7 +188,7 @@ export default function HerramientasReportePage() {
   }, [user]);
 
   async function handleBuscar() {
-    if (!user) return;
+    if (!user?.id_distribuidor) return;
     setLoading(true);
     setError(null);
     try {
@@ -209,7 +211,7 @@ export default function HerramientasReportePage() {
   }
 
   useEffect(() => {
-    if (activeMainTab === "roi" && user && !erpRoi) {
+    if (activeMainTab === "roi" && user?.id_distribuidor && !erpRoi) {
       setLoadingRoi(true);
       fetchROI(user.id_distribuidor)
         .then(setErpRoi)
@@ -388,9 +390,9 @@ export default function HerramientasReportePage() {
             </div>
 
             {/* Contenido Dinámico: Padrón de Clientes */}
-            {activeMainTab === "padron" && (
+            {activeMainTab === "padron" && user?.id_distribuidor && (
               <div className="fade-in animate-in slide-in-from-bottom-2 duration-300">
-                <TabPadronClientes />
+                <TabPadronClientes distId={user.id_distribuidor!} />
               </div>
             )}
 
@@ -484,9 +486,9 @@ export default function HerramientasReportePage() {
             )}
 
             {/* Contenido Dinámico: Recaudación */}
-            {activeMainTab === "recaudacion" && user && (
+            {activeMainTab === "recaudacion" && user?.id_distribuidor && (
               <div className="fade-in animate-in slide-in-from-bottom-2 duration-300">
-                <TabSeguimientoRecaudacion distId={user.id_distribuidor} />
+                <TabSeguimientoRecaudacion distId={user.id_distribuidor!} />
               </div>
             )}
 
@@ -499,43 +501,12 @@ export default function HerramientasReportePage() {
                   <button onClick={() => setCcpTab("informe")} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${ccpTab === 'informe' ? 'bg-[var(--shelfy-primary)] text-white shadow-sm' : 'text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]'}`}>Reporte PDF</button>
                 </div>
 
-                {ccpTab === "resumen" && <TabSeguimientoRecaudacion distId={user.id_distribuidor} />}
-                {ccpTab === "alertas" && <TabAlertasCredito distId={user.id_distribuidor} />}
-                {ccpTab === "informe" && <TabGenerarInforme distId={user.id_distribuidor} />}
+                {ccpTab === "resumen" && <TabSeguimientoRecaudacion distId={user.id_distribuidor!} />}
+                {ccpTab === "alertas" && <TabAlertasCredito distId={user.id_distribuidor!} />}
+                {ccpTab === "informe" && <TabGenerarInforme distId={user.id_distribuidor!} />}
               </div>
             )}
 
-            {/* Contenido Dinámico: Cuentas Corrientes */}
-            {activeMainTab === "cuentas_corrientes" && (
-              <div className="fade-in animate-in slide-in-from-bottom-2 duration-300">
-                <div className="flex gap-1 mb-4">
-                  <button
-                    onClick={() => setCcTab("generar")}
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-200
-                                ${ccTab === "generar"
-                        ? "bg-violet-100 text-violet-700"
-                        : "text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
-                      }`}
-                  >
-                    <Briefcase size={14} />
-                    Generar Informe
-                  </button>
-                  <button
-                    onClick={() => setCcTab("alertas")}
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-200
-                                ${ccTab === "alertas"
-                        ? "bg-violet-100 text-violet-700"
-                        : "text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
-                      }`}
-                  >
-                    <AlertTriangle size={14} />
-                    Configurar Alertas
-                  </button>
-                </div>
-                {ccTab === "generar" && <TabGenerarInforme />}
-                {ccTab === "alertas" && user && <TabAlertasCredito distId={user.id_distribuidor} />}
-              </div>
-            )}
 
             {/* Contenido Dinámico: Exhibiciones */}
             {activeMainTab === "exhibiciones" && (

@@ -8,7 +8,7 @@ import { API_URL } from "@/lib/constants";
 
 import VisorMultitablas from "./VisorMultitablas";
 
-export default function TabGenerarInforme() {
+export default function TabGenerarInforme({ distId }: { distId?: number }) {
     const [file, setFile] = useState<File | null>(null);
     const [responseData, setResponseData] = useState<any>(null);
     const [isProcessing, setIsProcessing] = useState(false);

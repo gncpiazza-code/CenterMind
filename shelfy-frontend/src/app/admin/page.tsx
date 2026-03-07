@@ -16,10 +16,11 @@ import {
   fetchLocations, crearLocation, editarLocation, type Location,
   uploadERPFile, fetchERPMappings, saveERPMapping, deleteERPMapping
 } from "@/lib/api";
-import { ChevronLeft, ChevronRight, Lock, Unlock, Plus, Trash2, Edit2, Shield, Search, RefreshCw, Building2, MapPin, Users, Copy, UserPlus, ToggleRight, ToggleLeft, FileSpreadsheet, UploadCloud, AlertTriangle } from "lucide-react";
+import { ChevronLeft, ChevronRight, Lock, Unlock, Plus, Trash2, Edit2, Shield, Search, RefreshCw, Building2, MapPin, Users, Copy, UserPlus, ToggleRight, ToggleLeft, FileSpreadsheet, UploadCloud, AlertTriangle, Network } from "lucide-react";
 
 import dynamic from "next/dynamic";
 const TabSucursales = dynamic(() => import("./TabSucursales"), { ssr: false });
+const HierarchyWizard = dynamic(() => import("./HierarchyWizard"), { ssr: false });
 
 
 const ROL_LABEL: Record<string, string> = {
@@ -853,6 +854,7 @@ export default function AdminPage() {
 
   const TABS = [
     { id: "usuarios", label: "Usuarios", icon: Shield },
+    { id: "hierarchy", label: "Jerarquía", icon: Network },
     { id: "integrantes", label: "Integrantes", icon: Users },
     { id: "sucursales", label: "Sucursales", icon: MapPin },
     { id: "erp", label: "ERP", icon: FileSpreadsheet },
@@ -898,6 +900,9 @@ export default function AdminPage() {
           )}
           {tab === "distribuidoras" && isSuperadmin && (
             <TabDistribuidoras />
+          )}
+          {tab === "hierarchy" && (
+            <HierarchyWizard distId={user?.id_distribuidor || 0} />
           )}
           {tab === "integrantes" && (
             <TabIntegrantes isSuperadmin={isSuperadmin} distId={user?.id_distribuidor || 0} />

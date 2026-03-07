@@ -213,7 +213,7 @@ class Database:
         telegram_msg_id: Optional[int] = None,
         telegram_chat_id: Optional[int] = None,
     ) -> dict:
-        """Registra una exhibición vía RPC con soporte de cuarentena (PASO 5).
+        """Registra una exhibición vía RPC con soporte de revisión (PASO 5).
         Retorna: {'id_exhibicion': <id>, 'en_cuarentena': <bool>, 'error': <str|None>}
         """
         res = self.sb.rpc("fn_bot_registrar_exhibicion", {
@@ -438,6 +438,31 @@ class BotWorker:
     # HELPERS
     # ─────────────────────────────────────────────────────────────
 
+    async def _check_compliance(self, update: Update) -> bool:
+        """
+        Verifica en tiempo real si el Tenant está bloqueado.
+        Si está bloqueado, responde al usuario y retorna False.
+        """
+        try:
+            # Consultar estado fresco de la DB
+            res = self.sb.table("distribuidores").select("estado_operativo, motivo_bloqueo").eq("id_distribuidor", self.distribuidor_id).execute()
+            if res.data:
+                d = res.data[0]
+                self.estado_operativo = d.get("estado_operativo", "Activo")
+                self.motivo_bloqueo = d.get("motivo_bloqueo")
+            
+            if self.estado_operativo != "Activo" and update.effective_message:
+                motivo = self.motivo_bloqueo or "Consultar con soporte"
+                await update.effective_message.reply_text(
+                    f"⚠️ <b>Carga pausada por disposición de Casa Matriz.</b>\n\n"
+                    f"Motivo: <i>{motivo}</i>",
+                    parse_mode=ParseMode.HTML
+                )
+                return False
+        except Exception as e:
+            self.logger.error(f"Error en check_compliance: {e}")
+        return True
+
     def _uptime(self) -> str:
         return str(timedelta(seconds=int(time.time() - self.start_time)))
 
@@ -536,6 +561,8 @@ class BotWorker:
         if not update.message:
             return
         uid = update.message.from_user.id
+        if not await self._check_compliance(update):
+            return
         if not self._is_admin(uid):
             await update.message.reply_text("❌ Solo el administrador puede usar /status")
             return
@@ -554,6 +581,8 @@ class BotWorker:
         m = update.message
         chat_title = getattr(m.chat, "title", None) or getattr(m.chat, "username", "Privado")
         
+        if not await self._check_compliance(update):
+            return
         asyncio.create_task(asyncio.to_thread(
             self._register_user_and_group,
             self.distribuidor_id, m.chat.id, chat_title, uid,
@@ -587,6 +616,8 @@ class BotWorker:
         if not update.message:
             return
         
+        if not await self._check_compliance(update):
+            return
         # Generar botones para los últimos 3 meses
         from datetime import datetime
         
@@ -658,16 +689,10 @@ class BotWorker:
 
         self.logger.info(f"📸 Foto recibida de {username} (UID: {user_id}) en chat {chat_id}")
 
-        # --- PASO 0: BLOQUEO OPERATIVO ---
-        if self.estado_operativo != "Activo":
-            motivo = self.motivo_bloqueo or "Consultar con soporte"
-            await update.message.reply_text(
-                f"⚠️ <b>Carga pausada por disposición de Casa Matriz.</b>\n\n"
-                f"Motivo: <i>{motivo}</i>",
-                parse_mode=ParseMode.HTML,
-                reply_to_message_id=msg_id
-            )
+        # --- PASO 0: BLOQUEO OPERATIVO REAL-TIME ---
+        if not await self._check_compliance(update):
             return
+        # -------------------------------------------
         # --------------------------------
 
         # Registro silencioso del usuario y grupo
@@ -983,18 +1008,14 @@ class BotWorker:
                             telegram_chat_id=chat_id
                         )
 
-                        # PASO 3: Vendedor no mapeado (Solo aviso, dejar cargar)
+                        # PASO 3: Vendedor no mapeado -> Silencioso, forzar Revisión
                         if rpc_result.get("error") == "PENDIENTE_MAPEO":
-                            await context.bot.send_message(
-                                chat_id=chat_id,
-                                text="⚠️ <b>Aviso:</b> Tu usuario aún no tiene un legajo ERP asignado. La exhibición se registrará, pero no aparecerá en los reportes de objetivos hasta que un administrador te mapee.",
-                                parse_mode=ParseMode.HTML,
-                                reply_to_message_id=ph_msg_id,
-                            )
-                            # Continuamos el flujo para que obtenga el id y se registre igual
+                            en_cuarentena = True # Forzamos revisión silenciosa
+                        else:
+                            en_cuarentena = rpc_result.get("en_cuarentena", False)
 
                         ex_id = rpc_result.get("id_exhibicion")
-                        en_cuarentena = rpc_result.get("en_cuarentena", False)
+                        # en_cuarentena ya se determinó arriba
 
                         if ex_id:
                             self.logger.info(f"✅ Exhibición registrada: ID {ex_id} | Cuarentena: {en_cuarentena}")
@@ -1080,7 +1101,7 @@ class BotWorker:
             foto_line = f"🔗 <a href='{drive_link}'>Ver foto</a>\n" if drive_link else ""
 
             estado_label = (
-                f"⚠️ <b>Estado: CUARENTENA</b> — Pendiente de validación ERP"
+                f"⚠️ <b>Estado: REVISIÓN</b> — Pendiente de validación ERP"
                 if en_cuarentena_flag else
                 "⏳ <b>Estado:</b> Pendiente de evaluación"
             )
@@ -1126,8 +1147,8 @@ class BotWorker:
                 await context.bot.send_message(
                     chat_id=chat_id,
                     text=(
-                        f"⚠️ <b>CLIENTE NUEVO DETECTADO.</b> Esta exhibición ha sido puesta en "
-                        f"<b>CUARENTENA</b> y se validará al actualizar la base de clientes "
+                        f"⚠️ <b>PDV / VENDEDOR EN REVISIÓN.</b> Esta exhibición ha sido puesta en "
+                        f"<b>REVISIÓN</b> y se validará al actualizar la base de clientes "
                         f"en <b>{horas}h {minutos}m</b>.\n\n"
                         f"Si te equivocaste de número, ignorá este mensaje y volvé a enviar la foto con el código correcto."
                     ),

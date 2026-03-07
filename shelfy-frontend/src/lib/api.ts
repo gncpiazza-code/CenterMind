@@ -78,7 +78,7 @@ export interface SucursalStats {
 export interface FotoGrupo {
   id_exhibicion: number;
   drive_link: string;
-  estado?: string; // PASO 7: puede ser 'Cuarentena' para bloquear la evaluación
+  estado?: string; // PASO 7: puede ser 'Cuarentena' o 'Revisión' para bloquear la evaluación
 }
 
 export interface GrupoPendiente {
@@ -136,6 +136,26 @@ export interface LiveMapEvent {
   lon: number;
   timestamp_evento: string;
   nro_cliente: string;
+}
+
+export interface SystemHealth {
+  hardware: {
+    cpu_percent: number;
+    ram_gb_total: number;
+    ram_gb_used: number;
+    ram_percent: number;
+    uptime_days: number;
+    process_count: number;
+  };
+  database: {
+    total_db_size: string;
+    tables: { table_name: string; row_count: number; total_size: string }[];
+  };
+  sessions: {
+    active_bot_sessions: number;
+    total_users_today: number;
+  };
+  timestamp: string;
 }
 
 // ── Image helpers ───────────────────────────────────────────────────────────
@@ -539,6 +559,13 @@ export async function fetchClientesMuertos(distId: number, dias: number = 30) {
   return apiFetch<any[]>(`/api/reportes/clientes-muertos/${distId}?dias=${dias}`);
 }
 
+export async function fetchClientesListado(distId: number, search: string = "", limit: number = 200) {
+  const q = new URLSearchParams();
+  if (search) q.append("search", search);
+  q.append("limit", limit.toString());
+  return apiFetch<any[]>(`/api/reportes/clientes/listado/${distId}?${q.toString()}`);
+}
+
 export async function fetchERPMappings(): Promise<any[]> {
   return apiFetch<any[]>("/api/admin/erp/mappings");
 }
@@ -564,4 +591,8 @@ export async function fetchGlobalMonitoring(): Promise<GlobalStressMonitor[]> {
 
 export async function fetchLiveMapEvents(minutos: number = 60): Promise<LiveMapEvent[]> {
   return apiFetch<LiveMapEvent[]>(`/api/admin/live-map-events?minutos=${minutos}`);
+}
+
+export async function fetchSystemHealth(): Promise<SystemHealth> {
+  return apiFetch<SystemHealth>("/api/admin/system-health");
 }

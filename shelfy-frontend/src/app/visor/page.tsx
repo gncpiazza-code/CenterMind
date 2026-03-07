@@ -68,7 +68,7 @@ export default function VisorPage() {
   const totalGrupos = filtrados.length;
   const totalFotos = grupo?.fotos.length ?? 0;
   const todasVistas = vistas.size >= totalFotos;
-  // PASO 7: Cuarentena — bloquear evaluación si alguna foto está en cuarentena (solo si la feature está activa)
+  // PASO 7: Revisión — bloquear evaluación si alguna foto está en revisión (solo si la feature está activa)
   const isQuarantena = (grupo?.fotos.some(f => f.estado === "Cuarentena") ?? false) && user?.usa_quarentena;
 
   const cargar = useCallback(async () => {
@@ -113,7 +113,7 @@ export default function VisorPage() {
     const cargarContexto = async () => {
       setLoadingERP(true);
       try {
-        const ctx = await fetchERPContexto(user.id_distribuidor, grupo.nro_cliente);
+        const ctx = await fetchERPContexto(user.id_distribuidor!, grupo.nro_cliente);
         setErpContext(ctx);
       } catch (e) {
         console.error("Error cargando contexto ERP:", e);
@@ -284,11 +284,11 @@ export default function VisorPage() {
 
                       {/* Info adicional Solo en PC superpuesta (pequeña y discreta, o nada) */}
 
-                      {/* PASO 7: Overlay de CUARENTENA sobre la imagen */}
+                      {/* PASO 7: Overlay de REVISIÓN sobre la imagen */}
                       {isQuarantena && (
                         <div className="absolute inset-0 bg-red-900/80 backdrop-blur-sm flex flex-col items-center justify-center gap-3 z-20 pointer-events-none">
                           <Lock size={48} className="text-red-200" />
-                          <p className="text-white font-black text-lg tracking-tight">EN CUARENTENA</p>
+                          <p className="text-white font-black text-lg tracking-tight">EN REVISIÓN</p>
                           <p className="text-red-200 text-xs font-semibold text-center px-8">
                             Pendiente de sincronización con ERP.<br />No se puede evaluar hasta que el cliente sea validado.
                           </p>
@@ -325,7 +325,7 @@ export default function VisorPage() {
                       <button
                         onClick={() => handleEvaluar("Rechazado")}
                         disabled={actionLoading || !todasVistas || isQuarantena}
-                        title={isQuarantena ? "En cuarentena — validación ERP pendiente" : (!todasVistas ? "Debes ver todas las fotos" : "Rechazar")}
+                        title={isQuarantena ? "En revisión — validación ERP pendiente" : (!todasVistas ? "Debes ver todas las fotos" : "Rechazar")}
                         className={`w-[58px] h-[58px] sm:w-16 sm:h-16 flex items-center justify-center rounded-full bg-[#fa5252] text-white shadow-[0_8px_24px_rgba(250,82,82,0.4)] hover:-translate-y-1 disabled:opacity-20 transition-all duration-200 active:scale-95 z-10`}
                       >
                         <X size={28} strokeWidth={3.5} />
@@ -334,7 +334,7 @@ export default function VisorPage() {
                       <button
                         onClick={() => handleEvaluar("Destacado")}
                         disabled={actionLoading || !todasVistas || isQuarantena}
-                        title={isQuarantena ? "En cuarentena" : (!todasVistas ? "Debes ver todas las fotos" : "Destacar")}
+                        title={isQuarantena ? "En revisión" : (!todasVistas ? "Debes ver todas las fotos" : "Destacar")}
                         className="w-[64px] h-[64px] sm:w-20 sm:h-20 flex items-center justify-center rounded-full bg-[#f97316] text-white shadow-[0_10px_28px_rgba(249,115,22,0.45)] hover:-translate-y-1 disabled:opacity-20 transition-all duration-200 active:scale-95 z-20"
                       >
                         <Flame size={32} strokeWidth={3} className="fill-white/20" />
@@ -343,7 +343,7 @@ export default function VisorPage() {
                       <button
                         onClick={() => handleEvaluar("Aprobado")}
                         disabled={actionLoading || !todasVistas || isQuarantena}
-                        title={isQuarantena ? "En cuarentena" : (!todasVistas ? "Debes ver todas las fotos" : "Aprobar")}
+                        title={isQuarantena ? "En revisión" : (!todasVistas ? "Debes ver todas las fotos" : "Aprobar")}
                         className="w-[58px] h-[58px] sm:w-16 sm:h-16 flex items-center justify-center rounded-full bg-[#10b981] text-white shadow-[0_8px_24px_rgba(16,185,129,0.4)] hover:-translate-y-1 disabled:opacity-20 transition-all duration-200 active:scale-95 z-10"
                       >
                         <Check size={28} strokeWidth={3.5} />

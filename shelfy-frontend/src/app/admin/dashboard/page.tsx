@@ -20,6 +20,9 @@ import {
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
+import dynamic from "next/dynamic";
+
+const SystemHealthMonitor = dynamic(() => import("../SystemHealthMonitor"), { ssr: false });
 
 export default function SuperAdminDashboard() {
     const { user } = useAuth();
@@ -103,6 +106,9 @@ export default function SuperAdminDashboard() {
                             />
                         </div>
 
+                        {/* Hardware & System Health (Nivel 0) */}
+                        <SystemHealthMonitor />
+
                         {/* Stress Monitor Table */}
                         <div className="space-y-4">
                             <div className="flex items-center justify-between">
@@ -175,8 +181,8 @@ export default function SuperAdminDashboard() {
                                                         </td>
                                                         <td className="px-6 py-4">
                                                             <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-tight ${dist.estado_bot === 'activo'
-                                                                    ? 'bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100'
-                                                                    : 'bg-slate-50 text-slate-400 ring-1 ring-slate-100'
+                                                                ? 'bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100'
+                                                                : 'bg-slate-50 text-slate-400 ring-1 ring-slate-100'
                                                                 }`}>
                                                                 {dist.estado_bot === 'activo' ? <CheckCircle2 size={10} /> : <AlertCircle size={10} />}
                                                                 {dist.estado_bot}

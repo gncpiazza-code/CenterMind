@@ -241,7 +241,7 @@ export default function TabGenerarInforme({ distId }: { distId?: number }) {
                                 <FileSpreadsheet size={40} />
                             </div>
                             <p className="text-slate-800 font-bold px-4 text-center break-all max-w-[80%]">{file.name}</p>
-                            <p className="text-slate-500 text-sm mt-1">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
+                            <p className="text-slate-500 text-sm mt-1">{((file.size ?? 0) / 1024 / 1024).toFixed(2)} MB</p>
 
                             {!isProcessing && !success && (
                                 <button

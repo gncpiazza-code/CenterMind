@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, Play, GraduationCap, PieChart, Store, CheckCircle2, ChevronRight, Activity, Users, Shield } from "lucide-react";
-import { useEffect, useState, useRef } from "react";
+import { ArrowRight, Play, GraduationCap, PieChart, Store, CheckCircle2, ChevronRight, Activity, Users, Shield, Zap, BarChart3, Globe, Flame, Check, X, Lock } from "lucide-react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { toast, Toaster } from "sonner";
+import { API_URL } from "@/lib/constants";
 
 // Mock data type from API
 type LandingStats = {
@@ -32,7 +33,7 @@ export default function LandingPage() {
     // Fetch real metrics from public unauthenticated API
     const fetchStats = async () => {
       try {
-        const res = await fetch("http://localhost:8000/api/public/landing-stats");
+        const res = await fetch(`${API_URL}/api/public/landing-stats`);
         if (res.ok) {
           const data = await res.json();
           if (data.auditorias_pdv !== undefined) {

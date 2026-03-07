@@ -596,3 +596,28 @@ export async function fetchLiveMapEvents(minutos: number = 60): Promise<LiveMapE
 export async function fetchSystemHealth(): Promise<SystemHealth> {
   return apiFetch<SystemHealth>("/api/admin/system-health");
 }
+
+export async function createLocation(data: { dist_id: number; label: string; ciudad?: string; provincia?: string }) {
+  return apiFetch("/api/admin/locations", {
+    method: "POST",
+    body: JSON.stringify(data)
+  });
+}
+
+export async function updateLocation(locId: number, data: { dist_id: number; label: string; ciudad?: string; provincia?: string }) {
+  return apiFetch(`/api/admin/locations/${locId}`, {
+    method: "PUT",
+    body: JSON.stringify(data)
+  });
+}
+
+export async function mapIntegranteSucursal(data: { dist_id: number; id_integrante: number; location_id: number | null }) {
+  return apiFetch("/api/admin/hierarchy/map-sucursal", {
+    method: "POST",
+    body: JSON.stringify(data)
+  });
+}
+
+export async function fetchDistribuidores(): Promise<{ id_distribuidor: number; nombre_dist: string }[]> {
+  return apiFetch("/api/admin/distribuidores");
+}

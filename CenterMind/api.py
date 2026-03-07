@@ -1596,6 +1596,47 @@ def map_seller_erp(data: dict, user_payload=Depends(verify_auth)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/api/admin/locations", tags=["Admin"])
+def create_location(data: dict, user_payload=Depends(verify_auth)):
+    dist_id = data.get("dist_id")
+    check_dist_permission(user_payload, dist_id)
+    try:
+        res = sb.table("locations").insert({
+            "dist_id": dist_id,
+            "label": data.get("label"),
+            "ciudad": data.get("ciudad", ""),
+            "provincia": data.get("provincia", "")
+        }).execute()
+        return res.data[0] if res.data else {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/admin/locations/{loc_id}", tags=["Admin"])
+def update_location(loc_id: int, data: dict, user_payload=Depends(verify_auth)):
+    dist_id = data.get("dist_id")
+    check_dist_permission(user_payload, dist_id)
+    try:
+        res = sb.table("locations").update({
+            "label": data.get("label"),
+            "ciudad": data.get("ciudad"),
+            "provincia": data.get("provincia")
+        }).eq("location_id", loc_id).execute()
+        return res.data[0] if res.data else {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/admin/hierarchy/map-sucursal", tags=["Admin"])
+def map_integrante_sucursal(data: dict, user_payload=Depends(verify_auth)):
+    dist_id = data.get("dist_id")
+    check_dist_permission(user_payload, dist_id)
+    id_integrante = data.get("id_integrante")
+    location_id = data.get("location_id")
+    try:
+        res = sb.table("integrantes_grupo").update({"location_id": location_id}).eq("id_integrante", id_integrante).execute()
+        return res.data[0] if res.data else {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/api/reportes/clientes/listado/{dist_id}", tags=["Reportes"])
 def get_clientes_listado(dist_id: int, search: str = "", limit: int = 200, user_payload=Depends(verify_auth)):
     """Retorna listado maestro de clientes para el Padrón."""
@@ -1628,6 +1669,16 @@ def get_clientes_desglose(dist_id: int, tipo: str = Query("vendedor"), _=Depends
     res = sb.rpc("fn_reporte_clientes_desglose", {"p_dist_id": dist_id, "p_tipo": tipo}).execute()
     return res.data or []
 
+
+@app.get("/api/admin/distribuidores", tags=["Admin"])
+def list_distribuidores(user_payload=Depends(verify_auth)):
+    if not user_payload.get("is_superadmin"):
+        raise HTTPException(status_code=403, detail="SuperAdmin only")
+    try:
+        res = sb.table("distribuidores").select("id_distribuidor, nombre_dist").execute()
+        return res.data or []
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn

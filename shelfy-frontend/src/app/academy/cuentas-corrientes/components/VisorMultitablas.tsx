@@ -55,7 +55,7 @@ const renderActiveShape = (props: any) => {
             <circle cx={ex} cy={ey} r={4} fill={fill} stroke="white" strokeWidth={2} />
             <text x={ex + (cos >= 0 ? 1 : -1) * 12} y={ey} textAnchor={textAnchor} fill="#334155" className="font-extrabold text-sm">{`$${value.toLocaleString()}`}</text>
             <text x={ex + (cos >= 0 ? 1 : -1) * 12} y={ey} dy={18} textAnchor={textAnchor} fill="#64748b" className="text-xs font-semibold">
-                {`( ${(percent * 100).toFixed(1)}% )`}
+                {`( ${((percent ?? 0) * 100).toFixed(1)}% )`}
             </text>
         </g>
     );
@@ -304,7 +304,7 @@ function VendedorTab({ data, vendName }: { data: any, vendName: string }) {
                                                 <div className="w-2 h-2 rounded-full" style={{ backgroundColor: dotColor }}></div>
                                                 {a.rango_antiguedad}
                                             </td>
-                                            <td className="py-2 px-3 text-right text-slate-500">{(a.porc_clientes * 100).toFixed(1)}%</td>
+                                            <td className="py-2 px-3 text-right text-slate-500">{((a.porc_clientes ?? 0) * 100).toFixed(1)}%</td>
                                             <td className="py-2 px-3 text-right font-bold text-slate-800">${a.saldo_total?.toLocaleString()}</td>
                                         </tr>
                                     );

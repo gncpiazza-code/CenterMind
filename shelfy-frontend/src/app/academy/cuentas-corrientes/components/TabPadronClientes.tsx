@@ -134,7 +134,7 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
                     value={stats?.activos || 0}
                     icon={<UserCheck className="text-green-500" />}
                     subtitle="Compra en ult. 30 días"
-                    trend={`${stats?.pct_activacion?.toFixed(1) || 0}% de la base`}
+                    trend={`${(stats?.pct_activacion ?? 0).toFixed(1)}% de la base`}
                 />
                 <KPICard
                     title="Clientes Inactivos"

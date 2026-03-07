@@ -85,7 +85,7 @@ function DetalleRow({
           </span>
         </td>
         <td className="py-2.5 text-right font-bold tabular-nums" style={{ color: v.llego_umbral ? "var(--shelfy-success)" : "var(--shelfy-warning)" }}>
-          ${v.bono.toFixed(2)}
+          ${(v.bono ?? 0).toFixed(2)}
         </td>
       </tr>
       {open && (
@@ -157,7 +157,7 @@ export default function BonosPage() {
     setLoading(true);
     setError(null);
     try {
-      const cfg = await fetchBonoConfig(user.id_distribuidor, anio, mes);
+      const cfg = await fetchBonoConfig(user.id_distribuidor || 0, anio, mes);
       setConfig(cfg);
       setUmbral(cfg.umbral);
       setBonoFijo(cfg.monto_bono_fijo);
@@ -175,7 +175,7 @@ export default function BonosPage() {
     if (!user) return;
     setLoadingLiq(true);
     try {
-      const liq = await fetchLiquidacion(user.id_distribuidor, anio, mes);
+      const liq = await fetchLiquidacion(user.id_distribuidor || 0, anio, mes);
       setLiquidacion(liq);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Error");
@@ -218,7 +218,7 @@ export default function BonosPage() {
     try {
       const pAnio = mes === 1 ? anio - 1 : anio;
       const pMes = mes === 1 ? 12 : mes - 1;
-      const cfg = await fetchBonoConfig(user.id_distribuidor, pAnio, pMes);
+      const cfg = await fetchBonoConfig(user.id_distribuidor || 0, pAnio, pMes);
       // Actualizamos solo el estado local para que el usuario revise y guarde
       setUmbral(cfg.umbral);
       setBonoFijo(cfg.monto_bono_fijo);
@@ -237,7 +237,7 @@ export default function BonosPage() {
     setSaving(true);
     setError(null);
     try {
-      await guardarBonoConfig(user.id_distribuidor, {
+      await guardarBonoConfig(user.id_distribuidor || 0, {
         anio, mes, umbral, monto_bono_fijo: bonoFijo, monto_por_punto: porPunto, puestos,
       });
       await cargarConfig();
@@ -254,7 +254,7 @@ export default function BonosPage() {
     if (!user) return;
     setLocking(true);
     try {
-      await bloquearBonoConfig(user.id_distribuidor, anio, mes, bloquear);
+      await bloquearBonoConfig(user.id_distribuidor || 0, anio, mes, bloquear);
       await cargarConfig();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Error");
@@ -495,7 +495,7 @@ export default function BonosPage() {
                           <tr className="border-t border-[var(--shelfy-border)]">
                             <td colSpan={6} className="pt-3 text-xs text-[var(--shelfy-muted)] font-semibold uppercase">Total</td>
                             <td className="pt-3 text-right font-black text-green-700">
-                              ${liquidacion.vendedores.reduce((s, v) => s + v.bono, 0).toFixed(2)}
+                              ${(liquidacion.vendedores.reduce((s, v) => s + (v.bono ?? 0), 0)).toFixed(2)}
                             </td>
                           </tr>
                         </tfoot>

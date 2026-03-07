@@ -34,6 +34,7 @@ from telegram.ext import (
     CommandHandler,
     ContextTypes,
     MessageHandler,
+    ChatMemberHandler,
     filters,
 )
 # Google Drive imports eliminados — fotos van a Supabase Storage
@@ -670,6 +671,26 @@ class BotWorker:
         await asyncio.sleep(1)
         os._exit(0)
 
+    async def cmd_sync(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Fuerza el registro del grupo y del usuario que envía el comando."""
+        if not update.message:
+            return
+        m = update.message
+        chat_id = m.chat.id
+        chat_title = getattr(m.chat, "title", None) or getattr(m.chat, "username", "Privado")
+        
+        await asyncio.to_thread(
+            self._register_user_and_group,
+            self.distribuidor_id, chat_id, chat_title, m.from_user.id,
+            m.from_user.username or "", m.from_user.first_name or "Usuario"
+        )
+        await m.reply_text(
+            f"✅ <b>Sincronización Exitosa</b>\n"
+            f"Grupo: <code>{chat_title}</code>\n"
+            f"Usuario: <code>{m.from_user.first_name}</code> registrado.",
+            parse_mode=ParseMode.HTML
+        )
+
     # ─────────────────────────────────────────────────────────────
     # HANDLER DE FOTOS
     # ─────────────────────────────────────────────────────────────
@@ -1194,12 +1215,46 @@ class BotWorker:
             return
         chat_id = update.message.chat.id
         new_title = update.message.new_chat_title
-        self.logger.info(f"🔄 Grupo {chat_id} cambió su nombre a: {new_title}")
-        
-        asyncio.create_task(asyncio.to_thread(
+        self.logger.info(f"🏷️ Nuevo título en chat {chat_id}: {new_title}")
+        await asyncio.to_thread(
             self.db.upsert_grupo,
             self.distribuidor_id, chat_id, new_title
-        ))
+        )
+
+    async def handle_new_chat_members(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Se activa cuando alguien entra al grupo (o el bot es añadido)."""
+        if not update.message or not update.message.new_chat_members:
+            return
+        
+        chat = update.message.chat
+        chat_title = chat.title or "Grupo"
+        
+        for member in update.message.new_chat_members:
+            self.logger.info(f"➕ Nuevo integrante en {chat_title}: {member.full_name} ({member.id})")
+            await asyncio.to_thread(
+                self._register_user_and_group,
+                self.distribuidor_id, chat.id, chat_title, member.id,
+                member.username or "", member.first_name or "Usuario"
+            )
+
+    async def handle_chat_member_update(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Monitorea cambios de estado (joins/leaves) vía ChatMemberHandler."""
+        result = update.chat_member
+        if not result:
+            return
+        
+        # Solo nos interesan los que 'entran' de alguna forma
+        if result.new_chat_member.status in ("member", "administrator", "creator"):
+            user = result.new_chat_member.user
+            chat = update.effective_chat
+            chat_title = chat.title or "Grupo"
+            
+            self.logger.info(f"👤 Update de miembro en {chat_title}: {user.full_name}")
+            await asyncio.to_thread(
+                self._register_user_and_group,
+                self.distribuidor_id, chat.id, chat_title, user.id,
+                user.username or "", user.first_name or "Usuario"
+            )
 
     async def sync_evaluaciones_job(self, context: ContextTypes.DEFAULT_TYPE) -> None:
         """
@@ -1358,6 +1413,8 @@ class BotWorker:
         
         # Eventos de grupo
         app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_TITLE, self.handle_new_chat_title))
+        app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, self.handle_new_chat_members))
+        app.add_handler(ChatMemberHandler(self.handle_chat_member_update, ChatMemberHandler.CHAT_MEMBER))
 
         # Callbacks (solo selección de tipo PDV — sin evaluación)
         app.add_handler(CallbackQueryHandler(self.button_callback, pattern="^TYPE_"))

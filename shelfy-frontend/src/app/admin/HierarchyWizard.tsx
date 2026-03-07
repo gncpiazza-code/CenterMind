@@ -18,7 +18,7 @@ import {
     MessageSquare,
     ArrowRightLeft
 } from "lucide-react";
-import { fetchLocations, fetchIntegrantes, fetchERPVendedores } from "@/lib/api";
+import { fetchLocations, fetchIntegrantes, fetchERPVendedores, createLocation, updateLocation, mapIntegranteSucursal } from "@/lib/api";
 import toast from "react-hot-toast";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
@@ -34,6 +34,9 @@ export default function HierarchyWizard({ distId }: { distId: number }) {
 
     // Selection states
     const [selectedLocId, setSelectedLocId] = useState<number | null>(null);
+    const [editingLocId, setEditingLocId] = useState<number | null>(null);
+    const [newLocLabel, setNewLocLabel] = useState("");
+    const [isAddingLoc, setIsAddingLoc] = useState(false);
 
     const loadInitialData = async () => {
         setLoading(true);
@@ -57,10 +60,44 @@ export default function HierarchyWizard({ distId }: { distId: number }) {
         loadInitialData();
     }, [distId]);
 
+    const handleAddLocation = async () => {
+        if (!newLocLabel.trim()) return;
+        try {
+            await createLocation({ dist_id: distId, label: newLocLabel });
+            toast.success("Sucursal añadida");
+            setNewLocLabel("");
+            setIsAddingLoc(false);
+            loadInitialData();
+        } catch (e) {
+            toast.error("Error al añadir");
+        }
+    };
+
+    const handleUpdateLocation = async (locId: number, label: string) => {
+        try {
+            await updateLocation(locId, { dist_id: distId, label });
+            toast.success("Nombre actualizado");
+            setEditingLocId(null);
+            loadInitialData();
+        } catch (e) {
+            toast.error("Error al actualizar");
+        }
+    };
+
+    const handleMapToSucursal = async (integranteId: number, locId: number | null) => {
+        try {
+            await mapIntegranteSucursal({ dist_id: distId, id_integrante: integranteId, location_id: locId });
+            loadInitialData();
+            toast.success("Vendedor reubicado");
+        } catch (e) {
+            toast.error("Error al reubicar");
+        }
+    };
+
     const handleMapSeller = async (integranteId: number, erpId: string) => {
         const token = localStorage.getItem("shelfy_token");
         try {
-            const res = await fetch(`${API_URL}/admin/hierarchy/map-seller`, {
+            const res = await fetch(`${API_URL.replace('/api', '')}/api/admin/hierarchy/map-seller`, {
                 method: "POST",
                 headers: {
                     "Authorization": `Bearer ${token}`,
@@ -114,17 +151,63 @@ export default function HierarchyWizard({ distId }: { distId: number }) {
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         {locations.map(loc => (
                             <div key={loc.location_id} className="p-4 rounded-2xl border-2 border-slate-100 hover:border-violet-200 transition-all group relative bg-white">
-                                <div className="font-bold text-slate-800">{loc.label}</div>
-                                <div className="text-xs text-slate-500 capitalize">{loc.ciudad}, {loc.provincia}</div>
+                                {editingLocId === loc.location_id ? (
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="text"
+                                            defaultValue={loc.label}
+                                            autoFocus
+                                            className="text-sm font-bold border rounded px-2 py-1 w-full"
+                                            onKeyDown={(e) => {
+                                                if (e.key === "Enter") handleUpdateLocation(loc.location_id, (e.target as HTMLInputElement).value);
+                                                if (e.key === "Escape") setEditingLocId(null);
+                                            }}
+                                            onBlur={(e) => handleUpdateLocation(loc.location_id, e.target.value)}
+                                        />
+                                    </div>
+                                ) : (
+                                    <div
+                                        className="font-bold text-slate-800 cursor-pointer hover:text-violet-600"
+                                        onClick={() => setEditingLocId(loc.location_id)}
+                                    >
+                                        {loc.label}
+                                    </div>
+                                )}
+                                <div className="text-xs text-slate-500 capitalize">{loc.ciudad || "S/D"}, {loc.provincia || "S/D"}</div>
                                 <div className="mt-3 flex items-center gap-2 text-[10px] font-bold text-slate-400">
                                     <Users size={12} /> {integrantes.filter(i => i.location_id === loc.location_id).length} integrantes
                                 </div>
                             </div>
                         ))}
-                        <button className="p-4 rounded-2xl border-2 border-dashed border-slate-200 hover:border-[var(--shelfy-primary)] hover:bg-violet-50 text-[var(--shelfy-muted)] hover:text-[var(--shelfy-primary)] transition-all flex flex-col items-center justify-center min-h-[100px] gap-2">
-                            <Plus size={24} />
-                            <span className="text-xs font-bold">Añadir Sucursal</span>
-                        </button>
+
+                        {isAddingLoc ? (
+                            <div className="p-4 rounded-2xl border-2 border-violet-200 bg-violet-50 flex flex-col gap-2">
+                                <input
+                                    type="text"
+                                    placeholder="Nombre de Sucursal..."
+                                    autoFocus
+                                    className="text-sm font-bold border rounded px-3 py-2 w-full"
+                                    value={newLocLabel}
+                                    onChange={(e) => setNewLocLabel(e.target.value)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === "Enter") handleAddLocation();
+                                        if (e.key === "Escape") setIsAddingLoc(false);
+                                    }}
+                                />
+                                <div className="flex gap-2">
+                                    <Button size="sm" onClick={handleAddLocation}>Guardar</Button>
+                                    <Button size="sm" variant="ghost" onClick={() => setIsAddingLoc(false)}>Cancelar</Button>
+                                </div>
+                            </div>
+                        ) : (
+                            <button
+                                onClick={() => setIsAddingLoc(true)}
+                                className="p-4 rounded-2xl border-2 border-dashed border-slate-200 hover:border-[var(--shelfy-primary)] hover:bg-violet-50 text-[var(--shelfy-muted)] hover:text-[var(--shelfy-primary)] transition-all flex flex-col items-center justify-center min-h-[100px] gap-2"
+                            >
+                                <Plus size={24} />
+                                <span className="text-xs font-bold">Añadir Sucursal</span>
+                            </button>
+                        )}
                     </div>
                 </Card>
             )}
@@ -155,8 +238,8 @@ export default function HierarchyWizard({ distId }: { distId: number }) {
                                         value={int.location_id || ""}
                                         className="text-xs font-bold border-none bg-slate-100 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-[var(--shelfy-primary)] transition-all"
                                         onChange={(e) => {
-                                            // Handle mapping to sucursal (logic would go here)
-                                            toast.error("Funcionalidad en desarrollo");
+                                            const val = e.target.value === "" ? null : Number(e.target.value);
+                                            handleMapToSucursal(int.id_integrante, val);
                                         }}
                                     >
                                         <option value="">-- Sin Sucursal --</option>

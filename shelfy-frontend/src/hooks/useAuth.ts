@@ -72,13 +72,34 @@ export function useAuth() {
   const logout = useCallback(() => {
     clearToken();
     setUser(null);
+    localStorage.removeItem("shelfy_active_dist");
     router.push("/login");
   }, [router]);
+
+  const switchDistributor = useCallback((id: number, nombre: string) => {
+    if (user?.rol !== "superadmin") return;
+    setUser(prev => prev ? { ...prev, id_distribuidor: id, nombre_empresa: nombre } : null);
+    localStorage.setItem("shelfy_active_dist", JSON.stringify({ id, nombre }));
+    router.refresh();
+  }, [user?.rol, router]);
+
+  useEffect(() => {
+    const stored = localStorage.getItem("shelfy_active_dist");
+    if (stored && user?.rol === "superadmin") {
+      try {
+        const { id, nombre } = JSON.parse(stored);
+        if (user.id_distribuidor !== id) {
+          setUser(prev => prev ? { ...prev, id_distribuidor: id, nombre_empresa: nombre } : null);
+        }
+      } catch { }
+    }
+  }, [user?.rol, user?.id_distribuidor]);
 
   return {
     user,
     login,
     logout,
+    switchDistributor,
     loading,
     error,
     isAuthenticated: !!user,

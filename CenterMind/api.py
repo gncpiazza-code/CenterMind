@@ -1332,7 +1332,7 @@ class IntegranteCreateRequest(BaseModel):
     telegram_group_id: int | None = None
 
 
-@app.get("/admin/locations/{dist_id}", summary="Sucursales de un distribuidor")
+@app.get("/api/admin/locations/{dist_id}", summary="Sucursales de un distribuidor")
 def admin_get_locations(dist_id: int, _=Depends(verify_auth)):
     q = sb.table("locations").select("location_id, ciudad, provincia, label, lat, lon")
     if dist_id > 0:
@@ -1340,7 +1340,7 @@ def admin_get_locations(dist_id: int, _=Depends(verify_auth)):
     result = q.order("label").execute()
     return result.data or []
 
-@app.post("/admin/locations/{dist_id}", summary="Crear sucursal")
+@app.post("/api/admin/locations/{dist_id}", summary="Crear sucursal")
 def admin_create_location(dist_id: int, req: LocationRequest, _=Depends(verify_auth)):
     result = sb.table("locations").insert({
         "dist_id": dist_id, "ciudad": req.ciudad, "provincia": req.provincia,
@@ -1349,7 +1349,7 @@ def admin_create_location(dist_id: int, req: LocationRequest, _=Depends(verify_a
     new_id = result.data[0]["location_id"] if result.data else None
     return {"ok": True, "location_id": new_id}
 
-@app.put("/admin/locations/{location_id}", summary="Editar sucursal")
+@app.put("/api/admin/locations/{location_id}", summary="Editar sucursal")
 def admin_update_location(location_id: int, req: LocationRequest, _=Depends(verify_auth)):
     sb.table("locations").update({
         "ciudad": req.ciudad, "provincia": req.provincia,
@@ -1357,7 +1357,7 @@ def admin_update_location(location_id: int, req: LocationRequest, _=Depends(veri
     }).eq("location_id", location_id).execute()
     return {"ok": True}
 
-@app.get("/admin/usuarios/{dist_id}", summary="Listar todos los integrantes (Telegram)")
+@app.get("/api/admin/usuarios/{dist_id}", summary="Listar todos los integrantes (Telegram)")
 def admin_get_usuarios_telegram(dist_id: int, _=Depends(verify_auth)):
     result = sb.rpc("fn_usuarios_telegram", {"p_dist_id": dist_id}).execute()
     return result.data or []
@@ -1675,8 +1675,15 @@ def list_distribuidores(user_payload=Depends(verify_auth)):
     if not user_payload.get("is_superadmin"):
         raise HTTPException(status_code=403, detail="SuperAdmin only")
     try:
-        res = sb.table("distribuidores").select("id_distribuidor, nombre_dist").execute()
-        return res.data or []
+        res = sb.table("distribuidores").select("id_distribuidor, nombre_empresa").execute()
+        # Mapeamos para que el frontend reciba 'nombre_dist' como espera
+        data = []
+        for d in (res.data or []):
+            data.append({
+                "id_distribuidor": d["id_distribuidor"],
+                "nombre_dist": d["nombre_empresa"]
+            })
+        return data
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

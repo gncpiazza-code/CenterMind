@@ -18,7 +18,7 @@ import {
     MessageSquare,
     ArrowRightLeft
 } from "lucide-react";
-import { fetchLocations, fetchIntegrantes, fetchERPVendedores, createLocation, updateLocation, mapIntegranteSucursal } from "@/lib/api";
+import { fetchLocations, fetchIntegrantes, fetchERPVendedores, createLocation, updateLocation, mapIntegranteSucursal, mapSellerERP } from "@/lib/api";
 import toast from "react-hot-toast";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
@@ -95,24 +95,14 @@ export default function HierarchyWizard({ distId }: { distId: number }) {
     };
 
     const handleMapSeller = async (integranteId: number, erpId: string) => {
-        const token = localStorage.getItem("shelfy_token");
         try {
-            const res = await fetch(`${API_URL.replace('/api', '')}/api/admin/hierarchy/map-seller`, {
-                method: "POST",
-                headers: {
-                    "Authorization": `Bearer ${token}`,
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({
-                    dist_id: distId,
-                    id_integrante: integranteId,
-                    id_vendedor_erp: erpId
-                })
+            await mapSellerERP({
+                dist_id: distId,
+                id_integrante: integranteId,
+                id_vendedor_erp: erpId
             });
-            if (res.ok) {
-                toast.success("Mapeo guardado");
-                loadInitialData();
-            }
+            toast.success("Mapeo guardado");
+            loadInitialData();
         } catch (e) {
             toast.error("Error al mapear");
         }

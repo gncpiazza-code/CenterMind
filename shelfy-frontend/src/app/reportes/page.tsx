@@ -421,7 +421,7 @@ export default function HerramientasReportePage() {
                           <div className="md:col-span-3 bg-gradient-to-r from-emerald-500 to-teal-600 rounded-3xl p-6 text-white shadow-lg shadow-emerald-200 flex items-center justify-between">
                             <div>
                               <p className="text-xs font-black uppercase tracking-widest opacity-80 mb-1">Incremento de Venta (Uplift)</p>
-                              <h3 className="text-4xl font-black">{erpRoi.uplift_pct > 0 ? `+${erpRoi.uplift_pct.toFixed(1)}%` : `${erpRoi.uplift_pct.toFixed(1)}%`}</h3>
+                              <h3 className="text-4xl font-black">{(erpRoi.uplift_pct ?? 0) > 0 ? `+${(erpRoi.uplift_pct ?? 0).toFixed(1)}%` : `${(erpRoi.uplift_pct ?? 0).toFixed(1)}%`}</h3>
                             </div>
                             <div className="hidden sm:block">
                               <Flame size={60} className="fill-white/20 text-white/40" />

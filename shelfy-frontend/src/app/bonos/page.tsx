@@ -463,7 +463,7 @@ export default function BonosPage() {
                       </span>
                       <span className="text-xs px-3 py-1 rounded-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] text-[var(--shelfy-muted)]">
                         Total bonos: <strong className="text-green-700">
-                          ${liquidacion.vendedores.reduce((s, v) => s + v.bono, 0).toFixed(2)}
+                          ${liquidacion.vendedores.reduce((s, v) => s + (v.bono ?? 0), 0).toFixed(2)}
                         </strong>
                       </span>
                       <span className="text-xs px-3 py-1 rounded-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] text-[var(--shelfy-muted)]">

@@ -380,8 +380,8 @@ export interface Integrante {
 }
 
 export async function fetchIntegrantes(distId?: number): Promise<Integrante[]> {
-  const q = distId ? `?dist_id=${distId}` : "";
-  return apiFetch<Integrante[]>(`/admin/usuarios${q}`); // usando el de listado global
+  const path = distId ? `/api/admin/usuarios/${distId}` : "/api/admin/usuarios";
+  return apiFetch<Integrante[]>(path);
 }
 
 export async function setRolIntegrante(id: number, rol: string, distribuidorId?: number) {
@@ -613,6 +613,13 @@ export async function updateLocation(locId: number, data: { dist_id: number; lab
 
 export async function mapIntegranteSucursal(data: { dist_id: number; id_integrante: number; location_id: number | null }) {
   return apiFetch("/api/admin/hierarchy/map-sucursal", {
+    method: "POST",
+    body: JSON.stringify(data)
+  });
+}
+
+export async function mapSellerERP(data: { dist_id: number; id_integrante: number; id_vendedor_erp: string }) {
+  return apiFetch("/api/admin/hierarchy/map-seller", {
     method: "POST",
     body: JSON.stringify(data)
   });

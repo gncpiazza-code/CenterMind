@@ -80,8 +80,8 @@ export function useAuth() {
     if (user?.rol !== "superadmin") return;
     setUser(prev => prev ? { ...prev, id_distribuidor: id, nombre_empresa: nombre } : null);
     localStorage.setItem("shelfy_active_dist", JSON.stringify({ id, nombre }));
-    router.refresh();
-  }, [user?.rol, router]);
+    window.location.reload();
+  }, [user?.rol]);
 
   useEffect(() => {
     const stored = localStorage.getItem("shelfy_active_dist");

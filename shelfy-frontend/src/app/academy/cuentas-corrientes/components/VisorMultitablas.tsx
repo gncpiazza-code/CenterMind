@@ -5,6 +5,8 @@ import { Card } from "@/components/ui/Card";
 import { Table, LayoutList, TrendingUp, AlertTriangle, ArrowUpDown, PieChart as PieChartIcon, Users, DollarSign } from "lucide-react";
 import { Tooltip, ResponsiveContainer, Cell, PieChart, Pie, Sector } from "recharts";
 
+const PieAny = Pie as any;
+
 interface VisorData {
     resumen_alertas: any[];
     vendedores: Record<string, {
@@ -254,8 +256,7 @@ function VendedorTab({ data, vendName }: { data: any, vendName: string }) {
 
                         <ResponsiveContainer width="100%" height="100%">
                             <PieChart>
-                                {/* @ts-ignore - Recharts types for Pie activeIndex/activeShape are incomplete in this version */}
-                                <Pie
+                                <PieAny
                                     activeIndex={activeIndex}
                                     activeShape={renderActiveShape}
                                     data={chartData}
@@ -279,7 +280,7 @@ function VendedorTab({ data, vendName }: { data: any, vendName: string }) {
                                             />
                                         );
                                     })}
-                                </Pie>
+                                </PieAny>
                             </PieChart>
                         </ResponsiveContainer>
                     </div>
@@ -361,7 +362,7 @@ function VendedorTab({ data, vendName }: { data: any, vendName: string }) {
                 </div>
 
             </div>
-        </div>
+        </div >
     );
 }
 

@@ -31,8 +31,8 @@ export default function SystemHealthMonitor() {
             setHistory(prev => {
                 const newPoint = {
                     time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-                    cpu: data.hardware.cpu_percent,
-                    ram: data.hardware.ram_percent
+                    cpu: data?.hardware?.cpu_percent ?? 0,
+                    ram: data?.hardware?.ram_percent ?? 0
                 };
                 const shifted = [...prev, newPoint];
                 if (shifted.length > 20) return shifted.slice(1);
@@ -73,15 +73,15 @@ export default function SystemHealthMonitor() {
                     value={`${health?.hardware.cpu_percent || 0}%`}
                     icon={Cpu}
                     detail={`${health?.hardware.process_count || 0} procesos activos`}
-                    status={health?.hardware.cpu_percent! > 80 ? 'danger' : health?.hardware.cpu_percent! > 50 ? 'warning' : 'success'}
+                    status={(health?.hardware?.cpu_percent ?? 0) > 80 ? 'danger' : (health?.hardware?.cpu_percent ?? 0) > 50 ? 'warning' : 'success'}
                 />
                 {/* RAM usage */}
                 <HealthCard
                     label="Uso de Memoria"
-                    value={`${health?.hardware.ram_percent || 0}%`}
+                    value={`${health?.hardware?.ram_percent ?? 0}%`}
                     icon={Activity}
-                    detail={`${health?.hardware.ram_gb_used.toFixed(1)}GB / ${health?.hardware.ram_gb_total.toFixed(0)}GB`}
-                    status={health?.hardware.ram_percent! > 85 ? 'danger' : health?.hardware.ram_percent! > 70 ? 'warning' : 'success'}
+                    detail={`${(health?.hardware?.ram_gb_used ?? 0).toFixed(1)}GB / ${(health?.hardware?.ram_gb_total ?? 0).toFixed(0)}GB`}
+                    status={(health?.hardware?.ram_percent ?? 0) > 85 ? 'danger' : (health?.hardware?.ram_percent ?? 0) > 70 ? 'warning' : 'success'}
                 />
                 {/* Active Sessions */}
                 <HealthCard

@@ -401,13 +401,13 @@ export async function editarIntegranteAdmin(id: number, data: { nombre_integrant
 // ── Admin: Sucursales (Locations) ────────────────────────────────────────────
 
 export interface Location {
-  location_id: number;
+  id: number;
   dist_id: number;
-  ciudad: string;
-  provincia: string;
+  ciudad?: string;
+  provincia?: string;
   label: string;
-  lat: number;
-  lon: number;
+  lat?: number;
+  lon?: number;
 }
 
 export async function fetchLocations(distId: number): Promise<Location[]> {
@@ -597,10 +597,11 @@ export async function fetchSystemHealth(): Promise<SystemHealth> {
   return apiFetch<SystemHealth>("/api/admin/system-health");
 }
 
-export async function createLocation(data: { dist_id: number; label: string; ciudad?: string; provincia?: string }) {
-  return apiFetch("/api/admin/locations", {
+export async function createLocation(data: { dist_id: number; label: string; ciudad?: string; provincia?: string; lat?: number; lon?: number }) {
+  const { dist_id, ...payload } = data;
+  return apiFetch<Location>(`/api/admin/locations/${dist_id}`, {
     method: "POST",
-    body: JSON.stringify(data)
+    body: JSON.stringify(payload)
   });
 }
 

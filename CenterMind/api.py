@@ -166,6 +166,7 @@ async def health_check():
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -1596,35 +1597,6 @@ def map_seller_erp(data: dict, user_payload=Depends(verify_auth)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/admin/locations", tags=["Admin"])
-def create_location(data: dict, user_payload=Depends(verify_auth)):
-    dist_id = data.get("dist_id")
-    check_dist_permission(user_payload, dist_id)
-    try:
-        res = sb.table("locations").insert({
-            "dist_id": dist_id,
-            "label": data.get("label"),
-            "ciudad": data.get("ciudad", ""),
-            "provincia": data.get("provincia", "")
-        }).execute()
-        return res.data[0] if res.data else {"status": "ok"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.put("/api/admin/locations/{loc_id}", tags=["Admin"])
-def update_location(loc_id: int, data: dict, user_payload=Depends(verify_auth)):
-    dist_id = data.get("dist_id")
-    check_dist_permission(user_payload, dist_id)
-    try:
-        res = sb.table("locations").update({
-            "label": data.get("label"),
-            "ciudad": data.get("ciudad"),
-            "provincia": data.get("provincia")
-        }).eq("location_id", loc_id).execute()
-        return res.data[0] if res.data else {"status": "ok"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
 @app.post("/api/admin/hierarchy/map-sucursal", tags=["Admin"])
 def map_integrante_sucursal(data: dict, user_payload=Depends(verify_auth)):
     dist_id = data.get("dist_id")
@@ -1645,7 +1617,7 @@ def get_clientes_listado(dist_id: int, search: str = "", limit: int = 200, user_
     try:
         query = sb.table("erp_clientes_raw").select("*").eq("id_distribuidor", dist_id)
         if search:
-            query = query.or_(f"nombre_fantasia.ilike.%{search}%,id_cliente_erp_local.ilike.%{search}%,razon_social.ilike.%{search}%")
+            query = query.or_(f"nombre_fantasia.ilike.%{search}%,id_cliente_erp_local.ilike.%{search}%")
         
         res = query.order("nombre_fantasia", desc=False).limit(limit).execute()
         return res.data or []

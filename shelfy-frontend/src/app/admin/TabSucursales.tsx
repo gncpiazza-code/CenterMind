@@ -3,64 +3,60 @@ import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { MapPin, Users, Loader2 } from "lucide-react";
 import toast from "react-hot-toast";
+import { fetchLocations, fetchIntegrantes, createLocation, type Location, type Integrante } from "@/lib/api";
 
 const INPUT_CLS = "rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-[var(--shelfy-text)] px-3 py-2 text-sm focus:outline-none focus:border-[var(--shelfy-primary)]";
 
 export default function TabSucursales({ isSuperadmin, distId, role }: any) {
-    const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-    const token = typeof window !== 'undefined' ? localStorage.getItem("shelfy_token") : null;
-
-    const [locations, setLocations] = useState<any[]>([]);
+    const [locations, setLocations] = useState<Location[]>([]);
     const [loading, setLoading] = useState(true);
 
     const [showLocForm, setShowLocForm] = useState(false);
     const [locForm, setLocForm] = useState({ label: "", ciudad: "", provincia: "", lat: 0, lon: 0 });
 
-    const [vendedores, setVendedores] = useState<any[]>([]);
+    const [vendedores, setVendedores] = useState<Integrante[]>([]);
     const [showVendForm, setShowVendForm] = useState(false);
     const [vendForm, setVendForm] = useState({ nombre_integrante: "", location_id: "" });
 
     const canEdit = isSuperadmin || role === "admin" || role === "supervisor";
 
-    const fetchLocations = async () => {
+    const loadData = async () => {
+        setLoading(true);
         try {
-            const dist = isSuperadmin ? 0 : distId;
-            const res = await fetch(`${API_URL}/admin/locations/${dist || 0}`, {
-                headers: { "Authorization": `Bearer ${token}` }
-            });
-            if (res.ok) setLocations(await res.json());
-        } catch (e) { console.error(e); }
-    };
-
-    const fetchVendedores = async () => {
-        try {
-            const dist = distId || 0;
-            const res = await fetch(`${API_URL}/admin/usuarios/${dist}`, {
-                headers: { "Authorization": `Bearer ${token}` }
-            });
-            if (res.ok) setVendedores(await res.json());
-        } catch (e) { console.error(e); }
+            const [locs, vends] = await Promise.all([
+                fetchLocations(distId),
+                fetchIntegrantes(distId)
+            ]);
+            setLocations(locs);
+            setVendedores(vends);
+        } catch (e) {
+            console.error(e);
+            toast.error("Error al cargar datos");
+        } finally {
+            setLoading(false);
+        }
     };
 
     useEffect(() => {
-        Promise.all([fetchLocations(), fetchVendedores()]).finally(() => setLoading(false));
-    }, [token, distId, isSuperadmin]);
+        loadData();
+    }, [distId]);
 
     const handleCrearLocation = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!canEdit) return;
         try {
-            const res = await fetch(`${API_URL}/admin/locations/${distId || 0}`, {
-                method: "POST",
-                headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
-                body: JSON.stringify({ ...locForm, location_id: 0 })
+            await createLocation({
+                dist_id: distId || 0,
+                label: locForm.label,
+                ciudad: locForm.ciudad,
+                provincia: locForm.provincia,
+                lat: locForm.lat,
+                lon: locForm.lon
             });
-            if (res.ok) {
-                toast.success("Sucursal creada");
-                setShowLocForm(false);
-                setLocForm({ label: "", ciudad: "", provincia: "", lat: 0, lon: 0 });
-                fetchLocations();
-            }
+            toast.success("Sucursal creada");
+            setShowLocForm(false);
+            setLocForm({ label: "", ciudad: "", provincia: "", lat: 0, lon: 0 });
+            loadData();
         } catch (e) {
             toast.error("Error al crear sucursal");
         }
@@ -70,7 +66,15 @@ export default function TabSucursales({ isSuperadmin, distId, role }: any) {
         e.preventDefault();
         if (!canEdit) return;
         try {
-            const res = await fetch(`${API_URL}/admin/integrantes/${distId || 0}`, {
+            // Usamos el endpoint estandarizado via fetch directo si no hay helper, 
+            // pero para vendedores manuales podemos usar apiFetch si lo exportamos o crear un helper.
+            // Por ahora, usemos el fetch pero con el prefijo /api y token de lib/api si es posible,
+            // o mejor, crear el helper en lib/api.ts.
+
+            // Voy a crear el helper adminCreateIntegrante en lib/api.ts después.
+            // Por ahora uso un fetch corregido.
+            const token = localStorage.getItem("shelfy_token");
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ""}/api/admin/integrantes/${distId || 0}`, {
                 method: "POST",
                 headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
                 body: JSON.stringify({
@@ -83,7 +87,9 @@ export default function TabSucursales({ isSuperadmin, distId, role }: any) {
                 toast.success("Vendedor creado manualmente");
                 setShowVendForm(false);
                 setVendForm({ nombre_integrante: "", location_id: "" });
-                fetchVendedores();
+                loadData();
+            } else {
+                toast.error("Error en el servidor");
             }
         } catch (e) {
             toast.error("Error al crear vendedor");

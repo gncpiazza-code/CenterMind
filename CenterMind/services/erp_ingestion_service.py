@@ -41,6 +41,7 @@ class ERPIngestionService:
         col_fantasia = "fantacli"
         col_vendedor = "d_vendedor"
         col_sucursal = "dssucur"
+        col_id_sucursal = "idsucur"
         col_id_int   = "IdClienteInterno"
         col_lat      = "ycoord"
         col_lon      = "xcoord"
@@ -87,6 +88,7 @@ class ERPIngestionService:
                 "nombre_fantasia": str(row.get(col_fantasia, "")),
                 "vendedor_erp": str(row.get(col_vendedor, "")).strip().upper(),
                 "sucursal_erp": str(row.get(col_sucursal, "")),
+                "id_sucursal_erp": str(row.get(col_id_sucursal, "")),
                 "lat": float(row.get(col_lat, 0)) if row.get(col_lat) else None,
                 "lon": float(row.get(col_lon, 0)) if row.get(col_lon) else None,
                 "forma_pago": str(row.get(col_pago, "")),

@@ -1609,6 +1609,78 @@ def map_integrante_sucursal(data: dict, user_payload=Depends(verify_auth)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/api/admin/hierarchy/sync-from-erp/{dist_id}", tags=["Admin"])
+def sync_hierarchy_from_erp(dist_id: int, user_payload=Depends(verify_auth)):
+    """Sincronización masiva de jerarquía usando datos del ERP (erp_clientes_raw)."""
+    check_dist_permission(user_payload, dist_id)
+    
+    try:
+        # 1. Obtener combinaciones únicas de Vendedor y Sucursal desde el ERP
+        res_erp = sb.table("erp_clientes_raw").select("vendedor_erp, sucursal_erp, id_sucursal_erp").eq("id_distribuidor", dist_id).execute()
+        if not res_erp.data:
+            return {"message": "No hay datos de clientes ERP para sincronizar.", "count": 0}
+        
+        # Deduplicar pares (vendedor, sucursal_name)
+        # Nota: Usamos el nombre de la sucursal para matchear/crear en 'locations'
+        erp_mappings = {} # {(vendedor_upper): {name: sucursal_erp, id: id_sucursal_erp}}
+        sucursales_necesarias = set()
+
+        for row in res_erp.data:
+            v_name = str(row["vendedor_erp"]).strip().upper()
+            s_name = str(row["sucursal_erp"]).strip()
+            if v_name and v_name != "NONE":
+                erp_mappings[v_name] = s_name
+                if s_name and s_name != "NONE":
+                    sucursales_necesarias.add(s_name)
+
+        # 2. Asegurar que las sucursales existan en la tabla 'locations'
+        existing_locs = sb.table("locations").select("*").eq("dist_id", dist_id).execute().data or []
+        loc_map = {l["label"].strip().upper(): l["location_id"] for l in existing_locs}
+        
+        created_count = 0
+        for s_name in sucursales_necesarias:
+            s_upper = s_name.upper()
+            if s_upper not in loc_map:
+                new_loc = sb.table("locations").insert({
+                    "dist_id": dist_id,
+                    "label": s_name,
+                    "ciudad": "-",
+                    "provincia": "-"
+                }).execute()
+                if new_loc.data:
+                    loc_map[s_upper] = new_loc.data[0]["location_id"]
+                    created_count += 1
+
+        # 3. Mapear integrantes de Telegram (vendedores) según su nombre
+        # Buscamos integrantes cuyo nombre coincida con el nombre del vendedor en el ERP (vendedor_erp)
+        integrantes = sb.table("integrantes_grupo").select("*").eq("id_distribuidor", dist_id).execute().data or []
+        
+        updated_count = 0
+        for ig in integrantes:
+            ig_nombre = str(ig["nombre_integrante"]).strip().upper()
+            # Si el nombre del integrante coincide con un vendedor del ERP
+            if ig_nombre in erp_mappings:
+                v_erp_id = ig_nombre # Usamos el nombre como ID si no hay uno numérico claro aún
+                s_name = erp_mappings[ig_nombre]
+                loc_id = loc_map.get(s_name.upper()) if s_name else None
+                
+                # Actualizar si cambió algo
+                if ig.get("id_vendedor_erp") != v_erp_id or ig.get("location_id") != loc_id:
+                    sb.table("integrantes_grupo").update({
+                        "id_vendedor_erp": v_erp_id,
+                        "location_id": loc_id
+                    }).eq("id_integrante", ig["id_integrante"]).execute()
+                    updated_count += 1
+
+        return {
+            "status": "success",
+            "sucursales_creadas": created_count,
+            "vendedores_mapeados": updated_count
+        }
+    except Exception as e:
+        logger.error(f"Error en sync hierarchy: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/api/reportes/clientes/listado/{dist_id}", tags=["Reportes"])
 def get_clientes_listado(dist_id: int, search: str = "", limit: int = 200, user_payload=Depends(verify_auth)):
     """Retorna listado maestro de clientes para el Padrón."""
@@ -1617,9 +1689,9 @@ def get_clientes_listado(dist_id: int, search: str = "", limit: int = 200, user_
     try:
         query = sb.table("erp_clientes_raw").select("*").eq("id_distribuidor", dist_id)
         if search:
-            query = query.or_(f"nombre_fantasia.ilike.%{search}%,id_cliente_erp_local.ilike.%{search}%")
+            query = query.or_(f"nombre_cliente.ilike.%{search}%,id_cliente_erp_local.ilike.%{search}%")
         
-        res = query.order("nombre_fantasia", desc=False).limit(limit).execute()
+        res = query.order("nombre_cliente", desc=False).limit(limit).execute()
         return res.data or []
     except Exception as e:
         logger.error(f"Error en listado de clientes: {e}")

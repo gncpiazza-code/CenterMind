@@ -629,3 +629,9 @@ export async function mapSellerERP(data: { dist_id: number; id_integrante: numbe
 export async function fetchDistribuidores(): Promise<{ id_distribuidor: number; nombre_dist: string }[]> {
   return apiFetch("/api/admin/distribuidores");
 }
+
+export async function syncHierarchyFromERP(distId: number): Promise<{ sucursales_creadas: number; vendedores_mapeados: number }> {
+  return apiFetch(`/api/admin/hierarchy/sync-from-erp/${distId}`, {
+    method: "POST"
+  });
+}

@@ -3,7 +3,8 @@ import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { MapPin, Users, Loader2 } from "lucide-react";
 import toast from "react-hot-toast";
-import { fetchLocations, fetchIntegrantes, createLocation, type Location, type Integrante } from "@/lib/api";
+import { fetchLocations, fetchIntegrantes, createLocation, syncHierarchyFromERP, type Location, type Integrante } from "@/lib/api";
+import { RefreshCcw } from "lucide-react";
 
 const INPUT_CLS = "rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-[var(--shelfy-text)] px-3 py-2 text-sm focus:outline-none focus:border-[var(--shelfy-primary)]";
 
@@ -18,6 +19,7 @@ export default function TabSucursales({ isSuperadmin, distId, role }: any) {
     const [showVendForm, setShowVendForm] = useState(false);
     const [vendForm, setVendForm] = useState({ nombre_integrante: "", location_id: "" });
 
+    const [syncing, setSyncing] = useState(false);
     const canEdit = isSuperadmin || role === "admin" || role === "supervisor";
 
     const loadData = async () => {
@@ -96,6 +98,20 @@ export default function TabSucursales({ isSuperadmin, distId, role }: any) {
         }
     };
 
+    const handleSyncERP = async () => {
+        if (!canEdit || syncing) return;
+        setSyncing(true);
+        try {
+            const res = await syncHierarchyFromERP(distId);
+            toast.success(`Sincronización completa: ${res.sucursales_creadas} sucursales nuevas, ${res.vendedores_mapeados} vendedores mapeados.`);
+            loadData();
+        } catch (e: any) {
+            toast.error(e.message || "Error al sincronizar con ERP");
+        } finally {
+            setSyncing(false);
+        }
+    };
+
     if (loading) return <div className="p-8 text-center text-[var(--shelfy-textSecondary)] flex items-center justify-center gap-2"><Loader2 className="animate-spin" /> Cargando configuraciones...</div>;
 
     return (
@@ -108,11 +124,25 @@ export default function TabSucursales({ isSuperadmin, distId, role }: any) {
                         <MapPin size={20} className="text-violet-500" />
                         Sucursales
                     </h3>
-                    {canEdit && (
-                        <Button onClick={() => setShowLocForm(!showLocForm)} size="sm" className="bg-violet-600 hover:bg-violet-700">
-                            {showLocForm ? "Cancelar" : "+ Nueva Sucursal"}
-                        </Button>
-                    )}
+                    <div className="flex items-center gap-2">
+                        {canEdit && (
+                            <>
+                                <Button
+                                    onClick={handleSyncERP}
+                                    variant="secondary"
+                                    size="sm"
+                                    loading={syncing}
+                                    className="border-violet-200 text-violet-700 hover:bg-violet-50"
+                                >
+                                    <RefreshCcw size={14} className={syncing ? "animate-spin mr-1" : "mr-1"} />
+                                    Sincronizar con ERP
+                                </Button>
+                                <Button onClick={() => setShowLocForm(!showLocForm)} size="sm" className="bg-violet-600 hover:bg-violet-700">
+                                    {showLocForm ? "Cancelar" : "+ Nueva Sucursal"}
+                                </Button>
+                            </>
+                        )}
+                    </div>
                 </div>
 
                 {showLocForm && (

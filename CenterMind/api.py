@@ -1626,22 +1626,28 @@ def sync_hierarchy_from_erp(dist_id: int, user_payload=Depends(verify_auth)):
         erp_mappings = {} # {(vendedor_upper): {name: sucursal_erp, id: id_sucursal_erp}}
         sucursales_necesarias = set()
 
+        import unicodedata
+        def normalize_str(text: str) -> str:
+            if not text or str(text).strip().upper() in ("NAN", "NONE", "NULL", "NA"): 
+                return ""
+            text = str(text).strip().upper()
+            return ''.join(c for c in unicodedata.normalize('NFD', text) if unicodedata.category(c) != 'Mn')
+
         for row in res_erp.data:
-            v_name = str(row["vendedor_erp"]).strip().upper()
-            s_name = str(row["sucursal_erp"]).strip()
-            if v_name and v_name != "NONE":
+            v_name = normalize_str(row.get("vendedor_erp"))
+            s_name = normalize_str(row.get("sucursal_erp"))
+            if v_name:
                 erp_mappings[v_name] = s_name
-                if s_name and s_name != "NONE":
+                if s_name:
                     sucursales_necesarias.add(s_name)
 
         # 2. Asegurar que las sucursales existan en la tabla 'locations'
         existing_locs = sb.table("locations").select("*").eq("dist_id", dist_id).execute().data or []
-        loc_map = {l["label"].strip().upper(): l["location_id"] for l in existing_locs}
+        loc_map = {normalize_str(l["label"]): l["location_id"] for l in existing_locs}
         
         created_count = 0
         for s_name in sucursales_necesarias:
-            s_upper = s_name.upper()
-            if s_upper not in loc_map:
+            if s_name not in loc_map:
                 new_loc = sb.table("locations").insert({
                     "dist_id": dist_id,
                     "label": s_name,
@@ -1649,7 +1655,7 @@ def sync_hierarchy_from_erp(dist_id: int, user_payload=Depends(verify_auth)):
                     "provincia": "-"
                 }).execute()
                 if new_loc.data:
-                    loc_map[s_upper] = new_loc.data[0]["location_id"]
+                    loc_map[s_name] = new_loc.data[0]["location_id"]
                     created_count += 1
 
         # 3. Mapear integrantes de Telegram (vendedores) según su nombre
@@ -1658,11 +1664,14 @@ def sync_hierarchy_from_erp(dist_id: int, user_payload=Depends(verify_auth)):
         
         updated_count = 0
         for ig in integrantes:
-            ig_nombre = str(ig["nombre_integrante"]).strip().upper()
+            ig_nombre = normalize_str(ig.get("nombre_integrante"))
+            if not ig_nombre:
+                continue
             
             matched_erp_name = None
             for erp_vend_name in erp_mappings.keys():
                 # Substring matching: 'MATIAS' in 'GOMEZ MATIAS' or vice versa
+                # Now accents are stripped, and "NAN" is ignored.
                 if ig_nombre in erp_vend_name or erp_vend_name in ig_nombre:
                     matched_erp_name = erp_vend_name
                     break
@@ -1671,7 +1680,7 @@ def sync_hierarchy_from_erp(dist_id: int, user_payload=Depends(verify_auth)):
             if matched_erp_name:
                 v_erp_id = matched_erp_name # Usamos el nombre como ID si no hay uno numérico claro aún
                 s_name = erp_mappings[matched_erp_name]
-                loc_id = loc_map.get(s_name.upper()) if s_name else None
+                loc_id = loc_map.get(s_name) if s_name else None
                 
                 # Actualizar si cambió algo
                 if ig.get("id_vendedor_erp") != v_erp_id or ig.get("location_id") != loc_id:

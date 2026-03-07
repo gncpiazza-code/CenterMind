@@ -446,7 +446,7 @@ class BotWorker:
         """
         try:
             # Consultar estado fresco de la DB
-            res = self.sb.table("distribuidores").select("estado_operativo, motivo_bloqueo").eq("id_distribuidor", self.distribuidor_id).execute()
+            res = self.db.sb.table("distribuidores").select("estado_operativo, motivo_bloqueo").eq("id_distribuidor", self.distribuidor_id).execute()
             if res.data:
                 d = res.data[0]
                 self.estado_operativo = d.get("estado_operativo", "Activo")

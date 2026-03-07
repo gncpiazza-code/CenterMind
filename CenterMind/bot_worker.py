@@ -1436,7 +1436,7 @@ class BotWorker:
         app.add_handler(ChatMemberHandler(self.handle_chat_member_update, ChatMemberHandler.CHAT_MEMBER))
 
         # Callbacks (solo selección de tipo PDV — sin evaluación)
-        app.add_handler(CallbackQueryHandler(self.button_callback, pattern="^TYPE_"))
+        app.add_handler(CallbackQueryHandler(self.button_callback))
 
         # Error handler
         app.add_error_handler(self.error_handler)

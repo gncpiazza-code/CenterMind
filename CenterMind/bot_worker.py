@@ -1045,11 +1045,11 @@ class BotWorker:
                                 if success:
                                     rpc_result = await asyncio.to_thread(self.db.registrar_exhibicion, **params)
 
-                            # PASO 3: Vendedor no mapeado -> Silencioso, forzar Revisión
+                            # PASO 3: Vendedor no mapeado -> Ya no forzamos revisión (Pedido Usuario: No obligatorio aún)
                             if rpc_result.get("error") == "PENDIENTE_MAPEO":
-                            en_cuarentena = True # Forzamos revisión silenciosa
-                        else:
-                            en_cuarentena = rpc_result.get("en_cuarentena", False)
+                                en_cuarentena = False
+                            else:
+                                en_cuarentena = rpc_result.get("en_cuarentena", False)
 
                         ex_id = rpc_result.get("id_exhibicion")
                         # en_cuarentena ya se determinó arriba

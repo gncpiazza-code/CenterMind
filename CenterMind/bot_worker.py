@@ -589,23 +589,27 @@ class BotWorker:
         
         # Generar botones para los últimos 3 meses
         from datetime import datetime
-        import locale
-        try:
-            locale.setlocale(locale.LC_TIME, "es_ES.UTF-8")
-        except:
-            try: locale.setlocale(locale.LC_TIME, "es_ES")
-            except: pass
+        
+        # Diccionario manual para evitar problemas de locale en diferentes SO
+        MESES = {
+            1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril",
+            5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto",
+            9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
+        }
 
         buttons = []
         now = datetime.now(AR_TZ)
         for i in range(3):
-            dt = now - timedelta(days=30*i)
-            month_name = dt.strftime("%B").capitalize()
-            month_num = dt.month
-            year = dt.year
+            # Restamos meses de forma simple (para ranking de los últimos 3)
+            m = now.month - i
+            y = now.year
+            if m <= 0:
+                m += 12
+                y -= 1
+            
+            month_name = MESES[m]
             # Callback data: RANKING_<month>_<year>_<user_id>
-            # month_num is 1-12
-            buttons.append([InlineKeyboardButton(f"📊 {month_name} {year}", callback_data=f"RANKING_{month_num}_{year}_{update.message.from_user.id}")])
+            buttons.append([InlineKeyboardButton(f"📊 {month_name} {y}", callback_data=f"RANKING_{m}_{y}_{update.message.from_user.id}")])
 
         await update.message.reply_text(
             "🏆 <b>Ranking de Exhibiciones</b>\nSeleccioná el mes que querés consultar:",
@@ -857,8 +861,12 @@ class BotWorker:
                     await q.edit_message_text("📊 No hay datos para ese período.")
                     return
 
-                import calendar
-                month_name = calendar.month_name[month].capitalize()
+                MESES = {
+                    1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril",
+                    5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto",
+                    9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
+                }
+                month_name = MESES.get(month, "Mes")
                 
                 msg = f"🏆 <b>RANKING {month_name.upper()} {year} — {self.nombre_dist}</b>\n\n"
                 for i, entry in enumerate(ranking[:10], 1):
@@ -975,16 +983,15 @@ class BotWorker:
                             telegram_chat_id=chat_id
                         )
 
-                        # PASO 3: Vendedor no mapeado
+                        # PASO 3: Vendedor no mapeado (Solo aviso, dejar cargar)
                         if rpc_result.get("error") == "PENDIENTE_MAPEO":
                             await context.bot.send_message(
                                 chat_id=chat_id,
-                                text=rpc_result.get("message", "⚠️ Tu usuario no tiene legajo asignado."),
+                                text="⚠️ <b>Aviso:</b> Tu usuario aún no tiene un legajo ERP asignado. La exhibición se registrará, pero no aparecerá en los reportes de objetivos hasta que un administrador te mapee.",
                                 parse_mode=ParseMode.HTML,
                                 reply_to_message_id=ph_msg_id,
                             )
-                            del self.upload_sessions[uploader_id]
-                            return
+                            # Continuamos el flujo para que obtenga el id y se registre igual
 
                         ex_id = rpc_result.get("id_exhibicion")
                         en_cuarentena = rpc_result.get("en_cuarentena", False)

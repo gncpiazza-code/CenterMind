@@ -12,6 +12,7 @@ import {
   fetchReporteExhibiciones, fetchReporteVendedores, fetchReporteTiposPdv, fetchReporteSucursales,
   fetchROI, type ROIAnalitico
 } from "@/lib/api";
+import { useSearchParams } from "next/navigation";
 import { Printer, Download, Search, X, ChevronDown, Check, BarChart3, Trophy, Briefcase, SwitchCamera, PieChart, AlertTriangle, Users, MapPin, Flame, RefreshCw } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
@@ -147,7 +148,16 @@ function DropdownMultiSelect({
 
 export default function HerramientasReportePage() {
   const { user } = useAuth();
+  const searchParams = useSearchParams();
   const [activeMainTab, setActiveMainTab] = useState<"exhibiciones" | "recaudacion" | "padron" | "cuentas_corrientes" | "roi">("exhibiciones");
+
+  useEffect(() => {
+    const tab = searchParams.get("tab");
+    if (tab === "cuentas_corrientes") setActiveMainTab("cuentas_corrientes");
+    else if (tab === "padron") setActiveMainTab("padron");
+    else if (tab === "recaudacion") setActiveMainTab("recaudacion");
+  }, [searchParams]);
+
   const [ccpTab, setCcpTab] = useState<"resumen" | "alertas" | "informe">("resumen");
   const [ccTab, setCcTab] = useState<"generar" | "alertas">("generar");
   const [erpRoi, setErpRoi] = useState<ROIAnalitico | null>(null);
@@ -313,14 +323,14 @@ export default function HerramientasReportePage() {
         <div className="no-print"><Sidebar /></div>
         <div className="no-print"><BottomNav /></div>
         <div className="flex flex-col flex-1 min-w-0">
-          <div className="no-print"><Topbar title="Herramientas de Reporte" /></div>
+          <div className="no-print"><Topbar title="Central de Reportes" /></div>
 
           <main className="flex-1 p-4 md:p-6 pb-20 md:pb-6 overflow-auto w-full max-w-7xl mx-auto">
 
             {/* Cabecera Principal */}
             <div className="mb-6 no-print">
               <h1 className="text-2xl font-black text-[var(--shelfy-text)] tracking-tight">
-                Herramientas de Reporte
+                Central de Reportes
               </h1>
               <p className="text-sm text-[var(--shelfy-muted)] mt-1">
                 Analiza la evaluación corporativa en PDV o gestiona tus Cuentas Corrientes.

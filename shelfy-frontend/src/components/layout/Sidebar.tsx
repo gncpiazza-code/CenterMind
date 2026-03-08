@@ -3,12 +3,20 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
-import { LayoutDashboard, Eye, Users, BarChart2, Gift, LogOut, ChevronDown, ChevronRight, GraduationCap, Activity, MapPin, Globe, PanelLeftClose, PanelLeft } from "lucide-react";
+import { LayoutDashboard, Eye, Users, BarChart2, Gift, LogOut, ChevronDown, ChevronRight, GraduationCap, Activity, MapPin, Globe, PanelLeftClose, PanelLeft, Briefcase } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { fetchDistribuidores } from "@/lib/api";
 import { useUI } from "@/contexts/UIContext";
 
-const ALL_NAV = [
+interface NavItem {
+  href: string;
+  label: string;
+  icon: any;
+  roles?: string[];
+  subItems?: NavItem[];
+}
+
+const ALL_NAV: NavItem[] = [
   { href: "/visor", label: "Evaluar", icon: Eye, roles: ["superadmin", "admin", "supervisor"] },
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["superadmin", "admin", "supervisor"] },
   { href: "/bonos", label: "Bonos", icon: Gift, roles: ["superadmin", "admin"] },
@@ -18,7 +26,7 @@ const ALL_NAV = [
     icon: GraduationCap,
     roles: ["superadmin", "admin", "supervisor"],
     subItems: [
-      { href: "/reportes", label: "Herramientas de Reporte", icon: BarChart2, roles: ["superadmin", "admin", "supervisor"] },
+      { href: "/reportes", label: "Central de Reportes", icon: BarChart2, roles: ["superadmin", "admin", "supervisor"] },
       { href: "/academy/aula-virtual", label: "Aula Virtual", icon: GraduationCap, roles: ["superadmin", "admin"] }
     ]
   },
@@ -51,17 +59,15 @@ export function Sidebar() {
   const { isSidebarCollapsed: isCollapsed } = useUI();
 
   const rol = user?.rol ?? "";
-  const navItems = ALL_NAV.filter(i => {
-    if (!(i.roles as string[]).includes(rol)) return false;
-
-    // Only 'NachoPiazza' or roles with superadmin see most logic. 
-    if (user?.usuario !== "NachoPiazza" && rol !== "superadmin") {
-      const allowedHrefs = ["/visor", "/dashboard", "/academy-hub"];
-      if (!allowedHrefs.includes(i.href)) return false;
-    }
-
-    return true;
-  });
+  const navItems: NavItem[] = rol === "superadmin" || user?.usuario === "NachoPiazza"
+    ? ALL_NAV.filter(i => (i.roles as string[]).includes(rol))
+    : [
+      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+      { href: "/visor", label: "Evaluar (Visor)", icon: Eye },
+      { href: "/reportes", label: "Central de Reportes", icon: BarChart2 },
+      { href: "/reportes?tab=cuentas_corrientes", label: "Cuentas corrientes", icon: Briefcase },
+      { href: "/reportes?tab=padron", label: "Padrón de Clientes", icon: Users },
+    ];
 
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({ "/academy-hub": true });
 
@@ -105,7 +111,7 @@ export function Sidebar() {
 
           if (subItems) {
             // Render Nested Menu structure
-            const allowedSubItems = subItems.filter(sub => sub.roles.includes(rol));
+            const allowedSubItems = subItems.filter(sub => sub.roles ? sub.roles.includes(rol) : true);
             if (allowedSubItems.length === 0) return null;
 
             return (

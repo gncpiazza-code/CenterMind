@@ -513,9 +513,9 @@ def auth_login(req: LoginRequest):
             "sub":               user["usuario_login"],
             "id_usuario":        user["id_usuario"],
             "rol":               user["rol"],
-            "id_distribuidor":   dist_id,
+            "id_distribuidor":   dist_id, # IMPORTANTE: para RLS en Supabase
             "nombre_empresa":    user.get("nombre_empresa"),
-            "is_superadmin":     user.get("is_superadmin") or user["rol"] == "superadmin",
+            "is_superadmin":     bool(user.get("is_superadmin") or user["rol"] == "superadmin"),
             "usa_quarentena":    flags.get("usa_quarentena", False),
             "usa_contexto_erp":   flags.get("usa_contexto_erp", False),
             "usa_mapeo_vendedores": flags.get("usa_mapeo_vendedores", False),
@@ -553,11 +553,12 @@ def switch_context(dist_id: int, payload=Depends(verify_auth)):
     
     # 2. Generar nuevo token con el id_distribuidor actualizado y sus flags
     new_payload = dict(payload)
-    new_payload["id_distribuidor"] = dist["id_distribuidor"]
+    new_payload["id_distribuidor"] = int(dist["id_distribuidor"])
     new_payload["nombre_empresa"]  = dist["nombre_empresa"]
-    new_payload["usa_quarentena"]      = flags.get("usa_quarentena", False)
-    new_payload["usa_contexto_erp"]    = flags.get("usa_contexto_erp", False)
-    new_payload["usa_mapeo_vendedores"] = flags.get("usa_mapeo_vendedores", False)
+    new_payload["usa_quarentena"]      = bool(flags.get("usa_quarentena", False))
+    new_payload["usa_contexto_erp"]    = bool(flags.get("usa_contexto_erp", False))
+    new_payload["usa_mapeo_vendedores"] = bool(flags.get("usa_mapeo_vendedores", False))
+    new_payload["is_superadmin"] = True # Siempre true si llegamos aquí
     
     token = _jwt.encode(new_payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
     

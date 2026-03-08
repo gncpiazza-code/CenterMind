@@ -54,3 +54,19 @@ build/
 * - copia.py
 Thumbs.db
 Desktop.ini
+# 8. Scripts Temporales de Reconstrucción (Contienen Keys)
+CenterMind/deep_exhibition_parse.py
+CenterMind/finalize_march_restoration.py
+CenterMind/find_ranking_snapshot.py
+CenterMind/index_telegram_exports.py
+CenterMind/map_storage_to_vendors.py
+CenterMind/parse_telegram_html.py
+CenterMind/reconstruct_march_attempt.py
+CenterMind/restore_march_emergency.py
+CenterMind/scan_storage_skeleton.py
+CenterMind/test_supabase.py
+CenterMind/test_supabase_connectivity.py
+CenterMind/inspect_db_columns.py
+CenterMind/reconstruct_ranking_telegram.py
+massive_restoration_data.json
+restoration_ready_data.json

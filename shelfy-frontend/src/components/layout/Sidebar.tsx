@@ -64,9 +64,15 @@ export function Sidebar() {
     : [
       { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
       { href: "/visor", label: "Evaluar (Visor)", icon: Eye },
-      { href: "/reportes", label: "Central de Reportes", icon: BarChart2 },
-      { href: "/reportes?tab=cuentas_corrientes", label: "Cuentas corrientes", icon: Briefcase },
-      { href: "/reportes?tab=padron", label: "Padrón de Clientes", icon: Users },
+      {
+        href: "/reportes",
+        label: "Central de Reportes",
+        icon: BarChart2,
+        subItems: [
+          { href: "/reportes?tab=cuentas_corrientes", label: "Cuentas corrientes", icon: Briefcase },
+          { href: "/reportes?tab=padron", label: "Padrón de Clientes", icon: Users },
+        ]
+      },
     ];
 
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({ "/academy-hub": true });

@@ -6,6 +6,7 @@ import { useState, useEffect } from "react";
 import { LayoutDashboard, Eye, Users, BarChart2, Gift, LogOut, ChevronDown, ChevronRight, GraduationCap, Activity, MapPin, Globe, PanelLeftClose, PanelLeft } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { fetchDistribuidores } from "@/lib/api";
+import { useUI } from "@/contexts/UIContext";
 
 const ALL_NAV = [
   { href: "/visor", label: "Evaluar", icon: Eye, roles: ["superadmin", "admin", "supervisor"] },
@@ -47,19 +48,7 @@ export function Sidebar() {
   const { user, logout, switchDistributor } = useAuth();
   const [dists, setDists] = useState<{ id_distribuidor: number; nombre_dist: string }[]>([]);
   const [showSwitch, setShowSwitch] = useState(false);
-  const [isCollapsed, setIsCollapsed] = useState(false);
-
-  // Persistence for sidebar state
-  useEffect(() => {
-    const saved = localStorage.getItem("sidebar-collapsed");
-    if (saved === "true") setIsCollapsed(true);
-  }, []);
-
-  const toggleSidebar = () => {
-    const newState = !isCollapsed;
-    setIsCollapsed(newState);
-    localStorage.setItem("sidebar-collapsed", String(newState));
-  };
+  const { isSidebarCollapsed: isCollapsed } = useUI();
 
   const rol = user?.rol ?? "";
   const navItems = ALL_NAV.filter(i => {
@@ -91,7 +80,7 @@ export function Sidebar() {
       {/* Logo */}
       <div className={`flex items-center mb-10 transition-all duration-300 ${isCollapsed ? "justify-center px-0" : "px-2"}`}>
         <img
-          src={isCollapsed ? "/LOGO_ICON.svg" : "/LOGO_NUEVO.svg"}
+          src={isCollapsed ? "/WEBICON.svg" : "/LOGO_NUEVO.svg"}
           alt="Shelfy"
           className="h-10 w-auto transition-all duration-300"
           style={{ filter: "drop-shadow(0 4px 12px rgba(124,58,237,0.15))" }}
@@ -251,19 +240,6 @@ export function Sidebar() {
           >
             <LogOut size={16} className="shrink-0" />
             {!isCollapsed && <span>Cerrar sesión</span>}
-          </button>
-
-          {/* Toggle Sidebar Button */}
-          <button
-            onClick={toggleSidebar}
-            className={`flex items-center gap-3 px-4 py-3 w-full text-sm font-bold text-[var(--shelfy-muted)] hover:text-white hover:bg-white/5 rounded-2xl transition-all duration-200 ${isCollapsed ? "justify-center" : ""}`}
-          >
-            {isCollapsed ? <PanelLeft size={18} /> : (
-              <>
-                <PanelLeftClose size={18} />
-                <span>Colapsar menú</span>
-              </>
-            )}
           </button>
         </div>
       </div>

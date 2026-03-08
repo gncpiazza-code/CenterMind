@@ -1,9 +1,10 @@
 "use client";
 
 import { useAuth } from "@/hooks/useAuth";
-import { LogOut, ChevronDown, Globe } from "lucide-react";
+import { LogOut, ChevronDown, Globe, Menu, PanelLeft } from "lucide-react";
 import { useEffect, useState } from "react";
 import { fetchDistribuidores } from "@/lib/api";
+import { useUI } from "@/contexts/UIContext";
 
 interface TopbarProps {
   title: string;
@@ -11,10 +12,19 @@ interface TopbarProps {
 
 export function Topbar({ title }: TopbarProps) {
   const { user, logout } = useAuth();
+  const { toggleSidebar } = useUI();
 
   return (
     <header className="h-14 flex items-center justify-between px-4 md:px-6 border-b border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] shrink-0 z-50">
       <div className="flex items-center gap-4">
+        {/* Toggle Sidebar Icon Only */}
+        <button
+          onClick={toggleSidebar}
+          className="p-2 rounded-xl text-[var(--shelfy-muted)] hover:text-[var(--shelfy-primary)] hover:bg-[var(--shelfy-primary)]/5 transition-all active:scale-95"
+          title="Toggle Sidebar"
+        >
+          <Menu size={20} strokeWidth={2.5} />
+        </button>
         <h1 className="text-[var(--shelfy-text)] font-semibold text-base">{title}</h1>
       </div>
 

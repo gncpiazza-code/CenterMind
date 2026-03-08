@@ -17,6 +17,8 @@ export const metadata: Metadata = {
   description: "Panel de gestión Shelfy",
 };
 
+import { UIProvider } from "@/contexts/UIContext";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -25,7 +27,9 @@ export default function RootLayout({
   return (
     <html lang="es">
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
-        {children}
+        <UIProvider>
+          {children}
+        </UIProvider>
       </body>
     </html>
   );

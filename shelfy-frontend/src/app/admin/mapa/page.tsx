@@ -211,7 +211,7 @@ export default function LiveMapPage() {
                                         >
                                             <div className="flex items-start justify-between">
                                                 <div className="min-w-0 flex-1 pr-2">
-                                                    <p className="text-[11px] font-black text-slate-400 uppercase tracking-tight mb-0.5 truncate">
+                                                    <p className="text-[11px] font-black text-slate-500 uppercase tracking-tight mb-0.5 truncate">
                                                         {dist.name}
                                                     </p>
                                                     <p className="text-xl font-black text-slate-900 leading-none">

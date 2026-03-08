@@ -1134,7 +1134,7 @@ class ReporteQuery(BaseModel):
     nro_cliente: str = ""
 
 
-@app.get("/reportes/vendedores/{distribuidor_id}", summary="Vendedores unicos para filtro de reportes")
+@app.get("/api/reportes/vendedores/{distribuidor_id}", summary="Vendedores unicos para filtro de reportes")
 def reportes_vendedores(distribuidor_id: int, _=Depends(verify_auth)):
     result = sb.rpc("fn_vendedores_pendientes", {"p_dist_id": distribuidor_id}).execute()
     # Also get vendedores with any exhibicion, not just pendientes
@@ -1147,7 +1147,7 @@ def reportes_vendedores(distribuidor_id: int, _=Depends(verify_auth)):
     return list(set(r["nombre_integrante"] for r in (ig_result.data or [])))
 
 
-@app.get("/reportes/tipos-pdv/{distribuidor_id}", summary="Tipos de PDV unicos")
+@app.get("/api/reportes/tipos-pdv/{distribuidor_id}", summary="Tipos de PDV unicos")
 def reportes_tipos_pdv(distribuidor_id: int, _=Depends(verify_auth)):
     q = sb.table("exhibiciones").select("tipo_pdv")
     if distribuidor_id > 0:
@@ -1156,7 +1156,7 @@ def reportes_tipos_pdv(distribuidor_id: int, _=Depends(verify_auth)):
     return sorted(set(r["tipo_pdv"] for r in (result.data or []) if r.get("tipo_pdv")))
 
 
-@app.get("/reportes/sucursales/{distribuidor_id}", summary="Sucursales unicas")
+@app.get("/api/reportes/sucursales/{distribuidor_id}", summary="Sucursales unicas")
 def reportes_sucursales(distribuidor_id: int, _=Depends(verify_auth)):
     # Get all locations for the distribuidor
     result = sb.table("locations").select("label").not_.is_("label", "null").execute()
@@ -1164,7 +1164,7 @@ def reportes_sucursales(distribuidor_id: int, _=Depends(verify_auth)):
 
 
 
-@app.post("/reportes/exhibiciones/{distribuidor_id}", summary="Consulta de exhibiciones con filtros")
+@app.post("/api/reportes/exhibiciones/{distribuidor_id}", summary="Consulta de exhibiciones con filtros")
 def reportes_exhibiciones(distribuidor_id: int, q_body: ReporteQuery, _=Depends(verify_auth)):
     # Build query using Supabase client
     query = sb.table("exhibiciones").select(
@@ -1672,7 +1672,11 @@ def sync_hierarchy_from_erp(dist_id: int, user_payload=Depends(verify_auth)):
             for erp_vend_name in erp_mappings.keys():
                 # Substring matching: 'MATIAS' in 'GOMEZ MATIAS' or vice versa
                 # Now accents are stripped, and "NAN" is ignored.
-                if ig_nombre in erp_vend_name or erp_vend_name in ig_nombre:
+                # Added word-level intersection for more robust matching
+                ig_words = set(ig_nombre.split())
+                erp_words = set(erp_vend_name.split())
+                
+                if ig_nombre in erp_vend_name or erp_vend_name in ig_nombre or len(ig_words.intersection(erp_words)) >= 1:
                     matched_erp_name = erp_vend_name
                     break
             

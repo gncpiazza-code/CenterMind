@@ -214,70 +214,36 @@ class Database:
         telegram_msg_id: Optional[int] = None,
         telegram_chat_id: Optional[int] = None,
     ) -> dict:
-        """Registra una exhibición vía RPC con soporte de revisión (PASO 5).
-        Retorna: {'id_exhibicion': <id>, 'en_cuarentena': <bool>, 'error': <str|None>}
+        """Registra una exhibición vía RPC con soporte de revisión (PASO 5/6).
+        Retorna: {'id_exhibicion': <id>, 'estado_final': <str>, 'error': <str|None>}
         """
-        res = self.sb.rpc("fn_bot_registrar_exhibicion", {
-            "p_distribuidor_id": distribuidor_id,
-            "p_vendedor_id": vendedor_id,
-            "p_nro_cliente": nro_cliente,
-            "p_tipo_pdv": tipo_pdv,
-            "p_drive_link": drive_link,
-            "p_telegram_msg_id": telegram_msg_id,
-            "p_telegram_chat_id": telegram_chat_id
-        }).execute()
-        
-        data = res.data
-        if isinstance(data, list) and data:
-            data = data[0]
-
-        # FALLBACK MANUAL SI HAY ERROR DE MAPEO (Pedido Usuario: No obligatorio aún)
-        if isinstance(data, dict) and data.get("error") == "PENDIENTE_MAPEO" and not data.get("id_exhibicion"):
-            try:
-                # 1. Obtener id_integrante
-                integrante_res = self.sb.table("integrantes_grupo").select("id_integrante").eq("id_distribuidor", distribuidor_id).eq("telegram_user_id", vendedor_id).limit(1).execute()
-                if not integrante_res.data:
-                    return data # Si no hay integrante, seguimos con el error original
-                id_integrante = integrante_res.data[0]["id_integrante"]
-
-                # 2. Obtener o crear id_cliente
-                cliente_res = self.sb.table("clientes").select("id_cliente").eq("id_distribuidor", distribuidor_id).eq("numero_cliente_local", nro_cliente).limit(1).execute()
-                if cliente_res.data:
-                    id_cliente = cliente_res.data[0]["id_cliente"]
-                else:
-                    new_cl = self.sb.table("clientes").insert({"id_distribuidor": distribuidor_id, "numero_cliente_local": nro_cliente}).execute()
-                    id_cliente = new_cl.data[0]["id_cliente"]
-
-                # 3. Insertar manual en exhibiciones
-                ex_res = self.sb.table("exhibiciones").insert({
-                    "id_distribuidor": distribuidor_id,
-                    "id_integrante": id_integrante,
-                    "id_cliente": id_cliente,
-                    "tipo_pdv": tipo_pdv,
-                    "url_foto_drive": drive_link,
-                    "estado": "Pendiente",
-                    "telegram_msg_id": telegram_msg_id,
-                    "telegram_chat_id": telegram_chat_id,
-                    "synced_telegram": 0
-                }).execute()
-                
-                if ex_res.data:
-                    return {
-                        "id_exhibicion": ex_res.data[0]["id_exhibicion"],
-                        "en_cuarentena": False,
-                        "error": "PENDIENTE_MAPEO" # Mantenemos el error para informar pero con ID
-                    }
-            except Exception as e:
-                # Si el fallback falla, retornar el error original
-                return data
-
-        # Manejo de respuesta normal
-        if isinstance(data, dict):
-            return data
-        elif isinstance(data, (int, str)):
-            return {"id_exhibicion": data, "en_cuarentena": False, "error": None}
+        try:
+            res = self.sb.rpc("fn_bot_registrar_exhibicion", {
+                "p_distribuidor_id": distribuidor_id,
+                "p_vendedor_id": vendedor_id,
+                "p_nro_cliente": nro_cliente,
+                "p_tipo_pdv": tipo_pdv,
+                "p_drive_link": drive_link,
+                "p_telegram_msg_id": telegram_msg_id,
+                "p_telegram_chat_id": telegram_chat_id
+            }).execute()
             
-        return {"id_exhibicion": None, "en_cuarentena": False, "error": "No data returned"}
+            data = res.data
+            if isinstance(data, list) and data:
+                data = data[0]
+
+            if isinstance(data, dict):
+                return {
+                    "id_exhibicion": data.get("id_exhibicion"),
+                    "estado_final": data.get("estado_final"),
+                    "error": None
+                }
+            
+            return {"id_exhibicion": None, "estado_final": None, "error": "Formato de respuesta inválido"}
+
+        except Exception as e:
+            self.logger.error(f"Error en RPC registrar_exhibicion: {e}")
+            return {"id_exhibicion": None, "estado_final": None, "error": str(e)}
 
     def update_telegram_refs(
         self, exhibicion_id: str, telegram_msg_id: int, telegram_chat_id: int
@@ -1092,21 +1058,32 @@ class BotWorker:
                             if success:
                                 rpc_result = await asyncio.to_thread(self.db.registrar_exhibicion, **params)
 
-                        # PASO 3: Vendedor no mapeado -> Ya no forzamos revisión (Pedido Usuario: No obligatorio aún)
-                        if rpc_result.get("error") == "PENDIENTE_MAPEO":
-                            en_cuarentena = False
-                        else:
-                            en_cuarentena = rpc_result.get("en_cuarentena", False)
-
+                        # PASO 6/7: Feedback Táctico PENDIENTE
+                        estado_final = rpc_result.get("estado_final")
                         ex_id = rpc_result.get("id_exhibicion")
-                        # en_cuarentena ya se determinó arriba
 
                         if ex_id:
-                            self.logger.info(f"✅ Exhibición registrada: ID {ex_id} | Cuarentena: {en_cuarentena}")
-                            exhibicion_ids.append({"id": ex_id, "en_cuarentena": en_cuarentena})
+                            self.logger.info(f"✅ Exhibición registrada: ID {ex_id} | Estado: {estado_final}")
+                            exhibicion_ids.append({"id": ex_id, "estado": estado_final})
                             procesadas += 1
+                            
+                            if estado_final == "VALIDACION":
+                                try:
+                                    await context.bot.send_message(
+                                        chat_id=chat_id,
+                                        text=(
+                                            f"⚠️ <b>AVISO DE VALIDACIÓN ERP</b>\n\n"
+                                            f"El cliente <code>{nro_cliente}</code> no figura aún en el ERP.\n"
+                                            f"Tu exhibición quedó en estado de <b>VALIDACIÓN</b>.\n\n"
+                                            f"<i>Se habilitará para evaluación automáticamente apenas impacten los datos del ERP.</i>"
+                                        ),
+                                        parse_mode=ParseMode.HTML,
+                                        reply_to_message_id=ph_msg_id
+                                    )
+                                except Exception:
+                                    pass
                         else:
-                            self.logger.warning(f"❌ Falló validación de data rpc, ex_id vacía.")
+                            self.logger.warning(f"❌ Falló registro RPC: {rpc_result.get('error')}")
                             fallidas += 1
                     except Exception as db_err:
                         self.logger.error(f"❌ ERROR REGISTRANDO EN BD: {db_err}")
@@ -1123,7 +1100,7 @@ class BotWorker:
 
         if procesadas > 0:
             primera_id = exhibicion_ids[0]["id"]
-            en_cuarentena_flag = any(e["en_cuarentena"] for e in exhibicion_ids)
+            en_cuarentena_flag = any(e["estado"] == "PENDIENTE" for e in exhibicion_ids)
 
             # Historial del cliente en este grupo
             historial = []

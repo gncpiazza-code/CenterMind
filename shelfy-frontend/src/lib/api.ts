@@ -148,6 +148,12 @@ export interface BranchCruce {
   cobertura_pct: number;
 }
 
+export interface OrphanVendedor {
+  vendedor_erp: string;
+  sucursal_erp: string;
+  total_clientes_erp: number;
+}
+
 export interface SystemHealth {
   hardware: {
     cpu_percent: number;
@@ -411,7 +417,7 @@ export async function editarIntegranteAdmin(id: number, data: { nombre_integrant
 // ── Admin: Sucursales (Locations) ────────────────────────────────────────────
 
 export interface Location {
-  id: number;
+  location_id: number;
   dist_id: number;
   ciudad?: string;
   provincia?: string;
@@ -648,4 +654,21 @@ export async function syncHierarchyFromERP(distId: number): Promise<{ sucursales
   return apiFetch(`/api/admin/hierarchy/sync-from-erp/${distId}`, {
     method: "POST"
   });
+}
+
+// ── Step 3-5: SuperAdmin & Identity Wall ────────────────────────────────────
+
+export async function fetchUnknownCompanies(): Promise<any[]> {
+  return apiFetch("/api/superadmin/empresas-desconocidas");
+}
+
+export async function mapUnknownCompany(data: { nombre_erp: string; id_distribuidor: number }) {
+  return apiFetch("/api/superadmin/mapear-empresa", {
+    method: "POST",
+    body: JSON.stringify(data)
+  });
+}
+
+export async function fetchOrphanVendedores(distId: number): Promise<OrphanVendedor[]> {
+  return apiFetch<OrphanVendedor[]>(`/api/admin/hierarchy/vendedores-huerfanos/${distId}`);
 }

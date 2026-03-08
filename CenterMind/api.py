@@ -1763,6 +1763,64 @@ def list_distribuidores(user_payload=Depends(verify_auth)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# ─── SuperAdmin: God Mode & Mapping Resolution (Step 3) ───────────────────────
+
+@app.get("/api/superadmin/empresas-desconocidas", tags=["SuperAdmin"])
+def get_unknown_companies(user_payload=Depends(verify_auth)):
+    if not user_payload.get("is_superadmin"):
+        raise HTTPException(status_code=403, detail="SuperAdmin only")
+    try:
+        res = sb.table("erp_empresas_desconocidas").select("*").order("fecha", desc=True).execute()
+        return res.data or []
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/superadmin/mapear-empresa", tags=["SuperAdmin"])
+def map_unknown_company(data: dict, user_payload=Depends(verify_auth)):
+    """
+    Mapea una empresa que rebotó en el ETL a un id_distribuidor oficial.
+    data: { nombre_erp: str, id_distribuidor: int }
+    """
+    if not user_payload.get("is_superadmin"):
+        raise HTTPException(status_code=403, detail="SuperAdmin only")
+    
+    nombre_erp = data.get("nombre_erp")
+    id_dist = data.get("id_distribuidor")
+    
+    try:
+        # 1. Guardar en el mapeo oficial
+        sb.table("erp_empresa_mapping").upsert({
+            "nombre_erp": nombre_erp,
+            "id_distribuidor": id_dist
+        }).execute()
+        
+        # 2. Limpiar de la tabla de desconocidas
+        sb.table("erp_empresas_desconocidas").delete().eq("nombre_erp", nombre_erp).execute()
+        
+        # 3. Recargar el servicio
+        erp_service.reload_mappings()
+        
+        return {"status": "success", "message": f"Empresa {nombre_erp} mapeada correctamente al distribuidor {id_dist}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ─── Admin: Identity Wall (Step 4) ───────────────────────────────────────────
+
+@app.get("/api/admin/hierarchy/vendedores-huerfanos/{dist_id}", tags=["Admin"])
+def get_orphan_vendedores(dist_id: int, user_payload=Depends(verify_auth)):
+    """
+    Lista vendedores que aparecen en erp_clientes_raw pero que no están 
+    vinculados correctamente en integrantes_grupo (donde codigo_vendedor_erp es null).
+    """
+    check_dist_permission(user_payload, dist_id)
+    try:
+        # Esta lógica se delegará a un RPC para mayor eficiencia
+        res = sb.rpc("fn_vendedores_huerfanos", {"p_dist_id": dist_id}).execute()
+        return res.data or []
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

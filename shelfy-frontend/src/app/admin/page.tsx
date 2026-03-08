@@ -14,9 +14,10 @@ import {
   fetchDistribuidoras, crearDistribuidora, toggleDistribuidora, type Distribuidora,
   fetchIntegrantes, setRolIntegrante, editarIntegranteAdmin, type Integrante,
   fetchLocations, crearLocation, editarLocation, type Location,
-  uploadERPFile, fetchERPMappings, saveERPMapping, deleteERPMapping
+  uploadERPFile, fetchERPMappings, saveERPMapping, deleteERPMapping,
+  fetchUnknownCompanies, mapUnknownCompany
 } from "@/lib/api";
-import { ChevronLeft, ChevronRight, Lock, Unlock, Plus, Trash2, Edit2, Shield, Search, RefreshCw, Building2, MapPin, Users, Copy, UserPlus, ToggleRight, ToggleLeft, FileSpreadsheet, UploadCloud, AlertTriangle, Network } from "lucide-react";
+import { ChevronLeft, ChevronRight, Lock, Unlock, Plus, Trash2, Edit2, Shield, Search, RefreshCw, Building2, MapPin, Users, Copy, UserPlus, ToggleRight, ToggleLeft, FileSpreadsheet, UploadCloud, AlertTriangle, Network, Check } from "lucide-react";
 
 import dynamic from "next/dynamic";
 const TabSucursales = dynamic(() => import("./TabSucursales"), { ssr: false });
@@ -629,7 +630,7 @@ function TabIntegrantes({ isSuperadmin, distId }: { isSuperadmin: boolean; distI
 
 // ── Tab: ERP ──────────────────────────────────────────────────────────────────
 
-function TabERP({ distId }: { distId: number }) {
+function TabERP({ distId, isSuperadmin }: { distId: number, isSuperadmin: boolean }) {
   const [fileVentas, setFileVentas] = useState<File | null>(null);
   const [fileClientes, setFileClientes] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
@@ -639,9 +640,37 @@ function TabERP({ distId }: { distId: number }) {
   const [showMapForm, setShowMapForm] = useState(false);
   const [mapForm, setMapForm] = useState({ nombre_erp: "", id_distribuidor: distId });
 
+  const [unknownCompanies, setUnknownCompanies] = useState<any[]>([]);
+  const [loadingUnknown, setLoadingUnknown] = useState(false);
+
   useEffect(() => {
     loadMappings();
-  }, []);
+    if (isSuperadmin) loadUnknown();
+  }, [isSuperadmin]);
+
+  async function loadUnknown() {
+    setLoadingUnknown(true);
+    try {
+      const data = await fetchUnknownCompanies();
+      setUnknownCompanies(data);
+    } catch (e) { console.error(e); }
+    finally { setLoadingUnknown(false); }
+  }
+
+  async function handleMapUnknown(nombre_erp: string, id_dist: number) {
+    if (!id_dist) return;
+    setLoading(true);
+    try {
+      await mapUnknownCompany({ nombre_erp, id_distribuidor: id_dist });
+      setResult({ msg: `✅ Empresa ${nombre_erp} mapeada correctamente`, type: "ok" });
+      loadMappings();
+      loadUnknown();
+    } catch (e: any) {
+      setResult({ msg: `❌ Error: ${e.message}`, type: "err" });
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function loadMappings() {
     try {
@@ -838,8 +867,74 @@ function TabERP({ distId }: { distId: number }) {
             Si un archivo contiene datos de múltiples empresas, solo se procesarán aquellas que tengan un mapeo configurado aquí.
           </div>
         </div>
-      </Card >
-    </div >
+      </Card>
+
+      {isSuperadmin && (
+        <Card className="mt-6 border-red-100 bg-red-50/10">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center text-red-600">
+                <AlertTriangle size={20} />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">Anomalías de Ingesta (God Mode)</h2>
+                <p className="text-sm text-slate-500">Empresas desconocidas detectadas durante el ETL.</p>
+              </div>
+            </div>
+            <Button size="sm" variant="ghost" onClick={loadUnknown} disabled={loadingUnknown}>
+              <RefreshCw size={14} className={loadingUnknown ? "animate-spin" : ""} />
+            </Button>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-slate-500 border-b border-red-100">
+                  <th className="py-2 text-left">Empresa Detectada (ERP)</th>
+                  <th className="py-2 text-left">Fecha Detección</th>
+                  <th className="py-2 text-left">Asignar a ID Distribuidor</th>
+                  <th className="py-2 w-8"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {unknownCompanies.map((u, i) => (
+                  <tr key={i} className="border-b border-red-50 last:border-0 hover:bg-white/50 transition-colors">
+                    <td className="py-3 font-bold text-red-700">{u.nombre_erp}</td>
+                    <td className="py-3 text-slate-500">{new Date(u.fecha).toLocaleString()}</td>
+                    <td className="py-3">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          placeholder="ID"
+                          className={INPUT_CLS + " w-20 !py-1"}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              handleMapUnknown(u.nombre_erp, Number((e.target as HTMLInputElement).value));
+                            }
+                          }}
+                        />
+                        <span className="text-[10px] text-slate-400 italic font-medium">Press Enter to Map</span>
+                      </div>
+                    </td>
+                    <td className="py-3"></td>
+                  </tr>
+                ))}
+                {unknownCompanies.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="py-10 text-center text-slate-400">
+                      <div className="flex flex-col items-center gap-2 opacity-50">
+                        <Check className="text-green-500" size={32} />
+                        <span className="font-bold">No hay anomalías pendientes</span>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+    </div>
   );
 }
 
@@ -911,7 +1006,7 @@ export default function AdminPage() {
             <TabSucursales isSuperadmin={isSuperadmin} distId={user?.id_distribuidor || 0} role={user?.rol || ""} />
           )}
           {tab === "erp" && (
-            <TabERP distId={user?.id_distribuidor || 0} />
+            <TabERP distId={user?.id_distribuidor || 0} isSuperadmin={isSuperadmin} />
           )}
 
         </main>

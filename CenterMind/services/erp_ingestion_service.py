@@ -65,6 +65,12 @@ class ERPIngestionService:
             dist_id = self.mapping.get(nombre_empresa_erp)
             
             if not dist_id:
+                # PASO 2: Captura de empresas desconocidas
+                sb.table("erp_empresas_desconocidas").upsert(
+                    {"nombre_erp": str(row.get(col_empresa, "DESCONOCIDA")).strip()},
+                    on_conflict="nombre_erp"
+                ).execute()
+                logger.error(f"CRÍTICO: Empresa '{row.get(col_empresa)}' desconocida. Abortando fila.")
                 continue
 
             id_local = str(row.get(col_id_erp))
@@ -149,6 +155,12 @@ class ERPIngestionService:
             dist_id = self.mapping.get(nombre_empresa_erp)
 
             if not dist_id:
+                # PASO 2: Captura de empresas desconocidas
+                sb.table("erp_empresas_desconocidas").upsert(
+                    {"nombre_erp": str(row.get(col_empresa, "DESCONOCIDA")).strip()},
+                    on_conflict="nombre_erp"
+                ).execute()
+                logger.error(f"CRÍTICO: Empresa '{row.get(col_empresa)}' desconocida. Abortando fila.")
                 continue
 
             nro_doc = str(row.get(col_nro_doc))

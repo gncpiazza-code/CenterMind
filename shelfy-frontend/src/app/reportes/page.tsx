@@ -350,7 +350,8 @@ function ReportesContent() {
                 <BarChart3 size={16} />
                 Reporte de Exhibiciones
               </button>
-              <button
+              {/* Seguimiento de Recaudación deshabilitado por pedido del usuario */}
+              {/* <button
                 onClick={() => setActiveMainTab("recaudacion")}
                 className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200
                      ${activeMainTab === "recaudacion"
@@ -360,7 +361,7 @@ function ReportesContent() {
               >
                 <PieChart size={16} />
                 Seguimiento de Recaudación
-              </button>
+              </button> */}
               <button
                 onClick={() => setActiveMainTab("padron")}
                 className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200
@@ -495,12 +496,12 @@ function ReportesContent() {
               </div>
             )}
 
-            {/* Contenido Dinámico: Recaudación */}
-            {activeMainTab === "recaudacion" && user?.id_distribuidor && (
+            {/* Contenido Dinámico: Recaudación (Deshabilitado) */}
+            {/* {activeMainTab === "recaudacion" && user?.id_distribuidor && (
               <div className="fade-in animate-in slide-in-from-bottom-2 duration-300">
                 <TabSeguimientoRecaudacion distId={user.id_distribuidor!} />
               </div>
-            )}
+            )} */}
 
             {/* Contenido Dinámico: Cuentas Corrientes */}
             {activeMainTab === "cuentas_corrientes" && user && (

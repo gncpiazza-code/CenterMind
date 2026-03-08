@@ -1175,7 +1175,7 @@ def reportes_exhibiciones(distribuidor_id: int, q_body: ReporteQuery, _=Depends(
     )
     # Date filters (using timestamp_subida with Argentina TZ)
     query = query.gte("timestamp_subida", f"{q_body.fecha_desde}T03:00:00Z")
-    query = query.lte("timestamp_subida", f"{q_body.fecha_hasta}T26:59:59Z")
+    query = query.lte("timestamp_subida", f"{q_body.fecha_hasta}T23:59:59Z")
     if distribuidor_id > 0:
         query = query.eq("id_distribuidor", distribuidor_id)
     if q_body.estados:
@@ -1483,6 +1483,9 @@ class ERPConfigAlertas(BaseModel):
     limite_cbte: int
     limite_dias: int
     activo: bool = True
+    limite_dinero_activo: bool = True
+    limite_cbte_activo: bool = True
+    limite_dias_activo: bool = True
 
 @app.get("/api/admin/erp/config/{dist_id}", summary="Obtener configuración de alertas ERP")
 def get_erp_config(dist_id: int, _=Depends(verify_auth)):
@@ -1494,7 +1497,10 @@ def get_erp_config(dist_id: int, _=Depends(verify_auth)):
             "limite_dinero": 500000,
             "limite_cbte": 5,
             "limite_dias": 30,
-            "activo": True
+            "activo": True,
+            "limite_dinero_activo": True,
+            "limite_cbte_activo": True,
+            "limite_dias_activo": True
         }
     return res.data[0]
 

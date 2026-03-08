@@ -32,6 +32,7 @@ import base64
 from services.erp_summary_service import erp_summary_service
 from services.erp_ingestion_service import erp_service
 from services.system_monitoring_service import monitor_service
+from services.cuentas_corrientes_service import procesar_cuentas_corrientes_service
 import io
 import psutil
 from apscheduler.schedulers.background import BackgroundScheduler

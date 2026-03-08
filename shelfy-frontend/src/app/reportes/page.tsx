@@ -7,7 +7,7 @@ import { PageSpinner } from "@/components/ui/Spinner";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/hooks/useAuth";
-import { useEffect, useState, useRef, useMemo } from "react";
+import { useEffect, useState, useRef, useMemo, Suspense } from "react";
 import {
   fetchReporteExhibiciones, fetchReporteVendedores, fetchReporteTiposPdv, fetchReporteSucursales,
   fetchROI, type ROIAnalitico
@@ -146,7 +146,7 @@ function DropdownMultiSelect({
   );
 }
 
-export default function HerramientasReportePage() {
+function ReportesContent() {
   const { user } = useAuth();
   const searchParams = useSearchParams();
   const [activeMainTab, setActiveMainTab] = useState<"exhibiciones" | "recaudacion" | "padron" | "cuentas_corrientes" | "roi">("exhibiciones");
@@ -771,5 +771,13 @@ function EstadoBadge({ estado }: { estado: string }) {
     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${colors[estado] ?? "bg-gray-100 text-gray-700"}`}>
       {estado}
     </span>
+  );
+}
+
+export default function HerramientasReportePage() {
+  return (
+    <Suspense fallback={<PageSpinner />}>
+      <ReportesContent />
+    </Suspense>
   );
 }

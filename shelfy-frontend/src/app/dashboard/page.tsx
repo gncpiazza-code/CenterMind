@@ -36,6 +36,7 @@ function getCurrentYearMonth() {
  *  Si corresponde al mes actual usa "mes", si no usa "yyyy-MM" (el API lo soporta
  *  o enviamos el rango como fecha; por ahora lo pasamos como string mes). */
 function periodoString(year: number, month: number): string {
+  if (year === 0) return "hoy";
   const now = new Date();
   if (year === now.getFullYear() && month === now.getMonth() + 1) return "mes";
   return `${year}-${String(month).padStart(2, "0")}`;
@@ -313,7 +314,8 @@ function FiltrosBar({
         <select
           value={month}
           onChange={(e) => onYearMonth(year, Number(e.target.value))}
-          className="bg-transparent text-xs font-semibold text-[var(--shelfy-text)] outline-none cursor-pointer"
+          disabled={year === 0}
+          className="bg-transparent text-xs font-semibold text-[var(--shelfy-text)] outline-none cursor-pointer disabled:opacity-50"
         >
           {MESES.map((m, i) => (
             <option key={i + 1} value={i + 1}>{m}</option>
@@ -321,18 +323,35 @@ function FiltrosBar({
         </select>
         <select
           value={year}
-          onChange={(e) => onYearMonth(Number(e.target.value), month)}
+          onChange={(e) => {
+            const y = Number(e.target.value);
+            if (y === 0) onYearMonth(0, 0);
+            else onYearMonth(y, month);
+          }}
           className="bg-transparent text-xs font-semibold text-[var(--shelfy-text)] outline-none cursor-pointer"
         >
+          <option value="0">Hoy</option>
           {years.map((y) => (
             <option key={y} value={y}>{y}</option>
           ))}
         </select>
       </div>
 
+      {/* Botón rápido "Hoy" */}
+      <button
+        onClick={() => onYearMonth(0, 0)}
+        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border
+          ${year === 0
+            ? "bg-[var(--shelfy-primary)] text-white border-[var(--shelfy-primary)] shadow-sm shadow-[var(--shelfy-primary)]/40"
+            : "bg-[var(--shelfy-panel)] text-[var(--shelfy-muted)] border-[var(--shelfy-border)] hover:text-[var(--shelfy-text)]"
+          }`}
+      >
+        Hoy
+      </button>
+
       {/* Filtro por sucursal (solo si hay más de 1) */}
       {sucursales.length > 1 && (
-        <div className="flex items-center gap-1.5 bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-lg px-2 py-1.5">
+        <div className="flex items-center gap-1.5 bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-lg px-2 py-1.5 ml-1">
           <GitBranch size={14} className="text-[var(--shelfy-muted)]" />
           <select
             value={sucursalFiltro}
@@ -421,7 +440,7 @@ export default function DashboardPage() {
     : ranking;
 
   // Título del período activo
-  const mesLabel = `${MESES[month - 1]} ${year}`;
+  const mesLabel = year === 0 ? "Hoy" : `${MESES[month - 1]} ${year}`;
 
   return (
     <div className="flex min-h-screen bg-[var(--shelfy-bg)]">
@@ -491,14 +510,27 @@ export default function DashboardPage() {
                 {/* Sucursales + Total */}
                 <div className="flex flex-col gap-5">
                   <GraficoSucursales data={sucursales} />
-                  <Card glass>
-                    <p className="text-xs text-[var(--shelfy-muted)] mb-1 uppercase tracking-wide font-semibold">Total exhibiciones</p>
-                    <p className="text-4xl font-bold text-[var(--shelfy-text)]">{kpis.total}</p>
-                    <p className="text-xs text-[var(--shelfy-muted)] mt-1">{mesLabel}</p>
-                    <div className="mt-3 flex gap-1.5 flex-wrap">
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-medium">{kpis.aprobadas} aprob.</span>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 font-medium">{kpis.destacadas} dest.</span>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-medium">{kpis.rechazadas} rech.</span>
+                  <Card
+                    glass
+                    className="relative overflow-hidden border-[var(--shelfy-border)] group"
+                    style={{
+                      backgroundColor: `var(--shelfy-primary-rgb, 59, 130, 246)0A`, // 4% opacity
+                      '--glow-color': '#3b82f6'
+                    } as any}
+                  >
+                    {/* Subtle glow for total card */}
+                    <div
+                      className="absolute -top-10 -right-10 w-32 h-32 blur-[60px] opacity-10 pointer-events-none group-hover:opacity-20 transition-opacity"
+                      style={{ background: '#3b82f6' }}
+                    />
+
+                    <p className="text-[10px] text-[var(--shelfy-muted)] mb-3 uppercase tracking-[0.2em] font-black">Total exhibiciones</p>
+                    <p className="text-5xl font-black text-[var(--shelfy-text)] tracking-tighter leading-none">{kpis.total}</p>
+                    <p className="text-xs text-[var(--shelfy-muted)] mt-2.5 font-bold">{mesLabel}</p>
+                    <div className="mt-5 flex gap-1.5 flex-wrap">
+                      <span className="text-[10px] px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-500 font-bold border border-emerald-500/20">{kpis.aprobadas} aprob.</span>
+                      <span className="text-[10px] px-2.5 py-1 rounded-full bg-violet-500/10 text-violet-500 font-bold border border-violet-500/20">{kpis.destacadas} dest.</span>
+                      <span className="text-[10px] px-2.5 py-1 rounded-full bg-red-500/10 text-red-500 font-bold border border-red-500/20">{kpis.rechazadas} rech.</span>
                     </div>
                   </Card>
                 </div>

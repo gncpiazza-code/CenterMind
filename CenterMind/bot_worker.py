@@ -261,9 +261,10 @@ class Database:
         self.sb.table("exhibiciones").update({"synced_telegram": 1}).eq("id_exhibicion", exhibicion_id).execute()
 
     def get_stats_vendedor(self, distribuidor_id: int, vendedor_id: int) -> Dict:
-        # Identificar PK interna del vendedor por su telegram_user_id
         ig_res = self.sb.table("integrantes_grupo").select("id_integrante").eq("id_distribuidor", distribuidor_id).eq("telegram_user_id", vendedor_id).limit(1).execute()
-        pk_integrante = ig_res.data[0]["id_integrante"] if ig_res.data else 0
+        if not ig_res.data:
+            return None
+        pk_integrante = ig_res.data[0]["id_integrante"]
 
         res = self.sb.rpc("fn_bot_stats_vendedor", {
             "p_distribuidor_id": distribuidor_id,
@@ -610,6 +611,10 @@ class BotWorker:
             stats = await asyncio.to_thread(
                 self.db.get_stats_vendedor, self.distribuidor_id, uid
             )
+            if not stats:
+                await m.reply_text("⚠️ <b>No tenés estadísticas registradas.</b>\nAsegurate de haber enviado al menos una exhibición.", parse_mode=ParseMode.HTML)
+                return
+            
             actual = stats["mes_actual"]
             anterior = stats["mes_anterior"]
             msg = (

@@ -10,7 +10,7 @@ export function Card({ glow, glass, className = "", children, ...props }: CardPr
     <div
       className={`
         rounded-xl border border-[var(--shelfy-border)] p-4
-        ${glass ? "bg-white/80 dark:bg-black/40 backdrop-blur-md border-white/20 shadow-xl" : "bg-[var(--shelfy-panel)] shadow-sm"}
+        ${glass ? "bg-slate-100/70 dark:bg-slate-900/60 backdrop-blur-xl border-white/20 dark:border-white/10 ring-1 ring-white/10 shadow-2xl" : "bg-[var(--shelfy-panel)] shadow-sm"}
         ${glow ? "shadow-lg shadow-[var(--shelfy-glow)]" : ""}
         ${className}
       `}

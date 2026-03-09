@@ -26,7 +26,17 @@ const ALL_NAV: NavItem[] = [
     icon: GraduationCap,
     roles: ["superadmin", "admin", "supervisor"],
     subItems: [
-      { href: "/reportes", label: "Central de Reportes", icon: BarChart2, roles: ["superadmin", "admin", "supervisor"] },
+      {
+        href: "/reportes",
+        label: "Central de Reportes",
+        icon: BarChart2,
+        roles: ["superadmin", "admin", "supervisor"],
+        subItems: [
+          { href: "/visor", label: "Exhibiciones", icon: Eye, roles: ["superadmin", "admin", "supervisor"] },
+          { href: "/reportes?tab=cuentas_corrientes", label: "Cuentas corrientes", icon: Briefcase, roles: ["superadmin", "admin"] },
+          { href: "/reportes?tab=padron", label: "Padrón de Clientes", icon: Users, roles: ["superadmin", "admin"] },
+        ]
+      },
       { href: "/academy/aula-virtual", label: "Aula Virtual", icon: GraduationCap, roles: ["superadmin", "admin"] }
     ]
   },
@@ -63,12 +73,12 @@ export function Sidebar() {
     ? ALL_NAV.filter(i => (i.roles as string[]).includes(rol))
     : [
       { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-      { href: "/visor", label: "Evaluar (Visor)", icon: Eye },
       {
         href: "/reportes",
         label: "Central de Reportes",
         icon: BarChart2,
         subItems: [
+          { href: "/visor", label: "Exhibiciones", icon: Eye },
           { href: "/reportes?tab=cuentas_corrientes", label: "Cuentas corrientes", icon: Briefcase },
           { href: "/reportes?tab=padron", label: "Padrón de Clientes", icon: Users },
         ]
@@ -127,7 +137,7 @@ export function Sidebar() {
                   className={`flex items-center justify-between px-4 py-3 rounded-2xl text-sm font-semibold transition-all duration-200
                       ${active
                       ? "bg-[var(--shelfy-primary)] text-white font-bold shadow-lg shadow-[var(--shelfy-glow)]"
-                      : "text-[var(--shelfy-muted)] hover:bg-white/5 hover:text-white"}`}
+                      : "text-[var(--shelfy-muted)] hover:bg-white/5 hover:text-[var(--shelfy-primary)]"}`}
                 >
                   <div className={`flex items-center gap-3 ${isCollapsed ? "justify-center w-full" : ""}`}>
                     <Icon size={18} strokeWidth={active ? 2.5 : 2} className="shrink-0" />
@@ -146,7 +156,7 @@ export function Sidebar() {
                           className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-[13px] font-semibold transition-all duration-200
                                  ${subActive
                               ? "bg-[var(--shelfy-primary-2)] text-white shadow-md shadow-[var(--shelfy-glow)] translate-x-1"
-                              : "text-[var(--shelfy-muted)] hover:text-white hover:bg-white/5"
+                              : "text-[var(--shelfy-muted)] hover:text-[var(--shelfy-primary)] hover:bg-white/5"
                             }`}
                         >
                           <sub.icon size={15} strokeWidth={subActive ? 2.5 : 2} className="shrink-0" />
@@ -168,7 +178,7 @@ export function Sidebar() {
               className={`flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-semibold transition-all duration-200
                 ${active
                   ? "bg-[var(--shelfy-primary)] text-white shadow-lg shadow-[var(--shelfy-glow)] translate-x-1"
-                  : "text-[var(--shelfy-muted)] hover:bg-white/5 hover:text-white"
+                  : "text-[var(--shelfy-muted)] hover:bg-white/5 hover:text-[var(--shelfy-primary)]"
                 }`}
             >
               <Icon size={18} strokeWidth={active ? 2.5 : 2} className="shrink-0" />

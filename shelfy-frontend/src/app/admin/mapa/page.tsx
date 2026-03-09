@@ -39,8 +39,8 @@ export default function LiveMapPage() {
 
     const loadEvents = async (date?: string) => {
         try {
-            // Si hay fecha, ignoramos los minutos y traemos todo el día
-            const res = await fetchLiveMapEvents(date ? undefined : 120, date);
+            // Si hay fecha, ignoramos los minutos y traemos todo el día (1440 min = 24h)
+            const res = await fetchLiveMapEvents(date ? undefined : 1440, date);
 
             // Detectar si hay un evento nuevo para hacer fly-to
             if (res.length > 0 && !date) { // Fly-to solo si estamos en "Live" (sin fecha específica histórica seleccionada o si es hoy)

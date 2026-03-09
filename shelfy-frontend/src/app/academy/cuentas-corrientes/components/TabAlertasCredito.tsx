@@ -74,17 +74,20 @@ export default function TabAlertasCredito({ distId }: { distId: number }) {
                 setReglas({
                     limite_dinero: {
                         activo: data.limite_dinero_activo !== undefined ? data.limite_dinero_activo : true,
-                        valor: data.limite_dinero
+                        valor: data.limite_dinero || 500000
                     },
                     limite_cbte: {
                         activo: data.limite_cbte_activo !== undefined ? data.limite_cbte_activo : true,
-                        valor: data.limite_cbte
+                        valor: data.limite_cbte || 3
                     },
                     limite_dias: {
                         activo: data.limite_dias_activo !== undefined ? data.limite_dias_activo : true,
-                        valor: data.limite_dias
+                        valor: data.limite_dias || 0
                     },
                 });
+                if (data.excepciones) {
+                    setExcepciones(data.excepciones);
+                }
             })
             .catch(console.error)
             .finally(() => setLoading(false));
@@ -124,6 +127,7 @@ export default function TabAlertasCredito({ distId }: { distId: number }) {
                 limite_dinero_activo: reglas.limite_dinero.activo,
                 limite_cbte_activo: reglas.limite_cbte.activo,
                 limite_dias_activo: reglas.limite_dias.activo,
+                excepciones: excepciones // SAVE EXCEPTIONS TO DB
             });
 
             setToastMessage("Configuración guardada exitosamente");

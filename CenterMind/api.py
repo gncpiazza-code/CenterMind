@@ -1486,6 +1486,7 @@ class ERPConfigAlertas(BaseModel):
     limite_dinero_activo: bool = True
     limite_cbte_activo: bool = True
     limite_dias_activo: bool = True
+    excepciones: List[dict] = []
 
 @app.get("/api/admin/erp/config/{dist_id}", summary="Obtener configuración de alertas ERP")
 def get_erp_config(dist_id: int, _=Depends(verify_auth)):
@@ -1500,7 +1501,8 @@ def get_erp_config(dist_id: int, _=Depends(verify_auth)):
             "activo": True,
             "limite_dinero_activo": True,
             "limite_cbte_activo": True,
-            "limite_dias_activo": True
+            "limite_dias_activo": True,
+            "excepciones": []
         }
     return res.data[0]
 

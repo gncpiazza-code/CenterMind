@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { FileSpreadsheet, UploadCloud, X, Loader2, Sparkles, CheckCircle2, AlertCircle } from "lucide-react";
 import { API_URL } from "@/lib/constants";
 
+import { fetchERPConfig } from "@/lib/api";
 import VisorMultitablas from "./VisorMultitablas";
 
 export default function TabGenerarInforme({ distId }: { distId?: number }) {
@@ -103,30 +104,25 @@ export default function TabGenerarInforme({ distId }: { distId?: number }) {
         }, 300);
 
         try {
-            // 1. Gather config
-            const rawReglas = localStorage.getItem("shelfy_alertas_reglas");
-            const rawExcepciones = localStorage.getItem("shelfy_alertas_excepciones");
+            const config = await fetchERPConfig(distId!);
 
             const configData = {
-                reglas_generales: rawReglas ? JSON.parse(rawReglas) : {
-                    limite_dinero: { activo: true, valor: 500000 },
-                    limite_cbte: { activo: true, valor: 3 },
-                    limite_dias: { activo: false, valor: 0 }
+                reglas_generales: {
+                    limite_dinero: { activo: config.limite_dinero_activo, valor: config.limite_dinero },
+                    limite_cbte: { activo: config.limite_cbte_activo, valor: config.limite_cbte },
+                    limite_dias: { activo: config.limite_dias_activo, valor: config.limite_dias }
                 },
-                excepciones: rawExcepciones ? JSON.parse(rawExcepciones) : []
+                excepciones: config.excepciones || []
             };
 
-            // 2. Prepare FormData
             const formData = new FormData();
             formData.append("file", file);
             formData.append("config", JSON.stringify(configData));
 
-            // Retrieve bearer token if available
             const token = localStorage.getItem("shelfy_token");
             const headersInit: HeadersInit = {};
             if (token) headersInit["Authorization"] = `Bearer ${token}`;
 
-            // Use central API_URL instead of recreating logic
             const res = await fetch(`${API_URL}/api/procesar-cuentas-corrientes`, {
                 method: "POST",
                 body: formData,
@@ -171,47 +167,56 @@ export default function TabGenerarInforme({ distId }: { distId?: number }) {
     return (
         <div className="flex flex-col gap-6 animate-in slide-in-from-bottom-4 duration-500">
 
-            {/* Sección Educativa (Acordeón) */}
-            <details className="group bg-white rounded-2xl border border-indigo-100 shadow-sm overflow-hidden animate-in slide-in-from-bottom-4 duration-500">
-                <summary className="cursor-pointer p-5 bg-gradient-to-r from-indigo-50 to-violet-50 flex items-center justify-between outline-none">
-                    <div className="flex items-center gap-3">
+            {/* Cabecera Instructiva con Video */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 bg-white rounded-2xl border border-indigo-100 shadow-sm overflow-hidden p-6">
+                <div className="flex flex-col justify-center order-2 lg:order-1">
+                    <div className="flex items-center gap-3 mb-4">
                         <div className="p-2 bg-indigo-100 text-indigo-700 rounded-lg">
                             <Sparkles size={20} />
                         </div>
-                        <h2 className="text-xl font-bold text-slate-800">¿Cómo construir el informe?</h2>
-                    </div>
-                    <div className="text-indigo-400 group-open:rotate-180 transition-transform duration-300">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
-                    </div>
-                </summary>
-
-                <div className="flex flex-col xl:flex-row gap-4 items-center p-4 bg-gradient-to-br from-indigo-50/50 to-violet-50/50 relative">
-                    <div className="absolute top-0 right-0 p-8 opacity-10 pointer-events-none">
-                        <Sparkles size={120} className="text-indigo-400" />
+                        <h2 className="text-xl font-bold text-slate-800">Cuentas Corrientes</h2>
                     </div>
 
-                    {/* Texto explicativo 10% */}
-                    <div className="w-full xl:w-[10%] relative z-10 flex flex-col justify-center">
-                        <div className="inline-flex items-center gap-1 px-2 py-1 rounded mb-2 bg-indigo-100 text-indigo-700 text-[10px] font-bold uppercase tracking-wider self-start">
-                            INFO
+                    <div className="space-y-4 mb-6">
+                        <div className="flex gap-4">
+                            <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold shrink-0">1</div>
+                            <p className="text-slate-600">Entrar a <strong>Chess</strong> y buscar saldos totales.</p>
                         </div>
-                        <p className="text-slate-600 text-xs">
-                            (Espacio reservado para texto explicativo)
-                        </p>
+                        <div className="flex gap-4">
+                            <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold shrink-0">2</div>
+                            <p className="text-slate-600">Configurar el reporte como muestra el video.</p>
+                        </div>
+                        <div className="flex gap-4">
+                            <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold shrink-0">3</div>
+                            <p className="text-slate-600"><strong>Procesar</strong> el reporte aquí debajo.</p>
+                        </div>
+                        <div className="flex gap-4">
+                            <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold shrink-0">4</div>
+                            <p className="text-slate-600"><strong>Descargar</strong> el reporte enriquecido.</p>
+                        </div>
                     </div>
 
-                    {/* Video 90% sin cortes */}
-                    <div className="w-full xl:w-[90%] bg-slate-900 rounded-xl border border-indigo-200 flex items-center justify-center shadow-2xl overflow-hidden">
+                    <p className="text-xs text-slate-400 bg-slate-50 p-3 rounded-lg border border-slate-100 italic">
+                        Nota: Asegúrate de que el Excel subido sea el descargado directamente de Chess sin modificaciones previas.
+                    </p>
+                </div>
+
+                <div className="order-1 lg:order-2">
+                    <div className="w-full bg-slate-900 rounded-xl border border-indigo-200 flex items-center justify-center shadow-lg overflow-hidden group relative">
                         <video
                             src="/SALDOSFINAL.mp4"
                             controls
                             autoPlay
                             muted
-                            className="w-full h-auto max-h-[80vh] object-contain"
+                            loop
+                            className="w-full h-auto object-contain max-h-[300px]"
                         />
+                        <div className="absolute top-2 right-2 bg-black/50 text-white px-2 py-1 rounded text-[10px] font-bold uppercase tracking-widest backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity">
+                            Video Tutorial
+                        </div>
                     </div>
                 </div>
-            </details>
+            </div>
 
             {/* Carga de Archivos */}
             <Card>

@@ -514,7 +514,7 @@ export default function DashboardPage() {
                     glass
                     className="relative overflow-hidden border-[var(--shelfy-border)] group"
                     style={{
-                      backgroundColor: `var(--shelfy-primary-rgb, 59, 130, 246)0A`, // 4% opacity
+                      backgroundColor: 'rgba(59, 130, 246, 0.05)',
                       '--glow-color': '#3b82f6'
                     } as any}
                   >

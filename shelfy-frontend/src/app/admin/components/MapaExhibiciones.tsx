@@ -13,7 +13,8 @@ import {
 import { LiveMapEvent, resolveImageUrl } from "@/lib/api";
 import { format, formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
-import { MapPin, User, Building2, ExternalLink, Image as ImageIcon } from "lucide-react";
+import { MapPin, User, Building2, ExternalLink, Image as ImageIcon, Clock } from "lucide-react";
+import { Card } from "@/components/ui/Card";
 
 interface MapaExhibicionesProps {
     events: LiveMapEvent[];
@@ -55,15 +56,34 @@ export default function MapaExhibiciones({
         }
     }, [selectedEventId, events]);
 
-    // Group coordinates by salesperson for routes
-    const routesBySeller = useMemo(() => {
+    // Group coordinates by salesperson for routes and calculate stop numbers
+    const { routesBySeller, stopNumbers } = useMemo(() => {
         const routes: Record<string, [number, number][]> = {};
-        events.forEach((event) => {
-            const key = `${event.vendedor_nombre}-${event.id_dist}`;
-            if (!routes[key]) routes[key] = [];
-            routes[key].push([event.lon, event.lat]);
+        const stopNums: Record<number, number> = {};
+
+        // Group first
+        const grouped: Record<string, LiveMapEvent[]> = {};
+        events.forEach(ev => {
+            const key = `${ev.vendedor_nombre}-${ev.id_dist}`;
+            if (!grouped[key]) grouped[key] = [];
+            grouped[key].push(ev);
         });
-        return Object.entries(routes);
+
+        Object.entries(grouped).forEach(([key, evs]) => {
+            // Sort chronologically (Oldest first for 1, 2, 3...)
+            const sorted = evs.sort((a, b) =>
+                new Date(a.timestamp_evento).getTime() - new Date(b.timestamp_evento).getTime()
+            );
+
+            routes[key] = sorted.map(ev => [ev.lon, ev.lat] as [number, number]);
+
+            // Assign stop numbers
+            sorted.forEach((ev, idx) => {
+                stopNums[ev.id_ex] = idx + 1;
+            });
+        });
+
+        return { routesBySeller: Object.entries(routes), stopNumbers: stopNums };
     }, [events]);
 
     return (
@@ -160,9 +180,15 @@ export default function MapaExhibiciones({
                                         style={{ backgroundColor: distColor, borderColor: borderColor, opacity }}
                                     >
                                         <div
-                                            className="absolute inset-[15%] rounded-full shadow-inner transition-colors duration-1000"
+                                            className="absolute inset-[10%] rounded-full shadow-inner transition-colors duration-1000 flex items-center justify-center"
                                             style={{ backgroundColor: coreColor }}
-                                        />
+                                        >
+                                            {showRoutes && stopNumbers[event.id_ex] && (
+                                                <span className="text-[8px] font-black text-white leading-none scale-90">
+                                                    {stopNumbers[event.id_ex]}
+                                                </span>
+                                            )}
+                                        </div>
                                     </div>
 
                                     <div className="absolute bottom-full mb-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-[100]">
@@ -176,9 +202,7 @@ export default function MapaExhibiciones({
                             {popupInfo?.id_ex === event.id_ex && (
                                 <MarkerPopup
                                     className="p-0 border-none bg-transparent shadow-2xl min-w-[280px]"
-                                    longitude={event.lon}
-                                    latitude={event.lat}
-                                    onClose={() => setPopupInfo(null)}
+                                    closeButton={true}
                                 >
                                     <Card className="overflow-hidden border-none bg-slate-900 shadow-2xl">
                                         {/* Image Section */}
@@ -186,7 +210,7 @@ export default function MapaExhibiciones({
                                             {event.drive_link ? (
                                                 <>
                                                     <img
-                                                        src={resolveImageUrl(event.drive_link)}
+                                                        src={resolveImageUrl((event.drive_link || '') as string)}
                                                         alt="Exhibición"
                                                         className="w-full h-full object-cover transition-transform duration-700 hover:scale-110"
                                                         onError={(e) => {

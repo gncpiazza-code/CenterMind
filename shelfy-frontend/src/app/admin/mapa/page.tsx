@@ -5,7 +5,7 @@ import { Topbar } from "@/components/layout/Topbar";
 import { Card } from "@/components/ui/Card";
 import { PageSpinner, Spinner } from "@/components/ui/Spinner";
 import { useAuth } from "@/hooks/useAuth";
-import { MapPin, Zap, Clock, Users, Building2, BarChart2, ChevronRight, ChevronLeft, Target, Info, X } from "lucide-react";
+import { MapPin, Zap, Clock, Users, Building2, BarChart2, ChevronRight, ChevronLeft, Target, Info, X, Map as MapIcon } from "lucide-react";
 import { fetchLiveMapEvents, fetchSucursalesCruce, type LiveMapEvent, type BranchCruce } from "@/lib/api";
 import { useEffect, useState, useMemo } from "react";
 import dynamic from "next/dynamic";
@@ -41,17 +41,19 @@ export default function LiveMapPage() {
         try {
             // Si hay fecha, ignoramos los minutos y traemos todo el día (1440 min = 24h)
             const res = await fetchLiveMapEvents(date ? undefined : 1440, date);
+            // Filtrar eventos sin ubicación válida o datos inconsistentes
+            const validEvents = res.filter(e => e.lat && e.lon && e.lat !== 0 && e.lon !== 0);
 
             // Detectar si hay un evento nuevo para hacer fly-to
-            if (res.length > 0 && !date) { // Fly-to solo si estamos en "Live"
-                const newest = res[0];
+            if (validEvents.length > 0 && !date) {
+                const newest = validEvents[0];
                 if (lastNewestId && newest.id_ex > lastNewestId) {
                     setSelectedEventId(newest.id_ex);
                 }
                 setLastNewestId(newest.id_ex);
             }
 
-            setEvents(res);
+            setEvents(validEvents);
         } catch (e) {
             console.error("Error loading map events", e);
         } finally {
@@ -199,9 +201,11 @@ export default function LiveMapPage() {
                     <div className="flex gap-2 pointer-events-auto">
                         <button
                             onClick={() => setShowRoutes(!showRoutes)}
-                            className={`p-2 rounded-xl border transition-all ${showRoutes ? 'bg-indigo-600 border-indigo-400 text-white' : 'bg-white/10 border-white/10 text-slate-400'}`}
+                            className={`p-2 rounded-xl border transition-all flex items-center gap-2 ${showRoutes ? 'bg-indigo-600 border-indigo-400 text-white' : 'bg-white/10 border-white/10 text-slate-400'}`}
+                            title="Alternar Recorridos"
                         >
-                            <BarChart2 size={18} />
+                            <MapIcon size={18} />
+                            <span className="text-[10px] font-bold uppercase pr-1">Rutas</span>
                         </button>
                         <button
                             onClick={() => setShowStatsPanel(!showStatsPanel)}
@@ -257,13 +261,14 @@ export default function LiveMapPage() {
                     </div>
 
                     {/* Mapa Central */}
-                    <div className="flex-1 h-full relative bg-[#0d0d0d]">
+                    <div className="flex-1 h-full relative bg-[#0b0f19]">
                         <MapaExhibiciones
                             events={events}
                             selectedEventId={selectedEventId}
                             showRoutes={showRoutes}
                             distColorMap={distColorMap}
                             sellerColorMap={sellerColorMap}
+                            height="100%"
                         />
 
                         {/* Stats Panel Overlay */}

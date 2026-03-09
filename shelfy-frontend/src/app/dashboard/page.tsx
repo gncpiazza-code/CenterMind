@@ -57,79 +57,111 @@ function CarouselGrande({ items }: { items: UltimaEvaluada[] }) {
   const next = () => { setCi((i) => Math.min(items.length - 1, i + 1)); setImgErr(false); setLoaded(false); };
 
   return (
-    <Card className="overflow-hidden p-0">
-      {/* Imagen principal — siempre encuadrada (object-contain + fondo negro) */}
+    <Card glass className="overflow-hidden p-0 border-[var(--shelfy-border)] shadow-md">
       <div
-        className="relative w-full flex items-center justify-center"
-        style={{ height: 480, background: "#0d0d0d" }}
+        className="relative w-full flex items-center justify-center overflow-hidden"
+        style={{ height: 480, background: "#060606" }}
       >
-        {imgSrc && !imgErr ? (
-          <>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={imgSrc}
-              alt="Exhibición evaluada"
-              className="w-full h-full transition-opacity duration-300"
-              style={{
-                objectFit: "contain",
-                objectPosition: "center",
-                opacity: loaded ? 1 : 0,
-              }}
-              onLoad={() => setLoaded(true)}
-              onError={() => setImgErr(true)}
-            />
-            {!loaded && (
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="w-8 h-8 border-2 border-white/20 border-t-white/70 rounded-full animate-spin" />
-              </div>
-            )}
-          </>
-        ) : (
-          <div className="flex flex-col items-center justify-center text-gray-600 gap-3">
-            <ImageOff size={56} className="opacity-30" />
-            <span className="text-xs text-gray-500">No disponible</span>
-          </div>
-        )}
+        <AnimatePresence mode="wait">
+          {!imgErr ? (
+            <motion.div
+              key={ci}
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ duration: 0.3, ease: "easeOut" }}
+              className="w-full h-full relative"
+            >
+              {imgSrc && (
+                <img
+                  src={imgSrc}
+                  alt="Exhibición evaluada"
+                  className="w-full h-full"
+                  style={{
+                    objectFit: "contain",
+                    objectPosition: "center",
+                    opacity: loaded ? 1 : 0,
+                  }}
+                  onLoad={() => setLoaded(true)}
+                  onError={() => setImgErr(true)}
+                />
+              )}
+
+              {!loaded && !imgErr && (
+                <motion.div
+                  animate={{ opacity: [0.4, 0.7, 0.4] }}
+                  transition={{ repeat: Infinity, duration: 1.5 }}
+                  className="absolute inset-0 bg-white/5 flex items-center justify-center"
+                >
+                  <div className="w-10 h-10 border-2 border-white/10 border-t-white/40 rounded-full animate-spin" />
+                </motion.div>
+              )}
+            </motion.div>
+          ) : (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="flex flex-col items-center justify-center text-gray-600 gap-3"
+            >
+              <ImageOff size={56} className="opacity-30" />
+              <span className="text-xs text-gray-500">No disponible</span>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Overlay info inferior */}
-        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent px-6 py-5">
+        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/95 via-black/60 to-transparent px-6 py-6 pt-12">
           <div className="flex items-end justify-between">
-            <div>
-              <p className="text-white font-bold text-xl leading-tight">{item.vendedor}</p>
+            <motion.div
+              key={`info-${ci}`}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1 }}
+            >
+              <p className="text-white font-bold text-xl leading-tight drop-shadow-sm">{item.vendedor}</p>
               <p className="text-white/70 text-sm mt-1">{item.nro_cliente} · {item.tipo_pdv}</p>
-            </div>
-            <span className={`text-sm px-3 py-1 rounded-full text-white font-semibold shrink-0
-              ${item.estado === "Destacado" ? "bg-purple-500" : item.estado === "Rechazado" ? "bg-red-500" : "bg-green-500"}`}>
+            </motion.div>
+            <motion.span
+              key={`badge-${ci}`}
+              initial={{ scale: 0.8, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className={`text-sm px-3 py-1 rounded-full text-white font-semibold shadow-lg
+                ${item.estado === "Destacado" ? "bg-purple-500" : item.estado === "Rechazado" ? "bg-red-500" : "bg-emerald-500"}`}>
               {item.estado}
-            </span>
+            </motion.span>
           </div>
         </div>
 
-        {/* Botones navegación */}
-        <button onClick={prev} disabled={ci === 0}
-          className="absolute left-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/50 hover:bg-black/70 text-white flex items-center justify-center disabled:opacity-20 transition-all">
+        {/* Botones navegación con micro-interacciones */}
+        <motion.button
+          whileHover={{ scale: 1.1 }}
+          whileTap={{ scale: 0.9 }}
+          onClick={prev} disabled={ci === 0}
+          className="absolute left-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/40 backdrop-blur-md border border-white/10 text-white flex items-center justify-center disabled:opacity-0 transition-opacity">
           <ChevronLeft size={22} />
-        </button>
-        <button onClick={next} disabled={ci >= items.length - 1}
-          className="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/50 hover:bg-black/70 text-white flex items-center justify-center disabled:opacity-20 transition-all">
+        </motion.button>
+        <motion.button
+          whileHover={{ scale: 1.1 }}
+          whileTap={{ scale: 0.9 }}
+          onClick={next} disabled={ci >= items.length - 1}
+          className="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/40 backdrop-blur-md border border-white/10 text-white flex items-center justify-center disabled:opacity-0 transition-opacity">
           <ChevronRight size={22} />
-        </button>
+        </motion.button>
 
-        {/* Contador */}
-        <div className="absolute top-3 right-3 bg-black/50 text-white text-xs font-medium px-2.5 py-1 rounded-full">
+        <div className="absolute top-3 right-3 bg-black/40 backdrop-blur-md border border-white/10 text-white text-[10px] uppercase font-bold px-3 py-1 rounded-full tracking-wider">
           {ci + 1} / {items.length}
         </div>
       </div>
 
       {/* Dots + título */}
-      <div className="flex items-center justify-between px-5 py-3 border-t border-[var(--shelfy-border)]">
-        <span className="text-sm font-semibold text-[var(--shelfy-text)]">Últimas evaluadas</span>
+      <div className="flex items-center justify-between px-5 py-3.5 border-t border-[var(--shelfy-border)] bg-[var(--shelfy-bg)]">
+        <span className="text-xs font-bold uppercase tracking-widest text-[var(--shelfy-muted)]">Últimas evaluadas</span>
         <div className="flex gap-1.5">
           {items.slice(0, 8).map((_, i) => (
             <button
               key={i}
               onClick={() => { setCi(i); setImgErr(false); setLoaded(false); }}
-              className={`rounded-full transition-all ${i === ci ? "bg-[var(--shelfy-primary)] w-4 h-2" : "bg-[var(--shelfy-border)] w-2 h-2"}`}
+              className={`rounded-full transition-all duration-300 ${i === ci ? "bg-[var(--shelfy-primary)] w-5 h-1.5" : "bg-[var(--shelfy-border)] w-1.5 h-1.5"}`}
             />
           ))}
         </div>
@@ -143,7 +175,7 @@ function CarouselGrande({ items }: { items: UltimaEvaluada[] }) {
 function GraficoSucursales({ data }: { data: SucursalStats[] }) {
   if (data.length <= 1) return null;
   return (
-    <Card>
+    <Card glass>
       <h3 className="text-[var(--shelfy-text)] font-semibold text-sm mb-4">Rendimiento por sucursal</h3>
       <ResponsiveContainer width="100%" height={200}>
         <BarChart data={data} margin={{ top: 4, right: 4, bottom: 4, left: -20 }}>
@@ -173,26 +205,6 @@ function RankingTable({
   sucursalFiltro: string;
   sucursales: SucursalStats[];
 }) {
-  const prevRanking = useRef<VendedorRanking[]>([]);
-  const [visible, setVisible] = useState<boolean[]>([]);
-
-  // Animación de entrada escalonada cuando cambia el ranking
-  useEffect(() => {
-    setVisible([]);
-    const timers: NodeJS.Timeout[] = [];
-    ranking.forEach((_, i) => {
-      timers.push(setTimeout(() => {
-        setVisible((v) => {
-          const next = [...v];
-          next[i] = true;
-          return next;
-        });
-      }, i * 50));
-    });
-    prevRanking.current = ranking;
-    return () => timers.forEach(clearTimeout);
-  }, [ranking]);
-
   const PERIODO_LABELS: Record<string, string> = { hoy: "HOY", mes: "MES", historico: "HISTÓRICO" };
   const labelPeriodo = PERIODO_LABELS[periodo] ?? periodo.toUpperCase();
 
@@ -202,24 +214,23 @@ function RankingTable({
 
   if (ranking.length === 0) {
     return (
-      <Card>
+      <Card glass>
         <p className="text-sm text-[var(--shelfy-muted)] py-6 text-center">Sin datos para este período.</p>
       </Card>
     );
   }
 
   return (
-    <Card>
-      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-        <h3 className="text-[var(--shelfy-text)] font-semibold text-sm">Ranking de vendedores</h3>
-        <div className="flex gap-1.5 flex-wrap">
-          <span className="text-xs text-[var(--shelfy-muted)] bg-[var(--shelfy-bg)] px-2 py-0.5 rounded-full border border-[var(--shelfy-border)]">
+    <Card className="border-[var(--shelfy-border)] shadow-md overflow-hidden">
+      <div className="flex items-center justify-between mb-6 flex-wrap gap-2 px-1">
+        <h3 className="text-[var(--shelfy-text)] font-bold text-base">Ranking de vendedores</h3>
+        <div className="flex gap-2 flex-wrap">
+          <span className="text-[10px] font-bold tracking-widest text-[var(--shelfy-muted)] bg-[var(--shelfy-bg)] px-3 py-1 rounded-full border border-[var(--shelfy-border)]">
             {labelPeriodo}
           </span>
           {sucursalLabel && (
-            <span className="text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
-              <GitBranch size={10} className="inline mr-1" />
-              {sucursalLabel}
+            <span className="text-[10px] font-bold tracking-widest text-blue-600 bg-blue-50 px-3 py-1 rounded-full border border-blue-100">
+              {sucursalLabel.toUpperCase()}
             </span>
           )}
         </div>
@@ -228,36 +239,47 @@ function RankingTable({
         <table className="w-full text-sm">
           <thead>
             <tr className="text-[var(--shelfy-muted)] text-left border-b border-[var(--shelfy-border)]">
-              <th className="pb-2 pr-3 w-8">#</th>
-              <th className="pb-2 pr-3">Vendedor</th>
-              <th className="pb-2 pr-3 text-right text-green-600">AP</th>
-              <th className="pb-2 pr-3 text-right text-purple-600">DEST</th>
-              <th className="pb-2 pr-3 text-right text-red-500">REC</th>
-              <th className="pb-2 text-right">PTS</th>
+              <th className="pb-3 pr-3 w-10 font-bold uppercase tracking-tighter text-[10px]">Pos</th>
+              <th className="pb-3 pr-3 font-bold uppercase tracking-tighter text-[10px]">Vendedor</th>
+              <th className="pb-3 pr-3 text-right font-bold uppercase tracking-tighter text-[10px] text-emerald-600">AP</th>
+              <th className="pb-3 pr-3 text-right font-bold uppercase tracking-tighter text-[10px] text-purple-600">DEST</th>
+              <th className="pb-3 pr-3 text-right font-bold uppercase tracking-tighter text-[10px] text-red-500">REC</th>
+              <th className="pb-3 text-right font-bold uppercase tracking-tighter text-[10px]">Puntos</th>
             </tr>
           </thead>
           <tbody>
-            {ranking.map((v, i) => (
-              <tr
-                key={`${v.vendedor}-${i}`}
-                className="border-b border-[var(--shelfy-border)] last:border-0 hover:bg-[var(--shelfy-bg)] transition-all"
-                style={{
-                  opacity: visible[i] ? 1 : 0,
-                  transform: visible[i] ? "translateX(0)" : "translateX(-12px)",
-                  transition: `opacity 0.3s ease ${i * 40}ms, transform 0.3s ease ${i * 40}ms`,
-                }}
-              >
-                <td className="py-2.5 pr-3">
-                  <span className={`text-xs font-bold ${i === 0 ? "text-yellow-500" : i === 1 ? "text-gray-400" : i === 2 ? "text-orange-400" : "text-[var(--shelfy-muted)]"
-                    }`}>{i === 0 ? "👑" : `#${i + 1}`}</span>
-                </td>
-                <td className="py-2.5 pr-3 text-[var(--shelfy-text)] font-medium">{v.vendedor}</td>
-                <td className="py-2.5 pr-3 text-right text-green-600 font-medium">{v.aprobadas}</td>
-                <td className="py-2.5 pr-3 text-right text-purple-600 font-medium">{v.destacadas}</td>
-                <td className="py-2.5 pr-3 text-right text-red-500 font-medium">{v.rechazadas}</td>
-                <td className="py-2.5 text-right font-bold text-[var(--shelfy-text)]">{v.puntos}</td>
-              </tr>
-            ))}
+            <AnimatePresence initial={false}>
+              {ranking.map((v, i) => (
+                <motion.tr
+                  key={v.vendedor}
+                  layout
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  transition={{
+                    duration: 0.3,
+                    delay: i * 0.05,
+                    layout: { type: "spring", stiffness: 300, damping: 30 }
+                  }}
+                  className="border-b border-[var(--shelfy-border)] last:border-0 hover:bg-[var(--shelfy-bg)] group transition-colors"
+                >
+                  <td className="py-3.5 pr-3">
+                    <span className={`text-xs font-black px-2 py-0.5 rounded ${i === 0 ? "bg-yellow-100 text-yellow-700" :
+                      i === 1 ? "bg-slate-100 text-slate-500" :
+                        i === 2 ? "bg-orange-100 text-orange-700" :
+                          "text-[var(--shelfy-muted)]"
+                      }`}>
+                      {i + 1}
+                    </span>
+                  </td>
+                  <td className="py-3.5 pr-3 text-[var(--shelfy-text)] font-semibold">{v.vendedor}</td>
+                  <td className="py-3.5 pr-3 text-right text-emerald-600 font-medium">{v.aprobadas}</td>
+                  <td className="py-3.5 pr-3 text-right text-purple-600 font-medium">{v.destacadas}</td>
+                  <td className="py-3.5 pr-3 text-right text-red-500 font-medium">{v.rechazadas}</td>
+                  <td className="py-3.5 text-right font-black text-[var(--shelfy-text)]">{v.puntos}</td>
+                </motion.tr>
+              ))}
+            </AnimatePresence>
           </tbody>
         </table>
       </div>
@@ -405,7 +427,11 @@ export default function DashboardPage() {
     <div className="flex min-h-screen bg-[var(--shelfy-bg)]">
       <Sidebar />
       <BottomNav />
-      <div className="flex flex-col flex-1 min-w-0">
+      <div className="flex flex-col flex-1 min-w-0 relative overflow-hidden">
+        {/* Decorative background blobs */}
+        <div className="absolute top-[-10%] right-[-10%] w-[40%] h-[40%] rounded-full bg-blue-400/10 blur-[120px] pointer-events-none" />
+        <div className="absolute bottom-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-purple-400/10 blur-[120px] pointer-events-none" />
+
         <Topbar title="Dashboard" />
         <main className="flex-1 p-4 md:p-6 pb-20 md:pb-6 overflow-auto">
 
@@ -465,7 +491,7 @@ export default function DashboardPage() {
                 {/* Sucursales + Total */}
                 <div className="flex flex-col gap-5">
                   <GraficoSucursales data={sucursales} />
-                  <Card>
+                  <Card glass>
                     <p className="text-xs text-[var(--shelfy-muted)] mb-1 uppercase tracking-wide font-semibold">Total exhibiciones</p>
                     <p className="text-4xl font-bold text-[var(--shelfy-text)]">{kpis.total}</p>
                     <p className="text-xs text-[var(--shelfy-muted)] mt-1">{mesLabel}</p>
@@ -486,16 +512,29 @@ export default function DashboardPage() {
   );
 }
 
+import { motion, AnimatePresence } from "framer-motion";
+
 function KpiCard({ label, value, icon, color, bgColor }: {
   label: string; value: number; icon: React.ReactNode; color: string; bgColor: string;
 }) {
   return (
-    <Card>
-      <div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-3 ${bgColor}`} style={{ color }}>
-        {icon}
-      </div>
-      <p className="text-2xl font-bold" style={{ color }}>{value}</p>
-      <p className="text-xs text-[var(--shelfy-muted)] mt-1 font-medium uppercase tracking-wide">{label}</p>
-    </Card>
+    <motion.div
+      whileHover={{ scale: 1.02, translateY: -2 }}
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="h-full"
+    >
+      <Card glass className="h-full transition-shadow duration-300 hover:shadow-lg border-[var(--shelfy-border)]">
+        <motion.div
+          whileHover={{ rotate: 5, scale: 1.1 }}
+          className={`w-10 h-10 rounded-xl flex items-center justify-center mb-3 ${bgColor}`}
+          style={{ color }}
+        >
+          {icon}
+        </motion.div>
+        <p className="text-2xl font-bold" style={{ color }}>{value}</p>
+        <p className="text-xs text-[var(--shelfy-muted)] mt-1 font-medium uppercase tracking-wide">{label}</p>
+      </Card>
+    </motion.div>
   );
 }

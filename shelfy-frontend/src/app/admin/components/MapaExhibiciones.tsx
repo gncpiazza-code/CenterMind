@@ -105,6 +105,9 @@ export default function MapaExhibiciones({ events, height = "600px", theme = "da
                 theme={theme}
                 className="w-full h-full"
                 attributionControl={false}
+                antialias={true}
+                maxPitch={85}
+                show3DBuildings={true}
             >
                 <MapControls position="bottom-right" showZoom showCompass showLocate />
 
@@ -129,7 +132,29 @@ export default function MapaExhibiciones({ events, height = "600px", theme = "da
                 })}
 
                 {events.map((event) => {
-                    const color = distColorMap[event.nombre_dist] || "#3b82f6";
+                    const eventDate = new Date(event.timestamp_evento);
+                    const now = new Date();
+                    const ageMinutes = (now.getTime() - eventDate.getTime()) / (1000 * 60);
+
+                    // Heatmap colors based on age
+                    let color = "#64748b"; // Cold (Slate)
+                    let scale = 1;
+                    let opacity = 0.6;
+
+                    if (ageMinutes < 30) {
+                        color = "#ff0080"; // Hot (Pink/Radish)
+                        scale = 1.3;
+                        opacity = 1;
+                    } else if (ageMinutes < 120) {
+                        color = "#f97316"; // Warm (Orange)
+                        scale = 1.15;
+                        opacity = 0.9;
+                    } else if (ageMinutes < 300) {
+                        color = "#3b82f6"; // Cool (Blue)
+                        scale = 1;
+                        opacity = 0.8;
+                    }
+
                     const isSelected = selectedEventId === event.id_ex;
 
                     return (
@@ -140,14 +165,17 @@ export default function MapaExhibiciones({ events, height = "600px", theme = "da
                             onClick={() => setPopupInfo(event)}
                         >
                             <MarkerContent>
-                                <div className={`relative flex items-center justify-center transition-all duration-300 group ${isSelected ? 'scale-150 z-50' : 'hover:scale-125'}`}>
+                                <div
+                                    className={`relative flex items-center justify-center transition-all duration-300 group ${isSelected ? 'scale-150 z-50' : 'hover:scale-125'}`}
+                                    style={{ transform: `scale(${scale * (isSelected ? 1.2 : 1)})` }}
+                                >
                                     <span
-                                        className={`absolute inline-flex h-6 w-6 rounded-full opacity-40 ${isSelected ? 'animate-ping' : 'group-hover:animate-pulse'}`}
+                                        className={`absolute inline-flex h-6 w-6 rounded-full ${isSelected ? 'animate-ping opacity-60' : 'group-hover:animate-pulse opacity-20'}`}
                                         style={{ backgroundColor: color }}
                                     ></span>
                                     <div
-                                        className="relative inline-flex rounded-full h-3.5 w-3.5 shadow-xl border-2 border-white dark:border-slate-900"
-                                        style={{ backgroundColor: color }}
+                                        className="relative inline-flex rounded-full h-3.5 w-3.5 shadow-[0_0_15px_rgba(255,255,255,0.3)] border-2 border-white dark:border-slate-900"
+                                        style={{ backgroundColor: color, opacity }}
                                     />
                                 </div>
                             </MarkerContent>

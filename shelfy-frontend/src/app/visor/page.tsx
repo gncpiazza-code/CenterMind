@@ -146,6 +146,7 @@ export default function VisorPage() {
       } : s);
       setGrupos((g) => g.filter((item) => item !== grupo));
       setIdx((i) => Math.max(0, Math.min(i, filtrados.length - 2)));
+      setComentario(""); // BUG FIX: Clear comment after successful eval
       showFlash(`${estado}`, "ok");
     } catch (e: unknown) {
       showFlash(e instanceof Error ? e.message : "Error", "err");

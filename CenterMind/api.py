@@ -421,13 +421,18 @@ def get_global_monitoring(user_payload=Depends(verify_auth)):
 
 
 @app.get("/api/admin/live-map-events", tags=["SuperAdmin"], summary="Eventos en vivo con coordenadas para el mapa")
-def get_live_map_events(minutos: int = 60, user_payload=Depends(verify_auth)):
-    """Retorna exhibiciones recientes con Lat/Lon para encender puntitos en el mapa."""
+def get_live_map_events(minutos: int | None = None, fecha: str | None = None, user_payload=Depends(verify_auth)):
+    """Retorna exhibiciones recientes o de una fecha con Lat/Lon para el mapa."""
     if not user_payload.get("is_superadmin"):
         raise HTTPException(status_code=403, detail="Solo accesible para SuperAdmin")
-        
+
     try:
-        res = sb.rpc("fn_get_live_map_events", {"p_minutes_back": minutos}).execute()
+        # p_minutes_back si no hay fecha, p_date si hay fecha
+        rpc_params = {
+            "p_minutes_back": minutos if not fecha else None,
+            "p_date": fecha if fecha else None
+        }
+        res = sb.rpc("fn_get_live_map_events", rpc_params).execute()
         return res.data or []
     except Exception as e:
         logger.error(f"Error en eventos de mapa: {e}")

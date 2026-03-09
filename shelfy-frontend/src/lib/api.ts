@@ -618,8 +618,11 @@ export async function fetchGlobalMonitoring(): Promise<GlobalStressMonitor[]> {
   return apiFetch<GlobalStressMonitor[]>("/api/admin/global-monitoring");
 }
 
-export async function fetchLiveMapEvents(minutos: number = 60): Promise<LiveMapEvent[]> {
-  return apiFetch<LiveMapEvent[]>(`/api/admin/live-map-events?minutos=${minutos}`);
+export async function fetchLiveMapEvents(minutos?: number, fecha?: string): Promise<LiveMapEvent[]> {
+  const params = new URLSearchParams();
+  if (minutos) params.append("minutos", minutos.toString());
+  if (fecha) params.append("fecha", fecha);
+  return apiFetch<LiveMapEvent[]>(`/api/admin/live-map-events?${params.toString()}`);
 }
 
 export async function fetchSucursalesCruce(distId: number, periodo: string = "mes"): Promise<BranchCruce[]> {

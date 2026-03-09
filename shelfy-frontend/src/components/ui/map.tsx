@@ -140,6 +140,12 @@ type MapProps = {
    * to enable controlled mode where the map viewport is driven by your state.
    */
   onViewportChange?: (viewport: MapViewport) => void;
+  /** Whether to show 3D buildings (requires a style with building data) */
+  show3DBuildings?: boolean;
+  /** Whether to enable antialiasing */
+  antialias?: boolean;
+  /** Maximum pitch (tilt) in degrees */
+  maxPitch?: number;
 } & Omit<MapLibreGL.MapOptions, "container" | "style">;
 
 function DefaultLoader() {
@@ -173,6 +179,9 @@ const Map = forwardRef<MapRef, MapProps>(function Map(
     projection,
     viewport,
     onViewportChange,
+    show3DBuildings = false,
+    antialias,
+    maxPitch,
     ...props
   },
   ref
@@ -224,9 +233,11 @@ const Map = forwardRef<MapRef, MapProps>(function Map(
       attributionControl: {
         compact: true,
       },
+      antialias,
+      maxPitch,
       ...props,
       ...viewport,
-    });
+    } as any);
 
     const styleDataHandler = () => {
       clearStyleTimeout();
@@ -237,6 +248,53 @@ const Map = forwardRef<MapRef, MapProps>(function Map(
         setIsStyleLoaded(true);
         if (projection) {
           map.setProjection(projection);
+        }
+
+        // Add 3D buildings if requested
+        if (show3DBuildings) {
+          const addBuildings = () => {
+            if (map.getLayer("3d-buildings")) return;
+
+            // This is a common pattern for adding 3D buildings in MapLibre/Mapbox
+            // using fill-extrusion layers.
+            map.addLayer({
+              id: "3d-buildings",
+              source: "openmaptiles",
+              "source-layer": "building",
+              type: "fill-extrusion",
+              minzoom: 15,
+              paint: {
+                "fill-extrusion-color": [
+                  "interpolate",
+                  ["linear"],
+                  ["get", "render_height"],
+                  0, "lightgray",
+                  200, "royalblue"
+                ],
+                "fill-extrusion-height": [
+                  "interpolate",
+                  ["linear"],
+                  ["zoom"],
+                  15, 0,
+                  15.05, ["get", "render_height"]
+                ],
+                "fill-extrusion-base": [
+                  "interpolate",
+                  ["linear"],
+                  ["zoom"],
+                  15, 0,
+                  15.05, ["get", "render_min_height"]
+                ],
+                "fill-extrusion-opacity": 0.6
+              }
+            });
+          };
+
+          if (map.isStyleLoaded()) {
+            addBuildings();
+          } else {
+            map.once("styledata", addBuildings);
+          }
         }
       }, 100);
     };

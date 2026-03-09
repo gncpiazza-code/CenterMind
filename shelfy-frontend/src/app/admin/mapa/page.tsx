@@ -24,6 +24,7 @@ export default function LiveMapPage() {
     const [loadingBranches, setLoadingBranches] = useState<string | null>(null);
     const [expandedDist, setExpandedDist] = useState<string | null>(null);
     const [showDistSidebar, setShowDistSidebar] = useState(true);
+    const [showRoutes, setShowRoutes] = useState(true);
 
     const loadEvents = async () => {
         try {
@@ -160,7 +161,13 @@ export default function LiveMapPage() {
 
                     {/* Mapa Central (MapLibre) */}
                     <div className="flex-1 h-full relative z-10 bg-[#1e1e1e] flex flex-col">
-                        <MapaExhibiciones events={events} height="100%" theme="dark" selectedEventId={selectedEventId} />
+                        <MapaExhibiciones
+                            events={events}
+                            height="100%"
+                            theme="dark"
+                            selectedEventId={selectedEventId}
+                            showRoutes={showRoutes}
+                        />
 
                         {/* Breadcrumb Map Overlay */}
                         <div className="absolute top-4 left-4 z-20 pointer-events-none">
@@ -174,6 +181,20 @@ export default function LiveMapPage() {
                                     </span>
                                 </div>
                             </Card>
+                        </div>
+
+                        {/* Route Toggle Overlay */}
+                        <div className="absolute top-4 right-4 z-20 flex flex-col gap-2">
+                            <button
+                                onClick={() => setShowRoutes(!showRoutes)}
+                                className={`px-4 py-2 border-none ring-1 ring-white/10 shadow-2xl backdrop-blur-xl rounded-2xl transition-all flex items-center gap-2 group
+                                    ${showRoutes ? "bg-violet-600/90 text-white" : "bg-slate-900/80 text-slate-400 hover:bg-slate-800/90"}`}
+                            >
+                                <div className={`w-2 h-2 rounded-full transition-colors ${showRoutes ? "bg-white animate-pulse" : "bg-slate-600"}`} />
+                                <span className="text-[10px] font-black uppercase tracking-widest">
+                                    Recorridos: {showRoutes ? "ON" : "OFF"}
+                                </span>
+                            </button>
                         </div>
                     </div>
 

@@ -21,6 +21,7 @@ interface MapaExhibicionesProps {
     height?: string;
     theme?: "dark" | "light";
     selectedEventId?: number | null;
+    showRoutes?: boolean;
 }
 
 const DIST_COLORS = [
@@ -28,7 +29,7 @@ const DIST_COLORS = [
     "#ef4444", "#06b6d4", "#84cc16", "#6366f1", "#d946ef"
 ];
 
-export default function MapaExhibiciones({ events, height = "600px", theme = "dark", selectedEventId }: MapaExhibicionesProps) {
+export default function MapaExhibiciones({ events, height = "600px", theme = "dark", selectedEventId, showRoutes = true }: MapaExhibicionesProps) {
     const mapRef = useRef<MapRef>(null);
     const [popupInfo, setPopupInfo] = useState<LiveMapEvent | null>(null);
 
@@ -104,7 +105,7 @@ export default function MapaExhibiciones({ events, height = "600px", theme = "da
                 <MapControls position="bottom-right" showZoom showCompass showLocate />
 
                 {/* Render Routes */}
-                {routesBySeller.map(([seller, coordinates]) => {
+                {showRoutes && routesBySeller.map(([seller, coordinates]) => {
                     // Try to find the color of the first event of this seller
                     const firstEv = events.find(e => e.vendedor_nombre === seller);
                     const color = firstEv ? (distColorMap[firstEv.nombre_dist] || "#3b82f6") : "#3b82f6";

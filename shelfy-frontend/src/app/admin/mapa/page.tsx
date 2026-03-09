@@ -5,7 +5,7 @@ import { Topbar } from "@/components/layout/Topbar";
 import { Card } from "@/components/ui/Card";
 import { PageSpinner, Spinner } from "@/components/ui/Spinner";
 import { useAuth } from "@/hooks/useAuth";
-import { MapPin, Zap, Clock, Users, Building2, BarChart2, ChevronRight, Target, Info } from "lucide-react";
+import { MapPin, Zap, Clock, Users, Building2, BarChart2, ChevronRight, ChevronLeft, Target, Info } from "lucide-react";
 import { fetchLiveMapEvents, fetchSucursalesCruce, type LiveMapEvent, type BranchCruce } from "@/lib/api";
 import { useEffect, useState, useMemo } from "react";
 import dynamic from "next/dynamic";
@@ -23,6 +23,7 @@ export default function LiveMapPage() {
     const [branchStats, setBranchStats] = useState<Record<string, BranchCruce[]>>({});
     const [loadingBranches, setLoadingBranches] = useState<string | null>(null);
     const [expandedDist, setExpandedDist] = useState<string | null>(null);
+    const [showDistSidebar, setShowDistSidebar] = useState(true);
 
     const loadEvents = async () => {
         try {
@@ -177,7 +178,17 @@ export default function LiveMapPage() {
                     </div>
 
                     {/* Panel Estadístico Derecho (Distribuidores) */}
-                    <div className="w-full lg:w-80 bg-slate-50 border-l border-slate-200 z-20 flex flex-col shadow-2xl shrink-0 overflow-hidden">
+                    <div className={`transition-all duration-500 ease-in-out bg-slate-50 border-l border-slate-200 z-20 flex flex-col shadow-2xl shrink-0 overflow-hidden relative
+                        ${showDistSidebar ? "w-full lg:w-80" : "w-0 lg:w-0 border-none"}`}
+                    >
+                        {/* Toggle Button Inside Sidebar (when visible) */}
+                        <button
+                            onClick={() => setShowDistSidebar(false)}
+                            className="absolute top-1/2 -left-3 z-30 bg-white border border-slate-200 rounded-full p-1 shadow-md hover:bg-slate-50 transition-colors hidden lg:block"
+                        >
+                            <ChevronRight size={16} className="text-slate-400" />
+                        </button>
+
                         <div className="p-5 border-b border-slate-200 bg-white">
                             <h3 className="text-[11px] font-black text-slate-900 uppercase tracking-[0.2em] flex items-center gap-2">
                                 <Building2 size={14} className="text-violet-500" />
@@ -295,6 +306,18 @@ export default function LiveMapPage() {
                             </div>
                         </div>
                     </div>
+
+                    {/* Toggle Button for Sidebar (when hidden) */}
+                    {!showDistSidebar && (
+                        <button
+                            onClick={() => setShowDistSidebar(true)}
+                            className="absolute right-4 top-24 z-30 bg-white border border-slate-200 rounded-2xl p-3 shadow-2xl hover:bg-slate-50 transition-all animate-in slide-in-from-right-4 duration-300 hidden lg:flex items-center gap-2"
+                        >
+                            <Building2 size={16} className="text-violet-500" />
+                            <span className="text-[10px] font-black text-slate-900 uppercase tracking-widest">Estadísticas</span>
+                            <ChevronLeft size={16} className="text-slate-400" />
+                        </button>
+                    )}
 
                 </div>
             </div>

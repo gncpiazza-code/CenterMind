@@ -8,6 +8,7 @@ import {
     MarkerPopup,
     MarkerTooltip,
     MapControls,
+    MapRoute,
     type MapRef
 } from "@/components/ui/map";
 import { LiveMapEvent, resolveImageUrl } from "@/lib/api";
@@ -71,6 +72,25 @@ export default function MapaExhibiciones({ events, height = "600px", theme = "da
         return 6;
     }, [events.length]);
 
+    // Group events by salesperson and sort for routes
+    const routesBySeller = useMemo(() => {
+        const groups: Record<string, [number, number][]> = {};
+
+        // Sorting events by timestamp to ensure chronological routes
+        const sortedEvents = [...events].sort((a, b) =>
+            new Date(a.timestamp_evento).getTime() - new Date(b.timestamp_evento).getTime()
+        );
+
+        sortedEvents.forEach(ev => {
+            if (!groups[ev.vendedor_nombre]) {
+                groups[ev.vendedor_nombre] = [];
+            }
+            groups[ev.vendedor_nombre].push([ev.lon, ev.lat]);
+        });
+
+        return Object.entries(groups).filter(([_, coords]) => coords.length >= 2);
+    }, [events]);
+
     return (
         <div className="w-full relative overflow-hidden flex-1" style={{ height }}>
             <Map
@@ -82,6 +102,25 @@ export default function MapaExhibiciones({ events, height = "600px", theme = "da
                 attributionControl={false}
             >
                 <MapControls position="bottom-right" showZoom showCompass showLocate />
+
+                {/* Render Routes */}
+                {routesBySeller.map(([seller, coordinates]) => {
+                    // Try to find the color of the first event of this seller
+                    const firstEv = events.find(e => e.vendedor_nombre === seller);
+                    const color = firstEv ? (distColorMap[firstEv.nombre_dist] || "#3b82f6") : "#3b82f6";
+
+                    return (
+                        <MapRoute
+                            key={`route-${seller}`}
+                            id={`route-${seller}`}
+                            coordinates={coordinates}
+                            color={color}
+                            width={3}
+                            opacity={0.4}
+                            interactive={false}
+                        />
+                    );
+                })}
 
                 {events.map((event) => {
                     const color = distColorMap[event.nombre_dist] || "#3b82f6";

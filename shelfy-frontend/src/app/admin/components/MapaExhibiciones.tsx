@@ -6,42 +6,36 @@ import {
     MapMarker,
     MarkerContent,
     MarkerPopup,
-    MarkerTooltip,
     MapControls,
     MapRoute,
     type MapRef
 } from "@/components/ui/map";
 import { LiveMapEvent, resolveImageUrl } from "@/lib/api";
-import { format } from "date-fns";
+import { format, formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 import { MapPin, User, Building2, ExternalLink, Image as ImageIcon } from "lucide-react";
 
 interface MapaExhibicionesProps {
     events: LiveMapEvent[];
-    height?: string;
+    height?: string | number;
     theme?: "dark" | "light";
     selectedEventId?: number | null;
     showRoutes?: boolean;
+    distColorMap?: Record<string, string>;
+    sellerColorMap?: Record<string, string>;
 }
 
-const DIST_COLORS = [
-    "#8b5cf6", "#ec4899", "#3b82f6", "#10b981", "#f59e0b",
-    "#ef4444", "#06b6d4", "#84cc16", "#6366f1", "#d946ef"
-];
-
-export default function MapaExhibiciones({ events, height = "600px", theme = "dark", selectedEventId, showRoutes = true }: MapaExhibicionesProps) {
+export default function MapaExhibiciones({
+    events,
+    height = "600px",
+    theme = "dark",
+    selectedEventId,
+    showRoutes = true,
+    distColorMap = {},
+    sellerColorMap = {}
+}: MapaExhibicionesProps) {
     const mapRef = useRef<MapRef>(null);
     const [popupInfo, setPopupInfo] = useState<LiveMapEvent | null>(null);
-
-    // Color cache for distributors
-    const distColorMap = useMemo(() => {
-        const uniqueDists = Array.from(new Set(events.map(e => e.nombre_dist)));
-        const map: Record<string, string> = {};
-        uniqueDists.forEach((name, i) => {
-            map[name] = DIST_COLORS[i % DIST_COLORS.length];
-        });
-        return map;
-    }, [events]);
 
     // Update popup and fly when selectedEventId changes from parent
     useEffect(() => {
@@ -51,57 +45,33 @@ export default function MapaExhibiciones({ events, height = "600px", theme = "da
                 setPopupInfo(ev);
                 mapRef.current.flyTo({
                     center: [ev.lon, ev.lat],
-                    zoom: 16,
-                    duration: 2000,
+                    zoom: 17,
+                    pitch: 60,
+                    bearing: (Math.random() * 90) - 45,
+                    duration: 2500,
                     essential: true
                 });
             }
         }
     }, [selectedEventId, events]);
 
-    // Initial View calculation
-    const center = useMemo<[number, number]>(() => {
-        if (events.length === 0) return [-64.1833, -31.4167];
-        const lons = events.map(e => e.lon);
-        const lats = events.map(e => e.lat);
-        return [(Math.min(...lons) + Math.max(...lons)) / 2, (Math.min(...lats) + Math.max(...lats)) / 2];
-    }, [events]);
-
-    const zoom = useMemo(() => {
-        if (events.length === 0) return 4.5;
-        if (events.length === 1) return 14;
-        return 6;
-    }, [events.length]);
-
-    // Group events by salesperson and sort for routes
+    // Group coordinates by salesperson for routes
     const routesBySeller = useMemo(() => {
-        const groups: Record<string, [number, number][]> = {};
-
-        // Sorting events by timestamp to ensure chronological routes
-        const sortedEvents = [...events].sort((a, b) =>
-            new Date(a.timestamp_evento).getTime() - new Date(b.timestamp_evento).getTime()
-        );
-
-        sortedEvents.forEach(ev => {
-            // Usamos una combinación de nombre + ID distribuidor para evitar confusiones de nombres duplicados
-            // (e.g. "Ricardo" en Dist 1 y "Ricardo" en Dist 2)
-            const sellerKey = `${ev.vendedor_nombre}-${ev.id_dist}`;
-
-            if (!groups[sellerKey]) {
-                groups[sellerKey] = [];
-            }
-            groups[sellerKey].push([ev.lon, ev.lat]);
+        const routes: Record<string, [number, number][]> = {};
+        events.forEach((event) => {
+            const key = `${event.vendedor_nombre}-${event.id_dist}`;
+            if (!routes[key]) routes[key] = [];
+            routes[key].push([event.lon, event.lat]);
         });
-
-        return Object.entries(groups).filter(([_, coords]) => coords.length >= 2);
+        return Object.entries(routes);
     }, [events]);
 
     return (
         <div className="w-full relative overflow-hidden flex-1" style={{ height }}>
             <Map
                 ref={mapRef}
-                center={center}
-                zoom={zoom}
+                center={[-58.3816, -34.6037]}
+                zoom={12}
                 theme={theme}
                 className="w-full h-full"
                 attributionControl={false}
@@ -113,9 +83,8 @@ export default function MapaExhibiciones({ events, height = "600px", theme = "da
 
                 {/* Render Routes */}
                 {showRoutes && routesBySeller.map(([sellerKey, coordinates]) => {
-                    // Extraer el nombre real para buscar el primer evento (para el color)
-                    const sellerName = sellerKey.split('-')[0];
-                    const firstEv = events.find(e => e.vendedor_nombre === sellerName);
+                    const [vName, distIdStr] = sellerKey.split('-');
+                    const firstEv = events.find(e => e.vendedor_nombre === vName && String(e.id_dist) === distIdStr);
                     const color = firstEv ? (distColorMap[firstEv.nombre_dist] || "#3b82f6") : "#3b82f6";
 
                     return (
@@ -125,7 +94,7 @@ export default function MapaExhibiciones({ events, height = "600px", theme = "da
                             coordinates={coordinates}
                             color={color}
                             width={3}
-                            opacity={0.4}
+                            opacity={0.3}
                             interactive={false}
                         />
                     );
@@ -136,23 +105,35 @@ export default function MapaExhibiciones({ events, height = "600px", theme = "da
                     const now = new Date();
                     const ageMinutes = (now.getTime() - eventDate.getTime()) / (1000 * 60);
 
-                    // Heatmap colors based on age
-                    let color = "#64748b"; // Cold (Slate)
+                    // Colors
+                    const distColor = distColorMap[event.nombre_dist] || "#64748b";
+                    const sKey = `${event.nombre_dist}-${event.vendedor_nombre}`;
+                    const sellerColor = sellerColorMap[sKey] || distColor;
+
+                    // Aging Logic
                     let scale = 1;
-                    let opacity = 0.6;
+                    let opacity = 0.8;
+                    let pulse = false;
+                    let coreColor = sellerColor;
+                    let borderColor = "white";
 
                     if (ageMinutes < 30) {
-                        color = "#ff0080"; // Hot (Pink/Radish)
-                        scale = 1.3;
+                        scale = 1.4;
                         opacity = 1;
+                        pulse = true;
+                        borderColor = "white";
                     } else if (ageMinutes < 120) {
-                        color = "#f97316"; // Warm (Orange)
                         scale = 1.15;
                         opacity = 0.9;
+                        pulse = true;
                     } else if (ageMinutes < 300) {
-                        color = "#3b82f6"; // Cool (Blue)
                         scale = 1;
-                        opacity = 0.8;
+                        opacity = 0.7;
+                    } else {
+                        scale = 0.85;
+                        opacity = 0.45;
+                        coreColor = "#475569";
+                        borderColor = distColor;
                     }
 
                     const isSelected = selectedEventId === event.id_ex;
@@ -166,108 +147,121 @@ export default function MapaExhibiciones({ events, height = "600px", theme = "da
                         >
                             <MarkerContent>
                                 <div
-                                    className={`relative flex items-center justify-center transition-all duration-300 group ${isSelected ? 'scale-150 z-50' : 'hover:scale-125'}`}
-                                    style={{ transform: `scale(${scale * (isSelected ? 1.2 : 1)})` }}
+                                    className={`relative flex items-center justify-center transition-all duration-500 group ${isSelected ? 'scale-150 z-50' : 'hover:scale-125'}`}
+                                    style={{ transform: `scale(${scale * (isSelected ? 1.4 : 1)})` }}
                                 >
                                     <span
-                                        className={`absolute inline-flex h-6 w-6 rounded-full ${isSelected ? 'animate-ping opacity-60' : 'group-hover:animate-pulse opacity-20'}`}
-                                        style={{ backgroundColor: color }}
+                                        className={`absolute inline-flex h-7 w-7 rounded-full opacity-40 ${pulse || isSelected ? 'animate-ping' : 'hidden group-hover:inline-flex'}`}
+                                        style={{ backgroundColor: distColor }}
                                     ></span>
+
                                     <div
-                                        className="relative inline-flex rounded-full h-3.5 w-3.5 shadow-[0_0_15px_rgba(255,255,255,0.3)] border-2 border-white dark:border-slate-900"
-                                        style={{ backgroundColor: color, opacity }}
-                                    />
+                                        className="relative inline-flex rounded-full h-4 w-4 shadow-[0_0_15px_rgba(255,255,255,0.2)] border-2 transition-colors duration-1000"
+                                        style={{ backgroundColor: distColor, borderColor: borderColor, opacity }}
+                                    >
+                                        <div
+                                            className="absolute inset-[15%] rounded-full shadow-inner transition-colors duration-1000"
+                                            style={{ backgroundColor: coreColor }}
+                                        />
+                                    </div>
+
+                                    <div className="absolute bottom-full mb-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-[100]">
+                                        <div className="bg-slate-900/90 backdrop-blur-md text-white px-2 py-1 rounded text-[10px] font-bold whitespace-nowrap border border-white/10 shadow-xl">
+                                            {event.vendedor_nombre} • {formatDistanceToNow(eventDate, { addSuffix: true, locale: es })}
+                                        </div>
+                                    </div>
                                 </div>
                             </MarkerContent>
-
-                            <MarkerTooltip className="bg-slate-900/90 backdrop-blur-md text-white border-none px-3 py-1.5 rounded-full font-bold text-[10px] uppercase tracking-wider">
-                                {event.nombre_dist} • {event.vendedor_nombre}
-                            </MarkerTooltip>
 
                             {popupInfo?.id_ex === event.id_ex && (
                                 <MarkerPopup
                                     className="p-0 border-none bg-transparent shadow-2xl min-w-[280px]"
-                                    closeButton={false}
+                                    longitude={event.lon}
+                                    latitude={event.lat}
+                                    onClose={() => setPopupInfo(null)}
                                 >
-                                    <div className="bg-white dark:bg-slate-900 rounded-3xl overflow-hidden border border-slate-200 dark:border-slate-800 shadow-2xl animate-in zoom-in-95 duration-200">
-                                        {/* Cabecera con foto preview */}
-                                        <div className="relative h-40 bg-slate-100 dark:bg-slate-800 flex items-center justify-center overflow-hidden">
+                                    <Card className="overflow-hidden border-none bg-slate-900 shadow-2xl">
+                                        {/* Image Section */}
+                                        <div className="relative aspect-video bg-slate-800 flex items-center justify-center overflow-hidden">
                                             {event.drive_link ? (
-                                                <img
-                                                    src={resolveImageUrl(event.drive_link) || ""}
-                                                    alt="Exhibición"
-                                                    className="w-full h-full object-cover transition-transform hover:scale-110 duration-700"
-                                                    onError={(e) => (e.currentTarget.src = "")}
-                                                />
+                                                <>
+                                                    <img
+                                                        src={resolveImageUrl(event.drive_link)}
+                                                        alt="Exhibición"
+                                                        className="w-full h-full object-cover transition-transform duration-700 hover:scale-110"
+                                                        onError={(e) => {
+                                                            (e.target as any).src = "";
+                                                            (e.target as any).classList.add('hidden');
+                                                        }}
+                                                    />
+                                                    <div className="absolute top-2 right-2">
+                                                        <a
+                                                            href={event.drive_link}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="p-1.5 bg-black/50 backdrop-blur-md rounded-lg text-white/70 hover:text-white transition-colors"
+                                                        >
+                                                            <ExternalLink size={14} />
+                                                        </a>
+                                                    </div>
+                                                </>
                                             ) : (
-                                                <div className="flex flex-col items-center gap-2 text-slate-400">
+                                                <div className="flex flex-col items-center gap-2 text-slate-500">
                                                     <ImageIcon size={32} strokeWidth={1.5} />
-                                                    <span className="text-[10px] font-bold uppercase">Sin imagen</span>
+                                                    <span className="text-[10px] font-bold uppercase tracking-widest">Sin imagen</span>
                                                 </div>
                                             )}
 
-                                            <div className="absolute top-3 right-3">
-                                                <button
-                                                    onClick={(e) => { e.stopPropagation(); setPopupInfo(null); }}
-                                                    className="bg-black/50 hover:bg-black/70 backdrop-blur-md text-white p-1.5 rounded-full transition-colors"
-                                                >
-                                                    <X size={14} />
-                                                </button>
-                                            </div>
-
-                                            <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/80 to-transparent">
-                                                <span className="text-[10px] font-black text-white uppercase tracking-[0.2em]">
-                                                    {event.nombre_dist}
-                                                </span>
+                                            {/* Badge Overlays */}
+                                            <div className="absolute bottom-2 left-2 flex gap-1.5">
+                                                <div className="px-2 py-1 bg-black/40 backdrop-blur-md rounded-md border border-white/10 flex items-center gap-1.5">
+                                                    <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: distColor }} />
+                                                    <span className="text-[9px] font-black text-white uppercase tracking-wider">{event.nombre_dist}</span>
+                                                </div>
                                             </div>
                                         </div>
 
-                                        {/* Información Detallada */}
-                                        <div className="p-4 space-y-4">
-                                            <div className="space-y-1">
-                                                <div className="flex items-center gap-2 text-violet-600 dark:text-violet-400">
-                                                    <Building2 size={14} />
-                                                    <h4 className="text-sm font-black tracking-tight leading-none uppercase">
-                                                        {event.cliente_nombre || `Cliente ${event.nro_cliente}`}
-                                                    </h4>
+                                        {/* Info Section */}
+                                        <div className="p-4 space-y-3">
+                                            <div>
+                                                <div className="flex items-center gap-2 text-rose-400 mb-1">
+                                                    <User size={14} />
+                                                    <h3 className="text-sm font-black text-white">{event.vendedor_nombre}</h3>
                                                 </div>
-                                                <p className="text-[10px] text-slate-400 font-bold ml-5">ID ERP: {event.nro_cliente}</p>
-                                            </div>
-
-                                            <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-100 dark:border-slate-800">
-                                                <div className="space-y-1">
-                                                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Responsable</span>
-                                                    <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-700 dark:text-slate-300">
-                                                        <User size={12} className="text-slate-400" />
-                                                        <span className="truncate">{event.vendedor_nombre}</span>
-                                                    </div>
-                                                </div>
-                                                <div className="space-y-1">
-                                                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Momento</span>
-                                                    <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-700 dark:text-slate-300">
-                                                        <Clock size={12} className="text-slate-400" />
-                                                        <span>{format(new Date(event.timestamp_evento), "HH:mm", { locale: es })} hs</span>
-                                                    </div>
+                                                <div className="flex items-center gap-2 text-slate-500">
+                                                    <Clock size={12} />
+                                                    <span className="text-[10px] font-bold uppercase tracking-tight">
+                                                        {format(new Date(event.timestamp_evento), "d MMM, HH:mm", { locale: es })}
+                                                    </span>
                                                 </div>
                                             </div>
 
-                                            <div className="flex items-center justify-between pt-2">
-                                                <span className="text-[9px] text-slate-400 font-medium italic">
-                                                    {format(new Date(event.timestamp_evento), "dd 'de' MMM", { locale: es })}
-                                                </span>
-                                                {event.drive_link && (
-                                                    <a
-                                                        href={event.drive_link}
-                                                        target="_blank"
-                                                        rel="noopener noreferrer"
-                                                        className="flex items-center gap-1 text-[10px] font-black text-violet-600 hover:text-violet-700 dark:text-violet-400 dark:hover:text-violet-300 uppercase tracking-wider"
-                                                    >
-                                                        Abrir Drive <ExternalLink size={10} />
-                                                    </a>
-                                                )}
+                                            <div className="h-px bg-white/5" />
+
+                                            <div className="space-y-2">
+                                                <div className="flex items-start gap-3">
+                                                    <div className="mt-0.5 p-1.5 bg-slate-800 rounded-lg text-slate-400">
+                                                        <Building2 size={14} />
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider leading-none mb-1">Cliente</p>
+                                                        <p className="text-xs font-bold text-slate-200 leading-tight">{event.cliente_nombre}</p>
+                                                        <p className="text-[10px] text-slate-500 font-mono mt-0.5">#{event.nro_cliente}</p>
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex items-start gap-3">
+                                                    <div className="mt-0.5 p-1.5 bg-slate-800 rounded-lg text-slate-400">
+                                                        <MapPin size={14} />
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider leading-none mb-1">Ubicación</p>
+                                                        <p className="text-[10px] font-mono text-slate-400">{event.lat.toFixed(6)}, {event.lon.toFixed(6)}</p>
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
-                                    </div>
+                                    </Card>
                                 </MarkerPopup>
                             )}
                         </MapMarker>
@@ -278,19 +272,3 @@ export default function MapaExhibiciones({ events, height = "600px", theme = "da
     );
 }
 
-function X({ size }: { size: number }) {
-    return (
-        <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M18 6 6 18" />
-            <path d="m6 6 12 12" />
-        </svg>
-    );
-}
-
-function Clock({ size, className }: { size: number, className?: string }) {
-    return (
-        <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-            <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
-        </svg>
-    )
-}

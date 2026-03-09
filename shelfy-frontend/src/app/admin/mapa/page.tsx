@@ -9,8 +9,15 @@ import { MapPin, Zap, Clock, Users, Building2, BarChart2, ChevronRight, ChevronL
 import { fetchLiveMapEvents, fetchSucursalesCruce, type LiveMapEvent, type BranchCruce } from "@/lib/api";
 import { useEffect, useState, useMemo } from "react";
 import dynamic from "next/dynamic";
-import { formatDistanceToNow } from "date-fns";
+import { formatDistanceToNow, format } from "date-fns";
 import { es } from "date-fns/locale";
+
+const getTodayStr = () => {
+    const d = new Date();
+    const offset = d.getTimezoneOffset();
+    const local = new Date(d.getTime() - (offset * 60 * 1000));
+    return local.toISOString().split('T')[0];
+};
 
 // Import new MapLibre component dynamically (CSR only)
 const MapaExhibiciones = dynamic(() => import("../components/MapaExhibiciones"), { ssr: false });
@@ -24,7 +31,7 @@ export default function LiveMapPage() {
     const [loadingBranches, setLoadingBranches] = useState<string | null>(null);
     const [expandedDist, setExpandedDist] = useState<string | null>(null);
     const [showRoutes, setShowRoutes] = useState(true);
-    const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
+    const [selectedDate, setSelectedDate] = useState<string>(getTodayStr());
     const [showStatsPanel, setShowStatsPanel] = useState(false);
 
     // Para detectar nuevos eventos y hacer "fly-to"
@@ -54,11 +61,12 @@ export default function LiveMapPage() {
 
     useEffect(() => {
         if (user?.rol !== "superadmin") return;
-        loadEvents(selectedDate === new Date().toISOString().split('T')[0] ? undefined : selectedDate);
+        const today = getTodayStr();
+        loadEvents(selectedDate === today ? undefined : selectedDate);
 
         // Intervalo solo si es el día de hoy
         let interval: any;
-        if (selectedDate === new Date().toISOString().split('T')[0]) {
+        if (selectedDate === today) {
             interval = setInterval(() => loadEvents(), 30000);
         }
 

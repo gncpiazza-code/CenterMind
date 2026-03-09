@@ -219,7 +219,7 @@ export default function LiveMapPage() {
 
                 <div className="flex-1 flex overflow-hidden">
                     {/* Live Feed Lateral (Vendedores agrupados) */}
-                    <div className={`w-80 bg-slate-900/50 backdrop-blur-3xl border-r border-white/5 z-20 flex flex-col shadow-2xl shrink-0 transition-all duration-500 ${showRoutes ? 'translate-x-0' : '-translate-x-full w-0'}`}>
+                    <div className="w-80 bg-slate-900/50 backdrop-blur-3xl border-r border-white/5 z-20 flex flex-col shadow-2xl shrink-0 transition-all duration-500 overflow-hidden">
                         <div className="p-5 border-b border-white/5">
                             <p className="text-[9px] text-slate-500 font-black uppercase tracking-[0.3em]">Timeline Actividad</p>
                         </div>

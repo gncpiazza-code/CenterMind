@@ -527,24 +527,31 @@ function KpiCard({ label, value, icon, color, bgColor }: {
       <Card
         glass
         className="h-full transition-all duration-300 hover:shadow-lg border-[var(--shelfy-border)] group relative overflow-hidden"
-        style={{ '--glow-color': color } as any}
+        style={{
+          '--glow-color': color,
+          backgroundColor: `${color}10` // Subtle tint 10% opacity
+        } as any}
       >
         {/* Subtle accent glow */}
         <div
-          className="absolute -top-10 -right-10 w-24 h-24 blur-[50px] opacity-10 transition-opacity group-hover:opacity-20 pointer-events-none"
+          className="absolute -top-10 -right-10 w-24 h-24 blur-[50px] opacity-20 transition-opacity group-hover:opacity-40 pointer-events-none"
           style={{ background: color }}
         />
 
         <motion.div
           whileHover={{ rotate: 10, scale: 1.15 }}
-          className={`w-12 h-12 rounded-2xl flex items-center justify-center mb-4 shadow-inner ${bgColor} transition-transform`}
-          style={{ color, border: `1px solid ${color}20` }}
+          className="w-12 h-12 rounded-2xl flex items-center justify-center mb-4 shadow-inner transition-transform"
+          style={{
+            color,
+            backgroundColor: `${color}20`, // 20% opacity for the icon box
+            border: `1px solid ${color}40`
+          }}
         >
           {icon}
         </motion.div>
 
-        <p className="text-3xl font-black tracking-tight" style={{ color }}>{value}</p>
-        <p className="text-[10px] text-[var(--shelfy-muted)] mt-1.5 font-bold uppercase tracking-[0.1em]">{label}</p>
+        <p className="text-4xl font-black tracking-tight leading-none" style={{ color }}>{value}</p>
+        <p className="text-[10px] text-[var(--shelfy-muted)] mt-2.5 font-black uppercase tracking-[0.2em]">{label}</p>
       </Card>
     </motion.div>
   );

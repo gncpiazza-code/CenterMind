@@ -209,18 +209,25 @@ export function resolveImageUrl(driveLink: string | null | undefined, exhibicion
 
   // 2. Si es una URL de Google Drive, extraer ID y usar el proxy del backend
   const driveId = extractDriveId(driveLink);
-  if (driveId) {
+  if (driveId && driveId.length < 40) { // IDs de Drive son cortos
     return `${API_URL}/dashboard/imagen/${driveId}`;
   }
 
-  // 3. Si no empieza con http (es un path relativo de Supabase), anteponer el bucket URL
+  // 3. Fallback para links de Supabase (path relativo o ID puro)
   if (!driveLink.startsWith("http")) {
-    // Limpiar el path por si viene con barra inicial
     const cleanPath = driveLink.startsWith("/") ? driveLink.slice(1) : driveLink;
     return `${SUPABASE_STORAGE_URL}/${cleanPath}`;
   }
 
-  return driveLink.startsWith("http") ? driveLink : null;
+  // 4. Si es un ID de Supabase que empieza con http por error (pasa a veces en la DB)
+  if (driveLink.includes("supabase") && !driveLink.includes("/storage/v1/")) {
+    // Intento de reconstrucción si falta el path de storage
+    const parts = driveLink.split("/");
+    const fileDetail = parts[parts.length - 1];
+    return `${SUPABASE_STORAGE_URL}/${fileDetail}`;
+  }
+
+  return driveLink;
 }
 
 // ── Fetch helper con JWT ────────────────────────────────────────────────────

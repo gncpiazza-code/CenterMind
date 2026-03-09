@@ -51,9 +51,7 @@ export default function LiveMapPage() {
         events.forEach((ev: LiveMapEvent) => {
             if (!groups[ev.nombre_dist]) {
                 const colorIdx = Object.keys(groups).length % DIST_COLORS.length;
-                // Intentamos adivinar el ID del dist por los eventos
-                // @ts-ignore
-                groups[ev.nombre_dist] = { id: ev.id_dist || 0, count: 0, lastActivity: ev.timestamp_evento, color: DIST_COLORS[colorIdx] };
+                groups[ev.nombre_dist] = { id: ev.id_dist, count: 0, lastActivity: ev.timestamp_evento, color: DIST_COLORS[colorIdx] };
             }
             groups[ev.nombre_dist].count++;
             if (new Date(ev.timestamp_evento) > new Date(groups[ev.nombre_dist].lastActivity)) {
@@ -79,8 +77,7 @@ export default function LiveMapPage() {
                 // Buscamos el ID del distribuidor en los eventos
                 const firstEv = events.find((e: LiveMapEvent) => e.nombre_dist === dist.name);
                 if (firstEv) {
-                    // @ts-ignore
-                    const distId = firstEv.id_dist || 0;
+                    const distId = firstEv.id_dist;
                     if (distId) {
                         const res = await fetchSucursalesCruce(distId, "mes");
                         setBranchStats(prev => ({ ...prev, [dist.name]: res }));
@@ -144,7 +141,9 @@ export default function LiveMapPage() {
                                             </p>
                                             <div className="flex items-center gap-2 mt-1 opacity-70">
                                                 <MapPin size={10} className="text-slate-400" />
-                                                <span className="text-[10px] text-slate-500 font-semibold truncate leading-none">Cliente {ev.nro_cliente}</span>
+                                                <span className="text-[10px] text-slate-500 font-semibold truncate leading-none">
+                                                    {ev.cliente_nombre || `Cliente ${ev.nro_cliente}`}
+                                                </span>
                                             </div>
                                         </div>
                                     );

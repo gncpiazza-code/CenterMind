@@ -1756,20 +1756,77 @@ def get_sucursales_cruce(dist_id: int, periodo: str = Query("mes"), user_payload
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/admin/distribuidoras", tags=["Admin"])
 @app.get("/api/admin/distribuidores", tags=["Admin"])
-def list_distribuidores(user_payload=Depends(verify_auth)):
+def list_distribuidores(solo_activas: bool = False, user_payload=Depends(verify_auth)):
     if not user_payload.get("is_superadmin"):
         raise HTTPException(status_code=403, detail="SuperAdmin only")
     try:
-        res = sb.table("distribuidores").select("id_distribuidor, nombre_empresa").execute()
-        # Mapeamos para que el frontend reciba 'nombre_dist' como espera
+        query = sb.table("distribuidores").select("*")
+        if solo_activas:
+            query = query.eq("estado", "activo")
+        res = query.execute()
+        
+        # Mapeamos para el frontend
         data = []
         for d in (res.data or []):
             data.append({
-                "id_distribuidor": d["id_distribuidor"],
-                "nombre_dist": d["nombre_empresa"]
+                "id": d["id_distribuidor"],
+                "id_distribuidor": d["id_distribuidor"], # Para compatibilidad Sidebar
+                "nombre": d["nombre_empresa"],
+                "nombre_dist": d["nombre_empresa"], # Para compatibilidad Sidebar
+                "estado": d["estado"],
+                "token": d.get("token_bot"),
+                "carpeta_drive": d.get("id_carpeta_drive"),
+                "ruta_cred": d.get("ruta_credencial_drive")
             })
         return data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/admin/distribuidoras", tags=["Admin"])
+@app.post("/api/admin/distribuidores", tags=["Admin"])
+def create_distribuidor(data: dict, user_payload=Depends(verify_auth)):
+    if not user_payload.get("is_superadmin"):
+        raise HTTPException(status_code=403, detail="SuperAdmin only")
+    try:
+        payload = {
+            "nombre_empresa": data["nombre"],
+            "token_bot": data["token"],
+            "id_carpeta_drive": data.get("carpeta_drive"),
+            "ruta_credencial_drive": data.get("ruta_cred"),
+            "estado": "activo"
+        }
+        res = sb.table("distribuidores").insert(payload).execute()
+        return res.data[0]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.patch("/api/admin/distribuidoras/{dist_id}/estado", tags=["Admin"])
+@app.patch("/api/admin/distribuidores/{dist_id}/estado", tags=["Admin"])
+def toggle_distribuidor(dist_id: int, data: dict, user_payload=Depends(verify_auth)):
+    if not user_payload.get("is_superadmin"):
+        raise HTTPException(status_code=403, detail="SuperAdmin only")
+    try:
+        res = sb.table("distribuidores").update({"estado": data["estado"]}).eq("id_distribuidor", dist_id).execute()
+        return res.data[0]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/admin/distribuidoras/{dist_id}", tags=["Admin"])
+@app.put("/api/admin/distribuidores/{dist_id}", tags=["Admin"])
+def update_distribuidor(dist_id: int, data: dict, user_payload=Depends(verify_auth)):
+    if not user_payload.get("is_superadmin"):
+        raise HTTPException(status_code=403, detail="SuperAdmin only")
+    try:
+        payload = {
+            "nombre_empresa": data["nombre"],
+            "token_bot": data["token"],
+            "id_carpeta_drive": data.get("carpeta_drive"),
+            "ruta_credencial_drive": data.get("ruta_cred")
+        }
+        res = sb.table("distribuidores").update(payload).eq("id_distribuidor", dist_id).execute()
+        return res.data[0]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

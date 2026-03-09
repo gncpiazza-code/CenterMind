@@ -1,11 +1,19 @@
 "use client";
 
-import React, { useMemo, useState, useEffect, useCallback, useRef } from "react";
-import Map, { Marker, Popup, NavigationControl, MapRef } from "react-map-gl/maplibre";
-import "maplibre-gl/dist/maplibre-gl.css";
-import { LiveMapEvent } from "@/lib/api";
+import React, { useMemo, useState, useEffect, useRef } from "react";
+import {
+    Map,
+    MapMarker,
+    MarkerContent,
+    MarkerPopup,
+    MarkerTooltip,
+    MapControls,
+    type MapRef
+} from "@/components/ui/map";
+import { LiveMapEvent, resolveImageUrl } from "@/lib/api";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
+import { MapPin, User, Building2, ExternalLink, Image as ImageIcon } from "lucide-react";
 
 interface MapaExhibicionesProps {
     events: LiveMapEvent[];
@@ -13,15 +21,6 @@ interface MapaExhibicionesProps {
     theme?: "dark" | "light";
     selectedEventId?: number | null;
 }
-
-// Read from environment, fallback to temporary development key
-const MAPTILER_KEY = process.env.NEXT_PUBLIC_MAPTILER_KEY || "G6B85Hh6h0w6WXZlE8S8";
-
-// MapTiler style URLs
-const STYLES = {
-    dark: `https://api.maptiler.com/maps/darkmatter/style.json?key=${MAPTILER_KEY}`,
-    light: `https://api.maptiler.com/maps/voyager/style.json?key=${MAPTILER_KEY}`
-};
 
 const DIST_COLORS = [
     "#8b5cf6", "#ec4899", "#3b82f6", "#10b981", "#f59e0b",
@@ -50,138 +49,175 @@ export default function MapaExhibiciones({ events, height = "600px", theme = "da
                 setPopupInfo(ev);
                 mapRef.current.flyTo({
                     center: [ev.lon, ev.lat],
-                    zoom: 15,
-                    duration: 2000
+                    zoom: 16,
+                    duration: 2000,
+                    essential: true
                 });
             }
         }
     }, [selectedEventId, events]);
 
-    // Initial View calculation (only once or when events change significantly)
-    const initialViewState = useMemo(() => {
-        if (events.length === 0) {
-            return {
-                longitude: -64.1833, // Córdoba centro
-                latitude: -31.4167,
-                zoom: 4.5,
-            };
-        }
-
+    // Initial View calculation
+    const center = useMemo<[number, number]>(() => {
+        if (events.length === 0) return [-64.1833, -31.4167];
         const lons = events.map(e => e.lon);
         const lats = events.map(e => e.lat);
-        const minLon = Math.min(...lons);
-        const maxLon = Math.max(...lons);
-        const minLat = Math.min(...lats);
-        const maxLat = Math.max(...lats);
+        return [(Math.min(...lons) + Math.max(...lons)) / 2, (Math.min(...lats) + Math.max(...lats)) / 2];
+    }, [events]);
 
-        // Calculate a better default zoom
-        const lonDiff = Math.abs(maxLon - minLon);
-        const latDiff = Math.abs(maxLat - minLat);
-        const maxDiff = Math.max(lonDiff, latDiff);
-
-        let zoom = 5;
-        if (maxDiff < 0.1) zoom = 12;
-        else if (maxDiff < 1) zoom = 9;
-        else if (maxDiff < 5) zoom = 6;
-
-        return {
-            longitude: (minLon + maxLon) / 2,
-            latitude: (minLat + maxLat) / 2,
-            zoom: events.length === 1 ? 14 : zoom,
-        };
-    }, [events.length]); // Only recalc if count changes
+    const zoom = useMemo(() => {
+        if (events.length === 0) return 4.5;
+        if (events.length === 1) return 14;
+        return 6;
+    }, [events.length]);
 
     return (
-        <div style={{ height, width: "100%", overflow: "hidden", position: "relative" }}>
+        <div className="w-full relative overflow-hidden flex-1" style={{ height }}>
             <Map
                 ref={mapRef}
-                initialViewState={initialViewState}
-                mapStyle={theme === "dark" ? STYLES.dark : STYLES.light}
+                center={center}
+                zoom={zoom}
+                theme={theme}
+                className="w-full h-full"
                 attributionControl={false}
             >
-                <NavigationControl position="bottom-right" />
+                <MapControls position="bottom-right" showZoom showCompass showLocate />
 
                 {events.map((event) => {
                     const color = distColorMap[event.nombre_dist] || "#3b82f6";
+                    const isSelected = selectedEventId === event.id_ex;
+
                     return (
-                        <Marker
+                        <MapMarker
                             key={event.id_ex}
                             longitude={event.lon}
                             latitude={event.lat}
-                            onClick={(e: any) => {
-                                e.originalEvent.stopPropagation();
-                                setPopupInfo(event);
-                            }}
+                            onClick={() => setPopupInfo(event)}
                         >
-                            <div className="cursor-pointer relative flex items-center justify-center w-6 h-6 hover:scale-150 transition-all duration-300 group">
-                                <span
-                                    className="absolute inline-flex h-full w-full rounded-full opacity-40 animate-ping"
-                                    style={{ backgroundColor: color }}
-                                ></span>
-                                <span
-                                    className="relative inline-flex rounded-full h-3 w-3 shadow-lg border-2 border-white/20"
-                                    style={{ backgroundColor: color }}
-                                ></span>
-
-                                {/* Tooltip simple hover */}
-                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-black/80 backdrop-blur-md rounded text-white text-[9px] font-black opacity-0 group-hover:opacity-100 whitespace-nowrap pointer-events-none transition-opacity uppercase">
-                                    {event.nombre_dist}
+                            <MarkerContent>
+                                <div className={`relative flex items-center justify-center transition-all duration-300 group ${isSelected ? 'scale-150 z-50' : 'hover:scale-125'}`}>
+                                    <span
+                                        className={`absolute inline-flex h-6 w-6 rounded-full opacity-40 ${isSelected ? 'animate-ping' : 'group-hover:animate-pulse'}`}
+                                        style={{ backgroundColor: color }}
+                                    ></span>
+                                    <div
+                                        className="relative inline-flex rounded-full h-3.5 w-3.5 shadow-xl border-2 border-white dark:border-slate-900"
+                                        style={{ backgroundColor: color }}
+                                    />
                                 </div>
-                            </div>
-                        </Marker>
+                            </MarkerContent>
+
+                            <MarkerTooltip className="bg-slate-900/90 backdrop-blur-md text-white border-none px-3 py-1.5 rounded-full font-bold text-[10px] uppercase tracking-wider">
+                                {event.nombre_dist} • {event.vendedor_nombre}
+                            </MarkerTooltip>
+
+                            {popupInfo?.id_ex === event.id_ex && (
+                                <MarkerPopup
+                                    className="p-0 border-none bg-transparent shadow-2xl min-w-[280px]"
+                                    closeButton={false}
+                                >
+                                    <div className="bg-white dark:bg-slate-900 rounded-3xl overflow-hidden border border-slate-200 dark:border-slate-800 shadow-2xl animate-in zoom-in-95 duration-200">
+                                        {/* Cabecera con foto preview */}
+                                        <div className="relative h-40 bg-slate-100 dark:bg-slate-800 flex items-center justify-center overflow-hidden">
+                                            {event.drive_link ? (
+                                                <img
+                                                    src={resolveImageUrl(event.drive_link) || ""}
+                                                    alt="Exhibición"
+                                                    className="w-full h-full object-cover transition-transform hover:scale-110 duration-700"
+                                                    onError={(e) => (e.currentTarget.src = "")}
+                                                />
+                                            ) : (
+                                                <div className="flex flex-col items-center gap-2 text-slate-400">
+                                                    <ImageIcon size={32} strokeWidth={1.5} />
+                                                    <span className="text-[10px] font-bold uppercase">Sin imagen</span>
+                                                </div>
+                                            )}
+
+                                            <div className="absolute top-3 right-3">
+                                                <button
+                                                    onClick={(e) => { e.stopPropagation(); setPopupInfo(null); }}
+                                                    className="bg-black/50 hover:bg-black/70 backdrop-blur-md text-white p-1.5 rounded-full transition-colors"
+                                                >
+                                                    <X size={14} />
+                                                </button>
+                                            </div>
+
+                                            <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/80 to-transparent">
+                                                <span className="text-[10px] font-black text-white uppercase tracking-[0.2em]">
+                                                    {event.nombre_dist}
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        {/* Información Detallada */}
+                                        <div className="p-4 space-y-4">
+                                            <div className="space-y-1">
+                                                <div className="flex items-center gap-2 text-violet-600 dark:text-violet-400">
+                                                    <Building2 size={14} />
+                                                    <h4 className="text-sm font-black tracking-tight leading-none uppercase">
+                                                        {event.cliente_nombre || `Cliente ${event.nro_cliente}`}
+                                                    </h4>
+                                                </div>
+                                                <p className="text-[10px] text-slate-400 font-bold ml-5">ID ERP: {event.nro_cliente}</p>
+                                            </div>
+
+                                            <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-100 dark:border-slate-800">
+                                                <div className="space-y-1">
+                                                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Responsable</span>
+                                                    <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                                                        <User size={12} className="text-slate-400" />
+                                                        <span className="truncate">{event.vendedor_nombre}</span>
+                                                    </div>
+                                                </div>
+                                                <div className="space-y-1">
+                                                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Momento</span>
+                                                    <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                                                        <Clock size={12} className="text-slate-400" />
+                                                        <span>{format(new Date(event.timestamp_evento), "HH:mm", { locale: es })} hs</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <div className="flex items-center justify-between pt-2">
+                                                <span className="text-[9px] text-slate-400 font-medium italic">
+                                                    {format(new Date(event.timestamp_evento), "dd 'de' MMM", { locale: es })}
+                                                </span>
+                                                {event.drive_link && (
+                                                    <a
+                                                        href={event.drive_link}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="flex items-center gap-1 text-[10px] font-black text-violet-600 hover:text-violet-700 dark:text-violet-400 dark:hover:text-violet-300 uppercase tracking-wider"
+                                                    >
+                                                        Abrir Drive <ExternalLink size={10} />
+                                                    </a>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </MarkerPopup>
+                            )}
+                        </MapMarker>
                     );
                 })}
-
-                {popupInfo && (
-                    <Popup
-                        longitude={popupInfo.lon}
-                        latitude={popupInfo.lat}
-                        anchor="bottom"
-                        onClose={() => setPopupInfo(null)}
-                        closeButton={true}
-                        closeOnClick={false}
-                        className="rounded-xl shadow-2xl overflow-hidden min-w-[240px] z-[1000] custom-popup"
-                        maxWidth="320px"
-                    >
-                        <div className="p-3 flex flex-col gap-2 text-slate-800 bg-white rounded-lg">
-                            <div className="flex items-center gap-2 border-b border-slate-100 pb-2">
-                                <div
-                                    className="w-3 h-3 rounded-full shrink-0"
-                                    style={{ backgroundColor: distColorMap[popupInfo.nombre_dist] }}
-                                />
-                                <span className="font-black text-[10px] uppercase tracking-wider text-slate-400">
-                                    {popupInfo.nombre_dist}
-                                </span>
-                            </div>
-
-                            <div className="space-y-1 mt-1">
-                                <p className="text-sm font-black text-slate-900 leading-tight">Cliente: {popupInfo.nro_cliente}</p>
-                                <p className="text-[11px] font-bold text-slate-600 flex items-center gap-1.5">
-                                    Vendedor: <span className="text-violet-600 uppercase">{popupInfo.vendedor_nombre}</span>
-                                </p>
-                            </div>
-
-                            <div className="text-[10px] text-slate-400 font-medium pt-2 border-t border-slate-50">
-                                {format(new Date(popupInfo.timestamp_evento), "PPPP p", { locale: es })}
-                            </div>
-                        </div>
-                    </Popup>
-                )}
             </Map>
-
-            <style jsx global>{`
-                .custom-popup .maplibregl-popup-content {
-                    padding: 0;
-                    border-radius: 12px;
-                    border: none;
-                    box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
-                }
-                .custom-popup .maplibregl-popup-close-button {
-                    padding: 8px;
-                    color: #94a3b8;
-                    font-size: 16px;
-                }
-            `}</style>
         </div>
     );
+}
+
+function X({ size }: { size: number }) {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M18 6 6 18" />
+            <path d="m6 6 12 12" />
+        </svg>
+    );
+}
+
+function Clock({ size, className }: { size: number, className?: string }) {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+            <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
+        </svg>
+    )
 }

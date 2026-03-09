@@ -130,12 +130,15 @@ export interface GlobalStressMonitor {
 
 export interface LiveMapEvent {
   id_ex: number;
+  id_dist: number;
   nombre_dist: string;
   vendedor_nombre: string;
   lat: number;
   lon: number;
   timestamp_evento: string;
   nro_cliente: string;
+  cliente_nombre?: string;
+  drive_link?: string;
 }
 
 export interface BranchCruce {
@@ -375,6 +378,9 @@ export interface Distribuidora {
 export async function fetchDistribuidoras(soloActivas = false): Promise<Distribuidora[]> {
   return apiFetch<Distribuidora[]>(`/api/admin/distribuidoras?solo_activas=${soloActivas}`);
 }
+
+// Alias para Sidebar y otros lugares que usan el masculino
+export const fetchDistribuidores = fetchDistribuidoras as any;
 
 export async function crearDistribuidora(data: { nombre: string; token: string; carpeta_drive?: string; ruta_cred?: string }) {
   return apiFetch("/api/admin/distribuidoras", { method: "POST", body: JSON.stringify(data) });
@@ -653,9 +659,7 @@ export async function mapSellerERP(data: { dist_id: number; id_integrante: numbe
   });
 }
 
-export async function fetchDistribuidores(): Promise<{ id_distribuidor: number; nombre_dist: string }[]> {
-  return apiFetch("/api/admin/distribuidores");
-}
+// removido duplicado
 
 export async function syncHierarchyFromERP(distId: number): Promise<{ sucursales_creadas: number; vendedores_mapeados: number }> {
   return apiFetch(`/api/admin/hierarchy/sync-from-erp/${distId}`, {

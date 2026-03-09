@@ -21,22 +21,22 @@ const ALL_NAV: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["superadmin", "admin", "supervisor"] },
   { href: "/bonos", label: "Bonos", icon: Gift, roles: ["superadmin", "admin"] },
   {
+    href: "/reportes",
+    label: "Central de Reportes",
+    icon: BarChart2,
+    roles: ["superadmin", "admin", "supervisor"],
+    subItems: [
+      { href: "/reportes", label: "Reporte de Exhibiciones", icon: BarChart2, roles: ["superadmin", "admin", "supervisor"] },
+      { href: "/reportes?tab=cuentas_corrientes", label: "Cuentas corrientes", icon: Briefcase, roles: ["superadmin", "admin"] },
+      { href: "/reportes?tab=padron", label: "Padrón de Clientes", icon: Users, roles: ["superadmin", "admin"] },
+    ]
+  },
+  {
     href: "/academy-hub",
     label: "Real Academy",
     icon: GraduationCap,
     roles: ["superadmin", "admin", "supervisor"],
     subItems: [
-      {
-        href: "/reportes",
-        label: "Central de Reportes",
-        icon: BarChart2,
-        roles: ["superadmin", "admin", "supervisor"],
-        subItems: [
-          { href: "/visor", label: "Exhibiciones", icon: Eye, roles: ["superadmin", "admin", "supervisor"] },
-          { href: "/reportes?tab=cuentas_corrientes", label: "Cuentas corrientes", icon: Briefcase, roles: ["superadmin", "admin"] },
-          { href: "/reportes?tab=padron", label: "Padrón de Clientes", icon: Users, roles: ["superadmin", "admin"] },
-        ]
-      },
       { href: "/academy/aula-virtual", label: "Aula Virtual", icon: GraduationCap, roles: ["superadmin", "admin"] }
     ]
   },
@@ -72,13 +72,14 @@ export function Sidebar() {
   const navItems: NavItem[] = rol === "superadmin" || user?.usuario === "NachoPiazza"
     ? ALL_NAV.filter(i => (i.roles as string[]).includes(rol))
     : [
+      { href: "/visor", label: "Evaluar", icon: Eye },
       { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
       {
         href: "/reportes",
         label: "Central de Reportes",
         icon: BarChart2,
         subItems: [
-          { href: "/visor", label: "Exhibiciones", icon: Eye },
+          { href: "/reportes", label: "Reporte de Exhibiciones", icon: BarChart2 },
           { href: "/reportes?tab=cuentas_corrientes", label: "Cuentas corrientes", icon: Briefcase },
           { href: "/reportes?tab=padron", label: "Padrón de Clientes", icon: Users },
         ]

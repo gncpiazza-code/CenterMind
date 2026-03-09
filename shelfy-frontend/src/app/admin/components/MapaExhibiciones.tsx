@@ -117,8 +117,8 @@ export default function MapaExhibiciones({ events, height = "600px", theme = "da
 
                     return (
                         <MapRoute
-                            key={`route-${seller}`}
-                            id={`route-${seller}`}
+                            key={`route-${sellerKey}`}
+                            id={`route-${sellerKey}`}
                             coordinates={coordinates}
                             color={color}
                             width={3}

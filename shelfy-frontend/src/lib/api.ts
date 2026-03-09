@@ -212,8 +212,8 @@ export function resolveImageUrl(driveLink: string | null | undefined, exhibicion
 
   // 2. Si es una URL de Google Drive, extraer ID y usar el proxy del backend
   const driveId = extractDriveId(driveLink);
-  if (driveId && driveId.length < 40) { // IDs de Drive son cortos
-    return `${API_URL}/dashboard/imagen/${driveId}`;
+  if (driveId && driveId.length < 50) { // IDs de Drive son cortos
+    return `${API_URL}/api/dashboard/imagen/${driveId}`;
   }
 
   // 3. Fallback para links de Supabase (path relativo o ID puro)

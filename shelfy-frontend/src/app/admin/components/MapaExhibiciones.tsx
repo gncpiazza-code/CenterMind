@@ -83,10 +83,14 @@ export default function MapaExhibiciones({ events, height = "600px", theme = "da
         );
 
         sortedEvents.forEach(ev => {
-            if (!groups[ev.vendedor_nombre]) {
-                groups[ev.vendedor_nombre] = [];
+            // Usamos una combinación de nombre + ID distribuidor para evitar confusiones de nombres duplicados
+            // (e.g. "Ricardo" en Dist 1 y "Ricardo" en Dist 2)
+            const sellerKey = `${ev.vendedor_nombre}-${ev.id_dist}`;
+
+            if (!groups[sellerKey]) {
+                groups[sellerKey] = [];
             }
-            groups[ev.vendedor_nombre].push([ev.lon, ev.lat]);
+            groups[sellerKey].push([ev.lon, ev.lat]);
         });
 
         return Object.entries(groups).filter(([_, coords]) => coords.length >= 2);
@@ -105,9 +109,10 @@ export default function MapaExhibiciones({ events, height = "600px", theme = "da
                 <MapControls position="bottom-right" showZoom showCompass showLocate />
 
                 {/* Render Routes */}
-                {showRoutes && routesBySeller.map(([seller, coordinates]) => {
-                    // Try to find the color of the first event of this seller
-                    const firstEv = events.find(e => e.vendedor_nombre === seller);
+                {showRoutes && routesBySeller.map(([sellerKey, coordinates]) => {
+                    // Extraer el nombre real para buscar el primer evento (para el color)
+                    const sellerName = sellerKey.split('-')[0];
+                    const firstEv = events.find(e => e.vendedor_nombre === sellerName);
                     const color = firstEv ? (distColorMap[firstEv.nombre_dist] || "#3b82f6") : "#3b82f6";
 
                     return (

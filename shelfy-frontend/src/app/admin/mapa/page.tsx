@@ -202,12 +202,14 @@ export default function LiveMapPage() {
                     <div className={`transition-all duration-500 ease-in-out bg-slate-50 border-l border-slate-200 z-20 flex flex-col shadow-2xl shrink-0 overflow-hidden relative
                         ${showDistSidebar ? "w-full lg:w-80" : "w-0 lg:w-0 border-none"}`}
                     >
-                        {/* Toggle Button Inside Sidebar (when visible) */}
+                        {/* Toggle Button Inside Sidebar - More visible with label */}
                         <button
                             onClick={() => setShowDistSidebar(false)}
-                            className="absolute top-1/2 -left-3 z-30 bg-white border border-slate-200 rounded-full p-1 shadow-md hover:bg-slate-50 transition-colors hidden lg:block"
+                            className="absolute top-1/2 -left-8 z-30 bg-white border border-slate-200 rounded-l-2xl py-8 px-2 shadow-[-5px_0_15px_rgba(0,0,0,0.1)] hover:bg-slate-50 transition-all group hidden lg:flex flex-col items-center gap-2 group"
+                            title="Ocultar Panel"
                         >
-                            <ChevronRight size={16} className="text-slate-400" />
+                            <ChevronRight size={20} className="text-slate-400 group-hover:text-violet-600 transition-colors" />
+                            <span className="text-[9px] font-black text-slate-400 rotate-180 [writing-mode:vertical-lr] uppercase tracking-widest group-hover:text-violet-600">Ocultar</span>
                         </button>
 
                         <div className="p-5 border-b border-slate-200 bg-white">

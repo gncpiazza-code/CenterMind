@@ -517,20 +517,30 @@ def get_global_monitoring(user_payload=Depends(verify_auth)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/admin/live-map-events", tags=["SuperAdmin"], summary="Eventos en vivo con coordenadas para el mapa")
+@app.get("/api/admin/live-map-events", tags=["Admin"], summary="Eventos en vivo con coordenadas para el mapa")
 def get_live_map_events(minutos: int | None = None, fecha: str | None = None, user_payload=Depends(verify_auth)):
-    """Retorna exhibiciones recientes o de una fecha con Lat/Lon para el mapa."""
-    if not user_payload.get("is_superadmin"):
-        raise HTTPException(status_code=403, detail="Solo accesible para SuperAdmin")
+    """Retorna exhibiciones con Lat/Lon para el mapa."""
+    # En modo de minutos ("Live"), solo SuperAdmin
+    if minutos is not None and not user_payload.get("is_superadmin"):
+        raise HTTPException(status_code=403, detail="Modo Live solo disponible para SuperAdmin")
 
     try:
-        # p_minutes_back si no hay fecha, p_date si hay fecha
+        # Si no es superadmin, solo permitimos ver su propia distribuidora o ver el día consolidado
+        # (Aunque fn_get_live_map_events trae todo, podemos filtrar aquí o en el RPC más adelante si es necesario por seguridad)
+        
         rpc_params = {
             "p_minutes_back": minutos if not fecha else None,
             "p_date": fecha if fecha else None
         }
         res = sb.rpc("fn_get_live_map_events", rpc_params).execute()
-        return res.data or []
+        
+        # Filtro de seguridad post-consulta si no es superadmin
+        data = res.data or []
+        if not user_payload.get("is_superadmin"):
+            dist_id = user_payload.get("id_distribuidor")
+            data = [d for d in data if d.get("id_dist") == dist_id]
+            
+        return data
     except Exception as e:
         logger.error(f"Error en eventos de mapa: {e}")
         raise HTTPException(status_code=500, detail=str(e))

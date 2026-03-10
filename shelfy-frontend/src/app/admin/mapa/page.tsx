@@ -62,7 +62,8 @@ export default function LiveMapPage() {
     };
 
     useEffect(() => {
-        if (user?.rol !== "superadmin") return;
+        // Only load if user exists
+        if (!user) return;
         const today = getTodayStr();
         loadEvents(selectedDate === today ? undefined : selectedDate);
 
@@ -165,7 +166,7 @@ export default function LiveMapPage() {
         }
     };
 
-    if (user?.rol !== "superadmin") return null;
+    if (!user) return null;
 
     return (
         <div className="flex h-screen bg-[#0f172a] overflow-hidden">

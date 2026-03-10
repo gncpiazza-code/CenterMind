@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState, useEffect, useRef } from "react";
+import React, { useMemo, useState, useEffect, useRef, forwardRef } from "react";
 import {
     Map,
     MapMarker,
@@ -26,7 +26,7 @@ interface MapaExhibicionesProps {
     sellerColorMap?: Record<string, string>;
 }
 
-export default function MapaExhibiciones({
+const MapaExhibiciones = forwardRef<MapRef, MapaExhibicionesProps>(({
     events,
     height = "600px",
     theme = "dark",
@@ -34,17 +34,16 @@ export default function MapaExhibiciones({
     showRoutes = true,
     distColorMap = {},
     sellerColorMap = {}
-}: MapaExhibicionesProps) {
-    const mapRef = useRef<MapRef>(null);
+}, ref) => {
     const [popupInfo, setPopupInfo] = useState<LiveMapEvent | null>(null);
 
     // Update popup and fly when selectedEventId changes from parent
     useEffect(() => {
         if (selectedEventId) {
             const ev = events.find(e => e.id_ex === selectedEventId);
-            if (ev && mapRef.current) {
+            if (ev && ref && 'current' in ref && ref.current) {
                 setPopupInfo(ev);
-                mapRef.current.flyTo({
+                (ref.current as any).flyTo({
                     center: [ev.lon, ev.lat],
                     zoom: 17,
                     pitch: 60,
@@ -89,7 +88,7 @@ export default function MapaExhibiciones({
     return (
         <div className="w-full relative overflow-hidden flex-1" style={{ height }}>
             <Map
-                ref={mapRef}
+                ref={ref}
                 center={[-58.3816, -34.6037]}
                 zoom={12}
                 theme={theme}
@@ -210,7 +209,7 @@ export default function MapaExhibiciones({
                                             {event.drive_link ? (
                                                 <>
                                                     <img
-                                                        src={resolveImageUrl((event.drive_link || '') as string)}
+                                                        src={resolveImageUrl((event.drive_link || '') as string) || undefined}
                                                         alt="Exhibición"
                                                         className="w-full h-full object-cover transition-transform duration-700 hover:scale-110"
                                                         onError={(e) => {
@@ -294,5 +293,7 @@ export default function MapaExhibiciones({
             </Map>
         </div>
     );
-}
+});
+
+export default MapaExhibiciones;
 

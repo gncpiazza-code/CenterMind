@@ -7,8 +7,9 @@ import { PageSpinner, Spinner } from "@/components/ui/Spinner";
 import { useAuth } from "@/hooks/useAuth";
 import { MapPin, Zap, Clock, Users, Building2, BarChart2, ChevronRight, ChevronLeft, Target, Info, X, Map as MapIcon } from "lucide-react";
 import { fetchLiveMapEvents, fetchSucursalesCruce, type LiveMapEvent, type BranchCruce } from "@/lib/api";
-import { useEffect, useState, useMemo } from "react";
+import { useRef, useEffect, useState, useMemo } from "react";
 import dynamic from "next/dynamic";
+import { type MapRef } from "@/components/ui/map";
 import { formatDistanceToNow, format } from "date-fns";
 import { es } from "date-fns/locale";
 
@@ -36,6 +37,7 @@ export default function LiveMapPage() {
 
     // Para detectar nuevos eventos y hacer "fly-to"
     const [lastNewestId, setLastNewestId] = useState<number | null>(null);
+    const mapRef = useRef<MapRef>(null);
 
     const loadEvents = async (date?: string) => {
         try {
@@ -49,11 +51,32 @@ export default function LiveMapPage() {
                 const newest = validEvents[0];
                 if (lastNewestId && newest.id_ex > lastNewestId) {
                     setSelectedEventId(newest.id_ex);
+                    // Si hay un evento nuevo, hacemos flyTo
+                    mapRef.current?.flyTo({
+                        center: [newest.lon, newest.lat],
+                        zoom: 17,
+                        duration: 3000
+                    });
                 }
                 setLastNewestId(newest.id_ex);
             }
 
             setEvents(validEvents);
+
+            // AUTO-FIT: Si es la primera carga y hay eventos, centrar el mapa
+            if (validEvents.length > 0 && mapRef.current && !selectedEventId) {
+                const lats = validEvents.map(e => e.lat);
+                const lons = validEvents.map(e => e.lon);
+                const minLat = Math.min(...lats);
+                const maxLat = Math.max(...lats);
+                const minLon = Math.min(...lons);
+                const maxLon = Math.max(...lons);
+
+                mapRef.current.fitBounds(
+                    [[minLon, minLat], [maxLon, maxLat]],
+                    { padding: 100, duration: 1000 }
+                );
+            }
         } catch (e) {
             console.error("Error loading map events", e);
         } finally {
@@ -264,6 +287,7 @@ export default function LiveMapPage() {
                     {/* Mapa Central */}
                     <div className="flex-1 h-full relative bg-[#0b0f19]">
                         <MapaExhibiciones
+                            ref={mapRef}
                             events={events}
                             selectedEventId={selectedEventId}
                             showRoutes={showRoutes}

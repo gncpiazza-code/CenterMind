@@ -519,31 +519,102 @@ def get_global_monitoring(user_payload=Depends(verify_auth)):
 
 @app.get("/api/admin/live-map-events", tags=["Admin"], summary="Eventos en vivo con coordenadas para el mapa")
 def get_live_map_events(minutos: int | None = None, fecha: str | None = None, user_payload=Depends(verify_auth)):
-    """Retorna exhibiciones con Lat/Lon para el mapa."""
-    # Permitimos minutos para todos, pero solo SuperAdmin ve TODO.
-    # Los demás ven solo su distribuidora.
+    """Retorna exhibiciones con Lat/Lon para el mapa. Solo accesible para SuperAdmin.
+    Usa lógica de fallback robusta en Python para asegurar visualización de puntos.
+    """
+    if not user_payload.get("is_superadmin"):
+        raise HTTPException(status_code=403, detail="Acceso denegado. El mapa en vivo es exclusivo para SuperAdmins.")
 
     try:
-        rpc_params = {
-            "p_minutes_back": minutos if not fecha else None,
-            "p_date": fecha if fecha else None
-        }
-        res = sb.rpc("fn_get_live_map_events", rpc_params).execute()
+        # 1. Fetch exhibiciones (solo columnas locales para evitar errores de join)
+        query = sb.table("exhibiciones").select(
+            "id_exhibicion, id_distribuidor, timestamp_subida, url_foto_drive, tipo_pdv, estado, "
+            "latitud_gps, longitud_gps, id_integrante, id_cliente, cliente_sombra_codigo"
+        )
+
+        if fecha:
+            query = query.gte("timestamp_subida", f"{fecha}T00:00:00-03:00")
+            query = query.lte("timestamp_subida", f"{fecha}T23:59:59-03:00")
+        else:
+            m = minutos if minutos is not None else 60
+            since = (datetime.now() - timedelta(minutes=m)).isoformat()
+            query = query.gte("timestamp_subida", since)
+
+        res = query.order("timestamp_subida", desc=True).execute()
+        raw_events = res.data or []
+
+        if not raw_events:
+            return []
+
+        # 2. Cargar maestros por lotes (Distribuidores, Integrantes, Clientes ERP)
+        dist_ids = list(set(e["id_distribuidor"] for e in raw_events))
+        integ_ids = list(set(e["id_integrante"] for e in raw_events))
+        client_internal_ids = list(set(e["id_cliente"] for e in raw_events if e.get("id_cliente")))
+
+        # Mapas de maestros
+        dists = {d["id_distribuidor"]: d["nombre_empresa"] for d in sb.table("distribuidores").select("id_distribuidor, nombre_empresa").in_("id_distribuidor", dist_ids).execute().data or []}
+        integs = {i["id_integrante"]: i["nombre_integrante"] for i in sb.table("integrantes_grupo").select("id_integrante, nombre_integrante").in_("id_integrante", integ_ids).execute().data or []}
         
-        data = res.data or []
-        is_super = bool(user_payload.get("is_superadmin"))
-        
-        if not is_super:
-            dist_id = user_payload.get("id_distribuidor")
-            if dist_id is not None:
-                # Robust comparison (types can vary)
-                data = [d for d in data if str(d.get("id_dist")) == str(dist_id)]
-            else:
-                return [] # No dist_id, no data for non-superadmin
-            
-        return data
+        # Mapa de Numero Local (desde la tabla clientes interna)
+        internal_clients = {c["id_cliente"]: c["numero_cliente_local"] for c in sb.table("clientes").select("id_cliente, numero_cliente_local").in_("id_cliente", client_internal_ids).execute().data or []}
+
+        # Identificar qué necesitamos de erp_clientes_raw
+        erp_ids_to_fetch = [] # (dist_id, local_id)
+        for e in raw_events:
+            local_id = internal_clients.get(e["id_cliente"]) or e.get("cliente_sombra_codigo")
+            if local_id:
+                erp_ids_to_fetch.append((e["id_distribuidor"], str(local_id)))
+
+        erp_map = {}
+        if erp_ids_to_fetch:
+            for d_id in dist_ids:
+                local_ids = [k[1] for k in erp_ids_to_fetch if k[0] == d_id]
+                res_erp = sb.table("erp_clientes_raw").select("id_cliente_erp_local, nombre_cliente, lat, lon")\
+                            .eq("id_distribuidor", d_id).in_("id_cliente_erp_local", local_ids).execute()
+                for row in (res_erp.data or []):
+                    erp_map[(d_id, str(row["id_cliente_erp_local"]))] = row
+
+        # 3. Transformar y Coalescer
+        final_data = []
+        for e in raw_events:
+            local_id = internal_clients.get(e["id_cliente"]) or e.get("cliente_sombra_codigo")
+            erp_data = erp_map.get((e["id_distribuidor"], str(local_id))) if local_id else None
+
+            # Coalesce Lat/Lon: GPS > ERP
+            lat = e.get("latitud_gps")
+            lon = e.get("longitud_gps")
+            if (lat is None or lat == 0) and erp_data:
+                lat, lon = erp_data.get("lat"), erp_data.get("lon")
+
+            if lat is None or lat == 0:
+                continue
+
+            final_data.append({
+                "id_ex": e["id_exhibicion"],
+                "id_dist": e["id_distribuidor"],
+                "nombre_dist": dists.get(e["id_distribuidor"], "Dist Desconocida"),
+                "vendedor_nombre": integs.get(e["id_integrante"], "Vendedor Desconocido"),
+                "lat": float(lat),
+                "lon": float(lon),
+                "timestamp_evento": e["timestamp_subida"],
+                "nro_cliente": str(local_id) if local_id else "0",
+                "cliente_nombre": erp_data.get("nombre_cliente") if erp_data else (f"Cliente {local_id}" if local_id else "S/N"),
+                "drive_link": e["url_foto_drive"],
+                "id_vendedor": e["id_integrante"]
+            })
+
+        return final_data
+
     except Exception as e:
-        logger.error(f"Error en eventos de mapa: {e}")
+        logger.error(f"Error procesando eventos de mapa: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+    except Exception as e:
+        logger.error(f"Error procesando eventos de mapa: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/admin/system-health", tags=["SuperAdmin"], summary="Métricas de hardware y base de datos (Nivel 0)")

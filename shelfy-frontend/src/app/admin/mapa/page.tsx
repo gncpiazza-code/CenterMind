@@ -5,6 +5,7 @@ import { Topbar } from "@/components/layout/Topbar";
 import { Card } from "@/components/ui/Card";
 import { PageSpinner, Spinner } from "@/components/ui/Spinner";
 import { useAuth } from "@/hooks/useAuth";
+import { useRouter } from "next/navigation";
 import { MapPin, Zap, Clock, Users, Building2, BarChart2, ChevronRight, ChevronLeft, Target, Info, X, Map as MapIcon } from "lucide-react";
 import { fetchLiveMapEvents, fetchSucursalesCruce, type LiveMapEvent, type BranchCruce } from "@/lib/api";
 import { useRef, useEffect, useState, useMemo } from "react";
@@ -24,7 +25,8 @@ const getTodayStr = () => {
 const MapaExhibiciones = dynamic(() => import("../components/MapaExhibiciones"), { ssr: false });
 
 export default function LiveMapPage() {
-    const { user } = useAuth();
+    const { user, loading: authLoading } = useAuth();
+    const router = useRouter();
     const [events, setEvents] = useState<LiveMapEvent[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
@@ -38,6 +40,13 @@ export default function LiveMapPage() {
     // Para detectar nuevos eventos y hacer "fly-to"
     const [lastNewestId, setLastNewestId] = useState<number | null>(null);
     const mapRef = useRef<MapRef>(null);
+
+    // Seguridad: Redirigir si no es SuperAdmin
+    useEffect(() => {
+        if (!authLoading && user && !user.is_superadmin) {
+            router.push("/visor");
+        }
+    }, [user, authLoading, router]);
 
     const loadEvents = async (date?: string) => {
         try {

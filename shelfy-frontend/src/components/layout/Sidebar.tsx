@@ -81,7 +81,6 @@ export function Sidebar() {
           { href: "/reportes?tab=padron", label: "Padrón de Clientes", icon: Users },
         ]
       },
-      { href: "/admin/mapa", label: "Mapa en Vivo", icon: MapPin },
     ];
 
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({ "/academy-hub": true });

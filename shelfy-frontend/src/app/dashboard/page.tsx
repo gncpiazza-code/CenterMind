@@ -210,7 +210,7 @@ function RankingTable({
   const labelPeriodo = PERIODO_LABELS[periodo] ?? periodo.toUpperCase();
 
   const sucursalLabel = sucursalFiltro
-    ? (sucursales.find((s) => String(s.location_id) === sucursalFiltro)?.sucursal ?? sucursalFiltro)
+    ? (sucursales.find((s) => s.location_id === sucursalFiltro)?.sucursal ?? sucursalFiltro)
     : null;
 
   if (ranking.length === 0) {
@@ -360,7 +360,7 @@ function FiltrosBar({
           >
             <option value="">Todas las sucursales</option>
             {sucursales.map((s) => (
-              <option key={s.location_id} value={String(s.location_id)}>{s.sucursal}</option>
+              <option key={s.location_id} value={s.location_id}>{s.sucursal}</option>
             ))}
           </select>
         </div>

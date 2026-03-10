@@ -483,7 +483,7 @@ function TabIntegrantes({ isSuperadmin, distId }: { isSuperadmin: boolean; distI
   async function handleAsignarSucursal(id: number, locationIdStr: string) {
     setChangingId(id);
     setError(null);
-    const location_id = locationIdStr ? parseInt(locationIdStr, 10) : null;
+    const location_id = locationIdStr || null;
     try {
       await editarIntegranteAdmin(id, { nombre_integrante: integrantes.find(i => i.id_integrante === id)!.nombre_integrante, location_id });
       load();
@@ -579,7 +579,7 @@ function TabIntegrantes({ isSuperadmin, distId }: { isSuperadmin: boolean; distI
 
                     <td className="py-3 pr-4">
                       <select
-                        value={ig.sucursal_label ? locations.find(l => l.label === ig.sucursal_label)?.location_id || "" : ""}
+                        value={ig.location_id || ""}
                         disabled={changingId === ig.id_integrante}
                         onChange={(e) => handleAsignarSucursal(ig.id_integrante, e.target.value)}
                         className="rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-[var(--shelfy-text)] px-2 py-1 text-xs focus:outline-none focus:border-[var(--shelfy-primary)] max-w-[140px]"

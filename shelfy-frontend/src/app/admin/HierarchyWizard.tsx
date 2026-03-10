@@ -33,8 +33,8 @@ export default function HierarchyWizard({ distId }: { distId: number }) {
     const [erpSellers, setErpSellers] = useState<string[]>([]);
 
     // Selection states
-    const [selectedLocId, setSelectedLocId] = useState<number | null>(null);
-    const [editingLocId, setEditingLocId] = useState<number | null>(null);
+    const [selectedLocId, setSelectedLocId] = useState<string | null>(null);
+    const [editingLocId, setEditingLocId] = useState<string | null>(null);
     const [newLocLabel, setNewLocLabel] = useState("");
     const [isAddingLoc, setIsAddingLoc] = useState(false);
 
@@ -73,7 +73,7 @@ export default function HierarchyWizard({ distId }: { distId: number }) {
         }
     };
 
-    const handleUpdateLocation = async (locId: number, label: string) => {
+    const handleUpdateLocation = async (locId: string, label: string) => {
         try {
             await updateLocation(locId, { dist_id: distId, label });
             toast.success("Nombre actualizado");
@@ -84,7 +84,7 @@ export default function HierarchyWizard({ distId }: { distId: number }) {
         }
     };
 
-    const handleMapToSucursal = async (integranteId: number, locId: number | null) => {
+    const handleMapToSucursal = async (integranteId: number, locId: string | null) => {
         try {
             await mapIntegranteSucursal({ dist_id: distId, id_integrante: integranteId, location_id: locId });
             loadInitialData();
@@ -228,7 +228,7 @@ export default function HierarchyWizard({ distId }: { distId: number }) {
                                         value={int.location_id || ""}
                                         className="text-xs font-bold border-none bg-slate-100 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-[var(--shelfy-primary)] transition-all"
                                         onChange={(e) => {
-                                            const val = e.target.value === "" ? null : Number(e.target.value);
+                                            const val = e.target.value === "" ? null : e.target.value;
                                             handleMapToSucursal(int.id_integrante, val);
                                         }}
                                     >

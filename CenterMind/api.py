@@ -546,15 +546,21 @@ def get_live_map_events(minutos: int | None = None, fecha: str | None = None, us
         if not raw_events:
             return []
 
-        # 2. Cargar maestros por lotes (Distribuidores, Integrantes, Clientes ERP)
+        # 2. Cargar maestros (Distribuidores, Clientes ERP, Jerarquía Maestra)
         dist_ids = list(set(e["id_distribuidor"] for e in raw_events))
-        integ_ids = list(set(e["id_integrante"] for e in raw_events))
         client_internal_ids = list(set(e["id_cliente"] for e in raw_events if e.get("id_cliente")))
 
         # Mapas de maestros
         dists = {d["id_distribuidor"]: d["nombre_empresa"] for d in sb.table("distribuidores").select("id_distribuidor, nombre_empresa").in_("id_distribuidor", dist_ids).execute().data or []}
-        integs = {i["id_integrante"]: i["nombre_integrante"] for i in sb.table("integrantes_grupo").select("id_integrante, nombre_integrante").in_("id_integrante", integ_ids).execute().data or []}
         
+        # Jerarquía Maestra (Limpiada por el usuario)
+        maestro_rows = sb.table("maestro_jerarquia").select("*").execute().data or []
+        maestro_map = {}
+        for m in maestro_rows:
+            # Llave: (ID_DIST, id_suc_erp, id_vendedor_erp)
+            m_key = (m["ID_DIST"], str(m["id suc"]), str(m["ID_VENDEDOR"]))
+            maestro_map[m_key] = m
+
         # Mapa de Numero Local (desde la tabla clientes interna)
         internal_clients = {c["id_cliente"]: c["numero_cliente_local"] for c in sb.table("clientes").select("id_cliente, numero_cliente_local").in_("id_cliente", client_internal_ids).execute().data or []}
 
@@ -568,8 +574,8 @@ def get_live_map_events(minutos: int | None = None, fecha: str | None = None, us
         erp_map = {}
         if erp_ids_to_fetch:
             for d_id in dist_ids:
-                local_ids = [k[1] for k in erp_ids_to_fetch if k[0] == d_id]
-                res_erp = sb.table("erp_clientes_raw").select("id_cliente_erp_local, nombre_cliente, lat, lon")\
+                local_ids = list(set(k[1] for k in erp_ids_to_fetch if k[0] == d_id))
+                res_erp = sb.table("erp_clientes_raw").select("id_cliente_erp_local, nombre_cliente, lat, lon, id_sucursal_erp, sucursal_erp, vendedor_erp")\
                             .eq("id_distribuidor", d_id).in_("id_cliente_erp_local", local_ids).execute()
                 for row in (res_erp.data or []):
                     erp_map[(d_id, str(row["id_cliente_erp_local"]))] = row
@@ -580,7 +586,7 @@ def get_live_map_events(minutos: int | None = None, fecha: str | None = None, us
             local_id = internal_clients.get(e["id_cliente"]) or e.get("cliente_sombra_codigo")
             erp_data = erp_map.get((e["id_distribuidor"], str(local_id))) if local_id else None
 
-            # Coalesce Lat/Lon: EXCLUSIVAMENTE ERP (según orden del usuario)
+            # Coalesce Lat/Lon: EXCLUSIVAMENTE ERP
             if not erp_data:
                 continue
                 
@@ -590,18 +596,36 @@ def get_live_map_events(minutos: int | None = None, fecha: str | None = None, us
             if lat is None or lat == 0:
                 continue
 
+            # Enriquecimiento vía Maestro Jerarquía
+            d_id = e["id_distribuidor"]
+            suc_id = str(erp_data.get("id_sucursal_erp"))
+            seller_id = str(erp_data.get("vendedor_erp"))
+            
+            m_key = (d_id, suc_id, seller_id)
+            maestro = maestro_map.get(m_key)
+
+            if maestro:
+                nombre_empresa = maestro.get("EMPRESA")
+                nombre_sucursal = maestro.get("SUCURSAL")
+                nombre_vendedor = maestro.get("Vendedor")
+            else:
+                nombre_empresa = dists.get(d_id, f"Dist {d_id}")
+                nombre_sucursal = erp_data.get("sucursal_erp", f"Suc {suc_id}")
+                nombre_vendedor = erp_data.get("nombre_vendedor_erp") or f"Vendedor {seller_id}"
+
             final_data.append({
                 "id_ex": e["id_exhibicion"],
-                "id_dist": e["id_distribuidor"],
-                "nombre_dist": dists.get(e["id_distribuidor"], "Dist Desconocida"),
-                "vendedor_nombre": integs.get(e["id_integrante"], "Vendedor Desconocido"),
+                "id_dist": d_id,
+                "nombre_dist": nombre_empresa,
+                "sucursal_nombre": nombre_sucursal,
+                "vendedor_nombre": nombre_vendedor,
                 "lat": float(lat),
                 "lon": float(lon),
                 "timestamp_evento": e["timestamp_subida"],
                 "nro_cliente": str(local_id) if local_id else "0",
-                "cliente_nombre": erp_data.get("nombre_cliente") if erp_data else (f"Cliente {local_id}" if local_id else "S/N"),
+                "cliente_nombre": erp_data.get("nombre_cliente") or (f"Cliente {local_id}" if local_id else "S/N"),
                 "drive_link": e["url_foto_drive"],
-                "id_vendedor": e["id_integrante"]
+                "id_vendedor": seller_id
             })
 
         return final_data
@@ -1515,43 +1539,47 @@ class AsignarVendedorRequest(BaseModel):
 
 class MappingItem(BaseModel):
     id_integrante: int
-    location_id: int | None = None
+    location_id: str | None = None
     id_vendedor_erp: str | None = None
 
 class BulkMappingRequest(BaseModel):
     mappings: List[MappingItem]
 
-class IntegranteCreateRequest(BaseModel):
+class IntegranteRequest(BaseModel):
     nombre_integrante: str
-    rol_telegram: str = "vendedor"
-    location_id: int | None = None
+    rol_telegram: str | None = None
+    location_id: str | None = None
     telegram_user_id: int | None = None
     telegram_group_id: int | None = None
 
 
 @app.get("/api/admin/locations/{dist_id}", summary="Sucursales de un distribuidor")
 def admin_get_locations(dist_id: int, _=Depends(verify_auth)):
-    q = sb.table("locations").select("location_id, ciudad, provincia, label, lat, lon")
+    # Fetch unique sucursales from maestro_jerarquia
+    q = sb.table("maestro_jerarquia").select("SUCURSAL, \"id suc\"")
     if dist_id > 0:
-        q = q.eq("dist_id", dist_id)
-    result = q.order("label").execute()
-    return result.data or []
-
-@app.post("/api/admin/locations/{dist_id}", summary="Crear sucursal")
-def admin_create_location(dist_id: int, req: LocationRequest, _=Depends(verify_auth)):
-    result = sb.table("locations").insert({
-        "dist_id": dist_id, "ciudad": req.ciudad, "provincia": req.provincia,
-        "label": req.label, "lat": req.lat, "lon": req.lon,
-    }).execute()
-    new_id = result.data[0]["location_id"] if result.data else None
-    return {"ok": True, "location_id": new_id}
+        q = q.eq("ID_DIST", dist_id)
+    
+    res = q.execute()
+    # Deduplicate and format to match previous structure
+    seen = set()
+    formatted = []
+    for row in (res.data or []):
+        sid = row.get("id suc")
+        if sid and sid not in seen:
+            seen.add(sid)
+            formatted.append({
+                "location_id": sid, # Using ERP ID as location_id
+                "label": row.get("SUCURSAL"),
+                "ciudad": "-",
+                "provincia": "-"
+            })
+    return sorted(formatted, key=lambda x: x["label"])
 
 @app.put("/api/admin/locations/{location_id}", summary="Editar sucursal")
-def admin_update_location(location_id: int, req: LocationRequest, _=Depends(verify_auth)):
-    sb.table("locations").update({
-        "ciudad": req.ciudad, "provincia": req.provincia,
-        "label": req.label, "lat": req.lat, "lon": req.lon,
-    }).eq("location_id", location_id).execute()
+def admin_update_location(location_id: str, req: LocationRequest, _=Depends(verify_auth)):
+    # This is deprecated but we'll keep the signature for now if needed by frontend
+    # Since locations table is being deleted, this will eventually error or we handle it gracefully
     return {"ok": True}
 
 @app.get("/api/admin/usuarios/{dist_id}", summary="Listar todos los integrantes (Telegram)")
@@ -1560,12 +1588,13 @@ def admin_get_usuarios_telegram(dist_id: int, _=Depends(verify_auth)):
     return result.data or []
 
 @app.post("/api/admin/integrantes/{dist_id}", summary="Crear un nuevo integrante manualmente")
-def admin_create_integrante(dist_id: int, req: IntegranteCreateRequest, _=Depends(verify_auth)):
+def admin_create_integrante(dist_id: int, req: IntegranteRequest, _=Depends(verify_auth)):
     """Permite crear manualmente un usuario (ej. vendedor) sin que haya interactuado con el bot primero."""
     result = sb.table("integrantes_grupo").insert({
         "id_distribuidor": dist_id, "telegram_user_id": req.telegram_user_id or 0,
         "nombre_integrante": req.nombre_integrante, "rol_telegram": req.rol_telegram,
-        "location_id": req.location_id, "telegram_group_id": req.telegram_group_id or 0,
+        "id_sucursal_erp": str(req.location_id) if req.location_id else None, 
+        "telegram_group_id": req.telegram_group_id or 0,
     }).execute()
     new_id = result.data[0]["id_integrante"] if result.data else None
     return {"ok": True, "id_integrante": new_id}
@@ -1584,14 +1613,13 @@ def admin_update_integrante(id_integrante: int, req: IntegranteUpdateRequest, _=
 
 
 @app.get("/api/admin/vendedores-by-location/{location_id}", summary="Vendedores de una sucursal")
-def admin_vendedores_by_location(location_id: int, dist_id: int, _=Depends(verify_auth)):
+def admin_vendedores_by_location(location_id: str, dist_id: int, _=Depends(verify_auth)):
     """
-    Retorna los vendedores asignados a una sucursal específica.
-    Agrupa por telegram_user_id para evitar duplicados multi-grupo.
+    Retorna los vendedores asignados a una sucursal específica (ERP ID).
     """
     result = sb.table("integrantes_grupo").select(
         "id_integrante, nombre_integrante, telegram_user_id"
-    ).eq("location_id", location_id).eq("id_distribuidor", dist_id).eq(
+    ).eq("id_sucursal_erp", location_id).eq("id_distribuidor", dist_id).eq(
         "rol_telegram", "vendedor"
     ).order("nombre_integrante").execute()
     return result.data or []
@@ -1607,39 +1635,56 @@ def get_hierarchy_config(dist_id: int, _=Depends(verify_auth)):
     - Integrantes vinculados y por vincular
     """
     try:
-        # 1. Locations
-        locs = sb.table("locations").select("location_id, label").eq("dist_id", dist_id).execute()
+        # 1. Locations from Maestro
+        loc_res = sb.table("maestro_jerarquia").select("SUCURSAL, \"id suc\"").eq("ID_DIST", dist_id).execute()
+        seen_locs = set()
+        formatted_locs = []
+        for row in (loc_res.data or []):
+            sid = row.get("id suc")
+            if sid and sid not in seen_locs:
+                seen_locs.add(sid)
+                formatted_locs.append({"location_id": sid, "label": row.get("SUCURSAL")})
         
         # 2. ERP Hierarchy (Unique sucursal_erp and vendedor_erp)
-        erp_data = sb.table("erp_clientes_raw").select("sucursal_erp, vendedor_erp").eq("id_distribuidor", dist_id).eq("estado", "activo").execute()
+        # We can now use maestro_jerarquia for this too
+        formatted_erp = []
+        suc_map = {}
+        for row in (loc_res.data or []):
+            s = row.get("SUCURSAL")
+            v = row.get("Vendedor")
+            if s and v:
+                if s not in suc_map: suc_map[s] = set()
+                suc_map[s].add(v)
         
-        erp_hierarchy = {}
-        for row in (erp_data.data or []):
-            s_erp = str(row.get("sucursal_erp", "")).strip().upper()
-            v_erp = str(row.get("vendedor_erp", "")).strip().upper()
-            if not s_erp or s_erp == "NAN" or not v_erp or v_erp == "NAN": continue
-            if s_erp not in erp_hierarchy: erp_hierarchy[s_erp] = set()
-            erp_hierarchy[s_erp].add(v_erp)
-        
-        # Convert set to list for JSON
-        formatted_erp = [{"sucursal_erp": k, "vendedores": sorted(list(v))} for k, v in erp_hierarchy.items()]
+        for k, v in suc_map.items():
+            formatted_erp.append({"sucursal_erp": k, "vendedores": sorted(list(v))})
+
+        # Fallback to erp_clientes_raw if maestro is empty (unlikely but safe)
+        if not formatted_erp:
+            erp_data = sb.table("erp_clientes_raw").select("sucursal_erp, vendedor_erp").eq("id_distribuidor", dist_id).eq("estado", "activo").execute()
+            temp_map = {}
+            for row in (erp_data.data or []):
+                s_erp = str(row.get("sucursal_erp", "")).strip().upper()
+                v_erp = str(row.get("vendedor_erp", "")).strip().upper()
+                if not s_erp or s_erp == "NAN" or not v_erp or v_erp == "NAN": continue
+                if s_erp not in temp_map: temp_map[s_erp] = set()
+                temp_map[s_erp].add(v_erp)
+            formatted_erp = [{"sucursal_erp": k, "vendedores": sorted(list(v))} for k, v in temp_map.items()]
 
         # 3. Telegram Groups
         groups = sb.table("integrantes_grupo").select("telegram_group_id, nombre_grupo").eq("id_distribuidor", dist_id).execute()
-        # Unique groups
         seen_groups = {}
         for g in (groups.data or []):
             gid = g.get("telegram_group_id")
             if gid and gid not in seen_groups:
                 seen_groups[gid] = g.get("nombre_grupo") or f"Grupo {gid}"
-        
         formatted_groups = [{"id": k, "nombre": v} for k, v in seen_groups.items()]
 
         # 4. Integrantes (all for mapping)
-        integrantes = sb.table("integrantes_grupo").select("id_integrante, nombre_integrante, id_vendedor_erp, location_id, telegram_group_id").eq("id_distribuidor", dist_id).execute()
+        integrantes = sb.table("integrantes_grupo").select("id_integrante, nombre_integrante, id_vendedor_erp, id_sucursal_erp, telegram_group_id").eq("id_distribuidor", dist_id).execute()
 
         return {
-            "locations": locs.data or [],
+            "locations": formatted_locs,
             "erp_hierarchy": formatted_erp,
             "telegram_groups": formatted_groups,
             "integrantes": integrantes.data or []
@@ -1656,7 +1701,7 @@ def save_hierarchy_config(dist_id: int, req: BulkMappingRequest, _=Depends(verif
     try:
         for item in req.mappings:
             sb.table("integrantes_grupo").update({
-                "location_id": item.location_id,
+                "id_sucursal_erp": str(item.location_id) if item.location_id else None,
                 "id_vendedor_erp": item.id_vendedor_erp
             }).eq("id_integrante", item.id_integrante).eq("id_distribuidor", dist_id).execute()
         
@@ -1669,7 +1714,7 @@ def save_hierarchy_config(dist_id: int, req: BulkMappingRequest, _=Depends(verif
 @app.get("/api/admin/clientes", summary="Clientes con filtros en cascada")
 def admin_get_clientes(
     dist_id: int,
-    location_id: int | None = None,
+    location_id: str | None = None,
     id_vendedor: int | None = None,
     sin_asignar: bool = False,
     _=Depends(verify_auth),
@@ -1884,29 +1929,28 @@ def map_integrante_sucursal(data: dict, user_payload=Depends(verify_auth)):
     dist_id = data.get("dist_id")
     check_dist_permission(user_payload, dist_id)
     id_integrante = data.get("id_integrante")
-    location_id = data.get("location_id")
+    location_id = data.get("location_id") # This is now the ERP Branch ID
     try:
-        res = sb.table("integrantes_grupo").update({"location_id": location_id}).eq("id_integrante", id_integrante).execute()
+        res = sb.table("integrantes_grupo").update({"id_sucursal_erp": str(location_id) if location_id else None}).eq("id_integrante", id_integrante).execute()
         return res.data[0] if res.data else {"status": "ok"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/admin/hierarchy/sync-from-erp/{dist_id}", tags=["Admin"])
 def sync_hierarchy_from_erp(dist_id: int, user_payload=Depends(verify_auth)):
-    """Sincronización masiva de jerarquía usando datos del ERP (erp_clientes_raw)."""
+    """
+    Sincronización masiva de jerarquía usando datos del MAESTRO (maestro_jerarquia).
+    Esto vincula automáticamente a los integrantes de Telegram con su vendedor y sucursal ERP.
+    """
     check_dist_permission(user_payload, dist_id)
     
     try:
-        # 1. Obtener combinaciones únicas de Vendedor y Sucursal desde el ERP
-        res_erp = sb.table("erp_clientes_raw").select("vendedor_erp, sucursal_erp, id_sucursal_erp").eq("id_distribuidor", dist_id).execute()
-        if not res_erp.data:
-            return {"message": "No hay datos de clientes ERP para sincronizar.", "count": 0}
+        # 1. Obtener la jerarquía del maestro
+        res_maestro = sb.table("maestro_jerarquia").select("*").eq("ID_DIST", dist_id).execute()
+        if not res_maestro.data:
+            return {"message": "No hay datos en el Maestro para sincronizar.", "count": 0}
         
-        # Deduplicar pares (vendedor, sucursal_name)
-        # Nota: Usamos el nombre de la sucursal para matchear/crear en 'locations'
-        erp_mappings = {} # {(vendedor_upper): {name: sucursal_erp, id: id_sucursal_erp}}
-        sucursales_necesarias = set()
-
+        # Mapeo de Vendedor (nombre normalizado) -> {id_vend, id_suc}
         import unicodedata
         def normalize_str(text: str) -> str:
             if not text or str(text).strip().upper() in ("NAN", "NONE", "NULL", "NA"): 
@@ -1914,66 +1958,50 @@ def sync_hierarchy_from_erp(dist_id: int, user_payload=Depends(verify_auth)):
             text = str(text).strip().upper()
             return ''.join(c for c in unicodedata.normalize('NFD', text) if unicodedata.category(c) != 'Mn')
 
-        for row in res_erp.data:
-            v_name = normalize_str(row.get("vendedor_erp"))
-            s_name = normalize_str(row.get("sucursal_erp"))
+        vendedor_mapping = {}
+        for row in res_maestro.data:
+            v_name = normalize_str(row.get("Vendedor"))
+            v_id = row.get("ID_VENDEDOR")
+            s_id = row.get("id suc")
             if v_name:
-                erp_mappings[v_name] = s_name
-                if s_name:
-                    sucursales_necesarias.add(s_name)
+                vendedor_mapping[v_name] = {"v_id": v_id, "s_id": s_id}
+                # También mapear sin prefijo 02- si existe
+                if '-' in v_name:
+                    v_clean = v_name.split('-', 1)[1].strip()
+                    if v_clean: vendedor_mapping[v_clean] = {"v_id": v_id, "s_id": s_id}
 
-        # 2. Asegurar que las sucursales existan en la tabla 'locations'
-        existing_locs = sb.table("locations").select("*").eq("dist_id", dist_id).execute().data or []
-        loc_map = {normalize_str(l["label"]): l["location_id"] for l in existing_locs}
-        
-        created_count = 0
-        for s_name in sucursales_necesarias:
-            if s_name not in loc_map:
-                new_loc = sb.table("locations").insert({
-                    "dist_id": dist_id,
-                    "label": s_name,
-                    "ciudad": "-",
-                    "provincia": "-"
-                }).execute()
-                if new_loc.data:
-                    loc_map[s_name] = new_loc.data[0]["location_id"]
-                    created_count += 1
-
-        # 3. Mapear integrantes de Telegram (vendedores) según su nombre
-        # Buscamos integrantes cuyo nombre coincida con el nombre del vendedor en el ERP (vendedor_erp)
+        # 2. Mapear integrantes de Telegram
         integrantes = sb.table("integrantes_grupo").select("*").eq("id_distribuidor", dist_id).execute().data or []
         
         updated_count = 0
         for ig in integrantes:
             ig_nombre = normalize_str(ig.get("nombre_integrante"))
-            if not ig_nombre:
-                continue
+            if not ig_nombre: continue
             
-            matched_erp_name = None
-            for erp_vend_name in erp_mappings.keys():
-                # Substring matching: 'MATIAS' in 'GOMEZ MATIAS' or vice versa
-                # Now accents are stripped, and "NAN" is ignored.
-                # Added word-level intersection for more robust matching
-                ig_words = set(ig_nombre.split())
-                erp_words = set(erp_vend_name.split())
-                
-                if ig_nombre in erp_vend_name or erp_vend_name in ig_nombre or len(ig_words.intersection(erp_words)) >= 1:
-                    matched_erp_name = erp_vend_name
-                    break
+            # Buscamos coincidencia en el mapping
+            match = None
+            if ig_nombre in vendedor_mapping:
+                match = vendedor_mapping[ig_nombre]
+            else:
+                # Substring match parcial
+                for v_key, v_val in vendedor_mapping.items():
+                    if ig_nombre in v_key or v_key in ig_nombre:
+                        match = v_val
+                        break
             
-            # Si el nombre del integrante coincide parcialmente con un vendedor del ERP
-            if matched_erp_name:
-                v_erp_id = matched_erp_name # Usamos el nombre como ID si no hay uno numérico claro aún
-                s_name = erp_mappings[matched_erp_name]
-                loc_id = loc_map.get(s_name) if s_name else None
+            if match:
+                v_erp_id = match["v_id"]
+                s_erp_id = match["s_id"]
                 
                 # Actualizar si cambió algo
-                if ig.get("id_vendedor_erp") != v_erp_id or ig.get("location_id") != loc_id:
+                if ig.get("id_vendedor_erp") != v_erp_id or ig.get("id_sucursal_erp") != s_erp_id:
                     sb.table("integrantes_grupo").update({
-                        "id_vendedor_erp": v_erp_id,
-                        "location_id": loc_id
+                        "id_vendedor_erp": str(v_erp_id) if v_erp_id else None,
+                        "id_sucursal_erp": str(s_erp_id) if s_erp_id else None
                     }).eq("id_integrante", ig["id_integrante"]).execute()
                     updated_count += 1
+        
+        return {"ok": True, "updated_count": updated_count}
 
         return {
             "status": "success",

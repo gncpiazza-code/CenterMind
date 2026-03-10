@@ -25,7 +25,7 @@ export default function InteractiveHierarchy({ distId }: { distId: number }) {
     const [searchTerm, setSearchTerm] = useState("");
 
     // Per-integrante mapping state
-    const [mappings, setMappings] = useState<Record<number, { location_id: number | null, id_vendedor_erp: string | null }>>({});
+    const [mappings, setMappings] = useState<Record<number, { location_id: string | null, id_vendedor_erp: string | null }>>({});
 
     const loadData = async () => {
         setLoading(true);
@@ -236,7 +236,7 @@ export default function InteractiveHierarchy({ distId }: { distId: number }) {
                                                 <select
                                                     className="w-full text-xs font-bold bg-slate-50 hover:bg-white border-2 border-transparent hover:border-violet-100 rounded-2xl px-5 py-3 outline-none focus:ring-4 focus:ring-violet-500/10 transition-all cursor-pointer appearance-none"
                                                     value={m.location_id || ""}
-                                                    onChange={e => updateMapping(int.id_integrante, "location_id", e.target.value ? Number(e.target.value) : null)}
+                                                    onChange={e => updateMapping(int.id_integrante, "location_id", e.target.value || null)}
                                                 >
                                                     <option value="">-- Sin Sucursal --</option>
                                                     {config.locations.map(loc => (

@@ -82,7 +82,7 @@ export default function TabSucursales({ isSuperadmin, distId, role }: any) {
                 body: JSON.stringify({
                     nombre_integrante: vendForm.nombre_integrante,
                     rol_telegram: "vendedor",
-                    location_id: vendForm.location_id ? Number(vendForm.location_id) : null
+                    location_id: vendForm.location_id || null
                 })
             });
             if (res.ok) {
@@ -103,7 +103,7 @@ export default function TabSucursales({ isSuperadmin, distId, role }: any) {
         setSyncing(true);
         try {
             const res = await syncHierarchyFromERP(distId);
-            toast.success(`Sincronización completa: ${res.sucursales_creadas} sucursales nuevas, ${res.vendedores_mapeados} vendedores mapeados.`);
+            toast.success(`Sincronización completa: ${res.updated_count} integrantes vinculados.`);
             loadData();
         } catch (e: any) {
             toast.error(e.message || "Error al sincronizar con ERP");

@@ -69,7 +69,7 @@ export interface UltimaEvaluada {
 
 export interface SucursalStats {
   sucursal: string;
-  location_id: number;
+  location_id: string;
   aprobadas: number;
   rechazadas: number;
   total: number;
@@ -142,7 +142,7 @@ export interface LiveMapEvent {
 }
 
 export interface BranchCruce {
-  location_id: number;
+  location_id: string;
   sucursal_name: string;
   total_clientes_erp: number;
   total_exhibiciones: number;
@@ -406,7 +406,7 @@ export interface Integrante {
   nombre_grupo: string;
   sucursal_label: string;
   id_vendedor_erp: string | null;
-  location_id: number | null;
+  location_id: string | null;
 }
 
 export async function fetchIntegrantes(distId?: number): Promise<Integrante[]> {
@@ -421,7 +421,7 @@ export async function setRolIntegrante(id: number, rol: string, distribuidorId?:
   });
 }
 
-export async function editarIntegranteAdmin(id: number, data: { nombre_integrante: string, rol_telegram?: string, location_id?: number | null }) {
+export async function editarIntegranteAdmin(id: number, data: { nombre_integrante: string, rol_telegram?: string, location_id?: string | null }) {
   return apiFetch(`/api/admin/integrantes/${id}`, {
     method: "PUT",
     body: JSON.stringify(data),
@@ -431,7 +431,7 @@ export async function editarIntegranteAdmin(id: number, data: { nombre_integrant
 // ── Admin: Sucursales (Locations) ────────────────────────────────────────────
 
 export interface Location {
-  location_id: number;
+  location_id: string;
   dist_id: number;
   ciudad?: string;
   provincia?: string;
@@ -451,7 +451,7 @@ export async function crearLocation(distId: number, data: { ciudad: string; prov
   });
 }
 
-export async function editarLocation(locationId: number, data: { ciudad: string; provincia: string; label: string; lat: number; lon: number }) {
+export async function editarLocation(locationId: string, data: { ciudad: string; provincia: string; label: string; lat: number; lon: number }) {
   return apiFetch(`/api/admin/locations/${locationId}`, {
     method: "PUT",
     body: JSON.stringify(data),
@@ -642,14 +642,14 @@ export async function createLocation(data: { dist_id: number; label: string; ciu
   });
 }
 
-export async function updateLocation(locId: number, data: { dist_id: number; label: string; ciudad?: string; provincia?: string }) {
+export async function updateLocation(locId: string, data: { dist_id: number; label: string; ciudad?: string; provincia?: string }) {
   return apiFetch(`/api/admin/locations/${locId}`, {
     method: "PUT",
     body: JSON.stringify(data)
   });
 }
 
-export async function mapIntegranteSucursal(data: { dist_id: number; id_integrante: number; location_id: number | null }) {
+export async function mapIntegranteSucursal(data: { dist_id: number; id_integrante: number; location_id: string | null }) {
   return apiFetch("/api/admin/hierarchy/map-sucursal", {
     method: "POST",
     body: JSON.stringify(data)
@@ -665,7 +665,7 @@ export async function mapSellerERP(data: { dist_id: number; id_integrante: numbe
 
 // removido duplicado
 
-export async function syncHierarchyFromERP(distId: number): Promise<{ sucursales_creadas: number; vendedores_mapeados: number }> {
+export async function syncHierarchyFromERP(distId: number): Promise<{ updated_count: number }> {
   return apiFetch(`/api/admin/hierarchy/sync-from-erp/${distId}`, {
     method: "POST"
   });
@@ -701,7 +701,7 @@ export async function fetchHierarchyConfig(distId: number): Promise<HierarchyCon
   return apiFetch<HierarchyConfig>(`/api/admin/hierarchy-config/${distId}`);
 }
 
-export async function saveBulkHierarchy(distId: number, mappings: { id_integrante: number; location_id: number | null; id_vendedor_erp: string | null }[]) {
+export async function saveBulkHierarchy(distId: number, mappings: { id_integrante: number; location_id: string | null; id_vendedor_erp: string | null }[]) {
   return apiFetch(`/api/admin/hierarchy-config/save/${distId}`, {
     method: "POST",
     body: JSON.stringify({ mappings }),

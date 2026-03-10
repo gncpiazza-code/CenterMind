@@ -89,24 +89,26 @@ class ERPIngestionService:
             record = {
                 "id_distribuidor": dist_id,
                 "id_cliente_erp_local": id_local,
-                "id_cliente_interno": str(row.get(col_id_int)),
-                "nombre_cliente": str(row.get(col_nombre, "")),
-                "nombre_fantasia": str(row.get(col_fantasia, "")),
+                "id_cliente_interno": str(row.get(col_id_int, "")).strip(),
+                "nombre_cliente": str(row.get(col_nombre, "")).strip().upper(),
+                "nombre_fantasia": str(row.get(col_fantasia, "")).strip().upper(),
                 "vendedor_erp": str(row.get(col_vendedor, "")).strip().upper(),
-                "sucursal_erp": str(row.get(col_sucursal, "")),
-                "id_sucursal_erp": str(row.get(col_id_sucursal, "")),
-                "lat": float(row.get(col_lat, 0)) if row.get(col_lat) else None,
-                "lon": float(row.get(col_lon, 0)) if row.get(col_lon) else None,
-                "forma_pago": str(row.get(col_pago, "")),
+                "sucursal_erp": str(row.get(col_sucursal, "")).strip().upper(),
+                "id_sucursal_erp": str(row.get(col_id_sucursal, "")).strip(),
+                "lat": float(row.get(col_lat, 0)) if row.get(col_lat) and str(row[col_lat]).lower() != "nan" else None,
+                "lon": float(row.get(col_lon, 0)) if row.get(col_lon) and str(row[col_lon]).lower() != "nan" else None,
+                "forma_pago": str(row.get(col_pago, "")).strip().upper(),
                 # Enriquecimiento
                 "fecha_alta": f_alta,
                 "fecha_ultima_compra": f_ult,
-                "localidad": str(row.get(col_localidad, "")),
-                "provincia": str(row.get(col_provincia, "")),
-                "domicilio": str(row.get(col_domicilio, "")),
-                "telefono": str(row.get(col_telefono, "")),
-                "movil": str(row.get(col_movil, "")),
-                "ruta": str(row.get(col_ruta, "")),
+                "localidad": str(row.get(col_localidad, "")).strip().upper(),
+                "provincia": str(row.get(col_provincia, "")).strip().upper(),
+                "domicilio": str(row.get(col_domicilio, "")).strip().upper(),
+                "telefono": str(row.get(col_telefono, "")).strip(),
+                "movil": str(row.get(col_movil, "")).strip(),
+                "ruta": str(row.get(col_ruta, "")).strip().upper(),
+                "estado": "activo",
+                "updated_at": datetime.now().isoformat()
             }
             # Sobreescribimos si ya existe el mismo cliente en este batch
             records_to_upsert[(dist_id, id_local)] = record
@@ -119,7 +121,14 @@ class ERPIngestionService:
                     final_records, 
                     on_conflict="id_distribuidor, id_cliente_erp_local"
                 ).execute()
-                logger.info(f"✅ Clientes ERP: {len(final_records)} registros procesados (deduplicados).")
+                
+                # Baja Lógica: Identificar qué distribuidores vinieron en este archivo
+                dists_in_file = set(r["id_distribuidor"] for r in final_records)
+                for d_id in dists_in_file:
+                    current_ids = [r["id_cliente_erp_local"] for r in final_records if r["id_distribuidor"] == d_id]
+                    self._logical_delete("erp_clientes_raw", d_id, "id_cliente_erp_local", current_ids)
+                
+                logger.info(f"✅ Clientes ERP: {len(final_records)} registros procesados (deduplicados + bajas lógicas).")
                 return len(final_records)
             except Exception as e:
                 logger.error(f"Error en upsert de clientes: {e}")
@@ -192,17 +201,17 @@ class ERPIngestionService:
                 # Nuevo registro
                 records_to_upsert[key] = {
                     "id_distribuidor": dist_id,
-                    "nro_documento": nro_doc,
-                    "articulo": articulo,
+                    "nro_documento": nro_doc.strip(),
+                    "articulo": articulo.strip().upper(),
                     "fecha_factura": fecha_str,
-                    "codi_cliente": str(row.get(col_id_cli)),
-                    "nomcli": str(row.get(col_nom_cli, "")),
+                    "codi_cliente": str(row.get(col_id_cli, "")).strip(),
+                    "nomcli": str(row.get(col_nom_cli, "")).strip().upper(),
                     "importe_neto": v_neto,
                     "importe_final": v_final,
                     "unidades": v_unid,
                     "vendedor_erp": str(row.get(col_vendedor, "")).strip().upper(),
-                    "sucursal_erp": str(row.get(col_sucursal, "")),
-                    "tipo_documento": str(row.get("cod_tipo_docs", "")),
+                    "sucursal_erp": str(row.get(col_sucursal, "")).strip().upper(),
+                    "tipo_documento": str(row.get("cod_tipo_docs", "")).strip().upper(),
                 }
 
         final_records = list(records_to_upsert.values())
@@ -219,6 +228,304 @@ class ERPIngestionService:
                 logger.error(f"Error en upsert de ventas: {e}")
                 raise e
         return 0
+
+    def _get_flexible_col(self, df, possible_names: List[str], default=None):
+        """Busca una columna en el DataFrame entre varios nombres posibles."""
+        for name in possible_names:
+            if name in df.columns:
+                return name
+        return default
+
+    # ════════════════════════════════════════════════════════════════
+    # NUEVOS MÉTODOS PARA ARQUITECTURA "PUSH" (Excel .xlsx / .xls)
+    # ════════════════════════════════════════════════════════════════
+
+    def ingest_clientes_xlsx(self, file_source, dist_id: int):
+        """Ingesta de clientes via Excel con mapeo flexible."""
+        logger.info(f"Iniciando ingesta Excel de clientes para dist {dist_id}...")
+        try:
+            df = pd.read_excel(file_source, dtype=str)
+            
+            # Mapeo flexible de columnas
+            c_id = self._get_flexible_col(df, ["id_cliente", "idcliente", "codi_cliente", "cliente_id", "numero_cliente_local"])
+            c_nom = self._get_flexible_col(df, ["nombre", "nomcli", "nombre_cliente", "razon_social"])
+            c_fan = self._get_flexible_col(df, ["fantasia", "fantacli", "nombre_fantasia"])
+            c_vend = self._get_flexible_col(df, ["vendedor", "d_vendedor", "vendedor_nombre", "dsvendedor"])
+            c_suc = self._get_flexible_col(df, ["sucursal", "dssucur", "sucursal_nombre", "nombre_sucursal"])
+            c_id_suc = self._get_flexible_col(df, ["id_sucursal", "idsucur", "sucursal_id"])
+            c_lat = self._get_flexible_col(df, ["lat", "ycoord", "latitud"])
+            c_lon = self._get_flexible_col(df, ["lon", "xcoord", "longitud"])
+            c_dir = self._get_flexible_col(df, ["direccion", "domicli", "domicilio"])
+            c_loc = self._get_flexible_col(df, ["localidad", "descloca"])
+            c_prov = self._get_flexible_col(df, ["provincia", "desprovincia"])
+
+            records = []
+            current_ids = []
+            for _, row in df.iterrows():
+                id_erp = str(row.get(c_id, "")).strip() if c_id else ""
+                if not id_erp or id_erp.lower() in ("nan", "none", "null"): continue
+                
+                current_ids.append(id_erp)
+                records.append({
+                    "id_distribuidor": dist_id,
+                    "id_cliente_erp_local": id_erp,
+                    "nombre_cliente": str(row.get(c_nom, "")).strip().upper() if c_nom else "SIN NOMBRE",
+                    "nombre_fantasia": str(row.get(c_fan, "")).strip().upper() if c_fan else "",
+                    "vendedor_erp": str(row.get(c_vend, "")).strip().upper() if c_vend else "SIN VENDEDOR",
+                    "sucursal_erp": str(row.get(c_suc, "")).strip().upper() if c_suc else "CASA CENTRAL",
+                    "id_sucursal_erp": str(row.get(c_id_suc, "")).strip() if c_id_suc else "0",
+                    "lat": float(row.get(c_lat)) if c_lat and row.get(c_lat) and str(row[c_lat]).lower() != "nan" else None,
+                    "lon": float(row.get(c_lon)) if c_lon and row.get(c_lon) and str(row[c_lon]).lower() != "nan" else None,
+                    "domicilio": str(row.get(c_dir, "")).strip().upper() if c_dir else "",
+                    "localidad": str(row.get(c_loc, "")).strip().upper() if c_loc else "",
+                    "provincia": str(row.get(c_prov, "")).strip().upper() if c_prov else "",
+                    "estado": "activo",
+                    "updated_at": datetime.now().isoformat()
+                })
+            
+            if records:
+                for i in range(0, len(records), 500):
+                    batch = records[i:i+500]
+                    sb.table("erp_clientes_raw").upsert(batch, on_conflict="id_distribuidor, id_cliente_erp_local").execute()
+                
+                self._logical_delete("erp_clientes_raw", dist_id, "id_cliente_erp_local", current_ids)
+                logger.info(f"✅ Sync Clientes Excel: {len(records)} upserted.")
+                return len(records)
+        except Exception as e:
+            logger.error(f"Error en ingest_clientes_xlsx: {e}")
+            raise e
+
+    def ingest_sucursales_xlsx(self, file_source, dist_id: int):
+        """Ingesta de sucursales via Excel con mapeo flexible."""
+        logger.info(f"Iniciando ingesta Excel de sucursales para dist {dist_id}...")
+        try:
+            df = pd.read_excel(file_source, dtype=str)
+            
+            c_id = self._get_flexible_col(df, ["id_sucursal", "idsucur", "sucursal_id"])
+            c_nom = self._get_flexible_col(df, ["nombre", "dssucur", "nombre_sucursal"])
+            c_dir = self._get_flexible_col(df, ["direccion", "domicilio", "direccion_sucursal"])
+            
+            records = []
+            current_ids = []
+            for _, row in df.iterrows():
+                id_suc = str(row.get(c_id, "")).strip() if c_id else ""
+                if not id_suc or id_suc.lower() in ("nan", "none", "null"): continue
+                current_ids.append(id_suc)
+                records.append({
+                    "id_distribuidor": dist_id,
+                    "id_sucursal_erp_local": id_suc,
+                    "nombre_sucursal": str(row.get(c_nom, "")).strip().upper() if c_nom else "SUCURSAL",
+                    "direccion": str(row.get(c_dir, "")).strip().upper() if c_dir else "",
+                    "estado": "activo",
+                    "updated_at": datetime.now().isoformat()
+                })
+            
+            if records:
+                sb.table("erp_sucursales_raw").upsert(records, on_conflict="id_distribuidor, id_sucursal_erp_local").execute()
+                self._logical_delete("erp_sucursales_raw", dist_id, "id_sucursal_erp_local", current_ids)
+                logger.info(f"✅ Sync Sucursales Excel: {len(records)} upserted.")
+                return len(records)
+        except Exception as e:
+            logger.error(f"Error en ingest_sucursales_xlsx: {e}")
+            raise e
+
+    def ingest_vendedores_xlsx(self, file_source, dist_id: int):
+        """Ingesta de vendedores (jerarquía) via Excel."""
+        logger.info("Ingesta Excel de vendedores recibida.")
+        return 0
+
+    def ingest_ventas_xlsx(self, file_source, dist_id: int):
+        """Ingesta de ventas via Excel con mapeo flexible."""
+        logger.info(f"Iniciando ingesta Excel de ventas para dist {dist_id}...")
+        try:
+            df = pd.read_excel(file_source, dtype=str)
+            
+            c_nro = self._get_flexible_col(df, ["nro_documento", "nro_comprobante", "documento"])
+            c_art = self._get_flexible_col(df, ["articulo", "descrip", "descripcion_producto"])
+            c_fec = self._get_flexible_col(df, ["fecha", "fecha_factura", "fec_doc"])
+            c_cli = self._get_flexible_col(df, ["id_cliente", "codi_cliente", "cliente_id"])
+            c_nom = self._get_flexible_col(df, ["cliente", "nomcli", "razon_social"])
+            c_neto = self._get_flexible_col(df, ["neto", "importe_neto", "subtotal"])
+            c_fin = self._get_flexible_col(df, ["final", "importe_final", "total"])
+            c_unid = self._get_flexible_col(df, ["unidades", "cantidad_total_unidades", "cantidad"])
+            c_vend = self._get_flexible_col(df, ["vendedor", "dsvendedor", "vendedor_nombre"])
+            c_suc = self._get_flexible_col(df, ["sucursal", "dssucur", "sucursal_nombre"])
+
+            records = []
+            for _, row in df.iterrows():
+                nro_doc = str(row.get(c_nro, "")).strip() if c_nro else ""
+                articulo = str(row.get(c_art, "SIN NOMBRE")).strip().upper() if c_art else "SIN NOMBRE"
+                if not nro_doc or nro_doc.lower() in ("nan", "none", "null"): continue
+                
+                records.append({
+                    "id_distribuidor": dist_id,
+                    "nro_documento": nro_doc,
+                    "articulo": articulo,
+                    "fecha_factura": str(row.get(c_fec, "")),
+                    "codi_cliente": str(row.get(c_cli, "")).strip(),
+                    "nomcli": str(row.get(c_nom, "")).strip().upper() if c_nom else "CLIENTE",
+                    "importe_neto": float(row.get(c_neto, 0)) if c_neto and row.get(c_neto) and str(row[c_neto]).lower() != "nan" else 0,
+                    "importe_final": float(row.get(c_fin, 0)) if c_fin and row.get(c_fin) and str(row[c_fin]).lower() != "nan" else 0,
+                    "unidades": float(row.get(c_unid, 0)) if c_unid and row.get(c_unid) and str(row[c_unid]).lower() != "nan" else 0,
+                    "vendedor_erp": str(row.get(c_vend, "")).strip().upper() if c_vend else "SIN VENDEDOR",
+                    "sucursal_erp": str(row.get(c_suc, "")).strip().upper() if c_suc else "CASA CENTRAL",
+                })
+            
+            if records:
+                for i in range(0, len(records), 500):
+                    batch = records[i:i+500]
+                    sb.table("erp_ventas_raw").upsert(batch, on_conflict="id_distribuidor, nro_documento, articulo").execute()
+                logger.info(f"✅ Sync Ventas Excel: {len(records)} upserted.")
+                return len(records)
+        except Exception as e:
+            logger.error(f"Error en ingest_ventas_xlsx: {e}")
+            raise e
+
+    def ingest_clientes_csv(self, file_source, dist_id: int):
+        """Ingesta de clientes via CSV."""
+        logger.info(f"Iniciando ingesta CSV de clientes para dist {dist_id}...")
+        try:
+            df = pd.read_csv(file_source, dtype=str)
+            # Columnas esperadas (estandarizadas para el agente local)
+            # id_cliente, nombre, fantasia, vendedor, sucursal, id_sucursal, lat, lon, etc.
+            
+            records = []
+            current_ids = []
+            for _, row in df.iterrows():
+                id_erp = str(row.get("id_cliente", "")).strip()
+                if not id_erp: continue
+                
+                current_ids.append(id_erp)
+                records.append({
+                    "id_distribuidor": dist_id,
+                    "id_cliente_erp_local": id_erp,
+                    "nombre_cliente": str(row.get("nombre", "")).strip().upper(),
+                    "nombre_fantasia": str(row.get("fantasia", "")).strip().upper(),
+                    "vendedor_erp": str(row.get("vendedor", "")).strip().upper(),
+                    "sucursal_erp": str(row.get("sucursal", "")).strip().upper(),
+                    "id_sucursal_erp": str(row.get("id_sucursal", "")).strip(),
+                    "lat": float(row.get("lat")) if row.get("lat") and str(row["lat"]) != "nan" else None,
+                    "lon": float(row.get("lon")) if row.get("lon") and str(row["lon"]) != "nan" else None,
+                    "domicilio": str(row.get("direccion", "")).strip().upper(),
+                    "localidad": str(row.get("localidad", "")).strip().upper(),
+                    "provincia": str(row.get("provincia", "")).strip().upper(),
+                    "estado": "activo",
+                    "updated_at": datetime.now().isoformat()
+                })
+            
+            if records:
+                # Upsert en lotes de 500
+                for i in range(0, len(records), 500):
+                    batch = records[i:i+500]
+                    sb.table("erp_clientes_raw").upsert(batch, on_conflict="id_distribuidor, id_cliente_erp_local").execute()
+                
+                # BAJA LÓGICA: Marcar como inactivos los que no vinieron en este CSV
+                self._logical_delete("erp_clientes_raw", dist_id, "id_cliente_erp_local", current_ids)
+                
+                logger.info(f"✅ Sync Clientes CSV: {len(records)} upserted.")
+                return len(records)
+        except Exception as e:
+            logger.error(f"Error en ingest_clientes_csv: {e}")
+            raise e
+
+    def ingest_sucursales_csv(self, file_source, dist_id: int):
+        """Ingesta de sucursales via CSV."""
+        logger.info(f"Iniciando ingesta CSV de sucursales para dist {dist_id}...")
+        try:
+            df = pd.read_csv(file_source, dtype=str)
+            records = []
+            current_ids = []
+            for _, row in df.iterrows():
+                id_suc = str(row.get("id_sucursal", "")).strip()
+                if not id_suc: continue
+                current_ids.append(id_suc)
+                records.append({
+                    "id_distribuidor": dist_id,
+                    "id_sucursal_erp_local": id_suc,
+                    "nombre_sucursal": str(row.get("nombre", "")).strip().upper(),
+                    "direccion": str(row.get("direccion", "")).strip().upper(),
+                    "estado": "activo",
+                    "updated_at": datetime.now().isoformat()
+                })
+            
+            if records:
+                sb.table("erp_sucursales_raw").upsert(records, on_conflict="id_distribuidor, id_sucursal_erp_local").execute()
+                self._logical_delete("erp_sucursales_raw", dist_id, "id_sucursal_erp_local", current_ids)
+                logger.info(f"✅ Sync Sucursales CSV: {len(records)} upserted.")
+                return len(records)
+        except Exception as e:
+            logger.error(f"Error en ingest_sucursales_csv: {e}")
+            raise e
+
+    def ingest_vendedores_csv(self, file_source, dist_id: int):
+        """Ingesta de vendedores (jerarquía) via CSV."""
+        # Por ahora los vendedores se mapean por nombre en erp_clientes_raw, 
+        # pero podemos guardar la lista maestra aquí si fuera necesario en el futuro.
+        logger.info("Ingesta CSV de vendedores recibida (No-op por ahora, se procesan via Clientes/Ventas).")
+        return 0
+
+    def ingest_ventas_csv(self, file_source, dist_id: int):
+        """Ingesta de ventas via CSV."""
+        logger.info(f"Iniciando ingesta CSV de ventas para dist {dist_id}...")
+        try:
+            df = pd.read_csv(file_source, dtype=str)
+            records = []
+            for _, row in df.iterrows():
+                nro_doc = str(row.get("nro_documento", "")).strip()
+                articulo = str(row.get("articulo", "SIN NOMBRE")).strip().upper()
+                if not nro_doc: continue
+                
+                records.append({
+                    "id_distribuidor": dist_id,
+                    "nro_documento": nro_doc,
+                    "articulo": articulo,
+                    "fecha_factura": str(row.get("fecha", "")),
+                    "codi_cliente": str(row.get("id_cliente", "")),
+                    "nomcli": str(row.get("cliente", "")).strip().upper(),
+                    "importe_neto": float(row.get("neto", 0)),
+                    "importe_final": float(row.get("final", 0)),
+                    "unidades": float(row.get("unidades", 0)),
+                    "vendedor_erp": str(row.get("vendedor", "")).strip().upper(),
+                    "sucursal_erp": str(row.get("sucursal", "")).strip().upper(),
+                })
+            
+            if records:
+                # Lotes de 500
+                for i in range(0, len(records), 500):
+                    batch = records[i:i+500]
+                    sb.table("erp_ventas_raw").upsert(batch, on_conflict="id_distribuidor, nro_documento, articulo").execute()
+                logger.info(f"✅ Sync Ventas CSV: {len(records)} upserted.")
+                return len(records)
+        except Exception as e:
+            logger.error(f"Error en ingest_ventas_csv: {e}")
+            raise e
+
+    def _logical_delete(self, table: str, dist_id: int, id_column: str, current_ids: List[str]):
+        """Marca como inactivos los registros que no están en la lista actual."""
+        if not current_ids: return
+        
+        try:
+            # Esta operación puede ser costosa si hay miles de clientes.
+            # En Supabase/PostgreSQL, lo más eficiente es un UPDATE con NOT IN.
+            # Pero vía REST API (supabase-py), no hay una forma directa de 'NOT IN'.
+            # Usamos un truco: RPC o ejecutamos en lotes.
+            
+            # Opción B: Obtener todos los IDs activos de la DB y comparar.
+            res = sb.table(table).select(id_column).eq("id_distribuidor", dist_id).eq("estado", "activo").execute()
+            db_ids = [str(row[id_column]) for row in res.data]
+            
+            missing_ids = list(set(db_ids) - set(current_ids))
+            
+            if missing_ids:
+                logger.info(f"Bajas lógicas detectadas en {table}: {len(missing_ids)} registros.")
+                # Update en lotes de 100 para evitar URLs gigantes
+                for i in range(0, len(missing_ids), 100):
+                    batch = missing_ids[i:i+100]
+                    sb.table(table).update({"estado": "inactivo"})\
+                        .eq("id_distribuidor", dist_id)\
+                        .in_(id_column, batch).execute()
+        except Exception as e:
+            logger.error(f"Error en baja lógica para {table}: {e}")
 
     def get_sync_stats(self, dist_id: int):
         """Obtiene resumen de sincronización desde la DB."""

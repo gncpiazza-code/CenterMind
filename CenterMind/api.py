@@ -21,7 +21,7 @@ except ImportError:
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import FastAPI, Depends, HTTPException, Query, UploadFile, File, Form, Header
+from fastapi import FastAPI, Depends, HTTPException, Query, UploadFile, File, Form, Header, BackgroundTasks
 from fastapi.security.api_key import APIKeyHeader
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.middleware.cors import CORSMiddleware
@@ -374,6 +374,102 @@ async def erp_upload_global(
     except Exception as e:
         logger.error(f"Error en carga manual ERP ({tipo}): {e}")
         raise HTTPException(status_code=500, detail=f"Error procesando archivo: {str(e)}")
+
+
+# ─── ERP: Sincronización Automática "Push" (v1) ──────────────────────────────
+
+@app.post("/api/v1/sync/erp-clientes", tags=["ERP Push"], summary="Ingesta automática de clientes via Push")
+async def erp_sync_clientes(
+    id_distribuidor: int = Query(..., description="ID de la distribuidora"),
+    file: UploadFile = File(...),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+    _=Depends(verify_key) # Solo requiere API Key global
+):
+    """
+    Recibe un archivo Excel con el padrón de clientes.
+    Retorna 202 Accepted y procesa en segundo plano.
+    """
+    if not (file.filename.endswith('.xlsx') or file.filename.endswith('.xls')):
+        raise HTTPException(status_code=400, detail="Se requiere un archivo .xlsx o .xls")
+    
+    try:
+        content = await file.read()
+        file_io = io.BytesIO(content)
+        
+        # Procesamos en background para evitar timeout
+        background_tasks.add_task(erp_service.ingest_clientes_xlsx, file_io, id_distribuidor)
+        
+        return {
+            "status": "accepted",
+            "message": f"Archivo de clientes recibido para dist {id_distribuidor}. Procesando en segundo plano.",
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Error en endpoint sync clientes: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/sync/erp-sucursales", tags=["ERP Push"], summary="Ingesta automática de sucursales via Push")
+async def erp_sync_sucursales(
+    id_distribuidor: int = Query(..., description="ID de la distribuidora"),
+    file: UploadFile = File(...),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+    _=Depends(verify_key)
+):
+    """Recibe Excel con metadatos de sucursales."""
+    if not (file.filename.endswith('.xlsx') or file.filename.endswith('.xls')):
+        raise HTTPException(status_code=400, detail="Se requiere un archivo .xlsx o .xls")
+    
+    try:
+        content = await file.read()
+        file_io = io.BytesIO(content)
+        background_tasks.add_task(erp_service.ingest_sucursales_xlsx, file_io, id_distribuidor)
+        
+        return {"status": "accepted", "message": "Procesando sucursales..."}
+    except Exception as e:
+        logger.error(f"Error en endpoint sync sucursales: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/sync/erp-vendedores", tags=["ERP Push"], summary="Ingesta automática de vendedores via Push")
+async def erp_sync_vendedores(
+    id_distribuidor: int = Query(..., description="ID de la distribuidora"),
+    file: UploadFile = File(...),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+    _=Depends(verify_key)
+):
+    """Recibe Excel con la jerarquía de vendedores."""
+    if not (file.filename.endswith('.xlsx') or file.filename.endswith('.xls')):
+        raise HTTPException(status_code=400, detail="Se requiere un archivo .xlsx o .xls")
+    
+    try:
+        content = await file.read()
+        file_io = io.BytesIO(content)
+        background_tasks.add_task(erp_service.ingest_vendedores_xlsx, file_io, id_distribuidor)
+        
+        return {"status": "accepted", "message": "Procesando vendedores..."}
+    except Exception as e:
+        logger.error(f"Error en endpoint sync vendedores: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/sync/erp-ventas", tags=["ERP Push"], summary="Ingesta automática de ventas via Push")
+async def erp_sync_ventas(
+    id_distribuidor: int = Query(..., description="ID de la distribuidora"),
+    file: UploadFile = File(...),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+    _=Depends(verify_key)
+):
+    """Recibe Excel con informe de ventas."""
+    if not (file.filename.endswith('.xlsx') or file.filename.endswith('.xls')):
+        raise HTTPException(status_code=400, detail="Se requiere un archivo .xlsx o .xls")
+    
+    try:
+        content = await file.read()
+        file_io = io.BytesIO(content)
+        background_tasks.add_task(erp_service.ingest_ventas_xlsx, file_io, id_distribuidor)
+        
+        return {"status": "accepted", "message": "Procesando ventas..."}
+    except Exception as e:
+        logger.error(f"Error en endpoint sync ventas: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 

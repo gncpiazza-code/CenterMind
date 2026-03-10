@@ -121,6 +121,11 @@ class ERPIngestionService:
                     self._logical_delete("erp_clientes_raw", d_id, "id_cliente_erp_local", current_ids)
                 
                 logger.info(f"✅ Clientes ERP (Manual): {len(final_records)} procesados.")
+                
+                # Sincronizar Sucursales -> Locations automáticamente
+                for d_id in dists_in_file:
+                    self._sync_erp_branches_to_locations(d_id)
+                
                 return len(final_records)
             except Exception as e:
                 logger.error(f"Error en upsert manual de clientes: {e}")
@@ -325,6 +330,10 @@ class ERPIngestionService:
                     sb.table("erp_clientes_raw").upsert(batch, on_conflict="id_distribuidor, id_cliente_erp_local").execute()
                 
                 self._logical_delete("erp_clientes_raw", dist_id, "id_cliente_erp_local", current_ids)
+                
+                # Sincronizar Sucursales -> Locations automáticamente
+                self._sync_erp_branches_to_locations(dist_id)
+                
                 logger.info(f"✅ Sync Clientes Excel: {len(records)} upserted.")
                 return len(records)
         except Exception as e:
@@ -571,5 +580,51 @@ class ERPIngestionService:
         except Exception as e:
             logger.error(f"Error obteniendo sync stats: {e}")
             return {}
+
+    def _sync_erp_branches_to_locations(self, dist_id: int):
+        """
+        Extrae sucursales únicas de erp_clientes_raw y asegura que existan en la tabla 'locations'.
+        Esto permite que aparezcan en el portal para mapeo de vendedores y filtros.
+        """
+        try:
+            # 1. Obtener sucursales únicas del padrón de clientes
+            res_erp = sb.table("erp_clientes_raw")\
+                .select("sucursal_erp")\
+                .eq("id_distribuidor", dist_id)\
+                .eq("estado", "activo")\
+                .execute()
+            
+            erp_subs = set(str(row["sucursal_erp"]).strip().upper() for row in res_erp.data if row.get("sucursal_erp"))
+            if not erp_subs:
+                logger.info(f"No se encontraron sucursales en erp_clientes_raw para dist {dist_id}")
+                return
+
+            # 2. Obtener sucursales existentes en 'locations'
+            res_loc = sb.table("locations").select("label").eq("dist_id", dist_id).execute()
+            existing_labels = set(str(row["label"]).strip().upper() for row in res_loc.data if row.get("label"))
+
+            # 3. Identificar nuevas
+            new_subs = erp_subs - existing_labels
+            
+            if new_subs:
+                logger.info(f"Detectadas {len(new_subs)} nuevas sucursales ERP para sincronizar a 'locations'.")
+                for sub_name in new_subs:
+                    if not sub_name or sub_name == "NAN": continue
+                    try:
+                        sb.table("locations").insert({
+                            "dist_id": dist_id,
+                            "label": sub_name,
+                            "ciudad": "CIUDAD DEL ESTE", # Valor por defecto o placeholder
+                            "provincia": "ALTO PARANA",
+                            "lat": 0.0,
+                            "lon": 0.0
+                        }).execute()
+                    except Exception as ins_e:
+                        logger.error(f"Error insertando sucursal {sub_name}: {ins_e}")
+            else:
+                logger.info(f"Todas las sucursales ERP ({len(erp_subs)}) ya están registradas en 'locations'.")
+
+        except Exception as e:
+            logger.error(f"Error en _sync_erp_branches_to_locations: {e}")
 
 erp_service = ERPIngestionService()

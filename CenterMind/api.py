@@ -288,6 +288,7 @@ class EvaluarRequest(BaseModel):
 class IntegranteUpdateRequest(BaseModel):
     nombre_integrante: str
     rol_telegram: str | None = None
+    id_vendedor_erp: str | None = None
 
 class LocationRequest(BaseModel):
     ciudad: str
@@ -1484,6 +1485,9 @@ def admin_update_integrante(id_integrante: int, req: IntegranteUpdateRequest, _=
     update_data = {"nombre_integrante": req.nombre_integrante}
     if req.rol_telegram:
         update_data["rol_telegram"] = req.rol_telegram
+    if req.id_vendedor_erp is not None:
+        update_data["id_vendedor_erp"] = req.id_vendedor_erp
+        
     sb.table("integrantes_grupo").update(update_data).eq("id_integrante", id_integrante).execute()
     return {"ok": True}
 
@@ -1555,8 +1559,14 @@ def dashboard_por_sucursal(distribuidor_id: int, periodo: str = "mes", _=Depends
 
 @app.get("/api/admin/erp/vendedores/{dist_id}", summary="Obtener lista de vendedores activos en ERP")
 def get_erp_vendedores(dist_id: int, _=Depends(verify_auth)):
-    res = sb.table("erp_ventas_raw").select("vendedor_erp").eq("id_distribuidor", dist_id).execute()
-    vendedores = sorted(list(set(row["vendedor_erp"] for row in res.data if row["vendedor_erp"])))
+    # Buscamos en ventas (histórico real) y en clientes (padrón actual)
+    res_v = sb.table("erp_ventas_raw").select("vendedor_erp").eq("id_distribuidor", dist_id).execute()
+    res_c = sb.table("erp_clientes_raw").select("vendedor_erp").eq("id_distribuidor", dist_id).execute()
+    
+    vend_v = [row["vendedor_erp"] for row in (res_v.data or []) if row.get("vendedor_erp")]
+    vend_c = [row["vendedor_erp"] for row in (res_c.data or []) if row.get("vendedor_erp")]
+    
+    vendedores = sorted(list(set(vend_v + vend_c)))
     return vendedores
 
 @app.get("/api/admin/erp/mappings", summary="Obtener todos los mapeos ERP")

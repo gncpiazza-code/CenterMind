@@ -406,6 +406,7 @@ export interface Integrante {
   nombre_grupo: string;
   sucursal_label: string;
   id_vendedor_erp: string | null;
+  location_id: number | null;
 }
 
 export async function fetchIntegrantes(distId?: number): Promise<Integrante[]> {
@@ -685,4 +686,24 @@ export async function mapUnknownCompany(data: { nombre_erp: string; id_distribui
 
 export async function fetchOrphanVendedores(distId: number): Promise<OrphanVendedor[]> {
   return apiFetch<OrphanVendedor[]>(`/api/admin/hierarchy/vendedores-huerfanos/${distId}`);
+}
+
+// ── Interactive Hierarchy Dashboard ─────────────────────────────────────────
+
+export interface HierarchyConfig {
+  locations: Location[];
+  erp_hierarchy: { sucursal_erp: string; vendedores: string[] }[];
+  telegram_groups: { id: number; nombre: string }[];
+  integrantes: Integrante[];
+}
+
+export async function fetchHierarchyConfig(distId: number): Promise<HierarchyConfig> {
+  return apiFetch<HierarchyConfig>(`/api/admin/hierarchy-config/${distId}`);
+}
+
+export async function saveBulkHierarchy(distId: number, mappings: { id_integrante: number; location_id: number | null; id_vendedor_erp: string | null }[]) {
+  return apiFetch(`/api/admin/hierarchy-config/save/${distId}`, {
+    method: "POST",
+    body: JSON.stringify({ mappings }),
+  });
 }

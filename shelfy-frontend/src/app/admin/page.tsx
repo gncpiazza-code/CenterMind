@@ -21,7 +21,7 @@ import { ChevronLeft, ChevronRight, Lock, Unlock, Plus, Trash2, Edit2, Shield, S
 
 import dynamic from "next/dynamic";
 const TabSucursales = dynamic(() => import("./TabSucursales"), { ssr: false });
-const HierarchyWizard = dynamic(() => import("./HierarchyWizard"), { ssr: false });
+const InteractiveHierarchy = dynamic(() => import("./InteractiveHierarchy"), { ssr: false });
 
 
 const ROL_LABEL: Record<string, string> = {
@@ -997,7 +997,7 @@ export default function AdminPage() {
             <TabDistribuidoras />
           )}
           {tab === "hierarchy" && (
-            <HierarchyWizard distId={user?.id_distribuidor || 0} />
+            <InteractiveHierarchy distId={user?.id_distribuidor || 0} />
           )}
           {tab === "integrantes" && (
             <TabIntegrantes isSuperadmin={isSuperadmin} distId={user?.id_distribuidor || 0} />

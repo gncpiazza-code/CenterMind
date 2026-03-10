@@ -19,7 +19,7 @@ interface NavItem {
 const ALL_NAV: NavItem[] = [
   { href: "/visor", label: "Evaluar", icon: Eye, roles: ["superadmin", "admin", "supervisor"] },
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["superadmin", "admin", "supervisor"] },
-  { href: "/bonos", label: "Bonos", icon: Gift, roles: ["superadmin", "admin"] },
+  { href: "/bonos", label: "Bonos", icon: Gift, roles: ["superadmin"] },
   {
     href: "/reportes",
     label: "Central de Reportes",
@@ -35,12 +35,9 @@ const ALL_NAV: NavItem[] = [
     href: "/academy-hub",
     label: "Real Academy",
     icon: GraduationCap,
-    roles: ["superadmin", "admin", "supervisor"],
-    subItems: [
-      { href: "/academy/aula-virtual", label: "Aula Virtual", icon: GraduationCap, roles: ["superadmin", "admin"] }
-    ]
+    roles: ["superadmin"]
   },
-  { href: "/admin", label: "Administrar", icon: Users, roles: ["superadmin", "admin"] },
+  { href: "/admin", label: "Administrar", icon: Users, roles: ["superadmin"] },
   {
     href: "/admin/dashboard",
     label: "Panel Global",

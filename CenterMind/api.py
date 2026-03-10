@@ -1430,6 +1430,14 @@ def bonos_detalle(id_distribuidor: int, id_integrante: int, anio: int, mes: int,
 class AsignarVendedorRequest(BaseModel):
     id_integrante: int | None = None   # None = desasignar (poner NULL)
 
+class MappingItem(BaseModel):
+    id_integrante: int
+    location_id: int | None = None
+    id_vendedor_erp: str | None = None
+
+class BulkMappingRequest(BaseModel):
+    mappings: List[MappingItem]
+
 class IntegranteCreateRequest(BaseModel):
     nombre_integrante: str
     rol_telegram: str = "vendedor"
@@ -1504,6 +1512,75 @@ def admin_vendedores_by_location(location_id: int, dist_id: int, _=Depends(verif
         "rol_telegram", "vendedor"
     ).order("nombre_integrante").execute()
     return result.data or []
+
+
+@app.get("/api/admin/hierarchy-config/{dist_id}", summary="Configuración de jerarquía consolidada")
+def get_hierarchy_config(dist_id: int, _=Depends(verify_auth)):
+    """
+    Retorna toda la info necesaria para el tablero de jerarquías interactivo:
+    - Sucursales actuales (locations)
+    - Jerarquía detectada en el ERP (erp_clientes_raw)
+    - Grupos de Telegram activos
+    - Integrantes vinculados y por vincular
+    """
+    try:
+        # 1. Locations
+        locs = sb.table("locations").select("location_id, label").eq("dist_id", dist_id).execute()
+        
+        # 2. ERP Hierarchy (Unique sucursal_erp and vendedor_erp)
+        erp_data = sb.table("erp_clientes_raw").select("sucursal_erp, vendedor_erp").eq("id_distribuidor", dist_id).eq("estado", "activo").execute()
+        
+        erp_hierarchy = {}
+        for row in (erp_data.data or []):
+            s_erp = str(row.get("sucursal_erp", "")).strip().upper()
+            v_erp = str(row.get("vendedor_erp", "")).strip().upper()
+            if not s_erp or s_erp == "NAN" or not v_erp or v_erp == "NAN": continue
+            if s_erp not in erp_hierarchy: erp_hierarchy[s_erp] = set()
+            erp_hierarchy[s_erp].add(v_erp)
+        
+        # Convert set to list for JSON
+        formatted_erp = [{"sucursal_erp": k, "vendedores": sorted(list(v))} for k, v in erp_hierarchy.items()]
+
+        # 3. Telegram Groups
+        groups = sb.table("integrantes_grupo").select("telegram_group_id, nombre_grupo").eq("id_distribuidor", dist_id).execute()
+        # Unique groups
+        seen_groups = {}
+        for g in (groups.data or []):
+            gid = g.get("telegram_group_id")
+            if gid and gid not in seen_groups:
+                seen_groups[gid] = g.get("nombre_grupo") or f"Grupo {gid}"
+        
+        formatted_groups = [{"id": k, "nombre": v} for k, v in seen_groups.items()]
+
+        # 4. Integrantes (all for mapping)
+        integrantes = sb.table("integrantes_grupo").select("id_integrante, nombre_integrante, id_vendedor_erp, location_id, telegram_group_id").eq("id_distribuidor", dist_id).execute()
+
+        return {
+            "locations": locs.data or [],
+            "erp_hierarchy": formatted_erp,
+            "telegram_groups": formatted_groups,
+            "integrantes": integrantes.data or []
+        }
+    except Exception as e:
+        logger.error(f"Error fetching hierarchy config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/admin/hierarchy-config/save/{dist_id}", summary="Guardado masivo de jerarquía")
+def save_hierarchy_config(dist_id: int, req: BulkMappingRequest, _=Depends(verify_auth)):
+    """
+    Guarda múltiples mapeos de una sola vez.
+    """
+    try:
+        for item in req.mappings:
+            sb.table("integrantes_grupo").update({
+                "location_id": item.location_id,
+                "id_vendedor_erp": item.id_vendedor_erp
+            }).eq("id_integrante", item.id_integrante).eq("id_distribuidor", dist_id).execute()
+        
+        return {"ok": True, "message": f"Se procesaron {len(req.mappings)} mapeos."}
+    except Exception as e:
+        logger.error(f"Error saving hierarchy config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/admin/clientes", summary="Clientes con filtros en cascada")

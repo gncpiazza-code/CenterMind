@@ -10,8 +10,8 @@ def test_conn():
     
     # Combinations to test
     configs = [
+        {"host": "aws-0-us-east-1.pooler.supabase.com", "port": 6543, "user": f"postgres.{project_ref}"},
         {"host": "aws-0-sa-east-1.pooler.supabase.com", "port": 6543, "user": f"postgres.{project_ref}"},
-        {"host": "aws-0-sa-east-1.pooler.supabase.com", "port": 5432, "user": f"postgres.{project_ref}"},
     ]
     
     for cfg in configs:

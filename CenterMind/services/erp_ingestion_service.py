@@ -28,110 +28,102 @@ class ERPIngestionService:
             logger.error(f"Error cargando mapeos ERP: {e}")
 
     def ingest_clientes(self, file_source):
-        """Procesa el Excel de Padrón de Clientes y lo guarda en erp_clientes_raw.
-        'file_source' puede ser un path (str) o un objeto file-like (BytesIO).
-        """
-        logger.info("Iniciando ingesta de clientes...")
-        df = pd.read_excel(file_source)
+        """Procesa el Excel de Padrón de Clientes (Manual) con mapeo flexible."""
+        logger.info("Iniciando ingesta manual de clientes...")
+        df = pd.read_excel(file_source, dtype=str)
         
-        # 1. Identificar columnas necesarias
-        col_empresa = "dsempresa"
-        col_id_erp   = "idcliente"
-        col_nombre   = "nomcli"
-        col_fantasia = "fantacli"
-        col_vendedor = "d_vendedor"
-        col_sucursal = "dssucur"
-        col_id_sucursal = "idsucur"
-        col_id_int   = "IdClienteInterno"
-        col_lat      = "ycoord"
-        col_lon      = "xcoord"
-        col_pago     = "FormaPago"
+        # Mapeo flexible idéntico al del Push para consistencia
+        c_id = self._get_flexible_col(df, ["idcliente", "id_cliente", "codi_cliente", "cliente_id"])
+        c_nom = self._get_flexible_col(df, ["nomcli", "nombre", "nombre_cliente"])
+        c_fan = self._get_flexible_col(df, ["fantacli", "fantasia", "nombre_fantasia"])
+        c_vend = self._get_flexible_col(df, ["dsvendedor", "vendedor", "d_vendedor"])
+        c_suc = self._get_flexible_col(df, ["dssucur", "sucursal", "sucursal_nombre"])
+        c_id_suc = self._get_flexible_col(df, ["idsucur", "id_sucursal"])
+        c_lat = self._get_flexible_col(df, ["ycoord", "lat"])
+        c_lon = self._get_flexible_col(df, ["xcoord", "lon"])
+        c_dir = self._get_flexible_col(df, ["domicli", "direccion", "domicilio"])
+        c_loc = self._get_flexible_col(df, ["descloca", "localidad"])
+        c_prov = self._get_flexible_col(df, ["desprovincia", "provincia"])
+        c_ruta = self._get_flexible_col(df, ["ruta", "nro_ruta"])
+        c_alta = self._get_flexible_col(df, ["fecalta", "fecha_alta"])
+        c_ult = self._get_flexible_col(df, ["fecha_ultima_compra", "fec_ult"])
+        c_tel = self._get_flexible_col(df, ["telefos", "telefono"])
+        c_mov = self._get_flexible_col(df, ["movil", "celular"])
+        c_canal = self._get_flexible_col(df, ["descanal", "canal"])
+        c_subc = self._get_flexible_col(df, ["dessubcanal", "subcanal"])
         
-        # Nuevas columnas de enriquecimiento
-        col_alta      = "fecalta"
-        col_ult_com   = "fecha_ultima_compra"
-        col_localidad = "descloca"
-        col_provincia = "desprovincia"
-        col_domicilio = "domicli" # Nombre exacto en el Excel del ERP
-        col_telefono  = "telefos"
-        col_movil     = "movil"
-        col_ruta      = "ruta"
-
         # Usamos un diccionario para deduplicar: clave = (dist_id, id_local)
         records_to_upsert: Dict[tuple, Dict[str, Any]] = {}
         
         for _, row in df.iterrows():
-            nombre_empresa_erp = str(row.get(col_empresa, "")).strip().lower()
+            # En la carga manual, la empresa viene en una columna (ej: 'dsempresa')
+            # y usamos el mapping interno para saber qué dist_id es.
+            c_emp = self._get_flexible_col(df, ["dsempresa", "empresa", "distribuidora"])
+            nombre_empresa_erp = str(row.get(c_emp, "")).strip().lower()
             dist_id = self.mapping.get(nombre_empresa_erp)
             
             if not dist_id:
-                # PASO 2: Captura de empresas desconocidas
                 sb.table("erp_empresas_desconocidas").upsert(
-                    {"nombre_erp": str(row.get(col_empresa, "DESCONOCIDA")).strip()},
+                    {"nombre_erp": nombre_empresa_erp or "DESCONOCIDA"},
                     on_conflict="nombre_erp"
                 ).execute()
-                logger.error(f"CRÍTICO: Empresa '{row.get(col_empresa)}' desconocida. Abortando fila.")
                 continue
 
-            id_local = str(row.get(col_id_erp))
+            id_local = str(row.get(c_id, "")).strip()
+            if not id_local or id_local.lower() in ("nan", "none", "null"): continue
             
-            # Parsing de fechas
+            # Parsing fechas
             f_alta = None
-            if row.get(col_alta):
-                try: f_alta = pd.to_datetime(row[col_alta], dayfirst=True, errors='coerce').strftime("%Y-%m-%d")
+            if c_alta and row.get(c_alta):
+                try: f_alta = pd.to_datetime(row[c_alta], dayfirst=True, errors='coerce').strftime("%Y-%m-%d")
                 except: pass
             
             f_ult = None
-            if row.get(col_ult_com):
-                try: f_ult = pd.to_datetime(row[col_ult_com], dayfirst=True, errors='coerce').strftime("%Y-%m-%d")
+            if c_ult and row.get(c_ult):
+                try: f_ult = pd.to_datetime(row[c_ult], dayfirst=True, errors='coerce').strftime("%Y-%m-%d")
                 except: pass
 
             record = {
                 "id_distribuidor": dist_id,
                 "id_cliente_erp_local": id_local,
-                "id_cliente_interno": str(row.get(col_id_int, "")).strip(),
-                "nombre_cliente": str(row.get(col_nombre, "")).strip().upper(),
-                "nombre_fantasia": str(row.get(col_fantasia, "")).strip().upper(),
-                "vendedor_erp": str(row.get(col_vendedor, "")).strip().upper(),
-                "sucursal_erp": str(row.get(col_sucursal, "")).strip().upper(),
-                "id_sucursal_erp": str(row.get(col_id_sucursal, "")).strip(),
-                "lat": float(row.get(col_lat, 0)) if row.get(col_lat) and str(row[col_lat]).lower() != "nan" else None,
-                "lon": float(row.get(col_lon, 0)) if row.get(col_lon) and str(row[col_lon]).lower() != "nan" else None,
-                "forma_pago": str(row.get(col_pago, "")).strip().upper(),
-                # Enriquecimiento
+                "nombre_cliente": str(row.get(c_nom, "")).strip().upper() if c_nom else "SIN NOMBRE",
+                "nombre_fantasia": str(row.get(c_fan, "")).strip().upper() if c_fan else "",
+                "vendedor_erp": str(row.get(c_vend, "")).strip().upper() if c_vend else "SIN VENDEDOR",
+                "sucursal_erp": str(row.get(c_suc, "")).strip().upper() if c_suc else "CASA CENTRAL",
+                "id_sucursal_erp": str(row.get(c_id_suc, "")).strip() if c_id_suc else "0",
+                "lat": float(row.get(c_lat)) if c_lat and row.get(c_lat) and str(row[c_lat]).lower() != "nan" else None,
+                "lon": float(row.get(c_lon)) if c_lon and row.get(c_lon) and str(row[c_lon]).lower() != "nan" else None,
+                "domicilio": str(row.get(c_dir, "")).strip().upper() if c_dir else "",
+                "localidad": str(row.get(c_loc, "")).strip().upper() if c_loc else "",
+                "provincia": str(row.get(c_prov, "")).strip().upper() if c_prov else "",
+                "ruta": str(row.get(c_ruta, "")).strip().upper() if c_ruta else None,
+                "canal": str(row.get(c_canal, "")).strip().upper() if c_canal else None,
+                "subcanal": str(row.get(c_subc, "")).strip().upper() if c_subc else None,
+                "telefono": str(row.get(c_tel, "")).strip() if c_tel else None,
+                "movil": str(row.get(c_mov, "")).strip() if c_mov else None,
                 "fecha_alta": f_alta,
                 "fecha_ultima_compra": f_ult,
-                "localidad": str(row.get(col_localidad, "")).strip().upper(),
-                "provincia": str(row.get(col_provincia, "")).strip().upper(),
-                "domicilio": str(row.get(col_domicilio, "")).strip().upper(),
-                "telefono": str(row.get(col_telefono, "")).strip(),
-                "movil": str(row.get(col_movil, "")).strip(),
-                "ruta": str(row.get(col_ruta, "")).strip().upper(),
                 "estado": "activo",
                 "updated_at": datetime.now().isoformat()
             }
-            # Sobreescribimos si ya existe el mismo cliente en este batch
             records_to_upsert[(dist_id, id_local)] = record
 
         final_records = list(records_to_upsert.values())
 
         if final_records:
             try:
-                sb.table("erp_clientes_raw").upsert(
-                    final_records, 
-                    on_conflict="id_distribuidor, id_cliente_erp_local"
-                ).execute()
+                sb.table("erp_clientes_raw").upsert(final_records, on_conflict="id_distribuidor, id_cliente_erp_local").execute()
                 
-                # Baja Lógica: Identificar qué distribuidores vinieron en este archivo
+                # Baja Lógica
                 dists_in_file = set(r["id_distribuidor"] for r in final_records)
                 for d_id in dists_in_file:
                     current_ids = [r["id_cliente_erp_local"] for r in final_records if r["id_distribuidor"] == d_id]
                     self._logical_delete("erp_clientes_raw", d_id, "id_cliente_erp_local", current_ids)
                 
-                logger.info(f"✅ Clientes ERP: {len(final_records)} registros procesados (deduplicados + bajas lógicas).")
+                logger.info(f"✅ Clientes ERP (Manual): {len(final_records)} procesados.")
                 return len(final_records)
             except Exception as e:
-                logger.error(f"Error en upsert de clientes: {e}")
+                logger.error(f"Error en upsert manual de clientes: {e}")
                 raise e
         return 0
 
@@ -241,23 +233,41 @@ class ERPIngestionService:
     # ════════════════════════════════════════════════════════════════
 
     def ingest_clientes_xlsx(self, file_source, dist_id: int):
-        """Ingesta de clientes via Excel con mapeo flexible."""
+        """Ingesta de clientes via Excel con mapeo flexible y metadatos extendidos."""
         logger.info(f"Iniciando ingesta Excel de clientes para dist {dist_id}...")
         try:
             df = pd.read_excel(file_source, dtype=str)
             
-            # Mapeo flexible de columnas
-            c_id = self._get_flexible_col(df, ["id_cliente", "idcliente", "codi_cliente", "cliente_id", "numero_cliente_local"])
-            c_nom = self._get_flexible_col(df, ["nombre", "nomcli", "nombre_cliente", "razon_social"])
-            c_fan = self._get_flexible_col(df, ["fantasia", "fantacli", "nombre_fantasia"])
-            c_vend = self._get_flexible_col(df, ["vendedor", "d_vendedor", "vendedor_nombre", "dsvendedor"])
-            c_suc = self._get_flexible_col(df, ["sucursal", "dssucur", "sucursal_nombre", "nombre_sucursal"])
-            c_id_suc = self._get_flexible_col(df, ["id_sucursal", "idsucur", "sucursal_id"])
-            c_lat = self._get_flexible_col(df, ["lat", "ycoord", "latitud"])
-            c_lon = self._get_flexible_col(df, ["lon", "xcoord", "longitud"])
-            c_dir = self._get_flexible_col(df, ["direccion", "domicli", "domicilio"])
-            c_loc = self._get_flexible_col(df, ["localidad", "descloca"])
-            c_prov = self._get_flexible_col(df, ["provincia", "desprovincia"])
+            # Mapeo flexible de columnas basado en el ERP de Cigarrillera
+            c_id = self._get_flexible_col(df, ["idcliente", "id_cliente", "codi_cliente", "cliente_id", "numero_cliente_local"])
+            c_nom = self._get_flexible_col(df, ["nomcli", "nombre", "nombre_cliente", "razon_social"])
+            c_fan = self._get_flexible_col(df, ["fantacli", "fantasia", "nombre_fantasia"])
+            c_vend = self._get_flexible_col(df, ["dsvendedor", "vendedor", "d_vendedor", "vendedor_nombre"])
+            c_suc = self._get_flexible_col(df, ["dssucur", "sucursal", "sucursal_nombre", "nombre_sucursal"])
+            c_id_suc = self._get_flexible_col(df, ["idsucur", "id_sucursal", "sucursal_id"])
+            c_lat = self._get_flexible_col(df, ["ycoord", "lat", "latitud"])
+            c_lon = self._get_flexible_col(df, ["xcoord", "lon", "longitud"])
+            c_dir = self._get_flexible_col(df, ["domicli", "direccion", "domicilio"])
+            c_loc = self._get_flexible_col(df, ["descloca", "localidad"])
+            c_prov = self._get_flexible_col(df, ["desprovincia", "provincia"])
+            
+            # Metadata extendida (Ruteo, Segmentación, Contacto)
+            c_ruta = self._get_flexible_col(df, ["ruta", "nro_ruta"])
+            c_alta = self._get_flexible_col(df, ["fecalta", "fec_alta", "fecha_alta"])
+            c_ult = self._get_flexible_col(df, ["fecha_ultima_compra", "fec_ult"])
+            c_tel = self._get_flexible_col(df, ["telefos", "telefono"])
+            c_mov = self._get_flexible_col(df, ["movil", "celular"])
+            c_canal = self._get_flexible_col(df, ["descanal", "canal", "canal_venta"])
+            c_subc = self._get_flexible_col(df, ["dessubcanal", "subcanal"])
+            
+            # Días de visita
+            c_lun = self._get_flexible_col(df, ["lunes", "lun"])
+            c_mar = self._get_flexible_col(df, ["martes", "mar"])
+            c_mie = self._get_flexible_col(df, ["miercoles", "mie"])
+            c_jue = self._get_flexible_col(df, ["jueves", "jue"])
+            c_vie = self._get_flexible_col(df, ["viernes", "vie"])
+            c_sab = self._get_flexible_col(df, ["sabado", "sab"])
+            c_dom = self._get_flexible_col(df, ["domingo", "dom"])
 
             records = []
             current_ids = []
@@ -266,6 +276,18 @@ class ERPIngestionService:
                 if not id_erp or id_erp.lower() in ("nan", "none", "null"): continue
                 
                 current_ids.append(id_erp)
+                
+                # Parsing fechas
+                f_alta = None
+                if c_alta and row.get(c_alta):
+                    try: f_alta = pd.to_datetime(row[c_alta], dayfirst=True, errors='coerce').strftime("%Y-%m-%d")
+                    except: pass
+                
+                f_ult = None
+                if c_ult and row.get(c_ult):
+                    try: f_ult = pd.to_datetime(row[c_ult], dayfirst=True, errors='coerce').strftime("%Y-%m-%d")
+                    except: pass
+
                 records.append({
                     "id_distribuidor": dist_id,
                     "id_cliente_erp_local": id_erp,
@@ -279,6 +301,20 @@ class ERPIngestionService:
                     "domicilio": str(row.get(c_dir, "")).strip().upper() if c_dir else "",
                     "localidad": str(row.get(c_loc, "")).strip().upper() if c_loc else "",
                     "provincia": str(row.get(c_prov, "")).strip().upper() if c_prov else "",
+                    "ruta": str(row.get(c_ruta, "")).strip().upper() if c_ruta else None,
+                    "canal": str(row.get(c_canal, "")).strip().upper() if c_canal else None,
+                    "subcanal": str(row.get(c_subc, "")).strip().upper() if c_subc else None,
+                    "telefono": str(row.get(c_tel, "")).strip() if c_tel else None,
+                    "movil": str(row.get(c_mov, "")).strip() if c_mov else None,
+                    "fecha_alta": f_alta,
+                    "fecha_ultima_compra": f_ult,
+                    "visita_lunes": str(row.get(c_lun, "")).strip().upper() if c_lun else "NO",
+                    "visita_martes": str(row.get(c_mar, "")).strip().upper() if c_mar else "NO",
+                    "visita_miercoles": str(row.get(c_mie, "")).strip().upper() if c_mie else "NO",
+                    "visita_jueves": str(row.get(c_jue, "")).strip().upper() if c_jue else "NO",
+                    "visita_viernes": str(row.get(c_vie, "")).strip().upper() if c_vie else "NO",
+                    "visita_sabado": str(row.get(c_sab, "")).strip().upper() if c_sab else "NO",
+                    "visita_domingo": str(row.get(c_dom, "")).strip().upper() if c_dom else "NO",
                     "estado": "activo",
                     "updated_at": datetime.now().isoformat()
                 })

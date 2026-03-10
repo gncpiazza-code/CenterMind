@@ -624,7 +624,70 @@ class ERPIngestionService:
             else:
                 logger.info(f"Todas las sucursales ERP ({len(erp_subs)}) ya están registradas en 'locations'.")
 
+            # 4. Vincular Vendedores a sus sucursales automáticamente
+            self._sync_vendedor_locations(dist_id)
+
         except Exception as e:
             logger.error(f"Error en _sync_erp_branches_to_locations: {e}")
+
+    def _sync_vendedor_locations(self, dist_id: int):
+        """
+        Asigna automáticamente la sucursal (location_id) a los integrantes_grupo
+        basándose en el padrón de clientes (erp_clientes_raw).
+        """
+        try:
+            # 1. Obtener mapeo Vendedor ERP -> Sucursal ERP (la más frecuente)
+            res_erp = sb.table("erp_clientes_raw")\
+                .select("vendedor_erp, sucursal_erp")\
+                .eq("id_distribuidor", dist_id)\
+                .eq("estado", "activo")\
+                .execute()
+            
+            if not res_erp.data:
+                return
+
+            # Mapeo: {Vendedor: {Sucursal: Cuenta}}
+            counts = {}
+            for row in res_erp.data:
+                v = str(row.get("vendedor_erp", "")).strip().upper()
+                s = str(row.get("sucursal_erp", "")).strip().upper()
+                if not v or v == "NAN" or not s or s == "NAN": continue
+                if v not in counts: counts[v] = {}
+                counts[v][s] = counts[v].get(s, 0) + 1
+            
+            if not counts: return
+
+            # Ganador por vendedor
+            vendedor_sucursal_map = {}
+            for v, s_counts in counts.items():
+                winner = max(s_counts, key=s_counts.get)
+                vendedor_sucursal_map[v] = winner
+
+            # 2. Obtener mapping de Sucursal Label -> location_id
+            res_loc = sb.table("locations").select("location_id, label").eq("dist_id", dist_id).execute()
+            label_to_id = {str(row["label"]).strip().upper(): row["location_id"] for row in res_loc.data}
+
+            # 3. Obtener integrantes que tienen mapeado un vendedor ERP
+            res_int = sb.table("integrantes_grupo")\
+                .select("id_integrante, id_vendedor_erp, location_id")\
+                .eq("id_distribuidor", dist_id)\
+                .execute()
+            
+            for row in (res_int.data or []):
+                id_v_erp = row.get("id_vendedor_erp")
+                if not id_v_erp: continue
+                
+                v_erp = str(id_v_erp).strip().upper()
+                current_loc = row.get("location_id")
+                
+                target_label = vendedor_sucursal_map.get(v_erp)
+                target_loc_id = label_to_id.get(target_label)
+                
+                if target_loc_id and target_loc_id != current_loc:
+                    logger.info(f"Auto-vinculando integrante {row['id_integrante']} ({v_erp}) -> sucursal {target_label} ({target_loc_id})")
+                    sb.table("integrantes_grupo").update({"location_id": target_loc_id}).eq("id_integrante", row["id_integrante"]).execute()
+
+        except Exception as e:
+            logger.error(f"Error en _sync_vendedor_locations: {e}")
 
 erp_service = ERPIngestionService()

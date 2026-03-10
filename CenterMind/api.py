@@ -580,11 +580,12 @@ def get_live_map_events(minutos: int | None = None, fecha: str | None = None, us
             local_id = internal_clients.get(e["id_cliente"]) or e.get("cliente_sombra_codigo")
             erp_data = erp_map.get((e["id_distribuidor"], str(local_id))) if local_id else None
 
-            # Coalesce Lat/Lon: GPS > ERP
-            lat = e.get("latitud_gps")
-            lon = e.get("longitud_gps")
-            if (lat is None or lat == 0) and erp_data:
-                lat, lon = erp_data.get("lat"), erp_data.get("lon")
+            # Coalesce Lat/Lon: EXCLUSIVAMENTE ERP (según orden del usuario)
+            if not erp_data:
+                continue
+                
+            lat = erp_data.get("lat")
+            lon = erp_data.get("lon")
 
             if lat is None or lat == 0:
                 continue

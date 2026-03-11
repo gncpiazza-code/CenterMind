@@ -1631,14 +1631,12 @@ def admin_vendedores_by_location(location_id: str, dist_id: int, _=Depends(verif
 @app.get("/api/admin/hierarchy-config/{dist_id}", summary="Configuración de jerarquía consolidada")
 def get_hierarchy_config(dist_id: int, _=Depends(verify_auth)):
     """
-    Retorna toda la info necesaria para el tablero de jerarquías interactivo:
-    - Sucursales actuales (locations)
-    - Jerarquía detectada en el ERP (erp_clientes_raw)
-    - Grupos de Telegram activos
-    - Integrantes vinculados y por vincular
     """
     try:
+        # We will keep get_hierarchy_config for backwards compatibility momentarily,
+        # but the new unified dashboard endpoint handles the whole tree.
         # 1. Locations from Maestro
+
         loc_res = sb.table("maestro_jerarquia").select("SUCURSAL, \"id suc\"").eq("ID_DIST", dist_id).execute()
         seen_locs = set()
         formatted_locs = []
@@ -1711,6 +1709,98 @@ def save_hierarchy_config(dist_id: int, req: BulkMappingRequest, _=Depends(verif
         return {"ok": True, "message": f"Se procesaron {len(req.mappings)} mapeos."}
     except Exception as e:
         logger.error(f"Error saving hierarchy config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/admin/unified-dashboard", summary="Dashboard unificado ERP 3.0")
+def get_unified_dashboard(_=Depends(verify_auth)):
+    """
+    Retorna la estructura jerárquica completa para el nuevo frontend unificado.
+    Distribuidor -> Sucursal -> Vendedor -> Usuarios Telegram
+    """
+    try:
+        # 1. Fetch Distribuidores
+        dist_res = sb.table("distribuidores").select("id_distribuidor, nombre_empresa, api_key").execute()
+        distribuidores = dist_res.data or []
+        
+        # 2. Fetch ERP Mappings
+        map_res = sb.table("erp_empresa_mapping").select("nombre_erp, id_distribuidor").execute()
+        mappings = {row["id_distribuidor"]: row["nombre_erp"] for row in (map_res.data or [])}
+        
+        # 3. Fetch Sucursales ERP
+        suc_res = sb.table("erp_sucursales").select("id_distribuidor, nombre_sucursal").execute()
+        sucursales_db = suc_res.data or []
+        
+        # 4. Fetch Fuerza de Ventas ERP
+        ven_res = sb.table("erp_fuerza_ventas").select("id_distribuidor, nombre_sucursal, nombre_vendedor").execute()
+        vendedores_db = ven_res.data or []
+        
+        # 5. Fetch Integrantes Grupo
+        int_res = sb.table("integrantes_grupo").select("id_integrante, id_distribuidor, nombre_integrante, id_vendedor_erp, rol_telegram, telegram_group_id").execute()
+        integrantes_db = int_res.data or []
+
+        result = []
+        for dist in distribuidores:
+            did = dist["id_distribuidor"]
+            dist_data = {
+                "id_distribuidor": did,
+                "nombre_empresa": dist["nombre_empresa"],
+                "token": dist.get("api_key", ""),
+                "erp_mapping_name": mappings.get(did, ""),
+                "sucursales": [],
+                "unmapped_integrantes": []
+            }
+            
+            # Build Sucursales
+            suc_list = [s for s in sucursales_db if s["id_distribuidor"] == did]
+            ven_list = [v for v in vendedores_db if v["id_distribuidor"] == did]
+            int_list = [i for i in integrantes_db if i["id_distribuidor"] == did]
+            
+            for suc in suc_list:
+                s_name = suc["nombre_sucursal"]
+                suc_data = {
+                    "nombre_sucursal": s_name,
+                    "vendedores": []
+                }
+                
+                # Build Vendedores
+                s_vendedores = [v for v in ven_list if v["nombre_sucursal"] == s_name]
+                for ven in s_vendedores:
+                    v_name = ven["nombre_vendedor"]
+                    ven_data = {
+                        "id_vendedor_erp": v_name,
+                        "integrantes": []
+                    }
+                    
+                    # Assigned Integrantes
+                    assigned = [i for i in int_list if i.get("id_vendedor_erp") == v_name]
+                    for a in assigned:
+                        ven_data["integrantes"].append({
+                            "id_integrante": a["id_integrante"],
+                            "nombre": a["nombre_integrante"],
+                            "rol_telegram": a["rol_telegram"],
+                            "telegram_group_id": a["telegram_group_id"]
+                        })
+                    
+                    suc_data["vendedores"].append(ven_data)
+                
+                dist_data["sucursales"].append(suc_data)
+                
+            # Unmapped Integrantes
+            unmapped = [i for i in int_list if not i.get("id_vendedor_erp")]
+            for u in unmapped:
+                dist_data["unmapped_integrantes"].append({
+                    "id_integrante": u["id_integrante"],
+                    "nombre": u["nombre_integrante"],
+                    "rol_telegram": u["rol_telegram"],
+                    "telegram_group_id": u["telegram_group_id"]
+                })
+                
+            result.append(dist_data)
+            
+        return result
+    except Exception as e:
+        logger.error(f"Error fetching unified dashboard: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

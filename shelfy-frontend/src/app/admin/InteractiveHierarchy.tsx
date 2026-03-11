@@ -71,10 +71,29 @@ export default function InteractiveHierarchy({ distId }: { distId: number }) {
     };
 
     const updateMapping = (id: number, field: "location_id" | "id_vendedor_erp", value: any) => {
-        setMappings(prev => ({
-            ...prev,
-            [id]: { ...prev[id], [field]: value }
-        }));
+        setMappings(prev => {
+            const current = prev[id] || { location_id: null, id_vendedor_erp: null };
+            let newLocation = current.location_id;
+            let newVendor = current.id_vendedor_erp;
+
+            if (field === "id_vendedor_erp") {
+                newVendor = value;
+                // Auto-infer location_id from config
+                if (value && config) {
+                    const branch = config.erp_hierarchy.find(b => b.vendedores.includes(value));
+                    if (branch) newLocation = branch.sucursal_erp;
+                } else {
+                    newLocation = null;
+                }
+            } else {
+                newLocation = value;
+            }
+
+            return {
+                ...prev,
+                [id]: { location_id: newLocation, id_vendedor_erp: newVendor }
+            };
+        });
     };
 
     const suggestMappings = () => {
@@ -207,8 +226,8 @@ export default function InteractiveHierarchy({ distId }: { distId: number }) {
                             <thead className="bg-slate-50/50 text-slate-400 text-[10px] uppercase font-black tracking-[0.1em]">
                                 <tr>
                                     <th className="px-8 py-5">Usuario Telegram</th>
-                                    <th className="px-8 py-5">Sucursal Shelfy</th>
-                                    <th className="px-8 py-5">Vínculo ERP</th>
+                                    <th className="px-8 py-5">Sucursal Inferida</th>
+                                    <th className="px-8 py-5">Vínculo Vendedor ERP</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
@@ -233,16 +252,9 @@ export default function InteractiveHierarchy({ distId }: { distId: number }) {
                                                 </div>
                                             </td>
                                             <td className="px-8 py-6">
-                                                <select
-                                                    className="w-full text-xs font-bold bg-slate-50 hover:bg-white border-2 border-transparent hover:border-violet-100 rounded-2xl px-5 py-3 outline-none focus:ring-4 focus:ring-violet-500/10 transition-all cursor-pointer appearance-none"
-                                                    value={m.location_id || ""}
-                                                    onChange={e => updateMapping(int.id_integrante, "location_id", e.target.value || null)}
-                                                >
-                                                    <option value="">-- Sin Sucursal --</option>
-                                                    {config.locations.map(loc => (
-                                                        <option key={loc.location_id} value={loc.location_id}>{loc.label}</option>
-                                                    ))}
-                                                </select>
+                                                <div className="w-full text-xs font-bold text-slate-400 bg-slate-50 border-2 border-transparent rounded-2xl px-5 py-3 cursor-not-allowed">
+                                                    {m.location_id || "-- Autocompletado --"}
+                                                </div>
                                             </td>
                                             <td className="px-8 py-6">
                                                 <select

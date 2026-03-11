@@ -51,10 +51,11 @@ export interface StatsHoy {
 
 export interface VendedorRanking {
   vendedor: string;
+  puntos: number;
   aprobadas: number;
   destacadas: number;
   rechazadas: number;
-  puntos: number;
+  location_id?: string;
 }
 
 export interface UltimaEvaluada {
@@ -367,6 +368,38 @@ export async function fetchReporteExhibiciones(distId: number, query: {
   });
 }
 
+// ── Admin: Unified Dashboard (ERP 3.0) ──────────────────────────────────────
+
+export interface UnifiedTelegramUser {
+  id_integrante: number;
+  nombre: string;
+  rol_telegram: string;
+  telegram_group_id: number;
+}
+
+export interface UnifiedVendor {
+  id_vendedor_erp: string;
+  integrantes: UnifiedTelegramUser[];
+}
+
+export interface UnifiedBranch {
+  nombre_sucursal: string;
+  vendedores: UnifiedVendor[];
+}
+
+export interface UnifiedDistributor {
+  id_distribuidor: number;
+  nombre_empresa: string;
+  token: string;
+  erp_mapping_name: string;
+  sucursales: UnifiedBranch[];
+  unmapped_integrantes: UnifiedTelegramUser[];
+}
+
+export async function fetchUnifiedDashboard(): Promise<UnifiedDistributor[]> {
+  return apiFetch<UnifiedDistributor[]>("/api/admin/unified-dashboard");
+}
+
 // ── Admin: Distribuidoras (superadmin only) ──────────────────────────────────
 
 export interface Distribuidora {
@@ -421,7 +454,7 @@ export async function setRolIntegrante(id: number, rol: string, distribuidorId?:
   });
 }
 
-export async function editarIntegranteAdmin(id: number, data: { nombre_integrante: string, rol_telegram?: string, location_id?: string | null }) {
+export async function editarIntegranteAdmin(id: number, data: { nombre_integrante: string, rol_telegram?: string, location_id?: string | null, id_vendedor_erp?: string | null }) {
   return apiFetch(`/api/admin/integrantes/${id}`, {
     method: "PUT",
     body: JSON.stringify(data),

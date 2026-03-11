@@ -583,109 +583,72 @@ class ERPIngestionService:
 
     def _sync_erp_branches_to_locations(self, dist_id: int):
         """
-        Extrae sucursales únicas de erp_clientes_raw y asegura que existan en la tabla 'locations'.
-        Esto permite que aparezcan en el portal para mapeo de vendedores y filtros.
+        Método legado para sincronizar sucursales a 'locations'.
+        DEPRECATED: Ahora se usa maestro_jerarquia.
         """
-        try:
-            # 1. Obtener sucursales únicas del padrón de clientes
-            res_erp = sb.table("erp_clientes_raw")\
-                .select("sucursal_erp")\
-                .eq("id_distribuidor", dist_id)\
-                .eq("estado", "activo")\
-                .execute()
-            
-            erp_subs = set(str(row["sucursal_erp"]).strip().upper() for row in res_erp.data if row.get("sucursal_erp"))
-            if not erp_subs:
-                logger.info(f"No se encontraron sucursales en erp_clientes_raw para dist {dist_id}")
-                return
-
-            # 2. Obtener sucursales existentes en 'locations'
-            res_loc = sb.table("locations").select("label").eq("dist_id", dist_id).execute()
-            existing_labels = set(str(row["label"]).strip().upper() for row in res_loc.data if row.get("label"))
-
-            # 3. Identificar nuevas
-            new_subs = erp_subs - existing_labels
-            
-            if new_subs:
-                logger.info(f"Detectadas {len(new_subs)} nuevas sucursales ERP para sincronizar a 'locations'.")
-                for sub_name in new_subs:
-                    if not sub_name or sub_name == "NAN": continue
-                    try:
-                        sb.table("locations").insert({
-                            "dist_id": dist_id,
-                            "label": sub_name,
-                            "ciudad": "CIUDAD DEL ESTE", # Valor por defecto o placeholder
-                            "provincia": "ALTO PARANA",
-                            "lat": 0.0,
-                            "lon": 0.0
-                        }).execute()
-                    except Exception as ins_e:
-                        logger.error(f"Error insertando sucursal {sub_name}: {ins_e}")
-            else:
-                logger.info(f"Todas las sucursales ERP ({len(erp_subs)}) ya están registradas en 'locations'.")
-
-            # 4. Vincular Vendedores a sus sucursales automáticamente
-            self._sync_vendedor_locations(dist_id)
-
-        except Exception as e:
-            logger.error(f"Error en _sync_erp_branches_to_locations: {e}")
+        logger.info(f"Skipping legacy branch sync for dist {dist_id} (using maestro_jerarquia now).")
+        self._sync_vendedor_locations(dist_id)
 
     def _sync_vendedor_locations(self, dist_id: int):
         """
-        Asigna automáticamente la sucursal (location_id) a los integrantes_grupo
-        basándose en el padrón de clientes (erp_clientes_raw).
+        Asigna automáticamente la sucursal (id_sucursal_erp) a los integrantes_grupo
+        basándose en el maestro de jerarquías.
         """
         try:
-            # 1. Obtener mapeo Vendedor ERP -> Sucursal ERP (la más frecuente)
-            res_erp = sb.table("erp_clientes_raw")\
-                .select("vendedor_erp, sucursal_erp")\
-                .eq("id_distribuidor", dist_id)\
-                .eq("estado", "activo")\
-                .execute()
-            
-            if not res_erp.data:
+            # 1. Obtener mapeo Vendedor -> Sucursal desde el Maestro
+            res_maestro = sb.table("maestro_jerarquia").select("Vendedor, \"id suc\"").eq("ID_DIST", dist_id).execute()
+            if not res_maestro.data:
+                logger.warning(f"No hay jerarquía en el maestro para dist {dist_id}")
                 return
-
-            # Mapeo: {Vendedor: {Sucursal: Cuenta}}
-            counts = {}
-            for row in res_erp.data:
-                v = str(row.get("vendedor_erp", "")).strip().upper()
-                s = str(row.get("sucursal_erp", "")).strip().upper()
-                if not v or v == "NAN" or not s or s == "NAN": continue
-                if v not in counts: counts[v] = {}
-                counts[v][s] = counts[v].get(s, 0) + 1
             
-            if not counts: return
+            # Map Vendedor Name (upper) -> Sucursal ID (string)
+            import unicodedata
+            def normalize_str(text: str) -> str:
+                if not text or str(text).strip().upper() in ("NAN", "NONE", "NULL", "NA"): 
+                    return ""
+                text = str(text).strip().upper()
+                return ''.join(c for c in unicodedata.normalize('NFD', text) if unicodedata.category(c) != 'Mn')
 
-            # Ganador por vendedor
             vendedor_sucursal_map = {}
-            for v, s_counts in counts.items():
-                winner = max(s_counts, key=s_counts.get)
-                vendedor_sucursal_map[v] = winner
+            for row in res_maestro.data:
+                v_name = normalize_str(row.get("Vendedor"))
+                s_id = row.get("id suc")
+                if v_name:
+                    vendedor_sucursal_map[v_name] = str(s_id)
+                    if '-' in v_name:
+                        v_clean = v_name.split('-', 1)[1].strip()
+                        if v_clean: vendedor_sucursal_map[v_clean] = str(s_id)
 
-            # 2. Obtener mapping de Sucursal Label -> location_id
-            res_loc = sb.table("locations").select("location_id, label").eq("dist_id", dist_id).execute()
-            label_to_id = {str(row["label"]).strip().upper(): row["location_id"] for row in res_loc.data}
-
-            # 3. Obtener integrantes que tienen mapeado un vendedor ERP
+            # 2. Obtener integrantes que tienen mapeado un vendedor ERP
             res_int = sb.table("integrantes_grupo")\
-                .select("id_integrante, id_vendedor_erp, location_id")\
+                .select("id_integrante, id_vendedor_erp, id_sucursal_erp, nombre_integrante")\
                 .eq("id_distribuidor", dist_id)\
                 .execute()
             
+            updated_count = 0
             for row in (res_int.data or []):
-                id_v_erp = row.get("id_vendedor_erp")
-                if not id_v_erp: continue
+                # Intentamos matchear por id_vendedor_erp (que hoy suele ser el nombre)
+                # o por el nombre_integrante si el id_vendedor_erp está vacío
+                v_search = normalize_str(row.get("id_vendedor_erp") or row.get("nombre_integrante"))
+                if not v_search: continue
                 
-                v_erp = str(id_v_erp).strip().upper()
-                current_loc = row.get("location_id")
+                target_suc_id = None
+                if v_search in vendedor_sucursal_map:
+                    target_suc_id = vendedor_sucursal_map[v_search]
+                else:
+                    # Substring match parcial
+                    for v_key, v_val in vendedor_sucursal_map.items():
+                        if v_search in v_key or v_key in v_search:
+                            target_suc_id = v_val
+                            break
                 
-                target_label = vendedor_sucursal_map.get(v_erp)
-                target_loc_id = label_to_id.get(target_label)
-                
-                if target_loc_id and target_loc_id != current_loc:
-                    logger.info(f"Auto-vinculando integrante {row['id_integrante']} ({v_erp}) -> sucursal {target_label} ({target_loc_id})")
-                    sb.table("integrantes_grupo").update({"location_id": target_loc_id}).eq("id_integrante", row["id_integrante"]).execute()
+                if target_suc_id and target_suc_id != row.get("id_sucursal_erp"):
+                    logger.info(f"Auto-vinculando integrante {row['id_integrante']} -> sucursal {target_suc_id}")
+                    sb.table("integrantes_grupo").update({"id_sucursal_erp": target_suc_id})\
+                        .eq("id_integrante", row["id_integrante"]).execute()
+                    updated_count += 1
+            
+            logger.info(f"Sincronización de jerarquía completada: {updated_count} integrantes actualizados.")
 
         except Exception as e:
             logger.error(f"Error en _sync_vendedor_locations: {e}")

@@ -250,7 +250,7 @@ function RankingTable({
           </thead>
           <tbody>
             <AnimatePresence initial={false}>
-              {ranking.map((v, i) => (
+              {rankingFiltrado.map((v, i) => (
                 <motion.tr
                   key={v.vendedor}
                   layout
@@ -430,13 +430,9 @@ export default function DashboardPage() {
     setSucursalFiltro("");
   }
 
-  // Filtrar ranking por sucursal en cliente (usando el nombre del grupo que ya tenemos en sucursales)
+  // Filtrar ranking por sucursal en cliente
   const rankingFiltrado = sucursalFiltro
-    ? ranking.filter((v) => {
-      // Intentamos asociar por location_id si la API lo devuelve en el ranking
-      // Si no, mostramos todo (el filtro por sucursal afecta principalmente al gráfico)
-      return true;
-    })
+    ? ranking.filter((v) => v.location_id === sucursalFiltro)
     : ranking;
 
   // Título del período activo

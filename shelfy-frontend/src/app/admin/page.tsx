@@ -20,9 +20,7 @@ import {
 import { ChevronLeft, ChevronRight, Lock, Unlock, Plus, Trash2, Edit2, Shield, Search, RefreshCw, Building2, MapPin, Users, Copy, UserPlus, ToggleRight, ToggleLeft, FileSpreadsheet, UploadCloud, AlertTriangle, Network, Check } from "lucide-react";
 
 import dynamic from "next/dynamic";
-const TabSucursales = dynamic(() => import("./TabSucursales"), { ssr: false });
-const InteractiveHierarchy = dynamic(() => import("./InteractiveHierarchy"), { ssr: false });
-
+const UnifiedDashboard = dynamic(() => import("./UnifiedDashboard"), { ssr: false });
 
 const ROL_LABEL: Record<string, string> = {
   superadmin: "Super Admin",
@@ -435,13 +433,9 @@ function TabIntegrantes({ isSuperadmin, distId }: { isSuperadmin: boolean; distI
 
   const load = () => {
     setLoading(true);
-    Promise.all([
-      fetchIntegrantes(isSuperadmin ? undefined : distId),
-      fetchLocations(isSuperadmin ? 0 : distId)
-    ])
-      .then(([ints, locs]) => {
+    fetchIntegrantes(isSuperadmin ? undefined : distId)
+      .then((ints) => {
         setIntegrantes(ints);
-        setLocations(locs);
       })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
@@ -475,20 +469,6 @@ function TabIntegrantes({ isSuperadmin, distId }: { isSuperadmin: boolean; distI
       load();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Error al editar nombre");
-    } finally {
-      setChangingId(null);
-    }
-  }
-
-  async function handleAsignarSucursal(id: number, locationIdStr: string) {
-    setChangingId(id);
-    setError(null);
-    const location_id = locationIdStr || null;
-    try {
-      await editarIntegranteAdmin(id, { nombre_integrante: integrantes.find(i => i.id_integrante === id)!.nombre_integrante, location_id });
-      load();
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Error al asignar sucursal");
     } finally {
       setChangingId(null);
     }
@@ -529,8 +509,6 @@ function TabIntegrantes({ isSuperadmin, distId }: { isSuperadmin: boolean; distI
                 <tr className="text-[var(--shelfy-muted)] text-left border-b border-[var(--shelfy-border)]">
                   <th className="pb-3 pr-4">Nombre / Alias</th>
                   {isSuperadmin && <th className="pb-3 pr-4">Distribuidora</th>}
-                  <th className="pb-3 pr-4">Sucursal</th>
-                  <th className="pb-3 pr-4">ID ERP (Vendedor)</th>
                   <th className="pb-3 pr-4">Grupo Tel.</th>
                   <th className="pb-3 pr-4">Rol en App</th>
                   <th className="pb-3 w-8"></th>
@@ -541,8 +519,6 @@ function TabIntegrantes({ isSuperadmin, distId }: { isSuperadmin: boolean; distI
                   const q = searchQuery.toLowerCase();
                   return (ig.nombre_integrante || "").toLowerCase().includes(q) ||
                     (ig.nombre_empresa || "").toLowerCase().includes(q) ||
-                    (ig.sucursal_label || "").toLowerCase().includes(q) ||
-                    (ig.id_vendedor_erp || "").toLowerCase().includes(q) ||
                     (ig.nombre_grupo || "").toLowerCase().includes(q) ||
                     (ig.rol_telegram || "").toLowerCase().includes(q);
                 }).map((ig) => (
@@ -577,24 +553,6 @@ function TabIntegrantes({ isSuperadmin, distId }: { isSuperadmin: boolean; distI
 
                     {isSuperadmin && <td className="py-3 pr-4 text-[var(--shelfy-muted)] text-xs">{ig.nombre_empresa}</td>}
 
-                    <td className="py-3 pr-4">
-                      <select
-                        value={ig.location_id || ""}
-                        disabled={changingId === ig.id_integrante}
-                        onChange={(e) => handleAsignarSucursal(ig.id_integrante, e.target.value)}
-                        className="rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-[var(--shelfy-text)] px-2 py-1 text-xs focus:outline-none focus:border-[var(--shelfy-primary)] max-w-[140px]"
-                      >
-                        <option value="">-- Sin sucursal --</option>
-                        {locations.map((loc) => (
-                          <option key={loc.location_id} value={loc.location_id}>{loc.label}</option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="py-3 pr-4">
-                      <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-slate-100 border border-slate-200 text-[10px] font-bold text-slate-600 w-fit">
-                        {ig.id_vendedor_erp || "—"}
-                      </div>
-                    </td>
                     <td className="py-3 pr-4 text-[var(--shelfy-muted)] text-xs">{ig.nombre_grupo || ig.telegram_group_id || "—"}</td>
 
                     <td className="py-3 pr-4">
@@ -948,15 +906,11 @@ export default function AdminPage() {
   const isSuperadmin = user?.rol === "superadmin";
 
   const TABS = [
-    { id: "usuarios", label: "Usuarios", icon: Shield },
-    { id: "hierarchy", label: "Jerarquía", icon: Network },
-    { id: "integrantes", label: "Integrantes", icon: Users },
-    { id: "sucursales", label: "Sucursales", icon: MapPin },
-    { id: "erp", label: "ERP", icon: FileSpreadsheet },
-    ...(isSuperadmin ? [{ id: "distribuidoras", label: "Distribuidoras", icon: Building2 }] : []),
+    { id: "jerarquia_global", label: "Jerarquía Global", icon: Network },
+    { id: "usuarios", label: "Usuarios Admin", icon: Shield }
   ];
 
-  const [tab, setTab] = useState("usuarios");
+  const [tab, setTab] = useState("jerarquia_global");
 
   useEffect(() => {
     if (user && user.rol === "supervisor") {
@@ -993,20 +947,8 @@ export default function AdminPage() {
           {tab === "usuarios" && (
             <TabUsuarios isSuperadmin={isSuperadmin} distId={user?.id_distribuidor || 0} />
           )}
-          {tab === "distribuidoras" && isSuperadmin && (
-            <TabDistribuidoras />
-          )}
-          {tab === "hierarchy" && (
-            <InteractiveHierarchy distId={user?.id_distribuidor || 0} />
-          )}
-          {tab === "integrantes" && (
-            <TabIntegrantes isSuperadmin={isSuperadmin} distId={user?.id_distribuidor || 0} />
-          )}
-          {tab === "sucursales" && (
-            <TabSucursales isSuperadmin={isSuperadmin} distId={user?.id_distribuidor || 0} role={user?.rol || ""} />
-          )}
-          {tab === "erp" && (
-            <TabERP distId={user?.id_distribuidor || 0} isSuperadmin={isSuperadmin} />
+          {tab === "jerarquia_global" && (
+            <UnifiedDashboard isSuperadmin={isSuperadmin} currentDistId={user?.id_distribuidor || 0} />
           )}
 
         </main>

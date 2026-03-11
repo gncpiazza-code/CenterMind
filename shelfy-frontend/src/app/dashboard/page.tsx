@@ -598,7 +598,7 @@ export default function DashboardPage() {
 
             {/* LADO DERECHO: Métricas & Ranking */}
             <div className="flex flex-col gap-6 xl:h-full lg:overflow-y-auto lg:pr-2 lg:-mr-2 custom-scrollbar pb-6">
-              {/* KPIs ROW */}
+              {/* KPIs ROW (Aprox 20% altura visual o fija) */}
               {kpis && (
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 shrink-0">
                   <KpiCard label="Pendientes" value={kpis.pendientes} icon={<Clock size={20} />} color="#f59e0b" bgColor="bg-white" />
@@ -608,19 +608,14 @@ export default function DashboardPage() {
                 </div>
               )}
 
-              {/* RANKING TOP 15 - AHORA MÁS PROMIMENTE */}
-              <div className="shrink-0 h-[520px]">
+              {/* RANKING TOP 15 - AHORA MÁS PROMIMENTE (Aprox 80% restante) */}
+              <div className="flex-1 min-h-0">
                 <RankingTable
                   ranking={rankingFiltrado}
                   periodo={periodo}
                   sucursalFiltro={sucursalFiltro}
                   sucursales={sucursales}
                 />
-              </div>
-
-              {/* CARRUSEL DE GRÁFICOS INTERACTIVOS */}
-              <div className="shrink-0 h-[300px]">
-                <ChartCarousel sucursales={sucursales} evolucion={evolucion} ciudades={ciudades} />
               </div>
             </div>
 

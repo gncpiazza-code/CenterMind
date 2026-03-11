@@ -55,8 +55,8 @@ BEGIN
     WITH stats AS (
         SELECT 
             i.id_sucursal_erp,
-            COUNT(*) FILTER (WHERE e.estado = 'Aprobada') as aprob,
-            COUNT(*) FILTER (WHERE e.estado = 'Rechazada') as rech,
+            COUNT(*) FILTER (WHERE e.estado = 'Aprobado') as aprob,
+            COUNT(*) FILTER (WHERE e.estado = 'Rechazado') as rech,
             COUNT(*) as tot
         FROM exhibiciones e
         JOIN integrantes_grupo i ON e.id_integrante = i.id_integrante
@@ -112,7 +112,7 @@ BEGIN
             i.id_sucursal_erp as sid,
             COUNT(*) as total_ex,
             COUNT(DISTINCT e.id_cliente) as visitados,
-            COUNT(*) FILTER (WHERE e.estado = 'Aprobada') as aprob
+            COUNT(*) FILTER (WHERE e.estado = 'Aprobado') as aprob
         FROM exhibiciones e
         JOIN integrantes_grupo i ON e.id_integrante = i.id_integrante
         WHERE e.id_distribuidor = p_dist_id
@@ -152,13 +152,16 @@ BEGIN
     WITH stats AS (
         SELECT 
             i.id_integrante,
-            i.nombre_integrante as vendedor,
+            CASE 
+                WHEN UPPER(i.id_vendedor_erp) IN ('IVAN SOTO', 'IVAN WUTRICH', 'MATIAS WUTRICH') THEN i.nombre_integrante
+                ELSE COALESCE(i.id_vendedor_erp, i.nombre_integrante)
+            END as vendedor,
             i.id_sucursal_erp,
-            COUNT(*) FILTER (WHERE e.estado = 'Aprobada') as aprob,
-            COUNT(*) FILTER (WHERE e.estado = 'Rechazada') as rech,
-            COUNT(*) FILTER (WHERE e.estado = 'Destacada') as dest,
-            (COUNT(*) FILTER (WHERE e.estado = 'Aprobada') * 1 +
-             COUNT(*) FILTER (WHERE e.estado = 'Destacada') * 2) as pts
+            COUNT(*) FILTER (WHERE e.estado = 'Aprobado') as aprob,
+            COUNT(*) FILTER (WHERE e.estado = 'Rechazado') as rech,
+            COUNT(*) FILTER (WHERE e.estado = 'Destacado') as dest,
+            (COUNT(*) FILTER (WHERE e.estado = 'Aprobado') * 1 +
+             COUNT(*) FILTER (WHERE e.estado = 'Destacado') * 2) as pts
         FROM exhibiciones e
         JOIN integrantes_grupo i ON e.id_integrante = i.id_integrante
         WHERE e.id_distribuidor = p_dist_id
@@ -180,5 +183,83 @@ BEGIN
     FROM stats s
     ORDER BY s.pts DESC NULLS LAST
     LIMIT p_top;
+END;
+$$;
+
+-- 5. Rendimiento en el Tiempo (Crecimiento/Evolucion)
+-- Muestra la agupacion temporal dependiendo del periodo
+DROP FUNCTION IF EXISTS fn_dashboard_evolucion_tiempo(bigint, text);
+CREATE OR REPLACE FUNCTION fn_dashboard_evolucion_tiempo(p_dist_id BIGINT, p_periodo TEXT DEFAULT 'mes')
+RETURNS TABLE(
+    fecha TEXT,
+    aprobadas BIGINT,
+    rechazadas BIGINT,
+    total BIGINT
+) LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    RETURN QUERY
+    WITH base_data AS (
+        SELECT 
+            -- Si es semana, ayer o hoy agrupa por nombre del dia. Si es mes o historia agrupa por semana.
+            CASE 
+                WHEN p_periodo IN ('hoy', 'ayer') THEN to_char(e.timestamp_subida, 'HH24:00')
+                WHEN p_periodo IN ('semana') THEN to_char(e.timestamp_subida, 'day')
+                ELSE to_char(e.timestamp_subida, 'DD/MM/YYYY')
+            END as grouping_date,
+            e.timestamp_subida as raw_date,
+            e.estado
+        FROM exhibiciones e
+        WHERE e.id_distribuidor = p_dist_id
+          AND (
+            (p_periodo = 'mes' AND e.timestamp_subida >= date_trunc('month', now())) OR
+            (p_periodo = 'hoy' AND e.timestamp_subida >= date_trunc('day', now())) OR
+            (p_periodo = 'semana' AND e.timestamp_subida >= date_trunc('week', now())) OR
+            (p_periodo = 'ayer' AND e.timestamp_subida >= date_trunc('day', now() - interval '1 day') AND e.timestamp_subida < date_trunc('day', now()))
+          )
+    )
+    SELECT 
+        b.grouping_date as fecha,
+        COUNT(*) FILTER (WHERE b.estado = 'Aprobado') as aprobadas,
+        COUNT(*) FILTER (WHERE b.estado = 'Rechazado') as rechazadas,
+        COUNT(*) as total
+    FROM base_data b
+    GROUP BY b.grouping_date, date_trunc('day', b.raw_date) -- sort mathematically
+    ORDER BY MIN(b.raw_date) ASC;
+END;
+$$;
+
+-- 6. Rendimiento por Ciudad (usando la localidad del ERP)
+DROP FUNCTION IF EXISTS fn_dashboard_por_ciudad(bigint, text);
+CREATE OR REPLACE FUNCTION fn_dashboard_por_ciudad(p_dist_id BIGINT, p_periodo TEXT DEFAULT 'mes')
+RETURNS TABLE(
+    ciudad TEXT,
+    aprobadas BIGINT,
+    rechazadas BIGINT,
+    total BIGINT
+) LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    RETURN QUERY
+    WITH ex_clientes AS (
+        SELECT 
+            c.localidad,
+            e.estado
+        FROM exhibiciones e
+        JOIN clientes c ON e.id_cliente = c.id_cliente
+        WHERE e.id_distribuidor = p_dist_id
+          AND (
+            (p_periodo = 'mes' AND e.timestamp_subida >= date_trunc('month', now())) OR
+            (p_periodo = 'hoy' AND e.timestamp_subida >= date_trunc('day', now())) OR
+            (p_periodo = 'semana' AND e.timestamp_subida >= date_trunc('week', now())) OR
+            (p_periodo = 'ayer' AND e.timestamp_subida >= date_trunc('day', now() - interval '1 day') AND e.timestamp_subida < date_trunc('day', now()))
+          )
+    )
+    SELECT 
+        COALESCE(c.localidad, 'Desconocida') as ciudad,
+        COUNT(*) FILTER (WHERE c.estado = 'Aprobado') as aprobadas,
+        COUNT(*) FILTER (WHERE c.estado = 'Rechazado') as rechazadas,
+        COUNT(*) as total
+    FROM ex_clientes c
+    GROUP BY COALESCE(c.localidad, 'Desconocida')
+    ORDER BY total DESC;
 END;
 $$;

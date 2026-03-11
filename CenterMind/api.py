@@ -1720,7 +1720,7 @@ def get_unified_dashboard(_=Depends(verify_auth)):
     """
     try:
         # 1. Fetch Distribuidores
-        dist_res = sb.table("distribuidores").select("id_distribuidor, nombre_empresa, api_key").execute()
+        dist_res = sb.table("distribuidores").select("id_distribuidor, nombre_empresa, token_bot").execute()
         distribuidores = dist_res.data or []
         
         # 2. Fetch ERP Mappings
@@ -1745,7 +1745,7 @@ def get_unified_dashboard(_=Depends(verify_auth)):
             dist_data = {
                 "id_distribuidor": did,
                 "nombre_empresa": dist["nombre_empresa"],
-                "token": dist.get("api_key", ""),
+                "token": dist.get("token_bot", ""),
                 "erp_mapping_name": mappings.get(did, ""),
                 "sucursales": [],
                 "unmapped_integrantes": []

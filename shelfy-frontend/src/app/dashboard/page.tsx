@@ -319,8 +319,8 @@ function RankingTable({
 
   if (ranking.length === 0) {
     return (
-      <Card className="flex flex-col items-center justify-center p-8 border-slate-200 border-dashed">
-        <p className="text-sm font-bold text-slate-400 uppercase tracking-widest py-6">El ranking está vacío para esta fecha</p>
+      <Card className="flex flex-col items-center justify-center p-8 border-slate-200 border-dashed h-full">
+        <p className="text-sm font-bold text-slate-400 uppercase tracking-widest py-6 text-center">No hay actividad para el ranking todavía</p>
       </Card>
     );
   }
@@ -329,62 +329,95 @@ function RankingTable({
   const top15 = ranking.slice(0, 15);
 
   return (
-    <Card className="border-slate-200 shadow-sm overflow-hidden flex flex-col h-full bg-white">
-      <div className="p-5 border-b border-slate-100 flex items-center justify-between sticky top-0 bg-white z-10">
+    <Card className="border-slate-200 shadow-md overflow-hidden flex flex-col h-full bg-white relative">
+      {/* Luz decorativa en la parte superior del ranking */}
+      <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-400 via-yellow-200 to-amber-400 z-20" />
+      
+      <div className="p-6 border-b border-slate-100 flex items-center justify-between sticky top-0 bg-white/90 backdrop-blur-md z-10">
         <div>
-          <h3 className="text-slate-900 font-black text-lg flex items-center gap-2">
-            <Star className="text-amber-400 fill-amber-400" size={18} /> Top 15 en Vivo
+          <h3 className="text-slate-900 font-black text-xl flex items-center gap-2">
+            <Star className="text-amber-500 fill-amber-500 animate-pulse" size={24} /> Ranking Top 15 en Vivo
           </h3>
-          <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-1">Mejores vendedores liderando</p>
+          <p className="text-[11px] text-slate-500 font-bold uppercase tracking-widest mt-1 opacity-70">Líderes de rendimiento en tiempo real</p>
         </div>
         {sucursalLabel && (
-          <span className="text-[10px] font-black tracking-widest text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-100">
+          <span className="text-[11px] font-black tracking-widest text-blue-600 bg-blue-50 px-4 py-2 rounded-xl border border-blue-100 shadow-sm">
             {sucursalLabel}
           </span>
         )}
       </div>
+
       <div className="overflow-x-auto flex-1 custom-scrollbar">
-        <table className="w-full text-sm">
-          <thead className="sticky top-0 bg-slate-50/90 backdrop-blur-sm z-10">
-            <tr className="text-left border-b border-slate-100">
-              <th className="py-3 px-4 font-black uppercase tracking-widest text-[10px] text-slate-400 w-12">Rnk</th>
-              <th className="py-3 px-2 font-black uppercase tracking-widest text-[10px] text-slate-400">Vendedor</th>
-              <th className="py-3 px-2 text-right font-black uppercase tracking-widest text-[10px] text-emerald-500">AP</th>
-              <th className="py-3 px-2 text-right font-black uppercase tracking-widest text-[10px] text-purple-500">DEST</th>
-              <th className="py-3 px-4 text-right font-black uppercase tracking-widest text-[10px] text-slate-800">PTS</th>
+        <table className="w-full text-sm border-separate border-spacing-y-1.5 px-3">
+          <thead className="sticky top-0 bg-white z-10 transition-colors">
+            <tr className="text-left">
+              <th className="py-4 px-4 font-black uppercase tracking-widest text-[10px] text-slate-400 w-16">PUESTO</th>
+              <th className="py-4 px-2 font-black uppercase tracking-widest text-[10px] text-slate-400">INTEGRANTE</th>
+              <th className="py-4 px-2 text-right font-black uppercase tracking-widest text-[10px] text-emerald-500">APROB</th>
+              <th className="py-4 px-4 text-right font-black uppercase tracking-widest text-[10px] text-slate-800">PUNTOS</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="pb-4">
             <AnimatePresence initial={false}>
               {top15.map((v, i) => (
                 <motion.tr
                   key={v.vendedor}
                   layout
-                  initial={{ opacity: 0, x: -20, backgroundColor: "#fff" }}
-                  animate={{ opacity: 1, x: 0, backgroundColor: i < 3 ? "rgba(240, 24DF, 255, 0.05)" : "#fff" }}
-                  exit={{ opacity: 0, x: 20 }}
-                  transition={{
-                    duration: 0.4,
-                    delay: i * 0.03,
-                    layout: { type: "spring", stiffness: 200, damping: 20 }
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ 
+                    opacity: 1, 
+                    y: 0,
+                    scale: i === 0 ? 1.02 : 1,
+                    zIndex: 15 - i
                   }}
-                  className="border-b border-slate-50 hover:bg-slate-50 transition-colors group"
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  whileHover={{ backgroundColor: "rgba(241, 245, 249, 1)", scale: 1.01 }}
+                  transition={{
+                    type: "spring",
+                    stiffness: 400,
+                    damping: 30,
+                    mass: 0.8
+                  }}
+                  className={`
+                    relative group shadow-sm rounded-xl overflow-hidden
+                    ${i === 0 ? "bg-gradient-to-r from-amber-50 to-white border-2 border-amber-200" :
+                      i === 1 ? "bg-gradient-to-r from-slate-50 to-white" :
+                        i === 2 ? "bg-gradient-to-r from-orange-50 to-white" : "bg-white border border-slate-100"}
+                  `}
                 >
-                  <td className="py-3 px-4">
-                    <div className={`w-7 h-7 flex items-center justify-center text-[11px] font-black rounded-full shadow-sm ${i === 0 ? "bg-amber-400 text-amber-950 ring-2 ring-amber-100" :
-                      i === 1 ? "bg-slate-300 text-slate-800" :
-                        i === 2 ? "bg-orange-300 text-orange-900" :
-                          "bg-slate-100 text-slate-500"
-                      }`}>
+                  <td className="py-3 px-4 first:rounded-l-xl">
+                    <div className={`w-8 h-8 flex items-center justify-center text-[12px] font-black rounded-lg shadow-sm transition-transform group-hover:rotate-12 ${
+                      i === 0 ? "bg-amber-400 text-amber-950 scale-110 shadow-amber-200" :
+                      i === 1 ? "bg-slate-300 text-slate-800 shadow-slate-100" :
+                      i === 2 ? "bg-orange-300 text-orange-950 shadow-orange-100" :
+                      "bg-slate-100 text-slate-500"
+                    }`}>
                       {i + 1}
                     </div>
                   </td>
-                  <td className="py-3 px-2 text-slate-800 font-black truncate max-w-[150px]">
-                    {v.vendedor}
+                  <td className="py-3 px-2">
+                    <div className="flex flex-col">
+                      <span className={`font-black text-[15px] ${i < 3 ? "text-slate-900" : "text-slate-700"}`}>
+                        {v.vendedor}
+                      </span>
+                      {i < 3 && (
+                        <span className="text-[9px] uppercase font-black tracking-widest text-slate-400 opacity-80">
+                          {i === 0 ? "👑 Líder Global" : i === 1 ? "⭐ Excelente" : "🔥 En racha"}
+                        </span>
+                      )}
+                    </div>
                   </td>
-                  <td className="py-3 px-2 text-right text-emerald-600 font-bold">{v.aprobadas}</td>
-                  <td className="py-3 px-2 text-right text-purple-600 font-bold">{v.destacadas}</td>
-                  <td className="py-3 px-4 text-right font-black text-slate-900 text-base">{v.puntos}</td>
+                  <td className="py-3 px-2 text-right">
+                    <span className="inline-flex items-center justify-center bg-emerald-100 text-emerald-700 text-[11px] font-black px-2 py-0.5 rounded-full min-w-[28px]">
+                      {v.aprobadas}
+                    </span>
+                  </td>
+                  <td className="py-3 px-4 text-right last:rounded-r-xl">
+                    <span className={`font-black text-lg ${i < 3 ? "text-slate-900" : "text-slate-600"}`}>
+                      {v.puntos}
+                      <span className="text-[10px] ml-1 opacity-50 font-bold uppercase">pts</span>
+                    </span>
+                  </td>
                 </motion.tr>
               ))}
             </AnimatePresence>
@@ -575,19 +608,19 @@ export default function DashboardPage() {
                 </div>
               )}
 
-              {/* CARRUSEL DE GRÁFICOS INTERACTIVOS */}
-              <div className="shrink-0">
-                <ChartCarousel sucursales={sucursales} evolucion={evolucion} ciudades={ciudades} />
-              </div>
-
-              {/* RANKING TOP 15 */}
-              <div className="flex-1 min-h-[400px]">
+              {/* RANKING TOP 15 - AHORA MÁS PROMIMENTE */}
+              <div className="shrink-0 h-[520px]">
                 <RankingTable
                   ranking={rankingFiltrado}
                   periodo={periodo}
                   sucursalFiltro={sucursalFiltro}
                   sucursales={sucursales}
                 />
+              </div>
+
+              {/* CARRUSEL DE GRÁFICOS INTERACTIVOS */}
+              <div className="shrink-0 h-[300px]">
+                <ChartCarousel sucursales={sucursales} evolucion={evolucion} ciudades={ciudades} />
               </div>
             </div>
 

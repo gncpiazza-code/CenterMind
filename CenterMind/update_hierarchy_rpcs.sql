@@ -55,8 +55,8 @@ BEGIN
     WITH stats AS (
         SELECT 
             i.id_sucursal_erp,
-            COUNT(*) FILTER (WHERE e.estado = 'Aprobado') as aprob,
-            COUNT(*) FILTER (WHERE e.estado = 'Rechazado') as rech,
+            COUNT(*) FILTER (WHERE LOWER(e.estado) IN ('aprobado', 'aprobada')) as aprob,
+            COUNT(*) FILTER (WHERE LOWER(e.estado) IN ('rechazado', 'rechazada')) as rech,
             COUNT(*) as tot
         FROM exhibiciones e
         JOIN integrantes_grupo i ON e.id_integrante = i.id_integrante
@@ -70,16 +70,17 @@ BEGIN
         GROUP BY i.id_sucursal_erp
     )
     SELECT 
-        s.id_sucursal_erp as location_id,
+        mj."id suc" as location_id,
         COALESCE(mj."SUCURSAL", 'Sin Sucursal') as sucursal,
         COALESCE(s.aprob, 0)::bigint,
         COALESCE(s.rech, 0)::bigint,
         COALESCE(s.tot, 0)::bigint
-    FROM stats s
-    LEFT JOIN (
+    FROM (
         SELECT DISTINCT ON ("id suc", "ID_DIST") "id suc", "SUCURSAL", "ID_DIST"
         FROM maestro_jerarquia
-    ) mj ON (mj."id suc" = s.id_sucursal_erp AND mj."ID_DIST" = p_dist_id);
+        WHERE "ID_DIST" = p_dist_id
+    ) mj
+    LEFT JOIN stats s ON mj."id suc" = s.id_sucursal_erp;
 END;
 $$;
 
@@ -112,7 +113,7 @@ BEGIN
             i.id_sucursal_erp as sid,
             COUNT(*) as total_ex,
             COUNT(DISTINCT e.id_cliente) as visitados,
-            COUNT(*) FILTER (WHERE e.estado = 'Aprobado') as aprob
+            COUNT(*) FILTER (WHERE LOWER(e.estado) IN ('aprobado', 'aprobada')) as aprob
         FROM exhibiciones e
         JOIN integrantes_grupo i ON e.id_integrante = i.id_integrante
         WHERE e.id_distribuidor = p_dist_id
@@ -152,16 +153,17 @@ BEGIN
     WITH stats AS (
         SELECT 
             i.id_integrante,
+            -- Priorizamos el nombre del ERP excepto para las excepciones de cuentas compartidas
             CASE 
                 WHEN UPPER(i.id_vendedor_erp) IN ('IVAN SOTO', 'IVAN WUTRICH', 'MATIAS WUTRICH') THEN i.nombre_integrante
-                ELSE COALESCE(i.id_vendedor_erp, i.nombre_integrante)
+                ELSE COALESCE(NULLIF(i.id_vendedor_erp, ''), i.nombre_integrante)
             END as vendedor,
             i.id_sucursal_erp,
-            COUNT(*) FILTER (WHERE e.estado = 'Aprobado') as aprob,
-            COUNT(*) FILTER (WHERE e.estado = 'Rechazado') as rech,
-            COUNT(*) FILTER (WHERE e.estado = 'Destacado') as dest,
-            (COUNT(*) FILTER (WHERE e.estado = 'Aprobado') * 1 +
-             COUNT(*) FILTER (WHERE e.estado = 'Destacado') * 2) as pts
+            COUNT(*) FILTER (WHERE LOWER(e.estado) IN ('aprobado', 'aprobada', 'destacada', 'destacado')) as aprob,
+            COUNT(*) FILTER (WHERE LOWER(e.estado) IN ('rechazado', 'rechazada')) as rech,
+            COUNT(*) FILTER (WHERE LOWER(e.estado) IN ('destacada', 'destacado')) as dest,
+            (COUNT(*) FILTER (WHERE LOWER(e.estado) IN ('aprobado', 'aprobada')) * 1 +
+             COUNT(*) FILTER (WHERE LOWER(e.estado) IN ('destacada', 'destacado')) * 2) as pts
         FROM exhibiciones e
         JOIN integrantes_grupo i ON e.id_integrante = i.id_integrante
         WHERE e.id_distribuidor = p_dist_id
@@ -171,17 +173,18 @@ BEGIN
             (p_periodo = 'semana' AND e.timestamp_subida >= date_trunc('week', now())) OR
             (p_periodo = 'ayer' AND e.timestamp_subida >= date_trunc('day', now() - interval '1 day') AND e.timestamp_subida < date_trunc('day', now()))
           )
-        GROUP BY i.id_integrante, i.nombre_integrante, i.id_sucursal_erp
+        GROUP BY i.id_integrante, i.nombre_integrante, i.id_vendedor_erp, i.id_sucursal_erp
     )
     SELECT 
         s.vendedor,
-        COALESCE(s.aprob, 0)::bigint as aprobadas,
-        COALESCE(s.dest, 0)::bigint as destacadas,
-        COALESCE(s.rech, 0)::bigint as rechazadas,
-        COALESCE(s.pts, 0)::bigint as puntos,
-        s.id_sucursal_erp as location_id
+        COALESCE(SUM(s.aprob), 0)::bigint as aprobadas,
+        COALESCE(SUM(s.dest), 0)::bigint as destacadas,
+        COALESCE(SUM(s.rech), 0)::bigint as rechazadas,
+        COALESCE(SUM(s.pts), 0)::bigint as puntos,
+        MAX(s.id_sucursal_erp) as location_id
     FROM stats s
-    ORDER BY s.pts DESC NULLS LAST
+    GROUP BY s.vendedor
+    ORDER BY puntos DESC NULLS LAST
     LIMIT p_top;
 END;
 $$;
@@ -219,8 +222,8 @@ BEGIN
     )
     SELECT 
         b.grouping_date as fecha,
-        COUNT(*) FILTER (WHERE b.estado = 'Aprobado') as aprobadas,
-        COUNT(*) FILTER (WHERE b.estado = 'Rechazado') as rechazadas,
+        COUNT(*) FILTER (WHERE LOWER(b.estado) IN ('aprobado', 'aprobada')) as aprobadas,
+        COUNT(*) FILTER (WHERE LOWER(b.estado) IN ('rechazado', 'rechazada')) as rechazadas,
         COUNT(*) as total
     FROM base_data b
     GROUP BY b.grouping_date, date_trunc('day', b.raw_date) -- sort mathematically
@@ -256,8 +259,8 @@ BEGIN
     )
     SELECT 
         COALESCE(c.ciudad, 'Desconocida')::TEXT as ciudad_nombre,
-        COUNT(*) FILTER (WHERE c.estado = 'Aprobado')::BIGINT as aprobadas,
-        COUNT(*) FILTER (WHERE c.estado = 'Rechazado')::BIGINT as rechazadas,
+        COUNT(*) FILTER (WHERE LOWER(c.estado) IN ('aprobado', 'aprobada'))::BIGINT as aprobadas,
+        COUNT(*) FILTER (WHERE LOWER(c.estado) IN ('rechazado', 'rechazada'))::BIGINT as rechazadas,
         COUNT(*)::BIGINT as total
     FROM ex_clientes c
     GROUP BY COALESCE(c.ciudad, 'Desconocida')

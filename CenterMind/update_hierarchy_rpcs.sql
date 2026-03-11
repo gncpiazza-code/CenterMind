@@ -241,11 +241,11 @@ BEGIN
     RETURN QUERY
     WITH ex_clientes AS (
         SELECT 
-            l.ciudad,
+            erp.localidad as ciudad,
             e.estado
         FROM exhibiciones e
         JOIN clientes c ON e.id_cliente = c.id_cliente
-        LEFT JOIN locations l ON c.location_id = l.location_id
+        LEFT JOIN erp_clientes_raw erp ON c.id_distribuidor = erp.id_distribuidor AND c.numero_cliente_local = erp.id_cliente_erp_local
         WHERE e.id_distribuidor = p_dist_id
           AND (
             (p_periodo = 'mes' AND e.timestamp_subida >= date_trunc('month', now())) OR
@@ -255,12 +255,12 @@ BEGIN
           )
     )
     SELECT 
-        COALESCE(l.ciudad, 'Desconocida')::TEXT as ciudad_nombre,
+        COALESCE(c.ciudad, 'Desconocida')::TEXT as ciudad_nombre,
         COUNT(*) FILTER (WHERE c.estado = 'Aprobado')::BIGINT as aprobadas,
         COUNT(*) FILTER (WHERE c.estado = 'Rechazado')::BIGINT as rechazadas,
         COUNT(*)::BIGINT as total
     FROM ex_clientes c
-    GROUP BY COALESCE(l.ciudad, 'Desconocida')
+    GROUP BY COALESCE(c.ciudad, 'Desconocida')
     ORDER BY total DESC;
 END;
 $$;

@@ -21,6 +21,13 @@ export default function UnifiedDashboard({ isSuperadmin, currentDistId }: { isSu
     // Edit config forms
     const [configForm, setConfigForm] = useState({ nombre: "", token: "", erp_mapping: "" });
 
+    // New Distributor forms
+    const [showNewDist, setShowNewDist] = useState(false);
+    const [newDistForm, setNewDistForm] = useState({ nombre: "", token: "" });
+
+    // Selections for unmapped users
+    const [unmappedSelections, setUnmappedSelections] = useState<Record<number, string>>({});
+
     const loadData = async () => {
         setLoading(true);
         try {
@@ -139,6 +146,22 @@ export default function UnifiedDashboard({ isSuperadmin, currentDistId }: { isSu
         return { nombre_integrante: "Desconocido", rol_telegram: "observador" };
     };
 
+    const handleCrearDistribuidor = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setSaving(true);
+        try {
+            await crearDistribuidora({ nombre: newDistForm.nombre, token: newDistForm.token });
+            toast.success("Distribuidor creado exitosamente");
+            setShowNewDist(false);
+            setNewDistForm({ nombre: "", token: "" });
+            loadData();
+        } catch (e) {
+            toast.error("Error creando el distribuidor");
+        } finally {
+            setSaving(false);
+        }
+    };
+
 
     if (loading && data.length === 0) {
         return <div className="p-12 text-center flex items-center justify-center gap-3"><RefreshCw className="animate-spin text-violet-500" /> Cargando Maestro...</div>;
@@ -170,11 +193,35 @@ export default function UnifiedDashboard({ isSuperadmin, currentDistId }: { isSu
                     <div className="flex items-center justify-between mb-4">
                         <h3 className="text-xs font-black uppercase text-slate-400">Jerarquía ERP</h3>
                         {isSuperadmin && (
-                            <Button size="sm" variant="outline" className="h-8 border-violet-200 text-violet-700">
+                            <Button size="sm" variant="outline" className="h-8 border-violet-200 text-violet-700" onClick={() => setShowNewDist(true)}>
                                 <Plus size={14} className="mr-1" /> Nuevo Distribuidor
                             </Button>
                         )}
                     </div>
+
+                    {showNewDist && (
+                        <Card className="p-4 bg-violet-50/50 border-violet-200 shadow-sm animate-in fade-in zoom-in-95">
+                            <h3 className="text-sm font-black text-violet-900 mb-3">Crear Nuevo Distribuidor</h3>
+                            <form onSubmit={handleCrearDistribuidor} className="space-y-3">
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label className="block text-[10px] uppercase font-bold text-slate-500 mb-1">Nombre</label>
+                                        <input required className="w-full text-sm rounded-lg border border-slate-200 px-3 py-1.5"
+                                            value={newDistForm.nombre} onChange={e => setNewDistForm({ ...newDistForm, nombre: e.target.value })} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[10px] uppercase font-bold text-slate-500 mb-1">Token Bot (Telegram)</label>
+                                        <input required className="w-full text-sm font-mono text-slate-600 rounded-lg border border-slate-200 px-3 py-1.5"
+                                            value={newDistForm.token} onChange={e => setNewDistForm({ ...newDistForm, token: e.target.value })} />
+                                    </div>
+                                </div>
+                                <div className="flex justify-end gap-2 pt-2">
+                                    <Button type="button" variant="ghost" size="sm" onClick={() => setShowNewDist(false)}>Cancelar</Button>
+                                    <Button type="submit" size="sm" className="bg-violet-600 hover:bg-violet-700 font-bold" loading={saving}>Crear Ahora</Button>
+                                </div>
+                            </form>
+                        </Card>
+                    )}
 
                     <div className="space-y-4 max-h-[700px] overflow-y-auto pr-2 custom-scrollbar">
                         {data.map(dist => {
@@ -253,10 +300,7 @@ export default function UnifiedDashboard({ isSuperadmin, currentDistId }: { isSu
                                                                                             <Button
                                                                                                 variant="ghost" size="sm"
                                                                                                 className="h-6 text-[10px] text-red-500 hover:text-red-600 hover:bg-red-50 py-0"
-                                                                                                onClick={() => {
-                                                                                                    // Use custom api call to un-assign just to prove concept here
-                                                                                                    // We will just do it nicely later or use a different endpoint
-                                                                                                }}
+                                                                                                onClick={() => assignVendorToUser(int.id_integrante, null)}
                                                                                             >
                                                                                                 Desvincular
                                                                                             </Button>
@@ -352,13 +396,25 @@ export default function UnifiedDashboard({ isSuperadmin, currentDistId }: { isSu
                                         </div>
                                         {/* Select box logic can go here natively or open a modal */}
                                         <div className="flex gap-2 mt-2">
-                                            <select className="text-[10px] rounded-lg border-slate-200 flex-1 py-1" defaultValue="">
+                                            <select
+                                                className="text-[10px] rounded-lg border-slate-200 flex-1 py-1"
+                                                value={unmappedSelections[u.id_integrante] || ""}
+                                                onChange={e => setUnmappedSelections(prev => ({ ...prev, [u.id_integrante]: e.target.value }))}
+                                            >
                                                 <option value="" disabled>Vincular a Vendedor ERP...</option>
                                                 {selectedDist.sucursales.flatMap(s => s.vendedores).map(v => (
                                                     <option key={v.id_vendedor_erp} value={v.id_vendedor_erp}>{v.id_vendedor_erp}</option>
                                                 ))}
                                             </select>
-                                            <Button size="sm" variant="outline" className="h-auto py-1 px-2 border-emerald-200 text-emerald-600 hover:bg-emerald-50">
+                                            <Button
+                                                size="sm" variant="outline"
+                                                className="h-auto py-1 px-2 border-emerald-200 text-emerald-600 hover:bg-emerald-50 disabled:opacity-50"
+                                                onClick={() => {
+                                                    const val = unmappedSelections[u.id_integrante];
+                                                    if (val) assignVendorToUser(u.id_integrante, val);
+                                                }}
+                                                disabled={!unmappedSelections[u.id_integrante]}
+                                            >
                                                 <LinkIcon size={12} />
                                             </Button>
                                         </div>

@@ -157,7 +157,8 @@ BEGIN
             COUNT(*) FILTER (WHERE e.estado = 'Aprobada') as aprob,
             COUNT(*) FILTER (WHERE e.estado = 'Rechazada') as rech,
             COUNT(*) FILTER (WHERE e.estado = 'Destacada') as dest,
-            SUM(e.puntos_ganados) as pts
+            (COUNT(*) FILTER (WHERE e.estado = 'Aprobada') * 1 +
+             COUNT(*) FILTER (WHERE e.estado = 'Destacada') * 2) as pts
         FROM exhibiciones e
         JOIN integrantes_grupo i ON e.id_integrante = i.id_integrante
         WHERE e.id_distribuidor = p_dist_id

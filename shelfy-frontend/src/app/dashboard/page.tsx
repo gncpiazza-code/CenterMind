@@ -9,11 +9,13 @@ import { useAuth } from "@/hooks/useAuth";
 import { useEffect, useState, useCallback } from "react";
 import {
   fetchKPIs, fetchRanking, fetchUltimasEvaluadas, fetchPorSucursal,
+  fetchEvolucionTiempo, fetchRendimientoCiudad,
   resolveImageUrl,
   type KPIs, type VendedorRanking, type UltimaEvaluada, type SucursalStats,
+  type EvolucionTiempo, type RendimientoCiudad,
 } from "@/lib/api";
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
+  BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid,
 } from "recharts";
 import {
   ChevronLeft, ChevronRight, ImageOff, RefreshCw,
@@ -194,26 +196,109 @@ function HeroCarousel({ items }: { items: UltimaEvaluada[] }) {
   );
 }
 
-// ── Gráfico por sucursal ──────────────────────────────────────────────────────
+function ChartCarousel({
+  sucursales, evolucion, ciudades
+}: {
+  sucursales: SucursalStats[];
+  evolucion: EvolucionTiempo[];
+  ciudades: RendimientoCiudad[];
+}) {
+  const [slide, setSlide] = useState(0);
+  const slidesCount = 3;
 
-function GraficoSucursales({ data }: { data: SucursalStats[] }) {
-  if (data.length <= 1) return null;
+  useEffect(() => {
+    const t = setInterval(() => setSlide((s) => (s + 1) % slidesCount), 10000);
+    return () => clearInterval(t);
+  }, []);
+
+  if (sucursales.length <= 1 && evolucion.length === 0) return null;
+
   return (
-    <Card className="p-5 border-slate-200">
-      <h3 className="text-slate-800 font-bold text-sm mb-4">Participación por Sucursal</h3>
-      <ResponsiveContainer width="100%" height={240}>
-        <BarChart data={data} margin={{ top: 10, right: 10, bottom: 0, left: -20 }}>
-          <XAxis dataKey="sucursal" tick={{ fill: "#64748b", fontSize: 10, fontWeight: 600 }} tickLine={false} axisLine={false} />
-          <YAxis tick={{ fill: "#64748b", fontSize: 10 }} tickLine={false} axisLine={false} />
-          <Tooltip
-            contentStyle={{ background: "rgba(255,255,255,0.9)", backdropFilter: "blur(10px)", border: "1px solid #e2e8f0", borderRadius: 12, boxShadow: "0 10px 25px -5px rgba(0,0,0,0.1)" }}
-            labelStyle={{ color: "#0f172a", fontWeight: 900 }}
-            cursor={{ fill: "#f1f5f9" }}
+    <Card className="p-5 border-slate-200 relative overflow-hidden h-[300px] flex flex-col group">
+      
+      {/* Indicadores */}
+      <div className="absolute top-4 right-5 z-20 flex gap-1.5">
+        {[0, 1, 2].map(i => (
+          <button 
+            key={i} 
+            onClick={() => setSlide(i)}
+            className={`h-1.5 rounded-full transition-all duration-300 ${i === slide ? 'w-6 bg-slate-800' : 'w-2 bg-slate-200'}`} 
           />
-          <Legend wrapperStyle={{ fontSize: 11, fontWeight: 600, color: "#475569" }} />
-          <Bar dataKey="aprobadas" name="Volumen Aprobado" fill="#3b82f6" radius={[4, 4, 0, 0]} barSize={32} />
-        </BarChart>
-      </ResponsiveContainer>
+        ))}
+      </div>
+
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={slide}
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: -20 }}
+          transition={{ duration: 0.4 }}
+          className="flex-1 w-full h-full flex flex-col"
+        >
+          {slide === 0 && (
+            <>
+              <h3 className="text-slate-800 font-bold text-sm mb-4">Rendimiento por Sucursal</h3>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={sucursales} margin={{ top: 10, right: 10, bottom: 0, left: -20 }}>
+                  <XAxis dataKey="sucursal" tick={{ fill: "#64748b", fontSize: 10, fontWeight: 600 }} tickLine={false} axisLine={false} />
+                  <YAxis tick={{ fill: "#64748b", fontSize: 10 }} tickLine={false} axisLine={false} />
+                  <Tooltip
+                    contentStyle={{ background: "rgba(255,255,255,0.95)", backdropFilter: "blur(10px)", border: "1px solid #e2e8f0", borderRadius: 12, boxShadow: "0 10px 25px -5px rgba(0,0,0,0.1)" }}
+                    labelStyle={{ color: "#0f172a", fontWeight: 900 }}
+                    cursor={{ fill: "#f1f5f9" }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 11, fontWeight: 600, color: "#475569" }} />
+                  <Bar dataKey="aprobadas" name="Aprobadas" stackId="a" fill="#10b981" radius={[0, 0, 4, 4]} barSize={32} />
+                  <Bar dataKey="rechazadas" name="Rechazadas" stackId="a" fill="#ef4444" radius={[4, 4, 0, 0]} barSize={32} />
+                </BarChart>
+              </ResponsiveContainer>
+            </>
+          )}
+
+          {slide === 1 && (
+            <>
+              <h3 className="text-slate-800 font-bold text-sm mb-4">Evolución Temporal de Fotos</h3>
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={evolucion} margin={{ top: 10, right: 10, bottom: 0, left: -20 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis dataKey="fecha" tick={{ fill: "#64748b", fontSize: 10, fontWeight: 600 }} tickLine={false} axisLine={false} />
+                  <YAxis tick={{ fill: "#64748b", fontSize: 10 }} tickLine={false} axisLine={false} />
+                  <Tooltip
+                    contentStyle={{ background: "rgba(255,255,255,0.95)", backdropFilter: "blur(10px)", border: "1px solid #e2e8f0", borderRadius: 12, boxShadow: "0 10px 25px -5px rgba(0,0,0,0.1)" }}
+                    labelStyle={{ color: "#0f172a", fontWeight: 900 }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 11, fontWeight: 600, color: "#475569" }} />
+                  <Line type="monotone" dataKey="total" name="Enviadas" stroke="#94a3b8" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="aprobadas" name="Aprobadas" stroke="#3b82f6" strokeWidth={3} dot={{ r: 4, fill: "#3b82f6", strokeWidth: 2, stroke: "#fff" }} activeDot={{ r: 6 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </>
+          )}
+
+          {slide === 2 && (
+            <>
+              <h3 className="text-slate-800 font-bold text-sm mb-4">Aprobación por Ciudad</h3>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={ciudades.slice(0, 8)} layout="vertical" margin={{ top: 0, right: 10, bottom: 0, left: 10 }}>
+                  <XAxis type="number" hide />
+                  <YAxis dataKey="ciudad" type="category" tick={{ fill: "#64748b", fontSize: 10, fontWeight: 600 }} tickLine={false} axisLine={false} width={100} />
+                  <Tooltip
+                    contentStyle={{ background: "rgba(255,255,255,0.95)", backdropFilter: "blur(10px)", border: "1px solid #e2e8f0", borderRadius: 12, boxShadow: "0 10px 25px -5px rgba(0,0,0,0.1)" }}
+                    labelStyle={{ color: "#0f172a", fontWeight: 900 }}
+                    cursor={{ fill: "#f1f5f9" }}
+                  />
+                  <Bar dataKey="aprobadas" name="Aprobadas" fill="#8b5cf6" radius={[0, 4, 4, 0]} barSize={20} />
+                </BarChart>
+              </ResponsiveContainer>
+            </>
+          )}
+        </motion.div>
+      </AnimatePresence>
+      
+      {/* Botones invisibles para adelantar clickeando a los lados */}
+      <button onClick={() => setSlide(s => (s === 0 ? 2 : s - 1))} className="absolute left-0 top-0 bottom-0 w-12 z-10 cursor-pointer opacity-0" />
+      <button onClick={() => setSlide(s => (s === 2 ? 0 : s + 1))} className="absolute right-0 top-0 bottom-0 w-12 z-10 cursor-pointer opacity-0" />
     </Card>
   );
 }
@@ -385,6 +470,8 @@ export default function DashboardPage() {
   const [ranking, setRanking] = useState<VendedorRanking[]>([]);
   const [ultimas, setUltimas] = useState<UltimaEvaluada[]>([]);
   const [sucursales, setSucursales] = useState<SucursalStats[]>([]);
+  const [evolucion, setEvolucion] = useState<EvolucionTiempo[]>([]);
+  const [ciudades, setCiudades] = useState<RendimientoCiudad[]>([]);
 
   const [year, setYear] = useState(initVars.year);
   const [month, setMonth] = useState(initVars.month);
@@ -401,13 +488,16 @@ export default function DashboardPage() {
     setError(null);
     try {
       const distId = user?.id_distribuidor || 0;
-      const [k, r, u, s] = await Promise.all([
+      const [k, r, u, s, ev, ci] = await Promise.all([
         fetchKPIs(distId, p),
         fetchRanking(distId, p),
         fetchUltimasEvaluadas(distId, 12),
         fetchPorSucursal(distId, p),
+        fetchEvolucionTiempo(distId, p),
+        fetchRendimientoCiudad(distId, p),
       ]);
       setKpis(k); setRanking(r); setUltimas(u); setSucursales(s);
+      setEvolucion(ev); setCiudades(ci);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Error al cargar");
     } finally {
@@ -485,12 +575,10 @@ export default function DashboardPage() {
                 </div>
               )}
 
-              {/* GRÁFICO PARTICIPACIÓN */}
-              {sucursales.length > 1 && (
-                <div className="shrink-0">
-                  <GraficoSucursales data={sucursales} />
-                </div>
-              )}
+              {/* CARRUSEL DE GRÁFICOS INTERACTIVOS */}
+              <div className="shrink-0">
+                <ChartCarousel sucursales={sucursales} evolucion={evolucion} ciudades={ciudades} />
+              </div>
 
               {/* RANKING TOP 15 */}
               <div className="flex-1 min-h-[400px]">

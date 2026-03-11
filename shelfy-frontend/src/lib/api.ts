@@ -66,8 +66,23 @@ export interface UltimaEvaluada {
   nro_cliente: string;
   vendedor: string;
   timestamp_subida: string;
+  fecha_evaluacion?: string;
+  ciudad?: string;
 }
 
+export interface EvolucionTiempo {
+  fecha: string;
+  aprobadas: number;
+  rechazadas: number;
+  total: number;
+}
+
+export interface RendimientoCiudad {
+  ciudad: string;
+  aprobadas: number;
+  rechazadas: number;
+  total: number;
+}
 export interface SucursalStats {
   sucursal: string;
   location_id: string;
@@ -282,6 +297,14 @@ export async function fetchUltimasEvaluadas(distribuidorId: number, n: number = 
 
 export async function fetchPorSucursal(distribuidorId: number, periodo: string = "mes"): Promise<SucursalStats[]> {
   return apiFetch<SucursalStats[]>(`/api/dashboard/por-sucursal/${distribuidorId}?periodo=${periodo}`);
+}
+
+export async function fetchEvolucionTiempo(distribuidorId: number, periodo: string = "mes"): Promise<EvolucionTiempo[]> {
+  return apiFetch<EvolucionTiempo[]>(`/api/dashboard/evolucion-tiempo/${distribuidorId}?periodo=${periodo}`);
+}
+
+export async function fetchRendimientoCiudad(distribuidorId: number, periodo: string = "mes"): Promise<RendimientoCiudad[]> {
+  return apiFetch<RendimientoCiudad[]>(`/api/dashboard/por-ciudad/${distribuidorId}?periodo=${periodo}`);
 }
 
 // ── Visor ───────────────────────────────────────────────────────────────────

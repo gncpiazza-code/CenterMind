@@ -1297,9 +1297,9 @@ async def procesar_cuentas_corrientes(
         # Construir mapa de sucursales desde la Base de Datos
         mapa_sucursales = {}
         try:
-            result = sb.table("locations").select("location_id, label").not_.is_("label", "null").execute()
+            result = sb.table("maestro_jerarquia").select("\"id suc\", \"SUCURSAL\"").execute()
             for row in (result.data or []):
-                mapa_sucursales[str(row["location_id"])] = row["label"]
+                mapa_sucursales[str(row["id suc"])] = row["SUCURSAL"]
         except Exception as db_e:
             print(f"Advertencia: No se pudo cargar el mapa de sucursales desde BDD. {db_e}")
 
@@ -1369,9 +1369,12 @@ def reportes_tipos_pdv(distribuidor_id: int, _=Depends(verify_auth)):
 
 @app.get("/api/reportes/sucursales/{distribuidor_id}", summary="Sucursales unicas")
 def reportes_sucursales(distribuidor_id: int, _=Depends(verify_auth)):
-    # Get all locations for the distribuidor
-    result = sb.table("locations").select("label").not_.is_("label", "null").execute()
-    return sorted(set(r["label"] for r in (result.data or []) if r.get("label")))
+    # Get all sucursales from Maestro for the distribuidor
+    q = sb.table("maestro_jerarquia").select("SUCURSAL")
+    if distribuidor_id > 0:
+        q = q.eq("ID_DIST", distribuidor_id)
+    result = q.execute()
+    return sorted(list(set(r["SUCURSAL"] for r in (result.data or []) if r.get("SUCURSAL"))))
 
 
 
@@ -1878,8 +1881,15 @@ def get_hierarchy(dist_id: int, user_payload=Depends(verify_auth)):
     check_dist_permission(user_payload, dist_id)
     
     try:
-        # 1. Sucursales
-        locs = sb.table("locations").select("*").eq("dist_id", dist_id).execute().data or []
+        # 1. Sucursales from Maestro
+        res_loc = sb.table("maestro_jerarquia").select("SUCURSAL, \"id suc\"").eq("ID_DIST", dist_id).execute()
+        seen_locs = set()
+        locs = []
+        for row in (res_loc.data or []):
+            sid = row.get("id suc")
+            if sid and sid not in seen_locs:
+                seen_locs.add(sid)
+                locs.append({"location_id": sid, "label": row.get("SUCURSAL")})
         
         # 2. Vendedores (Integrantes)
         vendedores = sb.table("integrantes_grupo").select("*").eq("id_distribuidor", dist_id).execute().data or []
@@ -1889,12 +1899,12 @@ def get_hierarchy(dist_id: int, user_payload=Depends(verify_auth)):
         for loc in locs:
             sucursal_node = {
                 **loc,
-                "vendedores": [v for v in vendedores if v.get("location_id") == loc["location_id"]]
+                "vendedores": [v for v in vendedores if v.get("id_sucursal_erp") == loc["location_id"]]
             }
             hierarchy.append(sucursal_node)
             
         # Añadir vendedores sin sucursal
-        sin_sucursal = [v for v in vendedores if not v.get("location_id")]
+        sin_sucursal = [v for v in vendedores if not v.get("id_sucursal_erp")]
         if sin_sucursal:
             hierarchy.append({
                 "location_id": None,

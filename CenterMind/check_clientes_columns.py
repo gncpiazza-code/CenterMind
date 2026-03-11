@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 os.environ["SSL_CERT_FILE"] = certifi.where()
 os.environ["REQUESTS_CA_BUNDLE"] = certifi.where()
 
-load_dotenv(os.path.join(os.getcwd(), 'CenterMind', '.env'))
+load_dotenv(r'c:\Users\cigar\OneDrive\Desktop\BOT-SQL\antigravity\CenterMind\CenterMind\.env')
 url = os.getenv('SUPABASE_URL')
 key = os.getenv('SUPABASE_KEY')
 

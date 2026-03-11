@@ -42,6 +42,12 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
     const [view, setView] = useState<"general" | "vendedores" | "geografia" | "listado" | "inactivos">("general");
     const [loadingList, setLoadingList] = useState(false);
 
+    // Jerarquía y Filtros
+    const [hierarchy, setHierarchy] = useState<any>(null);
+    const [selectedSucursal, setSelectedSucursal] = useState("");
+    const [selectedVendedor, setSelectedVendedor] = useState("");
+    const [branchColors, setBranchColors] = useState<Record<string, string>>({});
+
     const loadData = async () => {
         setLoading(true);
         try {
@@ -65,7 +71,7 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
     const loadListado = async () => {
         setLoadingList(true);
         try {
-            const data = await fetchClientesListado(distId, search);
+            const data = await fetchClientesListado(distId, search, 500, selectedSucursal, selectedVendedor);
             setClientesList(data);
         } catch (e) {
             console.error("Error al cargar listado de clientes:", e);
@@ -74,18 +80,38 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
         }
     };
 
+    const fetchHierarchy = async () => {
+        try {
+            const res = await fetch(`/api/admin/hierarchy-config/${distId}`).then(r => r.json());
+            setHierarchy(res);
+            
+            // Generar colores para sucursales
+            const colors: Record<string, string> = {};
+            (res.erp_hierarchy || []).forEach((s: any, idx: number) => {
+                colors[s.sucursal_erp] = COLORS[idx % COLORS.length];
+            });
+            setBranchColors(colors);
+        } catch (e) {
+            console.error("Error fetching hierarchy:", e);
+        }
+    };
+
+    useEffect(() => {
+        fetchHierarchy();
+    }, [distId]);
+
     useEffect(() => {
         loadData();
     }, [distId]);
 
     useEffect(() => {
-        if (view === "listado" || view === "inactivos") {
+        if (view === "listado" || view === "inactivos" || view === "geografia") {
             const timer = setTimeout(() => {
                 loadListado();
             }, 500);
             return () => clearTimeout(timer);
         }
-    }, [view, search, distId]);
+    }, [view, search, distId, selectedSucursal, selectedVendedor]);
 
     // Estados para los filtros en cascada de Inactivos
     const [selSucursal, setSelSucursal] = useState<string>("");
@@ -152,12 +178,13 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
                     title="Total Clientes"
                     value={stats?.total || 0}
                     icon={<Users className="text-violet-500" />}
+                    subtitle={`${stats?.sucursales || 0} Sucursales`}
                 />
                 <KPICard
                     title="Clientes Activos"
                     value={stats?.activos || 0}
                     icon={<UserCheck className="text-green-500" />}
-                    subtitle="Compra en ult. 30 días"
+                    subtitle={`${stats?.vendedores || 0} Vendedores`}
                     trend={`${(stats?.pct_activacion ?? 0).toFixed(1)}% de la base`}
                 />
                 <KPICard
@@ -286,20 +313,21 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
                             attributionControl={false}
                         >
                             <NavigationControl position="top-right" />
-                            {clientesList.filter(c => c.latitud && c.longitud).map((client) => {
+                            {clientesList.filter(c => c.latitud && c.longitud).map((client, idx) => {
                                 const lat = parseFloat(client.latitud as string);
                                 const lon = parseFloat(client.longitud as string);
                                 if (isNaN(lat) || isNaN(lon)) return null;
 
                                 return (
                                     <Marker
-                                        key={client.id_cliente_erp_local}
+                                        key={`${client.id_cliente_erp_local}-${idx}`}
                                         longitude={lon}
                                         latitude={lat}
                                     >
                                         <div
-                                            className="w-4 h-4 rounded-full bg-violet-500 opacity-70 border border-white cursor-pointer hover:bg-violet-400 hover:scale-150 transition-transform hover:z-50"
-                                            title={`${client.nombre_fantasia || client.razon_social} (${client.id_cliente_erp_local})`}
+                                            className="w-4 h-4 rounded-full opacity-80 border-2 border-white cursor-pointer hover:opacity-100 hover:scale-150 transition-all hover:z-50 shadow-sm"
+                                            style={{ backgroundColor: branchColors[client.sucursal_nombre] || '#7c3aed' }}
+                                            title={`${client.nombre_cliente} | ${client.sucursal_nombre} | ${client.vendedor_nombre}`}
                                         ></div>
                                     </Marker>
                                 );
@@ -312,27 +340,52 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
             {view === "listado" && (
                 <Card>
                     <div className="flex flex-col md:flex-row items-center justify-between gap-4 mb-6">
-                        <h3 className="text-sm font-bold flex items-center gap-2">
-                            <Users size={16} className="text-[var(--shelfy-primary)]" />
-                            Listado Detallado de Clientes
-                        </h3>
-                        <div className="relative w-full md:w-80">
-                            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--shelfy-muted)]" />
-                            <input
-                                type="text"
-                                placeholder="Buscar por nombre o número..."
-                                value={search}
-                                onChange={(e) => setSearch(e.target.value)}
-                                className="w-full pl-10 pr-4 py-2 bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-xl text-sm focus:outline-none focus:border-[var(--shelfy-primary)] transition-all"
-                            />
-                            {search && (
-                                <button
-                                    onClick={() => setSearch("")}
-                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--shelfy-muted)] hover:text-[var(--shelfy-error)]"
-                                >
-                                    <X size={14} />
-                                </button>
-                            )}
+                        <div className="flex flex-col gap-1">
+                            <h3 className="text-sm font-bold flex items-center gap-2">
+                                <Users size={16} className="text-[var(--shelfy-primary)]" />
+                                Padrón Maestro de Clientes
+                            </h3>
+                            <p className="text-[10px] text-[var(--shelfy-muted)] font-bold uppercase">Distribución Hierárquica ERP</p>
+                        </div>
+                        
+                        {/* Filtros de Jerarquía */}
+                        <div className="flex items-center gap-3 flex-wrap">
+                            <select 
+                                className="text-xs p-2 bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-xl outline-none focus:border-[var(--shelfy-primary)]"
+                                value={selectedSucursal}
+                                onChange={(e) => {
+                                    setSelectedSucursal(e.target.value);
+                                    setSelectedVendedor("");
+                                }}
+                            >
+                                <option value="">Todas las Sucursales</option>
+                                {hierarchy?.erp_hierarchy?.map((s: any) => (
+                                    <option key={s.sucursal_erp} value={s.id_sucursal_erp}>{s.sucursal_erp}</option>
+                                ))}
+                            </select>
+
+                            <select 
+                                className="text-xs p-2 bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-xl outline-none focus:border-[var(--shelfy-primary)]"
+                                value={selectedVendedor}
+                                onChange={(e) => setSelectedVendedor(e.target.value)}
+                                disabled={!selectedSucursal}
+                            >
+                                <option value="">Todos los Vendedores</option>
+                                {hierarchy?.erp_hierarchy?.find((s: any) => s.id_sucursal_erp === selectedSucursal)?.vendedores?.map((v: any) => (
+                                    <option key={v.id_vendedor_erp} value={v.id_vendedor_erp}>{v.vendedor_nombre}</option>
+                                ))}
+                            </select>
+
+                            <div className="relative w-full md:w-64">
+                                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--shelfy-muted)]" />
+                                <input
+                                    type="text"
+                                    placeholder="Buscar..."
+                                    value={search}
+                                    onChange={(e) => setSearch(e.target.value)}
+                                    className="w-full pl-10 pr-4 py-2 bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-xl text-sm focus:outline-none focus:border-[var(--shelfy-primary)] transition-all"
+                                />
+                            </div>
                         </div>
                     </div>
 
@@ -346,20 +399,31 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
                             <table className="w-full text-sm">
                                 <thead>
                                     <tr className="text-[var(--shelfy-muted)] text-left border-b border-[var(--shelfy-border)]">
-                                        <th className="pb-3 pr-4 font-semibold">N° Cliente</th>
-                                        <th className="pb-3 pr-4 font-semibold">Nombre Fantasía</th>
-                                        <th className="pb-3 pr-4 font-semibold">Razón Social</th>
-                                        <th className="pb-3 pr-4 font-semibold">Localidad</th>
-                                        <th className="pb-3 pr-4 font-semibold text-center">Estado ERP</th>
+                                        <th className="pb-3 pr-4 font-semibold">Cód. ERP</th>
+                                        <th className="pb-3 pr-4 font-semibold">Sucursal</th>
+                                        <th className="pb-3 pr-4 font-semibold">Vendedor</th>
+                                        <th className="pb-3 pr-4 font-semibold">Cliente / Razón Social</th>
+                                        <th className="pb-3 pr-4 font-semibold">Localidad / Provincia</th>
+                                        <th className="pb-3 pr-4 font-semibold text-center">Estado</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {clientesList.map((client) => (
-                                        <tr key={client.id_cliente_erp_local} className="border-b border-[var(--shelfy-border)] last:border-0 hover:bg-[var(--shelfy-bg)] transition-colors group">
+                                    {clientesList.map((client, idx) => (
+                                        <tr key={`${client.id_cliente_erp_local}-${idx}`} className="border-b border-[var(--shelfy-border)] last:border-0 hover:bg-[var(--shelfy-bg)] transition-colors group">
                                             <td className="py-3 pr-4 font-mono text-xs text-[var(--shelfy-muted)]">{client.id_cliente_erp_local}</td>
-                                            <td className="py-3 pr-4 font-bold text-[var(--shelfy-text)]">{client.nombre_fantasia || "-"}</td>
-                                            <td className="py-3 pr-4 text-xs text-[var(--shelfy-muted)]">{client.razon_social || "-"}</td>
-                                            <td className="py-3 pr-4 text-[var(--shelfy-text)]">{client.localidad || client.ciudad || "-"}</td>
+                                            <td className="py-3 pr-4 font-bold text-[10px] text-slate-500">{client.sucursal_nombre}</td>
+                                            <td className="py-3 pr-4">
+                                                <div className="text-[11px] font-bold text-slate-800">{client.vendedor_nombre}</div>
+                                                <div className="text-[9px] text-slate-400 font-mono">{client.vendedor_id}</div>
+                                            </td>
+                                            <td className="py-3 pr-4">
+                                                <div className="font-bold text-[var(--shelfy-text)] text-sm">{client.nombre_cliente}</div>
+                                                <div className="text-[10px] text-[var(--shelfy-muted)] font-medium line-clamp-1">{client.razon_social && client.razon_social !== "nan" ? client.razon_social : (client.nombre_fantasia || "-")}</div>
+                                            </td>
+                                            <td className="py-3 pr-4">
+                                                <div className="text-xs font-bold text-slate-700">{client.localidad}</div>
+                                                <div className="text-[10px] text-slate-400 font-medium uppercase">{client.provincia}</div>
+                                            </td>
                                             <td className="py-3 pr-4 text-center">
                                                 <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${client.estado === 'activo' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                                                     {client.estado || 'activo'}

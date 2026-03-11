@@ -2123,16 +2123,25 @@ def sync_hierarchy_from_erp(dist_id: int, user_payload=Depends(verify_auth)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/reportes/clientes/listado/{dist_id}", tags=["Reportes"])
-def get_clientes_listado(dist_id: int, search: str = "", limit: int = 200, user_payload=Depends(verify_auth)):
-    """Retorna listado maestro de clientes para el Padrón."""
+def get_clientes_listado(
+    dist_id: int, 
+    search: str = "", 
+    sucursal_id: str = "",
+    vendedor_id: str = "",
+    limit: int = 200, 
+    user_payload=Depends(verify_auth)
+):
+    """Retorna listado maestro de clientes con jerarquía (Sucursal/Vendedor)."""
     check_dist_permission(user_payload, dist_id)
     
     try:
-        query = sb.table("erp_clientes_raw").select("*").eq("id_distribuidor", dist_id)
-        if search:
-            query = query.or_(f"nombre_cliente.ilike.%{search}%,id_cliente_erp_local.ilike.%{search}%")
-        
-        res = query.order("nombre_cliente", desc=False).limit(limit).execute()
+        res = sb.rpc("fn_reporte_clientes_maestro", {
+            "p_dist_id": dist_id,
+            "p_search": search,
+            "p_sucursal_id": sucursal_id,
+            "p_vendedor_id": vendedor_id,
+            "p_limit": limit
+        }).execute()
         return res.data or []
     except Exception as e:
         logger.error(f"Error en listado de clientes: {e}")

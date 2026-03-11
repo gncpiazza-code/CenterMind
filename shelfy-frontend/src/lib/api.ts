@@ -645,9 +645,11 @@ export async function fetchClientesMuertos(distId: number, dias: number = 30) {
   return apiFetch<any[]>(`/api/reportes/clientes-muertos/${distId}?dias=${dias}`);
 }
 
-export async function fetchClientesListado(distId: number, search: string = "", limit: number = 200) {
+export async function fetchClientesListado(distId: number, search: string = "", limit: number = 200, sucursalId: string = "", vendedorId: string = "") {
   const q = new URLSearchParams();
   if (search) q.append("search", search);
+  if (sucursalId) q.append("sucursal_id", sucursalId);
+  if (vendedorId) q.append("vendedor_id", vendedorId);
   q.append("limit", limit.toString());
   return apiFetch<any[]>(`/api/reportes/clientes/listado/${distId}?${q.toString()}`);
 }

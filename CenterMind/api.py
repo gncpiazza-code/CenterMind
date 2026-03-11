@@ -1605,11 +1605,9 @@ def admin_create_integrante(dist_id: int, req: IntegranteRequest, _=Depends(veri
 @app.put("/api/admin/integrantes/{id_integrante}", summary="Editar nombre/rol de integrante")
 def admin_update_integrante(id_integrante: int, req: IntegranteUpdateRequest, _=Depends(verify_auth)):
     """Permite al SuperAdmin cambiar el nombre y rol del integrante independientemente de Telegram."""
-    update_data = {"nombre_integrante": req.nombre_integrante}
-    if req.rol_telegram:
-        update_data["rol_telegram"] = req.rol_telegram
-    if req.id_vendedor_erp is not None:
-        update_data["id_vendedor_erp"] = req.id_vendedor_erp
+    update_data = req.model_dump(exclude_unset=True)
+    if not update_data:
+        return {"ok": True}
         
     sb.table("integrantes_grupo").update(update_data).eq("id_integrante", id_integrante).execute()
     return {"ok": True}

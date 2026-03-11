@@ -1162,6 +1162,18 @@ def dashboard_ranking(distribuidor_id: int, periodo: str = "mes", top: int = 15,
     result = sb.rpc("fn_dashboard_ranking", {"p_dist_id": distribuidor_id, "p_periodo": periodo, "p_top": top}).execute()
     return result.data or []
 
+@app.get("/api/dashboard/evolucion-tiempo/{distribuidor_id}", summary="Evolución en el tiempo del dashboard")
+def dashboard_evolucion(distribuidor_id: int, periodo: str = "mes", payload=Depends(verify_auth)):
+    check_dist_permission(payload, distribuidor_id)
+    result = sb.rpc("fn_dashboard_evolucion_tiempo", {"p_dist_id": distribuidor_id, "p_periodo": periodo}).execute()
+    return result.data or []
+
+@app.get("/api/dashboard/por-ciudad/{distribuidor_id}", summary="Rendimiento agrupado por ciudad")
+def dashboard_por_ciudad(distribuidor_id: int, periodo: str = "mes", payload=Depends(verify_auth)):
+    check_dist_permission(payload, distribuidor_id)
+    result = sb.rpc("fn_dashboard_por_ciudad", {"p_dist_id": distribuidor_id, "p_periodo": periodo}).execute()
+    return result.data or []
+
 
 @app.get("/api/dashboard/ultimas-evaluadas/{distribuidor_id}", summary="Últimas fotos evaluadas con fallback de días")
 def dashboard_ultimas(distribuidor_id: int, n: int = 8, payload=Depends(verify_auth)):

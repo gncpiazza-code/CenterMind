@@ -331,6 +331,7 @@ class Database:
             for r in res.data:
                 ranking.append({
                     "vendedor":   r["vendedor"] or "Sin nombre",
+                    "sucursal":   r.get("sucursal", ""),
                     "puntos":     r["puntos"],
                     "aprobadas":  r["aprobadas"],
                     "destacadas": r["destacadas"],

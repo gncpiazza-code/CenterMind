@@ -175,13 +175,13 @@ export default function LiveMapPage() {
     }, [events]);
 
     const statsGlobal = useMemo(() => {
-        if (events.length === 0) return { perMin: 0, totalDay: 0, topSellers: [] };
+        if (events.length === 0) return { perHour: 0, totalDay: 0, topSellers: [] };
         const now = new Date();
         const lastHourEvents = events.filter(e => (now.getTime() - new Date(e.timestamp_evento).getTime()) / 60000 < 60);
         const sellerCounts: Record<string, number> = {};
         events.forEach(e => { sellerCounts[e.vendedor_nombre] = (sellerCounts[e.vendedor_nombre] || 0) + 1; });
         const topSellers = Object.entries(sellerCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
-        return { perMin: (lastHourEvents.length / 60).toFixed(1), totalDay: events.length, topSellers };
+        return { perHour: lastHourEvents.length, totalDay: events.length, topSellers };
     }, [events]);
 
     const handleToggleDist = async (dist: any) => {
@@ -315,7 +315,7 @@ export default function LiveMapPage() {
                                 </div>
                                 <div className="space-y-4">
                                     <p className="text-[9px] font-black text-slate-500 uppercase">Ritmo de Carga</p>
-                                    <p className="text-3xl font-black text-white tracking-tighter">{statsGlobal.perMin} <span className="text-xs text-slate-500">EXH/M</span></p>
+                                    <p className="text-3xl font-black text-white tracking-tighter">{statsGlobal.perHour} <span className="text-xs text-slate-500">EXH/H</span></p>
                                 </div>
                                 <div className="space-y-4">
                                     <p className="text-[9px] font-black text-slate-500 uppercase">Top Sellers</p>

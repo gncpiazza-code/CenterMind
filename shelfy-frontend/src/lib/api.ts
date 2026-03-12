@@ -51,6 +51,7 @@ export interface StatsHoy {
 
 export interface VendedorRanking {
   vendedor: string;
+  sucursal?: string;
   puntos: number;
   aprobadas: number;
   destacadas: number;

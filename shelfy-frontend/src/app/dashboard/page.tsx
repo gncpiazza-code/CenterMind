@@ -361,7 +361,7 @@ function RankingTable({
             <AnimatePresence initial={false}>
               {top15.map((v, i) => (
                 <motion.tr
-                  key={v.vendedor}
+                  key={`${v.vendedor}-${v.sucursal}`}
                   layout
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ 
@@ -397,14 +397,25 @@ function RankingTable({
                   </td>
                   <td className="py-3 px-2">
                     <div className="flex flex-col">
-                      <span className={`font-black text-[15px] ${i < 3 ? "text-slate-900" : "text-slate-700"}`}>
-                        {v.vendedor}
-                      </span>
-                      {i < 3 && (
-                        <span className="text-[9px] uppercase font-black tracking-widest text-slate-400 opacity-80">
-                          {i === 0 ? "👑 Líder Global" : i === 1 ? "⭐ Excelente" : "🔥 En racha"}
+                        <span className={`font-black text-[15px] ${i < 3 ? "text-slate-900" : "text-slate-700"}`}>
+                          {v.vendedor}
                         </span>
-                      )}
+                        <div className="flex items-center gap-1.5 overflow-hidden">
+                          {i < 3 ? (
+                            <span className="text-[9px] uppercase font-black tracking-widest text-slate-400 opacity-80 whitespace-nowrap">
+                              {i === 0 ? "👑 Líder Global" : i === 1 ? "⭐ Excelente" : "🔥 En racha"}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-bold text-slate-400 truncate">
+                              {v.sucursal}
+                            </span>
+                          )}
+                          {i < 3 && v.sucursal && (
+                            <span className="text-[10px] font-bold text-slate-400 truncate">
+                              • {v.sucursal}
+                            </span>
+                          )}
+                        </div>
                     </div>
                   </td>
                   <td className="py-3 px-2 text-right">

@@ -940,8 +940,9 @@ class BotWorker:
                 msg = f"🏆 <b>RANKING {month_name.upper()} {year} — {self.nombre_dist}</b>\n\n"
                 for i, entry in enumerate(ranking[:10], 1):
                     emoji = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
+                    sucursal_text = f" ({entry['sucursal']})" if entry.get('sucursal') else ""
                     msg += (
-                        f"{emoji} <b>{entry['vendedor']}</b>\n"
+                        f"{emoji} <b>{entry['vendedor']}</b>{sucursal_text}\n"
                         f"   ✅ Aprod: {entry['aprobadas']} | 🔥 Dest: {entry['destacadas']}\n"
                         f"   ⭐ Puntos: {entry['puntos']}\n\n"
                     )

@@ -48,15 +48,16 @@ export default function LiveMapPage() {
         }
     }, [user, authLoading, router]);
 
-    const loadEvents = async (date?: string) => {
+    const loadEvents = async (dateToLoad?: string) => {
         try {
-            // Si hay fecha, ignoramos los minutos y traemos todo el día (1440 min = 24h)
-            const res = await fetchLiveMapEvents(date ? undefined : 1440, date);
+            const date = dateToLoad || selectedDate;
+            // Siempre usamos la fecha para traer "lo del día" (00:00 a 23:59)
+            const res = await fetchLiveMapEvents(undefined, date);
             // Filtrar eventos sin ubicación válida o datos inconsistentes
             const validEvents = res.filter(e => e.lat && e.lon && e.lat !== 0 && e.lon !== 0);
 
             // Detectar si hay un evento nuevo para hacer fly-to
-            if (validEvents.length > 0 && !date) {
+            if (validEvents.length > 0 && date === getTodayStr()) {
                 const newest = validEvents[0];
                 if (lastNewestId && newest.id_ex > lastNewestId) {
                     setSelectedEventId(newest.id_ex);
@@ -97,11 +98,11 @@ export default function LiveMapPage() {
         // Only load if user exists
         if (!user) return;
         const today = getTodayStr();
-        loadEvents(selectedDate === today ? undefined : selectedDate);
+        loadEvents(selectedDate);
 
         let interval: any;
         if (selectedDate === today) {
-            interval = setInterval(() => loadEvents(), 30000);
+            interval = setInterval(() => loadEvents(today), 30000);
         }
 
         return () => {

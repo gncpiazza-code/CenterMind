@@ -1,6 +1,23 @@
 import { API_URL, TOKEN_KEY } from "./constants";
 
 // ── Tipos ──────────────────────────────────────────────────────────────────
+export interface ClienteMaestro {
+  id_cliente_erp_local: string;
+  nombre_cliente: string;
+  nombre_fantasia?: string;
+  razon_social?: string;
+  localidad: string;
+  provincia: string;
+  domicilio: string;
+  sucursal_nombre: string;
+  vendedor_nombre: string;
+  vendedor_id: string;
+  sucursal_id: string;
+  estado: string;
+  lat: number;
+  lon: number;
+  fecha_ultima_compra?: string;
+}
 
 export interface AuthResponse {
   access_token: string;
@@ -646,13 +663,13 @@ export async function fetchClientesMuertos(distId: number, dias: number = 30) {
   return apiFetch<any[]>(`/api/reportes/clientes-muertos/${distId}?dias=${dias}`);
 }
 
-export async function fetchClientesListado(distId: number, search: string = "", limit: number = 200, sucursalId: string = "", vendedorId: string = "") {
+export async function fetchClientesListado(distId: number, search: string = "", limit: number = 200, sucursalId: string = "", vendedorId: string = ""): Promise<ClienteMaestro[]> {
   const q = new URLSearchParams();
   if (search) q.append("search", search);
   if (sucursalId) q.append("sucursal_id", sucursalId);
   if (vendedorId) q.append("vendedor_id", vendedorId);
   q.append("limit", limit.toString());
-  return apiFetch<any[]>(`/api/reportes/clientes/listado/${distId}?${q.toString()}`);
+  return apiFetch<ClienteMaestro[]>(`/api/reportes/clientes/listado/${distId}?${q.toString()}`);
 }
 
 export async function fetchERPMappings(): Promise<any[]> {

@@ -22,9 +22,18 @@ import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
     PieChart, Pie, Cell, Legend
 } from "recharts";
-import { fetchClientesStats, fetchClientesTemporal, fetchClientesDesglose, fetchClientesListado } from "@/lib/api";
-import Map, { Marker, NavigationControl } from "react-map-gl/maplibre";
-import "maplibre-gl/dist/maplibre-gl.css";
+import { fetchClientesStats, fetchClientesTemporal, fetchClientesDesglose, fetchClientesListado, type ClienteMaestro } from "@/lib/api";
+import { 
+    Map as CustomMap, 
+    MapMarker, 
+    MarkerContent, 
+    MarkerPopup, 
+    MapControls,
+    type MapRef
+} from "@/components/ui/map";
+import { useRef, useMemo } from "react";
+import { formatDistanceToNow } from "date-fns";
+import { es } from "date-fns/locale";
 
 const MAPTILER_KEY = process.env.NEXT_PUBLIC_MAPTILER_KEY || "G6B85Hh6h0w6WXZlE8S8";
 const MAP_STYLE = `https://api.maptiler.com/maps/voyager/style.json?key=${MAPTILER_KEY}`;
@@ -37,7 +46,7 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
     const [temporal, setTemporal] = useState<any[]>([]);
     const [desgloseVendedores, setDesgloseVendedores] = useState<any[]>([]);
     const [desgloseLocalidades, setDesgloseLocalidades] = useState<any[]>([]);
-    const [clientesList, setClientesList] = useState<any[]>([]);
+    const [clientesList, setClientesList] = useState<ClienteMaestro[]>([]);
     const [search, setSearch] = useState("");
     const [view, setView] = useState<"general" | "vendedores" | "geografia" | "listado" | "inactivos">("general");
     const [loadingList, setLoadingList] = useState(false);
@@ -47,6 +56,24 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
     const [selectedSucursal, setSelectedSucursal] = useState("");
     const [selectedVendedor, setSelectedVendedor] = useState("");
     const [branchColors, setBranchColors] = useState<Record<string, string>>({});
+
+    const mapRef = useRef<MapRef>(null);
+    const [popupClient, setPopupClient] = useState<ClienteMaestro | null>(null);
+
+    const sellerColorMap = useMemo(() => {
+        const colors: Record<string, string> = {};
+        const SELLER_COLORS = [
+            '#7c3aed', '#ec4899', '#f59e0b', '#10b981', '#3b82f6', 
+            '#6366f1', '#ef4444', '#f97316', '#84cc16', '#06b6d4',
+            '#0891b2', '#4d7c0f', '#be185d', '#4338ca', '#b45309'
+        ];
+        
+        const uniqueSellers = Array.from(new Set(clientesList.map(c => c.vendedor_nombre))).sort();
+        uniqueSellers.forEach((name, idx) => {
+            colors[name] = SELLER_COLORS[idx % SELLER_COLORS.length];
+        });
+        return colors;
+    }, [clientesList]);
 
     const loadData = async () => {
         setLoading(true);
@@ -287,52 +314,119 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
 
             {view === "geografia" && (
                 <Card className="min-h-[600px] p-0 overflow-hidden relative border-none shadow-xl">
-                    <div className="absolute top-4 left-4 z-[1000] bg-white/90 backdrop-blur-md p-3 rounded-2xl border border-slate-200 shadow-xl flex flex-col gap-1">
-                        <h3 className="text-sm font-black text-slate-900 flex items-center gap-2">
-                            <Globe size={16} className="text-violet-600" />
-                            Mapa de Padrón de Clientes
+                    <div className="absolute top-4 left-4 z-[1000] bg-white/90 backdrop-blur-md p-3 rounded-2xl border border-slate-200 shadow-xl flex flex-col gap-1 max-w-[200px]">
+                        <h3 className="text-xs font-black text-slate-900 flex items-center gap-2">
+                            <Globe size={14} className="text-violet-600" />
+                            Mapa de Padrón
                         </h3>
                         {loadingList ? (
-                            <p className="text-[10px] font-bold text-slate-500 flex items-center gap-2">
-                                <span className="w-2 h-2 rounded-full bg-violet-400 animate-pulse"></span>
-                                Cargando nube de puntos...
+                            <p className="text-[9px] font-bold text-slate-500 flex items-center gap-2">
+                                <span className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse"></span>
+                                Cargando...
                             </p>
                         ) : (
-                            <p className="text-[10px] font-bold text-slate-500">Visualizando {clientesList.filter(c => c.latitud && c.longitud).length} ubicaciones exactas</p>
+                            <p className="text-[9px] font-bold text-slate-500">Visualizando {clientesList.filter(c => c.lat && c.lon).length} PDVs</p>
                         )}
+                        
+                        {/* Legend */}
+                        <div className="mt-2 pt-2 border-t border-slate-100 max-h-[150px] overflow-y-auto custom-scrollbar pr-2">
+                            <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Vendedores</p>
+                            <div className="space-y-1">
+                                {Object.entries(sellerColorMap).map(([name, color]) => (
+                                    <div key={name} className="flex items-center gap-2">
+                                        <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                                        <span className="text-[9px] font-bold text-slate-600 truncate">{name}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
                     </div>
 
-                    <div className="h-[600px] w-full bg-slate-100 flex items-center justify-center">
-                        <Map
-                            initialViewState={{
-                                longitude: -64.1833,
-                                latitude: -31.4167,
-                                zoom: 4
-                            }}
-                            mapStyle={MAP_STYLE}
+                    <div className="h-[600px] w-full bg-slate-100 relative">
+                        <CustomMap
+                            ref={mapRef}
+                            center={[-58.3816, -34.6037]}
+                            zoom={10}
+                            theme="light"
+                            className="h-full w-full"
                             attributionControl={false}
                         >
-                            <NavigationControl position="top-right" />
-                            {clientesList.filter(c => c.latitud && c.longitud).map((client, idx) => {
-                                const lat = parseFloat(client.latitud as string);
-                                const lon = parseFloat(client.longitud as string);
-                                if (isNaN(lat) || isNaN(lon)) return null;
-
+                            <MapControls position="top-right" showZoom showCompass />
+                            
+                            {clientesList.filter(c => c.lat && c.lon).map((client, idx) => {
+                                const sellerColor = sellerColorMap[client.vendedor_nombre] || '#7c3aed';
+                                const isActive = client.estado?.toLowerCase() === 'activo';
+                                
                                 return (
-                                    <Marker
+                                    <MapMarker
                                         key={`${client.id_cliente_erp_local}-${idx}`}
-                                        longitude={lon}
-                                        latitude={lat}
+                                        longitude={client.lon}
+                                        latitude={client.lat}
+                                        onClick={() => setPopupClient(client)}
                                     >
-                                        <div
-                                            className="w-4 h-4 rounded-full opacity-80 border-2 border-white cursor-pointer hover:opacity-100 hover:scale-150 transition-all hover:z-50 shadow-sm"
-                                            style={{ backgroundColor: branchColors[client.sucursal_nombre] || '#7c3aed' }}
-                                            title={`${client.nombre_cliente} | ${client.sucursal_nombre} | ${client.vendedor_nombre}`}
-                                        ></div>
-                                    </Marker>
+                                        <MarkerContent>
+                                            <div 
+                                                className={cn(
+                                                    "w-3.5 h-3.5 rounded-full border-2 border-white shadow-md transition-all hover:scale-[1.7] hover:z-50 cursor-pointer",
+                                                    !isActive && "opacity-40 grayscale-[0.6] scale-90 border-slate-300"
+                                                )}
+                                                style={{ backgroundColor: sellerColor }}
+                                            />
+                                        </MarkerContent>
+                                        
+                                        {popupClient?.id_cliente_erp_local === client.id_cliente_erp_local && (
+                                            <MarkerPopup 
+                                                closeButton 
+                                                onClose={() => setPopupClient(null)} 
+                                                className="min-w-[220px] max-w-[280px]"
+                                            >
+                                                <div className="space-y-2">
+                                                    <div>
+                                                        <h4 className="font-black text-slate-900 text-xs leading-tight">{client.nombre_cliente}</h4>
+                                                        <p className="text-[9px] text-slate-400 font-mono mt-0.5">#{client.id_cliente_erp_local}</p>
+                                                    </div>
+                                                    
+                                                    <div className="flex flex-col gap-0.5">
+                                                        <div className="flex items-center gap-1.5">
+                                                            <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: sellerColor }} />
+                                                            <span className="text-[10px] font-bold text-slate-700">{client.vendedor_nombre}</span>
+                                                        </div>
+                                                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tight ml-3">{client.sucursal_nombre}</span>
+                                                    </div>
+
+                                                    <div className="h-px bg-slate-100" />
+                                                    
+                                                    <div className="grid grid-cols-2 gap-2">
+                                                        <div className="flex flex-col">
+                                                            <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Estado</span>
+                                                            <span className={cn(
+                                                                "text-[9px] font-black px-1.5 py-0.5 rounded-full w-fit uppercase",
+                                                                isActive ? "bg-green-100 text-green-700 border border-green-200" : "bg-red-100 text-red-700 border border-red-200"
+                                                            )}>
+                                                                {client.estado || 'activo'}
+                                                            </span>
+                                                        </div>
+                                                        <div className="flex flex-col">
+                                                            <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Ubicación</span>
+                                                            <span className="text-[9px] font-mono text-slate-500 truncate">{client.localidad}</span>
+                                                        </div>
+                                                    </div>
+
+                                                    {client.fecha_ultima_compra && (
+                                                        <div className="pt-1">
+                                                            <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest block mb-0.5">Última Compra</span>
+                                                            <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">
+                                                                {new Date(client.fecha_ultima_compra).toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                                            </span>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </MarkerPopup>
+                                        )}
+                                    </MapMarker>
                                 );
                             })}
-                        </Map>
+                        </CustomMap>
                     </div>
                 </Card>
             )}

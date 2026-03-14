@@ -133,7 +133,10 @@ BEGIN
         COALESCE(m."Vendedor", 'VENDEDOR ' || c.vendedor_erp),
         c.vendedor_erp as vendedor_id,
         c.id_sucursal_erp as sucursal_id,
-        c.estado,
+        CASE 
+            WHEN c.fecha_ultima_compra >= (CURRENT_DATE - INTERVAL '30 days') THEN 'activo'
+            ELSE 'inactivo'
+        END as estado,
         COALESCE(c.lat, 0)::FLOAT,
         COALESCE(c.lon, 0)::FLOAT,
         c.fecha_ultima_compra
@@ -145,7 +148,7 @@ BEGIN
     WHERE c.id_distribuidor = p_dist_id
       AND (p_search = '' OR c.nombre_cliente ILIKE '%' || p_search || '%' OR c.id_cliente_erp_local ILIKE '%' || p_search || '%')
       AND (p_sucursal_id = '' OR c.id_sucursal_erp = p_sucursal_id)
-      AND (p_vendedor_id = '' OR c.vendedor_erp = p_vendedor_id)
+      AND (p_vendedor_id = '' OR c.vendedor_erp = ANY(string_to_array(p_vendedor_id, ',')))
     ORDER BY c.nombre_cliente ASC
     LIMIT p_limit;
 END;

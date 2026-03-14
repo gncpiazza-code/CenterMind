@@ -64,7 +64,7 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
     // Jerarquía y Filtros
     const [hierarchy, setHierarchy] = useState<any>(null);
     const [selectedSucursal, setSelectedSucursal] = useState("");
-    const [selectedVendedor, setSelectedVendedor] = useState("");
+    const [selectedVendedores, setSelectedVendedores] = useState<Set<string>>(new Set());
     const [branchColors, setBranchColors] = useState<Record<string, string>>({});
 
     const mapRef = useRef<MapRef>(null);
@@ -109,7 +109,9 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
         setLoadingList(true);
         try {
             const limit = view === "geografia" ? 5000 : 500;
-            const data = await fetchClientesListado(distId, search, limit, selectedSucursal, selectedVendedor);
+            // Join selected vendor IDs with commas for the multi-select SQL filter
+            const vendorIds = Array.from(selectedVendedores).join(",");
+            const data = await fetchClientesListado(distId, search, limit, selectedSucursal, vendorIds);
             setClientesList(data);
         } catch (e) {
             console.error("Error al cargar listado de clientes:", e);
@@ -152,7 +154,7 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
             }, 500);
             return () => clearTimeout(timer);
         }
-    }, [view, search, distId, selectedSucursal, selectedVendedor]);
+    }, [view, search, distId, selectedSucursal, selectedVendedores]);
 
     // Estados para los filtros en cascada de Inactivos
     const [selSucursal, setSelSucursal] = useState<string>("");
@@ -341,40 +343,84 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
                         </div>
 
                         {/* Filtros de Segmentación */}
-                        <div className="space-y-2 border-y border-slate-100 py-3 my-1">
-                            <div className="space-y-1">
-                                <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Sucursal</label>
+                        <div className="space-y-4 border-y border-slate-100 py-4 my-1">
+                            <div className="space-y-1.5 px-1">
+                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center justify-between">
+                                    <span>Sucursal</span>
+                                    {selectedSucursal && (
+                                        <button 
+                                            onClick={() => {
+                                                setSelectedSucursal("");
+                                                setSelectedVendedores(new Set());
+                                            }}
+                                            className="text-[10px] text-violet-600 hover:underline"
+                                        >
+                                            Limpiar
+                                        </button>
+                                    )}
+                                </label>
                                 <select 
-                                    className="w-full text-[10px] font-bold bg-slate-50 border-none rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-violet-500 transition-all cursor-pointer"
+                                    className="w-full text-[11px] font-bold bg-slate-100/50 border-none rounded-2xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-violet-500 transition-all cursor-pointer"
                                     value={selectedSucursal}
                                     onChange={(e) => {
                                         setSelectedSucursal(e.target.value);
-                                        setSelectedVendedor(""); // Reset vendor when branch changes
+                                        setSelectedVendedores(new Set()); 
                                     }}
                                 >
-                                    <option value="">Todas las sucursales</option>
+                                    <option value="">Seleccionar Sucursal...</option>
                                     {(hierarchy?.erp_hierarchy || []).map((s: any) => (
                                         <option key={s.sucursal_erp} value={s.sucursal_erp}>{s.sucursal_erp}</option>
                                     ))}
                                 </select>
                             </div>
 
-                            <div className="space-y-1">
-                                <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Vendedor</label>
-                                <select 
-                                    className="w-full text-[10px] font-bold bg-slate-50 border-none rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-violet-500 transition-all cursor-pointer"
-                                    value={selectedVendedor}
-                                    onChange={(e) => setSelectedVendedor(e.target.value)}
-                                    disabled={!selectedSucursal}
-                                >
-                                    <option value="">Todos los vendedores</option>
-                                    {(hierarchy?.erp_hierarchy || [])
-                                        .find((s: any) => s.sucursal_erp === selectedSucursal)
-                                        ?.vendedores.map((v: string) => (
-                                            <option key={v} value={v}>{v}</option>
-                                        ))}
-                                </select>
-                            </div>
+                            {selectedSucursal && (
+                                <div className="space-y-2 px-1">
+                                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center justify-between">
+                                        <span>Vendedores ({selectedVendedores.size})</span>
+                                        <div className="flex gap-2">
+                                            <button 
+                                                onClick={() => {
+                                                    const all = (hierarchy?.erp_hierarchy || []).find((s: any) => s.sucursal_erp === selectedSucursal)?.vendedores || [];
+                                                    setSelectedVendedores(new Set(all));
+                                                }}
+                                                className="text-[10px] text-violet-600 hover:underline"
+                                            >
+                                                Todos
+                                            </button>
+                                            <button 
+                                                onClick={() => setSelectedVendedores(new Set())}
+                                                className="text-[10px] text-slate-400 hover:underline"
+                                            >
+                                                Ninguno
+                                            </button>
+                                        </div>
+                                    </label>
+                                    <div className="max-h-[180px] overflow-y-auto custom-scrollbar space-y-1 pr-1 bg-slate-50/50 p-2 rounded-2xl border border-slate-100">
+                                        {(hierarchy?.erp_hierarchy || [])
+                                            .find((s: any) => s.sucursal_erp === selectedSucursal)
+                                            ?.vendedores.map((v: string) => {
+                                                const isSel = selectedVendedores.has(v);
+                                                return (
+                                                    <div 
+                                                        key={v}
+                                                        onClick={() => {
+                                                            const n = new Set(selectedVendedores);
+                                                            if (n.has(v)) n.delete(v); else n.add(v);
+                                                            setSelectedVendedores(n);
+                                                        }}
+                                                        className={`flex items-center justify-between gap-2 px-3 py-2 rounded-xl cursor-pointer transition-all ${isSel ? 'bg-violet-100 text-violet-700 shadow-sm' : 'hover:bg-slate-100 text-slate-600'}`}
+                                                    >
+                                                        <span className="text-[10px] font-bold truncate">{v}</span>
+                                                        <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center transition-all ${isSel ? 'border-violet-500 bg-violet-500' : 'border-slate-300'}`}>
+                                                            {isSel && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                         <div className="flex items-center justify-between px-1">
@@ -507,24 +553,27 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
                                 value={selectedSucursal}
                                 onChange={(e) => {
                                     setSelectedSucursal(e.target.value);
-                                    setSelectedVendedor("");
+                                    setSelectedVendedores(new Set());
                                 }}
                             >
                                 <option value="">Todas las Sucursales</option>
                                 {hierarchy?.erp_hierarchy?.map((s: any) => (
-                                    <option key={s.sucursal_erp} value={s.id_sucursal_erp}>{s.sucursal_erp}</option>
+                                    <option key={s.sucursal_erp} value={s.sucursal_erp}>{s.sucursal_erp}</option>
                                 ))}
                             </select>
 
                             <select 
                                 className="text-xs p-2 bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-xl outline-none focus:border-[var(--shelfy-primary)]"
-                                value={selectedVendedor}
-                                onChange={(e) => setSelectedVendedor(e.target.value)}
+                                value={Array.from(selectedVendedores)[0] || ""}
+                                onChange={(e) => {
+                                    if (e.target.value === "") setSelectedVendedores(new Set());
+                                    else setSelectedVendedores(new Set([e.target.value]));
+                                }}
                                 disabled={!selectedSucursal}
                             >
                                 <option value="">Todos los Vendedores</option>
-                                {hierarchy?.erp_hierarchy?.find((s: any) => s.id_sucursal_erp === selectedSucursal)?.vendedores?.map((v: any) => (
-                                    <option key={v.id_vendedor_erp} value={v.id_vendedor_erp}>{v.vendedor_nombre}</option>
+                                {hierarchy?.erp_hierarchy?.find((s: any) => s.sucursal_erp === selectedSucursal)?.vendedores?.map((v: string) => (
+                                    <option key={v} value={v}>{v}</option>
                                 ))}
                             </select>
 

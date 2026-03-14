@@ -1647,7 +1647,7 @@ def get_hierarchy_config(dist_id: int, _=Depends(verify_auth)):
         # but the new unified dashboard endpoint handles the whole tree.
         # 1. Locations from Maestro
 
-        loc_res = sb.table("maestro_jerarquia").select("SUCURSAL, \"id suc\"").eq("ID_DIST", dist_id).execute()
+        loc_res = sb.table("maestro_jerarquia").select("SUCURSAL, \"id suc\", \"Vendedor\"").eq("ID_DIST", dist_id).execute()
         seen_locs = set()
         formatted_locs = []
         for row in (loc_res.data or []):
@@ -1672,7 +1672,7 @@ def get_hierarchy_config(dist_id: int, _=Depends(verify_auth)):
 
         # Fallback to erp_clientes_raw if maestro is empty (unlikely but safe)
         if not formatted_erp:
-            erp_data = sb.table("erp_clientes_raw").select("sucursal_erp, vendedor_erp").eq("id_distribuidor", dist_id).eq("estado", "activo").execute()
+            erp_data = sb.table("erp_clientes_raw").select("sucursal_erp, vendedor_erp").eq("id_distribuidor", dist_id).execute()
             temp_map = {}
             for row in (erp_data.data or []):
                 s_erp = str(row.get("sucursal_erp", "")).strip().upper()

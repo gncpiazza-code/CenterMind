@@ -113,13 +113,24 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
 
     const fetchHierarchy = async () => {
         try {
+            // Updated to use the correct endpoint that returns the hierarchy tree
             const res = await fetch(`/api/admin/hierarchy-config/${distId}`).then(r => r.json());
+            
+            // If the response is HTML (404/Error), we handle it
+            if (typeof res === 'string' && res.includes('<!DOCTYPE')) {
+                console.error("Hierarchy API returned HTML instead of JSON. Check backend routing.");
+                return;
+            }
+            
             setHierarchy(res);
             
             // Generar colores para sucursales
             const colors: Record<string, string> = {};
             (res.erp_hierarchy || []).forEach((s: any, idx: number) => {
-                colors[s.sucursal_erp] = COLORS[idx % COLORS.length];
+                const name = s.sucursal_erp || s.label;
+                if (name) {
+                    colors[name] = COLORS[idx % COLORS.length];
+                }
             });
             setBranchColors(colors);
         } catch (e) {
@@ -321,30 +332,71 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
 
             {view === "geografia" && (
                 <Card className="min-h-[600px] p-0 overflow-hidden relative border-none shadow-xl">
-                    <div className="absolute top-4 left-4 z-[1000] bg-white/90 backdrop-blur-md p-3 rounded-2xl border border-slate-200 shadow-xl flex flex-col gap-1 max-w-[200px]">
-                        <h3 className="text-xs font-black text-slate-900 flex items-center gap-2">
-                            <Globe size={14} className="text-violet-600" />
-                            Mapa de Padrón
-                        </h3>
-                        {loadingList ? (
-                            <p className="text-[9px] font-bold text-slate-500 flex items-center gap-2">
-                                <span className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse"></span>
-                                Cargando...
+                    <div className="absolute top-4 left-4 z-[1000] bg-white/95 backdrop-blur-md p-4 rounded-[2rem] border border-slate-200 shadow-2xl flex flex-col gap-3 min-w-[240px] max-w-[280px]">
+                        <div className="flex items-center justify-between">
+                            <h3 className="text-xs font-black text-slate-900 flex items-center gap-2">
+                                <Globe size={14} className="text-violet-600" />
+                                Mapa de Padrón
+                            </h3>
+                            {loadingList && <span className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse" />}
+                        </div>
+
+                        {/* Filtros de Segmentación */}
+                        <div className="space-y-2 border-y border-slate-100 py-3 my-1">
+                            <div className="space-y-1">
+                                <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Sucursal</label>
+                                <select 
+                                    className="w-full text-[10px] font-bold bg-slate-50 border-none rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-violet-500 transition-all cursor-pointer"
+                                    value={selectedSucursal}
+                                    onChange={(e) => {
+                                        setSelectedSucursal(e.target.value);
+                                        setSelectedVendedor(""); // Reset vendor when branch changes
+                                    }}
+                                >
+                                    <option value="">Todas las sucursales</option>
+                                    {(hierarchy?.erp_hierarchy || []).map((s: any) => (
+                                        <option key={s.sucursal_erp} value={s.sucursal_erp}>{s.sucursal_erp}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="space-y-1">
+                                <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Vendedor</label>
+                                <select 
+                                    className="w-full text-[10px] font-bold bg-slate-50 border-none rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-violet-500 transition-all cursor-pointer"
+                                    value={selectedVendedor}
+                                    onChange={(e) => setSelectedVendedor(e.target.value)}
+                                    disabled={!selectedSucursal}
+                                >
+                                    <option value="">Todos los vendedores</option>
+                                    {(hierarchy?.erp_hierarchy || [])
+                                        .find((s: any) => s.sucursal_erp === selectedSucursal)
+                                        ?.vendedores.map((v: string) => (
+                                            <option key={v} value={v}>{v}</option>
+                                        ))}
+                                </select>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center justify-between px-1">
+                            <p className="text-[9px] font-bold text-slate-500">
+                                {loadingList ? "Cargando..." : `Mostrando ${clientesList.filter(c => c.lat && c.lon).length} PDVs`}
                             </p>
-                        ) : (
-                            <p className="text-[9px] font-bold text-slate-500">Visualizando {clientesList.filter(c => c.lat && c.lon).length} PDVs</p>
-                        )}
+                        </div>
                         
                         {/* Legend */}
-                        <div className="mt-2 pt-2 border-t border-slate-100 max-h-[150px] overflow-y-auto custom-scrollbar pr-2">
-                            <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Vendedores</p>
-                            <div className="space-y-1">
+                        <div className="mt-1 max-h-[120px] overflow-y-auto custom-scrollbar pr-2">
+                            <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-2">Colores por Vendedor</p>
+                            <div className="space-y-1.5">
                                 {Object.entries(sellerColorMap).map(([name, color]) => (
                                     <div key={name} className="flex items-center gap-2">
                                         <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
                                         <span className="text-[9px] font-bold text-slate-600 truncate">{name}</span>
                                     </div>
                                 ))}
+                                {Object.keys(sellerColorMap).length === 0 && (
+                                    <span className="text-[9px] text-slate-400 italic">Sin datos de segmentación</span>
+                                )}
                             </div>
                         </div>
                     </div>

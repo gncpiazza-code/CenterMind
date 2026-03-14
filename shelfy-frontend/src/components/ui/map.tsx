@@ -580,17 +580,22 @@ type MarkerPopupProps = {
   className?: string;
   /** Show a close button in the popup (default: false) */
   closeButton?: boolean;
+  /** Callback fired when the popup is closed */
+  onClose?: () => void;
 } & Omit<PopupOptions, "className" | "closeButton">;
 
 function MarkerPopup({
   children,
   className,
   closeButton = false,
+  onClose,
   ...popupOptions
 }: MarkerPopupProps) {
   const { marker, map } = useMarkerContext();
   const container = useMemo(() => document.createElement("div"), []);
   const prevPopupOptions = useRef(popupOptions);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   const popup = useMemo(() => {
     const popupInstance = new MapLibreGL.Popup({
@@ -600,6 +605,10 @@ function MarkerPopup({
     })
       .setMaxWidth("none")
       .setDOMContent(container);
+
+    popupInstance.on("close", () => {
+      onCloseRef.current?.();
+    });
 
     return popupInstance;
     // eslint-disable-next-line react-hooks/exhaustive-deps

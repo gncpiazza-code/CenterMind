@@ -38,6 +38,9 @@ import { es } from "date-fns/locale";
 const MAPTILER_KEY = process.env.NEXT_PUBLIC_MAPTILER_KEY || "G6B85Hh6h0w6WXZlE8S8";
 const MAP_STYLE = `https://api.maptiler.com/maps/voyager/style.json?key=${MAPTILER_KEY}`;
 
+// Fallback cn simple
+const cn = (...inputs: any[]) => inputs.filter(Boolean).join(" ");
+
 const COLORS = ['#7c3aed', '#ec4899', '#f59e0b', '#10b981', '#3b82f6', '#6366f1'];
 
 export default function TabPadronClientes({ distId }: { distId: number }) {
@@ -98,7 +101,8 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
     const loadListado = async () => {
         setLoadingList(true);
         try {
-            const data = await fetchClientesListado(distId, search, 500, selectedSucursal, selectedVendedor);
+            const limit = view === "geografia" ? 2000 : 500;
+            const data = await fetchClientesListado(distId, search, limit, selectedSucursal, selectedVendedor);
             setClientesList(data);
         } catch (e) {
             console.error("Error al cargar listado de clientes:", e);
@@ -145,12 +149,15 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
     const [selVendedor, setSelVendedor] = useState<string>("");
 
     // Derived state para inactivos
+    const sucursal_field = "sucursal_nombre";
+    const vendedor_field = "vendedor_nombre";
+
     const inactivosList = clientesList.filter(c => c.estado === "inactivo" || c.estado === "INACTIVO" || (c.estado && c.estado.toLowerCase().includes("inactivo")));
-    const sucursalesInactivas = Array.from(new Set(inactivosList.map(c => c.sucursal_erp || "SIN SUCURSAL"))).sort();
-    const vendedoresInactivos = Array.from(new Set(inactivosList.filter(c => (c.sucursal_erp || "SIN SUCURSAL") === selSucursal).map(c => c.vendedor_erp || "SIN VENDEDOR"))).sort();
+    const sucursalesInactivas = Array.from(new Set(inactivosList.map(c => (c as any)[sucursal_field] || "SIN SUCURSAL"))).sort();
+    const vendedoresInactivos = Array.from(new Set(inactivosList.filter(c => ((c as any)[sucursal_field] || "SIN SUCURSAL") === selSucursal).map(c => (c as any)[vendedor_field] || "SIN VENDEDOR"))).sort();
     const clientesFiltrados = inactivosList.filter(c =>
-        (c.sucursal_erp || "SIN SUCURSAL") === selSucursal &&
-        (c.vendedor_erp || "SIN VENDEDOR") === selVendedor
+        ((c as any)[sucursal_field] || "SIN SUCURSAL") === selSucursal &&
+        ((c as any)[vendedor_field] || "SIN VENDEDOR") === selVendedor
     );
 
     if (loading && !stats) return <PageSpinner />;

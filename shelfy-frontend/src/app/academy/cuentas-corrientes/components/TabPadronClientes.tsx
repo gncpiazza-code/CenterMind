@@ -22,12 +22,19 @@ import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
     PieChart, Pie, Cell, Legend
 } from "recharts";
-import { fetchClientesStats, fetchClientesTemporal, fetchClientesDesglose, fetchClientesListado, type ClienteMaestro } from "@/lib/api";
-import { 
-    Map as CustomMap, 
-    MapMarker, 
-    MarkerContent, 
-    MarkerPopup, 
+import {
+    fetchClientesStats,
+    fetchClientesTemporal,
+    fetchClientesDesglose,
+    fetchClientesListado,
+    fetchHierarchyConfig,
+    type ClienteMaestro
+} from "@/lib/api";
+import {
+    Map as CustomMap,
+    MapMarker,
+    MarkerContent,
+    MarkerPopup,
     MapControls,
     type MapRef
 } from "@/components/ui/map";
@@ -101,7 +108,7 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
     const loadListado = async () => {
         setLoadingList(true);
         try {
-            const limit = view === "geografia" ? 2000 : 500;
+            const limit = view === "geografia" ? 5000 : 500;
             const data = await fetchClientesListado(distId, search, limit, selectedSucursal, selectedVendedor);
             setClientesList(data);
         } catch (e) {
@@ -113,21 +120,13 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
 
     const fetchHierarchy = async () => {
         try {
-            // Updated to use the correct endpoint that returns the hierarchy tree
-            const res = await fetch(`/api/admin/hierarchy-config/${distId}`).then(r => r.json());
-            
-            // If the response is HTML (404/Error), we handle it
-            if (typeof res === 'string' && res.includes('<!DOCTYPE')) {
-                console.error("Hierarchy API returned HTML instead of JSON. Check backend routing.");
-                return;
-            }
-            
+            const res = await fetchHierarchyConfig(distId);
             setHierarchy(res);
             
             // Generar colores para sucursales
             const colors: Record<string, string> = {};
             (res.erp_hierarchy || []).forEach((s: any, idx: number) => {
-                const name = s.sucursal_erp || s.label;
+                const name = s.sucursal_erp;
                 if (name) {
                     colors[name] = COLORS[idx % COLORS.length];
                 }
@@ -410,7 +409,7 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
                             className="h-full w-full"
                             attributionControl={false}
                         >
-                            <MapControls position="top-right" showZoom showCompass />
+                            <MapControls position="top-right" showZoom showCompass showFullscreen />
                             
                             {clientesList.filter(c => c.lat && c.lon).map((client, idx) => {
                                 const sellerColor = sellerColorMap[client.vendedor_nombre] || '#7c3aed';

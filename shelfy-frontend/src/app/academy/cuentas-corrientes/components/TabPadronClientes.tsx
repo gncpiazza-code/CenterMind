@@ -128,7 +128,7 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
             // Generar colores para sucursales
             const colors: Record<string, string> = {};
             (res.erp_hierarchy || []).forEach((s: any, idx: number) => {
-                const name = s.sucursal_erp;
+                const name = s.sucursal_nombre;
                 if (name) {
                     colors[name] = COLORS[idx % COLORS.length];
                 }
@@ -369,7 +369,7 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
                                 >
                                     <option value="">Seleccionar Sucursal...</option>
                                     {(hierarchy?.erp_hierarchy || []).map((s: any) => (
-                                        <option key={s.sucursal_erp} value={s.sucursal_erp}>{s.sucursal_erp}</option>
+                                        <option key={s.sucursal_id} value={s.sucursal_id}>{s.sucursal_nombre}</option>
                                     ))}
                                 </select>
                             </div>
@@ -381,7 +381,7 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
                                         <div className="flex gap-2">
                                             <button 
                                                 onClick={() => {
-                                                    const all = (hierarchy?.erp_hierarchy || []).find((s: any) => s.sucursal_erp === selectedSucursal)?.vendedores || [];
+                                                    const all = (hierarchy?.erp_hierarchy || []).find((s: any) => s.sucursal_id === selectedSucursal)?.vendedores.map((v: any) => v.vendedor_id) || [];
                                                     setSelectedVendedores(new Set(all));
                                                 }}
                                                 className="text-[10px] text-violet-600 hover:underline"
@@ -398,20 +398,20 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
                                     </label>
                                     <div className="max-h-[180px] overflow-y-auto custom-scrollbar space-y-1 pr-1 bg-slate-50/50 p-2 rounded-2xl border border-slate-100">
                                         {(hierarchy?.erp_hierarchy || [])
-                                            .find((s: any) => s.sucursal_erp === selectedSucursal)
-                                            ?.vendedores.map((v: string) => {
-                                                const isSel = selectedVendedores.has(v);
+                                            .find((s: any) => s.sucursal_id === selectedSucursal)
+                                            ?.vendedores.map((v: any) => {
+                                                const isSel = selectedVendedores.has(v.vendedor_id);
                                                 return (
                                                     <div 
-                                                        key={v}
+                                                        key={v.vendedor_id}
                                                         onClick={() => {
                                                             const n = new Set(selectedVendedores);
-                                                            if (n.has(v)) n.delete(v); else n.add(v);
+                                                            if (n.has(v.vendedor_id)) n.delete(v.vendedor_id); else n.add(v.vendedor_id);
                                                             setSelectedVendedores(n);
                                                         }}
                                                         className={`flex items-center justify-between gap-2 px-3 py-2 rounded-xl cursor-pointer transition-all ${isSel ? 'bg-violet-100 text-violet-700 shadow-sm' : 'hover:bg-slate-100 text-slate-600'}`}
                                                     >
-                                                        <span className="text-[10px] font-bold truncate">{v}</span>
+                                                        <span className="text-[10px] font-bold truncate">{v.vendedor_nombre}</span>
                                                         <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center transition-all ${isSel ? 'border-violet-500 bg-violet-500' : 'border-slate-300'}`}>
                                                             {isSel && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
                                                         </div>
@@ -558,7 +558,7 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
                             >
                                 <option value="">Todas las Sucursales</option>
                                 {hierarchy?.erp_hierarchy?.map((s: any) => (
-                                    <option key={s.sucursal_erp} value={s.sucursal_erp}>{s.sucursal_erp}</option>
+                                    <option key={s.sucursal_id} value={s.sucursal_id}>{s.sucursal_nombre}</option>
                                 ))}
                             </select>
 
@@ -572,8 +572,8 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
                                 disabled={!selectedSucursal}
                             >
                                 <option value="">Todos los Vendedores</option>
-                                {hierarchy?.erp_hierarchy?.find((s: any) => s.sucursal_erp === selectedSucursal)?.vendedores?.map((v: string) => (
-                                    <option key={v} value={v}>{v}</option>
+                                {hierarchy?.erp_hierarchy?.find((s: any) => s.sucursal_id === selectedSucursal)?.vendedores?.map((v: any) => (
+                                    <option key={v.vendedor_id} value={v.vendedor_id}>{v.vendedor_nombre}</option>
                                 ))}
                             </select>
 

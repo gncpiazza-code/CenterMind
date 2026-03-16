@@ -1640,58 +1640,44 @@ def admin_vendedores_by_location(location_id: str, dist_id: int, _=Depends(verif
 
 @app.get("/api/admin/hierarchy-config/{dist_id}", summary="Configuración de jerarquía consolidada")
 def get_hierarchy_config(dist_id: int, _=Depends(verify_auth)):
-    """
-    """
     try:
-        # We will keep get_hierarchy_config for backwards compatibility momentarily,
-        # but the new unified dashboard endpoint handles the whole tree.
-        # 1. Locations from Maestro
+        # 1. Authoritative Names from ERP Tables
+        suc_res = sb.table("erp_sucursales").select("id_sucursal_erp, nombre_sucursal").eq("id_distribuidor", dist_id).execute()
+        suc_names = {str(s['id_sucursal_erp']): s['nombre_sucursal'] for s in (suc_res.data or [])}
 
-        loc_res = sb.table("maestro_jerarquia").select("SUCURSAL, \"id suc\", \"Vendedor\"").eq("ID_DIST", dist_id).execute()
-        seen_locs = set()
-        formatted_locs = []
-        for row in (loc_res.data or []):
-            sid = row.get("id suc")
-            if sid and sid not in seen_locs:
-                seen_locs.add(sid)
-                formatted_locs.append({"location_id": sid, "label": row.get("SUCURSAL")})
+        vend_res = sb.table("erp_fuerza_ventas").select("id_vendedor_erp, nombre_vendedor, id_sucursal_erp").eq("id_distribuidor", dist_id).execute()
         
-        # 2. ERP Hierarchy (Unique sucursal_erp and vendedor_erp)
-        # We can now use maestro_jerarquia for this too
-        formatted_erp = []
-        suc_map = {}
-        for row in (loc_res.data or []):
-            s = row.get("SUCURSAL")
-            v = row.get("Vendedor")
-            if s and v:
-                if s not in suc_map: suc_map[s] = set()
-                suc_map[s].add(v)
-        
-        for k, v in suc_map.items():
-            formatted_erp.append({"sucursal_erp": k, "vendedores": sorted(list(v))})
+        # 2. Build ERP Hierarchy Tree
+        hierarchy_map = {}
+        for v in (vend_res.data or []):
+            sid = str(v.get("id_sucursal_erp", ""))
+            vid = str(v.get("id_vendedor_erp", ""))
+            if not sid or not vid: continue
+            
+            vname = v.get("nombre_vendedor") or f"Vendedor {vid}"
+            
+            if sid not in hierarchy_map:
+                hierarchy_map[sid] = {
+                    "sucursal_id": sid,
+                    "sucursal_nombre": suc_names.get(sid) or f"Sucursal {sid}",
+                    "vendedores": []
+                }
+            hierarchy_map[sid]["vendedores"].append({
+                "vendedor_id": vid,
+                "vendedor_nombre": vname
+            })
 
-        # Fallback to erp_clientes_raw if maestro is empty (unlikely but safe)
-        if not formatted_erp:
-            erp_data = sb.table("erp_clientes_raw").select("sucursal_erp, vendedor_erp").eq("id_distribuidor", dist_id).execute()
-            temp_map = {}
-            for row in (erp_data.data or []):
-                s_erp = str(row.get("sucursal_erp", "")).strip().upper()
-                v_erp = str(row.get("vendedor_erp", "")).strip().upper()
-                if not s_erp or s_erp == "NAN" or not v_erp or v_erp == "NAN": continue
-                if s_erp not in temp_map: temp_map[s_erp] = set()
-                temp_map[s_erp].add(v_erp)
-            formatted_erp = [{"sucursal_erp": k, "vendedores": sorted(list(v))} for k, v in temp_map.items()]
+        formatted_erp = sorted(list(hierarchy_map.values()), key=lambda x: x["sucursal_nombre"])
 
-        # 3. Telegram Groups
+        # 3. Locations (backwards compat)
+        formatted_locs = [{"location_id": sid, "label": sname} for sid, sname in suc_names.items()]
+
+        # 4. Telegram Groups
         groups = sb.table("integrantes_grupo").select("telegram_group_id, nombre_grupo").eq("id_distribuidor", dist_id).execute()
-        seen_groups = {}
-        for g in (groups.data or []):
-            gid = g.get("telegram_group_id")
-            if gid and gid not in seen_groups:
-                seen_groups[gid] = g.get("nombre_grupo") or f"Grupo {gid}"
-        formatted_groups = [{"id": k, "nombre": v} for k, v in seen_groups.items()]
+        formatted_groups = [{"id": g.get("telegram_group_id"), "nombre": g.get("nombre_grupo") or f"Grupo {g.get('telegram_group_id')}"} 
+                            for g in (groups.data or []) if g.get("telegram_group_id")]
 
-        # 4. Integrantes (all for mapping)
+        # 5. Integrantes
         integrantes = sb.table("integrantes_grupo").select("id_integrante, nombre_integrante, id_vendedor_erp, id_sucursal_erp, telegram_group_id").eq("id_distribuidor", dist_id).execute()
 
         return {

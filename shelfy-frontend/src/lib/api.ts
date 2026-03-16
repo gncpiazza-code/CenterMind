@@ -767,10 +767,14 @@ export async function fetchOrphanVendedores(distId: number): Promise<OrphanVende
 // ── Interactive Hierarchy Dashboard ─────────────────────────────────────────
 
 export interface HierarchyConfig {
-  locations: Location[];
-  erp_hierarchy: { sucursal_erp: string; vendedores: string[] }[];
+  locations: any[];
+  erp_hierarchy: { 
+    sucursal_id: string; 
+    sucursal_nombre: string; 
+    vendedores: { vendedor_id: string; vendedor_nombre: string }[] 
+  }[];
   telegram_groups: { id: number; nombre: string }[];
-  integrantes: Integrante[];
+  integrantes: any[];
 }
 
 export async function fetchHierarchyConfig(distId: number): Promise<HierarchyConfig> {

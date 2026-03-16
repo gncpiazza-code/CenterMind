@@ -129,17 +129,17 @@ BEGIN
         c.localidad,
         c.provincia,
         c.domicilio,
-        COALESCE(m."SUCURSAL", c.sucursal_erp, 'SIN SUCURSAL'),
-        COALESCE(m."Vendedor", 'VENDEDOR ' || c.vendedor_erp),
+        COALESCE(m."SUCURSAL", c.sucursal_erp, 'SIN SUCURSAL') as sucursal_nombre,
+        COALESCE(m."Vendedor", 'VENDEDOR ' || c.vendedor_erp) as vendedor_nombre,
         c.vendedor_erp as vendedor_id,
         c.id_sucursal_erp as sucursal_id,
         CASE 
             WHEN c.fecha_ultima_compra >= (CURRENT_DATE - INTERVAL '30 days') THEN 'activo'
             ELSE 'inactivo'
         END as estado,
-        COALESCE(c.lat, 0)::FLOAT,
-        COALESCE(c.lon, 0)::FLOAT,
-        c.fecha_ultima_compra
+        COALESCE(c.lat, 0)::FLOAT as lat,
+        COALESCE(c.lon, 0)::FLOAT as lon,
+        c.fecha_ultima_compra as fecha_ultima_compra
     FROM erp_clientes_raw c
     LEFT JOIN maestro_jerarquia m 
         ON c.id_distribuidor = m."ID_DIST" 
@@ -151,5 +151,68 @@ BEGIN
       AND (p_vendedor_id = '' OR c.vendedor_erp = ANY(string_to_array(p_vendedor_id, ',')))
     ORDER BY c.nombre_cliente ASC
     LIMIT p_limit;
+END;
+$$;
+
+-- 2. KPIs de Padrón de Clientes
+DROP FUNCTION IF EXISTS fn_reporte_clientes_stats(bigint);
+CREATE OR REPLACE FUNCTION fn_reporte_clientes_stats(p_dist_id BIGINT)
+RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_result JSONB;
+BEGIN
+    SELECT json_build_object(
+        'total', COUNT(*),
+        'activos', COUNT(*) FILTER (WHERE fecha_ultima_compra >= (CURRENT_DATE - INTERVAL '30 days')),
+        'inactivos', COUNT(*) FILTER (WHERE fecha_ultima_compra < (CURRENT_DATE - INTERVAL '30 days') OR fecha_ultima_compra IS NULL),
+        'sin_coords', COUNT(*) FILTER (WHERE lat IS NULL OR lon IS NULL OR lat = 0 OR lon = 0),
+        'sucursales', COUNT(DISTINCT id_sucursal_erp),
+        'vendedores', COUNT(DISTINCT vendedor_erp),
+        'pct_activacion', CASE WHEN COUNT(*) > 0 THEN (COUNT(*) FILTER (WHERE fecha_ultima_compra >= (CURRENT_DATE - INTERVAL '30 days'))::FLOAT / COUNT(*)::FLOAT) * 100 ELSE 0 END
+    ) INTO v_result
+    FROM erp_clientes_raw
+    WHERE id_distribuidor = p_dist_id;
+    
+    RETURN v_result;
+END;
+$$;
+
+-- 3. Análisis de clientes por Vendedor, Localidad o Provincia
+DROP FUNCTION IF EXISTS fn_reporte_clientes_desglose(bigint, text);
+CREATE OR REPLACE FUNCTION fn_reporte_clientes_desglose(p_dist_id BIGINT, p_tipo TEXT)
+RETURNS TABLE(etiqueta TEXT, activos BIGINT, total BIGINT) LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    IF p_tipo = 'vendedor' THEN
+        RETURN QUERY
+        SELECT 
+            COALESCE(m."Vendedor", 'VENDEDOR ' || c.vendedor_erp) as etiqueta,
+            COUNT(*) FILTER (WHERE c.fecha_ultima_compra >= (CURRENT_DATE - INTERVAL '30 days'))::BIGINT as activos,
+            COUNT(*)::BIGINT as total
+        FROM erp_clientes_raw c
+        LEFT JOIN maestro_jerarquia m ON c.id_distribuidor = m."ID_DIST" AND c.id_sucursal_erp = m."id suc" AND c.vendedor_erp = m."ID_VENDEDOR"
+        WHERE c.id_distribuidor = p_dist_id
+        GROUP BY 1, m."Vendedor", c.vendedor_erp
+        ORDER BY total DESC;
+    ELSIF p_tipo = 'localidad' THEN
+        RETURN QUERY
+        SELECT 
+            COALESCE(c.localidad, 'SIN LOCALIDAD') as etiqueta,
+            COUNT(*) FILTER (WHERE c.fecha_ultima_compra >= (CURRENT_DATE - INTERVAL '30 days'))::BIGINT as activos,
+            COUNT(*)::BIGINT as total
+        FROM erp_clientes_raw c
+        WHERE c.id_distribuidor = p_dist_id
+        GROUP BY 1
+        ORDER BY total DESC;
+    ELSE
+        RETURN QUERY
+        SELECT 
+            COALESCE(c.provincia, 'SIN PROVINCIA') as etiqueta,
+            COUNT(*) FILTER (WHERE c.fecha_ultima_compra >= (CURRENT_DATE - INTERVAL '30 days'))::BIGINT as activos,
+            COUNT(*)::BIGINT as total
+        FROM erp_clientes_raw c
+        WHERE c.id_distribuidor = p_dist_id
+        GROUP BY 1
+        ORDER BY total DESC;
+    END IF;
 END;
 $$;

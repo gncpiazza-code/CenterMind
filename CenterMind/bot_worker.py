@@ -106,6 +106,48 @@ except ImportError:
 
 
 # ═══════════════════════════════════════════════════════════════════
+# DECORADOR DE REINTENTOS PARA SUPABASE
+# ═══════════════════════════════════════════════════════════════════
+
+def retry_supabase(max_retries: int = 3, initial_delay: float = 1.0):
+    """
+    Decorador para reintentar operaciones de Supabase en caso de errores de red
+    o RemoteProtocolError (HTTP2/1.1 protocol issues).
+    """
+    def decorator(func):
+        import functools
+        @functools.wraps(func)
+        def wrapper(self, *args, **kwargs):
+            last_error = None
+            delay = initial_delay
+            for attempt in range(max_retries):
+                try:
+                    return func(self, *args, **kwargs)
+                except Exception as e:
+                    last_error = e
+                    err_msg = str(e).lower()
+                    # Si es un error de protocolo o conexión, reintentamos
+                    is_transient = any(msg in err_msg for msg in [
+                        "connectionterminated", 
+                        "remoteprotocolerror",
+                        "connection closed",
+                        "psycopg2.operationalerror",
+                        "timed out"
+                    ])
+                    if not is_transient:
+                        raise e
+                    
+                    self.logger.warning(f"⚠️ Error en {func.__name__} (intento {attempt+1}/{max_retries}): {e}")
+                    if attempt < max_retries - 1:
+                        time.sleep(delay)
+                        delay *= 2
+            self.logger.error(f"❌ Falló {func.__name__} tras {max_retries} intentos. Error final: {last_error}")
+            raise last_error
+        return wrapper
+    return decorator
+
+
+# ═══════════════════════════════════════════════════════════════════
 # BASE DE DATOS
 # ═══════════════════════════════════════════════════════════════════
 
@@ -122,7 +164,7 @@ class Database:
             self.sb = None
 
     # ── Distribuidores ──────────────────────────────────────────────
-
+    @retry_supabase()
     def get_distribuidor(self, distribuidor_id: int) -> Optional[Dict]:
         res = self.sb.table("distribuidores").select("id_distribuidor, nombre_empresa, token_bot, id_carpeta_drive, estado, admin_telegram_id, estado_operativo, motivo_bloqueo").eq("id_distribuidor", distribuidor_id).execute()
         if res.data:
@@ -139,6 +181,7 @@ class Database:
             }
         return None
 
+    @retry_supabase()
     def get_all_distribuidores_activos(self) -> List[Dict]:
         res = self.sb.table("distribuidores").select("id_distribuidor, nombre_empresa, token_bot, id_carpeta_drive, estado, admin_telegram_id").eq("estado", "activo").execute()
         out = []
@@ -154,7 +197,7 @@ class Database:
         return out
 
     # ── Grupos ──────────────────────────────────────────────────────
-
+    @retry_supabase()
     def upsert_grupo(self, distribuidor_id: int, chat_id: int, chat_title: str) -> None:
         """Registra o actualiza el nombre del grupo de Telegram."""
         try:
@@ -167,7 +210,7 @@ class Database:
             self.logger.error(f"Error en upsert_grupo: {e}")
 
     # ── Integrantes / Roles ─────────────────────────────────────────
-
+    @retry_supabase()
     def get_rol(self, distribuidor_id: int, chat_id: int, user_id: int) -> str:
         res = self.sb.table("integrantes_grupo").select("rol_telegram").eq("id_distribuidor", distribuidor_id).eq("telegram_group_id", chat_id).eq("telegram_user_id", user_id).execute()
         return res.data[0]["rol_telegram"] if res.data else "vendedor"
@@ -176,6 +219,7 @@ class Database:
         res = self.sb.table("integrantes_grupo").select("rol_telegram").eq("id_distribuidor", distribuidor_id).eq("telegram_user_id", user_id).limit(1).execute()
         return res.data[0]["rol_telegram"] if res.data else None
 
+    @retry_supabase()
     def upsert_integrante(
         self, distribuidor_id: int, chat_id: int, user_id: int,
         username: str, nombre: str, rol: str = "vendedor",
@@ -202,7 +246,7 @@ class Database:
         self.sb.table("integrantes_grupo").update({"rol_telegram": rol}).eq("id_distribuidor", distribuidor_id).eq("telegram_group_id", chat_id).eq("telegram_user_id", user_id).execute()
 
     # ── Exhibiciones ────────────────────────────────────────────────
-
+    @retry_supabase()
     def registrar_exhibicion(
         self,
         distribuidor_id: int,
@@ -260,6 +304,7 @@ class Database:
     def marcar_synced(self, exhibicion_id: str) -> None:
         self.sb.table("exhibiciones").update({"synced_telegram": 1}).eq("id_exhibicion", exhibicion_id).execute()
 
+    @retry_supabase()
     def get_stats_vendedor(self, distribuidor_id: int, vendedor_id: int) -> Dict:
         ig_res = self.sb.table("integrantes_grupo").select("id_integrante").eq("id_distribuidor", distribuidor_id).eq("telegram_user_id", vendedor_id).limit(1).execute()
         if not ig_res.data:
@@ -324,6 +369,7 @@ class Database:
     def get_ranking_mes(self, distribuidor_id: int) -> List[Dict]:
         return self.get_ranking_periodo(distribuidor_id, "mes")
 
+    @retry_supabase()
     def get_ranking_periodo(self, distribuidor_id: int, periodo: str) -> List[Dict]:
         res = self.sb.rpc("fn_dashboard_ranking", {"p_dist_id": distribuidor_id, "p_periodo": periodo, "p_top": 100}).execute()
         ranking = []

@@ -9,7 +9,9 @@ Para queries complejas con JOINs, creamos funciones RPC en Supabase.
 import os
 from pathlib import Path
 from dotenv import load_dotenv
-from supabase import create_client, Client
+load_dotenv()
+from supabase import create_client, Client, ClientOptions
+import httpx
 
 SUPABASE_URL: str = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY: str = os.environ.get("SUPABASE_KEY", "")
@@ -21,21 +23,15 @@ if not SUPABASE_KEY:
 
 # Cliente Supabase singleton con parche para HTTP/2
 # Forzamos HTTP/1.1 para evitar errores <ConnectionTerminated error_code:9>
-import httpx
-from postgrest import SyncPostgrestClient
-
-# Opciones personalizadas para el cliente HTTP
-client_options = {
-    "http2": False,
-    "verify": True,
-}
+opts = ClientOptions(postgrest_client_timeout=30)
 
 sb: Client = create_client(
     SUPABASE_URL, 
     SUPABASE_KEY,
-    options={"postgrest_client_timeout": 30}
+    options=opts
 )
 
 # Parcheamos el cliente postgrest interno para asegurar que no use HTTP2
 if hasattr(sb, "postgrest"):
+    # Reemplazamos la sesión postgrest por una que no use HTTP2
     sb.postgrest.session = httpx.Client(http2=False)

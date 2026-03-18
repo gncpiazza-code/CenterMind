@@ -10,8 +10,9 @@ import { useAuth } from "@/hooks/useAuth";
 import { useEffect, useState, useRef, useMemo, Suspense } from "react";
 import {
   fetchReporteExhibiciones, fetchReporteVendedores, fetchReporteTiposPdv, fetchReporteSucursales,
-  fetchROI, type ROIAnalitico
+  fetchROI, fetchDistribuidoras, type ROIAnalitico, type Distribuidora
 } from "@/lib/api";
+import * as XLSX from "xlsx";
 import { useSearchParams } from "next/navigation";
 import { Printer, Download, Search, X, ChevronDown, Check, BarChart3, Trophy, Briefcase, SwitchCamera, PieChart, AlertTriangle, Users, MapPin, Flame, RefreshCw } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
@@ -163,6 +164,18 @@ function ReportesContent() {
   const [erpRoi, setErpRoi] = useState<ROIAnalitico | null>(null);
   const [loadingRoi, setLoadingRoi] = useState(false);
 
+  const [selectedDistId, setSelectedDistId] = useState<number>(user?.id_distribuidor || 0);
+  const [distribuidoras, setDistribuidoras] = useState<Distribuidora[]>([]);
+
+  useEffect(() => {
+    if (user?.id_distribuidor && selectedDistId === 0) {
+      setSelectedDistId(user.id_distribuidor);
+    }
+    if (user?.rol === "superadmin") {
+      fetchDistribuidoras(true).then(d => setDistribuidoras(d)).catch(console.error);
+    }
+  }, [user]);
+
   // Filtros
   const [desde, setDesde] = useState(inicioMes());
   const [hasta, setHasta] = useState(hoy());
@@ -182,27 +195,27 @@ function ReportesContent() {
   const [error, setError] = useState<string | null>(null);
   const [searched, setSearched] = useState(false);
 
-  // Cargar listas de filtros al montar
+  // Cargar listas de filtros al cambiar distribuidor
   useEffect(() => {
-    if (!user?.id_distribuidor) return;
+    if (!selectedDistId) return;
     setLoadingOpts(true);
-    const dId = user.id_distribuidor;
+    handleLimpiar(); // Limpiar filtros al cambiar contexto
     Promise.all([
-      fetchReporteVendedores(dId),
-      fetchReporteTiposPdv(dId),
-      fetchReporteSucursales(dId),
+      fetchReporteVendedores(selectedDistId),
+      fetchReporteTiposPdv(selectedDistId),
+      fetchReporteSucursales(selectedDistId),
     ])
       .then(([v, t, s]) => { setVendedoresList(v); setTiposPdvList(t); setSucursalesList(s); })
       .catch(() => { })
       .finally(() => setLoadingOpts(false));
-  }, [user]);
+  }, [selectedDistId]);
 
   async function handleBuscar() {
-    if (!user?.id_distribuidor) return;
+    if (!selectedDistId) return;
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchReporteExhibiciones(user.id_distribuidor, {
+      const data = await fetchReporteExhibiciones(selectedDistId, {
         fecha_desde: desde,
         fecha_hasta: hasta,
         vendedores: selectedVendedores.length > 0 ? selectedVendedores : undefined,
@@ -221,14 +234,14 @@ function ReportesContent() {
   }
 
   useEffect(() => {
-    if (activeMainTab === "roi" && user?.id_distribuidor && !erpRoi) {
+    if (activeMainTab === "roi" && selectedDistId && !erpRoi) {
       setLoadingRoi(true);
-      fetchROI(user.id_distribuidor)
+      fetchROI(selectedDistId)
         .then(setErpRoi)
         .catch(console.error)
         .finally(() => setLoadingRoi(false));
     }
-  }, [activeMainTab, user, erpRoi]);
+  }, [activeMainTab, selectedDistId, erpRoi]);
 
   function handleLimpiar() {
     setSelectedVendedores([]);
@@ -265,43 +278,111 @@ function ReportesContent() {
   // Cálculos para Ranking
   const rankingData = useMemo(() => {
     if (filas.length === 0) return [];
-    const map: Record<string, { vendedor: string; puntos: number; aprobados: number; destacados: number }> = {};
+    const map: Record<string, { vendedor: string; puntos: number; aprobados: number; destacados: number; rechazados: number; totales: number }> = {};
 
     filas.forEach(f => {
       if (!f.vendedor) return;
       if (!map[f.vendedor]) {
-        map[f.vendedor] = { vendedor: f.vendedor, puntos: 0, aprobados: 0, destacados: 0 };
+        map[f.vendedor] = { vendedor: f.vendedor, puntos: 0, aprobados: 0, destacados: 0, rechazados: 0, totales: 0 };
       }
+      map[f.vendedor].totales += 1;
       if (f.estado === "Destacado") {
         map[f.vendedor].puntos += 2;
         map[f.vendedor].destacados += 1;
       } else if (f.estado === "Aprobado") {
         map[f.vendedor].puntos += 1;
         map[f.vendedor].aprobados += 1;
+      } else if (f.estado === "Rechazado") {
+        map[f.vendedor].rechazados += 1;
       }
     });
 
     return Object.values(map)
-      .filter(r => r.puntos > 0)
-      .sort((a, b) => b.puntos - a.puntos)
-      .slice(0, 50); // Top 50 máximo en UI
+      .filter(r => r.totales > 0)
+      .sort((a, b) => b.puntos - a.puntos);
   }, [filas]);
 
-  function handleExportCSV() {
+  // Cálculos para Anomalías
+  const anomaliasData = useMemo(() => {
+    if (filas.length === 0) return [];
+    const map: Record<string, { total: number, clientes: Record<string, number> }> = {};
+    filas.forEach(f => {
+      if (!f.vendedor || !f.cliente) return;
+      if (!map[f.vendedor]) map[f.vendedor] = { total: 0, clientes: {} };
+      map[f.vendedor].total++;
+      map[f.vendedor].clientes[f.cliente] = (map[f.vendedor].clientes[f.cliente] || 0) + 1;
+    });
+
+    const result = [];
+    for (const [vendedor, data] of Object.entries(map)) {
+      if (data.total < 5) continue;
+      let maxClient = "";
+      let maxCount = 0;
+      for (const [client, count] of Object.entries(data.clientes)) {
+        if (count > maxCount) {
+          maxCount = count;
+          maxClient = client;
+        }
+      }
+      const pct = (maxCount / data.total) * 100;
+      if (pct >= 50) {
+        result.push({ vendedor, total: data.total, maxClient, maxCount, pct });
+      }
+    }
+    return result.sort((a, b) => b.pct - a.pct).slice(0, 20);
+  }, [filas]);
+
+  function handleExportExcel() {
     if (filas.length === 0) return;
-    const headers = ["ID", "Vendedor", "Sucursal", "Cliente", "Tipo PDV", "Estado", "Supervisor", "Comentario", "Fecha carga", "Fecha evaluación"];
-    const rows = filas.map((f) => [
-      f.id_exhibicion, f.vendedor, f.sucursal, f.cliente, f.tipo_pdv, f.estado,
-      f.supervisor, f.comentario, f.fecha_carga, f.fecha_evaluacion,
-    ].map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(","));
-    const csv = [headers.join(","), ...rows].join("\n");
-    const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `reporte_${desde}_${hasta}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+
+    // Hoja 1: Detalle
+    const wsDetalle = XLSX.utils.json_to_sheet(filas.map(f => ({
+      ID: f.id_exhibicion,
+      Vendedor: f.vendedor,
+      Sucursal: f.sucursal,
+      Cliente: f.cliente,
+      "Tipo PDV": f.tipo_pdv,
+      Estado: f.estado,
+      Supervisor: f.supervisor,
+      Comentario: f.comentario,
+      "Fecha Carga": f.fecha_carga,
+      "Fecha Evaluación": f.fecha_evaluacion
+    })));
+
+    // Hoja 2: Ranking y Estadísticas
+    const wsRanking = XLSX.utils.json_to_sheet(rankingData.map((r, i) => ({
+      Ranking: i + 1,
+      Vendedor: r.vendedor,
+      "Pts Totales": r.puntos,
+      "Total Enviadas": r.totales,
+      "Aprobadas": r.aprobados,
+      "Destacadas": r.destacados,
+      "Rechazadas": r.rechazados
+    })));
+
+    // Hoja 3: Evolución Diaria
+    const wsEvolucion = XLSX.utils.json_to_sheet(timelineData.map(t => ({
+      Fecha: t.fechaOriginal,
+      "Día": t.fecha,
+      "Exhibiciones Cargadas": t.cantidad
+    })));
+
+    // Hoja 4: Anomalías
+    const wsAnomalias = XLSX.utils.json_to_sheet(anomaliasData.map(a => ({
+      Vendedor: a.vendedor,
+      "Total Exhibiciones del Vendedor": a.total,
+      "Cliente Frecuente (Sospechoso)": a.maxClient,
+      "Exhibiciones en ese Cliente": a.maxCount,
+      "Porcentaje de Concentración": `${a.pct.toFixed(1)}%`
+    })));
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, wsDetalle, "Detalle Exhibiciones");
+    XLSX.utils.book_append_sheet(wb, wsRanking, "Ranking y Estad.");
+    XLSX.utils.book_append_sheet(wb, wsEvolucion, "Evolución Diaria");
+    XLSX.utils.book_append_sheet(wb, wsAnomalias, "Anomalías");
+
+    XLSX.writeFile(wb, `Reporte_Exhibiciones_${desde}_${hasta}.xlsx`);
   }
 
   const hayFiltrosActivos = selectedVendedores.length > 0 || selectedEstados.length > 0 || selectedTipos.length > 0 || selectedSucursales.length > 0 || nroCliente.trim();
@@ -328,13 +409,37 @@ function ReportesContent() {
           <main className="flex-1 p-4 md:p-6 pb-20 md:pb-6 overflow-auto w-full max-w-7xl mx-auto">
 
             {/* Cabecera Principal */}
-            <div className="mb-6 no-print">
-              <h1 className="text-2xl font-black text-[var(--shelfy-text)] tracking-tight">
-                Central de Reportes
-              </h1>
-              <p className="text-sm text-[var(--shelfy-muted)] mt-1">
-                Analiza la evaluación corporativa en PDV o gestiona tus Cuentas Corrientes.
-              </p>
+            <div className="mb-6 no-print flex flex-col md:flex-row md:items-start justify-between gap-4">
+              <div>
+                <h1 className="text-2xl font-black text-[var(--shelfy-text)] tracking-tight">
+                  Central de Reportes
+                </h1>
+                <p className="text-sm text-[var(--shelfy-muted)] mt-1">
+                  Analiza la evaluación corporativa en PDV o gestiona tus Cuentas Corrientes.
+                </p>
+              </div>
+
+              {/* Context Switcher SuperAdmin */}
+              {user?.rol === "superadmin" && distribuidoras.length > 0 && (
+                <div className="bg-[var(--shelfy-panel)] p-2 rounded-xl border border-[var(--shelfy-border)] shadow-sm flex items-center gap-3">
+                  <SwitchCamera size={16} className="text-[var(--shelfy-muted)] ml-2" />
+                  <div>
+                    <label className="block text-[10px] text-[var(--shelfy-muted)] font-medium mb-0.5 uppercase tracking-wider">Contexto Global</label>
+                    <select
+                      value={selectedDistId}
+                      onChange={(e) => setSelectedDistId(Number(e.target.value))}
+                      className="bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] text-sm font-semibold text-[var(--shelfy-text)] rounded-lg px-2 py-1 focus:outline-none focus:border-[var(--shelfy-primary)] cursor-pointer"
+                    >
+                      <option value={0} disabled>Seleccione distribuidor...</option>
+                      {distribuidoras.map(d => (
+                        <option key={d.id} value={d.id}>
+                          {d.nombre} (ID: {d.id})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Selector de Herramienta Principal */}
@@ -401,9 +506,9 @@ function ReportesContent() {
             </div>
 
             {/* Contenido Dinámico: Padrón de Clientes */}
-            {activeMainTab === "padron" && user?.id_distribuidor && (
+            {activeMainTab === "padron" && selectedDistId && (
               <div className="fade-in animate-in slide-in-from-bottom-2 duration-300">
-                <TabPadronClientes distId={user.id_distribuidor!} />
+                <TabPadronClientes distId={selectedDistId} />
               </div>
             )}
 
@@ -511,8 +616,8 @@ function ReportesContent() {
                   <button onClick={() => setCcpTab("alertas")} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${ccpTab === 'alertas' ? 'bg-[var(--shelfy-primary)] text-white shadow-sm' : 'text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]'}`}>Configurar Alertas</button>
                 </div>
 
-                {ccpTab === "informe" && <TabGenerarInforme distId={user.id_distribuidor!} />}
-                {ccpTab === "alertas" && <TabAlertasCredito distId={user.id_distribuidor!} />}
+                {ccpTab === "informe" && <TabGenerarInforme distId={selectedDistId} />}
+                {ccpTab === "alertas" && <TabAlertasCredito distId={selectedDistId} />}
               </div>
             )}
 
@@ -621,8 +726,8 @@ function ReportesContent() {
                         <Search size={14} /> Buscar
                       </Button>
                       {filas.length > 0 && (
-                        <Button variant="secondary" onClick={handleExportCSV}>
-                          <Download size={14} /> Exportar
+                        <Button variant="secondary" onClick={handleExportExcel}>
+                          <Download size={14} /> Exportar (Excel)
                         </Button>
                       )}
                       {filas.length > 0 && (

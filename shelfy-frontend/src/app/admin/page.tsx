@@ -907,7 +907,8 @@ export default function AdminPage() {
 
   const TABS = [
     { id: "jerarquia_global", label: "Jerarquía Global", icon: Network },
-    { id: "usuarios", label: "Usuarios Admin", icon: Shield }
+    { id: "usuarios", label: "Usuarios Admin", icon: Shield },
+    { id: "erp", label: "Importar ERP / Mapeo", icon: FileSpreadsheet }
   ];
 
   const [tab, setTab] = useState("jerarquia_global");
@@ -949,6 +950,11 @@ export default function AdminPage() {
           )}
           {tab === "jerarquia_global" && (
             <UnifiedDashboard isSuperadmin={isSuperadmin} currentDistId={user?.id_distribuidor || 0} />
+          )}
+          {tab === "erp" && (
+            <div className="fade-in animate-in slide-in-from-bottom-2 duration-300">
+              <TabERP distId={user?.id_distribuidor || 0} isSuperadmin={isSuperadmin} />
+            </div>
           )}
 
         </main>

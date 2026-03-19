@@ -352,6 +352,7 @@ def health():
 
 @app.post("/api/admin/erp/upload-global", tags=["ERP Admin"], summary="Carga manual de archivos globales del ERP")
 async def erp_upload_global(
+    background_tasks: BackgroundTasks,
     tipo: str = Query(..., description="Tipo de archivo: 'ventas' o 'clientes'"),
     file: UploadFile = File(...),
     _=Depends(verify_auth)
@@ -365,13 +366,13 @@ async def erp_upload_global(
         file_io = io.BytesIO(content)
         
         if tipo == "clientes":
-            processed = erp_service.ingest_clientes(file_io)
-            msg = f"Iniciado procesamiento de Padrón de Clientes. {processed} registros identificados."
+            background_tasks.add_task(erp_service.ingest_clientes, file_io)
+            msg = "Se inició el procesamiento del Padrón de Clientes en segundo plano."
         else:
-            processed = erp_service.ingest_ventas(file_io)
-            msg = f"Iniciado procesamiento de Informe de Ventas. {processed} registros identificados."
+            background_tasks.add_task(erp_service.ingest_ventas, file_io)
+            msg = "Se inició el procesamiento del Informe de Ventas en segundo plano."
             
-        return {"status": "success", "message": msg, "count": processed}
+        return {"status": "success", "message": msg, "count": "N/A"}
     except Exception as e:
         logger.error(f"Error en carga manual ERP ({tipo}): {e}")
         raise HTTPException(status_code=500, detail=f"Error procesando archivo: {str(e)}")

@@ -491,6 +491,65 @@ def get_reporte_performance(id_distribuidor: int, mes: int = Query(...), anio: i
         logger.error(f"Error en reporte performance: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/reports/ventas-resumen/{id_distribuidor}", tags=["Reports"], summary="Resumen de Ventas y Recaudación")
+def get_ventas_resumen(
+    id_distribuidor: int, 
+    desde: str = Query(...), 
+    hasta: str = Query(...), 
+    user_payload=Depends(verify_auth)
+):
+    check_dist_permission(user_payload, id_distribuidor)
+    try:
+        res = sb.rpc("fn_reporte_comprobantes_resumen", {
+            "p_dist_id": id_distribuidor,
+            "p_desde": desde,
+            "p_hasta": hasta
+        }).execute()
+        return res.data or []
+    except Exception as e:
+        logger.error(f"Error en reporte ventas resumen: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/reports/ventas-bultos/{id_distribuidor}", tags=["Reports"], summary="Análisis Detallado por Bultos")
+def get_ventas_bultos(
+    id_distribuidor: int, 
+    desde: str = Query(...), 
+    hasta: str = Query(...), 
+    proveedor: str | None = Query(None),
+    user_payload=Depends(verify_auth)
+):
+    check_dist_permission(user_payload, id_distribuidor)
+    try:
+        res = sb.rpc("fn_reporte_comprobantes_detallado", {
+            "p_dist_id": id_distribuidor,
+            "p_desde": desde,
+            "p_hasta": hasta,
+            "p_proveedor_busqueda": proveedor
+        }).execute()
+        return res.data or []
+    except Exception as e:
+        logger.error(f"Error en reporte ventas bultos: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/reports/auditoria-sigo/{id_distribuidor}", tags=["Reports"], summary="Auditoría SIGO (Geospatial)")
+def get_auditoria_sigo(
+    id_distribuidor: int, 
+    desde: str = Query(...), 
+    hasta: str = Query(...), 
+    user_payload=Depends(verify_auth)
+):
+    check_dist_permission(user_payload, id_distribuidor)
+    try:
+        res = sb.rpc("fn_reporte_sigo_audit", {
+            "p_dist_id": id_distribuidor,
+            "p_desde": desde,
+            "p_hasta": hasta
+        }).execute()
+        return res.data or []
+    except Exception as e:
+        logger.error(f"Error en reporte sigo audit: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/api/admin/erp/sync-status/{id_distribuidor}", tags=["ERP Admin"], summary="Estado de sincronización y matching de datos")
 def get_erp_sync_status(id_distribuidor: int, user_payload=Depends(verify_auth)):
@@ -530,7 +589,7 @@ def get_live_map_events(minutos: int | None = None, fecha: str | None = None, us
         # 1. Fetch exhibiciones (solo columnas locales para evitar errores de join)
         query = sb.table("exhibiciones").select(
             "id_exhibicion, id_distribuidor, timestamp_subida, url_foto_drive, tipo_pdv, estado, "
-            "latitud_gps, longitud_gps, id_integrante, id_cliente, cliente_sombra_codigo"
+            "latitud_gps, longitud_gps, id_integrante, id_cliente, cliente_sombra_codigo, id_cliente_pdv"
         )
 
         if fecha:
@@ -547,86 +606,65 @@ def get_live_map_events(minutos: int | None = None, fecha: str | None = None, us
         if not raw_events:
             return []
 
-        # 2. Cargar maestros (Distribuidores, Clientes ERP, Jerarquía Maestra)
+        # 2. Cargar maestros (Distribuidores, Clientes PDV, Jerarquía)
         dist_ids = list(set(e["id_distribuidor"] for e in raw_events))
-        client_internal_ids = list(set(e["id_cliente"] for e in raw_events if e.get("id_cliente")))
+        # Recopilamos IDs de clientes_pdv anclados
+        pdv_ids = list(set(e["id_cliente_pdv"] for e in raw_events if e.get("id_cliente_pdv")))
 
         # Mapas de maestros
-        dists = {d["id_distribuidor"]: d["nombre_empresa"] for d in sb.table("distribuidores").select("id_distribuidor, nombre_empresa").in_("id_distribuidor", dist_ids).execute().data or []}
+        dists = {d["id_distribuidor"]: d["nombre_display"] or d["nombre_empresa"] 
+                 for d in sb.table("distribuidores").select("id_distribuidor, nombre_empresa, nombre_display").in_("id_distribuidor", dist_ids).execute().data or []}
         
-        # Jerarquía Maestra (Limpiada por el usuario)
-        maestro_rows = sb.table("maestro_jerarquia").select("*").execute().data or []
-        maestro_map = {}
-        for m in maestro_rows:
-            # Llave: (ID_DIST, id_suc_erp, id_vendedor_erp)
-            m_key = (m["ID_DIST"], str(m["id suc"]), str(m["ID_VENDEDOR"]))
-            maestro_map[m_key] = m
-
-        # Mapa de Numero Local (desde la tabla clientes interna)
-        internal_clients = {c["id_cliente"]: c["numero_cliente_local"] for c in sb.table("clientes").select("id_cliente, numero_cliente_local").in_("id_cliente", client_internal_ids).execute().data or []}
-
-        # Identificar qué necesitamos de erp_clientes_raw
-        erp_ids_to_fetch = [] # (dist_id, local_id)
-        for e in raw_events:
-            local_id = internal_clients.get(e["id_cliente"]) or e.get("cliente_sombra_codigo")
-            if local_id:
-                erp_ids_to_fetch.append((e["id_distribuidor"], str(local_id)))
-
-        erp_map = {}
-        if erp_ids_to_fetch:
-            for d_id in dist_ids:
-                local_ids = list(set(k[1] for k in erp_ids_to_fetch if k[0] == d_id))
-                res_erp = sb.table("erp_clientes_raw").select("id_cliente_erp_local, nombre_cliente, lat, lon, id_sucursal_erp, sucursal_erp, vendedor_erp")\
-                            .eq("id_distribuidor", d_id).in_("id_cliente_erp_local", local_ids).execute()
-                for row in (res_erp.data or []):
-                    erp_map[(d_id, str(row["id_cliente_erp_local"]))] = row
+        # Mapeo de Clientes PDV con toda su jerarquía
+        # Usamos un join (vía embedding en Supabase select) para traer sucursal y vendedor
+        pdv_map = {}
+        if pdv_ids:
+            pdv_res = sb.table("clientes_pdv").select(
+                "id_cliente, id_cliente_erp, nombre_fantasia, latitud, longitud, "
+                "rutas(id_ruta, id_ruta_erp, vendedores(id_vendedor, nombre_erp, sucursales(id_sucursal, nombre_erp)))"
+            ).in_("id_cliente", pdv_ids).execute()
+            
+            for row in (pdv_res.data or []):
+                pdv_map[row["id_cliente"]] = row
 
         # 3. Transformar y Coalescer
         final_data = []
         for e in raw_events:
-            local_id = internal_clients.get(e["id_cliente"]) or e.get("cliente_sombra_codigo")
-            erp_data = erp_map.get((e["id_distribuidor"], str(local_id))) if local_id else None
-
-            # Coalesce Lat/Lon: EXCLUSIVAMENTE ERP
-            if not erp_data:
-                continue
-                
-            lat = erp_data.get("lat")
-            lon = erp_data.get("lon")
-
-            if lat is None or lat == 0:
-                continue
-
-            # Enriquecimiento vía Maestro Jerarquía
-            d_id = e["id_distribuidor"]
-            suc_id = str(erp_data.get("id_sucursal_erp"))
-            seller_id = str(erp_data.get("vendedor_erp"))
+            pdv = pdv_map.get(e["id_cliente_pdv"])
             
-            m_key = (d_id, suc_id, seller_id)
-            maestro = maestro_map.get(m_key)
+            # Si no hay coordenadas, no se muestra en el mapa
+            lat = pdv.get("latitud") if pdv else e.get("latitud_gps")
+            lon = pdv.get("longitud") if pdv else e.get("longitud_gps")
 
-            if maestro:
-                nombre_empresa = maestro.get("EMPRESA")
-                nombre_sucursal = maestro.get("SUCURSAL")
-                nombre_vendedor = maestro.get("Vendedor")
-            else:
-                nombre_empresa = dists.get(d_id, f"Dist {d_id}")
-                nombre_sucursal = erp_data.get("sucursal_erp", f"Suc {suc_id}")
-                nombre_vendedor = erp_data.get("nombre_vendedor_erp") or f"Vendedor {seller_id}"
+            if not lat or lat == 0:
+                continue
+
+            # Enriquecimiento vía Jerarquía Real
+            nombre_sucursal = "Sin Sucursal"
+            nombre_vendedor = "Sin Vendedor"
+            dist_name = dists.get(e["id_distribuidor"], f"Dist {e['id_distribuidor']}")
+
+            if pdv and pdv.get("rutas"):
+                ruta = pdv["rutas"]
+                if ruta.get("vendedores"):
+                    vendedor = ruta["vendedores"]
+                    nombre_vendedor = vendedor.get("nombre_erp", "Vendedor S/N")
+                    if vendedor.get("sucursales"):
+                        nombre_sucursal = vendedor["sucursales"].get("nombre_erp", "Sucursal S/N")
 
             final_data.append({
                 "id_ex": e["id_exhibicion"],
-                "id_dist": d_id,
-                "nombre_dist": nombre_empresa,
+                "id_dist": e["id_distribuidor"],
+                "nombre_dist": dist_name,
                 "sucursal_nombre": nombre_sucursal,
                 "vendedor_nombre": nombre_vendedor,
                 "lat": float(lat),
                 "lon": float(lon),
                 "timestamp_evento": e["timestamp_subida"],
-                "nro_cliente": str(local_id) if local_id else "0",
-                "cliente_nombre": erp_data.get("nombre_cliente") or (f"Cliente {local_id}" if local_id else "S/N"),
+                "nro_cliente": pdv["id_cliente_erp"] if pdv else (e.get("cliente_sombra_codigo") or "0"),
+                "cliente_nombre": pdv["nombre_fantasia"] if pdv else "Desconocido",
                 "drive_link": e["url_foto_drive"],
-                "id_vendedor": seller_id
+                "id_vendedor": pdv["rutas"]["vendedores"]["id_vendedor"] if (pdv and pdv.get("rutas") and pdv["rutas"].get("vendedores")) else None
             })
 
         return final_data
@@ -1382,12 +1420,12 @@ def reportes_tipos_pdv(distribuidor_id: int, _=Depends(verify_auth)):
 
 @app.get("/api/reportes/sucursales/{distribuidor_id}", summary="Sucursales unicas")
 def reportes_sucursales(distribuidor_id: int, _=Depends(verify_auth)):
-    # Get all sucursales from Maestro for the distribuidor
-    q = sb.table("maestro_jerarquia").select("SUCURSAL")
+    # Get all sucursales for the distribuidor
+    q = sb.table("sucursales").select("nombre_erp")
     if distribuidor_id > 0:
-        q = q.eq("ID_DIST", distribuidor_id)
+        q = q.eq("id_distribuidor", distribuidor_id)
     result = q.execute()
-    return sorted(list(set(r["SUCURSAL"] for r in (result.data or []) if r.get("SUCURSAL"))))
+    return sorted(list(set(r["nombre_erp"] for r in (result.data or []) if r.get("nombre_erp"))))
 
 
 
@@ -1418,8 +1456,8 @@ def reportes_exhibiciones(distribuidor_id: int, q_body: ReporteQuery, _=Depends(
         ig = sb.table("integrantes_grupo").select("id_integrante, nombre_integrante").in_("id_integrante", integrante_ids).execute()
         vendedores_map = {r["id_integrante"]: r["nombre_integrante"] for r in (ig.data or [])}
     if cliente_ids:
-        cl = sb.table("clientes").select("id_cliente, numero_cliente_local").in_("id_cliente", cliente_ids).execute()
-        clientes_map = {r["id_cliente"]: r["numero_cliente_local"] for r in (cl.data or [])}
+        cl = sb.table("clientes_pdv").select("id_cliente, id_cliente_erp").in_("id_cliente", cliente_ids).execute()
+        clientes_map = {r["id_cliente"]: r["id_cliente_erp"] for r in (cl.data or [])}
     output = []
     for r in rows:
         # Filter by vendedores if specified
@@ -1571,8 +1609,8 @@ class IntegranteRequest(BaseModel):
 
 @app.get("/api/admin/locations/{dist_id}", summary="Sucursales de un distribuidor")
 def admin_get_locations(dist_id: int, _=Depends(verify_auth)):
-    # Fetch unique sucursales from maestro_jerarquia
-    q = sb.table("maestro_jerarquia").select("SUCURSAL, \"id suc\"")
+    # Fetch unique sucursales from new relational model
+    q = sb.table("sucursales").select("nombre_erp, id_sucursal_erp").eq("id_distribuidor", dist_id)
     if dist_id > 0:
         q = q.eq("ID_DIST", dist_id)
     
@@ -1641,21 +1679,24 @@ def admin_vendedores_by_location(location_id: str, dist_id: int, _=Depends(verif
 
 @app.get("/api/admin/hierarchy-config/{dist_id}", summary="Configuración de jerarquía consolidada")
 def get_hierarchy_config(dist_id: int, _=Depends(verify_auth)):
+    """
+    Jerarquía consolidada basada en el nuevo modelo: Sucursales -> Vendedores.
+    """
     try:
-        # 1. Authoritative Names from ERP Tables
-        suc_res = sb.table("erp_sucursales").select("id_sucursal_erp, nombre_sucursal").eq("id_distribuidor", dist_id).execute()
-        suc_names = {str(s['id_sucursal_erp']): s['nombre_sucursal'] for s in (suc_res.data or [])}
+        # 1. Authoritative Names from new tables
+        suc_res = sb.table("sucursales").select("id_sucursal, nombre_erp").eq("id_distribuidor", dist_id).execute()
+        suc_names = {s['id_sucursal']: s['nombre_erp'] for s in (suc_res.data or [])}
 
-        vend_res = sb.table("erp_fuerza_ventas").select("id_vendedor_erp, nombre_vendedor, id_sucursal_erp").eq("id_distribuidor", dist_id).execute()
+        vend_res = sb.table("vendedores").select("id_vendedor, nombre_erp, id_sucursal").eq("id_distribuidor", dist_id).execute()
         
-        # 2. Build ERP Hierarchy Tree
+        # 2. Build Hierarchy Tree
         hierarchy_map = {}
         for v in (vend_res.data or []):
-            sid = str(v.get("id_sucursal_erp", ""))
-            vid = str(v.get("id_vendedor_erp", ""))
+            sid = v.get("id_sucursal")
+            vid = v.get("id_vendedor")
             if not sid or not vid: continue
             
-            vname = v.get("nombre_vendedor") or f"Vendedor {vid}"
+            vname = v.get("nombre_erp") or f"Vendedor {vid}"
             
             if sid not in hierarchy_map:
                 hierarchy_map[sid] = {
@@ -1690,6 +1731,9 @@ def get_hierarchy_config(dist_id: int, _=Depends(verify_auth)):
     except Exception as e:
         logger.error(f"Error fetching hierarchy config: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error fetching hierarchy config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/admin/hierarchy-config/save/{dist_id}", summary="Guardado masivo de jerarquía")
 def save_hierarchy_config(dist_id: int, req: BulkMappingRequest, _=Depends(verify_auth)):
@@ -1709,41 +1753,58 @@ def save_hierarchy_config(dist_id: int, req: BulkMappingRequest, _=Depends(verif
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/admin/hierarchy/sucursales/{dist_id}", tags=["Hierarchy"], summary="Listar sucursales de una distribuidora")
+def get_hierarchy_sucursales(dist_id: int, _=Depends(verify_auth)):
+    res = sb.table("sucursales").select("id_sucursal, nombre_erp").eq("id_distribuidor", dist_id).order("nombre_erp").execute()
+    return res.data or []
+
+@app.get("/api/admin/hierarchy/vendedores/{sucursal_id}", tags=["Hierarchy"], summary="Listar vendedores de una sucursal")
+def get_hierarchy_vendedores(sucursal_id: int, _=Depends(verify_auth)):
+    res = sb.table("vendedores").select("id_vendedor, nombre_erp").eq("id_sucursal", sucursal_id).order("nombre_erp").execute()
+    return res.data or []
+
+@app.get("/api/admin/hierarchy/rutas/{vendedor_id}", tags=["Hierarchy"], summary="Listar rutas de un vendedor")
+def get_hierarchy_rutas(vendedor_id: int, _=Depends(verify_auth)):
+    res = sb.table("rutas").select("id_ruta, id_ruta_erp, dia_semana, periodicidad").eq("id_vendedor", vendedor_id).order("id_ruta_erp").execute()
+    return res.data or []
+
+@app.get("/api/admin/hierarchy/clientes-pdv/{ruta_id}", tags=["Hierarchy"], summary="Listar clientes de una ruta")
+def get_hierarchy_clientes_pdv(ruta_id: int, _=Depends(verify_auth)):
+    res = sb.table("clientes_pdv").select("id_cliente, id_cliente_erp, nombre_fantasia, direccion").eq("id_ruta", ruta_id).order("nombre_fantasia").execute()
+    return res.data or []
+
+
 @app.get("/api/admin/unified-dashboard", summary="Dashboard unificado ERP 3.0")
 def get_unified_dashboard(_=Depends(verify_auth)):
     """
     Retorna la estructura jerárquica completa para el nuevo frontend unificado.
-    Distribuidor -> Sucursal -> Vendedor -> Usuarios Telegram
+    Basado en el nuevo modelo: Distribuidor -> Sucursales -> Vendedores -> Integrantes
     """
     try:
         # 1. Fetch Distribuidores
-        dist_res = sb.table("distribuidores").select("id_distribuidor, nombre_empresa, token_bot").execute()
+        dist_res = sb.table("distribuidores").select("id_distribuidor, nombre_empresa, token_bot, id_erp").execute()
         distribuidores = dist_res.data or []
         
-        # 2. Fetch ERP Mappings
-        map_res = sb.table("erp_empresa_mapping").select("nombre_erp, id_distribuidor").execute()
-        mappings = {row["id_distribuidor"]: row["nombre_erp"] for row in (map_res.data or [])}
-        
-        # 3. Fetch Sucursales ERP
-        suc_res = sb.table("erp_sucursales").select("id_distribuidor, nombre_sucursal").execute()
+        # 2. Fetch Hierarchy
+        suc_res = sb.table("sucursales").select("id_sucursal, id_distribuidor, nombre_erp").execute()
         sucursales_db = suc_res.data or []
         
-        # 4. Fetch Fuerza de Ventas ERP
-        ven_res = sb.table("erp_fuerza_ventas").select("id_distribuidor, nombre_sucursal, nombre_vendedor").execute()
+        ven_res = sb.table("vendedores").select("id_vendedor, id_distribuidor, id_sucursal, nombre_erp").execute()
         vendedores_db = ven_res.data or []
         
-        # 5. Fetch Integrantes Grupo
-        int_res = sb.table("integrantes_grupo").select("id_integrante, id_distribuidor, nombre_integrante, id_vendedor_erp, rol_telegram, telegram_group_id").execute()
+        # 3. Fetch Integrantes
+        int_res = sb.table("integrantes_grupo").select("id_integrante, id_distribuidor, nombre_integrante, id_vendedor_erp, id_sucursal_erp, rol_telegram, telegram_group_id").execute()
         integrantes_db = int_res.data or []
 
         result = []
         for dist in distribuidores:
             did = dist["id_distribuidor"]
+            dist_id_erp = dist.get("id_erp")
             dist_data = {
                 "id_distribuidor": did,
                 "nombre_empresa": dist["nombre_empresa"],
+                "id_erp_global": dist_id_erp,
                 "token": dist.get("token_bot", ""),
-                "erp_mapping_name": mappings.get(did, ""),
                 "sucursales": [],
                 "unmapped_integrantes": []
             }
@@ -1754,22 +1815,26 @@ def get_unified_dashboard(_=Depends(verify_auth)):
             int_list = [i for i in integrantes_db if i["id_distribuidor"] == did]
             
             for suc in suc_list:
-                s_name = suc["nombre_sucursal"]
+                s_id = suc["id_sucursal"]
                 suc_data = {
-                    "nombre_sucursal": s_name,
+                    "id": s_id,
+                    "nombre_sucursal": suc["nombre_erp"],
                     "vendedores": []
                 }
                 
                 # Build Vendedores
-                s_vendedores = [v for v in ven_list if v["nombre_sucursal"] == s_name]
+                s_vendedores = [v for v in ven_list if v["id_sucursal"] == s_id]
                 for ven in s_vendedores:
-                    v_name = ven["nombre_vendedor"]
+                    v_id = ven["id_vendedor"]
+                    v_name = ven["nombre_erp"]
                     ven_data = {
-                        "id_vendedor_erp": v_name,
+                        "id": v_id,
+                        "vendedor_nombre": v_name,
                         "integrantes": []
                     }
                     
-                    # Assigned Integrantes
+                    # Assigned Integrantes (Buscamos por ID de vendedor real en el campo id_vendedor_erp histórico si aplica, 
+                    # o por mapeo futuro. Por ahora mantenemos compatibilidad con el nombre si id_vendedor_erp es texto)
                     assigned = [i for i in int_list if i.get("id_vendedor_erp") == v_name]
                     for a in assigned:
                         ven_data["integrantes"].append({
@@ -1854,33 +1919,11 @@ def dashboard_por_sucursal(distribuidor_id: int, periodo: str = "mes", _=Depends
 
 @app.get("/api/admin/erp/vendedores/{dist_id}", summary="Obtener lista de vendedores activos en ERP")
 def get_erp_vendedores(dist_id: int, _=Depends(verify_auth)):
-    # Buscamos en ventas (histórico real) y en clientes (padrón actual)
-    res_v = sb.table("erp_ventas_raw").select("vendedor_erp").eq("id_distribuidor", dist_id).execute()
-    res_c = sb.table("erp_clientes_raw").select("vendedor_erp").eq("id_distribuidor", dist_id).execute()
-    
-    vend_v = [row["vendedor_erp"] for row in (res_v.data or []) if row.get("vendedor_erp")]
-    vend_c = [row["vendedor_erp"] for row in (res_c.data or []) if row.get("vendedor_erp")]
-    
-    vendedores = sorted(list(set(vend_v + vend_c)))
-    return vendedores
+    """Retorna la lista de vendedores desde la nueva tabla maestra de vendedores."""
+    res = sb.table("vendedores").select("nombre_erp").eq("id_distribuidor", dist_id).order("nombre_erp").execute()
+    return [r["nombre_erp"] for r in (res.data or [])]
 
-@app.get("/api/admin/erp/mappings", summary="Obtener todos los mapeos ERP")
-def get_erp_mappings(_=Depends(verify_auth)):
-    res = sb.table("erp_empresa_mapping").select("nombre_erp, id_distribuidor, distribuidores(nombre_empresa)").execute()
-    return res.data or []
-
-@app.post("/api/admin/erp/mappings", summary="Crear o actualizar mapeo ERP")
-def save_erp_mapping(data: dict, _=Depends(verify_auth)):
-    # data: {nombre_erp: str, id_distribuidor: int}
-    res = sb.table("erp_empresa_mapping").upsert(data).execute()
-    erp_service.reload_mappings()
-    return {"message": "Mapeo guardado"}
-
-@app.delete("/api/admin/erp/mappings/{nombre_erp}", summary="Eliminar mapeo ERP")
-def delete_erp_mapping(nombre_erp: str, _=Depends(verify_auth)):
-    res = sb.table("erp_empresa_mapping").delete().eq("nombre_erp", nombre_erp).execute()
-    erp_service.reload_mappings()
-    return {"message": "Mapeo eliminado"}
+# Endpoints de mapeo manual eliminados (Fase 5 - Hoja de Ruta)
 
 # ─── ERP: Configuración y Reportes ───────────────────────────────────────────
 
@@ -1968,15 +2011,15 @@ def get_hierarchy(dist_id: int, user_payload=Depends(verify_auth)):
     check_dist_permission(user_payload, dist_id)
     
     try:
-        # 1. Sucursales from Maestro
-        res_loc = sb.table("maestro_jerarquia").select("SUCURSAL, \"id suc\"").eq("ID_DIST", dist_id).execute()
+        # 1. Sucursales
+        res_loc = sb.table("sucursales").select("nombre_erp, id_sucursal_erp").eq("id_distribuidor", dist_id).execute()
         seen_locs = set()
         locs = []
         for row in (res_loc.data or []):
-            sid = row.get("id suc")
+            sid = row.get("id_sucursal_erp")
             if sid and sid not in seen_locs:
                 seen_locs.add(sid)
-                locs.append({"location_id": sid, "label": row.get("SUCURSAL")})
+                locs.append({"location_id": sid, "label": row.get("nombre_erp") or "Sucursal " + str(sid)})
         
         # 2. Vendedores (Integrantes)
         vendedores = sb.table("integrantes_grupo").select("*").eq("id_distribuidor", dist_id).execute().data or []

@@ -1119,22 +1119,6 @@ class BotWorker:
                             self.logger.info(f"✅ Exhibición registrada: ID {ex_id} | Estado: {estado_final}")
                             exhibicion_ids.append({"id": ex_id, "estado": estado_final})
                             procesadas += 1
-                            
-                            if estado_final == "VALIDACION":
-                                try:
-                                    await context.bot.send_message(
-                                        chat_id=chat_id,
-                                        text=(
-                                            f"⚠️ <b>AVISO DE VALIDACIÓN ERP</b>\n\n"
-                                            f"El cliente <code>{nro_cliente}</code> no figura aún en el ERP.\n"
-                                            f"Tu exhibición quedó en estado de <b>VALIDACIÓN</b>.\n\n"
-                                            f"<i>Se habilitará para evaluación automáticamente apenas impacten los datos del ERP.</i>"
-                                        ),
-                                        parse_mode=ParseMode.HTML,
-                                        reply_to_message_id=ph_msg_id
-                                    )
-                                except Exception:
-                                    pass
                         else:
                             self.logger.warning(f"❌ Falló registro RPC: {rpc_result.get('error')}")
                             fallidas += 1

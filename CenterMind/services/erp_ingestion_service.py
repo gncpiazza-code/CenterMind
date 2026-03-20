@@ -149,6 +149,7 @@ class ERPIngestionService:
         col_unidades  = "cantidad_total_unidades"
         col_vendedor  = "dsvendedor"
         col_sucursal  = "dssucur"
+        col_proveedor = "proveedor" # Nueva columna
 
         col_articulo  = "descrip" # Columna AK
 
@@ -208,6 +209,7 @@ class ERPIngestionService:
                     "unidades": v_unid,
                     "vendedor_erp": str(row.get(col_vendedor, "")).strip().upper(),
                     "sucursal_erp": str(row.get(col_sucursal, "")).strip().upper(),
+                    "proveedor": str(row.get(col_proveedor, "SIN PROVEEDOR")).strip().upper(),
                     "tipo_documento": str(row.get("cod_tipo_docs", "")).strip().upper(),
                 }
 
@@ -395,6 +397,7 @@ class ERPIngestionService:
             c_unid = self._get_flexible_col(df, ["unidades", "cantidad_total_unidades", "cantidad"])
             c_vend = self._get_flexible_col(df, ["vendedor", "dsvendedor", "vendedor_nombre"])
             c_suc = self._get_flexible_col(df, ["sucursal", "dssucur", "sucursal_nombre"])
+            c_prov = self._get_flexible_col(df, ["proveedor", "desc_proveedor", "prov"])
 
             records = []
             for _, row in df.iterrows():
@@ -414,6 +417,7 @@ class ERPIngestionService:
                     "unidades": float(row.get(c_unid, 0)) if c_unid and row.get(c_unid) and str(row[c_unid]).lower() != "nan" else 0,
                     "vendedor_erp": str(row.get(c_vend, "")).strip().upper() if c_vend else "SIN VENDEDOR",
                     "sucursal_erp": str(row.get(c_suc, "")).strip().upper() if c_suc else "CASA CENTRAL",
+                    "proveedor": str(row.get(c_prov, "SIN PROVEEDOR")).strip().upper() if c_prov else "SIN PROVEEDOR",
                 })
             
             if records:

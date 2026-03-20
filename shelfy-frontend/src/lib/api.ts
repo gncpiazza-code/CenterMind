@@ -152,6 +152,19 @@ export interface UsuarioPortal {
   nombre_empresa: string;
 }
 
+export interface ERPMapping {
+  nombre_erp: string;
+  id_distribuidor: number;
+  distribuidores?: {
+    nombre_empresa: string;
+  };
+}
+
+export interface UnknownCompany {
+  nombre_erp: string;
+  fecha: string;
+}
+
 export interface GlobalStressMonitor {
   id_dist: number;
   nombre_dist: string;
@@ -672,8 +685,26 @@ export async function fetchClientesListado(distId: number, search: string = "", 
   return apiFetch<ClienteMaestro[]>(`/api/reportes/clientes/listado/${distId}?${q.toString()}`);
 }
 
-export async function fetchERPMappings(): Promise<any[]> {
-  return apiFetch<any[]>("/api/admin/erp/mappings");
+// --- Jerarquía en Cascada (Nuevos Endpoints Fase 5) ---
+
+export async function fetchHierarchySucursales(distId: number) {
+  return apiFetch<any[]>(`/api/admin/hierarchy/sucursales/${distId}`);
+}
+
+export async function fetchHierarchyVendedores(sucursalId: number) {
+  return apiFetch<any[]>(`/api/admin/hierarchy/vendedores/${sucursalId}`);
+}
+
+export async function fetchHierarchyRutas(vendedorId: number) {
+  return apiFetch<any[]>(`/api/admin/hierarchy/rutas/${vendedorId}`);
+}
+
+export async function fetchHierarchyClientesPDV(rutaId: number) {
+  return apiFetch<any[]>(`/api/admin/hierarchy/clientes-pdv/${rutaId}`);
+}
+
+export async function fetchERPMappings(): Promise<ERPMapping[]> {
+  return apiFetch<ERPMapping[]>("/api/admin/erp/mappings");
 }
 
 export async function saveERPMapping(data: { nombre_erp: string; id_distribuidor: number }) {
@@ -749,8 +780,8 @@ export async function syncHierarchyFromERP(distId: number): Promise<{ updated_co
 
 // ── Step 3-5: SuperAdmin & Identity Wall ────────────────────────────────────
 
-export async function fetchUnknownCompanies(): Promise<any[]> {
-  return apiFetch("/api/superadmin/empresas-desconocidas");
+export async function fetchUnknownCompanies(): Promise<UnknownCompany[]> {
+  return apiFetch<UnknownCompany[]>("/api/superadmin/empresas-desconocidas");
 }
 
 export async function mapUnknownCompany(data: { nombre_erp: string; id_distribuidor: number }) {

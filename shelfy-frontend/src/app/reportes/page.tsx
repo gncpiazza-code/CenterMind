@@ -14,13 +14,20 @@ import {
 } from "@/lib/api";
 import * as XLSX from "xlsx";
 import { useSearchParams } from "next/navigation";
-import { Printer, Download, Search, X, ChevronDown, Check, BarChart3, Trophy, Briefcase, SwitchCamera, PieChart, AlertTriangle, Users, MapPin, Flame, RefreshCw } from "lucide-react";
+import { Printer, Download, Search, X, ChevronDown, Check, BarChart3, Trophy, Briefcase, SwitchCamera, PieChart, AlertTriangle, Users, MapPin, Flame, RefreshCw, DollarSign, Package, CloudUpload } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
 import TabGenerarInforme from "@/app/academy/cuentas-corrientes/components/TabGenerarInforme";
 import TabAlertasCredito from "@/app/academy/cuentas-corrientes/components/TabAlertasCredito";
 import TabSeguimientoRecaudacion from "@/app/academy/cuentas-corrientes/components/TabSeguimientoRecaudacion";
 import TabPadronClientes from "@/app/academy/cuentas-corrientes/components/TabPadronClientes";
+
+// Nuevos Reportes Avanzados
+import TabVentasResumen from "./components/TabVentasResumen";
+import TabVentasBultos from "./components/TabVentasBultos";
+import TabAuditoriaSigo from "./components/TabAuditoriaSigo";
+import TabImportacionERP from "./components/TabImportacionERP";
+
 // Nota: Para saldos se usa el TabSeguimientoRecaudacion que ya integra el VisorMultitablas
 
 // Hook para clicks fuera del elemento
@@ -150,7 +157,7 @@ function DropdownMultiSelect({
 function ReportesContent() {
   const { user } = useAuth();
   const searchParams = useSearchParams();
-  const [activeMainTab, setActiveMainTab] = useState<"exhibiciones" | "recaudacion" | "padron" | "cuentas_corrientes" | "roi">("exhibiciones");
+  const [activeMainTab, setActiveMainTab] = useState<"exhibiciones" | "recaudacion" | "padron" | "cuentas_corrientes" | "roi" | "ventas_resumen" | "ventas_bultos" | "sigo_audit" | "importacion">("exhibiciones");
 
   useEffect(() => {
     const tab = searchParams.get("tab");
@@ -503,6 +510,56 @@ function ReportesContent() {
                   ROI Analítico
                 </button>
               )}
+
+              <div className="w-[1px] h-6 bg-[var(--shelfy-border)] mx-1 self-center" />
+
+              <button
+                onClick={() => setActiveMainTab("ventas_resumen")}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200
+                     ${activeMainTab === "ventas_resumen"
+                    ? "bg-gradient-to-br from-indigo-600 to-blue-600 text-white shadow-md"
+                    : "text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] hover:bg-[var(--shelfy-bg)]"
+                  }`}
+              >
+                <DollarSign size={16} />
+                Ventas y Recaudación
+              </button>
+
+              <button
+                onClick={() => setActiveMainTab("ventas_bultos")}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200
+                     ${activeMainTab === "ventas_bultos"
+                    ? "bg-gradient-to-br from-indigo-600 to-blue-600 text-white shadow-md"
+                    : "text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] hover:bg-[var(--shelfy-bg)]"
+                  }`}
+              >
+                <Package size={16} />
+                Análisis Bultos
+              </button>
+
+              <button
+                onClick={() => setActiveMainTab("sigo_audit")}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200
+                     ${activeMainTab === "sigo_audit"
+                    ? "bg-gradient-to-br from-indigo-600 to-blue-600 text-white shadow-md"
+                    : "text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] hover:bg-[var(--shelfy-bg)]"
+                  }`}
+              >
+                <MapPin size={16} />
+                Auditoría SIGO
+              </button>
+
+              <button
+                onClick={() => setActiveMainTab("importacion")}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200
+                     ${activeMainTab === "importacion"
+                    ? "bg-gradient-to-br from-emerald-600 to-teal-600 text-white shadow-md"
+                    : "text-emerald-600/70 hover:text-emerald-700 hover:bg-emerald-50"
+                  }`}
+              >
+                <CloudUpload size={16} />
+                Subir Datos (ERP)
+              </button>
             </div>
 
             {/* Contenido Dinámico: Padrón de Clientes */}
@@ -621,6 +678,31 @@ function ReportesContent() {
               </div>
             )}
 
+
+            {/* Contenido Dinámico: Reportes Avanzados */}
+            {activeMainTab === "ventas_resumen" && selectedDistId && (
+              <div className="fade-in animate-in slide-in-from-bottom-2 duration-300">
+                <TabVentasResumen distId={selectedDistId} desde={desde} hasta={hasta} />
+              </div>
+            )}
+
+            {activeMainTab === "ventas_bultos" && selectedDistId && (
+              <div className="fade-in animate-in slide-in-from-bottom-2 duration-300">
+                <TabVentasBultos distId={selectedDistId} desde={desde} hasta={hasta} />
+              </div>
+            )}
+
+            {activeMainTab === "sigo_audit" && selectedDistId && (
+              <div className="fade-in animate-in slide-in-from-bottom-2 duration-300">
+                <TabAuditoriaSigo distId={selectedDistId} desde={desde} hasta={hasta} />
+              </div>
+            )}
+
+            {activeMainTab === "importacion" && (
+              <div className="fade-in animate-in slide-in-from-bottom-2 duration-300">
+                <TabImportacionERP />
+              </div>
+            )}
 
             {/* Contenido Dinámico: Exhibiciones */}
             {activeMainTab === "exhibiciones" && (

@@ -164,10 +164,15 @@ async def health_check():
         "webhook_url": WEBHOOK_URL
     }
 
-# CORS: permite peticiones desde cualquier origen para evitar bloqueos en la migración
+# CORS: permite peticiones desde orígenes autorizados
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "https://shelfycenter.vercel.app",
+        "https://shelfy.vercel.app"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -1193,30 +1193,58 @@ def _periodo_where(periodo: str) -> str:
 
 
 @app.get("/api/dashboard/kpis/{distribuidor_id}", summary="KPIs del dashboard por período")
-def dashboard_kpis(distribuidor_id: int, periodo: str = "mes", payload=Depends(verify_auth)):
+def dashboard_kpis(distribuidor_id: int, periodo: str = "mes", sucursal_id: int = Query(None), payload=Depends(verify_auth)):
     check_dist_permission(payload, distribuidor_id)
-    result = sb.rpc("fn_dashboard_kpis", {"p_dist_id": distribuidor_id, "p_periodo": periodo}).execute()
+    result = sb.rpc("fn_dashboard_kpis", {
+        "p_dist_id": distribuidor_id, 
+        "p_periodo": periodo,
+        "p_sucursal_id": sucursal_id
+    }).execute()
     r = result.data[0] if result.data else {}
     return {k: (v or 0) for k, v in r.items()}
 
 
 @app.get("/api/dashboard/ranking/{distribuidor_id}", summary="Ranking de vendedores por período")
-def dashboard_ranking(distribuidor_id: int, periodo: str = "mes", top: int = 15, payload=Depends(verify_auth)):
+def dashboard_ranking(distribuidor_id: int, periodo: str = "mes", top: int = 15, sucursal_id: int = Query(None), payload=Depends(verify_auth)):
     check_dist_permission(payload, distribuidor_id)
-    result = sb.rpc("fn_dashboard_ranking", {"p_dist_id": distribuidor_id, "p_periodo": periodo, "p_top": top}).execute()
+    result = sb.rpc("fn_dashboard_ranking", {
+        "p_dist_id": distribuidor_id, 
+        "p_periodo": periodo, 
+        "p_top": top,
+        "p_sucursal_id": sucursal_id
+    }).execute()
     return result.data or []
 
-@app.get("/api/dashboard/evolucion-tiempo/{distribuidor_id}", summary="Evolución en el tiempo del dashboard")
-def dashboard_evolucion(distribuidor_id: int, periodo: str = "mes", payload=Depends(verify_auth)):
+@app.get("/api/dashboard/evolucion-tiempo/{distribuidor_id}", summary="Evolución temporal de exhibiciones")
+def dashboard_evolucion(distribuidor_id: int, periodo: str = "mes", sucursal_id: int = Query(None), payload=Depends(verify_auth)):
     check_dist_permission(payload, distribuidor_id)
-    result = sb.rpc("fn_dashboard_evolucion_tiempo", {"p_dist_id": distribuidor_id, "p_periodo": periodo}).execute()
-    return result.data or []
+    res = sb.rpc("fn_dashboard_evolucion_tiempo", {
+        "p_dist_id": distribuidor_id, 
+        "p_periodo": periodo,
+        "p_sucursal_id": sucursal_id
+    }).execute()
+    return res.data or []
 
 @app.get("/api/dashboard/por-ciudad/{distribuidor_id}", summary="Rendimiento agrupado por ciudad")
-def dashboard_por_ciudad(distribuidor_id: int, periodo: str = "mes", payload=Depends(verify_auth)):
+def dashboard_por_ciudad(distribuidor_id: int, periodo: str = "mes", sucursal_id: int = Query(None), payload=Depends(verify_auth)):
     check_dist_permission(payload, distribuidor_id)
-    result = sb.rpc("fn_dashboard_por_ciudad", {"p_dist_id": distribuidor_id, "p_periodo": periodo}).execute()
-    return result.data or []
+    res = sb.rpc("fn_dashboard_por_ciudad", {
+        "p_dist_id": distribuidor_id, 
+        "p_periodo": periodo,
+        "p_sucursal_id": sucursal_id
+    }).execute()
+    return res.data or []
+
+@app.get("/api/dashboard/por-empresa", summary="Rendimiento agrupado por empresa (Superadmin)")
+def dashboard_por_empresa(periodo: str = "mes", sucursal_id: int = Query(None), payload=Depends(verify_auth)):
+    # Solo superadmins o con permiso global
+    if not payload.get("is_superadmin"):
+        raise HTTPException(status_code=403, detail="Acceso solo para Superadmins")
+    res = sb.rpc("fn_dashboard_por_empresa", {
+        "p_periodo": periodo,
+        "p_sucursal_id": sucursal_id
+    }).execute()
+    return res.data or []
 
 
 @app.get("/api/dashboard/ultimas-evaluadas/{distribuidor_id}", summary="Últimas fotos evaluadas con fallback de días")
@@ -1996,14 +2024,13 @@ def admin_asignar_vendedor(
 # ─── Dashboard: stats por sucursal ───────────────────────────────────────────
 
 @app.get("/api/dashboard/por-sucursal/{distribuidor_id}", summary="Exhibiciones agrupadas por sucursal")
-def dashboard_por_sucursal(distribuidor_id: int, periodo: str = "mes", _=Depends(verify_auth)):
-    """
-    Retorna aprobadas y rechazadas agrupadas por sucursal (location).
-    Útil para el gráfico de barras comparativo del Dashboard.
-    La cadena es: exhibicion → integrante → location.
-    """
-    result = sb.rpc("fn_dashboard_por_sucursal", {"p_dist_id": distribuidor_id, "p_periodo": periodo}).execute()
-    return result.data or []
+def dashboard_por_sucursal(distribuidor_id: int, periodo: str = "mes", sucursal_id: int = Query(None), payload=Depends(verify_auth)):
+    check_dist_permission(payload, distribuidor_id)
+    res = sb.rpc("fn_dashboard_por_sucursal", {
+        "p_dist_id": distribuidor_id, 
+        "p_periodo": periodo
+    }).execute()
+    return res.data or []
 
 
 @app.get("/api/admin/erp/vendedores/{dist_id}", summary="Obtener lista de vendedores activos en ERP")

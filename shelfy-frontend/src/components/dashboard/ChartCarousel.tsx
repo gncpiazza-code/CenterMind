@@ -10,18 +10,21 @@ interface ChartCarouselProps {
   sucursales: SucursalStats[];
   evolucion: EvolucionTiempo[];
   ciudades: RendimientoCiudad[];
+  empresas?: RendimientoCiudad[]; // Reusing type for company/city stats
 }
 
-export function ChartCarousel({ sucursales, evolucion, ciudades }: ChartCarouselProps) {
+export function ChartCarousel({ sucursales, evolucion, ciudades, empresas }: ChartCarouselProps) {
   const [slide, setSlide] = useState(0);
   const slidesCount = 3;
+
+  const showEmpresas = empresas && empresas.length > 0;
 
   useEffect(() => {
     const t = setInterval(() => setSlide((s) => (s + 1) % slidesCount), 12000);
     return () => clearInterval(t);
   }, []);
 
-  if (sucursales.length <= 1 && evolucion.length === 0) return (
+  if (sucursales.length <= 1 && evolucion.length === 0 && !showEmpresas) return (
     <Card className="h-full flex items-center justify-center bg-slate-50 border-slate-200 border-dashed border-2">
       <span className="text-slate-400 font-bold uppercase tracking-widest text-[10px]">Sin datos suficientes para gráficos</span>
     </Card>
@@ -105,20 +108,22 @@ export function ChartCarousel({ sucursales, evolucion, ciudades }: ChartCarousel
           {slide === 2 && (
             <>
               <div className="mb-6">
-                <h3 className="text-slate-900 font-black text-sm uppercase tracking-widest opacity-80">Rendimiento por Ciudad</h3>
-                <div className="h-1 w-12 bg-purple-500 rounded-full mt-1.5" />
+                <h3 className="text-slate-900 font-black text-sm uppercase tracking-widest opacity-80">
+                  {showEmpresas ? 'Rendimiento por Empresa' : 'Rendimiento por Ciudad'}
+                </h3>
+                <div className={`h-1 w-12 ${showEmpresas ? 'bg-orange-500' : 'bg-purple-500'} rounded-full mt-1.5`} />
               </div>
               <div className="flex-1 min-h-0">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={ciudades.slice(0, 7)} layout="vertical" margin={{ top: 0, right: 20, bottom: 0, left: 10 }}>
+                  <BarChart data={showEmpresas ? (empresas as any[]) : ciudades.slice(0, 7)} layout="vertical" margin={{ top: 0, right: 20, bottom: 0, left: 10 }}>
                     <XAxis type="number" hide />
-                    <YAxis dataKey="ciudad" type="category" tick={{ fill: "#64748b", fontSize: 10, fontWeight: 800 }} tickLine={false} axisLine={false} width={100} />
+                    <YAxis dataKey={showEmpresas ? 'empresa' : 'ciudad'} type="category" tick={{ fill: "#64748b", fontSize: 10, fontWeight: 800 }} tickLine={false} axisLine={false} width={100} />
                     <Tooltip
                       contentStyle={{ background: "rgba(255,255,255,0.9)", backdropFilter: "blur(12px)", border: "1px solid #f1f5f9", borderRadius: 16, boxShadow: "0 20px 25px -5px rgba(0,0,0,0.05)" }}
                       cursor={{ fill: "#f8fafc" }}
                       itemStyle={{ fontWeight: 700, fontSize: 11 }}
                     />
-                    <Bar dataKey="aprobadas" name="Aprobadas" fill="#8b5cf6" radius={[0, 8, 8, 0]} barSize={18} />
+                    <Bar dataKey="aprobadas" name="Aprobadas" fill={showEmpresas ? '#f59e0b' : '#8b5cf6'} radius={[0, 8, 8, 0]} barSize={18} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>

@@ -313,29 +313,46 @@ export async function loginApi(usuario: string, password: string): Promise<AuthR
 }
 
 // ── Dashboard ───────────────────────────────────────────────────────────────
-
-export async function fetchKPIs(distribuidorId: number, periodo: string = "mes"): Promise<KPIs> {
-  return apiFetch<KPIs>(`/api/dashboard/kpis/${distribuidorId}?periodo=${periodo}`);
+export async function fetchKPIs(distribuidorId: number, periodo: string = "mes", sucursalId?: string): Promise<KPIs> {
+  const q = new URLSearchParams({ periodo });
+  if (sucursalId) q.append("sucursal_id", sucursalId);
+  return apiFetch<KPIs>(`/api/dashboard/kpis/${distribuidorId}?${q.toString()}`);
 }
 
-export async function fetchRanking(distribuidorId: number, periodo: string = "mes"): Promise<VendedorRanking[]> {
-  return apiFetch<VendedorRanking[]>(`/api/dashboard/ranking/${distribuidorId}?periodo=${periodo}`);
+export async function fetchRanking(distribuidorId: number, periodo: string = "mes", sucursalId?: string): Promise<VendedorRanking[]> {
+  const q = new URLSearchParams({ periodo });
+  if (sucursalId) q.append("sucursal_id", sucursalId);
+  return apiFetch<VendedorRanking[]>(`/api/dashboard/ranking/${distribuidorId}?${q.toString()}`);
 }
 
-export async function fetchUltimasEvaluadas(distribuidorId: number, n: number = 8): Promise<UltimaEvaluada[]> {
-  return apiFetch<UltimaEvaluada[]>(`/api/dashboard/ultimas-evaluadas/${distribuidorId}?n=${n}`);
+export async function fetchUltimasEvaluadas(distribuidorId: number, n: number = 8, sucursalId?: string): Promise<UltimaEvaluada[]> {
+  const q = new URLSearchParams({ n: n.toString() });
+  if (sucursalId) q.append("sucursal_id", sucursalId);
+  return apiFetch<UltimaEvaluada[]>(`/api/dashboard/ultimas-evaluadas/${distribuidorId}?${q.toString()}`);
 }
 
-export async function fetchPorSucursal(distribuidorId: number, periodo: string = "mes"): Promise<SucursalStats[]> {
-  return apiFetch<SucursalStats[]>(`/api/dashboard/por-sucursal/${distribuidorId}?periodo=${periodo}`);
+export async function fetchPorSucursal(distribuidorId: number, periodo: string = "mes", sucursalId?: string): Promise<SucursalStats[]> {
+  const q = new URLSearchParams({ periodo });
+  if (sucursalId) q.append("sucursal_id", sucursalId);
+  return apiFetch<SucursalStats[]>(`/api/dashboard/por-sucursal/${distribuidorId}?${q.toString()}`);
 }
 
-export async function fetchEvolucionTiempo(distribuidorId: number, periodo: string = "mes"): Promise<EvolucionTiempo[]> {
-  return apiFetch<EvolucionTiempo[]>(`/api/dashboard/evolucion-tiempo/${distribuidorId}?periodo=${periodo}`);
+export async function fetchEvolucionTiempo(distribuidorId: number, periodo: string = "mes", sucursalId?: string): Promise<EvolucionTiempo[]> {
+  const q = new URLSearchParams({ periodo });
+  if (sucursalId) q.append("sucursal_id", sucursalId);
+  return apiFetch<EvolucionTiempo[]>(`/api/dashboard/evolucion-tiempo/${distribuidorId}?${q.toString()}`);
 }
 
-export async function fetchRendimientoCiudad(distribuidorId: number, periodo: string = "mes"): Promise<RendimientoCiudad[]> {
-  return apiFetch<RendimientoCiudad[]>(`/api/dashboard/por-ciudad/${distribuidorId}?periodo=${periodo}`);
+export async function fetchRendimientoCiudad(distribuidorId: number, periodo: string = "mes", sucursalId?: string): Promise<RendimientoCiudad[]> {
+  const q = new URLSearchParams({ periodo });
+  if (sucursalId) q.append("sucursal_id", sucursalId);
+  return apiFetch<RendimientoCiudad[]>(`/api/dashboard/por-ciudad/${distribuidorId}?${q.toString()}`);
+}
+
+export async function fetchPorEmpresa(periodo: string = "mes", sucursalId?: string): Promise<RendimientoCiudad[]> {
+  const q = new URLSearchParams({ periodo });
+  if (sucursalId) q.append("sucursal_id", sucursalId);
+  return apiFetch<RendimientoCiudad[]>(`/api/dashboard/por-empresa?${q.toString()}`);
 }
 
 // ── Visor ───────────────────────────────────────────────────────────────────

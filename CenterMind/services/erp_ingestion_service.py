@@ -3,6 +3,10 @@ import logging
 from typing import List, Dict, Any
 from db import sb
 from datetime import datetime
+import re
+import io
+import unicodedata
+import numpy as np
 
 logger = logging.getLogger("ERPIngestion")
 
@@ -26,6 +30,78 @@ class ERPIngestionService:
             logger.info(f"Mapeos ERP (re)cargados: {len(self.mapping)} -> {self.mapping}")
         except Exception as e:
             logger.error(f"Error cargando mapeos ERP: {e}")
+
+    def _norm(self, s: str) -> str:
+        """Normaliza texto para comparación (quita acentos, minúsculas, etc)."""
+        if not s or not isinstance(s, str): return ""
+        s = "".join(ch for ch in unicodedata.normalize("NFKD", s) if not unicodedata.combining(ch))
+        s = s.lower().strip()
+        s = re.sub(r"[\W_]+", " ", s)
+        return re.sub(r"\s+", " ", s)
+
+    def _get_flexible_col(self, df: pd.DataFrame, patterns: List[str]) -> str | None:
+        """Busca una columna en el DF que coincida con alguno de los patrones (normalizado)."""
+        cols = list(df.columns)
+        norm_cols = {c: self._norm(c) for c in cols}
+        norm_pats = [self._norm(p) for p in patterns]
+        
+        # Coincidencia exacta
+        for p in norm_pats:
+            for c, nc in norm_cols.items():
+                if p == nc: return c
+        # Coincidencia parcial
+        for p in norm_pats:
+            for c, nc in norm_cols.items():
+                if p in nc: return c
+        return None
+
+    def _parse_fecha_robusta(self, s: pd.Series) -> pd.Series:
+        """Parser tolerante de fechas (espejo de utils.py de la inspo)."""
+        out = pd.Series(pd.NaT, index=s.index, dtype="datetime64[ns]")
+        
+        # A) Datetime objects
+        mask_dt = s.apply(lambda x: isinstance(x, (datetime, pd.Timestamp)))
+        if mask_dt.any():
+            out.loc[mask_dt] = pd.to_datetime(s[mask_dt], errors="coerce")
+            
+        # B) Serial Excel (numéricos)
+        numeric = pd.to_numeric(s, errors="coerce")
+        mask_num = numeric.notna()
+        if mask_num.any():
+            out.loc[mask_num] = pd.to_datetime(numeric[mask_num], unit="D", origin="1899-12-30", errors="coerce")
+            
+        # C) Strings
+        mask_str = s.notna() & ~mask_dt & ~mask_num
+        if mask_str.any():
+            st = s[mask_str].astype(str).str.strip()
+            # Quitar hora, normalizar separadores
+            st = st.str.replace(r"\s+\d{1,2}:\d{2}(:\d{2})?.*", "", regex=True)
+            st = st.str.replace(r"[.\-]", "/", regex=True)
+            parsed = pd.to_datetime(st, errors="coerce", dayfirst=True)
+            out.loc[mask_str] = parsed
+            
+        return out
+
+    def _leer_excel_robusto(self, file_source) -> pd.DataFrame:
+        """Lector robusto que intenta diferentes motores y encodings."""
+        if isinstance(file_source, (bytes, io.BytesIO)):
+            # Intentar lectura normal
+            try:
+                return pd.read_excel(file_source, dtype=str)
+            except Exception:
+                # Si falla, podría ser un TSV disfrazado. 
+                # Tendríamos que resetear el buffer si es BytesIO
+                if isinstance(file_source, io.BytesIO):
+                    file_source.seek(0)
+                try:
+                    # Intento como CSV/TSV
+                    return pd.read_csv(file_source, sep=None, engine="python", dtype=str, encoding="latin1")
+                except Exception:
+                    # Último recurso
+                    if isinstance(file_source, io.BytesIO):
+                        file_source.seek(0)
+                    return pd.read_excel(file_source)
+        return pd.read_excel(file_source, dtype=str)
 
     def ingest_clientes(self, file_source):
         """Procesa el Excel de Padrón de Clientes (Manual) con mapeo flexible."""
@@ -385,36 +461,58 @@ class ERPIngestionService:
         """Ingesta de ventas via Excel con mapeo flexible."""
         logger.info(f"Iniciando ingesta Excel de ventas para dist {dist_id}...")
         try:
-            df = pd.read_excel(file_source, dtype=str)
+            df = self._leer_excel_robusto(file_source)
+            df.columns = [str(c).strip() for c in df.columns]
             
-            c_nro = self._get_flexible_col(df, ["nro_documento", "nro_comprobante", "documento"])
-            c_art = self._get_flexible_col(df, ["articulo", "descrip", "descripcion_producto"])
-            c_fec = self._get_flexible_col(df, ["fecha", "fecha_factura", "fec_doc"])
-            c_cli = self._get_flexible_col(df, ["id_cliente", "codi_cliente", "cliente_id"])
-            c_nom = self._get_flexible_col(df, ["cliente", "nomcli", "razon_social"])
+            c_nro = self._get_flexible_col(df, ["nro_documento", "nro_comprobante", "documento", "numero"])
+            c_tip = self._get_flexible_col(df, ["tipo_documento", "descripcion comprobante", "tipo comprobante", "descripcion_documento"])
+            c_art = self._get_flexible_col(df, ["articulo", "descrip", "descripcion_producto", "codigo_articulo"])
+            c_des = self._get_flexible_col(df, ["desc_articulo", "descripcion_articulo"])
+            c_fec = self._get_flexible_col(df, ["fecha", "fecha_factura", "fec_doc", "fecha comprobante"])
+            c_cli = self._get_flexible_col(df, ["id_cliente", "codi_cliente", "cliente_id", "cliente"])
+            c_nom = self._get_flexible_col(df, ["cliente_nombre", "nomcli", "razon_social", "nombre"])
             c_neto = self._get_flexible_col(df, ["neto", "importe_neto", "subtotal"])
             c_fin = self._get_flexible_col(df, ["final", "importe_final", "total"])
-            c_unid = self._get_flexible_col(df, ["unidades", "cantidad_total_unidades", "cantidad"])
-            c_vend = self._get_flexible_col(df, ["vendedor", "dsvendedor", "vendedor_nombre"])
-            c_suc = self._get_flexible_col(df, ["sucursal", "dssucur", "sucursal_nombre"])
+            c_unid = self._get_flexible_col(df, ["unidades", "cantidad_total_unidades", "cantidad", "bultos_cargo"])
+            c_vend = self._get_flexible_col(df, ["vendedor", "dsvendedor", "vendedor_nombre", "descripcion vendedor"])
+            c_suc = self._get_flexible_col(df, ["sucursal", "dssucur", "sucursal_nombre", "descripcion sucursal"])
             c_prov = self._get_flexible_col(df, ["proveedor", "desc_proveedor", "prov"])
+
+            # Pre-parsear fechas de forma robusta
+            if c_fec:
+                df["_fecha_dt"] = self._parse_fecha_robusta(df[c_fec])
+            else:
+                df["_fecha_dt"] = pd.NaT
 
             records = []
             for _, row in df.iterrows():
                 nro_doc = str(row.get(c_nro, "")).strip() if c_nro else ""
-                articulo = str(row.get(c_art, "SIN NOMBRE")).strip().upper() if c_art else "SIN NOMBRE"
                 if not nro_doc or nro_doc.lower() in ("nan", "none", "null"): continue
                 
+                # Nombre de artículo: preferimos [COD] DESC si existe
+                art_cod = str(row.get(c_art, "")).strip().upper() if c_art else ""
+                art_des = str(row.get(c_des, "")).strip().upper() if c_des else ""
+                articulo_final = art_des if art_des else art_cod
+                if art_cod and art_des and art_cod != art_des:
+                    articulo_final = f"[{art_cod}] {art_des}"
+                if not articulo_final: articulo_final = "SIN NOMBRE"
+
+                # Fecha formateada ISO YYYY-MM-DD para Supabase
+                fecha_iso = None
+                if pd.notna(row.get("_fecha_dt")):
+                    fecha_iso = row["_fecha_dt"].strftime("%Y-%m-%d")
+
                 records.append({
                     "id_distribuidor": dist_id,
                     "nro_documento": nro_doc,
-                    "articulo": articulo,
-                    "fecha_factura": str(row.get(c_fec, "")),
+                    "tipo_documento": str(row.get(c_tip, "VENTA")).strip().upper() if c_tip else "VENTA",
+                    "articulo": articulo_final,
+                    "fecha_factura": fecha_iso,
                     "codi_cliente": str(row.get(c_cli, "")).strip(),
                     "nomcli": str(row.get(c_nom, "")).strip().upper() if c_nom else "CLIENTE",
-                    "importe_neto": float(row.get(c_neto, 0)) if c_neto and row.get(c_neto) and str(row[c_neto]).lower() != "nan" else 0,
-                    "importe_final": float(row.get(c_fin, 0)) if c_fin and row.get(c_fin) and str(row[c_fin]).lower() != "nan" else 0,
-                    "unidades": float(row.get(c_unid, 0)) if c_unid and row.get(c_unid) and str(row[c_unid]).lower() != "nan" else 0,
+                    "importe_neto": self._safe_float(row.get(c_neto, 0)),
+                    "importe_final": self._safe_float(row.get(c_fin, 0)),
+                    "unidades": abs(self._safe_float(row.get(c_unid, 0))), # abs() como en la inspo
                     "vendedor_erp": str(row.get(c_vend, "")).strip().upper() if c_vend else "SIN VENDEDOR",
                     "sucursal_erp": str(row.get(c_suc, "")).strip().upper() if c_suc else "CASA CENTRAL",
                     "proveedor": str(row.get(c_prov, "SIN PROVEEDOR")).strip().upper() if c_prov else "SIN PROVEEDOR",
@@ -426,9 +524,18 @@ class ERPIngestionService:
                     sb.table("erp_ventas_raw").upsert(batch, on_conflict="id_distribuidor, nro_documento, articulo").execute()
                 logger.info(f"✅ Sync Ventas Excel: {len(records)} upserted.")
                 return len(records)
+            return 0
         except Exception as e:
             logger.error(f"Error en ingest_ventas_xlsx: {e}")
             raise e
+
+    def _safe_float(self, val) -> float:
+        if pd.isna(val): return 0.0
+        try:
+            s = str(val).replace(",", ".").strip()
+            return float(s)
+        except:
+            return 0.0
 
     def ingest_clientes_csv(self, file_source, dist_id: int):
         """Ingesta de clientes via CSV."""

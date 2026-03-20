@@ -160,6 +160,7 @@ app = FastAPI(title="Shelfy API", version="2.0.0", lifespan=lifespan)
 async def health_check():
     return {
         "status": "online",
+        "version": "2.1.2-dashboard-fix",
         "bots_active": list(bots.keys()),
         "webhook_url": WEBHOOK_URL
     }

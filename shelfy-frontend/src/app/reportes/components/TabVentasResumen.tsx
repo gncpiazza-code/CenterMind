@@ -4,8 +4,10 @@ import { useEffect, useState, useMemo } from "react";
 import { Card } from "@/components/ui/Card";
 import { PageSpinner } from "@/components/ui/Spinner";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
-import { DollarSign, Receipt, TrendingUp, Download } from "lucide-react";
+import { DollarSign, Receipt, TrendingUp, Download, UploadCloud, Check, AlertTriangle } from "lucide-react";
 import * as XLSX from "xlsx";
+import { uploadERPFile } from "@/lib/api";
+import { Button } from "@/components/ui/Button";
 
 interface VentasResumenItem {
   sucursal: string;
@@ -19,6 +21,8 @@ interface VentasResumenItem {
 export default function TabVentasResumen({ distId, desde, hasta }: { distId: number, desde: string, hasta: string }) {
   const [data, setData] = useState<VentasResumenItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadResult, setUploadResult] = useState<{ msg: string; type: "ok" | "err" } | null>(null);
 
   const fetchData = async () => {
     setLoading(true);
@@ -32,6 +36,23 @@ export default function TabVentasResumen({ distId, desde, hasta }: { distId: num
       console.error(e);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploading(true);
+    setUploadResult(null);
+    try {
+      const res = await uploadERPFile("ventas", file);
+      setUploadResult({ msg: `Éxito: ${res.count} registros.`, type: "ok" });
+      fetchData(); // Recargar datos
+    } catch (err: any) {
+      setUploadResult({ msg: err.message || "Error al subir", type: "err" });
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -73,14 +94,46 @@ export default function TabVentasResumen({ distId, desde, hasta }: { distId: num
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h2 className="text-lg font-bold text-[var(--shelfy-text)]">Resumen de Recaudación</h2>
-        <button
-          onClick={handleExport}
-          className="flex items-center gap-2 px-4 py-2 bg-[var(--shelfy-primary)] text-white rounded-lg text-sm font-bold hover:opacity-90 transition-opacity"
-        >
-          <Download size={16} /> Exportar Excel
-        </button>
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <h2 className="text-lg font-bold text-[var(--shelfy-text)]">Resumen de Recaudación</h2>
+          {uploadResult && (
+            <div className={`mt-2 px-3 py-1 rounded-lg text-[10px] font-bold border flex items-center gap-2 animate-in fade-in duration-300 ${
+              uploadResult.type === "ok" ? "bg-emerald-50 border-emerald-200 text-emerald-700" : "bg-rose-50 border-rose-200 text-rose-700"
+            }`}>
+              {uploadResult.type === "ok" ? <Check size={12} /> : <AlertTriangle size={12} />}
+              {uploadResult.msg}
+            </div>
+          )}
+        </div>
+        
+        <div className="flex items-center gap-2">
+          <div className="relative group">
+            <input 
+              type="file" 
+              accept=".xlsx" 
+              onChange={handleUpload}
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+              disabled={uploading}
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              loading={uploading}
+              className="flex items-center gap-2 bg-white border-[var(--shelfy-border)] text-slate-700 hover:bg-slate-50 shadow-sm"
+            >
+              <UploadCloud size={16} />
+              Subir Ventas (Excel)
+            </Button>
+          </div>
+          
+          <button
+            onClick={handleExport}
+            className="flex items-center gap-2 px-4 py-2 bg-[var(--shelfy-primary)] text-white rounded-lg text-sm font-bold hover:opacity-90 transition-opacity shadow-md"
+          >
+            <Download size={16} /> Exportar
+          </button>
+        </div>
       </div>
 
       {/* KPI Cards */}

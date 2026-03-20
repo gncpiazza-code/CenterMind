@@ -26,7 +26,6 @@ import TabPadronClientes from "@/app/academy/cuentas-corrientes/components/TabPa
 import TabVentasResumen from "./components/TabVentasResumen";
 import TabVentasBultos from "./components/TabVentasBultos";
 import TabAuditoriaSigo from "./components/TabAuditoriaSigo";
-import TabImportacionERP from "./components/TabImportacionERP";
 
 // Nota: Para saldos se usa el TabSeguimientoRecaudacion que ya integra el VisorMultitablas
 
@@ -157,7 +156,7 @@ function DropdownMultiSelect({
 function ReportesContent() {
   const { user } = useAuth();
   const searchParams = useSearchParams();
-  const [activeMainTab, setActiveMainTab] = useState<"exhibiciones" | "recaudacion" | "padron" | "cuentas_corrientes" | "roi" | "ventas_resumen" | "ventas_bultos" | "sigo_audit" | "importacion">("exhibiciones");
+  const [activeMainTab, setActiveMainTab] = useState<"exhibiciones" | "recaudacion" | "padron" | "cuentas_corrientes" | "roi" | "ventas_resumen" | "ventas_bultos" | "sigo_audit">("exhibiciones");
 
   useEffect(() => {
     const tab = searchParams.get("tab");
@@ -548,18 +547,6 @@ function ReportesContent() {
                 <MapPin size={16} />
                 Auditoría SIGO
               </button>
-
-              <button
-                onClick={() => setActiveMainTab("importacion")}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200
-                     ${activeMainTab === "importacion"
-                    ? "bg-gradient-to-br from-emerald-600 to-teal-600 text-white shadow-md"
-                    : "text-emerald-600/70 hover:text-emerald-700 hover:bg-emerald-50"
-                  }`}
-              >
-                <CloudUpload size={16} />
-                Subir Datos (ERP)
-              </button>
             </div>
 
             {/* Contenido Dinámico: Padrón de Clientes */}
@@ -695,12 +682,6 @@ function ReportesContent() {
             {activeMainTab === "sigo_audit" && selectedDistId && (
               <div className="fade-in animate-in slide-in-from-bottom-2 duration-300">
                 <TabAuditoriaSigo distId={selectedDistId} desde={desde} hasta={hasta} />
-              </div>
-            )}
-
-            {activeMainTab === "importacion" && (
-              <div className="fade-in animate-in slide-in-from-bottom-2 duration-300">
-                <TabImportacionERP />
               </div>
             )}
 

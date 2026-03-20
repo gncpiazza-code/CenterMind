@@ -1389,6 +1389,90 @@ async def procesar_cuentas_corrientes(
         raise HTTPException(status_code=500, detail=f"Error procesando el archivo: {str(e)}")
 
 
+# ─── ERP: Carga Global y Reportes Avanzados ───────────────────────────────────
+
+@app.post("/api/admin/erp/upload-global", summary="Carga global de archivos ERP (Ventas, Clientes)")
+async def erp_upload_global(
+    tipo: str = Query(...), # 'ventas' o 'clientes'
+    file: UploadFile = File(...),
+    user_payload=Depends(verify_auth)
+):
+    """
+    Endpoint centralizado para subir archivos Excel del ERP.
+    """
+    try:
+        # Extraer dist_id del token (o usar el del payload si es admin de una sola)
+        dist_id = user_payload.get("id_distribuidor")
+        if not dist_id and not user_payload.get("is_superadmin"):
+            raise HTTPException(status_code=403, detail="No tienes un distribuidor asignado.")
+
+        # Si es superadmin y no envió dist_id, podriamos inferirlo o pedirlo. 
+        # Pero por ahora usamos el del usuario logueado.
+        
+        contents = await file.read()
+        buffer = io.BytesIO(contents)
+        
+        count = 0
+        if tipo == "ventas":
+            count = erp_service.ingest_ventas_xlsx(buffer, dist_id)
+        elif tipo == "clientes":
+            count = erp_service.ingest_clientes_xlsx(buffer, dist_id)
+        else:
+            raise HTTPException(status_code=400, detail="Tipo de archivo no soportados")
+            
+        return {"ok": True, "message": f"Archivo de {tipo} procesado.", "count": count}
+    except Exception as e:
+        logger.error(f"Error en upload-global: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/reports/ventas-resumen/{dist_id}")
+def report_ventas_resumen(
+    dist_id: int, 
+    desde: str = Query(...), 
+    hasta: str = Query(...),
+    user_payload=Depends(verify_auth)
+):
+    check_dist_permission(user_payload, dist_id)
+    res = sb.rpc("fn_reporte_comprobantes_resumen", {
+        "p_dist_id": dist_id,
+        "p_desde": desde,
+        "p_hasta": hasta
+    }).execute()
+    return res.data or []
+
+@app.get("/api/reports/ventas-bultos/{dist_id}")
+def report_ventas_bultos(
+    dist_id: int, 
+    desde: str = Query(...), 
+    hasta: str = Query(...),
+    proveedor: str = Query(None),
+    user_payload=Depends(verify_auth)
+):
+    check_dist_permission(user_payload, dist_id)
+    res = sb.rpc("fn_reporte_comprobantes_detallado", {
+        "p_dist_id": dist_id,
+        "p_desde": desde,
+        "p_hasta": hasta,
+        "p_proveedor_busqueda": proveedor
+    }).execute()
+    return res.data or []
+
+@app.get("/api/reports/auditoria-sigo/{dist_id}")
+def report_auditoria_sigo(
+    dist_id: int, 
+    desde: str = Query(...), 
+    hasta: str = Query(...),
+    user_payload=Depends(verify_auth)
+):
+    check_dist_permission(user_payload, dist_id)
+    res = sb.rpc("fn_reporte_sigo_audit", {
+        "p_dist_id": dist_id,
+        "p_desde": desde,
+        "p_hasta": hasta
+    }).execute()
+    return res.data or []
+
+
 # ─── Reportes endpoints ───────────────────────────────────────────────────────
 
 class ReporteQuery(BaseModel):

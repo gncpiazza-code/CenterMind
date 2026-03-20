@@ -3,8 +3,10 @@
 import { useEffect, useState, useMemo } from "react";
 import { Card } from "@/components/ui/Card";
 import { PageSpinner } from "@/components/ui/Spinner";
-import { Package, Search, Download, AlertCircle, ChevronRight } from "lucide-react";
+import { Package, Search, Download, AlertCircle, ChevronRight, UploadCloud, Check, AlertTriangle } from "lucide-react";
 import * as XLSX from "xlsx";
+import { Button } from "@/components/ui/Button";
+import { uploadERPFile } from "@/lib/api";
 
 interface VentasBultosItem {
   cliente_erp_id: string;
@@ -22,6 +24,8 @@ export default function TabVentasBultos({ distId, desde, hasta }: { distId: numb
   const [data, setData] = useState<VentasBultosItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [proveedor, setProveedor] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [uploadResult, setUploadResult] = useState<{ msg: string; type: "ok" | "err" } | null>(null);
 
   const fetchData = async () => {
     setLoading(true);
@@ -36,6 +40,23 @@ export default function TabVentasBultos({ distId, desde, hasta }: { distId: numb
       console.error(e);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploading(true);
+    setUploadResult(null);
+    try {
+      const res = await uploadERPFile("ventas", file);
+      setUploadResult({ msg: `Éxito: ${res.count} registros.`, type: "ok" });
+      fetchData(); // Recargar datos
+    } catch (err: any) {
+      setUploadResult({ msg: err.message || "Error al subir", type: "err" });
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -75,23 +96,51 @@ export default function TabVentasBultos({ distId, desde, hasta }: { distId: numb
           <p className="text-xs text-[var(--shelfy-muted)]">Cálculo de volumen y promedio semanal por fabricante.</p>
         </div>
         
-        <div className="flex items-center gap-2 w-full md:w-auto">
-          <div className="relative flex-1 md:w-64">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--shelfy-muted)]" size={16} />
+        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+          {uploadResult && (
+            <div className={`px-2 py-1 rounded-lg text-[9px] font-bold border flex items-center gap-2 animate-in fade-in duration-300 ${
+              uploadResult.type === "ok" ? "bg-emerald-50 border-emerald-200 text-emerald-700" : "bg-rose-50 border-rose-200 text-rose-700"
+            }`}>
+              {uploadResult.type === "ok" ? <Check size={10} /> : <AlertTriangle size={10} />}
+              {uploadResult.msg}
+            </div>
+          )}
+          
+          <div className="relative group">
+            <input 
+              type="file" 
+              accept=".xlsx" 
+              onChange={handleUpload}
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+              disabled={uploading}
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              loading={uploading}
+              className="flex items-center gap-2 bg-white border-slate-200 text-slate-700 hover:bg-slate-50 shadow-sm whitespace-nowrap"
+            >
+              <UploadCloud size={14} />
+              Subir Ventas
+            </Button>
+          </div>
+
+          <div className="relative flex-1 md:w-48">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--shelfy-muted)]" size={14} />
             <input 
               type="text"
-              placeholder="Filtrar Proveedor (ej: Real Tabacalera)"
+              placeholder="Proveedor..."
               value={proveedor}
               onChange={(e) => setProveedor(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-xl text-sm focus:border-[var(--shelfy-primary)] outline-none transition-all"
+              className="w-full pl-9 pr-4 py-1.5 bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-xl text-xs focus:border-[var(--shelfy-primary)] outline-none transition-all"
             />
           </div>
           <button
             onClick={handleExport}
-            className="p-2 bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-xl text-[var(--shelfy-text)] hover:bg-[var(--shelfy-panel)] transition-colors"
+            className="p-1.5 bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-xl text-[var(--shelfy-text)] hover:bg-[var(--shelfy-panel)] transition-colors"
             title="Exportar Detalle Excel"
           >
-            <Download size={20} />
+            <Download size={18} />
           </button>
         </div>
       </div>

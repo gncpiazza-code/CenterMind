@@ -4,9 +4,11 @@ import { useEffect, useState, useMemo } from "react";
 import { Card } from "@/components/ui/Card";
 import { PageSpinner } from "@/components/ui/Spinner";
 import { Map, MapMarker, MarkerContent, MarkerPopup, MapControls } from "@/components/ui/map";
-import { MapPin, User, Calendar, DollarSign, Image as ImageIcon, ExternalLink, Navigation } from "lucide-react";
+import { MapPin, User, Calendar, DollarSign, Image as ImageIcon, ExternalLink, Navigation, UploadCloud, Check, AlertTriangle } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
+import { Button } from "@/components/ui/Button";
+import { uploadERPFile } from "@/lib/api";
 
 interface SigoAuditItem {
   id_exhibicion: number;
@@ -24,6 +26,8 @@ export default function TabAuditoriaSigo({ distId, desde, hasta }: { distId: num
   const [data, setData] = useState<SigoAuditItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedPoint, setSelectedPoint] = useState<SigoAuditItem | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadResult, setUploadResult] = useState<{ msg: string; type: "ok" | "err" } | null>(null);
 
   const fetchData = async () => {
     setLoading(true);
@@ -39,6 +43,23 @@ export default function TabAuditoriaSigo({ distId, desde, hasta }: { distId: num
       console.error(e);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploading(true);
+    setUploadResult(null);
+    try {
+      const res = await uploadERPFile("ventas", file);
+      setUploadResult({ msg: `Éxito: ${res.count} registros.`, type: "ok" });
+      fetchData(); // Recargar datos
+    } catch (err: any) {
+      setUploadResult({ msg: err.message || "Error al subir", type: "err" });
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -59,9 +80,39 @@ export default function TabAuditoriaSigo({ distId, desde, hasta }: { distId: num
         <div>
            <h2 className="text-lg font-bold text-[var(--shelfy-text)]">Auditoría SIGO (Geo-Ventas)</h2>
            <p className="text-xs text-[var(--shelfy-muted)]">Visualización de visitas y peso de venta por ubicación.</p>
+           {uploadResult && (
+            <div className={`mt-2 px-2 py-0.5 rounded-lg text-[9px] font-bold border flex items-center gap-2 animate-in fade-in duration-300 w-fit ${
+              uploadResult.type === "ok" ? "bg-emerald-50 border-emerald-200 text-emerald-700" : "bg-rose-50 border-rose-200 text-rose-700"
+            }`}>
+              {uploadResult.type === "ok" ? <Check size={10} /> : <AlertTriangle size={10} />}
+              {uploadResult.msg}
+            </div>
+          )}
         </div>
-        <div className="bg-[var(--shelfy-panel)] px-3 py-1 rounded-full border border-[var(--shelfy-border)]">
-           <span className="text-xs font-bold text-[var(--shelfy-primary)]">{data.length} puntos detectados</span>
+        
+        <div className="flex items-center gap-3">
+          <div className="relative group">
+            <input 
+              type="file" 
+              accept=".xlsx" 
+              onChange={handleUpload}
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+              disabled={uploading}
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              loading={uploading}
+              className="flex items-center gap-2 bg-white border-slate-200 text-slate-700 hover:bg-slate-50 shadow-sm"
+            >
+              <UploadCloud size={14} />
+              Actualizar Datos ERP
+            </Button>
+          </div>
+
+          <div className="bg-[var(--shelfy-panel)] px-3 py-1 rounded-full border border-[var(--shelfy-border)] h-fit">
+            <span className="text-xs font-bold text-[var(--shelfy-primary)]">{data.length} puntos</span>
+          </div>
         </div>
       </div>
 

@@ -8,6 +8,7 @@ import { DollarSign, Receipt, TrendingUp, Download, UploadCloud, Check, AlertTri
 import * as XLSX from "xlsx";
 import { uploadERPFile } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
+import { API_URL, TOKEN_KEY } from "@/lib/constants";
 
 interface VentasResumenItem {
   sucursal: string;
@@ -27,8 +28,9 @@ export default function TabVentasResumen({ distId, desde, hasta }: { distId: num
   const fetchData = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/reports/ventas-resumen/${distId}?desde=${desde}&hasta=${hasta}`, {
-        headers: { "Authorization": `Bearer ${localStorage.getItem("token")}` }
+      const token = localStorage.getItem(TOKEN_KEY);
+      const res = await fetch(`${API_URL}/api/reports/ventas-resumen/${distId}?desde=${desde}&hasta=${hasta}`, {
+        headers: { "Authorization": `Bearer ${token}` }
       });
       const json = await res.json();
       setData(json);

@@ -22,7 +22,7 @@ const ALL_NAV: NavItem[] = [
   { href: "/bonos", label: "Bonos", icon: Gift, roles: ["superadmin"] },
   {
     href: "/reportes",
-    label: "Central de Reportes",
+    label: "Panel de Supervisión",
     icon: BarChart2,
     roles: ["superadmin", "admin", "supervisor"],
     subItems: [
@@ -73,7 +73,7 @@ export function Sidebar() {
       { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
       {
         href: "/reportes",
-        label: "Central de Reportes",
+        label: "Panel de Supervisión",
         icon: BarChart2,
         subItems: [
           { href: "/reportes", label: "Reporte de Exhibiciones", icon: BarChart2 },

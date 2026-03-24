@@ -96,85 +96,131 @@ export default function TabVentasResumen({ distId, desde, hasta }: { distId: num
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <h2 className="text-lg font-bold text-[var(--shelfy-text)]">Resumen de Recaudación</h2>
+      {/* Header and Sync Status */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-5 rounded-2xl border border-slate-100 shadow-sm relative overflow-hidden">
+        <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">
+          <DollarSign size={80} />
+        </div>
+        <div className="relative z-10">
+          <div className="flex items-center gap-3 mb-1">
+            <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
+              <DollarSign size={20} />
+            </div>
+            <h2 className="text-xl font-black text-slate-900 tracking-tight">Rendimiento de Ventas</h2>
+          </div>
+          <p className="text-sm text-slate-500 font-medium ml-12">Monitoreo y análisis de facturación y cobranza.</p>
+          
           {uploadResult && (
-            <div className={`mt-2 px-3 py-1 rounded-lg text-[10px] font-bold border flex items-center gap-2 animate-in fade-in duration-300 ${
+            <div className={`mt-3 ml-12 px-3 py-1.5 rounded-lg text-xs font-bold border flex items-center gap-2 w-fit animate-in fade-in duration-300 ${
               uploadResult.type === "ok" ? "bg-emerald-50 border-emerald-200 text-emerald-700" : "bg-rose-50 border-rose-200 text-rose-700"
             }`}>
-              {uploadResult.type === "ok" ? <Check size={12} /> : <AlertTriangle size={12} />}
+              {uploadResult.type === "ok" ? <Check size={14} /> : <AlertTriangle size={14} />}
               {uploadResult.msg}
             </div>
           )}
         </div>
         
-        <div className="flex items-center gap-2">
-          <div className="relative group">
-            <input 
-              type="file" 
-              accept=".xlsx" 
-              onChange={handleUpload}
-              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-              disabled={uploading}
-            />
-            <Button
-              size="sm"
-              variant="outline"
-              loading={uploading}
-              className="flex items-center gap-2 bg-white border-[var(--shelfy-border)] text-slate-700 hover:bg-slate-50 shadow-sm"
-            >
-              <UploadCloud size={16} />
-              Subir Ventas (Excel)
-            </Button>
+        <div className="flex flex-col items-end gap-3 relative z-10">
+          {/* Motor RPA Status Indicator */}
+          <div className="flex items-center gap-2 bg-emerald-50 text-emerald-700 px-4 py-2 rounded-xl border border-emerald-200 text-xs font-bold shadow-sm">
+            <div className="relative flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+            </div>
+            <span>Motor RPA en línea</span>
+            <span className="text-emerald-500/50">|</span>
+            <span className="font-medium text-emerald-600">Sincronizado hoy 13:30</span>
           </div>
-          
-          <button
-            onClick={handleExport}
-            className="flex items-center gap-2 px-4 py-2 bg-[var(--shelfy-primary)] text-white rounded-lg text-sm font-bold hover:opacity-90 transition-opacity shadow-md"
-          >
-            <Download size={16} /> Exportar
-          </button>
+
+          <div className="flex items-center gap-2">
+            <div className="relative group">
+              <input 
+                type="file" 
+                accept=".xlsx" 
+                onChange={handleUpload}
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                disabled={uploading}
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                loading={uploading}
+                className="flex items-center gap-2 bg-white border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-50 shadow-sm text-xs h-9"
+              >
+                <UploadCloud size={14} />
+                Subida Manual
+              </Button>
+            </div>
+            
+            <button
+              onClick={handleExport}
+              className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-lg text-xs font-bold hover:bg-slate-800 transition-colors shadow-md h-9"
+            >
+              <Download size={14} /> Exportar
+            </button>
+          </div>
         </div>
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card className="p-6 bg-gradient-to-br from-blue-500/10 to-indigo-500/10 border-blue-200">
-          <div className="flex items-center gap-4">
-            <div className="p-3 bg-blue-500 rounded-xl text-white">
-              <DollarSign size={24} />
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="relative overflow-hidden p-6 bg-gradient-to-br from-indigo-500 to-violet-600 rounded-3xl shadow-lg shadow-indigo-200 text-white transform hover:scale-[1.02] transition-transform duration-300 group">
+          <div className="absolute top-0 right-0 -mr-4 -mt-4 p-8 opacity-10 group-hover:scale-110 transition-transform duration-500 pointer-events-none">
+            <DollarSign size={100} />
+          </div>
+          <div className="relative z-10 flex flex-col h-full justify-between">
+            <div className="flex items-center justify-between mb-4">
+              <div className="p-2.5 bg-white/20 backdrop-blur-md rounded-xl text-white shadow-inner border border-white/10">
+                <DollarSign size={22} strokeWidth={2.5} />
+              </div>
+              <span className="text-[10px] font-bold bg-white/10 px-3 py-1 rounded-full backdrop-blur-sm border border-white/10">General</span>
             </div>
             <div>
-              <p className="text-xs font-bold text-blue-600 uppercase tracking-widest">Total Facturado</p>
-              <h3 className="text-2xl font-black text-slate-900">${stats.totalFacturado.toLocaleString()}</h3>
+              <p className="text-[10px] font-black uppercase tracking-widest text-indigo-100 mb-1">Total Facturado</p>
+              <div className="flex items-baseline gap-2">
+                <h3 className="text-4xl font-black tracking-tight">${stats.totalFacturado.toLocaleString()}</h3>
+              </div>
             </div>
           </div>
-        </Card>
+        </div>
 
-        <Card className="p-6 bg-gradient-to-br from-emerald-500/10 to-teal-500/10 border-emerald-200">
-          <div className="flex items-center gap-4">
-            <div className="p-3 bg-emerald-500 rounded-xl text-white">
-              <TrendingUp size={24} />
+        <div className="relative overflow-hidden p-6 bg-slate-900 rounded-3xl shadow-lg shadow-slate-200 text-white transform hover:scale-[1.02] transition-transform duration-300 group">
+          <div className="absolute top-0 right-0 -mr-4 -mt-4 p-8 opacity-5 group-hover:scale-110 transition-transform duration-500 pointer-events-none">
+            <TrendingUp size={100} />
+          </div>
+          <div className="relative z-10 flex flex-col h-full justify-between">
+            <div className="flex items-center justify-between mb-4">
+              <div className="p-2.5 bg-emerald-500/20 backdrop-blur-md rounded-xl text-emerald-400 shadow-inner border border-emerald-500/20">
+                <TrendingUp size={22} strokeWidth={2.5} />
+              </div>
             </div>
             <div>
-              <p className="text-xs font-bold text-emerald-600 uppercase tracking-widest">Recaudación/Cobranza</p>
-              <h3 className="text-2xl font-black text-slate-900">${stats.totalRecaudado.toLocaleString()}</h3>
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Recaudación / Cobranza</p>
+              <div className="flex items-baseline gap-2">
+                <h3 className="text-4xl font-black text-emerald-400 tracking-tight">${stats.totalRecaudado.toLocaleString()}</h3>
+              </div>
             </div>
           </div>
-        </Card>
+        </div>
 
-        <Card className="p-6 bg-gradient-to-br from-orange-500/10 to-amber-500/10 border-orange-200">
-          <div className="flex items-center gap-4">
-            <div className="p-3 bg-orange-500 rounded-xl text-white">
-              <Receipt size={24} />
+        <div className="relative overflow-hidden p-6 bg-white rounded-3xl shadow-lg shadow-slate-100 border border-slate-100 transform hover:scale-[1.02] transition-transform duration-300 group">
+          <div className="absolute top-0 right-0 -mr-4 -mt-4 p-8 opacity-5 group-hover:scale-110 transition-transform duration-500 pointer-events-none text-orange-500">
+            <Receipt size={100} />
+          </div>
+          <div className="relative z-10 flex flex-col h-full justify-between">
+            <div className="flex items-center justify-between mb-4">
+              <div className="p-2.5 bg-orange-50 text-orange-500 rounded-xl shadow-inner border border-orange-100">
+                <Receipt size={22} strokeWidth={2.5} />
+              </div>
             </div>
             <div>
-              <p className="text-xs font-bold text-orange-600 uppercase tracking-widest">Ventas Directas</p>
-              <h3 className="text-2xl font-black text-slate-900">${stats.totalVentas.toLocaleString()}</h3>
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Ventas Directas (Contado)</p>
+              <div className="flex items-baseline gap-2">
+                <h3 className="text-4xl font-black text-slate-900 tracking-tight">${stats.totalVentas.toLocaleString()}</h3>
+              </div>
             </div>
           </div>
-        </Card>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

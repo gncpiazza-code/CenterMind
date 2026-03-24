@@ -14,7 +14,7 @@ import {
 } from "@/lib/api";
 import * as XLSX from "xlsx";
 import { useSearchParams } from "next/navigation";
-import { Printer, Download, Search, X, ChevronDown, Check, BarChart3, Trophy, Briefcase, SwitchCamera, PieChart, AlertTriangle, Users, MapPin, Flame, RefreshCw, DollarSign, Package, CloudUpload } from "lucide-react";
+import { Printer, Download, Search, X, ChevronDown, Check, BarChart3, Trophy, Briefcase, SwitchCamera, PieChart, AlertTriangle, Users, MapPin, Flame, RefreshCw, DollarSign, Package, CloudUpload, Activity } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
 import TabGenerarInforme from "@/app/academy/cuentas-corrientes/components/TabGenerarInforme";
@@ -26,6 +26,8 @@ import TabPadronClientes from "@/app/academy/cuentas-corrientes/components/TabPa
 import TabVentasResumen from "./components/TabVentasResumen";
 import TabVentasBultos from "./components/TabVentasBultos";
 import TabAuditoriaSigo from "./components/TabAuditoriaSigo";
+import SupervisionOverview from "./components/SupervisionOverview";
+import SupervisionDashboard from "./components/SupervisionDashboard";
 
 // Nota: Para saldos se usa el TabSeguimientoRecaudacion que ya integra el VisorMultitablas
 
@@ -156,7 +158,7 @@ function DropdownMultiSelect({
 function ReportesContent() {
   const { user } = useAuth();
   const searchParams = useSearchParams();
-  const [activeMainTab, setActiveMainTab] = useState<"exhibiciones" | "recaudacion" | "padron" | "cuentas_corrientes" | "roi" | "ventas_resumen" | "ventas_bultos" | "sigo_audit">("exhibiciones");
+  const [activeMainTab, setActiveMainTab] = useState<"overview" | "exhibiciones" | "recaudacion" | "padron" | "cuentas_corrientes" | "roi" | "ventas_resumen" | "ventas_bultos" | "sigo_audit">("overview");
 
   useEffect(() => {
     const tab = searchParams.get("tab");
@@ -410,7 +412,7 @@ function ReportesContent() {
         <div className="no-print"><Sidebar /></div>
         <div className="no-print"><BottomNav /></div>
         <div className="flex flex-col flex-1 min-w-0">
-          <div className="no-print"><Topbar title="Central de Reportes" /></div>
+          <div className="no-print"><Topbar title="Panel de Supervisión" /></div>
 
           <main className="flex-1 p-4 md:p-6 pb-20 md:pb-6 overflow-auto w-full max-w-7xl mx-auto">
 
@@ -418,10 +420,10 @@ function ReportesContent() {
             <div className="mb-6 no-print flex flex-col md:flex-row md:items-start justify-between gap-4">
               <div>
                 <h1 className="text-2xl font-black text-[var(--shelfy-text)] tracking-tight">
-                  Central de Reportes
+                  Panel de Supervisión
                 </h1>
                 <p className="text-sm text-[var(--shelfy-muted)] mt-1">
-                  Analiza la evaluación corporativa en PDV o gestiona tus Cuentas Corrientes.
+                  Supervisa el rendimiento de ventas, clientes y exhibiciones corporativas en tiempo real.
                 </p>
               </div>
 
@@ -448,241 +450,31 @@ function ReportesContent() {
               )}
             </div>
 
-            {/* Selector de Herramienta Principal */}
-            <div className="flex gap-1 bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-xl p-1 w-fit mb-6 shadow-sm no-print">
-              <button
-                onClick={() => setActiveMainTab("exhibiciones")}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200
-                     ${activeMainTab === "exhibiciones"
-                    ? "bg-gradient-to-br from-violet-600 to-indigo-600 text-white shadow-md shadow-violet-200/50"
-                    : "text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] hover:bg-[var(--shelfy-bg)]"
-                  }`}
-              >
-                <BarChart3 size={16} />
-                Reporte de Exhibiciones
-              </button>
-              {/* Seguimiento de Recaudación deshabilitado por pedido del usuario */}
-              {/* <button
-                onClick={() => setActiveMainTab("recaudacion")}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200
-                     ${activeMainTab === "recaudacion"
-                    ? "bg-gradient-to-br from-violet-600 to-indigo-600 text-white shadow-md shadow-violet-200/50"
-                    : "text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] hover:bg-[var(--shelfy-bg)]"
-                  }`}
-              >
-                <PieChart size={16} />
-                Seguimiento de Recaudación
-              </button> */}
-              <button
-                onClick={() => setActiveMainTab("padron")}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200
-                     ${activeMainTab === "padron"
-                    ? "bg-gradient-to-br from-violet-600 to-indigo-600 text-white shadow-md shadow-violet-200/50"
-                    : "text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] hover:bg-[var(--shelfy-bg)]"
-                  }`}
-              >
-                <Users size={16} />
-                Padrón de Clientes
-              </button>
-              <button
-                onClick={() => setActiveMainTab("cuentas_corrientes")}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200
-                     ${activeMainTab === "cuentas_corrientes"
-                    ? "bg-gradient-to-br from-violet-600 to-indigo-600 text-white shadow-md shadow-violet-200/50"
-                    : "text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] hover:bg-[var(--shelfy-bg)]"
-                  }`}
-              >
-                <Briefcase size={16} />
-                Cuentas Corrientes
-              </button>
-
-              {user?.usa_contexto_erp && (
-                <button
-                  onClick={() => setActiveMainTab("roi")}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200
-                       ${activeMainTab === "roi"
-                      ? "bg-gradient-to-br from-emerald-600 to-teal-600 text-white shadow-md shadow-emerald-200/50"
-                      : "text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] hover:bg-[var(--shelfy-bg)]"
-                    }`}
-                >
-                  <BarChart3 size={16} />
-                  ROI Analítico
-                </button>
-              )}
-
-              <div className="w-[1px] h-6 bg-[var(--shelfy-border)] mx-1 self-center" />
-
-              <button
-                onClick={() => setActiveMainTab("ventas_resumen")}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200
-                     ${activeMainTab === "ventas_resumen"
-                    ? "bg-gradient-to-br from-indigo-600 to-blue-600 text-white shadow-md"
-                    : "text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] hover:bg-[var(--shelfy-bg)]"
-                  }`}
-              >
-                <DollarSign size={16} />
-                Ventas y Recaudación
-              </button>
-
-              <button
-                onClick={() => setActiveMainTab("ventas_bultos")}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200
-                     ${activeMainTab === "ventas_bultos"
-                    ? "bg-gradient-to-br from-indigo-600 to-blue-600 text-white shadow-md"
-                    : "text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] hover:bg-[var(--shelfy-bg)]"
-                  }`}
-              >
-                <Package size={16} />
-                Análisis Bultos
-              </button>
-
-              <button
-                onClick={() => setActiveMainTab("sigo_audit")}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200
-                     ${activeMainTab === "sigo_audit"
-                    ? "bg-gradient-to-br from-indigo-600 to-blue-600 text-white shadow-md"
-                    : "text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] hover:bg-[var(--shelfy-bg)]"
-                  }`}
-              >
-                <MapPin size={16} />
-                Auditoría SIGO
-              </button>
-            </div>
-
-            {/* Contenido Dinámico: Padrón de Clientes */}
-            {activeMainTab === "padron" && selectedDistId && (
-              <div className="fade-in animate-in slide-in-from-bottom-2 duration-300">
-                <TabPadronClientes distId={selectedDistId} />
-              </div>
-            )}
-
-            {/* Contenido Dinámico: ROI Analítico (PASO 10) */}
-            {activeMainTab === "roi" && user && (
-              <div className="fade-in animate-in slide-in-from-bottom-2 duration-300 md:px-4">
-                <div className="flex flex-col gap-6">
-                  <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-100 relative overflow-hidden">
-                    <div className="absolute top-0 right-0 p-8 opacity-5">
-                      <BarChart3 size={120} />
-                    </div>
-                    <div className="relative z-10">
-                      <h2 className="text-xl font-black text-slate-900 mb-2">Impacto en Ventas (ROI)</h2>
-                      <p className="text-sm text-slate-500 mb-8 max-w-2xl">
-                        Comparamos el desempeño comercial de los clientes que poseen **Exhibiciones Destacadas** frente a aquellos que no tienen exhibiciones activas en el sistema.
-                      </p>
-
-                      {loadingRoi ? (
-                        <div className="py-20 flex flex-col items-center justify-center gap-4">
-                          <RefreshCw className="animate-spin text-emerald-500" size={40} />
-                          <span className="text-sm font-bold text-slate-400 uppercase tracking-widest">Cruzando datos del ERP...</span>
-                        </div>
-                      ) : erpRoi && (
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                          {/* Card Uplift */}
-                          <div className="md:col-span-3 bg-gradient-to-r from-emerald-500 to-teal-600 rounded-3xl p-6 text-white shadow-lg shadow-emerald-200 flex items-center justify-between">
-                            <div>
-                              <p className="text-xs font-black uppercase tracking-widest opacity-80 mb-1">Incremento de Venta (Uplift)</p>
-                              <h3 className="text-4xl font-black">{(erpRoi.uplift_pct ?? 0) > 0 ? `+${(erpRoi.uplift_pct ?? 0).toFixed(1)}%` : `${(erpRoi.uplift_pct ?? 0).toFixed(1)}%`}</h3>
-                            </div>
-                            <div className="hidden sm:block">
-                              <Flame size={60} className="fill-white/20 text-white/40" />
-                            </div>
-                          </div>
-
-                          {/* Clientes con Exhibición */}
-                          <div className="bg-slate-50 rounded-2xl p-6 border border-slate-100">
-                            <h4 className="flex items-center gap-2 text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-4">
-                              <Check size={14} className="bg-emerald-100 rounded-full p-0.5" /> Clientes Destacados
-                            </h4>
-                            <div className="space-y-4">
-                              <div>
-                                <p className="text-2xl font-black text-slate-900">${erpRoi.con_exhibicion.facturacion_promedio.toLocaleString()}</p>
-                                <p className="text-[10px] font-bold text-slate-400 uppercase">Venta Promedio</p>
-                              </div>
-                              <div className="pt-4 border-t border-slate-200">
-                                <p className="text-sm font-bold text-slate-700">{erpRoi.con_exhibicion.clientes}</p>
-                                <p className="text-[10px] font-bold text-slate-400 uppercase">Base de Clientes</p>
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Clientes sin Exhibición */}
-                          <div className="bg-slate-50 rounded-2xl p-6 border border-slate-100 opacity-60">
-                            <h4 className="flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">
-                              <X size={14} className="bg-slate-200 rounded-full p-0.5" /> Sin Exhibición
-                            </h4>
-                            <div className="space-y-4">
-                              <div>
-                                <p className="text-2xl font-black text-slate-900">${erpRoi.sin_exhibicion.facturacion_promedio.toLocaleString()}</p>
-                                <p className="text-[10px] font-bold text-slate-400 uppercase">Venta Promedio</p>
-                              </div>
-                              <div className="pt-4 border-t border-slate-200">
-                                <p className="text-sm font-bold text-slate-700">{erpRoi.sin_exhibicion.clientes}</p>
-                                <p className="text-[10px] font-bold text-slate-400 uppercase">Base de Clientes</p>
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Facturación Total de la Muestra */}
-                          <div className="bg-slate-900 rounded-2xl p-6 text-white shadow-xl">
-                            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Facturación Total (Sample)</h4>
-                            <div className="space-y-4">
-                              <p className="text-2xl font-black text-emerald-400">${(erpRoi.con_exhibicion.facturacion_total + erpRoi.sin_exhibicion.facturacion_total).toLocaleString()}</p>
-                              <p className="text-[10px] font-black text-slate-500 uppercase">Sumatoria facturado 30 días</p>
-                              <div className="h-2 w-full bg-slate-800 rounded-full overflow-hidden mt-4">
-                                <div
-                                  className="h-full bg-emerald-500 rounded-full"
-                                  style={{ width: `${(erpRoi.con_exhibicion.facturacion_total / (erpRoi.con_exhibicion.facturacion_total + erpRoi.sin_exhibicion.facturacion_total) * 100)}%` }}
-                                />
-                              </div>
-                              <p className="text-[9px] text-slate-400 italic">La barra muestra el peso de los clientes con exhibición vs el total.</p>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Contenido Dinámico: Recaudación (Deshabilitado) */}
-            {/* {activeMainTab === "recaudacion" && user?.id_distribuidor && (
-              <div className="fade-in animate-in slide-in-from-bottom-2 duration-300">
-                <TabSeguimientoRecaudacion distId={user.id_distribuidor!} />
-              </div>
-            )} */}
-
-            {/* Contenido Dinámico: Cuentas Corrientes */}
-            {activeMainTab === "cuentas_corrientes" && user && (
-              <div className="flex flex-col gap-6 fade-in animate-in slide-in-from-bottom-2 duration-300">
-                <div className="flex flex-wrap items-center gap-2 bg-[var(--shelfy-panel)] p-1 rounded-xl border border-[var(--shelfy-border)] w-fit no-print">
-                  <button onClick={() => setCcpTab("informe")} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${ccpTab === 'informe' ? 'bg-[var(--shelfy-primary)] text-white shadow-sm' : 'text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]'}`}>Reporte PDF</button>
-                  <button onClick={() => setCcpTab("alertas")} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${ccpTab === 'alertas' ? 'bg-[var(--shelfy-primary)] text-white shadow-sm' : 'text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]'}`}>Configurar Alertas</button>
-                </div>
-
-                {ccpTab === "informe" && <TabGenerarInforme distId={selectedDistId} />}
-                {ccpTab === "alertas" && <TabAlertasCredito distId={selectedDistId} />}
-              </div>
-            )}
-
-
-            {/* Contenido Dinámico: Reportes Avanzados */}
-            {activeMainTab === "ventas_resumen" && selectedDistId && (
-              <div className="fade-in animate-in slide-in-from-bottom-2 duration-300">
-                <TabVentasResumen distId={selectedDistId} desde={desde} hasta={hasta} />
-              </div>
-            )}
-
-            {activeMainTab === "ventas_bultos" && selectedDistId && (
-              <div className="fade-in animate-in slide-in-from-bottom-2 duration-300">
-                <TabVentasBultos distId={selectedDistId} desde={desde} hasta={hasta} />
-              </div>
-            )}
-
-            {activeMainTab === "sigo_audit" && selectedDistId && (
-              <div className="fade-in animate-in slide-in-from-bottom-2 duration-300">
-                <TabAuditoriaSigo distId={selectedDistId} desde={desde} hasta={hasta} />
-              </div>
+            {/* UNIFIED DASHBOARD: replaces all previous tabs */}
+            {user?.rol === 'superadmin' ? (
+              selectedDistId ? (
+                <SupervisionDashboard distId={selectedDistId} desde={desde} hasta={hasta} />
+              ) : (
+                 <div className="flex items-center justify-center p-12 bg-white rounded-3xl border border-slate-100 shadow-sm text-center">
+                   <div>
+                     <Activity size={48} className="text-slate-200 mx-auto mb-4" />
+                     <h3 className="text-lg font-black text-slate-900 mb-1">Seleccione un contexto</h3>
+                     <p className="text-sm font-medium text-slate-500">
+                       Por favor elija una sucursal o centro de distribución arriba para cargar el panel.
+                     </p>
+                   </div>
+                 </div>
+              )
+            ) : (
+               <div className="flex items-center justify-center p-12 bg-white rounded-3xl border border-slate-100 shadow-sm text-center">
+                 <div>
+                   <AlertTriangle size={48} className="text-amber-400 mx-auto mb-4" />
+                   <h3 className="text-lg font-black text-slate-900 mb-1">Acceso Restringido</h3>
+                   <p className="text-sm font-medium text-slate-500">
+                     El Panel de Supervisión está en fase de implementación y pruebas exclusivas. Pronto estará disponible.
+                   </p>
+                 </div>
+               </div>
             )}
 
             {/* Contenido Dinámico: Exhibiciones */}

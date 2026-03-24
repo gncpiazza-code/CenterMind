@@ -21,7 +21,8 @@ import errno
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, DefaultDict
+from collections import defaultdict
 import io
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, BotCommand
@@ -371,20 +372,104 @@ class Database:
 
     @retry_supabase()
     def get_ranking_periodo(self, distribuidor_id: int, periodo: str) -> List[Dict]:
-        res = self.sb.rpc("fn_dashboard_ranking", {"p_dist_id": distribuidor_id, "p_periodo": periodo, "p_top": 100}).execute()
-        ranking = []
-        if res.data:
-            for r in res.data:
+        """
+        Calcula el ranking en Python para evitar errores de RPC por cambios de esquema.
+        """
+        try:
+            # 1. Determinar rango de fechas
+            now = datetime.now(AR_TZ)
+            if periodo == 'hoy':
+                start_date = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+                end_date = None
+            elif periodo == 'mes':
+                start_date = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+                end_date = None
+            elif periodo == 'semana':
+                start_date = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+                end_date = None
+            elif len(periodo) == 7 and '-' in periodo: # YYYY-MM
+                y, m = map(int, periodo.split('-'))
+                start_date = f"{y:04d}-{m:02d}-01T00:00:00-03:00"
+                if m == 12: next_y, next_m = y + 1, 1
+                else: next_y, next_m = y, m + 1
+                end_date = f"{next_y:04d}-{next_m:02d}-01T00:00:00-03:00"
+            else:
+                start_date = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+                end_date = None
+
+            # 2. Fetch Exhibitions (con paginación para > 1000 registros)
+            exhibiciones = []
+            offset = 0
+            while True:
+                q = self.sb.table("exhibiciones").select("id_integrante, estado")\
+                    .eq("id_distribuidor", distribuidor_id)\
+                    .gte("timestamp_subida", start_date)\
+                    .order("timestamp_subida")\
+                    .range(offset, offset + 999)
+                
+                if end_date:
+                    q = q.lt("timestamp_subida", end_date)
+                    
+                res_ex = q.execute()
+                batch = res_ex.data or []
+                exhibiciones.extend(batch)
+                if len(batch) < 1000:
+                    break
+                offset += 1000
+
+            # 3. Fetch Integrantes y Sucursales para nombres
+            res_int = self.sb.table("integrantes_grupo")\
+                .select("id_integrante, nombre_integrante, id_sucursal_erp")\
+                .eq("id_distribuidor", distribuidor_id).execute()
+            int_map = {i["id_integrante"]: i for i in res_int.data or []}
+            
+            res_suc = self.sb.table("sucursales")\
+                .select("id_sucursal_erp, nombre_erp")\
+                .eq("id_distribuidor", distribuidor_id).execute()
+            suc_map = {s["id_sucursal_erp"]: s["nombre_erp"] for s in res_suc.data or []}
+
+            # 4. Agregación
+            # Usando defaultdict(lambda: {"aprobadas": 0, "destacadas": 0, "rechazadas": 0, "puntos": 0})
+            stats = defaultdict(lambda: {"aprobadas": 0, "destacadas": 0, "rechazadas": 0, "puntos": 0})
+            for e in exhibiciones:
+                uid = e.get("id_integrante")
+                if not uid: continue
+                est = (e.get("estado") or "").lower()
+                
+                if est in ('aprobado', 'aprobada'):
+                    stats[uid]["aprobadas"] += 1
+                    stats[uid]["puntos"] += 1
+                elif est in ('destacado', 'destacada'):
+                    stats[uid]["destacadas"] += 1
+                    stats[uid]["aprobadas"] += 1 
+                    stats[uid]["puntos"] += 2
+                elif est in ('rechazado', 'rechazada'):
+                    stats[uid]["rechazadas"] += 1
+
+            # 5. Formatear ranking
+            ranking = []
+            for uid, s in stats.items():
+                user = int_map.get(uid, {})
+                suc_id = user.get("id_sucursal_erp")
                 ranking.append({
-                    "vendedor":   r["vendedor"] or "Sin nombre",
-                    "sucursal":   r.get("sucursal", ""),
-                    "puntos":     r["puntos"],
-                    "aprobadas":  r["aprobadas"],
-                    "destacadas": r["destacadas"],
-                    "rechazadas": r["rechazadas"],
-                    "total":      (r["aprobadas"] or 0) + (r["destacadas"] or 0) + (r["rechazadas"] or 0)
+                    "vendedor":   user.get("nombre_integrante", f"ID {uid}"),
+                    "sucursal":   suc_map.get(suc_id, "S/D"),
+                    "puntos":     s["puntos"],
+                    "aprobadas":  s["aprobadas"],
+                    "destacadas": s["destacadas"],
+                    "rechazadas": s["rechazadas"]
                 })
-        return ranking
+
+            ranking.sort(key=lambda x: (x["puntos"], x["aprobadas"]), reverse=True)
+            return ranking[:100]
+
+        except Exception as e:
+            # Fallback al RPC original si algo falla en Python (aunque probablemente también falle)
+            try:
+                res = self.sb.rpc("fn_dashboard_ranking", {"p_dist_id": distribuidor_id, "p_periodo": periodo, "p_top": 100}).execute()
+                return res.data or []
+            except:
+                raise e
 
     def get_historial_cliente(
         self, distribuidor_id: int, chat_id: int, nro_cliente: str, limit: int = 5

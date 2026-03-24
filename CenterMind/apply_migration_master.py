@@ -28,7 +28,7 @@ for h in hosts:
                     "connect_timeout": 5
                 })
 
-sql_file = r"c:\Users\cigar\OneDrive\Desktop\BOT-SQL\antigravity\CenterMind\sql_history\create_master_hierarchy.sql"
+sql_file = r"c:\Users\cigar\OneDrive\Desktop\BOT-SQL\antigravity\CenterMind\CenterMind\fix_ranking_final.sql"
 with open(sql_file, "r", encoding="utf-8") as f:
     sql = f.read()
 

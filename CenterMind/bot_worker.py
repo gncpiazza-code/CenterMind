@@ -417,42 +417,55 @@ class Database:
                     break
                 offset += 1000
 
-            # 3. Fetch Integrantes y Sucursales para nombres
+            # 3. Fetch Integrantes y Sucursales para nombres y unificación
             res_int = self.sb.table("integrantes_grupo")\
-                .select("id_integrante, nombre_integrante, id_sucursal_erp")\
+                .select("id_integrante, telegram_user_id, nombre_integrante, id_sucursal_erp")\
                 .eq("id_distribuidor", distribuidor_id).execute()
-            int_map = {i["id_integrante"]: i for i in res_int.data or []}
+            
+            # Mapas para unificación y metadata
+            # id_integrante -> telegram_user_id
+            int_to_user = {i["id_integrante"]: i["telegram_user_id"] for i in res_int.data or [] if i.get("telegram_user_id")}
+            # telegram_user_id -> metadata (nombre, sucursal)
+            user_meta = {}
+            for i in res_int.data or []:
+                tuid = i.get("telegram_user_id")
+                if tuid and tuid not in user_meta:
+                    user_meta[tuid] = {
+                        "nombre": i["nombre_integrante"],
+                        "sucursal_id": i["id_sucursal_erp"]
+                    }
             
             res_suc = self.sb.table("sucursales")\
                 .select("id_sucursal_erp, nombre_erp")\
                 .eq("id_distribuidor", distribuidor_id).execute()
             suc_map = {s["id_sucursal_erp"]: s["nombre_erp"] for s in res_suc.data or []}
 
-            # 4. Agregación
-            # Usando defaultdict(lambda: {"aprobadas": 0, "destacadas": 0, "rechazadas": 0, "puntos": 0})
+            # 4. Agregación (Agrupamos por telegram_user_id para UNIFICAR puntos del mismo vendedor en distintos grupos)
             stats = defaultdict(lambda: {"aprobadas": 0, "destacadas": 0, "rechazadas": 0, "puntos": 0})
             for e in exhibiciones:
-                uid = e.get("id_integrante")
-                if not uid: continue
+                iid = e.get("id_integrante")
+                tuid = int_to_user.get(iid)
+                if not tuid: continue # Exhibición de alguien no registrado o sin UID
+                
                 est = (e.get("estado") or "").lower()
                 
                 if est in ('aprobado', 'aprobada'):
-                    stats[uid]["aprobadas"] += 1
-                    stats[uid]["puntos"] += 1
+                    stats[tuid]["aprobadas"] += 1
+                    stats[tuid]["puntos"] += 1
                 elif est in ('destacado', 'destacada'):
-                    stats[uid]["destacadas"] += 1
-                    stats[uid]["aprobadas"] += 1 
-                    stats[uid]["puntos"] += 2
+                    stats[tuid]["destacadas"] += 1
+                    stats[tuid]["aprobadas"] += 1 
+                    stats[tuid]["puntos"] += 2
                 elif est in ('rechazado', 'rechazada'):
-                    stats[uid]["rechazadas"] += 1
+                    stats[tuid]["rechazadas"] += 1
 
             # 5. Formatear ranking
             ranking = []
-            for uid, s in stats.items():
-                user = int_map.get(uid, {})
-                suc_id = user.get("id_sucursal_erp")
+            for tuid, s in stats.items():
+                meta = user_meta.get(tuid, {})
+                suc_id = meta.get("sucursal_id")
                 ranking.append({
-                    "vendedor":   user.get("nombre_integrante", f"ID {uid}"),
+                    "vendedor":   meta.get("nombre", f"User {tuid}"),
                     "sucursal":   suc_map.get(suc_id, "S/D"),
                     "puntos":     s["puntos"],
                     "aprobadas":  s["aprobadas"],

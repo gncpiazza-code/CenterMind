@@ -1966,7 +1966,7 @@ def get_unified_dashboard(_=Depends(verify_auth)):
         suc_res = sb.table("sucursales").select("id_sucursal, id_distribuidor, nombre_erp").execute()
         sucursales_db = suc_res.data or []
         
-        ven_res = sb.table("vendedores").select("id_vendedor, id_distribuidor, id_sucursal, nombre_erp").execute()
+        ven_res = sb.table("vendedores").select("id_vendedor, id_sucursal, nombre_erp").execute()
         vendedores_db = ven_res.data or []
         
         # 3. Fetch Integrantes

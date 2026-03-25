@@ -6,12 +6,13 @@ import { Topbar } from "@/components/layout/Topbar";
 import { useAuth } from "@/hooks/useAuth";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { 
-  Shield, 
-  Building2, 
-  Users, 
-  FileSpreadsheet, 
-  Network 
+import {
+  Shield,
+  Building2,
+  Users,
+  FileSpreadsheet,
+  Network,
+  BookUser,
 } from "lucide-react";
 
 import dynamic from "next/dynamic";
@@ -22,6 +23,7 @@ import TabUsuarios from "@/components/admin/TabUsuarios";
 import TabDistribuidoras from "@/components/admin/TabDistribuidoras";
 import TabIntegrantes from "@/components/admin/TabIntegrantes";
 import TabERP from "@/components/admin/TabERP";
+import TabPadron from "@/components/admin/TabPadron";
 
 export default function AdminPage() {
   const { user } = useAuth();
@@ -30,11 +32,12 @@ export default function AdminPage() {
 
   const TABS = [
     { id: "jerarquia_global", label: "Jerarquía Global", icon: Network },
-    { id: "usuarios", label: "Usuarios Admin", icon: Shield },
-    { id: "erp", label: "Importar ERP / Mapeo", icon: FileSpreadsheet },
+    { id: "padron",           label: "Padrón de Clientes", icon: BookUser },
+    { id: "usuarios",         label: "Usuarios Admin", icon: Shield },
+    { id: "erp",              label: "Importar ERP / Mapeo", icon: FileSpreadsheet },
     ...(isSuperadmin ? [
       { id: "distribuidoras", label: "Distribuidoras", icon: Building2 },
-      { id: "integrantes", label: "Integrantes Bot", icon: Users }
+      { id: "integrantes",    label: "Integrantes Bot", icon: Users }
     ] : [])
   ];
 
@@ -84,11 +87,12 @@ export default function AdminPage() {
 
             {/* Tab Content with Animation Wrapper */}
             <div className="min-h-[500px]">
-              {tab === "usuarios" && <TabUsuarios isSuperadmin={isSuperadmin} distId={user.id_distribuidor || 0} />}
               {tab === "jerarquia_global" && <UnifiedDashboard isSuperadmin={isSuperadmin} currentDistId={user.id_distribuidor || 0} />}
-              {tab === "erp" && <TabERP distId={user.id_distribuidor || 0} isSuperadmin={isSuperadmin} />}
-              {tab === "distribuidoras" && <TabDistribuidoras />}
-              {tab === "integrantes" && <TabIntegrantes isSuperadmin={isSuperadmin} distId={user.id_distribuidor || 0} />}
+              {tab === "padron"           && <TabPadron distId={user.id_distribuidor || 0} />}
+              {tab === "usuarios"         && <TabUsuarios isSuperadmin={isSuperadmin} distId={user.id_distribuidor || 0} />}
+              {tab === "erp"              && <TabERP distId={user.id_distribuidor || 0} isSuperadmin={isSuperadmin} />}
+              {tab === "distribuidoras"   && <TabDistribuidoras />}
+              {tab === "integrantes"      && <TabIntegrantes isSuperadmin={isSuperadmin} distId={user.id_distribuidor || 0} />}
             </div>
           </div>
 

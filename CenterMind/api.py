@@ -33,6 +33,7 @@ from services.erp_summary_service import erp_summary_service
 from services.erp_ingestion_service import erp_service
 from services.system_monitoring_service import monitor_service
 from services.cuentas_corrientes_service import procesar_cuentas_corrientes_service
+from services.padron_ingestion_service import padron_service
 import io
 import psutil
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -2508,6 +2509,73 @@ def get_orphan_vendedores(dist_id: int, user_payload=Depends(verify_auth)):
         # Esta lógica se delegará a un RPC para mayor eficiencia
         res = sb.rpc("fn_vendedores_huerfanos", {"p_dist_id": dist_id}).execute()
         return res.data or []
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── FASE 1 — Padrón de Clientes ─────────────────────────────────────────────
+
+@app.post(
+    "/api/admin/padron/upload/{dist_id}",
+    tags=["Padrón"],
+    summary="Carga manual del Padrón de Clientes — reconstruye jerarquía completa",
+)
+async def padron_upload(
+    dist_id: int,
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    user_payload=Depends(verify_auth),
+):
+    """
+    Recibe el Excel del Padrón y dispara la ingesta en background.
+    La ingesta actualiza en cascada: sucursales → vendedores → rutas → clientes_pdv.
+    El resultado queda registrado en motor_runs.
+    """
+    check_dist_permission(user_payload, dist_id)
+
+    if not file.filename or not file.filename.lower().endswith((".xlsx", ".xls", ".csv")):
+        raise HTTPException(status_code=400, detail="El archivo debe ser .xlsx, .xls o .csv")
+
+    file_bytes = await file.read()
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="El archivo está vacío.")
+
+    def _run_ingestion(fb: bytes, did: int) -> None:
+        try:
+            padron_service.ingest(fb, did)
+        except Exception as e:
+            logger.error(f"[Padrón background] dist {did}: {e}")
+
+    background_tasks.add_task(_run_ingestion, file_bytes, dist_id)
+
+    return {
+        "ok": True,
+        "message": f"Padrón recibido ({len(file_bytes):,} bytes). Procesando en segundo plano.",
+        "dist_id": dist_id,
+    }
+
+
+@app.get(
+    "/api/admin/padron/status/{dist_id}",
+    tags=["Padrón"],
+    summary="Estado de la última ingesta del Padrón para una distribuidora",
+)
+def padron_status(dist_id: int, user_payload=Depends(verify_auth)):
+    """
+    Devuelve la última entrada de motor_runs con motor='padron' para esta distribuidora.
+    """
+    check_dist_permission(user_payload, dist_id)
+    try:
+        res = sb.table("motor_runs") \
+            .select("id, estado, iniciado_en, finalizado_en, registros, error_msg") \
+            .eq("motor", "padron") \
+            .eq("dist_id", dist_id) \
+            .order("iniciado_en", desc=True) \
+            .limit(1) \
+            .execute()
+        if not res.data:
+            return {"estado": "sin_ejecuciones"}
+        return res.data[0]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

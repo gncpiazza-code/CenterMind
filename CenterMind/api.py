@@ -1399,6 +1399,22 @@ async def procesar_cuentas_corrientes(
         with open(out_path, "rb") as f:
             b64_file = base64.b64encode(f.read()).decode("utf-8")
             
+        tenant_id = config_data.get("tenant_id")
+        id_dist = config_data.get("id_distribuidor")
+        if tenant_id:
+            try:
+                import datetime as dt
+                fecha_str = dt.datetime.now().strftime("%Y-%m-%d")
+                sb.table("cuentas_corrientes_data").upsert({
+                    "tenant_id": tenant_id,
+                    "id_distribuidor": id_dist,
+                    "fecha": fecha_str,
+                    "data": json_data,
+                    "file_b64": b64_file
+                }, on_conflict="tenant_id, fecha").execute()
+            except Exception as e:
+                print(f"Advertencia: No se pudo guardar en Supabase: {e}")
+
         # Limpieza de archivos físicos inmediatos
         os.remove(temp_file_path)
         os.remove(out_path)
@@ -1418,6 +1434,49 @@ async def procesar_cuentas_corrientes(
         raise HTTPException(status_code=500, detail=f"Error procesando el archivo: {str(e)}")
 
 
+@app.post("/api/v1/sync/cuentas-corrientes", summary="Sync Cuentas Corrientes JSON (RPA)")
+async def sync_cuentas_corrientes(
+    request: Request,
+    id_distribuidor: int = Query(...),
+    user_key: str = Depends(verify_key)
+):
+    try:
+        payload = await request.json()
+        tenant_id = payload.get("tenant_id")
+        datos = payload.get("datos")
+        if not tenant_id or not datos:
+            raise HTTPException(status_code=400, detail="Falta tenant_id o datos")
+            
+        import datetime as dt
+        fecha_str = dt.datetime.now().strftime("%Y-%m-%d")
+        
+        sb.table("cuentas_corrientes_data").upsert({
+            "tenant_id": tenant_id,
+            "id_distribuidor": id_distribuidor,
+            "fecha": fecha_str,
+            "data": datos,
+            "file_b64": None
+        }, on_conflict="tenant_id, fecha").execute()
+        
+        return {"ok": True, "message": "Datos sincronizados"}
+    except Exception as e:
+        print(f"Error sync cuentas corrientes: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/cuentas-corrientes/{id_distribuidor}", summary="Obtener Cuentas Corrientes")
+async def get_cuentas_corrientes(
+    id_distribuidor: int,
+    user_payload: dict = Depends(verify_auth)
+):
+    try:
+        res = sb.table("cuentas_corrientes_data").select("*").eq("id_distribuidor", id_distribuidor).order("fecha", desc=True).limit(1).execute()
+        if not res.data:
+            return {"data": None, "file_b64": None, "fecha": None}
+        return res.data[0]
+    except Exception as e:
+        print(f"Error get cuentas corrientes: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 # ─── ERP: Carga Global y Reportes Avanzados ───────────────────────────────────
 
 @app.post("/api/admin/erp/upload-global", summary="Carga global de archivos ERP (Ventas, Clientes)")

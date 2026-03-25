@@ -8,7 +8,7 @@ import TabVentasResumen from "./TabVentasResumen";
 import TabVentasBultos from "./TabVentasBultos";
 import TabAuditoriaSigo from "./TabAuditoriaSigo";
 import TabPadronClientes from "@/app/academy/cuentas-corrientes/components/TabPadronClientes";
-import TabGenerarInforme from "@/app/academy/cuentas-corrientes/components/TabGenerarInforme";
+import TabCuentasDashboard from "./TabCuentasDashboard";
 import SupervisionOverview from "./SupervisionOverview"; // The motor status component
 
 interface UnifiedDashboardProps {
@@ -44,12 +44,12 @@ export default function SupervisionDashboard({ distId, desde, hasta }: UnifiedDa
     {
       id: "cuentas_corrientes",
       title: "Cuentas Corrientes",
-      description: "Control de deuda de clientes activos y morosidad.",
+      description: "Detalle de deuda, rangos de morosidad y saldo por cliente.",
       icon: Briefcase,
       color: "text-rose-500",
       bg: "bg-rose-50",
       border: "border-rose-100",
-      component: <TabGenerarInforme distId={distId} />
+      component: <TabCuentasDashboard distId={distId} />
     },
     {
       id: "sigo_audit",

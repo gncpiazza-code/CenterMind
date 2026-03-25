@@ -7,6 +7,7 @@ import { Package, Search, Download, AlertCircle, ChevronRight, UploadCloud, Chec
 import * as XLSX from "xlsx";
 import { Button } from "@/components/ui/Button";
 import { uploadERPFile } from "@/lib/api";
+import { API_URL, TOKEN_KEY } from "@/lib/constants";
 
 interface VentasBultosItem {
   cliente_erp_id: string;
@@ -30,9 +31,9 @@ export default function TabVentasBultos({ distId, desde, hasta }: { distId: numb
   const fetchData = async () => {
     setLoading(true);
     try {
-      const url = `/api/reports/ventas-bultos/${distId}?desde=${desde}&hasta=${hasta}${proveedor ? `&proveedor=${encodeURIComponent(proveedor)}` : ""}`;
+      const url = `${API_URL}/api/reports/ventas-bultos/${distId}?desde=${desde}&hasta=${hasta}${proveedor ? `&proveedor=${encodeURIComponent(proveedor)}` : ""}`;
       const res = await fetch(url, {
-        headers: { "Authorization": `Bearer ${localStorage.getItem("token")}` }
+        headers: { "Authorization": `Bearer ${localStorage.getItem(TOKEN_KEY)}` }
       });
       const json = await res.json();
       setData(json || []);

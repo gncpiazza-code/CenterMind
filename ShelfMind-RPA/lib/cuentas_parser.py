@@ -4,13 +4,8 @@ import unicodedata
 import re
 import json
 
-SUCURSALES_MAP = {
-    "1": "Reconquista",
-    "2": "Resistencia",
-    "3": "Saenz Peña",
-    "4": "Corrientes",
-    "5": "Cordoba",
-}
+# SUCURSALES_MAP removido para evitar colisiones entre distribuidores.
+# Se usará el valor literal del Excel.
 
 def _strip_accents(text: str) -> str:
     if not isinstance(text, str): return ""
@@ -80,7 +75,7 @@ def procesar_excel_cuentas(file_path: str) -> dict:
         if k not in df.columns: df[k] = np.nan
 
     if "sucursal" in df.columns:
-        df["sucursal"] = df["sucursal"].astype(str).str.strip().map(SUCURSALES_MAP).fillna(df["sucursal"])
+        df["sucursal"] = df["sucursal"].astype(str).str.strip()
 
     df["vendedor"] = df["vendedor"].fillna("SIN VENDEDOR").astype(str).str.strip()
     df["cliente"] = df["cliente"].fillna("Desconocido").astype(str).str.strip()

@@ -9,6 +9,7 @@ import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { Button } from "@/components/ui/Button";
 import { uploadERPFile } from "@/lib/api";
+import { API_URL, TOKEN_KEY } from "@/lib/constants";
 
 interface SigoAuditItem {
   id_exhibicion: number;
@@ -32,8 +33,9 @@ export default function TabAuditoriaSigo({ distId, desde, hasta }: { distId: num
   const fetchData = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/reports/auditoria-sigo/${distId}?desde=${desde}&hasta=${hasta}`, {
-        headers: { "Authorization": `Bearer ${localStorage.getItem("token")}` }
+      const token = localStorage.getItem(TOKEN_KEY);
+      const res = await fetch(`${API_URL}/api/reports/auditoria-sigo/${distId}?desde=${desde}&hasta=${hasta}`, {
+        headers: { "Authorization": `Bearer ${token}` }
       });
       const json = await res.json();
       // Filtrar puntos sin coordenadas válidas

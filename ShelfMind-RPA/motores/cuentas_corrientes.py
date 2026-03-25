@@ -60,8 +60,9 @@ from lib.vault_client import get_secret
 logger = get_logger("CUENTAS")
 AR_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
 
-DOWNLOADS_DIR = Path("/opt/shelfmind/rpa/downloads")
-ERRORS_DIR    = Path("/opt/shelfmind/rpa/logs/errors")
+BASE_DIR = Path(__file__).resolve().parent.parent
+DOWNLOADS_DIR = BASE_DIR / "downloads"
+ERRORS_DIR    = BASE_DIR / "logs" / "errors"
 HEADLESS      = os.environ.get("RPA_HEADLESS", "true").lower() != "false"
 TIMEOUT_MS    = 30_000
 
@@ -75,8 +76,8 @@ TENANTS = [
         "url_base":   "https://tabacohermanos.chesserp.com/AR1149",
         "vault_user": "chess_tabaco_usuario",
         "vault_pass": "chess_tabaco_password",
-        "id_dist":    1,   # ← completar con el id_distribuidor real en Supabase
-        "activo":     True,
+        "id_dist":    1,   
+        "activo":     False,
     },
     {
         "id":         "aloma",
@@ -85,7 +86,7 @@ TENANTS = [
         "vault_user": "chess_aloma_usuario",
         "vault_pass": "chess_aloma_password",
         "id_dist":    2,
-        "activo":     True,
+        "activo":     False,
     },
     {
         "id":         "liver",
@@ -94,7 +95,7 @@ TENANTS = [
         "vault_user": "chess_liver_usuario",
         "vault_pass": "chess_liver_password",
         "id_dist":    3,
-        "activo":     True,
+        "activo":     False,
     },
     {
         "id":         "real",
@@ -103,7 +104,8 @@ TENANTS = [
         "vault_user": "chess_real_usuario",
         "vault_pass": "chess_real_password",
         "id_dist":    4,
-        "activo":     True,
+        "sucursal":   "UEQUIN RODRIGO",
+        "activo":     False,
     },
     {
         "id":         "extra",
@@ -244,10 +246,59 @@ async def _navegar_y_procesar(page: Page, tenant: dict) -> None:
 
     # Puede aparecer el dialog de accesos al navegar
     await _cerrar_accesos_concurrentes(page)
+    
+    # DEBUG: Capturar pantalla para Aloma para ver los filtros
+    if tenant["id"] == "aloma":
+        await page.screenshot(path=str(ERRORS_DIR / "debug_aloma_filtros.png"))
+        logger.info(f"  📸 Screenshot de filtros guardado: debug_aloma_filtros.png")
 
-    # Esperar que el botón Procesar esté listo
     btn_procesar = page.locator('button.btn.btn-primary')
     await btn_procesar.wait_for(state="visible", timeout=TIMEOUT_MS)
+
+    # ── Configurar Filtros (Sucursal / Vendedor) ────────
+    sucursal = tenant.get("sucursal")
+    
+    # 1. Caso Sucursal (especial para Real Tabacalera o si se requiere)
+    if sucursal:
+        logger.info(f"  Configurando sucursal: '{sucursal}'")
+        selector_sucursal = page.locator('mat-select').filter(has=page.locator('mat-label:has-text("Sucursal")')).first
+        if await selector_sucursal.count() == 0:
+            selector_sucursal = page.locator('mat-select').nth(1)
+            
+        await selector_sucursal.wait_for(state="visible", timeout=TIMEOUT_MS)
+        await selector_sucursal.click()
+        await page.wait_for_timeout(500)
+
+        # Deseleccionar todo
+        opciones_marcadas = page.locator('mat-option[aria-selected="true"]')
+        count = await opciones_marcadas.count()
+        for i in range(count):
+            await opciones_marcadas.nth(i).click()
+            await page.wait_for_timeout(100)
+
+        # Seleccionar solo sucursal
+        await page.locator(f'mat-option:has-text("{sucursal}")').click()
+        await page.keyboard.press("Escape")
+        await page.wait_for_timeout(500)
+
+    # 2. Caso Vendedor (Asegurar 'Todos' para Aloma y otros)
+    # Por defecto Chess ERP debería traer 'Todos', pero si Aloma tiene uno pre-seleccionado lo corregimos.
+    try:
+        selector_vendedor = page.locator('mat-select').filter(has=page.locator('mat-label:has-text("Vendedor")')).first
+        if await selector_vendedor.count() > 0:
+            # Vemos si hay algo seleccionado que NO sea 'Vendedor *' o vacío
+            texto_actual = await selector_vendedor.inner_text()
+            if texto_actual and "Vendedor" not in texto_actual:
+                logger.info(f"  Detectada selección de vendedor ('{texto_actual}'), reseteando a Todos...")
+                await selector_vendedor.click()
+                await page.wait_for_timeout(500)
+                # Seleccionar la primera opción que suele ser "(Seleccionar todos)" o "Todos"
+                await page.locator('mat-option').first.click()
+                await page.keyboard.press("Escape")
+                await page.wait_for_timeout(500)
+    except Exception as e:
+        logger.warning(f"  No se pudo verificar filtro de vendedor: {e}")
+
     logger.info("  Reporte cargado, procesando...")
     await btn_procesar.click()
 
@@ -350,7 +401,8 @@ async def _descargar_excel(page: Page, tenant_id: str) -> Optional[bytes]:
 
         download: Download = await dl_info.value
         DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
-        nombre = download.suggested_filename or f"cuentas_{tenant_id}_{_timestamp()}.xlsx"
+        # SIEMPRE usar un nombre único con el tenant_id para evitar colisiones entre distribuidores
+        nombre = f"cuentas_{tenant_id}_{_timestamp()}.xlsx"
         ruta_temp = DOWNLOADS_DIR / nombre
         await download.save_as(str(ruta_temp))
 
@@ -423,6 +475,10 @@ async def _subir_a_api(tenant: dict, datos: dict, filename: str) -> bool:
             "filename":  filename,
             "datos":     datos,
         }
+        
+        # DEBUG LOG
+        vendedor_1 = datos.get("detalle_cuentas", [{}])[0].get("vendedor", "N/A")
+        logger.info(f"  📤 SINCRO: Tenant={tenant['id']}, Dist={tenant['id_dist']}, Deuda={datos['metadatos']['total_deuda']}, 1er Vendedor={vendedor_1}")
 
         for intento in range(1, 4):
             try:

@@ -13,4 +13,7 @@ def inspect_table(table_name):
 
 if __name__ == "__main__":
     inspect_table("erp_clientes_raw")
-    inspect_table("erp_cuentas_corrientes_raw")
+    inspect_table("clientes_pdv")
+    inspect_table("vendedores")
+    inspect_table("sucursales")
+    inspect_table("rutas")

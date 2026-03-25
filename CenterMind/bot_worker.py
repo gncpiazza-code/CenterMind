@@ -422,16 +422,24 @@ class Database:
                 .select("id_integrante, telegram_user_id, nombre_integrante, id_sucursal_erp")\
                 .eq("id_distribuidor", distribuidor_id).execute()
             
-            # Mapas para unificación y metadata
-            # id_integrante -> telegram_user_id
+            # Mapas para metadata
             int_to_user = {i["id_integrante"]: i["telegram_user_id"] for i in res_int.data or [] if i.get("telegram_user_id")}
-            # telegram_user_id -> metadata (nombre, sucursal)
             user_meta = {}
+            
+            # REGLAS ESPECIALES DIST 3 (MARZO AUDIT)
+            EXCLUDE_UIDS = [9001156] if distribuidor_id == 3 else [] # Ivan duplicado
+            LUCIANO_UIDS = [6823099488, 9000005, 9000202] if distribuidor_id == 3 else []
+            
             for i in res_int.data or []:
                 tuid = i.get("telegram_user_id")
-                if tuid and tuid not in user_meta:
-                    user_meta[tuid] = {
-                        "nombre": i["nombre_integrante"],
+                if not tuid or tuid in EXCLUDE_UIDS: continue
+                
+                # Unificación Luciano
+                identity_key = "LUCIANO_UNIFIED" if tuid in LUCIANO_UIDS else tuid
+                
+                if identity_key not in user_meta:
+                    user_meta[identity_key] = {
+                        "nombre": "LUCIANO ITURRIA" if identity_key == "LUCIANO_UNIFIED" else i["nombre_integrante"],
                         "sucursal_id": i["id_sucursal_erp"]
                     }
             
@@ -440,24 +448,44 @@ class Database:
                 .eq("id_distribuidor", distribuidor_id).execute()
             suc_map = {s["id_sucursal_erp"]: s["nombre_erp"] for s in res_suc.data or []}
 
-            # 4. Agregación (Agrupamos por telegram_user_id para UNIFICAR puntos del mismo vendedor en distintos grupos)
+            # 4. Agregación con DEDUPLICACIÓN robusta (URL > MsgID)
             stats = defaultdict(lambda: {"aprobadas": 0, "destacadas": 0, "rechazadas": 0, "puntos": 0})
+            seen_urls = set()
+            seen_msgs = set()
+
             for e in exhibiciones:
                 iid = e.get("id_integrante")
                 tuid = int_to_user.get(iid)
-                if not tuid: continue # Exhibición de alguien no registrado o sin UID
+                if not tuid or tuid in EXCLUDE_UIDS: continue
                 
+                # Deduplicación
+                is_dupe = False
+                url = e.get("url_foto_drive")
+                msg_id = e.get("telegram_msg_id")
+                
+                if url:
+                    if url in seen_urls: is_dupe = True
+                    else: seen_urls.add(url)
+                elif msg_id:
+                    msg_key = (tuid, e.get("telegram_chat_id"), msg_id)
+                    if msg_key in seen_msgs: is_dupe = True
+                    else: seen_msgs.add(msg_key)
+                
+                if is_dupe: continue
+
+                # Identidad unificada (Luciano)
+                identity_key = "LUCIANO_UNIFIED" if tuid in LUCIANO_UIDS else tuid
                 est = (e.get("estado") or "").lower()
                 
                 if est in ('aprobado', 'aprobada'):
-                    stats[tuid]["aprobadas"] += 1
-                    stats[tuid]["puntos"] += 1
+                    stats[identity_key]["aprobadas"] += 1
+                    stats[identity_key]["puntos"] += 1
                 elif est in ('destacado', 'destacada'):
-                    stats[tuid]["destacadas"] += 1
-                    stats[tuid]["aprobadas"] += 1 
-                    stats[tuid]["puntos"] += 2
+                    stats[identity_key]["destacadas"] += 1
+                    stats[identity_key]["aprobadas"] += 1 
+                    stats[identity_key]["puntos"] += 2
                 elif est in ('rechazado', 'rechazada'):
-                    stats[tuid]["rechazadas"] += 1
+                    stats[identity_key]["rechazadas"] += 1
 
             # 5. Formatear ranking
             ranking = []
@@ -569,6 +597,13 @@ class BotWorker:
 
     STAGE_WAITING_ID   = "WAITING_ID"
     STAGE_WAITING_TYPE = "WAITING_TYPE"
+
+    # Diccionario manual para evitar problemas de locale en diferentes SO
+    MESES = {
+        1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril",
+        5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto",
+        9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
+    }
 
     def __init__(self, distribuidor_id: int, monitor=None):
         self.distribuidor_id = distribuidor_id
@@ -743,37 +778,89 @@ class BotWorker:
             return
         uid = update.message.from_user.id
         m = update.message
-        chat_title = getattr(m.chat, "title", None) or getattr(m.chat, "username", "Privado")
         
         if not await self._check_compliance(update):
             return
-        asyncio.create_task(asyncio.to_thread(
-            self._register_user_and_group,
-            self.distribuidor_id, m.chat.id, chat_title, uid,
-            m.from_user.username or "", m.from_user.first_name or "Usuario"
-        ))
+
         try:
-            stats = await asyncio.to_thread(
-                self.db.get_stats_vendedor, self.distribuidor_id, uid
-            )
-            if not stats:
-                await m.reply_text("⚠️ <b>No tenés estadísticas registradas.</b>\nAsegurate de haber enviado al menos una exhibición.", parse_mode=ParseMode.HTML)
+            # REGLAS ESPECIALES DIST 3 (MARZO AUDIT)
+            EXCLUDE_UIDS = [9001156] if self.distribuidor_id == 3 else []
+            LUCIANO_UIDS = [6823099488, 9000005, 9000202] if self.distribuidor_id == 3 else []
+
+            if uid in EXCLUDE_UIDS:
+                await m.reply_text("⚠️ <b>Esta cuenta ha sido desactivada o unificada.</b>", parse_mode=ParseMode.HTML)
                 return
+
+            related_uids = LUCIANO_UIDS if uid in LUCIANO_UIDS else [uid]
             
-            actual = stats["mes_actual"]
-            anterior = stats["mes_anterior"]
+            # 1. Obtener todos los id_integrante para este vendedor
+            res_int = await asyncio.to_thread(
+                self.sb.table("integrantes_grupo").select("id_integrante").in_("telegram_user_id", related_uids).execute
+            )
+            iids = [r["id_integrante"] for r in res_int.data or []]
+            if not iids:
+                await m.reply_text("⚠️ <b>No estás registrado en el sistema.</b>", parse_mode=ParseMode.HTML)
+                return
+
+            # 2. Consultar exhibiciones del mes actual
+            now = datetime.now(AR_TZ)
+            start_mes = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            
+            res_ex = await asyncio.to_thread(
+                self.sb.table("exhibiciones").select("*")\
+                .eq("id_distribuidor", self.distribuidor_id)\
+                .in_("id_integrante", iids)\
+                .gte("timestamp_subida", start_mes.isoformat())\
+                .execute
+            )
+            
+            # 3. Deduplicación y cálculo
+            seen_urls = set()
+            seen_msgs = set()
+            counts = {"aprobadas": 0, "destacadas": 0, "rechazadas": 0, "pendientes": 0, "puntos": 0}
+            
+            for e in (res_ex.data or []):
+                # Deduplicación (URL > MsgID)
+                is_dupe = False
+                url = e.get("url_foto_drive")
+                msg_id = e.get("telegram_msg_id")
+                
+                if url:
+                    if url in seen_urls: is_dupe = True
+                    else: seen_urls.add(url)
+                elif msg_id:
+                    msg_key = (e.get("id_integrante"), e.get("telegram_chat_id"), msg_id)
+                    if msg_key in seen_msgs: is_dupe = True
+                    else: seen_msgs.add(msg_key)
+                
+                if is_dupe: continue
+
+                est = (e.get("estado") or "").lower()
+                if est in ('aprobado', 'aprobada'):
+                    counts["aprobadas"] += 1
+                    counts["puntos"] += 1
+                elif est in ('destacado', 'destacada'):
+                    counts["destacadas"] += 1
+                    counts["puntos"] += 2
+                elif est in ('rechazado', 'rechazada'):
+                    counts["rechazadas"] += 1
+                else:
+                    counts["pendientes"] += 1
+
+            total_fotos = counts["aprobadas"] + counts["destacadas"] + counts["rechazadas"] + counts["pendientes"]
+            
+            display_name = "LUCIANO ITURRIA" if uid in LUCIANO_UIDS else m.from_user.first_name
             msg = (
-                f"📊 <b>Tus Estadísticas — {self.nombre_dist}</b>\n\n"
-                f"🗓️ <b>Este mes ({datetime.now(AR_TZ).strftime('%B')}):</b>\n"
-                f"   • ✅ Aprobadas:  {actual['aprobadas']}\n"
-                f"   • 🔥 Destacadas: {actual['destacadas']}\n"
-                f"   • ❌ Rechazadas: {actual['rechazadas']}\n"
-                f"   • ⏳ Pendientes: {actual['pendientes']}\n"
-                f"   • 📈 Total:      {actual['total']}\n\n"
-                f"📅 <b>Mes anterior:</b>\n"
-                f"   • ✅ Aprobadas:  {anterior['aprobadas']}\n"
-                f"   • 🔥 Destacadas: {anterior['destacadas']}\n"
-                f"   • 📈 Total:      {anterior['total']}"
+                f"📊 <b>Tus Estadísticas — {self.nombre_dist}</b>\n"
+                f"👤 Identidad: {display_name}\n\n"
+                f"🗓️ <b>Este mes ({self.MESES[now.month]}):</b>\n"
+                f"   • ✅ Aprobadas:  {counts['aprobadas']}\n"
+                f"   • 🔥 Destacadas: {counts['destacadas']}\n"
+                f"   • ❌ Rechazadas: {counts['rechazadas']}\n"
+                f"   • ⏳ Pendientes: {counts['pendientes']}\n"
+                f"   • 🏆 <b>Puntos:     {counts['puntos']}</b>\n\n"
+                f"📈 Total fotos únicas: {total_fotos}\n"
+                f"<i>(Deduplicadas por ID y URL)</i>"
             )
             await m.reply_text(msg, parse_mode=ParseMode.HTML)
         except Exception as e:
@@ -788,14 +875,6 @@ class BotWorker:
             return
         # Generar botones para los últimos 3 meses
         from datetime import datetime
-        
-        # Diccionario manual para evitar problemas de locale en diferentes SO
-        MESES = {
-            1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril",
-            5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto",
-            9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
-        }
-
         buttons = []
         now = datetime.now(AR_TZ)
         for i in range(3):
@@ -806,7 +885,7 @@ class BotWorker:
                 m += 12
                 y -= 1
             
-            month_name = MESES[m]
+            month_name = self.MESES[m]
             # Callback data: RANKING_<month>_<year>_<user_id>
             buttons.append([InlineKeyboardButton(f"📊 {month_name} {y}", callback_data=f"RANKING_{m}_{y}_{update.message.from_user.id}")])
 

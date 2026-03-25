@@ -4,7 +4,7 @@ DROP FUNCTION IF EXISTS public.fn_dashboard_ranking(bigint, text, int, bigint);
 DROP FUNCTION IF EXISTS public.fn_dashboard_kpis(bigint, text);
 DROP FUNCTION IF EXISTS public.fn_dashboard_kpis(bigint, text, bigint);
 
--- Fix for fn_dashboard_ranking: uses integrantes_grupo as base for sucursal/dist filters
+-- Fix for fn_dashboard_ranking: uses correct join chain to sucursales via vendedores
 CREATE OR REPLACE FUNCTION public.fn_dashboard_ranking(
     p_dist_id bigint, 
     p_periodo text DEFAULT 'mes', 
@@ -26,38 +26,37 @@ BEGIN
             COUNT(e.id_exhibicion) FILTER (WHERE LOWER(e.estado) IN ('destacada', 'destacado')) as total_dest,
             (COUNT(e.id_exhibicion) FILTER (WHERE LOWER(e.estado) IN ('aprobado', 'aprobada')) * 1 +
              COUNT(e.id_exhibicion) FILTER (WHERE LOWER(e.estado) IN ('destacada', 'destacado')) * 2) as total_pts
-        FROM public.integrantes_grupo i
-        LEFT JOIN public.exhibiciones e ON i.id_integrante = e.id_integrante
-        WHERE (p_dist_id = 0 OR i.id_distribuidor = p_dist_id)
-          AND (p_sucursal_id IS NULL OR i.id_sucursal = p_sucursal_id)
+        FROM public.exhibiciones e
+        JOIN public.integrantes_grupo i ON i.id_integrante = e.id_integrante
+        -- Link to sucursal through vendedores to allow filtering by id_sucursal (PK)
+        LEFT JOIN public.vendedores v ON v.id_vendedor_erp = i.id_vendedor_erp
+        LEFT JOIN public.sucursales s ON s.id_sucursal = v.id_sucursal AND s.id_distribuidor = e.id_distribuidor
+        WHERE (p_dist_id = 0 OR e.id_distribuidor = p_dist_id)
+          AND (p_sucursal_id IS NULL OR s.id_sucursal = p_sucursal_id)
           AND (
-            e.id_exhibicion IS NULL OR -- members with no data in period are allowed here, filtered in ranking select
-            (
                 (p_periodo = 'mes' AND e.timestamp_subida >= date_trunc('month', now())) OR
                 (p_periodo = 'hoy' AND e.timestamp_subida >= date_trunc('day', now())) OR
                 (p_periodo = 'semana' AND e.timestamp_subida >= date_trunc('week', now())) OR
                 (p_periodo = 'ayer' AND e.timestamp_subida >= date_trunc('day', now() - interval '1 day') AND e.timestamp_subida < date_trunc('day', now()))
                 OR (p_periodo ~ '^\d{4}-\d{2}$' AND to_char(e.timestamp_subida, 'YYYY-MM') = p_periodo)
                 OR (p_periodo ~ '^\d{4}-\d{2}-\d{2}$' AND e.timestamp_subida::DATE = p_periodo::DATE)
-            )
           )
         GROUP BY i.id_integrante, i.nombre_integrante, i.id_vendedor_erp, i.id_sucursal_erp
     )
     SELECT 
-        COALESCE(NULLIF(s.v_erp_id, ''), s.member_name)::TEXT as vendedor,
-        s.total_aprob::BIGINT as aprobadas,
-        s.total_dest::BIGINT as destacadas,
-        s.total_rech::BIGINT as rechazadas,
-        s.total_pts::BIGINT as puntos,
-        s.s_erp_id::TEXT as location_id
-    FROM stats s
-    WHERE s.total_pts > 0
-    ORDER BY s.total_pts DESC
+        COALESCE(NULLIF(st.v_erp_id, ''), st.member_name)::TEXT as vendedor,
+        st.total_aprob::BIGINT as aprobadas,
+        st.total_dest::BIGINT as destacadas,
+        st.total_rech::BIGINT as rechazadas,
+        st.total_pts::BIGINT as puntos,
+        st.s_erp_id::TEXT as location_id
+    FROM stats st
+    ORDER BY st.total_pts DESC
     LIMIT p_top;
 END;
 $$;
 
--- Fix for fn_dashboard_kpis: uses explicit alias for id_distribuidor
+-- Fix for fn_dashboard_kpis: ensures correct join chain for sucursal filtering
 CREATE OR REPLACE FUNCTION public.fn_dashboard_kpis(
     p_dist_id bigint, 
     p_periodo text DEFAULT 'mes', 
@@ -74,9 +73,11 @@ BEGIN
         COUNT(e.id_exhibicion) FILTER (WHERE LOWER(e.estado) IN ('rechazado', 'rechazada'))::BIGINT,
         COUNT(e.id_exhibicion) FILTER (WHERE LOWER(e.estado) IN ('destacada', 'destacado'))::BIGINT
     FROM public.exhibiciones e
-    JOIN public.integrantes_grupo i ON e.id_integrante = i.id_integrante
+    JOIN public.integrantes_grupo i ON i.id_integrante = e.id_integrante
+    LEFT JOIN public.vendedores v ON v.id_vendedor_erp = i.id_vendedor_erp
+    LEFT JOIN public.sucursales s ON s.id_sucursal = v.id_sucursal AND s.id_distribuidor = e.id_distribuidor
     WHERE (p_dist_id = 0 OR e.id_distribuidor = p_dist_id)
-      AND (p_sucursal_id IS NULL OR i.id_sucursal = p_sucursal_id)
+      AND (p_sucursal_id IS NULL OR s.id_sucursal = p_sucursal_id)
       AND (
         (p_periodo = 'mes' AND e.timestamp_subida >= date_trunc('month', now())) OR
         (p_periodo = 'hoy' AND e.timestamp_subida >= date_trunc('day', now())) OR

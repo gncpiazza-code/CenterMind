@@ -515,12 +515,16 @@ class PadronIngestionService:
         # y los actualiza con los datos reales + los reasigna a la ruta correcta.
         adopted = 0
         if erp_ids_en_padron:
+            # Filtramos por dist + limbo en DB, luego cruzamos en Python
+            # (evita URL too long con miles de ids en .in_())
             limbo_res = sb.table("clientes_pdv_v2") \
                 .select("id_cliente, id_cliente_erp") \
+                .eq("id_distribuidor", dist_id) \
                 .eq("es_limbo", True) \
-                .in_("id_cliente_erp", list(erp_ids_en_padron.keys())) \
                 .execute()
             for limbo in (limbo_res.data or []):
+                if limbo.get("id_cliente_erp") not in erp_ids_en_padron:
+                    continue
                 erp_id = limbo["id_cliente_erp"]
                 # update directo por PK con todos los campos reales
                 update_data = {**erp_ids_en_padron[erp_id]}

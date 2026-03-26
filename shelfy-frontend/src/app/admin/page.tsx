@@ -92,7 +92,7 @@ export default function AdminPage() {
             <div className="min-h-[500px]">
               {tab === "jerarquia_global" && <UnifiedDashboard isSuperadmin={isSuperadmin} currentDistId={user.id_distribuidor || 0} />}
               {tab === "padron"           && <TabPadron distId={user.id_distribuidor || 0} />}
-              {tab === "mapeo"            && <TabMapeoVendedores distId={user.id_distribuidor || 0} />}
+              {tab === "mapeo"            && <TabMapeoVendedores distId={user.id_distribuidor || 0} isSuperadmin={isSuperadmin} />}
               {tab === "usuarios"         && <TabUsuarios isSuperadmin={isSuperadmin} distId={user.id_distribuidor || 0} />}
               {tab === "erp"              && <TabERP distId={user.id_distribuidor || 0} isSuperadmin={isSuperadmin} />}
               {tab === "distribuidoras"   && <TabDistribuidoras />}

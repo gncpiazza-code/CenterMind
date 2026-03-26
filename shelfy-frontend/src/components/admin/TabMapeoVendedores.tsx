@@ -15,9 +15,11 @@ import { Button } from "@/components/ui/Button";
 import {
   fetchMapeoData,
   setMapeoVendedor,
+  fetchDistribuidoras,
   type IntegranteMapeo,
   type VendedorMapeo,
   type MapeoData,
+  type Distribuidora,
 } from "@/lib/api";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -35,17 +37,20 @@ function nombreSucursal(v: VendedorMapeo): string {
 
 interface TabMapeoVendedoresProps {
   distId: number;
+  isSuperadmin?: boolean;
 }
 
 // ─── Componente ───────────────────────────────────────────────────────────────
 
-export default function TabMapeoVendedores({ distId }: TabMapeoVendedoresProps) {
-  const [data, setData]         = useState<MapeoData | null>(null);
-  const [loading, setLoading]   = useState(true);
-  const [saving, setSaving]     = useState<number | null>(null); // id_integrante en proceso
-  const [flash, setFlash]       = useState<{ id: number; ok: boolean } | null>(null);
-  const [error, setError]       = useState<string | null>(null);
-  const [search, setSearch]     = useState("");
+export default function TabMapeoVendedores({ distId, isSuperadmin }: TabMapeoVendedoresProps) {
+  const [data, setData]               = useState<MapeoData | null>(null);
+  const [loading, setLoading]         = useState(true);
+  const [saving, setSaving]           = useState<number | null>(null);
+  const [flash, setFlash]             = useState<{ id: number; ok: boolean } | null>(null);
+  const [error, setError]             = useState<string | null>(null);
+  const [search, setSearch]           = useState("");
+  const [distribuidoras, setDistribuidoras] = useState<Distribuidora[]>([]);
+  const [selectedDist, setSelectedDist]     = useState<number>(distId);
 
   // vendedores agrupados por sucursal para el dropdown
   const sucursales = data
@@ -55,18 +60,25 @@ export default function TabMapeoVendedores({ distId }: TabMapeoVendedoresProps) 
         .sort((a, b) => a[1].localeCompare(b[1]))
     : [];
 
+  // Cargar lista de distribuidoras para el selector superadmin
+  useEffect(() => {
+    if (isSuperadmin) {
+      fetchDistribuidoras(true).then(setDistribuidoras).catch(() => {});
+    }
+  }, [isSuperadmin]);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const d = await fetchMapeoData(distId);
+      const d = await fetchMapeoData(selectedDist);
       setData(d);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error cargando datos");
     } finally {
       setLoading(false);
     }
-  }, [distId]);
+  }, [selectedDist]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -128,6 +140,24 @@ export default function TabMapeoVendedores({ distId }: TabMapeoVendedoresProps) 
 
   return (
     <div className="space-y-5">
+
+      {/* Selector de distribuidor (solo superadmin) */}
+      {isSuperadmin && distribuidoras.length > 0 && (
+        <div className="flex items-center gap-3">
+          <label className="text-sm font-medium text-[var(--shelfy-muted)] whitespace-nowrap">
+            Distribuidora:
+          </label>
+          <select
+            value={selectedDist}
+            onChange={e => { setSelectedDist(Number(e.target.value)); setSearch(""); }}
+            className="rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-[var(--shelfy-text)] px-3 py-1.5 text-sm focus:outline-none focus:border-[var(--shelfy-primary)]"
+          >
+            {distribuidoras.map(d => (
+              <option key={d.id} value={d.id}>{d.nombre}</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* Stats + header */}
       <div className="flex flex-wrap items-center justify-between gap-4">

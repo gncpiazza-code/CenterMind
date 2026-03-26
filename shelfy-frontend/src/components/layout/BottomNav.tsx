@@ -2,16 +2,17 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Eye, Users, BarChart2, Gift, Briefcase, GraduationCap } from "lucide-react";
+import { LayoutDashboard, Eye, Users, BarChart2, Gift, Briefcase, GraduationCap, Route } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 
 const ALL_NAV = [
-  { href: "/visor", label: "Evaluar", icon: Eye, roles: ["superadmin", "admin", "supervisor"] },
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["superadmin", "admin", "supervisor"] },
-  { href: "/reportes", label: "Reportes", icon: BarChart2, roles: ["superadmin", "admin", "supervisor"] },
-  { href: "/bonos", label: "Bonos", icon: Gift, roles: ["superadmin", "admin"] },
-  { href: "/academy", label: "Academy", icon: GraduationCap, roles: ["superadmin", "admin"] },
-  { href: "/admin", label: "Admin", icon: Users, roles: ["superadmin", "admin"] },
+  { href: "/visor",       label: "Evaluar",      icon: Eye,             roles: ["superadmin", "admin", "supervisor"] },
+  { href: "/dashboard",   label: "Dashboard",    icon: LayoutDashboard, roles: ["superadmin", "admin", "supervisor"] },
+  { href: "/supervision", label: "Supervisión",  icon: Route,           roles: ["superadmin", "admin", "supervisor"] },
+  { href: "/reportes",    label: "Reportes",     icon: BarChart2,       roles: ["superadmin", "admin", "supervisor"] },
+  { href: "/bonos",       label: "Bonos",        icon: Gift,            roles: ["superadmin", "admin"] },
+  { href: "/academy",     label: "Academy",      icon: GraduationCap,   roles: ["superadmin", "admin"] },
+  { href: "/admin",       label: "Admin",        icon: Users,           roles: ["superadmin", "admin"] },
 ];
 
 export function BottomNav() {
@@ -22,7 +23,7 @@ export function BottomNav() {
     if (!(i.roles as string[]).includes(rol)) return false;
 
     if (user?.usuario !== "NachoPiazza") {
-      const allowedHrefs = ["/visor", "/dashboard", "/academy", "/reportes"];
+      const allowedHrefs = ["/visor", "/dashboard", "/supervision", "/academy", "/reportes"];
       if (!allowedHrefs.includes(i.href)) return false;
     }
 

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
-import { LayoutDashboard, Eye, Users, BarChart2, Gift, LogOut, ChevronDown, ChevronRight, GraduationCap, Activity, MapPin, Globe, PanelLeftClose, PanelLeft, Briefcase } from "lucide-react";
+import { LayoutDashboard, Eye, Users, BarChart2, Gift, LogOut, ChevronDown, ChevronRight, GraduationCap, Activity, MapPin, Globe, PanelLeftClose, PanelLeft, Briefcase, Route } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { fetchDistribuidores } from "@/lib/api";
 import { useUI } from "@/contexts/UIContext";
@@ -17,8 +17,9 @@ interface NavItem {
 }
 
 const ALL_NAV: NavItem[] = [
-  { href: "/visor", label: "Evaluar", icon: Eye, roles: ["superadmin", "admin", "supervisor"] },
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["superadmin", "admin", "supervisor"] },
+  { href: "/visor",       label: "Evaluar",             icon: Eye,       roles: ["superadmin", "admin", "supervisor"] },
+  { href: "/dashboard",   label: "Dashboard",           icon: LayoutDashboard, roles: ["superadmin", "admin", "supervisor"] },
+  { href: "/supervision", label: "Panel de Supervisión", icon: Route,    roles: ["superadmin", "admin", "supervisor"] },
   { href: "/bonos", label: "Bonos", icon: Gift, roles: ["superadmin"] },
   {
     href: "/reportes",
@@ -69,11 +70,12 @@ export function Sidebar() {
   const navItems: NavItem[] = rol === "superadmin" || user?.usuario === "NachoPiazza"
     ? ALL_NAV.filter(i => (i.roles as string[]).includes(rol))
     : [
-      { href: "/visor", label: "Evaluar", icon: Eye },
-      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+      { href: "/visor",       label: "Evaluar",             icon: Eye },
+      { href: "/dashboard",   label: "Dashboard",           icon: LayoutDashboard },
+      { href: "/supervision", label: "Panel de Supervisión", icon: Route },
       {
         href: "/reportes",
-        label: "Panel de Supervisión",
+        label: "Reportes",
         icon: BarChart2,
         subItems: [
           { href: "/reportes", label: "Reporte de Exhibiciones", icon: BarChart2 },

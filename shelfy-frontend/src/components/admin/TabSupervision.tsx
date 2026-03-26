@@ -270,7 +270,9 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
     return result;
   }, [vendedores, visibleVends, rutas, clientes]);
 
-  const totalPdv = vendedores.reduce((s, v) => s + v.total_pdv, 0);
+  const totalPdv      = vendedores.reduce((s, v) => s + v.total_pdv, 0);
+  const totalActivos  = vendedores.reduce((s, v) => s + (v.pdv_activos ?? 0), 0);
+  const pctActivos    = totalPdv > 0 ? Math.round((totalActivos / totalPdv) * 100) : 0;
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
@@ -289,7 +291,14 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
         <div>
           <h2 className="text-base font-bold text-[var(--shelfy-text)]">Mapa de Rutas</h2>
           <p className="text-xs text-[var(--shelfy-muted)] mt-0.5">
-            {vendedores.length} vendedores · {totalPdv.toLocaleString()} PDV totales
+            {vendedores.length} vendedores · {totalPdv.toLocaleString()} PDV
+            {totalPdv > 0 && (
+              <span className="ml-2">
+                <span className="text-emerald-400 font-semibold">{pctActivos}% activos</span>
+                <span className="mx-1 opacity-40">·</span>
+                <span className="text-red-400 font-semibold">{100 - pctActivos}% inactivos</span>
+              </span>
+            )}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -374,6 +383,36 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                         </div>
                         <ChevronRight className={`w-4 h-4 text-[var(--shelfy-muted)] shrink-0 transition-transform duration-200 ${vOpen ? "rotate-90" : ""}`} />
                       </button>
+
+                      {/* Actividad bar */}
+                      {v.total_pdv > 0 && (
+                        <div className="px-3 pb-2">
+                          <div className="flex items-center justify-between mb-1">
+                            <div className="flex items-center gap-3 text-[11px]">
+                              <span className="flex items-center gap-1 text-emerald-400 font-semibold">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
+                                {(v.pdv_activos ?? 0).toLocaleString()} activos
+                              </span>
+                              <span className="flex items-center gap-1 text-[var(--shelfy-muted)]">
+                                <span className="w-1.5 h-1.5 rounded-full bg-slate-500 inline-block" />
+                                {(v.pdv_inactivos ?? 0).toLocaleString()} inactivos
+                              </span>
+                            </div>
+                            <span className="text-[11px] font-bold" style={{ color }}>
+                              {v.total_pdv > 0 ? Math.round(((v.pdv_activos ?? 0) / v.total_pdv) * 100) : 0}%
+                            </span>
+                          </div>
+                          <div className="w-full h-1 rounded-full bg-slate-700/60 overflow-hidden">
+                            <div
+                              className="h-full rounded-full transition-all duration-500"
+                              style={{
+                                width: `${v.total_pdv > 0 ? ((v.pdv_activos ?? 0) / v.total_pdv) * 100 : 0}%`,
+                                backgroundColor: color,
+                              }}
+                            />
+                          </div>
+                        </div>
+                      )}
 
                       {/* Map toggle row */}
                       <div className="flex items-center gap-2 px-3 pb-2.5">

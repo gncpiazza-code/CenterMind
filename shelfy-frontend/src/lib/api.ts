@@ -879,6 +879,8 @@ export interface VendedorSupervision {
   sucursal_nombre: string;
   total_rutas: number;
   total_pdv: number;
+  pdv_activos: number;
+  pdv_inactivos: number;
 }
 
 export interface RutaSupervision {

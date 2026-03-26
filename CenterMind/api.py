@@ -2039,7 +2039,7 @@ def get_unified_dashboard(_=Depends(verify_auth)):
         suc_res = sb.table("sucursales").select("id_sucursal, id_distribuidor, nombre_erp").execute()
         sucursales_db = suc_res.data or []
         
-        ven_res = sb.table("vendedores").select("id_vendedor, id_sucursal, nombre_erp").execute()
+        ven_res = sb.table("vendedores").select("id_vendedor, id_sucursal, id_distribuidor, nombre_erp").execute()
         vendedores_db = ven_res.data or []
         
         # 3. Fetch Integrantes
@@ -2061,7 +2061,8 @@ def get_unified_dashboard(_=Depends(verify_auth)):
             
             # Build Sucursales
             suc_list = [s for s in sucursales_db if s["id_distribuidor"] == did]
-            ven_list = [v for v in vendedores_db if v["id_distribuidor"] == did]
+            suc_ids_dist = {s["id_sucursal"] for s in suc_list}
+            ven_list = [v for v in vendedores_db if v.get("id_distribuidor") == did or v.get("id_sucursal") in suc_ids_dist]
             int_list = [i for i in integrantes_db if i["id_distribuidor"] == did]
             
             for suc in suc_list:

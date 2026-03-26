@@ -2671,6 +2671,48 @@ def padron_status(dist_id: int, user_payload=Depends(verify_auth)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ─── FASE 3 — Panel de Supervisión ───────────────────────────────────────────
+
+@app.get("/api/supervision/vendedores/{dist_id}", tags=["Supervisión"])
+def supervision_vendedores(dist_id: int, user_payload=Depends(verify_auth)):
+    """Vendedores con sucursal, total de rutas y total de PDV para el panel."""
+    check_dist_permission(user_payload, dist_id)
+    try:
+        res = sb.rpc("fn_supervision_vendedores", {"p_dist_id": dist_id}).execute()
+        return res.data or []
+    except Exception as e:
+        logger.error(f"Error en supervision_vendedores: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/supervision/rutas/{id_vendedor}", tags=["Supervisión"])
+def supervision_rutas(id_vendedor: int, user_payload=Depends(verify_auth)):
+    """Rutas de un vendedor con día de visita y cantidad de PDV."""
+    try:
+        res = sb.rpc("fn_supervision_rutas", {"p_id_vendedor": id_vendedor}).execute()
+        return res.data or []
+    except Exception as e:
+        logger.error(f"Error en supervision_rutas: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/supervision/clientes/{id_ruta}", tags=["Supervisión"])
+def supervision_clientes(id_ruta: int, user_payload=Depends(verify_auth)):
+    """Clientes PDV de una ruta."""
+    try:
+        res = sb.table("clientes_pdv_v2") \
+            .select("id_cliente, id_cliente_erp, nombre_fantasia, nombre_razon_social, "
+                    "domicilio, localidad, provincia, canal, latitud, longitud, "
+                    "fecha_ultima_compra, fecha_alta") \
+            .eq("id_ruta", id_ruta) \
+            .order("nombre_fantasia") \
+            .execute()
+        return res.data or []
+    except Exception as e:
+        logger.error(f"Error en supervision_clientes: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

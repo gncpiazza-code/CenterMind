@@ -14,6 +14,7 @@ import {
   Network,
   BookUser,
   Link2,
+  BarChart3,
 } from "lucide-react";
 
 import dynamic from "next/dynamic";
@@ -26,6 +27,7 @@ import TabIntegrantes from "@/components/admin/TabIntegrantes";
 import TabERP from "@/components/admin/TabERP";
 import TabPadron from "@/components/admin/TabPadron";
 import TabMapeoVendedores from "@/components/admin/TabMapeoVendedores";
+import TabSupervision from "@/components/admin/TabSupervision";
 
 export default function AdminPage() {
   const { user } = useAuth();
@@ -33,7 +35,8 @@ export default function AdminPage() {
   const isSuperadmin = user?.rol === "superadmin";
 
   const TABS = [
-    { id: "jerarquia_global", label: "Jerarquía Global", icon: Network },
+    { id: "supervision",      label: "Supervisión",        icon: BarChart3 },
+    { id: "jerarquia_global", label: "Jerarquía Global",   icon: Network },
     { id: "padron",           label: "Padrón de Clientes", icon: BookUser },
     { id: "mapeo",            label: "Mapeo Vendedores", icon: Link2 },
     { id: "usuarios",         label: "Usuarios Admin", icon: Shield },
@@ -44,7 +47,7 @@ export default function AdminPage() {
     ] : [])
   ];
 
-  const [tab, setTab] = useState("jerarquia_global");
+  const [tab, setTab] = useState("supervision");
 
   useEffect(() => {
     if (user && user.rol === "supervisor") {
@@ -90,6 +93,7 @@ export default function AdminPage() {
 
             {/* Tab Content with Animation Wrapper */}
             <div className="min-h-[500px]">
+              {tab === "supervision"      && <TabSupervision distId={user.id_distribuidor || 0} isSuperadmin={isSuperadmin} />}
               {tab === "jerarquia_global" && <UnifiedDashboard isSuperadmin={isSuperadmin} currentDistId={user.id_distribuidor || 0} />}
               {tab === "padron"           && <TabPadron distId={user.id_distribuidor || 0} />}
               {tab === "mapeo"            && <TabMapeoVendedores distId={user.id_distribuidor || 0} isSuperadmin={isSuperadmin} />}

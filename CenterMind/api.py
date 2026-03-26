@@ -1150,26 +1150,44 @@ def get_mapeo_integrantes(dist_id: int, user_payload=Depends(verify_auth)):
     try:
         # Integrantes del distribuidor (excluye rol supervisor)
         ig_res = sb.table("integrantes_grupo") \
-            .select("id_integrante, nombre_integrante, rol_telegram, telegram_user_id, id_vendedor") \
+            .select("id_integrante, nombre_integrante, rol_telegram, telegram_user_id, id_vendedor_v2") \
             .eq("id_distribuidor", dist_id) \
             .neq("rol_telegram", "supervisor") \
             .order("nombre_integrante") \
             .execute()
 
-        # Vendedores disponibles para el dropdown
-        vend_res = sb.table("vendedores") \
-            .select("id_vendedor, nombre_erp, id_sucursal, sucursales(nombre_erp)") \
+        # Vendedores desde la tabla canónica (padrón)
+        vend_res = sb.table("vendedores_v2") \
+            .select("id_vendedor, nombre_erp, id_sucursal") \
             .eq("id_distribuidor", dist_id) \
             .order("nombre_erp") \
             .execute()
 
-        # Cuántos integrantes ya tienen vendedor asignado
-        mapeados = sum(1 for ig in (ig_res.data or []) if ig.get("id_vendedor"))
-        total = len(ig_res.data or [])
+        # Sucursales para el dropdown agrupado
+        suc_res = sb.table("sucursales_v2") \
+            .select("id_sucursal, nombre_erp") \
+            .eq("id_distribuidor", dist_id) \
+            .execute()
+        suc_map = {s["id_sucursal"]: s["nombre_erp"] for s in (suc_res.data or [])}
+
+        # Enriquecer vendedores con nombre de sucursal (mismo shape que antes)
+        vendedores = [
+            {**v, "sucursales": {"nombre_erp": suc_map.get(v["id_sucursal"], f"Sucursal {v['id_sucursal']}")}}
+            for v in (vend_res.data or [])
+        ]
+
+        # Alias id_vendedor_v2 → id_vendedor para compat con el frontend
+        integrantes = [
+            {**ig, "id_vendedor": ig.get("id_vendedor_v2")}
+            for ig in (ig_res.data or [])
+        ]
+
+        mapeados = sum(1 for ig in integrantes if ig.get("id_vendedor"))
+        total    = len(integrantes)
 
         return {
-            "integrantes": ig_res.data or [],
-            "vendedores":  vend_res.data or [],
+            "integrantes": integrantes,
+            "vendedores":  vendedores,
             "stats": {"total": total, "mapeados": mapeados, "sin_mapear": total - mapeados},
         }
     except Exception as e:
@@ -1195,7 +1213,7 @@ def set_mapeo_vendedor(id_integrante: int, req: MapeoVendedorRequest, user_paylo
         check_dist_permission(user_payload, ig.data["id_distribuidor"])
 
         sb.table("integrantes_grupo") \
-            .update({"id_vendedor": req.id_vendedor}) \
+            .update({"id_vendedor_v2": req.id_vendedor}) \
             .eq("id_integrante", id_integrante) \
             .execute()
 

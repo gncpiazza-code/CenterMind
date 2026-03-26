@@ -2612,13 +2612,13 @@ async def padron_upload(
     if not file_bytes:
         raise HTTPException(status_code=400, detail="El archivo está vacío.")
 
-    def _run_ingestion(fb: bytes, did: int) -> None:
+    def _run_ingestion(fb: bytes) -> None:
         try:
-            padron_service.ingest(fb, did)
+            padron_service.ingest(fb)
         except Exception as e:
-            logger.error(f"[Padrón background] dist {did}: {e}")
+            logger.error(f"[Padrón background] error global: {e}")
 
-    background_tasks.add_task(_run_ingestion, file_bytes, dist_id)
+    background_tasks.add_task(_run_ingestion, file_bytes)
 
     return {
         "ok": True,

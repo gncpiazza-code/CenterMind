@@ -128,30 +128,28 @@ class PadronIngestionService:
         return df
 
     def _detect_columns(self, df: pd.DataFrame) -> dict[str, str | None]:
-        """Detecta columnas relevantes del Padrón con mapeo flexible."""
+        """Detecta columnas relevantes del Padrón con mapeo flexible.
+        Las claves de este dict son nombres lógicos usados internamente;
+        los nombres de columna de Supabase se aplican en _sync_clientes.
+        """
         return {
-            "id_cliente":    _flexible_col(df, ["idcliente", "id_cliente", "codi_cliente", "cliente_id", "numero_cliente_local"]),
-            "nombre_cliente":_flexible_col(df, ["nomcli", "nombre", "nombre_cliente", "razon_social"]),
-            "fantasia":      _flexible_col(df, ["fantacli", "fantasia", "nombre_fantasia"]),
-            "vendedor":      _flexible_col(df, ["dsvendedor", "vendedor", "d_vendedor", "vendedor_nombre"]),
-            "sucursal":      _flexible_col(df, ["dssucur", "sucursal", "sucursal_nombre", "nombre_sucursal"]),
-            "id_sucursal":   _flexible_col(df, ["idsucur", "id_sucursal", "sucursal_id"]),
-            "ruta":          _flexible_col(df, ["ruta", "nro_ruta", "id_ruta", "ruta_erp"]),
-            "lat":           _flexible_col(df, ["ycoord", "lat", "latitud"]),
-            "lon":           _flexible_col(df, ["xcoord", "lon", "longitud"]),
-            "direccion":     _flexible_col(df, ["domicli", "direccion", "domicilio"]),
-            "localidad":     _flexible_col(df, ["descloca", "localidad"]),
-            "provincia":     _flexible_col(df, ["desprovincia", "provincia"]),
-            "telefono":      _flexible_col(df, ["telefos", "telefono"]),
-            "canal":         _flexible_col(df, ["descanal", "canal", "canal_venta"]),
-            "fecha_alta":    _flexible_col(df, ["fecalta", "fec_alta", "fecha_alta"]),
-            "lun": _flexible_col(df, ["lunes", "lun"]),
-            "mar": _flexible_col(df, ["martes", "mar"]),
-            "mie": _flexible_col(df, ["miercoles", "mie"]),
-            "jue": _flexible_col(df, ["jueves", "jue"]),
-            "vie": _flexible_col(df, ["viernes", "vie"]),
-            "sab": _flexible_col(df, ["sabado", "sab"]),
-            "dom": _flexible_col(df, ["domingo", "dom"]),
+            "id_cliente":      _flexible_col(df, ["idcliente", "id_cliente", "codi_cliente", "cliente_id", "numero_cliente_local"]),
+            "nombre_cliente":  _flexible_col(df, ["nomcli", "nombre", "nombre_cliente", "razon_social"]),
+            "fantasia":        _flexible_col(df, ["fantacli", "fantasia", "nombre_fantasia"]),
+            "vendedor":        _flexible_col(df, ["dsvendedor", "vendedor", "d_vendedor", "vendedor_nombre"]),
+            "sucursal":        _flexible_col(df, ["dssucur", "sucursal", "sucursal_nombre", "nombre_sucursal"]),
+            "id_sucursal":     _flexible_col(df, ["idsucur", "id_sucursal", "sucursal_id"]),
+            "ruta":            _flexible_col(df, ["ruta", "nro_ruta", "id_ruta", "ruta_erp"]),
+            # Coordenadas — claves internas, se escriben como latitud/longitud en Supabase
+            "latitud":         _flexible_col(df, ["ycoord", "lat", "latitud"]),
+            "longitud":        _flexible_col(df, ["xcoord", "lon", "longitud"]),
+            # Dirección — se escribe como domicilio en Supabase
+            "domicilio":       _flexible_col(df, ["domicli", "direccion", "domicilio"]),
+            "localidad":       _flexible_col(df, ["descloca", "localidad"]),
+            "provincia":       _flexible_col(df, ["desprovincia", "provincia"]),
+            "canal":           _flexible_col(df, ["descanal", "canal", "canal_venta"]),
+            # Fecha última compra (única fecha en clientes_pdv)
+            "fecha_ultima_compra": _flexible_col(df, ["fecha_ultima_compra", "fec_ult", "fecultcom", "ultima_compra"]),
         }
 
     # ── Paso 1: Sucursales ────────────────────────────────────────────────────
@@ -327,8 +325,9 @@ class PadronIngestionService:
                 to_insert.append({
                     "id_vendedor": id_vendedor,
                     "id_ruta_erp": ruta_code,
-                    "dia_semana": "Variable",
-                    "periodicidad": "Semanal",
+                    "dia_semana":  "Variable",
+                    # periodicidad es integer en el schema (días entre visitas)
+                    # se deja NULL hasta que el admin lo configure
                 })
 
         if to_insert:
@@ -390,29 +389,28 @@ class PadronIngestionService:
                 continue
 
             try:
-                lat = float(row[cols["lat"]]) if cols["lat"] and _safe_str(row.get(cols["lat"])) else None
-                lon = float(row[cols["lon"]]) if cols["lon"] and _safe_str(row.get(cols["lon"])) else None
+                latitud  = float(row[cols["latitud"]])  if cols["latitud"]  and _safe_str(row.get(cols["latitud"]))  else None
+                longitud = float(row[cols["longitud"]]) if cols["longitud"] and _safe_str(row.get(cols["longitud"])) else None
             except (ValueError, TypeError):
-                lat = lon = None
+                latitud = longitud = None
 
             payload = {
-                "id_ruta": id_ruta,
-                "id_distribuidor": dist_id,
-                "id_cliente_erp": id_erp,
-                "nombre_fantasia": _safe_str(row.get(cols["fantasia"]) if cols["fantasia"] else None,
-                                             _safe_str(row.get(cols["nombre_cliente"]) if cols["nombre_cliente"] else None, "SIN NOMBRE")).upper(),
+                "id_ruta":             id_ruta,
+                "id_distribuidor":     dist_id,
+                "id_cliente_erp":      id_erp,
+                "nombre_fantasia":     _safe_str(row.get(cols["fantasia"]) if cols["fantasia"] else None,
+                                                 _safe_str(row.get(cols["nombre_cliente"]) if cols["nombre_cliente"] else None, "SIN NOMBRE")).upper(),
                 "nombre_razon_social": _safe_str(row.get(cols["nombre_cliente"]) if cols["nombre_cliente"] else None, "").upper(),
-                "direccion": _safe_str(row.get(cols["direccion"]) if cols["direccion"] else None, "").upper(),
-                "localidad": _safe_str(row.get(cols["localidad"]) if cols["localidad"] else None, "").upper(),
-                "provincia": _safe_str(row.get(cols["provincia"]) if cols["provincia"] else None, "").upper(),
-                "telefono": _safe_str(row.get(cols["telefono"]) if cols["telefono"] else None),
-                "canal": _safe_str(row.get(cols["canal"]) if cols["canal"] else None, "").upper(),
-                "fecha_alta": _safe_date(row.get(cols["fecha_alta"]) if cols["fecha_alta"] else None),
-                "lat": lat,
-                "lon": lon,
-                "es_limbo": False,
-                "estado": "activo",
-                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "domicilio":           _safe_str(row.get(cols["domicilio"]) if cols["domicilio"] else None, "").upper(),
+                "localidad":           _safe_str(row.get(cols["localidad"]) if cols["localidad"] else None, "").upper(),
+                "provincia":           _safe_str(row.get(cols["provincia"]) if cols["provincia"] else None, "").upper(),
+                "canal":               _safe_str(row.get(cols["canal"]) if cols["canal"] else None, "").upper(),
+                "fecha_ultima_compra": _safe_date(row.get(cols["fecha_ultima_compra"]) if cols["fecha_ultima_compra"] else None),
+                "latitud":             latitud,
+                "longitud":            longitud,
+                "es_limbo":            False,
+                "estado":              "activo",
+                "updated_at":          datetime.now(timezone.utc).isoformat(),
             }
             records.append(payload)
             erp_ids_en_padron[id_erp] = payload
@@ -432,8 +430,8 @@ class PadronIngestionService:
                 .execute()
             for limbo in (limbo_res.data or []):
                 erp_id = limbo["id_cliente_erp"]
+                # update directo por PK con todos los campos reales
                 update_data = {**erp_ids_en_padron[erp_id]}
-                # No se usa upsert aquí, sino update directo por PK
                 sb.table("clientes_pdv").update(update_data) \
                     .eq("id_cliente", limbo["id_cliente"]) \
                     .execute()

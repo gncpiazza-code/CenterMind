@@ -1296,6 +1296,14 @@ class BotWorker:
                             self.logger.info(f"✅ Exhibición registrada: ID {ex_id} | Estado: {estado_final}")
                             exhibicion_ids.append({"id": ex_id, "estado": estado_final})
                             procesadas += 1
+                            # Log silencioso: cliente no está en el padrón aún (id_cliente_pdv = NULL)
+                            # Se vincula automáticamente en la próxima ingesta del padrón.
+                            if not rpc_result.get("id_cliente_pdv"):
+                                self.logger.debug(
+                                    f"[Limbo] Cliente '{nro_cliente}' no encontrado en clientes_pdv "
+                                    f"(dist {self.distribuidor_id}). "
+                                    f"Se vinculará en la próxima carga del padrón."
+                                )
                         else:
                             self.logger.warning(f"❌ Falló registro RPC: {rpc_result.get('error')}")
                             fallidas += 1

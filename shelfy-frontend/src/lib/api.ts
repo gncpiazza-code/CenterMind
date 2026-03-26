@@ -795,6 +795,40 @@ export async function syncHierarchyFromERP(distId: number): Promise<{ updated_co
   });
 }
 
+// ── FASE 2 — Mapeo Vendedor ERP ↔ Integrante Telegram ───────────────────────
+
+export interface IntegranteMapeo {
+  id_integrante: number;
+  nombre_integrante: string;
+  rol_telegram: string;
+  telegram_user_id: number | null;
+  id_vendedor: number | null;  // FK nueva — null = sin mapear
+}
+
+export interface VendedorMapeo {
+  id_vendedor: number;
+  nombre_erp: string;
+  id_sucursal: number;
+  sucursales?: { nombre_erp: string };
+}
+
+export interface MapeoData {
+  integrantes: IntegranteMapeo[];
+  vendedores:  VendedorMapeo[];
+  stats: { total: number; mapeados: number; sin_mapear: number };
+}
+
+export async function fetchMapeoData(distId: number): Promise<MapeoData> {
+  return apiFetch<MapeoData>(`/api/admin/mapeo/integrantes/${distId}`);
+}
+
+export async function setMapeoVendedor(idIntegrante: number, idVendedor: number | null) {
+  return apiFetch(`/api/admin/mapeo/integrante/${idIntegrante}/vendedor`, {
+    method: "PUT",
+    body: JSON.stringify({ id_vendedor: idVendedor }),
+  });
+}
+
 // ── Step 3-5: SuperAdmin & Identity Wall ────────────────────────────────────
 
 export async function fetchUnknownCompanies(): Promise<UnknownCompany[]> {

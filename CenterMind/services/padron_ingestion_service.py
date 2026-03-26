@@ -583,40 +583,88 @@ class PadronIngestionService:
             logger.debug(f"[Padrón] Reconciliación omitida (RPC no disponible o sin datos): {e}")
             return 0
 
+    # ── Helpers multi-tenant ──────────────────────────────────────────────────
+
+    def _load_dist_map(self) -> dict[str, int]:
+        """Carga {id_empresa_erp → id_distribuidor} desde distribuidores."""
+        res = sb.table("distribuidores").select("id_distribuidor, id_empresa_erp").execute()
+        return {
+            str(r["id_empresa_erp"]): r["id_distribuidor"]
+            for r in (res.data or [])
+            if r.get("id_empresa_erp")
+        }
+
     # ── Entry point ───────────────────────────────────────────────────────────
 
-    def ingest(self, file_bytes: bytes, dist_id: int) -> dict:
+    def ingest(self, file_bytes: bytes) -> list[dict]:
         """
-        Ingesta completa del Padrón. Devuelve métricas del run.
+        Ingesta global del Padrón. Procesa TODOS los tenants del archivo,
+        agrupando por idempresa y mapeando al id_distribuidor correspondiente.
 
         Returns:
-            {
-                run_id: int,
-                sucursales: int,
-                vendedores: int,
-                rutas: int,
-                clientes: int,
-                duracion_seg: float
-            }
+            Lista de métricas por distribuidor procesado.
         """
+        df = self._parse_excel(file_bytes)
+        cols = self._detect_columns(df)
+
+        if not cols["id_cliente"]:
+            raise ValueError("No se encontró columna de ID de cliente en el archivo.")
+
+        # Detectar columna de empresa
+        empresa_col = _flexible_col(df, ["idempresa", "id_empresa", "empresa_id"])
+        if not empresa_col:
+            raise ValueError("No se encontró columna idempresa en el archivo.")
+
+        # Limpiar y normalizar el código de empresa por fila
+        def _clean_erp(v: Any) -> str:
+            s = _safe_str(v, "")
+            return s[:-2] if s.endswith(".0") else s
+
+        df = df.copy()
+        df["_empresa_key"] = df[empresa_col].apply(_clean_erp)
+
+        # Cargar mapping empresa_erp → dist_id
+        dist_map = self._load_dist_map()
+        if not dist_map:
+            raise ValueError(
+                "No hay distribuidores con id_empresa_erp configurado. "
+                "Ejecute: UPDATE distribuidores SET id_empresa_erp = id_erp WHERE id_erp IS NOT NULL;"
+            )
+
+        resultados = []
+        for empresa_erp, df_dist in df.groupby("_empresa_key"):
+            empresa_erp = str(empresa_erp)
+            dist_id = dist_map.get(empresa_erp)
+            if not dist_id:
+                logger.warning(
+                    f"[Padrón] Empresa ERP '{empresa_erp}' sin distribuidor mapeado "
+                    f"— saltando {len(df_dist)} filas"
+                )
+                continue
+
+            resultado = self._ingest_for_dist(df_dist.copy(), cols, dist_id, empresa_erp)
+            resultados.append(resultado)
+
+        logger.info(f"[Padrón] Global OK — {len(resultados)} distribuidores procesados")
+        return resultados
+
+    def _ingest_for_dist(
+        self, df: pd.DataFrame, cols: dict, dist_id: int, empresa_erp: str
+    ) -> dict:
+        """Procesa el padrón para un único distribuidor."""
         t0 = datetime.now(timezone.utc)
         run_id = self._start_run(dist_id)
-        logger.info(f"[Padrón] Iniciando run #{run_id} para dist {dist_id}")
+        logger.info(
+            f"[Padrón] Iniciando run #{run_id} para dist {dist_id} "
+            f"(empresa ERP: {empresa_erp}, {len(df)} filas)"
+        )
 
         try:
-            df = self._parse_excel(file_bytes)
-            cols = self._detect_columns(df)
-
-            if not cols["id_cliente"]:
-                raise ValueError("No se encontró columna de ID de cliente en el archivo.")
-
             suc_count,  suc_map  = self._sync_sucursales(df, cols, dist_id)
             vend_count, vend_map = self._sync_vendedores(df, cols, dist_id, suc_map)
             ruta_count, ruta_map = self._sync_rutas(df, cols, dist_id, vend_map, suc_map)
             cli_count            = self._sync_clientes(df, cols, dist_id, ruta_map, vend_map, suc_map)
-
-            # Paso 5: reconciliar exhibiciones huérfanas (silencioso)
-            exhib_linked = self._reconcile_exhibiciones(dist_id)
+            exhib_linked         = self._reconcile_exhibiciones(dist_id)
 
             duracion = (datetime.now(timezone.utc) - t0).total_seconds()
             registros = {
@@ -627,16 +675,12 @@ class PadronIngestionService:
                 "exhib_vinculadas": exhib_linked,
             }
             self._finish_run(run_id, "ok", registros=registros)
-            logger.info(f"[Padrón] Run #{run_id} OK en {duracion:.1f}s → {registros}")
+            logger.info(f"[Padrón] Run #{run_id} dist {dist_id} OK en {duracion:.1f}s → {registros}")
 
-            return {
-                "run_id":      run_id,
-                "duracion_seg": round(duracion, 2),
-                **registros,
-            }
+            return {"dist_id": dist_id, "run_id": run_id, "duracion_seg": round(duracion, 2), **registros}
 
         except Exception as e:
-            logger.error(f"[Padrón] Run #{run_id} ERROR: {e}")
+            logger.error(f"[Padrón] Run #{run_id} dist {dist_id} ERROR: {e}")
             self._finish_run(run_id, "error", error_msg=str(e))
             raise
 

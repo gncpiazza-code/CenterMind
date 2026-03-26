@@ -103,6 +103,34 @@ function VendorAvatar({ nombre, color }: { nombre: string; color: string }) {
   );
 }
 
+// ── Small eye toggle button ───────────────────────────────────────────────────
+function EyeBtn({
+  on, loading, color, onClick, title,
+}: {
+  on: boolean; loading?: boolean; color?: string;
+  onClick: () => void; title?: string;
+}) {
+  return (
+    <button
+      onClick={e => { e.stopPropagation(); onClick(); }}
+      title={title ?? (on ? "Ocultar del mapa" : "Mostrar en mapa")}
+      className={`w-6 h-6 rounded-md flex items-center justify-center border transition-all duration-200 shrink-0 ${
+        on
+          ? "border-transparent text-white"
+          : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] hover:border-current"
+      }`}
+      style={on && color ? { backgroundColor: color, boxShadow: `0 0 6px ${color}55` } : {}}
+    >
+      {loading
+        ? <Loader2 className="w-3 h-3 animate-spin" />
+        : on
+          ? <Eye className="w-3 h-3" />
+          : <EyeOff className="w-3 h-3" />
+      }
+    </button>
+  );
+}
+
 // ── Props ─────────────────────────────────────────────────────────────────────
 interface TabSupervisionProps {
   distId: number;
@@ -131,8 +159,11 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
   const [loadingRutas, setLoadingRutas]         = useState<number | null>(null);
   const [loadingCli, setLoadingCli]             = useState<number | null>(null);
 
-  // map visibility — starts EMPTY always
+  // ── 3-level visibility ────────────────────────────────────────────────────
+  // Each level is independent: pin shows only if ALL THREE levels are ON
   const [visibleVends, setVisibleVends]         = useState<Set<number>>(new Set());
+  const [visibleRutas, setVisibleRutas]         = useState<Set<number>>(new Set());
+  const [visibleClientes, setVisibleClientes]   = useState<Set<number>>(new Set());
   const [loadingMap, setLoadingMap]             = useState<Set<number>>(new Set());
 
   // ── Load distribuidoras ───────────────────────────────────────────────────
@@ -147,12 +178,13 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
     setError(null);
     setOpenVend(null); setOpenRuta(null); setOpenCliente(null);
     setRutas({}); setClientes({});
-    setVisibleVends(new Set()); // map always starts empty
+    setVisibleVends(new Set());
+    setVisibleRutas(new Set());
+    setVisibleClientes(new Set());
     setSelectedSucursal(null);
     try {
       const data = await fetchVendedoresSupervision(selectedDist);
       setVendedores(data);
-      // auto-select when only one sucursal
       const slist = [...new Set(data.map(v => v.sucursal_nombre))];
       if (slist.length === 1) setSelectedSucursal(slist[0]);
     } catch (e) {
@@ -169,11 +201,8 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
     [...new Set(vendedores.map(v => v.sucursal_nombre))].sort(),
     [vendedores]
   );
-
   const vendedoresFiltrados = useMemo(() =>
-    selectedSucursal
-      ? vendedores.filter(v => v.sucursal_nombre === selectedSucursal)
-      : [],
+    selectedSucursal ? vendedores.filter(v => v.sucursal_nombre === selectedSucursal) : [],
     [vendedores, selectedSucursal]
   );
 
@@ -206,66 +235,120 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
     setOpenCliente(openCliente === id ? null : id);
   }
 
-  // ── Load all data for map (lazy per vendor) ───────────────────────────────
-  async function loadAllForMap(vendId: number) {
-    if (loadingMap.has(vendId)) return;
-    setLoadingMap(p => new Set([...p, vendId]));
-    try {
-      let vendRutas = rutas[vendId];
-      if (!vendRutas) {
-        vendRutas = await fetchRutasSupervision(vendId);
-        setRutas(p => ({ ...p, [vendId]: vendRutas! }));
+  // ── Load helper: all routes+clients for one vendor ────────────────────────
+  async function loadDataForVendor(vendId: number): Promise<{
+    vendRutas: RutaSupervision[];
+    allClientIds: number[];
+    allRutaIds: number[];
+  }> {
+    let vendRutas = rutas[vendId];
+    if (!vendRutas) {
+      vendRutas = await fetchRutasSupervision(vendId);
+      setRutas(p => ({ ...p, [vendId]: vendRutas! }));
+    }
+    const allRutaIds: number[] = vendRutas.map(r => r.id_ruta);
+    const allClientIds: number[] = [];
+    await Promise.all(
+      vendRutas.map(async r => {
+        let cli = clientes[r.id_ruta];
+        if (!cli) {
+          cli = await fetchClientesSupervision(r.id_ruta);
+          setClientes(p => ({ ...p, [r.id_ruta]: cli! }));
+        }
+        cli.forEach(c => allClientIds.push(c.id_cliente));
+      })
+    );
+    return { vendRutas, allClientIds, allRutaIds };
+  }
+
+  // ── VENDOR TOGGLE ─────────────────────────────────────────────────────────
+  async function toggleVendor(vendId: number) {
+    const isOn = visibleVends.has(vendId);
+    if (isOn) {
+      // Turn OFF: remove vendor from map (routes/clients stay cached, just won't render)
+      setVisibleVends(p => { const s = new Set(p); s.delete(vendId); return s; });
+    } else {
+      // Turn ON: load everything, enable all routes+clients
+      setLoadingMap(p => new Set([...p, vendId]));
+      try {
+        const { allRutaIds, allClientIds } = await loadDataForVendor(vendId);
+        setVisibleVends(p  => new Set([...p, vendId]));
+        setVisibleRutas(p  => new Set([...p, ...allRutaIds]));
+        setVisibleClientes(p => new Set([...p, ...allClientIds]));
+      } finally {
+        setLoadingMap(p => { const s = new Set(p); s.delete(vendId); return s; });
       }
-      await Promise.all(
-        vendRutas.map(async r => {
-          if (!clientes[r.id_ruta]) {
-            const cli = await fetchClientesSupervision(r.id_ruta);
-            setClientes(p => ({ ...p, [r.id_ruta]: cli }));
-          }
-        })
-      );
-    } finally {
-      setLoadingMap(p => { const s = new Set(p); s.delete(vendId); return s; });
     }
   }
 
-  function toggleVend(vendId: number) {
-    setVisibleVends(prev => {
-      const next = new Set(prev);
-      if (next.has(vendId)) {
-        next.delete(vendId);
-        return next;
+  // ── ROUTE TOGGLE ─────────────────────────────────────────────────────────
+  async function toggleRuta(rutaId: number, vendId: number) {
+    const isOn = visibleRutas.has(rutaId);
+    if (isOn) {
+      // Turn OFF: remove ruta and all its clients
+      const rutaClientes = clientes[rutaId] ?? [];
+      const clientIds    = rutaClientes.map(c => c.id_cliente);
+      setVisibleRutas(p => { const s = new Set(p); s.delete(rutaId); return s; });
+      setVisibleClientes(p => {
+        const s = new Set(p);
+        clientIds.forEach(id => s.delete(id));
+        return s;
+      });
+    } else {
+      // Turn ON: ensure vendor + ruta are on, load clients
+      setLoadingMap(p => new Set([...p, vendId]));
+      try {
+        let cli = clientes[rutaId];
+        if (!cli) {
+          cli = await fetchClientesSupervision(rutaId);
+          setClientes(p => ({ ...p, [rutaId]: cli! }));
+        }
+        // auto-enable vendor if not already
+        setVisibleVends(p  => new Set([...p, vendId]));
+        setVisibleRutas(p  => new Set([...p, rutaId]));
+        setVisibleClientes(p => new Set([...p, ...cli!.map(c => c.id_cliente)]));
+      } finally {
+        setLoadingMap(p => { const s = new Set(p); s.delete(vendId); return s; });
       }
-      next.add(vendId);
-      loadAllForMap(vendId);
-      return next;
+    }
+  }
+
+  // ── PDV TOGGLE ────────────────────────────────────────────────────────────
+  function toggleCliente(clienteId: number) {
+    setVisibleClientes(p => {
+      const s = new Set(p);
+      if (s.has(clienteId)) s.delete(clienteId);
+      else s.add(clienteId);
+      return s;
     });
   }
 
-  // ── Map pins (only from visible vendors) ─────────────────────────────────
+  // ── Map pins — 3-level visibility check ───────────────────────────────────
   const pines = useMemo<PinCliente[]>(() => {
     const result: PinCliente[] = [];
     vendedores.forEach((v, idx) => {
       if (!visibleVends.has(v.id_vendedor)) return;
       const color = vendorColor(idx);
       (rutas[v.id_vendedor] ?? []).forEach(r => {
+        if (!visibleRutas.has(r.id_ruta)) return;
         (clientes[r.id_ruta] ?? []).forEach(c => {
+          if (!visibleClientes.has(c.id_cliente)) return;
           if (!c.latitud || !c.longitud) return;
           result.push({
-            id:          c.id_cliente,
-            lat:         c.latitud,
-            lng:         c.longitud,
-            nombre:      c.nombre_fantasia || c.nombre_razon_social || "Sin nombre",
+            id:           c.id_cliente,
+            lat:          c.latitud,
+            lng:          c.longitud,
+            nombre:       c.nombre_fantasia || c.nombre_razon_social || "Sin nombre",
             color,
-            activo:      !isInactivo(c.fecha_ultima_compra),
-            vendedor:    v.nombre_vendedor,
+            activo:       !isInactivo(c.fecha_ultima_compra),
+            vendedor:     v.nombre_vendedor,
             ultimaCompra: fmt(c.fecha_ultima_compra),
           });
         });
       });
     });
     return result;
-  }, [vendedores, visibleVends, rutas, clientes]);
+  }, [vendedores, visibleVends, visibleRutas, visibleClientes, rutas, clientes]);
 
   const totalPdv     = vendedoresFiltrados.reduce((s, v) => s + v.total_pdv, 0);
   const totalActivos = vendedoresFiltrados.reduce((s, v) => s + (v.pdv_activos ?? 0), 0);
@@ -318,11 +401,8 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
         </div>
       )}
 
-      {/* Main split: map left + panel right */}
-      <div
-        className="grid grid-cols-1 xl:grid-cols-5 gap-3"
-        style={{ height: 680 }}
-      >
+      {/* Main split */}
+      <div className="grid grid-cols-1 xl:grid-cols-5 gap-3" style={{ height: 680 }}>
 
         {/* ── MAP ─────────────────────────────────────────────────────────── */}
         <div className="xl:col-span-3 rounded-2xl overflow-hidden border border-[var(--shelfy-border)] relative bg-[var(--shelfy-panel)]">
@@ -337,7 +417,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
               <p className="text-sm font-medium text-center px-8 leading-relaxed">
                 {!selectedSucursal
                   ? "Seleccioná una sucursal para comenzar"
-                  : "Activá un vendedor para ver sus PDV en el mapa"
+                  : "Activá un vendedor, ruta o PDV para verlos en el mapa"
                 }
               </p>
             </div>
@@ -345,14 +425,11 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
             <MapaRutas pines={pines} />
           )}
 
-          {/* Floating badge: PDV count */}
           {pines.length > 0 && (
             <div className="absolute top-3 left-3 z-[400] bg-black/60 backdrop-blur-sm text-white text-xs font-semibold px-2.5 py-1 rounded-lg border border-white/10 pointer-events-none">
               {pines.length.toLocaleString()} PDV visibles
             </div>
           )}
-
-          {/* Floating legend */}
           {pines.length > 0 && (
             <div className="absolute bottom-3 left-3 z-[400] bg-black/60 backdrop-blur-sm rounded-lg px-2.5 py-1.5 flex items-center gap-3 border border-white/10 pointer-events-none">
               <span className="flex items-center gap-1.5 text-[11px] text-white/80">
@@ -375,9 +452,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
             </p>
             {loading ? (
               <div className="flex gap-2">
-                {[1, 2].map(i => (
-                  <div key={i} className="h-7 w-24 rounded-lg bg-white/5 animate-pulse" />
-                ))}
+                {[1, 2].map(i => <div key={i} className="h-7 w-24 rounded-lg bg-white/5 animate-pulse" />)}
               </div>
             ) : sucursales.length === 0 ? (
               <p className="text-xs text-[var(--shelfy-muted)] italic">Sin datos cargados</p>
@@ -388,7 +463,9 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                     key={suc}
                     onClick={() => {
                       setSelectedSucursal(suc === selectedSucursal ? null : suc);
-                      setVisibleVends(new Set()); // reset map when switching
+                      setVisibleVends(new Set());
+                      setVisibleRutas(new Set());
+                      setVisibleClientes(new Set());
                     }}
                     className={`px-3 py-1 rounded-lg text-xs font-semibold border transition-all duration-200 ${
                       selectedSucursal === suc
@@ -403,10 +480,8 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
             )}
           </div>
 
-          {/* Vendor list — scrollable */}
+          {/* Scrollable vendor list */}
           <div className="flex-1 overflow-y-auto min-h-0">
-
-            {/* Empty states */}
             {!selectedSucursal && !loading && (
               <div className="flex flex-col items-center justify-center h-full gap-2 text-[var(--shelfy-muted)] py-12">
                 <Building2 className="w-8 h-8 opacity-20" />
@@ -415,39 +490,35 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                 </p>
               </div>
             )}
-
             {selectedSucursal && vendedoresFiltrados.length === 0 && !loading && (
               <p className="text-xs text-[var(--shelfy-muted)] text-center py-10">
                 No hay vendedores para esta sucursal.
               </p>
             )}
 
-            {/* Vendor cards */}
             <div className="divide-y divide-[var(--shelfy-border)]/40">
               {vendedoresFiltrados.map(v => {
-                const idx     = vendedores.indexOf(v);
-                const color   = vendorColor(idx);
-                const vOpen   = openVend === v.id_vendedor;
-                const vRutas  = rutas[v.id_vendedor] ?? [];
-                const isOnMap = visibleVends.has(v.id_vendedor);
-                const isLoad  = loadingMap.has(v.id_vendedor);
-                const pct     = v.total_pdv > 0
+                const idx       = vendedores.indexOf(v);
+                const color     = vendorColor(idx);
+                const vOpen     = openVend === v.id_vendedor;
+                const vRutas    = rutas[v.id_vendedor] ?? [];
+                const isVendOn  = visibleVends.has(v.id_vendedor);
+                const isVendLoad = loadingMap.has(v.id_vendedor);
+                const pct       = v.total_pdv > 0
                   ? Math.round(((v.pdv_activos ?? 0) / v.total_pdv) * 100)
                   : 0;
 
                 return (
                   <div key={v.id_vendedor}>
 
-                    {/* ── Vendor card ── */}
+                    {/* ── Vendor row ── */}
                     <div className="flex items-stretch">
-                      {/* Active color strip */}
                       <div
                         className="w-0.5 shrink-0 transition-colors duration-300"
-                        style={{ backgroundColor: isOnMap ? color : "transparent" }}
+                        style={{ backgroundColor: isVendOn ? color : "transparent" }}
                       />
-
                       <div className="flex-1 min-w-0 px-3 py-2.5">
-                        {/* Row 1: avatar + name + eye toggle */}
+                        {/* Avatar + name + eye */}
                         <div className="flex items-center gap-2 mb-1.5">
                           <VendorAvatar nombre={v.nombre_vendedor} color={color} />
                           <div className="flex-1 min-w-0">
@@ -458,27 +529,26 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                               {v.total_pdv.toLocaleString()} PDV · {v.total_rutas} rutas
                             </p>
                           </div>
-                          {/* Eye toggle button */}
+                          {/* Vendor eye: bigger, toggles everything */}
                           <button
-                            onClick={() => toggleVend(v.id_vendedor)}
-                            title={isOnMap ? "Ocultar del mapa" : "Mostrar en mapa"}
+                            onClick={() => toggleVendor(v.id_vendedor)}
+                            title={isVendOn ? "Ocultar vendedor del mapa" : "Mostrar todos los PDV en mapa"}
                             className={`w-7 h-7 rounded-lg flex items-center justify-center border transition-all duration-200 shrink-0 ${
-                              isOnMap
-                                ? "border-transparent text-white shadow-sm"
-                                : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:border-current hover:text-[var(--shelfy-text)]"
+                              isVendOn
+                                ? "border-transparent text-white"
+                                : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] hover:border-current"
                             }`}
-                            style={isOnMap ? { backgroundColor: color, boxShadow: `0 0 8px ${color}55` } : {}}
+                            style={isVendOn ? { backgroundColor: color, boxShadow: `0 0 8px ${color}55` } : {}}
                           >
-                            {isLoad
+                            {isVendLoad
                               ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                              : isOnMap
+                              : isVendOn
                                 ? <Eye className="w-3.5 h-3.5" />
                                 : <EyeOff className="w-3.5 h-3.5" />
                             }
                           </button>
                         </div>
-
-                        {/* Row 2: activity bar */}
+                        {/* Activity bar */}
                         {v.total_pdv > 0 && (
                           <div className="mb-2">
                             <div className="flex justify-between items-center mb-0.5">
@@ -497,19 +567,14 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                             </div>
                           </div>
                         )}
-
-                        {/* Row 3: expand rutas link */}
+                        {/* Expand rutas */}
                         <button
                           onClick={() => handleVend(v.id_vendedor)}
                           className="flex items-center gap-1 text-[11px] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] transition-colors"
                         >
-                          <ChevronRight
-                            className={`w-3 h-3 transition-transform duration-200 ${vOpen ? "rotate-90" : ""}`}
-                          />
+                          <ChevronRight className={`w-3 h-3 transition-transform duration-200 ${vOpen ? "rotate-90" : ""}`} />
                           {vOpen ? "Ocultar rutas" : "Ver rutas"}
-                          {loadingRutas === v.id_vendedor && (
-                            <Loader2 className="w-3 h-3 animate-spin ml-1" />
-                          )}
+                          {loadingRutas === v.id_vendedor && <Loader2 className="w-3 h-3 animate-spin ml-1" />}
                         </button>
                       </div>
                     </div>
@@ -529,35 +594,53 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                         )}
 
                         {vRutas.map(r => {
-                          const rOpen = openRuta === r.id_ruta;
-                          const rCli  = clientes[r.id_ruta] ?? [];
+                          const rOpen    = openRuta === r.id_ruta;
+                          const rCli     = clientes[r.id_ruta] ?? [];
+                          const isRutaOn = visibleRutas.has(r.id_ruta);
+                          // count how many clients in this route are visible
+                          const cliVisible = rCli.filter(c => visibleClientes.has(c.id_cliente)).length;
 
                           return (
                             <div key={r.id_ruta}>
-                              <button
-                                onClick={() => handleRuta(r.id_ruta)}
-                                className="w-full flex items-center gap-2 px-5 py-2 hover:bg-white/5 transition-colors text-left"
-                              >
-                                <ChevronRight
-                                  className={`w-3 h-3 text-[var(--shelfy-muted)] shrink-0 transition-transform duration-200 ${rOpen ? "rotate-90" : ""}`}
-                                />
-                                <RouteIcon
-                                  className="w-3 h-3 shrink-0"
-                                  style={{ color: color + "99" }}
-                                />
-                                <span className="text-[11px] font-semibold text-[var(--shelfy-text)] flex-1 truncate">
-                                  {r.nombre_ruta}
-                                </span>
+                              {/* Route row */}
+                              <div className="flex items-center gap-2 px-5 py-2 hover:bg-white/5 transition-colors">
+                                {/* Expand button */}
+                                <button
+                                  onClick={() => handleRuta(r.id_ruta)}
+                                  className="flex items-center gap-2 flex-1 min-w-0 text-left"
+                                >
+                                  <ChevronRight
+                                    className={`w-3 h-3 text-[var(--shelfy-muted)] shrink-0 transition-transform duration-200 ${rOpen ? "rotate-90" : ""}`}
+                                  />
+                                  <RouteIcon
+                                    className="w-3 h-3 shrink-0"
+                                    style={{ color: isRutaOn ? color : color + "66" }}
+                                  />
+                                  <span className="text-[11px] font-semibold text-[var(--shelfy-text)] flex-1 truncate">
+                                    {r.nombre_ruta}
+                                  </span>
+                                </button>
                                 <div className="flex items-center gap-1.5 shrink-0">
                                   <DiaBadge dia={r.dia_semana} />
                                   <span className="text-[10px] text-[var(--shelfy-muted)]">
-                                    {r.total_pdv} PDV
+                                    {isRutaOn && rCli.length > 0
+                                      ? <span style={{ color }}>{cliVisible}</span>
+                                      : r.total_pdv
+                                    }
                                   </span>
                                   {loadingCli === r.id_ruta && (
                                     <Loader2 className="w-3 h-3 animate-spin text-[var(--shelfy-muted)]" />
                                   )}
+                                  {/* Route eye toggle */}
+                                  <EyeBtn
+                                    on={isRutaOn}
+                                    color={color}
+                                    loading={loadingMap.has(v.id_vendedor) && !isRutaOn}
+                                    onClick={() => toggleRuta(r.id_ruta, v.id_vendedor)}
+                                    title={isRutaOn ? "Ocultar ruta del mapa" : "Mostrar ruta en mapa"}
+                                  />
                                 </div>
-                              </button>
+                              </div>
 
                               {/* ── Clientes accordion ── */}
                               <Accordion open={rOpen}>
@@ -573,27 +656,45 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                                     const inactivo   = isInactivo(c.fecha_ultima_compra);
                                     const fechaAlta  = fmt(c.fecha_alta);
                                     const ultimaComp = fmt(c.fecha_ultima_compra);
+                                    const isCliOn    = visibleClientes.has(c.id_cliente);
                                     const mapUrl     = c.latitud && c.longitud
                                       ? `https://www.google.com/maps/search/?api=1&query=${c.latitud},${c.longitud}`
                                       : null;
+                                    // effective dot color: if route is on but client off → gray
+                                    const dotColor   = !isRutaOn || !isCliOn
+                                      ? "#4b5563"
+                                      : inactivo ? "#6b7280" : color;
 
                                     return (
                                       <div key={c.id_cliente}>
-                                        <button
-                                          onClick={() => handleCliente(c.id_cliente)}
-                                          className="w-full flex items-center gap-2 pl-8 pr-3 py-1.5 hover:bg-white/5 transition-colors text-left"
-                                        >
-                                          <ChevronRight
-                                            className={`w-3 h-3 text-[var(--shelfy-muted)] shrink-0 transition-transform duration-200 ${cOpen ? "rotate-90" : ""}`}
+                                        <div className="flex items-center gap-2 pl-8 pr-2 py-1.5 hover:bg-white/5 transition-colors">
+                                          {/* Detail toggle */}
+                                          <button
+                                            onClick={() => handleCliente(c.id_cliente)}
+                                            className="flex items-center gap-2 flex-1 min-w-0 text-left"
+                                          >
+                                            <ChevronRight
+                                              className={`w-3 h-3 text-[var(--shelfy-muted)] shrink-0 transition-transform duration-200 ${cOpen ? "rotate-90" : ""}`}
+                                            />
+                                            {/* Dot = PDV map toggle */}
+                                            <span
+                                              className="w-2 h-2 rounded-full shrink-0 cursor-pointer transition-all"
+                                              style={{ backgroundColor: dotColor, boxShadow: isCliOn && isRutaOn && !inactivo ? `0 0 4px ${color}88` : "none" }}
+                                              onClick={e => { e.stopPropagation(); toggleCliente(c.id_cliente); }}
+                                              title={isCliOn ? "Ocultar PDV del mapa" : "Mostrar PDV en mapa"}
+                                            />
+                                            <span className={`text-[11px] flex-1 truncate ${!isCliOn || !isRutaOn ? "opacity-50" : inactivo ? "text-[var(--shelfy-muted)]" : "text-[var(--shelfy-text)]"}`}>
+                                              {c.nombre_fantasia || c.nombre_razon_social || "Sin nombre"}
+                                            </span>
+                                          </button>
+                                          {/* PDV eye mini toggle */}
+                                          <EyeBtn
+                                            on={isCliOn}
+                                            color={inactivo ? "#6b7280" : color}
+                                            onClick={() => toggleCliente(c.id_cliente)}
+                                            title={isCliOn ? "Ocultar PDV del mapa" : "Mostrar PDV en mapa"}
                                           />
-                                          <span
-                                            className="w-1.5 h-1.5 rounded-full shrink-0"
-                                            style={{ backgroundColor: inactivo ? "#6b7280" : color }}
-                                          />
-                                          <span className={`text-[11px] flex-1 truncate ${inactivo ? "text-[var(--shelfy-muted)]" : "text-[var(--shelfy-text)]"}`}>
-                                            {c.nombre_fantasia || c.nombre_razon_social || "Sin nombre"}
-                                          </span>
-                                        </button>
+                                        </div>
 
                                         {/* Detail card */}
                                         <Accordion open={cOpen}>
@@ -602,14 +703,11 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                                               <div className="flex items-start gap-1.5">
                                                 <MapPin className="w-3 h-3 text-[var(--shelfy-muted)] mt-0.5 shrink-0" />
                                                 <span className="text-[11px] text-[var(--shelfy-text)] flex-1 leading-snug">
-                                                  {c.domicilio}{c.localidad ? `, ${c.localidad}` : ""}
-                                                  {c.provincia ? ` (${c.provincia})` : ""}
+                                                  {c.domicilio}{c.localidad ? `, ${c.localidad}` : ""}{c.provincia ? ` (${c.provincia})` : ""}
                                                 </span>
                                                 {mapUrl && (
                                                   <a
-                                                    href={mapUrl}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
+                                                    href={mapUrl} target="_blank" rel="noopener noreferrer"
                                                     onClick={e => e.stopPropagation()}
                                                     className="text-[10px] text-[var(--shelfy-primary)] hover:underline shrink-0"
                                                   >
@@ -639,11 +737,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                                             {c.canal && (
                                               <span
                                                 className="inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded border"
-                                                style={{
-                                                  backgroundColor: color + "15",
-                                                  color,
-                                                  borderColor: color + "30",
-                                                }}
+                                                style={{ backgroundColor: color + "15", color, borderColor: color + "30" }}
                                               >
                                                 {c.canal}
                                               </span>
@@ -671,7 +765,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
           {/* Footer note */}
           <div className="px-4 py-2 border-t border-[var(--shelfy-border)]/40 shrink-0">
             <p className="text-[10px] text-[var(--shelfy-muted)] opacity-40 italic">
-              * Re-subí el padrón para ver fecha_alta
+              * Re-subí el padrón para ver fecha_alta · 👁 = toggle en mapa
             </p>
           </div>
         </div>

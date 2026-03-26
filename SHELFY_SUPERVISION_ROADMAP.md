@@ -15,6 +15,7 @@
 | 3A | Cascade Rutas de Venta (accordion animado) | ✅ COMPLETADA |
 | 3B | Mapa Interactivo con capas por vendedor | ✅ COMPLETADA |
 | 3B+ | Stats activos/inactivos en tarjetas vendedor | ✅ COMPLETADA |
+| 3B++ | Toggle por ruta y por PDV individual | ✅ COMPLETADA |
 | 3C | Apertura de roles (supervisores ven el panel) | ⏳ PENDIENTE |
 | 3D | Alertas básicas (PDV inactivos, sin visita) | ⏳ PENDIENTE |
 | 4A | Motor RPA: ventas por PDV | ⏳ PENDIENTE |
@@ -47,6 +48,7 @@
 2. `UNIQUE(id_distribuidor, id_vendedor_erp)` falla si hay varios "SIN VENDEDOR" por sucursal → agregar `id_sucursal` al constraint
 3. `motor_runs.estado` CHECK constraint original solo tenía `ok/error/parcial` → extender a `en_curso/ok/error/parcial/sin_ejecuciones`
 4. `fecha_alta` y `dia_semana` requieren re-subir el padrón para poblar registros existentes
+5. Tablas `_v2` creadas desde cero para evitar FK conflict con `exhibiciones → clientes_pdv` legacy
 
 ---
 
@@ -61,49 +63,59 @@
 
 ## Fase 3 ✅ — Panel de Supervisión
 
-### Fase 3A + 3B + 3B+ ✅
-
-#### Componentes
-- **`TabSupervision.tsx`**: panel principal con sub-menús (Rutas de Venta activo, resto próximamente)
-- **`MapaRutas.tsx`**: mapa Leaflet client-only con CartoDB dark tiles
-
-#### Layout
+### Layout actual
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  [Rutas de Venta ✓]  [Alertas...]  [Cobertura...]  [Tend…] │
-├──────────────────────────┬──────────────────────────────────┤
-│  MURO DE VENDEDORES      │  CAPAS DEL MAPA                 │
-│                          │  [● Juan] [● María] [● Carlos]  │
-│  ┌─────────────────────┐ ├──────────────────────────────────┤
-│  │● JUAN PÉREZ    145  │ │                                  │
-│  │  Central · 3 rutas  │ │       MAPA INTERACTIVO           │
-│  │  ████░░ 74% activos │ │       (CartoDB dark)             │
-│  │  [en mapa] [▼]      │ │       ○ activos  ● inactivos     │
-│  └─────────────────────┘ │                                  │
-│  ┌─────────────────────┐ │                                  │
-│  │● MARÍA GARCÍA  230  │ │                                  │
-│  │  Norte · 5 rutas    │ └──────────────────────────────────┘
-│  │  ██████ 91% activos │
-│  └─────────────────────┘
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│  Rutas de Venta  [Selector distribuidora]                    [↺]    │
+│  N vendedores · M PDV · X% activos · Y% inactivos                  │
+├───────────────────────────────┬─────────────────────────────────────┤
+│                               │  SUCURSAL: [Central] [Norte] ...    │
+│                               ├─────────────────────────────────────┤
+│                               │  ● JUAN PÉREZ          [👁]        │
+│       MAPA INTERACTIVO        │    145 PDV · 3 rutas               │
+│       (CartoDB dark)          │    ████░░ 74% activos              │
+│                               │    ▼ Ver rutas                      │
+│  [123 PDV visibles]           │      ├─ Ruta Centro Lun [👁]       │
+│                               │      │   ├─ ● Cliente A  [👁]      │
+│  ● activo  ● sin actividad    │      │   └─ ● Cliente B  [👁]      │
+│                               │      └─ Ruta Norte Mié [👁]        │
+│                               │  ─────────────────────────────      │
+│                               │  ● MARÍA GARCÍA        [👁]        │
+│                               │    230 PDV · 5 rutas               │
+└───────────────────────────────┴─────────────────────────────────────┘
 ```
 
-#### Características
-- **Color por vendedor**: paleta de 8 colores, asignado por índice
+### Visibilidad en 3 niveles (independientes)
+```
+Vendedor ON  →  carga todas las rutas + clientes, los activa todos
+Vendedor OFF →  quita del mapa (datos quedan en caché)
+Ruta    ON   →  activa la ruta y todos sus clientes (activa vendor si estaba OFF)
+Ruta    OFF  →  quita ruta y sus clientes del mapa
+PDV     ON   →  muestra ese punto en el mapa
+PDV     OFF  →  oculta ese punto (sin borrar datos)
+
+Pin aparece en mapa ↔ visibleVends ∩ visibleRutas ∩ visibleClientes
+```
+
+### Características
+- **Color por vendedor**: paleta de 12 colores, asignado por índice
 - **Activos**: `fecha_ultima_compra` ≤ 90 días → color del vendedor
-- **Inactivos**: > 90 días o NULL → gris en mapa (radio menor)
-- **Lazy loading**: rutas se cargan al expandir vendedor; clientes al expandir ruta o al togglear en mapa
-- **Map toggle**: "ver en mapa" carga automáticamente todas las rutas + clientes del vendedor
-- **Stats bar**: % activos en cada tarjeta de vendedor (desde SQL, sin lazy loading)
-- **fecha_alta**: visible en fila del cliente (muestra "sin fecha*" si NULL)
+- **Inactivos**: > 90 días o NULL → gris en mapa (radio menor, opacidad 0.25)
+- **Lazy loading**: datos se cargan on-demand por nivel
+- **Caché en memoria**: una vez cargado no se vuelve a pedir hasta refresh
+- **Strip de color lateral**: aparece en vendor card cuando está activo en mapa
+- **Stats bar**: % activos en cada tarjeta (desde SQL agregado, sin carga extra)
+- **fecha_alta**: muestra "re-subir padrón*" si NULL
 - **Popup en mapa**: nombre, vendedor, última compra, warning si inactivo
 - **FitBounds**: auto-zoom al primer lote de pins cargados
+- **Selector de sucursal**: primer paso obligatorio, resetea el mapa al cambiar
 
-#### SQL functions en Supabase
+### SQL functions en Supabase
 ```sql
 -- fn_supervision_vendedores(p_dist_id BIGINT)
 -- Retorna: id_vendedor, nombre_vendedor, sucursal_nombre,
 --          total_rutas, total_pdv, pdv_activos, pdv_inactivos
+-- Criterio activo: fecha_ultima_compra >= CURRENT_DATE - 90 días
 
 -- fn_supervision_rutas(p_id_vendedor BIGINT)
 -- Retorna: id_ruta, nombre_ruta, dia_semana, total_pdv
@@ -116,8 +128,8 @@
 ### Qué hacer
 - Permitir que el rol `supervisor` acceda al Panel de Supervisión
 - Actualmente el panel admin redirige a `/dashboard` si `rol === "supervisor"`
-- Crear una ruta `/supervision` separada, o modificar la lógica de acceso en `page.tsx`
-- El supervisor solo puede ver su distribuidora (no el selector)
+- Crear ruta `/supervision` separada o modificar lógica de acceso en `page.tsx`
+- El supervisor solo puede ver su distribuidora (sin el selector superadmin)
 
 ---
 
@@ -153,8 +165,9 @@
 ## Arquitectura de Tablas _v2
 
 ```sql
-sucursales_v2       id_sucursal, id_distribuidor, nombre, id_sucursal_erp
+sucursales_v2       id_sucursal, id_distribuidor, id_sucursal_erp, nombre_erp
 vendedores_v2       id_vendedor, id_distribuidor, id_sucursal, nombre_erp, id_vendedor_erp
+                    UNIQUE(id_distribuidor, id_sucursal, id_vendedor_erp)
 rutas_v2            id_ruta, id_vendedor, nombre_ruta, id_ruta_erp, dia_semana
 clientes_pdv_v2     id_cliente, id_ruta, id_distribuidor, id_cliente_erp,
                     nombre_fantasia, nombre_razon_social, domicilio, localidad,
@@ -168,5 +181,6 @@ clientes_pdv_v2     id_cliente, id_ruta, id_distribuidor, id_cliente_erp,
 
 - **Re-subir padrón**: necesario para poblar `dia_semana` y `fecha_alta` en registros existentes
 - **Dist 1 (test)**: sin datos reales; crear script de datos fake
-- **`exhibiciones` → `clientes_pdv`**: legacy FK que no se puede tocar. Las exhibiciones usan `clientes_pdv` (sin _v2). Reconciliación parcial hecha (57 sin vincular de 4898 total)
+- **`exhibiciones` → `clientes_pdv`**: legacy FK que no se puede tocar. Reconciliación parcial hecha (57 sin vincular de 4898 total)
 - **Mapa**: tiles CartoDB `dark_all` gratuitos, sin API key
+- **Toggle PDV**: el punto en el mapa es clickeable (dot en la lista actúa como toggle visual)

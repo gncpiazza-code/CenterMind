@@ -29,7 +29,6 @@ const ALL_NAV: NavItem[] = [
     subItems: [
       { href: "/reportes", label: "Reporte de Exhibiciones", icon: BarChart2, roles: ["superadmin", "admin", "supervisor"] },
       { href: "/reportes?tab=cuentas_corrientes", label: "Cuentas corrientes", icon: Briefcase, roles: ["superadmin", "admin"] },
-      { href: "/reportes?tab=padron", label: "Padrón de Clientes", icon: Users, roles: ["superadmin", "admin"] },
     ]
   },
   {
@@ -80,7 +79,6 @@ export function Sidebar() {
         subItems: [
           { href: "/reportes", label: "Reporte de Exhibiciones", icon: BarChart2 },
           { href: "/reportes?tab=cuentas_corrientes", label: "Cuentas corrientes", icon: Briefcase },
-          { href: "/reportes?tab=padron", label: "Padrón de Clientes", icon: Users },
         ]
       },
     ];

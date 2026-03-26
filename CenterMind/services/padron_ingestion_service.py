@@ -77,6 +77,27 @@ def _safe_date(val: Any) -> str | None:
     return None
 
 
+_DIA_KEYS = [
+    ("dia_lunes",     "Lunes"),
+    ("dia_martes",    "Martes"),
+    ("dia_miercoles", "Miércoles"),
+    ("dia_jueves",    "Jueves"),
+    ("dia_viernes",   "Viernes"),
+    ("dia_sabado",    "Sábado"),
+    ("dia_domingo",   "Domingo"),
+]
+
+def _detect_dia(row: Any, cols: dict) -> str:
+    """Devuelve el día de la semana leyendo las columnas booleanas del Excel."""
+    for key, nombre in _DIA_KEYS:
+        col = cols.get(key)
+        if col:
+            val = _safe_str(row.get(col), "").strip().upper()
+            if val and val not in ("0", "NO", "N", "NAN", "FALSE", ""):
+                return nombre
+    return "Variable"
+
+
 # ─── Servicio ─────────────────────────────────────────────────────────────────
 
 class PadronIngestionService:
@@ -164,8 +185,17 @@ class PadronIngestionService:
             "localidad":        _flexible_col(df, ["descloca", "localidad"]),
             "provincia":        _flexible_col(df, ["desprovincia", "provincia"]),
             "canal":            _flexible_col(df, ["descanal", "canal", "canal_venta"]),
-            # Fecha última compra (única fecha en clientes_pdv)
+            # Fecha última compra y fecha de alta
             "fecha_ultima_compra": _flexible_col(df, ["fecha_ultima_compra", "fec_ult", "fecultcom", "ultima_compra"]),
+            "fecha_alta":          _flexible_col(df, ["fecalta", "fecha_alta", "fec_alta"]),
+            # Columnas de día de visita (booleanas)
+            "dia_lunes":     _flexible_col(df, ["lunes"]),
+            "dia_martes":    _flexible_col(df, ["martes"]),
+            "dia_miercoles": _flexible_col(df, ["miercoles"]),
+            "dia_jueves":    _flexible_col(df, ["jueves"]),
+            "dia_viernes":   _flexible_col(df, ["viernes"]),
+            "dia_sabado":    _flexible_col(df, ["sabado"]),
+            "dia_domingo":   _flexible_col(df, ["domingo"]),
         }
         logger.info(f"[Padrón] Mapeo columnas: { {k: v for k, v in cols.items() if v} }")
         missing = [k for k, v in cols.items() if v is None]
@@ -347,9 +377,10 @@ class PadronIngestionService:
         Upsert de rutas únicas por vendedor.
         Devuelve (count, {(id_vendedor, ruta_erp): id_ruta}).
         """
-        # Extraer únicos: (vend_key, erp_suc, ruta_code)
-        # vend_key = código ERP del vendedor (mismo que usamos en vend_map)
+        # Extraer únicos: (vend_key, erp_suc, ruta_code) → dia_semana
+        # Primer paso: construir el mapa de día por ruta desde la primera fila encontrada
         unique: dict[tuple[str, str, str], None] = {}
+        ruta_dia: dict[tuple[str, str, str], str] = {}
         for _, row in df.iterrows():
             cod = _safe_str(row.get(cols["vendedor_erp_cod"]) if cols.get("vendedor_erp_cod") else None, "")
             if cod.endswith(".0"):
@@ -367,51 +398,45 @@ class PadronIngestionService:
             ruta_code = _safe_str(row.get(cols["ruta"]) if cols.get("ruta") else None, "R00").upper()
             if ruta_code.endswith(".0"):
                 ruta_code = ruta_code[:-2]
-            unique[(vend_key, erp_suc, ruta_code)] = None
+
+            key = (vend_key, erp_suc, ruta_code)
+            unique[key] = None
+            if key not in ruta_dia:
+                ruta_dia[key] = _detect_dia(row, cols)
 
         logger.info(f"[Padrón] Rutas únicas en Excel: {len(unique)}")
         if not unique:
             return 0, {}
 
-        # Fetch existentes: rutas de vendedores de este dist
-        vend_ids = list(set(vend_map.values()))
-        existing: dict[tuple[int, str], int] = {}
-        if vend_ids:
-            # Paginar si hay muchos vendedores (Supabase limita .in_ largo)
-            for i in range(0, len(vend_ids), 500):
-                chunk = vend_ids[i:i+500]
-                chunk_res = sb.table("rutas_v2").select("id_ruta, id_vendedor, id_ruta_erp") \
-                    .in_("id_vendedor", chunk).execute()
-                for r in (chunk_res.data or []):
-                    if r.get("id_ruta_erp"):
-                        existing[(r["id_vendedor"], r["id_ruta_erp"])] = r["id_ruta"]
-
-        to_insert = []
+        # Upsert rutas (insert + actualiza dia_semana en existentes)
         skipped_vend = 0
+        to_upsert = []
         for (vend_key, erp_suc, ruta_code) in unique.keys():
             id_vendedor = vend_map.get((vend_key, erp_suc))
             if not id_vendedor:
                 skipped_vend += 1
                 continue
-            if (id_vendedor, ruta_code) not in existing:
-                to_insert.append({
-                    "id_vendedor": id_vendedor,
-                    "id_ruta_erp": ruta_code,
-                    "dia_semana":  "Variable",
-                    # periodicidad es integer en el schema (días entre visitas)
-                    # se deja NULL hasta que el admin lo configure
-                })
+            to_upsert.append({
+                "id_vendedor": id_vendedor,
+                "id_ruta_erp": ruta_code,
+                "dia_semana":  ruta_dia.get((vend_key, erp_suc, ruta_code), "Variable"),
+            })
 
         if skipped_vend:
             logger.warning(f"[Padrón] Rutas saltadas por vendedor no mapeado: {skipped_vend}/{len(unique)}")
 
-        if to_insert:
+        nuevas = 0
+        if to_upsert:
             BATCH = 200
-            for i in range(0, len(to_insert), BATCH):
-                sb.table("rutas_v2").insert(to_insert[i:i + BATCH]).execute()
-            logger.info(f"[Padrón] Rutas insertadas: {len(to_insert)}")
+            for i in range(0, len(to_upsert), BATCH):
+                sb.table("rutas_v2").upsert(
+                    to_upsert[i:i + BATCH], on_conflict="id_vendedor,id_ruta_erp"
+                ).execute()
+            nuevas = len(to_upsert)
+            logger.info(f"[Padrón] Rutas upserted: {nuevas}")
 
         # Fetch final para mapping — paginar también
+        vend_ids = list(set(vend_map.values()))
         mapping: dict[tuple[str, str, str], int] = {}
         if vend_ids:
             vend_map_inv = {v: k for k, v in vend_map.items()}
@@ -421,11 +446,11 @@ class PadronIngestionService:
                     .in_("id_vendedor", chunk).execute()
                 for r in (final_res.data or []):
                     vid = r["id_vendedor"]
-                    key_vend = vend_map_inv.get(vid)  # (vend_key, erp_suc)
+                    key_vend = vend_map_inv.get(vid)
                     if key_vend and r.get("id_ruta_erp"):
                         mapping[(key_vend[0], key_vend[1], r["id_ruta_erp"])] = r["id_ruta"]
 
-        logger.info(f"[Padrón] Rutas: {len(unique)} en Excel, {len(to_insert)} nuevas, {len(mapping)} en mapping final")
+        logger.info(f"[Padrón] Rutas: {len(unique)} en Excel, {nuevas} upserted, {len(mapping)} en mapping final")
         return len(unique), mapping
 
     # ── Paso 4: Clientes PDV ──────────────────────────────────────────────────
@@ -499,6 +524,7 @@ class PadronIngestionService:
                 "provincia":           _safe_str(row.get(cols["provincia"]) if cols.get("provincia") else None, "").upper(),
                 "canal":               _safe_str(row.get(cols["canal"]) if cols.get("canal") else None, "").upper(),
                 "fecha_ultima_compra": _safe_date(row.get(cols["fecha_ultima_compra"]) if cols.get("fecha_ultima_compra") else None),
+                "fecha_alta":          _safe_date(row.get(cols["fecha_alta"]) if cols.get("fecha_alta") else None),
                 "latitud":             latitud,
                 "longitud":            longitud,
                 "es_limbo":            False,

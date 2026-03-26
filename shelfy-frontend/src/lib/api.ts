@@ -869,3 +869,48 @@ export async function saveBulkHierarchy(distId: number, mappings: { id_integrant
     body: JSON.stringify({ mappings }),
   });
 }
+
+
+// ── Supervisión ──────────────────────────────────────────────────────────────
+
+export interface VendedorSupervision {
+  id_vendedor: number;
+  nombre_vendedor: string;
+  sucursal_nombre: string;
+  total_rutas: number;
+  total_pdv: number;
+}
+
+export interface RutaSupervision {
+  id_ruta: number;
+  nombre_ruta: string;
+  dia_semana: string;
+  total_pdv: number;
+}
+
+export interface ClienteSupervision {
+  id_cliente: number;
+  id_cliente_erp: string;
+  nombre_fantasia: string;
+  nombre_razon_social: string;
+  domicilio: string;
+  localidad: string;
+  provincia: string;
+  canal: string;
+  latitud: number | null;
+  longitud: number | null;
+  fecha_ultima_compra: string | null;
+  fecha_alta: string | null;
+}
+
+export async function fetchVendedoresSupervision(distId: number): Promise<VendedorSupervision[]> {
+  return apiFetch<VendedorSupervision[]>(`/api/supervision/vendedores/${distId}`);
+}
+
+export async function fetchRutasSupervision(idVendedor: number): Promise<RutaSupervision[]> {
+  return apiFetch<RutaSupervision[]>(`/api/supervision/rutas/${idVendedor}`);
+}
+
+export async function fetchClientesSupervision(idRuta: number): Promise<ClienteSupervision[]> {
+  return apiFetch<ClienteSupervision[]>(`/api/supervision/clientes/${idRuta}`);
+}

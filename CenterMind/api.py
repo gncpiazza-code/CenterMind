@@ -1135,6 +1135,78 @@ def admin_set_rol_integrante(id_integrante: int, req: IntegranteRolRequest, payl
     return {"ok": True}
 
 
+# ─── FASE 2 — Mapeo Vendedor ERP ↔ Integrante Telegram ──────────────────────
+
+class MapeoVendedorRequest(BaseModel):
+    id_vendedor: Optional[int] = None  # None = desasignar
+
+@app.get(
+    "/api/admin/mapeo/integrantes/{dist_id}",
+    tags=["Mapeo"],
+    summary="Integrantes con su vendedor ERP asignado (para pantalla de mapeo)",
+)
+def get_mapeo_integrantes(dist_id: int, user_payload=Depends(verify_auth)):
+    check_dist_permission(user_payload, dist_id)
+    try:
+        # Integrantes del distribuidor (excluye rol supervisor)
+        ig_res = sb.table("integrantes_grupo") \
+            .select("id_integrante, nombre_integrante, rol_telegram, telegram_user_id, id_vendedor") \
+            .eq("id_distribuidor", dist_id) \
+            .neq("rol_telegram", "supervisor") \
+            .order("nombre_integrante") \
+            .execute()
+
+        # Vendedores disponibles para el dropdown
+        vend_res = sb.table("vendedores") \
+            .select("id_vendedor, nombre_erp, id_sucursal, sucursales(nombre_erp)") \
+            .eq("id_distribuidor", dist_id) \
+            .order("nombre_erp") \
+            .execute()
+
+        # Cuántos integrantes ya tienen vendedor asignado
+        mapeados = sum(1 for ig in (ig_res.data or []) if ig.get("id_vendedor"))
+        total = len(ig_res.data or [])
+
+        return {
+            "integrantes": ig_res.data or [],
+            "vendedores":  vend_res.data or [],
+            "stats": {"total": total, "mapeados": mapeados, "sin_mapear": total - mapeados},
+        }
+    except Exception as e:
+        logger.error(f"Error en get_mapeo_integrantes: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put(
+    "/api/admin/mapeo/integrante/{id_integrante}/vendedor",
+    tags=["Mapeo"],
+    summary="Asigna (o desasigna) un vendedor ERP a un integrante",
+)
+def set_mapeo_vendedor(id_integrante: int, req: MapeoVendedorRequest, user_payload=Depends(verify_auth)):
+    try:
+        # Verificar que el integrante pertenece al distribuidor del usuario
+        ig = sb.table("integrantes_grupo") \
+            .select("id_integrante, id_distribuidor") \
+            .eq("id_integrante", id_integrante) \
+            .maybe_single() \
+            .execute()
+        if not ig.data:
+            raise HTTPException(status_code=404, detail="Integrante no encontrado")
+        check_dist_permission(user_payload, ig.data["id_distribuidor"])
+
+        sb.table("integrantes_grupo") \
+            .update({"id_vendedor": req.id_vendedor}) \
+            .eq("id_integrante", id_integrante) \
+            .execute()
+
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error en set_mapeo_vendedor: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # --- Admin: Monitor (sesiones, metricas, alertas) ---
 
 @app.get("/api/admin/monitor/sesiones", summary="Sesiones activas del portal")

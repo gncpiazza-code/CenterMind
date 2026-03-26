@@ -11,6 +11,7 @@ import {
   Users,
   Map,
   Store,
+  Link2,
 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -28,6 +29,7 @@ interface MotorRun {
     vendedores?: number;
     rutas?: number;
     clientes?: number;
+    exhib_vinculadas?: number;
   } | null;
   error_msg: string | null;
 }
@@ -156,10 +158,11 @@ export default function TabPadron({ distId }: TabPadronProps) {
   };
 
   const metrics = [
-    { label: "Sucursales", icon: Building2, value: status?.registros?.sucursales },
-    { label: "Vendedores", icon: Users,     value: status?.registros?.vendedores },
-    { label: "Rutas",      icon: Map,       value: status?.registros?.rutas      },
-    { label: "Clientes",   icon: Store,     value: status?.registros?.clientes   },
+    { label: "Sucursales",    icon: Building2, value: status?.registros?.sucursales        },
+    { label: "Vendedores",    icon: Users,     value: status?.registros?.vendedores        },
+    { label: "Rutas",         icon: Map,       value: status?.registros?.rutas             },
+    { label: "Clientes",      icon: Store,     value: status?.registros?.clientes          },
+    { label: "Exhib. vinc.", icon: Link2,      value: status?.registros?.exhib_vinculadas  },
   ];
 
   return (
@@ -283,7 +286,7 @@ export default function TabPadron({ distId }: TabPadronProps) {
 
             {/* Métricas de registros */}
             {status.registros && (
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                 {metrics.map(({ label, icon: Icon, value }) => (
                   <div
                     key={label}

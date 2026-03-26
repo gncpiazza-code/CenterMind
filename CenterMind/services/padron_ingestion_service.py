@@ -358,10 +358,17 @@ class PadronIngestionService:
     ) -> int:
         """
         Upsert masivo de clientes PDV.
+
+        Además, adopta clientes 'limbo' existentes: si hay un cliente en
+        clientes_pdv con es_limbo=True cuyo id_cliente_erp aparece en este
+        padrón, lo reasigna a la ruta correcta y marca es_limbo=False.
         """
         BATCH = 300
         records = []
         skipped = 0
+
+        # Recolectar todos los id_erp del padrón para el paso de adopción
+        erp_ids_en_padron: dict[str, dict] = {}
 
         for _, row in df.iterrows():
             id_erp = _safe_str(row.get(cols["id_cliente"]) if cols["id_cliente"] else None)
@@ -388,8 +395,9 @@ class PadronIngestionService:
             except (ValueError, TypeError):
                 lat = lon = None
 
-            records.append({
+            payload = {
                 "id_ruta": id_ruta,
+                "id_distribuidor": dist_id,
                 "id_cliente_erp": id_erp,
                 "nombre_fantasia": _safe_str(row.get(cols["fantasia"]) if cols["fantasia"] else None,
                                              _safe_str(row.get(cols["nombre_cliente"]) if cols["nombre_cliente"] else None, "SIN NOMBRE")).upper(),
@@ -402,14 +410,38 @@ class PadronIngestionService:
                 "fecha_alta": _safe_date(row.get(cols["fecha_alta"]) if cols["fecha_alta"] else None),
                 "lat": lat,
                 "lon": lon,
+                "es_limbo": False,
                 "estado": "activo",
                 "updated_at": datetime.now(timezone.utc).isoformat(),
-            })
+            }
+            records.append(payload)
+            erp_ids_en_padron[id_erp] = payload
 
         if skipped:
             logger.warning(f"[Padrón] Clientes saltados (sin id_erp o sin ruta): {skipped}")
 
-        # Upsert en batches por id_ruta + id_cliente_erp
+        # ── Adoptar clientes limbo ────────────────────────────────────────────
+        # Busca registros es_limbo=True cuyo id_cliente_erp aparece en este padrón
+        # y los actualiza con los datos reales + los reasigna a la ruta correcta.
+        adopted = 0
+        if erp_ids_en_padron:
+            limbo_res = sb.table("clientes_pdv") \
+                .select("id_cliente, id_cliente_erp") \
+                .eq("es_limbo", True) \
+                .in_("id_cliente_erp", list(erp_ids_en_padron.keys())) \
+                .execute()
+            for limbo in (limbo_res.data or []):
+                erp_id = limbo["id_cliente_erp"]
+                update_data = {**erp_ids_en_padron[erp_id]}
+                # No se usa upsert aquí, sino update directo por PK
+                sb.table("clientes_pdv").update(update_data) \
+                    .eq("id_cliente", limbo["id_cliente"]) \
+                    .execute()
+                adopted += 1
+            if adopted:
+                logger.info(f"[Padrón] Clientes limbo adoptados: {adopted}")
+
+        # ── Upsert normal en batches ──────────────────────────────────────────
         total = 0
         for i in range(0, len(records), BATCH):
             batch = records[i:i + BATCH]
@@ -418,8 +450,34 @@ class PadronIngestionService:
             ).execute()
             total += len(batch)
 
-        logger.info(f"[Padrón] Clientes upserted: {total}")
+        logger.info(f"[Padrón] Clientes upserted: {total} (adoptados del limbo: {adopted})")
         return total
+
+    # ── Paso 5: Reconciliación retroactiva de exhibiciones ───────────────────
+
+    def _reconcile_exhibiciones(self, dist_id: int) -> int:
+        """
+        Llama al RPC fn_reconcile_exhibiciones que completa id_cliente_pdv
+        en exhibiciones donde el cliente ya existe en clientes_pdv pero el
+        link estaba vacío (clientes subidos "en el limbo" entre actualizaciones
+        del padrón o desde antes de tener la columna id_cliente_pdv).
+
+        Silencioso: si el RPC no existe o falla, solo deja un log de debug.
+        Devuelve el número de exhibiciones actualizadas.
+        """
+        try:
+            res = sb.rpc("fn_reconcile_exhibiciones", {"p_dist_id": dist_id}).execute()
+            updated = 0
+            if isinstance(res.data, dict):
+                updated = res.data.get("updated", 0)
+            elif isinstance(res.data, list) and res.data:
+                updated = res.data[0].get("updated", 0)
+            if updated:
+                logger.info(f"[Padrón] Reconciliación: {updated} exhibiciones vinculadas a clientes_pdv")
+            return updated
+        except Exception as e:
+            logger.debug(f"[Padrón] Reconciliación omitida (RPC no disponible o sin datos): {e}")
+            return 0
 
     # ── Entry point ───────────────────────────────────────────────────────────
 
@@ -453,12 +511,16 @@ class PadronIngestionService:
             ruta_count, ruta_map = self._sync_rutas(df, cols, dist_id, vend_map, suc_map)
             cli_count            = self._sync_clientes(df, cols, dist_id, ruta_map, vend_map, suc_map)
 
+            # Paso 5: reconciliar exhibiciones huérfanas (silencioso)
+            exhib_linked = self._reconcile_exhibiciones(dist_id)
+
             duracion = (datetime.now(timezone.utc) - t0).total_seconds()
             registros = {
-                "sucursales": suc_count,
-                "vendedores": vend_count,
-                "rutas":      ruta_count,
-                "clientes":   cli_count,
+                "sucursales":       suc_count,
+                "vendedores":       vend_count,
+                "rutas":            ruta_count,
+                "clientes":         cli_count,
+                "exhib_vinculadas": exhib_linked,
             }
             self._finish_run(run_id, "ok", registros=registros)
             logger.info(f"[Padrón] Run #{run_id} OK en {duracion:.1f}s → {registros}")

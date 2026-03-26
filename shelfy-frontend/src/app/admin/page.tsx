@@ -13,6 +13,7 @@ import {
   FileSpreadsheet,
   Network,
   BookUser,
+  Link2,
 } from "lucide-react";
 
 import dynamic from "next/dynamic";
@@ -24,6 +25,7 @@ import TabDistribuidoras from "@/components/admin/TabDistribuidoras";
 import TabIntegrantes from "@/components/admin/TabIntegrantes";
 import TabERP from "@/components/admin/TabERP";
 import TabPadron from "@/components/admin/TabPadron";
+import TabMapeoVendedores from "@/components/admin/TabMapeoVendedores";
 
 export default function AdminPage() {
   const { user } = useAuth();
@@ -33,6 +35,7 @@ export default function AdminPage() {
   const TABS = [
     { id: "jerarquia_global", label: "Jerarquía Global", icon: Network },
     { id: "padron",           label: "Padrón de Clientes", icon: BookUser },
+    { id: "mapeo",            label: "Mapeo Vendedores", icon: Link2 },
     { id: "usuarios",         label: "Usuarios Admin", icon: Shield },
     { id: "erp",              label: "Importar ERP / Mapeo", icon: FileSpreadsheet },
     ...(isSuperadmin ? [
@@ -89,6 +92,7 @@ export default function AdminPage() {
             <div className="min-h-[500px]">
               {tab === "jerarquia_global" && <UnifiedDashboard isSuperadmin={isSuperadmin} currentDistId={user.id_distribuidor || 0} />}
               {tab === "padron"           && <TabPadron distId={user.id_distribuidor || 0} />}
+              {tab === "mapeo"            && <TabMapeoVendedores distId={user.id_distribuidor || 0} />}
               {tab === "usuarios"         && <TabUsuarios isSuperadmin={isSuperadmin} distId={user.id_distribuidor || 0} />}
               {tab === "erp"              && <TabERP distId={user.id_distribuidor || 0} isSuperadmin={isSuperadmin} />}
               {tab === "distribuidoras"   && <TabDistribuidoras />}

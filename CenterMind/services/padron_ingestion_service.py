@@ -120,37 +120,58 @@ class PadronIngestionService:
         """Lee el Excel del Padrón con tolerancia a distintos formatos."""
         buf = io.BytesIO(file_bytes)
         try:
-            df = pd.read_excel(buf, dtype=str)
-        except Exception:
+            # engine='openpyxl' explícito; keep_default_na=False evita que celdas
+            # vacías detengan la lectura en algunas versiones de openpyxl.
+            df = pd.read_excel(buf, dtype=str, engine="openpyxl", keep_default_na=False)
+        except Exception as exc:
+            logger.warning(f"[Padrón] Fallo lectura XLSX ({exc}), intentando CSV...")
             buf.seek(0)
             df = pd.read_csv(buf, sep=None, engine="python", dtype=str, encoding="latin1")
         df.columns = [str(c).strip() for c in df.columns]
+        # Eliminar filas completamente vacías (son frecuentes en exports de ERP)
+        df = df.replace("", float("nan"))
+        df = df.dropna(how="all")
+        df = df.fillna("")
+        logger.info(f"[Padrón] Excel parseado: {len(df)} filas útiles, {len(df.columns)} columnas")
+        logger.info(f"[Padrón] Columnas: {list(df.columns)}")
         return df
 
     def _detect_columns(self, df: pd.DataFrame) -> dict[str, str | None]:
         """Detecta columnas relevantes del Padrón con mapeo flexible.
         Las claves de este dict son nombres lógicos usados internamente;
         los nombres de columna de Supabase se aplican en _sync_clientes.
+
+        Convención ERP Aloma:
+          'vendedor'   → código numérico ERP  (e.g. 1010)  → id_vendedor_erp en DB
+          'd_vendedor' → nombre visible        (e.g. "10-MARCHE FERNANDO") → nombre_erp en DB
         """
-        return {
-            "id_cliente":      _flexible_col(df, ["idcliente", "id_cliente", "codi_cliente", "cliente_id", "numero_cliente_local"]),
-            "nombre_cliente":  _flexible_col(df, ["nomcli", "nombre", "nombre_cliente", "razon_social"]),
-            "fantasia":        _flexible_col(df, ["fantacli", "fantasia", "nombre_fantasia"]),
-            "vendedor":        _flexible_col(df, ["dsvendedor", "vendedor", "d_vendedor", "vendedor_nombre"]),
-            "sucursal":        _flexible_col(df, ["dssucur", "sucursal", "sucursal_nombre", "nombre_sucursal"]),
-            "id_sucursal":     _flexible_col(df, ["idsucur", "id_sucursal", "sucursal_id"]),
-            "ruta":            _flexible_col(df, ["ruta", "nro_ruta", "id_ruta", "ruta_erp"]),
+        cols = {
+            "id_cliente":       _flexible_col(df, ["idcliente", "id_cliente", "codi_cliente", "cliente_id", "numero_cliente_local"]),
+            "nombre_cliente":   _flexible_col(df, ["nomcli", "nombre", "nombre_cliente", "razon_social"]),
+            "fantasia":         _flexible_col(df, ["fantacli", "fantasia", "nombre_fantasia"]),
+            # Nombre del vendedor para mostrar (d_vendedor tiene prioridad sobre vendedor)
+            "vendedor_nombre":  _flexible_col(df, ["d_vendedor", "dsvendedor", "vendedor_nombre", "nombre_vendedor"]),
+            # Código ERP del vendedor (número) para deduplicación estable
+            "vendedor_erp_cod": _flexible_col(df, ["vendedor", "id_vendedor_erp", "codi_vendedor"]),
+            "sucursal":         _flexible_col(df, ["dssucur", "sucursal", "sucursal_nombre", "nombre_sucursal"]),
+            "id_sucursal":      _flexible_col(df, ["idsucur", "id_sucursal", "sucursal_id"]),
+            "ruta":             _flexible_col(df, ["ruta", "nro_ruta", "id_ruta", "ruta_erp"]),
             # Coordenadas — claves internas, se escriben como latitud/longitud en Supabase
-            "latitud":         _flexible_col(df, ["ycoord", "lat", "latitud"]),
-            "longitud":        _flexible_col(df, ["xcoord", "lon", "longitud"]),
+            "latitud":          _flexible_col(df, ["ycoord", "lat", "latitud"]),
+            "longitud":         _flexible_col(df, ["xcoord", "lon", "longitud"]),
             # Dirección — se escribe como domicilio en Supabase
-            "domicilio":       _flexible_col(df, ["domicli", "direccion", "domicilio"]),
-            "localidad":       _flexible_col(df, ["descloca", "localidad"]),
-            "provincia":       _flexible_col(df, ["desprovincia", "provincia"]),
-            "canal":           _flexible_col(df, ["descanal", "canal", "canal_venta"]),
+            "domicilio":        _flexible_col(df, ["domicli", "direccion", "domicilio"]),
+            "localidad":        _flexible_col(df, ["descloca", "localidad"]),
+            "provincia":        _flexible_col(df, ["desprovincia", "provincia"]),
+            "canal":            _flexible_col(df, ["descanal", "canal", "canal_venta"]),
             # Fecha última compra (única fecha en clientes_pdv)
             "fecha_ultima_compra": _flexible_col(df, ["fecha_ultima_compra", "fec_ult", "fecultcom", "ultima_compra"]),
         }
+        logger.info(f"[Padrón] Mapeo columnas: { {k: v for k, v in cols.items() if v} }")
+        missing = [k for k, v in cols.items() if v is None]
+        if missing:
+            logger.warning(f"[Padrón] Columnas no encontradas: {missing}")
+        return cols
 
     # ── Paso 1: Sucursales ────────────────────────────────────────────────────
 
@@ -164,12 +185,17 @@ class PadronIngestionService:
         # Extraer únicas del Excel
         unique: dict[str, str] = {}  # erp_id → nombre
         for _, row in df.iterrows():
-            erp_id = _safe_str(row.get(cols["id_sucursal"]) if cols["id_sucursal"] else None)
-            nombre = _safe_str(row.get(cols["sucursal"]) if cols["sucursal"] else None, "CASA CENTRAL")
+            erp_id = _safe_str(row.get(cols["id_sucursal"]) if cols.get("id_sucursal") else None, "")
+            # Limpiar ".0" de floats convertidos a str (ej. "1.0" → "1")
+            if erp_id.endswith(".0"):
+                erp_id = erp_id[:-2]
+            nombre = _safe_str(row.get(cols["sucursal"]) if cols.get("sucursal") else None, "CASA CENTRAL")
             if not erp_id:
                 erp_id = _norm(nombre).replace(" ", "_") or "suc_0"
             if erp_id not in unique:
                 unique[erp_id] = nombre.upper()
+
+        logger.info(f"[Padrón] Sucursales únicas en Excel: {len(unique)} → {list(unique.keys())}")
 
         if not unique:
             return 0, {}
@@ -224,60 +250,91 @@ class PadronIngestionService:
     ) -> tuple[int, dict[tuple, int]]:
         """
         Upsert de vendedores únicos por sucursal.
-        Devuelve (count, {(nombre_upper, id_sucursal_erp): id_vendedor}).
+        Clave de deduplicación: (id_vendedor_erp, erp_suc) — el código numérico ERP es estable.
+        Si no hay código ERP disponible, se usa el nombre como fallback.
+        Devuelve (count, {(vend_key, id_sucursal_erp): id_vendedor}).
         """
-        # Extraer únicos: (nombre_vendedor, id_sucursal_erp)
-        unique: dict[tuple[str, str], None] = {}
+        # unique: { (vend_key, erp_suc): nombre_display }
+        # vend_key = código ERP si existe, sino nombre uppercased
+        unique: dict[tuple[str, str], str] = {}
         for _, row in df.iterrows():
-            nombre = _safe_str(row.get(cols["vendedor"]) if cols["vendedor"] else None, "SIN VENDEDOR").upper()
-            erp_suc = _safe_str(row.get(cols["id_sucursal"]) if cols["id_sucursal"] else None)
-            if not erp_suc:
-                suc_nombre = _safe_str(row.get(cols["sucursal"]) if cols["sucursal"] else None, "CASA CENTRAL")
-                erp_suc = _norm(suc_nombre).replace(" ", "_") or "suc_0"
-            unique[(nombre, erp_suc)] = None
+            # Nombre para mostrar
+            nombre = _safe_str(row.get(cols["vendedor_nombre"]) if cols.get("vendedor_nombre") else None, "").upper()
+            # Código ERP para deduplicación
+            cod = _safe_str(row.get(cols["vendedor_erp_cod"]) if cols.get("vendedor_erp_cod") else None, "")
+            # Limpiar ".0" de los floats convertidos a str (ej. "1010.0" → "1010")
+            if cod.endswith(".0"):
+                cod = cod[:-2]
+            vend_key = cod if cod else (nombre or "SIN VENDEDOR")
+            if not nombre:
+                nombre = vend_key
 
+            erp_suc = _safe_str(row.get(cols["id_sucursal"]) if cols.get("id_sucursal") else None, "")
+            if erp_suc.endswith(".0"):
+                erp_suc = erp_suc[:-2]
+            if not erp_suc:
+                suc_nombre = _safe_str(row.get(cols["sucursal"]) if cols.get("sucursal") else None, "CASA CENTRAL")
+                erp_suc = _norm(suc_nombre).replace(" ", "_") or "suc_0"
+
+            if (vend_key, erp_suc) not in unique:
+                unique[(vend_key, erp_suc)] = nombre
+
+        logger.info(f"[Padrón] Vendedores únicos en Excel: {len(unique)}")
         if not unique:
             return 0, {}
 
-        # Fetch existentes: todos los vendedores de este dist
-        existing_res = sb.table("vendedores").select("id_vendedor, nombre_erp, id_sucursal") \
+        # Fetch existentes por id_vendedor_erp (código)
+        existing_res = sb.table("vendedores") \
+            .select("id_vendedor, id_vendedor_erp, nombre_erp, id_sucursal") \
             .eq("id_distribuidor", dist_id).execute()
-        # key: (nombre_erp, id_sucursal)
-        existing: dict[tuple, int] = {
-            (r["nombre_erp"], r["id_sucursal"]): r["id_vendedor"]
+        # key: (id_vendedor_erp, id_sucursal)
+        existing_by_erp: dict[tuple, int] = {
+            (str(r["id_vendedor_erp"]), r["id_sucursal"]): r["id_vendedor"]
             for r in (existing_res.data or [])
-            if r.get("nombre_erp") and r.get("id_sucursal")
+            if r.get("id_vendedor_erp") is not None and r.get("id_sucursal")
         }
 
         to_insert = []
-        for (nombre, erp_suc) in unique.keys():
+        skipped_suc = 0
+        for (vend_key, erp_suc), nombre in unique.items():
             id_sucursal = suc_map.get(erp_suc)
             if not id_sucursal:
-                logger.warning(f"[Padrón] Vendedor '{nombre}' sin sucursal mapeada (erp_suc={erp_suc}), saltando")
+                skipped_suc += 1
+                logger.debug(f"[Padrón] Vendedor '{nombre}' (key={vend_key}) sin sucursal mapeada (erp_suc='{erp_suc}'), saltando")
                 continue
-            if (nombre, id_sucursal) not in existing:
+            if (vend_key, id_sucursal) not in existing_by_erp:
                 to_insert.append({
                     "id_distribuidor": dist_id,
                     "id_sucursal": id_sucursal,
                     "nombre_erp": nombre,
+                    "id_vendedor_erp": vend_key,
                 })
 
+        if skipped_suc:
+            logger.warning(f"[Padrón] Vendedores saltados por sucursal no mapeada: {skipped_suc}")
+
         if to_insert:
-            sb.table("vendedores").insert(to_insert).execute()
+            # Insertar en lotes para evitar límites de URL/body
+            BATCH = 200
+            for i in range(0, len(to_insert), BATCH):
+                sb.table("vendedores").insert(to_insert[i:i + BATCH]).execute()
+            logger.info(f"[Padrón] Vendedores insertados: {len(to_insert)}")
 
-        # Fetch final para mapping
-        final_res = sb.table("vendedores").select("id_vendedor, nombre_erp, id_sucursal") \
+        # Fetch final para construir el mapping
+        final_res = sb.table("vendedores") \
+            .select("id_vendedor, id_vendedor_erp, nombre_erp, id_sucursal") \
             .eq("id_distribuidor", dist_id).execute()
-        # mapping: (nombre_erp, id_sucursal_erp) → id_vendedor
-        # Invertimos suc_map para buscar erp_id por id_sucursal
         suc_map_inv = {v: k for k, v in suc_map.items()}
-        mapping: dict[tuple[str, str], int] = {
-            (r["nombre_erp"], suc_map_inv.get(r["id_sucursal"], "")): r["id_vendedor"]
-            for r in (final_res.data or [])
-            if r.get("nombre_erp") and r.get("id_sucursal")
-        }
+        mapping: dict[tuple[str, str], int] = {}
+        for r in (final_res.data or []):
+            if not r.get("id_sucursal"):
+                continue
+            erp_suc_rev = suc_map_inv.get(r["id_sucursal"], "")
+            vk = str(r["id_vendedor_erp"]) if r.get("id_vendedor_erp") is not None else (r.get("nombre_erp") or "")
+            if vk:
+                mapping[(vk, erp_suc_rev)] = r["id_vendedor"]
 
-        logger.info(f"[Padrón] Vendedores: {len(unique)} totales, {len(to_insert)} nuevos")
+        logger.info(f"[Padrón] Vendedores: {len(unique)} en Excel, {len(to_insert)} nuevos, {len(mapping)} en mapping final")
         return len(unique), mapping
 
     # ── Paso 3: Rutas ─────────────────────────────────────────────────────────
@@ -290,17 +347,29 @@ class PadronIngestionService:
         Upsert de rutas únicas por vendedor.
         Devuelve (count, {(id_vendedor, ruta_erp): id_ruta}).
         """
-        # Extraer únicos: (nombre_vendedor, erp_suc, ruta_code)
+        # Extraer únicos: (vend_key, erp_suc, ruta_code)
+        # vend_key = código ERP del vendedor (mismo que usamos en vend_map)
         unique: dict[tuple[str, str, str], None] = {}
         for _, row in df.iterrows():
-            nombre_vend = _safe_str(row.get(cols["vendedor"]) if cols["vendedor"] else None, "SIN VENDEDOR").upper()
-            erp_suc = _safe_str(row.get(cols["id_sucursal"]) if cols["id_sucursal"] else None)
-            if not erp_suc:
-                suc_nombre = _safe_str(row.get(cols["sucursal"]) if cols["sucursal"] else None, "CASA CENTRAL")
-                erp_suc = _norm(suc_nombre).replace(" ", "_") or "suc_0"
-            ruta_code = _safe_str(row.get(cols["ruta"]) if cols["ruta"] else None, "R00").upper()
-            unique[(nombre_vend, erp_suc, ruta_code)] = None
+            cod = _safe_str(row.get(cols["vendedor_erp_cod"]) if cols.get("vendedor_erp_cod") else None, "")
+            if cod.endswith(".0"):
+                cod = cod[:-2]
+            nombre_vend = _safe_str(row.get(cols["vendedor_nombre"]) if cols.get("vendedor_nombre") else None, "").upper()
+            vend_key = cod if cod else (nombre_vend or "SIN VENDEDOR")
 
+            erp_suc = _safe_str(row.get(cols["id_sucursal"]) if cols.get("id_sucursal") else None, "")
+            if erp_suc.endswith(".0"):
+                erp_suc = erp_suc[:-2]
+            if not erp_suc:
+                suc_nombre = _safe_str(row.get(cols["sucursal"]) if cols.get("sucursal") else None, "CASA CENTRAL")
+                erp_suc = _norm(suc_nombre).replace(" ", "_") or "suc_0"
+
+            ruta_code = _safe_str(row.get(cols["ruta"]) if cols.get("ruta") else None, "R00").upper()
+            if ruta_code.endswith(".0"):
+                ruta_code = ruta_code[:-2]
+            unique[(vend_key, erp_suc, ruta_code)] = None
+
+        logger.info(f"[Padrón] Rutas únicas en Excel: {len(unique)}")
         if not unique:
             return 0, {}
 
@@ -308,18 +377,21 @@ class PadronIngestionService:
         vend_ids = list(set(vend_map.values()))
         existing: dict[tuple[int, str], int] = {}
         if vend_ids:
-            existing_res = sb.table("rutas").select("id_ruta, id_vendedor, id_ruta_erp") \
-                .in_("id_vendedor", vend_ids).execute()
-            existing = {
-                (r["id_vendedor"], r["id_ruta_erp"]): r["id_ruta"]
-                for r in (existing_res.data or [])
-                if r.get("id_ruta_erp")
-            }
+            # Paginar si hay muchos vendedores (Supabase limita .in_ largo)
+            for i in range(0, len(vend_ids), 500):
+                chunk = vend_ids[i:i+500]
+                chunk_res = sb.table("rutas").select("id_ruta, id_vendedor, id_ruta_erp") \
+                    .in_("id_vendedor", chunk).execute()
+                for r in (chunk_res.data or []):
+                    if r.get("id_ruta_erp"):
+                        existing[(r["id_vendedor"], r["id_ruta_erp"])] = r["id_ruta"]
 
         to_insert = []
-        for (nombre_vend, erp_suc, ruta_code) in unique.keys():
-            id_vendedor = vend_map.get((nombre_vend, erp_suc))
+        skipped_vend = 0
+        for (vend_key, erp_suc, ruta_code) in unique.keys():
+            id_vendedor = vend_map.get((vend_key, erp_suc))
             if not id_vendedor:
+                skipped_vend += 1
                 continue
             if (id_vendedor, ruta_code) not in existing:
                 to_insert.append({
@@ -330,23 +402,30 @@ class PadronIngestionService:
                     # se deja NULL hasta que el admin lo configure
                 })
 
-        if to_insert:
-            sb.table("rutas").insert(to_insert).execute()
+        if skipped_vend:
+            logger.warning(f"[Padrón] Rutas saltadas por vendedor no mapeado: {skipped_vend}/{len(unique)}")
 
-        # Fetch final para mapping
+        if to_insert:
+            BATCH = 200
+            for i in range(0, len(to_insert), BATCH):
+                sb.table("rutas").insert(to_insert[i:i + BATCH]).execute()
+            logger.info(f"[Padrón] Rutas insertadas: {len(to_insert)}")
+
+        # Fetch final para mapping — paginar también
         mapping: dict[tuple[str, str, str], int] = {}
         if vend_ids:
-            final_res = sb.table("rutas").select("id_ruta, id_vendedor, id_ruta_erp") \
-                .in_("id_vendedor", vend_ids).execute()
-            # Invertir vend_map para buscar (nombre_vend, erp_suc) por id_vendedor
             vend_map_inv = {v: k for k, v in vend_map.items()}
-            for r in (final_res.data or []):
-                vid = r["id_vendedor"]
-                key_vend = vend_map_inv.get(vid)  # (nombre_vend, erp_suc)
-                if key_vend and r.get("id_ruta_erp"):
-                    mapping[(key_vend[0], key_vend[1], r["id_ruta_erp"])] = r["id_ruta"]
+            for i in range(0, len(vend_ids), 500):
+                chunk = vend_ids[i:i+500]
+                final_res = sb.table("rutas").select("id_ruta, id_vendedor, id_ruta_erp") \
+                    .in_("id_vendedor", chunk).execute()
+                for r in (final_res.data or []):
+                    vid = r["id_vendedor"]
+                    key_vend = vend_map_inv.get(vid)  # (vend_key, erp_suc)
+                    if key_vend and r.get("id_ruta_erp"):
+                        mapping[(key_vend[0], key_vend[1], r["id_ruta_erp"])] = r["id_ruta"]
 
-        logger.info(f"[Padrón] Rutas: {len(unique)} totales, {len(to_insert)} nuevas")
+        logger.info(f"[Padrón] Rutas: {len(unique)} en Excel, {len(to_insert)} nuevas, {len(mapping)} en mapping final")
         return len(unique), mapping
 
     # ── Paso 4: Clientes PDV ──────────────────────────────────────────────────
@@ -364,33 +443,47 @@ class PadronIngestionService:
         """
         BATCH = 300
         records = []
-        skipped = 0
+        skip_no_id = 0
+        skip_no_ruta = 0
 
         # Recolectar todos los id_erp del padrón para el paso de adopción
         erp_ids_en_padron: dict[str, dict] = {}
 
         for _, row in df.iterrows():
-            id_erp = _safe_str(row.get(cols["id_cliente"]) if cols["id_cliente"] else None)
+            id_erp = _safe_str(row.get(cols["id_cliente"]) if cols.get("id_cliente") else None, "")
+            # Limpiar ".0" de floats (ej. "4366.0" → "4366")
+            if id_erp.endswith(".0"):
+                id_erp = id_erp[:-2]
             if not id_erp:
-                skipped += 1
+                skip_no_id += 1
                 continue
 
-            # Resolver ruta
-            nombre_vend = _safe_str(row.get(cols["vendedor"]) if cols["vendedor"] else None, "SIN VENDEDOR").upper()
-            erp_suc = _safe_str(row.get(cols["id_sucursal"]) if cols["id_sucursal"] else None)
-            if not erp_suc:
-                suc_nombre = _safe_str(row.get(cols["sucursal"]) if cols["sucursal"] else None, "CASA CENTRAL")
-                erp_suc = _norm(suc_nombre).replace(" ", "_") or "suc_0"
-            ruta_code = _safe_str(row.get(cols["ruta"]) if cols["ruta"] else None, "R00").upper()
+            # Resolver ruta usando los mismos keys que en _sync_rutas
+            cod = _safe_str(row.get(cols["vendedor_erp_cod"]) if cols.get("vendedor_erp_cod") else None, "")
+            if cod.endswith(".0"):
+                cod = cod[:-2]
+            nombre_vend = _safe_str(row.get(cols["vendedor_nombre"]) if cols.get("vendedor_nombre") else None, "").upper()
+            vend_key = cod if cod else (nombre_vend or "SIN VENDEDOR")
 
-            id_ruta = ruta_map.get((nombre_vend, erp_suc, ruta_code))
+            erp_suc = _safe_str(row.get(cols["id_sucursal"]) if cols.get("id_sucursal") else None, "")
+            if erp_suc.endswith(".0"):
+                erp_suc = erp_suc[:-2]
+            if not erp_suc:
+                suc_nombre = _safe_str(row.get(cols["sucursal"]) if cols.get("sucursal") else None, "CASA CENTRAL")
+                erp_suc = _norm(suc_nombre).replace(" ", "_") or "suc_0"
+
+            ruta_code = _safe_str(row.get(cols["ruta"]) if cols.get("ruta") else None, "R00").upper()
+            if ruta_code.endswith(".0"):
+                ruta_code = ruta_code[:-2]
+
+            id_ruta = ruta_map.get((vend_key, erp_suc, ruta_code))
             if not id_ruta:
-                skipped += 1
+                skip_no_ruta += 1
                 continue
 
             try:
-                latitud  = float(row[cols["latitud"]])  if cols["latitud"]  and _safe_str(row.get(cols["latitud"]))  else None
-                longitud = float(row[cols["longitud"]]) if cols["longitud"] and _safe_str(row.get(cols["longitud"])) else None
+                latitud  = float(row[cols["latitud"]])  if cols.get("latitud")  and _safe_str(row.get(cols["latitud"]))  else None
+                longitud = float(row[cols["longitud"]]) if cols.get("longitud") and _safe_str(row.get(cols["longitud"])) else None
             except (ValueError, TypeError):
                 latitud = longitud = None
 
@@ -398,14 +491,14 @@ class PadronIngestionService:
                 "id_ruta":             id_ruta,
                 "id_distribuidor":     dist_id,
                 "id_cliente_erp":      id_erp,
-                "nombre_fantasia":     _safe_str(row.get(cols["fantasia"]) if cols["fantasia"] else None,
-                                                 _safe_str(row.get(cols["nombre_cliente"]) if cols["nombre_cliente"] else None, "SIN NOMBRE")).upper(),
-                "nombre_razon_social": _safe_str(row.get(cols["nombre_cliente"]) if cols["nombre_cliente"] else None, "").upper(),
-                "domicilio":           _safe_str(row.get(cols["domicilio"]) if cols["domicilio"] else None, "").upper(),
-                "localidad":           _safe_str(row.get(cols["localidad"]) if cols["localidad"] else None, "").upper(),
-                "provincia":           _safe_str(row.get(cols["provincia"]) if cols["provincia"] else None, "").upper(),
-                "canal":               _safe_str(row.get(cols["canal"]) if cols["canal"] else None, "").upper(),
-                "fecha_ultima_compra": _safe_date(row.get(cols["fecha_ultima_compra"]) if cols["fecha_ultima_compra"] else None),
+                "nombre_fantasia":     _safe_str(row.get(cols["fantasia"]) if cols.get("fantasia") else None,
+                                                 _safe_str(row.get(cols["nombre_cliente"]) if cols.get("nombre_cliente") else None, "SIN NOMBRE")).upper(),
+                "nombre_razon_social": _safe_str(row.get(cols["nombre_cliente"]) if cols.get("nombre_cliente") else None, "").upper(),
+                "domicilio":           _safe_str(row.get(cols["domicilio"]) if cols.get("domicilio") else None, "").upper(),
+                "localidad":           _safe_str(row.get(cols["localidad"]) if cols.get("localidad") else None, "").upper(),
+                "provincia":           _safe_str(row.get(cols["provincia"]) if cols.get("provincia") else None, "").upper(),
+                "canal":               _safe_str(row.get(cols["canal"]) if cols.get("canal") else None, "").upper(),
+                "fecha_ultima_compra": _safe_date(row.get(cols["fecha_ultima_compra"]) if cols.get("fecha_ultima_compra") else None),
                 "latitud":             latitud,
                 "longitud":            longitud,
                 "es_limbo":            False,
@@ -415,8 +508,7 @@ class PadronIngestionService:
             records.append(payload)
             erp_ids_en_padron[id_erp] = payload
 
-        if skipped:
-            logger.warning(f"[Padrón] Clientes saltados (sin id_erp o sin ruta): {skipped}")
+        logger.info(f"[Padrón] Clientes: {len(records)} a procesar, {skip_no_id} sin id_erp, {skip_no_ruta} sin ruta mapeada")
 
         # ── Adoptar clientes limbo ────────────────────────────────────────────
         # Busca registros es_limbo=True cuyo id_cliente_erp aparece en este padrón
@@ -440,13 +532,27 @@ class PadronIngestionService:
                 logger.info(f"[Padrón] Clientes limbo adoptados: {adopted}")
 
         # ── Upsert normal en batches ──────────────────────────────────────────
+        # Nota: on_conflict requiere un UNIQUE INDEX completo (sin WHERE parcial).
+        # Si el índice fue creado con WHERE, usar ignore_duplicates=False y
+        # dejar que Supabase maneje el conflicto vía la constraint.
         total = 0
         for i in range(0, len(records), BATCH):
             batch = records[i:i + BATCH]
-            sb.table("clientes_pdv").upsert(
-                batch, on_conflict="id_ruta, id_cliente_erp"
-            ).execute()
+            try:
+                sb.table("clientes_pdv").upsert(
+                    batch, on_conflict="id_ruta,id_cliente_erp"
+                ).execute()
+            except Exception as e_upsert:
+                # Fallback: intentar insert ignorando duplicados
+                logger.warning(f"[Padrón] Upsert falló en batch {i//BATCH} ({e_upsert}), intentando insert...")
+                try:
+                    sb.table("clientes_pdv").insert(batch, count="exact").execute()
+                except Exception as e_insert:
+                    logger.error(f"[Padrón] Insert batch {i//BATCH} también falló: {e_insert}")
+                    continue
             total += len(batch)
+            if (i // BATCH) % 10 == 0:
+                logger.info(f"[Padrón] Clientes procesados: {total}/{len(records)}...")
 
         logger.info(f"[Padrón] Clientes upserted: {total} (adoptados del limbo: {adopted})")
         return total

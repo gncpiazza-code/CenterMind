@@ -272,9 +272,22 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
   }, [ventasData, selectedSucursal, vendedoresFiltrados]);
 
   const cuentasFiltradas = useMemo(() => {
-    if (!cuentasData) return null;
-    return cuentasData;
-  }, [cuentasData]);
+    if (!cuentasData || !selectedSucursal) return null;
+    // Cross-reference con vendedores ya filtrados por sucursal (mismo tenant + sucursal)
+    const vendsInSuc = new Set(vendedoresFiltrados.map(v => v.nombre_vendedor.toLowerCase()));
+    const filteredVends = cuentasData.vendedores.filter(
+      (v: any) => vendsInSuc.has(v.vendedor.toLowerCase())
+    );
+    return {
+      ...cuentasData,
+      metadatos: {
+        ...cuentasData.metadatos,
+        total_deuda:       filteredVends.reduce((s: number, v: any) => s + v.deuda_total, 0),
+        clientes_deudores: filteredVends.reduce((s: number, v: any) => s + v.cantidad_clientes, 0),
+      },
+      vendedores: filteredVends,
+    };
+  }, [cuentasData, selectedSucursal, vendedoresFiltrados]);
 
   // ── Print cuentas corrientes ─────────────────────────────────────────────
   function handlePrintCuentas() {

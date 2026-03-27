@@ -3112,8 +3112,6 @@ def pdvs_cercanos(
                 "fecha_alta, fecha_ultima_compra, id_ruta"
             ) \
             .eq("id_distribuidor", int(dist_id)) \
-            .not_.is_("latitud", "null") \
-            .not_.is_("longitud", "null") \
             .execute()
 
         todos = clientes_res.data or []

@@ -242,7 +242,15 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
     setCuentasData(null);
     setLoadingCuentas(true);
     fetchCuentasSupervision(selectedDist)
-      .then(setCuentasData).catch(() => {}).finally(() => setLoadingCuentas(false));
+      .then((data) => {
+        console.log("[CUENTAS DEBUG] dist_id:", selectedDist);
+        console.log("[CUENTAS DEBUG] vendedores recibidos:", data.vendedores.length);
+        console.log("[CUENTAS DEBUG] sucursales en cuentas:", [...new Set(data.vendedores.map((v: any) => v.sucursal))]);
+        console.log("[CUENTAS DEBUG] raw:", data);
+        setCuentasData(data);
+      })
+      .catch((e) => console.error("[CUENTAS DEBUG] error:", e))
+      .finally(() => setLoadingCuentas(false));
   }, [selectedDist]);
 
   // ── Derived & Filtered ────────────────────────────────────────────────────
@@ -273,10 +281,13 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
 
   const cuentasFiltradas = useMemo(() => {
     if (!cuentasData || !selectedSucursal) return null;
+    console.log("[CUENTAS DEBUG] selectedSucursal:", selectedSucursal);
+    console.log("[CUENTAS DEBUG] vendedores en cuentasData:", cuentasData.vendedores.map((v: any) => ({ vendedor: v.vendedor, sucursal: v.sucursal })));
     // Filtramos directamente por el campo sucursal que viene del backend
     const filteredVends = cuentasData.vendedores.filter(
       (v: any) => (v.sucursal ?? "").toLowerCase() === selectedSucursal.toLowerCase()
     );
+    console.log("[CUENTAS DEBUG] filteredVends:", filteredVends.length);
     return {
       ...cuentasData,
       metadatos: {

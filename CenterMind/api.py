@@ -28,6 +28,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import json
 import base64
+import re
 
 from services.erp_summary_service import erp_summary_service
 from services.erp_ingestion_service import erp_service
@@ -1477,6 +1478,69 @@ def dashboard_imagen(file_id: str):
 
 from fastapi.responses import JSONResponse
 
+def _enrich_and_store_cc(dist_id: int, fecha_snapshot: str, rows: list) -> int:
+    """
+    Enriquece filas de cuentas corrientes con id_vendedor/id_sucursal desde
+    vendedores_v2 y hace upsert en cc_detalle.
+    Devuelve cantidad de registros guardados.
+    """
+    try:
+        vend_res = sb.table("vendedores_v2") \
+            .select("id_vendedor, nombre_erp, id_sucursal") \
+            .eq("id_distribuidor", int(dist_id)) \
+            .execute()
+        suc_res = sb.table("sucursales_v2") \
+            .select("id_sucursal, nombre_erp") \
+            .eq("id_distribuidor", int(dist_id)) \
+            .execute()
+
+        suc_map = {s["id_sucursal"]: s["nombre_erp"] for s in (suc_res.data or [])}
+        vend_map: dict = {}
+        for v in (vend_res.data or []):
+            nombre = (v.get("nombre_erp") or "").strip().lower()
+            if nombre:
+                vend_map[nombre] = {
+                    "id_vendedor": v["id_vendedor"],
+                    "id_sucursal": v["id_sucursal"],
+                    "sucursal_nombre": suc_map.get(v["id_sucursal"], ""),
+                }
+
+        records = []
+        for row in rows:
+            v_nombre_raw = (row.get("vendedor") or "Sin Vendedor").strip()
+            v_lower = v_nombre_raw.lower()
+            enrichment = vend_map.get(v_lower)
+            if not enrichment:
+                # intenta sin prefijo de código ERP tipo "1 0001 - "
+                stripped = re.sub(r"^\d+\s+\d+\s*-\s*", "", v_nombre_raw, flags=re.IGNORECASE).strip().lower()
+                if stripped and stripped != v_lower:
+                    enrichment = vend_map.get(stripped)
+
+            records.append({
+                "id_distribuidor": int(dist_id),
+                "id_vendedor": enrichment["id_vendedor"] if enrichment else None,
+                "id_sucursal": enrichment["id_sucursal"] if enrichment else None,
+                "vendedor_nombre": v_nombre_raw,
+                "sucursal_nombre": enrichment["sucursal_nombre"] if enrichment else (row.get("sucursal") or ""),
+                "cliente_nombre": (row.get("cliente") or "Sin Cliente").strip(),
+                "deuda_total": float(row.get("deuda_total") or row.get("saldo_total") or 0),
+                "rango_antiguedad": row.get("rango_antiguedad"),
+                "antiguedad_dias": int(row.get("antiguedad") or 0),
+                "cantidad_comprobantes": int(row.get("cantidad_comprobantes") or row.get("cant_cbte") or 0),
+                "alerta_credito": row.get("alerta_credito") or row.get("Alerta de Crédito") or "",
+                "fecha_snapshot": fecha_snapshot,
+            })
+
+        if records:
+            sb.table("cc_detalle").upsert(
+                records,
+                on_conflict="id_distribuidor,fecha_snapshot,vendedor_nombre,cliente_nombre"
+            ).execute()
+        return len(records)
+    except Exception as e:
+        logger.warning(f"_enrich_and_store_cc dist={dist_id}: {e}")
+        return 0
+
 @app.options("/api/procesar-cuentas-corrientes")
 def options_procesar_cuentas_corrientes():
     return JSONResponse(
@@ -1551,6 +1615,27 @@ async def procesar_cuentas_corrientes(
             except Exception as e:
                 print(f"Advertencia: No se pudo guardar en Supabase: {e}")
 
+        # Enriquecer y guardar en cc_detalle (tabla normalizada)
+        if id_dist:
+            try:
+                import datetime as dt
+                fecha_str = dt.datetime.now().strftime("%Y-%m-%d")
+                rows_cc = []
+                for vend_name, vend_data in json_data.get("vendedores", {}).items():
+                    for r in vend_data.get("tabla", []):
+                        rows_cc.append({
+                            "vendedor": r.get("Vendedor", vend_name),
+                            "cliente": r.get("Cliente", ""),
+                            "saldo_total": r.get("Saldo Total", 0),
+                            "antiguedad": r.get("Antigüedad (días)", 0),
+                            "cant_cbte": r.get("Cant. Comprobantes", 0),
+                            "alerta_credito": r.get("Alerta de Crédito", ""),
+                        })
+                if rows_cc:
+                    _enrich_and_store_cc(id_dist, fecha_str, rows_cc)
+            except Exception as e:
+                print(f"Advertencia: No se pudo guardar en cc_detalle: {e}")
+
         # Limpieza de archivos físicos inmediatos
         os.remove(temp_file_path)
         os.remove(out_path)
@@ -1582,10 +1667,10 @@ async def sync_cuentas_corrientes(
         datos = payload.get("datos")
         if not tenant_id or not datos:
             raise HTTPException(status_code=400, detail="Falta tenant_id o datos")
-            
+
         import datetime as dt
         fecha_str = dt.datetime.now().strftime("%Y-%m-%d")
-        
+
         sb.table("cuentas_corrientes_data").upsert({
             "tenant_id": tenant_id,
             "id_distribuidor": id_distribuidor,
@@ -1593,7 +1678,12 @@ async def sync_cuentas_corrientes(
             "data": datos,
             "file_b64": None
         }, on_conflict="tenant_id, fecha").execute()
-        
+
+        # Enriquecer y guardar en cc_detalle (tabla normalizada)
+        rows_cc = datos.get("detalle_cuentas", [])
+        if rows_cc:
+            _enrich_and_store_cc(id_distribuidor, fecha_str, rows_cc)
+
         return {"ok": True, "message": "Datos sincronizados"}
     except Exception as e:
         print(f"Error sync cuentas corrientes: {e}")
@@ -2887,46 +2977,50 @@ def supervision_ventas(dist_id: int, dias: int = 30, user_payload=Depends(verify
 
 @app.get("/api/supervision/cuentas/{dist_id}", tags=["Supervisión"])
 def supervision_cuentas(dist_id: int, user_payload=Depends(verify_auth)):
-    """Cuentas corrientes por vendedor para el panel de supervisión."""
+    """Cuentas corrientes por vendedor para el panel de supervisión (lee cc_detalle)."""
     check_dist_permission(user_payload, dist_id)
     try:
-        res = sb.table("cuentas_corrientes_data") \
-            .select("fecha, data") \
+        # Obtener snapshot más reciente
+        snap_res = sb.table("cc_detalle") \
+            .select("fecha_snapshot") \
             .eq("id_distribuidor", int(dist_id)) \
-            .order("fecha", desc=True) \
+            .order("fecha_snapshot", desc=True) \
             .limit(1) \
             .execute()
 
-        if not res.data:
+        if not snap_res.data:
             return {"fecha": None, "metadatos": {}, "vendedores": []}
 
-        row = res.data[0]
-        data = row.get("data") or {}
-        metadatos = data.get("metadatos", {})
-        detalle = data.get("detalle_cuentas", [])
+        fecha_snapshot = snap_res.data[0]["fecha_snapshot"]
 
+        res = sb.table("cc_detalle") \
+            .select("id_vendedor, vendedor_nombre, sucursal_nombre, cliente_nombre, deuda_total, antiguedad_dias, rango_antiguedad, cantidad_comprobantes, alerta_credito") \
+            .eq("id_distribuidor", int(dist_id)) \
+            .eq("fecha_snapshot", fecha_snapshot) \
+            .execute()
+
+        rows = res.data or []
         vendors: dict = {}
-        for item in detalle:
-            if not item.get("es_valido", True):
-                continue
-            v = item.get("vendedor") or "Sin Vendedor"
-            if v not in vendors:
-                vendors[v] = {
-                    "vendedor": v,
-                    "sucursal": item.get("sucursal") or "",
+        for item in rows:
+            v_key = item.get("id_vendedor") or item.get("vendedor_nombre", "Sin Vendedor")
+            if v_key not in vendors:
+                vendors[v_key] = {
+                    "id_vendedor": item.get("id_vendedor"),
+                    "vendedor": item.get("vendedor_nombre") or "Sin Vendedor",
+                    "sucursal": item.get("sucursal_nombre") or "",
                     "deuda_total": 0.0,
                     "cantidad_clientes": 0,
                     "clientes": [],
                 }
-            vd = vendors[v]
+            vd = vendors[v_key]
             deuda = float(item.get("deuda_total") or 0)
             vd["deuda_total"] += deuda
             vd["cantidad_clientes"] += 1
             vd["clientes"].append({
-                "cliente": item.get("cliente"),
-                "sucursal": item.get("sucursal"),
+                "cliente": item.get("cliente_nombre"),
+                "sucursal": item.get("sucursal_nombre"),
                 "deuda_total": deuda,
-                "antiguedad": item.get("antiguedad"),
+                "antiguedad": item.get("antiguedad_dias"),
                 "rango_antiguedad": item.get("rango_antiguedad"),
                 "cantidad_comprobantes": item.get("cantidad_comprobantes"),
             })
@@ -2935,7 +3029,23 @@ def supervision_cuentas(dist_id: int, user_payload=Depends(verify_auth)):
             vd["clientes"].sort(key=lambda x: x["deuda_total"], reverse=True)
         result = sorted(vendors.values(), key=lambda x: x["deuda_total"], reverse=True)
 
-        return {"fecha": row["fecha"], "metadatos": metadatos, "vendedores": result}
+        all_clientes = [c for v in result for c in v["clientes"]]
+        total_deuda = sum(v["deuda_total"] for v in result)
+        total_cli = sum(v["cantidad_clientes"] for v in result)
+        avg_dias = (
+            sum(c["antiguedad"] or 0 for c in all_clientes) / len(all_clientes)
+            if all_clientes else 0
+        )
+
+        return {
+            "fecha": fecha_snapshot,
+            "metadatos": {
+                "total_deuda": round(total_deuda, 2),
+                "clientes_deudores": total_cli,
+                "promedio_dias_retraso": round(avg_dias, 1),
+            },
+            "vendedores": result,
+        }
     except Exception as e:
         logger.error(f"Error en supervision_cuentas: {e}")
         raise HTTPException(status_code=500, detail=str(e))

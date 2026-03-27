@@ -281,20 +281,22 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
 
   const cuentasFiltradas = useMemo(() => {
     if (!cuentasData || !selectedSucursal) return null;
+    // El campo sucursal de cada vendedor viene de sucursales_v2 via cc_detalle (autoritative)
     console.log("[CUENTAS DEBUG] selectedSucursal:", selectedSucursal);
     console.log("[CUENTAS DEBUG] vendedores en cuentasData:", cuentasData.vendedores.map((v: any) => ({ vendedor: v.vendedor, sucursal: v.sucursal })));
-    // Filtramos directamente por el campo sucursal que viene del backend
     const filteredVends = cuentasData.vendedores.filter(
       (v: any) => (v.sucursal ?? "").toLowerCase() === selectedSucursal.toLowerCase()
     );
     console.log("[CUENTAS DEBUG] filteredVends:", filteredVends.length);
+    const totalDeuda = filteredVends.reduce((s: number, v: any) => s + v.deuda_total, 0);
+    const clientesDeudores = filteredVends.reduce((s: number, v: any) => s + v.cantidad_clientes, 0);
+    const allClientes = filteredVends.flatMap((v: any) => v.clientes);
+    const promedioDias = allClientes.length > 0
+      ? allClientes.reduce((s: number, c: any) => s + (c.antiguedad ?? 0), 0) / allClientes.length
+      : 0;
     return {
       ...cuentasData,
-      metadatos: {
-        ...cuentasData.metadatos,
-        total_deuda:       filteredVends.reduce((s: number, v: any) => s + v.deuda_total, 0),
-        clientes_deudores: filteredVends.reduce((s: number, v: any) => s + v.cantidad_clientes, 0),
-      },
+      metadatos: { total_deuda: totalDeuda, clientes_deudores: clientesDeudores, promedio_dias_retraso: promedioDias },
       vendedores: filteredVends,
     };
   }, [cuentasData, selectedSucursal]);
@@ -1196,6 +1198,16 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
               </div>
             )}
 
+            {/* Sin sucursal seleccionada */}
+            {!selectedSucursal && !loadingCuentas && (
+              <div className="py-10 flex flex-col items-center justify-center text-center px-6">
+                <div className="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center mb-2">
+                  <Building2 className="w-5 h-5 text-amber-500/50" />
+                </div>
+                <p className="text-sm text-[var(--shelfy-muted)]">Seleccioná una sucursal para ver las cuentas corrientes.</p>
+              </div>
+            )}
+
             {/* Loading */}
             {loadingCuentas && !cuentasFiltradas && (
               <div className="flex items-center gap-2 justify-center py-10 text-[var(--shelfy-muted)]">
@@ -1213,6 +1225,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                 <p className="text-sm text-[var(--shelfy-muted)]">Sin deudas registradas para este distribuidor.</p>
               </div>
             )}
+
 
             {/* Tarjetas de vendedores */}
             {cuentasFiltradas && cuentasFiltradas.vendedores.length > 0 && (

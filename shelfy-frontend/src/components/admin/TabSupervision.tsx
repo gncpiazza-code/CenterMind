@@ -51,9 +51,22 @@ const MapaRutas = dynamic(() => import("./MapaRutas"), {
 
 // ── Vendor color palette ──────────────────────────────────────────────────────
 const VENDOR_COLORS = [
-  "#3b82f6", "#10b981", "#f59e0b", "#ef4444",
-  "#8b5cf6", "#ec4899", "#14b8a6", "#f97316",
-  "#06b6d4", "#a3e635", "#fb923c", "#f472b6",
+  "#22d3ee", // cyan
+  "#4ade80", // green
+  "#f59e0b", // amber
+  "#f87171", // red
+  "#a78bfa", // violet
+  "#fb7185", // rose
+  "#34d399", // emerald
+  "#60a5fa", // blue
+  "#fbbf24", // yellow
+  "#e879f9", // fuchsia
+  "#2dd4bf", // teal
+  "#fb923c", // orange
+  "#a3e635", // lime
+  "#818cf8", // indigo
+  "#f472b6", // pink
+  "#38bdf8", // sky
 ];
 const vendorColor = (i: number) => VENDOR_COLORS[i % VENDOR_COLORS.length];
 
@@ -1491,81 +1504,118 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
 
       {/* Scanner GPS Modal */}
       {scannerOpen && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-[var(--shelfy-panel)] border border-white/10 rounded-2xl w-full max-w-lg max-h-[80vh] flex flex-col">
-            <div className="flex items-center justify-between p-4 border-b border-white/10">
-              <div className="flex items-center gap-2">
-                <Radar size={16} className="text-amber-400" />
-                <span className="text-sm font-semibold text-white">PDVs en 100 metros</span>
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="bg-[#0a0f1a] border border-green-500/20 rounded-2xl w-full max-w-lg max-h-[85vh] flex flex-col shadow-[0_0_40px_rgba(34,197,94,0.08)]">
+
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-green-500/15">
+              <div className="flex items-center gap-3">
+                <div className="relative w-8 h-8 flex items-center justify-center">
+                  {/* Radar rings */}
+                  <span className="absolute inset-0 rounded-full border border-green-400/60 animate-ping" style={{ animationDuration: "1.4s" }} />
+                  <span className="absolute inset-1 rounded-full border border-green-400/40 animate-ping" style={{ animationDuration: "1.4s", animationDelay: "0.3s" }} />
+                  <span className="absolute inset-2 rounded-full border border-green-400/20 animate-ping" style={{ animationDuration: "1.4s", animationDelay: "0.6s" }} />
+                  <div className="w-2 h-2 rounded-full bg-green-400 shadow-[0_0_8px_rgba(74,222,128,0.8)] z-10" />
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-green-400 tracking-wide">SCANNER GPS</p>
+                  <p className="text-[10px] text-white/40 font-mono">
+                    {scannerLoading ? "Escaneando..." : pdvsCercanos.length > 0 ? `${pdvsCercanos.length} PDV${pdvsCercanos.length !== 1 ? "s" : ""} detectado${pdvsCercanos.length !== 1 ? "s" : ""}` : "Sin señal"}
+                  </p>
+                </div>
               </div>
-              <button onClick={() => setScannerOpen(false)} className="text-white/40 hover:text-white">
+              <button onClick={() => setScannerOpen(false)} className="text-white/30 hover:text-white/80 transition-colors p-1">
                 <X size={16} />
               </button>
             </div>
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+
+            {/* Radar animation or results */}
+            <div className="flex-1 overflow-y-auto">
               {scannerLoading && (
-                <div className="text-center py-8 text-white/50 text-sm">
-                  Obteniendo ubicación y buscando PDVs...
-                </div>
-              )}
-              {gpsError && (
-                <div className="text-center py-8 text-red-400 text-sm">{gpsError}</div>
-              )}
-              {!scannerLoading && !gpsError && pdvsCercanos.length === 0 && (
-                <div className="text-center py-8 text-white/50 text-sm">
-                  No se encontraron PDVs en 100 metros
-                </div>
-              )}
-              {pdvsCercanos.map((pdv) => {
-                const diasUltimaCompra = pdv.fecha_ultima_compra
-                  ? Math.floor((Date.now() - new Date(pdv.fecha_ultima_compra).getTime()) / 86400000)
-                  : null;
-                const compraActiva = diasUltimaCompra !== null && diasUltimaCompra < 90;
-                return (
-                  <div key={pdv.id_cliente} className="bg-white/5 rounded-xl p-3 space-y-2">
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <p className="text-sm font-semibold text-white leading-tight">
-                          {pdv.nombre_fantasia || pdv.nombre_razon_social}
-                        </p>
-                        {pdv.nombre_fantasia && pdv.nombre_razon_social && (
-                          <p className="text-xs text-white/40">{pdv.nombre_razon_social}</p>
-                        )}
-                      </div>
-                      <span className="shrink-0 text-xs bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full font-mono">
-                        {pdv.distancia_metros}m
-                      </span>
-                    </div>
-                    {pdv.domicilio && (
-                      <p className="text-xs text-white/50">
-                        {pdv.domicilio}{pdv.localidad ? `, ${pdv.localidad}` : ""}
-                      </p>
-                    )}
-                    <div className="grid grid-cols-2 gap-1.5 text-xs">
-                      {pdv.canal && (
-                        <span className="text-white/40">Canal: <span className="text-white/70">{pdv.canal}</span></span>
-                      )}
-                      {pdv.vendedor_nombre && (
-                        <span className="text-white/40">Vendedor: <span className="text-white/70">{pdv.vendedor_nombre}</span></span>
-                      )}
-                      {pdv.fecha_alta && (
-                        <span className="text-white/40">Alta: <span className="text-white/70">{new Date(pdv.fecha_alta).toLocaleDateString("es-AR")}</span></span>
-                      )}
-                      {pdv.fecha_ultima_exhibicion && (
-                        <span className="text-white/40">Últ. exhibición: <span className="text-white/70">{new Date(pdv.fecha_ultima_exhibicion).toLocaleDateString("es-AR")}</span></span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <div className={`w-1.5 h-1.5 rounded-full ${compraActiva ? "bg-green-400" : "bg-white/20"}`} />
-                      <span className={`text-xs ${compraActiva ? "text-green-400" : "text-white/30"}`}>
-                        {pdv.fecha_ultima_compra
-                          ? `Últ. compra: ${new Date(pdv.fecha_ultima_compra).toLocaleDateString("es-AR")} (${diasUltimaCompra}d)`
-                          : "Sin compras registradas"}
-                      </span>
-                    </div>
+                <div className="flex flex-col items-center justify-center py-12 gap-6">
+                  {/* Big radar */}
+                  <div className="relative w-32 h-32 flex items-center justify-center">
+                    <span className="absolute inset-0 rounded-full border-2 border-green-400/50 animate-ping" style={{ animationDuration: "1.2s" }} />
+                    <span className="absolute inset-3 rounded-full border border-green-400/35 animate-ping" style={{ animationDuration: "1.2s", animationDelay: "0.25s" }} />
+                    <span className="absolute inset-6 rounded-full border border-green-400/20 animate-ping" style={{ animationDuration: "1.2s", animationDelay: "0.5s" }} />
+                    <span className="absolute inset-9 rounded-full border border-green-400/15 animate-ping" style={{ animationDuration: "1.2s", animationDelay: "0.75s" }} />
+                    <div className="w-5 h-5 rounded-full bg-green-400 shadow-[0_0_16px_rgba(74,222,128,0.9)]" />
                   </div>
-                );
-              })}
+                  <p className="text-green-400/70 text-sm font-mono tracking-widest animate-pulse">ESCANEANDO ZONA...</p>
+                </div>
+              )}
+
+              {gpsError && (
+                <div className="flex flex-col items-center justify-center py-10 px-6 gap-3">
+                  <div className="w-10 h-10 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center">
+                    <X size={18} className="text-red-400" />
+                  </div>
+                  <p className="text-red-400 text-sm text-center">{gpsError}</p>
+                </div>
+              )}
+
+              {!scannerLoading && !gpsError && pdvsCercanos.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-10 gap-2">
+                  <p className="text-white/30 text-sm font-mono">SIN RESULTADOS</p>
+                </div>
+              )}
+
+              {pdvsCercanos.length > 0 && !scannerLoading && (
+                <div className="divide-y divide-green-500/10">
+                  {pdvsCercanos.map((pdv, idx) => {
+                    const diasUltimaCompra = pdv.fecha_ultima_compra
+                      ? Math.floor((Date.now() - new Date(pdv.fecha_ultima_compra).getTime()) / 86400000)
+                      : null;
+                    const compraActiva = diasUltimaCompra !== null && diasUltimaCompra < 90;
+                    const distLabel = pdv.distancia_metros < 1000
+                      ? `${pdv.distancia_metros}m`
+                      : `${(pdv.distancia_metros / 1000).toFixed(1)}km`;
+                    return (
+                      <div key={pdv.id_cliente} className="px-5 py-3.5 hover:bg-green-500/5 transition-colors">
+                        <div className="flex items-start justify-between gap-3 mb-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            {/* Index dot */}
+                            <span className="shrink-0 w-5 h-5 rounded-full bg-green-500/15 border border-green-500/30 flex items-center justify-center text-[9px] font-bold text-green-400 font-mono">{idx + 1}</span>
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold text-white leading-tight truncate">
+                                {pdv.nombre_fantasia || pdv.nombre_razon_social}
+                              </p>
+                              {pdv.nombre_fantasia && pdv.nombre_razon_social && (
+                                <p className="text-[10px] text-white/35 truncate">{pdv.nombre_razon_social}</p>
+                              )}
+                            </div>
+                          </div>
+                          <span className="shrink-0 text-xs bg-green-500/15 text-green-400 border border-green-500/25 px-2 py-0.5 rounded-full font-mono font-semibold">
+                            {distLabel}
+                          </span>
+                        </div>
+
+                        {pdv.domicilio && (
+                          <p className="text-[11px] text-white/40 mb-2 pl-7">
+                            {pdv.domicilio}{pdv.localidad ? `, ${pdv.localidad}` : ""}
+                          </p>
+                        )}
+
+                        <div className="pl-7 grid grid-cols-2 gap-x-4 gap-y-1 text-[11px]">
+                          {pdv.canal && <span className="text-white/35">Canal: <span className="text-white/60">{pdv.canal}</span></span>}
+                          {pdv.vendedor_nombre && <span className="text-white/35">Vendedor: <span className="text-white/60">{pdv.vendedor_nombre}</span></span>}
+                          {pdv.fecha_alta && <span className="text-white/35">Alta: <span className="text-white/60">{new Date(pdv.fecha_alta).toLocaleDateString("es-AR")}</span></span>}
+                          {pdv.fecha_ultima_exhibicion && <span className="text-white/35">Últ. exhibición: <span className="text-white/60">{new Date(pdv.fecha_ultima_exhibicion).toLocaleDateString("es-AR")}</span></span>}
+                        </div>
+
+                        <div className="pl-7 mt-1.5 flex items-center gap-1.5">
+                          <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${compraActiva ? "bg-green-400 shadow-[0_0_4px_rgba(74,222,128,0.8)]" : "bg-white/20"}`} />
+                          <span className={`text-[11px] ${compraActiva ? "text-green-400" : "text-white/30"}`}>
+                            {pdv.fecha_ultima_compra
+                              ? `Últ. compra: ${new Date(pdv.fecha_ultima_compra).toLocaleDateString("es-AR")} · ${diasUltimaCompra}d`
+                              : "Sin compras registradas"}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </div>

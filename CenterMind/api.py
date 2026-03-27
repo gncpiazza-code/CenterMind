@@ -3109,19 +3109,22 @@ def pdvs_cercanos(
 
         todos = clientes_res.data or []
 
-        cercanos = []
+        todos_con_dist = []
         for row in todos:
             try:
                 dist = haversine_metros(lat, lng, float(row["latitud"]), float(row["longitud"]))
             except (TypeError, ValueError):
                 continue
-            if dist <= radio:
-                cercanos.append((row, dist))
+            todos_con_dist.append((row, dist))
 
+        todos_con_dist.sort(key=lambda x: x[1])
+
+        # Filtrar por radio; si no hay ninguno, devolver los 5 más cercanos sin límite
+        cercanos = [(r, d) for r, d in todos_con_dist if d <= radio]
+        if not cercanos:
+            cercanos = todos_con_dist[:5]
         if not cercanos:
             return []
-
-        cercanos.sort(key=lambda x: x[1])
 
         # Obtener rutas y vendedores en batch
         ids_ruta = list({r[0]["id_ruta"] for r in cercanos if r[0].get("id_ruta")})

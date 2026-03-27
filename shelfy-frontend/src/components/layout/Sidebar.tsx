@@ -23,7 +23,7 @@ const ALL_NAV: NavItem[] = [
   { href: "/bonos", label: "Bonos", icon: Gift, roles: ["superadmin"] },
   {
     href: "/reportes",
-    label: "Panel de Supervisión",
+    label: "Reportes",
     icon: BarChart2,
     roles: ["superadmin", "admin", "supervisor"],
     subItems: [

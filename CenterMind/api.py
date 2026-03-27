@@ -34,6 +34,7 @@ from services.erp_ingestion_service import erp_service
 from services.system_monitoring_service import monitor_service
 from services.cuentas_corrientes_service import procesar_cuentas_corrientes_service
 from services.padron_ingestion_service import padron_service
+from services.ventas_ingestion_service import ingest as ventas_ingest
 import io
 import psutil
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -2710,6 +2711,75 @@ def supervision_clientes(id_ruta: int, user_payload=Depends(verify_auth)):
         return res.data or []
     except Exception as e:
         logger.error(f"Error en supervision_clientes: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── FASE 4 — Motores RPA ────────────────────────────────────────────────────
+
+@app.post("/api/motor/ventas", tags=["Motores RPA"])
+async def motor_ventas(
+    tenant_id: str = Form(...),
+    tipo: str      = Form(...),
+    file: UploadFile = File(...),
+):
+    """
+    Recibe el Excel de Comprobantes de Ventas descargado por el motor RPA de CHESS.
+    Parsea, upserta en ventas_v2 y actualiza fecha_ultima_compra en clientes_pdv_v2.
+
+    Args (form-data):
+        tenant_id : "tabaco" | "aloma" | "liver" | "real"
+        tipo      : "resumido" | "detallado"
+        file      : archivo Excel (.xlsx)
+    """
+    file_bytes = await file.read()
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="Archivo vacío")
+    if tipo not in ("resumido", "detallado"):
+        raise HTTPException(status_code=400, detail="tipo debe ser 'resumido' o 'detallado'")
+    try:
+        result = ventas_ingest(tenant_id, tipo, file_bytes)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error en motor_ventas ({tenant_id}/{tipo}): {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/motor/cuentas", tags=["Motores RPA"])
+async def motor_cuentas(
+    tenant_id: str   = Form(...),
+    file: UploadFile = File(...),
+):
+    """
+    Recibe el Excel de Saldos Totales (Cuentas Corrientes) descargado por el motor RPA.
+    Delega en procesar_cuentas_corrientes_service.
+
+    Args (form-data):
+        tenant_id : "tabaco" | "aloma" | "liver" | "real"
+        file      : archivo Excel (.xlsx)
+    """
+    from services.ventas_ingestion_service import TENANT_DIST_MAP
+    dist_id = TENANT_DIST_MAP.get(tenant_id)
+    if not dist_id:
+        raise HTTPException(status_code=400, detail=f"tenant_id desconocido: {tenant_id}")
+
+    file_bytes = await file.read()
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="Archivo vacío")
+    try:
+        import io, tempfile, os
+        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+            tmp.write(file_bytes)
+            tmp_path = tmp.name
+        try:
+            _, json_data = procesar_cuentas_corrientes_service(tmp_path, dist_id)
+        finally:
+            os.unlink(tmp_path)
+        registros = len(json_data.get("detalle_cuentas", [])) if json_data else 0
+        return {"registros": registros, "id_distribuidor": dist_id, "tenant_id": tenant_id}
+    except Exception as e:
+        logger.error(f"Error en motor_cuentas ({tenant_id}): {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

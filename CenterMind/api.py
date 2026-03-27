@@ -837,9 +837,10 @@ def get_pendientes(id_distribuidor: int, payload=Depends(verify_auth)):
     result = sb.rpc("fn_pendientes", {"p_dist_id": id_distribuidor}).execute()
     rows = result.data or []
     
-    # --- ENRIQUECIMIENTO: FALLBACK PARA NRO_CLIENTE ---
-    # Si la RPC no trae nro_cliente (error de join en DB), lo buscamos manualmente
-    pendientes_sin_nro = [r["id_exhibicion"] for r in rows if not r.get("nro_cliente") or r.get("nro_cliente") == "0"]
+    # --- ENRIQUECIMIENTO SEGURO: FALLBACK PARA NRO_CLIENTE ---
+    # Usar .get() para evitar KeyErrors si la RPC falló parcialmente
+    pendientes_sin_nro = [r.get("id_exhibicion") for r in rows if r.get("id_exhibicion") and (not r.get("nro_cliente") or r.get("nro_cliente") == "0")]
+    
     if pendientes_sin_nro:
         try:
             extra_res = sb.table("exhibiciones")\
@@ -847,32 +848,37 @@ def get_pendientes(id_distribuidor: int, payload=Depends(verify_auth)):
                 .in_("id_exhibicion", pendientes_sin_nro)\
                 .execute()
             
-            # Crear mapa ids -> nro_erp
             nro_map = {}
             for r in (extra_res.data or []):
-                if r.get("clientes_pdv") and r["clientes_pdv"].get("id_cliente_erp"):
-                    nro_map[r["id_exhibicion"]] = r["clientes_pdv"]["id_cliente_erp"]
+                val = r.get("clientes_pdv")
+                if val and isinstance(val, dict) and val.get("id_cliente_erp"):
+                    nro_map[r.get("id_exhibicion")] = val.get("id_cliente_erp")
             
-            # Aplicar al original
             for r in rows:
                 if not r.get("nro_cliente") or r.get("nro_cliente") == "0":
-                    if r["id_exhibicion"] in nro_map:
-                        r["nro_cliente"] = nro_map[r["id_exhibicion"]]
+                    ex_id = r.get("id_exhibicion")
+                    if ex_id in nro_map:
+                        r["nro_cliente"] = nro_map[ex_id]
         except Exception as e:
             logger.error(f"Error en enriquecimiento de nro_cliente: {e}")
 
     grupos: dict = {}
     for d in rows:
-        key = str(d.get("telegram_msg_id")) if d.get("telegram_msg_id") else f"solo_{d['id_exhibicion']}"
+        # Acceso ultra-seguro para evitar 500 "failed to load"
+        ex_id = d.get("id_exhibicion")
+        if not ex_id: continue # Saltar si no hay ID básico
+
+        key = str(d.get("telegram_msg_id")) if d.get("telegram_msg_id") else f"solo_{ex_id}"
+        
         if key not in grupos:
             grupos[key] = {
-                "vendedor": d.get("vendedor"), 
-                "nro_cliente": d.get("nro_cliente"),
-                "tipo_pdv": d.get("tipo_pdv"), 
-                "fecha_hora": d.get("fecha_hora"), 
+                "vendedor": d.get("vendedor") or "S/V", 
+                "nro_cliente": d.get("nro_cliente") or "S/C",
+                "tipo_pdv": d.get("tipo_pdv") or "S/D", 
+                "fecha_hora": d.get("fecha_hora") or "", 
                 "fotos": [],
             }
-        grupos[key]["fotos"].append({"id_exhibicion": d["id_exhibicion"], "drive_link": d["drive_link"]})
+        grupos[key]["fotos"].append({"id_exhibicion": ex_id, "drive_link": d.get("drive_link") or ""})
     return list(grupos.values())
 
 

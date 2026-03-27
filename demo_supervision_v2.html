@@ -1,0 +1,1932 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1280">
+<title>Shelfy — Demo Supervisión v2</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f1117;
+    --panel: #1a1d27;
+    --panel2: #1e2230;
+    --border: rgba(255,255,255,0.08);
+    --amber: #f59e0b;
+    --amber2: #fbbf24;
+    --green: #22c55e;
+    --red: #ef4444;
+    --blue: #3b82f6;
+    --cyan: #06b6d4;
+    --pink: #ec4899;
+    --text: #e2e8f0;
+    --text2: #94a3b8;
+    --text3: #64748b;
+  }
+
+  body {
+    font-family: 'Inter', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    width: 1280px;
+    height: 720px;
+    overflow: hidden;
+    position: relative;
+    user-select: none;
+  }
+
+  /* ===== PROGRESS BAR ===== */
+  #progress-bar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--amber), var(--amber2));
+    width: 0%;
+    z-index: 9999;
+    transition: none;
+    box-shadow: 0 0 8px var(--amber);
+  }
+
+  /* ===== RESTART BUTTON ===== */
+  #restart-btn {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    z-index: 9998;
+    background: rgba(245,158,11,0.15);
+    border: 1px solid rgba(245,158,11,0.3);
+    color: var(--amber);
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    backdrop-filter: blur(8px);
+    transition: background 0.2s;
+  }
+  #restart-btn:hover { background: rgba(245,158,11,0.25); }
+
+  /* ===== CURSOR ===== */
+  #cursor {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 22px;
+    height: 28px;
+    z-index: 9990;
+    pointer-events: none;
+    transform: translate(-100px, -100px);
+    filter: drop-shadow(0 2px 6px rgba(0,0,0,0.8));
+    transition: transform 800ms cubic-bezier(0.25, 0.1, 0.25, 1);
+  }
+
+  /* ===== RIPPLE ===== */
+  .ripple {
+    position: fixed;
+    border-radius: 50%;
+    background: rgba(245,158,11,0.4);
+    transform: scale(0);
+    pointer-events: none;
+    z-index: 9989;
+    animation: ripple-anim 0.6s ease-out forwards;
+  }
+  .ripple.green { background: rgba(34,197,94,0.4); }
+  .ripple.red { background: rgba(239,68,68,0.4); }
+  .ripple.cyan { background: rgba(6,182,212,0.4); }
+
+  @keyframes ripple-anim {
+    to { transform: scale(4); opacity: 0; }
+  }
+
+  /* ===== SCENES ===== */
+  .scene {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    transition: opacity 400ms ease;
+    pointer-events: none;
+  }
+  .scene.active {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  /* ===== SCENE 1: INTRO ===== */
+  #scene-intro {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg);
+    overflow: hidden;
+  }
+  .intro-particles {
+    position: absolute;
+    inset: 0;
+  }
+  .particle {
+    position: absolute;
+    border-radius: 50%;
+    background: var(--amber);
+    opacity: 0;
+    animation: particle-float linear infinite;
+  }
+  @keyframes particle-float {
+    0% { transform: translateY(100vh) scale(0); opacity: 0; }
+    10% { opacity: 0.6; }
+    90% { opacity: 0.3; }
+    100% { transform: translateY(-20px) scale(1); opacity: 0; }
+  }
+  .intro-logo {
+    font-size: 72px;
+    font-weight: 900;
+    letter-spacing: -3px;
+    background: linear-gradient(135deg, #f59e0b, #fbbf24, #f59e0b);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    position: relative;
+    z-index: 1;
+    animation: logo-appear 0.8s ease forwards;
+  }
+  .intro-subtitle {
+    font-size: 22px;
+    font-weight: 400;
+    color: var(--text2);
+    margin-top: 12px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    position: relative;
+    z-index: 1;
+    animation: logo-appear 0.8s 0.3s ease both;
+  }
+  .intro-line {
+    width: 80px;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--amber), transparent);
+    margin-top: 24px;
+    position: relative;
+    z-index: 1;
+    animation: line-expand 0.6s 0.6s ease both;
+  }
+  @keyframes logo-appear {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes line-expand {
+    from { width: 0; opacity: 0; }
+    to { width: 80px; opacity: 1; }
+  }
+
+  /* ===== LAYOUT SHELL ===== */
+  .app-shell {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background: var(--bg);
+  }
+  .app-topbar {
+    height: 52px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    gap: 16px;
+    flex-shrink: 0;
+  }
+  .app-logo {
+    font-size: 18px;
+    font-weight: 800;
+    letter-spacing: -1px;
+    background: linear-gradient(135deg, #f59e0b, #fbbf24);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .app-nav {
+    display: flex;
+    gap: 4px;
+    margin-left: auto;
+  }
+  .nav-item {
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text2);
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .nav-item.active {
+    background: rgba(245,158,11,0.12);
+    color: var(--amber);
+    border: 1px solid rgba(245,158,11,0.2);
+  }
+  .app-body {
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+    padding: 20px;
+    gap: 16px;
+  }
+
+  /* ===== SCENE 2: KPIs ===== */
+  #scene-kpis {
+    overflow: hidden;
+  }
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+    margin-bottom: 20px;
+  }
+  .kpi-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.3s;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+  }
+  .kpi-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .kpi-card.amber::before { background: linear-gradient(90deg, var(--amber), var(--amber2)); opacity: 1; }
+  .kpi-card.green::before { background: var(--green); opacity: 1; }
+  .kpi-card.blue::before { background: var(--blue); opacity: 1; }
+  .kpi-card.red::before { background: var(--red); opacity: 1; }
+  .kpi-card:hover { transform: translateY(-2px); box-shadow: 0 8px 32px rgba(0,0,0,0.5); border-color: rgba(255,255,255,0.14); }
+  .kpi-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    margin-bottom: 14px;
+  }
+  .kpi-icon.amber { background: rgba(245,158,11,0.15); }
+  .kpi-icon.green { background: rgba(34,197,94,0.15); }
+  .kpi-icon.blue { background: rgba(59,130,246,0.15); }
+  .kpi-icon.red { background: rgba(239,68,68,0.15); }
+  .kpi-value {
+    font-size: 28px;
+    font-weight: 800;
+    letter-spacing: -1px;
+    line-height: 1;
+  }
+  .kpi-value.amber { color: var(--amber); }
+  .kpi-value.green { color: var(--green); }
+  .kpi-value.blue { color: var(--blue); }
+  .kpi-value.red { color: var(--red); }
+  .kpi-label {
+    font-size: 12px;
+    color: var(--text3);
+    font-weight: 500;
+    margin-top: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .kpi-change {
+    font-size: 11px;
+    font-weight: 600;
+    margin-top: 8px;
+  }
+  .kpi-change.up { color: var(--green); }
+  .kpi-change.dn { color: var(--red); }
+
+  .chart-strip {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+    height: 200px;
+    position: relative;
+    overflow: hidden;
+  }
+  .chart-title { font-size: 13px; font-weight: 600; color: var(--text2); margin-bottom: 14px; }
+  .mini-bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 6px;
+    height: 130px;
+  }
+  .mini-bar {
+    flex: 1;
+    border-radius: 4px 4px 0 0;
+    background: rgba(245,158,11,0.3);
+    transition: height 1s ease;
+    position: relative;
+  }
+  .mini-bar.active { background: var(--amber); }
+  .mini-bar::after {
+    content: attr(data-label);
+    position: absolute;
+    bottom: -18px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 9px;
+    color: var(--text3);
+    white-space: nowrap;
+  }
+
+  /* ===== SCENE 3: EXHIBITS ===== */
+  .section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+  }
+  .section-title {
+    font-size: 16px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .section-badge {
+    background: rgba(245,158,11,0.15);
+    color: var(--amber);
+    border: 1px solid rgba(245,158,11,0.25);
+    border-radius: 20px;
+    padding: 2px 10px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .exhibits-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+  .exhibit-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+    transition: all 0.3s;
+    cursor: pointer;
+  }
+  .exhibit-card:hover { transform: translateY(-3px); box-shadow: 0 8px 32px rgba(0,0,0,0.5); border-color: rgba(255,255,255,0.14); }
+  .exhibit-img {
+    height: 160px;
+    background: var(--panel2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .exhibit-img::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(245,158,11,0.04), rgba(59,130,246,0.04));
+  }
+  .img-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    color: var(--text3);
+  }
+  .exhibit-info {
+    padding: 14px;
+  }
+  .exhibit-client {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+  .exhibit-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .exhibit-date { font-size: 11px; color: var(--text3); }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+  }
+  .badge.pending {
+    background: rgba(245,158,11,0.15);
+    color: var(--amber);
+    border: 1px solid rgba(245,158,11,0.25);
+  }
+  .badge.approved {
+    background: rgba(34,197,94,0.15);
+    color: var(--green);
+    border: 1px solid rgba(34,197,94,0.25);
+  }
+  .badge.rejected {
+    background: rgba(239,68,68,0.12);
+    color: var(--red);
+    border: 1px solid rgba(239,68,68,0.2);
+  }
+  .badge.active {
+    background: rgba(34,197,94,0.15);
+    color: var(--green);
+    border: 1px solid rgba(34,197,94,0.25);
+  }
+  .badge.inactive {
+    background: rgba(100,116,139,0.15);
+    color: var(--text3);
+    border: 1px solid rgba(100,116,139,0.2);
+  }
+  .badge.overdue {
+    background: rgba(239,68,68,0.12);
+    color: var(--red);
+    border: 1px solid rgba(239,68,68,0.2);
+  }
+  .badge.mid {
+    background: rgba(251,146,60,0.12);
+    color: #fb923c;
+    border: 1px solid rgba(251,146,60,0.2);
+  }
+  .badge.recent {
+    background: rgba(34,197,94,0.12);
+    color: var(--green);
+    border: 1px solid rgba(34,197,94,0.2);
+  }
+
+  /* Modal */
+  .modal-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    backdrop-filter: blur(12px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    opacity: 0;
+    transition: opacity 0.3s;
+    pointer-events: none;
+  }
+  .modal-overlay.open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .modal {
+    background: var(--panel);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 16px;
+    width: 520px;
+    overflow: hidden;
+    box-shadow: 0 24px 80px rgba(0,0,0,0.6);
+    transform: scale(0.95);
+    transition: transform 0.3s;
+  }
+  .modal-overlay.open .modal { transform: scale(1); }
+  .modal-img {
+    height: 260px;
+    background: var(--panel2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .modal-img::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse at center, rgba(245,158,11,0.06), transparent 70%);
+  }
+  .modal-img-icon {
+    width: 72px;
+    height: 72px;
+    border-radius: 16px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    color: var(--text3);
+  }
+  .modal-body {
+    padding: 20px;
+  }
+  .modal-client {
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+  .modal-meta {
+    font-size: 12px;
+    color: var(--text3);
+    margin-bottom: 20px;
+  }
+  .modal-actions {
+    display: flex;
+    gap: 10px;
+  }
+  .btn {
+    flex: 1;
+    padding: 10px 0;
+    border-radius: 8px;
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    transition: all 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+  .btn-approve {
+    background: rgba(34,197,94,0.15);
+    color: var(--green);
+    border: 1px solid rgba(34,197,94,0.3);
+  }
+  .btn-approve:hover { background: rgba(34,197,94,0.25); }
+  .btn-reject {
+    background: rgba(239,68,68,0.12);
+    color: var(--red);
+    border: 1px solid rgba(239,68,68,0.25);
+  }
+  .btn-reject:hover { background: rgba(239,68,68,0.2); }
+  .btn-star {
+    background: rgba(245,158,11,0.12);
+    color: var(--amber);
+    border: 1px solid rgba(245,158,11,0.25);
+  }
+  .btn-star:hover { background: rgba(245,158,11,0.2); }
+
+  /* ===== SCENE 4: MAP ===== */
+  .map-container {
+    flex: 1;
+    background: #111827;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+  }
+  /* Simulated map grid */
+  .map-container::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+  .map-container::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse at 30% 60%, rgba(6,182,212,0.04) 0%, transparent 50%),
+                radial-gradient(ellipse at 70% 30%, rgba(34,197,94,0.04) 0%, transparent 40%);
+  }
+  /* Map road lines */
+  .map-roads {
+    position: absolute;
+    inset: 0;
+    opacity: 0.15;
+  }
+  .map-dot {
+    position: absolute;
+    border-radius: 50%;
+    cursor: pointer;
+    transform: translate(-50%, -50%) scale(0);
+    transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    z-index: 2;
+  }
+  .map-dot.visible { transform: translate(-50%, -50%) scale(1); }
+  .map-dot.pulse::after {
+    content: '';
+    position: absolute;
+    inset: -6px;
+    border-radius: 50%;
+    border: 2px solid currentColor;
+    animation: dot-pulse 2s ease infinite;
+  }
+  @keyframes dot-pulse {
+    0% { transform: scale(1); opacity: 0.6; }
+    100% { transform: scale(2.5); opacity: 0; }
+  }
+  .map-label {
+    position: absolute;
+    background: rgba(15,17,23,0.9);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 11px;
+    font-weight: 500;
+    white-space: nowrap;
+    pointer-events: none;
+    transform: translate(-50%, calc(-100% - 10px));
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .map-dot:hover .map-label { opacity: 1; }
+
+  /* Sellers panel */
+  .sellers-panel {
+    width: 280px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow-y: auto;
+  }
+  .seller-row {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    transition: all 0.3s;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+  }
+  .seller-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    cursor: pointer;
+  }
+  .seller-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .seller-name {
+    font-size: 13px;
+    font-weight: 600;
+    flex: 1;
+  }
+  .seller-count {
+    font-size: 11px;
+    color: var(--text3);
+    font-weight: 500;
+  }
+  .seller-eye {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--border);
+    cursor: pointer;
+    transition: all 0.2s;
+    flex-shrink: 0;
+  }
+  .seller-eye.on {
+    background: rgba(245,158,11,0.12);
+    border-color: rgba(245,158,11,0.3);
+  }
+  .seller-routes {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.4s ease;
+    border-top: 0px solid transparent;
+  }
+  .seller-routes.open {
+    max-height: 300px;
+    border-top: 1px solid var(--border);
+  }
+  .route-row {
+    padding: 8px 14px 8px 34px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+  }
+  .route-row:last-child { border-bottom: none; }
+  .route-icon { font-size: 12px; color: var(--text3); }
+  .route-name { font-size: 12px; font-weight: 500; flex: 1; }
+  .route-count { font-size: 10px; color: var(--text3); }
+  .route-expand { font-size: 10px; color: var(--text3); transition: transform 0.3s; }
+  .route-expand.open { transform: rotate(180deg); }
+  .pdv-list {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease;
+    background: rgba(0,0,0,0.2);
+  }
+  .pdv-list.open { max-height: 200px; }
+  .pdv-row {
+    padding: 8px 14px 8px 48px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+  }
+  .pdv-row:last-child { border-bottom: none; }
+  .pdv-name { font-size: 11px; font-weight: 500; flex: 1; }
+  .pdv-addr { font-size: 10px; color: var(--text3); }
+
+  /* ===== SCENE 5: CUENTAS CORRIENTES ===== */
+  .cc-kpi-strip {
+    display: flex;
+    gap: 14px;
+    margin-bottom: 16px;
+  }
+  .cc-kpi {
+    flex: 1;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 18px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+  }
+  .cc-kpi-val {
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    color: var(--amber);
+  }
+  .cc-kpi-lbl { font-size: 11px; color: var(--text3); margin-top: 2px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+  .cc-table-wrap {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+  }
+  .cc-seller-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 18px;
+    cursor: pointer;
+    background: rgba(255,255,255,0.02);
+    border-bottom: 1px solid var(--border);
+  }
+  .cc-seller-name {
+    font-size: 14px;
+    font-weight: 700;
+    flex: 1;
+  }
+  .cc-total {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--amber);
+  }
+  .cc-chevron { font-size: 12px; color: var(--text3); transition: transform 0.3s; }
+  .cc-chevron.open { transform: rotate(180deg); }
+  .cc-rows { border-top: 1px solid var(--border); }
+  .cc-table-head {
+    display: grid;
+    grid-template-columns: 2fr 1.2fr 0.7fr 1fr 1.2fr;
+    padding: 8px 18px;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text3);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+  }
+  .cc-row {
+    display: grid;
+    grid-template-columns: 2fr 1.2fr 0.7fr 1fr 1.2fr;
+    padding: 12px 18px;
+    align-items: center;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    transition: background 0.2s;
+    cursor: pointer;
+  }
+  .cc-row:last-child { border-bottom: none; }
+  .cc-row:hover { background: rgba(255,255,255,0.02); }
+  .cc-client { font-size: 13px; font-weight: 500; }
+  .cc-days { font-size: 12px; color: var(--text3); }
+  .cc-amount { font-size: 13px; font-weight: 600; text-align: right; }
+
+  .csv-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(34,197,94,0.12);
+    color: var(--green);
+    border: 1px solid rgba(34,197,94,0.25);
+    border-radius: 7px;
+    padding: 7px 14px;
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .csv-btn:hover { background: rgba(34,197,94,0.2); }
+  .csv-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    background: rgba(34,197,94,0.15);
+    color: var(--green);
+    border: 1px solid rgba(34,197,94,0.25);
+    opacity: 0;
+    transition: opacity 0.3s;
+    margin-left: 10px;
+  }
+  .csv-badge.show { opacity: 1; }
+
+  /* ===== SCENE 6: SCANNER ===== */
+  #scene-scanner {
+    background: #0a0f1a;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    position: relative;
+  }
+  .scanner-trigger-area {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+    transition: all 0.3s;
+    cursor: pointer;
+    width: 320px;
+  }
+  .scanner-btn-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: rgba(245,158,11,0.15);
+    border: 2px solid var(--amber);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    animation: radar-pulse 2s ease infinite;
+    flex-shrink: 0;
+  }
+  @keyframes radar-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(245,158,11,0.4); }
+    50% { box-shadow: 0 0 0 12px rgba(245,158,11,0); }
+  }
+  .scanner-btn-text { font-size: 16px; font-weight: 700; }
+  .scanner-btn-sub { font-size: 12px; color: var(--text3); margin-top: 2px; }
+
+  .scanner-modal {
+    position: absolute;
+    inset: 0;
+    background: #0a0f1a;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.4s;
+    pointer-events: none;
+    z-index: 10;
+  }
+  .scanner-modal.open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .radar-container {
+    position: relative;
+    width: 240px;
+    height: 240px;
+    margin-bottom: 32px;
+  }
+  .radar-ring {
+    position: absolute;
+    border-radius: 50%;
+    border: 1.5px solid var(--green);
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) scale(0);
+    opacity: 0;
+    animation: radar-ring 2.4s ease-out infinite;
+  }
+  .radar-ring:nth-child(1) { width: 60px; height: 60px; animation-delay: 0s; }
+  .radar-ring:nth-child(2) { width: 110px; height: 110px; animation-delay: 0.4s; }
+  .radar-ring:nth-child(3) { width: 165px; height: 165px; animation-delay: 0.8s; }
+  .radar-ring:nth-child(4) { width: 220px; height: 220px; animation-delay: 1.2s; }
+  @keyframes radar-ring {
+    0% { transform: translate(-50%, -50%) scale(0.2); opacity: 0.8; }
+    100% { transform: translate(-50%, -50%) scale(1); opacity: 0; }
+  }
+  .radar-center {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 20px var(--green);
+  }
+  .scanner-status {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    color: var(--green);
+    text-transform: uppercase;
+    margin-bottom: 28px;
+    animation: blink-text 1s ease infinite;
+  }
+  @keyframes blink-text {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+  .scanner-results {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: 420px;
+  }
+  .scanner-result {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(34,197,94,0.2);
+    border-radius: 10px;
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    opacity: 0;
+    transform: translateX(-20px);
+    transition: all 0.4s;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+  }
+  .scanner-result.appear {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  .dist-badge {
+    background: rgba(34,197,94,0.15);
+    color: var(--green);
+    border: 1px solid rgba(34,197,94,0.3);
+    border-radius: 6px;
+    padding: 3px 10px;
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .result-name { font-size: 13px; font-weight: 600; flex: 1; }
+  .result-sub { font-size: 11px; color: var(--text3); margin-top: 2px; }
+
+  /* ===== SCENE 7: OUTRO ===== */
+  #scene-outro {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg);
+  }
+  .outro-logo {
+    font-size: 64px;
+    font-weight: 900;
+    letter-spacing: -3px;
+    background: linear-gradient(135deg, #f59e0b, #fbbf24);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 12px;
+  }
+  .outro-url {
+    font-size: 18px;
+    color: var(--text3);
+    letter-spacing: 2px;
+  }
+  .outro-line {
+    width: 60px;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--amber), transparent);
+    margin: 20px 0;
+  }
+  .outro-tagline {
+    font-size: 13px;
+    color: var(--text3);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+</style>
+</head>
+<body>
+
+<!-- Progress bar -->
+<div id="progress-bar"></div>
+
+<!-- Restart button -->
+<button id="restart-btn" onclick="restartDemo()">▶ Reiniciar</button>
+
+<!-- Animated cursor -->
+<svg id="cursor" viewBox="0 0 22 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <path d="M0 0L0 20L5.5 15.5L9 24L12 22.5L8.5 13.5L15 13.5L0 0Z" fill="#0f1117" stroke="white" stroke-width="1.5"/>
+</svg>
+
+<!-- ===== SCENE 1: INTRO ===== -->
+<div class="scene" id="scene-intro">
+  <div class="intro-particles" id="particles"></div>
+  <div class="intro-logo">shelfy</div>
+  <div class="intro-line"></div>
+  <div class="intro-subtitle">Panel de Supervisión</div>
+</div>
+
+<!-- ===== SCENE 2: KPIs ===== -->
+<div class="scene" id="scene-kpis">
+  <div class="app-shell">
+    <div class="app-topbar">
+      <div class="app-logo">shelfy</div>
+      <div style="width:1px;height:24px;background:var(--border);margin:0 4px;"></div>
+      <span style="font-size:12px;color:var(--text3);font-weight:500;">Panel de Supervisión</span>
+      <div class="app-nav">
+        <div class="nav-item active">Dashboard</div>
+        <div class="nav-item">Supervisión</div>
+        <div class="nav-item">Cuentas</div>
+        <div class="nav-item">Scanner</div>
+      </div>
+    </div>
+    <div class="app-body" style="flex-direction:column;">
+      <div class="section-header">
+        <div class="section-title">📊 Resumen General</div>
+        <div style="font-size:11px;color:var(--text3);">Hoy, 27 Mar 2026</div>
+      </div>
+      <div class="kpi-grid">
+        <div class="kpi-card amber" id="kpi1">
+          <div class="kpi-icon amber">📍</div>
+          <div class="kpi-value amber" id="kpi-pdvs">0</div>
+          <div class="kpi-label">PDVs Activos</div>
+          <div class="kpi-change up">↑ +124 este mes</div>
+        </div>
+        <div class="kpi-card green" id="kpi2">
+          <div class="kpi-icon green">✓</div>
+          <div class="kpi-value green" id="kpi-eff">0%</div>
+          <div class="kpi-label">Efectividad</div>
+          <div class="kpi-change up">↑ +2.3% vs ayer</div>
+        </div>
+        <div class="kpi-card blue" id="kpi3">
+          <div class="kpi-icon blue">📈</div>
+          <div class="kpi-value blue" id="kpi-rev">$0</div>
+          <div class="kpi-label">Facturado</div>
+          <div class="kpi-change up">↑ +8.1% vs semana</div>
+        </div>
+        <div class="kpi-card red" id="kpi4">
+          <div class="kpi-icon red">⏱</div>
+          <div class="kpi-value red" id="kpi-pend">0</div>
+          <div class="kpi-label">Pendientes</div>
+          <div class="kpi-change dn">↓ −3 resueltos hoy</div>
+        </div>
+      </div>
+      <div class="chart-strip">
+        <div class="chart-title">Visitas por día — Última semana</div>
+        <div class="mini-bars" id="mini-bars">
+          <div class="mini-bar" data-label="Lun" style="height:0"></div>
+          <div class="mini-bar" data-label="Mar" style="height:0"></div>
+          <div class="mini-bar active" data-label="Mié" style="height:0"></div>
+          <div class="mini-bar" data-label="Jue" style="height:0"></div>
+          <div class="mini-bar" data-label="Vie" style="height:0"></div>
+          <div class="mini-bar" data-label="Sáb" style="height:0"></div>
+          <div class="mini-bar" data-label="Hoy" style="height:0"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== SCENE 3: EXHIBITS ===== -->
+<div class="scene" id="scene-exhibits">
+  <div class="app-shell">
+    <div class="app-topbar">
+      <div class="app-logo">shelfy</div>
+      <div style="width:1px;height:24px;background:var(--border);margin:0 4px;"></div>
+      <span style="font-size:12px;color:var(--text3);font-weight:500;">Evaluación de Exhibiciones</span>
+      <div class="app-nav">
+        <div class="nav-item">Dashboard</div>
+        <div class="nav-item active">Supervisión</div>
+        <div class="nav-item">Cuentas</div>
+        <div class="nav-item">Scanner</div>
+      </div>
+    </div>
+    <div class="app-body" style="flex-direction:column;">
+      <div class="section-header">
+        <div class="section-title">🖼 Exhibiciones <span class="section-badge">3 pendientes</span></div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <div style="font-size:11px;color:var(--text3);">Filtrar:</div>
+          <div style="background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.25);color:var(--amber);border-radius:6px;padding:4px 12px;font-size:11px;font-weight:600;cursor:pointer;">Pendientes ▾</div>
+        </div>
+      </div>
+      <div class="exhibits-grid">
+        <div class="exhibit-card" id="exhibit-1">
+          <div class="exhibit-img">
+            <div class="img-icon">🖼</div>
+          </div>
+          <div class="exhibit-info">
+            <div class="exhibit-client">Super El Sol</div>
+            <div class="exhibit-meta">
+              <span class="exhibit-date">Hace 2 horas</span>
+              <span class="badge pending" id="badge-1">● PENDIENTE</span>
+            </div>
+          </div>
+        </div>
+        <div class="exhibit-card" id="exhibit-2">
+          <div class="exhibit-img">
+            <div class="img-icon">🖼</div>
+          </div>
+          <div class="exhibit-info">
+            <div class="exhibit-client">Kiosco Central</div>
+            <div class="exhibit-meta">
+              <span class="exhibit-date">Hace 4 horas</span>
+              <span class="badge pending" id="badge-2">● PENDIENTE</span>
+            </div>
+          </div>
+        </div>
+        <div class="exhibit-card" id="exhibit-3">
+          <div class="exhibit-img">
+            <div class="img-icon">🖼</div>
+          </div>
+          <div class="exhibit-info">
+            <div class="exhibit-client">Almacén Don Pedro</div>
+            <div class="exhibit-meta">
+              <span class="exhibit-date">Hace 6 horas</span>
+              <span class="badge pending" id="badge-3">● PENDIENTE</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- Exhibit modal -->
+  <div class="modal-overlay" id="exhibit-modal">
+    <div class="modal">
+      <div class="modal-img">
+        <div class="modal-img-icon">🖼</div>
+      </div>
+      <div class="modal-body">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">
+          <div class="modal-client">Super El Sol</div>
+          <span class="badge pending" id="modal-badge">● PENDIENTE</span>
+        </div>
+        <div class="modal-meta">Exhibición cargada hace 2 horas · Juan García · Zona Norte</div>
+        <div class="modal-actions">
+          <button class="btn btn-approve" id="btn-approve">✓ Aprobar</button>
+          <button class="btn btn-reject" id="btn-reject">✗ Rechazar</button>
+          <button class="btn btn-star" id="btn-star">★ Destacar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== SCENE 4: MAP ===== -->
+<div class="scene" id="scene-map">
+  <div class="app-shell">
+    <div class="app-topbar">
+      <div class="app-logo">shelfy</div>
+      <div style="width:1px;height:24px;background:var(--border);margin:0 4px;"></div>
+      <span style="font-size:12px;color:var(--text3);font-weight:500;">Supervisión de Campo</span>
+      <div style="margin-left:auto;display:flex;gap:8px;align-items:center;">
+        <div style="background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.25);color:var(--green);border-radius:6px;padding:4px 12px;font-size:11px;font-weight:600;">● En vivo</div>
+      </div>
+    </div>
+    <div class="app-body">
+      <!-- Map -->
+      <div class="map-container" id="map-container">
+        <svg class="map-roads" viewBox="0 0 900 620" xmlns="http://www.w3.org/2000/svg">
+          <!-- Simulated roads -->
+          <path d="M0 180 Q200 160 400 200 T900 180" stroke="rgba(255,255,255,0.15)" stroke-width="3" fill="none"/>
+          <path d="M0 380 Q300 360 600 400 T900 380" stroke="rgba(255,255,255,0.12)" stroke-width="2.5" fill="none"/>
+          <path d="M200 0 Q220 200 200 400 T210 620" stroke="rgba(255,255,255,0.12)" stroke-width="2.5" fill="none"/>
+          <path d="M500 0 Q510 200 500 400 T505 620" stroke="rgba(255,255,255,0.1)" stroke-width="2" fill="none"/>
+          <path d="M750 0 Q760 200 750 400 T755 620" stroke="rgba(255,255,255,0.08)" stroke-width="1.5" fill="none"/>
+          <path d="M0 520 Q450 500 900 520" stroke="rgba(255,255,255,0.08)" stroke-width="2" fill="none"/>
+          <text x="60" y="170" fill="rgba(255,255,255,0.1)" font-size="10" font-family="Inter">AV. CORRIENTES</text>
+          <text x="60" y="370" fill="rgba(255,255,255,0.08)" font-size="9" font-family="Inter">AV. SANTA FE</text>
+          <text x="205" y="40" fill="rgba(255,255,255,0.08)" font-size="9" font-family="Inter" transform="rotate(90,205,40)">RIVADAVIA</text>
+          <text x="505" y="40" fill="rgba(255,255,255,0.06)" font-size="9" font-family="Inter" transform="rotate(90,505,40)">CALLAO</text>
+        </svg>
+        <!-- Map dots will be injected by JS -->
+      </div>
+      <!-- Sellers panel -->
+      <div class="sellers-panel" id="sellers-panel">
+        <div style="font-size:12px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;padding:2px 4px;margin-bottom:4px;">Vendedores</div>
+        <!-- Seller 1: Juan García (cyan) -->
+        <div class="seller-row" id="seller-1">
+          <div class="seller-header" onclick="toggleSeller(1)">
+            <div class="seller-dot" style="background:#06b6d4;box-shadow:0 0 8px #06b6d4;"></div>
+            <div class="seller-name">Juan García</div>
+            <div class="seller-count">12 PDVs</div>
+            <div class="seller-eye" id="eye-1" onclick="event.stopPropagation();toggleEye(1)">👁</div>
+          </div>
+          <div class="seller-routes" id="routes-1">
+            <div class="route-row" onclick="toggleRoute(1)">
+              <span class="route-icon">🗓</span>
+              <span class="route-name">Ruta Lunes</span>
+              <span class="route-count">4 PDVs</span>
+              <span class="route-expand" id="rexp-1">▼</span>
+            </div>
+            <div class="pdv-list" id="pdvs-1">
+              <div class="pdv-row">
+                <div>
+                  <div class="pdv-name">Super El Sol</div>
+                  <div class="pdv-addr">Corrientes 1240</div>
+                </div>
+                <span class="badge active" style="font-size:10px;">Activo</span>
+              </div>
+              <div class="pdv-row">
+                <div>
+                  <div class="pdv-name">Kiosco Norte</div>
+                  <div class="pdv-addr">Lavalle 850</div>
+                </div>
+                <span class="badge inactive" style="font-size:10px;">Sin actividad >90d</span>
+              </div>
+              <div class="pdv-row">
+                <div>
+                  <div class="pdv-name">Almacén Los Pinos</div>
+                  <div class="pdv-addr">Av. Callao 342</div>
+                </div>
+                <span class="badge active" style="font-size:10px;">Activo</span>
+              </div>
+            </div>
+            <div class="route-row">
+              <span class="route-icon">🗓</span>
+              <span class="route-name">Ruta Miércoles</span>
+              <span class="route-count">4 PDVs</span>
+              <span class="route-expand">▼</span>
+            </div>
+            <div class="route-row">
+              <span class="route-icon">🗓</span>
+              <span class="route-name">Ruta Viernes</span>
+              <span class="route-count">4 PDVs</span>
+              <span class="route-expand">▼</span>
+            </div>
+          </div>
+        </div>
+        <!-- Seller 2: María López (green) -->
+        <div class="seller-row" id="seller-2">
+          <div class="seller-header" onclick="toggleSeller(2)">
+            <div class="seller-dot" style="background:#22c55e;box-shadow:0 0 8px #22c55e;"></div>
+            <div class="seller-name">María López</div>
+            <div class="seller-count">9 PDVs</div>
+            <div class="seller-eye" id="eye-2" onclick="event.stopPropagation();toggleEye(2)">👁</div>
+          </div>
+          <div class="seller-routes" id="routes-2">
+            <div class="route-row"><span class="route-icon">🗓</span><span class="route-name">Ruta Martes</span><span class="route-count">3 PDVs</span></div>
+            <div class="route-row"><span class="route-icon">🗓</span><span class="route-name">Ruta Jueves</span><span class="route-count">3 PDVs</span></div>
+          </div>
+        </div>
+        <!-- Seller 3: Carlos Ruiz (amber) -->
+        <div class="seller-row" id="seller-3">
+          <div class="seller-header" onclick="toggleSeller(3)">
+            <div class="seller-dot" style="background:#f59e0b;box-shadow:0 0 8px #f59e0b;"></div>
+            <div class="seller-name">Carlos Ruiz</div>
+            <div class="seller-count">15 PDVs</div>
+            <div class="seller-eye" id="eye-3" onclick="event.stopPropagation();toggleEye(3)">👁</div>
+          </div>
+          <div class="seller-routes" id="routes-3">
+            <div class="route-row"><span class="route-icon">🗓</span><span class="route-name">Ruta Lunes</span><span class="route-count">5 PDVs</span></div>
+            <div class="route-row"><span class="route-icon">🗓</span><span class="route-name">Ruta Miércoles</span><span class="route-count">5 PDVs</span></div>
+            <div class="route-row"><span class="route-icon">🗓</span><span class="route-name">Ruta Viernes</span><span class="route-count">5 PDVs</span></div>
+          </div>
+        </div>
+        <!-- Seller 4: Ana Torres (pink) -->
+        <div class="seller-row" id="seller-4">
+          <div class="seller-header" onclick="toggleSeller(4)">
+            <div class="seller-dot" style="background:#ec4899;box-shadow:0 0 8px #ec4899;"></div>
+            <div class="seller-name">Ana Torres</div>
+            <div class="seller-count">11 PDVs</div>
+            <div class="seller-eye" id="eye-4" onclick="event.stopPropagation();toggleEye(4)">👁</div>
+          </div>
+          <div class="seller-routes" id="routes-4">
+            <div class="route-row"><span class="route-icon">🗓</span><span class="route-name">Ruta Lunes</span><span class="route-count">4 PDVs</span></div>
+            <div class="route-row"><span class="route-icon">🗓</span><span class="route-name">Ruta Viernes</span><span class="route-count">4 PDVs</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== SCENE 5: CUENTAS CORRIENTES ===== -->
+<div class="scene" id="scene-cuentas">
+  <div class="app-shell">
+    <div class="app-topbar">
+      <div class="app-logo">shelfy</div>
+      <div style="width:1px;height:24px;background:var(--border);margin:0 4px;"></div>
+      <span style="font-size:12px;color:var(--text3);font-weight:500;">Cuentas Corrientes</span>
+      <div class="app-nav">
+        <div class="nav-item">Dashboard</div>
+        <div class="nav-item">Supervisión</div>
+        <div class="nav-item active">Cuentas</div>
+        <div class="nav-item">Scanner</div>
+      </div>
+    </div>
+    <div class="app-body" style="flex-direction:column;">
+      <div class="cc-kpi-strip">
+        <div class="cc-kpi">
+          <div class="cc-kpi-val">$2.4M</div>
+          <div class="cc-kpi-lbl">Deuda Total</div>
+        </div>
+        <div class="cc-kpi">
+          <div class="cc-kpi-val" style="color:var(--blue);">47</div>
+          <div class="cc-kpi-lbl">Clientes con deuda</div>
+        </div>
+        <div class="cc-kpi">
+          <div class="cc-kpi-val" style="color:var(--text);">18 días</div>
+          <div class="cc-kpi-lbl">Promedio deuda</div>
+        </div>
+        <div class="cc-kpi" style="display:flex;flex-direction:row;align-items:center;gap:14px;">
+          <div>
+            <div class="cc-kpi-val" style="color:var(--red);">8</div>
+            <div class="cc-kpi-lbl">Vencidos +30d</div>
+          </div>
+          <div style="margin-left:auto;display:flex;align-items:center;gap:6px;">
+            <button class="csv-btn" id="csv-btn">↓ CSV</button>
+            <span class="csv-badge" id="csv-badge">✓ Descargando...</span>
+          </div>
+        </div>
+      </div>
+      <!-- Table -->
+      <div class="cc-table-wrap">
+        <div class="cc-seller-header">
+          <div class="seller-dot" style="background:#f59e0b;box-shadow:0 0 8px #f59e0b;width:10px;height:10px;border-radius:50%;flex-shrink:0;"></div>
+          <div class="cc-seller-name">Carlos Ruiz</div>
+          <div style="font-size:11px;color:var(--text3);">3 clientes · </div>
+          <div class="cc-total">$240.000</div>
+          <div class="cc-chevron open" style="margin-left:12px;">▲</div>
+        </div>
+        <div class="cc-rows">
+          <div class="cc-table-head">
+            <span>Cliente</span>
+            <span>Categoría</span>
+            <span>Días</span>
+            <span>Comprobantes</span>
+            <span style="text-align:right;">Saldo</span>
+          </div>
+          <div class="cc-row">
+            <div>
+              <div class="cc-client">Almacén Pérez</div>
+              <div style="font-size:10px;color:var(--text3);">Barrio Norte · #PDV-0081</div>
+            </div>
+            <span class="badge overdue">+30 Días</span>
+            <div class="cc-days">35d</div>
+            <div style="font-size:12px;color:var(--text2);">3 comp.</div>
+            <div class="cc-amount" style="color:var(--red);">$145.000</div>
+          </div>
+          <div class="cc-row">
+            <div>
+              <div class="cc-client">Super Norte</div>
+              <div style="font-size:10px;color:var(--text3);">Centro · #PDV-0142</div>
+            </div>
+            <span class="badge mid">8-15 Días</span>
+            <div class="cc-days">12d</div>
+            <div style="font-size:12px;color:var(--text2);">1 comp.</div>
+            <div class="cc-amount" style="color:#fb923c;">$67.000</div>
+          </div>
+          <div class="cc-row">
+            <div>
+              <div class="cc-client">Kiosco Sur</div>
+              <div style="font-size:10px;color:var(--text3);">Palermo · #PDV-0217</div>
+            </div>
+            <span class="badge recent">1-7 Días</span>
+            <div class="cc-days">4d</div>
+            <div style="font-size:12px;color:var(--text2);">2 comp.</div>
+            <div class="cc-amount" style="color:var(--green);">$28.000</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== SCENE 6: SCANNER ===== -->
+<div class="scene" id="scene-scanner">
+  <!-- Trigger button -->
+  <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:1;" id="scanner-trigger">
+    <div style="font-size:12px;color:var(--text3);text-transform:uppercase;letter-spacing:2px;margin-bottom:24px;">Ubicación detectada · Zona Norte</div>
+    <div class="scanner-trigger-area" id="scanner-btn">
+      <div class="scanner-btn-icon">📡</div>
+      <div>
+        <div class="scanner-btn-text">Scanner GPS</div>
+        <div class="scanner-btn-sub">Escanear PDVs cercanos</div>
+      </div>
+    </div>
+    <div style="margin-top:16px;font-size:11px;color:var(--text3);">Toca para escanear en un radio de 200m</div>
+  </div>
+  <!-- Scanner modal -->
+  <div class="scanner-modal" id="scanner-modal">
+    <div class="scanner-status" id="scanner-status">Escaneando zona...</div>
+    <div class="radar-container">
+      <div class="radar-ring"></div>
+      <div class="radar-ring"></div>
+      <div class="radar-ring"></div>
+      <div class="radar-ring"></div>
+      <div class="radar-center"></div>
+    </div>
+    <div class="scanner-results" id="scanner-results">
+      <div class="scanner-result" id="sresult-1">
+        <div class="dist-badge">23m</div>
+        <div style="flex:1;">
+          <div class="result-name">Super El Sol</div>
+          <div class="result-sub">Últ. compra: hace 8 días</div>
+        </div>
+        <span class="badge active" style="font-size:10px;">● Activo</span>
+      </div>
+      <div class="scanner-result" id="sresult-2">
+        <div class="dist-badge">67m</div>
+        <div style="flex:1;">
+          <div class="result-name">Kiosco Central</div>
+          <div class="result-sub">Sin compras registradas</div>
+        </div>
+        <span class="badge inactive" style="font-size:10px;">Sin datos</span>
+      </div>
+      <div class="scanner-result" id="sresult-3">
+        <div class="dist-badge">89m</div>
+        <div style="flex:1;">
+          <div class="result-name">Almacén Don Pedro</div>
+          <div class="result-sub">Últ. compra: hace 45 días</div>
+        </div>
+        <span class="badge mid" style="font-size:10px;">45d</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== SCENE 7: OUTRO ===== -->
+<div class="scene" id="scene-outro">
+  <div class="outro-logo">shelfy</div>
+  <div class="outro-line"></div>
+  <div class="outro-url">shelfy.ar</div>
+  <div style="margin-top:20px;">
+    <div class="outro-tagline">Supervisión de campo inteligente</div>
+  </div>
+</div>
+
+<script>
+// ===== CONSTANTS =====
+const TOTAL_DURATION = 45000; // 45 seconds
+
+// ===== PROGRESS BAR =====
+const progressBar = document.getElementById('progress-bar');
+let startTime = null;
+let animFrame = null;
+
+function updateProgress(ts) {
+  if (!startTime) startTime = ts;
+  const elapsed = ts - startTime;
+  const pct = Math.min(100, (elapsed / TOTAL_DURATION) * 100);
+  progressBar.style.width = pct + '%';
+  if (pct < 100) animFrame = requestAnimationFrame(updateProgress);
+}
+
+// ===== CURSOR =====
+const cursor = document.getElementById('cursor');
+let cursorX = -100, cursorY = -100;
+
+function moveCursor(x, y, duration) {
+  return new Promise(resolve => {
+    cursor.style.transition = `transform ${duration}ms cubic-bezier(0.25, 0.1, 0.25, 1)`;
+    cursor.style.transform = `translate(${x}px, ${y}px)`;
+    cursorX = x; cursorY = y;
+    setTimeout(resolve, duration);
+  });
+}
+
+function clickCursor(x, y, color = '') {
+  return new Promise(resolve => {
+    const r = document.createElement('div');
+    r.className = 'ripple' + (color ? ' ' + color : '');
+    r.style.cssText = `width:40px;height:40px;left:${x - 20}px;top:${y - 20}px;`;
+    document.body.appendChild(r);
+    // Click scale on cursor
+    cursor.style.transform = `translate(${x}px, ${y}px) scale(0.85)`;
+    setTimeout(() => {
+      cursor.style.transform = `translate(${x}px, ${y}px) scale(1)`;
+    }, 120);
+    setTimeout(() => { r.remove(); resolve(); }, 700);
+  });
+}
+
+async function moveAndClick(x, y, moveDuration = 700, color = '') {
+  await moveCursor(x, y, moveDuration);
+  await delay(80);
+  await clickCursor(x, y, color);
+}
+
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// ===== SCENES =====
+const scenes = ['scene-intro','scene-kpis','scene-exhibits','scene-map','scene-cuentas','scene-scanner','scene-outro'];
+let currentScene = -1;
+
+function showScene(id) {
+  return new Promise(resolve => {
+    // Hide current
+    if (currentScene >= 0) {
+      const prev = document.getElementById(scenes[currentScene]);
+      if (prev) prev.classList.remove('active');
+    }
+    currentScene = scenes.indexOf(id);
+    const el = document.getElementById(id);
+    if (el) {
+      el.classList.add('active');
+    }
+    setTimeout(resolve, 450);
+  });
+}
+
+// ===== COUNTER ANIMATION =====
+function animateCounter(el, start, end, duration, formatter) {
+  const startTime = performance.now();
+  function update(ts) {
+    const elapsed = ts - startTime;
+    const progress = Math.min(elapsed / duration, 1);
+    const eased = 1 - Math.pow(1 - progress, 3);
+    const value = Math.round(start + (end - start) * eased);
+    el.textContent = formatter(value);
+    if (progress < 1) requestAnimationFrame(update);
+  }
+  requestAnimationFrame(update);
+}
+
+// ===== PARTICLES =====
+function createParticles() {
+  const container = document.getElementById('particles');
+  for (let i = 0; i < 20; i++) {
+    const p = document.createElement('div');
+    p.className = 'particle';
+    const size = Math.random() * 4 + 1;
+    p.style.cssText = `
+      width:${size}px;height:${size}px;
+      left:${Math.random() * 100}%;
+      animation-duration:${Math.random() * 8 + 6}s;
+      animation-delay:${Math.random() * 5}s;
+    `;
+    container.appendChild(p);
+  }
+}
+
+// ===== MAP DOTS =====
+const mapDots = [
+  // Juan: cyan
+  {x:22, y:28, color:'#06b6d4', seller:1, label:'Super El Sol'},
+  {x:18, y:50, color:'#06b6d4', seller:1, label:'Kiosco Norte'},
+  {x:30, y:38, color:'#06b6d4', seller:1, label:'Farmacia Central'},
+  {x:25, y:62, color:'#06b6d4', seller:1, label:'Almacén Los Pinos'},
+  {x:12, y:42, color:'#06b6d4', seller:1, label:'PDV #0081'},
+  // María: green
+  {x:55, y:25, color:'#22c55e', seller:2, label:'Super Norte'},
+  {x:62, y:44, color:'#22c55e', seller:2, label:'Kiosco Central'},
+  {x:48, y:55, color:'#22c55e', seller:2, label:'Almacén Pérez'},
+  {x:70, y:32, color:'#22c55e', seller:2, label:'PDV #0142'},
+  // Carlos: amber
+  {x:75, y:58, color:'#f59e0b', seller:3, label:'Supermercado Sur'},
+  {x:82, y:70, color:'#f59e0b', seller:3, label:'Kiosco Sur'},
+  {x:68, y:72, color:'#f59e0b', seller:3, label:'Almacén Don Pedro'},
+  {x:85, y:45, color:'#f59e0b', seller:3, label:'Distribuidora'},
+  {x:78, y:38, color:'#f59e0b', seller:3, label:'PDV #0217'},
+  // Ana: pink
+  {x:38, y:76, color:'#ec4899', seller:4, label:'Super El Ángel'},
+  {x:44, y:85, color:'#ec4899', seller:4, label:'Kiosco Palermo'},
+  {x:52, y:78, color:'#ec4899', seller:4, label:'Almacén Belgrano'},
+  {x:32, y:88, color:'#ec4899', seller:4, label:'Mini Market'},
+];
+
+function renderMapDots() {
+  const map = document.getElementById('map-container');
+  mapDots.forEach((d, i) => {
+    const dot = document.createElement('div');
+    dot.className = 'map-dot';
+    dot.id = `mdot-${i}`;
+    dot.style.cssText = `
+      left:${d.x}%;top:${d.y}%;
+      width:12px;height:12px;
+      background:${d.color};
+      box-shadow:0 0 10px ${d.color}80;
+      color:${d.color};
+    `;
+    const label = document.createElement('div');
+    label.className = 'map-label';
+    label.textContent = d.label;
+    dot.appendChild(label);
+    map.appendChild(dot);
+  });
+}
+
+function showSellerDots(sellerIdx, withDelay = true) {
+  mapDots.forEach((d, i) => {
+    if (d.seller === sellerIdx) {
+      setTimeout(() => {
+        const dot = document.getElementById(`mdot-${i}`);
+        if (dot) dot.classList.add('visible');
+      }, withDelay ? i * 80 : 0);
+    }
+  });
+}
+
+function toggleSeller(n) {
+  const routes = document.getElementById(`routes-${n}`);
+  if (routes) routes.classList.toggle('open');
+}
+
+function toggleEye(n) {
+  const eye = document.getElementById(`eye-${n}`);
+  if (eye) eye.classList.toggle('on');
+}
+
+function toggleRoute(n) {
+  const pdvs = document.getElementById(`pdvs-${n}`);
+  const exp = document.getElementById(`rexp-${n}`);
+  if (pdvs) pdvs.classList.toggle('open');
+  if (exp) exp.classList.toggle('open');
+}
+
+// ===== MAIN DEMO SEQUENCE =====
+let demoTimeouts = [];
+
+function clearTimeouts() {
+  demoTimeouts.forEach(t => clearTimeout(t));
+  demoTimeouts = [];
+  if (animFrame) cancelAnimationFrame(animFrame);
+}
+
+function t(fn, ms) {
+  demoTimeouts.push(setTimeout(fn, ms));
+}
+
+async function runDemo() {
+  startTime = null;
+  animFrame = requestAnimationFrame(updateProgress);
+  createParticles();
+  renderMapDots();
+
+  // ===== SCENE 1: INTRO (0–3s) =====
+  await showScene('scene-intro');
+  cursor.style.transform = 'translate(-100px, -100px)';
+
+  // ===== SCENE 2: KPIs (3–10s) =====
+  t(async () => {
+    await showScene('scene-kpis');
+    // Animate bars after scene loads
+    const barHeights = [72, 85, 95, 88, 100, 65, 110];
+    const bars = document.querySelectorAll('.mini-bar');
+    bars.forEach((b, i) => {
+      setTimeout(() => { b.style.height = barHeights[i] + 'px'; }, i * 100 + 300);
+    });
+    // Counter animations
+    animateCounter(document.getElementById('kpi-pdvs'), 0, 2847, 1800, v => v.toLocaleString('es-AR'));
+    setTimeout(() => animateCounter(document.getElementById('kpi-eff'), 0, 89, 1600, v => v + '%'), 200);
+    setTimeout(() => animateCounter(document.getElementById('kpi-rev'), 0, 1200000, 2000, v => '$' + (v/1000000).toFixed(1) + 'M'), 400);
+    setTimeout(() => animateCounter(document.getElementById('kpi-pend'), 0, 47, 1400, v => v), 600);
+
+    // Cursor hover KPIs
+    await delay(1200);
+    await moveCursor(200, 300, 600);
+    await delay(300);
+    await moveCursor(430, 300, 500);
+    await delay(300);
+    await moveCursor(660, 300, 500);
+    await delay(300);
+    await moveCursor(900, 300, 500);
+  }, 3000);
+
+  // ===== SCENE 3: EXHIBITS (10–18s) =====
+  t(async () => {
+    await showScene('scene-exhibits');
+    await delay(600);
+    // Move cursor to first exhibit card
+    await moveCursor(220, 360, 700);
+    await delay(300);
+    await moveAndClick(220, 360, 400);
+    // Open modal
+    await delay(200);
+    const modal = document.getElementById('exhibit-modal');
+    modal.classList.add('open');
+    await delay(600);
+    // Move to Approve button
+    await moveCursor(490, 540, 700);
+    await delay(300);
+    await moveAndClick(490, 540, 300, 'green');
+    // Change badge to approved
+    await delay(200);
+    const modalBadge = document.getElementById('modal-badge');
+    modalBadge.className = 'badge approved';
+    modalBadge.textContent = '✓ APROBADA';
+    const badge1 = document.getElementById('badge-1');
+    badge1.className = 'badge approved';
+    badge1.textContent = '✓ APROBADA';
+    await delay(1200);
+    // Close modal
+    modal.classList.remove('open');
+    await delay(500);
+    // Hover second card
+    await moveCursor(640, 360, 600);
+    await delay(500);
+    await moveCursor(1060, 360, 500);
+  }, 10000);
+
+  // ===== SCENE 4: MAP (18–28s) =====
+  t(async () => {
+    await showScene('scene-map');
+    await delay(600);
+    // Click eye of Juan García (approx position)
+    await moveCursor(1230, 178, 700);
+    await delay(300);
+    await moveAndClick(1230, 178, 300, 'cyan');
+    document.getElementById('eye-1').classList.add('on');
+    showSellerDots(1, true);
+    await delay(800);
+    // Click eye of María López
+    await moveCursor(1230, 228, 600);
+    await delay(200);
+    await moveAndClick(1230, 228, 300, 'green');
+    document.getElementById('eye-2').classList.add('on');
+    showSellerDots(2, true);
+    await delay(1000);
+    // Expand Juan García routes
+    await moveCursor(1085, 178, 700);
+    await delay(300);
+    await moveAndClick(1085, 178, 300);
+    document.getElementById('routes-1').classList.add('open');
+    await delay(800);
+    // Expand route 1 PDVs
+    await moveCursor(1148, 218, 600);
+    await delay(200);
+    await moveAndClick(1148, 218, 300);
+    document.getElementById('pdvs-1').classList.add('open');
+    document.getElementById('rexp-1').classList.add('open');
+    await delay(1200);
+    // Show Carlos and Ana dots
+    showSellerDots(3, true);
+    showSellerDots(4, true);
+  }, 18000);
+
+  // ===== SCENE 5: CUENTAS CORRIENTES (28–35s) =====
+  t(async () => {
+    await showScene('scene-cuentas');
+    await delay(800);
+    // Move over table rows
+    await moveCursor(640, 390, 700);
+    await delay(400);
+    await moveCursor(640, 440, 400);
+    await delay(300);
+    await moveCursor(640, 490, 400);
+    await delay(500);
+    // Click CSV button
+    await moveCursor(1080, 200, 700);
+    await delay(300);
+    await moveAndClick(1080, 200, 400, 'green');
+    document.getElementById('csv-badge').classList.add('show');
+    await delay(1200);
+    document.getElementById('csv-badge').classList.remove('show');
+  }, 28000);
+
+  // ===== SCENE 6: SCANNER (35–43s) =====
+  t(async () => {
+    await showScene('scene-scanner');
+    await delay(600);
+    // Move to scanner button
+    await moveCursor(640, 360, 700);
+    await delay(400);
+    await moveAndClick(640, 360, 400);
+    // Trigger scanner
+    document.getElementById('scanner-trigger').style.opacity = '0';
+    document.getElementById('scanner-trigger').style.transition = 'opacity 0.3s';
+    setTimeout(() => {
+      document.getElementById('scanner-trigger').style.display = 'none';
+    }, 300);
+    document.getElementById('scanner-modal').classList.add('open');
+    cursor.style.transform = 'translate(-100px, -100px)';
+    await delay(2200);
+    // Results appear staggered
+    document.getElementById('sresult-1').classList.add('appear');
+    await delay(300);
+    document.getElementById('sresult-2').classList.add('appear');
+    await delay(300);
+    document.getElementById('sresult-3').classList.add('appear');
+    await delay(600);
+    document.getElementById('scanner-status').textContent = '3 PDVs encontrados';
+    document.getElementById('scanner-status').style.animation = 'none';
+    document.getElementById('scanner-status').style.color = 'var(--amber)';
+  }, 35000);
+
+  // ===== SCENE 7: OUTRO (43–45s) =====
+  t(async () => {
+    await showScene('scene-outro');
+    cursor.style.transform = 'translate(-100px, -100px)';
+  }, 43000);
+}
+
+function restartDemo() {
+  clearTimeouts();
+  // Reset all scene states
+  scenes.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.remove('active');
+  });
+  currentScene = -1;
+  progressBar.style.width = '0%';
+  // Reset map dots
+  mapDots.forEach((d, i) => {
+    const dot = document.getElementById(`mdot-${i}`);
+    if (dot) dot.classList.remove('visible');
+  });
+  // Reset eyes
+  [1,2,3,4].forEach(n => {
+    const e = document.getElementById(`eye-${n}`);
+    if (e) e.classList.remove('on');
+    const r = document.getElementById(`routes-${n}`);
+    if (r) r.classList.remove('open');
+  });
+  // Reset PDVs
+  const p1 = document.getElementById('pdvs-1');
+  if (p1) p1.classList.remove('open');
+  const re1 = document.getElementById('rexp-1');
+  if (re1) re1.classList.remove('open');
+  // Reset modal
+  const modal = document.getElementById('exhibit-modal');
+  if (modal) modal.classList.remove('open');
+  const mb = document.getElementById('modal-badge');
+  if (mb) { mb.className = 'badge pending'; mb.textContent = '● PENDIENTE'; }
+  const b1 = document.getElementById('badge-1');
+  if (b1) { b1.className = 'badge pending'; b1.textContent = '● PENDIENTE'; }
+  // Reset CSV
+  const csvb = document.getElementById('csv-badge');
+  if (csvb) csvb.classList.remove('show');
+  // Reset scanner
+  const st = document.getElementById('scanner-trigger');
+  if (st) { st.style.display = ''; st.style.opacity = '1'; }
+  const sm = document.getElementById('scanner-modal');
+  if (sm) sm.classList.remove('open');
+  ['sresult-1','sresult-2','sresult-3'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.remove('appear');
+  });
+  const ss = document.getElementById('scanner-status');
+  if (ss) {
+    ss.textContent = 'Escaneando zona...';
+    ss.style.animation = '';
+    ss.style.color = '';
+  }
+  // Reset bars
+  document.querySelectorAll('.mini-bar').forEach(b => b.style.height = '0');
+  // Reset counters
+  ['kpi-pdvs','kpi-eff','kpi-rev','kpi-pend'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = '0';
+  });
+  // Restart particles
+  const particles = document.getElementById('particles');
+  if (particles) particles.innerHTML = '';
+  // Remove old map dots and re-render
+  mapDots.forEach((d, i) => {
+    const dot = document.getElementById(`mdot-${i}`);
+    if (dot) dot.remove();
+  });
+
+  setTimeout(() => runDemo(), 100);
+}
+
+// ===== START =====
+window.addEventListener('load', () => {
+  setTimeout(runDemo, 200);
+});
+</script>
+</body>
+</html>

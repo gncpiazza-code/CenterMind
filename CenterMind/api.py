@@ -8,6 +8,7 @@ Arrancar:  uvicorn api:app --host 0.0.0.0 --port 8000 --reload
 from __future__ import annotations
 
 import os
+import math
 from datetime import datetime, date, timedelta
 
 # ── Fix: PostgreSQL setea REQUESTS_CA_BUNDLE a un path inválido en Windows.
@@ -3000,6 +3001,26 @@ def supervision_cuentas(dist_id: int, user_payload=Depends(verify_auth)):
             .execute()
 
         rows = res.data or []
+
+        # Cruzar fecha_ultima_compra desde clientes_pdv_v2 por nombre
+        nombres_clientes = list({r["cliente_nombre"] for r in rows if r.get("cliente_nombre")})
+        fecha_uc_map: dict = {}
+        if nombres_clientes:
+            try:
+                pdv_res = sb.table("clientes_pdv_v2") \
+                    .select("nombre_fantasia, nombre_razon_social, fecha_ultima_compra") \
+                    .eq("id_distribuidor", int(dist_id)) \
+                    .execute()
+                for p in (pdv_res.data or []):
+                    fuc = p.get("fecha_ultima_compra")
+                    if not fuc:
+                        continue
+                    for key in [p.get("nombre_fantasia"), p.get("nombre_razon_social")]:
+                        if key and key not in fecha_uc_map:
+                            fecha_uc_map[key] = fuc
+            except Exception:
+                pass
+
         vendors: dict = {}
         for item in rows:
             v_key = item.get("id_vendedor") or item.get("vendedor_nombre", "Sin Vendedor")
@@ -3023,6 +3044,7 @@ def supervision_cuentas(dist_id: int, user_payload=Depends(verify_auth)):
                 "antiguedad": item.get("antiguedad_dias"),
                 "rango_antiguedad": item.get("rango_antiguedad"),
                 "cantidad_comprobantes": item.get("cantidad_comprobantes"),
+                "fecha_ultima_compra": fecha_uc_map.get(item.get("cliente_nombre") or ""),
             })
 
         for vd in vendors.values():
@@ -3048,6 +3070,120 @@ def supervision_cuentas(dist_id: int, user_payload=Depends(verify_auth)):
         }
     except Exception as e:
         logger.error(f"Error en supervision_cuentas: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Scanner GPS — PDVs Cercanos ───────────────────────────────────────────────
+
+def haversine_metros(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    R = 6_371_000
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+
+@app.get("/api/supervision/pdvs-cercanos", tags=["Supervisión"])
+def pdvs_cercanos(
+    lat: float,
+    lng: float,
+    radio: int = 100,
+    dist_id: int = 0,
+    user_payload=Depends(verify_auth),
+):
+    """Retorna PDVs del distribuidor dentro del radio (metros) alrededor de la coordenada."""
+    check_dist_permission(user_payload, dist_id)
+    radio = min(radio, 500)
+    try:
+        clientes_res = sb.table("clientes_pdv_v2") \
+            .select(
+                "id_cliente, id_cliente_erp, nombre_fantasia, nombre_razon_social, "
+                "domicilio, localidad, provincia, canal, latitud, longitud, "
+                "fecha_alta, fecha_ultima_compra, id_ruta"
+            ) \
+            .eq("id_distribuidor", dist_id) \
+            .not_.is_("latitud", "null") \
+            .not_.is_("longitud", "null") \
+            .execute()
+
+        todos = clientes_res.data or []
+
+        cercanos = []
+        for row in todos:
+            try:
+                dist = haversine_metros(lat, lng, float(row["latitud"]), float(row["longitud"]))
+            except (TypeError, ValueError):
+                continue
+            if dist <= radio:
+                cercanos.append((row, dist))
+
+        if not cercanos:
+            return []
+
+        cercanos.sort(key=lambda x: x[1])
+
+        # Obtener rutas y vendedores en batch
+        ids_ruta = list({r[0]["id_ruta"] for r in cercanos if r[0].get("id_ruta")})
+        ruta_map: dict = {}
+        vendedor_map: dict = {}
+        if ids_ruta:
+            rutas_res = sb.table("rutas_v2") \
+                .select("id_ruta, nombre_ruta, id_vendedor") \
+                .in_("id_ruta", ids_ruta) \
+                .execute()
+            for r in (rutas_res.data or []):
+                ruta_map[r["id_ruta"]] = r
+            ids_vend = list({r["id_vendedor"] for r in (rutas_res.data or []) if r.get("id_vendedor")})
+            if ids_vend:
+                vend_res = sb.table("vendedores_v2") \
+                    .select("id_vendedor, nombre_erp") \
+                    .in_("id_vendedor", ids_vend) \
+                    .execute()
+                for v in (vend_res.data or []):
+                    vendedor_map[v["id_vendedor"]] = v["nombre_erp"]
+
+        # Obtener última exhibición en batch
+        ids_cercanos = [r[0]["id_cliente"] for r in cercanos]
+        ultima_exhibicion_map: dict = {}
+        try:
+            exh_res = sb.table("exhibiciones") \
+                .select("id_cliente_pdv, created_at") \
+                .eq("id_distribuidor", dist_id) \
+                .in_("id_cliente_pdv", ids_cercanos) \
+                .order("created_at", desc=True) \
+                .execute()
+            for e in (exh_res.data or []):
+                cid = e.get("id_cliente_pdv")
+                if cid and cid not in ultima_exhibicion_map:
+                    ultima_exhibicion_map[cid] = e.get("created_at")
+        except Exception:
+            pass
+
+        result = []
+        for row, dist in cercanos:
+            ruta_info = ruta_map.get(row.get("id_ruta") or 0, {})
+            result.append({
+                "id_cliente": row["id_cliente"],
+                "id_cliente_erp": row.get("id_cliente_erp"),
+                "nombre_fantasia": row.get("nombre_fantasia"),
+                "nombre_razon_social": row.get("nombre_razon_social"),
+                "domicilio": row.get("domicilio"),
+                "localidad": row.get("localidad"),
+                "provincia": row.get("provincia"),
+                "canal": row.get("canal"),
+                "latitud": row.get("latitud"),
+                "longitud": row.get("longitud"),
+                "fecha_alta": row.get("fecha_alta"),
+                "fecha_ultima_compra": row.get("fecha_ultima_compra"),
+                "fecha_ultima_exhibicion": ultima_exhibicion_map.get(row["id_cliente"]),
+                "vendedor_nombre": vendedor_map.get(ruta_info.get("id_vendedor")),
+                "ruta_nombre": ruta_info.get("nombre_ruta"),
+                "distancia_metros": round(dist, 1),
+            })
+        return result
+    except Exception as e:
+        logger.error(f"Error en pdvs_cercanos: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

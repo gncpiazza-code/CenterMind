@@ -18,6 +18,8 @@ import {
   TrendingUp,
   CreditCard,
   Printer,
+  Radar,
+  X,
 } from "lucide-react";
 import {
   fetchVendedoresSupervision,
@@ -26,12 +28,14 @@ import {
   fetchDistribuidoras,
   fetchVentasSupervision,
   fetchCuentasSupervision,
+  fetchPDVsCercanos,
   type VendedorSupervision,
   type RutaSupervision,
   type ClienteSupervision,
   type Distribuidora,
   type VentasSupervision,
   type CuentasSupervision,
+  type PDVCercano,
 } from "@/lib/api";
 import type { PinCliente } from "./MapaRutas";
 
@@ -181,6 +185,12 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
   const [visibleClientes, setVisibleClientes]   = useState<Set<number>>(new Set());
   const [loadingMap, setLoadingMap]             = useState<Set<number>>(new Set());
 
+  // ── Scanner GPS ───────────────────────────────────────────────────────────
+  const [scannerOpen, setScannerOpen]           = useState(false);
+  const [scannerLoading, setScannerLoading]     = useState(false);
+  const [pdvsCercanos, setPdvsCercanos]         = useState<PDVCercano[]>([]);
+  const [gpsError, setGpsError]                 = useState<string | null>(null);
+
   // ── Ventas & Cuentas ──────────────────────────────────────────────────────
   const [ventasDias, setVentasDias]             = useState<7 | 30 | 90>(30);
   const [ventasData, setVentasData]             = useState<VentasSupervision | null>(null);
@@ -319,6 +329,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
           <td style="padding:4px 8px;border:1px solid #e5e7eb;font-size:9px;color:#6b7280">${c.sucursal ?? "-"}</td>
           <td style="padding:4px 8px;border:1px solid #e5e7eb;font-size:9px;text-align:center;color:${colorDias};font-weight:bold">${dias}</td>
           <td style="padding:4px 8px;border:1px solid #e5e7eb;font-size:9px;text-align:center">${c.cantidad_comprobantes ?? "-"}</td>
+          <td style="padding:4px 8px;border:1px solid #e5e7eb;font-size:9px;text-align:center">${c.fecha_ultima_compra ? new Date(c.fecha_ultima_compra).toLocaleDateString("es-AR") : "-"}</td>
           <td style="padding:4px 8px;border:1px solid #e5e7eb;font-size:9px;text-align:right;font-weight:600">$${fmtN(c.deuda_total)}</td>
         </tr>`;
       }).join("");
@@ -334,11 +345,12 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
             <th style="padding:5px 8px;border:1px solid #d1d5db;font-size:8px;text-align:left;text-transform:uppercase;letter-spacing:.4px">Sucursal</th>
             <th style="padding:5px 8px;border:1px solid #d1d5db;font-size:8px;text-align:center;text-transform:uppercase;letter-spacing:.4px">Días</th>
             <th style="padding:5px 8px;border:1px solid #d1d5db;font-size:8px;text-align:center;text-transform:uppercase;letter-spacing:.4px">Comprobantes</th>
+            <th style="padding:5px 8px;border:1px solid #d1d5db;font-size:8px;text-align:center;text-transform:uppercase;letter-spacing:.4px">Últ. Compra</th>
             <th style="padding:5px 8px;border:1px solid #d1d5db;font-size:8px;text-align:right;text-transform:uppercase;letter-spacing:.4px">Deuda</th>
           </tr></thead>
           <tbody>${filas}</tbody>
           <tfoot><tr style="background:#f9fafb;border-top:2px solid #d1d5db">
-            <td colspan="4" style="padding:5px 8px;font-size:9px;text-align:right;font-weight:700">Total</td>
+            <td colspan="5" style="padding:5px 8px;font-size:9px;text-align:right;font-weight:700">Total</td>
             <td style="padding:5px 8px;font-size:9px;text-align:right;font-weight:700">$${fmtN(v.deuda_total)}</td>
           </tr></tfoot>
         </table>
@@ -382,6 +394,47 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
     win.focus();
     setTimeout(() => win.print(), 400);
   }
+
+  // ── Scanner GPS handler ───────────────────────────────────────────────────
+  const handleScanner = () => {
+    setGpsError(null);
+    setScannerLoading(true);
+    setScannerOpen(true);
+    setPdvsCercanos([]);
+
+    if (!navigator.geolocation) {
+      setGpsError("Tu dispositivo no soporta geolocalización");
+      setScannerLoading(false);
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          const data = await fetchPDVsCercanos(
+            selectedDist,
+            pos.coords.latitude,
+            pos.coords.longitude,
+            100
+          );
+          setPdvsCercanos(data);
+        } catch {
+          setGpsError("Error al buscar PDVs cercanos");
+        } finally {
+          setScannerLoading(false);
+        }
+      },
+      (err) => {
+        setGpsError(
+          err.code === 1
+            ? "Permiso de ubicación denegado. Habilitalo en la configuración del navegador."
+            : "No se pudo obtener tu ubicación"
+        );
+        setScannerLoading(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
 
   // ── Accordion handlers ────────────────────────────────────────────────────
   async function handleVend(id: number) {
@@ -581,6 +634,14 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
             </select>
           )}
           <button
+            onClick={handleScanner}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 text-xs font-medium transition-colors"
+            title="Escanear PDVs cercanos (GPS)"
+          >
+            <Radar size={14} />
+            <span className="hidden sm:inline">Scanner</span>
+          </button>
+          <button
             onClick={loadVendedores}
             disabled={loading}
             title="Actualizar todo"
@@ -599,10 +660,10 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
       )}
 
       {/* Main split */}
-      <div className="grid grid-cols-1 xl:grid-cols-5 gap-3" style={{ height: 680 }}>
+      <div className="grid grid-cols-2 xl:grid-cols-5 gap-3 min-h-[60vh] xl:h-[680px]">
 
-        {/* ── MAP ─────────────────────────────────────────────────────────── */}
-        <div className="xl:col-span-3 rounded-2xl overflow-hidden border border-[var(--shelfy-border)] relative bg-[var(--shelfy-panel)]">
+        {/* ── MAP — oculto en mobile ──────────────────────────────────────── */}
+        <div className="hidden xl:block xl:col-span-3 rounded-2xl overflow-hidden border border-[var(--shelfy-border)] relative bg-[var(--shelfy-panel)]">
           {loading ? (
             <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-[var(--shelfy-muted)]">
               <Loader2 className="w-6 h-6 animate-spin" />
@@ -639,8 +700,8 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
           )}
         </div>
 
-        {/* ── RIGHT PANEL ─────────────────────────────────────────────────── */}
-        <div className="xl:col-span-2 flex flex-col rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden">
+        {/* ── RIGHT PANEL — lista vendedores/rutas ────────────────────────── */}
+        <div className="col-span-1 xl:col-span-2 flex flex-col rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden">
 
           {/* Sucursal selector */}
           <div className="px-4 py-3 border-b border-[var(--shelfy-border)]/60 shrink-0">
@@ -975,6 +1036,87 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
           </div>
         </div>
 
+        {/* ── MOBILE CC — columna derecha en mobile (xl:hidden) ───────────── */}
+        <div className="col-span-1 xl:hidden flex flex-col rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-y-auto">
+          <div className="flex items-center gap-2 px-3 py-2.5 border-b border-[var(--shelfy-border)]/50 shrink-0">
+            <CreditCard className="w-3.5 h-3.5 text-amber-400" />
+            <span className="text-xs font-bold text-[var(--shelfy-text)]">Cuentas</span>
+            {cuentasFiltradas?.fecha && (
+              <span className="text-[10px] text-[var(--shelfy-muted)] truncate">· {fmt(cuentasFiltradas.fecha)}</span>
+            )}
+            {loadingCuentas && <Loader2 className="w-3 h-3 animate-spin text-[var(--shelfy-muted)] ml-auto" />}
+          </div>
+          {cuentasFiltradas?.metadatos && (
+            <div className="grid grid-cols-2 divide-x divide-[var(--shelfy-border)]/40 border-b border-[var(--shelfy-border)]/30 shrink-0">
+              <div className="px-3 py-2">
+                <p className="text-[9px] text-[var(--shelfy-muted)] uppercase tracking-wide">Deuda</p>
+                <p className="text-sm font-bold text-amber-400">${(cuentasFiltradas.metadatos.total_deuda??0).toLocaleString("es-AR",{maximumFractionDigits:0})}</p>
+              </div>
+              <div className="px-3 py-2">
+                <p className="text-[9px] text-[var(--shelfy-muted)] uppercase tracking-wide">Prom. días</p>
+                <p className="text-sm font-bold text-[var(--shelfy-text)]">{Math.round(cuentasFiltradas.metadatos.promedio_dias_retraso??0)}d</p>
+              </div>
+            </div>
+          )}
+          {!selectedSucursal && !loadingCuentas && (
+            <div className="flex-1 flex items-center justify-center p-4">
+              <p className="text-xs text-[var(--shelfy-muted)] text-center">Seleccioná una sucursal</p>
+            </div>
+          )}
+          {cuentasFiltradas && cuentasFiltradas.vendedores.length === 0 && !loadingCuentas && (
+            <div className="flex-1 flex items-center justify-center p-4">
+              <p className="text-xs text-[var(--shelfy-muted)] text-center">Sin deudas registradas</p>
+            </div>
+          )}
+          {cuentasFiltradas && cuentasFiltradas.vendedores.length > 0 && (
+            <div className="divide-y divide-[var(--shelfy-border)]/30 overflow-y-auto">
+              {cuentasFiltradas.vendedores.map((v: any, idx: number) => {
+                const color = vendorColor(idx);
+                const isOpen = openCuentasVend === v.vendedor;
+                return (
+                  <div key={v.vendedor}>
+                    <button
+                      className="w-full flex items-center gap-2 px-3 py-2 hover:bg-white/5 transition-colors text-left"
+                      onClick={() => setOpenCuentasVend(isOpen ? null : v.vendedor)}
+                    >
+                      <VendorAvatar nombre={v.vendedor} color={color} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-semibold text-[var(--shelfy-text)] truncate">{v.vendedor}</p>
+                        <p className="text-xs font-bold text-amber-400">${v.deuda_total.toLocaleString("es-AR",{maximumFractionDigits:0})}</p>
+                      </div>
+                      <ChevronRight className={`w-3.5 h-3.5 text-[var(--shelfy-muted)] shrink-0 transition-transform duration-200 ${isOpen ? "rotate-90" : ""}`} />
+                    </button>
+                    <Accordion open={isOpen}>
+                      <div className="px-2 pb-2 overflow-x-auto">
+                        <table className="w-full text-[10px]">
+                          <thead><tr className="bg-[var(--shelfy-bg)] text-[var(--shelfy-muted)] uppercase text-[9px]">
+                            <th className="text-left px-2 py-1.5 font-semibold">Cliente</th>
+                            <th className="text-center px-2 py-1.5 font-semibold">Días</th>
+                            <th className="text-right px-2 py-1.5 font-semibold">Deuda</th>
+                          </tr></thead>
+                          <tbody className="divide-y divide-[var(--shelfy-border)]/20">
+                            {v.clientes.map((c: any, ci: number) => {
+                              const dias = c.antiguedad ?? 0;
+                              const diasColor = dias > 30 ? "text-rose-400 font-bold" : dias > 21 ? "text-orange-400" : dias > 15 ? "text-amber-400" : "text-[var(--shelfy-text)]";
+                              return (
+                                <tr key={ci} className="hover:bg-white/5 text-[var(--shelfy-text)]">
+                                  <td className="px-2 py-1.5 max-w-[90px] truncate" title={c.cliente ?? undefined}>{c.cliente ?? "-"}</td>
+                                  <td className={`px-2 py-1.5 text-center tabular-nums ${diasColor}`}>{c.antiguedad ?? "-"}</td>
+                                  <td className="px-2 py-1.5 text-right font-semibold text-amber-400 tabular-nums">${c.deuda_total.toLocaleString("es-AR",{maximumFractionDigits:0})}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </Accordion>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
       </div>
 
       {/* ── SECCIÓN VENTAS (oculta temporalmente, pendiente de pulir) ────────── */}
@@ -1119,8 +1261,8 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
         )}
       </div>}
 
-      {/* ── SECCIÓN CUENTAS CORRIENTES ──────────────────────────────────────── */}
-      <div className="rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden shadow-sm">
+      {/* ── SECCIÓN CUENTAS CORRIENTES — solo desktop (xl+) ─────────────────── */}
+      <div className="hidden xl:block rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden shadow-sm">
 
         {/* Header */}
         <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-[var(--shelfy-border)]/50">
@@ -1144,9 +1286,9 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                 </button>
                 <button
                   onClick={() => {
-                    const rows = [["Vendedor","Cliente","Sucursal","Rango","Antigüedad (días)","Comprobantes","Deuda"]];
+                    const rows = [["Vendedor","Cliente","Sucursal","Rango","Antigüedad (días)","Comprobantes","Últ. Compra","Deuda"]];
                     cuentasFiltradas.vendedores.forEach((v: any) => v.clientes.forEach((c: any) =>
-                      rows.push([v.vendedor, c.cliente??'', c.sucursal??'', c.rango_antiguedad??'', String(c.antiguedad??''), String(c.cantidad_comprobantes??''), String(c.deuda_total)])
+                      rows.push([v.vendedor, c.cliente??'', c.sucursal??'', c.rango_antiguedad??'', String(c.antiguedad??''), String(c.cantidad_comprobantes??''), c.fecha_ultima_compra ? new Date(c.fecha_ultima_compra).toLocaleDateString("es-AR") : '', String(c.deuda_total)])
                     ));
                     const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
                     const a = document.createElement("a");
@@ -1281,6 +1423,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                                   <th className="text-center px-3 py-2.5 font-semibold">Rango</th>
                                   <th className="text-center px-3 py-2.5 font-semibold">Días</th>
                                   <th className="text-center px-3 py-2.5 font-semibold">Comprob.</th>
+                                  <th className="text-center px-3 py-2.5 font-semibold">Últ. compra</th>
                                   <th className="text-right px-3 py-2.5 font-semibold">Deuda</th>
                                 </tr>
                               </thead>
@@ -1313,6 +1456,9 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                                       <td className="px-3 py-2 text-center text-[var(--shelfy-muted)]">
                                         {c.cantidad_comprobantes ?? "-"}
                                       </td>
+                                      <td className="px-3 py-2 text-center text-[var(--shelfy-muted)] tabular-nums text-[10px]">
+                                        {c.fecha_ultima_compra ? new Date(c.fecha_ultima_compra).toLocaleDateString("es-AR") : "-"}
+                                      </td>
                                       <td className="px-3 py-2 text-right font-semibold text-amber-400 tabular-nums">
                                         ${c.deuda_total.toLocaleString("es-AR",{maximumFractionDigits:0})}
                                       </td>
@@ -1322,7 +1468,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                               </tbody>
                               <tfoot>
                                 <tr className="border-t-2 border-[var(--shelfy-border)]/40 bg-white/3">
-                                  <td colSpan={5} className="px-3 py-2 text-right text-[11px] font-bold text-[var(--shelfy-muted)] uppercase tracking-wide">
+                                  <td colSpan={6} className="px-3 py-2 text-right text-[11px] font-bold text-[var(--shelfy-muted)] uppercase tracking-wide">
                                     Total
                                   </td>
                                   <td className="px-3 py-2 text-right font-bold text-amber-400 tabular-nums">
@@ -1343,6 +1489,87 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
         )}
       </div>
 
+      {/* Scanner GPS Modal */}
+      {scannerOpen && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-[var(--shelfy-panel)] border border-white/10 rounded-2xl w-full max-w-lg max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b border-white/10">
+              <div className="flex items-center gap-2">
+                <Radar size={16} className="text-amber-400" />
+                <span className="text-sm font-semibold text-white">PDVs en 100 metros</span>
+              </div>
+              <button onClick={() => setScannerOpen(false)} className="text-white/40 hover:text-white">
+                <X size={16} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {scannerLoading && (
+                <div className="text-center py-8 text-white/50 text-sm">
+                  Obteniendo ubicación y buscando PDVs...
+                </div>
+              )}
+              {gpsError && (
+                <div className="text-center py-8 text-red-400 text-sm">{gpsError}</div>
+              )}
+              {!scannerLoading && !gpsError && pdvsCercanos.length === 0 && (
+                <div className="text-center py-8 text-white/50 text-sm">
+                  No se encontraron PDVs en 100 metros
+                </div>
+              )}
+              {pdvsCercanos.map((pdv) => {
+                const diasUltimaCompra = pdv.fecha_ultima_compra
+                  ? Math.floor((Date.now() - new Date(pdv.fecha_ultima_compra).getTime()) / 86400000)
+                  : null;
+                const compraActiva = diasUltimaCompra !== null && diasUltimaCompra < 90;
+                return (
+                  <div key={pdv.id_cliente} className="bg-white/5 rounded-xl p-3 space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-semibold text-white leading-tight">
+                          {pdv.nombre_fantasia || pdv.nombre_razon_social}
+                        </p>
+                        {pdv.nombre_fantasia && pdv.nombre_razon_social && (
+                          <p className="text-xs text-white/40">{pdv.nombre_razon_social}</p>
+                        )}
+                      </div>
+                      <span className="shrink-0 text-xs bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full font-mono">
+                        {pdv.distancia_metros}m
+                      </span>
+                    </div>
+                    {pdv.domicilio && (
+                      <p className="text-xs text-white/50">
+                        {pdv.domicilio}{pdv.localidad ? `, ${pdv.localidad}` : ""}
+                      </p>
+                    )}
+                    <div className="grid grid-cols-2 gap-1.5 text-xs">
+                      {pdv.canal && (
+                        <span className="text-white/40">Canal: <span className="text-white/70">{pdv.canal}</span></span>
+                      )}
+                      {pdv.vendedor_nombre && (
+                        <span className="text-white/40">Vendedor: <span className="text-white/70">{pdv.vendedor_nombre}</span></span>
+                      )}
+                      {pdv.fecha_alta && (
+                        <span className="text-white/40">Alta: <span className="text-white/70">{new Date(pdv.fecha_alta).toLocaleDateString("es-AR")}</span></span>
+                      )}
+                      {pdv.fecha_ultima_exhibicion && (
+                        <span className="text-white/40">Últ. exhibición: <span className="text-white/70">{new Date(pdv.fecha_ultima_exhibicion).toLocaleDateString("es-AR")}</span></span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <div className={`w-1.5 h-1.5 rounded-full ${compraActiva ? "bg-green-400" : "bg-white/20"}`} />
+                      <span className={`text-xs ${compraActiva ? "text-green-400" : "text-white/30"}`}>
+                        {pdv.fecha_ultima_compra
+                          ? `Últ. compra: ${new Date(pdv.fecha_ultima_compra).toLocaleDateString("es-AR")} (${diasUltimaCompra}d)`
+                          : "Sin compras registradas"}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

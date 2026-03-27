@@ -1,8 +1,12 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 # CenterMind — Guía para Agentes
 
 ## Qué es este proyecto
 
-**CenterMind / Shelfy** es un SaaS B2B multi-tenant para gestión de fuerza de ventas y exhibiciones en el canal de distribución. Cada cliente es un "distribuidor" con su propia estructura de sucursales, vendedores y rutas. Los vendedores suben fotos de exhibiciones vía Telegram; los supervisores las evalúan desde un portal React. El sistema cruza esos datos con el ERP del distribuidor para analizar ROI y deuda de cartera.
+**Shelfy** es un SaaS B2B multi-tenant para gestión de fuerza de ventas y exhibiciones en el canal de distribución. Cada cliente es un "distribuidor" con su propia estructura de sucursales, vendedores y rutas. Los vendedores suben fotos de exhibiciones vía Telegram; los supervisores las evalúan desde un portal React. El sistema cruza esos datos con el ERP del distribuidor para analizar ROI y deuda de cartera.
 
 ---
 
@@ -22,6 +26,7 @@
 - **Recharts** para gráficos, **Leaflet / MapLibre** para mapas
 - **@tanstack/react-query** para fetching
 - Todo el tipado de API en `src/lib/api.ts`
+- **Nota**: `next.config.ts` tiene `ignoreBuildErrors: true` para TypeScript y ESLint — los errores de tipo no bloquean el build
 
 ### RPA (`ShelfMind-RPA/`)
 - **Playwright** para automatización de navegador
@@ -62,7 +67,7 @@ npm run dev          # Puerto 3000
 # RPA (cuando sea necesario)
 cd ShelfMind-RPA
 pip install -r requirements.txt
-python runner.py
+python runner.py [padron|ventas|cuentas|sigo|todos]
 ```
 
 ---
@@ -370,7 +375,7 @@ fn_login(p_usuario, p_password)        -- Auth del portal React
 
 ---
 
-## Estado actual del proyecto (Marzo 2025)
+## Estado actual del proyecto (Marzo 2026)
 
 ### Módulos estables
 - Exhibiciones (Telegram → evaluación → sync)

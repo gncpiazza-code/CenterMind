@@ -961,6 +961,7 @@ export interface ClienteCuenta {
   antiguedad: number | null;
   rango_antiguedad: string | null;
   cantidad_comprobantes: number | null;
+  fecha_ultima_compra: string | null;
 }
 
 export interface VendedorCuentas {
@@ -982,4 +983,37 @@ export interface CuentasSupervision {
 
 export async function fetchCuentasSupervision(distId: number): Promise<CuentasSupervision> {
   return apiFetch<CuentasSupervision>(`/api/supervision/cuentas/${distId}`);
+}
+
+
+// ── Scanner GPS — PDVs Cercanos ────────────────────────────────────────────────
+
+export interface PDVCercano {
+  id_cliente: number;
+  id_cliente_erp: string | null;
+  nombre_fantasia: string | null;
+  nombre_razon_social: string | null;
+  domicilio: string | null;
+  localidad: string | null;
+  provincia: string | null;
+  canal: string | null;
+  latitud: number;
+  longitud: number;
+  fecha_alta: string | null;
+  fecha_ultima_compra: string | null;
+  fecha_ultima_exhibicion: string | null;
+  vendedor_nombre: string | null;
+  ruta_nombre: string | null;
+  distancia_metros: number;
+}
+
+export async function fetchPDVsCercanos(
+  distId: number,
+  lat: number,
+  lng: number,
+  radio = 100
+): Promise<PDVCercano[]> {
+  return apiFetch<PDVCercano[]>(
+    `/api/supervision/pdvs-cercanos?lat=${lat}&lng=${lng}&radio=${radio}&dist_id=${distId}`
+  );
 }

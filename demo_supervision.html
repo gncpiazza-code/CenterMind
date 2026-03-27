@@ -1,0 +1,1291 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Shelfy — Panel de Supervisión Demo</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f1117;
+      --panel: #1a1d27;
+      --panel2: #21263a;
+      --amber: #f59e0b;
+      --amber-light: #fbbf24;
+      --amber-dark: #d97706;
+      --green: #22c55e;
+      --red: #ef4444;
+      --orange: #f97316;
+      --text: #ffffff;
+      --text-secondary: rgba(255,255,255,0.6);
+      --text-muted: rgba(255,255,255,0.35);
+      --border: rgba(255,255,255,0.08);
+      --glow: rgba(245,158,11,0.15);
+    }
+
+    html, body {
+      width: 1280px;
+      height: 720px;
+      overflow: hidden;
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    #app {
+      width: 1280px;
+      height: 720px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* ── Progress bar ── */
+    #progress-bar-wrap {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      height: 3px;
+      background: rgba(255,255,255,0.06);
+      z-index: 9999;
+    }
+    #progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, var(--amber-dark), var(--amber), var(--amber-light));
+      width: 0%;
+      transition: width 0.1s linear;
+      box-shadow: 0 0 8px var(--amber);
+    }
+
+    /* ── Restart button ── */
+    #restart-btn {
+      position: fixed;
+      top: 18px;
+      right: 18px;
+      z-index: 9999;
+      background: rgba(245,158,11,0.12);
+      border: 1px solid rgba(245,158,11,0.3);
+      color: var(--amber);
+      font-family: 'Inter', sans-serif;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 8px 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      backdrop-filter: blur(8px);
+      transition: background 0.2s, transform 0.1s;
+      letter-spacing: 0.02em;
+    }
+    #restart-btn:hover { background: rgba(245,158,11,0.22); transform: scale(1.03); }
+    #restart-btn:active { transform: scale(0.97); }
+
+    /* ── Scene base ── */
+    .scene {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.7s ease;
+    }
+    .scene.active {
+      opacity: 1;
+      pointer-events: all;
+    }
+
+    /* ─────────────────────────────────────
+       SCENE 1 — Título
+    ───────────────────────────────────── */
+    #scene1 {
+      background: radial-gradient(ellipse at 50% 40%, #1c1a0a 0%, var(--bg) 70%);
+      flex-direction: column;
+      gap: 16px;
+      text-align: center;
+    }
+    #scene1::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(circle at 20% 80%, rgba(245,158,11,0.07) 0%, transparent 50%),
+        radial-gradient(circle at 80% 20%, rgba(245,158,11,0.05) 0%, transparent 50%);
+      animation: bgPulse 4s ease-in-out infinite alternate;
+    }
+    @keyframes bgPulse {
+      from { opacity: 0.6; }
+      to { opacity: 1; }
+    }
+    .s1-logo {
+      font-size: 88px;
+      font-weight: 900;
+      letter-spacing: -4px;
+      background: linear-gradient(135deg, var(--amber) 0%, var(--amber-light) 50%, var(--amber-dark) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      filter: drop-shadow(0 0 30px rgba(245,158,11,0.4));
+      position: relative;
+      z-index: 1;
+      animation: logoFloat 3s ease-in-out infinite alternate;
+    }
+    @keyframes logoFloat {
+      from { transform: translateY(0px); }
+      to { transform: translateY(-6px); }
+    }
+    .s1-subtitle {
+      font-size: 26px;
+      font-weight: 600;
+      color: var(--text);
+      letter-spacing: -0.5px;
+      position: relative;
+      z-index: 1;
+    }
+    .s1-tagline {
+      font-size: 15px;
+      color: var(--text-secondary);
+      font-weight: 400;
+      letter-spacing: 0.04em;
+      position: relative;
+      z-index: 1;
+      margin-top: 4px;
+    }
+    .s1-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(245,158,11,0.1);
+      border: 1px solid rgba(245,158,11,0.25);
+      border-radius: 100px;
+      padding: 6px 16px;
+      font-size: 13px;
+      color: var(--amber);
+      font-weight: 500;
+      margin-top: 8px;
+      position: relative;
+      z-index: 1;
+    }
+    .s1-dot {
+      width: 7px;
+      height: 7px;
+      background: var(--green);
+      border-radius: 50%;
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(0.85); }
+    }
+
+    /* ─────────────────────────────────────
+       SCENE 2 — Vista general panel
+    ───────────────────────────────────── */
+    #scene2 { padding: 24px; gap: 0; align-items: flex-start; }
+    .scene-float-text {
+      position: absolute;
+      bottom: 28px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(245,158,11,0.12);
+      border: 1px solid rgba(245,158,11,0.3);
+      backdrop-filter: blur(12px);
+      padding: 10px 22px;
+      border-radius: 100px;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--amber);
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+      z-index: 10;
+    }
+
+    .panel-layout {
+      width: 100%;
+      height: 100%;
+      display: grid;
+      grid-template-columns: 1fr 320px 260px;
+      gap: 12px;
+    }
+    .panel-card {
+      background: var(--panel);
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .panel-header {
+      padding: 14px 18px 10px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .panel-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .panel-body { flex: 1; overflow: hidden; padding: 12px; }
+
+    /* Map */
+    .map-container {
+      width: 100%;
+      height: 100%;
+      background: #12151e;
+      border-radius: 8px;
+      position: relative;
+      overflow: hidden;
+    }
+    .map-grid {
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
+      background-size: 40px 40px;
+    }
+    .map-dot {
+      position: absolute;
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+    }
+
+    /* Vendors list */
+    .vendor-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--border);
+      margin-bottom: 8px;
+      transition: background 0.2s;
+    }
+    .vendor-avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+    .vendor-info { flex: 1; min-width: 0; }
+    .vendor-name { font-size: 13px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .vendor-sub { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+    .progress-wrap { margin-top: 5px; height: 3px; background: rgba(255,255,255,0.08); border-radius: 2px; overflow: hidden; }
+    .progress-fill { height: 100%; border-radius: 2px; }
+    .badge-suc { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 100px; white-space: nowrap; }
+
+    /* Sidebar */
+    .sidebar-stat {
+      padding: 12px;
+      background: rgba(255,255,255,0.03);
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      margin-bottom: 8px;
+    }
+    .stat-label { font-size: 11px; color: var(--text-secondary); margin-bottom: 4px; }
+    .stat-value { font-size: 22px; font-weight: 700; }
+
+    /* ─────────────────────────────────────
+       SCENE 3 — Drill-down
+    ───────────────────────────────────── */
+    #scene3 { padding: 24px; align-items: flex-start; }
+    .drilldown-layout {
+      width: 100%;
+      height: 100%;
+      display: grid;
+      grid-template-columns: 260px 1fr;
+      gap: 12px;
+    }
+    .vendor-expanded {
+      background: var(--panel);
+      border-radius: 14px;
+      border: 1px solid rgba(245,158,11,0.3);
+      padding: 16px;
+      box-shadow: 0 0 20px rgba(245,158,11,0.1);
+    }
+    .vendor-big-avatar {
+      width: 52px;
+      height: 52px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 10px;
+    }
+    .route-item {
+      padding: 10px 12px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      margin-bottom: 7px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .route-item.active-route {
+      background: rgba(245,158,11,0.08);
+      border-color: rgba(245,158,11,0.3);
+    }
+    .route-name { font-size: 13px; font-weight: 600; color: var(--text); }
+    .route-sub { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+    .pdv-list { display: flex; flex-direction: column; gap: 8px; }
+    .pdv-card {
+      background: var(--panel);
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      padding: 14px 16px;
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      opacity: 0;
+      transform: translateX(20px);
+      transition: opacity 0.4s ease, transform 0.4s ease;
+    }
+    .pdv-card.visible { opacity: 1; transform: translateX(0); }
+    .pdv-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      background: rgba(245,158,11,0.1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+    .pdv-details { flex: 1; }
+    .pdv-name { font-size: 14px; font-weight: 600; color: var(--text); }
+    .pdv-addr { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+    .pdv-meta { display: flex; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
+    .meta-chip { font-size: 11px; padding: 3px 9px; border-radius: 6px; font-weight: 500; }
+    .chip-green { background: rgba(34,197,94,0.15); color: var(--green); border: 1px solid rgba(34,197,94,0.2); }
+    .chip-muted { background: rgba(255,255,255,0.05); color: var(--text-secondary); border: 1px solid var(--border); }
+
+    /* ─────────────────────────────────────
+       SCENE 4 — Cuentas Corrientes
+    ───────────────────────────────────── */
+    #scene4 { padding: 24px; flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 12px; }
+    .kpi-strip {
+      width: 100%;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+    .kpi-card {
+      background: var(--panel);
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      padding: 16px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .kpi-label { font-size: 12px; color: var(--text-secondary); font-weight: 500; text-transform: uppercase; letter-spacing: 0.06em; }
+    .kpi-value { font-size: 28px; font-weight: 800; letter-spacing: -1px; }
+    .kpi-amber { color: var(--amber); }
+    .kpi-red { color: var(--red); }
+    .kpi-orange { color: var(--orange); }
+    .cc-table-wrap {
+      flex: 1;
+      width: 100%;
+      background: var(--panel);
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      overflow: hidden;
+    }
+    .cc-table-header {
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .cc-vendor-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(245,158,11,0.1);
+      border: 1px solid rgba(245,158,11,0.25);
+      border-radius: 8px;
+      padding: 4px 12px;
+    }
+    .cc-vendor-badge span { font-size: 13px; font-weight: 600; color: var(--amber); }
+    table { width: 100%; border-collapse: collapse; }
+    thead th {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: 10px 16px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+    tbody td {
+      padding: 11px 16px;
+      font-size: 13px;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+    }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover td { background: rgba(255,255,255,0.02); }
+    .range-badge {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 6px;
+    }
+    .range-green { background: rgba(34,197,94,0.15); color: var(--green); border: 1px solid rgba(34,197,94,0.2); }
+    .range-orange { background: rgba(249,115,22,0.15); color: var(--orange); border: 1px solid rgba(249,115,22,0.2); }
+    .range-red { background: rgba(239,68,68,0.15); color: var(--red); border: 1px solid rgba(239,68,68,0.2); }
+    .amount-text { font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+
+    /* ─────────────────────────────────────
+       SCENE 5 — Vista Mobile
+    ───────────────────────────────────── */
+    #scene5 {
+      background: radial-gradient(ellipse at center, #151820 0%, var(--bg) 100%);
+    }
+    .phone-frame {
+      width: 360px;
+      height: 680px;
+      border-radius: 44px;
+      border: 3px solid rgba(255,255,255,0.15);
+      background: var(--bg);
+      overflow: hidden;
+      position: relative;
+      box-shadow: 0 0 0 8px rgba(255,255,255,0.04), 0 30px 80px rgba(0,0,0,0.6), 0 0 40px rgba(245,158,11,0.1);
+    }
+    .phone-notch {
+      height: 28px;
+      background: var(--bg);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .phone-notch-pill {
+      width: 80px;
+      height: 6px;
+      background: rgba(255,255,255,0.15);
+      border-radius: 3px;
+    }
+    .phone-content {
+      height: calc(100% - 28px);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .phone-topbar {
+      padding: 8px 16px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .phone-logo { font-size: 16px; font-weight: 900; letter-spacing: -1px; color: var(--amber); }
+    .phone-body { flex: 1; overflow: hidden; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 10px; }
+    .phone-section { background: var(--panel); border-radius: 10px; border: 1px solid var(--border); padding: 10px; overflow: hidden; }
+    .phone-section-title { font-size: 10px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; }
+    .mobile-vendor {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 6px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .mobile-vendor:last-child { border-bottom: none; }
+    .mobile-av { width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0; }
+    .mobile-vname { font-size: 11px; font-weight: 600; color: var(--text); }
+    .mobile-vsub { font-size: 10px; color: var(--text-secondary); }
+    .mobile-cc-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .mobile-cc-row:last-child { border-bottom: none; }
+    .mobile-cc-name { font-size: 11px; font-weight: 500; color: var(--text); }
+    .mobile-cc-amt { font-size: 11px; font-weight: 700; color: var(--red); }
+
+    /* ─────────────────────────────────────
+       SCENE 6 — Scanner GPS
+    ───────────────────────────────────── */
+    #scene6 {
+      flex-direction: column;
+      background: radial-gradient(ellipse at center bottom, #0d1a10 0%, var(--bg) 60%);
+    }
+    .radar-wrap {
+      position: relative;
+      width: 160px;
+      height: 160px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 16px;
+    }
+    .radar-ring {
+      position: absolute;
+      border-radius: 50%;
+      border: 1.5px solid rgba(34,197,94,0.5);
+      animation: radarExpand 2.5s ease-out infinite;
+    }
+    .radar-ring:nth-child(2) { animation-delay: 0.8s; }
+    .radar-ring:nth-child(3) { animation-delay: 1.6s; }
+    @keyframes radarExpand {
+      0%   { width: 50px; height: 50px; opacity: 0.9; }
+      100% { width: 160px; height: 160px; opacity: 0; }
+    }
+    .radar-btn {
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      background: rgba(34,197,94,0.15);
+      border: 2px solid var(--green);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 26px;
+      box-shadow: 0 0 20px rgba(34,197,94,0.3);
+      animation: radarPulse 1.5s ease-in-out infinite alternate;
+      position: relative;
+      z-index: 2;
+    }
+    @keyframes radarPulse {
+      from { box-shadow: 0 0 15px rgba(34,197,94,0.2); }
+      to { box-shadow: 0 0 35px rgba(34,197,94,0.5); }
+    }
+    .gps-status {
+      font-size: 13px;
+      color: var(--green);
+      font-weight: 500;
+      margin-bottom: 24px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .gps-dot { width: 6px; height: 6px; background: var(--green); border-radius: 50%; animation: pulse 1s infinite; }
+    .nearby-list { display: flex; flex-direction: column; gap: 8px; width: 460px; }
+    .nearby-item {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      opacity: 0;
+      transform: translateY(12px);
+      transition: opacity 0.4s ease, transform 0.4s ease;
+    }
+    .nearby-item.visible { opacity: 1; transform: translateY(0); }
+    .nearby-dist {
+      background: rgba(34,197,94,0.12);
+      border: 1px solid rgba(34,197,94,0.2);
+      color: var(--green);
+      font-size: 11px;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 8px;
+      white-space: nowrap;
+    }
+    .nearby-info { flex: 1; }
+    .nearby-name { font-size: 13px; font-weight: 600; color: var(--text); }
+    .nearby-sub { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+
+    /* ─────────────────────────────────────
+       SCENE 7 — KPIs
+    ───────────────────────────────────── */
+    #scene7 {
+      flex-direction: column;
+      gap: 24px;
+      background: radial-gradient(ellipse at center, #1a1408 0%, var(--bg) 70%);
+    }
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      width: 900px;
+    }
+    .kpi-big-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 28px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.3);
+      transition: box-shadow 0.3s;
+      position: relative;
+      overflow: hidden;
+    }
+    .kpi-big-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      border-radius: 16px 16px 0 0;
+    }
+    .kpi-big-card.amber::before { background: linear-gradient(90deg, var(--amber-dark), var(--amber)); }
+    .kpi-big-card.green::before { background: linear-gradient(90deg, #15803d, var(--green)); }
+    .kpi-big-card.red::before { background: linear-gradient(90deg, #991b1b, var(--red)); }
+    .kpi-big-card.orange::before { background: linear-gradient(90deg, #9a3412, var(--orange)); }
+    .kpi-big-icon { font-size: 28px; margin-bottom: 4px; }
+    .kpi-big-value { font-size: 42px; font-weight: 800; letter-spacing: -2px; font-variant-numeric: tabular-nums; }
+    .kpi-big-label { font-size: 13px; color: var(--text-secondary); font-weight: 500; }
+
+    /* ─────────────────────────────────────
+       SCENE 8 — Cierre
+    ───────────────────────────────────── */
+    #scene8 {
+      flex-direction: column;
+      gap: 12px;
+      background: var(--bg);
+      text-align: center;
+    }
+    .close-logo {
+      font-size: 96px;
+      font-weight: 900;
+      letter-spacing: -5px;
+      background: linear-gradient(135deg, var(--amber) 0%, var(--amber-light) 60%, var(--amber-dark) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      filter: drop-shadow(0 0 40px rgba(245,158,11,0.5));
+    }
+    .close-url {
+      font-size: 18px;
+      color: var(--text-secondary);
+      font-weight: 500;
+      letter-spacing: 0.05em;
+    }
+    .close-divider {
+      width: 60px;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--amber), transparent);
+      margin: 4px auto;
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <!-- Progress -->
+  <div id="progress-bar-wrap"><div id="progress-bar"></div></div>
+
+  <!-- Restart -->
+  <button id="restart-btn" onclick="restartDemo()">▶ Reiniciar</button>
+
+  <!-- ══════════════════ SCENE 1 ══════════════════ -->
+  <div class="scene" id="scene1">
+    <div class="s1-logo">shelfy</div>
+    <div class="s1-subtitle">Panel de Supervisión — Actualización 2026</div>
+    <div class="s1-tagline">Gestión de fuerza de ventas en tiempo real</div>
+    <div class="s1-badge">
+      <div class="s1-dot"></div>
+      Versión 3.0 · En producción
+    </div>
+  </div>
+
+  <!-- ══════════════════ SCENE 2 ══════════════════ -->
+  <div class="scene" id="scene2">
+    <div class="panel-layout">
+      <!-- Mapa -->
+      <div class="panel-card">
+        <div class="panel-header">
+          <span class="panel-title">Mapa en Vivo</span>
+          <span style="font-size:11px;color:var(--green);font-weight:600;display:flex;align-items:center;gap:5px;"><span style="width:6px;height:6px;background:var(--green);border-radius:50%;display:inline-block;animation:pulse 1.5s infinite"></span>En vivo</span>
+        </div>
+        <div class="panel-body">
+          <div class="map-container" id="mapContainer">
+            <div class="map-grid"></div>
+          </div>
+        </div>
+      </div>
+      <!-- Vendedores -->
+      <div class="panel-card">
+        <div class="panel-header">
+          <span class="panel-title">Vendedores</span>
+          <span style="font-size:11px;color:var(--text-secondary)">4 activos</span>
+        </div>
+        <div class="panel-body" style="overflow-y:auto;">
+          <div class="vendor-item">
+            <div class="vendor-avatar" style="background:rgba(99,102,241,0.15);color:#818cf8">JG</div>
+            <div class="vendor-info">
+              <div class="vendor-name">Juan García</div>
+              <div class="vendor-sub">12 / 18 PDV visitados</div>
+              <div class="progress-wrap"><div class="progress-fill" style="width:67%;background:linear-gradient(90deg,#6366f1,#818cf8)"></div></div>
+            </div>
+            <span class="badge-suc" style="background:rgba(245,158,11,0.1);color:var(--amber);border:1px solid rgba(245,158,11,0.25)">Norte</span>
+          </div>
+          <div class="vendor-item">
+            <div class="vendor-avatar" style="background:rgba(34,197,94,0.15);color:#4ade80">ML</div>
+            <div class="vendor-info">
+              <div class="vendor-name">María López</div>
+              <div class="vendor-sub">15 / 16 PDV visitados</div>
+              <div class="progress-wrap"><div class="progress-fill" style="width:94%;background:linear-gradient(90deg,#16a34a,#22c55e)"></div></div>
+            </div>
+            <span class="badge-suc" style="background:rgba(34,197,94,0.1);color:var(--green);border:1px solid rgba(34,197,94,0.25)">Sur</span>
+          </div>
+          <div class="vendor-item">
+            <div class="vendor-avatar" style="background:rgba(239,68,68,0.15);color:#f87171">CR</div>
+            <div class="vendor-info">
+              <div class="vendor-name">Carlos Romero</div>
+              <div class="vendor-sub">6 / 14 PDV visitados</div>
+              <div class="progress-wrap"><div class="progress-fill" style="width:43%;background:linear-gradient(90deg,#dc2626,#ef4444)"></div></div>
+            </div>
+            <span class="badge-suc" style="background:rgba(239,68,68,0.1);color:var(--red);border:1px solid rgba(239,68,68,0.25)">Oeste</span>
+          </div>
+          <div class="vendor-item">
+            <div class="vendor-avatar" style="background:rgba(249,115,22,0.15);color:#fb923c">AS</div>
+            <div class="vendor-info">
+              <div class="vendor-name">Ana Sánchez</div>
+              <div class="vendor-sub">9 / 12 PDV visitados</div>
+              <div class="progress-wrap"><div class="progress-fill" style="width:75%;background:linear-gradient(90deg,#c2410c,#f97316)"></div></div>
+            </div>
+            <span class="badge-suc" style="background:rgba(249,115,22,0.1);color:var(--orange);border:1px solid rgba(249,115,22,0.25)">Este</span>
+          </div>
+        </div>
+      </div>
+      <!-- Sidebar -->
+      <div class="panel-card">
+        <div class="panel-header">
+          <span class="panel-title">Resumen</span>
+        </div>
+        <div class="panel-body">
+          <div class="sidebar-stat">
+            <div class="stat-label">PDV Activos Hoy</div>
+            <div class="stat-value" style="color:var(--amber)">42 <span style="font-size:14px;color:var(--text-secondary);font-weight:400">/ 60</span></div>
+          </div>
+          <div class="sidebar-stat">
+            <div class="stat-label">Ventas del Día</div>
+            <div class="stat-value" style="color:var(--green)">$384.500</div>
+          </div>
+          <div class="sidebar-stat">
+            <div class="stat-label">Km Recorridos</div>
+            <div class="stat-value" style="color:var(--text)">127 km</div>
+          </div>
+          <div class="sidebar-stat">
+            <div class="stat-label">Alertas</div>
+            <div class="stat-value" style="color:var(--red)">3 <span style="font-size:13px;color:var(--text-secondary);font-weight:400">pendientes</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="scene-float-text">Visualizá tu fuerza de ventas en el mapa</div>
+  </div>
+
+  <!-- ══════════════════ SCENE 3 ══════════════════ -->
+  <div class="scene" id="scene3">
+    <div class="drilldown-layout" style="width:100%;height:100%;padding:24px;">
+      <!-- Izquierda: vendedor expandido -->
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <div class="vendor-expanded">
+          <div class="vendor-big-avatar" style="background:rgba(99,102,241,0.15);color:#818cf8">JG</div>
+          <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:2px">Juan García</div>
+          <div style="font-size:12px;color:var(--text-secondary);margin-bottom:14px">Sucursal Norte · 12 PDV hoy</div>
+          <div style="font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px">Rutas asignadas</div>
+          <div class="route-item active-route">
+            <div class="route-name">🗺️ Ruta A — Centro</div>
+            <div class="route-sub">8 PDV · 3 visitados</div>
+          </div>
+          <div class="route-item">
+            <div class="route-name">🗺️ Ruta B — Norte</div>
+            <div class="route-sub">6 PDV · 6 visitados</div>
+          </div>
+          <div class="route-item">
+            <div class="route-name">🗺️ Ruta C — Periferia</div>
+            <div class="route-sub">4 PDV · sin visitar</div>
+          </div>
+        </div>
+      </div>
+      <!-- Derecha: PDVs -->
+      <div style="display:flex;flex-direction:column;gap:8px;overflow:hidden;">
+        <div style="font-size:13px;font-weight:600;color:var(--text-secondary);padding:0 2px 4px;border-bottom:1px solid var(--border);">
+          Puntos de venta — <span style="color:var(--amber)">Ruta A · Centro</span>
+        </div>
+        <div class="pdv-list" id="pdvList">
+          <div class="pdv-card" data-idx="0">
+            <div class="pdv-icon">🏪</div>
+            <div class="pdv-details">
+              <div class="pdv-name">Supermercado El Faro</div>
+              <div class="pdv-addr">Av. Rivadavia 1240, CABA</div>
+              <div class="pdv-meta">
+                <span class="meta-chip chip-green">Últ. compra: hace 5 días</span>
+                <span class="meta-chip chip-muted">Alta: 10/08/2022</span>
+              </div>
+            </div>
+          </div>
+          <div class="pdv-card" data-idx="1">
+            <div class="pdv-icon">🥤</div>
+            <div class="pdv-details">
+              <div class="pdv-name">Kiosco La Esquina</div>
+              <div class="pdv-addr">Corrientes 4502, CABA</div>
+              <div class="pdv-meta">
+                <span class="meta-chip chip-green">Últ. compra: hace 12 días</span>
+                <span class="meta-chip chip-muted">Alta: 15/03/2023</span>
+              </div>
+            </div>
+          </div>
+          <div class="pdv-card" data-idx="2">
+            <div class="pdv-icon">🛒</div>
+            <div class="pdv-details">
+              <div class="pdv-name">Almacén Don Pedro</div>
+              <div class="pdv-addr">Maipú 789, CABA</div>
+              <div class="pdv-meta">
+                <span class="meta-chip chip-green">Últ. compra: hace 3 días</span>
+                <span class="meta-chip chip-muted">Alta: 02/11/2021</span>
+              </div>
+            </div>
+          </div>
+          <div class="pdv-card" data-idx="3">
+            <div class="pdv-icon">🏬</div>
+            <div class="pdv-details">
+              <div class="pdv-name">Maxikiosco Central</div>
+              <div class="pdv-addr">Florida 330, CABA</div>
+              <div class="pdv-meta">
+                <span class="meta-chip" style="background:rgba(239,68,68,0.1);color:var(--red);border:1px solid rgba(239,68,68,0.2)">Sin compras en 45 días</span>
+                <span class="meta-chip chip-muted">Alta: 20/01/2024</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="scene-float-text">Drill-down hasta cada punto de venta</div>
+  </div>
+
+  <!-- ══════════════════ SCENE 4 ══════════════════ -->
+  <div class="scene" id="scene4">
+    <div class="kpi-strip">
+      <div class="kpi-card">
+        <div class="kpi-label">Deuda Total</div>
+        <div class="kpi-value kpi-amber">$2.4M</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Clientes Deudores</div>
+        <div class="kpi-value kpi-red">47</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Promedio Atraso</div>
+        <div class="kpi-value kpi-orange">18 días</div>
+      </div>
+    </div>
+    <div class="cc-table-wrap">
+      <div class="cc-table-header">
+        <span style="font-size:13px;font-weight:600;color:var(--text-secondary)">Cartera de:</span>
+        <div class="cc-vendor-badge">
+          <span>Juan García</span>
+        </div>
+        <span style="margin-left:auto;font-size:12px;color:var(--text-secondary)">5 clientes · $284.000 en deuda</span>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Cliente</th>
+            <th>Deuda</th>
+            <th>Rango</th>
+            <th style="text-align:center">Días</th>
+            <th style="text-align:center">Comprobantes</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="font-weight:500">Supermercado El Faro</td>
+            <td class="amount-text">$45.000</td>
+            <td><span class="range-badge range-green">1-7 Días</span></td>
+            <td style="text-align:center;color:var(--green);font-weight:600">4</td>
+            <td style="text-align:center;color:var(--text-secondary)">2</td>
+          </tr>
+          <tr>
+            <td style="font-weight:500">Kiosco La Esquina</td>
+            <td class="amount-text">$12.500</td>
+            <td><span class="range-badge range-green">1-7 Días</span></td>
+            <td style="text-align:center;color:var(--green);font-weight:600">6</td>
+            <td style="text-align:center;color:var(--text-secondary)">1</td>
+          </tr>
+          <tr>
+            <td style="font-weight:500">Maxikiosco Central</td>
+            <td class="amount-text">$88.000</td>
+            <td><span class="range-badge range-orange">16-21 Días</span></td>
+            <td style="text-align:center;color:var(--orange);font-weight:600">19</td>
+            <td style="text-align:center;color:var(--text-secondary)">4</td>
+          </tr>
+          <tr>
+            <td style="font-weight:500">Almacén Don Pedro</td>
+            <td class="amount-text">$18.500</td>
+            <td><span class="range-badge range-orange">8-15 Días</span></td>
+            <td style="text-align:center;color:var(--orange);font-weight:600">11</td>
+            <td style="text-align:center;color:var(--text-secondary)">1</td>
+          </tr>
+          <tr>
+            <td style="font-weight:500">Distribuidora Lagos</td>
+            <td class="amount-text" style="color:var(--red)">$120.000</td>
+            <td><span class="range-badge range-red">+30 Días</span></td>
+            <td style="text-align:center;color:var(--red);font-weight:600">38</td>
+            <td style="text-align:center;color:var(--text-secondary)">7</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="scene-float-text">Control de cartera por vendedor</div>
+  </div>
+
+  <!-- ══════════════════ SCENE 5 ══════════════════ -->
+  <div class="scene" id="scene5">
+    <div style="position:relative;display:flex;flex-direction:column;align-items:center;gap:0;">
+      <div class="phone-frame">
+        <div class="phone-notch"><div class="phone-notch-pill"></div></div>
+        <div class="phone-content">
+          <div class="phone-topbar">
+            <div class="phone-logo">shelfy</div>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <span style="font-size:11px;color:var(--green);font-weight:600">● En vivo</span>
+            </div>
+          </div>
+          <div class="phone-body">
+            <div class="phone-section">
+              <div class="phone-section-title">Vendedores</div>
+              <div class="mobile-vendor">
+                <div class="mobile-av" style="background:rgba(99,102,241,0.15);color:#818cf8">JG</div>
+                <div>
+                  <div class="mobile-vname">Juan García</div>
+                  <div class="mobile-vsub">12/18 PDV</div>
+                </div>
+              </div>
+              <div class="mobile-vendor">
+                <div class="mobile-av" style="background:rgba(34,197,94,0.15);color:#4ade80">ML</div>
+                <div>
+                  <div class="mobile-vname">María López</div>
+                  <div class="mobile-vsub">15/16 PDV</div>
+                </div>
+              </div>
+              <div class="mobile-vendor">
+                <div class="mobile-av" style="background:rgba(239,68,68,0.15);color:#f87171">CR</div>
+                <div>
+                  <div class="mobile-vname">Carlos Romero</div>
+                  <div class="mobile-vsub">6/14 PDV</div>
+                </div>
+              </div>
+              <div class="mobile-vendor">
+                <div class="mobile-av" style="background:rgba(249,115,22,0.15);color:#fb923c">AS</div>
+                <div>
+                  <div class="mobile-vname">Ana Sánchez</div>
+                  <div class="mobile-vsub">9/12 PDV</div>
+                </div>
+              </div>
+            </div>
+            <div class="phone-section">
+              <div class="phone-section-title">Ctas. Corrientes</div>
+              <div class="mobile-cc-row">
+                <div>
+                  <div class="mobile-cc-name">Sup. El Faro</div>
+                  <div style="font-size:10px;color:var(--green)">4 días</div>
+                </div>
+                <div class="mobile-cc-amt" style="color:var(--text-secondary)">$45.000</div>
+              </div>
+              <div class="mobile-cc-row">
+                <div>
+                  <div class="mobile-cc-name">Maxikiosco</div>
+                  <div style="font-size:10px;color:var(--orange)">19 días</div>
+                </div>
+                <div class="mobile-cc-amt" style="color:var(--orange)">$88.000</div>
+              </div>
+              <div class="mobile-cc-row">
+                <div>
+                  <div class="mobile-cc-name">Dist. Lagos</div>
+                  <div style="font-size:10px;color:var(--red)">38 días</div>
+                </div>
+                <div class="mobile-cc-amt">$120.000</div>
+              </div>
+              <div class="mobile-cc-row">
+                <div>
+                  <div class="mobile-cc-name">Kiosco Esq.</div>
+                  <div style="font-size:10px;color:var(--green)">6 días</div>
+                </div>
+                <div class="mobile-cc-amt" style="color:var(--text-secondary)">$12.500</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="scene-float-text">Diseñado para usar en la calle</div>
+  </div>
+
+  <!-- ══════════════════ SCENE 6 ══════════════════ -->
+  <div class="scene" id="scene6">
+    <div class="radar-wrap">
+      <div class="radar-ring"></div>
+      <div class="radar-ring"></div>
+      <div class="radar-ring"></div>
+      <div class="radar-btn">📡</div>
+    </div>
+    <div class="gps-status">
+      <div class="gps-dot"></div>
+      Ubicación detectada · Escaneando PDVs cercanos...
+    </div>
+    <div class="nearby-list" id="nearbyList">
+      <div class="nearby-item" data-idx="0">
+        <div class="nearby-dist">23 m</div>
+        <div class="nearby-info">
+          <div class="nearby-name">🏪 Supermercado El Sol</div>
+          <div class="nearby-sub">Últ. compra: hace 8 días · Exhibición: Activa</div>
+        </div>
+      </div>
+      <div class="nearby-item" data-idx="1">
+        <div class="nearby-dist">67 m</div>
+        <div class="nearby-info">
+          <div class="nearby-name">🥤 Kiosco Central</div>
+          <div class="nearby-sub">Últ. compra: hace 22 días · Exhibición: Sin datos</div>
+        </div>
+      </div>
+      <div class="nearby-item" data-idx="2">
+        <div class="nearby-dist">89 m</div>
+        <div class="nearby-info">
+          <div class="nearby-name">🛒 Almacén Don Pedro</div>
+          <div class="nearby-sub">Últ. compra: hace 3 días · Exhibición: Activa</div>
+        </div>
+      </div>
+      <div class="nearby-item" data-idx="3">
+        <div class="nearby-dist">134 m</div>
+        <div class="nearby-info">
+          <div class="nearby-name">🏬 Maxikiosco Norte</div>
+          <div class="nearby-sub">Últ. compra: hace 45 días · Exhibición: Inactiva</div>
+        </div>
+      </div>
+    </div>
+    <div class="scene-float-text">Escaneá PDVs cercanos con GPS</div>
+  </div>
+
+  <!-- ══════════════════ SCENE 7 ══════════════════ -->
+  <div class="scene" id="scene7">
+    <div class="kpi-grid">
+      <div class="kpi-big-card amber">
+        <div class="kpi-big-icon">🏪</div>
+        <div class="kpi-big-value" style="color:var(--amber)" id="counter1">0</div>
+        <div class="kpi-big-label">PDVs activos</div>
+      </div>
+      <div class="kpi-big-card red">
+        <div class="kpi-big-icon">💰</div>
+        <div class="kpi-big-value" style="color:var(--red)" id="counter2">$0</div>
+        <div class="kpi-big-label">Deuda total</div>
+      </div>
+      <div class="kpi-big-card orange">
+        <div class="kpi-big-icon">⚠️</div>
+        <div class="kpi-big-value" style="color:var(--orange)" id="counter3">0</div>
+        <div class="kpi-big-label">Clientes en mora</div>
+      </div>
+      <div class="kpi-big-card green">
+        <div class="kpi-big-icon">📅</div>
+        <div class="kpi-big-value" style="color:var(--green)" id="counter4">0</div>
+        <div class="kpi-big-label">Días prom. atraso</div>
+      </div>
+    </div>
+    <div class="scene-float-text">Métricas en tiempo real</div>
+  </div>
+
+  <!-- ══════════════════ SCENE 8 ══════════════════ -->
+  <div class="scene" id="scene8">
+    <div class="close-logo">shelfy</div>
+    <div class="close-divider"></div>
+    <div class="close-url">shelfy.ar</div>
+  </div>
+
+</div>
+
+<script>
+  const TOTAL_DURATION = 45000; // 45 segundos
+
+  // Escenas: [inicio_ms, fin_ms]
+  const SCENES = [
+    { id: 'scene1',  start:  0,    end:  4000 },
+    { id: 'scene2',  start:  4000, end: 10000 },
+    { id: 'scene3',  start: 10000, end: 17000 },
+    { id: 'scene4',  start: 17000, end: 24000 },
+    { id: 'scene5',  start: 24000, end: 30000 },
+    { id: 'scene6',  start: 30000, end: 37000 },
+    { id: 'scene7',  start: 37000, end: 44000 },
+    { id: 'scene8',  start: 44000, end: 45000 },
+  ];
+
+  let startTime = null;
+  let rafId = null;
+  let currentSceneId = null;
+  let pdvAnimDone = false;
+  let nearbyAnimDone = false;
+  let countersAnimDone = false;
+  let counterRafId = null;
+
+  function resetAnimStates() {
+    pdvAnimDone = false;
+    nearbyAnimDone = false;
+    countersAnimDone = false;
+    if (counterRafId) { cancelAnimationFrame(counterRafId); counterRafId = null; }
+    document.querySelectorAll('.pdv-card').forEach(el => el.classList.remove('visible'));
+    document.querySelectorAll('.nearby-item').forEach(el => el.classList.remove('visible'));
+    ['counter1','counter2','counter3','counter4'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = id === 'counter2' ? '$0' : '0';
+    });
+  }
+
+  // ── Mapa: puntos ──
+  const MAP_DOTS = [
+    {x:12,y:18,c:'#22c55e',s:10},{x:25,y:42,c:'#f59e0b',s:8},{x:40,y:15,c:'#6366f1',s:11},
+    {x:55,y:55,c:'#22c55e',s:9},{x:70,y:28,c:'#ef4444',s:10},{x:82,y:65,c:'#f59e0b',s:8},
+    {x:18,y:70,c:'#6366f1',s:10},{x:35,y:82,c:'#22c55e',s:9},{x:48,y:38,c:'#f97316',s:12},
+    {x:63,y:78,c:'#ef4444',s:8},{x:78,y:48,c:'#22c55e',s:10},{x:90,y:20,c:'#6366f1',s:9},
+    {x:8,y:50,c:'#f59e0b',s:11},{x:42,y:62,c:'#ef4444',s:8},{x:88,y:82,c:'#22c55e',s:10},
+    {x:60,y:12,c:'#f97316',s:9},{x:30,y:22,c:'#22c55e',s:8},{x:72,y:55,c:'#6366f1',s:11},
+  ];
+
+  function buildMap() {
+    const container = document.getElementById('mapContainer');
+    if (!container) return;
+    MAP_DOTS.forEach(d => {
+      const dot = document.createElement('div');
+      dot.className = 'map-dot';
+      dot.style.cssText = `
+        left: ${d.x}%;
+        top: ${d.y}%;
+        width: ${d.s}px;
+        height: ${d.s}px;
+        background: ${d.c};
+        box-shadow: 0 0 ${d.s * 1.5}px ${d.c}88;
+        opacity: 0.85;
+      `;
+      container.appendChild(dot);
+    });
+  }
+  buildMap();
+
+  // ── PDV cascade animation ──
+  function animatePDVs() {
+    if (pdvAnimDone) return;
+    pdvAnimDone = true;
+    const cards = document.querySelectorAll('.pdv-card');
+    cards.forEach((card, i) => {
+      setTimeout(() => card.classList.add('visible'), i * 280 + 100);
+    });
+  }
+
+  // ── Nearby items animation ──
+  function animateNearby() {
+    if (nearbyAnimDone) return;
+    nearbyAnimDone = true;
+    const items = document.querySelectorAll('.nearby-item');
+    items.forEach((item, i) => {
+      setTimeout(() => item.classList.add('visible'), i * 350 + 600);
+    });
+  }
+
+  // ── Counter animation ──
+  function animateCounters(sceneStart, now) {
+    if (countersAnimDone) return;
+    countersAnimDone = true;
+    const duration = 2400;
+    const targets = [
+      { id: 'counter1', target: 2847, format: v => Math.round(v).toLocaleString('es-AR') },
+      { id: 'counter2', target: 2.4, format: v => '$' + v.toFixed(1) + 'M' },
+      { id: 'counter3', target: 47, format: v => Math.round(v) },
+      { id: 'counter4', target: 18, format: v => Math.round(v) + ' días' },
+    ];
+    const startT = performance.now();
+    function step(ts) {
+      const elapsed = ts - startT;
+      const progress = Math.min(elapsed / duration, 1);
+      const ease = 1 - Math.pow(1 - progress, 3);
+      targets.forEach(t => {
+        const el = document.getElementById(t.id);
+        if (el) el.textContent = t.format(t.target * ease);
+      });
+      if (progress < 1) { counterRafId = requestAnimationFrame(step); }
+    }
+    counterRafId = requestAnimationFrame(step);
+  }
+
+  // ── Main loop ──
+  function tick(ts) {
+    if (!startTime) startTime = ts;
+    const elapsed = ts - startTime;
+    const progress = Math.min(elapsed / TOTAL_DURATION, 1);
+
+    // Progress bar
+    document.getElementById('progress-bar').style.width = (progress * 100) + '%';
+
+    // Which scene is active?
+    let activeScene = null;
+    for (const s of SCENES) {
+      if (elapsed >= s.start && elapsed < s.end) { activeScene = s; break; }
+    }
+    // Handle last frame
+    if (elapsed >= TOTAL_DURATION) {
+      activeScene = SCENES[SCENES.length - 1];
+    }
+
+    if (activeScene && activeScene.id !== currentSceneId) {
+      // Deactivate all
+      document.querySelectorAll('.scene').forEach(el => el.classList.remove('active'));
+      // Activate new
+      document.getElementById(activeScene.id).classList.add('active');
+      currentSceneId = activeScene.id;
+    }
+
+    // Scene-specific triggers
+    if (currentSceneId === 'scene3') {
+      const sceneElapsed = elapsed - 10000;
+      if (sceneElapsed > 800) animatePDVs();
+    }
+    if (currentSceneId === 'scene6') {
+      const sceneElapsed = elapsed - 30000;
+      if (sceneElapsed > 500) animateNearby();
+    }
+    if (currentSceneId === 'scene7') {
+      animateCounters();
+    }
+
+    if (progress < 1) {
+      rafId = requestAnimationFrame(tick);
+    } else {
+      // End: keep last scene visible
+      document.querySelectorAll('.scene').forEach(el => el.classList.remove('active'));
+      document.getElementById('scene8').classList.add('active');
+      document.getElementById('progress-bar').style.width = '100%';
+    }
+  }
+
+  function startDemo() {
+    startTime = null;
+    currentSceneId = null;
+    if (rafId) cancelAnimationFrame(rafId);
+    resetAnimStates();
+    document.querySelectorAll('.scene').forEach(el => el.classList.remove('active'));
+    document.getElementById('progress-bar').style.width = '0%';
+    rafId = requestAnimationFrame(tick);
+  }
+
+  function restartDemo() { startDemo(); }
+
+  // Auto-start
+  startDemo();
+</script>
+</body>
+</html>

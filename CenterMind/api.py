@@ -836,13 +836,41 @@ def get_pendientes(id_distribuidor: int, payload=Depends(verify_auth)):
     check_dist_permission(payload, id_distribuidor)
     result = sb.rpc("fn_pendientes", {"p_dist_id": id_distribuidor}).execute()
     rows = result.data or []
+    
+    # --- ENRIQUECIMIENTO: FALLBACK PARA NRO_CLIENTE ---
+    # Si la RPC no trae nro_cliente (error de join en DB), lo buscamos manualmente
+    pendientes_sin_nro = [r["id_exhibicion"] for r in rows if not r.get("nro_cliente") or r.get("nro_cliente") == "0"]
+    if pendientes_sin_nro:
+        try:
+            extra_res = sb.table("exhibiciones")\
+                .select("id_exhibicion, clientes_pdv(id_cliente_erp)")\
+                .in_("id_exhibicion", pendientes_sin_nro)\
+                .execute()
+            
+            # Crear mapa ids -> nro_erp
+            nro_map = {}
+            for r in (extra_res.data or []):
+                if r.get("clientes_pdv") and r["clientes_pdv"].get("id_cliente_erp"):
+                    nro_map[r["id_exhibicion"]] = r["clientes_pdv"]["id_cliente_erp"]
+            
+            # Aplicar al original
+            for r in rows:
+                if not r.get("nro_cliente") or r.get("nro_cliente") == "0":
+                    if r["id_exhibicion"] in nro_map:
+                        r["nro_cliente"] = nro_map[r["id_exhibicion"]]
+        except Exception as e:
+            logger.error(f"Error en enriquecimiento de nro_cliente: {e}")
+
     grupos: dict = {}
     for d in rows:
         key = str(d.get("telegram_msg_id")) if d.get("telegram_msg_id") else f"solo_{d['id_exhibicion']}"
         if key not in grupos:
             grupos[key] = {
-                "vendedor": d.get("vendedor"), "nro_cliente": d.get("nro_cliente"),
-                "tipo_pdv": d.get("tipo_pdv"), "fecha_hora": d.get("fecha_hora"), "fotos": [],
+                "vendedor": d.get("vendedor"), 
+                "nro_cliente": d.get("nro_cliente"),
+                "tipo_pdv": d.get("tipo_pdv"), 
+                "fecha_hora": d.get("fecha_hora"), 
+                "fotos": [],
             }
         grupos[key]["fotos"].append({"id_exhibicion": d["id_exhibicion"], "drive_link": d["drive_link"]})
     return list(grupos.values())

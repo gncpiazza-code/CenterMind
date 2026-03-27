@@ -784,6 +784,9 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                                               title={isCliOn ? "Ocultar PDV del mapa" : "Mostrar PDV en mapa"}
                                             />
                                             <span className={`text-[11px] flex-1 truncate ${!isCliOn || !isRutaOn ? "opacity-50" : inactivo ? "text-[var(--shelfy-muted)]" : "text-[var(--shelfy-text)]"}`}>
+                                              <span className="font-mono text-[9px] bg-white/10 px-1 rounded mr-1 opacity-70">
+                                                {c.id_cliente_erp}
+                                              </span>
                                               {c.nombre_fantasia || c.nombre_razon_social || "Sin nombre"}
                                             </span>
                                           </button>
@@ -799,6 +802,11 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                                         {/* Detail card */}
                                         <Accordion open={cOpen}>
                                           <div className="mx-3 mb-1.5 rounded-lg border border-[var(--shelfy-border)]/50 bg-[var(--shelfy-panel)] px-3 py-2 space-y-1.5">
+                                            <div className="flex items-center justify-between gap-2 border-b border-[var(--shelfy-border)]/30 pb-1.5">
+                                              <span className="text-[10px] font-bold text-[var(--shelfy-muted)] uppercase tracking-tight">Código ERP</span>
+                                              <span className="text-[11px] font-mono font-bold text-sky-400 bg-sky-500/10 px-1.5 py-0.5 rounded">{c.id_cliente_erp}</span>
+                                            </div>
+
                                             {c.domicilio && (
                                               <div className="flex items-start gap-1.5">
                                                 <MapPin className="w-3 h-3 text-[var(--shelfy-muted)] mt-0.5 shrink-0" />

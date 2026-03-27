@@ -246,7 +246,7 @@ def verify_auth(
         try:
             scheme, _, token = authorization.partition(" ")
             if scheme.lower() != "bearer" or not token:
-                raise HTTPException(status_code=401, detail="Formato inválido")
+                raise HTTPException(status_code=401, detail="Formato inválido. Usa: Bearer <token>")
             payload = _jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
             
             # Aseguramos que los campos booleanos existan
@@ -2792,8 +2792,8 @@ def supervision_ventas(dist_id: int, dias: int = 30, user_payload=Depends(verify
         fecha_desde = (datetime.now() - timedelta(days=dias)).strftime("%Y-%m-%d")
 
         res = sb.table("ventas_v2") \
-            .select("vendedor, tipo_operacion, es_devolucion, monto_total, monto_recaudado, fecha, cliente, comprobante, numero") \
-            .eq("id_distribuidor", dist_id) \
+            .select("vendedor, sucursal, tipo_operacion, es_devolucion, monto_total, monto_recaudado, fecha, cliente, comprobante, numero") \
+            .eq("id_distribuidor", int(dist_id)) \
             .eq("es_anulado", False) \
             .gte("fecha", fecha_desde) \
             .order("fecha", desc=True) \
@@ -2848,7 +2848,7 @@ def supervision_cuentas(dist_id: int, user_payload=Depends(verify_auth)):
     try:
         res = sb.table("cuentas_corrientes_data") \
             .select("fecha, data") \
-            .eq("id_distribuidor", dist_id) \
+            .eq("id_distribuidor", int(dist_id)) \
             .order("fecha", desc=True) \
             .limit(1) \
             .execute()

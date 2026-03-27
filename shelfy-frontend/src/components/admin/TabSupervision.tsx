@@ -96,7 +96,15 @@ function isInactivo(fecha: string | null): boolean {
 }
 
 // ── Vendor avatar ─────────────────────────────────────────────────────────────
-function VendorAvatar({ nombre, color }: { nombre: string; color: string }) {
+const RANGO_COLORS: Record<string, string> = {
+  "1-7 Días":   "bg-green-500/15 text-green-400 border-green-500/25",
+  "8-15 Días":  "bg-yellow-500/15 text-yellow-400 border-yellow-500/25",
+  "16-21 Días": "bg-orange-500/15 text-orange-400 border-orange-500/25",
+  "22-30 Días": "bg-red-500/15 text-red-400 border-red-500/25",
+  "+30 Días":   "bg-rose-500/15 text-rose-400 border-rose-500/25",
+};
+
+const VendorAvatar = ({ nombre, color }: { nombre: string; color: string }) => {
   const initials = nombre.trim().split(/\s+/).slice(0, 2)
     .map(w => w[0] ?? "").join("").toUpperCase() || "?";
   return (
@@ -107,7 +115,7 @@ function VendorAvatar({ nombre, color }: { nombre: string; color: string }) {
       {initials}
     </div>
   );
-}
+};
 
 // ── Small eye toggle button ───────────────────────────────────────────────────
 function EyeBtn({
@@ -236,15 +244,47 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
       .then(setCuentasData).catch(() => {}).finally(() => setLoadingCuentas(false));
   }, [selectedDist]);
 
-  // ── Derived ───────────────────────────────────────────────────────────────
+  // ── Derived & Filtered ────────────────────────────────────────────────────
   const sucursales = useMemo(() =>
     [...new Set(vendedores.map(v => v.sucursal_nombre))].sort(),
     [vendedores]
   );
+
   const vendedoresFiltrados = useMemo(() =>
     selectedSucursal ? vendedores.filter(v => v.sucursal_nombre === selectedSucursal) : [],
     [vendedores, selectedSucursal]
   );
+
+  const ventasFiltradas = useMemo(() => {
+    if (!ventasData || !selectedSucursal) return null;
+    // Buscamos vendedores que pertenecen a esta sucursal en el listado base
+    const vendsInSuc = new Set(vendedoresFiltrados.map(v => v.nombre_vendedor.toLowerCase()));
+    const filteredVends = ventasData.vendedores.filter(v => vendsInSuc.has(v.vendedor.toLowerCase()));
+    
+    return {
+      ...ventasData,
+      total_facturado: filteredVends.reduce((s, v) => s + v.monto_total, 0),
+      total_recaudado: filteredVends.reduce((s, v) => s + v.monto_recaudado, 0),
+      total_facturas: filteredVends.reduce((s, v) => s + v.total_facturas, 0),
+      vendedores: filteredVends
+    };
+  }, [ventasData, selectedSucursal, vendedoresFiltrados]);
+
+  const cuentasFiltradas = useMemo(() => {
+    if (!cuentasData || !selectedSucursal) return null;
+    const vendsInSuc = new Set(vendedoresFiltrados.map(v => v.nombre_vendedor.toLowerCase()));
+    const filteredVends = cuentasData.vendedores.filter(v => vendsInSuc.has(v.vendedor.toLowerCase()));
+    
+    return {
+      ...cuentasData,
+      metadatos: {
+        total_deuda: filteredVends.reduce((s, v) => s + v.deuda_total, 0),
+        clientes_deudores: filteredVends.reduce((s, v) => s + v.cantidad_clientes, 0),
+        promedio_dias_retraso: filteredVends.length > 0 ? filteredVends.reduce((s, v) => s + (v.clientes[0]?.antiguedad || 0), 0) / filteredVends.length : 0,
+      },
+      vendedores: filteredVends
+    };
+  }, [cuentasData, selectedSucursal, vendedoresFiltrados]);
 
   // ── Accordion handlers ────────────────────────────────────────────────────
   async function handleVend(id: number) {
@@ -412,11 +452,31 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
           )}
         </div>
         <div className="flex items-center gap-2">
+          {sucursales.length > 0 && (
+            <div className="flex items-center gap-2 bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-xl px-3 py-1.5 shadow-sm">
+              <Building2 className="w-4 h-4 text-amber-400" />
+              <select
+                value={selectedSucursal || ""}
+                onChange={e => {
+                  setSelectedSucursal(e.target.value || null);
+                  setVisibleVends(new Set());
+                  setVisibleRutas(new Set());
+                  setVisibleClientes(new Set());
+                }}
+                className="bg-transparent text-[var(--shelfy-text)] text-sm font-semibold focus:outline-none min-w-[140px]"
+              >
+                <option value="">Seleccionar Sucursal...</option>
+                {sucursales.map(s => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            </div>
+          )}
           {isSuperadmin && distribuidoras.length > 0 && (
             <select
               value={selectedDist}
               onChange={e => setSelectedDist(Number(e.target.value))}
-              className="rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-[var(--shelfy-text)] px-3 py-1.5 text-sm focus:outline-none"
+              className="rounded-xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] text-[var(--shelfy-text)] px-3 py-1.5 text-sm focus:outline-none font-medium h-[38px]"
             >
               {distribuidoras.map(d => (
                 <option key={d.id} value={d.id}>{d.nombre}</option>
@@ -426,8 +486,8 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
           <button
             onClick={loadVendedores}
             disabled={loading}
-            title="Actualizar"
-            className="text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] transition-colors p-1.5 rounded-lg hover:bg-white/5"
+            title="Actualizar todo"
+            className="text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] transition-colors p-2 rounded-xl hover:bg-white/5 border border-[var(--shelfy-border)] h-[38px]"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
           </button>
@@ -813,12 +873,12 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
       </div>
 
       {/* ── SECCIÓN VENTAS ──────────────────────────────────────────────────── */}
-      <div className="rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden">
+      <div className="rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden shadow-sm">
         <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-[var(--shelfy-border)]/50">
           <div className="flex items-center gap-2">
             <TrendingUp className="w-4 h-4 text-emerald-400" />
             <h3 className="text-sm font-bold text-[var(--shelfy-text)]">Ventas</h3>
-            {ventasData && (
+            {ventasFiltradas && (
               <span className="text-[11px] text-[var(--shelfy-muted)]">últimos {ventasDias} días</span>
             )}
           </div>
@@ -836,13 +896,13 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                 {d}d
               </button>
             ))}
-            {ventasData && ventasData.vendedores.length > 0 && (
+            {ventasFiltradas && ventasFiltradas.vendedores.length > 0 && (
               <button
                 onClick={() => {
                   const rows = [["Vendedor","Fecha","Cliente","Comprobante","Número","Tipo","Devolución","Facturado","Recaudado"]];
-                  ventasData.vendedores.forEach(v => v.transacciones.forEach(t => rows.push([v.vendedor, t.fecha, t.cliente??'', t.comprobante??'', t.numero??'', t.tipo_operacion??'', t.es_devolucion?'SI':'NO', String(t.monto_total), String(t.monto_recaudado)])));
+                  ventasFiltradas.vendedores.forEach(v => v.transacciones.forEach(t => rows.push([v.vendedor, t.fecha, t.cliente??'', t.comprobante??'', t.numero??'', t.tipo_operacion??'', t.es_devolucion?'SI':'NO', String(t.monto_total), String(t.monto_recaudado)])));
                   const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
-                  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8;"})); a.download = `ventas_${ventasDias}d.csv`; a.click();
+                  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8;"})); a.download = `ventas_${selectedSucursal}_${ventasDias}d.csv`; a.click();
                 }}
                 className="text-xs px-2.5 py-1 rounded-lg border border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] transition-colors"
               >↓ CSV</button>
@@ -851,114 +911,127 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
           </div>
         </div>
 
-        {ventasData && (
-          <div className="grid grid-cols-3 divide-x divide-[var(--shelfy-border)]/40 border-b border-[var(--shelfy-border)]/30">
-            <div className="px-5 py-3">
-              <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-0.5">Facturado</p>
-              <p className="text-base font-bold text-[var(--shelfy-text)]">${ventasData.total_facturado.toLocaleString("es-AR",{maximumFractionDigits:0})}</p>
+        {!selectedSucursal ? (
+          <div className="py-12 flex flex-col items-center justify-center text-center px-6">
+            <div className="w-12 h-12 rounded-full bg-emerald-500/10 flex items-center justify-center mb-3">
+              <TrendingUp className="w-6 h-6 text-emerald-500/50" />
             </div>
-            <div className="px-5 py-3">
-              <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-0.5">Recaudado</p>
-              <p className="text-base font-bold text-emerald-400">${ventasData.total_recaudado.toLocaleString("es-AR",{maximumFractionDigits:0})}</p>
-            </div>
-            <div className="px-5 py-3">
-              <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-0.5">Comprobantes</p>
-              <p className="text-base font-bold text-[var(--shelfy-text)]">{ventasData.total_facturas.toLocaleString()}</p>
-            </div>
+            <p className="text-sm text-[var(--shelfy-muted)] max-w-[240px]">
+              Seleccioná una sucursal para ver el desglose de ventas.
+            </p>
           </div>
-        )}
-
-        {loadingVentas && !ventasData && (
-          <div className="flex items-center gap-2 justify-center py-8 text-[var(--shelfy-muted)]">
-            <Loader2 className="w-4 h-4 animate-spin" /><span className="text-sm">Cargando ventas...</span>
-          </div>
-        )}
-        {ventasData && ventasData.vendedores.length === 0 && (
-          <p className="text-sm text-[var(--shelfy-muted)] text-center py-8 italic">Sin datos de ventas para este período.</p>
-        )}
-
-        {ventasData && ventasData.vendedores.length > 0 && (
-          <div className="divide-y divide-[var(--shelfy-border)]/30">
-            {ventasData.vendedores.map((v, idx) => {
-              const color = vendorColor(idx);
-              const isOpen = openVentasVend === v.vendedor;
-              const pctRec = v.monto_total > 0 ? Math.round((v.monto_recaudado / v.monto_total) * 100) : 0;
-              return (
-                <div key={v.vendedor}>
-                  <button
-                    className="w-full flex items-center gap-3 px-5 py-3 hover:bg-white/5 transition-colors text-left"
-                    onClick={() => setOpenVentasVend(isOpen ? null : v.vendedor)}
-                  >
-                    <VendorAvatar nombre={v.vendedor} color={color} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-[var(--shelfy-text)] truncate">{v.vendedor}</p>
-                      <div className="flex items-center gap-3 mt-0.5 flex-wrap">
-                        <span className="text-xs text-[var(--shelfy-muted)]">Fact: <span className="text-[var(--shelfy-text)] font-medium">${v.monto_total.toLocaleString("es-AR",{maximumFractionDigits:0})}</span></span>
-                        <span className="text-xs text-[var(--shelfy-muted)]">Rec: <span className="text-emerald-400 font-medium">${v.monto_recaudado.toLocaleString("es-AR",{maximumFractionDigits:0})}</span><span className="text-[10px] opacity-60 ml-0.5">({pctRec}%)</span></span>
-                        <span className="text-xs text-[var(--shelfy-muted)]">{v.total_facturas} comprob.</span>
-                      </div>
-                    </div>
-                    <ChevronRight className={`w-4 h-4 text-[var(--shelfy-muted)] transition-transform duration-200 ${isOpen?"rotate-90":""}`} />
-                  </button>
-                  <Accordion open={isOpen}>
-                    <div className="px-5 pb-3">
-                      <div className="rounded-xl border border-[var(--shelfy-border)]/50 overflow-auto max-h-64">
-                        <table className="w-full text-[11px]">
-                          <thead className="sticky top-0">
-                            <tr className="bg-[var(--shelfy-panel)] text-[var(--shelfy-muted)] uppercase tracking-wide text-[10px]">
-                              <th className="text-left px-3 py-2">Fecha</th>
-                              <th className="text-left px-3 py-2">Cliente</th>
-                              <th className="text-left px-3 py-2">Comprobante</th>
-                              <th className="text-right px-3 py-2">Facturado</th>
-                              <th className="text-right px-3 py-2">Recaudado</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-[var(--shelfy-border)]/20">
-                            {v.transacciones.map((t, ti) => (
-                              <tr key={ti} className={`hover:bg-white/5 ${t.es_devolucion?"text-orange-400/80":"text-[var(--shelfy-text)]"}`}>
-                                <td className="px-3 py-1.5 whitespace-nowrap">{fmt(t.fecha)}</td>
-                                <td className="px-3 py-1.5 max-w-[160px] truncate">{t.cliente??"-"}</td>
-                                <td className="px-3 py-1.5 text-[var(--shelfy-muted)]">
-                                  {t.comprobante??""} {t.numero??""}
-                                  {t.es_devolucion && <span className="ml-1 text-[9px] bg-orange-500/20 text-orange-400 px-1 rounded">DEV</span>}
-                                </td>
-                                <td className="px-3 py-1.5 text-right font-medium">${t.monto_total.toLocaleString("es-AR",{maximumFractionDigits:0})}</td>
-                                <td className="px-3 py-1.5 text-right text-emerald-400">${t.monto_recaudado.toLocaleString("es-AR",{maximumFractionDigits:0})}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                        {v.transacciones.length >= 100 && (
-                          <p className="text-center text-[10px] text-[var(--shelfy-muted)] py-1.5 italic">Mostrando primeros 100 comprobantes</p>
-                        )}
-                      </div>
-                    </div>
-                  </Accordion>
+        ) : (
+          <>
+            {ventasFiltradas && (
+              <div className="grid grid-cols-3 divide-x divide-[var(--shelfy-border)]/40 border-b border-[var(--shelfy-border)]/30">
+                <div className="px-5 py-3">
+                  <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-0.5">Facturado</p>
+                  <p className="text-base font-bold text-[var(--shelfy-text)]">${ventasFiltradas.total_facturado.toLocaleString("es-AR",{maximumFractionDigits:0})}</p>
                 </div>
-              );
-            })}
-          </div>
+                <div className="px-5 py-3">
+                  <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-0.5">Recaudado</p>
+                  <p className="text-base font-bold text-emerald-400">${ventasFiltradas.total_recaudado.toLocaleString("es-AR",{maximumFractionDigits:0})}</p>
+                </div>
+                <div className="px-5 py-3">
+                  <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-0.5">Comprobantes</p>
+                  <p className="text-base font-bold text-[var(--shelfy-text)]">{ventasFiltradas.total_facturas.toLocaleString()}</p>
+                </div>
+              </div>
+            )}
+
+            {loadingVentas && !ventasFiltradas && (
+              <div className="flex items-center gap-2 justify-center py-8 text-[var(--shelfy-muted)]">
+                <Loader2 className="w-4 h-4 animate-spin" /><span className="text-sm">Cargando ventas...</span>
+              </div>
+            )}
+            {ventasFiltradas && ventasFiltradas.vendedores.length === 0 && !loadingVentas && (
+              <p className="text-sm text-[var(--shelfy-muted)] text-center py-8 italic">Sin datos de ventas para esta sucursal.</p>
+            )}
+
+            {ventasFiltradas && ventasFiltradas.vendedores.length > 0 && (
+              <div className="divide-y divide-[var(--shelfy-border)]/30">
+                {ventasFiltradas.vendedores.map((v, idx) => {
+                  const color = vendorColor(idx);
+                  const isOpen = openVentasVend === v.vendedor;
+                  const pctRec = v.monto_total > 0 ? Math.round((v.monto_recaudado / v.monto_total) * 100) : 0;
+                  return (
+                    <div key={v.vendedor}>
+                      <button
+                        className="w-full flex items-center gap-3 px-5 py-3 hover:bg-white/5 transition-colors text-left"
+                        onClick={() => setOpenVentasVend(isOpen ? null : v.vendedor)}
+                      >
+                        <VendorAvatar nombre={v.vendedor} color={color} />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-[var(--shelfy-text)] truncate">{v.vendedor}</p>
+                          <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+                            <span className="text-xs text-[var(--shelfy-muted)]">Fact: <span className="text-[var(--shelfy-text)] font-medium">${v.monto_total.toLocaleString("es-AR",{maximumFractionDigits:0})}</span></span>
+                            <span className="text-xs text-[var(--shelfy-muted)]">Rec: <span className="text-emerald-400 font-medium">${v.monto_recaudado.toLocaleString("es-AR",{maximumFractionDigits:0})}</span><span className="text-[10px] opacity-60 ml-0.5">({pctRec}%)</span></span>
+                            <span className="text-xs text-[var(--shelfy-muted)]">{v.total_facturas} comprob.</span>
+                          </div>
+                        </div>
+                        <ChevronRight className={`w-4 h-4 text-[var(--shelfy-muted)] transition-transform duration-200 ${isOpen?"rotate-90":""}`} />
+                      </button>
+                      <Accordion open={isOpen}>
+                        <div className="px-5 pb-3">
+                          <div className="rounded-xl border border-[var(--shelfy-border)]/50 overflow-auto max-h-64">
+                            <table className="w-full text-[11px]">
+                              <thead className="sticky top-0">
+                                <tr className="bg-[var(--shelfy-panel)] text-[var(--shelfy-muted)] uppercase tracking-wide text-[10px]">
+                                  <th className="text-left px-3 py-2">Fecha</th>
+                                  <th className="text-left px-3 py-2">Cliente</th>
+                                  <th className="text-left px-3 py-2">Comprobante</th>
+                                  <th className="text-right px-3 py-2">Facturado</th>
+                                  <th className="text-right px-3 py-2">Recaudado</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-[var(--shelfy-border)]/20">
+                                {v.transacciones.map((t: any, ti: number) => (
+                                  <tr key={ti} className={`hover:bg-white/5 ${t.es_devolucion?"text-orange-400/80":"text-[var(--shelfy-text)]"}`}>
+                                    <td className="px-3 py-1.5 whitespace-nowrap">{fmt(t.fecha)}</td>
+                                    <td className="px-3 py-1.5 max-w-[160px] truncate">{t.cliente??"-"}</td>
+                                    <td className="px-3 py-1.5 text-[var(--shelfy-muted)]">
+                                      {t.comprobante??""} {t.numero??""}
+                                      {t.es_devolucion && <span className="ml-1 text-[9px] bg-orange-500/20 text-orange-400 px-1 rounded">DEV</span>}
+                                    </td>
+                                    <td className="px-3 py-1.5 text-right font-medium">${t.monto_total.toLocaleString("es-AR",{maximumFractionDigits:0})}</td>
+                                    <td className="px-3 py-1.5 text-right text-emerald-400">${t.monto_recaudado.toLocaleString("es-AR",{maximumFractionDigits:0})}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                            {v.transacciones.length >= 100 && (
+                              <p className="text-center text-[10px] text-[var(--shelfy-muted)] py-1.5 italic">Mostrando primeros 100 comprobantes</p>
+                            )}
+                          </div>
+                        </div>
+                      </Accordion>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </>
         )}
       </div>
 
       {/* ── SECCIÓN CUENTAS CORRIENTES ──────────────────────────────────────── */}
-      <div className="rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden">
+      <div className="rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden shadow-sm">
         <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-[var(--shelfy-border)]/50">
           <div className="flex items-center gap-2">
             <CreditCard className="w-4 h-4 text-amber-400" />
             <h3 className="text-sm font-bold text-[var(--shelfy-text)]">Cuentas Corrientes</h3>
-            {cuentasData?.fecha && (
-              <span className="text-[11px] text-[var(--shelfy-muted)]">· Al {fmt(cuentasData.fecha)}</span>
+            {cuentasFiltradas?.fecha && (
+              <span className="text-[11px] text-[var(--shelfy-muted)]">· Al {fmt(cuentasFiltradas.fecha)}</span>
             )}
           </div>
           <div className="flex items-center gap-2">
-            {cuentasData && cuentasData.vendedores.length > 0 && (
+            {cuentasFiltradas && cuentasFiltradas.vendedores.length > 0 && (
               <button
                 onClick={() => {
                   const rows = [["Vendedor","Cliente","Sucursal","Rango","Antigüedad (días)","Comprobantes","Deuda"]];
-                  cuentasData.vendedores.forEach(v => v.clientes.forEach(c => rows.push([v.vendedor, c.cliente??'', c.sucursal??'', c.rango_antiguedad??'', String(c.antiguedad??''), String(c.cantidad_comprobantes??''), String(c.deuda_total)])));
+                  cuentasFiltradas.vendedores.forEach((v: any) => v.clientes.forEach((c: any) => rows.push([v.vendedor, c.cliente??'', c.sucursal??'', c.rango_antiguedad??'', String(c.antiguedad??''), String(c.cantidad_comprobantes??''), String(c.deuda_total)])));
                   const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
-                  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8;"})); a.download = `cuentas_${cuentasData.fecha??'sin_fecha'}.csv`; a.click();
+                  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8;"})); a.download = `cuentas_${selectedSucursal}_${cuentasFiltradas.fecha??'sin_fecha'}.csv`; a.click();
                 }}
                 className="text-xs px-2.5 py-1 rounded-lg border border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] transition-colors"
               >↓ CSV</button>
@@ -967,103 +1040,111 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
           </div>
         </div>
 
-        {cuentasData?.metadatos && Object.keys(cuentasData.metadatos).length > 0 && (
-          <div className="grid grid-cols-3 divide-x divide-[var(--shelfy-border)]/40 border-b border-[var(--shelfy-border)]/30">
-            <div className="px-5 py-3">
-              <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-0.5">Deuda Total</p>
-              <p className="text-base font-bold text-amber-400">${(cuentasData.metadatos.total_deuda??0).toLocaleString("es-AR",{maximumFractionDigits:0})}</p>
+        {!selectedSucursal ? (
+          <div className="py-12 flex flex-col items-center justify-center text-center px-6">
+            <div className="w-12 h-12 rounded-full bg-amber-500/10 flex items-center justify-center mb-3">
+              <CreditCard className="w-6 h-6 text-amber-500/50" />
             </div>
-            <div className="px-5 py-3">
-              <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-0.5">Clientes Deudores</p>
-              <p className="text-base font-bold text-[var(--shelfy-text)]">{(cuentasData.metadatos.clientes_deudores??0).toLocaleString()}</p>
-            </div>
-            <div className="px-5 py-3">
-              <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-0.5">Prom. Días Atraso</p>
-              <p className="text-base font-bold text-[var(--shelfy-text)]">{Math.round(cuentasData.metadatos.promedio_dias_retraso??0)} días</p>
-            </div>
+            <p className="text-sm text-[var(--shelfy-muted)] max-w-[240px]">
+              Seleccioná una sucursal para ver las cuentas corrientes.
+            </p>
           </div>
-        )}
-
-        {loadingCuentas && !cuentasData && (
-          <div className="flex items-center gap-2 justify-center py-8 text-[var(--shelfy-muted)]">
-            <Loader2 className="w-4 h-4 animate-spin" /><span className="text-sm">Cargando cuentas...</span>
-          </div>
-        )}
-        {cuentasData && cuentasData.vendedores.length === 0 && (
-          <p className="text-sm text-[var(--shelfy-muted)] text-center py-8 italic">Sin datos de cuentas corrientes.</p>
-        )}
-
-        {cuentasData && cuentasData.vendedores.length > 0 && (
-          <div className="divide-y divide-[var(--shelfy-border)]/30">
-            {cuentasData.vendedores.map((v, idx) => {
-              const color = vendorColor(idx);
-              const isOpen = openCuentasVend === v.vendedor;
-              const RANGO_COLORS: Record<string, string> = {
-                "1-7 Días":   "bg-green-500/15 text-green-400 border-green-500/25",
-                "8-15 Días":  "bg-yellow-500/15 text-yellow-400 border-yellow-500/25",
-                "16-21 Días": "bg-orange-500/15 text-orange-400 border-orange-500/25",
-                "22-30 Días": "bg-red-500/15 text-red-400 border-red-500/25",
-                "+30 Días":   "bg-rose-500/15 text-rose-400 border-rose-500/25",
-              };
-              const rangeDist: Record<string, number> = {};
-              v.clientes.forEach(c => { const r = c.rango_antiguedad??"Sin datos"; rangeDist[r]=(rangeDist[r]??0)+1; });
-              return (
-                <div key={v.vendedor}>
-                  <button
-                    className="w-full flex items-center gap-3 px-5 py-3 hover:bg-white/5 transition-colors text-left"
-                    onClick={() => setOpenCuentasVend(isOpen ? null : v.vendedor)}
-                  >
-                    <VendorAvatar nombre={v.vendedor} color={color} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-[var(--shelfy-text)] truncate">{v.vendedor}</p>
-                      <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                        <span className="text-xs text-[var(--shelfy-muted)]">Deuda: <span className="text-amber-400 font-medium">${v.deuda_total.toLocaleString("es-AR",{maximumFractionDigits:0})}</span></span>
-                        <span className="text-xs text-[var(--shelfy-muted)]">{v.cantidad_clientes} clientes</span>
-                        {Object.entries(rangeDist).map(([r,cnt]) => (
-                          <span key={r} className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border ${RANGO_COLORS[r]??"bg-slate-500/15 text-slate-400 border-slate-500/25"}`}>
-                            {r}: {cnt}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                    <ChevronRight className={`w-4 h-4 text-[var(--shelfy-muted)] transition-transform duration-200 ${isOpen?"rotate-90":""}`} />
-                  </button>
-                  <Accordion open={isOpen}>
-                    <div className="px-5 pb-3">
-                      <div className="rounded-xl border border-[var(--shelfy-border)]/50 overflow-auto max-h-64">
-                        <table className="w-full text-[11px]">
-                          <thead className="sticky top-0">
-                            <tr className="bg-[var(--shelfy-panel)] text-[var(--shelfy-muted)] uppercase tracking-wide text-[10px]">
-                              <th className="text-left px-3 py-2">Cliente</th>
-                              <th className="text-left px-3 py-2">Rango</th>
-                              <th className="text-right px-3 py-2">Antigüedad</th>
-                              <th className="text-right px-3 py-2">Comprob.</th>
-                              <th className="text-right px-3 py-2">Deuda</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-[var(--shelfy-border)]/20">
-                            {v.clientes.map((c, ci) => (
-                              <tr key={ci} className="hover:bg-white/5 text-[var(--shelfy-text)]">
-                                <td className="px-3 py-1.5 max-w-[200px] truncate">{c.cliente??"-"}</td>
-                                <td className="px-3 py-1.5">
-                                  <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border ${RANGO_COLORS[c.rango_antiguedad??""]??"bg-slate-500/15 text-slate-400 border-slate-500/25"}`}>
-                                    {c.rango_antiguedad??"?"}
-                                  </span>
-                                </td>
-                                <td className="px-3 py-1.5 text-right text-[var(--shelfy-muted)]">{c.antiguedad??"-"} días</td>
-                                <td className="px-3 py-1.5 text-right text-[var(--shelfy-muted)]">{c.cantidad_comprobantes??"-"}</td>
-                                <td className="px-3 py-1.5 text-right font-semibold text-amber-400">${c.deuda_total.toLocaleString("es-AR",{maximumFractionDigits:0})}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  </Accordion>
+        ) : (
+          <>
+            {cuentasFiltradas?.metadatos && Object.keys(cuentasFiltradas.metadatos).length > 0 && (
+              <div className="grid grid-cols-3 divide-x divide-[var(--shelfy-border)]/40 border-b border-[var(--shelfy-border)]/30">
+                <div className="px-5 py-3">
+                  <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-0.5">Deuda Total</p>
+                  <p className="text-base font-bold text-amber-400">${(cuentasFiltradas.metadatos.total_deuda??0).toLocaleString("es-AR",{maximumFractionDigits:0})}</p>
                 </div>
-              );
-            })}
-          </div>
+                <div className="px-5 py-3">
+                  <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-0.5">Clientes Deudores</p>
+                  <p className="text-base font-bold text-[var(--shelfy-text)]">{(cuentasFiltradas.metadatos.clientes_deudores??0).toLocaleString()}</p>
+                </div>
+                <div className="px-5 py-3">
+                  <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-0.5">Prom. Días Atraso</p>
+                  <p className="text-base font-bold text-[var(--shelfy-text)]">{Math.round(cuentasFiltradas.metadatos.promedio_dias_retraso??0)} días</p>
+                </div>
+              </div>
+            )}
+
+            {loadingCuentas && !cuentasFiltradas && (
+              <div className="flex items-center gap-2 justify-center py-8 text-[var(--shelfy-muted)]">
+                <Loader2 className="w-4 h-4 animate-spin" /><span className="text-sm">Cargando cuentas...</span>
+              </div>
+            )}
+            {cuentasFiltradas && cuentasFiltradas.vendedores.length === 0 && !loadingCuentas && (
+              <p className="text-sm text-[var(--shelfy-muted)] text-center py-8 italic">Sin datos de cuentas corrientes para esta sucursal.</p>
+            )}
+
+            {cuentasFiltradas && cuentasFiltradas.vendedores.length > 0 && (
+              <div className="divide-y divide-[var(--shelfy-border)]/30">
+                {cuentasFiltradas.vendedores.map((v: any, idx: number) => {
+                  const color = vendorColor(idx);
+                  const isOpen = openCuentasVend === v.vendedor;
+                  const rangeDist: Record<string, number> = {};
+                  v.clientes.forEach((c: any) => { const r = c.rango_antiguedad??"Sin datos"; rangeDist[r]=(rangeDist[r]??0)+1; });
+                  return (
+                    <div key={v.vendedor}>
+                      <button
+                        className="w-full flex items-center gap-3 px-5 py-3 hover:bg-white/5 transition-colors text-left"
+                        onClick={() => setOpenCuentasVend(isOpen ? null : v.vendedor)}
+                      >
+                        <VendorAvatar nombre={v.vendedor} color={color} />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-[var(--shelfy-text)] truncate">{v.vendedor}</p>
+                          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                            <span className="text-xs text-[var(--shelfy-muted)]">Deuda: <span className="text-amber-400 font-medium">${v.deuda_total.toLocaleString("es-AR",{maximumFractionDigits:0})}</span></span>
+                            <span className="text-xs text-[var(--shelfy-muted)]">{v.cantidad_clientes} clientes</span>
+                          </div>
+                        </div>
+                        <ChevronRight className={`w-4 h-4 text-[var(--shelfy-muted)] transition-transform duration-200 ${isOpen?"rotate-90":""}`} />
+                      </button>
+                      <Accordion open={isOpen}>
+                        <div className="px-5 pb-3">
+                          <div className="flex flex-wrap gap-2 mb-2">
+                            {Object.entries(rangeDist).map(([r, count]) => (
+                              <div key={r} className={`text-[10px] px-1.5 py-0.5 rounded border ${RANGO_COLORS[r] || "bg-white/5 text-[var(--shelfy-muted)] border-[var(--shelfy-border)]"}`}>
+                                {r}: {count}
+                              </div>
+                            ))}
+                          </div>
+                          <div className="rounded-xl border border-[var(--shelfy-border)]/50 overflow-auto max-h-64">
+                            <table className="w-full text-[11px]">
+                              <thead className="sticky top-0">
+                                <tr className="bg-[var(--shelfy-panel)] text-[var(--shelfy-muted)] uppercase tracking-wide text-[10px]">
+                                  <th className="text-left px-3 py-2">Cliente</th>
+                                  <th className="text-left px-3 py-2">Sucursal</th>
+                                  <th className="text-center px-3 py-2">Días</th>
+                                  <th className="text-right px-3 py-2">Deuda</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-[var(--shelfy-border)]/20">
+                                {v.clientes.map((c: any, ci: number) => (
+                                  <tr key={ci} className="hover:bg-white/5 text-[var(--shelfy-text)]">
+                                    <td className="px-3 py-1.5">{c.cliente??"-"}</td>
+                                    <td className="px-3 py-1.5 text-[var(--shelfy-muted)]">{c.sucursal??"-"}</td>
+                                    <td className="px-3 py-1.5 text-center">
+                                      {c.antiguedad !== null ? (
+                                        <span className={`font-bold ${c.antiguedad > 30 ? "text-rose-400" : c.antiguedad > 15 ? "text-orange-400" : "text-emerald-400"}`}>
+                                          {c.antiguedad}
+                                        </span>
+                                      ) : "-"}
+                                    </td>
+                                    <td className="px-3 py-1.5 text-right font-medium text-amber-400">${c.deuda_total.toLocaleString("es-AR",{maximumFractionDigits:0})}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </Accordion>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </>
         )}
       </div>
 

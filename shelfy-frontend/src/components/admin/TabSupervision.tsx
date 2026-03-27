@@ -186,6 +186,15 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
     if (isSuperadmin) fetchDistribuidoras(true).then(setDistribuidoras).catch(() => {});
   }, [isSuperadmin]);
 
+  // ── Sync selectedDist when distId changes (handles auth loading delay) ─────
+  // useState(distId) only uses initial value once; this keeps non-superadmin
+  // users always locked to their own distributor, even after the auth hydrates.
+  useEffect(() => {
+    if (!isSuperadmin && distId > 0 && distId !== selectedDist) {
+      setSelectedDist(distId);
+    }
+  }, [distId, isSuperadmin]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Load vendedores ───────────────────────────────────────────────────────
   const loadVendedores = useCallback(async () => {
     if (!selectedDist) return;
@@ -213,6 +222,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
 
   useEffect(() => {
     if (!selectedDist) return;
+    setVentasData(null);
     setLoadingVentas(true);
     fetchVentasSupervision(selectedDist, ventasDias)
       .then(setVentasData).catch(() => {}).finally(() => setLoadingVentas(false));
@@ -220,6 +230,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
 
   useEffect(() => {
     if (!selectedDist) return;
+    setCuentasData(null);
     setLoadingCuentas(true);
     fetchCuentasSupervision(selectedDist)
       .then(setCuentasData).catch(() => {}).finally(() => setLoadingCuentas(false));

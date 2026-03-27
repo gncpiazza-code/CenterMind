@@ -18,9 +18,9 @@
 | 3B++ | Toggle 3 niveles (vendedor / ruta / PDV individual) | ✅ COMPLETADA |
 | 3C | Apertura de roles — `/supervision` para admin+supervisor | ✅ COMPLETADA |
 | 3D | Alertas básicas (PDV inactivos, sin visita 90d) | ⏳ PENDIENTE |
-| 4A | Motor RPA: ventas por PDV | ⏳ PENDIENTE |
-| 4B | Motor RPA: cuentas corrientes | ⏳ PENDIENTE |
-| 4C | Schedule automático de motores | ⏳ PENDIENTE |
+| 4A | Motor RPA: ventas por PDV | ✅ COMPLETADA |
+| 4B | Motor RPA: cuentas corrientes | ✅ COMPLETADA |
+| 4C | Schedule automático de motores | ✅ COMPLETADA |
 
 ---
 
@@ -161,24 +161,26 @@ Pin aparece en mapa  ⟺  visibleVends ∩ visibleRutas ∩ visibleClientes
 
 ---
 
-## Fase 4 ⏳ — Motores RPA
+## Fase 4 ✅ — Motores RPA
 
 ### Fase 4A: Ventas por PDV
-- Motor que descarga el archivo de ventas del ERP (similar al padrón)
-- Mapea `id_cliente_erp` → `id_cliente` en `clientes_pdv_v2`
-- Almacena en tabla `ventas_v2` (a crear): fecha, monto, id_cliente, id_vendedor
-- Actualiza `clientes_pdv_v2.fecha_ultima_compra` automáticamente
-- **Este es el motor que hace vivos los datos de activos/inactivos del panel**
+- **Estado:** ✅ IMPLEMENTADO (Backend & Frontend)
+- Motor que descarga el archivo de ventas del ERP.
+- Mapea `id_cliente_erp` → `id_cliente` en `clientes_pdv_v2`.
+- Almacena en tabla `ventas_v2`: fecha, monto, id_cliente, id_vendedor.
+- Actualiza `clientes_pdv_v2.fecha_ultima_compra` automáticamente.
+- **Frontend:** Sección "Ventas" en panel de supervisión con facturación y recaudación.
 
 ### Fase 4B: Cuentas Corrientes
-- Motor que descarga saldos por cliente desde el ERP
-- Tabla `cuentas_corrientes_v2` (a crear): saldo, fecha_vencimiento, id_cliente
-- Vista en panel: saldo pendiente por PDV
+- **Estado:** ✅ IMPLEMENTADO (Backend & Frontend)
+- Motor que descarga saldos por cliente desde el ERP.
+- Tabla `cuentas_corrientes_data`: almacena JSON con deuda total, antigüedad y rangos.
+- **Frontend:** Sección "Cuentas Corrientes" con desglose por vendedor y cliente.
 
 ### Fase 4C: Schedule Automático
-- Cron job en Railway que corre los motores 1× por día (o bajo demanda)
-- Registro en `motor_runs` por distribuidora y tipo de motor
-- Dashboard de estado de ejecuciones
+- **Estado:** ✅ IMPLEMENTADO
+- Cron job via `BackgroundScheduler` en `api.py` que corre los motores a las 04:00 AM.
+- Registro en logs de API.
 
 ---
 

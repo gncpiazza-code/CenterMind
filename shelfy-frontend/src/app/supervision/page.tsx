@@ -52,25 +52,7 @@ export default function SupervisionPage() {
               <TabSupervision distId={distId} isSuperadmin={isSuperadmin} />
             </section>
 
-            {/* ── Tableros futuros (placeholders) ───────────────────────── */}
-            <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {[
-                { label: "Alertas de Inactividad",   desc: "PDV sin compras en +90 días agrupados por vendedor." },
-                { label: "Cobertura por Zona",        desc: "Porcentaje de clientes visitados por área geográfica." },
-                { label: "Tendencias de Ventas",      desc: "Evolución histórica de actividad y volumen por ruta." },
-              ].map(({ label, desc }) => (
-                <div
-                  key={label}
-                  className="rounded-2xl border border-[var(--shelfy-border)] border-dashed bg-[var(--shelfy-panel)]/50 px-6 py-8 flex flex-col items-center text-center gap-2"
-                >
-                  <span className="text-xs font-bold uppercase tracking-widest text-[var(--shelfy-muted)] opacity-50">
-                    Próximamente
-                  </span>
-                  <p className="text-sm font-bold text-[var(--shelfy-text)] opacity-40">{label}</p>
-                  <p className="text-xs text-[var(--shelfy-muted)] opacity-30 leading-relaxed">{desc}</p>
-                </div>
-              ))}
-            </section>
+
 
           </div>
         </main>

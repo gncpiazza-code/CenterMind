@@ -29,6 +29,7 @@ import {
   fetchVentasSupervision,
   fetchCuentasSupervision,
   fetchPDVsCercanos,
+  type PDVsCercanosResponse,
   type VendedorSupervision,
   type RutaSupervision,
   type ClienteSupervision,
@@ -202,6 +203,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
   const [scannerOpen, setScannerOpen]           = useState(false);
   const [scannerLoading, setScannerLoading]     = useState(false);
   const [pdvsCercanos, setPdvsCercanos]         = useState<PDVCercano[]>([]);
+  const [scannerFallback, setScannerFallback]   = useState(false);
   const [gpsError, setGpsError]                 = useState<string | null>(null);
 
   // ── Ventas & Cuentas ──────────────────────────────────────────────────────
@@ -414,6 +416,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
     setScannerLoading(true);
     setScannerOpen(true);
     setPdvsCercanos([]);
+    setScannerFallback(false);
 
     if (!navigator.geolocation) {
       setGpsError("Tu dispositivo no soporta geolocalización");
@@ -424,15 +427,16 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         try {
-          const data = await fetchPDVsCercanos(
+          const res: PDVsCercanosResponse = await fetchPDVsCercanos(
             selectedDist,
             pos.coords.latitude,
             pos.coords.longitude,
-            100
+            5000
           );
-          setPdvsCercanos(data);
-        } catch {
-          setGpsError("Error al buscar PDVs cercanos");
+          setPdvsCercanos(res.pdvs);
+          setScannerFallback(res.fallback);
+        } catch (err) {
+          setGpsError(`Error al buscar PDVs: ${err instanceof Error ? err.message : String(err)}`);
         } finally {
           setScannerLoading(false);
         }
@@ -1520,7 +1524,13 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                 <div>
                   <p className="text-sm font-bold text-green-400 tracking-wide">SCANNER GPS</p>
                   <p className="text-[10px] text-white/40 font-mono">
-                    {scannerLoading ? "Escaneando..." : pdvsCercanos.length > 0 ? `${pdvsCercanos.length} PDV${pdvsCercanos.length !== 1 ? "s" : ""} detectado${pdvsCercanos.length !== 1 ? "s" : ""}` : "Sin señal"}
+                    {scannerLoading
+                      ? "Escaneando..."
+                      : pdvsCercanos.length > 0
+                        ? scannerFallback
+                          ? `${pdvsCercanos.length} PDV${pdvsCercanos.length !== 1 ? "s" : ""} más cercano${pdvsCercanos.length !== 1 ? "s" : ""} (fuera de radio)`
+                          : `${pdvsCercanos.length} PDV${pdvsCercanos.length !== 1 ? "s" : ""} detectado${pdvsCercanos.length !== 1 ? "s" : ""}`
+                        : "Sin señal"}
                   </p>
                 </div>
               </div>

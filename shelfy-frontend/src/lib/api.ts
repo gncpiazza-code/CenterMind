@@ -1007,13 +1007,18 @@ export interface PDVCercano {
   distancia_metros: number;
 }
 
+export interface PDVsCercanosResponse {
+  fallback: boolean;
+  pdvs: PDVCercano[];
+}
+
 export async function fetchPDVsCercanos(
   distId: number,
   lat: number,
   lng: number,
-  radio = 100
-): Promise<PDVCercano[]> {
-  return apiFetch<PDVCercano[]>(
+  radio = 5000
+): Promise<PDVsCercanosResponse> {
+  return apiFetch<PDVsCercanosResponse>(
     `/api/supervision/pdvs-cercanos?lat=${lat}&lng=${lng}&radio=${radio}&dist_id=${distId}`
   );
 }

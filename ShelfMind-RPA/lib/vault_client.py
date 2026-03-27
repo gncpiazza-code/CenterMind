@@ -1,7 +1,16 @@
 import os
 from dotenv import load_dotenv
 
-load_dotenv(dotenv_path="C:/Users/cigar/OneDrive/Desktop/BOT-SQL/antigravity/CenterMind/CenterMind/.env")
+import pathlib
+_ENV_CANDIDATES = [
+    pathlib.Path(__file__).parent.parent.parent / "CenterMind" / ".env",  # repo/CenterMind/.env
+    pathlib.Path(__file__).parent.parent / ".env",                         # repo/ShelfMind-RPA/.env
+    pathlib.Path.home() / ".shelfy.env",                                   # ~/.shelfy.env
+]
+for _p in _ENV_CANDIDATES:
+    if _p.exists():
+        load_dotenv(dotenv_path=str(_p))
+        break
 
 _SECRETS = {}
 _FAILED_SECRETS = set()

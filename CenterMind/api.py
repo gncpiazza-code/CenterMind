@@ -3093,8 +3093,17 @@ def pdvs_cercanos(
     user_payload=Depends(verify_auth),
 ):
     """Retorna PDVs del distribuidor dentro del radio (metros) alrededor de la coordenada."""
-    check_dist_permission(user_payload, dist_id)
-    radio = min(radio, 500)
+    check_dist_permission(user_payload, int(dist_id))
+    radio = min(radio, 5000)
+
+    def parse_coord(v):
+        if v is None:
+            return None
+        try:
+            return float(str(v).replace(",", "."))
+        except (ValueError, TypeError):
+            return None
+
     try:
         clientes_res = sb.table("clientes_pdv_v2") \
             .select(
@@ -3102,29 +3111,39 @@ def pdvs_cercanos(
                 "domicilio, localidad, provincia, canal, latitud, longitud, "
                 "fecha_alta, fecha_ultima_compra, id_ruta"
             ) \
-            .eq("id_distribuidor", dist_id) \
+            .eq("id_distribuidor", int(dist_id)) \
             .not_.is_("latitud", "null") \
             .not_.is_("longitud", "null") \
             .execute()
 
         todos = clientes_res.data or []
+        logger.info(f"[SCANNER] dist_id={dist_id} lat={lat} lng={lng} radio={radio} — total_pdvs_con_coords={len(todos)}")
 
         todos_con_dist = []
         for row in todos:
+            plat = parse_coord(row.get("latitud"))
+            plng = parse_coord(row.get("longitud"))
+            if plat is None or plng is None:
+                continue
+            # Descartar coordenadas nulas de facto (0,0)
+            if plat == 0.0 and plng == 0.0:
+                continue
             try:
-                dist = haversine_metros(lat, lng, float(row["latitud"]), float(row["longitud"]))
+                dist = haversine_metros(lat, lng, plat, plng)
             except (TypeError, ValueError):
                 continue
             todos_con_dist.append((row, dist))
 
         todos_con_dist.sort(key=lambda x: x[1])
 
-        # Filtrar por radio; si no hay ninguno, devolver los 5 más cercanos sin límite
+        # Filtrar por radio; si no hay ninguno, devolver los 5 más cercanos (fallback)
+        fallback = False
         cercanos = [(r, d) for r, d in todos_con_dist if d <= radio]
         if not cercanos:
             cercanos = todos_con_dist[:5]
+            fallback = True
         if not cercanos:
-            return []
+            return {"fallback": False, "pdvs": []}
 
         # Obtener rutas y vendedores en batch
         ids_ruta = list({r[0]["id_ruta"] for r in cercanos if r[0].get("id_ruta")})
@@ -3184,7 +3203,7 @@ def pdvs_cercanos(
                 "ruta_nombre": ruta_info.get("nombre_ruta"),
                 "distancia_metros": round(dist, 1),
             })
-        return result
+        return {"fallback": fallback, "pdvs": result}
     except Exception as e:
         logger.error(f"Error en pdvs_cercanos: {e}")
         raise HTTPException(status_code=500, detail=str(e))

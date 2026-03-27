@@ -17,6 +17,7 @@ import {
   Building2,
   TrendingUp,
   CreditCard,
+  Printer,
 } from "lucide-react";
 import {
   fetchVendedoresSupervision,
@@ -271,20 +272,91 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
   }, [ventasData, selectedSucursal, vendedoresFiltrados]);
 
   const cuentasFiltradas = useMemo(() => {
-    if (!cuentasData || !selectedSucursal) return null;
-    const vendsInSuc = new Set(vendedoresFiltrados.map(v => v.nombre_vendedor.toLowerCase()));
-    const filteredVends = cuentasData.vendedores.filter(v => vendsInSuc.has(v.vendedor.toLowerCase()));
-    
-    return {
-      ...cuentasData,
-      metadatos: {
-        total_deuda: filteredVends.reduce((s, v) => s + v.deuda_total, 0),
-        clientes_deudores: filteredVends.reduce((s, v) => s + v.cantidad_clientes, 0),
-        promedio_dias_retraso: filteredVends.length > 0 ? filteredVends.reduce((s, v) => s + (v.clientes[0]?.antiguedad || 0), 0) / filteredVends.length : 0,
-      },
-      vendedores: filteredVends
+    if (!cuentasData) return null;
+    return cuentasData;
+  }, [cuentasData]);
+
+  // ── Print cuentas corrientes ─────────────────────────────────────────────
+  function handlePrintCuentas() {
+    if (!cuentasFiltradas) return;
+    const data = cuentasFiltradas;
+    const fmtN = (n: number) => n.toLocaleString("es-AR", { maximumFractionDigits: 0 });
+    const coloresDia: Record<string, string> = {
+      "1-7 Días": "#16a34a", "8-15 Días": "#ca8a04",
+      "16-21 Días": "#ea580c", "22-30 Días": "#dc2626", "+30 Días": "#9f1239",
     };
-  }, [cuentasData, selectedSucursal, vendedoresFiltrados]);
+    const vendedoresHTML = data.vendedores.map((v: any) => {
+      const filas = v.clientes.map((c: any) => {
+        const dias = c.antiguedad ?? 0;
+        const colorDias = dias > 30 ? "#dc2626" : dias > 21 ? "#ea580c" : dias > 15 ? "#ca8a04" : dias > 7 ? "#16a34a" : "#6b7280";
+        return `<tr>
+          <td style="padding:4px 8px;border:1px solid #e5e7eb;font-size:9px">${c.cliente ?? "-"}</td>
+          <td style="padding:4px 8px;border:1px solid #e5e7eb;font-size:9px;color:#6b7280">${c.sucursal ?? "-"}</td>
+          <td style="padding:4px 8px;border:1px solid #e5e7eb;font-size:9px;text-align:center;color:${colorDias};font-weight:bold">${dias}</td>
+          <td style="padding:4px 8px;border:1px solid #e5e7eb;font-size:9px;text-align:center">${c.cantidad_comprobantes ?? "-"}</td>
+          <td style="padding:4px 8px;border:1px solid #e5e7eb;font-size:9px;text-align:right;font-weight:600">$${fmtN(c.deuda_total)}</td>
+        </tr>`;
+      }).join("");
+      return `<div style="margin-bottom:20px;page-break-inside:avoid">
+        <div style="background:#1f2937;color:white;padding:8px 12px;border-radius:6px 6px 0 0;display:flex;align-items:center;gap:16px">
+          <span style="font-weight:700;font-size:11px;flex:1">${v.vendedor}</span>
+          <span style="font-size:10px;color:#fbbf24">Deuda: $${fmtN(v.deuda_total)}</span>
+          <span style="font-size:9px;color:#9ca3af">${v.cantidad_clientes} clientes</span>
+        </div>
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr style="background:#f3f4f6">
+            <th style="padding:5px 8px;border:1px solid #d1d5db;font-size:8px;text-align:left;text-transform:uppercase;letter-spacing:.4px">Cliente</th>
+            <th style="padding:5px 8px;border:1px solid #d1d5db;font-size:8px;text-align:left;text-transform:uppercase;letter-spacing:.4px">Sucursal</th>
+            <th style="padding:5px 8px;border:1px solid #d1d5db;font-size:8px;text-align:center;text-transform:uppercase;letter-spacing:.4px">Días</th>
+            <th style="padding:5px 8px;border:1px solid #d1d5db;font-size:8px;text-align:center;text-transform:uppercase;letter-spacing:.4px">Comprobantes</th>
+            <th style="padding:5px 8px;border:1px solid #d1d5db;font-size:8px;text-align:right;text-transform:uppercase;letter-spacing:.4px">Deuda</th>
+          </tr></thead>
+          <tbody>${filas}</tbody>
+          <tfoot><tr style="background:#f9fafb;border-top:2px solid #d1d5db">
+            <td colspan="4" style="padding:5px 8px;font-size:9px;text-align:right;font-weight:700">Total</td>
+            <td style="padding:5px 8px;font-size:9px;text-align:right;font-weight:700">$${fmtN(v.deuda_total)}</td>
+          </tr></tfoot>
+        </table>
+      </div>`;
+    }).join("");
+
+    const rangoBadges = Object.entries(coloresDia).map(([label, color]) => {
+      const count = data.vendedores.flatMap((v: any) => v.clientes)
+        .filter((c: any) => c.rango_antiguedad === label).length;
+      if (!count) return "";
+      return `<span style="display:inline-block;margin:2px 4px;padding:3px 8px;border-radius:4px;font-size:9px;background:${color}22;color:${color};border:1px solid ${color}55;font-weight:600">${label}: ${count}</span>`;
+    }).join("");
+
+    const html = `<!DOCTYPE html><html lang="es"><head>
+      <meta charset="UTF-8">
+      <title>Cuentas Corrientes</title>
+      <style>
+        @page { size: A4 portrait; margin: 1.5cm 1.2cm; }
+        body { font-family: Arial, sans-serif; color: #1a1a1a; margin: 0; }
+        @media print { * { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+      </style>
+    </head><body>
+      <div style="border-bottom:3px solid #1f2937;padding-bottom:12px;margin-bottom:16px">
+        <h1 style="margin:0;font-size:18px;font-weight:900">Cuentas Corrientes</h1>
+        <p style="margin:4px 0 0;font-size:11px;color:#6b7280">Al ${data.fecha ?? "—"} · Impreso el ${new Date().toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" })}</p>
+      </div>
+      <div style="display:flex;gap:20px;margin-bottom:16px;padding:10px 14px;background:#f9fafb;border-radius:6px;border:1px solid #e5e7eb">
+        <div><div style="font-size:8px;color:#9ca3af;text-transform:uppercase;letter-spacing:.5px">Deuda Total</div><div style="font-size:16px;font-weight:900;color:#d97706">$${fmtN(data.metadatos?.total_deuda ?? 0)}</div></div>
+        <div><div style="font-size:8px;color:#9ca3af;text-transform:uppercase;letter-spacing:.5px">Clientes Deudores</div><div style="font-size:16px;font-weight:900">${(data.metadatos?.clientes_deudores ?? 0).toLocaleString()}</div></div>
+        <div><div style="font-size:8px;color:#9ca3af;text-transform:uppercase;letter-spacing:.5px">Vendedores</div><div style="font-size:16px;font-weight:900">${data.vendedores.length}</div></div>
+        <div><div style="font-size:8px;color:#9ca3af;text-transform:uppercase;letter-spacing:.5px">Prom. Días Atraso</div><div style="font-size:16px;font-weight:900">${Math.round(data.metadatos?.promedio_dias_retraso ?? 0)} días</div></div>
+      </div>
+      ${rangoBadges ? `<div style="margin-bottom:16px">${rangoBadges}</div>` : ""}
+      ${vendedoresHTML}
+    </body></html>`;
+
+    const win = window.open("", "_blank", "width=900,height=950");
+    if (!win) return;
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    setTimeout(() => win.print(), 400);
+  }
 
   // ── Accordion handlers ────────────────────────────────────────────────────
   async function handleVend(id: number) {
@@ -880,8 +952,8 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
 
       </div>
 
-      {/* ── SECCIÓN VENTAS ──────────────────────────────────────────────────── */}
-      <div className="rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden shadow-sm">
+      {/* ── SECCIÓN VENTAS (oculta temporalmente, pendiente de pulir) ────────── */}
+      {false && <div className="rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden shadow-sm">
         <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-[var(--shelfy-border)]/50">
           <div className="flex items-center gap-2">
             <TrendingUp className="w-4 h-4 text-emerald-400" />
@@ -1020,10 +1092,12 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
             )}
           </>
         )}
-      </div>
+      </div>}
 
       {/* ── SECCIÓN CUENTAS CORRIENTES ──────────────────────────────────────── */}
       <div className="rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden shadow-sm">
+
+        {/* Header */}
         <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-[var(--shelfy-border)]/50">
           <div className="flex items-center gap-2">
             <CreditCard className="w-4 h-4 text-amber-400" />
@@ -1034,33 +1108,52 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
           </div>
           <div className="flex items-center gap-2">
             {cuentasFiltradas && cuentasFiltradas.vendedores.length > 0 && (
-              <button
-                onClick={() => {
-                  const rows = [["Vendedor","Cliente","Sucursal","Rango","Antigüedad (días)","Comprobantes","Deuda"]];
-                  cuentasFiltradas.vendedores.forEach((v: any) => v.clientes.forEach((c: any) => rows.push([v.vendedor, c.cliente??'', c.sucursal??'', c.rango_antiguedad??'', String(c.antiguedad??''), String(c.cantidad_comprobantes??''), String(c.deuda_total)])));
-                  const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
-                  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8;"})); a.download = `cuentas_${selectedSucursal}_${cuentasFiltradas.fecha??'sin_fecha'}.csv`; a.click();
-                }}
-                className="text-xs px-2.5 py-1 rounded-lg border border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] transition-colors"
-              >↓ CSV</button>
+              <>
+                <button
+                  onClick={handlePrintCuentas}
+                  title="Imprimir en A4"
+                  className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] hover:border-amber-500/40 transition-colors"
+                >
+                  <Printer className="w-3 h-3" />
+                  Imprimir
+                </button>
+                <button
+                  onClick={() => {
+                    const rows = [["Vendedor","Cliente","Sucursal","Rango","Antigüedad (días)","Comprobantes","Deuda"]];
+                    cuentasFiltradas.vendedores.forEach((v: any) => v.clientes.forEach((c: any) =>
+                      rows.push([v.vendedor, c.cliente??'', c.sucursal??'', c.rango_antiguedad??'', String(c.antiguedad??''), String(c.cantidad_comprobantes??''), String(c.deuda_total)])
+                    ));
+                    const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
+                    const a = document.createElement("a");
+                    a.href = URL.createObjectURL(new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8;"}));
+                    a.download = `cuentas_${cuentasFiltradas.fecha??'sin_fecha'}.csv`;
+                    a.click();
+                  }}
+                  className="text-xs px-2.5 py-1 rounded-lg border border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] transition-colors"
+                >
+                  ↓ CSV
+                </button>
+              </>
             )}
             {loadingCuentas && <Loader2 className="w-4 h-4 animate-spin text-[var(--shelfy-muted)]" />}
           </div>
         </div>
 
-        {!selectedSucursal ? (
+        {/* Sin distribuidor seleccionado */}
+        {!selectedDist ? (
           <div className="py-12 flex flex-col items-center justify-center text-center px-6">
             <div className="w-12 h-12 rounded-full bg-amber-500/10 flex items-center justify-center mb-3">
               <CreditCard className="w-6 h-6 text-amber-500/50" />
             </div>
             <p className="text-sm text-[var(--shelfy-muted)] max-w-[240px]">
-              Seleccioná una sucursal para ver las cuentas corrientes.
+              Seleccioná un distribuidor para ver las cuentas corrientes.
             </p>
           </div>
         ) : (
           <>
-            {cuentasFiltradas?.metadatos && Object.keys(cuentasFiltradas.metadatos).length > 0 && (
-              <div className="grid grid-cols-3 divide-x divide-[var(--shelfy-border)]/40 border-b border-[var(--shelfy-border)]/30">
+            {/* KPIs strip */}
+            {cuentasFiltradas?.metadatos && (
+              <div className="grid grid-cols-4 divide-x divide-[var(--shelfy-border)]/40 border-b border-[var(--shelfy-border)]/30">
                 <div className="px-5 py-3">
                   <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-0.5">Deuda Total</p>
                   <p className="text-base font-bold text-amber-400">${(cuentasFiltradas.metadatos.total_deuda??0).toLocaleString("es-AR",{maximumFractionDigits:0})}</p>
@@ -1070,79 +1163,137 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                   <p className="text-base font-bold text-[var(--shelfy-text)]">{(cuentasFiltradas.metadatos.clientes_deudores??0).toLocaleString()}</p>
                 </div>
                 <div className="px-5 py-3">
+                  <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-0.5">Vendedores</p>
+                  <p className="text-base font-bold text-[var(--shelfy-text)]">{cuentasFiltradas.vendedores.length}</p>
+                </div>
+                <div className="px-5 py-3">
                   <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-0.5">Prom. Días Atraso</p>
                   <p className="text-base font-bold text-[var(--shelfy-text)]">{Math.round(cuentasFiltradas.metadatos.promedio_dias_retraso??0)} días</p>
                 </div>
               </div>
             )}
 
+            {/* Loading */}
             {loadingCuentas && !cuentasFiltradas && (
-              <div className="flex items-center gap-2 justify-center py-8 text-[var(--shelfy-muted)]">
-                <Loader2 className="w-4 h-4 animate-spin" /><span className="text-sm">Cargando cuentas...</span>
+              <div className="flex items-center gap-2 justify-center py-10 text-[var(--shelfy-muted)]">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span className="text-sm">Cargando cuentas corrientes...</span>
               </div>
             )}
+
+            {/* Sin datos */}
             {cuentasFiltradas && cuentasFiltradas.vendedores.length === 0 && !loadingCuentas && (
-              <p className="text-sm text-[var(--shelfy-muted)] text-center py-8 italic">Sin datos de cuentas corrientes para esta sucursal.</p>
+              <div className="py-10 flex flex-col items-center justify-center text-center px-6">
+                <div className="w-10 h-10 rounded-full bg-emerald-500/10 flex items-center justify-center mb-2">
+                  <CreditCard className="w-5 h-5 text-emerald-500/50" />
+                </div>
+                <p className="text-sm text-[var(--shelfy-muted)]">Sin deudas registradas para este distribuidor.</p>
+              </div>
             )}
 
+            {/* Tarjetas de vendedores */}
             {cuentasFiltradas && cuentasFiltradas.vendedores.length > 0 && (
               <div className="divide-y divide-[var(--shelfy-border)]/30">
                 {cuentasFiltradas.vendedores.map((v: any, idx: number) => {
                   const color = vendorColor(idx);
                   const isOpen = openCuentasVend === v.vendedor;
+
+                  // Distribución por rango para mostrar en el header de la tarjeta
                   const rangeDist: Record<string, number> = {};
-                  v.clientes.forEach((c: any) => { const r = c.rango_antiguedad??"Sin datos"; rangeDist[r]=(rangeDist[r]??0)+1; });
+                  v.clientes.forEach((c: any) => {
+                    const r = c.rango_antiguedad ?? "Sin datos";
+                    rangeDist[r] = (rangeDist[r] ?? 0) + 1;
+                  });
+
                   return (
                     <div key={v.vendedor}>
+                      {/* Cabecera clickeable */}
                       <button
-                        className="w-full flex items-center gap-3 px-5 py-3 hover:bg-white/5 transition-colors text-left"
+                        className="w-full flex items-center gap-3 px-5 py-3.5 hover:bg-white/5 transition-colors text-left"
                         onClick={() => setOpenCuentasVend(isOpen ? null : v.vendedor)}
                       >
                         <VendorAvatar nombre={v.vendedor} color={color} />
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-semibold text-[var(--shelfy-text)] truncate">{v.vendedor}</p>
-                          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                            <span className="text-xs text-[var(--shelfy-muted)]">Deuda: <span className="text-amber-400 font-medium">${v.deuda_total.toLocaleString("es-AR",{maximumFractionDigits:0})}</span></span>
-                            <span className="text-xs text-[var(--shelfy-muted)]">{v.cantidad_clientes} clientes</span>
-                          </div>
-                        </div>
-                        <ChevronRight className={`w-4 h-4 text-[var(--shelfy-muted)] transition-transform duration-200 ${isOpen?"rotate-90":""}`} />
-                      </button>
-                      <Accordion open={isOpen}>
-                        <div className="px-5 pb-3">
-                          <div className="flex flex-wrap gap-2 mb-2">
+                          <div className="flex items-center gap-3 mt-1 flex-wrap">
+                            <span className="text-xs font-bold text-amber-400">
+                              ${v.deuda_total.toLocaleString("es-AR",{maximumFractionDigits:0})}
+                            </span>
+                            <span className="text-[11px] text-[var(--shelfy-muted)]">
+                              {v.cantidad_clientes} {v.cantidad_clientes === 1 ? "cliente" : "clientes"}
+                            </span>
+                            {/* Chips de rango compactos */}
                             {Object.entries(rangeDist).map(([r, count]) => (
-                              <div key={r} className={`text-[10px] px-1.5 py-0.5 rounded border ${RANGO_COLORS[r] || "bg-white/5 text-[var(--shelfy-muted)] border-[var(--shelfy-border)]"}`}>
-                                {r}: {count}
-                              </div>
+                              <span key={r} className={`text-[10px] px-1.5 py-0.5 rounded border ${RANGO_COLORS[r] ?? "bg-white/5 text-[var(--shelfy-muted)] border-[var(--shelfy-border)]"}`}>
+                                {r.replace(" Días","d").replace("+30","30+")}·{count}
+                              </span>
                             ))}
                           </div>
-                          <div className="rounded-xl border border-[var(--shelfy-border)]/50 overflow-auto max-h-64">
+                        </div>
+                        <ChevronRight className={`w-4 h-4 text-[var(--shelfy-muted)] transition-transform duration-200 shrink-0 ${isOpen ? "rotate-90" : ""}`} />
+                      </button>
+
+                      {/* Contenido expandido */}
+                      <Accordion open={isOpen}>
+                        <div className="px-5 pb-4">
+                          <div className="rounded-xl border border-[var(--shelfy-border)]/50 overflow-auto">
                             <table className="w-full text-[11px]">
-                              <thead className="sticky top-0">
-                                <tr className="bg-[var(--shelfy-panel)] text-[var(--shelfy-muted)] uppercase tracking-wide text-[10px]">
-                                  <th className="text-left px-3 py-2">Cliente</th>
-                                  <th className="text-left px-3 py-2">Sucursal</th>
-                                  <th className="text-center px-3 py-2">Días</th>
-                                  <th className="text-right px-3 py-2">Deuda</th>
+                              <thead className="sticky top-0 z-10">
+                                <tr className="bg-[var(--shelfy-bg)] text-[var(--shelfy-muted)] uppercase tracking-wide text-[10px]">
+                                  <th className="text-left px-3 py-2.5 font-semibold">Cliente</th>
+                                  <th className="text-left px-3 py-2.5 font-semibold">Sucursal</th>
+                                  <th className="text-center px-3 py-2.5 font-semibold">Rango</th>
+                                  <th className="text-center px-3 py-2.5 font-semibold">Días</th>
+                                  <th className="text-center px-3 py-2.5 font-semibold">Comprob.</th>
+                                  <th className="text-right px-3 py-2.5 font-semibold">Deuda</th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-[var(--shelfy-border)]/20">
-                                {v.clientes.map((c: any, ci: number) => (
-                                  <tr key={ci} className="hover:bg-white/5 text-[var(--shelfy-text)]">
-                                    <td className="px-3 py-1.5">{c.cliente??"-"}</td>
-                                    <td className="px-3 py-1.5 text-[var(--shelfy-muted)]">{c.sucursal??"-"}</td>
-                                    <td className="px-3 py-1.5 text-center">
-                                      {c.antiguedad !== null ? (
-                                        <span className={`font-bold ${c.antiguedad > 30 ? "text-rose-400" : c.antiguedad > 15 ? "text-orange-400" : "text-emerald-400"}`}>
-                                          {c.antiguedad}
-                                        </span>
-                                      ) : "-"}
-                                    </td>
-                                    <td className="px-3 py-1.5 text-right font-medium text-amber-400">${c.deuda_total.toLocaleString("es-AR",{maximumFractionDigits:0})}</td>
-                                  </tr>
-                                ))}
+                                {v.clientes.map((c: any, ci: number) => {
+                                  const dias = c.antiguedad ?? 0;
+                                  const diasColor = dias > 30
+                                    ? "text-rose-400 font-bold"
+                                    : dias > 21
+                                      ? "text-orange-400 font-semibold"
+                                      : dias > 15
+                                        ? "text-amber-400"
+                                        : "text-[var(--shelfy-text)]";
+                                  return (
+                                    <tr key={ci} className="hover:bg-white/5 text-[var(--shelfy-text)]">
+                                      <td className="px-3 py-2 max-w-[200px] truncate" title={c.cliente ?? undefined}>
+                                        {c.cliente ?? "-"}
+                                      </td>
+                                      <td className="px-3 py-2 text-[var(--shelfy-muted)]">{c.sucursal ?? "-"}</td>
+                                      <td className="px-3 py-2 text-center">
+                                        {c.rango_antiguedad ? (
+                                          <span className={`text-[10px] px-1.5 py-0.5 rounded border ${RANGO_COLORS[c.rango_antiguedad] ?? "bg-white/5 text-[var(--shelfy-muted)] border-[var(--shelfy-border)]"}`}>
+                                            {c.rango_antiguedad}
+                                          </span>
+                                        ) : "-"}
+                                      </td>
+                                      <td className={`px-3 py-2 text-center tabular-nums ${diasColor}`}>
+                                        {c.antiguedad ?? "-"}
+                                      </td>
+                                      <td className="px-3 py-2 text-center text-[var(--shelfy-muted)]">
+                                        {c.cantidad_comprobantes ?? "-"}
+                                      </td>
+                                      <td className="px-3 py-2 text-right font-semibold text-amber-400 tabular-nums">
+                                        ${c.deuda_total.toLocaleString("es-AR",{maximumFractionDigits:0})}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
                               </tbody>
+                              <tfoot>
+                                <tr className="border-t-2 border-[var(--shelfy-border)]/40 bg-white/3">
+                                  <td colSpan={5} className="px-3 py-2 text-right text-[11px] font-bold text-[var(--shelfy-muted)] uppercase tracking-wide">
+                                    Total
+                                  </td>
+                                  <td className="px-3 py-2 text-right font-bold text-amber-400 tabular-nums">
+                                    ${v.deuda_total.toLocaleString("es-AR",{maximumFractionDigits:0})}
+                                  </td>
+                                </tr>
+                              </tfoot>
                             </table>
                           </div>
                         </div>

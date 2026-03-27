@@ -272,9 +272,23 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
   }, [ventasData, selectedSucursal, vendedoresFiltrados]);
 
   const cuentasFiltradas = useMemo(() => {
-    if (!cuentasData) return null;
-    return cuentasData;
-  }, [cuentasData]);
+    if (!cuentasData || !selectedSucursal) return null;
+    // El campo sucursal de cada vendedor viene de sucursales_v2 via cc_detalle (autoritative)
+    const filteredVends = cuentasData.vendedores.filter(
+      (v: any) => (v.sucursal ?? "").toLowerCase() === selectedSucursal.toLowerCase()
+    );
+    const totalDeuda = filteredVends.reduce((s: number, v: any) => s + v.deuda_total, 0);
+    const clientesDeudores = filteredVends.reduce((s: number, v: any) => s + v.cantidad_clientes, 0);
+    const allClientes = filteredVends.flatMap((v: any) => v.clientes);
+    const promedioDias = allClientes.length > 0
+      ? allClientes.reduce((s: number, c: any) => s + (c.antiguedad ?? 0), 0) / allClientes.length
+      : 0;
+    return {
+      ...cuentasData,
+      metadatos: { total_deuda: totalDeuda, clientes_deudores: clientesDeudores, promedio_dias_retraso: promedioDias },
+      vendedores: filteredVends,
+    };
+  }, [cuentasData, selectedSucursal]);
 
   // ── Print cuentas corrientes ─────────────────────────────────────────────
   function handlePrintCuentas() {
@@ -1170,6 +1184,16 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                   <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-0.5">Prom. Días Atraso</p>
                   <p className="text-base font-bold text-[var(--shelfy-text)]">{Math.round(cuentasFiltradas.metadatos.promedio_dias_retraso??0)} días</p>
                 </div>
+              </div>
+            )}
+
+            {/* Sin sucursal seleccionada */}
+            {!selectedSucursal && !loadingCuentas && (
+              <div className="py-10 flex flex-col items-center justify-center text-center px-6">
+                <div className="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center mb-2">
+                  <Building2 className="w-5 h-5 text-amber-500/50" />
+                </div>
+                <p className="text-sm text-[var(--shelfy-muted)]">Seleccioná una sucursal para ver las cuentas corrientes.</p>
               </div>
             )}
 

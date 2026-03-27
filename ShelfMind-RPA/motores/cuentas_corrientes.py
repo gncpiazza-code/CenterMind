@@ -269,11 +269,12 @@ async def _navegar_y_procesar(page: Page, tenant: dict) -> None:
         await selector_sucursal.click()
         await page.wait_for_timeout(500)
 
-        # Deseleccionar todo
-        opciones_marcadas = page.locator('mat-option[aria-selected="true"]')
-        count = await opciones_marcadas.count()
-        for i in range(count):
-            await opciones_marcadas.nth(i).click()
+        # Deseleccionar todo — siempre nth(0) para evitar shifting de índices
+        while True:
+            opciones_marcadas = page.locator('mat-option[aria-selected="true"]')
+            if await opciones_marcadas.count() == 0:
+                break
+            await opciones_marcadas.nth(0).click()
             await page.wait_for_timeout(100)
 
         # Seleccionar solo sucursal

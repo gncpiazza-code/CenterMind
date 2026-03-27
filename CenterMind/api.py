@@ -2913,6 +2913,7 @@ def supervision_cuentas(dist_id: int, user_payload=Depends(verify_auth)):
             if v not in vendors:
                 vendors[v] = {
                     "vendedor": v,
+                    "sucursal": item.get("sucursal") or "",
                     "deuda_total": 0.0,
                     "cantidad_clientes": 0,
                     "clientes": [],

@@ -273,10 +273,9 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
 
   const cuentasFiltradas = useMemo(() => {
     if (!cuentasData || !selectedSucursal) return null;
-    // Cross-reference con vendedores ya filtrados por sucursal (mismo tenant + sucursal)
-    const vendsInSuc = new Set(vendedoresFiltrados.map(v => v.nombre_vendedor.toLowerCase()));
+    // Filtramos directamente por el campo sucursal que viene del backend
     const filteredVends = cuentasData.vendedores.filter(
-      (v: any) => vendsInSuc.has(v.vendedor.toLowerCase())
+      (v: any) => (v.sucursal ?? "").toLowerCase() === selectedSucursal.toLowerCase()
     );
     return {
       ...cuentasData,
@@ -287,7 +286,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
       },
       vendedores: filteredVends,
     };
-  }, [cuentasData, selectedSucursal, vendedoresFiltrados]);
+  }, [cuentasData, selectedSucursal]);
 
   // ── Print cuentas corrientes ─────────────────────────────────────────────
   function handlePrintCuentas() {

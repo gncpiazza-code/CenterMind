@@ -2783,6 +2783,119 @@ async def motor_cuentas(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/supervision/ventas/{dist_id}", tags=["Supervisión"])
+def supervision_ventas(dist_id: int, dias: int = 30, user_payload=Depends(verify_auth)):
+    """Resumen de ventas por vendedor para el panel de supervisión."""
+    check_dist_permission(user_payload, dist_id)
+    try:
+        from datetime import datetime, timedelta
+        fecha_desde = (datetime.now() - timedelta(days=dias)).strftime("%Y-%m-%d")
+
+        res = sb.table("ventas_v2") \
+            .select("vendedor, tipo_operacion, es_devolucion, monto_total, monto_recaudado, fecha, cliente, comprobante, numero") \
+            .eq("id_distribuidor", dist_id) \
+            .eq("es_anulado", False) \
+            .gte("fecha", fecha_desde) \
+            .order("fecha", desc=True) \
+            .execute()
+
+        rows = res.data or []
+        vendors: dict = {}
+        for row in rows:
+            v = row.get("vendedor") or "Sin Vendedor"
+            if v not in vendors:
+                vendors[v] = {
+                    "vendedor": v,
+                    "total_facturas": 0,
+                    "monto_total": 0.0,
+                    "monto_recaudado": 0.0,
+                    "transacciones": [],
+                }
+            vd = vendors[v]
+            vd["total_facturas"] += 1
+            vd["monto_total"] += float(row.get("monto_total") or 0)
+            vd["monto_recaudado"] += float(row.get("monto_recaudado") or 0)
+            if len(vd["transacciones"]) < 100:
+                vd["transacciones"].append({
+                    "fecha": row["fecha"],
+                    "cliente": row.get("cliente"),
+                    "comprobante": row.get("comprobante"),
+                    "numero": row.get("numero"),
+                    "tipo_operacion": row.get("tipo_operacion"),
+                    "es_devolucion": row.get("es_devolucion", False),
+                    "monto_total": float(row.get("monto_total") or 0),
+                    "monto_recaudado": float(row.get("monto_recaudado") or 0),
+                })
+
+        result = sorted(vendors.values(), key=lambda x: x["monto_total"], reverse=True)
+        return {
+            "dias": dias,
+            "fecha_desde": fecha_desde,
+            "total_facturado": round(sum(v["monto_total"] for v in result), 2),
+            "total_recaudado": round(sum(v["monto_recaudado"] for v in result), 2),
+            "total_facturas": sum(v["total_facturas"] for v in result),
+            "vendedores": result,
+        }
+    except Exception as e:
+        logger.error(f"Error en supervision_ventas: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/supervision/cuentas/{dist_id}", tags=["Supervisión"])
+def supervision_cuentas(dist_id: int, user_payload=Depends(verify_auth)):
+    """Cuentas corrientes por vendedor para el panel de supervisión."""
+    check_dist_permission(user_payload, dist_id)
+    try:
+        res = sb.table("cuentas_corrientes_data") \
+            .select("fecha, data") \
+            .eq("id_distribuidor", dist_id) \
+            .order("fecha", desc=True) \
+            .limit(1) \
+            .execute()
+
+        if not res.data:
+            return {"fecha": None, "metadatos": {}, "vendedores": []}
+
+        row = res.data[0]
+        data = row.get("data") or {}
+        metadatos = data.get("metadatos", {})
+        detalle = data.get("detalle_cuentas", [])
+
+        vendors: dict = {}
+        for item in detalle:
+            if not item.get("es_valido", True):
+                continue
+            v = item.get("vendedor") or "Sin Vendedor"
+            if v not in vendors:
+                vendors[v] = {
+                    "vendedor": v,
+                    "deuda_total": 0.0,
+                    "cantidad_clientes": 0,
+                    "clientes": [],
+                }
+            vd = vendors[v]
+            deuda = float(item.get("deuda_total") or 0)
+            vd["deuda_total"] += deuda
+            vd["cantidad_clientes"] += 1
+            vd["clientes"].append({
+                "cliente": item.get("cliente"),
+                "sucursal": item.get("sucursal"),
+                "deuda_total": deuda,
+                "antiguedad": item.get("antiguedad"),
+                "rango_antiguedad": item.get("rango_antiguedad"),
+                "cantidad_comprobantes": item.get("cantidad_comprobantes"),
+            })
+
+        for vd in vendors.values():
+            vd["clientes"].sort(key=lambda x: x["deuda_total"], reverse=True)
+        result = sorted(vendors.values(), key=lambda x: x["deuda_total"], reverse=True)
+
+        return {"fecha": row["fecha"], "metadatos": metadatos, "vendedores": result}
+    except Exception as e:
+        logger.error(f"Error en supervision_cuentas: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

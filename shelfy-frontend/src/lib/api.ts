@@ -916,3 +916,71 @@ export async function fetchRutasSupervision(idVendedor: number): Promise<RutaSup
 export async function fetchClientesSupervision(idRuta: number): Promise<ClienteSupervision[]> {
   return apiFetch<ClienteSupervision[]>(`/api/supervision/clientes/${idRuta}`);
 }
+
+
+// ── Supervisión Ventas ────────────────────────────────────────────────────────
+
+export interface TransaccionVenta {
+  fecha: string;
+  cliente: string | null;
+  comprobante: string | null;
+  numero: string | null;
+  tipo_operacion: string | null;
+  es_devolucion: boolean;
+  monto_total: number;
+  monto_recaudado: number;
+}
+
+export interface VendedorVentas {
+  vendedor: string;
+  total_facturas: number;
+  monto_total: number;
+  monto_recaudado: number;
+  transacciones: TransaccionVenta[];
+}
+
+export interface VentasSupervision {
+  dias: number;
+  fecha_desde: string;
+  total_facturado: number;
+  total_recaudado: number;
+  total_facturas: number;
+  vendedores: VendedorVentas[];
+}
+
+export async function fetchVentasSupervision(distId: number, dias = 30): Promise<VentasSupervision> {
+  return apiFetch<VentasSupervision>(`/api/supervision/ventas/${distId}?dias=${dias}`);
+}
+
+
+// ── Supervisión Cuentas Corrientes ────────────────────────────────────────────
+
+export interface ClienteCuenta {
+  cliente: string | null;
+  sucursal: string | null;
+  deuda_total: number;
+  antiguedad: number | null;
+  rango_antiguedad: string | null;
+  cantidad_comprobantes: number | null;
+}
+
+export interface VendedorCuentas {
+  vendedor: string;
+  deuda_total: number;
+  cantidad_clientes: number;
+  clientes: ClienteCuenta[];
+}
+
+export interface CuentasSupervision {
+  fecha: string | null;
+  metadatos: {
+    total_deuda?: number;
+    clientes_deudores?: number;
+    promedio_dias_retraso?: number;
+  };
+  vendedores: VendedorCuentas[];
+}
+
+export async function fetchCuentasSupervision(distId: number): Promise<CuentasSupervision> {
+  return apiFetch<CuentasSupervision>(`/api/supervision/cuentas/${distId}`);
+}

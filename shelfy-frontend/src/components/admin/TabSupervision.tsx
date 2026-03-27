@@ -15,16 +15,22 @@ import {
   Eye,
   EyeOff,
   Building2,
+  TrendingUp,
+  CreditCard,
 } from "lucide-react";
 import {
   fetchVendedoresSupervision,
   fetchRutasSupervision,
   fetchClientesSupervision,
   fetchDistribuidoras,
+  fetchVentasSupervision,
+  fetchCuentasSupervision,
   type VendedorSupervision,
   type RutaSupervision,
   type ClienteSupervision,
   type Distribuidora,
+  type VentasSupervision,
+  type CuentasSupervision,
 } from "@/lib/api";
 import type { PinCliente } from "./MapaRutas";
 
@@ -166,6 +172,15 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
   const [visibleClientes, setVisibleClientes]   = useState<Set<number>>(new Set());
   const [loadingMap, setLoadingMap]             = useState<Set<number>>(new Set());
 
+  // ── Ventas & Cuentas ──────────────────────────────────────────────────────
+  const [ventasDias, setVentasDias]             = useState<7 | 30 | 90>(30);
+  const [ventasData, setVentasData]             = useState<VentasSupervision | null>(null);
+  const [loadingVentas, setLoadingVentas]       = useState(false);
+  const [openVentasVend, setOpenVentasVend]     = useState<string | null>(null);
+  const [cuentasData, setCuentasData]           = useState<CuentasSupervision | null>(null);
+  const [loadingCuentas, setLoadingCuentas]     = useState(false);
+  const [openCuentasVend, setOpenCuentasVend]   = useState<string | null>(null);
+
   // ── Load distribuidoras ───────────────────────────────────────────────────
   useEffect(() => {
     if (isSuperadmin) fetchDistribuidoras(true).then(setDistribuidoras).catch(() => {});
@@ -195,6 +210,20 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
   }, [selectedDist]);
 
   useEffect(() => { loadVendedores(); }, [loadVendedores]);
+
+  useEffect(() => {
+    if (!selectedDist) return;
+    setLoadingVentas(true);
+    fetchVentasSupervision(selectedDist, ventasDias)
+      .then(setVentasData).catch(() => {}).finally(() => setLoadingVentas(false));
+  }, [selectedDist, ventasDias]);
+
+  useEffect(() => {
+    if (!selectedDist) return;
+    setLoadingCuentas(true);
+    fetchCuentasSupervision(selectedDist)
+      .then(setCuentasData).catch(() => {}).finally(() => setLoadingCuentas(false));
+  }, [selectedDist]);
 
   // ── Derived ───────────────────────────────────────────────────────────────
   const sucursales = useMemo(() =>
@@ -771,6 +800,262 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
         </div>
 
       </div>
+
+      {/* ── SECCIÓN VENTAS ──────────────────────────────────────────────────── */}
+      <div className="rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden">
+        <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-[var(--shelfy-border)]/50">
+          <div className="flex items-center gap-2">
+            <TrendingUp className="w-4 h-4 text-emerald-400" />
+            <h3 className="text-sm font-bold text-[var(--shelfy-text)]">Ventas</h3>
+            {ventasData && (
+              <span className="text-[11px] text-[var(--shelfy-muted)]">últimos {ventasDias} días</span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {([7, 30, 90] as const).map(d => (
+              <button
+                key={d}
+                onClick={() => setVentasDias(d)}
+                className={`text-xs px-2.5 py-1 rounded-lg border transition-all ${
+                  ventasDias === d
+                    ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-400 font-semibold"
+                    : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
+                }`}
+              >
+                {d}d
+              </button>
+            ))}
+            {ventasData && ventasData.vendedores.length > 0 && (
+              <button
+                onClick={() => {
+                  const rows = [["Vendedor","Fecha","Cliente","Comprobante","Número","Tipo","Devolución","Facturado","Recaudado"]];
+                  ventasData.vendedores.forEach(v => v.transacciones.forEach(t => rows.push([v.vendedor, t.fecha, t.cliente??'', t.comprobante??'', t.numero??'', t.tipo_operacion??'', t.es_devolucion?'SI':'NO', String(t.monto_total), String(t.monto_recaudado)])));
+                  const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
+                  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8;"})); a.download = `ventas_${ventasDias}d.csv`; a.click();
+                }}
+                className="text-xs px-2.5 py-1 rounded-lg border border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] transition-colors"
+              >↓ CSV</button>
+            )}
+            {loadingVentas && <Loader2 className="w-4 h-4 animate-spin text-[var(--shelfy-muted)]" />}
+          </div>
+        </div>
+
+        {ventasData && (
+          <div className="grid grid-cols-3 divide-x divide-[var(--shelfy-border)]/40 border-b border-[var(--shelfy-border)]/30">
+            <div className="px-5 py-3">
+              <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-0.5">Facturado</p>
+              <p className="text-base font-bold text-[var(--shelfy-text)]">${ventasData.total_facturado.toLocaleString("es-AR",{maximumFractionDigits:0})}</p>
+            </div>
+            <div className="px-5 py-3">
+              <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-0.5">Recaudado</p>
+              <p className="text-base font-bold text-emerald-400">${ventasData.total_recaudado.toLocaleString("es-AR",{maximumFractionDigits:0})}</p>
+            </div>
+            <div className="px-5 py-3">
+              <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-0.5">Comprobantes</p>
+              <p className="text-base font-bold text-[var(--shelfy-text)]">{ventasData.total_facturas.toLocaleString()}</p>
+            </div>
+          </div>
+        )}
+
+        {loadingVentas && !ventasData && (
+          <div className="flex items-center gap-2 justify-center py-8 text-[var(--shelfy-muted)]">
+            <Loader2 className="w-4 h-4 animate-spin" /><span className="text-sm">Cargando ventas...</span>
+          </div>
+        )}
+        {ventasData && ventasData.vendedores.length === 0 && (
+          <p className="text-sm text-[var(--shelfy-muted)] text-center py-8 italic">Sin datos de ventas para este período.</p>
+        )}
+
+        {ventasData && ventasData.vendedores.length > 0 && (
+          <div className="divide-y divide-[var(--shelfy-border)]/30">
+            {ventasData.vendedores.map((v, idx) => {
+              const color = vendorColor(idx);
+              const isOpen = openVentasVend === v.vendedor;
+              const pctRec = v.monto_total > 0 ? Math.round((v.monto_recaudado / v.monto_total) * 100) : 0;
+              return (
+                <div key={v.vendedor}>
+                  <button
+                    className="w-full flex items-center gap-3 px-5 py-3 hover:bg-white/5 transition-colors text-left"
+                    onClick={() => setOpenVentasVend(isOpen ? null : v.vendedor)}
+                  >
+                    <VendorAvatar nombre={v.vendedor} color={color} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-[var(--shelfy-text)] truncate">{v.vendedor}</p>
+                      <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+                        <span className="text-xs text-[var(--shelfy-muted)]">Fact: <span className="text-[var(--shelfy-text)] font-medium">${v.monto_total.toLocaleString("es-AR",{maximumFractionDigits:0})}</span></span>
+                        <span className="text-xs text-[var(--shelfy-muted)]">Rec: <span className="text-emerald-400 font-medium">${v.monto_recaudado.toLocaleString("es-AR",{maximumFractionDigits:0})}</span><span className="text-[10px] opacity-60 ml-0.5">({pctRec}%)</span></span>
+                        <span className="text-xs text-[var(--shelfy-muted)]">{v.total_facturas} comprob.</span>
+                      </div>
+                    </div>
+                    <ChevronRight className={`w-4 h-4 text-[var(--shelfy-muted)] transition-transform duration-200 ${isOpen?"rotate-90":""}`} />
+                  </button>
+                  <Accordion open={isOpen}>
+                    <div className="px-5 pb-3">
+                      <div className="rounded-xl border border-[var(--shelfy-border)]/50 overflow-auto max-h-64">
+                        <table className="w-full text-[11px]">
+                          <thead className="sticky top-0">
+                            <tr className="bg-[var(--shelfy-panel)] text-[var(--shelfy-muted)] uppercase tracking-wide text-[10px]">
+                              <th className="text-left px-3 py-2">Fecha</th>
+                              <th className="text-left px-3 py-2">Cliente</th>
+                              <th className="text-left px-3 py-2">Comprobante</th>
+                              <th className="text-right px-3 py-2">Facturado</th>
+                              <th className="text-right px-3 py-2">Recaudado</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-[var(--shelfy-border)]/20">
+                            {v.transacciones.map((t, ti) => (
+                              <tr key={ti} className={`hover:bg-white/5 ${t.es_devolucion?"text-orange-400/80":"text-[var(--shelfy-text)]"}`}>
+                                <td className="px-3 py-1.5 whitespace-nowrap">{fmt(t.fecha)}</td>
+                                <td className="px-3 py-1.5 max-w-[160px] truncate">{t.cliente??"-"}</td>
+                                <td className="px-3 py-1.5 text-[var(--shelfy-muted)]">
+                                  {t.comprobante??""} {t.numero??""}
+                                  {t.es_devolucion && <span className="ml-1 text-[9px] bg-orange-500/20 text-orange-400 px-1 rounded">DEV</span>}
+                                </td>
+                                <td className="px-3 py-1.5 text-right font-medium">${t.monto_total.toLocaleString("es-AR",{maximumFractionDigits:0})}</td>
+                                <td className="px-3 py-1.5 text-right text-emerald-400">${t.monto_recaudado.toLocaleString("es-AR",{maximumFractionDigits:0})}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        {v.transacciones.length >= 100 && (
+                          <p className="text-center text-[10px] text-[var(--shelfy-muted)] py-1.5 italic">Mostrando primeros 100 comprobantes</p>
+                        )}
+                      </div>
+                    </div>
+                  </Accordion>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* ── SECCIÓN CUENTAS CORRIENTES ──────────────────────────────────────── */}
+      <div className="rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden">
+        <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-[var(--shelfy-border)]/50">
+          <div className="flex items-center gap-2">
+            <CreditCard className="w-4 h-4 text-amber-400" />
+            <h3 className="text-sm font-bold text-[var(--shelfy-text)]">Cuentas Corrientes</h3>
+            {cuentasData?.fecha && (
+              <span className="text-[11px] text-[var(--shelfy-muted)]">· Al {fmt(cuentasData.fecha)}</span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {cuentasData && cuentasData.vendedores.length > 0 && (
+              <button
+                onClick={() => {
+                  const rows = [["Vendedor","Cliente","Sucursal","Rango","Antigüedad (días)","Comprobantes","Deuda"]];
+                  cuentasData.vendedores.forEach(v => v.clientes.forEach(c => rows.push([v.vendedor, c.cliente??'', c.sucursal??'', c.rango_antiguedad??'', String(c.antiguedad??''), String(c.cantidad_comprobantes??''), String(c.deuda_total)])));
+                  const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
+                  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8;"})); a.download = `cuentas_${cuentasData.fecha??'sin_fecha'}.csv`; a.click();
+                }}
+                className="text-xs px-2.5 py-1 rounded-lg border border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] transition-colors"
+              >↓ CSV</button>
+            )}
+            {loadingCuentas && <Loader2 className="w-4 h-4 animate-spin text-[var(--shelfy-muted)]" />}
+          </div>
+        </div>
+
+        {cuentasData?.metadatos && Object.keys(cuentasData.metadatos).length > 0 && (
+          <div className="grid grid-cols-3 divide-x divide-[var(--shelfy-border)]/40 border-b border-[var(--shelfy-border)]/30">
+            <div className="px-5 py-3">
+              <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-0.5">Deuda Total</p>
+              <p className="text-base font-bold text-amber-400">${(cuentasData.metadatos.total_deuda??0).toLocaleString("es-AR",{maximumFractionDigits:0})}</p>
+            </div>
+            <div className="px-5 py-3">
+              <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-0.5">Clientes Deudores</p>
+              <p className="text-base font-bold text-[var(--shelfy-text)]">{(cuentasData.metadatos.clientes_deudores??0).toLocaleString()}</p>
+            </div>
+            <div className="px-5 py-3">
+              <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-0.5">Prom. Días Atraso</p>
+              <p className="text-base font-bold text-[var(--shelfy-text)]">{Math.round(cuentasData.metadatos.promedio_dias_retraso??0)} días</p>
+            </div>
+          </div>
+        )}
+
+        {loadingCuentas && !cuentasData && (
+          <div className="flex items-center gap-2 justify-center py-8 text-[var(--shelfy-muted)]">
+            <Loader2 className="w-4 h-4 animate-spin" /><span className="text-sm">Cargando cuentas...</span>
+          </div>
+        )}
+        {cuentasData && cuentasData.vendedores.length === 0 && (
+          <p className="text-sm text-[var(--shelfy-muted)] text-center py-8 italic">Sin datos de cuentas corrientes.</p>
+        )}
+
+        {cuentasData && cuentasData.vendedores.length > 0 && (
+          <div className="divide-y divide-[var(--shelfy-border)]/30">
+            {cuentasData.vendedores.map((v, idx) => {
+              const color = vendorColor(idx);
+              const isOpen = openCuentasVend === v.vendedor;
+              const RANGO_COLORS: Record<string, string> = {
+                "1-7 Días":   "bg-green-500/15 text-green-400 border-green-500/25",
+                "8-15 Días":  "bg-yellow-500/15 text-yellow-400 border-yellow-500/25",
+                "16-21 Días": "bg-orange-500/15 text-orange-400 border-orange-500/25",
+                "22-30 Días": "bg-red-500/15 text-red-400 border-red-500/25",
+                "+30 Días":   "bg-rose-500/15 text-rose-400 border-rose-500/25",
+              };
+              const rangeDist: Record<string, number> = {};
+              v.clientes.forEach(c => { const r = c.rango_antiguedad??"Sin datos"; rangeDist[r]=(rangeDist[r]??0)+1; });
+              return (
+                <div key={v.vendedor}>
+                  <button
+                    className="w-full flex items-center gap-3 px-5 py-3 hover:bg-white/5 transition-colors text-left"
+                    onClick={() => setOpenCuentasVend(isOpen ? null : v.vendedor)}
+                  >
+                    <VendorAvatar nombre={v.vendedor} color={color} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-[var(--shelfy-text)] truncate">{v.vendedor}</p>
+                      <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                        <span className="text-xs text-[var(--shelfy-muted)]">Deuda: <span className="text-amber-400 font-medium">${v.deuda_total.toLocaleString("es-AR",{maximumFractionDigits:0})}</span></span>
+                        <span className="text-xs text-[var(--shelfy-muted)]">{v.cantidad_clientes} clientes</span>
+                        {Object.entries(rangeDist).map(([r,cnt]) => (
+                          <span key={r} className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border ${RANGO_COLORS[r]??"bg-slate-500/15 text-slate-400 border-slate-500/25"}`}>
+                            {r}: {cnt}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    <ChevronRight className={`w-4 h-4 text-[var(--shelfy-muted)] transition-transform duration-200 ${isOpen?"rotate-90":""}`} />
+                  </button>
+                  <Accordion open={isOpen}>
+                    <div className="px-5 pb-3">
+                      <div className="rounded-xl border border-[var(--shelfy-border)]/50 overflow-auto max-h-64">
+                        <table className="w-full text-[11px]">
+                          <thead className="sticky top-0">
+                            <tr className="bg-[var(--shelfy-panel)] text-[var(--shelfy-muted)] uppercase tracking-wide text-[10px]">
+                              <th className="text-left px-3 py-2">Cliente</th>
+                              <th className="text-left px-3 py-2">Rango</th>
+                              <th className="text-right px-3 py-2">Antigüedad</th>
+                              <th className="text-right px-3 py-2">Comprob.</th>
+                              <th className="text-right px-3 py-2">Deuda</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-[var(--shelfy-border)]/20">
+                            {v.clientes.map((c, ci) => (
+                              <tr key={ci} className="hover:bg-white/5 text-[var(--shelfy-text)]">
+                                <td className="px-3 py-1.5 max-w-[200px] truncate">{c.cliente??"-"}</td>
+                                <td className="px-3 py-1.5">
+                                  <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border ${RANGO_COLORS[c.rango_antiguedad??""]??"bg-slate-500/15 text-slate-400 border-slate-500/25"}`}>
+                                    {c.rango_antiguedad??"?"}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-1.5 text-right text-[var(--shelfy-muted)]">{c.antiguedad??"-"} días</td>
+                                <td className="px-3 py-1.5 text-right text-[var(--shelfy-muted)]">{c.cantidad_comprobantes??"-"}</td>
+                                <td className="px-3 py-1.5 text-right font-semibold text-amber-400">${c.deuda_total.toLocaleString("es-AR",{maximumFractionDigits:0})}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </Accordion>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
     </div>
   );
 }

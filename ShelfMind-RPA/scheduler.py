@@ -118,10 +118,10 @@ def main():
 
     scheduler = BackgroundScheduler(timezone=AR_TZ)
 
-    # Ventas: 13:30, 18:30 y 23:00 todos los días
-    scheduler.add_job(job_ventas, CronTrigger(hour=13, minute=30, timezone=AR_TZ), id="ventas_1330")
-    scheduler.add_job(job_ventas, CronTrigger(hour=18, minute=30, timezone=AR_TZ), id="ventas_1830")
-    scheduler.add_job(job_ventas, CronTrigger(hour=23, minute=0,  timezone=AR_TZ), id="ventas_2300")
+    # Ventas: 07:00, 15:00 y 23:00 todos los días
+    scheduler.add_job(job_ventas, CronTrigger(hour=7,  minute=0, timezone=AR_TZ), id="ventas_0700")
+    scheduler.add_job(job_ventas, CronTrigger(hour=15, minute=0, timezone=AR_TZ), id="ventas_1500")
+    scheduler.add_job(job_ventas, CronTrigger(hour=23, minute=0, timezone=AR_TZ), id="ventas_2300")
 
     # Cuentas: 07:00
     scheduler.add_job(job_cuentas, CronTrigger(hour=7, minute=0, timezone=AR_TZ), id="cuentas_0700")

@@ -76,8 +76,8 @@ TENANTS = [
         "url_base":   "https://tabacohermanos.chesserp.com/AR1149",
         "vault_user": "chess_tabaco_usuario",
         "vault_pass": "chess_tabaco_password",
-        "id_dist":    1,   
-        "activo":     False,
+        "id_dist":    1,
+        "activo":     True,
     },
     {
         "id":         "aloma",
@@ -86,7 +86,7 @@ TENANTS = [
         "vault_user": "chess_aloma_usuario",
         "vault_pass": "chess_aloma_password",
         "id_dist":    2,
-        "activo":     False,
+        "activo":     True,
     },
     {
         "id":         "liver",
@@ -95,7 +95,7 @@ TENANTS = [
         "vault_user": "chess_liver_usuario",
         "vault_pass": "chess_liver_password",
         "id_dist":    3,
-        "activo":     False,
+        "activo":     True,
     },
     {
         "id":         "real",
@@ -105,7 +105,7 @@ TENANTS = [
         "vault_pass": "chess_real_password",
         "id_dist":    4,
         "sucursal":   "UEQUIN RODRIGO",
-        "activo":     False,
+        "activo":     True,
     },
     {
         "id":         "extra",

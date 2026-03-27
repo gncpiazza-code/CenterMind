@@ -37,5 +37,7 @@ def get_secret(name: str) -> str:
     _FAILED_SECRETS.add(name)
     return ""
     
-def verificar_vault():
-    pass
+def verificar_vault() -> bool:
+    """Retorna True si hay acceso a credenciales (env vars o .env cargado)."""
+    # Basta con que SUPABASE_URL esté disponible
+    return bool(os.getenv("SUPABASE_URL") or os.getenv("supabase_url"))

@@ -1539,6 +1539,23 @@ def _enrich_and_store_cc(dist_id: int, fecha_snapshot: str, rows: list) -> int:
             "fecha_snapshot": fecha_snapshot,
         })
 
+    # Deduplicar por (vendedor_nombre, cliente_nombre): el Excel puede tener
+    # múltiples filas por el mismo par (una por comprobante). Sumamos deuda y
+    # comprobantes, y nos quedamos con la antigüedad máxima (la más vieja).
+    dedup: dict = {}
+    for r in records:
+        key = (r["vendedor_nombre"], r["cliente_nombre"])
+        if key not in dedup:
+            dedup[key] = r.copy()
+        else:
+            existing = dedup[key]
+            existing["deuda_total"] += r["deuda_total"]
+            existing["cantidad_comprobantes"] += r["cantidad_comprobantes"]
+            if r["antiguedad_dias"] > existing["antiguedad_dias"]:
+                existing["antiguedad_dias"] = r["antiguedad_dias"]
+                existing["rango_antiguedad"] = r["rango_antiguedad"]
+    records = list(dedup.values())
+
     if records:
         # Eliminar registros previos del mismo snapshot antes de insertar,
         # garantizando que una re-sincronización del día reemplaza los datos

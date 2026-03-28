@@ -42,19 +42,20 @@ export const STATUS_LABELS: Record<PinStatus, string> = {
 // Carto Positron (light, calles y nombres, free)
 const LIGHT_STYLE = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
 
-// CSS de animación de aura — se inyecta una sola vez
+// CSS de animación de aura — usa box-shadow (sin transform) para evitar
+// conflictos de composición GPU con el canvas WebGL de MapLibre.
+// La variable --ac se setea inline por elemento.
 const PULSE_CSS = `
 @keyframes shelfy-aura {
-  0%   { transform: scale(1);   opacity: 0.7; }
-  70%  { transform: scale(2.4); opacity: 0;   }
-  100% { transform: scale(2.4); opacity: 0;   }
+  0%   { box-shadow: 0 0 0 1px var(--ac); }
+  70%  { box-shadow: 0 0 0 9px transparent; }
+  100% { box-shadow: 0 0 0 9px transparent; }
 }
-.shelfy-pin-aura {
-  position: absolute;
-  inset: -4px;
+.shelfy-pin {
   border-radius: 50%;
   animation: shelfy-aura 2s ease-out infinite;
-  pointer-events: none;
+  pointer-events: auto;
+  cursor: pointer;
 }
 `;
 
@@ -151,35 +152,20 @@ export default function MapaRutas({ pines, fullscreenPanel }: MapaRutasProps) {
         const vendorColor = p.color;
         const size        = p.activo ? 12 : 8;
 
-        // Wrapper: relative so aura is positioned relative to dot
+        // Un único div — sin hijos, sin transform en la animación.
+        // box-shadow pulse no crea capas GPU que compitan con el canvas WebGL.
         const wrapper = document.createElement("div");
+        wrapper.className = "shelfy-pin";
         wrapper.style.cssText = `
-          position:relative;
           width:${size}px;
           height:${size}px;
-          cursor:pointer;
-        `;
-
-        // Aura ring (pulsing, status color)
-        const aura = document.createElement("div");
-        aura.className = "shelfy-pin-aura";
-        aura.style.background = auraColor + "66";
-        // Stagger animation per pin to avoid all pulsing at once
-        aura.style.animationDelay = `${(p.id % 20) * 0.1}s`;
-        wrapper.appendChild(aura);
-
-        // Dot (vendor color)
-        const dot = document.createElement("div");
-        dot.style.cssText = `
-          position:absolute;
-          inset:0;
-          border-radius:50%;
           background:${vendorColor};
           border:2px solid ${auraColor};
           box-sizing:border-box;
-          opacity:${p.activo ? 0.95 : 0.65};
+          opacity:${p.activo ? 0.95 : 0.6};
+          animation-delay:${(p.id % 20) * 0.1}s;
         `;
-        wrapper.appendChild(dot);
+        wrapper.style.setProperty("--ac", auraColor + "99");
 
         // Popup
         const ultimaCompraLine = p.ultimaCompra

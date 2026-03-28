@@ -3166,10 +3166,12 @@ def pdvs_cercanos(
                 "fecha_alta, fecha_ultima_compra, id_ruta"
             ) \
             .eq("id_distribuidor", int(dist_id)) \
+            .neq("es_limbo", True) \
+            .limit(10000) \
             .execute()
 
         todos = clientes_res.data or []
-        logger.info(f"[SCANNER] dist_id={dist_id} lat={lat} lng={lng} radio={radio} — total_pdvs_con_coords={len(todos)}")
+        logger.info(f"[SCANNER] dist_id={dist_id} lat={lat} lng={lng} radio={radio} — total_pdvs={len(todos)}")
 
         todos_con_dist = []
         for row in todos:

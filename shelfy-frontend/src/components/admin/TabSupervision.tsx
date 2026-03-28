@@ -1019,15 +1019,26 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                                                 )}
                                               </div>
                                             )}
-                                            <div className="flex items-center gap-3 flex-wrap">
+                                            <div className="flex flex-col gap-1">
                                               <div className="flex items-center gap-1">
-                                                <ShoppingCart className="w-3 h-3 text-[var(--shelfy-muted)]" />
+                                                <ShoppingCart className="w-3 h-3 text-[var(--shelfy-muted)] shrink-0" />
                                                 <span className={`text-[11px] font-semibold ${inactivo ? "text-red-400" : "text-emerald-400"}`}>
-                                                  {ultimaComp ?? "sin compras"}
+                                                  {ultimaComp
+                                                    ? <>Últ. compra: {ultimaComp} <span className="font-normal opacity-70">({diasDesde(c.fecha_ultima_compra)})</span></>
+                                                    : "Sin compras"}
                                                 </span>
                                               </div>
                                               <div className="flex items-center gap-1">
-                                                <Calendar className="w-3 h-3 text-[var(--shelfy-muted)]" />
+                                                <Calendar className="w-3 h-3 text-[var(--shelfy-muted)] shrink-0" />
+                                                <span className="text-[11px] text-[var(--shelfy-text)]">
+                                                  {c.fecha_ultima_exhibicion
+                                                    ? <>Últ. exhibición: <span className="font-semibold">{fmt(c.fecha_ultima_exhibicion?.split("T")[0])}</span> <span className="opacity-60">({diasDesde(c.fecha_ultima_exhibicion)})</span></>
+                                                    : <span className="opacity-40 italic text-[10px]">Sin exhibiciones registradas</span>
+                                                  }
+                                                </span>
+                                              </div>
+                                              <div className="flex items-center gap-1">
+                                                <Calendar className="w-3 h-3 text-[var(--shelfy-muted)] shrink-0" />
                                                 <span className="text-[11px] text-[var(--shelfy-text)]">
                                                   Alta:{" "}
                                                   {fechaAlta

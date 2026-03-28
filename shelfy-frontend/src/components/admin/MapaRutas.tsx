@@ -119,9 +119,16 @@ export default function MapaRutas({ pines, fullscreenPanel }: MapaRutasProps) {
       bearing:   0,
     });
     map.addControl(new maplibregl.NavigationControl(), "bottom-right");
-
     mapRef.current = map;
+
+    // ResizeObserver: llama map.resize() cada vez que el contenedor cambia de tamaño.
+    // Esto evita que los markers queden desincronizados con el canvas cuando el layout
+    // cambia (flex, fullscreen, panel lateral, etc.)
+    const ro = new ResizeObserver(() => { map.resize(); });
+    if (mapContainer.current) ro.observe(mapContainer.current);
+
     return () => {
+      ro.disconnect();
       map.remove();
       mapRef.current = null;
     };
@@ -206,14 +213,16 @@ export default function MapaRutas({ pines, fullscreenPanel }: MapaRutasProps) {
         markersRef.current.push(marker);
       });
 
-      // fitBounds sólo la primera vez que llegan datos con coordenadas
+      // fitBounds sólo la primera vez que llegan datos con coordenadas.
+      // animate:false evita que los markers aparezcan en posiciones "viejas"
+      // durante la animación de vuelo del mapa.
       if (conCoords.length > 0 && !fittedRef.current) {
         fittedRef.current = true;
         const lngs = conCoords.map(p => p.lng);
         const lats = conCoords.map(p => p.lat);
         map.fitBounds(
           [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
-          { padding: 60, maxZoom: 14 }
+          { padding: 60, maxZoom: 14, animate: false }
         );
       }
     };
@@ -222,11 +231,13 @@ export default function MapaRutas({ pines, fullscreenPanel }: MapaRutasProps) {
     else map.once("load", addMarkers);
   }, [filteredPines]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Resize on fullscreen change
+  // Resize explícito al cambiar fullscreen — el ResizeObserver cubre cambios
+  // de layout, pero fullscreen cambia el CSS de position/fixed que puede
+  // necesitar un ciclo extra para que el contenedor reporte el nuevo tamaño.
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    const t = setTimeout(() => map.resize(), 50);
+    const t = setTimeout(() => map.resize(), 220);
     return () => clearTimeout(t);
   }, [isFullscreen]);
 
@@ -330,11 +341,11 @@ export default function MapaRutas({ pines, fullscreenPanel }: MapaRutasProps) {
         </div>
       )}
 
-      {/* Map canvas */}
+      {/* Map canvas — sin transition en marginLeft para que MapLibre no pierda
+          la referencia de tamaño durante el CSS animation */}
       <div ref={mapContainer} style={{
         flex: 1, height: "100%",
         marginLeft: panelOffset,
-        transition: "margin-left 0.2s ease",
       }} />
 
       {/* Top-right controls */}

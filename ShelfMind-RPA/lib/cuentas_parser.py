@@ -4,13 +4,8 @@ import unicodedata
 import re
 import json
 
-SUCURSALES_MAP = {
-    "1": "Reconquista",
-    "2": "Resistencia",
-    "3": "Saenz Peña",
-    "4": "Corrientes",
-    "5": "Cordoba",
-}
+# El mapeo de códigos numéricos de sucursal a nombres se resuelve server-side
+# desde sucursales_v2 en _enrich_and_store_cc. No hardcodear aquí.
 
 def _strip_accents(text: str) -> str:
     if not isinstance(text, str): return ""
@@ -79,8 +74,10 @@ def procesar_excel_cuentas(file_path: str) -> dict:
     for k in CANONICAL.keys():
         if k not in df.columns: df[k] = np.nan
 
+    # Conservar el valor crudo de sucursal (código numérico o texto).
+    # La resolución al nombre real se hace server-side via sucursales_v2.
     if "sucursal" in df.columns:
-        df["sucursal"] = df["sucursal"].astype(str).str.strip().map(SUCURSALES_MAP).fillna(df["sucursal"])
+        df["sucursal"] = df["sucursal"].astype(str).str.strip()
 
     df["vendedor"] = df["vendedor"].fillna("SIN VENDEDOR").astype(str).str.strip()
     df["cliente"] = df["cliente"].fillna("Desconocido").astype(str).str.strip()

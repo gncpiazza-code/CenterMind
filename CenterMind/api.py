@@ -1500,12 +1500,20 @@ def _enrich_and_store_cc(dist_id: int, fecha_snapshot: str, rows: list) -> int:
     vend_map: dict = {}
     for v in (vend_res.data or []):
         nombre = (v.get("nombre_erp") or "").strip().lower()
-        if nombre:
-            vend_map[nombre] = {
-                "id_vendedor": v["id_vendedor"],
-                "id_sucursal": v["id_sucursal"],
-                "sucursal_nombre": suc_map.get(v["id_sucursal"], ""),
-            }
+        if not nombre:
+            continue
+        info = {
+            "id_vendedor": v["id_vendedor"],
+            "id_sucursal": v["id_sucursal"],
+            "sucursal_nombre": suc_map.get(v["id_sucursal"], ""),
+        }
+        vend_map[nombre] = info
+        # Indexar también por nombre-sólo, sin el prefijo "CODE-" del padrón
+        # (ej. "1-ramiro cornejo" → también clave "ramiro cornejo")
+        # para hacer match con el formato CC Excel "1 0001 - RAMIRO CORNEJO"
+        name_only = re.sub(r"^\d+\s*-\s*", "", nombre).strip()
+        if name_only and name_only != nombre:
+            vend_map.setdefault(name_only, info)
 
     records = []
     for row in rows:

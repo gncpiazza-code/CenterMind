@@ -226,58 +226,31 @@ export interface SystemHealth {
 
 // ── Image helpers ───────────────────────────────────────────────────────────
 
-/** Extrae el file ID de una URL de Google Drive */
-export function extractDriveId(url: string): string | null {
-  if (!url) return null;
-  const m1 = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
-  if (m1) return m1[1];
-  const m2 = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
-  if (m2) return m2[1];
-  if (/^[a-zA-Z0-9_-]{20,}$/.test(url)) return url;
-  return null;
-}
 
-/** URL del proxy de imagen para Google Drive (legacy) o Supabase (directo) */
-export function getImageUrl(fileId: string): string {
-  // Fallback para IDs puros si no vienen como URL full
-  if (fileId.length < 40) { // IDs de Drive suelen ser cortos
-    return `${API_URL}/dashboard/imagen/${fileId}`;
-  }
-  return fileId; // Si parece URL, devolverla
-}
-
-/** Resuelve una URL de imagen, soportando tanto Supabase como Google Drive */
+/** Resuelve una URL de imagen desde Supabase Storage.
+ *  La columna url_foto_drive en exhibiciones almacena URLs de Supabase Storage. */
 export function resolveImageUrl(driveLink: string | null | undefined, exhibicionId?: number): string | null {
   if (!driveLink) return null;
 
   const SUPABASE_STORAGE_URL = "https://xjwadmzuuzctxbrvgopx.supabase.co/storage/v1/object/public/Exhibiciones-PDV";
 
-  // 1. Si ya es una URL de Supabase full, devolverla
+  // Si ya es una URL de Supabase full, devolverla directamente
   if (driveLink.startsWith("http") && driveLink.includes("supabase.co")) {
     return driveLink;
   }
 
-  // 2. Si es una URL de Google Drive, extraer ID y usar el proxy del backend
-  const driveId = extractDriveId(driveLink);
-  if (driveId && driveId.length < 50) { // IDs de Drive son cortos
-    return `${API_URL}/api/dashboard/imagen/${driveId}`;
-  }
-
-  // 3. Fallback para links de Supabase (path relativo o ID puro)
+  // Path relativo → construir URL completa de Supabase Storage
   if (!driveLink.startsWith("http")) {
     const cleanPath = driveLink.startsWith("/") ? driveLink.slice(1) : driveLink;
     return `${SUPABASE_STORAGE_URL}/${cleanPath}`;
   }
 
-  // 4. Si es un ID de Supabase que empieza con http por error (pasa a veces en la DB)
-  if (driveLink.includes("supabase") && !driveLink.includes("/storage/v1/")) {
-    // Intento de reconstrucción si falta el path de storage
-    const parts = driveLink.split("/");
-    const fileDetail = parts[parts.length - 1];
-    return `${SUPABASE_STORAGE_URL}/${fileDetail}`;
-  }
-
   return driveLink;
+}
+
+/** @deprecated Usar resolveImageUrl */
+export function getImageUrl(fileId: string): string {
+  return fileId;
 }
 
 // ── Fetch helper con JWT ────────────────────────────────────────────────────

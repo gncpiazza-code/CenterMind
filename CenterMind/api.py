@@ -629,11 +629,11 @@ def get_live_map_events(minutos: int | None = None, fecha: str | None = None, us
         # Usamos un join (vía embedding en Supabase select) para traer sucursal y vendedor
         pdv_map = {}
         if pdv_ids:
-            pdv_res = sb.table("clientes_pdv").select(
+            pdv_res = sb.table("clientes_pdv_v2").select(
                 "id_cliente, id_cliente_erp, nombre_fantasia, latitud, longitud, "
-                "rutas(id_ruta, id_ruta_erp, vendedores(id_vendedor, nombre_erp, sucursales(id_sucursal, nombre_erp)))"
+                "rutas_v2(id_ruta, id_ruta_erp, vendedores_v2(id_vendedor, nombre_erp, sucursales_v2(id_sucursal, nombre_erp)))"
             ).in_("id_cliente", pdv_ids).execute()
-            
+
             for row in (pdv_res.data or []):
                 pdv_map[row["id_cliente"]] = row
 
@@ -654,13 +654,13 @@ def get_live_map_events(minutos: int | None = None, fecha: str | None = None, us
             nombre_vendedor = "Sin Vendedor"
             dist_name = dists.get(e["id_distribuidor"], f"Dist {e['id_distribuidor']}")
 
-            if pdv and pdv.get("rutas"):
-                ruta = pdv["rutas"]
-                if ruta.get("vendedores"):
-                    vendedor = ruta["vendedores"]
+            if pdv and pdv.get("rutas_v2"):
+                ruta = pdv["rutas_v2"]
+                if ruta.get("vendedores_v2"):
+                    vendedor = ruta["vendedores_v2"]
                     nombre_vendedor = vendedor.get("nombre_erp", "Vendedor S/N")
-                    if vendedor.get("sucursales"):
-                        nombre_sucursal = vendedor["sucursales"].get("nombre_erp", "Sucursal S/N")
+                    if vendedor.get("sucursales_v2"):
+                        nombre_sucursal = vendedor["sucursales_v2"].get("nombre_erp", "Sucursal S/N")
 
             final_data.append({
                 "id_ex": e["id_exhibicion"],
@@ -840,19 +840,25 @@ def get_pendientes(id_distribuidor: int, payload=Depends(verify_auth)):
         result = sb.rpc("fn_pendientes", {"p_dist_id": id_distribuidor}).execute()
         rows = result.data or []
 
-        # Enriquecimiento: fallback nro_cliente desde clientes_pdv si RPC no lo trajo
+        # Enriquecimiento: fallback nro_cliente desde clientes_pdv_v2 si RPC no lo trajo
         pendientes_sin_nro = [r.get("id_exhibicion") for r in rows if r.get("id_exhibicion") and (not r.get("nro_cliente") or r.get("nro_cliente") == "0")]
         if pendientes_sin_nro:
             try:
+                # Paso 1: obtener id_cliente_pdv de cada exhibicion
                 extra_res = sb.table("exhibiciones")\
-                    .select("id_exhibicion, clientes_pdv(id_cliente_erp)")\
+                    .select("id_exhibicion, id_cliente_pdv")\
                     .in_("id_exhibicion", pendientes_sin_nro)\
                     .execute()
+                exh_cliente = {r["id_exhibicion"]: r.get("id_cliente_pdv") for r in (extra_res.data or []) if r.get("id_cliente_pdv")}
                 nro_map = {}
-                for r in (extra_res.data or []):
-                    val = r.get("clientes_pdv")
-                    if val and isinstance(val, dict) and val.get("id_cliente_erp"):
-                        nro_map[r.get("id_exhibicion")] = val.get("id_cliente_erp")
+                if exh_cliente:
+                    # Paso 2: resolver id_cliente_erp desde clientes_pdv_v2
+                    pdv_res = sb.table("clientes_pdv_v2")\
+                        .select("id_cliente, id_cliente_erp")\
+                        .in_("id_cliente", list(set(exh_cliente.values())))\
+                        .execute()
+                    pdv_erp = {r["id_cliente"]: r["id_cliente_erp"] for r in (pdv_res.data or [])}
+                    nro_map = {ex_id: pdv_erp[cid] for ex_id, cid in exh_cliente.items() if cid in pdv_erp}
                 for r in rows:
                     if not r.get("nro_cliente") or r.get("nro_cliente") == "0":
                         ex_id = r.get("id_exhibicion")
@@ -1403,76 +1409,13 @@ def dashboard_ultimas(distribuidor_id: int, n: int = 8, payload=Depends(verify_a
     return []
 
 
-# ─── Proxy de imagen Drive ────────────────────────────────────────────────────
+# ─── Proxy de imagen Drive (removido) ────────────────────────────────────────
+# Las fotos se almacenan en Supabase Storage. El endpoint de Drive ya no es necesario.
 
-@app.get("/api/dashboard/imagen/{file_id}", summary="Proxy de imagen privada de Google Drive")
+@app.get("/api/dashboard/imagen/{file_id}", summary="Proxy de imagen — Removido")
 def dashboard_imagen(file_id: str):
-    """Descarga la imagen de Drive con el token OAuth del bot y la sirve directamente.
-    No requiere API key: el file_id actúa como token de acceso opaco."""
-    import certifi
-    import requests as _req
-    from fastapi.responses import Response
-    try:
-        from google.oauth2.credentials import Credentials
-        from google.auth.transport.requests import Request as GRequest
-    except ImportError:
-        raise HTTPException(status_code=503, detail="google-auth no instalado")
-
-    # PostgreSQL puede setear REQUESTS_CA_BUNDLE a un path inválido; forzamos certifi
-    _CA = certifi.where()
-
-    # Intentar cargar credenciales desde variable de entorno o archivo
-    token_json = os.environ.get("DRIVE_TOKEN_JSON")
-    token_path = Path(__file__).resolve().parent / "token_drive.json"
-    
-    try:
-        if token_json:
-            try:
-                creds_info = json.loads(token_json)
-                creds = Credentials.from_authorized_user_info(creds_info)
-                logger.info(f"📸 Proxy: Usando DRIVE_TOKEN_JSON para {file_id}")
-            except Exception as json_e:
-                logger.error(f"❌ Error parseando DRIVE_TOKEN_JSON: {json_e}")
-                raise HTTPException(status_code=500, detail="DRIVE_TOKEN_JSON tiene formato invalido")
-        elif token_path.exists():
-            creds = Credentials.from_authorized_user_file(str(token_path))
-            logger.info(f"📸 Proxy: Usando token_drive.json para {file_id}")
-        else:
-            logger.warning(f"⚠️ Sin credenciales Drive para {file_id}, verificando si es Supabase...")
-            raise HTTPException(status_code=503, detail="No se encontraron credenciales de Google Drive")
-
-        if not creds.valid and creds.refresh_token:
-            import google.auth.transport.requests as _gtr
-            creds.refresh(_gtr.Request(session=_req.Session()))
-
-        r = _req.get(
-            f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media",
-            headers={"Authorization": f"Bearer {creds.token}"},
-            timeout=20,
-            verify=_CA,
-        )
-        if r.status_code != 200:
-            logger.error(f"❌ Google Drive error {r.status_code} para {file_id}: {r.text[:100]}")
-        r.raise_for_status()
-        
-        mime = r.headers.get("Content-Type", "image/jpeg").split(";")[0]
-        return Response(
-            content=r.content,
-            media_type=mime,
-            headers={"Cache-Control": "public, max-age=3600"},
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        import traceback
-        err_trace = traceback.format_exc()
-        logger.error(f"❌ ERROR CRITICO PROXY IMAGEN ({file_id}):\n{err_trace}")
-        
-        # Log de debug para la variable (primeros 20 chars para no filtrar secretos)
-        token_preview = (token_json[:20] + "...") if token_json else "None"
-        logger.info(f"🔍 Debug Variable: DRIVE_TOKEN_JSON={token_preview}")
-        
-        raise HTTPException(status_code=502, detail=f"Proxy Error: {str(e)}")
+    """Endpoint legado de proxy Drive. Las fotos ahora están en Supabase Storage."""
+    raise HTTPException(status_code=410, detail="Endpoint removido. Las fotos se sirven directamente desde Supabase Storage.")
 
 
 # ─── Módulo Cuentas Corrientes ───────────────────────────────────────────────
@@ -1627,12 +1570,12 @@ async def procesar_cuentas_corrientes(
         with open(temp_file_path, "wb") as f:
             f.write(await file.read())
 
-        # Construir mapa de sucursales desde la Base de Datos
+        # Construir mapa de sucursales desde sucursales_v2
         mapa_sucursales = {}
         try:
-            result = sb.table("maestro_jerarquia").select("\"id suc\", \"SUCURSAL\"").execute()
+            result = sb.table("sucursales_v2").select("id_sucursal_erp, nombre_erp").execute()
             for row in (result.data or []):
-                mapa_sucursales[str(row["id suc"])] = row["SUCURSAL"]
+                mapa_sucursales[str(row["id_sucursal_erp"])] = row["nombre_erp"]
         except Exception as db_e:
             print(f"Advertencia: No se pudo cargar el mapa de sucursales desde BDD. {db_e}")
 
@@ -1908,7 +1851,7 @@ def reportes_exhibiciones(distribuidor_id: int, q_body: ReporteQuery, _=Depends(
         ig = sb.table("integrantes_grupo").select("id_integrante, nombre_integrante").in_("id_integrante", integrante_ids).execute()
         vendedores_map = {r["id_integrante"]: r["nombre_integrante"] for r in (ig.data or [])}
     if cliente_ids:
-        cl = sb.table("clientes_pdv").select("id_cliente, id_cliente_erp").in_("id_cliente", cliente_ids).execute()
+        cl = sb.table("clientes_pdv_v2").select("id_cliente, id_cliente_erp").in_("id_cliente", cliente_ids).execute()
         clientes_map = {r["id_cliente"]: r["id_cliente_erp"] for r in (cl.data or [])}
     output = []
     for r in rows:
@@ -2222,7 +2165,7 @@ def get_hierarchy_rutas(vendedor_id: int, _=Depends(verify_auth)):
 
 @app.get("/api/admin/hierarchy/clientes-pdv/{ruta_id}", tags=["Hierarchy"], summary="Listar clientes de una ruta")
 def get_hierarchy_clientes_pdv(ruta_id: int, _=Depends(verify_auth)):
-    res = sb.table("clientes_pdv").select("id_cliente, id_cliente_erp, nombre_fantasia, direccion").eq("id_ruta", ruta_id).order("nombre_fantasia").execute()
+    res = sb.table("clientes_pdv_v2").select("id_cliente, id_cliente_erp, nombre_fantasia, domicilio").eq("id_ruta", ruta_id).order("nombre_fantasia").execute()
     return res.data or []
 
 
@@ -2531,30 +2474,37 @@ def map_integrante_sucursal(data: dict, user_payload=Depends(verify_auth)):
 @app.post("/api/admin/hierarchy/sync-from-erp/{dist_id}", tags=["Admin"])
 def sync_hierarchy_from_erp(dist_id: int, user_payload=Depends(verify_auth)):
     """
-    Sincronización masiva de jerarquía usando datos del MAESTRO (maestro_jerarquia).
-    Esto vincula automáticamente a los integrantes de Telegram con su vendedor y sucursal ERP.
+    Sincronización masiva de jerarquía usando vendedores_v2.
+    Vincula automáticamente a los integrantes de Telegram con su vendedor y sucursal ERP.
     """
     check_dist_permission(user_payload, dist_id)
-    
+
     try:
-        # 1. Obtener la jerarquía del maestro
-        res_maestro = sb.table("maestro_jerarquia").select("*").eq("ID_DIST", dist_id).execute()
-        if not res_maestro.data:
-            return {"message": "No hay datos en el Maestro para sincronizar.", "count": 0}
-        
+        # 1. Obtener vendedores desde vendedores_v2
+        res_vend = sb.table("vendedores_v2").select("nombre_erp, id_vendedor_erp, id_sucursal").eq("id_distribuidor", dist_id).execute()
+        if not res_vend.data:
+            return {"message": "No hay vendedores en vendedores_v2 para sincronizar.", "count": 0}
+
+        # Resolver id_sucursal_erp para cada vendedor
+        suc_ids = list(set(r["id_sucursal"] for r in res_vend.data if r.get("id_sucursal")))
+        suc_erp_map: dict = {}
+        if suc_ids:
+            suc_res = sb.table("sucursales_v2").select("id_sucursal, id_sucursal_erp").in_("id_sucursal", suc_ids).execute()
+            suc_erp_map = {r["id_sucursal"]: r["id_sucursal_erp"] for r in (suc_res.data or [])}
+
         # Mapeo de Vendedor (nombre normalizado) -> {id_vend, id_suc}
         import unicodedata
         def normalize_str(text: str) -> str:
-            if not text or str(text).strip().upper() in ("NAN", "NONE", "NULL", "NA"): 
+            if not text or str(text).strip().upper() in ("NAN", "NONE", "NULL", "NA"):
                 return ""
             text = str(text).strip().upper()
             return ''.join(c for c in unicodedata.normalize('NFD', text) if unicodedata.category(c) != 'Mn')
 
         vendedor_mapping = {}
-        for row in res_maestro.data:
-            v_name = normalize_str(row.get("Vendedor"))
-            v_id = row.get("ID_VENDEDOR")
-            s_id = row.get("id suc")
+        for row in res_vend.data:
+            v_name = normalize_str(row.get("nombre_erp"))
+            v_id = row.get("id_vendedor_erp")
+            s_id = suc_erp_map.get(row.get("id_sucursal"))
             if v_name:
                 vendedor_mapping[v_name] = {"v_id": v_id, "s_id": s_id}
                 # También mapear sin prefijo 02- si existe

@@ -23,7 +23,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Frontend (`shelfy-frontend/`)
 - **Next.js 16** (App Router) + **React 19** + **TypeScript 5.9**
 - **Tailwind CSS 4** + **shadcn/ui**
-- **Recharts** para gráficos, **Leaflet / MapLibre** para mapas
+- **Recharts** para gráficos, **MapLibre GL** para mapas (Leaflet reemplazado)
 - **@tanstack/react-query** para fetching
 - Todo el tipado de API en `src/lib/api.ts`
 - **Nota**: `next.config.ts` tiene `ignoreBuildErrors: true` para TypeScript y ESLint — los errores de tipo no bloquean el build
@@ -55,6 +55,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - No está en ningún servidor cloud; se ejecuta con `python runner.py [motor]`
 - Requiere que las variables de entorno de Supabase estén definidas en el shell (`SUPABASE_URL`, `SUPABASE_KEY`)
 - **Logger**: el `lib/logger.py` intenta escribir en una ruta Windows (`C:/Users/cigar/...`) que no existe en Mac — los logs solo van a stdout. En producción Windows funcionaría el file handler.
+- **vault_client.py** resuelve credenciales con este orden: variables de entorno del shell → cache en memoria → Supabase Vault RPC. Lee el `.env` desde `CenterMind/CenterMind/.env` (no desde la raíz del RPA).
 
 ---
 
@@ -67,7 +68,7 @@ SHELFY_JWT_SECRET=       # Secreto para firmar JWT del portal React
 SUPABASE_URL=            # URL del proyecto Supabase
 SUPABASE_KEY=            # Anon/Service Key de Supabase
 WEBHOOK_URL=             # URL pública para webhooks de Telegram (https://api.shelfycenter.com)
-DRIVE_TOKEN_JSON=        # (Opcional) Token OAuth de Google Drive, JSON en string
+DRIVE_TOKEN_JSON=        # (Legado, no usado activamente — fotos van a Supabase Storage)
 ```
 
 ### Frontend — variables en Vercel (producción) o `shelfy-frontend/.env.local` (desarrollo)
@@ -115,6 +116,8 @@ El RPA procesa 4 distribuidoras activas configuradas en `TENANTS` dentro de cada
 | `real` | Real Tabacalera de Santiago S.A. | 2 | CHESS |
 | `extra` | GyG Distribución (pendiente credenciales) | 6 | CHESS |
 
+**Importante**: estos IDs son los reales en Supabase. En el pasado existían IDs placeholder (1,2,3,4) que causaban ingesta en distribuidores incorrectos — ya corregidos en `TENANT_DIST_MAP` de `ventas_ingestion_service.py` y en los motores RPA.
+
 Hay un quinto tenant (`extra`) con credenciales pendientes, sin activar.
 
 ---
@@ -133,7 +136,7 @@ CenterMind/                     # Root del repo
 │       ├── erp_ingestion_service.py      # Ingesta Excel ERP → tablas raw
 │       ├── erp_summary_service.py        # Consolidación de deuda
 │       ├── cuentas_corrientes_service.py # Procesamiento CC (Excel → gráficos)
-│       ├── padron_ingestion_service.py   # Ingesta padrón → tablas v2
+│       ├── padron_ingestion_service.py   # Ingesta padrón → tablas v2 (con SUCURSAL_FILTER)
 │       ├── ventas_ingestion_service.py   # Ingesta ventas → ventas_v2
 │       └── system_monitoring_service.py  # Métricas CPU/RAM/DB
 │
@@ -149,7 +152,7 @@ CenterMind/                     # Root del repo
 │       │   ├── bonos/          # Módulo de bonos
 │       │   └── visor/          # Visor de exhibiciones pendientes
 │       ├── components/
-│       │   ├── admin/          # TabSupervision.tsx (componente central de supervisión)
+│       │   ├── admin/          # TabSupervision.tsx + MapaRutas.tsx (mapa PDV con MapLibre)
 │       │   ├── layout/         # Sidebar, Topbar, BottomNav
 │       │   └── ui/             # shadcn/ui components
 │       ├── hooks/useAuth.ts    # Hook de autenticación
@@ -173,6 +176,8 @@ CenterMind/                     # Root del repo
 
 ### Regla principal: cada tabla tiene `id_distribuidor` como tenant key
 
+### Límite de filas: Supabase PostgREST devuelve máximo 1000 filas por query por defecto. Para tablas con volumen alto (ej. `cc_detalle` de Tabaco tiene ~4578 filas) se debe usar paginación con `.range(offset, offset+BATCH-1)` en un loop hasta que el resultado devuelva menos filas que el batch.
+
 ### Tablas activas (NO legacy)
 
 #### Core del sistema
@@ -181,7 +186,7 @@ CenterMind/                     # Root del repo
 | `distribuidores` | Clientes del SaaS. Tiene `token_bot`, `estado_operativo`, `feature_flags` |
 | `usuarios_portal` | Usuarios del portal React (login, rol, id_distribuidor) |
 | `integrantes_grupo` | Vendedores registrados en Telegram. FK a `id_vendedor_v2` |
-| `exhibiciones` | **Tabla crítica.** Fotos subidas por vendedores. 76+ referencias en el código |
+| `exhibiciones` | **Tabla crítica.** Fotos subidas por vendedores. 76+ referencias en el código. Columna `url_foto_drive` es nombre legado — actualmente almacena URLs de **Supabase Storage** (no Drive). Bucket: `Exhibiciones-PDV/{dist_nombre}/{fecha}/` |
 
 #### Jerarquía ERP (tablas v2 — fuente de verdad)
 | Tabla | Función |
@@ -219,9 +224,9 @@ CenterMind/                     # Root del repo
 #### Legacy (existen pero evitar usar)
 | Tabla | Estado |
 |---|---|
-| `maestro_jerarquia` | Usada en 2 endpoints: `/admin/hierarchy/sync-from-erp` y un select en cuentas corrientes (a migrar) |
-| `clientes_pdv` | Sin "v2". ~12 referencias en api.py, deberían apuntar a `clientes_pdv_v2` |
-| `sucursales`, `vendedores` | Tablas sin "v2". Algunas referencias legacy en api.py |
+| `maestro_jerarquia` | Sin referencias activas en api.py. Migrada a `vendedores_v2`/`sucursales_v2` |
+| `clientes_pdv` | Sin referencias activas en api.py. Todas migradas a `clientes_pdv_v2` |
+| `sucursales`, `vendedores` | Tablas sin "v2". Algunas referencias legacy en `/api/admin/hierarchy/rutas` (endpoint de admin poco usado) |
 
 ---
 
@@ -260,9 +265,9 @@ Función en api.py que lanza 403 si un usuario no-superadmin intenta acceder a u
 ```
 GET  /api/supervision/vendedores/{dist_id}      # Via RPC fn_supervision_vendedores
 GET  /api/supervision/rutas/{id_vendedor}        # Via RPC fn_supervision_rutas
-GET  /api/supervision/clientes/{id_ruta}         # Via RPC fn_supervision_clientes
+GET  /api/supervision/clientes/{id_ruta}         # PDVs con coords, fechas, url_ultima_exhibicion, id_ruta
 GET  /api/supervision/ventas/{dist_id}           # Ventas desde ventas_v2
-GET  /api/supervision/cuentas/{dist_id}          # Lee cc_detalle (nueva tabla)
+GET  /api/supervision/cuentas/{dist_id}          # Lee cc_detalle; acepta ?sucursal= para filtrar
 GET  /api/supervision/pendientes/{dist_id}       # Pendientes de evaluación
 ```
 
@@ -322,6 +327,21 @@ sucursales_v2 → vendedores_v2 → rutas_v2 → clientes_pdv_v2 → ventas_v2
 
 **Upsert idempotente**: todas las tablas v2 tienen constraint UNIQUE en `(id_distribuidor, id_*_erp)`. Se puede re-importar el mismo Excel sin duplicar.
 
+### Filtro de sucursales por distribuidor (`SUCURSAL_FILTER`)
+
+`padron_ingestion_service.py` tiene un dict `SUCURSAL_FILTER` que permite restringir la ingesta a sucursales específicas por `id_distribuidor`. Actualmente activo:
+
+```python
+SUCURSAL_FILTER: dict[int, dict] = {
+    2: {  # Real Tabacalera de Santiago S.A.
+        "ids":     ["8"],
+        "nombres": ["uequin rodrigo"],
+    },
+}
+```
+
+Si el resultado post-filtro está vacío, lanza `ValueError`. Agregar aquí si alguna otra distribuidora necesita filtrar sucursales.
+
 ---
 
 ## Flujo de Cuentas Corrientes
@@ -337,14 +357,17 @@ _enrich_and_store_cc(dist_id, fecha_snapshot, rows)
     ↓  DELETE snapshot del día + INSERT registros deduplicados
 cc_detalle  (tabla normalizada, sucursal viene de sucursales_v2)
     ↓
-GET /api/supervision/cuentas/{dist_id}
+GET /api/supervision/cuentas/{dist_id}?sucursal=X
+    ↓  filtra en backend por sucursal_nombre, pagina en lotes de 1000
     ↓  agrupa por id_vendedor, incluye sucursal correcta
-Frontend TabSupervision → filtra por v.sucursal === selectedSucursal
+Frontend TabSupervision → carga CC solo al seleccionar sucursal (no en mount)
 ```
 
 **Importante — deduplicación**: el Excel de CHESS puede traer una fila por comprobante para el mismo par (vendedor, cliente). `_enrich_and_store_cc` deduplica antes de insertar para no violar el UNIQUE constraint de `cc_detalle`. Se suma `deuda_total` y `cantidad_comprobantes`; `antiguedad_dias` toma el máximo.
 
 **Importante — sucursal**: la `sucursal` en `cc_detalle.sucursal_nombre` viene de `sucursales_v2.nombre_erp`, NO del texto del Excel. Esto resuelve el bug del `SUCURSALES_MAP` hardcodeado.
+
+**Importante — paginación**: `cc_detalle` de Tabaco tiene ~4578 filas. El endpoint `/api/supervision/cuentas/{dist_id}` usa un loop con `.range()` para superar el límite de 1000 filas de Supabase. Lo mismo aplica al select de `clientes_pdv_v2`.
 
 ---
 
@@ -363,6 +386,8 @@ Webhook: `POST /api/telegram/webhook/{id_distribuidor}`
 
 **Compliance/bloqueo**: si `distribuidores.estado_operativo != 'Activo'`, el bot rechaza cargas.
 
+**Columna `url_foto_drive`**: nombre legado en la tabla `exhibiciones`. En realidad almacena la URL pública de Supabase Storage. No hay integración con Google Drive activa. Usar el valor directamente como `<img src>` o link.
+
 ---
 
 ## Componente TabSupervision (frontend)
@@ -377,14 +402,64 @@ Es el componente central del panel de supervisión. Tiene 3 tabs principales:
 **Patrón de filtrado por sucursal**:
 ```typescript
 // selectedSucursal viene de sucursales_v2.nombre_erp (via supervision_vendedores)
-// cuentasFiltradas filtra v.sucursal === selectedSucursal
-// v.sucursal también viene de sucursales_v2.nombre_erp (via cc_detalle)
-// → misma fuente, match exacto garantizado
+// CC se carga con ?sucursal= al seleccionar sucursal (no en mount del componente)
+// v.sucursal en cc_detalle también viene de sucursales_v2.nombre_erp → match exacto
 ```
+
+**Carga de CC**: se dispara con `useEffect([selectedDist, selectedSucursal])`, no al montar. Evita cargar las ~4578 filas de Tabaco de golpe.
+
+**Mapa de PDVs — deduplicación**: un PDV puede estar en múltiples rutas del mismo vendedor. El `pines` useMemo usa un `Set<number>` para filtrar duplicados por `id_cliente`.
+
+**Mapa de PDVs — coordenadas válidas**: `hasValidCoords(lat, lng)` filtra coordenadas fuera del bounding box de Argentina (`lat: -55 a -21`, `lng: -74 a -53`). Los PDVs con `lat=0,lng=0` quedan excluidos.
 
 Props que recibe: `{ distId: number, isSuperadmin?: boolean }`
 - No-superadmin: `distId` viene del JWT y está fijo
 - Superadmin: puede cambiar `distId` con un selector
+
+---
+
+## Componente MapaRutas (frontend)
+
+Archivo: `shelfy-frontend/src/components/admin/MapaRutas.tsx`
+
+Mapa MapLibre GL con marcadores HTML para PDVs. Puntos críticos de la implementación:
+
+### Conflicto GPU / WebGL
+Los marcadores HTML con animaciones CSS `transform: scale()` crean capas de compositing GPU separadas que interfieren con el canvas WebGL de MapLibre → los pins se mueven al hacer pan/zoom. **Solución**: usar `box-shadow` para la animación aura (no `transform`). Un único elemento `.shelfy-pin` con:
+```css
+@keyframes shelfy-aura {
+  0%   { box-shadow: 0 0 0 1px var(--ac); }
+  70%  { box-shadow: 0 0 0 9px transparent; }
+  100% { box-shadow: 0 0 0 9px transparent; }
+}
+```
+
+### ResizeObserver
+Al cambiar de tab o abrir/cerrar fullscreen, el contenedor del mapa cambia de tamaño. Sin `map.resize()` el canvas queda desfasado. Implementado con `ResizeObserver` sobre el contenedor.
+
+### `fitBounds` sin animación
+`fitBounds({ padding: 60, maxZoom: 14, animate: false })` — el `animate: false` es crítico para evitar que los marcadores deriven durante la animación de vuelo.
+
+### Interface `PinCliente`
+```typescript
+export interface PinCliente {
+  id: number; lat: number; lng: number; nombre: string;
+  color: string; activo: boolean; vendedor: string;
+  ultimaCompra: string | null; conExhibicion: boolean;
+  idClienteErp?: string | null;       // Nº cliente ERP
+  nroRuta?: string | null;            // dia_semana de rutas_v2
+  fechaUltimaCompra?: string | null;  // ISO date para calcular días
+  fechaUltimaExhibicion?: string | null;
+  urlExhibicion?: string | null;      // URL Supabase Storage (directo, no Drive)
+}
+```
+
+### Popup enriquecido
+El popup HTML del marcador muestra:
+- Nombre del PDV + estado activo/inactivo
+- Última compra: fecha + "hace N días" (rojo si inactivo)
+- Exhibición: fecha + días + miniatura `<img src={urlExhibicion}>` + link "Ver imagen original ↗"
+- Meta: Nº cliente ERP + Ruta (dia_semana)
 
 ---
 
@@ -408,6 +483,7 @@ Props que recibe: `{ distId: number, isSuperadmin?: boolean }`
 - Las tablas `_v2` son las activas; las sin sufijo son legacy
 - Las tablas `erp_*_raw` son de auditoría, no modificar manualmente
 - `cc_detalle` es la tabla authoritative de cuentas corrientes para supervision
+- Para tablas con volumen alto: siempre paginar con `.range()` — nunca asumir que un `.select()` devuelve todos los registros
 
 ---
 
@@ -419,6 +495,8 @@ Props que recibe: `{ distId: number, isSuperadmin?: boolean }`
 - No queries sin filtro `id_distribuidor` (excepto superadmin explícito)
 - No modificar tablas `erp_*_raw` directamente — son append-only desde los services
 - No usar `clientes_pdv` (sin v2) en código nuevo
+- No usar animaciones CSS `transform` en marcadores HTML sobre MapLibre GL — usar `box-shadow` o `opacity`
+- No asumir que `url_foto_drive` en `exhibiciones` es una URL de Drive — es Supabase Storage, usar directamente
 
 ---
 
@@ -439,16 +517,20 @@ fn_login(p_usuario, p_password)        -- Auth del portal React
 - Exhibiciones (Telegram → evaluación → sync)
 - Ingesta ERP (Excel upload + RPA push)
 - Dashboard KPIs y ranking
-- Panel de supervisión (mapa de rutas)
+- Panel de supervisión (mapa de rutas con popup enriquecido)
 - Autenticación JWT
-- **Cuentas Corrientes en supervisión**: `cc_detalle` poblada y funcionando para los 4 tenants
+- **Cuentas Corrientes en supervisión**: `cc_detalle` poblada y funcionando para los 4 tenants, con paginación y filtro por sucursal
+- **Mapa PDV**: marcadores estables (sin drift), aura animada con box-shadow, popup con compra/exhibición/foto
 
 ### Módulos en activo desarrollo
 - **Migración de legacy**: referencias a `maestro_jerarquia` y `clientes_pdv` (sin v2) pendientes de migrar
 
 ### Deuda técnica conocida
 - `api.py` monolítico de ~3000 líneas (no refactorizar sin pedido explícito)
-- `maestro_jerarquia` tiene 2 puntos de uso restantes
-- `clientes_pdv` (sin v2) tiene ~12 referencias en api.py
 - APScheduler no distribuido (corre en proceso único)
-- `lib/logger.py` del RPA apunta a ruta Windows — solo funciona en Mac vía stdout
+- `/api/admin/hierarchy/rutas` y endpoints afines usan tablas `sucursales`/`vendedores` (sin v2) — poco usados, pendiente de migrar
+
+### Pendientes operativos
+- **Padrón de Tabaco (id=3)**: `vendedores_v2` puede estar vacío si el usuario no subió el padrón desde la UI. Sin padrón, los vendedores de CC aparecen como "ghost" (sin id_vendedor resuelto).
+- **Credenciales Tabaco en Vault**: se agregaron `CHESS_TABACO_USUARIO=emap` / `CHESS_TABACO_PASSWORD=EMAP1983` al `.env` local. Verificar que estén también en Supabase Vault para producción (`chess_tabaco_usuario`, `chess_tabaco_password`).
+- **Tenant `extra` (GyG, id=6)**: credenciales CHESS pendientes de obtener.

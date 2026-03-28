@@ -4,7 +4,7 @@ from pathlib import Path
 from logging.handlers import RotatingFileHandler
 from datetime import datetime
 
-LOGS_DIR = Path("C:/Users/cigar/OneDrive/Desktop/BOT-SQL/antigravity/CenterMind/ShelfMind-RPA/logs")
+LOGS_DIR = Path(__file__).resolve().parent.parent / "logs"
 
 def get_logger(name: str) -> logging.Logger:
     logger = logging.getLogger(name)

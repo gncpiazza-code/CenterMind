@@ -115,36 +115,10 @@ export default function MapaRutas({ pines, fullscreenPanel }: MapaRutasProps) {
       style:     LIGHT_STYLE,
       center:    [-63.0, -34.0],
       zoom:      5,
-      pitch:     30,   // slight tilt for 3D feel
+      pitch:     0,
       bearing:   0,
     });
     map.addControl(new maplibregl.NavigationControl(), "bottom-right");
-
-    // 3D buildings after style loads
-    map.on("load", () => {
-      const layers = map.getStyle().layers ?? [];
-      // Find first symbol layer to insert buildings below labels
-      const firstSymbol = layers.find(l => l.type === "symbol")?.id;
-      try {
-        map.addLayer(
-          {
-            id:     "shelfy-3d-buildings",
-            type:   "fill-extrusion",
-            source: "carto",
-            "source-layer": "building",
-            paint: {
-              "fill-extrusion-color":   "#cbd5e1",
-              "fill-extrusion-height":  ["coalesce", ["get", "height"], 8],
-              "fill-extrusion-base":    ["coalesce", ["get", "min_height"], 0],
-              "fill-extrusion-opacity": 0.55,
-            },
-          },
-          firstSymbol
-        );
-      } catch {
-        // Vector tile source may not have building layer — silently skip
-      }
-    });
 
     mapRef.current = map;
     return () => {

@@ -28,10 +28,10 @@ logger = logging.getLogger("VentasIngestion")
 
 # Mapeo tenant_id (RPA) → id_distribuidor en Supabase
 TENANT_DIST_MAP = {
-    "tabaco": 1,
-    "aloma":  2,
-    "liver":  3,
-    "real":   4,
+    "tabaco": 3,
+    "aloma":  4,
+    "liver":  5,
+    "real":   2,
 }
 
 # ─── helpers ──────────────────────────────────────────────────────────────────

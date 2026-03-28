@@ -30,6 +30,21 @@ from db import sb
 logger = logging.getLogger("PadronIngestion")
 
 
+# ─── Configuración de filtros por distribuidor ───────────────────────────────
+# Para un distribuidor dado, sólo se ingerirán las filas cuya sucursal ERP
+# (id numérico o nombre) esté en la lista ALLOWED.
+# Formato: { id_distribuidor: { "ids": [...], "nombres": [...] } }
+# Los nombres se comparan normalizados (sin acentos, minúsculas).
+# Si un distribuidor NO aparece aquí, se toman TODAS sus sucursales.
+
+SUCURSAL_FILTER: dict[int, dict] = {
+    2: {  # Real Tabacalera de Santiago S.A. (id_distribuidor=2)
+        "ids":     ["8"],             # id_sucursal_erp numérico como string
+        "nombres": ["uequin rodrigo"],  # nombre normalizado (sin acentos, minúsculas)
+    },
+}
+
+
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
 def _norm(s: str) -> str:
@@ -690,6 +705,45 @@ class PadronIngestionService:
         )
 
         try:
+            # ── Filtro de sucursales por distribuidor ─────────────────────────
+            # Si el distribuidor tiene una lista de sucursales permitidas,
+            # descartar filas de otras sucursales ANTES de procesar cualquier dato.
+            suc_filter = SUCURSAL_FILTER.get(dist_id)
+            if suc_filter:
+                id_suc_col  = cols.get("id_sucursal")
+                nom_suc_col = cols.get("sucursal")
+                allowed_ids     = {str(s).strip() for s in suc_filter.get("ids", [])}
+                allowed_nombres = {_norm(n) for n in suc_filter.get("nombres", [])}
+
+                def _row_allowed(row: Any) -> bool:
+                    # Chequeo por id numérico
+                    if id_suc_col:
+                        raw_id = _safe_str(row.get(id_suc_col), "")
+                        if raw_id.endswith(".0"):
+                            raw_id = raw_id[:-2]
+                        if raw_id in allowed_ids:
+                            return True
+                    # Chequeo por nombre normalizado
+                    if nom_suc_col:
+                        raw_nom = _norm(_safe_str(row.get(nom_suc_col), ""))
+                        if raw_nom in allowed_nombres:
+                            return True
+                    return False
+
+                df_antes = len(df)
+                df = df[df.apply(_row_allowed, axis=1)].copy()
+                logger.info(
+                    f"[Padrón] Filtro de sucursales para dist {dist_id}: "
+                    f"{df_antes} → {len(df)} filas "
+                    f"(ids permitidos: {allowed_ids}, nombres: {allowed_nombres})"
+                )
+                if df.empty:
+                    raise ValueError(
+                        f"El filtro de sucursales para dist {dist_id} resultó en 0 filas. "
+                        f"Verifica que el Excel contenga la sucursal id={allowed_ids} / nombre={allowed_nombres}."
+                    )
+            # ─────────────────────────────────────────────────────────────────
+
             suc_count,  suc_map  = self._sync_sucursales(df, cols, dist_id)
             vend_count, vend_map = self._sync_vendedores(df, cols, dist_id, suc_map)
             ruta_count, ruta_map = self._sync_rutas(df, cols, dist_id, vend_map, suc_map)

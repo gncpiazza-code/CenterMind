@@ -109,10 +109,11 @@ El RPA procesa 4 distribuidoras activas configuradas en `TENANTS` dentro de cada
 
 | tenant_id | Nombre | id_distribuidor | ERP |
 |---|---|---|---|
-| `tabaco` | Tabaco & Hnos S.R.L. | 1 | CHESS |
-| `aloma` | Aloma Distribuidores Oficiales | 2 | CHESS |
-| `liver` | Liver SRL | 3 | CHESS |
-| `real` | Real Tabacalera de Santiago S.A. | 4 | CHESS |
+| `tabaco` | Tabaco & Hnos S.R.L. | 3 | CHESS |
+| `aloma` | Aloma Distribuidores Oficiales | 4 | CHESS |
+| `liver` | Liver SRL | 5 | CHESS |
+| `real` | Real Tabacalera de Santiago S.A. | 2 | CHESS |
+| `extra` | GyG Distribución (pendiente credenciales) | 6 | CHESS |
 
 Hay un quinto tenant (`extra`) con credenciales pendientes, sin activar.
 

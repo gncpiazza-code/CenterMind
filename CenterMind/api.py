@@ -3087,8 +3087,10 @@ def supervision_cuentas(dist_id: int, user_payload=Depends(verify_auth)):
                     if not fuc:
                         continue
                     for key in [p.get("nombre_fantasia"), p.get("nombre_razon_social")]:
-                        if key and key not in fecha_uc_map:
-                            fecha_uc_map[key] = fuc
+                        if key:
+                            norm_key = key.strip().upper()
+                            if norm_key not in fecha_uc_map:
+                                fecha_uc_map[norm_key] = fuc
             except Exception:
                 pass
 
@@ -3115,7 +3117,7 @@ def supervision_cuentas(dist_id: int, user_payload=Depends(verify_auth)):
                 "antiguedad": item.get("antiguedad_dias"),
                 "rango_antiguedad": item.get("rango_antiguedad"),
                 "cantidad_comprobantes": item.get("cantidad_comprobantes"),
-                "fecha_ultima_compra": fecha_uc_map.get(item.get("cliente_nombre") or ""),
+                "fecha_ultima_compra": fecha_uc_map.get((item.get("cliente_nombre") or "").strip().upper()),
             })
 
         for vd in vendors.values():

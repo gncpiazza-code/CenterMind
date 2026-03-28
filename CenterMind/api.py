@@ -3209,12 +3209,12 @@ def pdvs_cercanos(
 
         todos_con_dist.sort(key=lambda x: x[1])
 
-        # Filtrar por radio; si no hay ninguno, devolver los 5 más cercanos dentro de 5km (fallback)
+        # Filtrar por radio; si no hay ninguno, devolver los 5 más cercanos (sin cap de distancia)
+        # El frontend muestra "fuera de radio" cuando fallback=True + la distancia en cada PDV
         fallback = False
         cercanos = [(r, d) for r, d in todos_con_dist if d <= radio]
         if not cercanos:
-            MAX_FALLBACK_METROS = 5000
-            cercanos = [(r, d) for r, d in todos_con_dist if d <= MAX_FALLBACK_METROS][:5]
+            cercanos = todos_con_dist[:5]
             fallback = True
         if not cercanos:
             return {"fallback": False, "pdvs": []}

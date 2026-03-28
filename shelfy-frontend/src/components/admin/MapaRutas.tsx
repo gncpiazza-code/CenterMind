@@ -73,9 +73,10 @@ interface MapaRutasProps {
 }
 
 export default function MapaRutas({ pines, fullscreenPanel }: MapaRutasProps) {
-  const mapContainer = useRef<HTMLDivElement>(null);
-  const mapRef       = useRef<maplibregl.Map | null>(null);
-  const markersRef   = useRef<maplibregl.Marker[]>([]);
+  const mapContainer  = useRef<HTMLDivElement>(null);
+  const mapRef        = useRef<maplibregl.Map | null>(null);
+  const markersRef    = useRef<maplibregl.Marker[]>([]);
+  const fittedRef     = useRef(false); // fitBounds sólo en la primera carga con datos
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   // ── Filter toggles ─────────────────────────────────────────────────────────
@@ -95,6 +96,15 @@ export default function MapaRutas({ pines, fullscreenPanel }: MapaRutasProps) {
   );
 
   const filteredPines = pines.filter(p => filterEnabled[getPinStatus(p)]);
+
+  // Resetear fitBounds cuando cambia el set de pines (nuevo vendedor/ruta seleccionado)
+  // pero NO cuando sólo cambian los filtros de status
+  const prevPineIdsRef = useRef<string>("");
+  const currentPineIds = pines.map(p => p.id).sort().join(",");
+  if (currentPineIds !== prevPineIdsRef.current) {
+    prevPineIdsRef.current = currentPineIds;
+    fittedRef.current = false;
+  }
 
   // ── Init map ───────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -215,14 +225,16 @@ export default function MapaRutas({ pines, fullscreenPanel }: MapaRutasProps) {
           </div>`;
 
         const popup  = new maplibregl.Popup({ offset: 12, closeButton: false }).setHTML(popupHTML);
-        const marker = new maplibregl.Marker({ element: wrapper })
+        const marker = new maplibregl.Marker({ element: wrapper, anchor: "center" })
           .setLngLat([p.lng, p.lat])
           .setPopup(popup)
           .addTo(map);
         markersRef.current.push(marker);
       });
 
-      if (conCoords.length > 0) {
+      // fitBounds sólo la primera vez que llegan datos con coordenadas
+      if (conCoords.length > 0 && !fittedRef.current) {
+        fittedRef.current = true;
         const lngs = conCoords.map(p => p.lng);
         const lats = conCoords.map(p => p.lat);
         map.fitBounds(
@@ -330,14 +342,14 @@ export default function MapaRutas({ pines, fullscreenPanel }: MapaRutasProps) {
       }}
       className="shelfy-print-mapa"
     >
-      {/* Vendor panel overlay (fullscreen only) */}
+      {/* Vendor panel overlay (fullscreen only) — fondo oscuro para texto white */}
       {isFullscreen && fullscreenPanel && (
         <div style={{
           position: "absolute", left: 0, top: 0, bottom: 0, width: 300,
           zIndex: 20, display: "flex", flexDirection: "column",
-          background: "rgba(255,255,255,0.97)",
+          background: "rgba(10,14,24,0.96)",
           backdropFilter: "blur(12px)",
-          borderRight: "1px solid #e2e8f0",
+          borderRight: "1px solid rgba(255,255,255,0.08)",
           overflowY: "auto",
         }}>
           {fullscreenPanel}

@@ -247,24 +247,27 @@ async def _navegar_y_procesar(page: Page, tenant: dict) -> None:
     # Puede aparecer el dialog de accesos al navegar
     await _cerrar_accesos_concurrentes(page)
     
-    # DEBUG: Capturar pantalla para Aloma para ver los filtros
-    if tenant["id"] == "aloma":
-        await page.screenshot(path=str(ERRORS_DIR / "debug_aloma_filtros.png"))
-        logger.info(f"  📸 Screenshot de filtros guardado: debug_aloma_filtros.png")
-
     btn_procesar = page.locator('button.btn.btn-primary')
     await btn_procesar.wait_for(state="visible", timeout=TIMEOUT_MS)
 
     # ── Configurar Filtros (Sucursal / Vendedor) ────────
     sucursal = tenant.get("sucursal")
-    
-    # 1. Caso Sucursal (especial para Real Tabacalera o si se requiere)
+
+    # Capturar screenshot de filtros para debug (todos los tenants la primera vez)
+    try:
+        ERRORS_DIR.mkdir(parents=True, exist_ok=True)
+        await page.screenshot(path=str(ERRORS_DIR / f"debug_{tenant['id']}_filtros.png"))
+        logger.info(f"  📸 Screenshot de filtros guardado: debug_{tenant['id']}_filtros.png")
+    except Exception:
+        pass
+
+    # 1a. Caso Sucursal específica (ej: Real Tabacalera)
     if sucursal:
-        logger.info(f"  Configurando sucursal: '{sucursal}'")
+        logger.info(f"  Configurando sucursal específica: '{sucursal}'")
         selector_sucursal = page.locator('mat-select').filter(has=page.locator('mat-label:has-text("Sucursal")')).first
         if await selector_sucursal.count() == 0:
             selector_sucursal = page.locator('mat-select').nth(1)
-            
+
         await selector_sucursal.wait_for(state="visible", timeout=TIMEOUT_MS)
         await selector_sucursal.click()
         await page.wait_for_timeout(500)
@@ -277,10 +280,48 @@ async def _navegar_y_procesar(page: Page, tenant: dict) -> None:
             await opciones_marcadas.nth(0).click()
             await page.wait_for_timeout(100)
 
-        # Seleccionar solo sucursal
+        # Seleccionar solo la sucursal deseada
         await page.locator(f'mat-option:has-text("{sucursal}")').click()
         await page.keyboard.press("Escape")
         await page.wait_for_timeout(500)
+
+    else:
+        # 1b. Para tenants sin sucursal específica: asegurar TODAS seleccionadas.
+        # CHESS ERP puede "recordar" la última selección parcial de una sesión manual,
+        # lo que causaría que se descarguen datos de solo algunas sucursales.
+        try:
+            selector_sucursal = page.locator('mat-select').filter(
+                has=page.locator('mat-label:has-text("Sucursal")')
+            ).first
+            if await selector_sucursal.count() == 0:
+                selector_sucursal = page.locator('mat-select').nth(1)
+
+            if await selector_sucursal.count() > 0:
+                await selector_sucursal.click()
+                await page.wait_for_timeout(500)
+
+                # Seleccionar todas las opciones no-marcadas (espejo del deselect-all de Real)
+                # Funciona independientemente del texto de las opciones
+                seleccionadas_antes = await page.locator('mat-option[aria-selected="true"]').count()
+                no_marcadas_antes   = await page.locator('mat-option[aria-selected="false"]').count()
+
+                if no_marcadas_antes == 0:
+                    logger.info(f"  Todas las sucursales ya seleccionadas ({seleccionadas_antes}) ✅")
+                else:
+                    logger.info(f"  Seleccionando sucursales: {seleccionadas_antes} marcadas, {no_marcadas_antes} sin marcar — marcando todas...")
+                    for _ in range(no_marcadas_antes + 2):  # +2 por safety
+                        pendientes = page.locator('mat-option[aria-selected="false"]')
+                        if await pendientes.count() == 0:
+                            break
+                        await pendientes.nth(0).click()
+                        await page.wait_for_timeout(120)
+                    total_final = await page.locator('mat-option[aria-selected="true"]').count()
+                    logger.info(f"  Sucursales seleccionadas: {total_final} ✅")
+
+                await page.keyboard.press("Escape")
+                await page.wait_for_timeout(500)
+        except Exception as e:
+            logger.warning(f"  No se pudo verificar filtro de sucursal (todas): {e}")
 
     # 2. Caso Vendedor (Asegurar 'Todos' para Aloma y otros)
     # Por defecto Chess ERP debería traer 'Todos', pero si Aloma tiene uno pre-seleccionado lo corregimos.

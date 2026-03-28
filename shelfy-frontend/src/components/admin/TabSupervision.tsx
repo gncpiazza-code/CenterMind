@@ -113,6 +113,16 @@ function isInactivo(fecha: string | null): boolean {
   if (!fecha) return true;
   return Date.now() - new Date(fecha).getTime() > 90 * 86_400_000;
 }
+/** For map pins: inactive = no purchase in last 30 days (or never) */
+function isInactivo30(fecha: string | null): boolean {
+  if (!fecha) return true;
+  return Date.now() - new Date(fecha).getTime() > 30 * 86_400_000;
+}
+/** Returns true if fecha is within `days` days from today */
+function isRecentDate(fecha: string | null | undefined, days: number): boolean {
+  if (!fecha) return false;
+  return Date.now() - new Date(fecha).getTime() <= days * 86_400_000;
+}
 function diasDesde(fecha: string | null | undefined): string {
   if (!fecha) return "Sin registro";
   const dias = Math.floor((Date.now() - new Date(fecha).getTime()) / 86_400_000);
@@ -595,14 +605,15 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
           if (!visibleClientes.has(c.id_cliente)) return;
           if (!c.latitud || !c.longitud) return;
           result.push({
-            id:           c.id_cliente,
-            lat:          c.latitud,
-            lng:          c.longitud,
-            nombre:       c.nombre_fantasia || c.nombre_razon_social || "Sin nombre",
+            id:             c.id_cliente,
+            lat:            c.latitud,
+            lng:            c.longitud,
+            nombre:         c.nombre_fantasia || c.nombre_razon_social || "Sin nombre",
             color,
-            activo:       !isInactivo(c.fecha_ultima_compra),
-            vendedor:     v.nombre_vendedor,
-            ultimaCompra: fmt(c.fecha_ultima_compra),
+            activo:         !isInactivo30(c.fecha_ultima_compra),
+            vendedor:       v.nombre_vendedor,
+            ultimaCompra:   fmt(c.fecha_ultima_compra),
+            conExhibicion:  isRecentDate(c.fecha_ultima_exhibicion, 30),
           });
         });
       });
@@ -613,6 +624,79 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
   const totalPdv     = vendedoresFiltrados.reduce((s, v) => s + v.total_pdv, 0);
   const totalActivos = vendedoresFiltrados.reduce((s, v) => s + (v.pdv_activos ?? 0), 0);
   const pctActivos   = totalPdv > 0 ? Math.round((totalActivos / totalPdv) * 100) : 0;
+
+  // ── Vendor panel content for MapaRutas fullscreen overlay ────────────────
+  const vendorPanelContent = (
+    <div className="flex flex-col h-full">
+      {/* Header */}
+      <div className="px-3 py-2.5 border-b border-white/10 shrink-0">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-white/40 mb-1.5">Sucursal</p>
+        <div className="flex flex-wrap gap-1">
+          {sucursales.map(suc => (
+            <button
+              key={suc}
+              onClick={() => {
+                setSelectedSucursal(suc === selectedSucursal ? null : suc);
+                setVisibleVends(new Set());
+                setVisibleRutas(new Set());
+                setVisibleClientes(new Set());
+              }}
+              className={`px-2 py-0.5 rounded text-[10px] font-semibold border transition-all duration-200 ${
+                selectedSucursal === suc
+                  ? "bg-[var(--shelfy-primary)] text-white border-transparent"
+                  : "bg-white/5 text-white/50 border-white/10 hover:text-white/80"
+              }`}
+            >
+              {suc}
+            </button>
+          ))}
+        </div>
+      </div>
+      {/* Vendor list */}
+      <div className="flex-1 overflow-y-auto min-h-0 divide-y divide-white/5">
+        {vendedoresFiltrados.map(v => {
+          const idx      = vendedores.indexOf(v);
+          const color    = vendorColor(idx);
+          const isVendOn = visibleVends.has(v.id_vendedor);
+          const isVendLoad = loadingMap.has(v.id_vendedor);
+          const pct      = v.total_pdv > 0 ? Math.round(((v.pdv_activos ?? 0) / v.total_pdv) * 100) : 0;
+          return (
+            <div key={v.id_vendedor} className="px-3 py-2">
+              <div className="flex items-center gap-2">
+                <VendorAvatar nombre={v.nombre_vendedor} color={color} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[12px] font-bold text-white truncate leading-snug">{v.nombre_vendedor}</p>
+                  <p className="text-[10px] text-white/40">{v.total_pdv} PDV · {pct}% activos</p>
+                </div>
+                <button
+                  onClick={() => toggleVendor(v.id_vendedor)}
+                  className={`w-6 h-6 rounded flex items-center justify-center border transition-all shrink-0 ${
+                    isVendOn ? "border-transparent text-white" : "border-white/20 text-white/30"
+                  }`}
+                  style={isVendOn ? { backgroundColor: color, boxShadow: `0 0 6px ${color}55` } : {}}
+                >
+                  {isVendLoad
+                    ? <Loader2 className="w-3 h-3 animate-spin" />
+                    : isVendOn ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />
+                  }
+                </button>
+              </div>
+              {v.total_pdv > 0 && (
+                <div className="mt-1.5 w-full h-0.5 rounded-full bg-white/10 overflow-hidden">
+                  <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: color }} />
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {vendedoresFiltrados.length === 0 && (
+          <div className="flex items-center justify-center py-8 text-white/30 text-xs">
+            {selectedSucursal ? "Sin vendedores" : "Seleccioná una sucursal"}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -710,24 +794,9 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
               </p>
             </div>
           ) : (
-            <MapaRutas pines={pines} />
+            <MapaRutas pines={pines} fullscreenPanel={vendorPanelContent} />
           )}
 
-          {pines.length > 0 && (
-            <div className="absolute top-3 left-3 z-[400] bg-black/60 backdrop-blur-sm text-white text-xs font-semibold px-2.5 py-1 rounded-lg border border-white/10 pointer-events-none">
-              {pines.length.toLocaleString()} PDV visibles
-            </div>
-          )}
-          {pines.length > 0 && (
-            <div className="absolute bottom-3 left-3 z-[400] bg-black/60 backdrop-blur-sm rounded-lg px-2.5 py-1.5 flex items-center gap-3 border border-white/10 pointer-events-none">
-              <span className="flex items-center gap-1.5 text-[11px] text-white/80">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 inline-block" /> activo
-              </span>
-              <span className="flex items-center gap-1.5 text-[11px] text-white/50">
-                <span className="w-2.5 h-2.5 rounded-full bg-slate-500 inline-block" /> sin actividad +90d
-              </span>
-            </div>
-          )}
         </div>
 
         {/* ── RIGHT PANEL — lista vendedores/rutas ────────────────────────── */}

@@ -105,7 +105,7 @@ TENANTS = [
         "vault_user": "chess_tabaco_usuario",
         "vault_pass": "chess_tabaco_password",
         "sucursal":   None,   # Todas las sucursales (RECONQUISTA, RESISTENCIA, etc.)
-        "id_dist":    1,      # ← completar con el id_distribuidor real en Supabase
+        "id_dist":    3,
     },
     {
         "id":         "aloma",
@@ -114,7 +114,7 @@ TENANTS = [
         "vault_user": "chess_aloma_usuario",
         "vault_pass": "chess_aloma_password",
         "sucursal":   None,   # Una sola sucursal (CASA CENTRAL) ya preseleccionada
-        "id_dist":    2,      # ← completar con el id_distribuidor real en Supabase
+        "id_dist":    4,
     },
     {
         "id":         "liver",
@@ -123,7 +123,7 @@ TENANTS = [
         "vault_user": "chess_liver_usuario",
         "vault_pass": "chess_liver_password",
         "sucursal":   None,   # Una sola sucursal (CASA CENTRAL) ya preseleccionada
-        "id_dist":    3,      # ← completar con el id_distribuidor real en Supabase
+        "id_dist":    5,
     },
     {
         "id":         "real",
@@ -134,7 +134,7 @@ TENANTS = [
         # ⚠️ Texto EXACTO verificado en vivo el 24/03/2026
         # En el dropdown aparece como "UEQUIN RODRIGO" — NO "8 RODRIGO UEQUIN"
         "sucursal":   "UEQUIN RODRIGO",
-        "id_dist":    4,      # ← completar con el id_distribuidor real en Supabase
+        "id_dist":    2,
     },
 ]
 

@@ -76,7 +76,7 @@ TENANTS = [
         "url_base":   "https://tabacohermanos.chesserp.com/AR1149",
         "vault_user": "chess_tabaco_usuario",
         "vault_pass": "chess_tabaco_password",
-        "id_dist":    1,
+        "id_dist":    3,
         "activo":     True,
     },
     {
@@ -85,7 +85,7 @@ TENANTS = [
         "url_base":   "https://alomasrl.chesserp.com/AR1252",
         "vault_user": "chess_aloma_usuario",
         "vault_pass": "chess_aloma_password",
-        "id_dist":    2,
+        "id_dist":    4,
         "activo":     True,
     },
     {
@@ -94,7 +94,7 @@ TENANTS = [
         "url_base":   "https://liversrl.chesserp.com/AR1274",
         "vault_user": "chess_liver_usuario",
         "vault_pass": "chess_liver_password",
-        "id_dist":    3,
+        "id_dist":    5,
         "activo":     True,
     },
     {
@@ -103,7 +103,7 @@ TENANTS = [
         "url_base":   "https://realtabacalera.chesserp.com/AR1272",
         "vault_user": "chess_real_usuario",
         "vault_pass": "chess_real_password",
-        "id_dist":    4,
+        "id_dist":    2,
         "sucursal":   "UEQUIN RODRIGO",
         "activo":     True,
     },
@@ -113,7 +113,7 @@ TENANTS = [
         "url_base":   "",   # ← completar cuando lleguen las credenciales
         "vault_user": "chess_extra_usuario",
         "vault_pass": "chess_extra_password",
-        "id_dist":    5,
+        "id_dist":    6,  # GyG Distribucion
         "activo":     False,  # ← activar cuando estén las credenciales
     },
 ]
@@ -492,7 +492,7 @@ async def _subir_a_api(tenant: dict, datos: dict, filename: str) -> bool:
                     logger.error(f"  ❌ Error cliente HTTP {resp.status_code}: {resp.text[:200]}")
                     return False
                 else:
-                    logger.warning(f"  ⚠️  HTTP {resp.status_code} intento {intento}/3")
+                    logger.warning(f"  ⚠️  HTTP {resp.status_code} intento {intento}/3 — {resp.text[:400]}")
             except httpx.TimeoutException:
                 logger.warning(f"  ⚠️  Timeout intento {intento}/3")
             except Exception as e:

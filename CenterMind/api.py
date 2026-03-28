@@ -1492,11 +1492,18 @@ def _enrich_and_store_cc(dist_id: int, fecha_snapshot: str, rows: list) -> int:
         .eq("id_distribuidor", int(dist_id)) \
         .execute()
     suc_res = sb.table("sucursales_v2") \
-        .select("id_sucursal, nombre_erp") \
+        .select("id_sucursal, id_sucursal_erp, nombre_erp") \
         .eq("id_distribuidor", int(dist_id)) \
         .execute()
 
     suc_map = {s["id_sucursal"]: s["nombre_erp"] for s in (suc_res.data or [])}
+    # Mapeo por id_sucursal_erp (código numérico del ERP) → nombre_erp
+    # Usado como fallback cuando el name matching de vendedor falla
+    suc_erp_map = {
+        str(s["id_sucursal_erp"]): s["nombre_erp"]
+        for s in (suc_res.data or [])
+        if s.get("id_sucursal_erp") is not None
+    }
     vend_map: dict = {}
     for v in (vend_res.data or []):
         nombre = (v.get("nombre_erp") or "").strip().lower()
@@ -1537,7 +1544,9 @@ def _enrich_and_store_cc(dist_id: int, fecha_snapshot: str, rows: list) -> int:
             "id_vendedor": enrichment["id_vendedor"] if enrichment else None,
             "id_sucursal": enrichment["id_sucursal"] if enrichment else None,
             "vendedor_nombre": v_nombre_raw,
-            "sucursal_nombre": enrichment["sucursal_nombre"] if enrichment else (row.get("sucursal") or ""),
+            "sucursal_nombre": enrichment["sucursal_nombre"] if enrichment else (
+                suc_erp_map.get(str(row.get("sucursal") or "")) or row.get("sucursal") or ""
+            ),
             "cliente_nombre": (row.get("cliente") or "Sin Cliente").strip(),
             "deuda_total": deuda_total,
             "rango_antiguedad": row.get("rango_antiguedad"),
@@ -3150,7 +3159,7 @@ def haversine_metros(lat1: float, lon1: float, lat2: float, lon2: float) -> floa
 def pdvs_cercanos(
     lat: float,
     lng: float,
-    radio: int = 100,
+    radio: int = 500,
     dist_id: int = 0,
     user_payload=Depends(verify_auth),
 ):
@@ -3198,11 +3207,12 @@ def pdvs_cercanos(
 
         todos_con_dist.sort(key=lambda x: x[1])
 
-        # Filtrar por radio; si no hay ninguno, devolver los 5 más cercanos (fallback)
+        # Filtrar por radio; si no hay ninguno, devolver los 5 más cercanos dentro de 5km (fallback)
         fallback = False
         cercanos = [(r, d) for r, d in todos_con_dist if d <= radio]
         if not cercanos:
-            cercanos = todos_con_dist[:5]
+            MAX_FALLBACK_METROS = 5000
+            cercanos = [(r, d) for r, d in todos_con_dist if d <= MAX_FALLBACK_METROS][:5]
             fallback = True
         if not cercanos:
             return {"fallback": False, "pdvs": []}

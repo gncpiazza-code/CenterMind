@@ -11,8 +11,14 @@ export interface PinCliente {
   color: string;
   activo: boolean;
   vendedor: string;
-  ultimaCompra: string | null;
+  ultimaCompra: string | null;        // formateada (legible)
   conExhibicion: boolean;
+  // Datos enriquecidos para el popup
+  idClienteErp?: string | null;
+  nroRuta?: string | null;
+  fechaUltimaCompra?: string | null;  // ISO crudo para calcular días
+  fechaUltimaExhibicion?: string | null;
+  urlExhibicion?: string | null;      // url_foto_drive
 }
 
 // ── Status helpers ────────────────────────────────────────────────────────────
@@ -167,28 +173,73 @@ export default function MapaRutas({ pines, fullscreenPanel }: MapaRutasProps) {
         `;
         wrapper.style.setProperty("--ac", auraColor + "99");
 
-        // Popup
-        const ultimaCompraLine = p.ultimaCompra
-          ? `<div style="font-size:11px;color:#64748b;margin-top:3px">Últ. compra: ${p.ultimaCompra}</div>`
-          : `<div style="font-size:11px;color:#94a3b8;margin-top:3px">Sin compra registrada</div>`;
-        const exhibicionLine = p.conExhibicion
-          ? `<div style="font-size:11px;color:#16a34a;margin-top:2px">● Exhibición últimos 30d</div>`
-          : "";
-        const inactivoLine = !p.activo
-          ? `<div style="font-size:11px;color:#dc2626;margin-top:3px">⚠ Sin compra +30d</div>`
-          : "";
+        // ── Popup ──────────────────────────────────────────────────────────
+        // Helper: días desde una fecha ISO (date o timestamp)
+        const diasDesde = (iso: string | null | undefined): number | null => {
+          if (!iso) return null;
+          const ms = Date.now() - new Date(iso).getTime();
+          return Math.floor(ms / 86_400_000);
+        };
+
+        const diasCompra = diasDesde(p.fechaUltimaCompra);
+        const diasExhib  = diasDesde(p.fechaUltimaExhibicion);
+
+        // Línea de compra
+        const compraColor = p.activo ? "#16a34a" : "#dc2626";
+        const compraLabel = diasCompra === null
+          ? `<span style="color:#94a3b8">Sin compras registradas</span>`
+          : `<span style="color:${compraColor}">Últ. compra: ${p.ultimaCompra} · <b>hace ${diasCompra}d</b></span>`;
+
+        // Línea de exhibición
+        let exhibLine = "";
+        if (p.fechaUltimaExhibicion) {
+          const exhDateStr = p.fechaUltimaExhibicion.split("T")[0];
+          // Thumbnail desde Drive: usar URL de thumbnail pública de Google
+          // url_foto_drive es en realidad una URL pública de Supabase Storage
+          const imgUrl    = p.urlExhibicion ?? null;
+          const thumbHtml = imgUrl
+            ? `<a href="${imgUrl}" target="_blank" rel="noopener" style="display:block;margin-top:5px">
+                <img src="${imgUrl}" alt="Exhibición"
+                  style="width:100%;max-width:200px;border-radius:5px;border:1px solid #e2e8f0;display:block;object-fit:cover"/>
+               </a>`
+            : "";
+          const viewUrl = imgUrl;
+          exhibLine = `
+            <div style="margin-top:5px;padding-top:5px;border-top:1px solid #f1f5f9">
+              <span style="color:#d97706;font-size:11px">
+                ● Exhibición: ${exhDateStr} · <b>hace ${diasExhib}d</b>
+              </span>
+              ${thumbHtml}
+              ${viewUrl ? `<a href="${viewUrl}" target="_blank" rel="noopener"
+                style="font-size:10px;color:#3b82f6;display:inline-block;margin-top:3px">
+                Ver imagen original ↗</a>` : ""}
+            </div>`;
+        }
+
+        const metaLine = `
+          <div style="font-size:10px;color:#94a3b8;margin-top:3px;display:flex;gap:8px;flex-wrap:wrap">
+            ${p.idClienteErp ? `<span>Nº cliente: <b style="color:#475569">${p.idClienteErp}</b></span>` : ""}
+            ${p.nroRuta      ? `<span>Ruta: <b style="color:#475569">${p.nroRuta}</b></span>` : ""}
+          </div>`;
 
         const popupHTML = `
-          <div style="min-width:175px;font-size:13px;font-family:sans-serif;background:#fff;color:#1e293b;padding:10px 12px;border-radius:8px;box-shadow:0 4px 16px #0002;">
-            <b style="display:block;margin-bottom:3px">${p.nombre}</b>
-            <div style="display:flex;align-items:center;gap:5px;margin-bottom:5px">
-              <span style="width:8px;height:8px;border-radius:50%;background:${vendorColor};display:inline-block;flex-shrink:0"></span>
+          <div style="min-width:200px;max-width:240px;font-size:12px;font-family:sans-serif;
+                      background:#fff;color:#1e293b;padding:10px 12px;border-radius:8px;
+                      box-shadow:0 4px 16px #0002;line-height:1.5">
+            <b style="display:block;font-size:13px;margin-bottom:2px">${p.nombre}</b>
+            ${metaLine}
+            <div style="display:flex;align-items:center;gap:5px;margin:5px 0 3px">
+              <span style="width:8px;height:8px;border-radius:50%;background:${vendorColor};
+                           display:inline-block;flex-shrink:0"></span>
               <span style="font-size:11px;color:#475569">${p.vendedor}</span>
             </div>
-            <div style="font-size:10px;padding:2px 7px;border-radius:4px;display:inline-block;margin-bottom:4px;background:${auraColor}18;color:${auraColor};border:1px solid ${auraColor}44;font-weight:600">${STATUS_LABELS[status]}</div>
-            ${ultimaCompraLine}
-            ${exhibicionLine}
-            ${inactivoLine}
+            <div style="font-size:10px;padding:2px 7px;border-radius:4px;display:inline-block;
+                        background:${auraColor}18;color:${auraColor};
+                        border:1px solid ${auraColor}44;font-weight:600;margin-bottom:4px">
+              ${STATUS_LABELS[status]}
+            </div>
+            <div style="font-size:11px">${compraLabel}</div>
+            ${exhibLine}
           </div>`;
 
         const popup  = new maplibregl.Popup({ offset: 12, closeButton: false }).setHTML(popupHTML);

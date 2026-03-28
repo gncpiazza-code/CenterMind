@@ -903,6 +903,8 @@ export interface ClienteSupervision {
   fecha_ultima_compra: string | null;
   fecha_alta: string | null;
   fecha_ultima_exhibicion: string | null;
+  url_ultima_exhibicion: string | null;
+  id_ruta: number | null;
 }
 
 export async function fetchVendedoresSupervision(distId: number): Promise<VendedorSupervision[]> {

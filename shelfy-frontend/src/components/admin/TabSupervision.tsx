@@ -592,15 +592,20 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
           if (!visibleClientes.has(c.id_cliente)) return;
           if (!hasValidCoords(c.latitud, c.longitud)) return;
           result.push({
-            id:             c.id_cliente,
-            lat:            c.latitud!,
-            lng:            c.longitud!,
-            nombre:         c.nombre_fantasia || c.nombre_razon_social || "Sin nombre",
+            id:                    c.id_cliente,
+            lat:                   c.latitud!,
+            lng:                   c.longitud!,
+            nombre:                c.nombre_fantasia || c.nombre_razon_social || "Sin nombre",
             color,
-            activo:         !isInactivo30(c.fecha_ultima_compra),
-            vendedor:       v.nombre_vendedor,
-            ultimaCompra:   fmt(c.fecha_ultima_compra),
-            conExhibicion:  isRecentDate(c.fecha_ultima_exhibicion, 30),
+            activo:                !isInactivo30(c.fecha_ultima_compra),
+            vendedor:              v.nombre_vendedor,
+            ultimaCompra:          fmt(c.fecha_ultima_compra),
+            conExhibicion:         isRecentDate(c.fecha_ultima_exhibicion, 30),
+            idClienteErp:          c.id_cliente_erp ?? null,
+            nroRuta:               r.dia_semana ?? null,
+            fechaUltimaCompra:     c.fecha_ultima_compra ?? null,
+            fechaUltimaExhibicion: c.fecha_ultima_exhibicion ?? null,
+            urlExhibicion:         c.url_ultima_exhibicion ?? null,
           });
         });
       });

@@ -2887,20 +2887,21 @@ def supervision_clientes(id_ruta: int, user_payload=Depends(verify_auth)):
         res = sb.table("clientes_pdv_v2") \
             .select("id_cliente, id_cliente_erp, nombre_fantasia, nombre_razon_social, "
                     "domicilio, localidad, provincia, canal, latitud, longitud, "
-                    "fecha_ultima_compra, fecha_alta, id_distribuidor") \
+                    "fecha_ultima_compra, fecha_alta, id_distribuidor, id_ruta") \
             .eq("id_ruta", id_ruta) \
             .order("nombre_fantasia") \
             .execute()
         rows = res.data or []
 
-        # Cross-reference exhibiciones para obtener fecha de última exhibición por PDV
+        # Cross-reference exhibiciones: última fecha + url_foto_drive por PDV
         if rows:
             ids_pdv = [r["id_cliente"] for r in rows]
             dist_id = rows[0].get("id_distribuidor")
-            exh_map: dict = {}
+            exh_map: dict = {}      # id_cliente → timestamp_subida
+            exh_foto_map: dict = {} # id_cliente → url_foto_drive
             try:
                 exh_res = sb.table("exhibiciones") \
-                    .select("id_cliente_pdv, timestamp_subida") \
+                    .select("id_cliente_pdv, timestamp_subida, url_foto_drive") \
                     .eq("id_distribuidor", dist_id) \
                     .in_("id_cliente_pdv", ids_pdv) \
                     .order("timestamp_subida", desc=True) \
@@ -2908,11 +2909,13 @@ def supervision_clientes(id_ruta: int, user_payload=Depends(verify_auth)):
                 for e in (exh_res.data or []):
                     cid = e.get("id_cliente_pdv")
                     if cid and cid not in exh_map:
-                        exh_map[cid] = e.get("timestamp_subida")
+                        exh_map[cid]      = e.get("timestamp_subida")
+                        exh_foto_map[cid] = e.get("url_foto_drive")
             except Exception:
                 pass
             for r in rows:
-                r["fecha_ultima_exhibicion"] = exh_map.get(r["id_cliente"])
+                r["fecha_ultima_exhibicion"]  = exh_map.get(r["id_cliente"])
+                r["url_ultima_exhibicion"]    = exh_foto_map.get(r["id_cliente"])
 
         return rows
     except Exception as e:

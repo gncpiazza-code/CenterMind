@@ -3065,32 +3065,50 @@ def supervision_cuentas(dist_id: int, user_payload=Depends(verify_auth)):
 
         fecha_snapshot = snap_res.data[0]["fecha_snapshot"]
 
-        res = sb.table("cc_detalle") \
-            .select("id_vendedor, vendedor_nombre, sucursal_nombre, cliente_nombre, deuda_total, antiguedad_dias, rango_antiguedad, cantidad_comprobantes, alerta_credito") \
-            .eq("id_distribuidor", int(dist_id)) \
-            .eq("fecha_snapshot", fecha_snapshot) \
-            .execute()
-
-        rows = res.data or []
+        # Paginar para evitar el límite de 1000 filas por defecto de Supabase
+        # (tabaco tiene ~4500 filas por snapshot)
+        rows = []
+        page_size = 1000
+        page_offset = 0
+        while True:
+            res = sb.table("cc_detalle") \
+                .select("id_vendedor, vendedor_nombre, sucursal_nombre, cliente_nombre, deuda_total, antiguedad_dias, rango_antiguedad, cantidad_comprobantes, alerta_credito") \
+                .eq("id_distribuidor", int(dist_id)) \
+                .eq("fecha_snapshot", fecha_snapshot) \
+                .range(page_offset, page_offset + page_size - 1) \
+                .execute()
+            batch = res.data or []
+            rows.extend(batch)
+            if len(batch) < page_size:
+                break
+            page_offset += page_size
 
         # Cruzar fecha_ultima_compra desde clientes_pdv_v2 por nombre
         nombres_clientes = list({r["cliente_nombre"] for r in rows if r.get("cliente_nombre")})
         fecha_uc_map: dict = {}
         if nombres_clientes:
             try:
-                pdv_res = sb.table("clientes_pdv_v2") \
-                    .select("nombre_fantasia, nombre_razon_social, fecha_ultima_compra") \
-                    .eq("id_distribuidor", int(dist_id)) \
-                    .execute()
-                for p in (pdv_res.data or []):
-                    fuc = p.get("fecha_ultima_compra")
-                    if not fuc:
-                        continue
-                    for key in [p.get("nombre_fantasia"), p.get("nombre_razon_social")]:
-                        if key:
-                            norm_key = key.strip().upper()
-                            if norm_key not in fecha_uc_map:
-                                fecha_uc_map[norm_key] = fuc
+                # Paginar clientes_pdv_v2 (tabaco tiene >10k registros)
+                pdv_offset = 0
+                while True:
+                    pdv_res = sb.table("clientes_pdv_v2") \
+                        .select("nombre_fantasia, nombre_razon_social, fecha_ultima_compra") \
+                        .eq("id_distribuidor", int(dist_id)) \
+                        .range(pdv_offset, pdv_offset + 999) \
+                        .execute()
+                    pdv_batch = pdv_res.data or []
+                    for p in pdv_batch:
+                        fuc = p.get("fecha_ultima_compra")
+                        if not fuc:
+                            continue
+                        for key in [p.get("nombre_fantasia"), p.get("nombre_razon_social")]:
+                            if key:
+                                norm_key = key.strip().upper()
+                                if norm_key not in fecha_uc_map:
+                                    fecha_uc_map[norm_key] = fuc
+                    if len(pdv_batch) < 1000:
+                        break
+                    pdv_offset += 1000
             except Exception:
                 pass
 

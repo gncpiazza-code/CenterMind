@@ -123,6 +123,15 @@ function isRecentDate(fecha: string | null | undefined, days: number): boolean {
   if (!fecha) return false;
   return Date.now() - new Date(fecha).getTime() <= days * 86_400_000;
 }
+/**
+ * Returns true only if the coords are non-null, non-zero, and within
+ * Argentina's bounding box (lat -55..−21, lng -74..−53).
+ * Filters null-island (0,0), missing data, and stray out-of-country values.
+ */
+function hasValidCoords(lat: number | null, lng: number | null): boolean {
+  if (!lat || !lng) return false;
+  return lat >= -55 && lat <= -21 && lng >= -74 && lng <= -53;
+}
 function diasDesde(fecha: string | null | undefined): string {
   if (!fecha) return "Sin registro";
   const dias = Math.floor((Date.now() - new Date(fecha).getTime()) / 86_400_000);
@@ -603,11 +612,11 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
         if (!visibleRutas.has(r.id_ruta)) return;
         (clientes[r.id_ruta] ?? []).forEach(c => {
           if (!visibleClientes.has(c.id_cliente)) return;
-          if (!c.latitud || !c.longitud) return;
+          if (!hasValidCoords(c.latitud, c.longitud)) return;
           result.push({
             id:             c.id_cliente,
-            lat:            c.latitud,
-            lng:            c.longitud,
+            lat:            c.latitud!,
+            lng:            c.longitud!,
             nombre:         c.nombre_fantasia || c.nombre_razon_social || "Sin nombre",
             color,
             activo:         !isInactivo30(c.fecha_ultima_compra),

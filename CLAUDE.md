@@ -32,25 +32,56 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Playwright** para automatización de navegador
 - Motores en `motores/`: `ventas.py`, `cuentas_corrientes.py`, `sigo.py`
 - Se conecta al backend vía API Key con endpoints `/api/v1/sync/*`
+- Las credenciales de cada tenant (usuario/password de CHESS ERP) se leen desde **Supabase Vault** via `lib/vault_client.py`
+
+---
+
+## Deploy y entornos productivos
+
+### Backend → Railway
+- **URL producción**: `https://api.shelfycenter.com`
+- Deploy automático desde la rama `main` del repo en GitHub
+- Para deployar un fix: `git push origin main` → Railway lo toma solo (~1-2 min)
+- Las variables de entorno se configuran en el panel de Railway (no en `.env` en producción)
+- Los logs del servidor se ven en Railway dashboard → servicio backend → Logs
+
+### Frontend → Vercel
+- Deploy automático desde la rama `main`
+- Las variables de entorno (`NEXT_PUBLIC_API_URL`, etc.) se configuran en el panel de Vercel
+- Build errors de TypeScript/ESLint no bloquean el deploy (`ignoreBuildErrors: true`)
+
+### RPA → Mac local (máquina del operador)
+- Corre manualmente o programado (cron local) desde la Mac de desarrollo
+- No está en ningún servidor cloud; se ejecuta con `python runner.py [motor]`
+- Requiere que las variables de entorno de Supabase estén definidas en el shell (`SUPABASE_URL`, `SUPABASE_KEY`)
+- **Logger**: el `lib/logger.py` intenta escribir en una ruta Windows (`C:/Users/cigar/...`) que no existe en Mac — los logs solo van a stdout. En producción Windows funcionaría el file handler.
 
 ---
 
 ## Entorno y variables de entorno
 
-### Backend (`.env` o variables del sistema)
+### Backend — variables en Railway (producción) o `.env` (desarrollo local)
 ```
 SHELFY_API_KEY=          # Clave para endpoints protegidos (bots, RPA, scripts)
 SHELFY_JWT_SECRET=       # Secreto para firmar JWT del portal React
 SUPABASE_URL=            # URL del proyecto Supabase
 SUPABASE_KEY=            # Anon/Service Key de Supabase
-WEBHOOK_URL=             # URL pública para webhooks de Telegram (ej: https://api.midominio.com)
+WEBHOOK_URL=             # URL pública para webhooks de Telegram (https://api.shelfycenter.com)
 DRIVE_TOKEN_JSON=        # (Opcional) Token OAuth de Google Drive, JSON en string
 ```
 
-### Frontend (`shelfy-frontend/.env.local`)
+### Frontend — variables en Vercel (producción) o `shelfy-frontend/.env.local` (desarrollo)
 ```
-NEXT_PUBLIC_API_URL=     # URL base del backend (ej: https://api.midominio.com)
+NEXT_PUBLIC_API_URL=https://api.shelfycenter.com   # URL base del backend
 ```
+
+### RPA — variables en el shell o `.env` local
+```
+SUPABASE_URL=            # Para acceder al Vault
+SUPABASE_KEY=            # Service Key (necesita leer vault)
+SHELFY_API_KEY=          # Para autenticarse contra el backend
+```
+El RPA obtiene las credenciales de los tenants CHESS (usuario/password por distribuidor) desde **Supabase Vault**. Las claves del vault se llaman `chess_tabaco_usuario`, `chess_tabaco_password`, `chess_aloma_usuario`, etc. La URL del backend también se lee del vault (`shelfy_api_url`).
 
 ### Cómo correr en desarrollo
 ```bash
@@ -69,6 +100,21 @@ cd ShelfMind-RPA
 pip install -r requirements.txt
 python runner.py [padron|ventas|cuentas|sigo|todos]
 ```
+
+---
+
+## Tenants activos del RPA
+
+El RPA procesa 4 distribuidoras activas configuradas en `TENANTS` dentro de cada motor:
+
+| tenant_id | Nombre | id_distribuidor | ERP |
+|---|---|---|---|
+| `tabaco` | Tabaco & Hnos S.R.L. | 1 | CHESS |
+| `aloma` | Aloma Distribuidores Oficiales | 2 | CHESS |
+| `liver` | Liver SRL | 3 | CHESS |
+| `real` | Real Tabacalera de Santiago S.A. | 4 | CHESS |
+
+Hay un quinto tenant (`extra`) con credenciales pendientes, sin activar.
 
 ---
 
@@ -110,7 +156,14 @@ CenterMind/                     # Root del repo
 │
 └── ShelfMind-RPA/              # RPA Playwright
     ├── runner.py
+    ├── lib/
+    │   ├── vault_client.py     # Lee credenciales desde Supabase Vault
+    │   ├── cuentas_parser.py   # Parsea Excel CC → dict con detalle_cuentas
+    │   └── logger.py           # Logger (file handler apunta a ruta Windows — en Mac solo stdout)
     └── motores/
+        ├── cuentas_corrientes.py
+        ├── ventas.py
+        └── sigo.py
 ```
 
 ---
@@ -150,8 +203,8 @@ CenterMind/                     # Root del repo
 #### Cuentas Corrientes
 | Tabla | Función |
 |---|---|
-| `cc_detalle` | **Nueva tabla normalizada.** Cada fila = un cliente deudor. FK a `vendedores_v2` y `sucursales_v2`. ÚNICA fuente para el endpoint `/api/supervision/cuentas/{dist_id}` |
-| `cuentas_corrientes_data` | Blob JSON legacy. Sigue existiendo para el módulo academy (upload/download Excel). No se usa más para supervision |
+| `cc_detalle` | **Tabla normalizada.** Una fila por cliente deudor (deduplicada por vendedor+cliente). FK a `vendedores_v2` y `sucursales_v2`. ÚNICA fuente para `/api/supervision/cuentas/{dist_id}`. UNIQUE constraint en `(id_distribuidor, fecha_snapshot, vendedor_nombre, cliente_nombre)` |
+| `cuentas_corrientes_data` | Blob JSON legacy. Sigue existiendo para el módulo academy (upload/download Excel). No se usa para supervision |
 
 #### Sistema
 | Tabla | Función |
@@ -270,15 +323,17 @@ sucursales_v2 → vendedores_v2 → rutas_v2 → clientes_pdv_v2 → ventas_v2
 
 ---
 
-## Flujo de Cuentas Corrientes (actualizado)
+## Flujo de Cuentas Corrientes
 
 ```
 Excel CC / JSON RPA
     ↓  POST /api/procesar-cuentas-corrientes
     ↓  o POST /api/v1/sync/cuentas-corrientes
 _enrich_and_store_cc(dist_id, fecha_snapshot, rows)
+    ↓  deduplicar por (vendedor_nombre, cliente_nombre) — suma deuda y cbtes, max antigüedad
     ↓  match vendedor_nombre → vendedores_v2.nombre_erp
     ↓  resolución de id_vendedor, id_sucursal, sucursal_nombre
+    ↓  DELETE snapshot del día + INSERT registros deduplicados
 cc_detalle  (tabla normalizada, sucursal viene de sucursales_v2)
     ↓
 GET /api/supervision/cuentas/{dist_id}
@@ -286,7 +341,9 @@ GET /api/supervision/cuentas/{dist_id}
 Frontend TabSupervision → filtra por v.sucursal === selectedSucursal
 ```
 
-**Importante**: la `sucursal` en `cc_detalle.sucursal_nombre` viene de `sucursales_v2.nombre_erp`, NO del texto del Excel. Esto resuelve el bug del `SUCURSALES_MAP` hardcodeado.
+**Importante — deduplicación**: el Excel de CHESS puede traer una fila por comprobante para el mismo par (vendedor, cliente). `_enrich_and_store_cc` deduplica antes de insertar para no violar el UNIQUE constraint de `cc_detalle`. Se suma `deuda_total` y `cantidad_comprobantes`; `antiguedad_dias` toma el máximo.
+
+**Importante — sucursal**: la `sucursal` en `cc_detalle.sucursal_nombre` viene de `sucursales_v2.nombre_erp`, NO del texto del Excel. Esto resuelve el bug del `SUCURSALES_MAP` hardcodeado.
 
 ---
 
@@ -383,9 +440,9 @@ fn_login(p_usuario, p_password)        -- Auth del portal React
 - Dashboard KPIs y ranking
 - Panel de supervisión (mapa de rutas)
 - Autenticación JWT
+- **Cuentas Corrientes en supervisión**: `cc_detalle` poblada y funcionando para los 4 tenants
 
 ### Módulos en activo desarrollo
-- **Cuentas Corrientes** en supervisión: tabla `cc_detalle` recién creada, primer dato se populará con el próximo upload/sync. El endpoint de supervisión ya lee de `cc_detalle`
 - **Migración de legacy**: referencias a `maestro_jerarquia` y `clientes_pdv` (sin v2) pendientes de migrar
 
 ### Deuda técnica conocida
@@ -393,3 +450,4 @@ fn_login(p_usuario, p_password)        -- Auth del portal React
 - `maestro_jerarquia` tiene 2 puntos de uso restantes
 - `clientes_pdv` (sin v2) tiene ~12 referencias en api.py
 - APScheduler no distribuido (corre en proceso único)
+- `lib/logger.py` del RPA apunta a ruta Windows — solo funciona en Mac vía stdout

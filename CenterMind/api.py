@@ -2900,15 +2900,15 @@ def supervision_clientes(id_ruta: int, user_payload=Depends(verify_auth)):
             exh_map: dict = {}
             try:
                 exh_res = sb.table("exhibiciones") \
-                    .select("id_cliente_pdv, created_at") \
+                    .select("id_cliente_pdv, timestamp_subida") \
                     .eq("id_distribuidor", dist_id) \
                     .in_("id_cliente_pdv", ids_pdv) \
-                    .order("created_at", desc=True) \
+                    .order("timestamp_subida", desc=True) \
                     .execute()
                 for e in (exh_res.data or []):
                     cid = e.get("id_cliente_pdv")
                     if cid and cid not in exh_map:
-                        exh_map[cid] = e.get("created_at")
+                        exh_map[cid] = e.get("timestamp_subida")
             except Exception:
                 pass
             for r in rows:
@@ -3178,18 +3178,29 @@ def pdvs_cercanos(
             return None
 
     try:
-        clientes_res = sb.table("clientes_pdv_v2") \
-            .select(
-                "id_cliente, id_cliente_erp, nombre_fantasia, nombre_razon_social, "
-                "domicilio, localidad, provincia, canal, latitud, longitud, "
-                "fecha_alta, fecha_ultima_compra, id_ruta"
-            ) \
-            .eq("id_distribuidor", int(dist_id)) \
-            .neq("es_limbo", True) \
-            .limit(10000) \
-            .execute()
-
-        todos = clientes_res.data or []
+        # Paginar para superar el límite de 1000 filas de Supabase PostgREST
+        todos = []
+        PAGE = 1000
+        offset = 0
+        while True:
+            page_res = sb.table("clientes_pdv_v2") \
+                .select(
+                    "id_cliente, id_cliente_erp, nombre_fantasia, nombre_razon_social, "
+                    "domicilio, localidad, provincia, canal, latitud, longitud, "
+                    "fecha_alta, fecha_ultima_compra, id_ruta"
+                ) \
+                .eq("id_distribuidor", int(dist_id)) \
+                .neq("es_limbo", True) \
+                .limit(PAGE) \
+                .offset(offset) \
+                .execute()
+            batch = page_res.data or []
+            todos.extend(batch)
+            if len(batch) < PAGE:
+                break
+            offset += PAGE
+            if offset >= 20000:  # cap de seguridad: 20k PDVs max
+                break
         logger.info(f"[SCANNER] dist_id={dist_id} lat={lat} lng={lng} radio={radio} — total_pdvs={len(todos)}")
 
         todos_con_dist = []

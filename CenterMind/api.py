@@ -1482,65 +1482,78 @@ from fastapi.responses import JSONResponse
 def _enrich_and_store_cc(dist_id: int, fecha_snapshot: str, rows: list) -> int:
     """
     Enriquece filas de cuentas corrientes con id_vendedor/id_sucursal desde
-    vendedores_v2 y hace upsert en cc_detalle.
+    vendedores_v2 y hace insert en cc_detalle (previa eliminación del snapshot
+    del mismo día para garantizar idempotencia).
     Devuelve cantidad de registros guardados.
+    Lanza excepción en caso de error para que el caller pueda propagarla.
     """
-    try:
-        vend_res = sb.table("vendedores_v2") \
-            .select("id_vendedor, nombre_erp, id_sucursal") \
+    vend_res = sb.table("vendedores_v2") \
+        .select("id_vendedor, nombre_erp, id_sucursal") \
+        .eq("id_distribuidor", int(dist_id)) \
+        .execute()
+    suc_res = sb.table("sucursales_v2") \
+        .select("id_sucursal, nombre_erp") \
+        .eq("id_distribuidor", int(dist_id)) \
+        .execute()
+
+    suc_map = {s["id_sucursal"]: s["nombre_erp"] for s in (suc_res.data or [])}
+    vend_map: dict = {}
+    for v in (vend_res.data or []):
+        nombre = (v.get("nombre_erp") or "").strip().lower()
+        if nombre:
+            vend_map[nombre] = {
+                "id_vendedor": v["id_vendedor"],
+                "id_sucursal": v["id_sucursal"],
+                "sucursal_nombre": suc_map.get(v["id_sucursal"], ""),
+            }
+
+    records = []
+    for row in rows:
+        v_nombre_raw = (row.get("vendedor") or "Sin Vendedor").strip()
+        v_lower = v_nombre_raw.lower()
+        enrichment = vend_map.get(v_lower)
+        if not enrichment:
+            # intenta sin prefijo de código ERP tipo "1 0001 - "
+            stripped = re.sub(r"^\d+\s+\d+\s*-\s*", "", v_nombre_raw, flags=re.IGNORECASE).strip().lower()
+            if stripped and stripped != v_lower:
+                enrichment = vend_map.get(stripped)
+
+        # Chequeo explícito de None para no descartar valores 0.0 con operador "or"
+        deuda_raw = row.get("deuda_total")
+        if deuda_raw is None:
+            deuda_raw = row.get("saldo_total")
+        deuda_total = float(deuda_raw) if deuda_raw is not None else 0.0
+
+        records.append({
+            "id_distribuidor": int(dist_id),
+            "id_vendedor": enrichment["id_vendedor"] if enrichment else None,
+            "id_sucursal": enrichment["id_sucursal"] if enrichment else None,
+            "vendedor_nombre": v_nombre_raw,
+            "sucursal_nombre": enrichment["sucursal_nombre"] if enrichment else (row.get("sucursal") or ""),
+            "cliente_nombre": (row.get("cliente") or "Sin Cliente").strip(),
+            "deuda_total": deuda_total,
+            "rango_antiguedad": row.get("rango_antiguedad"),
+            "antiguedad_dias": int(row.get("antiguedad") or 0),
+            "cantidad_comprobantes": int(row.get("cantidad_comprobantes") or row.get("cant_cbte") or 0),
+            "alerta_credito": row.get("alerta_credito") or row.get("Alerta de Crédito") or "",
+            "fecha_snapshot": fecha_snapshot,
+        })
+
+    if records:
+        # Eliminar registros previos del mismo snapshot antes de insertar,
+        # garantizando que una re-sincronización del día reemplaza los datos
+        # sin depender de un UNIQUE constraint en la tabla.
+        sb.table("cc_detalle") \
+            .delete() \
             .eq("id_distribuidor", int(dist_id)) \
+            .eq("fecha_snapshot", fecha_snapshot) \
             .execute()
-        suc_res = sb.table("sucursales_v2") \
-            .select("id_sucursal, nombre_erp") \
-            .eq("id_distribuidor", int(dist_id)) \
-            .execute()
-
-        suc_map = {s["id_sucursal"]: s["nombre_erp"] for s in (suc_res.data or [])}
-        vend_map: dict = {}
-        for v in (vend_res.data or []):
-            nombre = (v.get("nombre_erp") or "").strip().lower()
-            if nombre:
-                vend_map[nombre] = {
-                    "id_vendedor": v["id_vendedor"],
-                    "id_sucursal": v["id_sucursal"],
-                    "sucursal_nombre": suc_map.get(v["id_sucursal"], ""),
-                }
-
-        records = []
-        for row in rows:
-            v_nombre_raw = (row.get("vendedor") or "Sin Vendedor").strip()
-            v_lower = v_nombre_raw.lower()
-            enrichment = vend_map.get(v_lower)
-            if not enrichment:
-                # intenta sin prefijo de código ERP tipo "1 0001 - "
-                stripped = re.sub(r"^\d+\s+\d+\s*-\s*", "", v_nombre_raw, flags=re.IGNORECASE).strip().lower()
-                if stripped and stripped != v_lower:
-                    enrichment = vend_map.get(stripped)
-
-            records.append({
-                "id_distribuidor": int(dist_id),
-                "id_vendedor": enrichment["id_vendedor"] if enrichment else None,
-                "id_sucursal": enrichment["id_sucursal"] if enrichment else None,
-                "vendedor_nombre": v_nombre_raw,
-                "sucursal_nombre": enrichment["sucursal_nombre"] if enrichment else (row.get("sucursal") or ""),
-                "cliente_nombre": (row.get("cliente") or "Sin Cliente").strip(),
-                "deuda_total": float(row.get("deuda_total") or row.get("saldo_total") or 0),
-                "rango_antiguedad": row.get("rango_antiguedad"),
-                "antiguedad_dias": int(row.get("antiguedad") or 0),
-                "cantidad_comprobantes": int(row.get("cantidad_comprobantes") or row.get("cant_cbte") or 0),
-                "alerta_credito": row.get("alerta_credito") or row.get("Alerta de Crédito") or "",
-                "fecha_snapshot": fecha_snapshot,
-            })
-
-        if records:
-            sb.table("cc_detalle").upsert(
-                records,
-                on_conflict="id_distribuidor,fecha_snapshot,vendedor_nombre,cliente_nombre"
-            ).execute()
-        return len(records)
-    except Exception as e:
-        logger.warning(f"_enrich_and_store_cc dist={dist_id}: {e}")
-        return 0
+        sb.table("cc_detalle").insert(records).execute()
+    logger.info(
+        f"_enrich_and_store_cc dist={dist_id}: {len(records)} registros guardados "
+        f"en cc_detalle (snapshot {fecha_snapshot})"
+    )
+    return len(records)
 
 @app.options("/api/procesar-cuentas-corrientes")
 def options_procesar_cuentas_corrientes():
@@ -1635,7 +1648,7 @@ async def procesar_cuentas_corrientes(
                 if rows_cc:
                     _enrich_and_store_cc(id_dist, fecha_str, rows_cc)
             except Exception as e:
-                print(f"Advertencia: No se pudo guardar en cc_detalle: {e}")
+                logger.error(f"Error guardando en cc_detalle (upload manual dist={id_dist}): {e}")
 
         # Limpieza de archivos físicos inmediatos
         os.remove(temp_file_path)
@@ -1682,12 +1695,13 @@ async def sync_cuentas_corrientes(
 
         # Enriquecer y guardar en cc_detalle (tabla normalizada)
         rows_cc = datos.get("detalle_cuentas", [])
+        saved = 0
         if rows_cc:
-            _enrich_and_store_cc(id_distribuidor, fecha_str, rows_cc)
+            saved = _enrich_and_store_cc(id_distribuidor, fecha_str, rows_cc)
 
-        return {"ok": True, "message": "Datos sincronizados"}
+        return {"ok": True, "message": "Datos sincronizados", "registros_cc_detalle": saved}
     except Exception as e:
-        print(f"Error sync cuentas corrientes: {e}")
+        logger.error(f"Error sync cuentas corrientes dist={id_distribuidor}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

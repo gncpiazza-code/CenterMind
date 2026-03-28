@@ -3048,7 +3048,7 @@ def supervision_ventas(dist_id: int, dias: int = 30, user_payload=Depends(verify
 
 
 @app.get("/api/supervision/cuentas/{dist_id}", tags=["Supervisión"])
-def supervision_cuentas(dist_id: int, user_payload=Depends(verify_auth)):
+def supervision_cuentas(dist_id: int, sucursal: Optional[str] = Query(None), user_payload=Depends(verify_auth)):
     """Cuentas corrientes por vendedor para el panel de supervisión (lee cc_detalle)."""
     check_dist_permission(user_payload, dist_id)
     try:
@@ -3065,16 +3065,22 @@ def supervision_cuentas(dist_id: int, user_payload=Depends(verify_auth)):
 
         fecha_snapshot = snap_res.data[0]["fecha_snapshot"]
 
+        # Construir query base con filtros (incluyendo sucursal si se especifica)
+        def build_query():
+            q = sb.table("cc_detalle") \
+                .select("id_vendedor, vendedor_nombre, sucursal_nombre, cliente_nombre, deuda_total, antiguedad_dias, rango_antiguedad, cantidad_comprobantes, alerta_credito") \
+                .eq("id_distribuidor", int(dist_id)) \
+                .eq("fecha_snapshot", fecha_snapshot)
+            if sucursal:
+                q = q.eq("sucursal_nombre", sucursal)
+            return q
+
         # Paginar para evitar el límite de 1000 filas por defecto de Supabase
-        # (tabaco tiene ~4500 filas por snapshot)
         rows = []
         page_size = 1000
         page_offset = 0
         while True:
-            res = sb.table("cc_detalle") \
-                .select("id_vendedor, vendedor_nombre, sucursal_nombre, cliente_nombre, deuda_total, antiguedad_dias, rango_antiguedad, cantidad_comprobantes, alerta_credito") \
-                .eq("id_distribuidor", int(dist_id)) \
-                .eq("fecha_snapshot", fecha_snapshot) \
+            res = build_query() \
                 .range(page_offset, page_offset + page_size - 1) \
                 .execute()
             batch = res.data or []

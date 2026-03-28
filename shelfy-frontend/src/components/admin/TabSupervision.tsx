@@ -295,20 +295,17 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
   }, [selectedDist, ventasDias]);
 
   useEffect(() => {
-    if (!selectedDist) return;
+    if (!selectedDist || !selectedSucursal) {
+      setCuentasData(null);
+      return;
+    }
     setCuentasData(null);
     setLoadingCuentas(true);
-    fetchCuentasSupervision(selectedDist)
-      .then((data) => {
-        console.log("[CUENTAS DEBUG] dist_id:", selectedDist);
-        console.log("[CUENTAS DEBUG] vendedores recibidos:", data.vendedores.length);
-        console.log("[CUENTAS DEBUG] sucursales en cuentas:", [...new Set(data.vendedores.map((v: any) => v.sucursal))]);
-        console.log("[CUENTAS DEBUG] raw:", data);
-        setCuentasData(data);
-      })
-      .catch((e) => console.error("[CUENTAS DEBUG] error:", e))
+    fetchCuentasSupervision(selectedDist, selectedSucursal)
+      .then(setCuentasData)
+      .catch(() => {})
       .finally(() => setLoadingCuentas(false));
-  }, [selectedDist]);
+  }, [selectedDist, selectedSucursal]);
 
   // ── Derived & Filtered ────────────────────────────────────────────────────
   const sucursales = useMemo(() =>
@@ -336,27 +333,8 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
     };
   }, [ventasData, selectedSucursal, vendedoresFiltrados]);
 
-  const cuentasFiltradas = useMemo(() => {
-    if (!cuentasData || !selectedSucursal) return null;
-    // El campo sucursal de cada vendedor viene de sucursales_v2 via cc_detalle (autoritative)
-    console.log("[CUENTAS DEBUG] selectedSucursal:", selectedSucursal);
-    console.log("[CUENTAS DEBUG] vendedores en cuentasData:", cuentasData.vendedores.map((v: any) => ({ vendedor: v.vendedor, sucursal: v.sucursal })));
-    const filteredVends = cuentasData.vendedores.filter(
-      (v: any) => (v.sucursal ?? "").toLowerCase() === selectedSucursal.toLowerCase()
-    );
-    console.log("[CUENTAS DEBUG] filteredVends:", filteredVends.length);
-    const totalDeuda = filteredVends.reduce((s: number, v: any) => s + v.deuda_total, 0);
-    const clientesDeudores = filteredVends.reduce((s: number, v: any) => s + v.cantidad_clientes, 0);
-    const allClientes = filteredVends.flatMap((v: any) => v.clientes);
-    const promedioDias = allClientes.length > 0
-      ? allClientes.reduce((s: number, c: any) => s + (c.antiguedad ?? 0), 0) / allClientes.length
-      : 0;
-    return {
-      ...cuentasData,
-      metadatos: { total_deuda: totalDeuda, clientes_deudores: clientesDeudores, promedio_dias_retraso: promedioDias },
-      vendedores: filteredVends,
-    };
-  }, [cuentasData, selectedSucursal]);
+  // Backend ya filtra por sucursal — cuentasData llega pre-filtrado
+  const cuentasFiltradas = cuentasData ?? null;
 
   // ── Print cuentas corrientes ─────────────────────────────────────────────
   function handlePrintCuentas() {
@@ -627,7 +605,13 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
         });
       });
     });
-    return result;
+    // Deduplicar por id_cliente — un PDV puede estar en múltiples rutas del mismo vendedor
+    const seen = new Set<number>();
+    return result.filter(p => {
+      if (seen.has(p.id)) return false;
+      seen.add(p.id);
+      return true;
+    });
   }, [vendedores, visibleVends, visibleRutas, visibleClientes, rutas, clientes]);
 
   const totalPdv     = vendedoresFiltrados.reduce((s, v) => s + v.total_pdv, 0);

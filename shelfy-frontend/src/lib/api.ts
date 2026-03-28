@@ -982,8 +982,9 @@ export interface CuentasSupervision {
   vendedores: VendedorCuentas[];
 }
 
-export async function fetchCuentasSupervision(distId: number): Promise<CuentasSupervision> {
-  return apiFetch<CuentasSupervision>(`/api/supervision/cuentas/${distId}`);
+export async function fetchCuentasSupervision(distId: number, sucursal?: string): Promise<CuentasSupervision> {
+  const params = sucursal ? `?sucursal=${encodeURIComponent(sucursal)}` : "";
+  return apiFetch<CuentasSupervision>(`/api/supervision/cuentas/${distId}${params}`);
 }
 
 

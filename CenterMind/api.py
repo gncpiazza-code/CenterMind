@@ -2839,11 +2839,34 @@ def supervision_clientes(id_ruta: int, user_payload=Depends(verify_auth)):
         res = sb.table("clientes_pdv_v2") \
             .select("id_cliente, id_cliente_erp, nombre_fantasia, nombre_razon_social, "
                     "domicilio, localidad, provincia, canal, latitud, longitud, "
-                    "fecha_ultima_compra, fecha_alta") \
+                    "fecha_ultima_compra, fecha_alta, id_distribuidor") \
             .eq("id_ruta", id_ruta) \
             .order("nombre_fantasia") \
             .execute()
-        return res.data or []
+        rows = res.data or []
+
+        # Cross-reference exhibiciones para obtener fecha de última exhibición por PDV
+        if rows:
+            ids_pdv = [r["id_cliente"] for r in rows]
+            dist_id = rows[0].get("id_distribuidor")
+            exh_map: dict = {}
+            try:
+                exh_res = sb.table("exhibiciones") \
+                    .select("id_cliente_pdv, created_at") \
+                    .eq("id_distribuidor", dist_id) \
+                    .in_("id_cliente_pdv", ids_pdv) \
+                    .order("created_at", desc=True) \
+                    .execute()
+                for e in (exh_res.data or []):
+                    cid = e.get("id_cliente_pdv")
+                    if cid and cid not in exh_map:
+                        exh_map[cid] = e.get("created_at")
+            except Exception:
+                pass
+            for r in rows:
+                r["fecha_ultima_exhibicion"] = exh_map.get(r["id_cliente"])
+
+        return rows
     except Exception as e:
         logger.error(f"Error en supervision_clientes: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -3149,7 +3172,7 @@ def pdvs_cercanos(
         vendedor_map: dict = {}
         if ids_ruta:
             rutas_res = sb.table("rutas_v2") \
-                .select("id_ruta, nombre_ruta, id_vendedor") \
+                .select("id_ruta, id_ruta_erp, id_vendedor") \
                 .in_("id_ruta", ids_ruta) \
                 .execute()
             for r in (rutas_res.data or []):
@@ -3198,7 +3221,7 @@ def pdvs_cercanos(
                 "fecha_ultima_compra": row.get("fecha_ultima_compra"),
                 "fecha_ultima_exhibicion": ultima_exhibicion_map.get(row["id_cliente"]),
                 "vendedor_nombre": vendedor_map.get(ruta_info.get("id_vendedor")),
-                "ruta_nombre": ruta_info.get("nombre_ruta"),
+                "ruta_nombre": ruta_info.get("id_ruta_erp"),
                 "distancia_metros": round(dist, 1),
             })
         return {"fallback": fallback, "pdvs": result}

@@ -902,6 +902,7 @@ export interface ClienteSupervision {
   longitud: number | null;
   fecha_ultima_compra: string | null;
   fecha_alta: string | null;
+  fecha_ultima_exhibicion: string | null;
 }
 
 export async function fetchVendedoresSupervision(distId: number): Promise<VendedorSupervision[]> {

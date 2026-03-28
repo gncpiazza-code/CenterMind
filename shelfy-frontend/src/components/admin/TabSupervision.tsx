@@ -113,6 +113,19 @@ function isInactivo(fecha: string | null): boolean {
   if (!fecha) return true;
   return Date.now() - new Date(fecha).getTime() > 90 * 86_400_000;
 }
+function diasDesde(fecha: string | null | undefined): string {
+  if (!fecha) return "Sin registro";
+  const dias = Math.floor((Date.now() - new Date(fecha).getTime()) / 86_400_000);
+  if (dias === 0) return "Hoy";
+  if (dias === 1) return "Ayer";
+  return `Hace ${dias} días`;
+}
+
+// ── Day sort order ─────────────────────────────────────────────────────────────
+const DIA_ORDER: Record<string, number> = {
+  lunes: 1, martes: 2, miercoles: 3, miércoles: 3, jueves: 4,
+  viernes: 5, sabado: 6, sábado: 6, domingo: 7,
+};
 
 // ── Vendor avatar ─────────────────────────────────────────────────────────────
 const RANGO_COLORS: Record<string, string> = {
@@ -776,7 +789,11 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                 const idx       = vendedores.indexOf(v);
                 const color     = vendorColor(idx);
                 const vOpen     = openVend === v.id_vendedor;
-                const vRutas    = rutas[v.id_vendedor] ?? [];
+                const vRutas    = [...(rutas[v.id_vendedor] ?? [])].sort(
+                  (a, b) =>
+                    (DIA_ORDER[a.dia_semana?.toLowerCase() ?? ""] ?? 9) -
+                    (DIA_ORDER[b.dia_semana?.toLowerCase() ?? ""] ?? 9)
+                );
                 const isVendOn  = visibleVends.has(v.id_vendedor);
                 const isVendLoad = loadingMap.has(v.id_vendedor);
                 const pct       = v.total_pdv > 0
@@ -892,7 +909,10 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                                     style={{ color: isRutaOn ? color : color + "66" }}
                                   />
                                   <span className="text-[11px] font-semibold text-[var(--shelfy-text)] flex-1 truncate">
-                                    {r.nombre_ruta}
+                                    Ruta {r.nombre_ruta}
+                                    {r.dia_semana && (
+                                      <span className="font-normal text-[var(--shelfy-muted)]"> — {r.dia_semana}</span>
+                                    )}
                                   </span>
                                 </button>
                                 <div className="flex items-center gap-1.5 shrink-0">

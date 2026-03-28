@@ -199,3 +199,10 @@ body {
     @apply hidden!;
   }
 }
+
+@media print {
+  @page { size: A4 landscape; margin: 10mm; }
+  body > *:not(.shelfy-print-mapa) { display: none !important; }
+  .maplibregl-canvas { max-width: 100% !important; }
+  .shelfy-map-controls { display: none !important; }
+}

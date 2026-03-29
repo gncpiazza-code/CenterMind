@@ -905,8 +905,10 @@ export interface ClienteContacto {
   longitud: number | null;
 }
 
-export async function fetchClienteInfo(distId: number, nombre: string): Promise<ClienteContacto[]> {
-  return apiFetch<ClienteContacto[]>(`/api/supervision/cliente-info/${distId}?nombre=${encodeURIComponent(nombre)}`);
+export async function fetchClienteInfo(distId: number, nombre: string, idClienteErp?: string | null): Promise<ClienteContacto[]> {
+  const params = new URLSearchParams({ nombre });
+  if (idClienteErp) params.set("id_cliente_erp", idClienteErp);
+  return apiFetch<ClienteContacto[]>(`/api/supervision/cliente-info/${distId}?${params}`);
 }
 
 

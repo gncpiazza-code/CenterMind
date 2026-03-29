@@ -30,6 +30,7 @@ from pydantic import BaseModel
 import json
 import base64
 import re
+import unicodedata
 
 from services.erp_summary_service import erp_summary_service
 from services.erp_ingestion_service import erp_service
@@ -1491,6 +1492,7 @@ def _enrich_and_store_cc(dist_id: int, fecha_snapshot: str, rows: list) -> int:
                 suc_erp_map.get(str(row.get("sucursal") or "")) or row.get("sucursal") or ""
             ),
             "cliente_nombre": (row.get("cliente") or "Sin Cliente").strip(),
+            "id_cliente_erp": str(row["cod_cliente"]).strip() if row.get("cod_cliente") else None,
             "deuda_total": deuda_total,
             "rango_antiguedad": row.get("rango_antiguedad"),
             "antiguedad_dias": int(row.get("antiguedad") or 0),
@@ -2885,53 +2887,67 @@ def supervision_clientes(id_ruta: int, user_payload=Depends(verify_auth)):
 
 
 @app.get("/api/supervision/cliente-info/{dist_id}", tags=["Supervisión"])
-def supervision_cliente_info(dist_id: int, nombre: str, user_payload=Depends(verify_auth)):
+def supervision_cliente_info(dist_id: int, nombre: str, id_cliente_erp: Optional[str] = Query(None), user_payload=Depends(verify_auth)):
     """Busca datos de contacto y localización de un cliente PDV por nombre (para popup CC)."""
+    def _strip_accents(s: str) -> str:
+        return ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
+
     try:
         check_dist_permission(user_payload, dist_id)
         fields = ("id_cliente, id_cliente_erp, nombre_fantasia, nombre_razon_social, "
                   "domicilio, localidad, provincia, canal, latitud, longitud")
-        nombre_s = nombre.strip()
+        nombre_s      = nombre.strip()
+        nombre_plain  = _strip_accents(nombre_s)   # sin acentos
 
-        # Estrategia 1: match exacto case-insensitive en nombre_razon_social
-        # (mismo criterio que usa fecha_uc_map en supervision/cuentas)
-        res = sb.table("clientes_pdv_v2") \
-            .select(fields) \
-            .eq("id_distribuidor", dist_id) \
-            .ilike("nombre_razon_social", nombre_s) \
-            .limit(3) \
-            .execute()
-        if res.data:
-            return res.data
+        # Estrategia 0: buscar por id_cliente_erp (match exacto, más confiable)
+        if id_cliente_erp:
+            erp_id_s = id_cliente_erp.strip()
+            r = sb.table("clientes_pdv_v2").select(fields) \
+                .eq("id_distribuidor", dist_id) \
+                .eq("id_cliente_erp", erp_id_s).limit(3).execute()
+            if r.data: return r.data
 
-        # Estrategia 2: match exacto en nombre_fantasia
-        res = sb.table("clientes_pdv_v2") \
-            .select(fields) \
-            .eq("id_distribuidor", dist_id) \
-            .ilike("nombre_fantasia", nombre_s) \
-            .limit(3) \
-            .execute()
-        if res.data:
-            return res.data
+        def _search(col: str, val: str, substring: bool = False) -> list:
+            pattern = f"%{val}%" if substring else val
+            r = sb.table("clientes_pdv_v2").select(fields) \
+                .eq("id_distribuidor", dist_id) \
+                .ilike(col, pattern).limit(3).execute()
+            return r.data or []
 
-        # Estrategia 3: substring en nombre_razon_social
-        res = sb.table("clientes_pdv_v2") \
-            .select(fields) \
-            .eq("id_distribuidor", dist_id) \
-            .ilike("nombre_razon_social", f"%{nombre_s}%") \
-            .limit(3) \
-            .execute()
-        if res.data:
-            return res.data
+        # 1. Exacto con acento
+        for col in ("nombre_razon_social", "nombre_fantasia"):
+            data = _search(col, nombre_s)
+            if data: return data
 
-        # Estrategia 4: substring en nombre_fantasia
-        res = sb.table("clientes_pdv_v2") \
-            .select(fields) \
-            .eq("id_distribuidor", dist_id) \
-            .ilike("nombre_fantasia", f"%{nombre_s}%") \
-            .limit(3) \
-            .execute()
-        return res.data or []
+        # 2. Exacto sin acento
+        for col in ("nombre_razon_social", "nombre_fantasia"):
+            data = _search(col, nombre_plain)
+            if data: return data
+
+        # 3. Substring con acento
+        for col in ("nombre_razon_social", "nombre_fantasia"):
+            data = _search(col, nombre_s, substring=True)
+            if data: return data
+
+        # 4. Substring sin acento
+        for col in ("nombre_razon_social", "nombre_fantasia"):
+            data = _search(col, nombre_plain, substring=True)
+            if data: return data
+
+        # 5. Palabras individuales (orden independiente) — maneja "FABIANA GUTIÉRREZ" vs "GUTIERREZ FABIANA"
+        words = [w for w in _strip_accents(nombre_s).split() if len(w) > 2]
+        if words:
+            for col in ("nombre_razon_social", "nombre_fantasia"):
+                try:
+                    q = sb.table("clientes_pdv_v2").select(fields).eq("id_distribuidor", dist_id)
+                    for w in words:
+                        q = q.ilike(col, f"%{w}%")
+                    r = q.limit(3).execute()
+                    if r.data: return r.data
+                except Exception:
+                    pass
+
+        return []
     except HTTPException:
         raise
     except Exception as e:
@@ -3087,7 +3103,7 @@ def supervision_cuentas(dist_id: int, sucursal: Optional[str] = Query(None), use
         # Construir query base con filtros (incluyendo sucursal si se especifica)
         def build_query():
             q = sb.table("cc_detalle") \
-                .select("id_vendedor, vendedor_nombre, sucursal_nombre, cliente_nombre, deuda_total, antiguedad_dias, rango_antiguedad, cantidad_comprobantes, alerta_credito") \
+                .select("id_vendedor, vendedor_nombre, sucursal_nombre, cliente_nombre, id_cliente_erp, deuda_total, antiguedad_dias, rango_antiguedad, cantidad_comprobantes, alerta_credito") \
                 .eq("id_distribuidor", int(dist_id)) \
                 .eq("fecha_snapshot", fecha_snapshot)
             if sucursal:
@@ -3108,34 +3124,33 @@ def supervision_cuentas(dist_id: int, sucursal: Optional[str] = Query(None), use
                 break
             page_offset += page_size
 
-        # Cruzar fecha_ultima_compra desde clientes_pdv_v2 por nombre
-        nombres_clientes = list({r["cliente_nombre"] for r in rows if r.get("cliente_nombre")})
-        fecha_uc_map: dict = {}
-        if nombres_clientes:
-            try:
-                # Paginar clientes_pdv_v2 (tabaco tiene >10k registros)
-                pdv_offset = 0
-                while True:
-                    pdv_res = sb.table("clientes_pdv_v2") \
-                        .select("nombre_fantasia, nombre_razon_social, fecha_ultima_compra") \
-                        .eq("id_distribuidor", int(dist_id)) \
-                        .range(pdv_offset, pdv_offset + 999) \
-                        .execute()
-                    pdv_batch = pdv_res.data or []
-                    for p in pdv_batch:
-                        fuc = p.get("fecha_ultima_compra")
-                        if not fuc:
-                            continue
-                        for key in [p.get("nombre_fantasia"), p.get("nombre_razon_social")]:
-                            if key:
-                                norm_key = key.strip().upper()
-                                if norm_key not in fecha_uc_map:
-                                    fecha_uc_map[norm_key] = fuc
-                    if len(pdv_batch) < 1000:
-                        break
-                    pdv_offset += 1000
-            except Exception:
-                pass
+        # Cruzar fecha_ultima_compra e id_cliente_erp desde clientes_pdv_v2 por nombre
+        fecha_uc_map: dict  = {}   # norm_nombre → fecha_ultima_compra
+        erp_id_map:   dict  = {}   # norm_nombre → id_cliente_erp
+        try:
+            pdv_offset = 0
+            while True:
+                pdv_res = sb.table("clientes_pdv_v2") \
+                    .select("nombre_fantasia, nombre_razon_social, id_cliente_erp, fecha_ultima_compra") \
+                    .eq("id_distribuidor", int(dist_id)) \
+                    .range(pdv_offset, pdv_offset + 999) \
+                    .execute()
+                pdv_batch = pdv_res.data or []
+                for p in pdv_batch:
+                    erp_id = p.get("id_cliente_erp")
+                    fuc    = p.get("fecha_ultima_compra")
+                    for key in [p.get("nombre_fantasia"), p.get("nombre_razon_social")]:
+                        if key:
+                            norm_key = key.strip().upper()
+                            if fuc and norm_key not in fecha_uc_map:
+                                fecha_uc_map[norm_key] = fuc
+                            if erp_id and norm_key not in erp_id_map:
+                                erp_id_map[norm_key] = str(erp_id).strip()
+                if len(pdv_batch) < 1000:
+                    break
+                pdv_offset += 1000
+        except Exception:
+            pass
 
         vendors: dict = {}
         for item in rows:
@@ -3153,14 +3168,19 @@ def supervision_cuentas(dist_id: int, sucursal: Optional[str] = Query(None), use
             deuda = float(item.get("deuda_total") or 0)
             vd["deuda_total"] += deuda
             vd["cantidad_clientes"] += 1
+            nombre_norm = (item.get("cliente_nombre") or "").strip().upper()
+            # id_cliente_erp: primero del Excel CC, luego cruzado por nombre desde clientes_pdv_v2
+            erp_id = (item.get("id_cliente_erp")
+                      or erp_id_map.get(nombre_norm))
             vd["clientes"].append({
                 "cliente": item.get("cliente_nombre"),
+                "id_cliente_erp": erp_id,
                 "sucursal": item.get("sucursal_nombre"),
                 "deuda_total": deuda,
                 "antiguedad": item.get("antiguedad_dias"),
                 "rango_antiguedad": item.get("rango_antiguedad"),
                 "cantidad_comprobantes": item.get("cantidad_comprobantes"),
-                "fecha_ultima_compra": fecha_uc_map.get((item.get("cliente_nombre") or "").strip().upper()),
+                "fecha_ultima_compra": fecha_uc_map.get(nombre_norm),
             })
 
         for vd in vendors.values():

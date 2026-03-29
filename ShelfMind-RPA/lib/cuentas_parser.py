@@ -28,6 +28,7 @@ CANONICAL = {
     "sucursal": ["sucursal", "desc_sucursal", "descripcion sucursal"],
     "vendedor": ["vendedor", "desc_vendedor", "descripcion vendedor"],
     "cliente": ["cliente", "razon social", "nombre"],
+    "cod_cliente": ["cod cliente", "codigo cliente", "nro cliente", "id cliente", "codcli", "nrocli"],
     "antiguedad": ["antiguedad deuda", "antiguedad", "antigüedad"],
     "cant_cbte": ["cant cbte", "cantidad comprobantes"],
     "saldo_total": ["saldo total", "saldo"],
@@ -81,6 +82,8 @@ def procesar_excel_cuentas(file_path: str) -> dict:
 
     df["vendedor"] = df["vendedor"].fillna("SIN VENDEDOR").astype(str).str.strip()
     df["cliente"] = df["cliente"].fillna("Desconocido").astype(str).str.strip()
+    if "cod_cliente" not in df.columns: df["cod_cliente"] = np.nan
+    df["cod_cliente"] = df["cod_cliente"].apply(lambda x: str(int(x)) if pd.notna(x) and x != "" else None)
     
     for col in ["cant_cbte", "saldo_total", "antiguedad"]:
         df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
@@ -99,7 +102,7 @@ def procesar_excel_cuentas(file_path: str) -> dict:
 
     # Detalles
     cols_detalle = [
-        "sucursal", "vendedor", "cliente", "cant_cbte", "saldo_total", 
+        "sucursal", "vendedor", "cliente", "cod_cliente", "cant_cbte", "saldo_total",
         "antiguedad", "rango_antiguedad", "es_valido"
     ]
     renames = {

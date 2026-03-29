@@ -254,6 +254,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
     data: ClienteContacto[] | null;
     loading: boolean;
   } | null>(null);
+  const [ccSort, setCcSort] = useState<{ col: "dias" | "deuda"; asc: boolean }>({ col: "dias", asc: false });
 
   // ── Load distribuidoras ───────────────────────────────────────────────────
   useEffect(() => {
@@ -427,10 +428,10 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
   }
 
   // ── CC Cliente info popup ────────────────────────────────────────────────
-  const handleClienteClick = async (nombre: string) => {
+  const handleClienteClick = async (nombre: string, idClienteErp?: string | null) => {
     setClientePopup({ nombre, data: null, loading: true });
     try {
-      const data = await fetchClienteInfo(selectedDist, nombre);
+      const data = await fetchClienteInfo(selectedDist, nombre, idClienteErp);
       setClientePopup({ nombre, data, loading: false });
     } catch {
       setClientePopup({ nombre, data: [], loading: false });
@@ -1501,59 +1502,6 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
             )}
 
 
-            {/* Pie chart distribución deuda por rango */}
-            {cuentasFiltradas && cuentasFiltradas.vendedores.length > 0 && (() => {
-              const RANGO_PIE = [
-                { key: "1-7 Días",   color: "#16a34a" },
-                { key: "8-15 Días",  color: "#ca8a04" },
-                { key: "16-21 Días", color: "#ea580c" },
-                { key: "22-30 Días", color: "#dc2626" },
-                { key: "+30 Días",   color: "#9f1239" },
-              ];
-              const pieData = RANGO_PIE.map(({ key, color }) => {
-                const total = cuentasFiltradas.vendedores
-                  .flatMap((v: any) => v.clientes)
-                  .filter((c: any) => c.rango_antiguedad === key)
-                  .reduce((s: number, c: any) => s + (c.deuda_total ?? 0), 0);
-                return { name: key, value: total, color };
-              }).filter(d => d.value > 0);
-              if (pieData.length === 0) return null;
-              const totalDeuda = pieData.reduce((s, d) => s + d.value, 0);
-              return (
-                <div className="px-5 pt-4 pb-2">
-                  <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-3">Composición de deuda por antigüedad</p>
-                  <div className="flex items-center gap-4">
-                    <div style={{ width: 130, height: 130, flexShrink: 0 }}>
-                      <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <Pie data={pieData} dataKey="value" cx="50%" cy="50%" innerRadius={30} outerRadius={58} paddingAngle={2}>
-                            {pieData.map((entry, i) => (
-                              <Cell key={i} fill={entry.color} />
-                            ))}
-                          </Pie>
-                          <Tooltip
-                            formatter={(value: number) => [`$${value.toLocaleString("es-AR", { maximumFractionDigits: 0 })}`, "Deuda"]}
-                            contentStyle={{ background: "var(--shelfy-panel)", border: "1px solid var(--shelfy-border)", borderRadius: 8, fontSize: 11 }}
-                          />
-                        </PieChart>
-                      </ResponsiveContainer>
-                    </div>
-                    <div className="flex flex-col gap-1.5 flex-1 min-w-0">
-                      {pieData.map(d => (
-                        <div key={d.name} className="flex items-center gap-2 min-w-0">
-                          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: d.color }} />
-                          <span className="text-[10px] text-[var(--shelfy-muted)] truncate flex-1">{d.name}</span>
-                          <span className="text-[10px] font-semibold tabular-nums" style={{ color: d.color }}>
-                            {Math.round((d.value / totalDeuda) * 100)}%
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              );
-            })()}
-
             {/* Tarjetas de vendedores */}
             {cuentasFiltradas && cuentasFiltradas.vendedores.length > 0 && (
               <div className="divide-y divide-[var(--shelfy-border)]/30">
@@ -1606,13 +1554,24 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                                   <th className="text-left px-3 py-2.5 font-semibold">Cliente</th>
                                   <th className="text-left px-3 py-2.5 font-semibold">Sucursal</th>
                                   <th className="text-center px-3 py-2.5 font-semibold">Rango</th>
-                                  <th className="text-center px-3 py-2.5 font-semibold">Días</th>
+                                  <th className="text-center px-3 py-2.5 font-semibold cursor-pointer select-none hover:text-[var(--shelfy-text)] transition-colors"
+                                    onClick={() => setCcSort(s => s.col === "dias" ? { col: "dias", asc: !s.asc } : { col: "dias", asc: false })}>
+                                    Días {ccSort.col === "dias" ? (ccSort.asc ? "↑" : "↓") : <span className="opacity-30">↕</span>}
+                                  </th>
                                   <th className="text-center px-3 py-2.5 font-semibold">Comprob.</th>
-                                  <th className="text-right px-3 py-2.5 font-semibold">Deuda</th>
+                                  <th className="text-right px-3 py-2.5 font-semibold cursor-pointer select-none hover:text-[var(--shelfy-text)] transition-colors"
+                                    onClick={() => setCcSort(s => s.col === "deuda" ? { col: "deuda", asc: !s.asc } : { col: "deuda", asc: false })}>
+                                    Deuda {ccSort.col === "deuda" ? (ccSort.asc ? "↑" : "↓") : <span className="opacity-30">↕</span>}
+                                  </th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-[var(--shelfy-border)]/20">
-                                {v.clientes.map((c: any, ci: number) => {
+                                {[...v.clientes].sort((a: any, b: any) => {
+                                  const val = ccSort.col === "dias"
+                                    ? (a.antiguedad ?? 0) - (b.antiguedad ?? 0)
+                                    : (a.deuda_total ?? 0) - (b.deuda_total ?? 0);
+                                  return ccSort.asc ? val : -val;
+                                }).map((c: any, ci: number) => {
                                   const dias = c.antiguedad ?? 0;
                                   const diasColor = dias > 30
                                     ? "text-rose-400 font-bold"
@@ -1622,7 +1581,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                                         ? "text-amber-400"
                                         : "text-[var(--shelfy-text)]";
                                   return (
-                                    <tr key={ci} className="hover:bg-white/5 text-[var(--shelfy-text)] cursor-pointer" onClick={() => c.cliente && handleClienteClick(c.cliente)}>
+                                    <tr key={ci} className="hover:bg-white/5 text-[var(--shelfy-text)] cursor-pointer" onClick={() => c.cliente && handleClienteClick(c.cliente, c.id_cliente_erp)}>
                                       <td className="px-3 py-2 max-w-[200px] truncate group" title={c.cliente ?? undefined}>
                                         <span className="group-hover:text-[var(--shelfy-primary)] transition-colors">{c.cliente ?? "-"}</span>
                                         <span className="ml-1 text-[9px] text-[var(--shelfy-muted)] opacity-0 group-hover:opacity-100 transition-opacity">↗</span>

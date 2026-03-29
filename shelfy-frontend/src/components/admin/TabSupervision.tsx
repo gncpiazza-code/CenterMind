@@ -40,7 +40,6 @@ import {
   type PDVCercano,
   type ClienteContacto,
 } from "@/lib/api";
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 import type { PinCliente } from "./MapaRutas";
 
 // ── Map: SSR off ──────────────────────────────────────────────────────────────

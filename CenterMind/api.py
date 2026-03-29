@@ -32,7 +32,6 @@ import base64
 import re
 import unicodedata
 
-from services.erp_summary_service import erp_summary_service
 from services.erp_ingestion_service import erp_service
 from services.system_monitoring_service import monitor_service
 from services.cuentas_corrientes_service import procesar_cuentas_corrientes_service
@@ -95,11 +94,6 @@ def erp_automatic_sync():
         if os.path.exists(ventas_file):
             logger.info(f"Procesando ventas desde {ventas_file}")
             erp_service.ingest_ventas(ventas_file)
-            
-        # --- Cruce de datos (Fase C) ---
-        # Consolidamos deudas para T&H (ID 3 de ejemplo) y otros mapeados
-        for dist_id in erp_service.mapping.values():
-            erp_summary_service.consolidate_debt(dist_id)
             
     except Exception as e:
         logger.error(f"❌ Error en sincronización automática: {e}")
@@ -1498,6 +1492,7 @@ def _enrich_and_store_cc(dist_id: int, fecha_snapshot: str, rows: list) -> int:
             "cantidad_comprobantes": int(row.get("cantidad_comprobantes") or row.get("cant_cbte") or 0),
             "alerta_credito": row.get("alerta_credito") or row.get("Alerta de Crédito") or "",
             "fecha_snapshot": fecha_snapshot,
+            "id_cliente_erp": str(row["cod_cliente"]) if row.get("cod_cliente") else None,
         })
 
     # Deduplicar por (vendedor_nombre, cliente_nombre): el Excel puede tener
@@ -2295,7 +2290,7 @@ def admin_asignar_vendedor(
     Asigna (o des-asigna con id_integrante=null) el vendedor de un cliente.
     Es el punto de corrección manual desde el Panel Admin.
     """
-    r = sb.table("clientes").update({"id_vendedor": req.id_integrante}).eq("id_cliente", id_cliente).execute()
+    r = sb.table("clientes_pdv_v2").update({"id_vendedor": req.id_integrante}).eq("id_cliente", id_cliente).execute()
     if not r.data:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
     return {"ok": True, "id_cliente": id_cliente, "id_integrante": req.id_integrante}

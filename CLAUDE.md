@@ -204,12 +204,12 @@ CenterMind/                     # Root del repo
 | `erp_ventas_raw` | Ventas crudas |
 | `erp_sucursales_raw` | Sucursales crudas |
 | `erp_fuerza_ventas` | Vendedores crudos |
-| `erp_deuda_clientes` | Deuda consolidada por cliente (resultado de erp_summary_service) |
+| ~~`erp_deuda_clientes`~~ | **OBSOLETA** — `erp_summary_service` eliminado. No escribir ni leer. Usar `cc_detalle`. |
 
 #### Cuentas Corrientes
 | Tabla | Función |
 |---|---|
-| `cc_detalle` | **Tabla normalizada.** Una fila por cliente deudor (deduplicada por vendedor+cliente). FK a `vendedores_v2` y `sucursales_v2`. ÚNICA fuente para `/api/supervision/cuentas/{dist_id}`. UNIQUE constraint en `(id_distribuidor, fecha_snapshot, vendedor_nombre, cliente_nombre)` |
+| `cc_detalle` | **Tabla normalizada.** Una fila por cliente deudor (deduplicada por vendedor+cliente). FK a `vendedores_v2` y `sucursales_v2`. Columna `id_cliente_erp TEXT` para hacer cross-reference con `clientes_pdv_v2`. ÚNICA fuente para `/api/supervision/cuentas/{dist_id}`. UNIQUE constraint en `(id_distribuidor, fecha_snapshot, vendedor_nombre, cliente_nombre)` |
 | `cuentas_corrientes_data` | Blob JSON legacy. Sigue existiendo para el módulo academy (upload/download Excel). No se usa para supervision |
 
 #### Sistema
@@ -227,6 +227,7 @@ CenterMind/                     # Root del repo
 | `maestro_jerarquia` | Sin referencias activas en api.py. Migrada a `vendedores_v2`/`sucursales_v2` |
 | `clientes_pdv` | Sin referencias activas en api.py. Todas migradas a `clientes_pdv_v2` |
 | `sucursales`, `vendedores` | Tablas sin "v2". Algunas referencias legacy en `/api/admin/hierarchy/rutas` (endpoint de admin poco usado) |
+| `clientes` (sin v2 ni pdv) | `PUT /api/admin/clientes/{id}/vendedor` migrado a `clientes_pdv_v2`. No usar. |
 
 ---
 
@@ -369,6 +370,17 @@ Frontend TabSupervision → carga CC solo al seleccionar sucursal (no en mount)
 
 **Importante — paginación**: `cc_detalle` de Tabaco tiene ~4578 filas. El endpoint `/api/supervision/cuentas/{dist_id}` usa un loop con `.range()` para superar el límite de 1000 filas de Supabase. Lo mismo aplica al select de `clientes_pdv_v2`.
 
+**Importante — id_cliente_erp**: `cc_detalle` tiene columna `id_cliente_erp TEXT` (requiere `ALTER TABLE cc_detalle ADD COLUMN IF NOT EXISTS id_cliente_erp TEXT;`). Se llena desde `cod_cliente` del Excel parseado. El endpoint `/api/supervision/cuentas` incluye `id_cliente_erp` en la respuesta. El endpoint `/api/supervision/cliente-info/{dist_id}` lo usa como strategy 0 para buscar en `clientes_pdv_v2` sin depender de name matching.
+
+### Endpoint `/api/supervision/cliente-info/{dist_id}`
+Busca datos de contacto de un PDV en `clientes_pdv_v2`. Estrategias en orden:
+0. Match exacto por `id_cliente_erp` (más robusto — bypasa name matching)
+1. Match exacto CI sobre `nombre_cliente`
+2. Match CI sin acentos
+3. Substring CI
+4. Substring CI sin acentos
+5. AND de palabras (order-independent)
+
 ---
 
 ## Sistema de Bots Telegram
@@ -492,11 +504,14 @@ El popup HTML del marcador muestra:
 - No agregar `SUCURSALES_MAP` hardcodeados en services — la sucursal siempre debe resolverse desde `sucursales_v2`
 - No leer de `maestro_jerarquia` en código nuevo — usar tablas `_v2`
 - No hacer queries a `cuentas_corrientes_data` en el endpoint de supervisión — usar `cc_detalle`
+- No hacer queries a `erp_deuda_clientes` — tabla obsoleta, no se alimenta más. Usar `cc_detalle`
+- No usar la tabla `clientes` (sin v2 ni pdv) — migrada a `clientes_pdv_v2`
 - No queries sin filtro `id_distribuidor` (excepto superadmin explícito)
 - No modificar tablas `erp_*_raw` directamente — son append-only desde los services
 - No usar `clientes_pdv` (sin v2) en código nuevo
 - No usar animaciones CSS `transform` en marcadores HTML sobre MapLibre GL — usar `box-shadow` o `opacity`
 - No asumir que `url_foto_drive` en `exhibiciones` es una URL de Drive — es Supabase Storage, usar directamente
+- No usar `erp_summary_service` — importado y llamado eliminado. La consolidación de deuda la provee `cc_detalle`
 
 ---
 
@@ -520,10 +535,9 @@ fn_login(p_usuario, p_password)        -- Auth del portal React
 - Panel de supervisión (mapa de rutas con popup enriquecido)
 - Autenticación JWT
 - **Cuentas Corrientes en supervisión**: `cc_detalle` poblada y funcionando para los 4 tenants, con paginación y filtro por sucursal
-- **Mapa PDV**: marcadores estables (sin drift), aura animada con box-shadow, popup con compra/exhibición/foto
-
-### Módulos en activo desarrollo
-- **Migración de legacy**: referencias a `maestro_jerarquia` y `clientes_pdv` (sin v2) pendientes de migrar
+- **Mapa PDV**: marcadores estables (sin drift), sin animación aura, popup con compra/exhibición/foto
+- **Popup de contacto en CC**: al tocar un deudor muestra datos de `clientes_pdv_v2` usando `id_cliente_erp` como clave (más robusto que name matching)
+- **Tablas limpias**: `erp_deuda_clientes` y `clientes` (sin sufijos) ya no se usan
 
 ### Deuda técnica conocida
 - `api.py` monolítico de ~3000 líneas (no refactorizar sin pedido explícito)
@@ -531,6 +545,7 @@ fn_login(p_usuario, p_password)        -- Auth del portal React
 - `/api/admin/hierarchy/rutas` y endpoints afines usan tablas `sucursales`/`vendedores` (sin v2) — poco usados, pendiente de migrar
 
 ### Pendientes operativos
+- **Migración DB pendiente**: `ALTER TABLE cc_detalle ADD COLUMN IF NOT EXISTS id_cliente_erp TEXT;` — correr en Supabase SQL editor. El código ya escribe `id_cliente_erp` en el INSERT; sin esta columna el RPA fallará al sincronizar CC.
 - **Padrón de Tabaco (id=3)**: `vendedores_v2` puede estar vacío si el usuario no subió el padrón desde la UI. Sin padrón, los vendedores de CC aparecen como "ghost" (sin id_vendedor resuelto).
 - **Credenciales Tabaco en Vault**: se agregaron `CHESS_TABACO_USUARIO=emap` / `CHESS_TABACO_PASSWORD=EMAP1983` al `.env` local. Verificar que estén también en Supabase Vault para producción (`chess_tabaco_usuario`, `chess_tabaco_password`).
 - **Tenant `extra` (GyG, id=6)**: credenciales CHESS pendientes de obtener.

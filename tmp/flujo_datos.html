@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shelfy — Flujo de Datos</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #0f1117;
+    color: #e2e8f0;
+    min-height: 100vh;
+    padding: 40px 24px;
+  }
+
+  h1 {
+    text-align: center;
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 8px;
+    letter-spacing: -0.5px;
+  }
+  .subtitle {
+    text-align: center;
+    color: #64748b;
+    font-size: 0.85rem;
+    margin-bottom: 48px;
+  }
+
+  /* ── SECTIONS ── */
+  .section {
+    max-width: 900px;
+    margin: 0 auto 48px;
+  }
+  .section-title {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: #475569;
+    margin-bottom: 16px;
+    padding-left: 4px;
+  }
+
+  /* ── FLOW ROW ── */
+  .flow-row {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+
+  /* ── NODES ── */
+  .node {
+    flex-shrink: 0;
+    border-radius: 12px;
+    padding: 14px 18px;
+    border: 1px solid transparent;
+    min-width: 130px;
+    text-align: center;
+  }
+  .node-label {
+    font-size: 0.65rem;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+    font-weight: 600;
+  }
+  .node-name {
+    font-size: 0.85rem;
+    font-weight: 700;
+    word-break: break-word;
+  }
+  .node-desc {
+    font-size: 0.7rem;
+    margin-top: 4px;
+    opacity: 0.6;
+    line-height: 1.3;
+  }
+
+  /* colors */
+  .node-source    { background: #1e293b; border-color: #334155; }
+  .node-source .node-label { color: #64748b; }
+  .node-source .node-name  { color: #94a3b8; }
+
+  .node-raw       { background: #1a1f2e; border-color: #2d3a5c; }
+  .node-raw .node-label { color: #4f67a0; }
+  .node-raw .node-name  { color: #7a9fd4; }
+
+  .node-v2        { background: #0f2717; border-color: #1a4027; }
+  .node-v2 .node-label { color: #2d6a4f; }
+  .node-v2 .node-name  { color: #52b788; }
+
+  .node-cc        { background: #1f1209; border-color: #3d2208; }
+  .node-cc .node-label { color: #7c4f1e; }
+  .node-cc .node-name  { color: #f4a261; }
+
+  .node-api       { background: #150f21; border-color: #2d1d4e; }
+  .node-api .node-label { color: #5b3d8a; }
+  .node-api .node-name  { color: #a78bfa; }
+
+  .node-ui        { background: #0f1f1f; border-color: #1a3d3d; }
+  .node-ui .node-label { color: #1a5c5c; }
+  .node-ui .node-name  { color: #22d3ee; }
+
+  /* ── ARROWS ── */
+  .arrow {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0 6px;
+    gap: 2px;
+  }
+  .arrow-line {
+    width: 40px;
+    height: 2px;
+    background: linear-gradient(90deg, #334155, #475569);
+    border-radius: 2px;
+    position: relative;
+  }
+  .arrow-line::after {
+    content: '';
+    position: absolute;
+    right: -1px;
+    top: -4px;
+    width: 0;
+    height: 0;
+    border-left: 8px solid #475569;
+    border-top: 5px solid transparent;
+    border-bottom: 5px solid transparent;
+  }
+  .arrow-text {
+    font-size: 0.6rem;
+    color: #475569;
+    white-space: nowrap;
+    letter-spacing: 0.5px;
+  }
+
+  /* ── TABLE ── */
+  .table-wrap {
+    overflow-x: auto;
+    border-radius: 12px;
+    border: 1px solid #1e293b;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+  }
+  th {
+    background: #1e293b;
+    padding: 10px 14px;
+    text-align: left;
+    font-size: 0.65rem;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: #475569;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  td {
+    padding: 10px 14px;
+    border-top: 1px solid #1e293b;
+    vertical-align: top;
+    color: #94a3b8;
+    line-height: 1.4;
+  }
+  td:first-child {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    color: #52b788;
+    font-size: 0.75rem;
+    white-space: nowrap;
+  }
+  td.deprecated {
+    color: #ef4444;
+    text-decoration: line-through;
+    opacity: 0.5;
+  }
+  td.deprecated:first-child {
+    color: #ef4444;
+  }
+  .badge {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-left: 4px;
+    vertical-align: middle;
+  }
+  .badge-raw    { background: #1a2d5c; color: #7a9fd4; }
+  .badge-v2     { background: #1a4027; color: #52b788; }
+  .badge-auth   { background: #4a1942; color: #e879f9; }
+  .badge-active { background: #1a3d1a; color: #4ade80; }
+  .badge-legacy { background: #3d1414; color: #f87171; }
+  .badge-cc     { background: #3d2208; color: #f4a261; }
+
+  /* ── KEY RULES ── */
+  .rules-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 12px;
+  }
+  .rule-card {
+    background: #1e293b;
+    border: 1px solid #2d3a4a;
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .rule-icon { font-size: 1.2rem; margin-bottom: 6px; }
+  .rule-title { font-size: 0.75rem; font-weight: 700; color: #e2e8f0; margin-bottom: 4px; }
+  .rule-body  { font-size: 0.7rem; color: #64748b; line-height: 1.5; }
+  .rule-body code {
+    background: #0f172a;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-family: monospace;
+    color: #a78bfa;
+    font-size: 0.65rem;
+  }
+
+  /* ── ANIMATIONS ── */
+  @keyframes fadeSlide {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .section { animation: fadeSlide 0.4s ease both; }
+  .section:nth-child(1) { animation-delay: 0.0s; }
+  .section:nth-child(2) { animation-delay: 0.1s; }
+  .section:nth-child(3) { animation-delay: 0.2s; }
+  .section:nth-child(4) { animation-delay: 0.3s; }
+  .section:nth-child(5) { animation-delay: 0.4s; }
+</style>
+</head>
+<body>
+
+<h1>Shelfy — Flujo de Datos</h1>
+<p class="subtitle">Cómo circula la información desde el ERP hasta el panel de supervisión</p>
+
+<!-- ── SECTION 1: PADRÓN ── -->
+<div class="section">
+  <div class="section-title">1 · Ingesta del Padrón (Excel ERP → Jerarquía v2)</div>
+  <div class="flow-row">
+
+    <div class="node node-source">
+      <div class="node-label">Origen</div>
+      <div class="node-name">Excel ERP</div>
+      <div class="node-desc">Padrón de clientes exportado de CHESS</div>
+    </div>
+
+    <div class="arrow">
+      <div class="arrow-line"></div>
+      <div class="arrow-text">Upload / RPA</div>
+    </div>
+
+    <div class="node node-raw">
+      <div class="node-label">Raw</div>
+      <div class="node-name">erp_clientes_raw</div>
+      <div class="node-desc">Auditoría append-only. No tocar.</div>
+    </div>
+
+    <div class="arrow">
+      <div class="arrow-line"></div>
+      <div class="arrow-text">padron_ingestion</div>
+    </div>
+
+    <div class="node node-v2">
+      <div class="node-label">Activa</div>
+      <div class="node-name">sucursales_v2</div>
+      <div class="node-desc">Sucursales normalizadas</div>
+    </div>
+
+    <div class="arrow">
+      <div class="arrow-line"></div>
+      <div class="arrow-text">FK</div>
+    </div>
+
+    <div class="node node-v2">
+      <div class="node-label">Activa</div>
+      <div class="node-name">vendedores_v2</div>
+      <div class="node-desc">Vendedores por sucursal</div>
+    </div>
+
+    <div class="arrow">
+      <div class="arrow-line"></div>
+      <div class="arrow-text">FK</div>
+    </div>
+
+    <div class="node node-v2">
+      <div class="node-label">Activa</div>
+      <div class="node-name">clientes_pdv_v2</div>
+      <div class="node-desc">PDVs con coords. Fuente de verdad geográfica.</div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ── SECTION 2: VENTAS ── -->
+<div class="section">
+  <div class="section-title">2 · Ingesta de Ventas</div>
+  <div class="flow-row">
+
+    <div class="node node-source">
+      <div class="node-label">Origen</div>
+      <div class="node-name">Excel Ventas</div>
+      <div class="node-desc">Informe de ventas CHESS</div>
+    </div>
+
+    <div class="arrow">
+      <div class="arrow-line"></div>
+      <div class="arrow-text">Upload / RPA</div>
+    </div>
+
+    <div class="node node-raw">
+      <div class="node-label">Raw</div>
+      <div class="node-name">erp_ventas_raw</div>
+      <div class="node-desc">Auditoría append-only</div>
+    </div>
+
+    <div class="arrow">
+      <div class="arrow-line"></div>
+      <div class="arrow-text">ventas_ingestion</div>
+    </div>
+
+    <div class="node node-v2">
+      <div class="node-label">Activa</div>
+      <div class="node-name">ventas_v2</div>
+      <div class="node-desc">Ventas procesadas. FK a dist.</div>
+    </div>
+
+    <div class="arrow">
+      <div class="arrow-line"></div>
+      <div class="arrow-text">API</div>
+    </div>
+
+    <div class="node node-api">
+      <div class="node-label">Endpoint</div>
+      <div class="node-name">/supervision/ventas</div>
+      <div class="node-desc">Últimos 7/30/90 días</div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ── SECTION 3: CUENTAS CORRIENTES ── -->
+<div class="section">
+  <div class="section-title">3 · Cuentas Corrientes (flujo completo)</div>
+  <div class="flow-row">
+
+    <div class="node node-source">
+      <div class="node-label">Origen</div>
+      <div class="node-name">Excel CC</div>
+      <div class="node-desc">Deuda por cliente de CHESS</div>
+    </div>
+
+    <div class="arrow">
+      <div class="arrow-line"></div>
+      <div class="arrow-text">cuentas_parser</div>
+    </div>
+
+    <div class="node node-source">
+      <div class="node-label">Parseado</div>
+      <div class="node-name">detalle_cuentas</div>
+      <div class="node-desc">Dict en memoria. Incluye cod_cliente → id_cliente_erp</div>
+    </div>
+
+    <div class="arrow">
+      <div class="arrow-line"></div>
+      <div class="arrow-text">_enrich_and_store_cc</div>
+    </div>
+
+    <div class="node node-cc">
+      <div class="node-label">Tabla CC</div>
+      <div class="node-name">cc_detalle</div>
+      <div class="node-desc">Deduplicado. FK a vendedores_v2 + sucursales_v2. Con id_cliente_erp.</div>
+    </div>
+
+    <div class="arrow">
+      <div class="arrow-line"></div>
+      <div class="arrow-text">API + cross-ref</div>
+    </div>
+
+    <div class="node node-api">
+      <div class="node-label">Endpoint</div>
+      <div class="node-name">/supervision/cuentas</div>
+      <div class="node-desc">Paginado, filtro por sucursal, agrupado por vendedor</div>
+    </div>
+
+    <div class="arrow">
+      <div class="arrow-line"></div>
+      <div class="arrow-text">click cliente</div>
+    </div>
+
+    <div class="node node-api">
+      <div class="node-label">Endpoint</div>
+      <div class="node-name">/supervision/cliente-info</div>
+      <div class="node-desc">Busca por id_cliente_erp en clientes_pdv_v2. Devuelve teléfono/coords.</div>
+    </div>
+
+    <div class="arrow">
+      <div class="arrow-line"></div>
+      <div class="arrow-text">UI</div>
+    </div>
+
+    <div class="node node-ui">
+      <div class="node-label">Frontend</div>
+      <div class="node-name">TabSupervision</div>
+      <div class="node-desc">Popup de contacto al tocar un deudor</div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ── SECTION 4: EXHIBICIONES ── -->
+<div class="section">
+  <div class="section-title">4 · Exhibiciones (Telegram → Portal)</div>
+  <div class="flow-row">
+
+    <div class="node node-source">
+      <div class="node-label">Origen</div>
+      <div class="node-name">Vendedor</div>
+      <div class="node-desc">Sube foto por Telegram Bot</div>
+    </div>
+
+    <div class="arrow">
+      <div class="arrow-line"></div>
+      <div class="arrow-text">bot_worker</div>
+    </div>
+
+    <div class="node node-v2">
+      <div class="node-label">Storage</div>
+      <div class="node-name">Supabase Storage</div>
+      <div class="node-desc">Exhibiciones-PDV/ {dist}/{fecha}/</div>
+    </div>
+
+    <div class="arrow">
+      <div class="arrow-line"></div>
+      <div class="arrow-text">FK url_foto_drive</div>
+    </div>
+
+    <div class="node node-cc">
+      <div class="node-label">Tabla</div>
+      <div class="node-name">exhibiciones</div>
+      <div class="node-desc">Estado Pendiente → Aprobado/Rechazado</div>
+    </div>
+
+    <div class="arrow">
+      <div class="arrow-line"></div>
+      <div class="arrow-text">evaluación</div>
+    </div>
+
+    <div class="node node-ui">
+      <div class="node-label">Portal</div>
+      <div class="node-name">Visor + Mapa</div>
+      <div class="node-desc">Supervisor evalúa. Mapa muestra última exhibición por PDV.</div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ── SECTION 5: TABLA DE TABLAS ── -->
+<div class="section">
+  <div class="section-title">5 · Inventario de Tablas</div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Tabla</th>
+          <th>Estado</th>
+          <th>Se alimenta de</th>
+          <th>La consumen</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>erp_clientes_raw</td>
+          <td><span class="badge badge-raw">Auditoría</span></td>
+          <td>Upload padrón / RPA</td>
+          <td>padron_ingestion_service (lectura)</td>
+        </tr>
+        <tr>
+          <td>erp_ventas_raw</td>
+          <td><span class="badge badge-raw">Auditoría</span></td>
+          <td>Upload ventas / RPA</td>
+          <td>ventas_ingestion_service (lectura)</td>
+        </tr>
+        <tr>
+          <td>erp_sucursales_raw</td>
+          <td><span class="badge badge-raw">Auditoría</span></td>
+          <td>Upload ERP</td>
+          <td>erp_ingestion_service (lectura)</td>
+        </tr>
+        <tr>
+          <td>sucursales_v2</td>
+          <td><span class="badge badge-v2">Activa</span></td>
+          <td>padron_ingestion_service</td>
+          <td>vendedores_v2, _enrich_and_store_cc, supervision</td>
+        </tr>
+        <tr>
+          <td>vendedores_v2</td>
+          <td><span class="badge badge-v2">Activa</span></td>
+          <td>padron_ingestion_service</td>
+          <td>cc_detalle (FK), supervision, integrantes_grupo</td>
+        </tr>
+        <tr>
+          <td>clientes_pdv_v2</td>
+          <td><span class="badge badge-v2">Activa</span></td>
+          <td>padron_ingestion_service</td>
+          <td>mapa de rutas, supervision/cliente-info, ventas cross-ref</td>
+        </tr>
+        <tr>
+          <td>rutas_v2</td>
+          <td><span class="badge badge-v2">Activa</span></td>
+          <td>padron_ingestion_service</td>
+          <td>fn_supervision_rutas, mapa de rutas</td>
+        </tr>
+        <tr>
+          <td>ventas_v2</td>
+          <td><span class="badge badge-v2">Activa</span></td>
+          <td>ventas_ingestion_service</td>
+          <td>/supervision/ventas, dashboard KPIs</td>
+        </tr>
+        <tr>
+          <td>cc_detalle</td>
+          <td><span class="badge badge-cc">CC — Activa</span></td>
+          <td>_enrich_and_store_cc (desde Excel CC / RPA)</td>
+          <td>/supervision/cuentas, popup de contacto (id_cliente_erp)</td>
+        </tr>
+        <tr>
+          <td>exhibiciones</td>
+          <td><span class="badge badge-active">Core</span></td>
+          <td>bot_worker (Telegram)</td>
+          <td>visor, mapa PDV (url última exhibición)</td>
+        </tr>
+        <tr>
+          <td>distribuidores</td>
+          <td><span class="badge badge-active">Core</span></td>
+          <td>Panel admin</td>
+          <td>Todos los endpoints (tenant key)</td>
+        </tr>
+        <tr>
+          <td>cuentas_corrientes_data</td>
+          <td><span class="badge badge-legacy">Legacy</span></td>
+          <td>Upload manual (module academy)</td>
+          <td>Solo academy/upload-download. No usar en supervision.</td>
+        </tr>
+        <tr>
+          <td class="deprecated">erp_deuda_clientes</td>
+          <td><span class="badge badge-legacy">Removida</span></td>
+          <td class="deprecated">erp_summary_service (eliminado)</td>
+          <td class="deprecated">Ningún endpoint activo. Tabla vacía en producción.</td>
+        </tr>
+        <tr>
+          <td class="deprecated">maestro_jerarquia</td>
+          <td><span class="badge badge-legacy">Legacy</span></td>
+          <td class="deprecated">—</td>
+          <td class="deprecated">Sin referencias activas. Migrada a v2.</td>
+        </tr>
+        <tr>
+          <td class="deprecated">clientes (sin v2)</td>
+          <td><span class="badge badge-legacy">Removida</span></td>
+          <td class="deprecated">—</td>
+          <td class="deprecated">PUT admin/clientes migrado a clientes_pdv_v2</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ── SECTION 6: REGLAS CLAVE ── -->
+<div class="section">
+  <div class="section-title">6 · Reglas clave del sistema</div>
+  <div class="rules-grid">
+    <div class="rule-card">
+      <div class="rule-icon">🔑</div>
+      <div class="rule-title">Tenant aislado</div>
+      <div class="rule-body">Cada query filtra por <code>id_distribuidor</code>. Nunca consultar sin tenant salvo superadmin.</div>
+    </div>
+    <div class="rule-card">
+      <div class="rule-icon">📄</div>
+      <div class="rule-title">Paginación obligatoria</div>
+      <div class="rule-body">Supabase PostgREST devuelve máximo 1000 filas. Usar <code>.range(offset, offset+999)</code> en loop para tablas grandes como <code>cc_detalle</code>.</div>
+    </div>
+    <div class="rule-card">
+      <div class="rule-icon">🔄</div>
+      <div class="rule-title">Upsert idempotente</div>
+      <div class="rule-body">Todas las tablas <code>_v2</code> tienen UNIQUE en <code>(id_distribuidor, id_*_erp)</code>. Re-importar el mismo Excel no duplica datos.</div>
+    </div>
+    <div class="rule-card">
+      <div class="rule-icon">🆔</div>
+      <div class="rule-title">Match por ERP ID</div>
+      <div class="rule-body">El popup de contacto usa <code>id_cliente_erp</code> de <code>cc_detalle</code> para buscar en <code>clientes_pdv_v2</code>. Evita mismatch por acento/mayúsculas en nombre.</div>
+    </div>
+    <div class="rule-card">
+      <div class="rule-icon">🗺️</div>
+      <div class="rule-title">Sucursal desde v2</div>
+      <div class="rule-body">La <code>sucursal_nombre</code> en <code>cc_detalle</code> viene de <code>sucursales_v2.nombre_erp</code>, no del texto crudo del Excel. Sin mapas hardcodeados.</div>
+    </div>
+    <div class="rule-card">
+      <div class="rule-icon">📸</div>
+      <div class="rule-title">url_foto_drive → Storage</div>
+      <div class="rule-body">La columna <code>url_foto_drive</code> en <code>exhibiciones</code> almacena URLs de Supabase Storage (no Drive). Usar directamente como <code>&lt;img src&gt;</code>.</div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

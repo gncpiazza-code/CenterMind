@@ -1492,7 +1492,6 @@ def _enrich_and_store_cc(dist_id: int, fecha_snapshot: str, rows: list) -> int:
                 suc_erp_map.get(str(row.get("sucursal") or "")) or row.get("sucursal") or ""
             ),
             "cliente_nombre": (row.get("cliente") or "Sin Cliente").strip(),
-            "id_cliente_erp": str(row["cod_cliente"]).strip() if row.get("cod_cliente") else None,
             "deuda_total": deuda_total,
             "rango_antiguedad": row.get("rango_antiguedad"),
             "antiguedad_dias": int(row.get("antiguedad") or 0),
@@ -3103,7 +3102,7 @@ def supervision_cuentas(dist_id: int, sucursal: Optional[str] = Query(None), use
         # Construir query base con filtros (incluyendo sucursal si se especifica)
         def build_query():
             q = sb.table("cc_detalle") \
-                .select("id_vendedor, vendedor_nombre, sucursal_nombre, cliente_nombre, id_cliente_erp, deuda_total, antiguedad_dias, rango_antiguedad, cantidad_comprobantes, alerta_credito") \
+                .select("id_vendedor, vendedor_nombre, sucursal_nombre, cliente_nombre, deuda_total, antiguedad_dias, rango_antiguedad, cantidad_comprobantes, alerta_credito") \
                 .eq("id_distribuidor", int(dist_id)) \
                 .eq("fecha_snapshot", fecha_snapshot)
             if sucursal:

@@ -892,6 +892,23 @@ export async function fetchClientesSupervision(idRuta: number): Promise<ClienteS
   return apiFetch<ClienteSupervision[]>(`/api/supervision/clientes/${idRuta}`);
 }
 
+export interface ClienteContacto {
+  id_cliente: number;
+  id_cliente_erp: string | null;
+  nombre_fantasia: string | null;
+  nombre_razon_social: string | null;
+  domicilio: string | null;
+  localidad: string | null;
+  provincia: string | null;
+  canal: string | null;
+  latitud: number | null;
+  longitud: number | null;
+}
+
+export async function fetchClienteInfo(distId: number, nombre: string): Promise<ClienteContacto[]> {
+  return apiFetch<ClienteContacto[]>(`/api/supervision/cliente-info/${distId}?nombre=${encodeURIComponent(nombre)}`);
+}
+
 
 // ── Supervisión Ventas ────────────────────────────────────────────────────────
 

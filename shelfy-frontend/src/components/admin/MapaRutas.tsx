@@ -59,7 +59,6 @@ const PULSE_CSS = `
 }
 .shelfy-pin {
   border-radius: 50%;
-  animation: shelfy-aura 2s ease-out infinite;
   pointer-events: auto;
   cursor: pointer;
 }
@@ -169,9 +168,7 @@ export default function MapaRutas({ pines, fullscreenPanel }: MapaRutasProps) {
           border:2px solid ${auraColor};
           box-sizing:border-box;
           opacity:${p.activo ? 0.95 : 0.6};
-          animation-delay:${(p.id % 20) * 0.1}s;
         `;
-        wrapper.style.setProperty("--ac", auraColor + "99");
 
         // ── Popup ──────────────────────────────────────────────────────────
         // Helper: días desde una fecha ISO (date o timestamp)

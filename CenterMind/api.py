@@ -2850,17 +2850,28 @@ def supervision_clientes(id_ruta: int, user_payload=Depends(verify_auth)):
             exh_map: dict = {}      # id_cliente → timestamp_subida
             exh_foto_map: dict = {} # id_cliente → url_foto_drive
             try:
-                exh_res = sb.table("exhibiciones") \
-                    .select("id_cliente_pdv, timestamp_subida, url_foto_drive") \
-                    .eq("id_distribuidor", dist_id) \
-                    .in_("id_cliente_pdv", ids_pdv) \
-                    .order("timestamp_subida", desc=True) \
-                    .execute()
-                for e in (exh_res.data or []):
-                    cid = e.get("id_cliente_pdv")
-                    if cid and cid not in exh_map:
-                        exh_map[cid]      = e.get("timestamp_subida")
-                        exh_foto_map[cid] = e.get("url_foto_drive")
+                ids_set   = set(ids_pdv)
+                batch     = 1000
+                offset    = 0
+                while True:
+                    exh_res = sb.table("exhibiciones") \
+                        .select("id_cliente_pdv, timestamp_subida, url_foto_drive") \
+                        .eq("id_distribuidor", dist_id) \
+                        .in_("id_cliente_pdv", ids_pdv) \
+                        .order("timestamp_subida", desc=True) \
+                        .range(offset, offset + batch - 1) \
+                        .execute()
+                    chunk = exh_res.data or []
+                    for e in chunk:
+                        cid = e.get("id_cliente_pdv")
+                        if cid and cid not in exh_map:
+                            exh_map[cid]      = e.get("timestamp_subida")
+                            exh_foto_map[cid] = e.get("url_foto_drive")
+                    if len(chunk) < batch:
+                        break
+                    if ids_set <= set(exh_map.keys()):
+                        break
+                    offset += batch
             except Exception:
                 pass
             for r in rows:
@@ -2870,6 +2881,34 @@ def supervision_clientes(id_ruta: int, user_payload=Depends(verify_auth)):
         return rows
     except Exception as e:
         logger.error(f"Error en supervision_clientes: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/supervision/cliente-info/{dist_id}", tags=["Supervisión"])
+def supervision_cliente_info(dist_id: int, nombre: str, user_payload=Depends(verify_auth)):
+    """Busca datos de contacto y localización de un cliente PDV por nombre (para popup CC)."""
+    try:
+        check_dist_permission(user_payload, dist_id)
+        fields = ("id_cliente, id_cliente_erp, nombre_fantasia, nombre_razon_social, "
+                  "domicilio, localidad, provincia, canal, latitud, longitud")
+        res = sb.table("clientes_pdv_v2") \
+            .select(fields) \
+            .eq("id_distribuidor", dist_id) \
+            .ilike("nombre_fantasia", f"%{nombre}%") \
+            .limit(5) \
+            .execute()
+        if not (res.data):
+            res = sb.table("clientes_pdv_v2") \
+                .select(fields) \
+                .eq("id_distribuidor", dist_id) \
+                .ilike("nombre_razon_social", f"%{nombre}%") \
+                .limit(5) \
+                .execute()
+        return res.data or []
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error en supervision_cliente_info: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

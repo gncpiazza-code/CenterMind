@@ -29,6 +29,7 @@ import {
   fetchVentasSupervision,
   fetchCuentasSupervision,
   fetchPDVsCercanos,
+  fetchClienteInfo,
   type PDVsCercanosResponse,
   type VendedorSupervision,
   type RutaSupervision,
@@ -37,7 +38,9 @@ import {
   type VentasSupervision,
   type CuentasSupervision,
   type PDVCercano,
+  type ClienteContacto,
 } from "@/lib/api";
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 import type { PinCliente } from "./MapaRutas";
 
 // ── Map: SSR off ──────────────────────────────────────────────────────────────
@@ -179,7 +182,7 @@ function EyeBtn({
     <button
       onClick={e => { e.stopPropagation(); onClick(); }}
       title={title ?? (on ? "Ocultar del mapa" : "Mostrar en mapa")}
-      className={`w-6 h-6 rounded-md flex items-center justify-center border transition-all duration-200 shrink-0 ${
+      className={`hidden xl:flex w-6 h-6 rounded-md items-center justify-center border transition-all duration-200 shrink-0 ${
         on
           ? "border-transparent text-white"
           : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] hover:border-current"
@@ -246,6 +249,11 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
   const [cuentasData, setCuentasData]           = useState<CuentasSupervision | null>(null);
   const [loadingCuentas, setLoadingCuentas]     = useState(false);
   const [openCuentasVend, setOpenCuentasVend]   = useState<string | null>(null);
+  const [clientePopup, setClientePopup]         = useState<{
+    nombre: string;
+    data: ClienteContacto[] | null;
+    loading: boolean;
+  } | null>(null);
 
   // ── Load distribuidoras ───────────────────────────────────────────────────
   useEffect(() => {
@@ -345,7 +353,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
       "1-7 Días": "#16a34a", "8-15 Días": "#ca8a04",
       "16-21 Días": "#ea580c", "22-30 Días": "#dc2626", "+30 Días": "#9f1239",
     };
-    const vendedoresHTML = data.vendedores.map((v: any) => {
+    const vendedoresHTML = data.vendedores.map((v: any, vIdx: number) => {
       const filas = v.clientes.map((c: any) => {
         const dias = c.antiguedad ?? 0;
         const colorDias = dias > 30 ? "#dc2626" : dias > 21 ? "#ea580c" : dias > 15 ? "#ca8a04" : dias > 7 ? "#16a34a" : "#6b7280";
@@ -354,11 +362,10 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
           <td style="padding:4px 8px;border:1px solid #e5e7eb;font-size:9px;color:#6b7280">${c.sucursal ?? "-"}</td>
           <td style="padding:4px 8px;border:1px solid #e5e7eb;font-size:9px;text-align:center;color:${colorDias};font-weight:bold">${dias}</td>
           <td style="padding:4px 8px;border:1px solid #e5e7eb;font-size:9px;text-align:center">${c.cantidad_comprobantes ?? "-"}</td>
-          <td style="padding:4px 8px;border:1px solid #e5e7eb;font-size:9px;text-align:center">${c.fecha_ultima_compra ? new Date(c.fecha_ultima_compra).toLocaleDateString("es-AR") : "-"}</td>
           <td style="padding:4px 8px;border:1px solid #e5e7eb;font-size:9px;text-align:right;font-weight:600">$${fmtN(c.deuda_total)}</td>
         </tr>`;
       }).join("");
-      return `<div style="margin-bottom:20px;page-break-inside:avoid">
+      return `<div style="${vIdx > 0 ? "page-break-before:always;" : ""}margin-bottom:20px">
         <div style="background:#1f2937;color:white;padding:8px 12px;border-radius:6px 6px 0 0;display:flex;align-items:center;gap:16px">
           <span style="font-weight:700;font-size:11px;flex:1">${v.vendedor}</span>
           <span style="font-size:10px;color:#fbbf24">Deuda: $${fmtN(v.deuda_total)}</span>
@@ -370,12 +377,11 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
             <th style="padding:5px 8px;border:1px solid #d1d5db;font-size:8px;text-align:left;text-transform:uppercase;letter-spacing:.4px">Sucursal</th>
             <th style="padding:5px 8px;border:1px solid #d1d5db;font-size:8px;text-align:center;text-transform:uppercase;letter-spacing:.4px">Días</th>
             <th style="padding:5px 8px;border:1px solid #d1d5db;font-size:8px;text-align:center;text-transform:uppercase;letter-spacing:.4px">Comprobantes</th>
-            <th style="padding:5px 8px;border:1px solid #d1d5db;font-size:8px;text-align:center;text-transform:uppercase;letter-spacing:.4px">Últ. Compra</th>
             <th style="padding:5px 8px;border:1px solid #d1d5db;font-size:8px;text-align:right;text-transform:uppercase;letter-spacing:.4px">Deuda</th>
           </tr></thead>
           <tbody>${filas}</tbody>
           <tfoot><tr style="background:#f9fafb;border-top:2px solid #d1d5db">
-            <td colspan="5" style="padding:5px 8px;font-size:9px;text-align:right;font-weight:700">Total</td>
+            <td colspan="4" style="padding:5px 8px;font-size:9px;text-align:right;font-weight:700">Total</td>
             <td style="padding:5px 8px;font-size:9px;text-align:right;font-weight:700">$${fmtN(v.deuda_total)}</td>
           </tr></tfoot>
         </table>
@@ -419,6 +425,17 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
     win.focus();
     setTimeout(() => win.print(), 400);
   }
+
+  // ── CC Cliente info popup ────────────────────────────────────────────────
+  const handleClienteClick = async (nombre: string) => {
+    setClientePopup({ nombre, data: null, loading: true });
+    try {
+      const data = await fetchClienteInfo(selectedDist, nombre);
+      setClientePopup({ nombre, data, loading: false });
+    } catch {
+      setClientePopup({ nombre, data: [], loading: false });
+    }
+  };
 
   // ── Scanner GPS handler ───────────────────────────────────────────────────
   const handleScanner = () => {
@@ -751,7 +768,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
             title="Escanear PDVs cercanos (GPS)"
           >
             <Radar size={14} />
-            <span className="hidden sm:inline">Scanner</span>
+            <span>Scanner</span>
           </button>
           <button
             onClick={loadVendedores}
@@ -771,8 +788,17 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
         </div>
       )}
 
+      {/* Mobile Scanner button — solo visible en mobile */}
+      <button
+        onClick={handleScanner}
+        className="xl:hidden flex items-center justify-center gap-2 w-full px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 font-semibold text-sm transition-colors hover:bg-amber-500/20"
+      >
+        <Radar size={16} />
+        Scanner GPS — PDVs cercanos
+      </button>
+
       {/* Main split */}
-      <div className="grid grid-cols-2 xl:grid-cols-5 gap-3 min-h-[60vh] xl:h-[680px]">
+      <div className="flex flex-col xl:grid xl:grid-cols-5 gap-3 xl:h-[680px]">
 
         {/* ── MAP — oculto en mobile ──────────────────────────────────────── */}
         <div className="hidden xl:block xl:col-span-3 rounded-2xl overflow-hidden border border-[var(--shelfy-border)] relative bg-[var(--shelfy-panel)]">
@@ -798,7 +824,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
         </div>
 
         {/* ── RIGHT PANEL — lista vendedores/rutas ────────────────────────── */}
-        <div className="col-span-1 xl:col-span-2 flex flex-col rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden">
+        <div className="xl:col-span-2 flex flex-col rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden min-h-[400px] xl:min-h-0">
 
           {/* Sucursal selector */}
           <div className="px-4 py-3 border-b border-[var(--shelfy-border)]/60 shrink-0">
@@ -888,11 +914,11 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                               {v.total_pdv.toLocaleString()} PDV · {v.total_rutas} rutas
                             </p>
                           </div>
-                          {/* Vendor eye: bigger, toggles everything */}
+                          {/* Vendor eye: bigger, toggles everything — hidden on mobile (no map) */}
                           <button
                             onClick={() => toggleVendor(v.id_vendedor)}
                             title={isVendOn ? "Ocultar vendedor del mapa" : "Mostrar todos los PDV en mapa"}
-                            className={`w-7 h-7 rounded-lg flex items-center justify-center border transition-all duration-200 shrink-0 ${
+                            className={`hidden xl:flex w-7 h-7 rounded-lg items-center justify-center border transition-all duration-200 shrink-0 ${
                               isVendOn
                                 ? "border-transparent text-white"
                                 : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] hover:border-current"
@@ -977,9 +1003,6 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                                   />
                                   <span className="text-[11px] font-semibold text-[var(--shelfy-text)] flex-1 truncate">
                                     Ruta {r.nombre_ruta}
-                                    {r.dia_semana && (
-                                      <span className="font-normal text-[var(--shelfy-muted)]"> — {r.dia_semana}</span>
-                                    )}
                                   </span>
                                 </button>
                                 <div className="flex items-center gap-1.5 shrink-0">
@@ -1143,16 +1166,10 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
             </div>
           </div>
 
-          {/* Footer note */}
-          <div className="px-4 py-2 border-t border-[var(--shelfy-border)]/40 shrink-0">
-            <p className="text-[10px] text-[var(--shelfy-muted)] opacity-40 italic">
-              * Re-subí el padrón para ver fecha_alta · 👁 = toggle en mapa
-            </p>
-          </div>
         </div>
 
-        {/* ── MOBILE CC — columna derecha en mobile (xl:hidden) ───────────── */}
-        <div className="col-span-1 xl:hidden flex flex-col rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-y-auto">
+        {/* ── MOBILE CC — debajo de rutas en mobile (xl:hidden) ──────────── */}
+        <div className="xl:hidden flex flex-col rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-y-auto min-h-[300px]">
           <div className="flex items-center gap-2 px-3 py-2.5 border-b border-[var(--shelfy-border)]/50 shrink-0">
             <CreditCard className="w-3.5 h-3.5 text-amber-400" />
             <span className="text-xs font-bold text-[var(--shelfy-text)]">Cuentas</span>
@@ -1484,6 +1501,59 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
             )}
 
 
+            {/* Pie chart distribución deuda por rango */}
+            {cuentasFiltradas && cuentasFiltradas.vendedores.length > 0 && (() => {
+              const RANGO_PIE = [
+                { key: "1-7 Días",   color: "#16a34a" },
+                { key: "8-15 Días",  color: "#ca8a04" },
+                { key: "16-21 Días", color: "#ea580c" },
+                { key: "22-30 Días", color: "#dc2626" },
+                { key: "+30 Días",   color: "#9f1239" },
+              ];
+              const pieData = RANGO_PIE.map(({ key, color }) => {
+                const total = cuentasFiltradas.vendedores
+                  .flatMap((v: any) => v.clientes)
+                  .filter((c: any) => c.rango_antiguedad === key)
+                  .reduce((s: number, c: any) => s + (c.deuda_total ?? 0), 0);
+                return { name: key, value: total, color };
+              }).filter(d => d.value > 0);
+              if (pieData.length === 0) return null;
+              const totalDeuda = pieData.reduce((s, d) => s + d.value, 0);
+              return (
+                <div className="px-5 pt-4 pb-2">
+                  <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-3">Composición de deuda por antigüedad</p>
+                  <div className="flex items-center gap-4">
+                    <div style={{ width: 130, height: 130, flexShrink: 0 }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie data={pieData} dataKey="value" cx="50%" cy="50%" innerRadius={30} outerRadius={58} paddingAngle={2}>
+                            {pieData.map((entry, i) => (
+                              <Cell key={i} fill={entry.color} />
+                            ))}
+                          </Pie>
+                          <Tooltip
+                            formatter={(value: number) => [`$${value.toLocaleString("es-AR", { maximumFractionDigits: 0 })}`, "Deuda"]}
+                            contentStyle={{ background: "var(--shelfy-panel)", border: "1px solid var(--shelfy-border)", borderRadius: 8, fontSize: 11 }}
+                          />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div className="flex flex-col gap-1.5 flex-1 min-w-0">
+                      {pieData.map(d => (
+                        <div key={d.name} className="flex items-center gap-2 min-w-0">
+                          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: d.color }} />
+                          <span className="text-[10px] text-[var(--shelfy-muted)] truncate flex-1">{d.name}</span>
+                          <span className="text-[10px] font-semibold tabular-nums" style={{ color: d.color }}>
+                            {Math.round((d.value / totalDeuda) * 100)}%
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Tarjetas de vendedores */}
             {cuentasFiltradas && cuentasFiltradas.vendedores.length > 0 && (
               <div className="divide-y divide-[var(--shelfy-border)]/30">
@@ -1538,7 +1608,6 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                                   <th className="text-center px-3 py-2.5 font-semibold">Rango</th>
                                   <th className="text-center px-3 py-2.5 font-semibold">Días</th>
                                   <th className="text-center px-3 py-2.5 font-semibold">Comprob.</th>
-                                  <th className="text-center px-3 py-2.5 font-semibold">Últ. compra</th>
                                   <th className="text-right px-3 py-2.5 font-semibold">Deuda</th>
                                 </tr>
                               </thead>
@@ -1553,9 +1622,10 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                                         ? "text-amber-400"
                                         : "text-[var(--shelfy-text)]";
                                   return (
-                                    <tr key={ci} className="hover:bg-white/5 text-[var(--shelfy-text)]">
-                                      <td className="px-3 py-2 max-w-[200px] truncate" title={c.cliente ?? undefined}>
-                                        {c.cliente ?? "-"}
+                                    <tr key={ci} className="hover:bg-white/5 text-[var(--shelfy-text)] cursor-pointer" onClick={() => c.cliente && handleClienteClick(c.cliente)}>
+                                      <td className="px-3 py-2 max-w-[200px] truncate group" title={c.cliente ?? undefined}>
+                                        <span className="group-hover:text-[var(--shelfy-primary)] transition-colors">{c.cliente ?? "-"}</span>
+                                        <span className="ml-1 text-[9px] text-[var(--shelfy-muted)] opacity-0 group-hover:opacity-100 transition-opacity">↗</span>
                                       </td>
                                       <td className="px-3 py-2 text-[var(--shelfy-muted)]">{c.sucursal ?? "-"}</td>
                                       <td className="px-3 py-2 text-center">
@@ -1571,9 +1641,6 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                                       <td className="px-3 py-2 text-center text-[var(--shelfy-muted)]">
                                         {c.cantidad_comprobantes ?? "-"}
                                       </td>
-                                      <td className="px-3 py-2 text-center text-[var(--shelfy-muted)] tabular-nums text-[10px]">
-                                        {c.fecha_ultima_compra ? new Date(c.fecha_ultima_compra).toLocaleDateString("es-AR") : "-"}
-                                      </td>
                                       <td className="px-3 py-2 text-right font-semibold text-amber-400 tabular-nums">
                                         ${c.deuda_total.toLocaleString("es-AR",{maximumFractionDigits:0})}
                                       </td>
@@ -1583,7 +1650,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                               </tbody>
                               <tfoot>
                                 <tr className="border-t-2 border-[var(--shelfy-border)]/40 bg-white/3">
-                                  <td colSpan={6} className="px-3 py-2 text-right text-[11px] font-bold text-[var(--shelfy-muted)] uppercase tracking-wide">
+                                  <td colSpan={5} className="px-3 py-2 text-right text-[11px] font-bold text-[var(--shelfy-muted)] uppercase tracking-wide">
                                     Total
                                   </td>
                                   <td className="px-3 py-2 text-right font-bold text-amber-400 tabular-nums">
@@ -1603,6 +1670,89 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
           </>
         )}
       </div>
+
+      {/* Cliente Contacto Popup */}
+      {clientePopup && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+          onClick={() => setClientePopup(null)}
+        >
+          <div
+            className="bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-2xl w-full max-w-sm shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--shelfy-border)]/60">
+              <div>
+                <p className="text-sm font-bold text-[var(--shelfy-text)] truncate max-w-[220px]">{clientePopup.nombre}</p>
+                <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mt-0.5">Datos de contacto</p>
+              </div>
+              <button onClick={() => setClientePopup(null)} className="text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] p-1 transition-colors">
+                <X size={16} />
+              </button>
+            </div>
+            <div className="px-5 py-4">
+              {clientePopup.loading && (
+                <div className="flex items-center justify-center gap-2 py-6 text-[var(--shelfy-muted)]">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span className="text-sm">Buscando...</span>
+                </div>
+              )}
+              {!clientePopup.loading && clientePopup.data && clientePopup.data.length === 0 && (
+                <p className="text-sm text-[var(--shelfy-muted)] text-center py-6 italic">Sin datos de contacto registrados</p>
+              )}
+              {!clientePopup.loading && clientePopup.data && clientePopup.data.length > 0 && (() => {
+                const c = clientePopup.data![0];
+                const mapsUrl = c.latitud && c.longitud
+                  ? `https://www.google.com/maps/search/?api=1&query=${c.latitud},${c.longitud}`
+                  : null;
+                return (
+                  <div className="space-y-3">
+                    {(c.nombre_fantasia || c.nombre_razon_social) && (
+                      <div>
+                        <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide">Razón social</p>
+                        <p className="text-sm text-[var(--shelfy-text)] font-medium">
+                          {c.nombre_razon_social || c.nombre_fantasia}
+                        </p>
+                      </div>
+                    )}
+                    {c.id_cliente_erp && (
+                      <div>
+                        <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide">N° Cliente ERP</p>
+                        <p className="text-sm text-[var(--shelfy-text)] font-mono">{c.id_cliente_erp}</p>
+                      </div>
+                    )}
+                    {(c.domicilio || c.localidad || c.provincia) && (
+                      <div>
+                        <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide">Dirección</p>
+                        <p className="text-sm text-[var(--shelfy-text)]">
+                          {[c.domicilio, c.localidad, c.provincia].filter(Boolean).join(", ")}
+                        </p>
+                      </div>
+                    )}
+                    {c.canal && (
+                      <div>
+                        <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide">Canal</p>
+                        <p className="text-sm text-[var(--shelfy-text)]">{c.canal}</p>
+                      </div>
+                    )}
+                    {mapsUrl && (
+                      <a
+                        href={mapsUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-2 text-sm text-blue-400 hover:text-blue-300 transition-colors mt-1"
+                      >
+                        <MapPin size={14} />
+                        Ver en Google Maps
+                      </a>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Scanner GPS Modal */}
       {scannerOpen && (

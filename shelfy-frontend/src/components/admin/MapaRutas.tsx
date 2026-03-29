@@ -19,6 +19,9 @@ export interface PinCliente {
   fechaUltimaCompra?: string | null;  // ISO crudo para calcular días
   fechaUltimaExhibicion?: string | null;
   urlExhibicion?: string | null;      // url_foto_drive
+  // Deuda cruzada desde cc_detalle (opcional, se enriquece en TabSupervision)
+  deuda?: number | null;
+  antiguedadDias?: number | null;
 }
 
 // ── Status helpers ────────────────────────────────────────────────────────────
@@ -76,9 +79,10 @@ function injectPulseCSS() {
 interface MapaRutasProps {
   pines: PinCliente[];
   fullscreenPanel?: React.ReactNode;
+  shelfyMapsMode?: boolean;
 }
 
-export default function MapaRutas({ pines, fullscreenPanel }: MapaRutasProps) {
+export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode }: MapaRutasProps) {
   const mapContainer  = useRef<HTMLDivElement>(null);
   const mapRef        = useRef<maplibregl.Map | null>(null);
   const markersRef    = useRef<maplibregl.Marker[]>([]);
@@ -213,6 +217,13 @@ export default function MapaRutas({ pines, fullscreenPanel }: MapaRutasProps) {
             </div>`;
         }
 
+        // Línea de deuda (enriquecida desde cc_detalle vía TabSupervision)
+        const deudaLine = p.deuda != null
+          ? `<div style="margin-top:4px;padding:3px 6px;background:#fef3c715;border-radius:4px;border:1px solid #fef3c740">
+               <span style="color:#d97706;font-size:11px">💳 Deuda: <b>$${p.deuda.toLocaleString("es-AR",{maximumFractionDigits:0})}</b>${p.antiguedadDias != null ? ` · <b style="color:#ef4444">${p.antiguedadDias}d</b>` : ""}</span>
+             </div>`
+          : "";
+
         const metaLine = `
           <div style="font-size:10px;color:#94a3b8;margin-top:3px;display:flex;gap:8px;flex-wrap:wrap">
             ${p.idClienteErp ? `<span>Nº cliente: <b style="color:#475569">${p.idClienteErp}</b></span>` : ""}
@@ -236,6 +247,7 @@ export default function MapaRutas({ pines, fullscreenPanel }: MapaRutasProps) {
               ${STATUS_LABELS[status]}
             </div>
             <div style="font-size:11px">${compraLabel}</div>
+            ${deudaLine}
             ${exhibLine}
           </div>`;
 
@@ -382,49 +394,55 @@ export default function MapaRutas({ pines, fullscreenPanel }: MapaRutasProps) {
         marginLeft: panelOffset,
       }} />
 
-      {/* Top-right controls */}
-      <div className="shelfy-map-controls" style={{
-        position: "absolute", top: 10, right: 10,
-        display: "flex", gap: 6, zIndex: 30,
-      }}>
-        <button onClick={() => setIsFullscreen(f => !f)}
-          title={isFullscreen ? "Salir de pantalla completa" : "Pantalla completa"}
-          style={{
-            background: "rgba(255,255,255,0.92)", border: "1px solid #e2e8f0",
-            borderRadius: 6, color: "#334155", padding: "6px 8px",
-            cursor: "pointer", fontSize: 14, lineHeight: 1,
-            boxShadow: "0 1px 4px #0001",
-          }}>{isFullscreen ? "⊠" : "⛶"}</button>
-        <button onClick={handlePrint} title="Imprimir mapa A4 horizontal"
-          style={{
-            background: "rgba(255,255,255,0.92)", border: "1px solid #e2e8f0",
-            borderRadius: 6, color: "#334155", padding: "6px 8px",
-            cursor: "pointer", fontSize: 14, lineHeight: 1,
-            boxShadow: "0 1px 4px #0001",
-          }}>🖨️</button>
-      </div>
+      {/* Top-right controls — hidden in shelfyMapsMode (replaced by ShelfyMaps topbar) */}
+      {!shelfyMapsMode && (
+        <div className="shelfy-map-controls" style={{
+          position: "absolute", top: 10, right: 10,
+          display: "flex", gap: 6, zIndex: 30,
+        }}>
+          <button onClick={() => setIsFullscreen(f => !f)}
+            title={isFullscreen ? "Salir de pantalla completa" : "Pantalla completa"}
+            style={{
+              background: "rgba(255,255,255,0.92)", border: "1px solid #e2e8f0",
+              borderRadius: 6, color: "#334155", padding: "6px 8px",
+              cursor: "pointer", fontSize: 14, lineHeight: 1,
+              boxShadow: "0 1px 4px #0001",
+            }}>{isFullscreen ? "⊠" : "⛶"}</button>
+          <button onClick={handlePrint} title="Imprimir mapa A4 horizontal"
+            style={{
+              background: "rgba(255,255,255,0.92)", border: "1px solid #e2e8f0",
+              borderRadius: 6, color: "#334155", padding: "6px 8px",
+              cursor: "pointer", fontSize: 14, lineHeight: 1,
+              boxShadow: "0 1px 4px #0001",
+            }}>🖨️</button>
+        </div>
+      )}
 
-      {/* Filter legend — bottom-left */}
-      <div style={{
-        position: "absolute", bottom: 40, left: panelOffset + 12,
-        zIndex: 30, transition: "left 0.2s ease",
-      }}>
-        <FilterLegend />
-      </div>
+      {/* Filter legend — bottom-left — hidden in shelfyMapsMode */}
+      {!shelfyMapsMode && (
+        <div style={{
+          position: "absolute", bottom: 40, left: panelOffset + 12,
+          zIndex: 30, transition: "left 0.2s ease",
+        }}>
+          <FilterLegend />
+        </div>
+      )}
 
-      {/* PDV count badge — top-left */}
-      <div style={{
-        position: "absolute", top: 10, left: panelOffset + 10,
-        zIndex: 30,
-        background: "rgba(255,255,255,0.92)", backdropFilter: "blur(4px)",
-        color: "#334155", fontSize: 11, fontWeight: 700,
-        padding: "4px 10px", borderRadius: 8,
-        border: "1px solid #e2e8f0",
-        boxShadow: "0 1px 4px #0001",
-        pointerEvents: "none", transition: "left 0.2s ease",
-      }}>
-        {filteredPines.length.toLocaleString()} PDV visibles
-      </div>
+      {/* PDV count badge — top-left — hidden in shelfyMapsMode */}
+      {!shelfyMapsMode && (
+        <div style={{
+          position: "absolute", top: 10, left: panelOffset + 10,
+          zIndex: 30,
+          background: "rgba(255,255,255,0.92)", backdropFilter: "blur(4px)",
+          color: "#334155", fontSize: 11, fontWeight: 700,
+          padding: "4px 10px", borderRadius: 8,
+          border: "1px solid #e2e8f0",
+          boxShadow: "0 1px 4px #0001",
+          pointerEvents: "none", transition: "left 0.2s ease",
+        }}>
+          {filteredPines.length.toLocaleString()} PDV visibles
+        </div>
+      )}
     </div>
   );
 }

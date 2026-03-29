@@ -240,6 +240,12 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
   const [scannerFallback, setScannerFallback]   = useState(false);
   const [gpsError, setGpsError]                 = useState<string | null>(null);
 
+  // ── ShelfyMaps ────────────────────────────────────────────────────────────
+  const [shelfyMapsOpen, setShelfyMapsOpen]     = useState(false);
+  const [showGpsDialog, setShowGpsDialog]       = useState(false);
+  const [shelfyGpsGranted, setShelfyGpsGranted] = useState(false);
+  const [shelfyFilterOpen, setShelfyFilterOpen] = useState(false);
+
   // ── Ventas & Cuentas ──────────────────────────────────────────────────────
   const [ventasDias, setVentasDias]             = useState<7 | 30 | 90>(30);
   const [ventasData, setVentasData]             = useState<VentasSupervision | null>(null);
@@ -480,6 +486,46 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
     );
   };
 
+  // ── ShelfyMaps: open with optional GPS dialog ────────────────────────────
+  const handleShelfyMaps = async () => {
+    // Check if permission API is available and already granted
+    if (typeof navigator !== "undefined" && navigator.permissions) {
+      try {
+        const result = await navigator.permissions.query({ name: "geolocation" as PermissionName });
+        if (result.state === "granted") {
+          setShelfyGpsGranted(true);
+          setShelfyMapsOpen(true);
+          return;
+        }
+      } catch {
+        // permissions API not supported, fall through to dialog
+      }
+    }
+    // Show GPS dialog
+    setShowGpsDialog(true);
+  };
+
+  const handleGpsActivar = () => {
+    if (!navigator.geolocation) {
+      setShowGpsDialog(false);
+      setShelfyMapsOpen(true);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      () => {
+        setShelfyGpsGranted(true);
+        setShowGpsDialog(false);
+        setShelfyMapsOpen(true);
+      },
+      () => {
+        setShelfyGpsGranted(false);
+        setShowGpsDialog(false);
+        setShelfyMapsOpen(true);
+      },
+      { enableHighAccuracy: true, timeout: 8000 }
+    );
+  };
+
   // ── Accordion handlers ────────────────────────────────────────────────────
   async function handleVend(id: number) {
     if (openVend === id) { setOpenVend(null); return; }
@@ -599,6 +645,23 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
 
   // ── Map pins — 3-level visibility check ───────────────────────────────────
   const pines = useMemo<PinCliente[]>(() => {
+    // Build a lookup map from cc_detalle: key = id_cliente_erp or lowercased nombre
+    // so we can enrich each pin with deuda info
+    const deudaByErpId = new Map<string, { deuda: number; antiguedad: number }>();
+    const deudaByNombre = new Map<string, { deuda: number; antiguedad: number }>();
+    if (cuentasData) {
+      cuentasData.vendedores.forEach((v: any) => {
+        v.clientes.forEach((c: any) => {
+          if (c.id_cliente_erp) {
+            deudaByErpId.set(String(c.id_cliente_erp), { deuda: c.deuda_total ?? 0, antiguedad: c.antiguedad ?? 0 });
+          }
+          if (c.cliente) {
+            deudaByNombre.set(c.cliente.toLowerCase().trim(), { deuda: c.deuda_total ?? 0, antiguedad: c.antiguedad ?? 0 });
+          }
+        });
+      });
+    }
+
     const result: PinCliente[] = [];
     vendedores.forEach((v, idx) => {
       if (!visibleVends.has(v.id_vendedor)) return;
@@ -608,6 +671,12 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
         (clientes[r.id_ruta] ?? []).forEach(c => {
           if (!visibleClientes.has(c.id_cliente)) return;
           if (!hasValidCoords(c.latitud, c.longitud)) return;
+          // Cross-reference deuda: prefer id_cliente_erp match, fallback to name
+          const erpId = c.id_cliente_erp ? String(c.id_cliente_erp) : null;
+          const nombre = (c.nombre_fantasia || c.nombre_razon_social || "").toLowerCase().trim();
+          const deudaInfo = (erpId && deudaByErpId.get(erpId))
+            ?? (nombre && deudaByNombre.get(nombre))
+            ?? null;
           result.push({
             id:                    c.id_cliente,
             lat:                   c.latitud!,
@@ -623,6 +692,8 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
             fechaUltimaCompra:     c.fecha_ultima_compra ?? null,
             fechaUltimaExhibicion: c.fecha_ultima_exhibicion ?? null,
             urlExhibicion:         c.url_ultima_exhibicion ?? null,
+            deuda:                 deudaInfo?.deuda ?? null,
+            antiguedadDias:        deudaInfo?.antiguedad ?? null,
           });
         });
       });
@@ -634,7 +705,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
       seen.add(p.id);
       return true;
     });
-  }, [vendedores, visibleVends, visibleRutas, visibleClientes, rutas, clientes]);
+  }, [vendedores, visibleVends, visibleRutas, visibleClientes, rutas, clientes, cuentasData]);
 
   const totalPdv     = vendedoresFiltrados.reduce((s, v) => s + v.total_pdv, 0);
   const totalActivos = vendedoresFiltrados.reduce((s, v) => s + (v.pdv_activos ?? 0), 0);
@@ -788,12 +859,23 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
         </div>
       )}
 
-      {/* Mobile Scanner button — solo visible en mobile */}
+      {/* Mobile primary CTA: ShelfyMaps — superadmin only */}
+      {isSuperadmin && (
+        <button
+          onClick={handleShelfyMaps}
+          className="xl:hidden flex items-center justify-center gap-2 w-full px-4 py-3 rounded-xl font-semibold text-sm text-white transition-all active:scale-[0.98]"
+          style={{ background: "linear-gradient(135deg, #7C3AED 0%, #4F46E5 100%)", boxShadow: "0 4px 16px rgba(124,58,237,0.35)" }}
+        >
+          🗺️ Entrar a ShelfyMaps
+        </button>
+      )}
+
+      {/* Mobile Scanner button — secondary */}
       <button
         onClick={handleScanner}
-        className="xl:hidden flex items-center justify-center gap-2 w-full px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 font-semibold text-sm transition-colors hover:bg-amber-500/20"
+        className="xl:hidden flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 font-medium text-sm transition-colors hover:bg-amber-500/20"
       >
-        <Radar size={16} />
+        <Radar size={14} />
         Scanner GPS — PDVs cercanos
       </button>
 
@@ -1708,6 +1790,245 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                 );
               })()}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* GPS Permission Dialog — superadmin only */}
+      {isSuperadmin && showGpsDialog && (
+        <div
+          className="fixed inset-0 z-[10000] flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+          onClick={() => setShowGpsDialog(false)}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl border shadow-2xl overflow-hidden"
+            style={{ background: "rgba(10,14,24,0.98)", borderColor: "rgba(124,58,237,0.35)" }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="px-5 pt-5 pb-3 text-center">
+              <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3 text-2xl"
+                style={{ background: "rgba(124,58,237,0.15)", border: "1px solid rgba(124,58,237,0.3)" }}>
+                📍
+              </div>
+              <p className="text-sm font-bold text-white mb-1">Activar ubicación</p>
+              <p className="text-xs text-white/50 leading-relaxed">
+                ShelfyMaps necesita tu ubicación para mostrarte los PDVs cercanos
+              </p>
+            </div>
+            <div className="px-4 pb-5 flex flex-col gap-2 mt-1">
+              <button
+                onClick={handleGpsActivar}
+                className="w-full py-2.5 rounded-xl font-semibold text-sm text-white transition-all active:scale-[0.98]"
+                style={{ background: "linear-gradient(135deg, #7C3AED 0%, #4F46E5 100%)" }}
+              >
+                Activar GPS
+              </button>
+              <button
+                onClick={() => { setShowGpsDialog(false); setShelfyMapsOpen(true); }}
+                className="w-full py-2.5 rounded-xl text-sm font-medium transition-colors"
+                style={{ background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.5)", border: "1px solid rgba(255,255,255,0.1)" }}
+              >
+                Continuar sin GPS
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ShelfyMaps Fullscreen Modal — superadmin only */}
+      {isSuperadmin && shelfyMapsOpen && (
+        <div
+          style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", flexDirection: "column", background: "#0a0e1a" }}
+        >
+          {/* Top bar */}
+          <div style={{
+            height: 48, flexShrink: 0, display: "flex", alignItems: "center",
+            padding: "0 12px", gap: 8,
+            background: "rgba(10,14,24,0.98)",
+            borderBottom: "1px solid rgba(124,58,237,0.2)",
+          }}>
+            {/* Back button */}
+            <button
+              onClick={() => { setShelfyMapsOpen(false); setShelfyFilterOpen(false); }}
+              style={{
+                width: 36, height: 36, borderRadius: 10, border: "1px solid rgba(255,255,255,0.1)",
+                background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.7)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 16, cursor: "pointer", flexShrink: 0,
+              }}
+            >
+              ←
+            </button>
+            {/* Title */}
+            <span style={{
+              flex: 1, textAlign: "center", fontWeight: 700, fontSize: 15,
+              color: "white", letterSpacing: "0.01em",
+            }}>
+              🗺️ ShelfyMaps
+            </span>
+            {/* GPS indicator */}
+            {shelfyGpsGranted && (
+              <span style={{ fontSize: 10, color: "#10B981", fontWeight: 600, flexShrink: 0, marginRight: 4 }}>
+                GPS ●
+              </span>
+            )}
+            {/* Filter toggle button */}
+            <button
+              onClick={() => setShelfyFilterOpen(f => !f)}
+              style={{
+                width: 36, height: 36, borderRadius: 10,
+                border: shelfyFilterOpen ? "1px solid rgba(124,58,237,0.5)" : "1px solid rgba(255,255,255,0.1)",
+                background: shelfyFilterOpen ? "rgba(124,58,237,0.2)" : "rgba(255,255,255,0.06)",
+                color: shelfyFilterOpen ? "#a78bfa" : "rgba(255,255,255,0.7)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 16, cursor: "pointer", flexShrink: 0,
+              }}
+            >
+              ☰
+            </button>
+          </div>
+
+          {/* Map area with optional filter panel overlay */}
+          <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
+            {/* Vendor filter panel — slides in from right */}
+            {shelfyFilterOpen && (
+              <div style={{
+                position: "absolute", top: 0, right: 0, bottom: 0, width: 300,
+                zIndex: 20, display: "flex", flexDirection: "column",
+                background: "rgba(10,14,24,0.96)",
+                backdropFilter: "blur(12px)",
+                borderLeft: "1px solid rgba(255,255,255,0.08)",
+                overflowY: "auto",
+              }}>
+                {/* Panel header */}
+                <div style={{
+                  padding: "12px 12px 10px", display: "flex", alignItems: "center",
+                  justifyContent: "space-between", borderBottom: "1px solid rgba(255,255,255,0.06)",
+                  flexShrink: 0,
+                }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.1em" }}>
+                    Vendedores
+                  </span>
+                  <button
+                    onClick={() => setShelfyFilterOpen(false)}
+                    style={{ color: "rgba(255,255,255,0.3)", background: "none", border: "none", cursor: "pointer", fontSize: 18, lineHeight: 1, padding: 2 }}
+                  >
+                    ×
+                  </button>
+                </div>
+                {/* Sucursal chips */}
+                <div style={{ padding: "8px 12px", borderBottom: "1px solid rgba(255,255,255,0.06)", flexShrink: 0 }}>
+                  <p style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.3)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>Sucursal</p>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                    {sucursales.map(suc => (
+                      <button
+                        key={suc}
+                        onClick={() => {
+                          setSelectedSucursal(suc === selectedSucursal ? null : suc);
+                          setVisibleVends(new Set());
+                          setVisibleRutas(new Set());
+                          setVisibleClientes(new Set());
+                        }}
+                        style={{
+                          padding: "2px 8px", borderRadius: 6, fontSize: 10, fontWeight: 600,
+                          border: selectedSucursal === suc ? "1px solid transparent" : "1px solid rgba(255,255,255,0.1)",
+                          background: selectedSucursal === suc ? "#7C3AED" : "rgba(255,255,255,0.05)",
+                          color: selectedSucursal === suc ? "white" : "rgba(255,255,255,0.5)",
+                          cursor: "pointer",
+                        }}
+                      >
+                        {suc}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {/* Vendor list with toggles */}
+                <div style={{ flex: 1, overflowY: "auto" }}>
+                  {vendedoresFiltrados.length === 0 && (
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: 24, color: "rgba(255,255,255,0.2)", fontSize: 12 }}>
+                      {selectedSucursal ? "Sin vendedores" : "Seleccioná una sucursal"}
+                    </div>
+                  )}
+                  {vendedoresFiltrados.map((v) => {
+                    const idx = vendedores.indexOf(v);
+                    const color = vendorColor(idx);
+                    const isVendOn = visibleVends.has(v.id_vendedor);
+                    const isVendLoad = loadingMap.has(v.id_vendedor);
+                    const pct = v.total_pdv > 0 ? Math.round(((v.pdv_activos ?? 0) / v.total_pdv) * 100) : 0;
+                    return (
+                      <div key={v.id_vendedor} style={{ padding: "10px 12px", borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          {/* Avatar */}
+                          <div style={{
+                            width: 32, height: 32, borderRadius: 8, flexShrink: 0,
+                            backgroundColor: color + "22", color,
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                            fontSize: 11, fontWeight: 700,
+                          }}>
+                            {v.nombre_vendedor.trim().split(/\s+/).slice(0, 2).map((w: string) => w[0] ?? "").join("").toUpperCase() || "?"}
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <p style={{ fontSize: 12, fontWeight: 700, color: "white", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1.3 }}>
+                              {v.nombre_vendedor}
+                            </p>
+                            <p style={{ fontSize: 10, color: "rgba(255,255,255,0.3)" }}>{v.total_pdv} PDV · {pct}% activos</p>
+                          </div>
+                          {/* Toggle button */}
+                          <button
+                            onClick={() => toggleVendor(v.id_vendedor)}
+                            style={{
+                              width: 28, height: 28, borderRadius: 8, flexShrink: 0,
+                              border: isVendOn ? "1px solid transparent" : "1px solid rgba(255,255,255,0.2)",
+                              background: isVendOn ? color : "transparent",
+                              color: isVendOn ? "white" : "rgba(255,255,255,0.3)",
+                              display: "flex", alignItems: "center", justifyContent: "center",
+                              cursor: "pointer", fontSize: 13,
+                              boxShadow: isVendOn ? `0 0 6px ${color}55` : "none",
+                            }}
+                          >
+                            {isVendLoad ? "⟳" : isVendOn ? "●" : "○"}
+                          </button>
+                        </div>
+                        {v.total_pdv > 0 && (
+                          <div style={{ marginTop: 6, height: 2, borderRadius: 2, background: "rgba(255,255,255,0.08)", overflow: "hidden" }}>
+                            <div style={{ width: `${pct}%`, height: "100%", borderRadius: 2, backgroundColor: color }} />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* The map — fills the entire area */}
+            {pines.length === 0 ? (
+              <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, color: "rgba(255,255,255,0.3)" }}>
+                <span style={{ fontSize: 40 }}>🗺️</span>
+                <p style={{ fontSize: 14, textAlign: "center", padding: "0 32px", lineHeight: 1.5 }}>
+                  {!selectedSucursal
+                    ? "Abrí el menú ☰ y seleccioná una sucursal"
+                    : "Activá un vendedor en el menú ☰ para ver sus PDVs"
+                  }
+                </p>
+              </div>
+            ) : (
+              <MapaRutas pines={pines} shelfyMapsMode={true} />
+            )}
+
+            {/* PDV count pill — top-left over map */}
+            {pines.length > 0 && (
+              <div style={{
+                position: "absolute", top: 10, left: 10, zIndex: 10,
+                background: "rgba(10,14,24,0.85)", backdropFilter: "blur(8px)",
+                color: "rgba(255,255,255,0.7)", fontSize: 11, fontWeight: 700,
+                padding: "4px 10px", borderRadius: 8,
+                border: "1px solid rgba(255,255,255,0.1)",
+                pointerEvents: "none",
+              }}>
+                {pines.length.toLocaleString()} PDV
+              </div>
+            )}
           </div>
         </div>
       )}

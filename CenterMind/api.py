@@ -2891,19 +2891,46 @@ def supervision_cliente_info(dist_id: int, nombre: str, user_payload=Depends(ver
         check_dist_permission(user_payload, dist_id)
         fields = ("id_cliente, id_cliente_erp, nombre_fantasia, nombre_razon_social, "
                   "domicilio, localidad, provincia, canal, latitud, longitud")
+        nombre_s = nombre.strip()
+
+        # Estrategia 1: match exacto case-insensitive en nombre_razon_social
+        # (mismo criterio que usa fecha_uc_map en supervision/cuentas)
         res = sb.table("clientes_pdv_v2") \
             .select(fields) \
             .eq("id_distribuidor", dist_id) \
-            .ilike("nombre_fantasia", f"%{nombre}%") \
-            .limit(5) \
+            .ilike("nombre_razon_social", nombre_s) \
+            .limit(3) \
             .execute()
-        if not (res.data):
-            res = sb.table("clientes_pdv_v2") \
-                .select(fields) \
-                .eq("id_distribuidor", dist_id) \
-                .ilike("nombre_razon_social", f"%{nombre}%") \
-                .limit(5) \
-                .execute()
+        if res.data:
+            return res.data
+
+        # Estrategia 2: match exacto en nombre_fantasia
+        res = sb.table("clientes_pdv_v2") \
+            .select(fields) \
+            .eq("id_distribuidor", dist_id) \
+            .ilike("nombre_fantasia", nombre_s) \
+            .limit(3) \
+            .execute()
+        if res.data:
+            return res.data
+
+        # Estrategia 3: substring en nombre_razon_social
+        res = sb.table("clientes_pdv_v2") \
+            .select(fields) \
+            .eq("id_distribuidor", dist_id) \
+            .ilike("nombre_razon_social", f"%{nombre_s}%") \
+            .limit(3) \
+            .execute()
+        if res.data:
+            return res.data
+
+        # Estrategia 4: substring en nombre_fantasia
+        res = sb.table("clientes_pdv_v2") \
+            .select(fields) \
+            .eq("id_distribuidor", dist_id) \
+            .ilike("nombre_fantasia", f"%{nombre_s}%") \
+            .limit(3) \
+            .execute()
         return res.data or []
     except HTTPException:
         raise

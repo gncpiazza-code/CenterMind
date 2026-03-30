@@ -755,8 +755,6 @@ def auth_login(req: LoginRequest):
         # --- Tutorial views logic ---
         tutorial_views = user.get("tutorial_views", 0)
         show_tutorial = tutorial_views < 3
-        if show_tutorial:
-            sb.table("usuarios_portal").update({"tutorial_views": tutorial_views + 1}).eq("id_usuario", user["id_usuario"]).execute()
 
         # --- Fase Architecture V3: Feature Flags desde DB ---
         dist_id = user.get("id_distribuidor")
@@ -800,6 +798,26 @@ def auth_login(req: LoginRequest):
     except Exception as e:
         logger.error(f"❌ Error en auth_login: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error en el servidor: {str(e)}")
+
+
+@app.post("/auth/tutorial-seen", summary="Incrementa el contador de vistas del tutorial")
+def tutorial_seen(payload=Depends(verify_auth)):
+    user_id = payload.get("id_usuario")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Usuario no identificado")
+    
+    try:
+        # Obtener el contador actual
+        res = sb.table("usuarios_portal").select("tutorial_views").eq("id_usuario", user_id).execute()
+        if not res.data:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        
+        current_views = res.data[0].get("tutorial_views", 0)
+        # Incrementar
+        sb.table("usuarios_portal").update({"tutorial_views": current_views + 1}).eq("id_usuario", user_id).execute()
+        return {"success": True, "new_views": current_views + 1}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al actualizar tutorial_views: {str(e)}")
 
 
 @app.post("/auth/switch-context/{dist_id}", summary="Superadmin cambia de distribuidora activa", response_model=TokenResponse)

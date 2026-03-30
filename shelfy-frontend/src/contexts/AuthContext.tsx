@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { loginApi, type AuthResponse } from "@/lib/api";
+import { loginApi, incrementTutorialSeen, type AuthResponse } from "@/lib/api";
 import { TOKEN_KEY, JWT_EXPIRE_HOURS } from "@/lib/constants";
 
 interface AuthContextType {
@@ -38,6 +38,10 @@ function parseStoredUser(): AuthResponse | null {
       clearToken();
       return null;
     }
+    const showTutorialFromToken = payload.show_tutorial;
+    // Overriden if locally marked as seen (to fix JWT staleness)
+    const locallySeen = localStorage.getItem("shelfy_tutorial_v2_seen") === "true";
+
     return {
       access_token: token,
       token_type: "bearer",
@@ -50,7 +54,7 @@ function parseStoredUser(): AuthResponse | null {
       usa_quarentena: payload.usa_quarentena,
       usa_contexto_erp: payload.usa_contexto_erp,
       usa_mapeo_vendedores: payload.usa_mapeo_vendedores,
-      show_tutorial: payload.show_tutorial,
+      show_tutorial: locallySeen ? false : showTutorialFromToken,
     };
   } catch {
     return null;
@@ -72,6 +76,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setError(null);
     try {
       const data = await loginApi(usuario, password);
+      // Clear local tutorial override on new login to respect the new token/views count
+      localStorage.removeItem("shelfy_tutorial_v2_seen");
       setToken(data.access_token);
       setUser(data);
       router.push(data.show_tutorial ? "/tutorial" : "/dashboard");
@@ -97,7 +103,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [user?.rol]);
 
   const setTutorialSeen = useCallback(() => {
+    localStorage.setItem("shelfy_tutorial_v2_seen", "true");
     setUser(prev => prev ? { ...prev, show_tutorial: false } : null);
+    // Persist to DB
+    incrementTutorialSeen().catch(err => console.error("Error updating tutorial views:", err));
   }, []);
 
   useEffect(() => {

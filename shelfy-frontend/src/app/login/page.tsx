@@ -25,10 +25,14 @@ export default function LoginPage() {
     if (isAuthenticated) {
       const locallySeen = typeof window !== "undefined" && localStorage.getItem("shelfy_tutorial_v2_seen") === "true";
       const shouldShow = user?.show_tutorial && !locallySeen;
+      
+      console.log("DEBUG /login: isAuthenticated=true. user.show_tutorial:", user?.show_tutorial, "locallySeen:", locallySeen, "shouldShow:", shouldShow);
 
       if (shouldShow) {
+        console.log("DEBUG /login: Redirecting to /tutorial");
         router.replace("/tutorial");
       } else {
+        console.log("DEBUG /login: Redirecting to /dashboard");
         router.replace("/dashboard");
       }
     }

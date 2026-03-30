@@ -92,7 +92,9 @@ export default function DashboardPage() {
 
   useEffect(() => {
     const locallySeen = typeof window !== "undefined" && localStorage.getItem("shelfy_tutorial_v2_seen") === "true";
+    console.log("DEBUG: Dashboard check - user.show_tutorial:", user?.show_tutorial, "locallySeen:", locallySeen);
     if (user?.show_tutorial && !locallySeen) {
+      console.log("DEBUG: Redirection condition met! Redirecting to /tutorial");
       router.replace("/tutorial");
     }
   }, [user, router]);

@@ -103,8 +103,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [user?.rol]);
 
   const setTutorialSeen = useCallback(() => {
+    console.log("DEBUG: setTutorialSeen called. Setting localStorage flag and updating state.");
     localStorage.setItem("shelfy_tutorial_v2_seen", "true");
-    setUser(prev => prev ? { ...prev, show_tutorial: false } : null);
+    setUser(prev => {
+      console.log("DEBUG: Previous user state:", prev);
+      const newState = prev ? { ...prev, show_tutorial: false } : null;
+      console.log("DEBUG: New user state:", newState);
+      return newState;
+    });
   }, []);
 
   useEffect(() => {

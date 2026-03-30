@@ -3,10 +3,6 @@ import { useEffect, useState } from "react";
 
 const SLIDES = [
   {
-    title: "Video Tutorial",
-    subtitle: "¡Novedades de la actualización! Conocé las nuevas herramientas de Shelfy en 1 minuto.",
-  },
-  {
     title: "Panel de Supervisión",
     subtitle: "Tu herramienta completa para gestionar rutas, clientes y cartera.",
   },
@@ -156,13 +152,12 @@ export default function TutorialModal({ onComplete }: { onComplete?: () => void 
         {/* Body */}
         <div style={{ padding: "24px 28px 16px", minHeight: 300, maxHeight: "calc(100vh - 220px)", overflowY: "auto" }}>
           <div style={slideStyle}>
-            {current === 0 && <SlideVideo />}
-            {current === 1 && <Slide1 />}
-            {current === 2 && <Slide2 />}
-            {current === 3 && <Slide3 />}
-            {current === 4 && <Slide4 />}
-            {current === 5 && <Slide5 />}
-            {current === 6 && <Slide6 />}
+            {current === 0 && <Slide1 />}
+            {current === 1 && <Slide2 />}
+            {current === 2 && <Slide3 />}
+            {current === 3 && <Slide4 />}
+            {current === 4 && <Slide5 />}
+            {current === 5 && <Slide6 />}
           </div>
         </div>
 
@@ -286,28 +281,6 @@ function Mockup({ children, height }: { children: React.ReactNode; height?: numb
       height: height ? height : undefined,
     }}>
       {children}
-    </div>
-  );
-}
-
-/* ── Slide 0: Video Tutorial ── */
-function SlideVideo() {
-  return (
-    <div style={{ borderRadius: 16, overflow: "hidden", position: "relative", background: "#000", boxShadow: "0 20px 50px rgba(0,0,0,0.3)" }}>
-      <video 
-        src="/VideoProject1.mp4" 
-        controls 
-        autoPlay 
-        className="w-full h-auto aspect-video"
-        style={{ display: "block" }}
-      />
-      <div style={{ 
-        position: "absolute", bottom: 0, left: 0, right: 0, 
-        padding: "10px 15px", background: "linear-gradient(transparent, rgba(0,0,0,0.7))",
-        fontSize: 11, color: "#fff", fontWeight: 500
-      }}>
-        Video de la nueva actualización v2
-      </div>
     </div>
   );
 }

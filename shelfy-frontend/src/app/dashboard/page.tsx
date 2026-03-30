@@ -6,6 +6,7 @@ import { Topbar } from "@/components/layout/Topbar";
 import { PageSpinner } from "@/components/ui/Spinner";
 import { Card } from "@/components/ui/Card";
 import { useAuth } from "@/hooks/useAuth";
+import { useRouter } from "next/navigation";
 import { useEffect, useState, useCallback } from "react";
 import {
   fetchKPIs, fetchRanking, fetchUltimasEvaluadas, fetchPorSucursal,
@@ -43,6 +44,7 @@ function periodoString(year: number, month: number, day: number): string {
 
 export default function DashboardPage() {
   const { user } = useAuth();
+  const router = useRouter();
   const initVars = getCurrentYearMonth();
 
   const [kpis, setKpis] = useState<KPIs | null>(null);
@@ -87,6 +89,12 @@ export default function DashboardPage() {
       setLoading(false);
     }
   }, [user, periodo, sucursalFiltro]);
+
+  useEffect(() => {
+    if (user?.show_tutorial) {
+      router.replace("/tutorial");
+    }
+  }, [user, router]);
 
   useEffect(() => { cargar(); }, [cargar]);
 

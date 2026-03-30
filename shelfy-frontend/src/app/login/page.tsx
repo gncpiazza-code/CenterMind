@@ -7,7 +7,7 @@ import { User, Lock, Eye, EyeOff, ArrowRight, Loader2 } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login, loading, error, isAuthenticated } = useAuth();
+  const { login, loading, error, isAuthenticated, user } = useAuth();
   const [usuario, setUsuario] = useState("");
   const [password, setPassword] = useState("");
   const [showPass, setShowPass] = useState(false);
@@ -22,8 +22,14 @@ export default function LoginPage() {
 
   useEffect(() => {
     setMounted(true);
-    if (isAuthenticated) router.replace("/dashboard");
-  }, [isAuthenticated, router]);
+    if (isAuthenticated) {
+      if (user?.show_tutorial) {
+        router.replace("/tutorial");
+      } else {
+        router.replace("/dashboard");
+      }
+    }
+  }, [isAuthenticated, user, router]);
 
   // Slot machine cycle
   useEffect(() => {

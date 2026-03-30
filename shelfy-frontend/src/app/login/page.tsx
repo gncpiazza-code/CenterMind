@@ -23,7 +23,10 @@ export default function LoginPage() {
   useEffect(() => {
     setMounted(true);
     if (isAuthenticated) {
-      if (user?.show_tutorial) {
+      const locallySeen = typeof window !== "undefined" && localStorage.getItem("shelfy_tutorial_v2_seen") === "true";
+      const shouldShow = user?.show_tutorial && !locallySeen;
+
+      if (shouldShow) {
         router.replace("/tutorial");
       } else {
         router.replace("/dashboard");

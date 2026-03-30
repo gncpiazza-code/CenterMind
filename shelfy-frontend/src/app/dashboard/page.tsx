@@ -91,7 +91,8 @@ export default function DashboardPage() {
   }, [user, periodo, sucursalFiltro]);
 
   useEffect(() => {
-    if (user?.show_tutorial) {
+    const locallySeen = typeof window !== "undefined" && localStorage.getItem("shelfy_tutorial_v2_seen") === "true";
+    if (user?.show_tutorial && !locallySeen) {
       router.replace("/tutorial");
     }
   }, [user, router]);

@@ -286,12 +286,6 @@ export async function loginApi(usuario: string, password: string): Promise<AuthR
   });
 }
 
-export async function incrementTutorialSeen(): Promise<{ success: boolean; new_views: number }> {
-  return apiFetch<{ success: boolean; new_views: number }>("/auth/tutorial-seen", {
-    method: "POST"
-  });
-}
-
 // ── Dashboard ───────────────────────────────────────────────────────────────
 export async function fetchKPIs(distribuidorId: number, periodo: string = "mes", sucursalId?: string): Promise<KPIs> {
   const q = new URLSearchParams({ periodo });

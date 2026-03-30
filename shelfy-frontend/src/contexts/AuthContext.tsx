@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { loginApi, incrementTutorialSeen, type AuthResponse } from "@/lib/api";
+import { loginApi, type AuthResponse } from "@/lib/api";
 import { TOKEN_KEY, JWT_EXPIRE_HOURS } from "@/lib/constants";
 
 interface AuthContextType {
@@ -105,8 +105,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const setTutorialSeen = useCallback(() => {
     localStorage.setItem("shelfy_tutorial_v2_seen", "true");
     setUser(prev => prev ? { ...prev, show_tutorial: false } : null);
-    // Persist to DB
-    incrementTutorialSeen().catch(err => console.error("Error updating tutorial views:", err));
   }, []);
 
   useEffect(() => {

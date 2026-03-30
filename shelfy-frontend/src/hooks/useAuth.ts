@@ -36,6 +36,7 @@ function parseStoredUser(): AuthResponse | null {
       usa_quarentena: payload.usa_quarentena,
       usa_contexto_erp: payload.usa_contexto_erp,
       usa_mapeo_vendedores: payload.usa_mapeo_vendedores,
+      show_tutorial: payload.show_tutorial,
     };
   } catch {
     return null;
@@ -61,7 +62,7 @@ export function useAuth() {
       const data = await loginApi(usuario, password);
       setToken(data.access_token);
       setUser(data);
-      router.push("/dashboard");
+      router.push(data.show_tutorial ? "/tutorial" : "/dashboard");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Error al iniciar sesión");
     } finally {

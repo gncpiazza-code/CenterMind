@@ -7,7 +7,6 @@ import { BottomNav } from "@/components/layout/BottomNav";
 import { Topbar } from "@/components/layout/Topbar";
 import { useAuth } from "@/hooks/useAuth";
 import TabSupervision from "@/components/admin/TabSupervision";
-import TutorialModal from "@/components/TutorialModal";
 
 const ALLOWED_ROLES = ["superadmin", "admin", "supervisor"];
 
@@ -52,9 +51,6 @@ export default function SupervisionPage() {
             <section>
               <TabSupervision distId={distId} isSuperadmin={isSuperadmin} />
             </section>
-
-            {/* Tutorial — solo superadmin, se muestra una vez (localStorage gate) */}
-            {isSuperadmin && <TutorialModal />}
 
 
 

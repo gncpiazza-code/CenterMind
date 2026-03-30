@@ -344,6 +344,7 @@ class TokenResponse(BaseModel):
     usa_quarentena: bool = False
     usa_contexto_erp: bool = False
     usa_mapeo_vendedores: bool = False
+    show_tutorial: bool = False
 
 
 # ─── Endpoints ────────────────────────────────────────────────────────────────
@@ -751,6 +752,12 @@ def auth_login(req: LoginRequest):
         if not user.get("activo", True):
             raise HTTPException(status_code=403, detail="Tu usuario ha sido desactivado. Contacta al administrador.")
 
+        # --- Tutorial views logic ---
+        tutorial_views = user.get("tutorial_views", 0)
+        show_tutorial = tutorial_views < 3
+        if show_tutorial:
+            sb.table("usuarios_portal").update({"tutorial_views": tutorial_views + 1}).eq("id_usuario", user["id_usuario"]).execute()
+
         # --- Fase Architecture V3: Feature Flags desde DB ---
         dist_id = user.get("id_distribuidor")
         flags = {"usa_quarentena": False, "usa_contexto_erp": False, "usa_mapeo_vendedores": False}
@@ -773,6 +780,7 @@ def auth_login(req: LoginRequest):
             "usa_quarentena":    flags.get("usa_quarentena", False),
             "usa_contexto_erp":   flags.get("usa_contexto_erp", False),
             "usa_mapeo_vendedores": flags.get("usa_mapeo_vendedores", False),
+            "show_tutorial":     show_tutorial,
             "exp":               datetime.utcnow() + timedelta(hours=JWT_EXPIRE_HOURS),
         }
         token = _jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
@@ -784,7 +792,8 @@ def auth_login(req: LoginRequest):
             is_superadmin=payload["is_superadmin"],
             usa_quarentena=payload["usa_quarentena"],
             usa_contexto_erp=payload["usa_contexto_erp"],
-            usa_mapeo_vendedores=payload["usa_mapeo_vendedores"]
+            usa_mapeo_vendedores=payload["usa_mapeo_vendedores"],
+            show_tutorial=show_tutorial
         )
     except HTTPException:
         raise

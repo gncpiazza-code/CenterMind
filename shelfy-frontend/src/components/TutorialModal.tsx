@@ -1,8 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
 
-const STORAGE_KEY = "shelfy_tutorial_v2_seen";
-
 const SLIDES = [
   {
     title: "Panel de Supervisión",
@@ -37,18 +35,15 @@ const PIN_COLORS = {
   red: "#ef4444",
 };
 
-export default function TutorialModal() {
+export default function TutorialModal({ onComplete }: { onComplete?: () => void }) {
   const [visible, setVisible] = useState(false);
   const [current, setCurrent] = useState(0);
   const [dir, setDir] = useState<"forward" | "back">("forward");
   const [animating, setAnimating] = useState(false);
 
   useEffect(() => {
-    if (typeof window !== "undefined" && !localStorage.getItem(STORAGE_KEY)) {
-      // Small delay so the page loads first
-      const t = setTimeout(() => setVisible(true), 800);
-      return () => clearTimeout(t);
-    }
+    // Show immediately
+    setVisible(true);
   }, []);
 
   useEffect(() => {
@@ -63,8 +58,8 @@ export default function TutorialModal() {
   });
 
   const handleClose = () => {
-    localStorage.setItem(STORAGE_KEY, "1");
     setVisible(false);
+    onComplete?.();
   };
 
   const handleNext = () => {

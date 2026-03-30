@@ -31,7 +31,8 @@ def crear_base_de_datos():
             id_distribuidor INTEGER NOT NULL,
             usuario_login TEXT UNIQUE NOT NULL,
             password TEXT NOT NULL,
-            rol TEXT NOT NULL, 
+            rol TEXT NOT NULL,
+            tutorial_views INTEGER DEFAULT 0,
             FOREIGN KEY(id_distribuidor) REFERENCES distribuidores(id_distribuidor)
         )
     ''')

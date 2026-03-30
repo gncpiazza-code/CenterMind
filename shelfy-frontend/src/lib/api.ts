@@ -31,6 +31,7 @@ export interface AuthResponse {
   usa_quarentena?: boolean;
   usa_contexto_erp?: boolean;
   usa_mapeo_vendedores?: boolean;
+  show_tutorial?: boolean;
 }
 
 export interface ERPUploadResponse {

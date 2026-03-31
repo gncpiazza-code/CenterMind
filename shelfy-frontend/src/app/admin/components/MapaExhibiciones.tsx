@@ -261,14 +261,14 @@ const MapaExhibiciones = forwardRef<MapRef, MapaExhibicionesProps>(({
 
                                             <div className="h-px bg-white/5" />
 
-                                            <div className="space-y-2">
+                                            <div className="space-y-3">
                                                 <div className="flex items-start gap-3">
                                                     <div className="mt-0.5 p-1.5 bg-slate-800 rounded-lg text-slate-400">
                                                         <Building2 size={14} />
                                                     </div>
-                                                    <div>
+                                                    <div className="flex-1">
                                                         <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider leading-none mb-1">Cliente</p>
-                                                        <p className="text-xs font-bold text-slate-200 leading-tight">{event.cliente_nombre}</p>
+                                                        <p className="text-sm font-bold text-rose-300 leading-tight">{event.cliente_nombre}</p>
                                                         <p className="text-[10px] text-slate-500 font-mono mt-0.5">#{event.nro_cliente}</p>
                                                     </div>
                                                 </div>
@@ -277,11 +277,30 @@ const MapaExhibiciones = forwardRef<MapRef, MapaExhibicionesProps>(({
                                                     <div className="mt-0.5 p-1.5 bg-slate-800 rounded-lg text-slate-400">
                                                         <MapPin size={14} />
                                                     </div>
-                                                    <div>
+                                                    <div className="flex-1">
                                                         <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider leading-none mb-1">Ubicación</p>
-                                                        <p className="text-[10px] font-mono text-slate-400">{event.lat.toFixed(6)}, {event.lon.toFixed(6)}</p>
+                                                        <p className="text-xs text-slate-200 mt-0.5">{event.domicilio}</p>
+                                                        <p className="text-[10px] text-slate-400">{event.localidad}</p>
+                                                        <p className="text-[10px] font-mono text-slate-500 mt-1">{event.lat.toFixed(6)}, {event.lon.toFixed(6)}</p>
                                                     </div>
                                                 </div>
+
+                                                {(event.telefono || event.fecha_alta) && (
+                                                    <div className="grid grid-cols-2 gap-4 pt-1">
+                                                        {event.telefono && (
+                                                            <div>
+                                                                <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest mb-1">Teléfono</p>
+                                                                <p className="text-xs font-bold text-emerald-400">{event.telefono}</p>
+                                                            </div>
+                                                        )}
+                                                        {event.fecha_alta && (
+                                                            <div>
+                                                                <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest mb-1">Alta</p>
+                                                                <p className="text-xs font-bold text-slate-300">{format(new Date(event.fecha_alta), "dd/MM/yyyy")}</p>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                     </Card>

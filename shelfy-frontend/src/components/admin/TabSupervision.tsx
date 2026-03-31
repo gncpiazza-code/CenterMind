@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
 import {
   ChevronRight,
@@ -320,7 +320,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
     queryKey: ['supervision-ventas', selectedDist, ventasDias],
     queryFn: () => fetchVentasSupervision(selectedDist, ventasDias),
     enabled: !!selectedDist,
-    placeholderData: (prev: unknown) => prev,
+    placeholderData: keepPreviousData,
     staleTime: 60_000,
   });
 
@@ -328,7 +328,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
     queryKey: ['supervision-cuentas', selectedDist, selectedSucursal],
     queryFn: () => fetchCuentasSupervision(selectedDist!, selectedSucursal!),
     enabled: !!selectedDist && !!selectedSucursal,
-    placeholderData: (prev: unknown) => prev,
+    placeholderData: keepPreviousData,
     staleTime: 60_000,
   });
 
@@ -1460,7 +1460,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                 <Loader2 className="w-4 h-4 animate-spin" /><span className="text-sm">Cargando ventas...</span>
               </div>
             )}
-            {ventasFiltradas && ventasFiltradas.vendedores.length === 0 && !loadingVentas && (
+            {ventasFiltradas && (ventasFiltradas?.vendedores?.length ?? 0) === 0 && !loadingVentas && (
               <p className="text-sm text-[var(--shelfy-muted)] text-center py-8 italic">Sin datos de ventas para esta sucursal.</p>
             )}
 

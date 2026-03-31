@@ -195,6 +195,10 @@ export interface LiveMapEvent {
   nro_cliente: string;
   cliente_nombre?: string;
   drive_link?: string;
+  domicilio?: string;
+  localidad?: string;
+  telefono?: string;
+  fecha_alta?: string;
 }
 
 export interface BranchCruce {

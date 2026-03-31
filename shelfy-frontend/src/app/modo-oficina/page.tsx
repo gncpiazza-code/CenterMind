@@ -25,6 +25,8 @@ import {
   Zap,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { format } from "date-fns";
+import { es } from "date-fns/locale";
 
 const MapaExhibiciones = dynamic(
   () => import("@/app/admin/components/MapaExhibiciones"),
@@ -71,17 +73,19 @@ export default function ModoOficinaPage() {
   const [kpiIndex, setKpiIndex] = useState(0);
   const [loaded, setLoaded] = useState(false);
   const [lastCheck, setLastCheck] = useState<Date | null>(null);
+  const [isImmersive, setIsImmersive] = useState(false);
+  const [showNotification, setShowNotification] = useState(false);
   const seenIdsRef = useRef<Set<number>>(new Set());
   const mapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mapRef = useRef<MapRef>(null);
-  
+
   const getCurrentPeriodo = () => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   };
 
   const isFullscreen = typeof window !== 'undefined' && !!document.fullscreenElement;
-    
+
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
       document.documentElement.requestFullscreen().catch(e => {
@@ -95,141 +99,97 @@ export default function ModoOficinaPage() {
   };
 
   // ── Data loading ─────────────────────────────────────────────────────────────
-  const loadData = useCallback(
-    async (isFirst = false) => {
-      if (!distId) return;
+  const loadData = useCallback(async (isInitial = false) => {
+    if (!distId) return;
+    try {
       const periodo = getCurrentPeriodo();
-      const today = new Date();
-      const offset = today.getTimezoneOffset();
-      const local = new Date(today.getTime() - offset * 60 * 1000);
-      const dateStr = local.toISOString().split("T")[0];
-
-      const [r, k, ev, h] = await Promise.allSettled([
-        fetchRanking(distId, periodo, undefined, 999),
+      const [r, k, e, ev] = await Promise.all([
+        fetchRanking(distId, periodo),
         fetchKPIs(distId, periodo),
-        fetchLiveMapEvents(undefined, dateStr),
-        fetchEvolucionTiempo(distId, periodo),
+        fetchLiveMapEvents(distId),
+        fetchEvolucionTiempo(distId),
       ]);
-
-      if (r.status === "fulfilled") setRanking(r.value);
-      if (k.status === "fulfilled") setKpis(k.value);
-      if (h.status === "fulfilled") setEvolucion(h.value);
-      if (ev.status === "fulfilled") {
-        const valid = ev.value.filter(
-          (e) => e.lat && e.lon && e.lat !== 0 && e.lon !== 0
-        );
-        setEvents(valid);
-
-        if (!isFirst) {
-          // Detectar nuevas subidas: cualquier ID no visto previamente
-          const fresh = valid.filter((e) => !seenIdsRef.current.has(e.id_ex));
-          if (fresh.length > 0) {
-            // Tomamos el más reciente (último de la lista)
-            triggerEvent(fresh[fresh.length - 1]);
-          }
-        } else {
-          // En la primera carga, marcamos todos como vistos para no disparar FlyTo masivo
-          valid.forEach(e => seenIdsRef.current.add(e.id_ex));
-        }
-        
-        // Actualizar set de IDs vistos
-        valid.forEach(e => seenIdsRef.current.add(e.id_ex));
-      }
-
+      setRanking(r);
+      setKpis(k);
+      setEvents(e);
+      setEvolucion(ev);
       setLastCheck(new Date());
-      if (isFirst) setLoaded(true);
-    },
-    [distId]
-  );
+      if (isInitial) setLoaded(true);
 
-  function triggerEvent(event: LiveMapEvent) {
-    setNewEvent(event);
-    setMode("map");
-    setSelectedEventId(event.id_ex);
-    
-    // Si ya hay un timer, limpiarlo
-    if (mapTimerRef.current) clearTimeout(mapTimerRef.current);
-    
-    // Volver a modo KPI tras 10 segundos
-    mapTimerRef.current = setTimeout(() => {
-      setMode("kpi");
-      setNewEvent(null);
-      setSelectedEventId(null);
-    }, 10000);
-  }
-
-  // Initial + polling
-  useEffect(() => {
-    if (distId) loadData(true);
+      // Initialize seenIds on first load
+      if (isInitial && e.length > 0) {
+        e.forEach(evnt => seenIdsRef.current.add(evnt.id_ex));
+      }
+    } catch (err) {
+      console.error("Error loading office mode data:", err);
+    }
   }, [distId]);
 
   useEffect(() => {
-    const interval = setInterval(() => loadData(false), POLL_INTERVAL);
-    return () => clearInterval(interval);
+    loadData(true);
+    const intv = setInterval(() => loadData(false), POLL_INTERVAL);
+    return () => clearInterval(intv);
   }, [loadData]);
 
-  // ── WebSocket: Real-time trigger ───────────────────────────────────────────
+  // ── WebSocket ────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!distId || !loaded) return;
 
     let socket: WebSocket | null = null;
-    let reconnectTimer: ReturnType<typeof setTimeout>;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
     const connect = () => {
-      const url = getWSUrl(distId);
-      socket = new WebSocket(url);
+      const wsUrl = getWSUrl(distId);
+      socket = new WebSocket(wsUrl);
 
       socket.onopen = () => {
-        console.log("🔌 Modo Oficina: WebSocket conectado correctamente");
-        console.log("🔗 URL:", url);
+        console.log("🔌 Modo Oficina: WebSocket conectado");
       };
 
       socket.onmessage = (event) => {
         try {
-          const msg = JSON.parse(event.data);
-          if (msg.type === "NUEVA_EXHIBICION") {
-            const data = msg.data;
-            console.log("📥 WS Recibido:", data.vendedor_nombre, `(${data.lat}, ${data.lon})`);
+          const data = JSON.parse(event.data);
+          if (data.type === "new_exhibition") {
+            const evnt: LiveMapEvent = data.payload;
 
-            if (data.lat && data.lon && data.lat !== 0 && data.lon !== 0) {
-              const liveEvent: LiveMapEvent = {
-                id_ex: data.id_ex,
-                id_dist: data.id_dist,
-                nombre_dist: "", 
-                vendedor_nombre: data.vendedor_nombre,
-                lat: data.lat,
-                lon: data.lon,
-                timestamp_evento: data.timestamp_evento,
-                nro_cliente: data.nro_cliente,
-                cliente_nombre: data.cliente_nombre,
-                drive_link: data.drive_link
-              };
-              
-              // Evitar duplicados si el polling también lo trae
-              if (!seenIdsRef.current.has(liveEvent.id_ex)) {
-                console.log("🚀 Disparando viaje al PDV para:", liveEvent.vendedor_nombre);
-                seenIdsRef.current.add(liveEvent.id_ex);
-                setEvents(prev => [...prev, liveEvent]);
-                triggerEvent(liveEvent);
-              } else {
-                console.log("⏭️ Evento ya visto, ignorando:", liveEvent.id_ex);
-              }
-            } else {
-              console.warn("⚠️ Evento ignorado por falta de coordenadas válidas:", data);
-            }
+            // Avoid duplicates
+            if (seenIdsRef.current.has(evnt.id_ex)) return;
+            seenIdsRef.current.add(evnt.id_ex);
+
+            console.log("✨ Nueva exhibición detectada via WS:", evnt);
+
+            // 1. Show notification
+            setNewEvent(evnt);
+            setShowNotification(true);
+            setTimeout(() => setShowNotification(false), 5000);
+
+            // 2. Add to event list
+            setEvents(prev => [evnt, ...prev].slice(0, 50));
+
+            // 3. Switch to Map mode + Immersive
+            setMode("map");
+            setSelectedEventId(evnt.id_ex);
+            setIsImmersive(true);
+
+            // 4. Update data (ranking/kpis) to reflect the new exhibition
+            loadData(false);
+
+            // 5. Auto-revert after duration
+            if (mapTimerRef.current) clearTimeout(mapTimerRef.current);
+            mapTimerRef.current = setTimeout(() => {
+              setMode("kpi");
+              setSelectedEventId(null);
+              setIsImmersive(false);
+            }, EVENT_SHOW_DURATION);
           }
-        } catch (e) {
-          console.error("❌ Error procesando mensaje WS:", e);
+        } catch (err) {
+          console.error("WS Message Error:", err);
         }
       };
 
       socket.onclose = () => {
-        console.log("🔌 Modo Oficina: WebSocket desconectado. Reintentando en 5s...");
+        console.log("🔌 WS desconectado. Reintentando...");
         reconnectTimer = setTimeout(connect, 5000);
-      };
-
-      socket.onerror = (err) => {
-        console.error("❌ WebSocket error:", err);
       };
     };
 
@@ -315,109 +275,143 @@ export default function ModoOficinaPage() {
       }}
     >
       {/* ── Top bar ── */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "10px 20px",
-          borderBottom: "1px solid rgba(255,255,255,0.06)",
-          background: "rgba(6,13,26,0.9)",
-          backdropFilter: "blur(12px)",
-          flexShrink: 0,
-          zIndex: 10,
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <Monitor size={18} color="#7c3aed" />
-          <span style={{ fontWeight: 900, fontSize: 13, letterSpacing: "0.18em", textTransform: "uppercase", color: "#94a3b8" }}>
-            Modo Oficina
-          </span>
-          {lastCheck && (
-            <span style={{ fontSize: 10, color: "#334155", marginLeft: 8 }}>
-              Actualizado {lastCheck.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}
+      {!isImmersive && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "10px 20px",
+            borderBottom: "1px solid rgba(255,255,255,0.06)",
+            background: "rgba(6,13,26,0.9)",
+            backdropFilter: "blur(12px)",
+            flexShrink: 0,
+            zIndex: 10,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <Monitor size={18} color="#7c3aed" />
+            <span style={{ fontWeight: 900, fontSize: 13, letterSpacing: "0.18em", textTransform: "uppercase", color: "#94a3b8" }}>
+              Modo Oficina
             </span>
-          )}
-          {mode === "map" && newEvent && (
-            <div
+            {lastCheck && (
+              <span style={{ fontSize: 10, color: "#334155", marginLeft: 8 }}>
+                Actualizado {lastCheck.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}
+              </span>
+            )}
+            {mode === "map" && newEvent && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  background: "rgba(124,58,237,0.2)",
+                  border: "1px solid rgba(124,58,237,0.4)",
+                  borderRadius: 999,
+                  padding: "3px 12px",
+                  marginLeft: 12,
+                }}
+              >
+                <Zap size={12} color="#a78bfa" className="animate-pulse" />
+                <span style={{ fontSize: 11, fontWeight: 800, color: "#a78bfa", letterSpacing: "0.1em" }}>
+                  Viaje al PDV: {newEvent.vendedor_nombre}
+                </span>
+              </div>
+            )}
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              onClick={toggleFullscreen}
               style={{
+                background: isFullscreen ? "rgba(124,58,237,0.2)" : "rgba(255,255,255,0.05)",
+                border: "1px solid rgba(124,58,237,0.4)",
+                borderRadius: 8,
+                padding: "6px 12px",
+                color: isFullscreen ? "#a78bfa" : "#94a3b8",
+                cursor: "pointer",
                 display: "flex",
                 alignItems: "center",
                 gap: 6,
-                background: "rgba(124,58,237,0.2)",
-                border: "1px solid rgba(124,58,237,0.4)",
-                borderRadius: 999,
-                padding: "3px 12px",
-                marginLeft: 12,
+                fontSize: 11,
+                fontWeight: 700,
               }}
             >
-              <Zap size={12} color="#a78bfa" className="animate-pulse" />
-              <span style={{ fontSize: 11, fontWeight: 800, color: "#a78bfa", letterSpacing: "0.1em" }}>
-                Viaje al PDV: {newEvent.vendedor_nombre}
-              </span>
-            </div>
-          )}
+              <Monitor size={12} />
+              {isFullscreen ? "Salir Fullscreen" : "Pantalla Completa"}
+            </button>
+            <button
+              onClick={() => loadData(false)}
+              style={{
+                background: "rgba(255,255,255,0.05)",
+                border: "1px solid rgba(255,255,255,0.1)",
+                borderRadius: 8,
+                padding: "6px 12px",
+                color: "#94a3b8",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                fontSize: 11,
+                fontWeight: 700,
+              }}
+            >
+              <RotateCcw size={12} />
+              Actualizar
+            </button>
+            <button
+              onClick={() => router.back()}
+              style={{
+                background: "rgba(239,68,68,0.1)",
+                border: "1px solid rgba(239,68,68,0.2)",
+                borderRadius: 8,
+                padding: "6px 12px",
+                color: "#f87171",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                fontSize: 11,
+                fontWeight: 700,
+              }}
+            >
+              <X size={12} />
+              Salir
+            </button>
+          </div>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button
-            onClick={toggleFullscreen}
-            style={{
-              background: isFullscreen ? "rgba(124,58,237,0.2)" : "rgba(255,255,255,0.05)",
-              border: "1px solid rgba(124,58,237,0.4)",
-              borderRadius: 8,
-              padding: "6px 12px",
-              color: isFullscreen ? "#a78bfa" : "#94a3b8",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              fontSize: 11,
-              fontWeight: 700,
-            }}
-          >
-            <Monitor size={12} />
-            {isFullscreen ? "Salir Fullscreen" : "Pantalla Completa"}
-          </button>
-          <button
-            onClick={() => loadData(false)}
-            style={{
-              background: "rgba(255,255,255,0.05)",
-              border: "1px solid rgba(255,255,255,0.1)",
-              borderRadius: 8,
-              padding: "6px 12px",
-              color: "#94a3b8",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              fontSize: 11,
-              fontWeight: 700,
-            }}
-          >
-            <RotateCcw size={12} />
-            Actualizar
-          </button>
-          <button
-            onClick={() => router.back()}
-            style={{
-              background: "rgba(239,68,68,0.1)",
-              border: "1px solid rgba(239,68,68,0.2)",
-              borderRadius: 8,
-              padding: "6px 12px",
-              color: "#f87171",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              fontSize: 11,
-              fontWeight: 700,
-            }}
-          >
-            <X size={12} />
-            Salir
-          </button>
+      )}
+
+      {/* ── Notification Overlay ── */}
+      {showNotification && newEvent && (
+        <div
+          style={{
+            position: "fixed",
+            top: 40,
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 10000,
+            background: "rgba(124,58,237,0.9)",
+            color: "white",
+            padding: "12px 32px",
+            borderRadius: 999,
+            fontWeight: 900,
+            fontSize: 24,
+            letterSpacing: "0.05em",
+            boxShadow: "0 0 50px rgba(124,58,237,0.6)",
+            animation: "notificationPop 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) both",
+            whiteSpace: "nowrap",
+            border: "2px solid rgba(255,255,255,0.2)",
+          }}
+        >
+          <style>{`
+            @keyframes notificationPop {
+              0% { opacity: 0; transform: translateX(-50%) scale(0.5); }
+              100% { opacity: 1; transform: translateX(-50%) scale(1); }
+            }
+          `}</style>
+          ✨ ¡Nueva Exhibición de {newEvent.vendedor_nombre}!
         </div>
-      </div>
+      )}
 
       {/* ── Main split ── */}
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
@@ -425,11 +419,14 @@ export default function ModoOficinaPage() {
         {/* ── LEFT: Ranking ── */}
         <div
           style={{
-            width: "50%",
-            borderRight: "1px solid rgba(255,255,255,0.05)",
+            width: isImmersive ? "0%" : "50%",
+            borderRight: isImmersive ? "none" : "1px solid rgba(255,255,255,0.05)",
             display: "flex",
             flexDirection: "column",
             overflow: "hidden",
+            transition: "width 0.8s cubic-bezier(0.4, 0, 0.2, 1)",
+            opacity: isImmersive ? 0 : 1,
+            pointerEvents: isImmersive ? "none" : "auto",
           }}
         >
           {/* Ranking header */}
@@ -480,11 +477,12 @@ export default function ModoOficinaPage() {
         {/* ── RIGHT: KPI carousel / Map ── */}
         <div
           style={{
-            width: "50%",
+            width: isImmersive ? "100%" : "50%",
             display: "flex",
             flexDirection: "column",
             position: "relative",
             overflow: "hidden",
+            transition: "width 0.8s cubic-bezier(0.4, 0, 0.2, 1)",
           }}
         >
           {/* KPI Carousel */}
@@ -570,88 +568,87 @@ function KpiDisplay({ slide, index, evolucion }: { slide: any; index: number; ev
     <div
       key={index}
       style={{
-        textAlign: "center",
-        animation: "kpiFadeIn 0.6s ease both",
         width: "100%",
-        maxWidth: 500,
+        maxWidth: 600,
         background: "rgba(255,255,255,0.02)",
-        borderRadius: 40,
-        padding: "40px 20px",
         border: "1px solid rgba(255,255,255,0.05)",
-        boxShadow: "0 20px 50px rgba(0,0,0,0.3)",
+        borderRadius: 40,
+        padding: "60px 40px",
+        textAlign: "center",
+        animation: "slideIn 0.8s cubic-bezier(0.16, 1, 0.3, 1) both",
+        position: "relative",
+        overflow: "hidden",
       }}
     >
       <style>{`
-        @keyframes kpiFadeIn {
-          from { opacity: 0; transform: translateY(24px) scale(0.96); }
-          to   { opacity: 1; transform: translateY(0) scale(1); }
+        @keyframes slideIn {
+          0% { opacity: 0; transform: translateY(40px) scale(0.95); filter: blur(10px); }
+          100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
         }
       `}</style>
-      <div
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-          width: 80,
-          height: 80,
-          borderRadius: "50%",
-          background: slide.accent,
-          color: slide.color,
-          marginBottom: 24,
-        }}
-      >
-        {slide.icon}
-      </div>
-      <div
-        style={{
-          fontSize: "clamp(60px, 10vw, 100px)",
-          fontWeight: 900,
-          letterSpacing: "-0.04em",
-          color: slide.color,
-          lineHeight: 1,
-          textShadow: `0 0 60px ${slide.accent}`,
-        }}
-      >
-        {slide.value}
-      </div>
-      <div
-        style={{
-          fontSize: 14,
-          fontWeight: 800,
-          letterSpacing: "0.2em",
-          textTransform: "uppercase",
-          color: "#475569",
-          marginTop: 12,
-          marginBottom: 24,
-        }}
-      >
-        {slide.label}
-      </div>
 
-      {/* Sparkline trend */}
-      {evolucion.length > 0 && (
-        <div style={{ width: "100%", height: 80, opacity: 0.8 }}>
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={evolucion}>
-              <defs>
-                <linearGradient id={`grad-${index}`} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={slide.color} stopOpacity={0.3}/>
-                  <stop offset="95%" stopColor={slide.color} stopOpacity={0}/>
-                </linearGradient>
-              </defs>
-              <Area 
-                type="monotone" 
-                dataKey="total" 
-                stroke={slide.color} 
-                fillOpacity={1} 
-                fill={`url(#grad-${index})`} 
-                strokeWidth={3}
-                isAnimationActive={true}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
+      {/* Background glow */}
+      <div
+        style={{
+          position: "absolute",
+          top: "-20%",
+          left: "-20%",
+          width: "140%",
+          height: "140%",
+          background: "radial-gradient(circle at 50% 50%, " + slide.accent + " 0%, transparent 70%)",
+          pointerEvents: "none",
+        }}
+      />
+
+      <div style={{ position: "relative", zIndex: 1 }}>
+        <div
+          style={{
+            width: 80,
+            height: 80,
+            borderRadius: 24,
+            background: "rgba(255,255,255,0.03)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            margin: "0 auto 32px",
+            color: slide.color,
+            boxShadow: "0 20px 40px " + slide.accent,
+          }}
+        >
+          {slide.icon}
         </div>
-      )}
+
+        <h2 style={{ fontSize: 16, fontWeight: 900, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.4em", marginBottom: 12 }}>
+          {slide.label}
+        </h2>
+
+        <div style={{ fontSize: 110, fontWeight: 950, color: "white", letterSpacing: "-0.04em", lineHeight: 1, textShadow: "0 10px 30px rgba(0,0,0,0.3)" }}>
+          {slide.value}
+        </div>
+
+        {evolucion.length > 0 && (
+          <div style={{ marginTop: 40, height: 100, width: "100%", opacity: 0.6 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={evolucion}>
+                <defs>
+                  <linearGradient id={"grad-" + index} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor={slide.color} stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor={slide.color} stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <Area 
+                  type="monotone" 
+                  dataKey="total" 
+                  stroke={slide.color} 
+                  strokeWidth={3}
+                  fill={"url(#grad-" + index + ")"} 
+                  animationDuration={2000}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -663,89 +660,87 @@ function EventCard({ event }: { event: LiveMapEvent }) {
     <div
       style={{
         position: "absolute",
-        bottom: 24,
-        left: 24,
-        right: 24,
-        background: "rgba(6,13,26,0.92)",
+        bottom: 40,
+        right: 40,
+        width: 400,
+        background: "rgba(15, 23, 42, 0.9)",
         backdropFilter: "blur(20px)",
-        border: "1px solid rgba(124,58,237,0.4)",
-        borderRadius: 20,
-        padding: "16px 20px",
-        display: "flex",
-        alignItems: "center",
-        gap: 16,
-        animation: "cardSlideUp 0.5s ease both",
-        boxShadow: "0 8px 40px rgba(0,0,0,0.6), 0 0 0 1px rgba(124,58,237,0.2)",
-        zIndex: 20,
+        borderRadius: 24,
+        padding: 24,
+        border: "1px solid rgba(255,255,255,0.08)",
+        boxShadow: "0 25px 50px -12px rgba(0,0,0,0.5)",
+        animation: "cardFlyIn 0.8s cubic-bezier(0.16, 1, 0.3, 1) both",
       }}
     >
       <style>{`
-        @keyframes cardSlideUp {
-          from { opacity: 0; transform: translateY(20px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes cardPulse {
-          0%, 100% { box-shadow: 0 0 0 0 rgba(124,58,237,0.4); }
-          50% { box-shadow: 0 0 0 8px rgba(124,58,237,0); }
+        @keyframes cardFlyIn {
+          0% { opacity: 0; transform: translateX(100px); }
+          100% { opacity: 1; transform: translateX(0); }
         }
       `}</style>
 
-      {/* Photo thumbnail */}
-      <div
-        style={{
-          width: 72,
-          height: 72,
-          borderRadius: 12,
-          overflow: "hidden",
-          flexShrink: 0,
-          background: "rgba(124,58,237,0.1)",
-          border: "1px solid rgba(124,58,237,0.3)",
-          animation: "cardPulse 2s ease infinite",
-        }}
-      >
-        {imgUrl ? (
-          <img
-            src={imgUrl}
-            alt="Exhibición"
-            style={{ width: "100%", height: "100%", objectFit: "cover" }}
-          />
-        ) : (
-          <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#7c3aed" }}>
-            <Zap size={24} />
-          </div>
-        )}
-      </div>
-
-      {/* Info */}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-          <div
-            style={{
-              fontSize: 9,
-              fontWeight: 900,
-              letterSpacing: "0.18em",
-              textTransform: "uppercase",
-              color: "#a78bfa",
-              background: "rgba(124,58,237,0.15)",
-              border: "1px solid rgba(124,58,237,0.3)",
-              borderRadius: 6,
-              padding: "2px 8px",
-            }}
-          >
-            ⚡ En Vivo
-          </div>
-          <span style={{ fontSize: 10, color: "#475569", fontWeight: 700 }}>
-            {new Date(event.timestamp_evento).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}
-          </span>
-        </div>
-        <div style={{ fontWeight: 900, fontSize: 15, color: "#f1f5f9", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-          {event.vendedor_nombre}
-        </div>
-        <div style={{ fontSize: 12, color: "#64748b", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-          {event.cliente_nombre || `Cliente #${event.nro_cliente}`}
-          {event.nombre_dist && (
-            <span style={{ color: "#334155", marginLeft: 6 }}>· {event.nombre_dist}</span>
+      <div style={{ display: "flex", gap: 20 }}>
+        {/* Photo Thumbnail */}
+        <div
+          style={{
+            width: 120,
+            height: 120,
+            borderRadius: 16,
+            overflow: "hidden",
+            background: "#1e293b",
+            flexShrink: 0,
+            border: "1px solid rgba(255,255,255,0.05)",
+          }}
+        >
+          {imgUrl ? (
+            <img 
+              src={"https://api.shelfycenter.com/api/proxy-image?url=" + encodeURIComponent(event.drive_link || "")} 
+              alt="Preview" 
+              style={{ width: "100%", height: "100%", objectFit: "cover" }} 
+            />
+          ) : (
+            <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#334155" }}>
+              <Zap size={32} />
+            </div>
           )}
+        </div>
+
+        {/* Info */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 10, fontWeight: 900, color: "#7c3aed", textTransform: "uppercase", letterSpacing: "0.2em", marginBottom: 6 }}>
+            Nueva Exhibición
+          </div>
+          <div style={{ fontSize: 18, fontWeight: 900, color: "white", marginBottom: 4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {event.cliente_nombre}
+          </div>
+          <div style={{ fontSize: 13, color: "#94a3b8", fontWeight: 700 }}>
+            {event.vendedor_nombre}
+          </div>
+          
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 12 }}>
+            <div style={{ width: 8, height: 8, borderRadius: 999, background: "#10b981", animation: "pulse 2s infinite" }} />
+            <span style={{ fontSize: 11, fontWeight: 800, color: "#10b981", textTransform: "uppercase" }}>En Tiempo Real</span>
+          </div>
+          
+          {/* Enriched PDV Info */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px 20px", marginTop: 15, borderTop: "1px solid rgba(255,255,255,0.05)", paddingTop: 12 }}>
+            <div>
+              <div style={{ fontSize: 9, color: "#475569", textTransform: "uppercase", fontWeight: 900 }}>Dirección</div>
+              <div style={{ fontSize: 11, color: "#94a3b8" }}>{event.domicilio || "—"}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 9, color: "#475569", textTransform: "uppercase", fontWeight: 900 }}>Localidad</div>
+              <div style={{ fontSize: 11, color: "#94a3b8" }}>{event.localidad || "—"}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 9, color: "#475569", textTransform: "uppercase", fontWeight: 900 }}>Teléfono</div>
+              <div style={{ fontSize: 11, color: "#10b981", fontWeight: 700 }}>{event.telefono || "—"}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 9, color: "#475569", textTransform: "uppercase", fontWeight: 900 }}>Alta</div>
+              <div style={{ fontSize: 11, color: "#94a3b8" }}>{event.fecha_alta ? format(new Date(event.fecha_alta), "dd/MM/yyyy") : "—"}</div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -770,7 +765,7 @@ function RankingScroller({ ranking, loaded }: { ranking: VendedorRanking[]; load
     function animate() {
       posRef.current += SPEED;
       if (posRef.current >= half) posRef.current -= half;
-      if (container) container.style.transform = `translateY(-${posRef.current}px)`;
+      if (container) container.style.transform = "translateY(-" + posRef.current + "px)";
       frameRef.current = requestAnimationFrame(animate);
     }
 
@@ -800,7 +795,7 @@ function RankingScroller({ ranking, loaded }: { ranking: VendedorRanking[]; load
           const color = semaforo(pct);
           return (
             <div
-              key={`${i}-${v.vendedor}`}
+              key={i + "-" + v.vendedor}
               style={{
                 display: "grid",
                 gridTemplateColumns: "40px 1fr 50px 60px 60px 70px",
@@ -884,7 +879,7 @@ function RankingScroller({ ranking, loaded }: { ranking: VendedorRanking[]; load
 
               {/* % Aprobación */}
               <div style={{ textAlign: "right" }}>
-                <span style={{ fontSize: 12, fontWeight: 900, color }}>
+                <span style={{ fontSize: 12, fontWeight: 900, color: color }}>
                   {pct}%
                 </span>
               </div>

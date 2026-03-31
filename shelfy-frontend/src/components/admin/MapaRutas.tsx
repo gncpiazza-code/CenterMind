@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { Map } from "@/components/ui/map";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 
@@ -49,12 +50,8 @@ export const STATUS_LABELS: Record<PinStatus, string> = {
   inactivo:            "Inactivo",
 };
 
-// Carto Positron (light, calles y nombres, free)
-const LIGHT_STYLE = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
-
 // CSS de animación de aura — usa box-shadow (sin transform) para evitar
 // conflictos de composición GPU con el canvas WebGL de MapLibre.
-// La variable --ac se setea inline por elemento.
 const PULSE_CSS = `
 @keyframes shelfy-aura {
   0%   { box-shadow: 0 0 0 1px var(--ac); }
@@ -84,11 +81,11 @@ interface MapaRutasProps {
 }
 
 export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode }: MapaRutasProps) {
-  const mapContainer  = useRef<HTMLDivElement>(null);
-  const mapRef        = useRef<maplibregl.Map | null>(null);
-  const markersRef    = useRef<maplibregl.Marker[]>([]);
+  const mapRef        = useRef<any>(null);
+  const markersRef    = useRef<any[]>([]);
   const fittedRef     = useRef(false); // fitBounds sólo en la primera carga con datos
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [mapLoaded, setMapLoaded] = useState(false);
 
   // ── Filter toggles ─────────────────────────────────────────────────────────
   const [filterEnabled, setFilterEnabled] = useState<Record<PinStatus, boolean>>({
@@ -109,7 +106,6 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode }: Ma
   const filteredPines = pines.filter(p => filterEnabled[getPinStatus(p)]);
 
   // Resetear fitBounds cuando cambia el set de pines (nuevo vendedor/ruta seleccionado)
-  // pero NO cuando sólo cambian los filtros de status
   const prevPineIdsRef = useRef<string>("");
   const currentPineIds = pines.map(p => p.id).sort().join(",");
   if (currentPineIds !== prevPineIdsRef.current) {
@@ -117,41 +113,17 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode }: Ma
     fittedRef.current = false;
   }
 
-  // ── Init map ───────────────────────────────────────────────────────────────
   useEffect(() => {
     injectPulseCSS();
-    if (!mapContainer.current) return;
-    const map = new maplibregl.Map({
-      container:              mapContainer.current,
-      style:                  LIGHT_STYLE,
-      center:                 [-63.0, -34.0],
-      zoom:                   5,
-      pitch:                  0,
-      bearing:                0,
-      preserveDrawingBuffer:  true,
-    });
-    map.addControl(new maplibregl.NavigationControl(), "bottom-right");
-    mapRef.current = map;
-
-    // ResizeObserver: llama map.resize() cada vez que el contenedor cambia de tamaño.
-    // Esto evita que los markers queden desincronizados con el canvas cuando el layout
-    // cambia (flex, fullscreen, panel lateral, etc.)
-    const ro = new ResizeObserver(() => { map.resize(); });
-    if (mapContainer.current) ro.observe(mapContainer.current);
-
-    return () => {
-      ro.disconnect();
-      map.remove();
-      mapRef.current = null;
-    };
   }, []);
 
   // ── Markers ────────────────────────────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current;
-    if (!map) return;
+    if (!map || !mapLoaded) return;
 
     const addMarkers = () => {
+      // Limpiar anteriores
       markersRef.current.forEach(m => m.remove());
       markersRef.current = [];
 
@@ -164,8 +136,6 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode }: Ma
         const hasCount = p.totalExhibiciones && p.totalExhibiciones > 0;
         const size        = p.activo ? (hasCount ? 18 : 12) : (hasCount ? 14 : 8);
 
-        // Un único div — sin transform en la animación.
-        // box-shadow pulse no crea capas GPU que compitan con el canvas WebGL.
         const wrapper = document.createElement("div");
         wrapper.className = "shelfy-pin";
         wrapper.style.cssText = `
@@ -178,13 +148,14 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode }: Ma
           display:flex;
           align-items:center;
           justify-content:center;
+          --ac: ${auraColor};
+          animation: shelfy-aura 2s infinite;
         `;
         wrapper.innerHTML = hasCount
           ? `<span style="font-size:9px;font-weight:700;color:#fff;line-height:1;">${p.totalExhibiciones}</span>`
           : '';
 
         // ── Popup ──────────────────────────────────────────────────────────
-        // Helper: días desde una fecha ISO (date o timestamp)
         const diasDesde = (iso: string | null | undefined): number | null => {
           if (!iso) return null;
           const ms = Date.now() - new Date(iso).getTime();
@@ -193,19 +164,14 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode }: Ma
 
         const diasCompra = diasDesde(p.fechaUltimaCompra);
         const diasExhib  = diasDesde(p.fechaUltimaExhibicion);
-
-        // Línea de compra
         const compraColor = p.activo ? "#16a34a" : "#dc2626";
         const compraLabel = diasCompra === null
           ? `<span style="color:#94a3b8">Sin compras registradas</span>`
           : `<span style="color:${compraColor}">Últ. compra: ${p.ultimaCompra} · <b>hace ${diasCompra}d</b></span>`;
 
-        // Línea de exhibición
         let exhibLine = "";
         if (p.fechaUltimaExhibicion) {
           const exhDateStr = p.fechaUltimaExhibicion.split("T")[0];
-          // Thumbnail desde Drive: usar URL de thumbnail pública de Google
-          // url_foto_drive es en realidad una URL pública de Supabase Storage
           const imgUrl    = p.urlExhibicion ?? null;
           const thumbHtml = imgUrl
             ? `<a href="${imgUrl}" target="_blank" rel="noopener" style="display:block;margin-top:5px">
@@ -213,20 +179,18 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode }: Ma
                   style="width:100%;max-width:200px;border-radius:5px;border:1px solid #e2e8f0;display:block;object-fit:cover"/>
                </a>`
             : "";
-          const viewUrl = imgUrl;
           exhibLine = `
             <div style="margin-top:5px;padding-top:5px;border-top:1px solid #f1f5f9">
               <span style="color:#d97706;font-size:11px">
                 ● Exhibición: ${exhDateStr} · <b>hace ${diasExhib}d</b>
               </span>
               ${thumbHtml}
-              ${viewUrl ? `<a href="${viewUrl}" target="_blank" rel="noopener"
+              ${imgUrl ? `<a href="${imgUrl}" target="_blank" rel="noopener"
                 style="font-size:10px;color:#3b82f6;display:inline-block;margin-top:3px">
                 Ver imagen original ↗</a>` : ""}
             </div>`;
         }
 
-        // Línea de deuda (enriquecida desde cc_detalle vía TabSupervision)
         const deudaLine = p.deuda != null
           ? `<div style="margin-top:4px;padding:3px 6px;background:#fef3c715;border-radius:4px;border:1px solid #fef3c740">
                <span style="color:#d97706;font-size:11px">💳 Deuda: <b>$${p.deuda.toLocaleString("es-AR",{maximumFractionDigits:0})}</b>${p.antiguedadDias != null ? ` · <b style="color:#ef4444">${p.antiguedadDias}d</b>` : ""}</span>
@@ -268,9 +232,6 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode }: Ma
         markersRef.current.push(marker);
       });
 
-      // fitBounds sólo la primera vez que llegan datos con coordenadas.
-      // animate:false evita que los markers aparezcan en posiciones "viejas"
-      // durante la animación de vuelo del mapa.
       if (conCoords.length > 0 && !fittedRef.current) {
         fittedRef.current = true;
         const lngs = conCoords.map(p => p.lng);
@@ -282,19 +243,8 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode }: Ma
       }
     };
 
-    if (map.loaded()) addMarkers();
-    else map.once("load", addMarkers);
-  }, [filteredPines]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Resize explícito al cambiar fullscreen — el ResizeObserver cubre cambios
-  // de layout, pero fullscreen cambia el CSS de position/fixed que puede
-  // necesitar un ciclo extra para que el contenedor reporte el nuevo tamaño.
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    const t = setTimeout(() => map.resize(), 220);
-    return () => clearTimeout(t);
-  }, [isFullscreen]);
+    addMarkers();
+  }, [filteredPines, mapLoaded]);
 
   // ESC to exit fullscreen
   useEffect(() => {
@@ -304,8 +254,9 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode }: Ma
   }, [isFullscreen]);
 
   const handlePrint = () => {
-    if (!mapRef.current) return;
-    const canvas = mapRef.current.getCanvas();
+    const map = mapRef.current;
+    if (!map) return;
+    const canvas = map.getCanvas();
     const dataUrl = canvas.toDataURL('image/png');
     const visiblePins = filteredPines;
     const legend = visiblePins.map(p =>
@@ -384,7 +335,7 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode }: Ma
       }}
       className="shelfy-print-mapa"
     >
-      {/* Vendor panel overlay (fullscreen only) — fondo oscuro para texto white */}
+      {/* Vendor panel overlay (fullscreen only) */}
       {isFullscreen && fullscreenPanel && (
         <div style={{
           position: "absolute", left: 0, top: 0, bottom: 0, width: 300,
@@ -398,14 +349,18 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode }: Ma
         </div>
       )}
 
-      {/* Map canvas — sin transition en marginLeft para que MapLibre no pierda
-          la referencia de tamaño durante el CSS animation */}
-      <div ref={mapContainer} style={{
-        flex: 1, height: "100%",
-        marginLeft: panelOffset,
-      }} />
+      {/* Map area */}
+      <div style={{ flex: 1, position: "relative", marginLeft: panelOffset }}>
+        <Map
+          ref={mapRef}
+          theme="light"
+          onLoad={() => setMapLoaded(true)}
+          center={[-63.0, -34.0]}
+          zoom={5}
+        />
+      </div>
 
-      {/* Top-right controls — hidden in shelfyMapsMode (replaced by ShelfyMaps topbar) */}
+      {/* Top-right controls */}
       {!shelfyMapsMode && (
         <div className="shelfy-map-controls" style={{
           position: "absolute", top: 10, right: 10,
@@ -429,7 +384,7 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode }: Ma
         </div>
       )}
 
-      {/* Filter legend — bottom-left — hidden in shelfyMapsMode */}
+      {/* Filter legend */}
       {!shelfyMapsMode && (
         <div style={{
           position: "absolute", bottom: 40, left: panelOffset + 12,
@@ -439,7 +394,7 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode }: Ma
         </div>
       )}
 
-      {/* PDV count badge — top-left — hidden in shelfyMapsMode */}
+      {/* PDV count badge */}
       {!shelfyMapsMode && (
         <div style={{
           position: "absolute", top: 10, left: panelOffset + 10,

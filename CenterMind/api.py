@@ -2582,12 +2582,6 @@ def sync_hierarchy_from_erp(dist_id: int, user_payload=Depends(verify_auth)):
                     updated_count += 1
         
         return {"ok": True, "updated_count": updated_count}
-
-        return {
-            "status": "success",
-            "sucursales_creadas": created_count,
-            "vendedores_mapeados": updated_count
-        }
     except Exception as e:
         logger.error(f"Error en sync hierarchy: {e}")
         raise HTTPException(status_code=500, detail=str(e))

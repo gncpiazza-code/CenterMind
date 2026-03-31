@@ -114,7 +114,6 @@ export default function ModoOficinaPage() {
       setEvents(e);
       setEvolucion(ev);
       setLastCheck(new Date());
-      if (isInitial) setLoaded(true);
 
       // Initialize seenIds on first load
       if (isInitial && e.length > 0) {
@@ -122,6 +121,8 @@ export default function ModoOficinaPage() {
       }
     } catch (err) {
       console.error("Error loading office mode data:", err);
+    } finally {
+      if (isInitial) setLoaded(true);
     }
   }, [distId]);
 
@@ -219,6 +220,8 @@ export default function ModoOficinaPage() {
         reconnectTimer = setTimeout(connect, 5000);
       };
     };
+
+    connect();
 
     return () => {
       if (socket) socket.close();

@@ -115,10 +115,9 @@ function buildEvolucionSVG(evolucion: EvolucionTiempo[]): string {
 // ── Ranking rows ───────────────────────────────────────────────────────────────
 
 function buildRankingRows(ranking: VendedorRanking[]): string {
-  const top15 = ranking.slice(0, 15);
-  const maxAprobadas = Math.max(...top15.map((v) => v.aprobadas), 1);
+  const maxAprobadas = Math.max(...ranking.map((v) => v.aprobadas), 1);
 
-  return top15
+  return ranking
     .map((v, i) => {
       const total = v.aprobadas + v.rechazadas;
       const pct = tasa(v.aprobadas, total);
@@ -411,6 +410,15 @@ export function generateRankingHTML(input: ReportInput): string {
     .anim-d2 { animation-delay: .10s; }
     .anim-d3 { animation-delay: .15s; }
     .anim-d4 { animation-delay: .20s; }
+
+    @media print {
+      body { background: white !important; color: #333 !important; }
+      .race-chart-section, canvas, svg { display: none !important; }
+      table { border-collapse: collapse !important; width: 100% !important; }
+      th, td { border: 1px solid #999 !important; padding: 6px 8px !important; color: #000 !important; background: white !important; }
+      .bar-fill { background: #333 !important; }
+      @page { margin: 1.5cm; }
+    }
   </style>
 </head>
 <body>
@@ -446,7 +454,7 @@ export function generateRankingHTML(input: ReportInput): string {
   </div>
 
   <!-- ── Ranking ── -->
-  <p class="section-title">Ranking Top ${Math.min(ranking.length, 15)}</p>
+  <p class="section-title">Ranking Top ${ranking.length}</p>
   <div class="ranking-wrap anim">
     ${hasRanking ? `
     <table>

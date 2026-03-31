@@ -100,6 +100,23 @@ export function RankingTable({
     }, 20);
   }
 
+  function handlePrintReport() {
+    if (!kpis) return;
+    const label = periodoLabel ?? periodo;
+    const html = generateRankingHTML({
+      distId,
+      nombreEmpresa,
+      periodo,
+      periodoLabel: label,
+      ranking,
+      kpis,
+      evolucion,
+      sucursales,
+    });
+    const win = window.open('', '_blank');
+    if (win) { win.document.write(html); win.document.close(); setTimeout(() => win.print(), 300); }
+  }
+
   function handleDownloadSaved() {
     if (!savedReport) return;
     downloadHTML(savedReport.html, reportFileName(savedReport.nombreEmpresa, savedReport.periodo));
@@ -176,21 +193,42 @@ export function RankingTable({
                 <Download size={12} />
                 Descargar último
               </button>
+              {/* Print PDF button */}
+              <button
+                onClick={handlePrintReport}
+                disabled={!kpis}
+                className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-slate-600 bg-slate-100 hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed px-3 py-2 rounded-xl border border-slate-200/60 transition-colors"
+                title="Imprimir PDF del informe"
+              >
+                <FileText size={12} />
+                Imprimir PDF
+              </button>
             </>
           ) : (
-            <button
-              onClick={handleGenerateReport}
-              disabled={generating || !kpis}
-              className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-white bg-violet-600 hover:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed px-4 py-2 rounded-xl shadow-sm transition-colors"
-              title="Generar informe HTML del período actual"
-            >
-              {generating ? (
-                <Loader2 size={12} className="animate-spin" />
-              ) : (
+            <>
+              <button
+                onClick={handleGenerateReport}
+                disabled={generating || !kpis}
+                className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-white bg-violet-600 hover:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed px-4 py-2 rounded-xl shadow-sm transition-colors"
+                title="Generar informe HTML del período actual"
+              >
+                {generating ? (
+                  <Loader2 size={12} className="animate-spin" />
+                ) : (
+                  <FileText size={12} />
+                )}
+                Generar Informe
+              </button>
+              <button
+                onClick={handlePrintReport}
+                disabled={!kpis}
+                className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-slate-600 bg-slate-100 hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed px-3 py-2 rounded-xl border border-slate-200/60 transition-colors"
+                title="Imprimir PDF del informe"
+              >
                 <FileText size={12} />
-              )}
-              Generar Informe
-            </button>
+                Imprimir PDF
+              </button>
+            </>
           )}
         </div>
 

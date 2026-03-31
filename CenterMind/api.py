@@ -2962,12 +2962,13 @@ def supervision_clientes(id_ruta: int, user_payload=Depends(verify_auth)):
             erp_map = {r["id_cliente_erp"]: r["id_cliente"] for r in rows if r.get("id_cliente_erp")}
             dist_id = rows[0].get("id_distribuidor")
             
-            exh_map: dict = {}      # id_cliente_v2 → timestamp_subida
-            exh_foto_map: dict = {} # id_cliente_v2 → url_foto_drive
-            
+            exh_map: dict = {}       # id_cliente_v2 → timestamp_subida
+            exh_foto_map: dict = {}  # id_cliente_v2 → url_foto_drive
+            exh_count_map: dict = {} # id_cliente_v2 → total exhibiciones
+
             # Calculate 30-day threshold for "recent" exhibition
             threshold_date = (datetime.now() - timedelta(days=30)).isoformat()
-            
+
             try:
                 # 1. Buscar por id_cliente_pdv (legacy mapping)
                 exh_res = sb.table("exhibiciones") \
@@ -2978,9 +2979,11 @@ def supervision_clientes(id_ruta: int, user_payload=Depends(verify_auth)):
                     .execute()
                 for e in (exh_res.data or []):
                     cid = e.get("id_cliente_pdv")
-                    if cid and cid not in exh_map:
-                        exh_map[cid] = e.get("timestamp_subida")
-                        exh_foto_map[cid] = e.get("url_foto_drive")
+                    if cid:
+                        exh_count_map[cid] = exh_count_map.get(cid, 0) + 1
+                        if cid not in exh_map:
+                            exh_map[cid] = e.get("timestamp_subida")
+                            exh_foto_map[cid] = e.get("url_foto_drive")
 
                 # 2. Buscar por ERP code (cliente_sombra_codigo) para los que aún no tienen match
                 # Esto es más lento pero asegura encontrar exhibiciones no vinculadas por ID
@@ -2995,16 +2998,19 @@ def supervision_clientes(id_ruta: int, user_payload=Depends(verify_auth)):
                     for e in (exh_erp_res.data or []):
                         erp = e.get("cliente_sombra_codigo")
                         vid = erp_map.get(erp)
-                        if vid and vid not in exh_map:
-                            exh_map[vid]      = e.get("timestamp_subida")
-                            exh_foto_map[vid] = e.get("url_foto_drive")
+                        if vid:
+                            exh_count_map[vid] = exh_count_map.get(vid, 0) + 1
+                            if vid not in exh_map:
+                                exh_map[vid]      = e.get("timestamp_subida")
+                                exh_foto_map[vid] = e.get("url_foto_drive")
             except Exception as e:
                 logger.error(f"Error en join exhibiciones: {e}")
-            
+
             for r in rows:
                 fecha_exh = exh_map.get(r["id_cliente"])
                 r["fecha_ultima_exhibicion"]  = fecha_exh
                 r["url_ultima_exhibicion"]    = exh_foto_map.get(r["id_cliente"])
+                r["total_exhibiciones"]       = exh_count_map.get(r["id_cliente"], 0)
                 # Server-side calculation: is exhibition recent (within 30 days)?
                 r["tiene_exhibicion_reciente"] = bool(fecha_exh and fecha_exh >= threshold_date)
 
@@ -3236,7 +3242,7 @@ def supervision_cuentas(dist_id: int, sucursal: Optional[str] = Query(None), use
                 .eq("id_distribuidor", int(dist_id)) \
                 .eq("fecha_snapshot", fecha_snapshot)
             if sucursal:
-                q = q.eq("sucursal_nombre", sucursal)
+                q = q.ilike("sucursal_nombre", sucursal.strip())
             return q
 
         # Paginar para evitar el límite de 1000 filas por defecto de Supabase

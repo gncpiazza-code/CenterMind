@@ -22,16 +22,6 @@ const ALL_NAV: NavItem[] = [
   { href: "/supervision", label: "Panel de Supervisión", icon: Route,    roles: ["superadmin", "admin", "supervisor"] },
   { href: "/bonos", label: "Bonos", icon: Gift, roles: ["superadmin"] },
   {
-    href: "/reportes",
-    label: "Reportes",
-    icon: BarChart2,
-    roles: ["superadmin", "admin", "supervisor"],
-    subItems: [
-      { href: "/reportes", label: "Reporte de Exhibiciones", icon: BarChart2, roles: ["superadmin", "admin", "supervisor"] },
-      { href: "/reportes?tab=cuentas_corrientes", label: "Cuentas corrientes", icon: Briefcase, roles: ["superadmin", "admin"] },
-    ]
-  },
-  {
     href: "/academy-hub",
     label: "Real Academy",
     icon: GraduationCap,
@@ -72,15 +62,6 @@ export function Sidebar() {
       { href: "/visor",       label: "Evaluar",             icon: Eye },
       { href: "/dashboard",   label: "Dashboard",           icon: LayoutDashboard },
       { href: "/supervision", label: "Panel de Supervisión", icon: Route },
-      {
-        href: "/reportes",
-        label: "Reportes",
-        icon: BarChart2,
-        subItems: [
-          { href: "/reportes", label: "Reporte de Exhibiciones", icon: BarChart2 },
-          { href: "/reportes?tab=cuentas_corrientes", label: "Cuentas corrientes", icon: Briefcase },
-        ]
-      },
     ];
 
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({ "/academy-hub": true });

@@ -397,6 +397,10 @@ function ReportesContent() {
 
   return (
     <>
+      <div className="bg-yellow-100 border border-yellow-300 text-yellow-800 text-sm px-4 py-3 rounded mb-4">
+        Esta sección está en proceso de retiro. Los reportes están disponibles directamente en el{" "}
+        <a href="/dashboard" className="underline font-medium">Dashboard</a>.
+      </div>
       <style>{`
         @media print {
           body { background: white !important; }

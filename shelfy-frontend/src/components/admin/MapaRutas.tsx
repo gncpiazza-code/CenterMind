@@ -22,6 +22,7 @@ export interface PinCliente {
   // Deuda cruzada desde cc_detalle (opcional, se enriquece en TabSupervision)
   deuda?: number | null;
   antiguedadDias?: number | null;
+  totalExhibiciones?: number;
 }
 
 // ── Status helpers ────────────────────────────────────────────────────────────
@@ -121,12 +122,13 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode }: Ma
     injectPulseCSS();
     if (!mapContainer.current) return;
     const map = new maplibregl.Map({
-      container: mapContainer.current,
-      style:     LIGHT_STYLE,
-      center:    [-63.0, -34.0],
-      zoom:      5,
-      pitch:     0,
-      bearing:   0,
+      container:              mapContainer.current,
+      style:                  LIGHT_STYLE,
+      center:                 [-63.0, -34.0],
+      zoom:                   5,
+      pitch:                  0,
+      bearing:                0,
+      preserveDrawingBuffer:  true,
     });
     map.addControl(new maplibregl.NavigationControl(), "bottom-right");
     mapRef.current = map;
@@ -159,9 +161,10 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode }: Ma
         const status      = getPinStatus(p);
         const auraColor   = STATUS_COLORS[status];
         const vendorColor = p.color;
-        const size        = p.activo ? 12 : 8;
+        const hasCount = p.totalExhibiciones && p.totalExhibiciones > 0;
+        const size        = p.activo ? (hasCount ? 18 : 12) : (hasCount ? 14 : 8);
 
-        // Un único div — sin hijos, sin transform en la animación.
+        // Un único div — sin transform en la animación.
         // box-shadow pulse no crea capas GPU que compitan con el canvas WebGL.
         const wrapper = document.createElement("div");
         wrapper.className = "shelfy-pin";
@@ -172,7 +175,13 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode }: Ma
           border:2px solid ${auraColor};
           box-sizing:border-box;
           opacity:${p.activo ? 0.95 : 0.6};
+          display:flex;
+          align-items:center;
+          justify-content:center;
         `;
+        wrapper.innerHTML = hasCount
+          ? `<span style="font-size:9px;font-weight:700;color:#fff;line-height:1;">${p.totalExhibiciones}</span>`
+          : '';
 
         // ── Popup ──────────────────────────────────────────────────────────
         // Helper: días desde una fecha ISO (date o timestamp)
@@ -295,23 +304,25 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode }: Ma
   }, [isFullscreen]);
 
   const handlePrint = () => {
-    const map = mapRef.current;
-    if (!map) return;
-    const styleEl = document.createElement("style");
-    styleEl.id = "shelfy-print-style";
-    styleEl.textContent = `
-      @media print {
-        @page { size: A4 landscape; margin: 10mm; }
-        body > *:not(.shelfy-print-mapa) { display: none !important; }
-        .shelfy-print-mapa { display:block !important; position:fixed !important; inset:0 !important; width:100vw !important; height:100vh !important; }
-        .maplibregl-ctrl-bottom-right, .shelfy-map-controls { display:none !important; }
-      }
-    `;
-    document.head.appendChild(styleEl);
-    setTimeout(() => {
-      window.print();
-      setTimeout(() => { document.getElementById("shelfy-print-style")?.remove(); }, 1000);
-    }, 400);
+    if (!mapRef.current) return;
+    const canvas = mapRef.current.getCanvas();
+    const dataUrl = canvas.toDataURL('image/png');
+    const visiblePins = filteredPines;
+    const legend = visiblePins.map(p =>
+      `<tr><td style="padding:4px 8px;border:1px solid #ccc;">${p.nombre}</td><td style="padding:4px 8px;border:1px solid #ccc;">${p.vendedor}</td></tr>`
+    ).join('');
+    const win = window.open('', '_blank');
+    if (!win) return;
+    win.document.write(`<!DOCTYPE html><html><head><title>Mapa de Rutas</title>
+    <style>body{margin:0;font-family:sans-serif;} img{max-width:100%;} table{border-collapse:collapse;width:100%;margin-top:16px;} @media print{@page{margin:1cm;}}</style>
+    </head><body>
+    <h2 style="font-size:16px;margin:8px 0;">Mapa de Rutas — PDVs visibles</h2>
+    <img src="${dataUrl}" style="width:100%;border:1px solid #eee;" />
+    <table><thead><tr><th style="padding:4px 8px;border:1px solid #ccc;text-align:left;">PDV</th><th style="padding:4px 8px;border:1px solid #ccc;text-align:left;">Vendedor</th></tr></thead>
+    <tbody>${legend}</tbody></table>
+    <script>window.onload=function(){window.print();}<\/script>
+    </body></html>`);
+    win.document.close();
   };
 
   const STATUS_ORDER: PinStatus[] = ["activo_exhibicion", "activo", "inactivo_exhibicion", "inactivo"];

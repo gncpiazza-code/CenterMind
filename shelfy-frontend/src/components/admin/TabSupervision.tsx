@@ -250,11 +250,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
 
   // ── Ventas & Cuentas ──────────────────────────────────────────────────────
   const [ventasDias, setVentasDias]             = useState<7 | 30 | 90>(30);
-  const [ventasData, setVentasData]             = useState<VentasSupervision | null>(null);
-  const [loadingVentas, setLoadingVentas]       = useState(false);
   const [openVentasVend, setOpenVentasVend]     = useState<string | null>(null);
-  const [cuentasData, setCuentasData]           = useState<CuentasSupervision | null>(null);
-  const [loadingCuentas, setLoadingCuentas]     = useState(false);
   const [openCuentasVend, setOpenCuentasVend]   = useState<string | null>(null);
   const [clientePopup, setClientePopup]         = useState<{
     nombre: string;
@@ -310,26 +306,21 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
     setOpenCliente(null);
   }, [selectedDist, clearAll]);
 
-  useEffect(() => {
-    if (!selectedDist) return;
-    setVentasData(null);
-    setLoadingVentas(true);
-    fetchVentasSupervision(selectedDist, ventasDias)
-      .then(setVentasData).catch(() => {}).finally(() => setLoadingVentas(false));
-  }, [selectedDist, ventasDias]);
+  const { data: ventasData = null, isLoading: loadingVentas } = useQuery({
+    queryKey: ['supervision-ventas', selectedDist, ventasDias],
+    queryFn: () => fetchVentasSupervision(selectedDist, ventasDias),
+    enabled: !!selectedDist,
+    placeholderData: (prev: unknown) => prev,
+    staleTime: 60_000,
+  });
 
-  useEffect(() => {
-    if (!selectedDist || !selectedSucursal) {
-      setCuentasData(null);
-      return;
-    }
-    setCuentasData(null);
-    setLoadingCuentas(true);
-    fetchCuentasSupervision(selectedDist, selectedSucursal)
-      .then(setCuentasData)
-      .catch(() => {})
-      .finally(() => setLoadingCuentas(false));
-  }, [selectedDist, selectedSucursal]);
+  const { data: cuentasData = null, isLoading: loadingCuentas } = useQuery({
+    queryKey: ['supervision-cuentas', selectedDist, selectedSucursal],
+    queryFn: () => fetchCuentasSupervision(selectedDist!, selectedSucursal!),
+    enabled: !!selectedDist && !!selectedSucursal,
+    placeholderData: (prev: unknown) => prev,
+    staleTime: 60_000,
+  });
 
   // ── Derived & Filtered ────────────────────────────────────────────────────
   const sucursales = useMemo(() =>
@@ -717,6 +708,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
             urlExhibicion:         c.url_ultima_exhibicion ?? null,
             deuda:                 deudaInfo?.deuda ?? null,
             antiguedadDias:        deudaInfo?.antiguedad ?? null,
+            totalExhibiciones:     c.total_exhibiciones ?? 0,
           });
         });
       });

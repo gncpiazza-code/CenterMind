@@ -3,11 +3,12 @@
 import { Sidebar } from "@/components/layout/Sidebar";
 import { BottomNav } from "@/components/layout/BottomNav";
 import { Topbar } from "@/components/layout/Topbar";
-import { PageSpinner } from "@/components/ui/Spinner";
 import { Card } from "@/components/ui/Card";
 import { useAuth } from "@/hooks/useAuth";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { motion } from "framer-motion";
 import {
   fetchKPIs, fetchRanking, fetchUltimasEvaluadas, fetchPorSucursal,
   fetchEvolucionTiempo, fetchRendimientoCiudad, fetchPorEmpresa,
@@ -67,6 +68,20 @@ function formatPeriodoLabel(periodo: string): string {
   return periodo;
 }
 
+const kpiVariants = {
+  hidden: {},
+  show: {
+    transition: {
+      staggerChildren: 0.08,
+    },
+  },
+};
+
+const kpiItemVariants = {
+  hidden: { opacity: 0, y: 20 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.3 } },
+};
+
 // ── Página principal ──────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
@@ -74,48 +89,14 @@ export default function DashboardPage() {
   const router = useRouter();
   const initVars = getCurrentYearMonth();
 
-  const [kpis, setKpis] = useState<KPIs | null>(null);
-  const [ranking, setRanking] = useState<VendedorRanking[]>([]);
-  const [ultimas, setUltimas] = useState<UltimaEvaluada[]>([]);
-  const [sucursales, setSucursales] = useState<SucursalStats[]>([]);
-  const [evolucion, setEvolucion] = useState<EvolucionTiempo[]>([]);
-  const [ciudades, setCiudades] = useState<RendimientoCiudad[]>([]);
-  const [empresas, setEmpresas] = useState<RendimientoCiudad[]>([]);
-
   const [year, setYear] = useState(initVars.year);
   const [month, setMonth] = useState(initVars.month);
   const [day, setDay] = useState(initVars.day);
   const [sucursalFiltro, setSucursalFiltro] = useState("");
 
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
   const periodo = periodoString(year, month, day);
-
-  const cargar = useCallback(async (p = periodo, sId = sucursalFiltro) => {
-    if (!user) return;
-    setError(null);
-    try {
-      const distId = user?.id_distribuidor || 0;
-      const isSuper = user?.is_superadmin;
-
-      const [k, r, u, s, ev, ci, emp] = await Promise.all([
-        fetchKPIs(distId, p, sId),
-        fetchRanking(distId, p, sId),
-        fetchUltimasEvaluadas(distId, 12, sId),
-        fetchPorSucursal(distId, p, sId),
-        fetchEvolucionTiempo(distId, p, sId),
-        fetchRendimientoCiudad(distId, p, sId),
-        isSuper ? fetchPorEmpresa(p, sId) : Promise.resolve([]),
-      ]);
-      setKpis(k); setRanking(r); setUltimas(u); setSucursales(s);
-      setEvolucion(ev); setCiudades(ci); setEmpresas(emp);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Error al cargar");
-    } finally {
-      setLoading(false);
-    }
-  }, [user, periodo, sucursalFiltro]);
+  const distId = user?.id_distribuidor || 0;
+  const isSuper = user?.is_superadmin;
 
   useEffect(() => {
     const locallySeen = typeof window !== "undefined" && localStorage.getItem("shelfy_tutorial_v2_seen") === "true";
@@ -124,17 +105,70 @@ export default function DashboardPage() {
     }
   }, [user, router]);
 
-  useEffect(() => { cargar(); }, [cargar]);
+  const enabled = !!user;
 
-  // Auto-refresh cada 90s
-  useEffect(() => {
-    const t = setInterval(() => cargar(), 90_000);
-    return () => clearInterval(t);
-  }, [cargar]);
+  const { data: kpis, isLoading: loadingKpis, error: errorKpis } = useQuery<KPIs>({
+    queryKey: ["dashboard", "kpis", distId, periodo, sucursalFiltro],
+    queryFn: () => fetchKPIs(distId, periodo, sucursalFiltro),
+    enabled,
+    placeholderData: (prev: unknown) => prev as KPIs | undefined,
+    refetchInterval: 90_000,
+  });
+
+  const { data: ranking = [], isLoading: loadingRanking, error: errorRanking } = useQuery<VendedorRanking[]>({
+    queryKey: ["dashboard", "ranking", distId, periodo, sucursalFiltro],
+    queryFn: () => fetchRanking(distId, periodo, sucursalFiltro),
+    enabled,
+    placeholderData: (prev: unknown) => prev as VendedorRanking[] | undefined,
+    refetchInterval: 90_000,
+  });
+
+  const { data: ultimas = [], isLoading: loadingUltimas } = useQuery<UltimaEvaluada[]>({
+    queryKey: ["dashboard", "ultimas", distId, sucursalFiltro],
+    queryFn: () => fetchUltimasEvaluadas(distId, 12, sucursalFiltro),
+    enabled,
+    placeholderData: (prev: unknown) => prev as UltimaEvaluada[] | undefined,
+    refetchInterval: 90_000,
+  });
+
+  const { data: sucursales = [], isLoading: loadingSucursales } = useQuery<SucursalStats[]>({
+    queryKey: ["dashboard", "sucursales", distId, periodo, sucursalFiltro],
+    queryFn: () => fetchPorSucursal(distId, periodo, sucursalFiltro),
+    enabled,
+    placeholderData: (prev: unknown) => prev as SucursalStats[] | undefined,
+    refetchInterval: 90_000,
+  });
+
+  const { data: evolucion = [] } = useQuery<EvolucionTiempo[]>({
+    queryKey: ["dashboard", "evolucion", distId, periodo, sucursalFiltro],
+    queryFn: () => fetchEvolucionTiempo(distId, periodo, sucursalFiltro),
+    enabled,
+    placeholderData: (prev: unknown) => prev as EvolucionTiempo[] | undefined,
+    refetchInterval: 90_000,
+  });
+
+  const { data: ciudades = [] } = useQuery<RendimientoCiudad[]>({
+    queryKey: ["dashboard", "ciudades", distId, periodo, sucursalFiltro],
+    queryFn: () => fetchRendimientoCiudad(distId, periodo, sucursalFiltro),
+    enabled,
+    placeholderData: (prev: unknown) => prev as RendimientoCiudad[] | undefined,
+    refetchInterval: 90_000,
+  });
+
+  const { data: empresas = [] } = useQuery<RendimientoCiudad[]>({
+    queryKey: ["dashboard", "empresas", periodo, sucursalFiltro],
+    queryFn: () => isSuper ? fetchPorEmpresa(periodo, sucursalFiltro) : Promise.resolve([]),
+    enabled,
+    placeholderData: (prev: unknown) => prev as RendimientoCiudad[] | undefined,
+    refetchInterval: 90_000,
+  });
+
+  const loading = loadingKpis || loadingRanking || loadingUltimas || loadingSucursales;
+  const error = errorKpis || errorRanking;
 
   function handleDateChange(y: number, m: number, d: number) {
     setYear(y); setMonth(m); setDay(d);
-    setLoading(true); setSucursalFiltro("");
+    setSucursalFiltro("");
   }
 
   // Filtrar ranking por sucursal
@@ -160,13 +194,13 @@ export default function DashboardPage() {
             sucursalFiltro={sucursalFiltro} sucursales={sucursales}
             onDateChange={handleDateChange}
             onSucursal={setSucursalFiltro}
-            onRefresh={() => { setLoading(true); cargar(); }}
+            onRefresh={() => {}}
           />
 
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-700 rounded-3xl px-5 py-4 text-sm font-black mb-6 flex items-center gap-3 shadow-md">
               <XCircle size={20} className="text-red-500" />
-              Falló la conexión de red con el servidor ({error}). Asegúrese de encender el backend de la API e intente nuevamente.
+              Falló la conexión de red con el servidor ({error instanceof Error ? error.message : "Error al cargar"}). Asegúrese de encender el backend de la API e intente nuevamente.
             </div>
           )}
 
@@ -177,14 +211,16 @@ export default function DashboardPage() {
             <div className="flex flex-col gap-6 xl:h-full">
               <div className="flex-1 min-h-[500px]">
                 {loading && ultimas.length === 0 ? (
-                  <Card className="h-full flex items-center justify-center p-12 bg-white rounded-[2.5rem]"><PageSpinner /></Card>
+                  <Card className="h-full flex items-center justify-center p-12 bg-white rounded-[2.5rem]">
+                    <div className="animate-pulse bg-white/5 rounded h-8 w-full" />
+                  </Card>
                 ) : (
                   <HeroCarousel items={ultimas} />
                 )}
               </div>
-              
+
               <div className="shrink-0">
-                <ChartCarousel 
+                <ChartCarousel
                    sucursales={sucursales}
                    evolucion={evolucion}
                    ciudades={ciudades}
@@ -196,14 +232,33 @@ export default function DashboardPage() {
             {/* LADO DERECHO: Métricas & Ranking */}
             <div className="flex flex-col gap-6 xl:h-full">
               {/* KPIs ROW */}
-              {kpis && (
+              {kpis ? (
+                <motion.div
+                  className="grid grid-cols-2 lg:grid-cols-4 gap-4 shrink-0"
+                  variants={kpiVariants}
+                  initial="hidden"
+                  animate="show"
+                >
+                  <motion.div variants={kpiItemVariants}>
+                    <KpiCard label="Pendientes" value={kpis.pendientes} icon={<Clock size={20} />} color="#f59e0b" bgColor="bg-white" />
+                  </motion.div>
+                  <motion.div variants={kpiItemVariants}>
+                    <KpiCard label="Aprobadas" value={kpis.aprobadas} icon={<CheckCircle size={20} />} color="#10b981" bgColor="bg-white" />
+                  </motion.div>
+                  <motion.div variants={kpiItemVariants}>
+                    <KpiCard label="Destacadas" value={kpis.destacadas} icon={<Star size={20} />} color="#8b5cf6" bgColor="bg-gradient-to-br from-violet-50/50 to-fuchsia-50/50" />
+                  </motion.div>
+                  <motion.div variants={kpiItemVariants}>
+                    <KpiCard label="Rechazadas" value={kpis.rechazadas} icon={<XCircle size={20} />} color="#ef4444" bgColor="bg-white" />
+                  </motion.div>
+                </motion.div>
+              ) : loadingKpis ? (
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 shrink-0">
-                  <KpiCard label="Pendientes" value={kpis.pendientes} icon={<Clock size={20} />} color="#f59e0b" bgColor="bg-white" />
-                  <KpiCard label="Aprobadas" value={kpis.aprobadas} icon={<CheckCircle size={20} />} color="#10b981" bgColor="bg-white" />
-                  <KpiCard label="Destacadas" value={kpis.destacadas} icon={<Star size={20} />} color="#8b5cf6" bgColor="bg-gradient-to-br from-violet-50/50 to-fuchsia-50/50" />
-                  <KpiCard label="Rechazadas" value={kpis.rechazadas} icon={<XCircle size={20} />} color="#ef4444" bgColor="bg-white" />
+                  {[0, 1, 2, 3].map((i) => (
+                    <div key={i} className="animate-pulse bg-white/5 rounded h-24 w-full" />
+                  ))}
                 </div>
-              )}
+              ) : null}
 
               {/* RANKING TOP 15 */}
               <div className="flex-1 min-h-0">
@@ -213,7 +268,7 @@ export default function DashboardPage() {
                   periodoLabel={formatPeriodoLabel(periodo)}
                   sucursalFiltro={sucursalFiltro}
                   sucursales={sucursales}
-                  kpis={kpis}
+                  kpis={kpis ?? null}
                   evolucion={evolucion}
                   distId={user?.id_distribuidor || 0}
                   nombreEmpresa={user?.nombre_empresa || "Distribuidora"}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
 import {
   ChevronRight,
@@ -41,6 +42,7 @@ import {
   type ClienteContacto,
 } from "@/lib/api";
 import type { PinCliente } from "./MapaRutas";
+import { useSupervisionStore } from "@/store/useSupervisionStore";
 
 // ── Map: SSR off ──────────────────────────────────────────────────────────────
 const MapaRutas = dynamic(() => import("./MapaRutas"), {
@@ -206,31 +208,31 @@ interface TabSupervisionProps {
 
 // ─────────────────────────────────────────────────────────────────────────────
 export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionProps) {
+  const queryClient = useQueryClient();
   const [selectedDist, setSelectedDist]         = useState(distId);
-  const [distribuidoras, setDistribuidoras]     = useState<Distribuidora[]>([]);
-  const [vendedores, setVendedores]             = useState<VendedorSupervision[]>([]);
-  const [loading, setLoading]                   = useState(false);
-  const [error, setError]                       = useState<string | null>(null);
+  
+  // Zustand store for persistent visibility state
+  const {
+    selectedSucursal,
+    setSelectedSucursal,
+    visibleVends,
+    visibleRutas,
+    visibleClientes,
+    toggleVendor: toggleVendorStore,
+    toggleRuta: toggleRutaStore,
+    toggleCliente: toggleClienteStore,
+    setVisibleVends,
+    setVisibleRutas,
+    setVisibleClientes,
+    clearAll,
+  } = useSupervisionStore();
 
-  // sucursal step
-  const [selectedSucursal, setSelectedSucursal] = useState<string | null>(null);
-
-  // accordion state
+  // accordion state (local UI only)
   const [openVend, setOpenVend]                 = useState<number | null>(null);
   const [openRuta, setOpenRuta]                 = useState<number | null>(null);
   const [openCliente, setOpenCliente]           = useState<number | null>(null);
 
-  // lazy data
-  const [rutas, setRutas]                       = useState<Record<number, RutaSupervision[]>>({});
-  const [clientes, setClientes]                 = useState<Record<number, ClienteSupervision[]>>({});
-  const [loadingRutas, setLoadingRutas]         = useState<number | null>(null);
-  const [loadingCli, setLoadingCli]             = useState<number | null>(null);
-
-  // ── 3-level visibility ────────────────────────────────────────────────────
-  // Each level is independent: pin shows only if ALL THREE levels are ON
-  const [visibleVends, setVisibleVends]         = useState<Set<number>>(new Set());
-  const [visibleRutas, setVisibleRutas]         = useState<Set<number>>(new Set());
-  const [visibleClientes, setVisibleClientes]   = useState<Set<number>>(new Set());
+  // loading states for async operations
   const [loadingMap, setLoadingMap]             = useState<Set<number>>(new Set());
 
   // ── Scanner GPS ───────────────────────────────────────────────────────────
@@ -261,44 +263,52 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
   } | null>(null);
   const [ccSort, setCcSort] = useState<{ col: "dias" | "deuda"; asc: boolean }>({ col: "dias", asc: false });
 
-  // ── Load distribuidoras ───────────────────────────────────────────────────
-  useEffect(() => {
-    if (isSuperadmin) fetchDistribuidoras(true).then(setDistribuidoras).catch(() => {});
-  }, [isSuperadmin]);
+  // ── TanStack Query: Distribuidoras ────────────────────────────────────────
+  const { data: distribuidoras = [] } = useQuery({
+    queryKey: ['distribuidoras'],
+    queryFn: () => fetchDistribuidoras(true),
+    enabled: isSuperadmin,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  });
 
   // ── Sync selectedDist when distId changes (handles auth loading delay) ─────
-  // useState(distId) only uses initial value once; this keeps non-superadmin
-  // users always locked to their own distributor, even after the auth hydrates.
   useEffect(() => {
     if (!isSuperadmin && distId > 0 && distId !== selectedDist) {
       setSelectedDist(distId);
     }
-  }, [distId, isSuperadmin]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [distId, isSuperadmin, selectedDist]);
 
-  // ── Load vendedores ───────────────────────────────────────────────────────
-  const loadVendedores = useCallback(async () => {
-    if (!selectedDist) return;
-    setLoading(true);
-    setError(null);
-    setOpenVend(null); setOpenRuta(null); setOpenCliente(null);
-    setRutas({}); setClientes({});
-    setVisibleVends(new Set());
-    setVisibleRutas(new Set());
-    setVisibleClientes(new Set());
-    setSelectedSucursal(null);
-    try {
-      const data = await fetchVendedoresSupervision(selectedDist);
-      setVendedores(data);
-      const slist = [...new Set(data.map(v => v.sucursal_nombre))];
+  // ── TanStack Query: Vendedores ────────────────────────────────────────────
+  const {
+    data: vendedores = [],
+    isLoading: loading,
+    error: vendedoresError,
+    refetch: refetchVendedores,
+  } = useQuery({
+    queryKey: ['supervision-vendedores', selectedDist],
+    queryFn: () => fetchVendedoresSupervision(selectedDist),
+    enabled: !!selectedDist,
+    staleTime: 2 * 60 * 1000, // 2 minutes - vendedores don't change often
+    placeholderData: (prev) => prev, // Keep previous data while refetching
+  });
+
+  const error = vendedoresError ? (vendedoresError instanceof Error ? vendedoresError.message : "Error cargando datos") : null;
+
+  // Auto-select sucursal if only one exists
+  useEffect(() => {
+    if (vendedores.length > 0 && !selectedSucursal) {
+      const slist = [...new Set(vendedores.map(v => v.sucursal_nombre))];
       if (slist.length === 1) setSelectedSucursal(slist[0]);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Error cargando datos");
-    } finally {
-      setLoading(false);
     }
-  }, [selectedDist]);
+  }, [vendedores, selectedSucursal, setSelectedSucursal]);
 
-  useEffect(() => { loadVendedores(); }, [loadVendedores]);
+  // Clear visibility when changing distributor
+  useEffect(() => {
+    clearAll();
+    setOpenVend(null);
+    setOpenRuta(null);
+    setOpenCliente(null);
+  }, [selectedDist, clearAll]);
 
   useEffect(() => {
     if (!selectedDist) return;
@@ -526,127 +536,130 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
     );
   };
 
-  // ── Accordion handlers ────────────────────────────────────────────────────
+  // ── TanStack Query: Rutas (lazy-loaded per vendor) ───────────────────────
+  const getRutasQuery = (vendorId: number) => ({
+    queryKey: ['supervision-rutas', vendorId],
+    queryFn: () => fetchRutasSupervision(vendorId),
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    enabled: false, // Lazy load
+  });
+
+  // ── TanStack Query: Clientes (lazy-loaded per ruta) ──────────────────────
+  const getClientesQuery = (rutaId: number) => ({
+    queryKey: ['supervision-clientes', rutaId],
+    queryFn: () => fetchClientesSupervision(rutaId),
+    staleTime: Infinity, // Clientes don't change often - cache forever until manual invalidation
+    enabled: false, // Lazy load
+  });
+
+  // ── Accordion handlers with query prefetching ─────────────────────────────
   async function handleVend(id: number) {
-    if (openVend === id) { setOpenVend(null); return; }
-    setOpenVend(id); setOpenRuta(null); setOpenCliente(null);
-    if (!rutas[id]) {
-      setLoadingRutas(id);
-      try {
-        const data = await fetchRutasSupervision(id);
-        setRutas(p => ({ ...p, [id]: data }));
-      } finally { setLoadingRutas(null); }
+    if (openVend === id) { 
+      setOpenVend(null); 
+      return; 
     }
+    setOpenVend(id); 
+    setOpenRuta(null); 
+    setOpenCliente(null);
+    
+    // Prefetch rutas if not in cache
+    await queryClient.prefetchQuery(getRutasQuery(id));
   }
 
   async function handleRuta(id: number) {
-    if (openRuta === id) { setOpenRuta(null); return; }
-    setOpenRuta(id); setOpenCliente(null);
-    if (!clientes[id]) {
-      setLoadingCli(id);
-      try {
-        const data = await fetchClientesSupervision(id);
-        setClientes(p => ({ ...p, [id]: data }));
-      } finally { setLoadingCli(null); }
+    if (openRuta === id) { 
+      setOpenRuta(null); 
+      return; 
     }
+    setOpenRuta(id); 
+    setOpenCliente(null);
+    
+    // Prefetch clientes if not in cache
+    await queryClient.prefetchQuery(getClientesQuery(id));
   }
 
   function handleCliente(id: number) {
     setOpenCliente(openCliente === id ? null : id);
   }
 
-  // ── Load helper: all routes+clients for one vendor ────────────────────────
+  // ── Load helper: all routes+clients for one vendor (uses query cache) ────
   async function loadDataForVendor(vendId: number): Promise<{
     vendRutas: RutaSupervision[];
     allClientIds: number[];
     allRutaIds: number[];
   }> {
-    let vendRutas = rutas[vendId];
-    if (!vendRutas) {
-      vendRutas = await fetchRutasSupervision(vendId);
-      setRutas(p => ({ ...p, [vendId]: vendRutas! }));
-    }
+    // Fetch or get from cache
+    const vendRutas = await queryClient.fetchQuery(getRutasQuery(vendId));
     const allRutaIds: number[] = vendRutas.map(r => r.id_ruta);
     const allClientIds: number[] = [];
+    
+    // Fetch all clientes in parallel
     await Promise.all(
       vendRutas.map(async r => {
-        let cli = clientes[r.id_ruta];
-        if (!cli) {
-          cli = await fetchClientesSupervision(r.id_ruta);
-          setClientes(p => ({ ...p, [r.id_ruta]: cli! }));
-        }
+        const cli = await queryClient.fetchQuery(getClientesQuery(r.id_ruta));
         cli.forEach(c => allClientIds.push(c.id_cliente));
       })
     );
+    
     return { vendRutas, allClientIds, allRutaIds };
   }
 
-  // ── VENDOR TOGGLE ─────────────────────────────────────────────────────────
+  // ── VENDOR TOGGLE (uses Zustand store) ───────────────────────────────────
   async function toggleVendor(vendId: number) {
     const isOn = visibleVends.has(vendId);
     if (isOn) {
-      // Turn OFF: remove vendor from map (routes/clients stay cached, just won't render)
-      setVisibleVends(p => { const s = new Set(p); s.delete(vendId); return s; });
+      // Turn OFF: remove vendor from map
+      toggleVendorStore(vendId);
     } else {
       // Turn ON: load everything, enable all routes+clients
       setLoadingMap(p => new Set([...p, vendId]));
       try {
         const { allRutaIds, allClientIds } = await loadDataForVendor(vendId);
-        setVisibleVends(p  => new Set([...p, vendId]));
-        setVisibleRutas(p  => new Set([...p, ...allRutaIds]));
-        setVisibleClientes(p => new Set([...p, ...allClientIds]));
+        setVisibleVends(new Set([...visibleVends, vendId]));
+        setVisibleRutas(new Set([...visibleRutas, ...allRutaIds]));
+        setVisibleClientes(new Set([...visibleClientes, ...allClientIds]));
       } finally {
         setLoadingMap(p => { const s = new Set(p); s.delete(vendId); return s; });
       }
     }
   }
 
-  // ── ROUTE TOGGLE ─────────────────────────────────────────────────────────
+  // ── ROUTE TOGGLE (uses Zustand store) ────────────────────────────────────
   async function toggleRuta(rutaId: number, vendId: number) {
     const isOn = visibleRutas.has(rutaId);
     if (isOn) {
       // Turn OFF: remove ruta and all its clients
-      const rutaClientes = clientes[rutaId] ?? [];
-      const clientIds    = rutaClientes.map(c => c.id_cliente);
-      setVisibleRutas(p => { const s = new Set(p); s.delete(rutaId); return s; });
-      setVisibleClientes(p => {
-        const s = new Set(p);
-        clientIds.forEach(id => s.delete(id));
-        return s;
-      });
+      const rutaClientes = queryClient.getQueryData<ClienteSupervision[]>(['supervision-clientes', rutaId]) ?? [];
+      const clientIds = rutaClientes.map(c => c.id_cliente);
+      
+      toggleRutaStore(rutaId);
+      const newVisibleClientes = new Set(visibleClientes);
+      clientIds.forEach(id => newVisibleClientes.delete(id));
+      setVisibleClientes(newVisibleClientes);
     } else {
       // Turn ON: ensure vendor + ruta are on, load clients
       setLoadingMap(p => new Set([...p, vendId]));
       try {
-        let cli = clientes[rutaId];
-        if (!cli) {
-          cli = await fetchClientesSupervision(rutaId);
-          setClientes(p => ({ ...p, [rutaId]: cli! }));
-        }
+        const cli = await queryClient.fetchQuery(getClientesQuery(rutaId));
+        
         // auto-enable vendor if not already
-        setVisibleVends(p  => new Set([...p, vendId]));
-        setVisibleRutas(p  => new Set([...p, rutaId]));
-        setVisibleClientes(p => new Set([...p, ...cli!.map(c => c.id_cliente)]));
+        setVisibleVends(new Set([...visibleVends, vendId]));
+        setVisibleRutas(new Set([...visibleRutas, rutaId]));
+        setVisibleClientes(new Set([...visibleClientes, ...cli.map(c => c.id_cliente)]));
       } finally {
         setLoadingMap(p => { const s = new Set(p); s.delete(vendId); return s; });
       }
     }
   }
 
-  // ── PDV TOGGLE ────────────────────────────────────────────────────────────
+  // ── PDV TOGGLE (uses Zustand store) ──────────────────────────────────────
   function toggleCliente(clienteId: number) {
-    setVisibleClientes(p => {
-      const s = new Set(p);
-      if (s.has(clienteId)) s.delete(clienteId);
-      else s.add(clienteId);
-      return s;
-    });
+    toggleClienteStore(clienteId);
   }
 
-  // ── Map pins — 3-level visibility check ───────────────────────────────────
+  // ── Map pins — 3-level visibility check (uses query cache + server flag) ─
   const pines = useMemo<PinCliente[]>(() => {
-    // Build a lookup map from cc_detalle: key = id_cliente_erp or lowercased nombre
-    // so we can enrich each pin with deuda info
+    // Build deuda lookup from cuentas corrientes
     const deudaByErpId = new Map<string, { deuda: number; antiguedad: number }>();
     const deudaByNombre = new Map<string, { deuda: number; antiguedad: number }>();
     if (cuentasData) {
@@ -666,17 +679,27 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
     vendedores.forEach((v, idx) => {
       if (!visibleVends.has(v.id_vendedor)) return;
       const color = vendorColor(idx);
-      (rutas[v.id_vendedor] ?? []).forEach(r => {
+      
+      // Get rutas from query cache
+      const vendRutas = queryClient.getQueryData<RutaSupervision[]>(['supervision-rutas', v.id_vendedor]) ?? [];
+      
+      vendRutas.forEach(r => {
         if (!visibleRutas.has(r.id_ruta)) return;
-        (clientes[r.id_ruta] ?? []).forEach(c => {
+        
+        // Get clientes from query cache
+        const rutaClientes = queryClient.getQueryData<ClienteSupervision[]>(['supervision-clientes', r.id_ruta]) ?? [];
+        
+        rutaClientes.forEach(c => {
           if (!visibleClientes.has(c.id_cliente)) return;
           if (!hasValidCoords(c.latitud, c.longitud)) return;
-          // Cross-reference deuda: prefer id_cliente_erp match, fallback to name
+          
+          // Cross-reference deuda
           const erpId = c.id_cliente_erp ? String(c.id_cliente_erp) : null;
           const nombre = (c.nombre_fantasia || c.nombre_razon_social || "").toLowerCase().trim();
           const deudaInfo = (erpId ? deudaByErpId.get(erpId) : null)
             ?? (nombre ? deudaByNombre.get(nombre) : null)
             ?? null;
+          
           result.push({
             id:                    c.id_cliente,
             lat:                   c.latitud!,
@@ -686,7 +709,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
             activo:                !isInactivo30(c.fecha_ultima_compra),
             vendedor:              v.nombre_vendedor,
             ultimaCompra:          fmt(c.fecha_ultima_compra),
-            conExhibicion:         isRecentDate(c.fecha_ultima_exhibicion, 30),
+            conExhibicion:         c.tiene_exhibicion_reciente ?? false, // Server-calculated flag
             idClienteErp:          c.id_cliente_erp ?? null,
             nroRuta:               r.dia_semana ?? null,
             fechaUltimaCompra:     c.fecha_ultima_compra ?? null,
@@ -698,14 +721,15 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
         });
       });
     });
-    // Deduplicar por id_cliente — un PDV puede estar en múltiples rutas del mismo vendedor
+    
+    // Deduplicar por id_cliente
     const seen = new Set<number>();
     return result.filter(p => {
       if (seen.has(p.id)) return false;
       seen.add(p.id);
       return true;
     });
-  }, [vendedores, visibleVends, visibleRutas, visibleClientes, rutas, clientes, cuentasData]);
+  }, [vendedores, visibleVends, visibleRutas, visibleClientes, cuentasData, queryClient]);
 
   const totalPdv     = vendedoresFiltrados.reduce((s, v) => s + v.total_pdv, 0);
   const totalActivos = vendedoresFiltrados.reduce((s, v) => s + (v.pdv_activos ?? 0), 0);
@@ -842,7 +866,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
             <span>Scanner</span>
           </button>
           <button
-            onClick={loadVendedores}
+            onClick={() => refetchVendedores()}
             disabled={loading}
             title="Actualizar todo"
             className="text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] transition-colors p-2 rounded-xl hover:bg-white/5 border border-[var(--shelfy-border)] h-[38px]"

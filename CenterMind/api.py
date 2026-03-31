@@ -2864,8 +2864,10 @@ def supervision_rutas(id_vendedor: int, user_payload=Depends(verify_auth)):
 
 @app.get("/api/supervision/clientes/{id_ruta}", tags=["Supervisión"])
 def supervision_clientes(id_ruta: int, user_payload=Depends(verify_auth)):
-    """Clientes PDV de una ruta."""
+    """Clientes PDV de una ruta con flag de exhibición reciente calculado server-side."""
     try:
+        from datetime import datetime, timedelta
+        
         res = sb.table("clientes_pdv_v2") \
             .select("id_cliente, id_cliente_erp, nombre_fantasia, nombre_razon_social, "
                     "domicilio, localidad, provincia, canal, latitud, longitud, "
@@ -2883,6 +2885,9 @@ def supervision_clientes(id_ruta: int, user_payload=Depends(verify_auth)):
             
             exh_map: dict = {}      # id_cliente_v2 → timestamp_subida
             exh_foto_map: dict = {} # id_cliente_v2 → url_foto_drive
+            
+            # Calculate 30-day threshold for "recent" exhibition
+            threshold_date = (datetime.now() - timedelta(days=30)).isoformat()
             
             try:
                 # 1. Buscar por id_cliente_pdv (legacy mapping)
@@ -2918,8 +2923,11 @@ def supervision_clientes(id_ruta: int, user_payload=Depends(verify_auth)):
                 logger.error(f"Error en join exhibiciones: {e}")
             
             for r in rows:
-                r["fecha_ultima_exhibicion"]  = exh_map.get(r["id_cliente"])
+                fecha_exh = exh_map.get(r["id_cliente"])
+                r["fecha_ultima_exhibicion"]  = fecha_exh
                 r["url_ultima_exhibicion"]    = exh_foto_map.get(r["id_cliente"])
+                # Server-side calculation: is exhibition recent (within 30 days)?
+                r["tiene_exhibicion_reciente"] = bool(fecha_exh and fecha_exh >= threshold_date)
 
         return rows
     except Exception as e:

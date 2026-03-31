@@ -7,7 +7,7 @@ import { PageSpinner } from "@/components/ui/Spinner";
 import { useAuth } from "@/hooks/useAuth";
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useViewerStore } from "@/store/useViewerStore";
+import { useViewerStore } from "../../store/useViewerStore";
 import NextImage from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
 import {

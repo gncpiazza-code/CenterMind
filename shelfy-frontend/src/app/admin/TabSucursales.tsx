@@ -13,7 +13,7 @@ export default function TabSucursales({ isSuperadmin, distId, role }: any) {
     const [loading, setLoading] = useState(true);
 
     const [showLocForm, setShowLocForm] = useState(false);
-    const [locForm, setLocForm] = useState({ label: "", ciudad: "", provincia: "", lat: 0, lon: 0 });
+    const [locForm, setLocForm] = useState({ label: "", ciudad: "", provincia: "", lat: 0, lng: 0 });
 
     const [vendedores, setVendedores] = useState<Integrante[]>([]);
     const [showVendForm, setShowVendForm] = useState(false);
@@ -53,11 +53,11 @@ export default function TabSucursales({ isSuperadmin, distId, role }: any) {
                 ciudad: locForm.ciudad,
                 provincia: locForm.provincia,
                 lat: locForm.lat,
-                lon: locForm.lon
+                lng: locForm.lng
             });
             toast.success("Sucursal creada");
             setShowLocForm(false);
-            setLocForm({ label: "", ciudad: "", provincia: "", lat: 0, lon: 0 });
+            setLocForm({ label: "", ciudad: "", provincia: "", lat: 0, lng: 0 });
             loadData();
         } catch (e) {
             toast.error("Error al crear sucursal");

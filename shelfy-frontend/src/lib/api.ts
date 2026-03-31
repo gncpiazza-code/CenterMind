@@ -15,7 +15,7 @@ export interface ClienteMaestro {
   sucursal_id: string;
   estado: string;
   lat: number;
-  lon: number;
+  lng: number;
   fecha_ultima_compra?: string;
 }
 
@@ -560,24 +560,34 @@ export interface Location {
   provincia?: string;
   label: string;
   lat?: number;
-  lon?: number;
+  lng?: number;
 }
 
 export async function fetchLocations(distId: number): Promise<Location[]> {
-  return apiFetch<Location[]>(`/api/admin/locations/${distId}`);
+  const data = await apiFetch<any[]>(`/api/admin/locations/${distId}`);
+  return data.map(loc => ({
+    ...loc,
+    lng: loc.lng ?? loc.lon,
+  }));
 }
 
-export async function crearLocation(distId: number, data: { ciudad: string; provincia: string; label: string; lat: number; lon: number }) {
+export async function crearLocation(distId: number, data: { ciudad: string; provincia: string; label: string; lat: number; lng: number }) {
   return apiFetch(`/api/admin/locations/${distId}`, {
     method: "POST",
-    body: JSON.stringify(data),
+    body: JSON.stringify({
+      ...data,
+      lon: data.lng,
+    }),
   });
 }
 
-export async function editarLocation(locationId: string, data: { ciudad: string; provincia: string; label: string; lat: number; lon: number }) {
+export async function editarLocation(locationId: string, data: { ciudad: string; provincia: string; label: string; lat: number; lng: number }) {
   return apiFetch(`/api/admin/locations/${locationId}`, {
     method: "PUT",
-    body: JSON.stringify(data),
+    body: JSON.stringify({
+      ...data,
+      lon: data.lng,
+    }),
   });
 }
 
@@ -718,7 +728,11 @@ export async function fetchClientesListado(distId: number, search: string = "", 
   if (sucursalId) q.append("sucursal_id", sucursalId);
   if (vendedorId) q.append("vendedor_id", vendedorId);
   q.append("limit", limit.toString());
-  return apiFetch<ClienteMaestro[]>(`/api/reportes/clientes/listado/${distId}?${q.toString()}`);
+  const data = await apiFetch<any[]>(`/api/reportes/clientes/listado/${distId}?${q.toString()}`);
+  return data.map(c => ({
+    ...c,
+    lng: c.lng ?? c.lon,
+  }));
 }
 
 // --- Jerarquía en Cascada (Nuevos Endpoints Fase 5) ---
@@ -766,7 +780,11 @@ export async function fetchLiveMapEvents(minutos?: number, fecha?: string): Prom
   const params = new URLSearchParams();
   if (minutos) params.append("minutos", minutos.toString());
   if (fecha) params.append("fecha", fecha);
-  return apiFetch<LiveMapEvent[]>(`/api/admin/live-map-events?${params.toString()}`);
+  const data = await apiFetch<any[]>(`/api/admin/live-map-events?${params.toString()}`);
+  return data.map(ev => ({
+    ...ev,
+    lng: ev.lng ?? ev.lon, // Asegurar que use lng aunque venga como lon
+  }));
 }
 
 export async function fetchRunCCMotor(): Promise<{ ok: boolean; message: string }> {
@@ -785,11 +803,14 @@ export async function fetchSystemHealth(): Promise<SystemHealth> {
   return apiFetch<SystemHealth>("/api/admin/system-health");
 }
 
-export async function createLocation(data: { dist_id: number; label: string; ciudad?: string; provincia?: string; lat?: number; lon?: number }) {
-  const { dist_id, ...payload } = data;
+export async function createLocation(data: { dist_id: number; label: string; ciudad?: string; provincia?: string; lat?: number; lng?: number }) {
+  const { dist_id, lng, ...payload } = data;
   return apiFetch<Location>(`/api/admin/locations/${dist_id}`, {
     method: "POST",
-    body: JSON.stringify(payload)
+    body: JSON.stringify({
+      ...payload,
+      lon: lng, // Mapear de vuelta para el backend
+    })
   });
 }
 

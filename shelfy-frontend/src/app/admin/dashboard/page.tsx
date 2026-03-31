@@ -59,7 +59,7 @@ export default function SuperAdminDashboard() {
                 const local = new Date(today.getTime() - (offset * 60 * 1000));
                 const dateStr = local.toISOString().split('T')[0];
                 const res = await fetchLiveMapEvents(undefined, dateStr);
-                setMapEvents(res.filter(e => e.lat && e.lon && e.lat !== 0 && e.lon !== 0));
+                setMapEvents(res.filter(e => e.lat && e.lng && e.lat !== 0 && e.lng !== 0));
             } catch (e) {
                 console.error("Error loading map events", e);
             }

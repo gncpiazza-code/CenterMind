@@ -284,7 +284,7 @@ const MapaExhibiciones = forwardRef<MapRef, MapaExhibicionesProps>(({
                                                         <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider leading-none mb-1">Ubicación</p>
                                                         <p className="text-xs text-slate-200 mt-0.5">{event.domicilio}</p>
                                                         <p className="text-[10px] text-slate-400">{event.localidad}</p>
-                                                        <p className="text-[10px] font-mono text-slate-500 mt-1">{event.lat.toFixed(6)}, {event.lon.toFixed(6)}</p>
+                                                        <p className="text-[10px] font-mono text-slate-500 mt-1">{event.lat.toFixed(6)}, {event.lng.toFixed(6)}</p>
                                                     </div>
                                                 </div>
 

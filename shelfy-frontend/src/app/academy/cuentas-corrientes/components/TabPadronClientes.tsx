@@ -425,7 +425,7 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
 
                         <div className="flex items-center justify-between px-1">
                             <p className="text-[9px] font-bold text-slate-500">
-                                {loadingList ? "Cargando..." : `Mostrando ${clientesList.filter(c => c.lat && c.lon).length} PDVs`}
+                                {loadingList ? "Cargando..." : `Mostrando ${clientesList.filter(c => c.lat && c.lng).length} PDVs`}
                             </p>
                         </div>
                         
@@ -438,7 +438,7 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
                                         <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
                                         <span className="text-[9px] font-bold text-slate-600 truncate">{name}</span>
                                     </div>
-                                ))}
+                                )) }
                                 {Object.keys(sellerColorMap).length === 0 && (
                                     <span className="text-[9px] text-slate-400 italic">Sin datos de segmentación</span>
                                 )}
@@ -457,14 +457,14 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
                         >
                             <MapControls position="top-right" showZoom showCompass showFullscreen />
                             
-                            {clientesList.filter(c => c.lat && c.lon).map((client, idx) => {
+                            {clientesList.filter(c => c.lat && c.lng).map((client, idx) => {
                                 const sellerColor = sellerColorMap[client.vendedor_nombre] || '#7c3aed';
                                 const isActive = client.estado?.toLowerCase() === 'activo';
                                 
                                 return (
                                     <MapMarker
                                         key={`${client.id_cliente_erp_local}-${idx}`}
-                                        longitude={client.lon}
+                                        longitude={client.lng}
                                         latitude={client.lat}
                                         onClick={() => setPopupClient(client)}
                                     >

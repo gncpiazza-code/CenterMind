@@ -16,12 +16,17 @@ import {
     CheckCircle2,
     Clock,
     TrendingUp,
-    Server
+    Server,
+    Terminal,
+    Cpu,
+    Play,
+    Loader2
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 import dynamic from "next/dynamic";
-import { fetchLiveMapEvents, type LiveMapEvent } from "@/lib/api";
+import { fetchLiveMapEvents, type LiveMapEvent, fetchRunCCMotor, fetchCCLogs } from "@/lib/api";
+import { toast } from "sonner";
 
 const SystemHealthMonitor = dynamic(() => import("../SystemHealthMonitor"), { ssr: false });
 const MapaExhibiciones = dynamic(() => import("../components/MapaExhibiciones"), { ssr: false });
@@ -124,7 +129,12 @@ export default function SuperAdminDashboard() {
                         </div>
 
                         {/* Hardware & System Health (Nivel 0) */}
-                        <SystemHealthMonitor />
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                            <div className="lg:col-span-2">
+                                <SystemHealthMonitor />
+                            </div>
+                            <MaintenanceCard />
+                        </div>
 
                         {/* Stress Monitor Table */}
                         <div className="space-y-4">
@@ -249,6 +259,78 @@ export default function SuperAdminDashboard() {
                 </main>
             </div>
         </div>
+    );
+}
+
+function MaintenanceCard() {
+    const [running, setRunning] = useState(false);
+    const [logs, setLogs] = useState("Consola lista...");
+    const [lastFetch, setLastFetch] = useState<Date>(new Date());
+
+    const runMotor = async () => {
+        if (!confirm("¿Deseas ejecutar el motor de Cuentas Corrientes para todos los distribuidores ahora?")) return;
+        setRunning(true);
+        try {
+            const res = await fetchRunCCMotor();
+            if (res.ok) {
+                toast.success("Motor iniciado correctamente");
+                setLogs("Iniciando motor RPA...\n");
+            }
+        } catch (e: any) {
+            toast.error("Error al iniciar motor: " + e.message);
+        } finally {
+            setRunning(false);
+        }
+    };
+
+    useEffect(() => {
+        const interval = setInterval(async () => {
+            try {
+                const res = await fetchCCLogs(50);
+                setLogs(res.logs);
+                setLastFetch(new Date());
+            } catch (e) { }
+        }, 5000);
+        return () => clearInterval(interval);
+    }, []);
+
+    return (
+        <Card className="p-6 border-none shadow-xl bg-slate-900 text-white flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                    <div className="p-2 bg-blue-500/20 rounded-lg text-blue-400">
+                        <Cpu size={20} />
+                    </div>
+                    <h3 className="font-bold">Mantenimiento RPA</h3>
+                </div>
+                <div className="flex items-center gap-1.5 text-[10px] font-mono text-slate-500">
+                    <Clock size={10} />
+                    {lastFetch.toLocaleTimeString()}
+                </div>
+            </div>
+
+            <div className="flex-1 bg-black/40 rounded-xl border border-white/5 p-4 font-mono text-[11px] h-[180px] overflow-y-auto overflow-x-hidden space-y-1 scrollbar-thin scrollbar-thumb-white/10">
+                <div className="flex items-center gap-2 text-blue-400/80 mb-2 border-b border-white/5 pb-2">
+                    <Terminal size={14} />
+                    <span className="uppercase tracking-widest font-black">Cuentas Corrientes Logs</span>
+                </div>
+                <pre className="whitespace-pre-wrap text-slate-300">
+                    {logs}
+                </pre>
+            </div>
+
+            <button
+                onClick={runMotor}
+                disabled={running}
+                className={`w-full py-3 rounded-xl font-bold uppercase tracking-widest text-xs flex items-center justify-center gap-2 transition-all ${running
+                        ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                        : 'bg-blue-600 hover:bg-blue-500 active:scale-95 shadow-lg shadow-blue-900/20'
+                    }`}
+            >
+                {running ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} fill="currentColor" />}
+                {running ? "Ejecutando..." : "Correr Motor CC"}
+            </button>
+        </Card>
     );
 }
 

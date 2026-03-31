@@ -1437,7 +1437,7 @@ def dashboard_kpis(distribuidor_id: int, periodo: str = "mes", sucursal_id: int 
 
 
 @app.get("/api/dashboard/ranking/{distribuidor_id}", summary="Ranking de vendedores por período")
-def dashboard_ranking(distribuidor_id: int, periodo: str = "mes", top: int = 15, sucursal_id: int = Query(None), payload=Depends(verify_auth)):
+def dashboard_ranking(distribuidor_id: int, periodo: str = "mes", top: int = 999, sucursal_id: int = Query(None), payload=Depends(verify_auth)):
     check_dist_permission(payload, distribuidor_id)
     result = sb.rpc("fn_dashboard_ranking", {
         "p_dist_id": distribuidor_id,
@@ -1460,10 +1460,17 @@ def dashboard_ranking(distribuidor_id: int, periodo: str = "mes", top: int = 15,
         else:
             for field in NUMERIC_FIELDS:
                 if field in row:
-                    aggregated[erp_name][field] = (aggregated[erp_name].get(field) or 0) + (row.get(field) or 0)
+                    val = row.get(field)
+                    if val is None: val = 0
+                    current = aggregated[erp_name].get(field)
+                    if current is None: current = 0
+                    aggregated[erp_name][field] = current + val
 
     # Re-ordenar por total descendente y aplicar top
-    sort_key = "total" if "total" in (rows[0] if rows else {}) else "total_enviadas"
+    # Priorizar 'puntos' si están disponibles o 'total' / 'total_enviadas'
+    sample = rows[0] if rows else {}
+    sort_key = "puntos" if "puntos" in sample else ("total" if "total" in sample else "total_enviadas")
+    
     sorted_rows = sorted(aggregated.values(), key=lambda x: x.get(sort_key) or 0, reverse=True)
     return sorted_rows[:top]
 
@@ -1858,6 +1865,66 @@ async def sync_cuentas_corrientes(
     except Exception as e:
         logger.error(f"Error sync cuentas corrientes dist={id_distribuidor}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+# ─────────────────────────────────────────────────────────────────
+# ADMIN RPA CONTROL
+# ─────────────────────────────────────────────────────────────────
+
+import subprocess
+import signal
+
+CC_LOG_PATH = os.path.join(os.path.dirname(__file__), "../ShelfMind-RPA/logs/cuentas_corrientes_admin.log")
+
+@app.post("/api/admin/run-cc-motor", tags=["Admin"], summary="Ejecutar motor RPA de Cuentas Corrientes (Headless)")
+async def admin_run_cc_motor(background_tasks: BackgroundTasks, user_payload=Depends(verify_auth)):
+    if not user_payload.get("is_superadmin"):
+        raise HTTPException(status_code=403, detail="Exclusivo para SuperAdmins")
+    
+    script_path = os.path.join(os.path.dirname(__file__), "../ShelfMind-RPA/motores/cuentas_corrientes.py")
+    
+    # Asegurar que el directorio de logs existe
+    os.makedirs(os.path.dirname(CC_LOG_PATH), exist_ok=True)
+    
+    # Comando para ejecutar el motor
+    # Usamos sys.executable para asegurar el mismo entorno
+    import sys
+    
+    def run_motor():
+        with open(CC_LOG_PATH, "w") as log_file:
+            log_file.write(f"--- Iniciando ejecución manual: {datetime.now().isoformat()} ---\n")
+            log_file.flush()
+            try:
+                env = os.environ.copy()
+                env["RPA_HEADLESS"] = "true"
+                process = subprocess.Popen(
+                    [sys.executable, script_path],
+                    stdout=log_file,
+                    stderr=subprocess.STDOUT,
+                    env=env,
+                    cwd=os.path.dirname(script_path)
+                )
+                process.wait()
+                log_file.write(f"\n--- Ejecución finalizada: {datetime.now().isoformat()} (Exit: {process.returncode}) ---\n")
+            except Exception as e:
+                log_file.write(f"\n❌ ERROR CRITICO: {str(e)}\n")
+
+    background_tasks.add_task(run_motor)
+    return {"ok": True, "message": "Motor iniciado en segundo plano. Monitorea los logs."}
+
+@app.get("/api/admin/cc-logs", tags=["Admin"], summary="Ver logs del motor RPA")
+async def admin_cc_logs(lines: int = 100, user_payload=Depends(verify_auth)):
+    if not user_payload.get("is_superadmin"):
+        raise HTTPException(status_code=403, detail="Exclusivo para SuperAdmins")
+        
+    if not os.path.exists(CC_LOG_PATH):
+        return {"logs": "No hay logs disponibles."}
+    
+    try:
+        with open(CC_LOG_PATH, "r") as f:
+            content = f.readlines()
+            return {"logs": "".join(content[-lines:])}
+    except Exception as e:
+        return {"logs": f"Error leyendo logs: {str(e)}"}
 
 
 @app.get("/api/cuentas-corrientes/{id_distribuidor}", summary="Obtener Cuentas Corrientes")
@@ -3325,7 +3392,7 @@ def supervision_cuentas(dist_id: int, sucursal: Optional[str] = Query(None), use
                 .eq("id_distribuidor", int(dist_id)) \
                 .eq("fecha_snapshot", fecha_snapshot)
             if sucursal_norm:
-                q = q.ilike("sucursal_nombre", sucursal_norm.strip())
+                q = q.ilike("sucursal_nombre", f"%{sucursal_norm.strip()}%")
             return q
 
         # Paginar para evitar el límite de 1000 filas por defecto de Supabase

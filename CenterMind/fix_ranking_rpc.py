@@ -28,7 +28,7 @@ try:
     CREATE OR REPLACE FUNCTION public.fn_dashboard_ranking(
         p_dist_id bigint, 
         p_periodo text DEFAULT 'mes', 
-        p_top int DEFAULT 15, 
+        p_top int DEFAULT 1000, 
         p_sucursal_id bigint DEFAULT NULL
     )
      RETURNS TABLE(vendedor text, aprobadas bigint, destacadas bigint, rechazadas bigint, puntos bigint, location_id text)

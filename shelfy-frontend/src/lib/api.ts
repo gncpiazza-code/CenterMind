@@ -747,6 +747,14 @@ export async function fetchLiveMapEvents(minutos?: number, fecha?: string): Prom
   return apiFetch<LiveMapEvent[]>(`/api/admin/live-map-events?${params.toString()}`);
 }
 
+export async function fetchRunCCMotor(): Promise<{ ok: boolean; message: string }> {
+  return apiFetch<{ ok: boolean; message: string }>("/api/admin/run-cc-motor", { method: "POST" });
+}
+
+export async function fetchCCLogs(lines: number = 100): Promise<{ logs: string }> {
+  return apiFetch<{ logs: string }>(`/api/admin/cc-logs?lines=${lines}`);
+}
+
 export async function fetchSucursalesCruce(distId: number, periodo: string = "mes"): Promise<BranchCruce[]> {
   return apiFetch<BranchCruce[]>(`/api/reportes/sucursales/cruce/${distId}?periodo=${periodo}`);
 }

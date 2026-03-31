@@ -6,9 +6,12 @@ import {
   fetchRanking,
   fetchKPIs,
   fetchLiveMapEvents,
+  fetchEvolucionTiempo,
 } from "@/lib/api";
-import type { VendedorRanking, KPIs, LiveMapEvent } from "@/lib/api";
+import type { VendedorRanking, KPIs, LiveMapEvent, EvolucionTiempo } from "@/lib/api";
+import type { MapRef } from "@/components/ui/map";
 import dynamic from "next/dynamic";
+import { AreaChart, Area, ResponsiveContainer } from "recharts";
 import {
   Monitor,
   X,
@@ -60,6 +63,7 @@ export default function ModoOficinaPage() {
   const [ranking, setRanking] = useState<VendedorRanking[]>([]);
   const [kpis, setKpis] = useState<KPIs | null>(null);
   const [events, setEvents] = useState<LiveMapEvent[]>([]);
+  const [evolucion, setEvolucion] = useState<EvolucionTiempo[]>([]);
   const [newEvent, setNewEvent] = useState<LiveMapEvent | null>(null);
   const [mode, setMode] = useState<"kpi" | "map">("kpi");
   const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
@@ -68,24 +72,47 @@ export default function ModoOficinaPage() {
   const [lastCheck, setLastCheck] = useState<Date | null>(null);
   const seenIdsRef = useRef<Set<number>>(new Set());
   const mapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mapRef = useRef<MapRef>(null);
+  
+  const getCurrentPeriodo = () => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  };
+
+  const isFullscreen = typeof window !== 'undefined' && !!document.fullscreenElement;
+    
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(e => {
+        console.error(`Error attempting to enable full-screen mode: ${e.message}`);
+      });
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen();
+      }
+    }
+  };
 
   // ── Data loading ─────────────────────────────────────────────────────────────
   const loadData = useCallback(
     async (isFirst = false) => {
       if (!distId) return;
+      const periodo = getCurrentPeriodo();
       const today = new Date();
       const offset = today.getTimezoneOffset();
       const local = new Date(today.getTime() - offset * 60 * 1000);
       const dateStr = local.toISOString().split("T")[0];
 
-      const [r, k, ev] = await Promise.allSettled([
-        fetchRanking(distId, "mes", undefined, 999),
-        fetchKPIs(distId, "mes"),
+      const [r, k, ev, h] = await Promise.allSettled([
+        fetchRanking(distId, periodo, undefined, 999),
+        fetchKPIs(distId, periodo),
         fetchLiveMapEvents(undefined, dateStr),
+        fetchEvolucionTiempo(distId, periodo),
       ]);
 
       if (r.status === "fulfilled") setRanking(r.value);
       if (k.status === "fulfilled") setKpis(k.value);
+      if (h.status === "fulfilled") setEvolucion(h.value);
       if (ev.status === "fulfilled") {
         const valid = ev.value.filter(
           (e) => e.lat && e.lon && e.lat !== 0 && e.lon !== 0
@@ -93,13 +120,19 @@ export default function ModoOficinaPage() {
         setEvents(valid);
 
         if (!isFirst) {
+          // Detectar nuevas subidas: cualquier ID no visto previamente
           const fresh = valid.filter((e) => !seenIdsRef.current.has(e.id_ex));
           if (fresh.length > 0) {
+            // Tomamos el más reciente (último de la lista)
             triggerEvent(fresh[fresh.length - 1]);
           }
+        } else {
+          // En la primera carga, marcamos todos como vistos para no disparar FlyTo masivo
+          valid.forEach(e => seenIdsRef.current.add(e.id_ex));
         }
-
-        seenIdsRef.current = new Set(valid.map((e) => e.id_ex));
+        
+        // Actualizar set de IDs vistos
+        valid.forEach(e => seenIdsRef.current.add(e.id_ex));
       }
 
       setLastCheck(new Date());
@@ -112,12 +145,16 @@ export default function ModoOficinaPage() {
     setNewEvent(event);
     setMode("map");
     setSelectedEventId(event.id_ex);
+    
+    // Si ya hay un timer, limpiarlo
     if (mapTimerRef.current) clearTimeout(mapTimerRef.current);
+    
+    // Volver a modo KPI tras 10 segundos
     mapTimerRef.current = setTimeout(() => {
       setMode("kpi");
       setNewEvent(null);
       setSelectedEventId(null);
-    }, EVENT_SHOW_DURATION);
+    }, 10000);
   }
 
   // Initial + polling
@@ -190,6 +227,7 @@ export default function ModoOficinaPage() {
 
   return (
     <div
+      id="modo-oficina-root"
       style={{
         position: "fixed",
         inset: 0,
@@ -239,14 +277,33 @@ export default function ModoOficinaPage() {
                 marginLeft: 12,
               }}
             >
-              <Zap size={12} color="#a78bfa" />
+              <Zap size={12} color="#a78bfa" className="animate-pulse" />
               <span style={{ fontSize: 11, fontWeight: 800, color: "#a78bfa", letterSpacing: "0.1em" }}>
-                Nueva exhibición en vivo
+                Viaje al PDV: {newEvent.vendedor_nombre}
               </span>
             </div>
           )}
         </div>
         <div style={{ display: "flex", gap: 8 }}>
+          <button
+            onClick={toggleFullscreen}
+            style={{
+              background: isFullscreen ? "rgba(124,58,237,0.2)" : "rgba(255,255,255,0.05)",
+              border: "1px solid rgba(124,58,237,0.4)",
+              borderRadius: 8,
+              padding: "6px 12px",
+              color: isFullscreen ? "#a78bfa" : "#94a3b8",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              fontSize: 11,
+              fontWeight: 700,
+            }}
+          >
+            <Monitor size={12} />
+            {isFullscreen ? "Salir Fullscreen" : "Pantalla Completa"}
+          </button>
           <button
             onClick={() => loadData(false)}
             style={{
@@ -370,7 +427,7 @@ export default function ModoOficinaPage() {
               padding: 40,
             }}
           >
-            {slide && <KpiDisplay slide={slide} index={kpiIndex} />}
+            {slide && <KpiDisplay slide={slide} index={kpiIndex} evolucion={evolucion} />}
           </div>
 
           {/* Map overlay */}
@@ -384,6 +441,7 @@ export default function ModoOficinaPage() {
             }}
           >
             <MapaExhibiciones
+              ref={mapRef}
               events={events}
               height="100%"
               theme="dark"
@@ -433,7 +491,7 @@ export default function ModoOficinaPage() {
 }
 
 // ── KPI Display ────────────────────────────────────────────────────────────────
-function KpiDisplay({ slide, index }: { slide: any; index: number }) {
+function KpiDisplay({ slide, index, evolucion }: { slide: any; index: number; evolucion: EvolucionTiempo[] }) {
   return (
     <div
       key={index}
@@ -441,7 +499,12 @@ function KpiDisplay({ slide, index }: { slide: any; index: number }) {
         textAlign: "center",
         animation: "kpiFadeIn 0.6s ease both",
         width: "100%",
-        maxWidth: 400,
+        maxWidth: 500,
+        background: "rgba(255,255,255,0.02)",
+        borderRadius: 40,
+        padding: "40px 20px",
+        border: "1px solid rgba(255,255,255,0.05)",
+        boxShadow: "0 20px 50px rgba(0,0,0,0.3)",
       }}
     >
       <style>{`
@@ -485,10 +548,36 @@ function KpiDisplay({ slide, index }: { slide: any; index: number }) {
           textTransform: "uppercase",
           color: "#475569",
           marginTop: 12,
+          marginBottom: 24,
         }}
       >
         {slide.label}
       </div>
+
+      {/* Sparkline trend */}
+      {evolucion.length > 0 && (
+        <div style={{ width: "100%", height: 80, opacity: 0.8 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={evolucion}>
+              <defs>
+                <linearGradient id={`grad-${index}`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor={slide.color} stopOpacity={0.3}/>
+                  <stop offset="95%" stopColor={slide.color} stopOpacity={0}/>
+                </linearGradient>
+              </defs>
+              <Area 
+                type="monotone" 
+                dataKey="total" 
+                stroke={slide.color} 
+                fillOpacity={1} 
+                fill={`url(#grad-${index})`} 
+                strokeWidth={3}
+                isAnimationActive={true}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuth } from "@/hooks/useAuth";
-import { LogOut, ChevronDown, Globe, Menu, PanelLeft } from "lucide-react";
+import { LogOut, ChevronDown, Globe, Menu, PanelLeft, Monitor } from "lucide-react";
 import { useEffect, useState } from "react";
 import { fetchDistribuidores } from "@/lib/api";
 import { useUI } from "@/contexts/UIContext";
@@ -29,7 +29,20 @@ export function Topbar({ title }: TopbarProps) {
       </div>
 
       {user && (
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 md:gap-4">
+          <button
+            onClick={() => {
+              window.location.href = "/modo-oficina";
+              // Intentar fullscreen si el navegador lo permite
+              document.documentElement.requestFullscreen?.().catch(() => {});
+            }}
+            className="hidden md:flex p-2 items-center gap-2 rounded-xl text-[var(--shelfy-muted)] hover:text-[var(--shelfy-primary)] hover:bg-[var(--shelfy-primary)]/5 transition-all active:scale-95 border border-transparent hover:border-[var(--shelfy-primary)]/20"
+            title="Abrir Modo Oficina (Pantalla Completa)"
+          >
+            <Monitor size={18} />
+            <span className="text-xs font-bold uppercase tracking-wider">Modo Oficina</span>
+          </button>
+
           <div className="hidden sm:block text-right">
             <p className="text-xs font-medium text-[var(--shelfy-text)]">{user.usuario}</p>
             <p className="text-[10px] text-[var(--shelfy-muted)]">{user.nombre_empresa}</p>

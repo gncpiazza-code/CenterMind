@@ -1,7 +1,6 @@
 {
-  "buildCommand": "npm install && npm run build",
-  "installCommand": "npm install",
-  "outputDirectory": ".next",
-  "framework": "nextjs",
-  "rootDirectory": "shelfy-frontend"
+  "buildCommand": "cd shelfy-frontend && npm install && npm run build",
+  "outputDirectory": "shelfy-frontend/.next",
+  "installCommand": "cd shelfy-frontend && npm install",
+  "framework": "nextjs"
 }

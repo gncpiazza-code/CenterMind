@@ -1297,21 +1297,31 @@ class BotWorker:
                             exhibicion_ids.append({"id": ex_id, "estado": estado_final})
                             procesadas += 1
                             
-                            # ── NUEVO: Matchear coordenadas del PDV para real-time ──
+                            # ── NUEVO: Matchear identidad y datos del PDV para real-time ──
                             lat, lon = 0.0, 0.0
                             cliente_nombre = "Punto de Venta"
+                            vendedor_real = uploader_name or "Desconocido"
+                            domicilio, localidad, telefono, fecha_alta = "", "", "", ""
                             
                             try:
-                                # Prioridad 1: Si el RPC devolvió coordenadas del PDV (vía id_cliente_pdv)
-                                if rpc_result.get("lat") and rpc_result.get("lon"):
-                                    lat, lon = float(rpc_result["lat"]), float(rpc_result["lon"])
-                                    cliente_nombre = rpc_result.get("cliente_nombre", cliente_nombre)
-                                
-                                # Prioridad 2: Buscar manualmente en clientes_pdv_v2 por nro_cliente y dist
-                                elif nro_cliente and nro_cliente != "0":
+                                # A. Buscar nombre real del integrante (vendedor) por Telegram ID
+                                if uploader_id:
+                                    int_res = await asyncio.to_thread(
+                                        self.db.sb.table("integrantes")
+                                        .select("nombre_integrante")
+                                        .eq("id_distribuidor", self.distribuidor_id)
+                                        .eq("telegram_user_id", uploader_id)
+                                        .limit(1)
+                                        .execute
+                                    )
+                                    if int_res.data:
+                                        vendedor_real = int_res.data[0].get("nombre_integrante") or vendedor_real
+
+                                # B. Buscar datos completos del PDV por nro_cliente
+                                if nro_cliente and nro_cliente != "0":
                                     pdv_res = await asyncio.to_thread(
                                         self.db.sb.table("clientes_pdv_v2")
-                                        .select("nombre_fantasia, latitud, longitud")
+                                        .select("nombre_fantasia, latitud, longitud, domicilio, localidad, telefono, fecha_alta")
                                         .eq("id_distribuidor", self.distribuidor_id)
                                         .eq("id_cliente_erp", nro_cliente)
                                         .limit(1)
@@ -1322,29 +1332,37 @@ class BotWorker:
                                         lat = float(pdv.get("latitud") or 0.0)
                                         lon = float(pdv.get("longitud") or 0.0)
                                         cliente_nombre = pdv.get("nombre_fantasia") or cliente_nombre
-                            except Exception as ex_coord:
-                                self.logger.warning(f"⚠️ Error recuperando coordenadas PDV: {ex_coord}")
+                                        domicilio = pdv.get("domicilio") or ""
+                                        localidad = pdv.get("localidad") or ""
+                                        telefono = pdv.get("telefono") or ""
+                                        fecha_alta = pdv.get("fecha_alta") or ""
+                            except Exception as ex_lookup:
+                                self.logger.warning(f"⚠️ Error en lookup real-time: {ex_lookup}")
                             
                             # Real-time Broadcast via WebSocket
                             if self.ws_manager:
                                 try:
                                     # Mapear datos para el "FlyTo" instantáneo
                                     msg_ws = {
-                                        "type": "NUEVA_EXHIBICION",
-                                        "data": {
+                                        "type": "new_exhibition",
+                                        "payload": {
                                             "id_ex": ex_id,
                                             "id_dist": self.distribuidor_id,
-                                            "vendedor_nombre": uploader_name or "Desconocido",
+                                            "vendedor_nombre": vendedor_real,
                                             "lat": lat,
-                                            "lon": lon,
+                                            "lng": lon,  # Mapear lon -> lng para el frontend
                                             "timestamp_evento": datetime.now().isoformat(),
                                             "nro_cliente": nro_cliente or "S/C",
-                                            "cliente_nombre": cliente_nombre,
-                                            "drive_link": drive_link
+                                            "nombre_fantasia": cliente_nombre,
+                                            "drive_link": drive_link,
+                                            "domicilio": domicilio,
+                                            "localidad": localidad,
+                                            "telefono": telefono,
+                                            "fecha_alta": fecha_alta
                                         }
                                     }
                                     asyncio.create_task(self.ws_manager.broadcast(self.distribuidor_id, msg_ws))
-                                    self.logger.info(f"📡 Broadcast WS enviado: {cliente_nombre} ({lat}, {lon})")
+                                    self.logger.info(f"📡 Broadcast WS enviado: {vendedor_real} en {cliente_nombre} ({lat}, {lon})")
                                 except Exception as e:
                                     self.logger.error(f"❌ Error en broadcast WS: {e}")
                             # Log silencioso: cliente no está en el padrón aún (id_cliente_pdv = NULL)

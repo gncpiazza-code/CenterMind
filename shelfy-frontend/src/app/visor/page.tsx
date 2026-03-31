@@ -50,15 +50,23 @@ function FotoViewer({ driveUrl, idExhibicion, priority = false }: { driveUrl: st
   );
 }
 
-// Preloader invisible para las siguientes imágenes
-function Preloader({ urls }: { urls: string[] }) {
-  return (
-    <div className="hidden" aria-hidden="true">
-      {urls.map((url, i) => (
-        <NextImage key={`${url}-${i}`} src={url} alt="preload" width={1} height={1} priority={false} unoptimized />
-      ))}
-    </div>
-  );
+// Aggressive image preloader — eagerly loads ALL images on mount
+function useEagerPreload(grupos: GrupoPendiente[]) {
+  useEffect(() => {
+    if (!grupos.length) return;
+    const allUrls = grupos.flatMap(g =>
+      g.fotos.map(f => resolveImageUrl(f.drive_link, f.id_exhibicion))
+    ).filter((u): u is string => !!u);
+
+    // Deduplicate
+    const unique = [...new Set(allUrls)];
+    
+    // Fire all preloads immediately via native Image objects
+    unique.forEach(url => {
+      const img = new Image();
+      img.src = url;
+    });
+  }, [grupos]);
 }
 
 // ── Página principal Refactorizada (Motor Hipersónico) ───────────────────────
@@ -114,10 +122,8 @@ export default function VisorPage() {
   const todasVistas = vistas.size >= totalFotos;
   const isValidacion = (grupo?.fotos.some(f => f.estado === "VALIDACION") ?? false);
 
-  // Precarga de URLs
-  const nextUrls = filtrados.slice(currentIndex + 1, currentIndex + 3).flatMap(g => 
-    g.fotos.map(f => resolveImageUrl(f.drive_link, f.id_exhibicion) || "")
-  ).filter(url => url !== "");
+  // Eager preload ALL images on data arrival
+  useEagerPreload(filtrados);
 
   // Mutations
   const mutationEvaluar = useMutation({
@@ -263,7 +269,7 @@ export default function VisorPage() {
         </div>
 
         <main className="flex-1 p-0 md:p-6 overflow-x-hidden overflow-y-auto pb-28 md:pb-6 relative bg-[#faf5ff] md:bg-transparent">
-          <Preloader urls={nextUrls} />
+
 
           <AnimatePresence>
             {flash && (
@@ -448,49 +454,52 @@ export default function VisorPage() {
                           </button>
                         </div>
                       )}
+
+                      {/* ── FROSTED OVERLAY: Info Strip + Comments (Desktop) ── */}
+                      <div className="hidden md:flex absolute bottom-0 left-0 right-0 z-10 flex-col gap-0 pointer-events-none">
+                        {/* Info Bar */}
+                        <div className="pointer-events-auto flex items-center gap-4 px-5 py-3 bg-black/50 backdrop-blur-xl border-t border-white/10 text-white">
+                          <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                            <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center shrink-0 border border-white/10">
+                              <User className="text-white/80" size={16} />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[11px] font-bold text-white truncate">{grupo.vendedor || "Sin asignar"}</p>
+                              <p className="text-[9px] font-medium text-white/50">Vendedor</p>
+                            </div>
+                          </div>
+                          <div className="h-6 w-px bg-white/15" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[9px] font-medium text-white/50 mb-0.5">Cliente</p>
+                            <p className="text-[11px] font-bold text-white truncate">{grupo.nro_cliente || "—"}</p>
+                          </div>
+                          <div className="h-6 w-px bg-white/15" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[9px] font-medium text-white/50 mb-0.5">Tipo PDV</p>
+                            <p className="text-[10px] font-bold bg-white/10 text-white/90 px-2 py-0.5 rounded-md inline-block">{grupo.tipo_pdv || "—"}</p>
+                          </div>
+                          <div className="h-6 w-px bg-white/15" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[9px] font-medium text-white/50 mb-0.5">Fecha</p>
+                            <p className="text-[11px] font-bold text-white truncate">{grupo.fecha_hora?.slice(0, 16).replace('T', ' ') || "—"}</p>
+                          </div>
+                          <div className="h-6 w-px bg-white/15" />
+                          {/* Inline comment field */}
+                          <div className="flex-[2] min-w-0 pointer-events-auto">
+                            <textarea
+                              placeholder="Observaciones..."
+                              className="w-full bg-white/10 hover:bg-white/15 focus:bg-white/20 border border-white/10 focus:border-violet-400/50 rounded-lg px-3 py-1.5 text-[11px] text-white placeholder-white/40 outline-none transition-all resize-none backdrop-blur-sm"
+                              rows={1}
+                              value={comentario}
+                              onChange={(e) => setComentario(e.target.value)}
+                            />
+                          </div>
+                        </div>
+                      </div>
+
                     </div>
 
-                    {/* DETALLES DE ENVÍO (Horizontal, debajo de la imagen) */}
-                    <div className="hidden md:flex items-center gap-4 mt-4 px-6 py-4 bg-white rounded-2xl shadow-sm border border-slate-100">
-                      <div className="flex items-center gap-3 flex-1 min-w-0">
-                        <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center shrink-0 border border-orange-200">
-                          <User className="text-orange-500" size={20} />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-bold text-slate-900 truncate">{grupo.vendedor || "Sin asignar"}</p>
-                          <p className="text-[10px] font-medium text-slate-500">Vendedor</p>
-                        </div>
-                      </div>
-                      <div className="h-8 w-px bg-slate-200" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[10px] font-medium text-slate-500 mb-0.5">Cliente</p>
-                        <p className="text-xs font-bold text-slate-900 truncate">{grupo.nro_cliente || "—"}</p>
-                      </div>
-                      <div className="h-8 w-px bg-slate-200" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[10px] font-medium text-slate-500 mb-0.5">Tipo PDV</p>
-                        <p className="text-[10px] font-bold bg-slate-100 text-slate-700 px-2 py-1 rounded-md inline-block">{grupo.tipo_pdv || "—"}</p>
-                      </div>
-                      <div className="h-8 w-px bg-slate-200" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[10px] font-medium text-slate-500 mb-0.5">Fecha y Hora</p>
-                        <p className="text-xs font-bold text-slate-900 truncate">{grupo.fecha_hora?.slice(0, 16).replace('T', ' ') || "—"}</p>
-                      </div>
-                    </div>
 
-                    {/* TEXTAREA DE COMENTARIOS (debajo de detalles) */}
-                    <div className="mt-4 px-6 py-4 bg-white rounded-2xl shadow-sm border border-slate-100">
-                      <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">
-                        Observaciones Adicionales
-                      </h3>
-                      <textarea
-                        placeholder="Escribe comentarios sobre la ejecución..."
-                        className="w-full bg-slate-50 hover:bg-slate-100 focus:bg-white border border-slate-200 focus:border-violet-300 rounded-xl p-3 text-sm text-slate-900 placeholder-slate-400 outline-none transition-all resize-none"
-                        rows={2}
-                        value={comentario}
-                        onChange={(e) => setComentario(e.target.value)}
-                      />
-                    </div>
 
                     {/* Botones Hypersonic */}
                     <div className="flex justify-center items-center gap-3 sm:gap-5 absolute bottom-0 left-0 right-0 translate-y-1/2 md:translate-y-0 md:relative md:mt-2 z-10 px-4">

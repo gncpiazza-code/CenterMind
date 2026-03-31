@@ -159,13 +159,31 @@ export default function ModoOficinaPage() {
         try {
           const data = JSON.parse(event.data);
           if (data.type === "new_exhibition") {
-            const evnt: LiveMapEvent = data.payload;
+            const payload = data.payload;
+
+            // Mapping backend payload to LiveMapEvent interface
+            const evnt: LiveMapEvent = {
+              ...payload,
+              id_ex:           payload.id_ex,
+              id_dist:         payload.id_dist,
+              vendedor_nombre: payload.vendedor_nombre,
+              lat:             payload.lat || 0,
+              lng:             payload.lng || 0,
+              timestamp:       payload.timestamp_evento || new Date().toISOString(),
+              id_cliente_erp:  payload.nro_cliente || "",
+              cliente_nombre:  payload.nombre_fantasia || "Punto de Venta",
+              drive_link:      payload.drive_link || "",
+              domicilio:       payload.domicilio || "",
+              localidad:       payload.localidad || "",
+              telefono:        payload.telefono || "",
+              fecha_alta:      payload.fecha_alta || "",
+            };
 
             // Avoid duplicates
             if (seenIdsRef.current.has(evnt.id_ex)) return;
             seenIdsRef.current.add(evnt.id_ex);
 
-            console.log("✨ Nueva exhibición detectada via WS:", evnt);
+            console.log("✨ Nueva exhibición mapeada:", evnt);
 
             // 1. Show notification
             setNewEvent(evnt);
@@ -201,8 +219,6 @@ export default function ModoOficinaPage() {
         reconnectTimer = setTimeout(connect, 5000);
       };
     };
-
-    connect();
 
     return () => {
       if (socket) socket.close();
@@ -703,9 +719,18 @@ function EventCard({ event }: { event: LiveMapEvent }) {
         >
           {imgUrl ? (
             <img 
-              src={"https://api.shelfycenter.com/api/proxy-image?url=" + encodeURIComponent(event.drive_link || "")} 
+              src={imgUrl.includes('supabase.co') ? imgUrl : "https://api.shelfycenter.com/api/proxy-image?url=" + encodeURIComponent(imgUrl)} 
               alt="Preview" 
               style={{ width: "100%", height: "100%", objectFit: "cover" }} 
+              onError={(e) => {
+                // Fallback to proxy if direct fails, or vice versa
+                const target = e.currentTarget;
+                if (!target.src.includes('proxy-image')) {
+                  target.src = "https://api.shelfycenter.com/api/proxy-image?url=" + encodeURIComponent(imgUrl);
+                } else {
+                  target.src = "/placeholder-image.png"; // or just empty
+                }
+              }}
             />
           ) : (
             <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#334155" }}>
@@ -741,6 +766,13 @@ function EventCard({ event }: { event: LiveMapEvent }) {
               <div style={{ fontSize: 9, color: "#475569", textTransform: "uppercase", fontWeight: 900 }}>Localidad</div>
               <div style={{ fontSize: 11, color: "#94a3b8" }}>{event.localidad || "—"}</div>
             </div>
+            {(event.lat === 0 || event.lng === 0) && (
+              <div style={{ gridColumn: "span 2", marginTop: 4 }}>
+                <div style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "rgba(239,68,68,0.1)", color: "#ef4444", padding: "2px 8px", borderRadius: 4, fontSize: 9, fontWeight: 700, textTransform: "uppercase" }}>
+                  ⚠️ PDV sin geolocalización (viaje cancelado)
+                </div>
+              </div>
+            )}
             <div>
               <div style={{ fontSize: 9, color: "#475569", textTransform: "uppercase", fontWeight: 900 }}>Teléfono</div>
               <div style={{ fontSize: 11, color: "#10b981", fontWeight: 700 }}>{event.telefono || "—"}</div>

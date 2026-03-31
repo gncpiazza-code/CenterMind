@@ -178,20 +178,20 @@ const VendorAvatar = ({ nombre, color }: { nombre: string; color: string }) => {
 
 // ── Small eye toggle button ───────────────────────────────────────────────────
 function EyeBtn({
-  on, loading, color, onClick, title,
+  on, loading, color, onClick, title, className,
 }: {
   on: boolean; loading?: boolean; color?: string;
-  onClick: () => void; title?: string;
+  onClick: () => void; title?: string; className?: string;
 }) {
   return (
     <button
       onClick={e => { e.stopPropagation(); onClick(); }}
       title={title ?? (on ? "Ocultar del mapa" : "Mostrar en mapa")}
-      className={`hidden xl:flex w-6 h-6 rounded-md items-center justify-center border transition-all duration-200 shrink-0 ${
+      className={`hidden xl:flex rounded-md items-center justify-center border transition-all duration-200 shrink-0 ${
         on
           ? "border-transparent text-white"
           : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] hover:border-current"
-      }`}
+      } ${className ?? "w-6 h-6"}`}
       style={on && color ? { backgroundColor: color, boxShadow: `0 0 6px ${color}55` } : {}}
     >
       {loading
@@ -767,11 +767,13 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
 
   // ── Vendor panel content for MapaRutas fullscreen overlay ────────────────
   const vendorPanelContent = (
-    <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="px-3 py-2.5 border-b border-white/10 shrink-0">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-white/40 mb-1.5">Sucursal</p>
-        <div className="flex flex-wrap gap-1">
+    <div className="flex flex-col h-full bg-[var(--shelfy-panel)] text-white">
+      {/* Header Sucursal selector (Compact) */}
+      <div className="px-4 py-3 border-b border-white/10 shrink-0">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-white/40 mb-2">
+          Sucursal
+        </p>
+        <div className="flex flex-wrap gap-1.5">
           {sucursales.map(suc => (
             <button
               key={suc}
@@ -781,7 +783,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                 setVisibleRutas(new Set());
                 setVisibleClientes(new Set());
               }}
-              className={`px-2 py-0.5 rounded text-[10px] font-semibold border transition-all duration-200 ${
+              className={`px-3 py-1 rounded-lg text-[10px] font-semibold border transition-all duration-200 ${
                 selectedSucursal === suc
                   ? "bg-[var(--shelfy-primary)] text-white border-transparent"
                   : "bg-white/5 text-white/50 border-white/10 hover:text-white/80"
@@ -792,48 +794,112 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
           ))}
         </div>
       </div>
-      {/* Vendor list */}
+
+      {/* List of Vendors + Routes + PDVs (Cascada) */}
       <div className="flex-1 overflow-y-auto min-h-0 divide-y divide-white/5">
+        {!selectedSucursal && (
+          <div className="flex flex-col items-center justify-center py-12 text-white/20">
+            <Building2 className="w-8 h-8 opacity-20" />
+            <p className="text-[10px] text-center px-6 mt-2">Seleccioná una sucursal</p>
+          </div>
+        )}
         {vendedoresFiltrados.map(v => {
-          const idx      = vendedores.indexOf(v);
-          const color    = vendorColor(idx);
-          const isVendOn = visibleVends.has(v.id_vendedor);
+          const idx       = vendedores.indexOf(v);
+          const color     = vendorColor(idx);
+          const vOpen     = openVend === v.id_vendedor;
+          const vRutasRaw = queryClient.getQueryData<RutaSupervision[]>(['supervision-rutas', v.id_vendedor]) ?? [];
+          const vRutas    = [...vRutasRaw].sort(
+            (a, b) =>
+              (DIA_ORDER[a.dia_semana?.toLowerCase() ?? ""] ?? 9) -
+              (DIA_ORDER[b.dia_semana?.toLowerCase() ?? ""] ?? 9)
+          );
+          const isVendOn  = visibleVends.has(v.id_vendedor);
           const isVendLoad = loadingMap.has(v.id_vendedor);
-          const pct      = v.total_pdv > 0 ? Math.round(((v.pdv_activos ?? 0) / v.total_pdv) * 100) : 0;
+          const pct       = v.total_pdv > 0 ? Math.round(((v.pdv_activos ?? 0) / v.total_pdv) * 100) : 0;
+
           return (
-            <div key={v.id_vendedor} className="px-3 py-2">
-              <div className="flex items-center gap-2">
-                <VendorAvatar nombre={v.nombre_vendedor} color={color} />
+            <div key={v.id_vendedor}>
+              <div className="flex items-stretch px-3 py-2.5 hover:bg-white/5 transition-colors">
+                <div className="w-1 shrink-0 rounded-full mr-3" style={{ backgroundColor: isVendOn ? color : "transparent" }} />
                 <div className="flex-1 min-w-0">
-                  <p className="text-[12px] font-bold text-white truncate leading-snug">{v.nombre_vendedor}</p>
-                  <p className="text-[10px] text-white/40">{v.total_pdv} PDV · {pct}% activos</p>
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <VendorAvatar nombre={v.nombre_vendedor} color={color} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[12px] font-bold text-white truncate leading-snug">{v.nombre_vendedor}</p>
+                      <p className="text-[10px] text-white/40">{v.total_pdv} PDV · {pct}% activos</p>
+                    </div>
+                    <button
+                      onClick={() => toggleVendor(v.id_vendedor)}
+                      className={`w-6 h-6 rounded flex items-center justify-center border transition-all shrink-0 ${
+                        isVendOn ? "border-transparent text-white" : "border-white/10 text-white/30"
+                      }`}
+                      style={isVendOn ? { backgroundColor: color, boxShadow: `0 0 6px ${color}55` } : {}}
+                    >
+                      {isVendLoad
+                        ? <Loader2 className="w-3 h-3 animate-spin" />
+                        : isVendOn ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />
+                      }
+                    </button>
+                  </div>
+                  <button
+                    onClick={() => handleVend(v.id_vendedor)}
+                    className="flex items-center gap-1 text-[10px] text-white/30 hover:text-white/60 transition-colors"
+                  >
+                    <ChevronRight className={`w-3 h-3 transition-transform duration-200 ${vOpen ? "rotate-90" : ""}`} />
+                    {vOpen ? "Ocultar rutas" : "Ver rutas"}
+                  </button>
                 </div>
-                <button
-                  onClick={() => toggleVendor(v.id_vendedor)}
-                  className={`w-6 h-6 rounded flex items-center justify-center border transition-all shrink-0 ${
-                    isVendOn ? "border-transparent text-white" : "border-white/20 text-white/30"
-                  }`}
-                  style={isVendOn ? { backgroundColor: color, boxShadow: `0 0 6px ${color}55` } : {}}
-                >
-                  {isVendLoad
-                    ? <Loader2 className="w-3 h-3 animate-spin" />
-                    : isVendOn ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />
-                  }
-                </button>
               </div>
-              {v.total_pdv > 0 && (
-                <div className="mt-1.5 w-full h-0.5 rounded-full bg-white/10 overflow-hidden">
-                  <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: color }} />
+
+              <Accordion open={vOpen}>
+                <div className="bg-black/20 divide-y divide-white/5">
+                  {vRutas.map(r => {
+                    const rOpen    = openRuta === r.id_ruta;
+                    const isRutaOn = visibleRutas.has(r.id_ruta);
+                    const rCli     = queryClient.getQueryData<ClienteSupervision[]>(['supervision-clientes', r.id_ruta]) ?? [];
+                    const cliVis   = rCli.filter(c => visibleClientes.has(c.id_cliente)).length;
+
+                    return (
+                      <div key={r.id_ruta}>
+                        <div className="flex items-center gap-2 px-6 py-2 hover:bg-white/5 transition-colors">
+                          <button onClick={() => handleRuta(r.id_ruta)} className="flex-1 flex items-center gap-2 text-left min-w-0">
+                            <ChevronRight className={`w-3 h-3 text-white/20 transition-transform ${rOpen ? "rotate-90" : ""}`} />
+                            <RouteIcon className="w-3 h-3" style={{ color: isRutaOn ? color : color + "66" }} />
+                            <span className="text-[11px] font-semibold text-white/70 truncate">Ruta {r.nombre_ruta}</span>
+                          </button>
+                          <div className="flex items-center gap-2">
+                             <span className="text-[9px] font-bold text-white/30">{isRutaOn ? cliVis : r.total_pdv}</span>
+                             <EyeBtn on={isRutaOn} color={color} className="w-5 h-5" onClick={() => toggleRuta(r.id_ruta, v.id_vendedor)} />
+                          </div>
+                        </div>
+                        <Accordion open={rOpen}>
+                          <div className="bg-black/40">
+                            {rCli.map(c => {
+                              const isCliOn = visibleClientes.has(c.id_cliente);
+                              const inactivo = isInactivo(c.fecha_ultima_compra);
+                              const dotColor = !isRutaOn || !isCliOn ? "#4b5563" : inactivo ? "#6b7280" : color;
+                              return (
+                                <div key={c.id_cliente} className="flex items-center gap-2 pl-10 pr-2 py-1.5 hover:bg-white/5 transition-colors">
+                                  <div className="flex-1 flex items-center gap-2 min-w-0" onClick={() => toggleCliente(c.id_cliente)}>
+                                    <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: dotColor }} />
+                                    <span className={`text-[10px] truncate ${!isCliOn ? "text-white/20" : inactivo ? "text-white/40" : "text-white/80"}`}>
+                                      {c.nombre_fantasia || c.nombre_razon_social}
+                                    </span>
+                                  </div>
+                                  <EyeBtn on={isCliOn} color={inactivo ? "#6b7280" : color} className="w-4 h-4" onClick={() => toggleCliente(c.id_cliente)} />
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </Accordion>
+                      </div>
+                    );
+                  })}
                 </div>
-              )}
+              </Accordion>
             </div>
           );
         })}
-        {vendedoresFiltrados.length === 0 && (
-          <div className="flex items-center justify-center py-8 text-white/30 text-xs">
-            {selectedSucursal ? "Sin vendedores" : "Seleccioná una sucursal"}
-          </div>
-        )}
       </div>
     </div>
   );
@@ -2061,103 +2127,12 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                 borderLeft: "1px solid rgba(255,255,255,0.08)",
                 overflowY: "auto",
               }}>
-                {/* Panel header */}
-                <div style={{
-                  padding: "12px 12px 10px", display: "flex", alignItems: "center",
-                  justifyContent: "space-between", borderBottom: "1px solid rgba(255,255,255,0.06)",
-                  flexShrink: 0,
-                }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.1em" }}>
-                    Vendedores
-                  </span>
-                  <button
-                    onClick={() => setShelfyFilterOpen(false)}
-                    style={{ color: "rgba(255,255,255,0.3)", background: "none", border: "none", cursor: "pointer", fontSize: 18, lineHeight: 1, padding: 2 }}
-                  >
-                    ×
-                  </button>
+                <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+                  <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest">Filtros</span>
+                  <button onClick={() => setShelfyFilterOpen(false)} className="text-white/30 hover:text-white/60">×</button>
                 </div>
-                {/* Sucursal chips */}
-                <div style={{ padding: "8px 12px", borderBottom: "1px solid rgba(255,255,255,0.06)", flexShrink: 0 }}>
-                  <p style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.3)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>Sucursal</p>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                    {sucursales.map(suc => (
-                      <button
-                        key={suc}
-                        onClick={() => {
-                          setSelectedSucursal(suc === selectedSucursal ? null : suc);
-                          setVisibleVends(new Set());
-                          setVisibleRutas(new Set());
-                          setVisibleClientes(new Set());
-                        }}
-                        style={{
-                          padding: "2px 8px", borderRadius: 6, fontSize: 10, fontWeight: 600,
-                          border: selectedSucursal === suc ? "1px solid transparent" : "1px solid rgba(255,255,255,0.1)",
-                          background: selectedSucursal === suc ? "#7C3AED" : "rgba(255,255,255,0.05)",
-                          color: selectedSucursal === suc ? "white" : "rgba(255,255,255,0.5)",
-                          cursor: "pointer",
-                        }}
-                      >
-                        {suc}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                {/* Vendor list with toggles */}
-                <div style={{ flex: 1, overflowY: "auto" }}>
-                  {vendedoresFiltrados.length === 0 && (
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: 24, color: "rgba(255,255,255,0.2)", fontSize: 12 }}>
-                      {selectedSucursal ? "Sin vendedores" : "Seleccioná una sucursal"}
-                    </div>
-                  )}
-                  {vendedoresFiltrados.map((v) => {
-                    const idx = vendedores.indexOf(v);
-                    const color = vendorColor(idx);
-                    const isVendOn = visibleVends.has(v.id_vendedor);
-                    const isVendLoad = loadingMap.has(v.id_vendedor);
-                    const pct = v.total_pdv > 0 ? Math.round(((v.pdv_activos ?? 0) / v.total_pdv) * 100) : 0;
-                    return (
-                      <div key={v.id_vendedor} style={{ padding: "10px 12px", borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          {/* Avatar */}
-                          <div style={{
-                            width: 32, height: 32, borderRadius: 8, flexShrink: 0,
-                            backgroundColor: color + "22", color,
-                            display: "flex", alignItems: "center", justifyContent: "center",
-                            fontSize: 11, fontWeight: 700,
-                          }}>
-                            {v.nombre_vendedor.trim().split(/\s+/).slice(0, 2).map((w: string) => w[0] ?? "").join("").toUpperCase() || "?"}
-                          </div>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <p style={{ fontSize: 12, fontWeight: 700, color: "white", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1.3 }}>
-                              {v.nombre_vendedor}
-                            </p>
-                            <p style={{ fontSize: 10, color: "rgba(255,255,255,0.3)" }}>{v.total_pdv} PDV · {pct}% activos</p>
-                          </div>
-                          {/* Toggle button */}
-                          <button
-                            onClick={() => toggleVendor(v.id_vendedor)}
-                            style={{
-                              width: 28, height: 28, borderRadius: 8, flexShrink: 0,
-                              border: isVendOn ? "1px solid transparent" : "1px solid rgba(255,255,255,0.2)",
-                              background: isVendOn ? color : "transparent",
-                              color: isVendOn ? "white" : "rgba(255,255,255,0.3)",
-                              display: "flex", alignItems: "center", justifyContent: "center",
-                              cursor: "pointer", fontSize: 13,
-                              boxShadow: isVendOn ? `0 0 6px ${color}55` : "none",
-                            }}
-                          >
-                            {isVendLoad ? "⟳" : isVendOn ? "●" : "○"}
-                          </button>
-                        </div>
-                        {v.total_pdv > 0 && (
-                          <div style={{ marginTop: 6, height: 2, borderRadius: 2, background: "rgba(255,255,255,0.08)", overflow: "hidden" }}>
-                            <div style={{ width: `${pct}%`, height: "100%", borderRadius: 2, backgroundColor: color }} />
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
+                <div className="flex-1 overflow-hidden">
+                  {vendorPanelContent}
                 </div>
               </div>
             )}

@@ -50,27 +50,26 @@ export const STATUS_LABELS: Record<PinStatus, string> = {
   inactivo:            "Inactivo",
 };
 
-// CSS de animación de aura — usa box-shadow (sin transform) para evitar
-// conflictos de composición GPU con el canvas WebGL de MapLibre.
-const PULSE_CSS = `
-@keyframes shelfy-aura {
-  0%   { box-shadow: 0 0 0 1px var(--ac); }
-  70%  { box-shadow: 0 0 0 9px transparent; }
-  100% { box-shadow: 0 0 0 9px transparent; }
-}
+const SHELFY_PIN_CSS = `
 .shelfy-pin {
   border-radius: 50%;
   pointer-events: auto;
   cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.shelfy-pin:hover {
+  transform: scale(1.2);
+  z-index: 100 !important;
+  box-shadow: 0 0 12px rgba(0,0,0,0.25);
 }
 `;
 
-function injectPulseCSS() {
+function injectShelfyPinCSS() {
   if (typeof document === "undefined") return;
-  if (document.getElementById("shelfy-pulse-css")) return;
+  if (document.getElementById("shelfy-pin-css")) return;
   const el = document.createElement("style");
-  el.id = "shelfy-pulse-css";
-  el.textContent = PULSE_CSS;
+  el.id = "shelfy-pin-css";
+  el.textContent = SHELFY_PIN_CSS;
   document.head.appendChild(el);
 }
 
@@ -114,7 +113,7 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode }: Ma
   }
 
   useEffect(() => {
-    injectPulseCSS();
+    injectShelfyPinCSS();
   }, []);
 
   // ── Markers ────────────────────────────────────────────────────────────────
@@ -131,10 +130,10 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode }: Ma
 
       conCoords.forEach(p => {
         const status      = getPinStatus(p);
-        const auraColor   = STATUS_COLORS[status];
+        const statusColor = STATUS_COLORS[status];
         const vendorColor = p.color;
         const hasCount = p.totalExhibiciones && p.totalExhibiciones > 0;
-        const size        = p.activo ? (hasCount ? 18 : 12) : (hasCount ? 14 : 8);
+        const size        = p.activo ? 18 : 14;
 
         const wrapper = document.createElement("div");
         wrapper.className = "shelfy-pin";
@@ -142,20 +141,19 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode }: Ma
           width:${size}px;
           height:${size}px;
           background:${vendorColor};
-          border:2px solid ${auraColor};
+          border:2px solid ${statusColor};
           box-sizing:border-box;
-          opacity:${p.activo ? 0.95 : 0.6};
+          opacity:${p.activo ? 1 : 0.8};
           display:flex;
           align-items:center;
           justify-content:center;
-          --ac: ${auraColor};
-          animation: shelfy-aura 2s infinite;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.3);
         `;
         wrapper.innerHTML = hasCount
-          ? `<span style="font-size:9px;font-weight:700;color:#fff;line-height:1;">${p.totalExhibiciones}</span>`
+          ? `<span style="font-size:10px;font-weight:900;color:#fff;line-height:1;text-shadow:0 0 2px #000">${p.totalExhibiciones}</span>`
           : '';
 
-        // ── Popup ──────────────────────────────────────────────────────────
+        // ── Popup Content ──────────────────────────────────────────────────
         const diasDesde = (iso: string | null | undefined): number | null => {
           if (!iso) return null;
           const ms = Date.now() - new Date(iso).getTime();
@@ -172,62 +170,49 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode }: Ma
         let exhibLine = "";
         if (p.fechaUltimaExhibicion) {
           const exhDateStr = p.fechaUltimaExhibicion.split("T")[0];
-          const imgUrl    = p.urlExhibicion ?? null;
-          const thumbHtml = imgUrl
-            ? `<a href="${imgUrl}" target="_blank" rel="noopener" style="display:block;margin-top:5px">
-                <img src="${imgUrl}" alt="Exhibición"
-                  style="width:100%;max-width:200px;border-radius:5px;border:1px solid #e2e8f0;display:block;object-fit:cover"/>
-               </a>`
-            : "";
           exhibLine = `
             <div style="margin-top:5px;padding-top:5px;border-top:1px solid #f1f5f9">
               <span style="color:#d97706;font-size:11px">
                 ● Exhibición: ${exhDateStr} · <b>hace ${diasExhib}d</b>
               </span>
-              ${thumbHtml}
-              ${imgUrl ? `<a href="${imgUrl}" target="_blank" rel="noopener"
-                style="font-size:10px;color:#3b82f6;display:inline-block;margin-top:3px">
-                Ver imagen original ↗</a>` : ""}
             </div>`;
         }
 
-        const deudaLine = p.deuda != null
-          ? `<div style="margin-top:4px;padding:3px 6px;background:#fef3c715;border-radius:4px;border:1px solid #fef3c740">
-               <span style="color:#d97706;font-size:11px">💳 Deuda: <b>$${p.deuda.toLocaleString("es-AR",{maximumFractionDigits:0})}</b>${p.antiguedadDias != null ? ` · <b style="color:#ef4444">${p.antiguedadDias}d</b>` : ""}</span>
-             </div>`
-          : "";
-
-        const metaLine = `
-          <div style="font-size:10px;color:#94a3b8;margin-top:3px;display:flex;gap:8px;flex-wrap:wrap">
-            ${p.idClienteErp ? `<span>Nº cliente: <b style="color:#475569">${p.idClienteErp}</b></span>` : ""}
-            ${p.nroRuta      ? `<span>Ruta: <b style="color:#475569">${p.nroRuta}</b></span>` : ""}
-          </div>`;
-
         const popupHTML = `
-          <div style="min-width:200px;max-width:240px;font-size:12px;font-family:sans-serif;
+          <div style="min-width:180px;max-width:240px;font-size:12px;font-family:sans-serif;
                       background:#fff;color:#1e293b;padding:10px 12px;border-radius:8px;
-                      box-shadow:0 4px 16px #0002;line-height:1.5">
-            <b style="display:block;font-size:13px;margin-bottom:2px">${p.nombre}</b>
-            ${metaLine}
-            <div style="display:flex;align-items:center;gap:5px;margin:5px 0 3px">
-              <span style="width:8px;height:8px;border-radius:50%;background:${vendorColor};
-                           display:inline-block;flex-shrink:0"></span>
-              <span style="font-size:11px;color:#475569">${p.vendedor}</span>
+                      box-shadow:0 4px 20px #0003;line-height:1.4">
+            ${p.idClienteErp ? `<div style="font-size:9px;font-weight:800;color:#94a3b8;text-transform:uppercase;margin-bottom:2px">Nº CLIENTE: ${p.idClienteErp}</div>` : ""}
+            <b style="display:block;font-size:13px;color:#0f172a;margin-bottom:4px">${p.nombre}</b>
+            
+            <div style="display:flex;align-items:center;gap:6px;margin:6px 0">
+              <span style="width:8px;height:8px;border-radius:50%;background:${vendorColor};flex-shrink:0"></span>
+              <span style="font-size:11px;font-weight:600;color:#475569">${p.vendedor}</span>
             </div>
-            <div style="font-size:10px;padding:2px 7px;border-radius:4px;display:inline-block;
-                        background:${auraColor}18;color:${auraColor};
-                        border:1px solid ${auraColor}44;font-weight:600;margin-bottom:4px">
+            
+            <div style="font-size:10px;padding:3px 8px;border-radius:5px;display:inline-block;
+                        background:${statusColor}15;color:${statusColor};
+                        border:1px solid ${statusColor}40;font-weight:700;margin-bottom:6px">
               ${STATUS_LABELS[status]}
             </div>
+            
             <div style="font-size:11px">${compraLabel}</div>
-            ${deudaLine}
             ${exhibLine}
           </div>`;
 
-        const popup  = new maplibregl.Popup({ offset: 12, closeButton: false }).setHTML(popupHTML);
+        const popup = new maplibregl.Popup({ offset: 12, closeButton: false, closeOnClick: false })
+          .setHTML(popupHTML);
+
+        // Hover event listeners
+        wrapper.addEventListener('mouseenter', () => {
+          popup.setLngLat([p.lng, p.lat]).addTo(map);
+        });
+        wrapper.addEventListener('mouseleave', () => {
+          popup.remove();
+        });
+
         const marker = new maplibregl.Marker({ element: wrapper, anchor: "center" })
           .setLngLat([p.lng, p.lat])
-          .setPopup(popup)
           .addTo(map);
         markersRef.current.push(marker);
       });

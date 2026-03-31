@@ -27,6 +27,11 @@ import { FiltrosBar } from "@/components/dashboard/FiltrosBar";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
+const MESES_ES = [
+  "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+];
+
 function getCurrentYearMonth() {
   const now = new Date();
   return { year: now.getFullYear(), month: now.getMonth() + 1, day: 0 };
@@ -38,6 +43,28 @@ function periodoString(year: number, month: number, day: number): string {
   const now = new Date();
   if (year === now.getFullYear() && month === now.getMonth() + 1) return "mes";
   return `${year}-${String(month).padStart(2, "0")}`;
+}
+
+function formatPeriodoLabel(periodo: string): string {
+  const now = new Date();
+
+  if (periodo === "mes") {
+    return `${MESES_ES[now.getMonth()]} ${now.getFullYear()}`;
+  }
+  if (periodo === "hoy") {
+    return `Hoy ${now.toLocaleDateString("es-AR", { day: "2-digit", month: "long", year: "numeric" })}`;
+  }
+  // "2026-03"
+  if (/^\d{4}-\d{2}$/.test(periodo)) {
+    const [y, m] = periodo.split("-").map(Number);
+    return `${MESES_ES[m - 1]} ${y}`;
+  }
+  // "2026-03-15" — a specific day
+  if (/^\d{4}-\d{2}-\d{2}$/.test(periodo)) {
+    const [y, m, d] = periodo.split("-").map(Number);
+    return `${d} de ${MESES_ES[m - 1]} ${y}`;
+  }
+  return periodo;
 }
 
 // ── Página principal ──────────────────────────────────────────────────────────
@@ -183,8 +210,13 @@ export default function DashboardPage() {
                 <RankingTable
                   ranking={rankingFiltrado}
                   periodo={periodo}
+                  periodoLabel={formatPeriodoLabel(periodo)}
                   sucursalFiltro={sucursalFiltro}
                   sucursales={sucursales}
+                  kpis={kpis}
+                  evolucion={evolucion}
+                  distId={user?.id_distribuidor || 0}
+                  nombreEmpresa={user?.nombre_empresa || "Distribuidora"}
                 />
               </div>
             </div>

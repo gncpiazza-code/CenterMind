@@ -201,8 +201,14 @@ async def _hacer_login(page: Page, tenant: dict) -> None:
     password = get_secret(tenant["vault_pass"])
 
     await page.locator('input').first.fill(usuario)
+    await page.locator('input').first.dispatch_event("input")
     await page.locator('input[type="password"]').fill(password)
-    await page.locator('button:has-text("INICIAR SESIÓN")').click()
+    await page.locator('input[type="password"]').dispatch_event("input")
+    
+    # Esperar a que Angular/PrimeNG habilite el botón (no solo visible)
+    btn = page.locator('button:has-text("INICIAR SESIÓN")')
+    await btn.wait_for(state="enabled", timeout=TIMEOUT_MS)
+    await btn.click()
     await page.wait_for_url("**/dashboard**", timeout=20_000)
     logger.info(f"  ✅ Login OK — {tenant['nombre']}")
 
@@ -280,8 +286,10 @@ async def _navegar_y_procesar(page: Page, tenant: dict) -> None:
             await opciones_marcadas.nth(0).click()
             await page.wait_for_timeout(100)
 
-        # Seleccionar solo la sucursal deseada
-        await page.locator(f'mat-option:has-text("{sucursal}")').click()
+        # Seleccionar solo la sucursal deseada — esperar a que esté visible (evita race condition)
+        opcion = page.locator(f'mat-option:has-text("{sucursal}")')
+        await opcion.wait_for(state="visible", timeout=TIMEOUT_MS)
+        await opcion.click()
         await page.keyboard.press("Escape")
         await page.wait_for_timeout(500)
 

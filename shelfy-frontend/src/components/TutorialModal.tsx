@@ -94,13 +94,46 @@ export default function TutorialModal({ onComplete }: { onComplete?: () => void 
       : "translateX(0)",
   };
 
+  const renderNavButtons = () => (
+    <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+      <button onClick={handleClose} style={{
+        background: "transparent", border: "none", cursor: "pointer",
+        color: "#9ca3af", fontSize: 13.5, fontWeight: 500, padding: "8px 12px",
+      }}>
+        Omitir
+      </button>
+      {current > 0 && (
+        <button onClick={handlePrev} style={{
+          background: "#f3f4f6", border: "none", cursor: "pointer",
+          color: "#374151", fontSize: 13.5, fontWeight: 600,
+          padding: "9px 18px", borderRadius: 10,
+        }}>
+          ← Anterior
+        </button>
+      )}
+      <button onClick={handleNext} style={{
+        background: current === SLIDES.length - 1
+          ? "linear-gradient(135deg, #10B981 0%, #059669 100%)"
+          : "linear-gradient(135deg, #7C3AED 0%, #4F46E5 100%)",
+        border: "none", cursor: "pointer",
+        color: "#fff", fontSize: 13.5, fontWeight: 600,
+        padding: "9px 20px", borderRadius: 10,
+        boxShadow: current === SLIDES.length - 1
+          ? "0 2px 10px rgba(16,185,129,0.35)"
+          : "0 2px 10px rgba(124,58,237,0.35)",
+      }}>
+        {current === SLIDES.length - 1 ? "¡Listo, explorar! 🚀" : "Siguiente →"}
+      </button>
+    </div>
+  );
+
   return (
     <div
       style={{
         position: "fixed", inset: 0, zIndex: 10001,
         background: "rgba(17,24,39,0.6)", backdropFilter: "blur(4px)",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        padding: 16,
+        padding: "16px 12px",
+        height: "100%",
       }}
       onClick={handleClose}
     >
@@ -108,13 +141,29 @@ export default function TutorialModal({ onComplete }: { onComplete?: () => void 
         style={{
           background: "#fff", borderRadius: 20, width: "100%", maxWidth: 760,
           overflow: "hidden", boxShadow: "0 32px 80px rgba(0,0,0,0.22)",
+          display: "flex", flexDirection: "column",
+          maxHeight: "100%",
         }}
         onClick={e => e.stopPropagation()}
       >
+        <style>{`
+          @media (max-width: 640px) {
+            .tut-header { padding: 18px 20px 14px !important; }
+            .tut-body { padding: 16px 20px 12px !important; min-height: 200px !important; max-height: unset !important; flex: 1; }
+            .tut-footer { padding: 12px 20px 16px !important; flex-wrap: wrap; gap: 12px; }
+            .tut-title { fontSize: 18px !important; }
+            .tut-subtitle { fontSize: 12px !important; }
+            .tut-step { top: 16px !important; right: 20px !important; fontSize: 11px !important; }
+            .mobile-nav { display: flex !important; align-items: center; justify-content: space-between; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid #f3f4f6; flex-shrink: 0; }
+            .desktop-buttons { display: none !important; }
+          }
+          .mobile-nav { display: none; }
+        `}</style>
         {/* Header */}
-        <div style={{
+        <div className="tut-header" style={{
           background: "linear-gradient(135deg, #7C3AED 0%, #4F46E5 100%)",
           padding: "24px 28px 20px", position: "relative", overflow: "hidden",
+          flexShrink: 0,
         }}>
           <div style={{
             position: "absolute", top: -40, right: -40, width: 180, height: 180,
@@ -129,13 +178,13 @@ export default function TutorialModal({ onComplete }: { onComplete?: () => void 
             <span style={{ width: 6, height: 6, background: "#4ade80", borderRadius: "50%", display: "inline-block" }} />
             NUEVO EN SHELFY
           </div>
-          <div style={{ color: "#fff", fontSize: 20, fontWeight: 700, letterSpacing: "-0.02em", position: "relative" }}>
+          <div className="tut-title" style={{ color: "#fff", fontSize: 20, fontWeight: 700, letterSpacing: "-0.02em", position: "relative" }}>
             {SLIDES[current].title}
           </div>
-          <div style={{ color: "rgba(255,255,255,0.72)", fontSize: 13, marginTop: 3, position: "relative" }}>
+          <div className="tut-subtitle" style={{ color: "rgba(255,255,255,0.72)", fontSize: 13, marginTop: 3, position: "relative" }}>
             {SLIDES[current].subtitle}
           </div>
-          <div style={{ position: "absolute", top: 22, right: 24, color: "rgba(255,255,255,0.55)", fontSize: 12, fontWeight: 500 }}>
+          <div className="tut-step" style={{ position: "absolute", top: 22, right: 24, color: "rgba(255,255,255,0.55)", fontSize: 12, fontWeight: 500 }}>
             Paso <strong style={{ color: "#fff" }}>{current + 1}</strong> de {SLIDES.length}
           </div>
         </div>
@@ -150,7 +199,12 @@ export default function TutorialModal({ onComplete }: { onComplete?: () => void 
         </div>
 
         {/* Body */}
-        <div style={{ padding: "24px 28px 16px", minHeight: 300, maxHeight: "calc(100vh - 220px)", overflowY: "auto" }}>
+        <div className="tut-body" style={{ padding: "24px 28px 16px", minHeight: 300, maxHeight: "calc(100dvh - 200px)", overflowY: "auto" }}>
+          {/* Mobile Nav Top */}
+          <div className="mobile-nav">
+            {renderNavButtons()}
+          </div>
+
           <div style={slideStyle}>
             {current === 0 && <Slide1 />}
             {current === 1 && <Slide2 />}
@@ -162,10 +216,11 @@ export default function TutorialModal({ onComplete }: { onComplete?: () => void 
         </div>
 
         {/* Footer */}
-        <div style={{
+        <div className="tut-footer" style={{
           padding: "14px 28px 20px",
           borderTop: "1px solid #f3f4f6",
           display: "flex", alignItems: "center", justifyContent: "space-between",
+          flexShrink: 0,
         }}>
           {/* Dots */}
           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
@@ -179,42 +234,16 @@ export default function TutorialModal({ onComplete }: { onComplete?: () => void 
               }} />
             ))}
           </div>
-          {/* Buttons */}
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <button onClick={handleClose} style={{
-              background: "transparent", border: "none", cursor: "pointer",
-              color: "#9ca3af", fontSize: 13.5, fontWeight: 500, padding: "8px 12px",
-            }}>
-              Omitir
-            </button>
-            {current > 0 && (
-              <button onClick={handlePrev} style={{
-                background: "#f3f4f6", border: "none", cursor: "pointer",
-                color: "#374151", fontSize: 13.5, fontWeight: 600,
-                padding: "9px 18px", borderRadius: 10,
-              }}>
-                ← Anterior
-              </button>
-            )}
-            <button onClick={handleNext} style={{
-              background: current === SLIDES.length - 1
-                ? "linear-gradient(135deg, #10B981 0%, #059669 100%)"
-                : "linear-gradient(135deg, #7C3AED 0%, #4F46E5 100%)",
-              border: "none", cursor: "pointer",
-              color: "#fff", fontSize: 13.5, fontWeight: 600,
-              padding: "9px 20px", borderRadius: 10,
-              boxShadow: current === SLIDES.length - 1
-                ? "0 2px 10px rgba(16,185,129,0.35)"
-                : "0 2px 10px rgba(124,58,237,0.35)",
-            }}>
-              {current === SLIDES.length - 1 ? "¡Listo, explorar! 🚀" : "Siguiente →"}
-            </button>
+          {/* Desktop Buttons */}
+          <div className="desktop-buttons">
+            {renderNavButtons()}
           </div>
         </div>
       </div>
     </div>
   );
 }
+
 
 /* ─── Slide components ──────────────────────────────────────────────────────── */
 

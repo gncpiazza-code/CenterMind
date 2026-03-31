@@ -709,7 +709,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
             activo:                !isInactivo30(c.fecha_ultima_compra),
             vendedor:              v.nombre_vendedor,
             ultimaCompra:          fmt(c.fecha_ultima_compra),
-            conExhibicion:         c.tiene_exhibicion_reciente ?? false, // Server-calculated flag
+            conExhibicion:         c.fecha_ultima_exhibicion != null, // true si alguna vez tuvo exhibición registrada
             idClienteErp:          c.id_cliente_erp ?? null,
             nroRuta:               r.dia_semana ?? null,
             fechaUltimaCompra:     c.fecha_ultima_compra ?? null,

@@ -427,7 +427,9 @@ export default function VisorPage() {
                     <div className="h-5 w-px bg-white/15" />
                     {/* Nombre */}
                     <div className="min-w-0 max-w-[160px]">
-                      <p className="text-[10px] font-bold text-white truncate leading-tight">{erpContext?.nombre_fantasia || erpContext?.razon_social || grupo.nro_cliente || "—"}</p>
+                      <p className="text-[10px] font-bold text-white truncate leading-tight">
+                        {erpContext?.nombre_fantasia || erpContext?.razon_social || (grupo.nro_cliente ? `#${grupo.nro_cliente}` : "—")}
+                      </p>
                       <p className="text-[8px] text-white/40 truncate">{erpContext?.domicilio ? `${erpContext.domicilio}${erpContext.localidad ? `, ${erpContext.localidad}` : ""}` : "—"}</p>
                     </div>
                     <div className="h-5 w-px bg-white/15" />
@@ -516,7 +518,7 @@ export default function VisorPage() {
                   <div className="pointer-events-auto flex items-center gap-2 px-3 py-2 bg-black/60 backdrop-blur-xl border-t border-white/10 text-white" style={{ paddingBottom: 'max(8px, env(safe-area-inset-bottom))' }}>
                     {/* Mini info */}
                     <div className="flex flex-col min-w-0 flex-1">
-                      <p className="text-[9px] font-bold text-white/90 truncate leading-tight">{erpContext?.nombre_fantasia || erpContext?.razon_social || grupo.nro_cliente || "—"}</p>
+                      <p className="text-[9px] font-bold text-white/90 truncate leading-tight">{erpContext?.nombre_fantasia || erpContext?.razon_social || (grupo.nro_cliente ? `#${grupo.nro_cliente}` : "—")}</p>
                       <p className="text-[8px] text-white/40 truncate">{erpContext?.domicilio ? `${erpContext.domicilio}${erpContext.localidad ? `, ${erpContext.localidad}` : ""}` : grupo.fecha_hora?.slice(0, 16).replace('T', ' ') || "—"}</p>
                     </div>
 

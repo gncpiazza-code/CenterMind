@@ -970,14 +970,15 @@ def get_erp_contexto(id_distribuidor: int, nro_cliente: str, user_payload=Depend
             "p_nro_cliente": nro_cliente
         }).execute()
         
-        ctx = res_rpc.data if res_rpc.data else {"encontrado": False}
-        
+        # RPC devuelve lista; tomamos el primer elemento
+        ctx = res_rpc.data[0] if res_rpc.data else {"encontrado": False}
+
         # Enriquecimiento con datos maestros (Ruta, Domicilio, Canal, Fecha Alta, Día Visita)
         res_pdv = sb.table("clientes_pdv_v2").select(
             "nombre_fantasia, nombre_razon_social, domicilio, localidad, canal, fecha_alta, "
             "rutas_v2(id_ruta_erp, dia_semana)"
         ).eq("id_distribuidor", id_distribuidor).eq("id_cliente_erp", nro_cliente).limit(1).execute()
-        
+
         if res_pdv.data:
             pdv = res_pdv.data[0]
             ctx["encontrado"] = True
@@ -988,9 +989,12 @@ def get_erp_contexto(id_distribuidor: int, nro_cliente: str, user_payload=Depend
             ctx["canal"] = pdv.get("canal")
             ctx["fecha_alta"] = pdv.get("fecha_alta")
             # Extraer número de ruta y día de visita del objeto anidado
-            if pdv.get("rutas_v2"):
-                ctx["nro_ruta"] = pdv["rutas_v2"].get("id_ruta_erp")
-                ctx["dia_visita"] = pdv["rutas_v2"].get("dia_semana")
+            # (puede ser lista si hay múltiples rutas, o dict si hay una sola)
+            rutas_raw = pdv.get("rutas_v2")
+            if rutas_raw:
+                ruta_obj = rutas_raw[0] if isinstance(rutas_raw, list) else rutas_raw
+                ctx["nro_ruta"] = ruta_obj.get("id_ruta_erp")
+                ctx["dia_visita"] = ruta_obj.get("dia_semana")
         
         return ctx
     except Exception as e:

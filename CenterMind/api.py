@@ -837,6 +837,38 @@ def switch_context(dist_id: int, payload=Depends(verify_auth)):
     )
 
 
+# ── Helper: resolución de nombre Telegram → nombre ERP ──────────────────────
+def _get_erp_name_map(dist_id: int) -> dict:
+    """
+    Devuelve dict { nombre_integrante_lower → nombre_erp } para un distribuidor.
+    Resuelve la cadena: integrantes_grupo.id_vendedor_v2 → vendedores_v2.nombre_erp
+    Fallback: si un integrante no tiene id_vendedor_v2 asignado, su nombre Telegram
+    se mantiene como clave y valor (sin transformación).
+    """
+    try:
+        ig_res = sb.table("integrantes_grupo")\
+            .select("nombre_integrante, id_vendedor_v2, vendedores_v2(nombre_erp)")\
+            .eq("id_distribuidor", dist_id)\
+            .execute()
+        name_map: dict = {}
+        for ig in (ig_res.data or []):
+            tg_name = (ig.get("nombre_integrante") or "").strip()
+            if not tg_name:
+                continue
+            vend = ig.get("vendedores_v2")
+            nombre_erp = None
+            if isinstance(vend, dict):
+                nombre_erp = vend.get("nombre_erp")
+            elif isinstance(vend, list) and vend:
+                nombre_erp = vend[0].get("nombre_erp")
+            if nombre_erp:
+                name_map[tg_name.lower()] = nombre_erp
+        return name_map
+    except Exception as e:
+        logger.warning(f"_get_erp_name_map dist={dist_id} falló: {e}")
+        return {}
+
+
 @app.get("/api/pendientes/{id_distribuidor}", summary="Exhibiciones pendientes agrupadas por mensaje")
 def get_pendientes(id_distribuidor: int, payload=Depends(verify_auth)):
     check_dist_permission(payload, id_distribuidor)
@@ -871,15 +903,20 @@ def get_pendientes(id_distribuidor: int, payload=Depends(verify_auth)):
             except Exception as enrich_err:
                 logger.error(f"Error en enriquecimiento nro_cliente: {enrich_err}")
 
+        # Resolver nombres Telegram → nombre ERP del padrón
+        erp_name_map = _get_erp_name_map(id_distribuidor)
+
         grupos: dict = {}
         for d in rows:
             ex_id = d.get("id_exhibicion")
             if not ex_id:
                 continue
             key = str(d.get("telegram_msg_id")) if d.get("telegram_msg_id") else f"solo_{ex_id}"
+            tg_vendedor = (d.get("vendedor") or "S/V").strip()
+            vendedor_display = erp_name_map.get(tg_vendedor.lower(), tg_vendedor)
             if key not in grupos:
                 grupos[key] = {
-                    "vendedor": d.get("vendedor") or "S/V",
+                    "vendedor": vendedor_display,
                     "nro_cliente": d.get("nro_cliente") or "S/C",
                     "tipo_pdv": d.get("tipo_pdv") or "S/D",
                     "fecha_hora": d.get("fecha_hora") or "",
@@ -914,7 +951,16 @@ def get_vendedores(id_distribuidor: int, payload=Depends(verify_auth)):
     check_dist_permission(payload, id_distribuidor)
     try:
         result = sb.rpc("fn_vendedores_pendientes", {"p_dist_id": id_distribuidor}).execute()
-        return [r["nombre_integrante"] for r in (result.data or [])]
+        erp_name_map = _get_erp_name_map(id_distribuidor)
+        nombres = []
+        seen = set()
+        for r in (result.data or []):
+            tg_name = (r.get("nombre_integrante") or "").strip()
+            display = erp_name_map.get(tg_name.lower(), tg_name)
+            if display and display not in seen:
+                nombres.append(display)
+                seen.add(display)
+        return nombres
     except Exception as e:
         logger.error(f"Error en get_vendedores dist={id_distribuidor}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -1394,12 +1440,32 @@ def dashboard_kpis(distribuidor_id: int, periodo: str = "mes", sucursal_id: int 
 def dashboard_ranking(distribuidor_id: int, periodo: str = "mes", top: int = 15, sucursal_id: int = Query(None), payload=Depends(verify_auth)):
     check_dist_permission(payload, distribuidor_id)
     result = sb.rpc("fn_dashboard_ranking", {
-        "p_dist_id": distribuidor_id, 
-        "p_periodo": periodo, 
+        "p_dist_id": distribuidor_id,
+        "p_periodo": periodo,
         "p_top": top,
         "p_sucursal_id": sucursal_id
     }).execute()
-    return result.data or []
+    rows = result.data or []
+
+    # Resolver nombres Telegram → ERP y re-agregar (un mismo ERP puede tener N integrantes Telegram)
+    erp_name_map = _get_erp_name_map(distribuidor_id)
+    aggregated: dict = {}
+    NUMERIC_FIELDS = ("total", "aprobadas", "rechazadas", "destacadas", "pendientes",
+                      "total_enviadas", "total_aprobadas", "total_rechazadas", "total_destacadas")
+    for row in rows:
+        tg_name = (row.get("vendedor") or "").strip()
+        erp_name = erp_name_map.get(tg_name.lower(), tg_name)
+        if erp_name not in aggregated:
+            aggregated[erp_name] = {**row, "vendedor": erp_name}
+        else:
+            for field in NUMERIC_FIELDS:
+                if field in row:
+                    aggregated[erp_name][field] = (aggregated[erp_name].get(field) or 0) + (row.get(field) or 0)
+
+    # Re-ordenar por total descendente y aplicar top
+    sort_key = "total" if "total" in (rows[0] if rows else {}) else "total_enviadas"
+    sorted_rows = sorted(aggregated.values(), key=lambda x: x.get(sort_key) or 0, reverse=True)
+    return sorted_rows[:top]
 
 @app.get("/api/dashboard/evolucion-tiempo/{distribuidor_id}", summary="Evolución temporal de exhibiciones")
 def dashboard_evolucion(distribuidor_id: int, periodo: str = "mes", sucursal_id: int = Query(None), payload=Depends(verify_auth)):
@@ -1890,8 +1956,17 @@ def reportes_exhibiciones(distribuidor_id: int, q_body: ReporteQuery, _=Depends(
     vendedores_map = {}
     clientes_map = {}
     if integrante_ids:
-        ig = sb.table("integrantes_grupo").select("id_integrante, nombre_integrante").in_("id_integrante", integrante_ids).execute()
-        vendedores_map = {r["id_integrante"]: r["nombre_integrante"] for r in (ig.data or [])}
+        ig = sb.table("integrantes_grupo")\
+            .select("id_integrante, nombre_integrante, vendedores_v2(nombre_erp)")\
+            .in_("id_integrante", integrante_ids).execute()
+        for r in (ig.data or []):
+            vend = r.get("vendedores_v2")
+            nombre_erp = None
+            if isinstance(vend, dict):
+                nombre_erp = vend.get("nombre_erp")
+            elif isinstance(vend, list) and vend:
+                nombre_erp = vend[0].get("nombre_erp")
+            vendedores_map[r["id_integrante"]] = nombre_erp or r["nombre_integrante"]
     if cliente_ids:
         cl = sb.table("clientes_pdv_v2").select("id_cliente, id_cliente_erp").in_("id_cliente", cliente_ids).execute()
         clientes_map = {r["id_cliente"]: r["id_cliente_erp"] for r in (cl.data or [])}

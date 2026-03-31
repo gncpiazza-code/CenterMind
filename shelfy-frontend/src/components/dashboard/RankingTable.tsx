@@ -2,13 +2,12 @@ import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Star, Award, FileText, Download, Loader2, RefreshCw } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
-import {
-  type VendedorRanking,
-  type SucursalStats,
-  type KPIs,
-  type EvolucionTiempo,
-  fetchRanking,
-  fetchRankingHistorico,
+import { fetchRanking, fetchRankingHistorico } from '@/lib/api';
+import type {
+  VendedorRanking,
+  SucursalStats,
+  KPIs,
+  EvolucionTiempo,
 } from '@/lib/api';
 import { generateRankingHTML, reportFileName } from '@/lib/generateRankingHTML';
 import { useReportStore } from '@/store/useReportStore';

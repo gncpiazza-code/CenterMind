@@ -21,14 +21,17 @@ import {
 import { formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 import dynamic from "next/dynamic";
+import { fetchLiveMapEvents, type LiveMapEvent } from "@/lib/api";
 
 const SystemHealthMonitor = dynamic(() => import("../SystemHealthMonitor"), { ssr: false });
+const MapaExhibiciones = dynamic(() => import("../components/MapaExhibiciones"), { ssr: false });
 
 export default function SuperAdminDashboard() {
     const { user } = useAuth();
     const [data, setData] = useState<GlobalStressMonitor[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [mapEvents, setMapEvents] = useState<LiveMapEvent[]>([]);
 
     useEffect(() => {
         if (user?.rol !== "superadmin") return;
@@ -44,8 +47,22 @@ export default function SuperAdminDashboard() {
             }
         };
 
+        const loadMap = async () => {
+            try {
+                const today = new Date();
+                const offset = today.getTimezoneOffset();
+                const local = new Date(today.getTime() - (offset * 60 * 1000));
+                const dateStr = local.toISOString().split('T')[0];
+                const res = await fetchLiveMapEvents(undefined, dateStr);
+                setMapEvents(res.filter(e => e.lat && e.lon && e.lat !== 0 && e.lon !== 0));
+            } catch (e) {
+                console.error("Error loading map events", e);
+            }
+        };
+
         load();
-        const interval = setInterval(load, 30000); // 30s auto-refresh
+        loadMap();
+        const interval = setInterval(() => { load(); loadMap(); }, 30000);
         return () => clearInterval(interval);
     }, [user]);
 
@@ -197,24 +214,21 @@ export default function SuperAdminDashboard() {
                             )}
                         </div>
 
-                        {/* Live Map Teaser (Link to Full Map) */}
+                        {/* Live Map Embed */}
                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                            <Card className="lg:col-span-2 p-0 overflow-hidden relative group cursor-pointer border-none shadow-xl" onClick={() => window.location.href = '/admin/mapa'}>
-                                <div className="absolute inset-0 bg-gradient-to-t from-slate-900/80 to-transparent z-10" />
-                                <img
-                                    src="https://images.unsplash.com/photo-1524661135-423995f22d0b?auto=format&fit=crop&q=80&w=1000"
-                                    className="w-full h-64 object-cover group-hover:scale-105 transition-transform duration-700"
-                                    alt="Map Preview"
-                                />
-                                <div className="absolute bottom-6 left-8 z-20">
-                                    <h3 className="text-2xl font-black text-white mb-1">Mapa Interactivo de Exhibiciones</h3>
-                                    <p className="text-slate-200 text-sm">Visualiza los puntitos encendiéndose en tiempo real en todo el país.</p>
-                                </div>
-                                <div className="absolute top-6 right-8 z-20">
-                                    <div className="flex items-center gap-2 bg-red-500 text-white px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest animate-pulse">
-                                        <div className="w-1.5 h-1.5 bg-white rounded-full" />
-                                        En Vivo
+                            <Card className="lg:col-span-2 p-0 overflow-hidden relative border-none shadow-xl">
+                                <div className="absolute top-4 left-4 z-20 flex items-center gap-2">
+                                    <div className="flex items-center gap-2 bg-black/60 backdrop-blur-sm text-white px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest">
+                                        <div className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />
+                                        En Vivo · {mapEvents.length} exhibiciones
                                     </div>
+                                </div>
+                                <div
+                                    className="cursor-pointer"
+                                    onClick={() => window.location.href = '/admin/mapa'}
+                                    title="Abrir mapa completo"
+                                >
+                                    <MapaExhibiciones events={mapEvents} height="400px" theme="dark" />
                                 </div>
                             </Card>
 

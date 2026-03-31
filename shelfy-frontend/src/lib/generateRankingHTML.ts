@@ -3,6 +3,7 @@ import {
   type KPIs,
   type EvolucionTiempo,
   type SucursalStats,
+  type RankingHistoricoEntry,
 } from "@/lib/api";
 
 export interface ReportInput {
@@ -14,6 +15,7 @@ export interface ReportInput {
   kpis: KPIs;
   evolucion: EvolucionTiempo[];
   sucursales: SucursalStats[];
+  rankingHistorico?: RankingHistoricoEntry[];
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -121,7 +123,7 @@ function buildRankingRows(ranking: VendedorRanking[]): string {
     .map((v, i) => {
       const total = v.aprobadas + v.rechazadas;
       const pct = tasa(v.aprobadas, total);
-      const barPct = Math.round((v.aprobadas / maxAprobadas) * 100);
+      const barPct = pct; // bar width = approval %, not relative volume
       const color = semaforo(pct);
       const rowBg =
         i === 0
@@ -155,6 +157,160 @@ function buildRankingRows(ranking: VendedorRanking[]): string {
     .join("");
 }
 
+// ── Race chart section ────────────────────────────────────────────────────────
+
+function buildRaceChartSection(historico: RankingHistoricoEntry[]): string {
+  if (!historico || historico.length === 0) return "";
+
+  // Embed data as JSON for the JS runtime
+  const dataJSON = JSON.stringify(historico);
+
+  return `
+  <p class="section-title">La Pel&iacute;cula del Mes &mdash; Evoluci&oacute;n del Ranking</p>
+  <div class="race-chart-section" style="background:#0a111e; border:1px solid #1e293b; border-radius:20px; padding:24px; margin-bottom:48px;">
+    <!-- Controls -->
+    <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px; flex-wrap:wrap;">
+      <button id="rc-play" style="background:#7c3aed; color:white; border:none; border-radius:10px; padding:8px 18px; font-size:12px; font-weight:800; cursor:pointer; letter-spacing:.06em; text-transform:uppercase;">
+        ▶ Play
+      </button>
+      <select id="rc-speed" style="background:#1e293b; color:#e2e8f0; border:1px solid #334155; border-radius:8px; padding:6px 10px; font-size:11px; font-weight:700;">
+        <option value="1200">Lento</option>
+        <option value="700" selected>Normal</option>
+        <option value="350">R&aacute;pido</option>
+      </select>
+      <span id="rc-date" style="font-size:14px; font-weight:900; color:#a78bfa; margin-left:auto;"></span>
+      <span id="rc-frame-info" style="font-size:10px; color:#475569; font-weight:700;"></span>
+    </div>
+    <!-- Scrubber -->
+    <input id="rc-scrubber" type="range" min="0" max="0" value="0" style="width:100%; accent-color:#7c3aed; margin-bottom:16px;" />
+    <!-- Bars container -->
+    <div id="rc-bars" style="position:relative; min-height:320px;"></div>
+  </div>
+
+  <script>
+  (function() {
+    var data = ${dataJSON};
+    var TOP_N = 10;
+    var BAR_H = 28;
+    var BAR_GAP = 4;
+    var COLORS = ['#7c3aed','#10b981','#f59e0b','#ef4444','#3b82f6','#ec4899','#14b8a6','#f97316','#8b5cf6','#06b6d4','#84cc16','#e11d4d'];
+
+    // Group by date
+    var dateMap = {};
+    data.forEach(function(r) {
+      if (!dateMap[r.fecha]) dateMap[r.fecha] = [];
+      dateMap[r.fecha].push(r);
+    });
+    var dates = Object.keys(dateMap).sort();
+    if (!dates.length) return;
+
+    // Assign stable colors
+    var allVendors = [];
+    data.forEach(function(r) { if (allVendors.indexOf(r.vendedor) === -1) allVendors.push(r.vendedor); });
+    var colorMap = {};
+    allVendors.forEach(function(v, i) { colorMap[v] = COLORS[i % COLORS.length]; });
+
+    var container = document.getElementById('rc-bars');
+    var dateLabel = document.getElementById('rc-date');
+    var frameInfo = document.getElementById('rc-frame-info');
+    var playBtn = document.getElementById('rc-play');
+    var speedSel = document.getElementById('rc-speed');
+    var scrubber = document.getElementById('rc-scrubber');
+
+    scrubber.max = String(dates.length - 1);
+    var currentFrame = 0;
+    var playing = false;
+    var timer = null;
+
+    function renderFrame(idx) {
+      currentFrame = idx;
+      scrubber.value = String(idx);
+      var fecha = dates[idx];
+      var rows = dateMap[fecha].slice().sort(function(a, b) { return b.puntos_acumulados - a.puntos_acumulados; });
+      var top = rows.slice(0, TOP_N);
+      var maxPts = top.length ? top[0].puntos_acumulados : 1;
+
+      dateLabel.textContent = fecha;
+      frameInfo.textContent = 'D\\u00eda ' + (idx + 1) + ' de ' + dates.length;
+
+      // Build/update bars
+      var existing = container.querySelectorAll('.rc-bar-row');
+      // Remove excess
+      while (existing.length > top.length) {
+        container.removeChild(existing[existing.length - 1]);
+        existing = container.querySelectorAll('.rc-bar-row');
+      }
+
+      top.forEach(function(entry, pos) {
+        var row = existing[pos];
+        if (!row) {
+          row = document.createElement('div');
+          row.className = 'rc-bar-row';
+          row.style.cssText = 'display:flex; align-items:center; gap:8px; margin-bottom:' + BAR_GAP + 'px; transition: transform 0.4s ease;';
+          row.innerHTML =
+            '<div class="rc-name" style="width:120px; text-align:right; font-size:11px; font-weight:800; color:#e2e8f0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></div>' +
+            '<div style="flex:1; height:' + BAR_H + 'px; background:#1e293b; border-radius:6px; overflow:hidden; position:relative;">' +
+              '<div class="rc-fill" style="height:100%; border-radius:6px; transition: width 0.4s ease; display:flex; align-items:center; justify-content:flex-end; padding-right:8px;"></div>' +
+            '</div>' +
+            '<div class="rc-pts" style="width:50px; font-size:13px; font-weight:900; color:#f8fafc; text-align:left;"></div>';
+          container.appendChild(row);
+        }
+
+        var pct = maxPts > 0 ? Math.max(2, Math.round((entry.puntos_acumulados / maxPts) * 100)) : 2;
+        row.querySelector('.rc-name').textContent = entry.vendedor;
+        var fill = row.querySelector('.rc-fill');
+        fill.style.width = pct + '%';
+        fill.style.background = colorMap[entry.vendedor] || '#7c3aed';
+        row.querySelector('.rc-pts').textContent = String(entry.puntos_acumulados);
+        row.style.transform = 'translateY(' + (pos * (BAR_H + BAR_GAP + 4)) + 'px)';
+      });
+
+      container.style.height = (top.length * (BAR_H + BAR_GAP + 4)) + 'px';
+    }
+
+    function getSpeed() { return parseInt(speedSel.value, 10); }
+
+    function play() {
+      if (playing) return;
+      playing = true;
+      playBtn.textContent = '⏸ Pausa';
+      function advance() {
+        if (!playing) return;
+        if (currentFrame < dates.length - 1) {
+          renderFrame(currentFrame + 1);
+          timer = setTimeout(advance, getSpeed());
+        } else {
+          stop();
+        }
+      }
+      timer = setTimeout(advance, getSpeed());
+    }
+
+    function stop() {
+      playing = false;
+      playBtn.textContent = '▶ Play';
+      if (timer) { clearTimeout(timer); timer = null; }
+    }
+
+    playBtn.addEventListener('click', function() {
+      if (playing) { stop(); }
+      else {
+        if (currentFrame >= dates.length - 1) currentFrame = 0;
+        play();
+      }
+    });
+
+    scrubber.addEventListener('input', function() {
+      stop();
+      renderFrame(parseInt(scrubber.value, 10));
+    });
+
+    // Initial render
+    renderFrame(0);
+  })();
+  </script>`;
+}
+
 // ── Main generator ─────────────────────────────────────────────────────────────
 
 export function generateRankingHTML(input: ReportInput): string {
@@ -166,6 +322,7 @@ export function generateRankingHTML(input: ReportInput): string {
     ranking,
     kpis,
     evolucion,
+    rankingHistorico,
   } = input;
 
   const generadoEn = new Date().toLocaleString("es-AR", {
@@ -179,6 +336,7 @@ export function generateRankingHTML(input: ReportInput): string {
   const tasaAprobacion = tasa(kpis.aprobadas, kpis.total);
   const evolucionSVG = buildEvolucionSVG(evolucion);
   const rankingRows = buildRankingRows(ranking);
+  const raceChartHTML = buildRaceChartSection(rankingHistorico || []);
   const hasRanking = ranking.length > 0;
   const hasEvolucion = evolucion.length > 0;
 
@@ -453,8 +611,11 @@ export function generateRankingHTML(input: ReportInput): string {
     </div>
   </div>
 
+  <!-- ── Race chart ── -->
+  ${raceChartHTML}
+
   <!-- ── Ranking ── -->
-  <p class="section-title">Ranking Top ${ranking.length}</p>
+  <p class="section-title">Ranking &mdash; ${ranking.length} vendedores</p>
   <div class="ranking-wrap anim">
     ${hasRanking ? `
     <table>

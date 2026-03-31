@@ -12,8 +12,9 @@ import { motion } from "framer-motion";
 import {
   fetchKPIs, fetchRanking, fetchUltimasEvaluadas, fetchPorSucursal,
   fetchEvolucionTiempo, fetchRendimientoCiudad, fetchPorEmpresa,
-  type KPIs, type VendedorRanking, type UltimaEvaluada, type SucursalStats,
-  type EvolucionTiempo, type RendimientoCiudad,
+} from "@/lib/api";
+import type {
+  KPIs, VendedorRanking, UltimaEvaluada, SucursalStats, EvolucionTiempo, RendimientoCiudad,
 } from "@/lib/api";
 import {
   Clock, CheckCircle, Star, XCircle

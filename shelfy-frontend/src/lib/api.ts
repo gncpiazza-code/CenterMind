@@ -301,10 +301,25 @@ export async function fetchKPIs(distribuidorId: number, periodo: string = "mes",
   return apiFetch<KPIs>(`/api/dashboard/kpis/${distribuidorId}?${q.toString()}`);
 }
 
-export async function fetchRanking(distribuidorId: number, periodo: string = "mes", sucursalId?: string): Promise<VendedorRanking[]> {
+export async function fetchRanking(distribuidorId: number, periodo: string = "mes", sucursalId?: string, top?: number): Promise<VendedorRanking[]> {
   const q = new URLSearchParams({ periodo });
   if (sucursalId) q.append("sucursal_id", sucursalId);
+  if (top) q.append("top", top.toString());
   return apiFetch<VendedorRanking[]>(`/api/dashboard/ranking/${distribuidorId}?${q.toString()}`);
+}
+
+export interface RankingHistoricoEntry {
+  fecha: string;
+  vendedor: string;
+  puntos_dia: number;
+  puntos_acumulados: number;
+}
+
+export async function fetchRankingHistorico(distId: number, sucursalId?: number): Promise<RankingHistoricoEntry[]> {
+  const params = new URLSearchParams();
+  if (sucursalId) params.set("sucursal_id", String(sucursalId));
+  const qs = params.toString();
+  return apiFetch<RankingHistoricoEntry[]>(`/api/dashboard/ranking-historico/${distId}${qs ? "?" + qs : ""}`);
 }
 
 export async function fetchUltimasEvaluadas(distribuidorId: number, n: number = 8, sucursalId?: string): Promise<UltimaEvaluada[]> {

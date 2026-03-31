@@ -1451,7 +1451,7 @@ def dashboard_ranking(distribuidor_id: int, periodo: str = "mes", top: int = 15,
     erp_name_map = _get_erp_name_map(distribuidor_id)
     aggregated: dict = {}
     NUMERIC_FIELDS = ("total", "aprobadas", "rechazadas", "destacadas", "pendientes",
-                      "total_enviadas", "total_aprobadas", "total_rechazadas", "total_destacadas")
+                      "total_enviadas", "total_aprobadas", "total_rechazadas", "total_destacadas", "puntos")
     for row in rows:
         tg_name = (row.get("vendedor") or "").strip()
         erp_name = erp_name_map.get(tg_name.lower(), tg_name)
@@ -1466,6 +1466,76 @@ def dashboard_ranking(distribuidor_id: int, periodo: str = "mes", top: int = 15,
     sort_key = "total" if "total" in (rows[0] if rows else {}) else "total_enviadas"
     sorted_rows = sorted(aggregated.values(), key=lambda x: x.get(sort_key) or 0, reverse=True)
     return sorted_rows[:top]
+
+
+@app.get("/api/dashboard/ranking-historico/{distribuidor_id}", summary="Ranking histórico diario del mes en curso")
+def dashboard_ranking_historico(distribuidor_id: int, sucursal_id: int = Query(None), payload=Depends(verify_auth)):
+    check_dist_permission(payload, distribuidor_id)
+
+    ar_now = datetime.utcnow() - timedelta(hours=3)
+    primer_dia = ar_now.date().replace(day=1).isoformat()
+    hoy = ar_now.date().isoformat()
+
+    # Fetch exhibiciones del mes actual con columnas reales
+    query = sb.table("exhibiciones")\
+        .select("timestamp_subida, estado, id_integrante")\
+        .eq("id_distribuidor", distribuidor_id)\
+        .gte("timestamp_subida", primer_dia)\
+        .lte("timestamp_subida", hoy + "T23:59:59")
+    
+    # En desarrollo omitimos el filtro de sucursal por ahora para asegurar datos
+    result = query.execute()
+    rows = result.data or []
+    if not rows:
+        return []
+
+    # Resolver nombres Telegram → ERP
+    erp_name_map = _get_erp_name_map(distribuidor_id)
+    # También necesitamos mapear id_integrante -> nombre_integrante
+    integrantes_res = sb.table("integrantes_grupo").select("id_integrante, nombre_integrante").eq("id_distribuidor", distribuidor_id).execute()
+    int_map = {r["id_integrante"]: r["nombre_integrante"] for r in (integrantes_res.data or [])}
+
+    # Agrupar puntos por (fecha, vendedor_erp)
+    daily: dict[tuple[str, str], int] = {}
+    for r in rows:
+        ts = r.get("timestamp_subida") or ""
+        fecha = ts.split("T")[0]
+        id_int = r.get("id_integrante")
+        tg_name = int_map.get(id_int, "Desconocido")
+        erp_name = erp_name_map.get(tg_name.lower(), tg_name)
+        
+        # Calcular puntos (1 apro, 2 dest)
+        est = (r.get("estado") or "").lower()
+        pts = 0
+        if "destacad" in est: pts = 2
+        elif "aprobad" in est: pts = 1
+        
+        if pts > 0:
+            key = (fecha, erp_name)
+            daily[key] = daily.get(key, 0) + pts
+
+    # Obtener fechas y vendedores únicos
+    fechas = sorted({k[0] for k in daily})
+    vendedores = sorted({k[1] for k in daily})
+
+    # Calcular acumulado por vendedor a lo largo del mes
+    acumulado: dict[str, int] = {v: 0 for v in vendedores}
+    resultado = []
+    for fecha in fechas:
+        for vend in vendedores:
+            pts_dia = daily.get((fecha, vend), 0)
+            acumulado[vend] += pts_dia
+            if pts_dia > 0 or acumulado[vend] > 0:
+                resultado.append({
+                    "fecha": fecha,
+                    "vendedor": vend,
+                    "puntos_dia": pts_dia,
+                    "puntos_acumulados": acumulado[vend],
+                })
+    # Ordenar por fecha asc, luego por puntos_acumulados desc
+    resultado.sort(key=lambda x: (x["fecha"], -x["puntos_acumulados"]))
+    return resultado
+
 
 @app.get("/api/dashboard/evolucion-tiempo/{distribuidor_id}", summary="Evolución temporal de exhibiciones")
 def dashboard_evolucion(distribuidor_id: int, periodo: str = "mes", sucursal_id: int = Query(None), payload=Depends(verify_auth)):
@@ -3235,14 +3305,27 @@ def supervision_cuentas(dist_id: int, sucursal: Optional[str] = Query(None), use
 
         fecha_snapshot = snap_res.data[0]["fecha_snapshot"]
 
+        # Normalización de sucursal para dist_id 3 (Tabaco & Hnos)
+        # Si llega un ID "1", lo mapeamos a "RECONQUISTA" para que coincida con cc_detalle
+        sucursal_norm = sucursal
+        if dist_id == 3 and sucursal:
+            mapping = {
+                "1": "RECONQUISTA",
+                "2": "RESISTENCIA",
+                "3": "SAENZ PEÑA",
+                "4": "CORRIENTES",
+                "5": "CORDOBA"
+            }
+            sucursal_norm = mapping.get(sucursal.strip(), sucursal)
+
         # Construir query base con filtros (incluyendo sucursal si se especifica)
         def build_query():
             q = sb.table("cc_detalle") \
                 .select("id_vendedor, vendedor_nombre, sucursal_nombre, cliente_nombre, deuda_total, antiguedad_dias, rango_antiguedad, cantidad_comprobantes, alerta_credito") \
                 .eq("id_distribuidor", int(dist_id)) \
                 .eq("fecha_snapshot", fecha_snapshot)
-            if sucursal:
-                q = q.ilike("sucursal_nombre", sucursal.strip())
+            if sucursal_norm:
+                q = q.ilike("sucursal_nombre", sucursal_norm.strip())
             return q
 
         # Paginar para evitar el límite de 1000 filas por defecto de Supabase

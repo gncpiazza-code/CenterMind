@@ -21,6 +21,8 @@ import {
   Printer,
   Radar,
   X,
+  Image as ImageIcon,
+  Search,
 } from "lucide-react";
 import {
   fetchVendedoresSupervision,
@@ -31,6 +33,8 @@ import {
   fetchCuentasSupervision,
   fetchPDVsCercanos,
   fetchClienteInfo,
+  fetchReporteExhibiciones,
+  resolveImageUrl,
   type PDVsCercanosResponse,
   type VendedorSupervision,
   type RutaSupervision,
@@ -259,6 +263,12 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
   } | null>(null);
   const [ccSort, setCcSort] = useState<{ col: "dias" | "deuda"; asc: boolean }>({ col: "dias", asc: false });
 
+  // ── Exhibiciones ──────────────────────────────────────────────────────────
+  const [exhibiciones, setExhibiciones] = useState<any[]>([]);
+  const [loadingExhib, setLoadingExhib] = useState(false);
+  const [exhibFilter, setExhibFilter] = useState<string>("Todos");
+  const [exhibSearch, setExhibSearch] = useState("");
+
   // ── TanStack Query: Distribuidoras ────────────────────────────────────────
   const { data: distribuidoras = [] } = useQuery({
     queryKey: ['distribuidoras'],
@@ -322,6 +332,21 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
     staleTime: 60_000,
   });
 
+  // ── Exhibiciones fetch ──────────────────────────────────────────────────
+  useEffect(() => {
+    if (!selectedDist) return;
+    let cancelled = false;
+    setLoadingExhib(true);
+    const today = new Date();
+    const offsetMs = today.getTimezoneOffset() * 60 * 1000;
+    const localToday = new Date(today.getTime() - offsetMs).toISOString().split("T")[0];
+    fetchReporteExhibiciones(selectedDist, { fecha_desde: localToday, fecha_hasta: localToday })
+      .then((res: any) => { if (!cancelled) setExhibiciones(Array.isArray(res) ? res : []); })
+      .catch(() => { if (!cancelled) setExhibiciones([]); })
+      .finally(() => { if (!cancelled) setLoadingExhib(false); });
+    return () => { cancelled = true; };
+  }, [selectedDist]);
+
   // ── Derived & Filtered ────────────────────────────────────────────────────
   const sucursales = useMemo(() =>
     [...new Set(vendedores.map(v => v.sucursal_nombre))].sort(),
@@ -350,6 +375,19 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
 
   // Backend ya filtra por sucursal — cuentasData llega pre-filtrado
   const cuentasFiltradas = cuentasData ?? null;
+
+  const exhibicionesFiltradas = useMemo(() => {
+    let filtered = exhibiciones;
+    if (exhibFilter !== "Todos") filtered = filtered.filter(e => e.estado === exhibFilter);
+    if (exhibSearch.trim()) {
+      const q = exhibSearch.trim().toLowerCase();
+      filtered = filtered.filter(e =>
+        (e.cliente ?? "").toLowerCase().includes(q) ||
+        (e.vendedor ?? "").toLowerCase().includes(q)
+      );
+    }
+    return filtered;
+  }, [exhibiciones, exhibFilter, exhibSearch]);
 
   // ── Print cuentas corrientes ─────────────────────────────────────────────
   function handlePrintCuentas() {
@@ -1725,6 +1763,112 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
               </div>
             )}
           </>
+        )}
+      </div>
+
+      {/* ── SECCIÓN EXHIBICIONES ────────────────────────────────────────────── */}
+      <div className="rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden shadow-sm">
+        {/* Header */}
+        <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-[var(--shelfy-border)]/50 flex-wrap">
+          <div className="flex items-center gap-2">
+            <ImageIcon className="w-4 h-4 text-violet-400" />
+            <h3 className="text-sm font-bold text-[var(--shelfy-text)]">Exhibiciones del día</h3>
+            <span className="text-[11px] text-[var(--shelfy-muted)]">· {exhibiciones.length} registros</span>
+          </div>
+          <div className="flex items-center gap-2">
+            {loadingExhib && <Loader2 className="w-4 h-4 animate-spin text-[var(--shelfy-muted)]" />}
+          </div>
+        </div>
+
+        {/* Filters */}
+        <div className="flex items-center gap-2 px-5 py-3 border-b border-[var(--shelfy-border)]/30 flex-wrap">
+          {["Todos", "Pendiente", "Aprobada", "Rechazada", "Destacada"].map(st => (
+            <button
+              key={st}
+              onClick={() => setExhibFilter(st)}
+              className={`text-xs px-3 py-1 rounded-lg border transition-all ${
+                exhibFilter === st
+                  ? st === "Pendiente" ? "bg-amber-500/20 border-amber-500/40 text-amber-400 font-semibold"
+                  : st === "Aprobada" ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-400 font-semibold"
+                  : st === "Rechazada" ? "bg-red-500/20 border-red-500/40 text-red-400 font-semibold"
+                  : st === "Destacada" ? "bg-violet-500/20 border-violet-500/40 text-violet-400 font-semibold"
+                  : "bg-white/10 border-white/20 text-[var(--shelfy-text)] font-semibold"
+                  : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
+              }`}
+            >
+              {st}
+            </button>
+          ))}
+          <div className="flex-1" />
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--shelfy-muted)]" />
+            <input
+              type="text"
+              placeholder="Buscar cliente o vendedor..."
+              value={exhibSearch}
+              onChange={e => setExhibSearch(e.target.value)}
+              className="pl-8 pr-3 py-1.5 rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-[var(--shelfy-text)] text-xs focus:outline-none focus:ring-1 focus:ring-violet-500/50 w-48"
+            />
+          </div>
+        </div>
+
+        {/* Grid */}
+        {exhibicionesFiltradas.length === 0 && !loadingExhib ? (
+          <div className="py-12 flex flex-col items-center justify-center text-center px-6">
+            <div className="w-12 h-12 rounded-full bg-violet-500/10 flex items-center justify-center mb-3">
+              <ImageIcon className="w-6 h-6 text-violet-500/50" />
+            </div>
+            <p className="text-sm text-[var(--shelfy-muted)] max-w-[240px]">
+              {loadingExhib ? "Cargando..." : exhibiciones.length === 0 ? "Sin exhibiciones hoy" : "Sin resultados para el filtro"}
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 p-4 max-h-[600px] overflow-y-auto">
+            {exhibicionesFiltradas.map((ex: any) => {
+              const imgUrl = resolveImageUrl(ex.link_foto, ex.id_exhibicion);
+              const estadoBadge: Record<string, string> = {
+                Pendiente: "bg-amber-500/15 text-amber-400 border-amber-500/25",
+                Aprobada: "bg-emerald-500/15 text-emerald-400 border-emerald-500/25",
+                Rechazada: "bg-red-500/15 text-red-400 border-red-500/25",
+                Destacada: "bg-violet-500/15 text-violet-400 border-violet-500/25",
+              };
+              const badgeCls = estadoBadge[ex.estado] ?? "bg-slate-500/15 text-slate-400 border-slate-500/25";
+              const fecha = ex.fecha_carga ? new Date(ex.fecha_carga) : null;
+              return (
+                <div key={ex.id_exhibicion} className="rounded-xl border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] overflow-hidden hover:border-violet-500/30 transition-colors group">
+                  {/* Thumbnail */}
+                  <div className="relative w-full h-36 bg-black/20 overflow-hidden">
+                    {imgUrl ? (
+                      <img
+                        src={imgUrl}
+                        alt="Exhibición"
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                        loading="lazy"
+                        onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-[var(--shelfy-muted)]">
+                        <ImageIcon className="w-8 h-8 opacity-30" />
+                      </div>
+                    )}
+                    <span className={`absolute top-2 right-2 inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold border ${badgeCls}`}>
+                      {ex.estado}
+                    </span>
+                  </div>
+                  {/* Info */}
+                  <div className="px-3 py-2.5 space-y-1">
+                    <p className="text-xs font-bold text-[var(--shelfy-text)] truncate">{ex.vendedor ?? "Sin nombre"}</p>
+                    <p className="text-[11px] text-[var(--shelfy-muted)] truncate">{ex.cliente || ex.tipo_pdv || "—"}</p>
+                    {fecha && (
+                      <p className="text-[10px] text-[var(--shelfy-muted)]">
+                        {fecha.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
 

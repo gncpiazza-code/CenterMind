@@ -6,10 +6,8 @@ import {
   fetchRanking,
   fetchKPIs,
   fetchLiveMapEvents,
-  type VendedorRanking,
-  type KPIs,
-  type LiveMapEvent,
 } from "@/lib/api";
+import type { VendedorRanking, KPIs, LiveMapEvent } from "@/lib/api";
 import dynamic from "next/dynamic";
 import {
   Monitor,

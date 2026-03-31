@@ -195,19 +195,26 @@ async def _hacer_login(page: Page, tenant: dict) -> None:
     logger.info(f"  Navegando a: {url_login}")
     await page.goto(url_login, wait_until="networkidle")
     await _cerrar_popup_actualizacion(page)
-    await page.locator('input').first.wait_for(state="visible", timeout=TIMEOUT_MS)
+    await page.wait_for_timeout(2000) # Estabilización post-popup
 
+    # Usar selectores específicos por ID (más robustos para Angular/PrimeNG)
+    u_field = page.locator('#username1')
+    p_field = page.locator('#pass')
+    
+    await u_field.wait_for(state="visible", timeout=TIMEOUT_MS)
+    
     usuario  = get_secret(tenant["vault_user"])
     password = get_secret(tenant["vault_pass"])
 
-    await page.locator('input').first.fill(usuario)
-    await page.locator('input').first.dispatch_event("input")
-    await page.locator('input[type="password"]').fill(password)
-    await page.locator('input[type="password"]').dispatch_event("input")
+    # Usar type con delay para simular usuario real y disparar eventos de Angular
+    await u_field.click()
+    await u_field.type(usuario, delay=100)
+    await p_field.click()
+    await p_field.type(password, delay=100)
     
-    # Esperar a que Angular/PrimeNG habilite el botón (no solo visible)
+    # Esperar a que el botón habilite (visibilidad y clickabilidad por Playwright)
     btn = page.locator('button:has-text("INICIAR SESIÓN")')
-    await btn.wait_for(state="enabled", timeout=TIMEOUT_MS)
+    await btn.wait_for(state="visible", timeout=TIMEOUT_MS)
     await btn.click()
     await page.wait_for_url("**/dashboard**", timeout=20_000)
     logger.info(f"  ✅ Login OK — {tenant['nombre']}")

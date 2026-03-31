@@ -41,10 +41,13 @@ const MapaExhibiciones = forwardRef<MapRef, MapaExhibicionesProps>(({
     useEffect(() => {
         if (selectedEventId) {
             const ev = events.find(e => e.id_ex === selectedEventId);
-            if (ev && ref && 'current' in ref && ref.current) {
+            // Seguridad: No volar si las coordenadas son 0,0 o inválidas (previene el error de NaN)
+            const hasValidCoords = ev && typeof ev.lng === 'number' && typeof ev.lat === 'number' && (ev.lng !== 0 || ev.lat !== 0);
+
+            if (ev && hasValidCoords && ref && 'current' in ref && ref.current) {
                 setPopupInfo(ev);
                 (ref.current as any).flyTo({
-                    center: [ev.lon, ev.lat],
+                    center: [ev.lng, ev.lat],
                     zoom: 17,
                     pitch: 60,
                     bearing: (Math.random() * 90) - 45,
@@ -74,7 +77,7 @@ const MapaExhibiciones = forwardRef<MapRef, MapaExhibicionesProps>(({
                 new Date(a.timestamp_evento).getTime() - new Date(b.timestamp_evento).getTime()
             );
 
-            routes[key] = sorted.map(ev => [ev.lon, ev.lat] as [number, number]);
+            routes[key] = sorted.map(ev => [ev.lng, ev.lat] as [number, number]);
 
             // Assign stop numbers
             sorted.forEach((ev, idx) => {
@@ -160,7 +163,7 @@ const MapaExhibiciones = forwardRef<MapRef, MapaExhibicionesProps>(({
                     return (
                         <MapMarker
                             key={event.id_ex}
-                            longitude={event.lon}
+                            longitude={event.lng}
                             latitude={event.lat}
                             onClick={() => setPopupInfo(event)}
                         >

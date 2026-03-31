@@ -190,7 +190,7 @@ export interface LiveMapEvent {
   nombre_dist: string;
   vendedor_nombre: string;
   lat: number;
-  lon: number;
+  lng: number;
   timestamp_evento: string;
   nro_cliente: string;
   cliente_nombre?: string;

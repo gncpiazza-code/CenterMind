@@ -972,20 +972,25 @@ def get_erp_contexto(id_distribuidor: int, nro_cliente: str, user_payload=Depend
         
         ctx = res_rpc.data if res_rpc.data else {"encontrado": False}
         
-        # Enriquecimiento con datos maestros (Ruta, Domicilio, Canal)
+        # Enriquecimiento con datos maestros (Ruta, Domicilio, Canal, Fecha Alta, Día Visita)
         res_pdv = sb.table("clientes_pdv_v2").select(
-            "domicilio, localidad, canal, rutas_v2(id_ruta_erp)"
+            "nombre_fantasia, nombre_razon_social, domicilio, localidad, canal, fecha_alta, "
+            "rutas_v2(id_ruta_erp, dia_semana)"
         ).eq("id_distribuidor", id_distribuidor).eq("id_cliente_erp", nro_cliente).limit(1).execute()
         
         if res_pdv.data:
             pdv = res_pdv.data[0]
             ctx["encontrado"] = True
+            ctx["nombre_fantasia"] = pdv.get("nombre_fantasia")
+            ctx["razon_social"] = pdv.get("nombre_razon_social")
             ctx["domicilio"] = pdv.get("domicilio")
             ctx["localidad"] = pdv.get("localidad")
             ctx["canal"] = pdv.get("canal")
-            # Extraer número de ruta del objeto anidado
+            ctx["fecha_alta"] = pdv.get("fecha_alta")
+            # Extraer número de ruta y día de visita del objeto anidado
             if pdv.get("rutas_v2"):
                 ctx["nro_ruta"] = pdv["rutas_v2"].get("id_ruta_erp")
+                ctx["dia_visita"] = pdv["rutas_v2"].get("dia_semana")
         
         return ctx
     except Exception as e:

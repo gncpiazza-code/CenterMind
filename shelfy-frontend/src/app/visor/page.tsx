@@ -303,10 +303,10 @@ export default function VisorPage() {
           ) : (
             <>
               {grupo && (
-                <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6 max-w-6xl mx-auto items-start">
-                  {/* COLA IZQUIERDA: IMAGEN Y BOTONES DE ACCIÓN */}
-                  <div className="flex flex-col flex-1 relative h-[calc(100vh-140px)] md:h-auto min-h-[500px]">
-                    <div className="w-full h-full md:aspect-[4/5] lg:aspect-auto lg:h-[610px] rounded-t-[32px] md:rounded-3xl overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.2)] bg-[#0a0a0a] border border-white/5 group relative">
+                <div className="max-w-7xl mx-auto">
+                  {/* CONTENEDOR PRINCIPAL: IMAGEN CON PERFIL FLOTANTE */}
+                  <div className="flex flex-col relative h-[calc(100vh-140px)] md:h-auto min-h-[500px]">
+                    <div className="w-full h-full md:aspect-[21/9] lg:h-[650px] rounded-t-[32px] md:rounded-3xl overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.2)] bg-[#0a0a0a] border border-white/5 group relative">
                       <AnimatePresence mode="wait">
                         <motion.div
                           key={`${currentIndex}-${currentFotoIdx}`}
@@ -324,6 +324,86 @@ export default function VisorPage() {
                         </motion.div>
                       </AnimatePresence>
 
+                      {/* PERFIL FLOTANTE DEL CLIENTE (Desktop) */}
+                      {erpContext?.encontrado && (
+                        <motion.div
+                          initial={{ opacity: 0, x: 20 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          className="hidden md:block absolute top-6 right-6 w-80 bg-black/40 backdrop-blur-xl border border-white/10 rounded-2xl p-5 text-white shadow-2xl"
+                        >
+                          <div className="flex items-start justify-between mb-4">
+                            <div className="flex-1 min-w-0">
+                              <h3 className="text-sm font-black text-white truncate mb-1">
+                                {erpContext.nombre_fantasia || erpContext.razon_social || "Cliente"}
+                              </h3>
+                              <p className="text-[10px] font-bold text-white/60 uppercase tracking-wider">
+                                #{grupo.nro_cliente}
+                              </p>
+                            </div>
+                            <div className="flex gap-1.5 ml-3">
+                              <span className="text-[9px] font-black bg-violet-600 text-white px-2 py-0.5 rounded-md whitespace-nowrap">
+                                RUTA {erpContext.nro_ruta || "SR"}
+                              </span>
+                              {erpContext.dia_visita && (
+                                <span className="text-[9px] font-black bg-blue-600 text-white px-2 py-0.5 rounded-md uppercase">
+                                  {erpContext.dia_visita.slice(0, 3)}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="space-y-2.5 mb-4">
+                            {erpContext.razon_social && erpContext.razon_social !== erpContext.nombre_fantasia && (
+                              <div>
+                                <p className="text-[9px] font-black text-white/40 uppercase tracking-widest mb-0.5">Razón Social</p>
+                                <p className="text-[11px] font-bold text-white/80 line-clamp-1">{erpContext.razon_social}</p>
+                              </div>
+                            )}
+                            <div>
+                              <p className="text-[9px] font-black text-white/40 uppercase tracking-widest mb-0.5">Ubicación</p>
+                              <p className="text-[11px] font-bold text-white/80 line-clamp-1">{erpContext.domicilio || 'Sin dirección'}</p>
+                              <p className="text-[10px] font-medium text-white/50">{erpContext.localidad || 'Sin localidad'}</p>
+                            </div>
+                            <div className="flex gap-2">
+                              {erpContext.canal && (
+                                <div className="flex-1">
+                                  <p className="text-[9px] font-black text-white/40 uppercase tracking-widest mb-0.5">Canal</p>
+                                  <p className="text-[11px] font-bold text-white/80 uppercase">{erpContext.canal}</p>
+                                </div>
+                              )}
+                              {erpContext.fecha_alta && (
+                                <div className="flex-1">
+                                  <p className="text-[9px] font-black text-white/40 uppercase tracking-widest mb-0.5">Alta</p>
+                                  <p className="text-[11px] font-bold text-white/80">{erpContext.fecha_alta.slice(0, 10)}</p>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="bg-white/5 rounded-xl p-2.5 border border-white/5">
+                              <p className="text-[8px] font-black text-white/40 uppercase tracking-widest mb-0.5">Promedio</p>
+                              <p className="text-xs font-black text-emerald-400">${erpContext.promedio_factura?.toLocaleString()}</p>
+                            </div>
+                            <div className="bg-white/5 rounded-xl p-2.5 border border-white/5">
+                              <p className="text-[8px] font-black text-white/40 uppercase tracking-widest mb-0.5">Deuda</p>
+                              <p className={`text-xs font-black ${erpContext.deuda_total > 0 ? 'text-red-400' : 'text-white/60'}`}>
+                                ${erpContext.deuda_total?.toLocaleString()}
+                              </p>
+                            </div>
+                            <div className="bg-white/5 rounded-xl p-2.5 border border-white/5">
+                              <p className="text-[8px] font-black text-white/40 uppercase tracking-widest mb-0.5">Facturas</p>
+                              <p className="text-xs font-black text-sky-400">{erpContext.cant_facturas}</p>
+                            </div>
+                            <div className="bg-white/5 rounded-xl p-2.5 border border-white/5">
+                              <p className="text-[8px] font-black text-white/40 uppercase tracking-widest mb-0.5">Últ. Compra</p>
+                              <p className="text-[9px] font-bold text-white/60 truncate">{erpContext.ultima_compra?.slice(0, 10) || '—'}</p>
+                            </div>
+                          </div>
+                        </motion.div>
+                      )}
+
+                      {/* HEADER MOBILE (sin cambios) */}
                       <div className="absolute top-0 left-0 right-0 bg-black/60 backdrop-blur-md pt-6 pb-6 px-5 text-white border-b border-white/20 md:hidden">
                         <h2 className="text-xl font-extrabold tracking-tight mb-2 drop-shadow-md">
                           Exhibición #{grupo.fotos[currentFotoIdx]?.id_exhibicion || "---"}
@@ -343,18 +423,6 @@ export default function VisorPage() {
                         </div>
                       </div>
 
-                      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/95 via-black/70 to-transparent pt-24 pb-6 px-5 text-white md:bg-black/40 md:backdrop-blur-sm md:pt-6 md:pb-6">
-                        <h3 className="text-[11px] font-black tracking-widest uppercase mb-2 text-white/80 drop-shadow-md">
-                          Observaciones Adicionales
-                        </h3>
-                        <textarea
-                          placeholder="Escribe comentarios sobre la ejecución..."
-                          className="w-full bg-white/20 hover:bg-white/25 focus:bg-white/30 md:bg-black/50 md:focus:bg-black/70 backdrop-blur-md border border-white/30 md:border-white/10 rounded-2xl p-3.5 text-sm text-white placeholder-white/50 md:placeholder-white/40 outline-none transition-all resize-none shadow-inner"
-                          rows={2}
-                          value={comentario}
-                          onChange={(e) => setComentario(e.target.value)}
-                        />
-                      </div>
 
                       {isValidacion && (
                         <div className="absolute inset-0 bg-amber-900/60 backdrop-blur-sm flex flex-col items-center justify-center gap-3 z-20 pointer-events-none">
@@ -380,6 +448,48 @@ export default function VisorPage() {
                           </button>
                         </div>
                       )}
+                    </div>
+
+                    {/* DETALLES DE ENVÍO (Horizontal, debajo de la imagen) */}
+                    <div className="hidden md:flex items-center gap-4 mt-4 px-6 py-4 bg-white rounded-2xl shadow-sm border border-slate-100">
+                      <div className="flex items-center gap-3 flex-1 min-w-0">
+                        <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center shrink-0 border border-orange-200">
+                          <User className="text-orange-500" size={20} />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-bold text-slate-900 truncate">{grupo.vendedor || "Sin asignar"}</p>
+                          <p className="text-[10px] font-medium text-slate-500">Vendedor</p>
+                        </div>
+                      </div>
+                      <div className="h-8 w-px bg-slate-200" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[10px] font-medium text-slate-500 mb-0.5">Cliente</p>
+                        <p className="text-xs font-bold text-slate-900 truncate">{grupo.nro_cliente || "—"}</p>
+                      </div>
+                      <div className="h-8 w-px bg-slate-200" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[10px] font-medium text-slate-500 mb-0.5">Tipo PDV</p>
+                        <p className="text-[10px] font-bold bg-slate-100 text-slate-700 px-2 py-1 rounded-md inline-block">{grupo.tipo_pdv || "—"}</p>
+                      </div>
+                      <div className="h-8 w-px bg-slate-200" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[10px] font-medium text-slate-500 mb-0.5">Fecha y Hora</p>
+                        <p className="text-xs font-bold text-slate-900 truncate">{grupo.fecha_hora?.slice(0, 16).replace('T', ' ') || "—"}</p>
+                      </div>
+                    </div>
+
+                    {/* TEXTAREA DE COMENTARIOS (debajo de detalles) */}
+                    <div className="mt-4 px-6 py-4 bg-white rounded-2xl shadow-sm border border-slate-100">
+                      <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">
+                        Observaciones Adicionales
+                      </h3>
+                      <textarea
+                        placeholder="Escribe comentarios sobre la ejecución..."
+                        className="w-full bg-slate-50 hover:bg-slate-100 focus:bg-white border border-slate-200 focus:border-violet-300 rounded-xl p-3 text-sm text-slate-900 placeholder-slate-400 outline-none transition-all resize-none"
+                        rows={2}
+                        value={comentario}
+                        onChange={(e) => setComentario(e.target.value)}
+                      />
                     </div>
 
                     {/* Botones Hypersonic */}
@@ -423,94 +533,9 @@ export default function VisorPage() {
                         <RefreshCw size={20} strokeWidth={2.5} />
                       </button>
                     </div>
-                  </div>
 
-                  <div className="flex flex-col gap-6 md:mt-0 mt-8">
-                    <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100">
-                      <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-4">Detalles de envío</h3>
-                      <div className="flex items-center gap-3 mb-6">
-                        <div className="w-12 h-12 rounded-full bg-orange-100 flex items-center justify-center overflow-hidden shrink-0 border border-orange-200">
-                          <User className="text-orange-500" size={24} />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-bold text-slate-900 truncate">{grupo.vendedor || "Sin asignar"}</p>
-                          <p className="text-xs font-medium text-slate-500">Vendedor</p>
-                        </div>
-                      </div>
-                      <div className="space-y-3">
-                        <div className="flex justify-between items-center py-2 border-b border-slate-50">
-                          <span className="text-xs text-slate-500 font-medium">Número de Cliente</span>
-                          <span className="text-xs font-bold text-slate-900">{grupo.nro_cliente || "—"}</span>
-                        </div>
-                        <div className="flex justify-between items-center py-2 border-b border-slate-50">
-                          <span className="text-xs text-slate-500 font-medium">Fecha y Hora</span>
-                          <span className="text-xs font-bold text-slate-900">{grupo.fecha_hora?.slice(0, 16).replace('T', ' ') || "—"}</span>
-                        </div>
-                        <div className="flex justify-between items-center py-2">
-                          <span className="text-xs text-slate-500 font-medium">Tipo de PDV</span>
-                          <span className="text-[10px] font-bold bg-slate-100 text-slate-700 px-2 py-1 rounded-md">{grupo.tipo_pdv || "—"}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {(erpContext || loadingERP) && (
-                      <div className={`bg-slate-900 rounded-3xl p-6 shadow-xl border border-slate-800 text-white relative overflow-hidden transition-all duration-300 ${loadingERP ? 'opacity-50 grayscale' : 'opacity-100'}`}>
-                        <div className="absolute top-0 right-0 p-4 opacity-10">
-                          <Info size={60} />
-                        </div>
-                        <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-4">Información del Cliente</h3>
-                        {!erpContext && loadingERP ? (
-                          <div className="py-10 flex flex-col items-center justify-center gap-2">
-                            <RefreshCw className="animate-spin text-slate-600" size={24} />
-                            <span className="text-[10px] font-bold text-slate-600 uppercase tracking-widest">Sincronizando ERP...</span>
-                          </div>
-                        ) : erpContext?.encontrado ? (
-                          <>
-                            <div className="space-y-4 mb-6">
-                              <div>
-                                <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Ruta y Canal</p>
-                                <div className="flex gap-2">
-                                  <span className="text-[11px] font-black bg-violet-600 text-white px-2 py-0.5 rounded-md">RUTA {erpContext.nro_ruta || "SR"}</span>
-                                  <span className="text-[11px] font-black bg-slate-700 text-slate-300 px-2 py-0.5 rounded-md uppercase">{erpContext.canal || "General"}</span>
-                                </div>
-                              </div>
-                              <div>
-                                <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Ubicación</p>
-                                <p className="text-xs font-bold text-slate-200 line-clamp-1">{erpContext.domicilio || 'Sin dirección'}</p>
-                                <p className="text-[10px] font-medium text-slate-400">{erpContext.localidad || 'Sin localidad'}</p>
-                              </div>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-3">
-                              <div className="bg-slate-800/40 rounded-2xl p-3 border border-white/5">
-                                <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Promedio</p>
-                                <p className="text-sm font-black text-emerald-400">${erpContext.promedio_factura?.toLocaleString()}</p>
-                              </div>
-                              <div className="bg-slate-800/40 rounded-2xl p-3 border border-white/5">
-                                <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Deuda</p>
-                                <p className={`text-sm font-black ${erpContext.deuda_total > 0 ? 'text-red-400' : 'text-slate-300'}`}>
-                                  ${erpContext.deuda_total?.toLocaleString()}
-                                </p>
-                              </div>
-                              <div className="bg-slate-800/40 rounded-2xl p-3 border border-white/5">
-                                <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Frecuencia</p>
-                                <p className="text-sm font-black text-sky-400">{erpContext.cant_facturas} fcts</p>
-                              </div>
-                              <div className="bg-slate-800/40 rounded-2xl p-3 border border-white/5">
-                                <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Últ. Compra</p>
-                                <p className="text-[10px] font-bold text-slate-300 truncate">{erpContext.ultima_compra || '—'}</p>
-                              </div>
-                            </div>
-                          </>
-                        ) : (
-                          <div className="py-6 flex flex-col items-center justify-center text-center opacity-40 italic">
-                            <span className="text-xs">Sin registros maestros encontrados</span>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    <div className="bg-violet-50 rounded-3xl p-5 border border-violet-100/50">
+                    {/* BARRA DE PROGRESO (debajo de botones) */}
+                    <div className="mt-6 bg-violet-50 rounded-2xl p-4 border border-violet-100/50">
                       <div className="flex justify-between text-xs font-bold text-violet-700 mb-2">
                         <span>SESIÓN DE HOY</span>
                         <span>{currentIndex + 1} / {totalGrupos}</span>

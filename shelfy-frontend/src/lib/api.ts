@@ -128,6 +128,8 @@ export interface GrupoPendiente {
 export interface ERPContexto {
   encontrado: boolean;
   nombre: string;
+  nombre_fantasia?: string;
+  razon_social?: string;
   fantasia?: string;
   ultima_compra?: string;
   vendedor_erp?: string;
@@ -137,9 +139,11 @@ export interface ERPContexto {
   cant_facturas: number;
   deuda_total: number;
   nro_ruta?: string;
+  dia_visita?: string;
   domicilio?: string;
   localidad?: string;
   canal?: string;
+  fecha_alta?: string;
 }
 
 // PASO 10: ROI Analítico

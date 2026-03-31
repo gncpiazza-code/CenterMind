@@ -425,21 +425,21 @@ export default function VisorPage() {
                       </div>
                     </div>
                     <div className="h-5 w-px bg-white/15" />
-                    {/* Cliente */}
-                    <div className="min-w-0">
-                      <p className="text-[8px] font-medium text-white/40">Cliente</p>
-                      <p className="text-[10px] font-bold text-white truncate">{grupo.nro_cliente || "—"}</p>
+                    {/* Nombre */}
+                    <div className="min-w-0 max-w-[160px]">
+                      <p className="text-[10px] font-bold text-white truncate leading-tight">{erpContext?.nombre_fantasia || erpContext?.razon_social || grupo.nro_cliente || "—"}</p>
+                      <p className="text-[8px] text-white/40 truncate">{erpContext?.domicilio ? `${erpContext.domicilio}${erpContext.localidad ? `, ${erpContext.localidad}` : ""}` : "—"}</p>
                     </div>
                     <div className="h-5 w-px bg-white/15" />
-                    {/* Tipo PDV */}
+                    {/* Últ. Compra */}
                     <div className="min-w-0">
-                      <p className="text-[8px] font-medium text-white/40">Tipo</p>
-                      <p className="text-[9px] font-bold bg-white/10 text-white/90 px-1.5 py-0.5 rounded inline-block">{grupo.tipo_pdv || "—"}</p>
+                      <p className="text-[8px] font-medium text-white/40">Últ. Compra</p>
+                      <p className="text-[10px] font-bold text-white truncate">{erpContext?.ultima_compra?.slice(0, 10) || "—"}</p>
                     </div>
                     <div className="h-5 w-px bg-white/15" />
-                    {/* Fecha */}
+                    {/* Fecha envío */}
                     <div className="min-w-0">
-                      <p className="text-[8px] font-medium text-white/40">Fecha</p>
+                      <p className="text-[8px] font-medium text-white/40">Envío</p>
                       <p className="text-[10px] font-bold text-white truncate">{grupo.fecha_hora?.slice(0, 16).replace('T', ' ') || "—"}</p>
                     </div>
 
@@ -516,8 +516,8 @@ export default function VisorPage() {
                   <div className="pointer-events-auto flex items-center gap-2 px-3 py-2 bg-black/60 backdrop-blur-xl border-t border-white/10 text-white" style={{ paddingBottom: 'max(8px, env(safe-area-inset-bottom))' }}>
                     {/* Mini info */}
                     <div className="flex flex-col min-w-0 flex-1">
-                      <p className="text-[9px] font-bold text-white/90 truncate leading-tight">{grupo.tipo_pdv || "—"}</p>
-                      <p className="text-[8px] text-white/40 truncate">{grupo.fecha_hora?.slice(0, 16).replace('T', ' ') || "—"}</p>
+                      <p className="text-[9px] font-bold text-white/90 truncate leading-tight">{erpContext?.nombre_fantasia || erpContext?.razon_social || grupo.nro_cliente || "—"}</p>
+                      <p className="text-[8px] text-white/40 truncate">{erpContext?.domicilio ? `${erpContext.domicilio}${erpContext.localidad ? `, ${erpContext.localidad}` : ""}` : grupo.fecha_hora?.slice(0, 16).replace('T', ' ') || "—"}</p>
                     </div>
 
                     {/* Evaluation buttons — compact for mobile */}
@@ -561,17 +561,7 @@ export default function VisorPage() {
                 </div>
               </div>
 
-              {/* ── PROGRESS BAR (thin, below image, always visible) ── */}
-              <div className="hidden md:flex items-center gap-3 px-1 py-1.5 shrink-0">
-                <span className="text-[9px] font-bold text-[var(--shelfy-muted)] whitespace-nowrap">SESIÓN</span>
-                <div className="flex-1 h-1 bg-violet-200/30 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-violet-500 rounded-full transition-all duration-500"
-                    style={{ width: `${totalGrupos > 0 ? ((currentIndex + 1) / totalGrupos) * 100 : 0}%` }}
-                  />
-                </div>
-                <span className="text-[9px] font-bold text-violet-500 whitespace-nowrap">{currentIndex + 1}/{totalGrupos}</span>
-              </div>
+
             </div>
           )}
         </div>

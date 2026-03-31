@@ -146,6 +146,8 @@ type MapProps = {
   antialias?: boolean;
   /** Maximum pitch (tilt) in degrees */
   maxPitch?: number;
+  /** Callback fired when the map has finished loading and is ready for interaction */
+  onLoad?: (event: { target: MapLibreGL.Map }) => void;
 } & Omit<MapLibreGL.MapOptions, "container" | "style">;
 
 function DefaultLoader() {
@@ -298,7 +300,10 @@ const Map = forwardRef<MapRef, MapProps>(function Map(
         }
       }, 100);
     };
-    const loadHandler = () => setIsLoaded(true);
+    const loadHandler = () => {
+      setIsLoaded(true);
+      if (props.onLoad) props.onLoad({ target: map } as any);
+    };
 
     // Viewport change handler - skip if triggered by internal update
     const handleMove = () => {

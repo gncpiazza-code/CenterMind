@@ -988,7 +988,8 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                 const idx       = vendedores.indexOf(v);
                 const color     = vendorColor(idx);
                 const vOpen     = openVend === v.id_vendedor;
-                const vRutas    = [...(rutas[v.id_vendedor] ?? [])].sort(
+                const vRutasRaw = queryClient.getQueryData<RutaSupervision[]>(['supervision-rutas', v.id_vendedor]) ?? [];
+                const vRutas    = [...vRutasRaw].sort(
                   (a, b) =>
                     (DIA_ORDER[a.dia_semana?.toLowerCase() ?? ""] ?? 9) -
                     (DIA_ORDER[b.dia_semana?.toLowerCase() ?? ""] ?? 9)
@@ -1065,7 +1066,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                         >
                           <ChevronRight className={`w-3 h-3 transition-transform duration-200 ${vOpen ? "rotate-90" : ""}`} />
                           {vOpen ? "Ocultar rutas" : "Ver rutas"}
-                          {loadingRutas === v.id_vendedor && <Loader2 className="w-3 h-3 animate-spin ml-1" />}
+                          {loadingMap.has(v.id_vendedor) && <Loader2 className="w-3 h-3 animate-spin ml-1" />}
                         </button>
                       </div>
                     </div>
@@ -1073,12 +1074,12 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                     {/* ── Rutas accordion ── */}
                     <Accordion open={vOpen}>
                       <div className="bg-[var(--shelfy-bg)]/50 divide-y divide-[var(--shelfy-border)]/30">
-                        {vRutas.length === 0 && loadingRutas === v.id_vendedor && (
+                        {vRutas.length === 0 && loadingMap.has(v.id_vendedor) && (
                           <div className="flex items-center gap-2 py-2 px-5 text-[11px] text-[var(--shelfy-muted)]">
                             <Loader2 className="w-3 h-3 animate-spin" /> Cargando rutas...
                           </div>
                         )}
-                        {vRutas.length === 0 && loadingRutas !== v.id_vendedor && vOpen && (
+                        {vRutas.length === 0 && !loadingMap.has(v.id_vendedor) && vOpen && (
                           <p className="text-[11px] text-[var(--shelfy-muted)] px-5 py-2 italic">
                             Sin rutas asignadas.
                           </p>
@@ -1086,7 +1087,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
 
                         {vRutas.map(r => {
                           const rOpen    = openRuta === r.id_ruta;
-                          const rCli     = clientes[r.id_ruta] ?? [];
+                          const rCli     = queryClient.getQueryData<ClienteSupervision[]>(['supervision-clientes', r.id_ruta]) ?? [];
                           const isRutaOn = visibleRutas.has(r.id_ruta);
                           // count how many clients in this route are visible
                           const cliVisible = rCli.filter(c => visibleClientes.has(c.id_cliente)).length;
@@ -1119,7 +1120,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                                       : r.total_pdv
                                     }
                                   </span>
-                                  {loadingCli === r.id_ruta && (
+                                  {loadingMap.has(v.id_vendedor) && !visibleRutas.has(r.id_ruta) && (
                                     <Loader2 className="w-3 h-3 animate-spin text-[var(--shelfy-muted)]" />
                                   )}
                                   {/* Route eye toggle */}
@@ -1136,7 +1137,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                               {/* ── Clientes accordion ── */}
                               <Accordion open={rOpen}>
                                 <div className="bg-[var(--shelfy-bg)]/60 divide-y divide-[var(--shelfy-border)]/20">
-                                  {rCli.length === 0 && loadingCli === r.id_ruta && (
+                                  {rCli.length === 0 && loadingMap.has(v.id_vendedor) && (
                                     <div className="flex items-center gap-2 py-2 px-8 text-[11px] text-[var(--shelfy-muted)]">
                                       <Loader2 className="w-3 h-3 animate-spin" /> Cargando clientes...
                                     </div>

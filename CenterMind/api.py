@@ -670,7 +670,7 @@ def get_live_map_events(minutos: int | None = None, fecha: str | None = None, us
                 "nro_cliente": pdv["id_cliente_erp"] if pdv else (e.get("cliente_sombra_codigo") or "0"),
                 "cliente_nombre": pdv["nombre_fantasia"] if pdv else "Desconocido",
                 "drive_link": e["url_foto_drive"],
-                "id_vendedor": pdv["rutas"]["vendedores"]["id_vendedor"] if (pdv and pdv.get("rutas") and pdv["rutas"].get("vendedores")) else None
+                "id_vendedor": pdv["rutas_v2"]["vendedores_v2"]["id_vendedor"] if (pdv and pdv.get("rutas_v2") and pdv["rutas_v2"].get("vendedores_v2")) else None
             })
 
         return final_data

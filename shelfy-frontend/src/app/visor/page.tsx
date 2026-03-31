@@ -252,18 +252,9 @@ export default function VisorPage() {
   return (
     <div className="flex h-[100dvh] bg-[var(--shelfy-bg)] overflow-hidden">
       <Sidebar />
-      <BottomNav />
+      {/* BottomNav hidden on visor — we use our own bottom bar */}
+      <div className="hidden md:block"><BottomNav /></div>
       <div className="flex flex-col flex-1 min-w-0 h-full overflow-hidden">
-        {/* Mobile header */}
-        <header className="flex md:hidden items-center justify-between px-4 py-3 bg-white shrink-0 z-30 shadow-sm">
-          <div className="w-8 h-8 rounded-xl bg-violet-600 flex items-center justify-center text-white">
-            <span className="font-bold text-lg leading-none">S</span>
-          </div>
-          <h1 className="text-lg font-bold text-violet-700">Evaluar</h1>
-          <button className="w-8 h-8 flex items-center justify-center text-violet-700 bg-violet-50 rounded-full">
-            <Info size={18} />
-          </button>
-        </header>
 
         {/* Desktop header */}
         <div className="hidden md:block shrink-0">
@@ -381,14 +372,15 @@ export default function VisorPage() {
                   </motion.div>
                 )}
 
-                {/* ── MOBILE HEADER OVERLAY ── */}
-                <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/70 to-transparent pt-4 pb-8 px-4 text-white md:hidden z-10">
-                  <h2 className="text-base font-extrabold tracking-tight mb-1 drop-shadow-md">
-                    #{grupo.fotos[currentFotoIdx]?.id_exhibicion || "---"}
-                  </h2>
-                  <div className="flex items-center gap-3 text-[12px] font-medium text-white/90">
-                    <span className="truncate">🏪 {grupo.nro_cliente ?? "—"}</span>
-                    <span className="truncate">👤 {grupo.vendedor ?? "—"}</span>
+                {/* ── MOBILE TOP OVERLAY: compact info ── */}
+                <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/80 via-black/40 to-transparent pt-3 pb-6 px-3 text-white md:hidden z-10">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      <span className="text-[10px] font-black bg-violet-600/90 px-2 py-0.5 rounded-md">#{grupo.fotos[currentFotoIdx]?.id_exhibicion || "—"}</span>
+                      <span className="text-[10px] font-bold truncate text-white/90">🏪 {grupo.nro_cliente ?? "—"}</span>
+                      <span className="text-[10px] font-bold truncate text-white/70">👤 {grupo.vendedor ?? "—"}</span>
+                    </div>
+                    <span className="text-[9px] font-bold text-white/50 shrink-0 ml-2">{currentIndex + 1}/{totalGrupos}</span>
                   </div>
                 </div>
 
@@ -406,15 +398,15 @@ export default function VisorPage() {
 
                 {/* ── PHOTO NAVIGATION (multi-photo groups) ── */}
                 {grupo.fotos.length > 1 && (
-                  <div className="absolute top-4 left-4 md:left-auto md:right-4 flex gap-1 bg-black/30 backdrop-blur-md p-1 rounded-full text-white z-10">
-                    <button onClick={handlePrevFoto} disabled={currentFotoIdx === 0} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-black/40 disabled:opacity-30 transition-colors">
-                      <ChevronLeft size={18} />
+                  <div className="absolute top-10 md:top-4 left-3 md:left-auto md:right-4 flex gap-1 bg-black/30 backdrop-blur-md p-1 rounded-full text-white z-10">
+                    <button onClick={handlePrevFoto} disabled={currentFotoIdx === 0} className="w-7 h-7 md:w-8 md:h-8 flex items-center justify-center rounded-full hover:bg-black/40 disabled:opacity-30 transition-colors">
+                      <ChevronLeft size={16} />
                     </button>
-                    <span className="w-8 flex items-center justify-center text-xs font-bold font-mono">
+                    <span className="w-7 md:w-8 flex items-center justify-center text-[10px] md:text-xs font-bold font-mono">
                       {currentFotoIdx + 1}/{grupo.fotos.length}
                     </span>
-                    <button onClick={handleNextFoto} disabled={currentFotoIdx >= grupo.fotos.length - 1} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-black/40 disabled:opacity-30 transition-colors">
-                      <ChevronRight size={18} />
+                    <button onClick={handleNextFoto} disabled={currentFotoIdx >= grupo.fotos.length - 1} className="w-7 h-7 md:w-8 md:h-8 flex items-center justify-center rounded-full hover:bg-black/40 disabled:opacity-30 transition-colors">
+                      <ChevronRight size={16} />
                     </button>
                   </div>
                 )}
@@ -519,42 +511,53 @@ export default function VisorPage() {
                   </div>
                 </div>
 
-                {/* ── MOBILE BOTTOM: Buttons ── */}
-                <div className="flex md:hidden absolute bottom-4 left-0 right-0 justify-center items-center gap-3 z-10 px-4">
-                  <button
-                    onClick={handleRevertir}
-                    disabled={!lastEvalIds.current.length || mutationRevertir.isPending}
-                    className="w-11 h-11 flex items-center justify-center rounded-full bg-white/90 text-slate-500 shadow-lg disabled:opacity-40 transition-all active:scale-95"
-                  >
-                    <RotateCcw size={18} strokeWidth={2.5} />
-                  </button>
-                  <button
-                    onClick={() => handleEvaluar("Rechazado")}
-                    disabled={mutationEvaluar.isPending || !todasVistas || isValidacion}
-                    className="w-14 h-14 flex items-center justify-center rounded-full bg-[#fa5252] text-white shadow-[0_6px_20px_rgba(250,82,82,0.4)] disabled:opacity-20 transition-all active:scale-95"
-                  >
-                    <X size={26} strokeWidth={3.5} />
-                  </button>
-                  <button
-                    onClick={() => handleEvaluar("Destacado")}
-                    disabled={mutationEvaluar.isPending || !todasVistas || isValidacion}
-                    className="w-16 h-16 flex items-center justify-center rounded-full bg-[#f97316] text-white shadow-[0_8px_24px_rgba(249,115,22,0.45)] disabled:opacity-20 transition-all active:scale-95"
-                  >
-                    <Flame size={30} strokeWidth={3} className="fill-white/20" />
-                  </button>
-                  <button
-                    onClick={() => handleEvaluar("Aprobado")}
-                    disabled={mutationEvaluar.isPending || !todasVistas || isValidacion}
-                    className="w-14 h-14 flex items-center justify-center rounded-full bg-[#10b981] text-white shadow-[0_6px_20px_rgba(16,185,129,0.4)] disabled:opacity-20 transition-all active:scale-95"
-                  >
-                    <Check size={26} strokeWidth={3.5} />
-                  </button>
-                  <button
-                    onClick={() => queryClient.invalidateQueries({ queryKey: ['pendientes', distId] })}
-                    className="w-11 h-11 flex items-center justify-center rounded-full bg-[#fbbf24]/90 text-white shadow-lg transition-all active:scale-95"
-                  >
-                    <RefreshCw size={18} strokeWidth={2.5} />
-                  </button>
+                {/* ── MOBILE FROSTED BOTTOM BAR ── */}
+                <div className="flex md:hidden absolute bottom-0 left-0 right-0 z-10 flex-col pointer-events-none">
+                  <div className="pointer-events-auto flex items-center gap-2 px-3 py-2 bg-black/60 backdrop-blur-xl border-t border-white/10 text-white" style={{ paddingBottom: 'max(8px, env(safe-area-inset-bottom))' }}>
+                    {/* Mini info */}
+                    <div className="flex flex-col min-w-0 flex-1">
+                      <p className="text-[9px] font-bold text-white/90 truncate leading-tight">{grupo.tipo_pdv || "—"}</p>
+                      <p className="text-[8px] text-white/40 truncate">{grupo.fecha_hora?.slice(0, 16).replace('T', ' ') || "—"}</p>
+                    </div>
+
+                    {/* Evaluation buttons — compact for mobile */}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        onClick={handleRevertir}
+                        disabled={!lastEvalIds.current.length || mutationRevertir.isPending}
+                        className="w-9 h-9 flex items-center justify-center rounded-full bg-white/10 text-white/50 disabled:opacity-30 transition-all active:scale-90 border border-white/10"
+                      >
+                        <RotateCcw size={14} strokeWidth={2.5} />
+                      </button>
+                      <button
+                        onClick={() => handleEvaluar("Rechazado")}
+                        disabled={mutationEvaluar.isPending || !todasVistas || isValidacion}
+                        className="w-11 h-11 flex items-center justify-center rounded-full bg-[#fa5252] text-white shadow-[0_2px_10px_rgba(250,82,82,0.4)] disabled:opacity-20 transition-all active:scale-90"
+                      >
+                        <X size={20} strokeWidth={3.5} />
+                      </button>
+                      <button
+                        onClick={() => handleEvaluar("Destacado")}
+                        disabled={mutationEvaluar.isPending || !todasVistas || isValidacion}
+                        className="w-12 h-12 flex items-center justify-center rounded-full bg-[#f97316] text-white shadow-[0_2px_12px_rgba(249,115,22,0.45)] disabled:opacity-20 transition-all active:scale-90"
+                      >
+                        <Flame size={22} strokeWidth={3} className="fill-white/20" />
+                      </button>
+                      <button
+                        onClick={() => handleEvaluar("Aprobado")}
+                        disabled={mutationEvaluar.isPending || !todasVistas || isValidacion}
+                        className="w-11 h-11 flex items-center justify-center rounded-full bg-[#10b981] text-white shadow-[0_2px_10px_rgba(16,185,129,0.4)] disabled:opacity-20 transition-all active:scale-90"
+                      >
+                        <Check size={20} strokeWidth={3.5} />
+                      </button>
+                      <button
+                        onClick={() => queryClient.invalidateQueries({ queryKey: ['pendientes', distId] })}
+                        className="w-9 h-9 flex items-center justify-center rounded-full bg-[#fbbf24]/80 text-white transition-all active:scale-90 border border-white/10"
+                      >
+                        <RefreshCw size={14} strokeWidth={2.5} />
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
 

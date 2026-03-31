@@ -1341,11 +1341,11 @@ class BotWorker:
                             vendedor_real = uploader_name or "Desconocido"
                             domicilio, localidad, telefono, fecha_alta = "", "", "", ""
                             
-                            try:
-                                # A. Buscar nombre real del integrante (vendedor) por Telegram ID
-                                if uploader_id:
+                            # A. Buscar nombre real del integrante (vendedor) por Telegram ID
+                            if uploader_id:
+                                try:
                                     int_res = await asyncio.to_thread(
-                                        self.db.sb.table("integrantes")
+                                        self.db.sb.table("integrantes_grupo")
                                         .select("nombre_integrante")
                                         .eq("id_distribuidor", self.distribuidor_id)
                                         .eq("telegram_user_id", uploader_id)
@@ -1354,9 +1354,12 @@ class BotWorker:
                                     )
                                     if int_res.data:
                                         vendedor_real = int_res.data[0].get("nombre_integrante") or vendedor_real
+                                except Exception as ex_vend:
+                                    self.logger.warning(f"⚠️ Error lookup vendedor real-time: {ex_vend}")
 
-                                # B. Buscar datos completos del PDV por nro_cliente
-                                if nro_cliente and nro_cliente != "0":
+                            # B. Buscar datos completos del PDV por nro_cliente (independiente de A)
+                            if nro_cliente and nro_cliente != "0":
+                                try:
                                     pdv_res = await asyncio.to_thread(
                                         self.db.sb.table("clientes_pdv_v2")
                                         .select("nombre_fantasia, latitud, longitud, domicilio, localidad, telefono, fecha_alta")
@@ -1374,8 +1377,10 @@ class BotWorker:
                                         localidad = pdv.get("localidad") or ""
                                         telefono = pdv.get("telefono") or ""
                                         fecha_alta = pdv.get("fecha_alta") or ""
-                            except Exception as ex_lookup:
-                                self.logger.warning(f"⚠️ Error en lookup real-time: {ex_lookup}")
+                                    else:
+                                        self.logger.warning(f"⚠️ PDV no encontrado en clientes_pdv_v2 para id_cliente_erp='{nro_cliente}' dist={self.distribuidor_id}")
+                                except Exception as ex_pdv:
+                                    self.logger.warning(f"⚠️ Error lookup PDV real-time: {ex_pdv}")
                             
                             # Real-time Broadcast via WebSocket
                             if self.ws_manager:

@@ -189,7 +189,9 @@ export default function ModoOficinaPage() {
           const msg = JSON.parse(event.data);
           if (msg.type === "NUEVA_EXHIBICION") {
             const data = msg.data;
-            if (data.lat && data.lon) {
+            console.log("📥 WS Recibido:", data.vendedor_nombre, `(${data.lat}, ${data.lon})`);
+
+            if (data.lat && data.lon && data.lat !== 0 && data.lon !== 0) {
               const liveEvent: LiveMapEvent = {
                 id_ex: data.id_ex,
                 id_dist: data.id_dist,
@@ -205,10 +207,15 @@ export default function ModoOficinaPage() {
               
               // Evitar duplicados si el polling también lo trae
               if (!seenIdsRef.current.has(liveEvent.id_ex)) {
+                console.log("🚀 Disparando viaje al PDV para:", liveEvent.vendedor_nombre);
                 seenIdsRef.current.add(liveEvent.id_ex);
                 setEvents(prev => [...prev, liveEvent]);
                 triggerEvent(liveEvent);
+              } else {
+                console.log("⏭️ Evento ya visto, ignorando:", liveEvent.id_ex);
               }
+            } else {
+              console.warn("⚠️ Evento ignorado por falta de coordenadas válidas:", data);
             }
           }
         } catch (e) {

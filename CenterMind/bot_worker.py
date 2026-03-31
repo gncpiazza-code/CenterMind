@@ -279,8 +279,7 @@ class Database:
 
             if isinstance(data, dict):
                 return {
-                    "id_exhibicion": data.get("id_exhibicion"),
-                    "estado_final": data.get("estado_final"),
+                    **data,
                     "error": None
                 }
             
@@ -1298,6 +1297,34 @@ class BotWorker:
                             exhibicion_ids.append({"id": ex_id, "estado": estado_final})
                             procesadas += 1
                             
+                            # ── NUEVO: Matchear coordenadas del PDV para real-time ──
+                            lat, lon = 0.0, 0.0
+                            cliente_nombre = "Punto de Venta"
+                            
+                            try:
+                                # Prioridad 1: Si el RPC devolvió coordenadas del PDV (vía id_cliente_pdv)
+                                if rpc_result.get("lat") and rpc_result.get("lon"):
+                                    lat, lon = float(rpc_result["lat"]), float(rpc_result["lon"])
+                                    cliente_nombre = rpc_result.get("cliente_nombre", cliente_nombre)
+                                
+                                # Prioridad 2: Buscar manualmente en clientes_pdv_v2 por nro_cliente y dist
+                                elif nro_cliente and nro_cliente != "0":
+                                    pdv_res = await asyncio.to_thread(
+                                        self.db.sb.table("clientes_pdv_v2")
+                                        .select("nombre_fantasia, latitud, longitud")
+                                        .eq("id_distribuidor", self.distribuidor_id)
+                                        .eq("id_cliente_erp", nro_cliente)
+                                        .limit(1)
+                                        .execute
+                                    )
+                                    if pdv_res.data:
+                                        pdv = pdv_res.data[0]
+                                        lat = float(pdv.get("latitud") or 0.0)
+                                        lon = float(pdv.get("longitud") or 0.0)
+                                        cliente_nombre = pdv.get("nombre_fantasia") or cliente_nombre
+                            except Exception as ex_coord:
+                                self.logger.warning(f"⚠️ Error recuperando coordenadas PDV: {ex_coord}")
+                            
                             # Real-time Broadcast via WebSocket
                             if self.ws_manager:
                                 try:
@@ -1308,15 +1335,16 @@ class BotWorker:
                                             "id_ex": ex_id,
                                             "id_dist": self.distribuidor_id,
                                             "vendedor_nombre": uploader_name or "Desconocido",
-                                            "lat": rpc_result.get("lat") or 0.0,
-                                            "lon": rpc_result.get("lon") or 0.0,
+                                            "lat": lat,
+                                            "lon": lon,
                                             "timestamp_evento": datetime.now().isoformat(),
                                             "nro_cliente": nro_cliente or "S/C",
-                                            "cliente_nombre": "Punto de Venta", # Simplificado para el mapa rápido
+                                            "cliente_nombre": cliente_nombre,
                                             "drive_link": drive_link
                                         }
                                     }
                                     asyncio.create_task(self.ws_manager.broadcast(self.distribuidor_id, msg_ws))
+                                    self.logger.info(f"📡 Broadcast WS enviado: {cliente_nombre} ({lat}, {lon})")
                                 except Exception as e:
                                     self.logger.error(f"❌ Error en broadcast WS: {e}")
                             # Log silencioso: cliente no está en el padrón aún (id_cliente_pdv = NULL)

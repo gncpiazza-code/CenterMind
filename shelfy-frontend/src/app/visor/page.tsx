@@ -250,11 +250,12 @@ export default function VisorPage() {
   }
 
   return (
-    <div className="flex min-h-screen bg-[var(--shelfy-bg)]">
+    <div className="flex h-[100dvh] bg-[var(--shelfy-bg)] overflow-hidden">
       <Sidebar />
       <BottomNav />
-      <div className="flex flex-col flex-1 min-w-0">
-        <header className="flex md:hidden items-center justify-between px-4 py-4 bg-white sticky top-0 z-30 shadow-sm">
+      <div className="flex flex-col flex-1 min-w-0 h-full overflow-hidden">
+        {/* Mobile header */}
+        <header className="flex md:hidden items-center justify-between px-4 py-3 bg-white shrink-0 z-30 shadow-sm">
           <div className="w-8 h-8 rounded-xl bg-violet-600 flex items-center justify-center text-white">
             <span className="font-bold text-lg leading-none">S</span>
           </div>
@@ -264,20 +265,21 @@ export default function VisorPage() {
           </button>
         </header>
 
-        <div className="hidden md:block">
+        {/* Desktop header */}
+        <div className="hidden md:block shrink-0">
           <Topbar title="Evaluar Exhibiciones" />
         </div>
 
-        <main className="flex-1 p-0 md:p-6 overflow-x-hidden overflow-y-auto pb-28 md:pb-6 relative bg-[#faf5ff] md:bg-transparent">
-
-
+        {/* ── MAIN CONTENT: fills remaining viewport ── */}
+        <div className="flex-1 flex flex-col min-h-0 p-0 md:p-4 md:pt-2 relative">
+          {/* Flash notification */}
           <AnimatePresence>
             {flash && (
               <motion.div 
                 initial={{ opacity: 0, y: -20, scale: 0.95 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: -10, scale: 0.95 }}
-                className={`mx-4 mt-4 px-6 py-3 rounded-2xl text-sm font-bold shadow-lg flex items-center justify-center transition-all absolute top-2 left-0 right-0 z-50
+                className={`mx-4 px-6 py-2.5 rounded-2xl text-sm font-bold shadow-lg flex items-center justify-center absolute top-2 left-0 right-0 z-50
                   ${flash.type === "ok"
                     ? "bg-green-500/90 backdrop-blur-md text-white border border-green-400"
                     : "bg-red-500/90 backdrop-blur-md text-white border border-red-400"
@@ -290,10 +292,10 @@ export default function VisorPage() {
             )}
           </AnimatePresence>
 
-          {errorPend && <p className="text-red-500 text-sm font-semibold mb-4 text-center">{(errorPend as Error).message}</p>}
+          {errorPend && <p className="text-red-500 text-sm font-semibold text-center py-2 shrink-0">{(errorPend as Error).message}</p>}
 
           {totalGrupos === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 text-center">
+            <div className="flex flex-col items-center justify-center flex-1 text-center">
               <div className="w-20 h-20 bg-violet-100 rounded-3xl flex items-center justify-center text-violet-500 mb-6 shadow-inner">
                 <Check size={32} strokeWidth={3} />
               </div>
@@ -306,262 +308,270 @@ export default function VisorPage() {
                 <RefreshCw size={16} /> Buscar nuevas
               </button>
             </div>
-          ) : (
-            <>
-              {grupo && (
-                <div className="max-w-7xl mx-auto">
-                  {/* CONTENEDOR PRINCIPAL: IMAGEN CON PERFIL FLOTANTE */}
-                  <div className="flex flex-col relative h-[calc(100vh-140px)] md:h-auto min-h-[500px]">
-                    <div className="w-full h-full md:aspect-[21/9] lg:h-[650px] rounded-t-[32px] md:rounded-3xl overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.2)] bg-[#0a0a0a] border border-white/5 group relative">
-                      <AnimatePresence mode="wait">
-                        <motion.div
-                          key={`${currentIndex}-${currentFotoIdx}`}
-                          initial={{ opacity: 0, x: 20 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          exit={{ opacity: 0, x: -20 }}
-                          transition={{ duration: 0.15, ease: "easeOut" }}
-                          className="w-full h-full"
-                        >
-                          <FotoViewer 
-                            driveUrl={grupo.fotos[currentFotoIdx]?.drive_link ?? ""} 
-                            idExhibicion={grupo.fotos[currentFotoIdx]?.id_exhibicion} 
-                            priority={true}
-                          />
-                        </motion.div>
-                      </AnimatePresence>
+          ) : grupo && (
+            /* ── VISOR LAYOUT: Image + overlays, fills entire remaining space ── */
+            <div className="flex-1 flex flex-col min-h-0">
+              {/* IMAGE CONTAINER — takes all remaining space */}
+              <div className="flex-1 min-h-0 rounded-none md:rounded-2xl overflow-hidden bg-[#0a0a0a] relative group">
+                {/* Photo */}
+                <AnimatePresence mode="wait">
+                  <motion.div
+                    key={`${currentIndex}-${currentFotoIdx}`}
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -20 }}
+                    transition={{ duration: 0.15, ease: "easeOut" }}
+                    className="absolute inset-0"
+                  >
+                    <FotoViewer 
+                      driveUrl={grupo.fotos[currentFotoIdx]?.drive_link ?? ""} 
+                      idExhibicion={grupo.fotos[currentFotoIdx]?.id_exhibicion} 
+                      priority={true}
+                    />
+                  </motion.div>
+                </AnimatePresence>
 
-                      {/* PERFIL FLOTANTE DEL CLIENTE (Desktop) */}
-                      {erpContext?.encontrado && (
-                        <motion.div
-                          initial={{ opacity: 0, x: 20 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          className="hidden md:block absolute top-6 right-6 w-80 bg-black/40 backdrop-blur-xl border border-white/10 rounded-2xl p-5 text-white shadow-2xl"
-                        >
-                          <div className="flex items-start justify-between mb-4">
-                            <div className="flex-1 min-w-0">
-                              <h3 className="text-sm font-black text-white truncate mb-1">
-                                {erpContext.nombre_fantasia || erpContext.razon_social || "Cliente"}
-                              </h3>
-                              <p className="text-[10px] font-bold text-white/60 uppercase tracking-wider">
-                                #{grupo.nro_cliente}
-                              </p>
-                            </div>
-                            <div className="flex gap-1.5 ml-3">
-                              <span className="text-[9px] font-black bg-violet-600 text-white px-2 py-0.5 rounded-md whitespace-nowrap">
-                                RUTA {erpContext.nro_ruta || "SR"}
-                              </span>
-                              {erpContext.dia_visita && (
-                                <span className="text-[9px] font-black bg-blue-600 text-white px-2 py-0.5 rounded-md uppercase">
-                                  {erpContext.dia_visita.slice(0, 3)}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-
-                          <div className="space-y-2.5 mb-4">
-                            {erpContext.razon_social && erpContext.razon_social !== erpContext.nombre_fantasia && (
-                              <div>
-                                <p className="text-[9px] font-black text-white/40 uppercase tracking-widest mb-0.5">Razón Social</p>
-                                <p className="text-[11px] font-bold text-white/80 line-clamp-1">{erpContext.razon_social}</p>
-                              </div>
-                            )}
-                            <div>
-                              <p className="text-[9px] font-black text-white/40 uppercase tracking-widest mb-0.5">Ubicación</p>
-                              <p className="text-[11px] font-bold text-white/80 line-clamp-1">{erpContext.domicilio || 'Sin dirección'}</p>
-                              <p className="text-[10px] font-medium text-white/50">{erpContext.localidad || 'Sin localidad'}</p>
-                            </div>
-                            <div className="flex gap-2">
-                              {erpContext.canal && (
-                                <div className="flex-1">
-                                  <p className="text-[9px] font-black text-white/40 uppercase tracking-widest mb-0.5">Canal</p>
-                                  <p className="text-[11px] font-bold text-white/80 uppercase">{erpContext.canal}</p>
-                                </div>
-                              )}
-                              {erpContext.fecha_alta && (
-                                <div className="flex-1">
-                                  <p className="text-[9px] font-black text-white/40 uppercase tracking-widest mb-0.5">Alta</p>
-                                  <p className="text-[11px] font-bold text-white/80">{erpContext.fecha_alta.slice(0, 10)}</p>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-2">
-                            <div className="bg-white/5 rounded-xl p-2.5 border border-white/5">
-                              <p className="text-[8px] font-black text-white/40 uppercase tracking-widest mb-0.5">Promedio</p>
-                              <p className="text-xs font-black text-emerald-400">${erpContext.promedio_factura?.toLocaleString()}</p>
-                            </div>
-                            <div className="bg-white/5 rounded-xl p-2.5 border border-white/5">
-                              <p className="text-[8px] font-black text-white/40 uppercase tracking-widest mb-0.5">Deuda</p>
-                              <p className={`text-xs font-black ${erpContext.deuda_total > 0 ? 'text-red-400' : 'text-white/60'}`}>
-                                ${erpContext.deuda_total?.toLocaleString()}
-                              </p>
-                            </div>
-                            <div className="bg-white/5 rounded-xl p-2.5 border border-white/5">
-                              <p className="text-[8px] font-black text-white/40 uppercase tracking-widest mb-0.5">Facturas</p>
-                              <p className="text-xs font-black text-sky-400">{erpContext.cant_facturas}</p>
-                            </div>
-                            <div className="bg-white/5 rounded-xl p-2.5 border border-white/5">
-                              <p className="text-[8px] font-black text-white/40 uppercase tracking-widest mb-0.5">Últ. Compra</p>
-                              <p className="text-[9px] font-bold text-white/60 truncate">{erpContext.ultima_compra?.slice(0, 10) || '—'}</p>
-                            </div>
-                          </div>
-                        </motion.div>
-                      )}
-
-                      {/* HEADER MOBILE (sin cambios) */}
-                      <div className="absolute top-0 left-0 right-0 bg-black/60 backdrop-blur-md pt-6 pb-6 px-5 text-white border-b border-white/20 md:hidden">
-                        <h2 className="text-xl font-extrabold tracking-tight mb-2 drop-shadow-md">
-                          Exhibición #{grupo.fotos[currentFotoIdx]?.id_exhibicion || "---"}
-                        </h2>
-                        <div className="flex flex-col gap-1.5 text-[13px] font-medium text-white/90">
-                          <div className="flex items-center gap-4">
-                            <span className="flex items-center gap-1.5 truncate">
-                              <span className="opacity-70">🏪</span> {grupo.nro_cliente ?? "Cliente"}
-                            </span>
-                            <span className="flex items-center gap-1.5 truncate">
-                              <span className="opacity-70">👤</span> {grupo.vendedor ?? "Sin asignar"}
-                            </span>
-                          </div>
-                          <p className="flex items-center gap-1.5 opacity-80 mt-0.5">
-                            <span>📅</span> {grupo.fecha_hora?.slice(0, 16).replace('T', ' ') ?? ""}
-                          </p>
-                        </div>
+                {/* ── ERP PROFILE CARD (Desktop, top-right) ── */}
+                {erpContext?.encontrado && (
+                  <motion.div
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    className="hidden md:block absolute top-4 right-4 w-72 bg-black/45 backdrop-blur-xl border border-white/10 rounded-2xl p-4 text-white shadow-2xl z-10"
+                  >
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex-1 min-w-0">
+                        <h3 className="text-[12px] font-black text-white truncate mb-0.5">
+                          {erpContext.nombre_fantasia || erpContext.razon_social || "Cliente"}
+                        </h3>
+                        <p className="text-[9px] font-bold text-white/60 uppercase tracking-wider">
+                          #{grupo.nro_cliente}
+                        </p>
                       </div>
-
-
-                      {isValidacion && (
-                        <div className="absolute inset-0 bg-amber-900/60 backdrop-blur-sm flex flex-col items-center justify-center gap-3 z-20 pointer-events-none">
-                          <Lock size={48} className="text-amber-200" />
-                          <p className="text-white font-black text-lg tracking-tight">VALIDACIÓN ERP</p>
-                          <p className="text-amber-100 text-xs font-semibold text-center px-8">
-                            El cliente no figura en el ERP.<br />
-                            Se habilitará automáticamente cuando impacten los datos.
-                          </p>
-                        </div>
-                      )}
-
-                      {grupo.fotos.length > 1 && (
-                        <div className="absolute top-4 right-4 flex gap-1 bg-black/30 backdrop-blur-md p-1 rounded-full text-white">
-                          <button onClick={handlePrevFoto} disabled={currentFotoIdx === 0} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-black/40 disabled:opacity-30 transition-colors">
-                            <ChevronLeft size={18} />
-                          </button>
-                          <span className="w-8 flex items-center justify-center text-xs font-bold font-mono">
-                            {currentFotoIdx + 1}/{grupo.fotos.length}
+                      <div className="flex gap-1 ml-2">
+                        <span className="text-[8px] font-black bg-violet-600 text-white px-1.5 py-0.5 rounded whitespace-nowrap">
+                          R{erpContext.nro_ruta || "—"}
+                        </span>
+                        {erpContext.dia_visita && (
+                          <span className="text-[8px] font-black bg-blue-600 text-white px-1.5 py-0.5 rounded uppercase">
+                            {erpContext.dia_visita.slice(0, 3)}
                           </span>
-                          <button onClick={handleNextFoto} disabled={currentFotoIdx >= grupo.fotos.length - 1} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-black/40 disabled:opacity-30 transition-colors">
-                            <ChevronRight size={18} />
-                          </button>
-                        </div>
-                      )}
-
-                      {/* ── FROSTED OVERLAY: Info Strip + Comments (Desktop) ── */}
-                      <div className="hidden md:flex absolute bottom-0 left-0 right-0 z-10 flex-col gap-0 pointer-events-none">
-                        {/* Info Bar */}
-                        <div className="pointer-events-auto flex items-center gap-4 px-5 py-3 bg-black/50 backdrop-blur-xl border-t border-white/10 text-white">
-                          <div className="flex items-center gap-2.5 flex-1 min-w-0">
-                            <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center shrink-0 border border-white/10">
-                              <User className="text-white/80" size={16} />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-[11px] font-bold text-white truncate">{grupo.vendedor || "Sin asignar"}</p>
-                              <p className="text-[9px] font-medium text-white/50">Vendedor</p>
-                            </div>
-                          </div>
-                          <div className="h-6 w-px bg-white/15" />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-[9px] font-medium text-white/50 mb-0.5">Cliente</p>
-                            <p className="text-[11px] font-bold text-white truncate">{grupo.nro_cliente || "—"}</p>
-                          </div>
-                          <div className="h-6 w-px bg-white/15" />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-[9px] font-medium text-white/50 mb-0.5">Tipo PDV</p>
-                            <p className="text-[10px] font-bold bg-white/10 text-white/90 px-2 py-0.5 rounded-md inline-block">{grupo.tipo_pdv || "—"}</p>
-                          </div>
-                          <div className="h-6 w-px bg-white/15" />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-[9px] font-medium text-white/50 mb-0.5">Fecha</p>
-                            <p className="text-[11px] font-bold text-white truncate">{grupo.fecha_hora?.slice(0, 16).replace('T', ' ') || "—"}</p>
-                          </div>
-                          <div className="h-6 w-px bg-white/15" />
-                          {/* Inline comment field */}
-                          <div className="flex-[2] min-w-0 pointer-events-auto">
-                            <textarea
-                              placeholder="Observaciones..."
-                              className="w-full bg-white/10 hover:bg-white/15 focus:bg-white/20 border border-white/10 focus:border-violet-400/50 rounded-lg px-3 py-1.5 text-[11px] text-white placeholder-white/40 outline-none transition-all resize-none backdrop-blur-sm"
-                              rows={1}
-                              value={comentario}
-                              onChange={(e) => setComentario(e.target.value)}
-                            />
-                          </div>
-                        </div>
+                        )}
                       </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <div className="bg-white/5 rounded-lg p-2 border border-white/5">
+                        <p className="text-[7px] font-black text-white/40 uppercase tracking-widest mb-0.5">Prom</p>
+                        <p className="text-[11px] font-black text-emerald-400">${erpContext.promedio_factura?.toLocaleString()}</p>
+                      </div>
+                      <div className="bg-white/5 rounded-lg p-2 border border-white/5">
+                        <p className="text-[7px] font-black text-white/40 uppercase tracking-widest mb-0.5">Deuda</p>
+                        <p className={`text-[11px] font-black ${erpContext.deuda_total > 0 ? 'text-red-400' : 'text-white/60'}`}>
+                          ${erpContext.deuda_total?.toLocaleString()}
+                        </p>
+                      </div>
+                      <div className="bg-white/5 rounded-lg p-2 border border-white/5">
+                        <p className="text-[7px] font-black text-white/40 uppercase tracking-widest mb-0.5">Facturas</p>
+                        <p className="text-[11px] font-black text-sky-400">{erpContext.cant_facturas}</p>
+                      </div>
+                      <div className="bg-white/5 rounded-lg p-2 border border-white/5">
+                        <p className="text-[7px] font-black text-white/40 uppercase tracking-widest mb-0.5">Últ. Compra</p>
+                        <p className="text-[9px] font-bold text-white/60 truncate">{erpContext.ultima_compra?.slice(0, 10) || '—'}</p>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
 
+                {/* ── MOBILE HEADER OVERLAY ── */}
+                <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/70 to-transparent pt-4 pb-8 px-4 text-white md:hidden z-10">
+                  <h2 className="text-base font-extrabold tracking-tight mb-1 drop-shadow-md">
+                    #{grupo.fotos[currentFotoIdx]?.id_exhibicion || "---"}
+                  </h2>
+                  <div className="flex items-center gap-3 text-[12px] font-medium text-white/90">
+                    <span className="truncate">🏪 {grupo.nro_cliente ?? "—"}</span>
+                    <span className="truncate">👤 {grupo.vendedor ?? "—"}</span>
+                  </div>
+                </div>
+
+                {/* ── VALIDATION LOCK ── */}
+                {isValidacion && (
+                  <div className="absolute inset-0 bg-amber-900/60 backdrop-blur-sm flex flex-col items-center justify-center gap-3 z-20 pointer-events-none">
+                    <Lock size={48} className="text-amber-200" />
+                    <p className="text-white font-black text-lg tracking-tight">VALIDACIÓN ERP</p>
+                    <p className="text-amber-100 text-xs font-semibold text-center px-8">
+                      El cliente no figura en el ERP.<br />
+                      Se habilitará automáticamente cuando impacten los datos.
+                    </p>
+                  </div>
+                )}
+
+                {/* ── PHOTO NAVIGATION (multi-photo groups) ── */}
+                {grupo.fotos.length > 1 && (
+                  <div className="absolute top-4 left-4 md:left-auto md:right-4 flex gap-1 bg-black/30 backdrop-blur-md p-1 rounded-full text-white z-10">
+                    <button onClick={handlePrevFoto} disabled={currentFotoIdx === 0} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-black/40 disabled:opacity-30 transition-colors">
+                      <ChevronLeft size={18} />
+                    </button>
+                    <span className="w-8 flex items-center justify-center text-xs font-bold font-mono">
+                      {currentFotoIdx + 1}/{grupo.fotos.length}
+                    </span>
+                    <button onClick={handleNextFoto} disabled={currentFotoIdx >= grupo.fotos.length - 1} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-black/40 disabled:opacity-30 transition-colors">
+                      <ChevronRight size={18} />
+                    </button>
+                  </div>
+                )}
+
+                {/* ── FROSTED BOTTOM BAR: Info + Comments + Buttons (Desktop) ── */}
+                <div className="hidden md:flex absolute bottom-0 left-0 right-0 z-10 flex-col pointer-events-none">
+                  <div className="pointer-events-auto flex items-center gap-3 px-4 py-2.5 bg-black/55 backdrop-blur-xl border-t border-white/10 text-white">
+                    {/* Vendedor */}
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-7 h-7 rounded-full bg-white/10 flex items-center justify-center shrink-0 border border-white/10">
+                        <User className="text-white/80" size={14} />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-bold text-white truncate leading-tight">{grupo.vendedor || "Sin asignar"}</p>
+                        <p className="text-[8px] font-medium text-white/40">Vendedor</p>
+                      </div>
+                    </div>
+                    <div className="h-5 w-px bg-white/15" />
+                    {/* Cliente */}
+                    <div className="min-w-0">
+                      <p className="text-[8px] font-medium text-white/40">Cliente</p>
+                      <p className="text-[10px] font-bold text-white truncate">{grupo.nro_cliente || "—"}</p>
+                    </div>
+                    <div className="h-5 w-px bg-white/15" />
+                    {/* Tipo PDV */}
+                    <div className="min-w-0">
+                      <p className="text-[8px] font-medium text-white/40">Tipo</p>
+                      <p className="text-[9px] font-bold bg-white/10 text-white/90 px-1.5 py-0.5 rounded inline-block">{grupo.tipo_pdv || "—"}</p>
+                    </div>
+                    <div className="h-5 w-px bg-white/15" />
+                    {/* Fecha */}
+                    <div className="min-w-0">
+                      <p className="text-[8px] font-medium text-white/40">Fecha</p>
+                      <p className="text-[10px] font-bold text-white truncate">{grupo.fecha_hora?.slice(0, 16).replace('T', ' ') || "—"}</p>
                     </div>
 
+                    {/* Spacer */}
+                    <div className="flex-1" />
 
+                    {/* Comentario inline */}
+                    <div className="w-48 xl:w-64 shrink-0">
+                      <textarea
+                        placeholder="Observaciones..."
+                        className="w-full bg-white/10 hover:bg-white/15 focus:bg-white/20 border border-white/10 focus:border-violet-400/50 rounded-lg px-2.5 py-1 text-[10px] text-white placeholder-white/35 outline-none transition-all resize-none"
+                        rows={1}
+                        value={comentario}
+                        onChange={(e) => setComentario(e.target.value)}
+                      />
+                    </div>
 
-                    {/* Botones Hypersonic */}
-                    <div className="flex justify-center items-center gap-3 sm:gap-5 absolute bottom-0 left-0 right-0 translate-y-1/2 md:translate-y-0 md:relative md:mt-2 z-10 px-4">
+                    <div className="h-5 w-px bg-white/15" />
+
+                    {/* ── EVALUATION BUTTONS (inline in the bar) ── */}
+                    <div className="flex items-center gap-2 shrink-0">
                       <button
                         onClick={handleRevertir}
                         disabled={!lastEvalIds.current.length || mutationRevertir.isPending}
-                        className="w-[46px] h-[46px] sm:w-12 sm:h-12 flex items-center justify-center rounded-full bg-white text-slate-500 shadow-[0_4px_16px_rgba(0,0,0,0.12)] hover:text-slate-700 disabled:opacity-40 transition-all active:scale-95 z-0"
+                        title="Revertir"
+                        className="w-9 h-9 flex items-center justify-center rounded-full bg-white/10 text-white/60 hover:bg-white/20 hover:text-white disabled:opacity-30 transition-all active:scale-95 border border-white/10"
                       >
-                        <RotateCcw size={20} strokeWidth={2.5} />
+                        <RotateCcw size={16} strokeWidth={2.5} />
                       </button>
-
                       <button
                         onClick={() => handleEvaluar("Rechazado")}
                         disabled={mutationEvaluar.isPending || !todasVistas || isValidacion}
-                        className="w-[58px] h-[58px] sm:w-16 sm:h-16 flex items-center justify-center rounded-full bg-[#fa5252] text-white shadow-[0_8px_24px_rgba(250,82,82,0.4)] hover:-translate-y-1 disabled:opacity-20 transition-all duration-200 active:scale-95 z-10"
+                        title="Rechazar"
+                        className="w-11 h-11 flex items-center justify-center rounded-full bg-[#fa5252] text-white shadow-[0_4px_16px_rgba(250,82,82,0.4)] hover:scale-110 disabled:opacity-20 transition-all duration-200 active:scale-95"
                       >
-                        <X size={28} strokeWidth={3.5} />
+                        <X size={22} strokeWidth={3.5} />
                       </button>
-
                       <button
                         onClick={() => handleEvaluar("Destacado")}
                         disabled={mutationEvaluar.isPending || !todasVistas || isValidacion}
-                        className="w-[64px] h-[64px] sm:w-20 sm:h-20 flex items-center justify-center rounded-full bg-[#f97316] text-white shadow-[0_10px_28px_rgba(249,115,22,0.45)] hover:-translate-y-1 disabled:opacity-20 transition-all duration-200 active:scale-95 z-20"
+                        title="Destacar"
+                        className="w-12 h-12 flex items-center justify-center rounded-full bg-[#f97316] text-white shadow-[0_4px_16px_rgba(249,115,22,0.45)] hover:scale-110 disabled:opacity-20 transition-all duration-200 active:scale-95"
                       >
-                        <Flame size={32} strokeWidth={3} className="fill-white/20" />
+                        <Flame size={24} strokeWidth={3} className="fill-white/20" />
                       </button>
-
                       <button
                         onClick={() => handleEvaluar("Aprobado")}
                         disabled={mutationEvaluar.isPending || !todasVistas || isValidacion}
-                        className="w-[58px] h-[58px] sm:w-16 sm:h-16 flex items-center justify-center rounded-full bg-[#10b981] text-white shadow-[0_8px_24px_rgba(16,185,129,0.4)] hover:-translate-y-1 disabled:opacity-20 transition-all duration-200 active:scale-95 z-10"
+                        title="Aprobar"
+                        className="w-11 h-11 flex items-center justify-center rounded-full bg-[#10b981] text-white shadow-[0_4px_16px_rgba(16,185,129,0.4)] hover:scale-110 disabled:opacity-20 transition-all duration-200 active:scale-95"
                       >
-                        <Check size={28} strokeWidth={3.5} />
+                        <Check size={22} strokeWidth={3.5} />
                       </button>
-
                       <button
                         onClick={() => queryClient.invalidateQueries({ queryKey: ['pendientes', distId] })}
-                        className="w-[46px] h-[46px] sm:w-12 sm:h-12 flex items-center justify-center rounded-full bg-[#fbbf24] text-white shadow-[0_6px_20px_rgba(251,191,36,0.35)] hover:-translate-y-0.5 transition-all active:scale-95 z-0"
+                        title="Refrescar"
+                        className="w-9 h-9 flex items-center justify-center rounded-full bg-[#fbbf24]/80 text-white hover:bg-[#fbbf24] transition-all active:scale-95 border border-white/10"
                       >
-                        <RefreshCw size={20} strokeWidth={2.5} />
+                        <RefreshCw size={16} strokeWidth={2.5} />
                       </button>
                     </div>
 
-                    {/* BARRA DE PROGRESO (debajo de botones) */}
-                    <div className="mt-6 bg-violet-50 rounded-2xl p-4 border border-violet-100/50">
-                      <div className="flex justify-between text-xs font-bold text-violet-700 mb-2">
-                        <span>SESIÓN DE HOY</span>
-                        <span>{currentIndex + 1} / {totalGrupos}</span>
-                      </div>
-                      <div className="h-2 w-full bg-violet-200 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-violet-600 rounded-full transition-all duration-500"
-                          style={{ width: `${totalGrupos > 0 ? ((currentIndex + 1) / totalGrupos) * 100 : 0}%` }}
-                        />
-                      </div>
+                    <div className="h-5 w-px bg-white/15" />
+
+                    {/* Progress counter */}
+                    <div className="text-[10px] font-bold text-white/60 whitespace-nowrap shrink-0">
+                      {currentIndex + 1}<span className="text-white/30">/{totalGrupos}</span>
                     </div>
                   </div>
                 </div>
-              )}
-            </>
+
+                {/* ── MOBILE BOTTOM: Buttons ── */}
+                <div className="flex md:hidden absolute bottom-4 left-0 right-0 justify-center items-center gap-3 z-10 px-4">
+                  <button
+                    onClick={handleRevertir}
+                    disabled={!lastEvalIds.current.length || mutationRevertir.isPending}
+                    className="w-11 h-11 flex items-center justify-center rounded-full bg-white/90 text-slate-500 shadow-lg disabled:opacity-40 transition-all active:scale-95"
+                  >
+                    <RotateCcw size={18} strokeWidth={2.5} />
+                  </button>
+                  <button
+                    onClick={() => handleEvaluar("Rechazado")}
+                    disabled={mutationEvaluar.isPending || !todasVistas || isValidacion}
+                    className="w-14 h-14 flex items-center justify-center rounded-full bg-[#fa5252] text-white shadow-[0_6px_20px_rgba(250,82,82,0.4)] disabled:opacity-20 transition-all active:scale-95"
+                  >
+                    <X size={26} strokeWidth={3.5} />
+                  </button>
+                  <button
+                    onClick={() => handleEvaluar("Destacado")}
+                    disabled={mutationEvaluar.isPending || !todasVistas || isValidacion}
+                    className="w-16 h-16 flex items-center justify-center rounded-full bg-[#f97316] text-white shadow-[0_8px_24px_rgba(249,115,22,0.45)] disabled:opacity-20 transition-all active:scale-95"
+                  >
+                    <Flame size={30} strokeWidth={3} className="fill-white/20" />
+                  </button>
+                  <button
+                    onClick={() => handleEvaluar("Aprobado")}
+                    disabled={mutationEvaluar.isPending || !todasVistas || isValidacion}
+                    className="w-14 h-14 flex items-center justify-center rounded-full bg-[#10b981] text-white shadow-[0_6px_20px_rgba(16,185,129,0.4)] disabled:opacity-20 transition-all active:scale-95"
+                  >
+                    <Check size={26} strokeWidth={3.5} />
+                  </button>
+                  <button
+                    onClick={() => queryClient.invalidateQueries({ queryKey: ['pendientes', distId] })}
+                    className="w-11 h-11 flex items-center justify-center rounded-full bg-[#fbbf24]/90 text-white shadow-lg transition-all active:scale-95"
+                  >
+                    <RefreshCw size={18} strokeWidth={2.5} />
+                  </button>
+                </div>
+              </div>
+
+              {/* ── PROGRESS BAR (thin, below image, always visible) ── */}
+              <div className="hidden md:flex items-center gap-3 px-1 py-1.5 shrink-0">
+                <span className="text-[9px] font-bold text-[var(--shelfy-muted)] whitespace-nowrap">SESIÓN</span>
+                <div className="flex-1 h-1 bg-violet-200/30 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-violet-500 rounded-full transition-all duration-500"
+                    style={{ width: `${totalGrupos > 0 ? ((currentIndex + 1) / totalGrupos) * 100 : 0}%` }}
+                  />
+                </div>
+                <span className="text-[9px] font-bold text-violet-500 whitespace-nowrap">{currentIndex + 1}/{totalGrupos}</span>
+              </div>
+            </div>
           )}
-        </main>
+        </div>
       </div>
     </div>
   );

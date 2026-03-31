@@ -96,7 +96,7 @@ const MapaExhibiciones = forwardRef<MapRef, MapaExhibicionesProps>(({
                 attributionControl={false}
                 antialias={true}
                 maxPitch={85}
-                show3DBuildings={true}
+                show3DBuildings={false}
             >
                 <MapControls position="bottom-right" showZoom showCompass showLocate />
 

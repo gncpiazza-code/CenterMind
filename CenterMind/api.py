@@ -634,8 +634,9 @@ def get_global_monitoring(user_payload=Depends(verify_auth)):
         res = sb.rpc("fn_admin_global_monitoring", {}).execute()
         return res.data or []
     except Exception as e:
-        logger.error(f"Error en monitoreo global: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"❌ Error en monitoreo global (RPC fn_admin_global_monitoring): {e}")
+        # Retornamos lista vacía para que el frontend pueda renderizar aunque sea sin datos
+        return []
 
 
 @app.get("/api/admin/live-map-events", tags=["Admin"], summary="Eventos en vivo con coordenadas para el mapa")

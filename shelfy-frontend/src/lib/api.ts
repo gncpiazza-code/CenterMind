@@ -273,8 +273,21 @@ function getHeaders(): HeadersInit {
 }
 
 export function getWSUrl(distId: number): string {
-  const baseUrl = API_URL.replace(/^http/, 'ws');
-  return `${baseUrl}/api/ws/exhibiciones/${distId}`;
+  // En producción (Vercel) necesitamos wss:// si el origen es https://
+  const protocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss' : 'ws';
+  
+  if (API_URL.startsWith('http')) {
+    const baseUrl = API_URL.replace(/^http/, 'ws'); 
+    return `${baseUrl}/api/ws/exhibiciones/${distId}`;
+  }
+  
+  // Si API_URL es relativa (ej: /api), construimos la absoluta basada en el host actual
+  if (typeof window !== 'undefined') {
+    const host = window.location.host;
+    return `${protocol}://${host}/api/ws/exhibiciones/${distId}`;
+  }
+
+  return `ws://localhost:8000/api/ws/exhibiciones/${distId}`;
 }
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {

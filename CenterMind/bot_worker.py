@@ -1305,14 +1305,15 @@ class BotWorker:
                                     msg_ws = {
                                         "type": "NUEVA_EXHIBICION",
                                         "data": {
-                                            "id": ex_id,
-                                            "cliente": nro_cliente,
-                                            "vendedor": uploader_name,
-                                            "tipo_pdv": tipo_pdv,
-                                            "lat": rpc_result.get("lat"),
-                                            "lon": rpc_result.get("lon"),
-                                            "estado": estado_final,
-                                            "url_foto": drive_link
+                                            "id_ex": ex_id,
+                                            "id_dist": self.distribuidor_id,
+                                            "vendedor_nombre": uploader_name or "Desconocido",
+                                            "lat": rpc_result.get("lat") or 0.0,
+                                            "lon": rpc_result.get("lon") or 0.0,
+                                            "timestamp_evento": datetime.now().isoformat(),
+                                            "nro_cliente": nro_cliente or "S/C",
+                                            "cliente_nombre": "Punto de Venta", # Simplificado para el mapa rápido
+                                            "drive_link": drive_link
                                         }
                                     }
                                     asyncio.create_task(self.ws_manager.broadcast(self.distribuidor_id, msg_ws))

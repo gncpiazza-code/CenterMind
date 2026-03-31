@@ -96,7 +96,7 @@ export default function SystemHealthMonitor() {
                     label="Almacenamiento DB"
                     value={health?.database.total_db_size || "0MB"}
                     icon={HardDrive}
-                    detail={`${health?.database.tables.length || 0} tablas monitoreadas`}
+                    detail={`${health?.database?.tables?.length || 0} tablas monitoreadas`}
                     status="success"
                 />
             </div>
@@ -135,7 +135,7 @@ export default function SystemHealthMonitor() {
                 <Card className="p-6">
                     <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-6">Storage por Tabla</h3>
                     <div className="space-y-4">
-                        {health?.database.tables.map(table => (
+                        {health?.database?.tables?.map(table => (
                             <div key={table.table_name} className="flex flex-col gap-1.5">
                                 <div className="flex justify-between items-center px-1">
                                     <span className="text-xs font-black text-slate-700 font-mono">{table.table_name}</span>

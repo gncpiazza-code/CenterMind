@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WS Hard Test - Shelfy</title>
+    <style>
+        body { font-family: sans-serif; background: #0f172a; color: white; padding: 20px; }
+        #log { background: black; padding: 10px; border-radius: 5px; height: 300px; overflow-y: auto; font-family: monospace; }
+        .event { color: #10b981; margin-bottom: 5px; border-bottom: 1px solid #1e293b; padding-bottom: 5px; }
+    </style>
+</head>
+<body>
+    <h1>Real-time WebSocket Monitor (Test)</h1>
+    <div id="status">Desconectado</div>
+    <div id="log"></div>
+
+    <script>
+        const distId = 1; // Ajustar según sea necesario
+        const ws = new WebSocket(`ws://localhost:8000/api/ws/exhibiciones/${distId}`);
+        const logDiv = document.getElementById('log');
+        const statusDiv = document.getElementById('status');
+
+        ws.onopen = () => {
+            statusDiv.innerText = "✅ Conectado al distribuidor " + distId;
+            statusDiv.style.color = "#10b981";
+        };
+
+        ws.onmessage = (event) => {
+            const msg = JSON.parse(event.data);
+            const entry = document.createElement('div');
+            entry.className = "event";
+            entry.innerText = `[${new Date().toLocaleTimeString()}] RECV: ${JSON.stringify(msg, null, 2)}`;
+            logDiv.prepend(entry);
+        };
+
+        ws.onclose = () => {
+            statusDiv.innerText = "❌ Desconectado";
+            statusDiv.style.color = "#ef4444";
+        };
+    </script>
+</body>
+</html>

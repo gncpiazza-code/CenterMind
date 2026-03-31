@@ -180,7 +180,8 @@ export default function ModoOficinaPage() {
       socket = new WebSocket(url);
 
       socket.onopen = () => {
-        console.log("🔌 Modo Oficina: WebSocket conectado");
+        console.log("🔌 Modo Oficina: WebSocket conectado correctamente");
+        console.log("🔗 URL:", url);
       };
 
       socket.onmessage = (event) => {
@@ -190,15 +191,16 @@ export default function ModoOficinaPage() {
             const data = msg.data;
             if (data.lat && data.lon) {
               const liveEvent: LiveMapEvent = {
-                id_ex: data.id,
-                vendedor: data.vendedor,
-                cliente: data.cliente,
-                tipo_pdv: data.tipo_pdv,
+                id_ex: data.id_ex,
+                id_dist: data.id_dist,
+                nombre_dist: "", 
+                vendedor_nombre: data.vendedor_nombre,
                 lat: data.lat,
                 lon: data.lon,
-                estado: data.estado,
-                url_foto: data.url_foto,
-                timestamp_subida: new Date().toISOString()
+                timestamp_evento: data.timestamp_evento,
+                nro_cliente: data.nro_cliente,
+                cliente_nombre: data.cliente_nombre,
+                drive_link: data.drive_link
               };
               
               // Evitar duplicados si el polling también lo trae

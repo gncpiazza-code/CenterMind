@@ -133,20 +133,29 @@ export default function ModoOficinaPage() {
 
   // ── WebSocket ────────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!distId || !loaded) return;
+    if (!distId || !loaded) {
+      console.log("⏳ Modo Oficina: Esperando distId o carga inicial para conectar WS...", { distId, loaded });
+      return;
+    }
 
     let socket: WebSocket | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
     const connect = () => {
       const wsUrl = getWSUrl(distId);
+      console.log("🔌 Modo Oficina: Intentando conectar a:", wsUrl);
       socket = new WebSocket(wsUrl);
 
       socket.onopen = () => {
-        console.log("🔌 Modo Oficina: WebSocket conectado");
+        console.log("✅ Modo Oficina: WebSocket CONECTADO correctamente");
+      };
+
+      socket.onerror = (err) => {
+        console.error("❌ Modo Oficina: ERROR en WebSocket:", err);
       };
 
       socket.onmessage = (event) => {
+        console.log("📥 WS Raw Data recibida:", event.data);
         try {
           const data = JSON.parse(event.data);
           if (data.type === "new_exhibition") {
@@ -181,9 +190,9 @@ export default function ModoOficinaPage() {
               setSelectedEventId(null);
               setIsImmersive(false);
             }, EVENT_SHOW_DURATION);
-          }
+            }
         } catch (err) {
-          console.error("WS Message Error:", err);
+          console.error("❌ Error parseando mensaje WS:", err, "Raw data:", event.data);
         }
       };
 

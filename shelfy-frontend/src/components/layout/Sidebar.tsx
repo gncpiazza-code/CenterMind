@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
-import { LayoutDashboard, Eye, Users, BarChart2, Gift, LogOut, ChevronDown, ChevronRight, GraduationCap, Activity, MapPin, Globe, PanelLeftClose, PanelLeft, Briefcase, Route } from "lucide-react";
+import { LayoutDashboard, Eye, Users, BarChart2, Gift, LogOut, ChevronDown, ChevronRight, GraduationCap, Activity, MapPin, Globe, PanelLeftClose, PanelLeft, Briefcase, Route, Monitor } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { fetchDistribuidores } from "@/lib/api";
 import { useUI } from "@/contexts/UIContext";
@@ -40,6 +40,12 @@ const ALL_NAV: NavItem[] = [
     icon: MapPin,
     roles: ["superadmin"]
   },
+  {
+    href: "/modo-oficina",
+    label: "Modo Oficina",
+    icon: Monitor,
+    roles: ["superadmin", "admin", "supervisor"]
+  },
 ];
 
 const ROL_LABEL: Record<string, string> = {
@@ -62,6 +68,7 @@ export function Sidebar() {
       { href: "/visor",       label: "Evaluar",             icon: Eye },
       { href: "/dashboard",   label: "Dashboard",           icon: LayoutDashboard },
       { href: "/supervision", label: "Panel de Supervisión", icon: Route },
+      { href: "/modo-oficina", label: "Modo Oficina",       icon: Monitor },
     ];
 
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({ "/academy-hub": true });

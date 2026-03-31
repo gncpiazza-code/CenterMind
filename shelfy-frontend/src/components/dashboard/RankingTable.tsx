@@ -7,6 +7,8 @@ import {
   type SucursalStats,
   type KPIs,
   type EvolucionTiempo,
+  fetchRanking,
+  fetchRankingHistorico,
 } from '@/lib/api';
 import { generateRankingHTML, reportFileName } from '@/lib/generateRankingHTML';
 import { useReportStore } from '@/store/useReportStore';
@@ -66,52 +68,57 @@ export function RankingTable({
     savedReport.distId === distId &&
     savedReport.periodo === periodo;
 
-  function handleGenerateReport() {
-    if (!kpis) return;
+  async function handleGenerateReport() {
+    if (!kpis || !distId) return;
     setGenerating(true);
-
-    // Use setTimeout to let React flush the generating state before the sync work
-    setTimeout(() => {
-      try {
-        const label = periodoLabel ?? periodo;
-        const html = generateRankingHTML({
-          distId,
-          nombreEmpresa,
-          periodo,
-          periodoLabel: label,
-          ranking,
-          kpis,
-          evolucion,
-          sucursales,
-        });
-
-        saveReport({
-          distId,
-          nombreEmpresa,
-          periodo,
-          html,
-          generadoEn: new Date().toISOString(),
-        });
-
-        downloadHTML(html, reportFileName(nombreEmpresa, periodo));
-      } finally {
-        setGenerating(false);
-      }
-    }, 20);
+    try {
+      const label = periodoLabel ?? periodo;
+      // Fetch full ranking (all vendors) and historico for the report
+      const [fullRanking, historico] = await Promise.all([
+        fetchRanking(distId, periodo, sucursalFiltro || undefined, 999),
+        fetchRankingHistorico(distId),
+      ]);
+      const html = generateRankingHTML({
+        distId,
+        nombreEmpresa,
+        periodo,
+        periodoLabel: label,
+        ranking: fullRanking,
+        kpis,
+        evolucion,
+        sucursales,
+        rankingHistorico: historico,
+      });
+      saveReport({
+        distId,
+        nombreEmpresa,
+        periodo,
+        html,
+        generadoEn: new Date().toISOString(),
+      });
+      downloadHTML(html, reportFileName(nombreEmpresa, periodo));
+    } finally {
+      setGenerating(false);
+    }
   }
 
-  function handlePrintReport() {
-    if (!kpis) return;
+  async function handlePrintReport() {
+    if (!kpis || !distId) return;
     const label = periodoLabel ?? periodo;
+    const [fullRanking, historico] = await Promise.all([
+      fetchRanking(distId, periodo, sucursalFiltro || undefined, 999),
+      fetchRankingHistorico(distId),
+    ]);
     const html = generateRankingHTML({
       distId,
       nombreEmpresa,
       periodo,
       periodoLabel: label,
-      ranking,
+      ranking: fullRanking,
       kpis,
       evolucion,
       sucursales,
+      rankingHistorico: historico,
     });
     const win = window.open('', '_blank');
     if (win) { win.document.write(html); win.document.close(); setTimeout(() => win.print(), 300); }
@@ -132,9 +139,6 @@ export function RankingTable({
       </Card>
     );
   }
-
-  // Top 15 solamente
-  const top15 = ranking.slice(0, 15);
 
   return (
     <Card className="border-slate-200/60 shadow-xl overflow-hidden flex flex-col h-full bg-white relative rounded-[2rem]">
@@ -255,7 +259,7 @@ export function RankingTable({
           </thead>
           <tbody>
             <AnimatePresence initial={false}>
-              {top15.map((v, i) => (
+              {ranking.map((v, i) => (
                 <motion.tr
                   key={`${v.vendedor}-${v.sucursal}-${i}`}
                   layout

@@ -33,5 +33,11 @@ sb: Client = create_client(
 
 # Parcheamos el cliente postgrest interno para asegurar que no use HTTP2
 if hasattr(sb, "postgrest"):
-    # Reemplazamos la sesión postgrest por una que no use HTTP2
-    sb.postgrest.session = httpx.Client(http2=False)
+    # Reemplazamos la sesión postgrest por una que no use HTTP2 conservando la config
+    old_session = sb.postgrest.session
+    sb.postgrest.session = httpx.Client(
+        http2=False, 
+        base_url=old_session.base_url, 
+        headers=old_session.headers,
+        timeout=old_session.timeout
+    )

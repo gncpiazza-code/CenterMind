@@ -136,6 +136,10 @@ export interface ERPContexto {
   promedio_factura: number;
   cant_facturas: number;
   deuda_total: number;
+  nro_ruta?: string;
+  domicilio?: string;
+  localidad?: string;
+  canal?: string;
 }
 
 // PASO 10: ROI Analítico

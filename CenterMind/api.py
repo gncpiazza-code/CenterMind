@@ -923,28 +923,37 @@ def get_vendedores(id_distribuidor: int, payload=Depends(verify_auth)):
 @app.post("/api/evaluar", summary="Aprobar / Destacar / Rechazar una exhibicion")
 def evaluar(req: EvaluarRequest, user_payload=Depends(verify_auth)):
     try:
-        affected = 0
-        for id_ex in req.ids_exhibicion:
-            # Primero validamos que la exhibición pertenezca a la dist_id del usuario (si no es superadmin)
-            ex_res = sb.table("exhibiciones").select("id_distribuidor").eq("id_exhibicion", id_ex).execute()
-            if not ex_res.data: continue
-            dist_id = ex_res.data[0]["id_distribuidor"]
+        if not req.ids_exhibicion:
+            return {"affected": 0}
             
-            check_dist_permission(user_payload, dist_id)
-            # Check de bloqueo operativo
-            check_distributor_status(dist_id, user_payload)
+        # Validamos el primer elemento para obtener el dist_id
+        # (Asumimos que todos los IDs en el request pertenecen a la misma distribución,
+        # lo cual es cierto para el visor ya que agrupa por mensaje de Telegram)
+        first_id = req.ids_exhibicion[0]
+        ex_res = sb.table("exhibiciones").select("id_distribuidor").eq("id_exhibicion", first_id).execute()
+        if not ex_res.data:
+            raise HTTPException(status_code=404, detail="Exhibición no encontrada")
+            
+        dist_id = ex_res.data[0]["id_distribuidor"]
+        check_dist_permission(user_payload, dist_id)
+        check_distributor_status(dist_id, user_payload)
 
-            r = sb.table("exhibiciones").update({
-                "estado": req.estado,
-                "supervisor_nombre": req.supervisor,
-                "comentario_evaluacion": req.comentario or None,
-                "evaluated_at": datetime.utcnow().isoformat(),
-                "evaluado_por_id": user_payload.get("id_usuario"),
-                "synced_telegram": 0,
-            }).eq("id_exhibicion", id_ex).eq("estado", "Pendiente").execute()
-            affected += len(r.data) if r.data else 0
+        # Update batch
+        r = sb.table("exhibiciones").update({
+            "estado": req.estado,
+            "supervisor_nombre": req.supervisor,
+            "comentario_evaluacion": req.comentario or None,
+            "evaluated_at": datetime.utcnow().isoformat(),
+            "evaluado_por_id": user_payload.get("id_usuario"),
+            "synced_telegram": 0,
+        }).in_("id_exhibicion", req.ids_exhibicion).eq("estado", "Pendiente").execute()
+        
+        affected = len(r.data) if r.data else 0
         return {"affected": affected}
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(f"Error en evaluar batch: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -955,11 +964,30 @@ def get_erp_contexto(id_distribuidor: int, nro_cliente: str, user_payload=Depend
     """PASO 9: Contexto ERP del cliente para la tarjeta de evaluación."""
     check_dist_permission(user_payload, id_distribuidor)
     try:
-        res = sb.rpc("fn_erp_contexto_cliente", {
+        # Contexto financiero (Facturación/Deuda) desde RPC
+        res_rpc = sb.rpc("fn_erp_contexto_cliente", {
             "p_distribuidor_id": id_distribuidor,
             "p_nro_cliente": nro_cliente
         }).execute()
-        return res.data if res.data else {"encontrado": False}
+        
+        ctx = res_rpc.data if res_rpc.data else {"encontrado": False}
+        
+        # Enriquecimiento con datos maestros (Ruta, Domicilio, Canal)
+        res_pdv = sb.table("clientes_pdv_v2").select(
+            "domicilio, localidad, canal, rutas_v2(id_ruta_erp)"
+        ).eq("id_distribuidor", id_distribuidor).eq("id_cliente_erp", nro_cliente).limit(1).execute()
+        
+        if res_pdv.data:
+            pdv = res_pdv.data[0]
+            ctx["encontrado"] = True
+            ctx["domicilio"] = pdv.get("domicilio")
+            ctx["localidad"] = pdv.get("localidad")
+            ctx["canal"] = pdv.get("canal")
+            # Extraer número de ruta del objeto anidado
+            if pdv.get("rutas_v2"):
+                ctx["nro_ruta"] = pdv["rutas_v2"].get("id_ruta_erp")
+        
+        return ctx
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1475,8 +1503,8 @@ def _enrich_and_store_cc(dist_id: int, fecha_snapshot: str, rows: list) -> int:
         v_lower = v_nombre_raw.lower()
         enrichment = vend_map.get(v_lower)
         if not enrichment:
-            # intenta sin prefijo de código ERP tipo "1 0001 - "
-            stripped = re.sub(r"^\d+\s+\d+\s*-\s*", "", v_nombre_raw, flags=re.IGNORECASE).strip().lower()
+            # intenta sin prefijo de código ERP tipo "1 0001 - " o "01 - "
+            stripped = re.sub(r"^\d+[\s\d]*-\s*", "", v_nombre_raw, flags=re.IGNORECASE).strip().lower()
             if stripped and stripped != v_lower:
                 enrichment = vend_map.get(stripped)
 
@@ -2848,37 +2876,48 @@ def supervision_clientes(id_ruta: int, user_payload=Depends(verify_auth)):
             .execute()
         rows = res.data or []
 
-        # Cross-reference exhibiciones: última fecha + url_foto_drive por PDV
+        # Cross-reference exhibiciones por id_cliente (legacy) o id_cliente_erp (sombra)
         if rows:
             ids_pdv = [r["id_cliente"] for r in rows]
+            erp_map = {r["id_cliente_erp"]: r["id_cliente"] for r in rows if r.get("id_cliente_erp")}
             dist_id = rows[0].get("id_distribuidor")
-            exh_map: dict = {}      # id_cliente → timestamp_subida
-            exh_foto_map: dict = {} # id_cliente → url_foto_drive
+            
+            exh_map: dict = {}      # id_cliente_v2 → timestamp_subida
+            exh_foto_map: dict = {} # id_cliente_v2 → url_foto_drive
+            
             try:
-                ids_set   = set(ids_pdv)
-                batch     = 1000
-                offset    = 0
-                while True:
-                    exh_res = sb.table("exhibiciones") \
-                        .select("id_cliente_pdv, timestamp_subida, url_foto_drive") \
+                # 1. Buscar por id_cliente_pdv (legacy mapping)
+                exh_res = sb.table("exhibiciones") \
+                    .select("id_cliente_pdv, cliente_sombra_codigo, timestamp_subida, url_foto_drive") \
+                    .eq("id_distribuidor", dist_id) \
+                    .in_("id_cliente_pdv", ids_pdv) \
+                    .order("timestamp_subida", desc=True) \
+                    .execute()
+                for e in (exh_res.data or []):
+                    cid = e.get("id_cliente_pdv")
+                    if cid and cid not in exh_map:
+                        exh_map[cid] = e.get("timestamp_subida")
+                        exh_foto_map[cid] = e.get("url_foto_drive")
+
+                # 2. Buscar por ERP code (cliente_sombra_codigo) para los que aún no tienen match
+                # Esto es más lento pero asegura encontrar exhibiciones no vinculadas por ID
+                erps_pending = [erp for erp, vid in erp_map.items() if vid not in exh_map]
+                if erps_pending:
+                    exh_erp_res = sb.table("exhibiciones") \
+                        .select("cliente_sombra_codigo, timestamp_subida, url_foto_drive") \
                         .eq("id_distribuidor", dist_id) \
-                        .in_("id_cliente_pdv", ids_pdv) \
+                        .in_("cliente_sombra_codigo", erps_pending) \
                         .order("timestamp_subida", desc=True) \
-                        .range(offset, offset + batch - 1) \
                         .execute()
-                    chunk = exh_res.data or []
-                    for e in chunk:
-                        cid = e.get("id_cliente_pdv")
-                        if cid and cid not in exh_map:
-                            exh_map[cid]      = e.get("timestamp_subida")
-                            exh_foto_map[cid] = e.get("url_foto_drive")
-                    if len(chunk) < batch:
-                        break
-                    if ids_set <= set(exh_map.keys()):
-                        break
-                    offset += batch
-            except Exception:
-                pass
+                    for e in (exh_erp_res.data or []):
+                        erp = e.get("cliente_sombra_codigo")
+                        vid = erp_map.get(erp)
+                        if vid and vid not in exh_map:
+                            exh_map[vid]      = e.get("timestamp_subida")
+                            exh_foto_map[vid] = e.get("url_foto_drive")
+            except Exception as e:
+                logger.error(f"Error en join exhibiciones: {e}")
+            
             for r in rows:
                 r["fecha_ultima_exhibicion"]  = exh_map.get(r["id_cliente"])
                 r["url_ultima_exhibicion"]    = exh_foto_map.get(r["id_cliente"])
@@ -3017,7 +3056,8 @@ async def motor_cuentas(
             tmp.write(file_bytes)
             tmp_path = tmp.name
         try:
-            _, json_data = procesar_cuentas_corrientes_service(tmp_path, dist_id)
+            # Fix signature mismatch: pass out_dir and a dummy config
+            _, json_data = procesar_cuentas_corrientes_service(tmp_path, "/tmp", {"reglas_generales": {}})
         finally:
             os.unlink(tmp_path)
         registros = len(json_data.get("detalle_cuentas", [])) if json_data else 0

@@ -674,8 +674,8 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
           // Cross-reference deuda: prefer id_cliente_erp match, fallback to name
           const erpId = c.id_cliente_erp ? String(c.id_cliente_erp) : null;
           const nombre = (c.nombre_fantasia || c.nombre_razon_social || "").toLowerCase().trim();
-          const deudaInfo = (erpId && deudaByErpId.get(erpId))
-            ?? (nombre && deudaByNombre.get(nombre))
+          const deudaInfo = (erpId ? deudaByErpId.get(erpId) : null)
+            ?? (nombre ? deudaByNombre.get(nombre) : null)
             ?? null;
           result.push({
             id:                    c.id_cliente,
@@ -915,7 +915,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
             </p>
             {loading ? (
               <div className="flex gap-2">
-                {[1, 2].map(i => <div key={i} className="h-7 w-24 rounded-lg bg-white/5 animate-pulse" />)}
+                {[1, 2].map(i => <div key={`skeleton-nav-${i}`} className="h-7 w-24 rounded-lg bg-white/5 animate-pulse" />)}
               </div>
             ) : sucursales.length === 0 ? (
               <p className="text-xs text-[var(--shelfy-muted)] italic">Sin datos cargados</p>
@@ -1357,11 +1357,11 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                 {d}d
               </button>
             ))}
-            {ventasFiltradas && ventasFiltradas.vendedores.length > 0 && (
+            {ventasFiltradas && (ventasFiltradas?.vendedores?.length ?? 0) > 0 && (
               <button
                 onClick={() => {
                   const rows = [["Vendedor","Fecha","Cliente","Comprobante","Número","Tipo","Devolución","Facturado","Recaudado"]];
-                  ventasFiltradas.vendedores.forEach(v => v.transacciones.forEach(t => rows.push([v.vendedor, t.fecha, t.cliente??'', t.comprobante??'', t.numero??'', t.tipo_operacion??'', t.es_devolucion?'SI':'NO', String(t.monto_total), String(t.monto_recaudado)])));
+                  ventasFiltradas?.vendedores?.forEach(v => v.transacciones.forEach(t => rows.push([v.vendedor, t.fecha, t.cliente??'', t.comprobante??'', t.numero??'', t.tipo_operacion??'', t.es_devolucion?'SI':'NO', String(t.monto_total), String(t.monto_recaudado)])));
                   const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
                   const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8;"})); a.download = `ventas_${selectedSucursal}_${ventasDias}d.csv`; a.click();
                 }}
@@ -1387,15 +1387,15 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
               <div className="grid grid-cols-3 divide-x divide-[var(--shelfy-border)]/40 border-b border-[var(--shelfy-border)]/30">
                 <div className="px-5 py-3">
                   <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-0.5">Facturado</p>
-                  <p className="text-base font-bold text-[var(--shelfy-text)]">${ventasFiltradas.total_facturado.toLocaleString("es-AR",{maximumFractionDigits:0})}</p>
+                  <p className="text-base font-bold text-[var(--shelfy-text)]">${(ventasFiltradas?.total_facturado ?? 0).toLocaleString("es-AR",{maximumFractionDigits:0})}</p>
                 </div>
                 <div className="px-5 py-3">
                   <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-0.5">Recaudado</p>
-                  <p className="text-base font-bold text-emerald-400">${ventasFiltradas.total_recaudado.toLocaleString("es-AR",{maximumFractionDigits:0})}</p>
+                  <p className="text-base font-bold text-emerald-400">${(ventasFiltradas?.total_recaudado ?? 0).toLocaleString("es-AR",{maximumFractionDigits:0})}</p>
                 </div>
                 <div className="px-5 py-3">
                   <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-0.5">Comprobantes</p>
-                  <p className="text-base font-bold text-[var(--shelfy-text)]">{ventasFiltradas.total_facturas.toLocaleString()}</p>
+                  <p className="text-base font-bold text-[var(--shelfy-text)]">{(ventasFiltradas?.total_facturas ?? 0).toLocaleString()}</p>
                 </div>
               </div>
             )}
@@ -1409,9 +1409,9 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
               <p className="text-sm text-[var(--shelfy-muted)] text-center py-8 italic">Sin datos de ventas para esta sucursal.</p>
             )}
 
-            {ventasFiltradas && ventasFiltradas.vendedores.length > 0 && (
+            {ventasFiltradas && (ventasFiltradas?.vendedores?.length ?? 0) > 0 && (
               <div className="divide-y divide-[var(--shelfy-border)]/30">
-                {ventasFiltradas.vendedores.map((v, idx) => {
+                {(ventasFiltradas?.vendedores ?? []).map((v, idx) => {
                   const color = vendorColor(idx);
                   const isOpen = openVentasVend === v.vendedor;
                   const pctRec = v.monto_total > 0 ? Math.round((v.monto_recaudado / v.monto_total) * 100) : 0;

@@ -75,7 +75,7 @@ export function RankingTable({
             <AnimatePresence initial={false}>
               {top15.map((v, i) => (
                 <motion.tr
-                  key={`${v.vendedor}-${v.sucursal}`}
+                  key={`${v.vendedor}-${v.sucursal}-${i}`}
                   layout
                   initial={{ opacity: 0, y: 15 }}
                   animate={{ 

@@ -14,9 +14,13 @@ interface ChartCarouselProps {
 }
 
 export function ChartCarousel({ evolucion }: ChartCarouselProps) {
-  // Solo mostramos Evolución de Fotos según pedido del usuario
-  
-  if (evolucion.length === 0) return (
+  const [isMounted, setIsMounted] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  if (!isMounted || evolucion.length === 0) return (
     <Card className="p-6 border-slate-200/60 shadow-sm relative overflow-hidden h-[350px] flex flex-col group bg-white rounded-[2rem] items-center justify-center">
       <span className="text-slate-400 font-bold uppercase tracking-widest text-[10px]">Sin datos de evolución para gráficos</span>
     </Card>

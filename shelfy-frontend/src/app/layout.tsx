@@ -19,6 +19,7 @@ export const metadata: Metadata = {
 
 import { UIProvider } from "@/contexts/UIContext";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { ReactQueryProvider } from "@/components/providers/ReactQueryProvider";
 
 export default function RootLayout({
   children,
@@ -28,11 +29,13 @@ export default function RootLayout({
   return (
     <html lang="es">
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
-        <AuthProvider>
-          <UIProvider>
-            {children}
-          </UIProvider>
-        </AuthProvider>
+        <ReactQueryProvider>
+          <AuthProvider>
+            <UIProvider>
+              {children}
+            </UIProvider>
+          </AuthProvider>
+        </ReactQueryProvider>
       </body>
     </html>
   );

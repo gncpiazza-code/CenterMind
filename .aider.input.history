@@ -1,0 +1,137 @@
+
+# 2026-03-31 00:45:49.434278
++n
+
+# 2026-03-31 00:50:23.043618
++--encoding
+
+# 2026-03-31 01:09:35.018124
++/add CenterMind/api.py 
+
+# 2026-03-31 01:10:10.681329
++/add shelfy-frontend/src/lib/api.ts
+
+# 2026-03-31 01:10:38.275155
++/add shelfy-frontend/src/app/visor/page.tsx
+
+# 2026-03-31 01:11:03.916006
++1. Análisis de la Situación
++El panel de "Perfil de Cliente" no es visible o no resulta útil porque la interfaz actual está fragmentada en dos columnas que compiten por el espacio. Al evaluar, el supervisor necesita ver la foto en grande (contexto visual) y los datos maestros del ERP (contexto administrativo) de forma simultánea pero no invasiva. Actualmente, el endpoint del backend no está devolviendo campos críticos como la "Fecha de Alta" o el "Día de Visita", lo que impide completar el perfil solicitado.
++
++2. Problema Identificado
++Estructural: El layout de dos columnas limita el ancho de la foto y relega la información del cliente a un bloque inferior o lateral que a veces no carga por falta de datos específicos.
++
++Inconsistencia de Datos: La función get_erp_contexto en el backend no realiza el join completo con rutas_v2 para obtener el día de visita, ni recupera la fecha_alta.
++
++Jerarquía Visual: Los detalles del envío (vendedor, fecha) ocupan demasiado espacio vertical innecesariamente.
++
++3. Archivos a modificar y Tareas
++
++A. Backend: CenterMind/api.py
++Tarea: Actualizar la función get_erp_contexto.
++
++Acción: Modificar la consulta a la tabla clientes_pdv_v2 para incluir nombre_fantasia, nombre_razon_social, fecha_alta y realizar el join con rutas_v2 para extraer el dia_semana (Día de Visita) y el id_ruta_erp.
++
++B. Frontend (Tipado): shelfy-frontend/src/lib/api.ts
++Tarea: Actualizar la interfaz ERPContexto.
++
++Acción: Agregar los nuevos campos: nombre_fantasia, razon_social, fecha_alta, dia_visita y nro_ruta.
++
++C. Frontend (UI): shelfy-frontend/src/app/visor/page.tsx
++Tarea: Reestructurar el componente de la página.
++
++Acción 1 (Layout): Cambiar el grid-cols-[1fr_360px] por un contenedor de una sola columna de ancho máximo (max-w-7xl).
++
++Acción 2 (Imagen): Configurar el contenedor de la foto para que ocupe el 100% del ancho disponible, ajustando el aspect-ratio para que sea más cinematográfico/inmersivo.
++
++Acción 3 (Perfil Flotante): Crear un componente motion.div con posicionamiento absolute en el top-right de la imagen. Debe tener un fondo traslúcido (backdrop-blur) para que no tape totalmente la foto pero permita leer los datos del ERP (Nro Cliente, Razón Social, etc.).
++
++Acción 4 (Detalle de Envío): Mover los datos de "Vendedor", "Nro Cliente", "Tipo" y "Fecha" a un contenedor flex-row horizontal. Este se ubicará justo debajo de la imagen y encima del textarea de comentarios.
++
++Acción 5 (Limpieza): Eliminar la columna lateral derecha que contenía los metadatos anteriormente.
+
+# 2026-03-31 01:13:09.635214
++y
+
+# 2026-03-31 01:14:50.079350
++pushea a main todo asi vercel hace redeploy
+
+# 2026-03-31 01:18:24.040041
++y
+
+# 2026-03-31 01:18:24.057125
++/run git push origin main
+
+# 2026-03-31 01:18:24.057426
++/run git push origin main
+
+# 2026-03-31 01:18:31.625251
++y
+
+# 2026-03-31 01:23:51.649208
++/add CenterMind/api.py
+
+# 2026-03-31 01:25:02.707549
++/add shelfy-frontend/src/components/admin/TabSupervision.tsx
+
+# 2026-03-31 01:25:16.551498
++/add shelfy-frontend/src/lib/api.ts
+
+# 2026-03-31 01:25:54.991894
++/context 1. Análisis de la Situación (Caché y Estado)
++El problema de que "no aparece la cantidad correcta" se agrava por la falta de una "única fuente de verdad". Al usar useState locales para las rutas y clientes dentro de los acordeones, la visibilidad en el mapa se vuelve inconsistente. Si los datos de la tabla exhibiciones no están cacheados correctamente, el mapa tiene que "adivinar" el estado del PDV cada vez que se renderiza.
++
++2. Problema Identificado (Desde la Caché)
++Flickering de visibilidad: Al abrir/cerrar acordeones, se pierden referencias.
++
++Doble lógica de filtrado: El cálculo de si un pin debe ser verde, azul o rojo se hace en el render del frontend en lugar de venir pre-calculado y guardado en la caché de la query.
++
++Estado volátil: Si el supervisor entra al detalle de un vendedor y vuelve al mapa, el visibleVends se resetea si no está en un Store global.
++
++3. Plan de Acción con Caché Explícita
++
++A. Backend: CenterMind/api.py
++Tarea: Inyectar el estado de exhibición directamente en el objeto cliente.
++
++Acción: Modificar supervision_clientes para que devuelva un booleano tiene_exhibicion_reciente calculado en el servidor (SQL). Esto elimina la necesidad de que el frontend haga cálculos de fechas y asegura que el conteo del mapa coincida con la base de datos al 100%.
++
++B. Store: shelfy-frontend/src/store/useSupervisionStore.ts (Nuevo)
++Tarea: Crear un store de Zustand para persistir la UI del mapa.
++
++Acción: Mover los Set de visibilidad (visibleVends, visibleRutas, visibleClientes) y la selectedSucursal a este store.
++
++Beneficio: El mapa no se "vacía" nunca al navegar. La configuración de capas del supervisor sobrevive a los cambios de pestaña.
++
++C. Data Fetching: shelfy-frontend/src/components/admin/TabSupervision.tsx
++Tarea: Migrar de useEffect a useQuery de TanStack.
++
++Acción 1: Implementar useQuery para vendedores, rutas y clientes.
++
++Acción 2: Usar la propiedad staleTime: Infinity o de larga duración para los clientes. Como el padrón no cambia cada minuto, podemos confiar en la caché.
++
++Acción 3: Usar placeholderData para que el mapa no desaparezca mientras se cargan nuevos PDVs (evita el efecto de "mapa vacío").
++
++D. Lógica de Negocio en Caché: lib/api.ts
++Tarea: Centralizar el mapeo de "Pines".
++
++Acción: Usar la función select de TanStack Query para transformar la respuesta de la API directamente en el formato PinCliente que espera el mapa, incluyendo el cruce de datos de cc_detalle (deuda).
++
++Resultado: El componente del mapa solo lee una lista "aplanada" y lista para renderizar desde la caché.
+
+# 2026-03-31 01:28:27.496972
++pushea to main, whats the files modify? whats amount of liness
+
+# 2026-03-31 01:31:18.938920
++y, its all pushed?
+
+# 2026-03-31 01:31:23.756243
++y
+
+# 2026-03-31 01:36:30.886358
++/run cd shelfy-frontend && npm install
+
+# 2026-03-31 01:36:30.891069
++/run cd shelfy-frontend && npm install
+
+# 2026-03-31 01:36:42.338898
++y

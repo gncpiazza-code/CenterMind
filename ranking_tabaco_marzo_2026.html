@@ -1,0 +1,551 @@
+<!-- AUDITORÍA: 3364 registros crudos | 3086 registros válidos | 35 vendedores únicos | reglas aplicadas: Wütrich merge (todos → Ivan Wütrich), Rominas separadas (Soru CORRIENTES / Perez CORDOBA), Soto equipo (Monchi + Coronel → Ivan Soto & Equipo) | excluidos sin mapeo ERP: 278 filas -->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Informe Desempeño — Marzo 2026 | Tabaco & Hnos</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --panel2: #162032;
+    --border: #334155;
+    --accent: #7c3aed;
+    --accent2: #9f5aff;
+    --green: #10b981;
+    --red: #ef4444;
+    --amber: #f59e0b;
+    --text: #f1f5f9;
+    --muted: #94a3b8;
+    --gold: #fbbf24;
+    --silver: #94a3b8;
+    --bronze: #f97316;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    min-height: 100vh;
+    padding: 0 0 60px 0;
+  }
+  /* HEADER */
+  .header {
+    background: linear-gradient(135deg, #1a0e3a 0%, #0f172a 60%, #0c1a35 100%);
+    border-bottom: 1px solid var(--border);
+    padding: 36px 40px 28px;
+    position: relative;
+    overflow: hidden;
+  }
+  .header::before {
+    content: '';
+    position: absolute;
+    top: -60px; left: -60px;
+    width: 300px; height: 300px;
+    background: radial-gradient(circle, rgba(124,58,237,0.18) 0%, transparent 70%);
+    pointer-events: none;
+  }
+  .header-inner { position: relative; z-index: 1; }
+  .header-tag {
+    display: inline-block;
+    background: rgba(124,58,237,0.2);
+    border: 1px solid rgba(124,58,237,0.4);
+    color: var(--accent2);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    padding: 4px 12px;
+    border-radius: 20px;
+    margin-bottom: 12px;
+  }
+  .header h1 {
+    font-size: clamp(22px, 4vw, 34px);
+    font-weight: 800;
+    background: linear-gradient(90deg, #fff 0%, var(--accent2) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    line-height: 1.2;
+    margin-bottom: 6px;
+  }
+  .header-sub {
+    color: var(--muted);
+    font-size: 13px;
+    margin-top: 4px;
+  }
+  /* KPIs */
+  .section { padding: 32px 40px 0; }
+  .section-title {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .section-title::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+  .kpis {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 16px;
+  }
+  .kpi-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 24px 20px;
+    position: relative;
+    overflow: hidden;
+    transition: transform .2s;
+  }
+  .kpi-card:hover { transform: translateY(-2px); }
+  .kpi-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    border-radius: 14px 14px 0 0;
+  }
+  .kpi-card.c-total::before { background: var(--accent); }
+  .kpi-card.c-apr::before { background: var(--green); }
+  .kpi-card.c-rej::before { background: var(--red); }
+  .kpi-card.c-pct::before { background: var(--amber); }
+  .kpi-label { font-size: 11px; color: var(--muted); font-weight: 600; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 10px; }
+  .kpi-value { font-size: 36px; font-weight: 800; line-height: 1; }
+  .kpi-card.c-total .kpi-value { color: #a78bfa; }
+  .kpi-card.c-apr .kpi-value { color: var(--green); }
+  .kpi-card.c-rej .kpi-value { color: var(--red); }
+  .kpi-card.c-pct .kpi-value { color: var(--amber); }
+  .kpi-sub { font-size: 11px; color: var(--muted); margin-top: 6px; }
+  /* TABLE */
+  .table-wrap {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+  table { width: 100%; border-collapse: collapse; }
+  thead tr {
+    background: rgba(124,58,237,0.12);
+    border-bottom: 1px solid var(--border);
+  }
+  th {
+    padding: 12px 16px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--muted);
+    text-align: left;
+  }
+  th.right { text-align: right; }
+  td {
+    padding: 14px 16px;
+    font-size: 13px;
+    border-bottom: 1px solid rgba(51,65,85,0.5);
+    vertical-align: middle;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: rgba(124,58,237,0.05); }
+  .pos-cell { font-weight: 700; font-size: 18px; text-align: center; width: 48px; }
+  .vendor-name { font-weight: 600; }
+  .vendor-extra { font-size: 11px; color: var(--muted); font-style: italic; margin-top: 2px; }
+  .suc-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 6px;
+    letter-spacing: .5px;
+    text-transform: uppercase;
+  }
+  .suc-RECONQUISTA { background: rgba(124,58,237,.25); color: #c4b5fd; }
+  .suc-CORDOBA { background: rgba(16,185,129,.2); color: #6ee7b7; }
+  .suc-CORRIENTES { background: rgba(245,158,11,.2); color: #fcd34d; }
+  .suc-RESISTENCIA { background: rgba(239,68,68,.2); color: #fca5a5; }
+  .suc-default { background: rgba(148,163,184,.15); color: #94a3b8; }
+  .suc-SAENZ { background: rgba(59,130,246,.2); color: #93c5fd; }
+  .bar-wrap { position: relative; height: 6px; background: var(--bg); border-radius: 3px; width: 100%; min-width: 80px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 3px; transition: width 1s ease; }
+  .pct-badge {
+    display: inline-block;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 20px;
+    min-width: 56px;
+    text-align: center;
+  }
+  .pct-green { background: rgba(16,185,129,.2); color: var(--green); }
+  .pct-amber { background: rgba(245,158,11,.2); color: var(--amber); }
+  .pct-red { background: rgba(239,68,68,.2); color: var(--red); }
+  td.right, th.right { text-align: right; }
+  /* CHARTS */
+  .chart-wrap {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 24px;
+    position: relative;
+  }
+  .chart-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 16px;
+  }
+  svg.bar-chart { display: block; width: 100%; overflow: visible; }
+  .race-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+  .race-controls button {
+    background: rgba(124,58,237,.3);
+    border: 1px solid rgba(124,58,237,.5);
+    color: var(--text);
+    padding: 6px 14px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: background .15s;
+  }
+  .race-controls button:hover { background: rgba(124,58,237,.5); }
+  .race-controls button.active { background: var(--accent); border-color: var(--accent); }
+  .race-day-label { color: var(--muted); font-size: 12px; font-weight: 600; }
+  /* race chart */
+  #raceChart { width: 100%; }
+  .race-bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; height: 28px; }
+  .race-bar-name { width: 160px; min-width: 160px; font-size: 12px; font-weight: 600; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .race-bar-outer { flex: 1; background: var(--bg); border-radius: 4px; height: 22px; position: relative; overflow: hidden; }
+  .race-bar-fill { height: 100%; border-radius: 4px; transition: width 0.3s ease; position: absolute; left: 0; top: 0; }
+  .race-bar-val { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); font-size: 11px; font-weight: 700; color: #fff; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 768px) {
+    .section { padding: 20px 16px 0; }
+    .header { padding: 24px 16px 20px; }
+    .kpis { grid-template-columns: repeat(2, 1fr); }
+    .grid-2 { grid-template-columns: 1fr; }
+    th, td { padding: 10px 10px; font-size: 12px; }
+    .race-bar-name { width: 100px; min-width: 100px; font-size: 10px; }
+  }
+  .footer { padding: 32px 40px; color: var(--muted); font-size: 11px; border-top: 1px solid var(--border); margin-top: 40px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-inner">
+    <div class="header-tag">Informe de Desempeño</div>
+    <h1>Marzo 2026</h1>
+    <div style="font-size:18px; font-weight:600; color:#c4b5fd; margin-top:4px;">Tabaco &amp; Hnos S.R.L.</div>
+    <div class="header-sub">Generado el 31/03/2026 &nbsp;·&nbsp; id_distribuidor = 3 &nbsp;·&nbsp; 3364 registros auditados</div>
+  </div>
+</div>
+
+<!-- SECTION 1: KPIs -->
+<div class="section" style="padding-top:32px;">
+  <div class="section-title">Métricas globales del mes</div>
+  <div class="kpis">
+    <div class="kpi-card c-total">
+      <div class="kpi-label">Enviadas</div>
+      <div class="kpi-value" data-target="3086">0</div>
+      <div class="kpi-sub">exhibiciones registradas</div>
+    </div>
+    <div class="kpi-card c-apr">
+      <div class="kpi-label">Aprobadas</div>
+      <div class="kpi-value" data-target="2980">0</div>
+      <div class="kpi-sub">Aprobado + Destacado</div>
+    </div>
+    <div class="kpi-card c-rej">
+      <div class="kpi-label">Rechazadas</div>
+      <div class="kpi-value" data-target="106">0</div>
+      <div class="kpi-sub">estado Rechazado</div>
+    </div>
+    <div class="kpi-card c-pct">
+      <div class="kpi-label">Tasa Global</div>
+      <div class="kpi-value" data-target="96.6" data-suffix="%">0%</div>
+      <div class="kpi-sub">aprobación sobre enviadas</div>
+    </div>
+  </div>
+</div>
+
+<!-- SECTION 2: RANKING -->
+<div class="section" style="padding-top:28px;">
+  <div class="section-title">Ranking Top 15 — Enviadas</div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th style="width:48px;">Pos</th>
+          <th>Vendedor</th>
+          <th>Sucursal</th>
+          <th class="right">Enviadas</th>
+          <th class="right">Aprobadas</th>
+          <th style="min-width:160px;">% Aprobación</th>
+        </tr>
+      </thead>
+      <tbody id="rankingBody">
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- SECTION 3: Daily Activity -->
+<div class="section" style="padding-top:28px;">
+  <div class="section-title">Actividad diaria — Marzo 2026</div>
+  <div class="chart-wrap">
+    <div class="chart-title">Exhibiciones enviadas por día (barras apiladas: aprobadas / rechazadas)</div>
+    <div style="overflow-x:auto;">
+      <svg id="dailyChart" class="bar-chart" style="min-width:600px;"></svg>
+    </div>
+  </div>
+</div>
+
+<!-- SECTION 4: Race Chart -->
+<div class="section" style="padding-top:28px;">
+  <div class="section-title">Race Chart — Acumulado diario Top 10</div>
+  <div class="chart-wrap">
+    <div class="race-controls">
+      <button id="btnPlay" class="active" onclick="togglePlay()">&#9654; Auto-play</button>
+      <button onclick="stepRace(-1)">&#9664; Anterior</button>
+      <button onclick="stepRace(1)">Siguiente &#9654;</button>
+      <span class="race-day-label" id="raceDayLabel">Día 1</span>
+    </div>
+    <div id="raceChart"></div>
+  </div>
+</div>
+
+<div class="footer">
+  <span>Tabaco &amp; Hnos S.R.L. · Marzo 2026 · Shelfy CenterMind</span>
+  <span>Generado: 31/03/2026</span>
+</div>
+
+<script>
+// ===== DATA =====
+const TOP15 = [{"pos": 1, "display": "Ivan Soto & Equipo", "sucursal": "RECONQUISTA", "total": 404, "aprobadas": 402, "rechazadas": 2, "pct": 99.5, "extra": "Incluye: Monchi Ayala, Jorge Coronel"}, {"pos": 2, "display": "Ivan Wütrich", "sucursal": "RESISTENCIA", "total": 300, "aprobadas": 295, "rechazadas": 5, "pct": 98.3, "extra": ""}, {"pos": 3, "display": "Miguel Angel Muñoz", "sucursal": "CORDOBA", "total": 243, "aprobadas": 232, "rechazadas": 11, "pct": 95.5, "extra": ""}, {"pos": 4, "display": "Romina Soru", "sucursal": "CORRIENTES", "total": 220, "aprobadas": 217, "rechazadas": 3, "pct": 98.6, "extra": ""}, {"pos": 5, "display": "Romina Perez", "sucursal": "CORDOBA", "total": 184, "aprobadas": 176, "rechazadas": 8, "pct": 95.7, "extra": ""}, {"pos": 6, "display": "Ricardo Lauro.", "sucursal": "RESISTENCIA", "total": 173, "aprobadas": 160, "rechazadas": 13, "pct": 92.5, "extra": ""}, {"pos": 7, "display": "Adrian Azula", "sucursal": "CORRIENTES", "total": 132, "aprobadas": 126, "rechazadas": 6, "pct": 95.5, "extra": ""}, {"pos": 8, "display": "Miguel Diduch", "sucursal": "SAENZ PEÑA", "total": 129, "aprobadas": 116, "rechazadas": 13, "pct": 89.9, "extra": ""}, {"pos": 9, "display": "David Brunetto", "sucursal": "CORDOBA", "total": 126, "aprobadas": 121, "rechazadas": 5, "pct": 96.0, "extra": ""}, {"pos": 10, "display": "Alejandro Torossi", "sucursal": "CORRIENTES", "total": 124, "aprobadas": 120, "rechazadas": 4, "pct": 96.8, "extra": ""}, {"pos": 11, "display": "Dario Bianchini", "sucursal": "CORDOBA", "total": 122, "aprobadas": 121, "rechazadas": 1, "pct": 99.2, "extra": ""}, {"pos": 12, "display": "Arturo Ojeda", "sucursal": "CORRIENTES", "total": 114, "aprobadas": 112, "rechazadas": 2, "pct": 98.2, "extra": ""}, {"pos": 13, "display": "Gonzalo Garcia", "sucursal": "RECONQUISTA", "total": 89, "aprobadas": 81, "rechazadas": 8, "pct": 91.0, "extra": ""}, {"pos": 14, "display": "Dante Franco", "sucursal": "SAENZ PEÑA", "total": 78, "aprobadas": 78, "rechazadas": 0, "pct": 100.0, "extra": ""}, {"pos": 15, "display": "Sergio Marek", "sucursal": "CORDOBA", "total": 69, "aprobadas": 64, "rechazadas": 5, "pct": 92.8, "extra": ""}];
+const DAILY = [{"dia": 2, "env": 10, "apr": 10}, {"dia": 3, "env": 10, "apr": 10}, {"dia": 4, "env": 15, "apr": 15}, {"dia": 5, "env": 17, "apr": 17}, {"dia": 6, "env": 125, "apr": 125}, {"dia": 7, "env": 579, "apr": 579}, {"dia": 9, "env": 216, "apr": 202}, {"dia": 10, "env": 166, "apr": 157}, {"dia": 11, "env": 184, "apr": 171}, {"dia": 12, "env": 123, "apr": 117}, {"dia": 13, "env": 154, "apr": 147}, {"dia": 14, "env": 70, "apr": 66}, {"dia": 15, "env": 1, "apr": 1}, {"dia": 16, "env": 161, "apr": 159}, {"dia": 17, "env": 150, "apr": 144}, {"dia": 18, "env": 167, "apr": 158}, {"dia": 19, "env": 116, "apr": 116}, {"dia": 20, "env": 87, "apr": 87}, {"dia": 21, "env": 40, "apr": 40}, {"dia": 23, "env": 82, "apr": 82}, {"dia": 24, "env": 80, "apr": 65}, {"dia": 25, "env": 101, "apr": 98}, {"dia": 26, "env": 114, "apr": 109}, {"dia": 27, "env": 76, "apr": 72}, {"dia": 28, "env": 66, "apr": 65}, {"dia": 29, "env": 26, "apr": 23}, {"dia": 30, "env": 107, "apr": 102}, {"dia": 31, "env": 43, "apr": 43}];
+const RACE_LABELS = ["Ivan Soto & Equipo", "Ivan Wütrich", "Miguel Angel Muñoz", "Romina Soru", "Romina Perez", "Ricardo Lauro.", "Adrian Azula", "Miguel Diduch", "David Brunetto", "Alejandro Torossi"];
+const RACE_DATA = [{"dia": 1, "values": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]}, {"dia": 2, "values": [0, 0, 0, 0, 0, 3, 0, 0, 0, 0]}, {"dia": 3, "values": [0, 0, 0, 0, 0, 7, 0, 0, 0, 0]}, {"dia": 4, "values": [0, 0, 0, 0, 0, 8, 0, 0, 0, 0]}, {"dia": 5, "values": [0, 0, 0, 0, 0, 13, 0, 0, 0, 0]}, {"dia": 6, "values": [0, 50, 0, 1, 0, 14, 23, 0, 2, 3]}, {"dia": 7, "values": [151, 94, 60, 65, 20, 22, 23, 66, 9, 65]}, {"dia": 8, "values": [151, 94, 60, 65, 20, 22, 23, 66, 9, 65]}, {"dia": 9, "values": [181, 106, 72, 80, 34, 36, 25, 83, 23, 78]}, {"dia": 10, "values": [203, 115, 89, 80, 48, 41, 36, 92, 35, 83]}, {"dia": 11, "values": [221, 141, 104, 97, 63, 58, 43, 94, 42, 83]}, {"dia": 12, "values": [235, 143, 119, 112, 71, 64, 53, 94, 45, 87]}, {"dia": 13, "values": [262, 154, 128, 114, 72, 72, 71, 98, 50, 96]}, {"dia": 14, "values": [262, 177, 136, 114, 72, 75, 88, 98, 54, 96]}, {"dia": 15, "values": [262, 177, 136, 114, 72, 75, 88, 98, 54, 97]}, {"dia": 16, "values": [284, 186, 147, 122, 86, 84, 88, 100, 66, 100]}, {"dia": 17, "values": [297, 190, 164, 136, 96, 97, 91, 104, 75, 113]}, {"dia": 18, "values": [322, 206, 174, 148, 108, 99, 91, 112, 80, 115]}, {"dia": 19, "values": [338, 210, 186, 160, 118, 101, 91, 112, 84, 117]}, {"dia": 20, "values": [350, 220, 191, 165, 120, 105, 91, 112, 85, 118]}, {"dia": 21, "values": [350, 227, 196, 165, 120, 106, 100, 112, 89, 119]}, {"dia": 22, "values": [350, 227, 196, 165, 120, 106, 100, 112, 89, 119]}, {"dia": 23, "values": [353, 233, 205, 168, 136, 109, 100, 113, 98, 119]}, {"dia": 24, "values": [368, 241, 205, 174, 136, 115, 100, 115, 98, 120]}, {"dia": 25, "values": [374, 250, 212, 187, 150, 120, 100, 115, 104, 120]}, {"dia": 26, "values": [382, 256, 219, 200, 154, 126, 103, 115, 109, 120]}, {"dia": 27, "values": [384, 264, 224, 203, 157, 140, 103, 115, 112, 120]}, {"dia": 28, "values": [384, 264, 228, 203, 159, 154, 126, 115, 114, 120]}, {"dia": 29, "values": [384, 287, 228, 203, 159, 154, 126, 115, 114, 120]}, {"dia": 30, "values": [402, 295, 232, 217, 176, 160, 126, 116, 121, 120]}, {"dia": 31, "values": [402, 295, 232, 217, 176, 160, 126, 116, 121, 120]}];
+
+// Colors for race
+const COLORS = [
+  '#7c3aed','#10b981','#f59e0b','#ef4444','#3b82f6',
+  '#ec4899','#14b8a6','#f97316','#8b5cf6','#22d3ee'
+];
+
+// ===== KPI COUNTER ANIMATION =====
+function animateCount(el) {
+  const target = parseFloat(el.dataset.target);
+  const suffix = el.dataset.suffix || '';
+  const isFloat = String(target).includes('.');
+  const dur = 1500;
+  const start = performance.now();
+  function step(now) {
+    const p = Math.min((now - start) / dur, 1);
+    const ease = 1 - Math.pow(1 - p, 3);
+    const val = ease * target;
+    el.textContent = isFloat ? val.toFixed(1) + suffix : Math.round(val).toLocaleString('es-AR') + suffix;
+    if (p < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+window.addEventListener('load', () => {
+  document.querySelectorAll('.kpi-value[data-target]').forEach(el => {
+    const io = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting) { animateCount(el); io.disconnect(); }
+    }, {threshold: 0.5});
+    io.observe(el);
+  });
+});
+
+// ===== RANKING TABLE =====
+function getSucClass(s) {
+  const m = { 'RECONQUISTA':'RECONQUISTA','CORDOBA':'CORDOBA','CORRIENTES':'CORRIENTES','RESISTENCIA':'RESISTENCIA','SAENZ PEÑA':'SAENZ','SAENZ':'SAENZ' };
+  return 'suc-' + (m[s] || 'default');
+}
+function getPctClass(p) {
+  if (p >= 95) return 'pct-green';
+  if (p >= 85) return 'pct-amber';
+  return 'pct-red';
+}
+const medals = ['🥇','🥈','🥉'];
+const tbody = document.getElementById('rankingBody');
+const maxTotal = TOP15[0].total;
+TOP15.forEach((v, i) => {
+  const pct = v.pct;
+  const barW = Math.round(v.aprobadas / maxTotal * 100);
+  const barColor = pct >= 95 ? 'var(--green)' : pct >= 85 ? 'var(--amber)' : 'var(--red)';
+  const medal = i < 3 ? medals[i] : '';
+  const sucClass = getSucClass(v.sucursal);
+  const extraHtml = v.extra ? `<div class="vendor-extra">${v.extra}</div>` : '';
+  tbody.innerHTML += `
+    <tr>
+      <td class="pos-cell">${medal || v.pos}</td>
+      <td>
+        <div class="vendor-name">${v.display}</div>
+        ${extraHtml}
+      </td>
+      <td><span class="suc-badge ${sucClass}">${v.sucursal}</span></td>
+      <td class="right" style="font-weight:700;">${v.total}</td>
+      <td class="right">${v.aprobadas}</td>
+      <td>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div class="bar-wrap" style="flex:1;">
+            <div class="bar-fill" style="width:0%;background:${barColor};" data-w="${barW}%"></div>
+          </div>
+          <span class="pct-badge ${getPctClass(pct)}">${pct}%</span>
+        </div>
+      </td>
+    </tr>`;
+});
+// Animate bars
+setTimeout(() => {
+  document.querySelectorAll('.bar-fill[data-w]').forEach(el => {
+    el.style.width = el.dataset.w;
+  });
+}, 200);
+
+// ===== DAILY CHART (SVG) =====
+(function() {
+  const svg = document.getElementById('dailyChart');
+  const W = 800, H = 220, padL = 40, padR = 20, padT = 20, padB = 40;
+  const chartW = W - padL - padR;
+  const chartH = H - padT - padB;
+  
+  const maxVal = Math.max(...DAILY.map(d => d.env));
+  const barW = Math.floor(chartW / DAILY.length * 0.72);
+  const gap = chartW / DAILY.length;
+  
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  
+  let bars = '';
+  let labels = '';
+  let peaks = '';
+  let peakMax = 0, peakDay = 0;
+  
+  DAILY.forEach((d, i) => {
+    const x = padL + i * gap + (gap - barW) / 2;
+    const aprH = (d.apr / maxVal) * chartH;
+    const rejH = ((d.env - d.apr) / maxVal) * chartH;
+    const totalH = aprH + rejH;
+    
+    // apr bar (bottom)
+    bars += `<rect x="${x}" y="${padT + chartH - aprH}" width="${barW}" height="${aprH}" fill="#10b981" opacity="0.85" rx="2"/>`;
+    // rej bar (on top)
+    if (rejH > 0) {
+      bars += `<rect x="${x}" y="${padT + chartH - totalH}" width="${barW}" height="${rejH}" fill="#ef4444" opacity="0.8" rx="2"/>`;
+    }
+    
+    // x label (every 3 days or day 1)
+    if (d.dia % 3 === 1 || d.dia === 1 || d.dia === 31) {
+      labels += `<text x="${x + barW/2}" y="${H - 6}" text-anchor="middle" fill="#94a3b8" font-size="10">${d.dia}</text>`;
+    }
+    
+    if (d.env > peakMax) { peakMax = d.env; peakDay = d.dia; }
+  });
+  
+  // Y axis labels
+  let yLabels = '';
+  for (let i = 0; i <= 4; i++) {
+    const val = Math.round(maxVal * i / 4);
+    const y = padT + chartH - (i / 4) * chartH;
+    yLabels += `<text x="${padL - 6}" y="${y + 4}" text-anchor="end" fill="#475569" font-size="10">${val}</text>`;
+    yLabels += `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="#1e293b" stroke-width="1"/>`;
+  }
+  
+  // Peak annotation
+  const peakDayData = DAILY.find(d => d.dia === peakDay);
+  if (peakDayData) {
+    const pi = DAILY.indexOf(peakDayData);
+    const px = padL + pi * gap + gap/2;
+    const py = padT + chartH - (peakDayData.env / maxVal) * chartH - 16;
+    peaks = `<text x="${px}" y="${py}" text-anchor="middle" fill="#fbbf24" font-size="10" font-weight="bold">⬆ Pico: ${peakMax}</text>`;
+  }
+  
+  // Legend
+  const legend = `<rect x="${padL}" y="4" width="12" height="10" fill="#10b981" rx="2"/>
+    <text x="${padL+16}" y="13" fill="#94a3b8" font-size="10">Aprobadas</text>
+    <rect x="${padL+80}" y="4" width="12" height="10" fill="#ef4444" rx="2"/>
+    <text x="${padL+96}" y="13" fill="#94a3b8" font-size="10">Rechazadas</text>`;
+  
+  svg.innerHTML = yLabels + bars + labels + peaks + legend;
+})();
+
+// ===== RACE CHART =====
+let raceDay = 0;
+let racePlaying = false;
+let raceInterval = null;
+
+function renderRace(dayIdx) {
+  const container = document.getElementById('raceChart');
+  const data = RACE_DATA[dayIdx];
+  document.getElementById('raceDayLabel').textContent = `Día ${data.dia} de Marzo 2026`;
+  
+  // Sort by value desc
+  const pairs = RACE_LABELS.map((name, i) => ({ name, val: data.values[i], color: COLORS[i] }));
+  pairs.sort((a, b) => b.val - a.val);
+  
+  const maxVal = Math.max(...pairs.map(p => p.val)) || 1;
+  
+  let html = '';
+  pairs.forEach((p, rank) => {
+    const pct = (p.val / maxVal * 100).toFixed(1);
+    html += `<div class="race-bar-row">
+      <div class="race-bar-name">${p.name}</div>
+      <div class="race-bar-outer">
+        <div class="race-bar-fill" style="width:${pct}%;background:${p.color};">
+          <span class="race-bar-val">${p.val}</span>
+        </div>
+      </div>
+    </div>`;
+  });
+  container.innerHTML = html;
+}
+
+function stepRace(dir) {
+  raceDay = Math.max(0, Math.min(RACE_DATA.length - 1, raceDay + dir));
+  renderRace(raceDay);
+}
+
+function togglePlay() {
+  const btn = document.getElementById('btnPlay');
+  if (racePlaying) {
+    clearInterval(raceInterval);
+    racePlaying = false;
+    btn.textContent = '▶ Auto-play';
+    btn.classList.remove('active');
+  } else {
+    racePlaying = true;
+    btn.textContent = '⏸ Pausar';
+    btn.classList.add('active');
+    raceInterval = setInterval(() => {
+      if (raceDay >= RACE_DATA.length - 1) {
+        raceDay = 0;
+      } else {
+        raceDay++;
+      }
+      renderRace(raceDay);
+    }, 500);
+  }
+}
+
+// Init race
+renderRace(0);
+// Auto-start after 1s
+setTimeout(() => { togglePlay(); }, 1000);
+</script>
+</body>
+</html>

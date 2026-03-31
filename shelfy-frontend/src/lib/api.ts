@@ -272,6 +272,11 @@ function getHeaders(): HeadersInit {
   };
 }
 
+export function getWSUrl(distId: number): string {
+  const baseUrl = API_URL.replace(/^http/, 'ws');
+  return `${baseUrl}/api/ws/exhibiciones/${distId}`;
+}
+
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
     ...options,

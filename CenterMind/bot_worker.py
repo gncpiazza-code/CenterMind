@@ -605,8 +605,9 @@ class BotWorker:
         9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
     }
 
-    def __init__(self, distribuidor_id: int, monitor=None):
+    def __init__(self, distribuidor_id: int, monitor=None, ws_manager=None):
         self.distribuidor_id = distribuidor_id
+        self.ws_manager      = ws_manager
         self.logger = get_logger(f"Bot-{distribuidor_id}")
 
         self.db      = Database()
@@ -1296,6 +1297,27 @@ class BotWorker:
                             self.logger.info(f"✅ Exhibición registrada: ID {ex_id} | Estado: {estado_final}")
                             exhibicion_ids.append({"id": ex_id, "estado": estado_final})
                             procesadas += 1
+                            
+                            # Real-time Broadcast via WebSocket
+                            if self.ws_manager:
+                                try:
+                                    # Mapear datos para el "FlyTo" instantáneo
+                                    msg_ws = {
+                                        "type": "NUEVA_EXHIBICION",
+                                        "data": {
+                                            "id": ex_id,
+                                            "cliente": nro_cliente,
+                                            "vendedor": uploader_name,
+                                            "tipo_pdv": tipo_pdv,
+                                            "lat": rpc_result.get("lat"),
+                                            "lon": rpc_result.get("lon"),
+                                            "estado": estado_final,
+                                            "url_foto": drive_link
+                                        }
+                                    }
+                                    asyncio.create_task(self.ws_manager.broadcast(self.distribuidor_id, msg_ws))
+                                except Exception as e:
+                                    self.logger.error(f"❌ Error en broadcast WS: {e}")
                             # Log silencioso: cliente no está en el padrón aún (id_cliente_pdv = NULL)
                             # Se vincula automáticamente en la próxima ingesta del padrón.
                             if not rpc_result.get("id_cliente_pdv"):

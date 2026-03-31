@@ -6,7 +6,32 @@
       "Bash(git push:*)",
       "Bash(gh pr:*)",
       "Bash(where:*)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(python:*)",
+      "Bash(find /Users/ignaciopiazza/Desktop/CenterMind/ShelfMind-RPA -name *.xlsx)",
+      "Bash(jobs)",
+      "Bash(grep -E \"RESUMEN|✅ OK|❌ Errores|subida_ok|error$\" /tmp/cuentas_run2.log)",
+      "Bash(python -c \":*)",
+      "Bash(grep -n id_dist /Users/ignaciopiazza/Desktop/CenterMind/ShelfMind-RPA/motores/*.py)",
+      "Bash(grep -o \"\"result\"\":\"\"[^\"\"]*\"\" /private/tmp/claude-501/-Users-ignaciopiazza-Desktop-CenterMind/d37d3ce9-ff5e-4df6-a0b7-82d85f55add4/tasks/a56750a7347d48f9a.output)",
+      "Bash(python3:*)",
+      "Bash(head -20 grep -n \"TENANT_DIST_MAP\\\\|tabaco.*[1-9]\\\\|aloma.*[1-9]\" /Users/ignaciopiazza/Desktop/CenterMind/CenterMind/api.py)",
+      "Bash(npx tsc:*)",
+      "Bash(grep -h \"\\\\.table\\(\"\"distribuidores\"\"\\)\" /Users/ignaciopiazza/Desktop/CenterMind/CenterMind/api.py /Users/ignaciopiazza/Desktop/CenterMind/CenterMind/services/*.py -A 2)",
+      "Bash(grep -h \"\\\\.table\\(\"\"exhibiciones\"\"\\)\" /Users/ignaciopiazza/Desktop/CenterMind/CenterMind/api.py /Users/ignaciopiazza/Desktop/CenterMind/CenterMind/services/*.py -A 2)",
+      "Bash(/tmp/mapa_db.md:*)",
+      "Read(//tmp/**)",
+      "Bash(grep:*)",
+      "Bash(open:*)",
+      "Bash(ls -lht /Users/ignaciopiazza/Desktop/CenterMind/ShelfMind-RPA/logs/errors/*.png)",
+      "Bash(ls /Users/ignaciopiazza/Desktop/CenterMind/ShelfMind-RPA/lib/*.py)",
+      "Bash(curl -s \"https://api.shelfycenter.com/api/dashboard/ranking/3\" -H \"X-Api-Key: shelfy-clave-2025\")",
+      "Bash(curl -s \"https://api.shelfycenter.com/api/dashboard/kpis/3\" -H \"X-Api-Key: shelfy-clave-2025\")",
+      "Bash(curl -s \"https://api.shelfycenter.com/api/reports/performance/3\" -H \"X-Api-Key: shelfy-clave-2025\")",
+      "Bash(curl -s \"https://api.shelfycenter.com/api/reports/performance/3?mes=3&anio=2026\" -H \"X-Api-Key: shelfy-clave-2025\")",
+      "Bash(curl:*)",
+      "Bash(ls /Users/ignaciopiazza/Desktop/CenterMind/*.html /Users/ignaciopiazza/Desktop/CenterMind/*.png)",
+      "Bash(ls:*)"
     ]
   }
 }

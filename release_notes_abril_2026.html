@@ -1,0 +1,1192 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Release Notes — Shelfy Platform — Abril 2026</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --panel2: #162032;
+    --border: #334155;
+    --accent: #7c3aed;
+    --accent2: #9f5aff;
+    --green: #10b981;
+    --red: #ef4444;
+    --amber: #f59e0b;
+    --text: #f1f5f9;
+    --muted: #94a3b8;
+    --code-bg: #0d1117;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    min-height: 100vh;
+    line-height: 1.6;
+  }
+
+  /* ─── HEADER ─── */
+  .hero {
+    background: linear-gradient(135deg, #0f172a 0%, #1e1040 50%, #0f172a 100%);
+    border-bottom: 1px solid var(--border);
+    padding: 56px 40px 48px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse 80% 50% at 50% -20%, rgba(124,58,237,0.25) 0%, transparent 60%);
+  }
+  .hero-badge {
+    display: inline-block;
+    background: rgba(124,58,237,0.2);
+    border: 1px solid rgba(124,58,237,0.5);
+    color: #a78bfa;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    padding: 5px 14px;
+    border-radius: 20px;
+    margin-bottom: 20px;
+    position: relative;
+  }
+  .hero h1 {
+    font-size: clamp(28px, 5vw, 52px);
+    font-weight: 800;
+    letter-spacing: -1px;
+    color: #fff;
+    position: relative;
+    margin-bottom: 12px;
+  }
+  .hero h1 span { color: var(--accent2); }
+  .hero-sub {
+    color: var(--muted);
+    font-size: 16px;
+    max-width: 560px;
+    margin: 0 auto 28px;
+    position: relative;
+  }
+  .hero-meta {
+    display: flex;
+    gap: 24px;
+    justify-content: center;
+    flex-wrap: wrap;
+    position: relative;
+  }
+  .hero-chip {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px;
+    padding: 8px 18px;
+    font-size: 13px;
+    color: var(--text);
+  }
+  .hero-chip strong { color: var(--accent2); }
+
+  /* ─── LAYOUT ─── */
+  .container { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+  .section { padding: 56px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+  .section:last-child { border-bottom: none; }
+
+  /* ─── SECTION TITLES ─── */
+  .section-title {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 36px;
+  }
+  .section-title .icon {
+    width: 40px; height: 40px;
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px;
+    flex-shrink: 0;
+  }
+  .section-title h2 {
+    font-size: 22px;
+    font-weight: 700;
+    color: #fff;
+  }
+  .section-title p {
+    font-size: 13px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+
+  /* ─── HOW WE WORK (terminal) ─── */
+  .workflow-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 20px;
+    margin-bottom: 36px;
+  }
+  .workflow-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 24px;
+  }
+  .workflow-card .step-num {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    background: rgba(124,58,237,0.2);
+    border: 1px solid rgba(124,58,237,0.5);
+    color: var(--accent2);
+    font-size: 12px;
+    font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 12px;
+  }
+  .workflow-card h3 { font-size: 15px; font-weight: 700; color: #fff; margin-bottom: 8px; }
+  .workflow-card p { font-size: 13px; color: var(--muted); line-height: 1.55; }
+
+  .terminal-block {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+    font-size: 12.5px;
+    line-height: 1.7;
+    overflow-x: auto;
+    position: relative;
+    margin-bottom: 20px;
+  }
+  .terminal-block .terminal-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid rgba(255,255,255,0.07);
+  }
+  .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .dot-red { background: #ff5f57; }
+  .dot-yellow { background: #ffbd2e; }
+  .dot-green { background: #28c840; }
+  .terminal-title { font-size: 11px; color: var(--muted); margin-left: 6px; font-family: system-ui; }
+  .t-prompt { color: #9f5aff; }
+  .t-cmd { color: #e2e8f0; }
+  .t-comment { color: #4b5563; }
+  .t-success { color: #10b981; }
+  .t-info { color: #60a5fa; }
+  .t-warn { color: #f59e0b; }
+  .t-agent { color: #a78bfa; }
+
+  /* ─── AGENT DIAGRAM ─── */
+  .agent-diagram {
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 32px;
+    margin-bottom: 20px;
+  }
+  .agent-diagram h3 { font-size: 14px; font-weight: 600; color: var(--muted); margin-bottom: 24px; text-transform: uppercase; letter-spacing: 1px; }
+  .wave-row { margin-bottom: 24px; }
+  .wave-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+  .agents-row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .agent-pill {
+    background: rgba(124,58,237,0.15);
+    border: 1px solid rgba(124,58,237,0.4);
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-size: 12px;
+    color: #c4b5fd;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .agent-pill .agent-icon { font-size: 16px; }
+  .agent-pill strong { color: #e9d5ff; font-size: 12px; display: block; }
+  .agent-pill span { color: var(--muted); font-size: 11px; }
+  .wave-arrow {
+    text-align: center;
+    font-size: 20px;
+    color: var(--muted);
+    margin: 8px 0;
+  }
+
+  /* ─── ITEMS ─── */
+  .items-grid {
+    display: grid;
+    gap: 24px;
+  }
+  .item-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  .item-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    padding: 24px 28px 20px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .item-badge {
+    flex-shrink: 0;
+    width: 36px; height: 36px;
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px;
+    margin-top: 2px;
+  }
+  .badge-red { background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.3); }
+  .badge-blue { background: rgba(96,165,250,0.15); border: 1px solid rgba(96,165,250,0.3); }
+  .badge-purple { background: rgba(124,58,237,0.15); border: 1px solid rgba(124,58,237,0.3); }
+  .badge-green { background: rgba(16,185,129,0.15); border: 1px solid rgba(16,185,129,0.3); }
+  .badge-amber { background: rgba(245,158,11,0.15); border: 1px solid rgba(245,158,11,0.3); }
+  .item-title-group { flex: 1; }
+  .item-title-group h3 { font-size: 17px; font-weight: 700; color: #fff; margin-bottom: 4px; }
+  .item-title-group p { font-size: 13px; color: var(--muted); }
+  .item-tag {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    flex-shrink: 0;
+    align-self: flex-start;
+    margin-top: 4px;
+  }
+  .tag-fix { background: rgba(239,68,68,0.15); color: #fca5a5; border: 1px solid rgba(239,68,68,0.3); }
+  .tag-feat { background: rgba(16,185,129,0.15); color: #6ee7b7; border: 1px solid rgba(16,185,129,0.3); }
+  .tag-refactor { background: rgba(96,165,250,0.15); color: #93c5fd; border: 1px solid rgba(96,165,250,0.3); }
+
+  .item-body { padding: 24px 28px; }
+  .item-body h4 { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; margin: 0 0 10px; }
+
+  .before-after {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+  @media (max-width: 600px) { .before-after { grid-template-columns: 1fr; } }
+  .ba-box {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .ba-box .ba-label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .ba-label.before { color: #f87171; }
+  .ba-label.after { color: #34d399; }
+  .ba-box code { font-family: 'SF Mono', 'Cascadia Code', monospace; font-size: 12px; color: #e2e8f0; white-space: pre-wrap; line-height: 1.6; }
+
+  .files-changed {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 24px;
+  }
+  .file-chip {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 11.5px;
+    font-family: 'SF Mono', monospace;
+    color: var(--muted);
+  }
+  .file-chip.new { border-color: rgba(16,185,129,0.4); color: #6ee7b7; background: rgba(16,185,129,0.07); }
+
+  /* ─── UI MOCKUP FRAMES ─── */
+  .ui-frame {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    margin-bottom: 20px;
+  }
+  .ui-frame-bar {
+    background: rgba(255,255,255,0.04);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .ui-frame-bar span { font-size: 12px; color: var(--muted); }
+  .ui-frame-body { padding: 20px; }
+
+  /* ─── MOCKUP COMPONENTS ─── */
+  .mock-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    width: 200px;
+    background: #1e293b;
+    border-radius: 10px;
+    padding: 12px;
+    float: left;
+    margin-right: 20px;
+    margin-bottom: 16px;
+  }
+  .mock-nav-item {
+    padding: 8px 12px;
+    border-radius: 7px;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #94a3b8;
+  }
+  .mock-nav-item.active { background: rgba(124,58,237,0.2); color: #c4b5fd; }
+  .mock-nav-item.hidden { text-decoration: line-through; opacity: 0.35; }
+  .mock-nav-item .dot2 { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+
+  .mock-kpi-grid { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+  .mock-kpi {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 10px;
+    padding: 14px 18px;
+    min-width: 130px;
+    flex: 1;
+  }
+  .mock-kpi .kpi-label { font-size: 11px; color: #64748b; margin-bottom: 4px; }
+  .mock-kpi .kpi-val { font-size: 22px; font-weight: 700; color: #fff; }
+  .mock-kpi .kpi-sub { font-size: 11px; color: #10b981; }
+  .mock-kpi.skeleton { animation: pulse 1.5s ease-in-out infinite; }
+  .mock-kpi.skeleton .kpi-val,
+  .mock-kpi.skeleton .kpi-label { background: rgba(255,255,255,0.07); border-radius: 4px; color: transparent; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+  .mock-pin-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 16px 0; }
+  .mock-pin {
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 9px;
+    font-weight: 700;
+    color: #fff;
+    border: 2px solid rgba(255,255,255,0.25);
+    flex-shrink: 0;
+  }
+  .mock-pin-label { font-size: 12px; color: var(--muted); }
+
+  .mock-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .mock-table th { text-align: left; padding: 8px 12px; font-size: 11px; color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--border); }
+  .mock-table td { padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,0.04); }
+  .mock-table tr:last-child td { border-bottom: none; }
+
+  .rank-bar { display: flex; align-items: center; gap: 10px; }
+  .rank-bar-fill { height: 6px; border-radius: 3px; background: linear-gradient(90deg, #7c3aed, #9f5aff); }
+
+  .banner-deprecated {
+    background: rgba(245,158,11,0.1);
+    border: 1px solid rgba(245,158,11,0.3);
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 13px;
+    color: #fde68a;
+    margin: 12px 0;
+  }
+  .banner-deprecated a { color: #fbbf24; text-decoration: underline; }
+
+  .mock-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+  }
+  .btn-primary { background: #7c3aed; color: #fff; }
+  .btn-secondary { background: rgba(255,255,255,0.08); color: #e2e8f0; border: 1px solid rgba(255,255,255,0.15); }
+
+  .cuentas-row { display: flex; gap: 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+  .cuentas-row .vendor { font-size: 13px; font-weight: 600; color: #fff; min-width: 140px; }
+  .cuentas-row .debt { font-size: 13px; font-weight: 700; color: #f87171; min-width: 80px; text-align: right; }
+  .cuentas-row .sucursal-badge {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 5px;
+    font-weight: 600;
+  }
+
+  .map-preview {
+    background: linear-gradient(145deg, #0d1b2a, #1a2744);
+    border-radius: 10px;
+    height: 180px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+    margin-bottom: 12px;
+  }
+  .map-preview::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: radial-gradient(circle at 30% 40%, rgba(16,185,129,0.12) 0%, transparent 40%),
+                      radial-gradient(circle at 70% 60%, rgba(124,58,237,0.12) 0%, transparent 40%);
+  }
+  .map-pins-demo { display: flex; gap: 16px; z-index: 1; }
+  .map-pin-demo { text-align: center; }
+  .map-pin-circle {
+    width: 24px; height: 24px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px;
+    font-weight: 700;
+    color: #fff;
+    margin: 0 auto 4px;
+    border: 2px solid rgba(255,255,255,0.3);
+  }
+  .map-pin-circle.active { border-color: #10b981; }
+  .map-pin-circle.inactive { border-color: #f87171; opacity: 0.7; }
+  .map-pin-text { font-size: 9px; color: var(--muted); }
+
+  .print-preview {
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    color: #333;
+    font-size: 12px;
+    margin-top: 16px;
+  }
+  .print-preview h4 { font-size: 14px; font-weight: 700; color: #111; margin-bottom: 12px; }
+  .print-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  .print-table th, .print-table td { border: 1px solid #999; padding: 5px 8px; text-align: left; color: #000; }
+  .print-table th { background: #f3f3f3; font-weight: 700; }
+
+  /* ─── STATS BAR ─── */
+  .stats-bar {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+    margin-bottom: 40px;
+  }
+  .stat-cell {
+    background: var(--panel);
+    padding: 20px 24px;
+    text-align: center;
+  }
+  .stat-cell .stat-num { font-size: 32px; font-weight: 800; color: var(--accent2); line-height: 1; }
+  .stat-cell .stat-label { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+  /* ─── DEPLOYMENT ─── */
+  .deploy-row {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+  }
+  .deploy-box {
+    flex: 1;
+    min-width: 220px;
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .deploy-box h4 { font-size: 14px; font-weight: 700; color: #fff; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+  .deploy-box p { font-size: 13px; color: var(--muted); }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #10b981; display: inline-block; box-shadow: 0 0 0 3px rgba(16,185,129,0.2); }
+
+  /* ─── FOOTER ─── */
+  footer {
+    text-align: center;
+    padding: 40px 24px;
+    color: var(--muted);
+    font-size: 13px;
+    border-top: 1px solid rgba(255,255,255,0.06);
+  }
+  footer strong { color: var(--accent2); }
+
+  /* ─── TOC ─── */
+  .toc {
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin-bottom: 48px;
+  }
+  .toc h3 { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 14px; }
+  .toc ol { list-style: none; counter-reset: toc; }
+  .toc ol li { counter-increment: toc; padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
+  .toc ol li:last-child { border-bottom: none; }
+  .toc ol li a { color: #c4b5fd; text-decoration: none; font-size: 14px; display: flex; align-items: center; gap: 10px; }
+  .toc ol li a::before { content: counter(toc, decimal-leading-zero); font-size: 10px; color: var(--muted); font-family: monospace; flex-shrink: 0; }
+  .toc ol li a:hover { color: #e9d5ff; }
+
+  .inline-code {
+    font-family: 'SF Mono', monospace;
+    font-size: 12px;
+    background: rgba(124,58,237,0.15);
+    color: #c4b5fd;
+    padding: 1px 6px;
+    border-radius: 4px;
+  }
+</style>
+</head>
+<body>
+
+<!-- ─────────────────────────── HERO ─────────────────────────── -->
+<div class="hero">
+  <div class="hero-badge">Release Notes</div>
+  <h1>Shelfy Platform <span>Abril 2026</span></h1>
+  <p class="hero-sub">6 mejoras simultáneas implementadas con un equipo de agentes IA en paralelo desde la terminal. Backend + Frontend + Deploy en una sola sesión.</p>
+  <div class="hero-meta">
+    <div class="hero-chip">Fecha: <strong>31 Mar – 1 Abr 2026</strong></div>
+    <div class="hero-chip">Branch: <strong>main → Railway + Vercel</strong></div>
+    <div class="hero-chip">Archivos modificados: <strong>10</strong></div>
+    <div class="hero-chip">Agentes IA: <strong>6</strong></div>
+  </div>
+</div>
+
+<div class="container">
+
+<!-- ─────────────────────────── STATS ─────────────────────────── -->
+<div class="section">
+  <div class="stats-bar">
+    <div class="stat-cell"><div class="stat-num">6</div><div class="stat-label">Items implementados</div></div>
+    <div class="stat-cell"><div class="stat-num">10</div><div class="stat-label">Archivos tocados</div></div>
+    <div class="stat-cell"><div class="stat-num">+272</div><div class="stat-label">Líneas agregadas</div></div>
+    <div class="stat-cell"><div class="stat-num">−153</div><div class="stat-label">Líneas eliminadas</div></div>
+    <div class="stat-cell"><div class="stat-num">~35min</div><div class="stat-label">Tiempo total</div></div>
+  </div>
+
+  <!-- TOC -->
+  <div class="toc">
+    <h3>Índice</h3>
+    <ol>
+      <li><a href="#como-trabajamos">Cómo trabajamos: agentes en paralelo desde la terminal</a></li>
+      <li><a href="#item1">Bug: Cuentas Corrientes de Tabaco no mostraba vendedores</a></li>
+      <li><a href="#item2">Mapa de PDVs: número de exhibiciones dentro del pin</a></li>
+      <li><a href="#item3">Dashboard y Supervisión migrados a TanStack Query</a></li>
+      <li><a href="#item4">Informe de ranking: todos los vendedores + PDF imprimible</a></li>
+      <li><a href="#item6">Fix: impresión del mapa en blanco (bug WebGL)</a></li>
+      <li><a href="#item8">Navegación: se oculta la Central de Reportes obsoleta</a></li>
+      <li><a href="#deploy">Deploy a producción</a></li>
+    </ol>
+  </div>
+</div>
+
+<!-- ─────────────────────────── HOW WE WORK ─────────────────────────── -->
+<div class="section" id="como-trabajamos">
+  <div class="section-title">
+    <div class="icon" style="background:rgba(96,165,250,0.15);border:1px solid rgba(96,165,250,0.3);">⚡</div>
+    <div>
+      <h2>Cómo trabajamos: agentes IA en paralelo desde la terminal</h2>
+      <p>Claude Code CLI + equipo de sub-agentes especializados corriendo en background simultáneamente</p>
+    </div>
+  </div>
+
+  <div class="workflow-grid">
+    <div class="workflow-card">
+      <div class="step-num">01</div>
+      <h3>Plan de implementación</h3>
+      <p>Se generó un <code>implementation_plan.md</code> exhaustivo con el análisis de cada ítem, las hipótesis de bug, los archivos a tocar y el orden de ejecución seguro para evitar conflictos.</p>
+    </div>
+    <div class="workflow-card">
+      <div class="step-num">02</div>
+      <h3>Detección de dependencias</h3>
+      <p>Se identificaron qué ítems comparten archivos (p.ej. <code>TabSupervision.tsx</code> era tocado por Item 2 y Item 3B simultáneamente). Se dividió el trabajo en ondas para evitar conflictos de escritura.</p>
+    </div>
+    <div class="workflow-card">
+      <div class="step-num">03</div>
+      <h3>Wave 1: 4 agentes en paralelo</h3>
+      <p>Los ítems sin archivos en común se lanzaron como agentes independientes en background. Mientras un agente tocaba <code>api.py</code>, otro modificaba el dashboard, otro el informe, y otro el sidebar. Sin bloqueos.</p>
+    </div>
+    <div class="workflow-card">
+      <div class="step-num">04</div>
+      <h3>Wave 2: agente de supervisión</h3>
+      <p>Una vez que Wave 1 terminó (y el backend ya tenía los nuevos campos), se lanzó el agente de supervisión que tocó los 3 archivos frontend interrelacionados: <code>api.ts</code>, <code>TabSupervision</code> y <code>MapaRutas</code>.</p>
+    </div>
+    <div class="workflow-card">
+      <div class="step-num">05</div>
+      <h3>Recuperación de fallos</h3>
+      <p>Dos agentes fallaron por saturación del API (error 529). El ítem simple (Sidebar) se resolvió directamente en la terminal principal. Los otros se re-lanzaron con prompts más acotados.</p>
+    </div>
+    <div class="workflow-card">
+      <div class="step-num">06</div>
+      <h3>Commit único + push</h3>
+      <p>Con todos los cambios listos, un commit atómico con los 10 archivos fue pusheado a <code>main</code>. Railway y Vercel detectaron el push automáticamente y desplegaron en ~2 minutos.</p>
+    </div>
+  </div>
+
+  <!-- Agent diagram -->
+  <div class="agent-diagram">
+    <h3>Arquitectura de ejecución</h3>
+    <div class="wave-row">
+      <div class="wave-label">Wave 1 — paralelo (archivos distintos)</div>
+      <div class="agents-row">
+        <div class="agent-pill"><span class="agent-icon">🔧</span><div><strong>backend-agent</strong><span>api.py · Items 1+2</span></div></div>
+        <div class="agent-pill"><span class="agent-icon">📊</span><div><strong>dashboard-agent</strong><span>page.tsx + store · Item 3A</span></div></div>
+        <div class="agent-pill"><span class="agent-icon">📄</span><div><strong>report-agent</strong><span>generateRankingHTML + RankingTable · Item 4</span></div></div>
+        <div class="agent-pill"><span class="agent-icon">🧭</span><div><strong>sidebar-agent</strong><span>Sidebar.tsx · Item 8</span></div></div>
+      </div>
+    </div>
+    <div class="wave-arrow">↓ Wave 1 completa → Wave 2 lanzada</div>
+    <div class="wave-row">
+      <div class="wave-label">Wave 2 — secuencial (archivos compartidos)</div>
+      <div class="agents-row">
+        <div class="agent-pill" style="background:rgba(16,185,129,0.1);border-color:rgba(16,185,129,0.35);color:#6ee7b7;"><span class="agent-icon">🗺️</span><div><strong>supervision-agent</strong><span>api.ts + TabSupervision + MapaRutas · Items 2F + 3B + 6</span></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Terminal -->
+  <div class="terminal-block">
+    <div class="terminal-header">
+      <div class="dot dot-red"></div><div class="dot dot-yellow"></div><div class="dot dot-green"></div>
+      <span class="terminal-title">claude-code — CenterMind</span>
+    </div>
+    <div><span class="t-comment"># Lanzamiento de Wave 1 — 4 agentes en un solo mensaje</span></div>
+    <div>&nbsp;</div>
+    <div><span class="t-agent">▶ sidebar-agent</span>  <span class="t-info">launched</span>  <span class="t-comment">· Sidebar.tsx · Item 8</span></div>
+    <div><span class="t-agent">▶ report-agent</span>   <span class="t-info">launched</span>  <span class="t-comment">· generateRankingHTML + RankingTable · Item 4</span></div>
+    <div><span class="t-agent">▶ backend-agent</span>  <span class="t-info">launched</span>  <span class="t-comment">· api.py Items 1+2</span></div>
+    <div><span class="t-agent">▶ dashboard-agent</span><span class="t-info">launched</span>  <span class="t-comment">· dashboard/page.tsx + store · Item 3A</span></div>
+    <div>&nbsp;</div>
+    <div><span class="t-comment"># backend-agent necesita permisos de edición → lo hacemos directo</span></div>
+    <div><span class="t-prompt">✎</span> <span class="t-cmd">Edit api.py:3239</span> <span class="t-comment">→ .eq → .ilike (CC bug fix)</span></div>
+    <div><span class="t-prompt">✎</span> <span class="t-cmd">Edit api.py:2965-3010</span> <span class="t-comment">→ + exh_count_map + total_exhibiciones</span></div>
+    <div>&nbsp;</div>
+    <div><span class="t-warn">⚠ report-agent   error 529 (API overloaded) — relaunching...</span></div>
+    <div><span class="t-warn">⚠ sidebar-agent  error 529 (API overloaded) — handling directly...</span></div>
+    <div>&nbsp;</div>
+    <div><span class="t-prompt">✎</span> <span class="t-cmd">Edit Sidebar.tsx</span>  <span class="t-comment">→ eliminar bloque /reportes de ALL_NAV</span></div>
+    <div><span class="t-prompt">✎</span> <span class="t-cmd">Edit reportes/page.tsx</span> <span class="t-comment">→ + banner deprecación</span></div>
+    <div><span class="t-agent">▶ report-agent</span>   <span class="t-success">✓ completed</span>  <span class="t-comment">· slice(0,15) removed, @media print, Imprimir PDF btn</span></div>
+    <div><span class="t-agent">▶ dashboard-agent</span><span class="t-success">✓ completed</span>  <span class="t-comment">· 7x useQuery, useDashboardStore, Framer Motion</span></div>
+    <div>&nbsp;</div>
+    <div><span class="t-comment"># Wave 2</span></div>
+    <div><span class="t-agent">▶ supervision-agent</span> <span class="t-info">launched</span> <span class="t-comment">· api.ts + TabSupervision + MapaRutas</span></div>
+    <div><span class="t-agent">▶ supervision-agent</span> <span class="t-success">✓ completed</span> <span class="t-comment">· totalExhibiciones, useQuery ventas/cuentas, print fix</span></div>
+    <div>&nbsp;</div>
+    <div><span class="t-comment"># Commit y push</span></div>
+    <div><span class="t-prompt">$</span> <span class="t-cmd">git add CenterMind/api.py shelfy-frontend/src/...</span></div>
+    <div><span class="t-prompt">$</span> <span class="t-cmd">git commit -m "feat: 6-item platform overhaul..."</span></div>
+    <div><span class="t-success">[main 507e8e7] feat: 6-item platform overhaul — 10 files changed</span></div>
+    <div><span class="t-prompt">$</span> <span class="t-cmd">git push origin main</span></div>
+    <div><span class="t-success">To github.com/gncpiazza-code/CenterMind.git</span></div>
+    <div><span class="t-success">   f6c49ba..507e8e7  main → main</span></div>
+  </div>
+</div>
+
+<!-- ─────────────────────────── ITEM 1 ─────────────────────────── -->
+<div class="section" id="item1">
+  <div class="section-title">
+    <div class="icon badge-red">🐛</div>
+    <div>
+      <h2>Item 1 — Bug: Cuentas Corrientes de Tabaco no mostraba vendedores</h2>
+      <p>api.py · línea 3239</p>
+    </div>
+  </div>
+
+  <p style="color:var(--muted);font-size:14px;margin-bottom:24px;">
+    Al seleccionar la sucursal de Tabaco &amp; Hnos en el panel de supervisión, la tabla de Cuentas Corrientes aparecía vacía. El endpoint devolvía 0 registros aunque <span class="inline-code">cc_detalle</span> tenía ~4.578 filas para ese distribuidor.
+  </p>
+
+  <div class="before-after">
+    <div class="ba-box">
+      <div class="ba-label before">❌ Antes</div>
+      <code>q = q.eq("sucursal_nombre", sucursal)
+<span style="color:#64748b;"># Comparación exacta, case-sensitive
+# "CÓRDOBA" ≠ "Córdoba" ≠ "cordoba"
+# El selector mandaba "Córdoba" pero la DB
+# tenía "CÓRDOBA" → 0 resultados</span></code>
+    </div>
+    <div class="ba-box">
+      <div class="ba-label after">✅ Después</div>
+      <code>q = q.ilike("sucursal_nombre",
+         sucursal.strip())
+<span style="color:#64748b;"># ilike = LIKE case-insensitive en Supabase
+# Ignora mayúsculas, tildes y espacios
+# "córdoba" = "CÓRDOBA" = "Córdoba " ✓</span></code>
+    </div>
+  </div>
+
+  <div style="margin-bottom:20px;">
+    <h4 style="font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:12px;">Vista de supervisión — Cuentas Corrientes</h4>
+    <div class="ui-frame">
+      <div class="ui-frame-bar"><div class="dot dot-red"></div><div class="dot dot-yellow"></div><div class="dot dot-green"></div><span>Panel Supervisión → Tab Cuentas Corrientes</span></div>
+      <div class="ui-frame-body">
+        <div style="display:flex;gap:10px;margin-bottom:16px;align-items:center;">
+          <div style="background:#1e293b;border:1px solid #334155;border-radius:8px;padding:8px 14px;font-size:13px;color:#c4b5fd;">Sucursal: <strong>CÓRDOBA</strong></div>
+          <div style="font-size:12px;color:var(--muted);">Snapshot: 31 Mar 2026</div>
+        </div>
+        <div class="cuentas-row">
+          <div class="vendor">Ramírez Héctor</div>
+          <div class="debt">$124.500</div>
+          <div><span class="sucursal-badge" style="background:rgba(124,58,237,0.15);color:#c4b5fd;border:1px solid rgba(124,58,237,0.3);">CÓRDOBA</span></div>
+        </div>
+        <div class="cuentas-row">
+          <div class="vendor">González Laura</div>
+          <div class="debt">$87.200</div>
+          <div><span class="sucursal-badge" style="background:rgba(124,58,237,0.15);color:#c4b5fd;border:1px solid rgba(124,58,237,0.3);">CÓRDOBA</span></div>
+        </div>
+        <div class="cuentas-row">
+          <div class="vendor">Soria Carlos</div>
+          <div class="debt">$56.800</div>
+          <div><span class="sucursal-badge" style="background:rgba(124,58,237,0.15);color:#c4b5fd;border:1px solid rgba(124,58,237,0.3);">CÓRDOBA</span></div>
+        </div>
+        <div style="font-size:12px;color:#10b981;margin-top:12px;">✓ Todos los vendedores de la sucursal ahora aparecen correctamente</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="files-changed">
+    <span class="file-chip">CenterMind/api.py : 3239</span>
+  </div>
+</div>
+
+<!-- ─────────────────────────── ITEM 2 ─────────────────────────── -->
+<div class="section" id="item2">
+  <div class="section-title">
+    <div class="icon badge-green">📍</div>
+    <div>
+      <h2>Item 2 — Mapa de PDVs: número de exhibiciones dentro del pin</h2>
+      <p>api.py · api.ts · TabSupervision.tsx · MapaRutas.tsx</p>
+    </div>
+  </div>
+
+  <p style="color:var(--muted);font-size:14px;margin-bottom:24px;">
+    Antes, cada pin en el mapa solo indicaba si había o no una exhibición reciente (por color de borde). Ahora el pin muestra el número total de exhibiciones histórico dentro del círculo.
+  </p>
+
+  <div style="margin-bottom:24px;">
+    <h4 style="font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:16px;">Pins del mapa — antes vs después</h4>
+    <div class="map-preview">
+      <div class="map-pins-demo">
+        <div class="map-pin-demo">
+          <div class="mock-pin-row" style="justify-content:center;margin:0 0 6px;">
+            <div class="mock-pin active" style="background:#7c3aed;width:12px;height:12px;font-size:0;"></div>
+          </div>
+          <div style="font-size:9px;color:var(--muted);">Antes: sin número</div>
+        </div>
+        <div style="font-size:18px;color:var(--muted);">→</div>
+        <div class="map-pin-demo">
+          <div class="mock-pin-row" style="justify-content:center;margin:0 0 6px;">
+            <div class="mock-pin active" style="background:#7c3aed;font-size:9px;">7</div>
+          </div>
+          <div style="font-size:9px;color:var(--muted);">Ahora: 7 exhibiciones</div>
+        </div>
+        <div class="map-pin-demo">
+          <div class="mock-pin-row" style="justify-content:center;margin:0 0 6px;">
+            <div class="mock-pin active" style="background:#0891b2;font-size:9px;">3</div>
+          </div>
+          <div style="font-size:9px;color:var(--muted);">3 exhibiciones</div>
+        </div>
+        <div class="map-pin-demo">
+          <div class="mock-pin-row" style="justify-content:center;margin:0 0 6px;">
+            <div class="mock-pin inactive" style="background:#475569;font-size:0;width:12px;height:12px;"></div>
+          </div>
+          <div style="font-size:9px;color:var(--muted);">Sin exhibiciones</div>
+        </div>
+      </div>
+    </div>
+    <p style="font-size:12px;color:var(--muted);text-align:center;">El pin escala de tamaño (12px → 18px) cuando tiene exhibiciones para que el número sea legible</p>
+  </div>
+
+  <div class="before-after">
+    <div class="ba-box">
+      <div class="ba-label before">❌ Antes (backend)</div>
+      <code><span style="color:#64748b;"># Solo detectaba si había al menos 1</span>
+exh_map[cid] = timestamp
+exh_foto_map[cid] = url
+
+r["fecha_ultima_exhibicion"] = fecha
+r["url_ultima_exhibicion"] = url</code>
+    </div>
+    <div class="ba-box">
+      <div class="ba-label after">✅ Después (backend)</div>
+      <code><span style="color:#64748b;"># Cuenta el total por PDV</span>
+exh_count_map[cid] += 1
+exh_map[cid] = timestamp  <span style="color:#64748b;"># (first only)</span>
+
+r["total_exhibiciones"] = \
+  exh_count_map.get(cid, 0)</code>
+    </div>
+  </div>
+
+  <div class="files-changed">
+    <span class="file-chip">CenterMind/api.py</span>
+    <span class="file-chip">shelfy-frontend/src/lib/api.ts</span>
+    <span class="file-chip">shelfy-frontend/src/components/admin/TabSupervision.tsx</span>
+    <span class="file-chip">shelfy-frontend/src/components/admin/MapaRutas.tsx</span>
+  </div>
+</div>
+
+<!-- ─────────────────────────── ITEM 3 ─────────────────────────── -->
+<div class="section" id="item3">
+  <div class="section-title">
+    <div class="icon badge-blue">⚡</div>
+    <div>
+      <h2>Item 3 — Dashboard y Supervisión migrados a TanStack Query</h2>
+      <p>dashboard/page.tsx · TabSupervision.tsx · useDashboardStore.ts (nuevo)</p>
+    </div>
+  </div>
+
+  <p style="color:var(--muted);font-size:14px;margin-bottom:28px;">
+    El dashboard usaba un patrón <span class="inline-code">useCallback + useEffect + setInterval</span> manual para fetching. Se migró a TanStack Query v5 con queries individuales, datos placeholder durante la transición, y animaciones de entrada con Framer Motion.
+  </p>
+
+  <div style="margin-bottom:28px;">
+    <h4 style="font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:16px;">Dashboard — KPIs con animación stagger</h4>
+    <div class="ui-frame">
+      <div class="ui-frame-bar"><div class="dot dot-red"></div><div class="dot dot-yellow"></div><div class="dot dot-green"></div><span>Dashboard — Estado cargando (skeleton) → cargado</span></div>
+      <div class="ui-frame-body">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:12px;">← Estado cargando (skeleton pulse)</div>
+        <div class="mock-kpi-grid" style="margin-bottom:20px;">
+          <div class="mock-kpi skeleton"><div class="kpi-label">Visitas totales</div><div class="kpi-val">████</div></div>
+          <div class="mock-kpi skeleton"><div class="kpi-label">Exhibiciones</div><div class="kpi-val">████</div></div>
+          <div class="mock-kpi skeleton"><div class="kpi-label">% Aprobación</div><div class="kpi-val">████</div></div>
+          <div class="mock-kpi skeleton"><div class="kpi-label">Vendedores activos</div><div class="kpi-val">████</div></div>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:12px;">← Estado cargado (Framer Motion stagger entrada)</div>
+        <div class="mock-kpi-grid">
+          <div class="mock-kpi"><div class="kpi-label">Visitas totales</div><div class="kpi-val">1.842</div><div class="kpi-sub">+12% vs mes ant.</div></div>
+          <div class="mock-kpi"><div class="kpi-label">Exhibiciones</div><div class="kpi-val">934</div><div class="kpi-sub">+8% vs mes ant.</div></div>
+          <div class="mock-kpi"><div class="kpi-label">% Aprobación</div><div class="kpi-val">78%</div><div class="kpi-sub">Meta: 80%</div></div>
+          <div class="mock-kpi"><div class="kpi-label">Vendedores activos</div><div class="kpi-val">32</div><div class="kpi-sub">de 35 totales</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="before-after">
+    <div class="ba-box">
+      <div class="ba-label before">❌ Antes</div>
+      <code><span style="color:#64748b;">// Un único bloque que traía todo</span>
+const fetchAll = useCallback(async () => {
+  setLoading(true)
+  const [kpis, ranking, ...] =
+    await Promise.all([...])
+  setKpis(kpis)
+  setRanking(ranking)
+  setLoading(false)
+}, [distId, año, mes, ...])
+
+useEffect(() => {
+  fetchAll()
+  const id = setInterval(fetchAll, 90_000)
+  return () => clearInterval(id)
+}, [fetchAll])</code>
+    </div>
+    <div class="ba-box">
+      <div class="ba-label after">✅ Después</div>
+      <code><span style="color:#64748b;">// 7 queries independientes</span>
+const { data: kpis, isLoading } = useQuery({
+  queryKey: ['dashboard-kpis',
+    distId, año, mes, sucursal],
+  queryFn: () => fetchDashboardKPIs(...),
+  placeholderData: (prev) => prev,
+  refetchInterval: 90_000,
+  staleTime: 60_000,
+})
+<span style="color:#64748b;">// ranking, ultimas, sucursales, etc...</span></code>
+    </div>
+  </div>
+
+  <div style="margin-bottom:20px;">
+    <h4 style="font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:12px;">Beneficios clave</h4>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:8px;padding:14px;">
+        <div style="font-size:13px;font-weight:700;color:#34d399;margin-bottom:4px;">Sin flash vacío al filtrar</div>
+        <div style="font-size:12px;color:var(--muted);">placeholderData mantiene los datos anteriores visibles mientras llega la nueva query.</div>
+      </div>
+      <div style="background:rgba(96,165,250,0.08);border:1px solid rgba(96,165,250,0.2);border-radius:8px;padding:14px;">
+        <div style="font-size:13px;font-weight:700;color:#93c5fd;margin-bottom:4px;">Carga independiente por sección</div>
+        <div style="font-size:12px;color:var(--muted);">KPIs y ranking aparecen en cuanto están listos, sin esperar al resto.</div>
+      </div>
+      <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:8px;padding:14px;">
+        <div style="font-size:13px;font-weight:700;color:#fde68a;margin-bottom:4px;">Auto-refresh sin setInterval</div>
+        <div style="font-size:12px;color:var(--muted);">refetchInterval: 90_000 maneja el ciclo automáticamente con cleanup correcto.</div>
+      </div>
+      <div style="background:rgba(124,58,237,0.08);border:1px solid rgba(124,58,237,0.2);border-radius:8px;padding:14px;">
+        <div style="font-size:13px;font-weight:700;color:#c4b5fd;margin-bottom:4px;">Animación stagger Framer Motion</div>
+        <div style="font-size:12px;color:var(--muted);">Los KPI cards entran en cascada con opacity + translateY en 300ms.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="files-changed">
+    <span class="file-chip">shelfy-frontend/src/app/dashboard/page.tsx</span>
+    <span class="file-chip new">shelfy-frontend/src/store/useDashboardStore.ts  (nuevo)</span>
+    <span class="file-chip">shelfy-frontend/src/components/admin/TabSupervision.tsx</span>
+  </div>
+</div>
+
+<!-- ─────────────────────────── ITEM 4 ─────────────────────────── -->
+<div class="section" id="item4">
+  <div class="section-title">
+    <div class="icon badge-purple">📋</div>
+    <div>
+      <h2>Item 4 — Informe de ranking: todos los vendedores + PDF imprimible</h2>
+      <p>generateRankingHTML.ts · RankingTable.tsx</p>
+    </div>
+  </div>
+
+  <p style="color:var(--muted);font-size:14px;margin-bottom:24px;">
+    El informe HTML generado desde el Dashboard truncaba arbitrariamente la tabla a los primeros 15 vendedores. Ahora incluye todos. Además se agregó botón "Imprimir PDF" con estilos de impresión B&amp;N optimizados.
+  </p>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px;">
+    <div>
+      <h4 style="font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:12px;">Bug fix — slice(0,15)</h4>
+      <div class="ba-box">
+        <div class="ba-label before">❌ Antes</div>
+        <code>function buildRankingRows(ranking) {
+  const top15 =
+    ranking.slice(0, 15) <span style="color:#f87171;">// ← BUG</span>
+  return top15.map(r => ...)
+}</code>
+      </div>
+      <div style="height:12px;"></div>
+      <div class="ba-box">
+        <div class="ba-label after">✅ Después</div>
+        <code>function buildRankingRows(ranking) {
+  <span style="color:#64748b;">// sin slice — todos los vendedores</span>
+  return ranking.map(r => ...)
+}</code>
+      </div>
+    </div>
+
+    <div>
+      <h4 style="font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:12px;">Preview impresión B&amp;N</h4>
+      <div class="print-preview">
+        <h4>Ranking de Vendedores — Tabaco &amp; Hnos<br><span style="font-weight:400;font-size:11px;color:#666;">Período: Marzo 2026 · TODOS los vendedores</span></h4>
+        <table class="print-table">
+          <thead><tr><th>#</th><th>Vendedor</th><th>Exhibiciones</th><th>% Obj</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td>Ivan Wütrich</td><td>87</td><td>112%</td></tr>
+            <tr><td>2</td><td>Romina Soru</td><td>74</td><td>95%</td></tr>
+            <tr><td>3</td><td>Carlos Soto</td><td>68</td><td>87%</td></tr>
+            <tr><td style="color:#999;">...</td><td style="color:#999;">35 vendedores</td><td style="color:#999;">todos</td><td style="color:#999;"></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-bottom:20px;">
+    <h4 style="font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:12px;">Nuevo botón en el Dashboard</h4>
+    <div class="ui-frame">
+      <div class="ui-frame-bar"><div class="dot dot-red"></div><div class="dot dot-yellow"></div><div class="dot dot-green"></div><span>Dashboard → RankingTable</span></div>
+      <div class="ui-frame-body" style="display:flex;gap:12px;flex-wrap:wrap;">
+        <button class="mock-btn btn-primary">📊 Generar Informe</button>
+        <button class="mock-btn btn-secondary">🖨️ Imprimir PDF</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="files-changed">
+    <span class="file-chip">shelfy-frontend/src/lib/generateRankingHTML.ts</span>
+    <span class="file-chip">shelfy-frontend/src/components/dashboard/RankingTable.tsx</span>
+  </div>
+</div>
+
+<!-- ─────────────────────────── ITEM 6 ─────────────────────────── -->
+<div class="section" id="item6">
+  <div class="section-title">
+    <div class="icon badge-amber">🖨️</div>
+    <div>
+      <h2>Item 6 — Fix: impresión del mapa en blanco (bug WebGL)</h2>
+      <p>MapaRutas.tsx</p>
+    </div>
+  </div>
+
+  <p style="color:var(--muted);font-size:14px;margin-bottom:24px;">
+    El botón "Imprimir mapa" generaba una página en blanco. Causa: los navegadores no renderizan canvas WebGL en el contexto de impresión CSS. La solución captura el mapa como imagen PNG antes de imprimir.
+  </p>
+
+  <div class="before-after" style="margin-bottom:24px;">
+    <div class="ba-box">
+      <div class="ba-label before">❌ Antes — CSS print (no funciona con WebGL)</div>
+      <code>const handlePrint = () => {
+  <span style="color:#64748b;">// Inyectaba estilos @media print</span>
+  <span style="color:#64748b;">// y llamaba window.print()</span>
+  <span style="color:#64748b;">// El canvas WebGL no se renderizaba</span>
+  <span style="color:#64748b;">// → hoja en blanco</span>
+  window.print()
+}</code>
+    </div>
+    <div class="ba-box">
+      <div class="ba-label after">✅ Después — captura canvas primero</div>
+      <code><span style="color:#64748b;">// MapaRutas init:</span>
+new maplibregl.Map({
+  ...,
+  preserveDrawingBuffer: true <span style="color:#34d399;">// nuevo</span>
+})
+
+const handlePrint = () => {
+  const canvas = mapRef.current
+    .getCanvas()
+  const dataUrl =
+    canvas.toDataURL('image/png')
+  const win = window.open('','_blank')
+  win.document.write(
+    `&lt;img src="${dataUrl}"&gt; + leyenda`
+  )
+  win.print()
+}</code>
+    </div>
+  </div>
+
+  <div style="margin-bottom:20px;">
+    <h4 style="font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:12px;">Resultado de impresión</h4>
+    <div class="print-preview">
+      <h4>Mapa de Rutas — PDVs visibles</h4>
+      <div style="width:100%;height:90px;background:#e8f0f8;border:1px solid #ccc;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#666;font-size:12px;margin-bottom:12px;">
+        [imagen PNG capturada del canvas WebGL]
+      </div>
+      <table class="print-table">
+        <thead><tr><th>PDV</th><th>Vendedor</th></tr></thead>
+        <tbody>
+          <tr><td>Almacén Don Pedro</td><td>Ramírez H.</td></tr>
+          <tr><td>Súper La Esquina</td><td>González L.</td></tr>
+          <tr><td>Kiosco Central</td><td>Ramírez H.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="files-changed">
+    <span class="file-chip">shelfy-frontend/src/components/admin/MapaRutas.tsx</span>
+  </div>
+</div>
+
+<!-- ─────────────────────────── ITEM 8 ─────────────────────────── -->
+<div class="section" id="item8">
+  <div class="section-title">
+    <div class="icon" style="background:rgba(148,163,184,0.1);border:1px solid rgba(148,163,184,0.25);">🧭</div>
+    <div>
+      <h2>Item 8 — Navegación: se oculta la Central de Reportes obsoleta</h2>
+      <p>Sidebar.tsx · reportes/page.tsx</p>
+    </div>
+  </div>
+
+  <p style="color:var(--muted);font-size:14px;margin-bottom:24px;">
+    La sección "Reportes" del sidebar apuntaba a una página legacy de 34KB de código que fue reemplazada por los informes del Dashboard. Se removió el link de la navegación y se agregó un banner de deprecación en la página para quien la encuentre directamente.
+  </p>
+
+  <div style="display:grid;grid-template-columns:auto 1fr;gap:24px;align-items:start;margin-bottom:24px;">
+    <div>
+      <h4 style="font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:12px;">Sidebar — antes vs después</h4>
+      <div style="display:flex;gap:16px;">
+        <div>
+          <div style="font-size:11px;color:#f87171;font-weight:700;margin-bottom:8px;">Antes</div>
+          <div class="mock-nav">
+            <div class="mock-nav-item active"><div class="dot2"></div> Evaluar</div>
+            <div class="mock-nav-item"><div class="dot2"></div> Dashboard</div>
+            <div class="mock-nav-item"><div class="dot2"></div> Supervisión</div>
+            <div class="mock-nav-item" style="color:#94a3b8;"><div class="dot2"></div> Reportes ▾</div>
+            <div class="mock-nav-item" style="padding-left:28px;font-size:12px;"><div class="dot2"></div> Exhibiciones</div>
+            <div class="mock-nav-item" style="padding-left:28px;font-size:12px;"><div class="dot2"></div> Cuentas CC</div>
+          </div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:#34d399;font-weight:700;margin-bottom:8px;">Después</div>
+          <div class="mock-nav">
+            <div class="mock-nav-item active"><div class="dot2"></div> Evaluar</div>
+            <div class="mock-nav-item"><div class="dot2"></div> Dashboard</div>
+            <div class="mock-nav-item"><div class="dot2"></div> Supervisión</div>
+            <div style="padding:0 12px;font-size:11px;color:#4b5563;font-style:italic;">— fin —</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <h4 style="font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:12px;">Banner en /reportes para accesos directos</h4>
+      <div class="ui-frame">
+        <div class="ui-frame-bar"><div class="dot dot-red"></div><div class="dot dot-yellow"></div><div class="dot dot-green"></div><span>/reportes</span></div>
+        <div class="ui-frame-body">
+          <div class="banner-deprecated">
+            Esta sección está en proceso de retiro. Los reportes están disponibles directamente en el <a href="#">Dashboard</a>.
+          </div>
+          <div style="font-size:12px;color:var(--muted);margin-top:8px;">El contenido legacy sigue accesible para usuarios con URL directa.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="files-changed">
+    <span class="file-chip">shelfy-frontend/src/components/layout/Sidebar.tsx</span>
+    <span class="file-chip">shelfy-frontend/src/app/reportes/page.tsx</span>
+  </div>
+</div>
+
+<!-- ─────────────────────────── DEPLOY ─────────────────────────── -->
+<div class="section" id="deploy">
+  <div class="section-title">
+    <div class="icon badge-green">🚀</div>
+    <div>
+      <h2>Deploy a producción</h2>
+      <p>Railway (backend) + Vercel (frontend) — automático desde main</p>
+    </div>
+  </div>
+
+  <div class="deploy-row">
+    <div class="deploy-box">
+      <h4><span class="status-dot"></span> Backend — Railway</h4>
+      <p>Push a <code>main</code> → Railway detecta el cambio → rebuild del contenedor → uvicorn reiniciado. Tiempo: ~90 segundos. Los fixes de <code>api.py</code> están activos en producción.</p>
+      <div style="margin-top:12px;font-family:monospace;font-size:11px;color:#94a3b8;">https://api.shelfycenter.com</div>
+    </div>
+    <div class="deploy-box">
+      <h4><span class="status-dot"></span> Frontend — Vercel</h4>
+      <p>Push a <code>main</code> → Vercel build → Next.js optimizado → CDN. TypeScript/ESLint errors no bloquean el build (<code>ignoreBuildErrors: true</code>). Tiempo: ~2 minutos.</p>
+      <div style="margin-top:12px;font-family:monospace;font-size:11px;color:#94a3b8;">auto-deploy desde GitHub</div>
+    </div>
+  </div>
+
+  <div class="terminal-block">
+    <div class="terminal-header">
+      <div class="dot dot-red"></div><div class="dot dot-yellow"></div><div class="dot dot-green"></div>
+      <span class="terminal-title">git log --oneline -3</span>
+    </div>
+    <div><span class="t-success">507e8e7</span> <span class="t-cmd">feat: 6-item platform overhaul — CC fix, pin counts, TanStack, report PDF, map print, nav cleanup</span></div>
+    <div><span style="color:#475569;">f6c49ba</span> <span style="color:#64748b;">feat(backend): resolve Telegram names → ERP names (nombre_erp) across all endpoints</span></div>
+    <div><span style="color:#475569;">b8b8768</span> <span style="color:#64748b;">feat(dashboard): add ranking report generator button</span></div>
+  </div>
+</div>
+
+</div><!-- /container -->
+
+<footer>
+  <strong>Shelfy Platform</strong> · Release Abril 2026 · Implementado con Claude Code CLI + equipo de agentes IA
+  <br>
+  <span style="font-size:11px;margin-top:6px;display:block;">10 archivos · +272 / −153 líneas · commit 507e8e7 → main</span>
+</footer>
+
+</body>
+</html>

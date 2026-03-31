@@ -58,6 +58,46 @@ API_KEY = os.environ.get("SHELFY_API_KEY", "shelfy-clave-2025")
 JWT_SECRET    = os.environ.get("SHELFY_JWT_SECRET", "shelfy-jwt-secret-dev-2025")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_HOURS = 8
+ 
+# ─── WebSocket Connection Manager ───────────────────────────────────────────
+from fastapi import WebSocket, WebSocketDisconnect
+
+class ConnectionManager:
+    def __init__(self):
+        # dict: dist_id -> list of WebSockets
+        self.active_connections: dict[int, list[WebSocket]] = {}
+
+    async def connect(self, websocket: WebSocket, dist_id: int):
+        await websocket.accept()
+        if dist_id not in self.active_connections:
+            self.active_connections[dist_id] = []
+        self.active_connections[dist_id].append(websocket)
+        logger.info(f"🔌 WS: Monitor conectado al distribuidor {dist_id}. Total: {len(self.active_connections[dist_id])}")
+
+    def disconnect(self, websocket: WebSocket, dist_id: int):
+        if dist_id in self.active_connections:
+            if websocket in self.active_connections[dist_id]:
+                self.active_connections[dist_id].remove(websocket)
+                logger.info(f"🔌 WS: Monitor desconectado del distribuidor {dist_id}")
+
+    async def broadcast(self, dist_id: int, message: dict):
+        """Envía un mensaje JSON a todos los clientes de un distribuidor específico."""
+        if dist_id not in self.active_connections:
+            return
+        
+        disconnected = []
+        for connection in self.active_connections[dist_id]:
+            try:
+                await connection.send_json(message)
+            except Exception:
+                disconnected.append(connection)
+        
+        # Limpiar conexiones muertas
+        for conn in disconnected:
+            self.disconnect(conn, dist_id)
+
+manager = ConnectionManager()
+
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, HTTPException, Query, UploadFile, File, Form, Header, Request
@@ -112,7 +152,7 @@ async def lifespan(app: FastAPI):
     for dist in distribuidores:
         d_id = dist["id_distribuidor"]
         try:
-            worker = BotWorker(distribuidor_id=d_id)
+            worker = BotWorker(distribuidor_id=d_id, ws_manager=manager)
             ptb_app = worker.build_app()
             await ptb_app.initialize()
             
@@ -194,6 +234,21 @@ async def telegram_webhook(id_distribuidor: int, request: Request):
     except Exception as e:
         logger.error(f"❌ Error procesando webhook para bot {id_distribuidor}: {e}")
         return {"ok": False, "error": str(e)}
+
+
+@app.websocket("/api/ws/exhibiciones/{dist_id}")
+async def websocket_endpoint(websocket: WebSocket, dist_id: int):
+    await manager.connect(websocket, dist_id)
+    try:
+        while True:
+            # Mantener conexión viva y esperar mensajes si fuera necesario (ping/pong)
+            data = await websocket.receive_text()
+            # Podríamos implementar comandos desde el monitor aquí si fuera necesario
+    except WebSocketDisconnect:
+        manager.disconnect(websocket, dist_id)
+    except Exception as e:
+        logger.error(f"❌ Error en WebSocket {dist_id}: {e}")
+        manager.disconnect(websocket, dist_id)
 
 
 # ─── Seguridad: API Key via header ───────────────────────────────────────────

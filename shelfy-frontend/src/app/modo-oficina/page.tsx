@@ -7,6 +7,7 @@ import {
   fetchKPIs,
   fetchLiveMapEvents,
   fetchEvolucionTiempo,
+  getWSUrl,
 } from "@/lib/api";
 import type { VendedorRanking, KPIs, LiveMapEvent, EvolucionTiempo } from "@/lib/api";
 import type { MapRef } from "@/components/ui/map";
@@ -166,6 +167,70 @@ export default function ModoOficinaPage() {
     const interval = setInterval(() => loadData(false), POLL_INTERVAL);
     return () => clearInterval(interval);
   }, [loadData]);
+
+  // ── WebSocket: Real-time trigger ───────────────────────────────────────────
+  useEffect(() => {
+    if (!distId || !loaded) return;
+
+    let socket: WebSocket | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout>;
+
+    const connect = () => {
+      const url = getWSUrl(distId);
+      socket = new WebSocket(url);
+
+      socket.onopen = () => {
+        console.log("🔌 Modo Oficina: WebSocket conectado");
+      };
+
+      socket.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === "NUEVA_EXHIBICION") {
+            const data = msg.data;
+            if (data.lat && data.lon) {
+              const liveEvent: LiveMapEvent = {
+                id_ex: data.id,
+                vendedor: data.vendedor,
+                cliente: data.cliente,
+                tipo_pdv: data.tipo_pdv,
+                lat: data.lat,
+                lon: data.lon,
+                estado: data.estado,
+                url_foto: data.url_foto,
+                timestamp_subida: new Date().toISOString()
+              };
+              
+              // Evitar duplicados si el polling también lo trae
+              if (!seenIdsRef.current.has(liveEvent.id_ex)) {
+                seenIdsRef.current.add(liveEvent.id_ex);
+                setEvents(prev => [...prev, liveEvent]);
+                triggerEvent(liveEvent);
+              }
+            }
+          }
+        } catch (e) {
+          console.error("❌ Error procesando mensaje WS:", e);
+        }
+      };
+
+      socket.onclose = () => {
+        console.log("🔌 Modo Oficina: WebSocket desconectado. Reintentando en 5s...");
+        reconnectTimer = setTimeout(connect, 5000);
+      };
+
+      socket.onerror = (err) => {
+        console.error("❌ WebSocket error:", err);
+      };
+    };
+
+    connect();
+
+    return () => {
+      if (socket) socket.close();
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+    };
+  }, [distId, loaded]);
 
   // ── KPI carousel ─────────────────────────────────────────────────────────────
   const totalDestacadas = ranking.reduce((s, v) => s + (v.destacadas || 0), 0);

@@ -193,9 +193,26 @@ export default function VisorPage() {
       setLoadingERP(true);
       try {
         const ctx = await fetchERPContexto(user.id_distribuidor!, grupo.nro_cliente);
-        setErpContext(ctx);
+        if (ctx) {
+          setErpContext({
+            ...ctx,
+            nombre_fantasia: ctx.nombre_fantasia || ctx.razon_social || null,
+            ultima_compra: ctx.ultima_compra ?? null,
+            promedio_factura: ctx.promedio_factura ?? null,
+            deuda_total: ctx.deuda_total ?? 0,
+            cant_facturas: ctx.cant_facturas ?? null,
+            domicilio: ctx.domicilio ?? null,
+            localidad: ctx.localidad ?? null,
+            nro_ruta: ctx.nro_ruta ?? null,
+            dia_visita: ctx.dia_visita ?? null,
+          });
+        } else {
+          console.warn("fetchERPContexto: respuesta vacía para cliente", grupo.nro_cliente);
+          setErpContext(null);
+        }
       } catch (e) {
-        console.error("Error cargando contexto ERP:", e);
+        console.error("Error cargando contexto ERP para cliente", grupo.nro_cliente, ":", e);
+        setErpContext(null);
       } finally {
         setLoadingERP(false);
       }
@@ -335,7 +352,7 @@ export default function VisorPage() {
                           {erpContext.nombre_fantasia || erpContext.razon_social || "Cliente"}
                         </h3>
                         <p className="text-[9px] font-bold text-white/60 uppercase tracking-wider">
-                          #{grupo.nro_cliente}
+                          Cód. Cliente: {grupo.nro_cliente ?? "—"}
                         </p>
                       </div>
                       <div className="flex gap-1 ml-2">
@@ -351,23 +368,39 @@ export default function VisorPage() {
                     </div>
                     <div className="grid grid-cols-2 gap-1.5">
                       <div className="bg-white/5 rounded-lg p-2 border border-white/5">
-                        <p className="text-[7px] font-black text-white/40 uppercase tracking-widest mb-0.5">Prom</p>
-                        <p className="text-[11px] font-black text-emerald-400">${erpContext.promedio_factura?.toLocaleString()}</p>
+                        <p className="text-[7px] font-black text-white/40 uppercase tracking-widest mb-0.5">Prom. Factura</p>
+                        <p className="text-[11px] font-black text-emerald-400">
+                          {erpContext.promedio_factura != null ? `$${erpContext.promedio_factura.toLocaleString()}` : "Sin datos"}
+                        </p>
                       </div>
                       <div className="bg-white/5 rounded-lg p-2 border border-white/5">
-                        <p className="text-[7px] font-black text-white/40 uppercase tracking-widest mb-0.5">Deuda</p>
-                        <p className={`text-[11px] font-black ${erpContext.deuda_total > 0 ? 'text-red-400' : 'text-white/60'}`}>
-                          ${erpContext.deuda_total?.toLocaleString()}
+                        <p className="text-[7px] font-black text-white/40 uppercase tracking-widest mb-0.5">Deuda Total</p>
+                        <p className={`text-[11px] font-black ${(erpContext.deuda_total ?? 0) > 0 ? 'text-red-400' : 'text-white/60'}`}>
+                          {erpContext.deuda_total != null ? `$${erpContext.deuda_total.toLocaleString()}` : "–"}
                         </p>
                       </div>
                       <div className="bg-white/5 rounded-lg p-2 border border-white/5">
                         <p className="text-[7px] font-black text-white/40 uppercase tracking-widest mb-0.5">Facturas</p>
-                        <p className="text-[11px] font-black text-sky-400">{erpContext.cant_facturas}</p>
+                        <p className="text-[11px] font-black text-sky-400">
+                          {erpContext.cant_facturas != null ? erpContext.cant_facturas : "–"}
+                        </p>
                       </div>
                       <div className="bg-white/5 rounded-lg p-2 border border-white/5">
-                        <p className="text-[7px] font-black text-white/40 uppercase tracking-widest mb-0.5">Últ. Compra</p>
-                        <p className="text-[9px] font-bold text-white/60 truncate">{erpContext.ultima_compra?.slice(0, 10) || '—'}</p>
+                        <p className="text-[7px] font-black text-white/40 uppercase tracking-widest mb-0.5">Última Compra</p>
+                        <p className="text-[9px] font-bold text-white/60 truncate">
+                          {erpContext.ultima_compra ? erpContext.ultima_compra.slice(0, 10) : "Sin datos"}
+                        </p>
                       </div>
+                      {(erpContext.domicilio || erpContext.localidad) && (
+                        <div className="col-span-2 bg-white/5 rounded-lg p-2 border border-white/5">
+                          <p className="text-[7px] font-black text-white/40 uppercase tracking-widest mb-0.5">Dirección</p>
+                          <p className="text-[9px] font-bold text-white/60 truncate">
+                            {erpContext.domicilio
+                              ? `${erpContext.domicilio}${erpContext.localidad ? `, ${erpContext.localidad}` : ""}`
+                              : erpContext.localidad || "–"}
+                          </p>
+                        </div>
+                      )}
                     </div>
                   </motion.div>
                 )}
@@ -377,7 +410,7 @@ export default function VisorPage() {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 min-w-0 flex-1">
                       <span className="text-[10px] font-black bg-violet-600/90 px-2 py-0.5 rounded-md">#{grupo.fotos[currentFotoIdx]?.id_exhibicion || "—"}</span>
-                      <span className="text-[10px] font-bold truncate text-white/90">🏪 {grupo.nro_cliente ?? "—"}</span>
+                      <span className="text-[10px] font-bold truncate text-white/90">🏪 Cód. {grupo.nro_cliente ?? "—"}</span>
                       <span className="text-[10px] font-bold truncate text-white/70">👤 {grupo.vendedor ?? "—"}</span>
                     </div>
                     <span className="text-[9px] font-bold text-white/50 shrink-0 ml-2">{currentIndex + 1}/{totalGrupos}</span>
@@ -428,7 +461,7 @@ export default function VisorPage() {
                     {/* Nombre */}
                     <div className="min-w-0 max-w-[160px]">
                       <p className="text-[10px] font-bold text-white truncate leading-tight">
-                        {erpContext?.nombre_fantasia || erpContext?.razon_social || (grupo.nro_cliente ? `#${grupo.nro_cliente}` : "—")}
+                        {erpContext?.nombre_fantasia || erpContext?.razon_social || (grupo.nro_cliente ? `Cód. ERP ${grupo.nro_cliente}` : "—")}
                       </p>
                       <p className="text-[8px] text-white/40 truncate">{erpContext?.domicilio ? `${erpContext.domicilio}${erpContext.localidad ? `, ${erpContext.localidad}` : ""}` : "—"}</p>
                     </div>
@@ -436,7 +469,9 @@ export default function VisorPage() {
                     {/* Últ. Compra */}
                     <div className="min-w-0">
                       <p className="text-[8px] font-medium text-white/40">Últ. Compra</p>
-                      <p className="text-[10px] font-bold text-white truncate">{erpContext?.ultima_compra?.slice(0, 10) || "—"}</p>
+                      <p className="text-[10px] font-bold text-white truncate">
+                        {erpContext?.ultima_compra ? erpContext.ultima_compra.slice(0, 10) : "Sin datos"}
+                      </p>
                     </div>
                     <div className="h-5 w-px bg-white/15" />
                     {/* Fecha envío */}
@@ -518,7 +553,7 @@ export default function VisorPage() {
                   <div className="pointer-events-auto flex items-center gap-2 px-3 py-2 bg-black/60 backdrop-blur-xl border-t border-white/10 text-white" style={{ paddingBottom: 'max(8px, env(safe-area-inset-bottom))' }}>
                     {/* Mini info */}
                     <div className="flex flex-col min-w-0 flex-1">
-                      <p className="text-[9px] font-bold text-white/90 truncate leading-tight">{erpContext?.nombre_fantasia || erpContext?.razon_social || (grupo.nro_cliente ? `#${grupo.nro_cliente}` : "—")}</p>
+                      <p className="text-[9px] font-bold text-white/90 truncate leading-tight">{erpContext?.nombre_fantasia || erpContext?.razon_social || (grupo.nro_cliente ? `Cód. ERP ${grupo.nro_cliente}` : "—")}</p>
                       <p className="text-[8px] text-white/40 truncate">{erpContext?.domicilio ? `${erpContext.domicilio}${erpContext.localidad ? `, ${erpContext.localidad}` : ""}` : grupo.fecha_hora?.slice(0, 16).replace('T', ' ') || "—"}</p>
                     </div>
 

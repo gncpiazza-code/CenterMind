@@ -5,347 +5,385 @@ import { Topbar } from "@/components/layout/Topbar";
 import { Card } from "@/components/ui/Card";
 import { PageSpinner } from "@/components/ui/Spinner";
 import { useAuth } from "@/hooks/useAuth";
-import { fetchGlobalMonitoring, type GlobalStressMonitor } from "@/lib/api";
-import { useEffect, useState } from "react";
 import {
-    Activity,
-    Database,
-    Users,
-    Image as ImageIcon,
-    AlertCircle,
-    CheckCircle2,
-    Clock,
-    TrendingUp,
-    Server,
-    Terminal,
-    Cpu,
-    Play,
-    Loader2
+  fetchMotorRuns,
+  fetchRunCCMotor,
+  type MotorRun,
+} from "@/lib/api";
+import { useEffect, useState, useCallback } from "react";
+import {
+  AlertCircle,
+  CheckCircle2,
+  Clock,
+  Play,
+  Loader2,
+  RefreshCw,
+  FileText,
+  DollarSign,
+  Users,
+  X,
 } from "lucide-react";
-import { formatDistanceToNow } from "date-fns";
+import { formatDistanceToNow, format } from "date-fns";
 import { es } from "date-fns/locale";
-import dynamic from "next/dynamic";
-import { fetchLiveMapEvents, type LiveMapEvent, fetchRunCCMotor, fetchCCLogs } from "@/lib/api";
 import { toast } from "sonner";
 
-const SystemHealthMonitor = dynamic(() => import("../SystemHealthMonitor"), { ssr: false });
-const MapaExhibiciones = dynamic(() => import("../components/MapaExhibiciones"), { ssr: false });
+// ── Types ──────────────────────────────────────────────────────────────────
+
+type MotorConfig = {
+  tipo: string;
+  label: string;
+  description: string;
+  icon: React.ElementType;
+  color: string;
+  bgColor: string;
+  canRun: boolean;
+};
+
+const MOTORS: MotorConfig[] = [
+  {
+    tipo: "cuentas",
+    label: "Cuentas Corrientes",
+    description: "Sincroniza deudas y comprobantes desde CHESS ERP.",
+    icon: DollarSign,
+    color: "text-blue-400",
+    bgColor: "bg-blue-500/10",
+    canRun: true,
+  },
+  {
+    tipo: "ventas",
+    label: "Informe de Ventas",
+    description: "Procesa ventas_v2 desde el Excel de informe CHESS.",
+    icon: FileText,
+    color: "text-violet-400",
+    bgColor: "bg-violet-500/10",
+    canRun: false,
+  },
+  {
+    tipo: "padron",
+    label: "Padrón de Clientes",
+    description: "Actualiza clientes_pdv_v2, rutas_v2 y vendedores_v2.",
+    icon: Users,
+    color: "text-emerald-400",
+    bgColor: "bg-emerald-500/10",
+    canRun: false,
+  },
+];
+
+// ── Status helpers ─────────────────────────────────────────────────────────
+
+function getStatus(runs: MotorRun[]): "idle" | "running" | "error" | "ok" {
+  if (!runs.length) return "idle";
+  const latest = runs[0];
+  const estado = (latest.estado || "").toLowerCase();
+  if (estado.includes("ejecutando") || estado.includes("running")) return "running";
+  if (estado.includes("error") || estado.includes("fallo")) return "error";
+  if (estado.includes("ok") || estado.includes("completado") || estado.includes("success")) return "ok";
+  return "idle";
+}
+
+function StatusBadge({ status }: { status: ReturnType<typeof getStatus> }) {
+  const map = {
+    idle:    { label: "Idle",       cls: "bg-slate-700 text-slate-300" },
+    running: { label: "Running",    cls: "bg-blue-500/20 text-blue-300 animate-pulse" },
+    error:   { label: "Error",      cls: "bg-red-500/20 text-red-400" },
+    ok:      { label: "Completado", cls: "bg-emerald-500/20 text-emerald-400" },
+  };
+  const { label, cls } = map[status];
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest ${cls}`}>
+      {status === "running" && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-ping" />}
+      {status === "error" && <AlertCircle size={10} />}
+      {status === "ok" && <CheckCircle2 size={10} />}
+      {status === "idle" && <Clock size={10} />}
+      {label}
+    </span>
+  );
+}
+
+// ── Logs Modal ─────────────────────────────────────────────────────────────
+
+function LogsModal({
+  motor,
+  runs,
+  onClose,
+}: {
+  motor: MotorConfig;
+  runs: MotorRun[];
+  onClose: () => void;
+}) {
+  function duration(run: MotorRun) {
+    if (!run.inicio || !run.fin) return "–";
+    const ms = new Date(run.fin).getTime() - new Date(run.inicio).getTime();
+    const s = Math.round(ms / 1000);
+    if (s < 60) return `${s}s`;
+    return `${Math.floor(s / 60)}m ${s % 60}s`;
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+      <div className="w-full max-w-2xl bg-slate-900 border border-white/10 rounded-2xl shadow-2xl flex flex-col max-h-[80vh]">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
+          <div className="flex items-center gap-3">
+            <div className={`p-2 rounded-lg ${motor.bgColor} ${motor.color}`}>
+              <motor.icon size={18} />
+            </div>
+            <div>
+              <h2 className="font-black text-white text-sm">{motor.label}</h2>
+              <p className="text-[10px] text-white/40">Últimas {runs.length} ejecuciones</p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-lg text-white/40 hover:text-white hover:bg-white/10 transition-colors"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Table */}
+        <div className="overflow-y-auto flex-1">
+          {runs.length === 0 ? (
+            <div className="py-16 text-center text-white/30 text-sm">Sin registros disponibles</div>
+          ) : (
+            <table className="w-full text-left">
+              <thead className="sticky top-0 bg-slate-900/95 backdrop-blur">
+                <tr className="border-b border-white/5">
+                  {["Fecha", "Estado", "Distribuidor", "Duración", "Mensaje"].map((h) => (
+                    <th key={h} className="px-4 py-3 text-[10px] font-black text-white/30 uppercase tracking-widest">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {runs.map((r) => (
+                  <tr key={r.id} className="border-b border-white/5 hover:bg-white/3 transition-colors">
+                    <td className="px-4 py-3 text-[11px] text-white/60 whitespace-nowrap font-mono">
+                      {r.created_at ? format(new Date(r.created_at), "dd/MM HH:mm", { locale: es }) : "–"}
+                    </td>
+                    <td className="px-4 py-3">
+                      <StatusBadge status={getStatus([r])} />
+                    </td>
+                    <td className="px-4 py-3 text-[11px] text-white/60">{r.id_distribuidor ?? "–"}</td>
+                    <td className="px-4 py-3 text-[11px] text-white/60 font-mono">{duration(r)}</td>
+                    <td className="px-4 py-3 text-[11px] text-white/50 max-w-[200px] truncate">{r.mensaje || "–"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Motor Card ─────────────────────────────────────────────────────────────
+
+function MotorCard({
+  motor,
+  runs,
+  onRun,
+  onViewLogs,
+  running,
+}: {
+  motor: MotorConfig;
+  runs: MotorRun[];
+  onRun: () => void;
+  onViewLogs: () => void;
+  running: boolean;
+}) {
+  const status = getStatus(runs);
+  const latest = runs[0];
+
+  return (
+    <Card className="p-5 border-none shadow-xl bg-slate-900 text-white flex flex-col gap-4">
+      {/* Header */}
+      <div className="flex items-start justify-between">
+        <div className="flex items-center gap-3">
+          <div className={`p-2.5 rounded-xl ${motor.bgColor}`}>
+            <motor.icon size={20} className={motor.color} />
+          </div>
+          <div>
+            <h3 className="font-black text-white text-sm leading-tight">{motor.label}</h3>
+            <p className="text-[10px] text-white/40 mt-0.5 leading-tight max-w-[180px]">{motor.description}</p>
+          </div>
+        </div>
+        <StatusBadge status={status} />
+      </div>
+
+      {/* Last run info */}
+      <div className="flex items-center gap-2 text-[11px] text-white/40">
+        <Clock size={12} />
+        {latest ? (
+          <span>
+            Última ejecución:{" "}
+            <span className="text-white/60 font-semibold">
+              {formatDistanceToNow(new Date(latest.created_at), { addSuffix: true, locale: es })}
+            </span>
+          </span>
+        ) : (
+          <span>Sin ejecuciones registradas</span>
+        )}
+      </div>
+
+      {/* Run history dots */}
+      {runs.length > 0 && (
+        <div className="flex items-center gap-1">
+          {runs.slice(0, 10).reverse().map((r) => {
+            const s = getStatus([r]);
+            const dot = s === "ok" ? "bg-emerald-500" : s === "error" ? "bg-red-500" : s === "running" ? "bg-blue-400 animate-pulse" : "bg-slate-600";
+            return <span key={r.id} className={`w-2 h-2 rounded-full ${dot}`} title={r.estado || "?"} />;
+          })}
+          <span className="text-[9px] text-white/20 ml-1">últimas {Math.min(runs.length, 10)}</span>
+        </div>
+      )}
+
+      {/* Actions */}
+      <div className="flex gap-2 mt-auto pt-2 border-t border-white/5">
+        <button
+          onClick={onViewLogs}
+          className="flex-1 py-2 px-3 rounded-xl text-[11px] font-bold bg-white/5 hover:bg-white/10 text-white/60 hover:text-white transition-all flex items-center justify-center gap-1.5"
+        >
+          <FileText size={12} />
+          Ver Logs
+        </button>
+        {motor.canRun && (
+          <button
+            onClick={onRun}
+            disabled={running || status === "running"}
+            className={`flex-1 py-2 px-3 rounded-xl text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all ${
+              running || status === "running"
+                ? "bg-slate-700 text-slate-500 cursor-not-allowed"
+                : `${motor.bgColor} ${motor.color} hover:opacity-80 active:scale-95`
+            }`}
+          >
+            {running ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} fill="currentColor" />}
+            {running ? "Ejecutando..." : "Correr"}
+          </button>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+// ── Page ───────────────────────────────────────────────────────────────────
 
 export default function SuperAdminDashboard() {
-    const { user } = useAuth();
-    const [data, setData] = useState<GlobalStressMonitor[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const [mapEvents, setMapEvents] = useState<LiveMapEvent[]>([]);
+  const { user } = useAuth();
+  const [runsByMotor, setRunsByMotor] = useState<Record<string, MotorRun[]>>({});
+  const [loading, setLoading] = useState(true);
+  const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
+  const [runningMotor, setRunningMotor] = useState<string | null>(null);
+  const [logsModal, setLogsModal] = useState<MotorConfig | null>(null);
 
-    useEffect(() => {
-        if (user?.rol !== "superadmin") return;
+  const loadRuns = useCallback(async () => {
+    const results = await Promise.all(
+      MOTORS.map((m) => fetchMotorRuns(m.tipo, 20).then((runs) => ({ tipo: m.tipo, runs })))
+    );
+    const map: Record<string, MotorRun[]> = {};
+    for (const { tipo, runs } of results) map[tipo] = runs;
+    setRunsByMotor(map);
+    setLastRefresh(new Date());
+    setLoading(false);
+  }, []);
 
-        const load = async () => {
-            try {
-                const res = await fetchGlobalMonitoring();
-                setData(res);
-            } catch (e: any) {
-                setError(e.message);
-            } finally {
-                setLoading(false);
-            }
-        };
+  useEffect(() => {
+    if (user?.rol !== "superadmin") return;
+    loadRuns();
+    const interval = setInterval(loadRuns, 30000);
+    return () => clearInterval(interval);
+  }, [user, loadRuns]);
 
-        const loadMap = async () => {
-            try {
-                const today = new Date();
-                const offset = today.getTimezoneOffset();
-                const local = new Date(today.getTime() - (offset * 60 * 1000));
-                const dateStr = local.toISOString().split('T')[0];
-                const res = await fetchLiveMapEvents(undefined, dateStr);
-                setMapEvents(res.filter(e => e.lat && e.lng && e.lat !== 0 && e.lng !== 0));
-            } catch (e) {
-                console.error("Error loading map events", e);
-            }
-        };
+  if (user?.rol !== "superadmin") {
+    return (
+      <div className="flex items-center justify-center h-screen bg-slate-950">
+        <Card className="max-w-md text-center p-8 bg-slate-900 border-none text-white">
+          <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-4" />
+          <h1 className="text-xl font-bold mb-2">Acceso Denegado</h1>
+          <p className="text-slate-400">Esta sección es exclusiva para SuperAdmins.</p>
+        </Card>
+      </div>
+    );
+  }
 
-        load();
-        loadMap();
-        const interval = setInterval(() => { load(); loadMap(); }, 30000);
-        return () => clearInterval(interval);
-    }, [user]);
-
-    if (user?.rol !== "superadmin") {
-        return (
-            <div className="flex items-center justify-center h-screen bg-slate-50">
-                <Card className="max-w-md text-center p-8">
-                    <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-                    <h1 className="text-xl font-bold mb-2">Acceso Denegado</h1>
-                    <p className="text-slate-500">Esta sección es exclusiva para SuperAdmins.</p>
-                </Card>
-            </div>
-        );
+  async function handleRun(motor: MotorConfig) {
+    if (!confirm(`¿Ejecutar motor "${motor.label}" para todos los distribuidores?`)) return;
+    setRunningMotor(motor.tipo);
+    try {
+      if (motor.tipo === "cuentas") {
+        const res = await fetchRunCCMotor();
+        if (res.ok) toast.success("Motor iniciado correctamente");
+      }
+    } catch (e: any) {
+      toast.error("Error al iniciar motor: " + e.message);
+    } finally {
+      setRunningMotor(null);
+      setTimeout(loadRuns, 3000);
     }
+  }
 
-    const totalExhibiciones = data.reduce((acc, curr) => acc + Number(curr.total_exhibiciones), 0);
-    const totalERP = data.reduce((acc, curr) => acc + Number(curr.total_ventas_erp), 0);
-    const totalClientes = data.reduce((acc, curr) => acc + Number(curr.total_clientes_erp), 0);
+  return (
+    <div className="flex min-h-screen bg-slate-950">
+      <Sidebar />
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <Topbar title="Gestión de Motores" />
 
-    return (
-        <div className="flex min-h-screen bg-[var(--shelfy-bg)]">
-            <Sidebar />
-            <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-                <Topbar title="Centro de Comando" />
+        <main className="flex-1 overflow-y-auto p-4 md:p-8">
+          <div className="max-w-5xl mx-auto space-y-8">
 
-                <main className="flex-1 overflow-y-auto p-4 md:p-8">
-                    <div className="max-w-7xl mx-auto space-y-8">
-
-                        {/* Header Stats */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                            <StatCard
-                                label="Total Exhibiciones"
-                                value={totalExhibiciones.toLocaleString()}
-                                icon={ImageIcon}
-                                color="text-violet-600"
-                                bg="bg-violet-50"
-                            />
-                            <StatCard
-                                label="Registros ERP"
-                                value={totalERP.toLocaleString()}
-                                icon={Database}
-                                color="text-blue-600"
-                                bg="bg-blue-50"
-                            />
-                            <StatCard
-                                label="Búnkers Activos"
-                                value={data.length}
-                                icon={Server}
-                                color="text-emerald-600"
-                                bg="bg-emerald-50"
-                            />
-                            <StatCard
-                                label="Clientes Totales"
-                                value={totalClientes.toLocaleString()}
-                                icon={Users}
-                                color="text-orange-600"
-                                bg="bg-orange-50"
-                            />
-                        </div>
-
-                        {/* Hardware & System Health (Nivel 0) */}
-                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                            <div className="lg:col-span-2">
-                                <SystemHealthMonitor />
-                            </div>
-                            <MaintenanceCard />
-                        </div>
-
-                        {/* Stress Monitor Table */}
-                        <div className="space-y-4">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-                                        <Activity className="text-[var(--shelfy-primary)]" size={20} />
-                                        Monitor de Estrés por Distribuidora
-                                    </h2>
-                                    <p className="text-sm text-slate-500">Carga de datos y actividad en tiempo real por búnker.</p>
-                                </div>
-                                <div className="text-xs font-medium text-slate-400 bg-white px-3 py-1 rounded-full border border-slate-100 italic">
-                                    Actualiza cada 30s
-                                </div>
-                            </div>
-
-                            {loading ? (
-                                <div className="py-20 flex justify-center"><PageSpinner /></div>
-                            ) : (
-                                <Card className="overflow-hidden border-none shadow-xl ring-1 ring-slate-200">
-                                    <div className="overflow-x-auto">
-                                        <table className="w-full text-left border-collapse">
-                                            <thead>
-                                                <tr className="bg-slate-50/50 border-b border-slate-100">
-                                                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Distribuidora</th>
-                                                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Exhibiciones</th>
-                                                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Saturación ERP</th>
-                                                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Última Actividad</th>
-                                                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Estado Bot</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody className="divide-y divide-slate-50">
-                                                {data.map((dist) => (
-                                                    <tr key={dist.id_dist} className="hover:bg-slate-50/80 transition-colors group">
-                                                        <td className="px-6 py-4">
-                                                            <div className="flex items-center gap-3">
-                                                                <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-500 font-bold text-xs ring-1 ring-slate-200">
-                                                                    {dist.id_dist}
-                                                                </div>
-                                                                <span className="font-bold text-slate-900">{dist.nombre_dist}</span>
-                                                            </div>
-                                                        </td>
-                                                        <td className="px-6 py-4">
-                                                            <div className="flex flex-col">
-                                                                <span className="text-sm font-semibold text-slate-700">{Number(dist.total_exhibiciones).toLocaleString()}</span>
-                                                                <div className="w-24 h-1.5 bg-slate-100 rounded-full mt-1.5 overflow-hidden">
-                                                                    <div
-                                                                        className="h-full bg-violet-400 rounded-full"
-                                                                        style={{ width: `${Math.min((Number(dist.total_exhibiciones) / 5000) * 100, 100)}%` }}
-                                                                    />
-                                                                </div>
-                                                            </div>
-                                                        </td>
-                                                        <td className="px-6 py-4">
-                                                            <div className="flex items-center gap-2">
-                                                                <Database size={14} className="text-slate-400" />
-                                                                <span className="text-sm text-slate-600 font-medium">
-                                                                    {(Number(dist.total_ventas_erp) + Number(dist.total_clientes_erp)).toLocaleString()} filas
-                                                                </span>
-                                                            </div>
-                                                        </td>
-                                                        <td className="px-6 py-4">
-                                                            {dist.ultima_actividad ? (
-                                                                <div className="flex items-center gap-2 text-sm text-slate-500">
-                                                                    <Clock size={14} className="text-slate-400" />
-                                                                    {formatDistanceToNow(new Date(dist.ultima_actividad), { addSuffix: true, locale: es })}
-                                                                </div>
-                                                            ) : (
-                                                                <span className="text-xs text-slate-400 italic">Sin actividad reciente</span>
-                                                            )}
-                                                        </td>
-                                                        <td className="px-6 py-4">
-                                                            <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-tight ${dist.estado_bot === 'activo'
-                                                                ? 'bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100'
-                                                                : 'bg-slate-50 text-slate-400 ring-1 ring-slate-100'
-                                                                }`}>
-                                                                {dist.estado_bot === 'activo' ? <CheckCircle2 size={10} /> : <AlertCircle size={10} />}
-                                                                {dist.estado_bot}
-                                                            </div>
-                                                        </td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </Card>
-                            )}
-                        </div>
-
-                        {/* Live Map Embed */}
-                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                            <Card className="lg:col-span-2 p-0 overflow-hidden relative border-none shadow-xl">
-                                <div className="absolute top-4 left-4 z-20 flex items-center gap-2">
-                                    <div className="flex items-center gap-2 bg-black/60 backdrop-blur-sm text-white px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest">
-                                        <div className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />
-                                        En Vivo · {mapEvents.length} exhibiciones
-                                    </div>
-                                </div>
-                                <div
-                                    className="cursor-pointer"
-                                    onClick={() => window.location.href = '/admin/mapa'}
-                                    title="Abrir mapa completo"
-                                >
-                                    <MapaExhibiciones events={mapEvents} height="400px" theme="dark" />
-                                </div>
-                            </Card>
-
-                            <Card className="p-6 flex flex-col justify-center border-none shadow-xl bg-gradient-to-br from-[var(--shelfy-primary)] to-[var(--shelfy-primary-2)] text-white">
-                                <TrendingUp className="w-12 h-12 mb-4 opacity-50" />
-                                <h3 className="text-xl font-bold mb-2">Optimización de Carga</h3>
-                                <p className="text-white/80 text-sm leading-relaxed mb-6">
-                                    El sistema está procesando correctamente la segregación de datos.
-                                    Actualmente, el búnker más saturado tiene <strong>{Math.max(...data.map(d => Number(d.total_exhibiciones))).toLocaleString()}</strong> exhibiciones.
-                                </p>
-                                <div className="mt-auto pt-4 border-t border-white/20 text-[10px] font-bold uppercase tracking-widest">
-                                    Salud del Sistema: 99.8%
-                                </div>
-                            </Card>
-                        </div>
-
-                    </div>
-                </main>
-            </div>
-        </div>
-    );
-}
-
-function MaintenanceCard() {
-    const [running, setRunning] = useState(false);
-    const [logs, setLogs] = useState("Consola lista...");
-    const [lastFetch, setLastFetch] = useState<Date>(new Date());
-
-    const runMotor = async () => {
-        if (!confirm("¿Deseas ejecutar el motor de Cuentas Corrientes para todos los distribuidores ahora?")) return;
-        setRunning(true);
-        try {
-            const res = await fetchRunCCMotor();
-            if (res.ok) {
-                toast.success("Motor iniciado correctamente");
-                setLogs("Iniciando motor RPA...\n");
-            }
-        } catch (e: any) {
-            toast.error("Error al iniciar motor: " + e.message);
-        } finally {
-            setRunning(false);
-        }
-    };
-
-    useEffect(() => {
-        const interval = setInterval(async () => {
-            try {
-                const res = await fetchCCLogs(50);
-                setLogs(res.logs);
-                setLastFetch(new Date());
-            } catch (e) { }
-        }, 5000);
-        return () => clearInterval(interval);
-    }, []);
-
-    return (
-        <Card className="p-6 border-none shadow-xl bg-slate-900 text-white flex flex-col gap-4">
+            {/* Header */}
             <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                    <div className="p-2 bg-blue-500/20 rounded-lg text-blue-400">
-                        <Cpu size={20} />
-                    </div>
-                    <h3 className="font-bold">Mantenimiento RPA</h3>
-                </div>
-                <div className="flex items-center gap-1.5 text-[10px] font-mono text-slate-500">
-                    <Clock size={10} />
-                    {lastFetch.toLocaleTimeString()}
-                </div>
+              <div>
+                <h1 className="text-2xl font-black text-white">Motores RPA</h1>
+                <p className="text-sm text-white/40 mt-1">
+                  Ejecución y monitoreo de los motores de sincronización de datos.
+                </p>
+              </div>
+              <button
+                onClick={() => { setLoading(true); loadRuns(); }}
+                disabled={loading}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-white/60 hover:text-white text-xs font-bold transition-all"
+              >
+                <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+                Actualizar
+              </button>
             </div>
 
-            <div className="flex-1 bg-black/40 rounded-xl border border-white/5 p-4 font-mono text-[11px] h-[180px] overflow-y-auto overflow-x-hidden space-y-1 scrollbar-thin scrollbar-thumb-white/10">
-                <div className="flex items-center gap-2 text-blue-400/80 mb-2 border-b border-white/5 pb-2">
-                    <Terminal size={14} />
-                    <span className="uppercase tracking-widest font-black">Cuentas Corrientes Logs</span>
-                </div>
-                <pre className="whitespace-pre-wrap text-slate-300">
-                    {logs}
-                </pre>
+            <div className="text-[11px] text-white/20 -mt-4">
+              Último refresh: {format(lastRefresh, "HH:mm:ss")}
+              <span className="ml-2 italic">· Auto cada 30s</span>
             </div>
 
-            <button
-                onClick={runMotor}
-                disabled={running}
-                className={`w-full py-3 rounded-xl font-bold uppercase tracking-widest text-xs flex items-center justify-center gap-2 transition-all ${running
-                        ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
-                        : 'bg-blue-600 hover:bg-blue-500 active:scale-95 shadow-lg shadow-blue-900/20'
-                    }`}
-            >
-                {running ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} fill="currentColor" />}
-                {running ? "Ejecutando..." : "Correr Motor CC"}
-            </button>
-        </Card>
-    );
-}
+            {/* Motor Cards */}
+            {loading ? (
+              <div className="py-20 flex justify-center"><PageSpinner /></div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {MOTORS.map((motor) => (
+                  <MotorCard
+                    key={motor.tipo}
+                    motor={motor}
+                    runs={runsByMotor[motor.tipo] || []}
+                    onRun={() => handleRun(motor)}
+                    onViewLogs={() => setLogsModal(motor)}
+                    running={runningMotor === motor.tipo}
+                  />
+                ))}
+              </div>
+            )}
 
-function StatCard({ label, value, icon: Icon, color, bg }: any) {
-    return (
-        <Card className="p-6 border-none shadow-md hover:shadow-lg transition-shadow bg-white">
-            <div className="flex items-center justify-between">
-                <div>
-                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">{label}</p>
-                    <p className={`text-2xl font-black ${color}`}>{value}</p>
-                </div>
-                <div className={`p-3 rounded-2xl ${bg} ${color}`}>
-                    <Icon size={24} strokeWidth={2.5} />
-                </div>
-            </div>
-        </Card>
-    );
+          </div>
+        </main>
+      </div>
+
+      {/* Logs Modal */}
+      {logsModal && (
+        <LogsModal
+          motor={logsModal}
+          runs={runsByMotor[logsModal.tipo] || []}
+          onClose={() => setLogsModal(null)}
+        />
+      )}
+    </div>
+  );
 }

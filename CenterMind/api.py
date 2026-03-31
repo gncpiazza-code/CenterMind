@@ -1331,6 +1331,20 @@ def admin_set_rol_integrante(id_integrante: int, req: IntegranteRolRequest, payl
     return {"ok": True}
 
 
+@app.put("/api/admin/integrantes/{integrante_id}/activo", tags=["Admin"])
+def toggle_integrante_activo(integrante_id: int, body: dict, payload=Depends(verify_auth)):
+    activo = body.get("activo")
+    if not isinstance(activo, bool):
+        raise HTTPException(status_code=400, detail="'activo' debe ser boolean")
+    q = sb.table("integrantes_grupo").update({"activo": activo}).eq("id_integrante", integrante_id)
+    if not payload.get("is_superadmin"):
+        q = q.eq("id_distribuidor", payload.get("id_distribuidor"))
+    r = q.execute()
+    if not r.data:
+        raise HTTPException(status_code=403, detail="Sin permisos o integrante no encontrado")
+    return {"ok": True, "data": r.data[0]}
+
+
 # ─── FASE 2 — Mapeo Vendedor ERP ↔ Integrante Telegram ──────────────────────
 
 class MapeoVendedorRequest(BaseModel):
@@ -1981,6 +1995,17 @@ async def admin_cc_logs(lines: int = 100, user_payload=Depends(verify_auth)):
             return {"logs": "".join(content[-lines:])}
     except Exception as e:
         return {"logs": f"Error leyendo logs: {str(e)}"}
+
+
+@app.get("/api/admin/motor-runs", tags=["Admin"], summary="Historial de ejecuciones de motores RPA")
+def admin_motor_runs(tipo: Optional[str] = None, limit: int = 20, user_payload=Depends(verify_auth)):
+    if not user_payload.get("is_superadmin"):
+        raise HTTPException(status_code=403, detail="Exclusivo para SuperAdmins")
+    q = sb.table("motor_runs").select("*").order("created_at", desc=True).limit(limit)
+    if tipo:
+        q = q.eq("motor_tipo", tipo)
+    r = q.execute()
+    return r.data or []
 
 
 @app.get("/api/cuentas-corrientes/{id_distribuidor}", summary="Obtener Cuentas Corrientes")

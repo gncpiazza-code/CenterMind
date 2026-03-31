@@ -2,6 +2,7 @@
 
 import { useAuth } from "@/hooks/useAuth";
 import { useEffect, useState, useRef, useCallback } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   fetchRanking,
   fetchKPIs,
@@ -23,6 +24,8 @@ import {
   Award,
   RotateCcw,
   Zap,
+  MapPin,
+  User,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
@@ -75,9 +78,12 @@ export default function ModoOficinaPage() {
   const [lastCheck, setLastCheck] = useState<Date | null>(null);
   const [isImmersive, setIsImmersive] = useState(false);
   const [showNotification, setShowNotification] = useState(false);
+  const [showPDVCard, setShowPDVCard] = useState(false);
+  const [pointsAnim, setPointsAnim] = useState<{ points: number; vendedor: string } | null>(null);
   const seenIdsRef = useRef<Set<number>>(new Set());
   const mapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mapRef = useRef<MapRef>(null);
+  const prevRankingRef = useRef<VendedorRanking[]>([]);
 
   const getCurrentPeriodo = () => {
     const now = new Date();
@@ -109,6 +115,18 @@ export default function ModoOficinaPage() {
         fetchLiveMapEvents(distId),
         fetchEvolucionTiempo(distId),
       ]);
+      // Detect points gain for NBA animation (only on non-initial loads)
+      if (!isInitial && prevRankingRef.current.length > 0) {
+        for (const newV of r) {
+          const oldV = prevRankingRef.current.find(p => p.vendedor === newV.vendedor);
+          if (oldV && newV.puntos > oldV.puntos) {
+            setPointsAnim({ points: newV.puntos - oldV.puntos, vendedor: newV.vendedor });
+            break;
+          }
+        }
+      }
+      prevRankingRef.current = r;
+
       setRanking(r);
       setKpis(k);
       setEvents(e);
@@ -186,28 +204,35 @@ export default function ModoOficinaPage() {
 
             console.log("✨ Nueva exhibición mapeada:", evnt);
 
-            // 1. Show notification
+            // 1. Set event data FIRST (before triggering map mode)
             setNewEvent(evnt);
             setShowNotification(true);
             setTimeout(() => setShowNotification(false), 5000);
 
-            // 2. Add to event list
+            // 2. Add to event list (must be before selectedEventId so map can find it)
             setEvents(prev => [evnt, ...prev].slice(0, 50));
 
-            // 3. Switch to Map mode + Immersive
+            // 3. Show floating PDV profile card
+            setShowPDVCard(true);
+
+            // 4. Switch to Map mode + Immersive (AFTER data is set)
             setMode("map");
             setSelectedEventId(evnt.id_ex);
             setIsImmersive(true);
 
-            // 4. Update data (ranking/kpis) to reflect the new exhibition
+            // 5. Snapshot ranking for points diff detection
+            prevRankingRef.current = ranking;
+
+            // 6. Update data (ranking/kpis) to reflect the new exhibition
             loadData(false);
 
-            // 5. Auto-revert after duration
+            // 7. Auto-revert after duration
             if (mapTimerRef.current) clearTimeout(mapTimerRef.current);
             mapTimerRef.current = setTimeout(() => {
               setMode("kpi");
               setSelectedEventId(null);
               setIsImmersive(false);
+              setShowPDVCard(false);
             }, EVENT_SHOW_DURATION);
             }
         } catch (err) {
@@ -553,9 +578,31 @@ export default function ModoOficinaPage() {
             {newEvent && mode === "map" && (
               <EventCard event={newEvent} />
             )}
+
+            {/* Floating PDV Profile Card */}
+            <AnimatePresence>
+              {showPDVCard && newEvent && mode === "map" && (
+                <FloatingPDVCard
+                  event={newEvent}
+                  rankingEntry={ranking.find(r => r.vendedor === newEvent.vendedor_nombre) ?? null}
+                  todayCount={events.filter(e => e.vendedor_nombre === newEvent.vendedor_nombre).length}
+                />
+              )}
+            </AnimatePresence>
           </div>
         </div>
       </div>
+
+      {/* NBA Points Animation */}
+      <AnimatePresence>
+        {pointsAnim && (
+          <NBAPointsAnimation
+            points={pointsAnim.points}
+            vendedor={pointsAnim.vendedor}
+            onComplete={() => setPointsAnim(null)}
+          />
+        )}
+      </AnimatePresence>
 
       {/* ── KPI dot indicators ── */}
       {mode === "kpi" && kpiSlides.length > 0 && (
@@ -678,6 +725,192 @@ function KpiDisplay({ slide, index, evolucion }: { slide: any; index: number; ev
         )}
       </div>
     </div>
+  );
+}
+
+// ── Floating PDV Profile Card ─────────────────────────────────────────────────
+function FloatingPDVCard({
+  event,
+  rankingEntry,
+  todayCount,
+}: {
+  event: LiveMapEvent;
+  rankingEntry: VendedorRanking | null;
+  todayCount: number;
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: -60, scale: 0.92 }}
+      animate={{ opacity: 1, x: 0, scale: 1 }}
+      exit={{ opacity: 0, x: -60, scale: 0.92 }}
+      transition={{ type: "spring", stiffness: 280, damping: 24 }}
+      style={{
+        position: "absolute",
+        top: 20,
+        left: 20,
+        zIndex: 100,
+        background: "rgba(6, 13, 26, 0.82)",
+        backdropFilter: "blur(18px)",
+        WebkitBackdropFilter: "blur(18px)",
+        border: "1px solid rgba(124,58,237,0.35)",
+        borderRadius: 20,
+        padding: "18px 22px",
+        minWidth: 240,
+        boxShadow: "0 8px 40px rgba(0,0,0,0.45), 0 0 0 1px rgba(124,58,237,0.15)",
+      }}
+    >
+      {/* Live pulse */}
+      <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 12 }}>
+        <span style={{ width: 8, height: 8, borderRadius: 999, background: "#10b981", display: "inline-block", animation: "pulse 2s infinite" }} />
+        <span style={{ fontSize: 10, fontWeight: 900, color: "#10b981", textTransform: "uppercase", letterSpacing: "0.18em" }}>
+          En Camino
+        </span>
+      </div>
+
+      {/* Seller */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+        <div style={{ width: 40, height: 40, borderRadius: 12, background: "rgba(124,58,237,0.18)", display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid rgba(124,58,237,0.3)", flexShrink: 0 }}>
+          <User size={20} color="#a78bfa" />
+        </div>
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 900, color: "#f1f5f9", lineHeight: 1.2 }}>{event.vendedor_nombre}</div>
+          {rankingEntry?.sucursal && (
+            <div style={{ fontSize: 10, color: "#7c3aed", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", marginTop: 2 }}>
+              {rankingEntry.sucursal}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Stats */}
+      <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
+        <div style={{ flex: 1, background: "rgba(16,185,129,0.1)", border: "1px solid rgba(16,185,129,0.2)", borderRadius: 10, padding: "8px 10px", textAlign: "center" }}>
+          <div style={{ fontSize: 18, fontWeight: 900, color: "#10b981" }}>{todayCount}</div>
+          <div style={{ fontSize: 9, color: "#475569", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.1em" }}>Exhib. hoy</div>
+        </div>
+        {rankingEntry && (
+          <>
+            <div style={{ flex: 1, background: "rgba(124,58,237,0.1)", border: "1px solid rgba(124,58,237,0.2)", borderRadius: 10, padding: "8px 10px", textAlign: "center" }}>
+              <div style={{ fontSize: 18, fontWeight: 900, color: "#a78bfa" }}>{rankingEntry.puntos}</div>
+              <div style={{ fontSize: 9, color: "#475569", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.1em" }}>Pts mes</div>
+            </div>
+            {rankingEntry.destacadas > 0 && (
+              <div style={{ flex: 1, background: "rgba(245,158,11,0.1)", border: "1px solid rgba(245,158,11,0.2)", borderRadius: 10, padding: "8px 10px", textAlign: "center" }}>
+                <div style={{ fontSize: 18, fontWeight: 900, color: "#f59e0b" }}>{rankingEntry.destacadas}</div>
+                <div style={{ fontSize: 9, color: "#475569", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.1em" }}>Dest.</div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Destination */}
+      <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.05)" }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 6 }}>
+          <MapPin size={12} color="#7c3aed" style={{ marginTop: 1, flexShrink: 0 }} />
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0" }}>{event.cliente_nombre}</div>
+            {event.localidad && (
+              <div style={{ fontSize: 10, color: "#64748b", marginTop: 1 }}>{event.localidad}</div>
+            )}
+          </div>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+// ── NBA Points Animation ───────────────────────────────────────────────────────
+function NBAPointsAnimation({ points, vendedor, onComplete }: { points: number; vendedor: string; onComplete: () => void }) {
+  const [count, setCount] = useState(0);
+
+  useEffect(() => {
+    let frame: number;
+    const duration = 1500;
+    const start = performance.now();
+    const animate = (now: number) => {
+      const elapsed = now - start;
+      const progress = Math.min(elapsed / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setCount(Math.round(eased * points));
+      if (progress < 1) {
+        frame = requestAnimationFrame(animate);
+      }
+    };
+    frame = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(frame);
+  }, [points]);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.3 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 1.4 }}
+      transition={{ type: "spring", stiffness: 300, damping: 20 }}
+      onAnimationComplete={() => setTimeout(onComplete, 1500)}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 20000,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        pointerEvents: "none",
+        background: "radial-gradient(ellipse at center, rgba(245,158,11,0.12) 0%, transparent 70%)",
+      }}
+    >
+      <style>{`
+        @keyframes goldGlow {
+          0%, 100% { text-shadow: 0 0 20px rgba(245,158,11,0.8), 0 0 40px rgba(245,158,11,0.5), 0 0 80px rgba(245,158,11,0.3); }
+          50% { text-shadow: 0 0 30px rgba(245,158,11,1), 0 0 60px rgba(245,158,11,0.7), 0 0 120px rgba(245,158,11,0.4); }
+        }
+        @keyframes particleBurst {
+          0% { opacity: 1; transform: translate(0, 0) scale(1); }
+          100% { opacity: 0; transform: translate(var(--tx), var(--ty)) scale(0); }
+        }
+      `}</style>
+
+      {/* Particles */}
+      {Array.from({ length: 12 }).map((_, i) => {
+        const angle = (i / 12) * 360;
+        const dist = 80 + Math.random() * 60;
+        const tx = Math.cos((angle * Math.PI) / 180) * dist;
+        const ty = Math.sin((angle * Math.PI) / 180) * dist;
+        return (
+          <div key={i} style={{
+            position: "absolute",
+            width: 8, height: 8,
+            borderRadius: 999,
+            background: i % 3 === 0 ? "#f59e0b" : i % 3 === 1 ? "#fbbf24" : "#ffffff",
+            ["--tx" as string]: `${tx}px`,
+            ["--ty" as string]: `${ty}px`,
+            animation: `particleBurst 1.2s ease-out ${i * 0.05}s both`,
+          } as React.CSSProperties} />
+        );
+      })}
+
+      <div style={{ fontSize: 11, fontWeight: 900, letterSpacing: "0.5em", color: "#f59e0b", textTransform: "uppercase", marginBottom: 4, opacity: 0.8 }}>
+        MVP
+      </div>
+      <div style={{ fontSize: 120, fontWeight: 950, color: "#f59e0b", lineHeight: 1, animation: "goldGlow 1s ease-in-out infinite", letterSpacing: "-0.03em" }}>
+        +{count}
+      </div>
+      <div style={{ fontSize: 18, fontWeight: 900, letterSpacing: "0.3em", color: "#fbbf24", textTransform: "uppercase", marginTop: 8, opacity: 0.85 }}>
+        PTS
+      </div>
+      <div style={{ fontSize: 14, fontWeight: 700, color: "#94a3b8", marginTop: 16, textTransform: "uppercase", letterSpacing: "0.15em" }}>
+        {vendedor}
+      </div>
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.8 }}
+        style={{ marginTop: 12, background: "rgba(245,158,11,0.15)", border: "1px solid rgba(245,158,11,0.4)", borderRadius: 999, padding: "4px 20px", fontSize: 11, fontWeight: 900, color: "#f59e0b", letterSpacing: "0.3em", textTransform: "uppercase" }}
+      >
+        NIVEL ARRIBA
+      </motion.div>
+    </motion.div>
   );
 }
 

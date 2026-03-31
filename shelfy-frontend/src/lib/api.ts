@@ -795,6 +795,27 @@ export async function fetchCCLogs(lines: number = 100): Promise<{ logs: string }
   return apiFetch<{ logs: string }>(`/api/admin/cc-logs?lines=${lines}`);
 }
 
+export interface MotorRun {
+  id: number;
+  motor_tipo: string;
+  estado: string;
+  inicio: string | null;
+  fin: string | null;
+  mensaje: string | null;
+  id_distribuidor: number | null;
+  created_at: string;
+}
+
+export async function fetchMotorRuns(tipo?: string, limit = 20): Promise<MotorRun[]> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (tipo) params.set("tipo", tipo);
+  try {
+    return await apiFetch<MotorRun[]>(`/api/admin/motor-runs?${params}`);
+  } catch {
+    return [];
+  }
+}
+
 export async function fetchSucursalesCruce(distId: number, periodo: string = "mes"): Promise<BranchCruce[]> {
   return apiFetch<BranchCruce[]>(`/api/reportes/sucursales/cruce/${distId}?periodo=${periodo}`);
 }

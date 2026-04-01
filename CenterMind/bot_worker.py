@@ -1375,7 +1375,7 @@ class BotWorker:
                                         .limit(1)
                                         .execute
                                     )
-                                    # Fallback: el ERP puede almacenar el código sin ceros iniciales
+                                    # Fallback 1: el ERP puede almacenar el código sin ceros iniciales
                                     # mientras el vendedor los tipea (o viceversa). Se reintenta
                                     # con el valor stripped para cubrir ambos casos.
                                     if not pdv_res.data:
@@ -1390,6 +1390,38 @@ class BotWorker:
                                                 .limit(1)
                                                 .execute
                                             )
+                                    # Fallback 2: ilike para cubrir ceros iniciales en el lado del DB
+                                    # (ej. DB tiene "0044" pero vendedor tipea "44").
+                                    # Filtra en Python para evitar falsos positivos.
+                                    if not pdv_res.data and nro_cliente.isdigit():
+                                        numeric_val = str(int(nro_cliente))
+                                        self.logger.info(f"🔍 Fallback ilike: id_cliente_erp like '%{numeric_val}' dist={self.distribuidor_id}")
+                                        like_res = await asyncio.to_thread(
+                                            self.db.sb.table("clientes_pdv_v2")
+                                            .select("nombre_fantasia, latitud, longitud, domicilio, localidad, telefono, fecha_alta, id_cliente_erp")
+                                            .eq("id_distribuidor", self.distribuidor_id)
+                                            .like("id_cliente_erp", f"%{numeric_val}")
+                                            .limit(10)
+                                            .execute
+                                        )
+                                        # Solo acepta resultados donde el código sin ceros = numeric_val exacto
+                                        exact = [r for r in (like_res.data or [])
+                                                 if (r.get("id_cliente_erp") or "").lstrip("0") == numeric_val]
+                                        if exact:
+                                            self.logger.info(f"✅ Fallback ilike encontró id_cliente_erp='{exact[0].get('id_cliente_erp')}'")
+                                            pdv_res = like_res
+                                            pdv_res.data = [exact[0]]
+                                        else:
+                                            # Diagnóstico: buscar SIN filtro de distribuidor para detectar id_distribuidor incorrecto
+                                            diag_res = await asyncio.to_thread(
+                                                self.db.sb.table("clientes_pdv_v2")
+                                                .select("id_distribuidor, id_cliente_erp, nombre_fantasia")
+                                                .like("id_cliente_erp", f"%{numeric_val}")
+                                                .limit(5)
+                                                .execute
+                                            )
+                                            if diag_res.data:
+                                                self.logger.warning(f"⚠️ DIAGNÓSTICO: PDV '{nro_cliente}' existe en otra dist: {diag_res.data}")
                                     if pdv_res.data:
                                         pdv = pdv_res.data[0]
                                         lat = float(pdv.get("latitud") or 0.0)

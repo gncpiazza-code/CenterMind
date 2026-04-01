@@ -211,7 +211,7 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode }: Ma
           popup.remove();
         });
 
-        const marker = new maplibregl.Marker({ element: wrapper, anchor: "center" })
+        const marker = new maplibregl.Marker({ element: wrapper, anchor: "bottom" })
           .setLngLat([p.lng, p.lat])
           .addTo(map);
         markersRef.current.push(marker);

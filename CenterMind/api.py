@@ -2001,15 +2001,39 @@ async def admin_cc_logs(lines: int = 100, user_payload=Depends(verify_auth)):
         return {"logs": f"Error leyendo logs: {str(e)}"}
 
 
-@app.get("/api/admin/motor-runs", tags=["Admin"], summary="Historial de ejecuciones de motores RPA")
-def admin_motor_runs(tipo: Optional[str] = None, limit: int = 20, user_payload=Depends(verify_auth)):
+@app.get("/api/admin/motor-runs", tags=["Admin"], summary="Historial de ejecuciones de motores RPA (SuperAdmin)")
+def admin_motor_runs(motor: Optional[str] = None, limit: int = 20, user_payload=Depends(verify_auth)):
     if not user_payload.get("is_superadmin"):
         raise HTTPException(status_code=403, detail="Exclusivo para SuperAdmins")
-    q = sb.table("motor_runs").select("*").order("created_at", desc=True).limit(limit)
-    if tipo:
-        q = q.eq("motor_tipo", tipo)
+    q = sb.table("motor_runs").select("*").order("iniciado_en", desc=True).limit(limit)
+    if motor:
+        q = q.eq("motor", motor)
     r = q.execute()
     return r.data or []
+
+
+@app.get("/api/admin/motor-runs/{dist_id}", tags=["Admin"], summary="Historial de motores RPA por distribuidora")
+def motor_runs_by_dist(
+    dist_id: int,
+    motor: Optional[str] = None,
+    limit: int = 20,
+    user_payload=Depends(verify_auth),
+):
+    check_dist_permission(user_payload, dist_id)
+    try:
+        q = (
+            sb.table("motor_runs")
+            .select("id, motor, estado, iniciado_en, finalizado_en, registros, error_msg")
+            .eq("dist_id", dist_id)
+            .order("iniciado_en", desc=True)
+            .limit(limit)
+        )
+        if motor:
+            q = q.eq("motor", motor)
+        r = q.execute()
+        return r.data or []
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/cuentas-corrientes/{id_distribuidor}", summary="Obtener Cuentas Corrientes")
@@ -2017,6 +2041,7 @@ async def get_cuentas_corrientes(
     id_distribuidor: int,
     user_payload: dict = Depends(verify_auth)
 ):
+    check_dist_permission(user_payload, id_distribuidor)
     try:
         res = sb.table("cuentas_corrientes_data").select("*").eq("id_distribuidor", id_distribuidor).order("fecha", desc=True).limit(1).execute()
         if not res.data:
@@ -3365,17 +3390,22 @@ async def motor_cuentas(
     if not file_bytes:
         raise HTTPException(status_code=400, detail="Archivo vacío")
     try:
-        import io, tempfile, os
+        import tempfile, os, datetime as _dt
         with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
             tmp.write(file_bytes)
             tmp_path = tmp.name
         try:
-            # Fix signature mismatch: pass out_dir and a dummy config
             _, json_data = procesar_cuentas_corrientes_service(tmp_path, "/tmp", {"reglas_generales": {}})
         finally:
             os.unlink(tmp_path)
-        registros = len(json_data.get("detalle_cuentas", [])) if json_data else 0
-        return {"registros": registros, "id_distribuidor": dist_id, "tenant_id": tenant_id}
+
+        rows_cc = json_data.get("detalle_cuentas", []) if json_data else []
+        saved = 0
+        if rows_cc:
+            fecha_str = _dt.datetime.now().strftime("%Y-%m-%d")
+            saved = _enrich_and_store_cc(dist_id, fecha_str, rows_cc)
+
+        return {"ok": True, "registros": saved, "id_distribuidor": dist_id, "tenant_id": tenant_id}
     except Exception as e:
         logger.error(f"Error en motor_cuentas ({tenant_id}): {e}")
         raise HTTPException(status_code=500, detail=str(e))

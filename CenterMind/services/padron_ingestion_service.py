@@ -102,6 +102,35 @@ _DIA_KEYS = [
     ("dia_domingo",   "Domingo"),
 ]
 
+def _parse_coordinate_robustly(val: Any) -> "float | None":
+    """Parse a single coordinate value handling:
+    - Numeric floats
+    - Comma as decimal separator ('-34,123' → -34.123)
+    - None / NaN / empty strings → None
+    """
+    if val is None or (isinstance(val, float) and pd.isna(val)):
+        return None
+    s = str(val).strip()
+    if not s or s.lower() in ("nan", "none", "null", ""):
+        return None
+    # Spanish locale: replace comma decimal separator
+    s = s.replace(",", ".")
+    try:
+        f = float(s)
+        return None if pd.isna(f) else f
+    except (ValueError, TypeError):
+        return None
+
+
+def _parse_latlng(lat_raw: str, lng_raw: str) -> "tuple[float | None, float | None]":
+    """Parse lat/lng handling combined 'lat | lon' cells (ERP exports may pack both)."""
+    # If the lat cell contains '|', it's a combined 'lat | lon' string
+    if "|" in lat_raw:
+        parts = [p.strip() for p in lat_raw.split("|", 1)]
+        return _parse_coordinate_robustly(parts[0]), _parse_coordinate_robustly(parts[1] if len(parts) > 1 else "")
+    return _parse_coordinate_robustly(lat_raw), _parse_coordinate_robustly(lng_raw)
+
+
 def _detect_dia(row: Any, cols: dict) -> str:
     """Devuelve el día de la semana leyendo las columnas booleanas del Excel."""
     for key, nombre in _DIA_KEYS:
@@ -521,11 +550,9 @@ class PadronIngestionService:
                 skip_no_ruta += 1
                 continue
 
-            try:
-                latitud  = float(row[cols["latitud"]])  if cols.get("latitud")  and _safe_str(row.get(cols["latitud"]))  else None
-                longitud = float(row[cols["longitud"]]) if cols.get("longitud") and _safe_str(row.get(cols["longitud"])) else None
-            except (ValueError, TypeError):
-                latitud = longitud = None
+            lat_raw = _safe_str(row.get(cols["latitud"]))  if cols.get("latitud")  else ""
+            lng_raw = _safe_str(row.get(cols["longitud"])) if cols.get("longitud") else ""
+            latitud, longitud = _parse_latlng(lat_raw, lng_raw)
 
             payload = {
                 "id_ruta":             id_ruta,

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
-import { LayoutDashboard, Eye, Users, BarChart2, Gift, LogOut, ChevronDown, ChevronRight, GraduationCap, Activity, MapPin, Globe, PanelLeftClose, PanelLeft, Briefcase, Route, Monitor } from "lucide-react";
+import { LayoutDashboard, Eye, Users, BarChart2, Gift, LogOut, ChevronDown, ChevronRight, Activity, MapPin, Globe, PanelLeftClose, PanelLeft, Briefcase, Route, Monitor } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { fetchDistribuidores } from "@/lib/api";
 import { useUI } from "@/contexts/UIContext";
@@ -21,12 +21,6 @@ const ALL_NAV: NavItem[] = [
   { href: "/dashboard",   label: "Dashboard",           icon: LayoutDashboard, roles: ["superadmin", "admin", "supervisor"] },
   { href: "/supervision", label: "Panel de Supervisión", icon: Route,    roles: ["superadmin", "admin", "supervisor"] },
   { href: "/bonos", label: "Bonos", icon: Gift, roles: ["superadmin"] },
-  {
-    href: "/academy-hub",
-    label: "Real Academy",
-    icon: GraduationCap,
-    roles: ["superadmin"]
-  },
   { href: "/admin", label: "Administrar", icon: Users, roles: ["superadmin"] },
   {
     href: "/admin/dashboard",
@@ -71,7 +65,7 @@ export function Sidebar() {
       { href: "/modo-oficina", label: "Modo Oficina",       icon: Monitor },
     ];
 
-  const [openSections, setOpenSections] = useState<Record<string, boolean>>({ "/academy-hub": true });
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
 
   const toggleSection = (href: string) => {
     setOpenSections(prev => ({ ...prev, [href]: !prev[href] }));

@@ -28,7 +28,6 @@ import {
   User,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { format } from "date-fns";
 import { es } from "date-fns/locale";
 
 const MapaExhibiciones = dynamic(
@@ -572,12 +571,8 @@ export default function ModoOficinaPage() {
               theme="dark"
               selectedEventId={selectedEventId}
               showRoutes={false}
+              highlightedEvent={mode === "map" ? newEvent : null}
             />
-
-            {/* Event card overlay */}
-            {newEvent && mode === "map" && (
-              <EventCard event={newEvent} />
-            )}
 
             {/* Floating PDV Profile Card */}
             <AnimatePresence>
@@ -914,115 +909,6 @@ function NBAPointsAnimation({ points, vendedor, onComplete }: { points: number; 
   );
 }
 
-// ── Event Card ────────────────────────────────────────────────────────────────
-function EventCard({ event }: { event: LiveMapEvent }) {
-  const imgUrl = event.drive_link || null;
-  return (
-    <div
-      style={{
-        position: "absolute",
-        bottom: 40,
-        right: 40,
-        width: 400,
-        background: "rgba(15, 23, 42, 0.9)",
-        backdropFilter: "blur(20px)",
-        borderRadius: 24,
-        padding: 24,
-        border: "1px solid rgba(255,255,255,0.08)",
-        boxShadow: "0 25px 50px -12px rgba(0,0,0,0.5)",
-        animation: "cardFlyIn 0.8s cubic-bezier(0.16, 1, 0.3, 1) both",
-      }}
-    >
-      <style>{`
-        @keyframes cardFlyIn {
-          0% { opacity: 0; transform: translateX(100px); }
-          100% { opacity: 1; transform: translateX(0); }
-        }
-      `}</style>
-
-      <div style={{ display: "flex", gap: 20 }}>
-        {/* Photo Thumbnail */}
-        <div
-          style={{
-            width: 120,
-            height: 120,
-            borderRadius: 16,
-            overflow: "hidden",
-            background: "#1e293b",
-            flexShrink: 0,
-            border: "1px solid rgba(255,255,255,0.05)",
-          }}
-        >
-          {imgUrl ? (
-            <img 
-              src={imgUrl.includes('supabase.co') ? imgUrl : "https://api.shelfycenter.com/api/proxy-image?url=" + encodeURIComponent(imgUrl)} 
-              alt="Preview" 
-              style={{ width: "100%", height: "100%", objectFit: "cover" }} 
-              onError={(e) => {
-                // Fallback to proxy if direct fails, or vice versa
-                const target = e.currentTarget;
-                if (!target.src.includes('proxy-image')) {
-                  target.src = "https://api.shelfycenter.com/api/proxy-image?url=" + encodeURIComponent(imgUrl);
-                } else {
-                  target.src = "/placeholder-image.png"; // or just empty
-                }
-              }}
-            />
-          ) : (
-            <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#334155" }}>
-              <Zap size={32} />
-            </div>
-          )}
-        </div>
-
-        {/* Info */}
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 10, fontWeight: 900, color: "#7c3aed", textTransform: "uppercase", letterSpacing: "0.2em", marginBottom: 6 }}>
-            Nueva Exhibición
-          </div>
-          <div style={{ fontSize: 18, fontWeight: 900, color: "white", marginBottom: 4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-            {event.cliente_nombre}
-          </div>
-          <div style={{ fontSize: 13, color: "#94a3b8", fontWeight: 700 }}>
-            {event.vendedor_nombre}
-          </div>
-          
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 12 }}>
-            <div style={{ width: 8, height: 8, borderRadius: 999, background: "#10b981", animation: "pulse 2s infinite" }} />
-            <span style={{ fontSize: 11, fontWeight: 800, color: "#10b981", textTransform: "uppercase" }}>En Tiempo Real</span>
-          </div>
-          
-          {/* Enriched PDV Info */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px 20px", marginTop: 15, borderTop: "1px solid rgba(255,255,255,0.05)", paddingTop: 12 }}>
-            <div>
-              <div style={{ fontSize: 9, color: "#475569", textTransform: "uppercase", fontWeight: 900 }}>Dirección</div>
-              <div style={{ fontSize: 11, color: "#94a3b8" }}>{event.domicilio || "—"}</div>
-            </div>
-            <div>
-              <div style={{ fontSize: 9, color: "#475569", textTransform: "uppercase", fontWeight: 900 }}>Localidad</div>
-              <div style={{ fontSize: 11, color: "#94a3b8" }}>{event.localidad || "—"}</div>
-            </div>
-            {(event.lat === 0 || event.lng === 0) && (
-              <div style={{ gridColumn: "span 2", marginTop: 4 }}>
-                <div style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "rgba(239,68,68,0.1)", color: "#ef4444", padding: "2px 8px", borderRadius: 4, fontSize: 9, fontWeight: 700, textTransform: "uppercase" }}>
-                  ⚠️ PDV sin geolocalización (viaje cancelado)
-                </div>
-              </div>
-            )}
-            <div>
-              <div style={{ fontSize: 9, color: "#475569", textTransform: "uppercase", fontWeight: 900 }}>Teléfono</div>
-              <div style={{ fontSize: 11, color: "#10b981", fontWeight: 700 }}>{event.telefono || "—"}</div>
-            </div>
-            <div>
-              <div style={{ fontSize: 9, color: "#475569", textTransform: "uppercase", fontWeight: 900 }}>Alta</div>
-              <div style={{ fontSize: 11, color: "#94a3b8" }}>{event.fecha_alta ? format(new Date(event.fecha_alta), "dd/MM/yyyy") : "—"}</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // ── Ranking Scroller ──────────────────────────────────────────────────────────
 function RankingScroller({ ranking, loaded }: { ranking: VendedorRanking[]; loaded: boolean }) {

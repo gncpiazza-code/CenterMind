@@ -9,7 +9,6 @@ import {
     MapControls,
     MapRoute,
     type MapRef,
-    useMap,
 } from "@/components/ui/map";
 import { LiveMapEvent, resolveImageUrl } from "@/lib/api";
 import { format, formatDistanceToNow } from "date-fns";
@@ -124,11 +123,6 @@ const MapaExhibiciones = forwardRef<MapRef, MapaExhibicionesProps>(({
                         />
                     );
                 })}
-
-                {/* ── Photo Card Overlay (modo-oficina highlighted event) ── */}
-                {highlightedEvent && highlightedEvent.lat !== 0 && highlightedEvent.lng !== 0 && (
-                    <PhotoCardOverlay event={highlightedEvent} />
-                )}
 
                 {events.map((event) => {
                     // Skip dot marker for the highlighted event — photo card already represents it
@@ -324,46 +318,31 @@ const MapaExhibiciones = forwardRef<MapRef, MapaExhibicionesProps>(({
                     );
                 })}
             </Map>
+
+            {/* ── Photo Card — centered on map (flyTo lands PDV here) ── */}
+            {highlightedEvent && highlightedEvent.lat !== 0 && highlightedEvent.lng !== 0 && (
+                <CenteredPhotoCard event={highlightedEvent} />
+            )}
         </div>
     );
 });
 
 export default MapaExhibiciones;
 
-// ── Photo Card Overlay ────────────────────────────────────────────────────────
-// Renders absolutely inside the Map's position:relative container,
-// positioned via map.project() so it tracks the exact PDV coordinate.
-function PhotoCardOverlay({ event }: { event: LiveMapEvent }) {
-    const { map, isLoaded } = useMap();
-    const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
-
-    useEffect(() => {
-        if (!map || !isLoaded) return;
-
-        const update = () => {
-            const pt = map.project([event.lng, event.lat]);
-            setPos({ x: Math.round(pt.x), y: Math.round(pt.y) });
-        };
-
-        update();
-        map.on("move", update);
-
-        return () => { map.off("move", update); };
-    }, [map, isLoaded, event.lng, event.lat]);
-
-    if (!pos) return null;
-
+// ── Centered Photo Card ───────────────────────────────────────────────────────
+// Rendered OUTSIDE <Map> as a sibling, absolutely centered in the container.
+// flyTo() ends with the PDV at map center, so the arrow aligns with the PDV.
+function CenteredPhotoCard({ event }: { event: LiveMapEvent }) {
     const ts = event.timestamp_evento || (event as any).timestamp;
 
     return (
         <div
             style={{
                 position: "absolute",
-                left: pos.x,
-                top: pos.y,
-                // Center horizontally; shift up by card height + 14px arrow gap
+                top: "50%",
+                left: "50%",
                 transform: "translateX(-50%) translateY(calc(-100% - 14px))",
-                zIndex: 500,
+                zIndex: 9999,
                 width: 210,
                 pointerEvents: "none",
             }}
@@ -434,7 +413,7 @@ function PhotoCardOverlay({ event }: { event: LiveMapEvent }) {
                 </div>
             </div>
 
-            {/* Arrow pointing to coordinate */}
+            {/* Arrow pointing to PDV (map center after flyTo) */}
             <div style={{
                 width: 0, height: 0,
                 borderLeft: "10px solid transparent",
@@ -445,4 +424,3 @@ function PhotoCardOverlay({ event }: { event: LiveMapEvent }) {
         </div>
     );
 }
-

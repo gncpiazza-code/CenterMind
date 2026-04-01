@@ -179,7 +179,7 @@ const MapaExhibiciones = forwardRef<MapRef, MapaExhibicionesProps>(({
                                             <ImageIcon size={28} strokeWidth={1.5} />
                                         </div>
                                     )}
-                                    {/* Live badge */}
+                                    {/* Timestamp badge */}
                                     <div style={{
                                         position: "absolute", top: 8, left: 8,
                                         display: "flex", alignItems: "center", gap: 5,
@@ -188,7 +188,11 @@ const MapaExhibiciones = forwardRef<MapRef, MapaExhibicionesProps>(({
                                         padding: "3px 8px",
                                     }}>
                                         <span style={{ width: 6, height: 6, borderRadius: 999, background: "#10b981", display: "inline-block", animation: "pulse 2s infinite" }} />
-                                        <span style={{ fontSize: 9, fontWeight: 900, color: "#10b981", textTransform: "uppercase", letterSpacing: "0.15em" }}>Live</span>
+                                        <span style={{ fontSize: 9, fontWeight: 900, color: "#10b981", letterSpacing: "0.05em" }}>
+                                            {format(new Date(highlightedEvent.timestamp_evento || highlightedEvent.timestamp), "HH:mm", { locale: es })}
+                                            {" · "}
+                                            {formatDistanceToNow(new Date(highlightedEvent.timestamp_evento || highlightedEvent.timestamp), { addSuffix: true, locale: es })}
+                                        </span>
                                     </div>
                                 </div>
 

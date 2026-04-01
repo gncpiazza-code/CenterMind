@@ -131,7 +131,7 @@ const MapaExhibiciones = forwardRef<MapRef, MapaExhibicionesProps>(({
                         longitude={highlightedEvent.lng}
                         latitude={highlightedEvent.lat}
                         anchor="bottom"
-                        offset={[0, -4]}
+                        offset={[0, -10]}
                     >
                         <MarkerContent>
                             <style>{`
@@ -198,10 +198,12 @@ const MapaExhibiciones = forwardRef<MapRef, MapaExhibicionesProps>(({
 
                                 {/* Info */}
                                 <div style={{ padding: "10px 12px 14px" }}>
+                                    <div style={{ fontSize: 9, fontWeight: 900, color: "#475569", textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 2 }}>PDV</div>
                                     <div style={{ fontSize: 13, fontWeight: 900, color: "#f1f5f9", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                                        {highlightedEvent.cliente_nombre}
+                                        {highlightedEvent.cliente_nombre || highlightedEvent.nro_cliente || "—"}
                                     </div>
-                                    <div style={{ fontSize: 10, color: "#7c3aed", fontWeight: 700, marginTop: 1 }}>
+                                    <div style={{ fontSize: 9, fontWeight: 900, color: "#475569", textTransform: "uppercase", letterSpacing: "0.12em", marginTop: 6, marginBottom: 2 }}>Vendedor</div>
+                                    <div style={{ fontSize: 11, color: "#a78bfa", fontWeight: 700 }}>
                                         {highlightedEvent.vendedor_nombre}
                                     </div>
                                     {(highlightedEvent.domicilio || highlightedEvent.localidad) && (
@@ -216,6 +218,9 @@ const MapaExhibiciones = forwardRef<MapRef, MapaExhibicionesProps>(({
                 )}
 
                 {events.map((event) => {
+                    // Skip dot marker for the highlighted event — photo card already represents it
+                    if (highlightedEvent && event.id_ex === highlightedEvent.id_ex) return null;
+
                     const eventDate = new Date(event.timestamp_evento);
                     const now = new Date();
                     const ageMinutes = (now.getTime() - eventDate.getTime()) / (1000 * 60);

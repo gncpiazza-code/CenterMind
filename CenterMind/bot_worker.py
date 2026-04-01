@@ -872,9 +872,15 @@ class BotWorker:
                         counts["pendientes"] += 1
                 return counts
 
-            # Separar por periodo
-            ex_actual = [e for e in all_ex if e.get("timestamp_subida", "") >= start_mes_actual.isoformat()]
-            ex_prev = [e for e in all_ex if start_mes_prev.isoformat() <= e.get("timestamp_subida", "") < end_mes_prev.isoformat()]
+            # Separar por periodo — comparar como datetime para evitar errores de string con TZ offset
+            def _parse_ts(ts: str) -> datetime:
+                try:
+                    return datetime.fromisoformat(ts)
+                except Exception:
+                    return datetime.min.replace(tzinfo=AR_TZ)
+
+            ex_actual = [e for e in all_ex if _parse_ts(e.get("timestamp_subida", "")) >= start_mes_actual]
+            ex_prev   = [e for e in all_ex if start_mes_prev <= _parse_ts(e.get("timestamp_subida", "")) < end_mes_prev]
 
             counts_actual = _calc_counts(ex_actual)
             counts_prev = _calc_counts(ex_prev)

@@ -706,13 +706,23 @@ def get_live_map_events(minutos: int | None = None, fecha: str | None = None, us
             nombre_vendedor = "Sin Vendedor"
             dist_name = dists.get(e["id_distribuidor"], f"Dist {e['id_distribuidor']}")
 
+            id_vendedor_found = None
             if pdv and pdv.get("rutas_v2"):
-                ruta = pdv["rutas_v2"]
-                if ruta.get("vendedores_v2"):
-                    vendedor = ruta["vendedores_v2"]
-                    nombre_vendedor = vendedor.get("nombre_erp", "Vendedor S/N")
-                    if vendedor.get("sucursales_v2"):
-                        nombre_sucursal = vendedor["sucursales_v2"].get("nombre_erp", "Sucursal S/N")
+                # rutas_v2 is one-to-many: PostgREST returns a list
+                rutas_raw = pdv["rutas_v2"]
+                if not isinstance(rutas_raw, list):
+                    rutas_raw = [rutas_raw]
+                for ruta in rutas_raw:
+                    if not ruta:
+                        continue
+                    vendedor = ruta.get("vendedores_v2")
+                    if vendedor:
+                        nombre_vendedor = vendedor.get("nombre_erp", "Vendedor S/N")
+                        id_vendedor_found = vendedor.get("id_vendedor")
+                        suc = vendedor.get("sucursales_v2")
+                        if suc:
+                            nombre_sucursal = suc.get("nombre_erp", "Sucursal S/N")
+                        break
 
             final_data.append({
                 "id_ex": e["id_exhibicion"],
@@ -726,16 +736,10 @@ def get_live_map_events(minutos: int | None = None, fecha: str | None = None, us
                 "nro_cliente": pdv["id_cliente_erp"] if pdv else (e.get("cliente_sombra_codigo") or "0"),
                 "cliente_nombre": pdv["nombre_fantasia"] if pdv else "Desconocido",
                 "drive_link": e["url_foto_drive"],
-                "id_vendedor": pdv["rutas_v2"]["vendedores_v2"]["id_vendedor"] if (pdv and pdv.get("rutas_v2") and pdv["rutas_v2"].get("vendedores_v2")) else None
+                "id_vendedor": id_vendedor_found,
             })
 
         return final_data
-
-    except Exception as e:
-        logger.error(f"Error procesando eventos de mapa: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=str(e))
 
     except Exception as e:
         logger.error(f"Error procesando eventos de mapa: {e}")

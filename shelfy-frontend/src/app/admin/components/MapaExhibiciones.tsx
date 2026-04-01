@@ -8,7 +8,8 @@ import {
     MarkerPopup,
     MapControls,
     MapRoute,
-    type MapRef
+    type MapRef,
+    useMap,
 } from "@/components/ui/map";
 import { LiveMapEvent, resolveImageUrl } from "@/lib/api";
 import { format, formatDistanceToNow } from "date-fns";
@@ -124,97 +125,9 @@ const MapaExhibiciones = forwardRef<MapRef, MapaExhibicionesProps>(({
                     );
                 })}
 
-                {/* ── Photo Card Marker (modo-oficina highlighted event) ── */}
+                {/* ── Photo Card Overlay (modo-oficina highlighted event) ── */}
                 {highlightedEvent && highlightedEvent.lat !== 0 && highlightedEvent.lng !== 0 && (
-                    <MapMarker
-                        key={`highlight-${highlightedEvent.id_ex}`}
-                        longitude={highlightedEvent.lng}
-                        latitude={highlightedEvent.lat}
-                        anchor="bottom"
-                        offset={[0, -10]}
-                    >
-                        <MarkerContent>
-                            <style>{`
-                                @keyframes photoCardIn {
-                                    0%  { opacity: 0; transform: translateY(20px) scale(0.88); }
-                                    100%{ opacity: 1; transform: translateY(0)     scale(1);    }
-                                }
-                                .photo-card-pin::after {
-                                    content: "";
-                                    position: absolute;
-                                    bottom: -10px;
-                                    left: 50%;
-                                    transform: translateX(-50%);
-                                    border-left: 10px solid transparent;
-                                    border-right: 10px solid transparent;
-                                    border-top: 10px solid rgba(124,58,237,0.7);
-                                }
-                            `}</style>
-                            <div
-                                className="photo-card-pin"
-                                style={{
-                                    width: 210,
-                                    background: "rgba(6,13,26,0.92)",
-                                    backdropFilter: "blur(18px)",
-                                    WebkitBackdropFilter: "blur(18px)",
-                                    border: "1.5px solid rgba(124,58,237,0.7)",
-                                    borderRadius: 16,
-                                    overflow: "hidden",
-                                    boxShadow: "0 12px 40px rgba(0,0,0,0.7), 0 0 0 1px rgba(124,58,237,0.2)",
-                                    animation: "photoCardIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) both",
-                                    position: "relative",
-                                    cursor: "default",
-                                }}
-                            >
-                                {/* Photo */}
-                                <div style={{ height: 130, overflow: "hidden", background: "#0f172a", position: "relative" }}>
-                                    {highlightedEvent.drive_link ? (
-                                        <img
-                                            src={resolveImageUrl(highlightedEvent.drive_link)}
-                                            alt="Exhibición"
-                                            style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                                        />
-                                    ) : (
-                                        <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#334155" }}>
-                                            <ImageIcon size={28} strokeWidth={1.5} />
-                                        </div>
-                                    )}
-                                    {/* Timestamp badge */}
-                                    <div style={{
-                                        position: "absolute", top: 8, left: 8,
-                                        display: "flex", alignItems: "center", gap: 5,
-                                        background: "rgba(6,13,26,0.75)", backdropFilter: "blur(8px)",
-                                        border: "1px solid rgba(16,185,129,0.4)", borderRadius: 999,
-                                        padding: "3px 8px",
-                                    }}>
-                                        <span style={{ width: 6, height: 6, borderRadius: 999, background: "#10b981", display: "inline-block", animation: "pulse 2s infinite" }} />
-                                        <span style={{ fontSize: 9, fontWeight: 900, color: "#10b981", letterSpacing: "0.05em" }}>
-                                            {format(new Date(highlightedEvent.timestamp_evento || highlightedEvent.timestamp), "HH:mm", { locale: es })}
-                                            {" · "}
-                                            {formatDistanceToNow(new Date(highlightedEvent.timestamp_evento || highlightedEvent.timestamp), { addSuffix: true, locale: es })}
-                                        </span>
-                                    </div>
-                                </div>
-
-                                {/* Info */}
-                                <div style={{ padding: "10px 12px 14px" }}>
-                                    <div style={{ fontSize: 9, fontWeight: 900, color: "#475569", textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 2 }}>PDV</div>
-                                    <div style={{ fontSize: 13, fontWeight: 900, color: "#f1f5f9", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                                        {highlightedEvent.cliente_nombre || highlightedEvent.nro_cliente || "—"}
-                                    </div>
-                                    <div style={{ fontSize: 9, fontWeight: 900, color: "#475569", textTransform: "uppercase", letterSpacing: "0.12em", marginTop: 6, marginBottom: 2 }}>Vendedor</div>
-                                    <div style={{ fontSize: 11, color: "#a78bfa", fontWeight: 700 }}>
-                                        {highlightedEvent.vendedor_nombre}
-                                    </div>
-                                    {(highlightedEvent.domicilio || highlightedEvent.localidad) && (
-                                        <div style={{ fontSize: 10, color: "#64748b", marginTop: 4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                                            {[highlightedEvent.domicilio, highlightedEvent.localidad].filter(Boolean).join(", ")}
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        </MarkerContent>
-                    </MapMarker>
+                    <PhotoCardOverlay event={highlightedEvent} />
                 )}
 
                 {events.map((event) => {
@@ -416,4 +329,120 @@ const MapaExhibiciones = forwardRef<MapRef, MapaExhibicionesProps>(({
 });
 
 export default MapaExhibiciones;
+
+// ── Photo Card Overlay ────────────────────────────────────────────────────────
+// Renders absolutely inside the Map's position:relative container,
+// positioned via map.project() so it tracks the exact PDV coordinate.
+function PhotoCardOverlay({ event }: { event: LiveMapEvent }) {
+    const { map, isLoaded } = useMap();
+    const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+
+    useEffect(() => {
+        if (!map || !isLoaded) return;
+
+        const update = () => {
+            const pt = map.project([event.lng, event.lat]);
+            setPos({ x: Math.round(pt.x), y: Math.round(pt.y) });
+        };
+
+        update();
+        map.on("move", update);
+
+        return () => { map.off("move", update); };
+    }, [map, isLoaded, event.lng, event.lat]);
+
+    if (!pos) return null;
+
+    const ts = event.timestamp_evento || (event as any).timestamp;
+
+    return (
+        <div
+            style={{
+                position: "absolute",
+                left: pos.x,
+                top: pos.y,
+                // Center horizontally; shift up by card height + 14px arrow gap
+                transform: "translateX(-50%) translateY(calc(-100% - 14px))",
+                zIndex: 500,
+                width: 210,
+                pointerEvents: "none",
+            }}
+        >
+            <style>{`
+                @keyframes photoCardIn {
+                    0%  { opacity: 0; transform: translateY(12px) scale(0.92); }
+                    100%{ opacity: 1; transform: translateY(0)     scale(1);    }
+                }
+            `}</style>
+
+            {/* Card */}
+            <div style={{
+                background: "rgba(6,13,26,0.92)",
+                backdropFilter: "blur(18px)",
+                WebkitBackdropFilter: "blur(18px)",
+                border: "1.5px solid rgba(124,58,237,0.7)",
+                borderRadius: 16,
+                overflow: "hidden",
+                boxShadow: "0 12px 40px rgba(0,0,0,0.7), 0 0 0 1px rgba(124,58,237,0.15)",
+                animation: "photoCardIn 0.6s cubic-bezier(0.16,1,0.3,1) both",
+            }}>
+                {/* Photo */}
+                <div style={{ height: 130, background: "#0f172a", position: "relative", overflow: "hidden" }}>
+                    {event.drive_link ? (
+                        <img
+                            src={resolveImageUrl(event.drive_link) ?? undefined}
+                            alt="Exhibición"
+                            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                        />
+                    ) : (
+                        <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#334155" }}>
+                            <ImageIcon size={28} strokeWidth={1.5} />
+                        </div>
+                    )}
+                    {/* Timestamp badge */}
+                    <div style={{
+                        position: "absolute", top: 8, left: 8,
+                        display: "flex", alignItems: "center", gap: 5,
+                        background: "rgba(6,13,26,0.75)", backdropFilter: "blur(8px)",
+                        border: "1px solid rgba(16,185,129,0.4)", borderRadius: 999,
+                        padding: "3px 8px",
+                    }}>
+                        <span style={{ width: 6, height: 6, borderRadius: 999, background: "#10b981", flexShrink: 0 }} />
+                        <span style={{ fontSize: 9, fontWeight: 900, color: "#10b981", letterSpacing: "0.05em", whiteSpace: "nowrap" }}>
+                            {ts
+                                ? `${format(new Date(ts), "HH:mm", { locale: es })} · ${formatDistanceToNow(new Date(ts), { addSuffix: true, locale: es })}`
+                                : "Live"}
+                        </span>
+                    </div>
+                </div>
+
+                {/* Info */}
+                <div style={{ padding: "10px 12px 14px" }}>
+                    <div style={{ fontSize: 9, fontWeight: 900, color: "#475569", textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 2 }}>PDV</div>
+                    <div style={{ fontSize: 13, fontWeight: 900, color: "#f1f5f9", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {event.cliente_nombre || event.nro_cliente || "—"}
+                    </div>
+                    <div style={{ fontSize: 9, fontWeight: 900, color: "#475569", textTransform: "uppercase", letterSpacing: "0.12em", marginTop: 6, marginBottom: 2 }}>Vendedor</div>
+                    <div style={{ fontSize: 11, color: "#a78bfa", fontWeight: 700 }}>
+                        {event.vendedor_nombre}
+                    </div>
+                    {(event.domicilio || event.localidad) && (
+                        <div style={{ fontSize: 10, color: "#64748b", marginTop: 4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                            {[event.domicilio, event.localidad].filter(Boolean).join(", ")}
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            {/* Arrow pointing to coordinate */}
+            <div style={{
+                width: 0, height: 0,
+                borderLeft: "10px solid transparent",
+                borderRight: "10px solid transparent",
+                borderTop: "12px solid rgba(124,58,237,0.7)",
+                margin: "0 auto",
+            }} />
+        </div>
+    );
+}
 

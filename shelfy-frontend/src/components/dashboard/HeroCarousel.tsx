@@ -72,20 +72,30 @@ export function HeroCarousel({ items }: HeroCarouselProps) {
           className="absolute inset-0"
         >
           {!imgErr && imgSrc ? (
-            <img
-              src={imgSrc}
-              alt="Exhibicion"
-              className="w-full h-full object-cover opacity-70 group-hover:opacity-60 transition-opacity duration-700"
-              onLoad={() => setLoaded(true)}
-              onError={() => setImgErr(true)}
-            />
+            <div className="relative w-full h-full overflow-hidden flex items-center justify-center bg-slate-900/50">
+              {/* Layer 1: Blurred Background (Full covers) */}
+              <img
+                src={imgSrc}
+                alt="Exhibicion Background"
+                className="absolute inset-0 w-full h-full object-cover opacity-30 blur-2xl scale-110"
+              />
+              {/* Layer 2: Sharp Foregound (Contained) */}
+              <img
+                src={imgSrc}
+                alt="Exhibicion"
+                className="relative z-10 max-w-full max-h-full object-contain shadow-2xl transition-all duration-700 group-hover:scale-[1.02]"
+                onLoad={() => setLoaded(true)}
+                onError={() => setImgErr(true)}
+              />
+            </div>
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-slate-900">
               <ImageOff size={40} className="text-slate-800" />
             </div>
           )}
-          {/* Gradiente Oscuro */}
-          <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/40 to-transparent" />
+          {/* Overlay Vignetado */}
+          <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/40 to-transparent z-10 pointer-events-none" />
+          <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-transparent z-10 pointer-events-none" />
         </motion.div>
       </AnimatePresence>
 

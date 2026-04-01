@@ -1366,6 +1366,7 @@ class BotWorker:
                             # B. Buscar datos completos del PDV por nro_cliente (independiente de A)
                             if nro_cliente and nro_cliente != "0":
                                 try:
+                                    self.logger.info(f"🔍 Lookup PDV clientes_pdv_v2: id_cliente_erp='{nro_cliente}' dist={self.distribuidor_id}")
                                     pdv_res = await asyncio.to_thread(
                                         self.db.sb.table("clientes_pdv_v2")
                                         .select("nombre_fantasia, latitud, longitud, domicilio, localidad, telefono, fecha_alta")
@@ -1374,6 +1375,21 @@ class BotWorker:
                                         .limit(1)
                                         .execute
                                     )
+                                    # Fallback: el ERP puede almacenar el código sin ceros iniciales
+                                    # mientras el vendedor los tipea (o viceversa). Se reintenta
+                                    # con el valor stripped para cubrir ambos casos.
+                                    if not pdv_res.data:
+                                        nro_stripped = nro_cliente.lstrip("0") or nro_cliente
+                                        if nro_stripped != nro_cliente:
+                                            self.logger.info(f"🔍 Reintento sin ceros iniciales: id_cliente_erp='{nro_stripped}'")
+                                            pdv_res = await asyncio.to_thread(
+                                                self.db.sb.table("clientes_pdv_v2")
+                                                .select("nombre_fantasia, latitud, longitud, domicilio, localidad, telefono, fecha_alta")
+                                                .eq("id_distribuidor", self.distribuidor_id)
+                                                .eq("id_cliente_erp", nro_stripped)
+                                                .limit(1)
+                                                .execute
+                                            )
                                     if pdv_res.data:
                                         pdv = pdv_res.data[0]
                                         lat = float(pdv.get("latitud") or 0.0)
@@ -1383,8 +1399,9 @@ class BotWorker:
                                         localidad = pdv.get("localidad") or ""
                                         telefono = pdv.get("telefono") or ""
                                         fecha_alta = pdv.get("fecha_alta") or ""
+                                        self.logger.info(f"✅ PDV encontrado: '{cliente_nombre}' lat={lat} lon={lon}")
                                     else:
-                                        self.logger.warning(f"⚠️ PDV no encontrado en clientes_pdv_v2 para id_cliente_erp='{nro_cliente}' dist={self.distribuidor_id}")
+                                        self.logger.warning(f"⚠️ PDV no encontrado en clientes_pdv_v2 para id_cliente_erp='{nro_cliente}' dist={self.distribuidor_id} — resultado vacío")
                                 except Exception as ex_pdv:
                                     self.logger.warning(f"⚠️ Error lookup PDV real-time: {ex_pdv}")
                             

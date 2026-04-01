@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Map } from "@/components/ui/map";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -55,12 +55,14 @@ const SHELFY_PIN_CSS = `
   border-radius: 50%;
   pointer-events: auto;
   cursor: pointer;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  /* NO transition: transform — having it here promotes the element to a separate
+     GPU compositing layer. During MapLibre pan/zoom (which positions markers via
+     transform on the parent .maplibregl-marker), that separate layer composites
+     independently from the WebGL canvas, causing 1-frame drift ("dancing pins"). */
+  transition: box-shadow 0.15s ease;
 }
 .shelfy-pin:hover {
-  transform: scale(1.2);
-  z-index: 100 !important;
-  box-shadow: 0 0 12px rgba(0,0,0,0.25);
+  box-shadow: 0 0 0 3px rgba(255,255,255,0.75), 0 0 10px rgba(0,0,0,0.35) !important;
 }
 `;
 
@@ -97,12 +99,21 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode }: Ma
   const toggleFilter = (status: PinStatus) =>
     setFilterEnabled(prev => ({ ...prev, [status]: !prev[status] }));
 
-  const statusCounts = (["activo_exhibicion", "activo", "inactivo_exhibicion", "inactivo"] as PinStatus[]).reduce(
-    (acc, s) => ({ ...acc, [s]: pines.filter(p => getPinStatus(p) === s).length }),
-    {} as Record<PinStatus, number>
+  const statusCounts = useMemo(() =>
+    (["activo_exhibicion", "activo", "inactivo_exhibicion", "inactivo"] as PinStatus[]).reduce(
+      (acc, s) => ({ ...acc, [s]: pines.filter(p => getPinStatus(p) === s).length }),
+      {} as Record<PinStatus, number>
+    ),
+    [pines]
   );
 
-  const filteredPines = pines.filter(p => filterEnabled[getPinStatus(p)]);
+  // Memoize so the array reference is stable between renders.
+  // Without this, every parent re-render creates a new array reference,
+  // triggering the marker useEffect and destroying/recreating all markers.
+  const filteredPines = useMemo(
+    () => pines.filter(p => filterEnabled[getPinStatus(p)]),
+    [pines, filterEnabled]
+  );
 
   // Resetear fitBounds cuando cambia el set de pines (nuevo vendedor/ruta seleccionado)
   const prevPineIdsRef = useRef<string>("");
@@ -211,7 +222,7 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode }: Ma
           popup.remove();
         });
 
-        const marker = new maplibregl.Marker({ element: wrapper, anchor: "bottom" })
+        const marker = new maplibregl.Marker({ element: wrapper, anchor: "center" })
           .setLngLat([p.lng, p.lat])
           .addTo(map);
         markersRef.current.push(marker);

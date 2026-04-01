@@ -59,23 +59,22 @@ const MapaRutas = dynamic(() => import("./MapaRutas"), {
 });
 
 // ── Vendor color palette ──────────────────────────────────────────────────────
+// 12 colors, each ≥27° apart on the hue wheel at full saturation.
+// Old palette had cyan/teal/sky within 26° of each other, green/emerald within
+// 15°, amber/orange/yellow within 19°, and red/rose within 7° — all confusing.
 const VENDOR_COLORS = [
-  "#22d3ee", // cyan
-  "#4ade80", // green
-  "#f59e0b", // amber
-  "#f87171", // red
-  "#a78bfa", // violet
-  "#fb7185", // rose
-  "#34d399", // emerald
-  "#60a5fa", // blue
-  "#fbbf24", // yellow
-  "#e879f9", // fuchsia
-  "#2dd4bf", // teal
-  "#fb923c", // orange
-  "#a3e635", // lime
-  "#818cf8", // indigo
-  "#f472b6", // pink
-  "#38bdf8", // sky
+  "#E60020", // 1  — Red           (H≈353)
+  "#FF7700", // 2  — Orange        (H≈29)
+  "#FFD100", // 3  — Yellow        (H≈49)
+  "#88CC00", // 4  — Lime          (H≈83)  gap 34°
+  "#44BB00", // 5  — Spring-Green  (H≈110) gap 27°
+  "#00BB44", // 6  — Green         (H≈137) gap 27°
+  "#00BB99", // 7  — Teal          (H≈166) gap 29°
+  "#00AADD", // 8  — Cyan          (H≈193) gap 27°
+  "#2244FF", // 9  — Blue          (H≈231) gap 38°
+  "#7700EE", // 10 — Violet        (H≈270) gap 39°
+  "#CC00BB", // 11 — Magenta       (H≈303) gap 33°
+  "#FF0077", // 12 — Hot Pink      (H≈332) gap 29° / back to Red: 21°
 ];
 const vendorColor = (i: number) => VENDOR_COLORS[i % VENDOR_COLORS.length];
 

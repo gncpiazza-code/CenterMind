@@ -904,6 +904,9 @@ def _get_erp_name_map(dist_id: int) -> dict:
     Resuelve la cadena: integrantes_grupo.id_vendedor_v2 → vendedores_v2.nombre_erp
     Fallback: si un integrante no tiene id_vendedor_v2 asignado, su nombre Telegram
     se mantiene como clave y valor (sin transformación).
+    
+    EXCEPCIONAL: Para Distribuidora 3 (Tabaco) y id_vendedor_v2=30 (Ivan Soto),
+    NO aplicamos el mapeo ERP para que Monchi y Jorge aparezcan con su propio nombre.
     """
     try:
         ig_res = sb.table("integrantes_grupo")\
@@ -915,12 +918,23 @@ def _get_erp_name_map(dist_id: int) -> dict:
             tg_name = (ig.get("nombre_integrante") or "").strip()
             if not tg_name:
                 continue
+            
+            # Exclusión de test users (Nacho)
+            if dist_id == 3 and tg_name.lower() == "nacho":
+                continue
+
+            id_v_erp = ig.get("id_vendedor_v2")
+            # Caso excepcional Soto: No mapear ERP para que se mantenga el nombre del integrante
+            if dist_id == 3 and id_v_erp == 30:
+                continue
+
             vend = ig.get("vendedores_v2")
             nombre_erp = None
             if isinstance(vend, dict):
                 nombre_erp = vend.get("nombre_erp")
             elif isinstance(vend, list) and vend:
                 nombre_erp = vend[0].get("nombre_erp")
+            
             if nombre_erp:
                 name_map[tg_name.lower()] = nombre_erp
         return name_map
@@ -1528,7 +1542,17 @@ def dashboard_ranking(distribuidor_id: int, periodo: str = "mes", top: int = 999
                       "total_enviadas", "total_aprobadas", "total_rechazadas", "total_destacadas", "puntos")
     for row in rows:
         tg_name = (row.get("vendedor") or "").strip()
+        
+        # Exclusión de Nacho (Test user) en Tabaco
+        if distribuidor_id == 3 and tg_name.lower() == "nacho":
+            continue
+
         erp_name = erp_name_map.get(tg_name.lower(), tg_name)
+        
+        # Re-exclusión post-mapeo (por si el ERP name mapeado es Nacho, improbable pero seguro)
+        if distribuidor_id == 3 and erp_name.lower() == "nacho":
+            continue
+
         if erp_name not in aggregated:
             aggregated[erp_name] = {**row, "vendedor": erp_name}
         else:
@@ -1583,7 +1607,16 @@ def dashboard_ranking_historico(distribuidor_id: int, sucursal_id: int = Query(N
         fecha = ts.split("T")[0]
         id_int = r.get("id_integrante")
         tg_name = int_map.get(id_int, "Desconocido")
+        
+        # Exclusión de Nacho en Tabaco
+        if distribuidor_id == 3 and tg_name.lower() == "nacho":
+            continue
+
         erp_name = erp_name_map.get(tg_name.lower(), tg_name)
+        
+        # Re-exclusión post-mapeo
+        if distribuidor_id == 3 and erp_name.lower() == "nacho":
+            continue
         
         # Calcular puntos (1 apro, 2 dest)
         est = (r.get("estado") or "").lower()
@@ -2148,15 +2181,43 @@ class ReporteQuery(BaseModel):
 
 @app.get("/api/reportes/vendedores/{distribuidor_id}", summary="Vendedores unicos para filtro de reportes")
 def reportes_vendedores(distribuidor_id: int, _=Depends(verify_auth)):
-    result = sb.rpc("fn_vendedores_pendientes", {"p_dist_id": distribuidor_id}).execute()
-    # Also get vendedores with any exhibicion, not just pendientes
-    q = sb.table("exhibiciones").select("id_integrante").eq("id_distribuidor", distribuidor_id) if distribuidor_id > 0 else sb.table("exhibiciones").select("id_integrante")
+    # También necesitamos mapear nombres Telegram → ERP
+    erp_name_map = _get_erp_name_map(distribuidor_id)
+    
+    # Obtener integrantes que tienen al menos una exhibición
+    q = sb.table("exhibiciones").select("id_integrante")
+    if distribuidor_id > 0:
+        q = q.eq("id_distribuidor", distribuidor_id)
     ex_result = q.execute()
     integrante_ids = list(set(r["id_integrante"] for r in (ex_result.data or []) if r.get("id_integrante")))
     if not integrante_ids:
         return []
-    ig_result = sb.table("integrantes_grupo").select("nombre_integrante").in_("id_integrante", integrante_ids).not_.is_("nombre_integrante", "null").order("nombre_integrante").execute()
-    return list(set(r["nombre_integrante"] for r in (ig_result.data or [])))
+        
+    ig_result = sb.table("integrantes_grupo")\
+        .select("nombre_integrante")\
+        .in_("id_integrante", integrante_ids)\
+        .not_.is_("nombre_integrante", "null")\
+        .execute()
+    
+    vendedores_unicos = set()
+    for r in (ig_result.data or []):
+        tg_name = r["nombre_integrante"]
+        if not tg_name:
+            continue
+            
+        # Exclusión de Nacho en Tabaco
+        if distribuidor_id == 3 and tg_name.lower() == "nacho":
+            continue
+            
+        erp_name = erp_name_map.get(tg_name.lower(), tg_name)
+        
+        # Re-exclusión post-mapeo
+        if distribuidor_id == 3 and erp_name.lower() == "nacho":
+            continue
+            
+        vendedores_unicos.add(erp_name)
+        
+    return sorted(list(vendedores_unicos))
 
 
 @app.get("/api/reportes/tipos-pdv/{distribuidor_id}", summary="Tipos de PDV unicos")
@@ -2198,7 +2259,31 @@ def reportes_exhibiciones(distribuidor_id: int, q_body: ReporteQuery, _=Depends(
     result = query.order("timestamp_subida", desc=True).execute()
     rows = result.data or []
     # Enrich with vendedor/cliente/sucursal names
-    integrante_ids = list(set(r["id_integrante"] for r in rows if r.get("id_integrante")))
+    erp_name_map = _get_erp_name_map(distribuidor_id)
+    
+    integrantes_res = sb.table("integrantes_grupo").select("id_integrante, nombre_integrante").eq("id_distribuidor", distribuidor_id).execute()
+    int_map = {r["id_integrante"]: r["nombre_integrante"] for r in (integrantes_res.data or [])}
+
+    filtered_rows = []
+    for r in rows:
+        id_int = r.get("id_integrante")
+        tg_name = int_map.get(id_int, "Desconocido")
+        
+        # Exclusión de Nacho en Tabaco
+        if distribuidor_id == 3 and tg_name.lower() == "nacho":
+            continue
+
+        erp_name = erp_name_map.get(tg_name.lower(), tg_name)
+        
+        # Re-exclusión post-mapeo
+        if distribuidor_id == 3 and erp_name.lower() == "nacho":
+            continue
+
+        r["vendedor"] = erp_name
+        filtered_rows.append(r)
+    
+    rows = filtered_rows
+    
     cliente_ids = list(set(r["id_cliente"] for r in rows if r.get("id_cliente")))
     vendedores_map = {}
     clientes_map = {}
@@ -2315,8 +2400,40 @@ def bonos_liquidacion(id_distribuidor: int, anio: int, mes: int, _=Depends(verif
     # Puntos del mes via RPC
     rows_result = sb.rpc("fn_bonos_liquidacion", {"p_dist_id": id_distribuidor, "p_anio": anio, "p_mes": mes}).execute()
     rows = rows_result.data or []
+    
+    # Mapeo nombres Telegram → ERP
+    erp_name_map = _get_erp_name_map(id_distribuidor)
+    
+    aggregated: dict = {}
+    for d in rows:
+        tg_name = (d.get("vendedor") or "").strip()
+        
+        # Exclusión de Nacho en Tabaco
+        if id_distribuidor == 3 and tg_name.lower() == "nacho":
+            continue
+
+        erp_name = erp_name_map.get(tg_name.lower(), tg_name)
+        
+        # Re-exclusión post-mapeo
+        if id_distribuidor == 3 and erp_name.lower() == "nacho":
+            continue
+            
+        if erp_name not in aggregated:
+            aggregated[erp_name] = {
+                "aprobadas": d["aprobadas"],
+                "destacadas": d["destacadas"],
+                "puntos": d["puntos"]
+            }
+        else:
+            aggregated[erp_name]["aprobadas"] += d["aprobadas"]
+            aggregated[erp_name]["destacadas"] += d["destacadas"]
+            aggregated[erp_name]["puntos"] += d["puntos"]
+
+    # Convert to list and sort by points
+    sorted_vends = sorted(aggregated.items(), key=lambda x: x[1]["puntos"], reverse=True)
+    
     resultado = []
-    for pos, d in enumerate(rows, start=1):
+    for pos, (vendedor, d) in enumerate(sorted_vends, start=1):
         puntos = d["puntos"]
         info_puesto = puestos_map.get(pos, {})
         llego = puntos >= umbral
@@ -2325,7 +2442,7 @@ def bonos_liquidacion(id_distribuidor: int, anio: int, mes: int, _=Depends(verif
         else:
             bono = puntos * por_punto + info_puesto.get("premio_si_no_llego", 0.0)
         resultado.append({
-            "puesto": pos, "vendedor": d["vendedor"],
+            "puesto": pos, "vendedor": vendedor,
             "aprobadas": d["aprobadas"], "destacadas": d["destacadas"],
             "puntos": puntos, "llego_umbral": llego, "bono": round(bono, 2),
         })
@@ -3171,7 +3288,28 @@ def supervision_vendedores(dist_id: int, user_payload=Depends(verify_auth)):
     check_dist_permission(user_payload, dist_id)
     try:
         res = sb.rpc("fn_supervision_vendedores", {"p_dist_id": dist_id}).execute()
-        return res.data or []
+        rows = res.data or []
+        
+        erp_name_map = _get_erp_name_map(dist_id)
+        
+        filtered = []
+        for r in rows:
+            tg_name = (r.get("nombre_vendedor") or "").strip()
+            
+            # Exclusión de Nacho en Tabaco
+            if dist_id == 3 and tg_name.lower() == "nacho":
+                continue
+                
+            erp_name = erp_name_map.get(tg_name.lower(), tg_name)
+            
+            # Re-exclusión post-mapeo
+            if dist_id == 3 and erp_name.lower() == "nacho":
+                continue
+                
+            r["nombre_vendedor"] = erp_name
+            filtered.append(r)
+            
+        return filtered
     except Exception as e:
         logger.error(f"Error en supervision_vendedores: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -3427,10 +3565,22 @@ def supervision_ventas(dist_id: int, dias: int = 30, user_payload=Depends(verify
             .order("fecha", desc=True) \
             .execute()
 
-        rows = res.data or []
+        erp_name_map = _get_erp_name_map(dist_id)
+        
         vendors: dict = {}
         for row in rows:
-            v = row.get("vendedor") or "Sin Vendedor"
+            v_raw = row.get("vendedor") or "Sin Vendedor"
+            
+            # Exclusión de Nacho en Tabaco
+            if dist_id == 3 and v_raw.lower() == "nacho":
+                continue
+                
+            v = erp_name_map.get(v_raw.lower(), v_raw)
+            
+            # Re-exclusión post-mapeo
+            if dist_id == 3 and v.lower() == "nacho":
+                continue
+
             if v not in vendors:
                 vendors[v] = {
                     "vendedor": v,

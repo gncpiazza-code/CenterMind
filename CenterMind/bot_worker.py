@@ -426,7 +426,7 @@ class Database:
             user_meta = {}
 
             # REGLAS ESPECIALES DIST 3 (MARZO AUDIT)
-            EXCLUDE_UIDS = [9001156] if distribuidor_id == 3 else [] # Ivan duplicado
+            EXCLUDE_UIDS = [9001156, 9000101] if distribuidor_id == 3 else [] # Ivan duplicado + Matias Wüthrich (fusionado → Ivan Wuthrich 9000666)
             LUCIANO_UIDS = [6823099488, 9000005, 9000202] if distribuidor_id == 3 else []
 
             # Fetch nombre_erp desde vendedores_v2 para mostrar nombre ERP en ranking
@@ -541,8 +541,30 @@ class Database:
             "p_nro_cliente": nro_cliente,
             "p_limit": limit
         }).execute()
-        
+
         return res.data if res.data else []
+
+    def lookup_soto_intercept(
+        self, distribuidor_id: int, uploader_tuid: int, id_cliente_erp: str
+    ) -> Optional[Dict]:
+        """
+        Interceptor de franquiciados.
+        Si el par (distribuidor, uploader, cliente) está en matcheo_rutas_excepciones,
+        devuelve {'telegram_user_id_real': ..., 'nombre_vendedor_real': ...}.
+        Retorna None si no hay intercepción o si la tabla no existe aún.
+        """
+        try:
+            res = self.sb.table("matcheo_rutas_excepciones") \
+                .select("telegram_user_id_real, nombre_vendedor_real") \
+                .eq("id_distribuidor", distribuidor_id) \
+                .eq("telegram_user_id_franquiciado", uploader_tuid) \
+                .eq("id_cliente_erp", id_cliente_erp) \
+                .limit(1).execute()
+            if res.data:
+                return res.data[0]
+        except Exception as e:
+            self.logger.warning(f"⚠️ lookup_soto_intercept no disponible: {e}")
+        return None
 
 # ═══════════════════════════════════════════════════════════════════
 # SUPABASE STORAGE (reemplaza Google Drive)
@@ -1309,10 +1331,29 @@ class BotWorker:
                     self.logger.info(f"✅ Foto en Supabase: {drive_link[:80]}...")
                     # Registro en SQL (PASO 5: la función ahora devuelve JSON)
                     try:
+                        # ── INTERCEPTOR DE FRANQUICIADOS (Soto → Monchi/Jorge) ──────
+                        # Si el uploader está mapeado en matcheo_rutas_excepciones para
+                        # este cliente, la exhibición se registra a nombre del vendedor real.
+                        effective_uploader_id = uploader_id
+                        intercept = await asyncio.to_thread(
+                            self.db.lookup_soto_intercept,
+                            self.distribuidor_id, uploader_id, nro_cliente
+                        )
+                        if intercept:
+                            real_tuid = intercept.get("telegram_user_id_real")
+                            real_nombre = intercept.get("nombre_vendedor_real", "")
+                            if real_tuid:
+                                self.logger.info(
+                                    f"🔀 Intercepción franquiciado: UID {uploader_id} → "
+                                    f"UID {real_tuid} ({real_nombre}) para cliente '{nro_cliente}'"
+                                )
+                                effective_uploader_id = real_tuid
+                        # ── FIN INTERCEPTOR ─────────────────────────────────────────
+
                         params = {
                             "distribuidor_id": self.distribuidor_id,
                             "chat_id": chat_id,
-                            "vendedor_id": uploader_id,
+                            "vendedor_id": effective_uploader_id,
                             "nro_cliente": nro_cliente,
                             "tipo_pdv": tipo_pdv,
                             "drive_link": drive_link,

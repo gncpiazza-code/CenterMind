@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shelfy — Mapa Arquitectónico Interactivo</title>
+<style>
+  :root {
+    --bg:        #0f1117;
+    --panel:     #1a1d27;
+    --border:    #2d3149;
+    --accent:    #6c63ff;
+    --accent2:   #00d4aa;
+    --accent3:   #ff6b6b;
+    --accent4:   #ffa94d;
+    --text:      #e2e8f0;
+    --muted:     #8892a4;
+    --success:   #22c55e;
+    --warning:   #f59e0b;
+    --danger:    #ef4444;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    min-height: 100vh;
+    padding: 24px;
+  }
+  h1 { font-size: 1.6rem; font-weight: 700; color: var(--accent); margin-bottom: 4px; }
+  .subtitle { color: var(--muted); font-size: .85rem; margin-bottom: 28px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; margin-bottom: 24px; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+    transition: transform .15s, box-shadow .15s;
+    cursor: default;
+  }
+  .card:hover { transform: translateY(-2px); box-shadow: 0 8px 32px rgba(0,0,0,.4); }
+  .card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; height: 3px;
+    background: var(--stripe, var(--accent));
+  }
+  .card h2 { font-size: .95rem; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 99px;
+    font-size: .7rem;
+    font-weight: 600;
+    background: rgba(108,99,255,.2);
+    color: var(--accent);
+  }
+  .badge.green  { background: rgba(34,197,94,.15);  color: var(--success); }
+  .badge.yellow { background: rgba(245,158,11,.15); color: var(--warning); }
+  .badge.red    { background: rgba(239,68,68,.15);  color: var(--danger); }
+  .badge.teal   { background: rgba(0,212,170,.15);  color: var(--accent2); }
+
+  /* Flow diagram */
+  .flow { display: flex; flex-direction: column; gap: 6px; }
+  .flow-node {
+    background: rgba(255,255,255,.04);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: .8rem;
+  }
+  .flow-arrow {
+    text-align: center;
+    color: var(--muted);
+    font-size: .75rem;
+    user-select: none;
+  }
+  .flow-node b { color: var(--accent2); }
+  .flow-node .tag { font-size: .7rem; color: var(--muted); }
+
+  /* Table */
+  .tbl { width: 100%; border-collapse: collapse; font-size: .78rem; }
+  .tbl th { text-align: left; padding: 6px 8px; color: var(--muted); border-bottom: 1px solid var(--border); }
+  .tbl td { padding: 6px 8px; border-bottom: 1px solid rgba(255,255,255,.04); vertical-align: top; }
+  .tbl tr:last-child td { border-bottom: none; }
+
+  /* Security grid */
+  .sec-item { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 10px; font-size: .8rem; }
+  .sec-icon { font-size: 1rem; flex-shrink: 0; margin-top: 1px; }
+  .sec-label { font-weight: 600; }
+  .sec-detail { color: var(--muted); font-size: .75rem; margin-top: 2px; }
+
+  /* Toggle */
+  details summary { cursor: pointer; padding: 6px 0; font-size: .8rem; color: var(--accent); user-select: none; }
+  details summary:hover { opacity: .8; }
+  details[open] .detail-body { margin-top: 10px; }
+
+  /* Wide card */
+  .full { grid-column: 1 / -1; }
+
+  /* Interceptor flow */
+  .iflow {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+    font-size: .78rem; margin-top: 10px;
+  }
+  .inode {
+    background: rgba(255,255,255,.05);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 12px;
+  }
+  .inode.red   { border-color: var(--accent3); color: var(--accent3); }
+  .inode.teal  { border-color: var(--accent2); color: var(--accent2); }
+  .inode.gold  { border-color: var(--accent4); color: var(--accent4); }
+  .inode.purple { border-color: var(--accent); color: var(--accent); }
+  .iarrow { color: var(--muted); font-size: 1rem; }
+
+  footer { text-align: center; color: var(--muted); font-size: .75rem; margin-top: 32px; }
+</style>
+</head>
+<body>
+
+<h1>Shelfy — Mapa Arquitectónico</h1>
+<p class="subtitle">Estado del sistema · Generado 2026-04-02 · CenterMind / Shelfy SaaS</p>
+
+<!-- ROW 1 -->
+<div class="grid">
+
+  <!-- Bot Lifecycle -->
+  <div class="card" style="--stripe:var(--accent)">
+    <h2>🤖 Flujo de Exhibición (Bot Telegram) <span class="badge">Core</span></h2>
+    <div class="flow">
+      <div class="flow-node"><b>1. Vendedor</b> sube foto en grupo Telegram<div class="tag">photo → bot_worker.py BotWorker</div></div>
+      <div class="flow-arrow">↓</div>
+      <div class="flow-node"><b>2. Bot pide Nro. Cliente</b> (WAITING_ID)<div class="tag">upload_sessions dict en memoria</div></div>
+      <div class="flow-arrow">↓</div>
+      <div class="flow-node"><b>3. Bot pide Tipo PDV</b> (WAITING_TYPE)<div class="tag">InlineKeyboardMarkup con PDV_TYPES</div></div>
+      <div class="flow-arrow">↓</div>
+      <div class="flow-node"><b>4. Interceptor Franquiciado</b> (NUEVO)<div class="tag">lookup_soto_intercept() → matcheo_rutas_excepciones</div></div>
+      <div class="flow-arrow">↓</div>
+      <div class="flow-node"><b>5. Subida a Supabase Storage</b><div class="tag">SupabaseUploader → bucket Exhibiciones-PDV/{dist}/{fecha}/</div></div>
+      <div class="flow-arrow">↓</div>
+      <div class="flow-node"><b>6. RPC fn_bot_registrar_exhibicion</b><div class="tag">exhibiciones → estado=Pendiente</div></div>
+      <div class="flow-arrow">↓</div>
+      <div class="flow-node"><b>7. Evaluación en Portal React</b><div class="tag">POST /api/evaluar → sync_evaluaciones_job cada 30s</div></div>
+    </div>
+  </div>
+
+  <!-- ERP Flow -->
+  <div class="card" style="--stripe:var(--accent2)">
+    <h2>📊 Flujo ERP (Ingesta de Datos) <span class="badge teal">Estable</span></h2>
+    <div class="flow">
+      <div class="flow-node"><b>Excel ERP</b> (Padrón / Ventas / CC)<div class="tag">Upload manual UI o push RPA con API Key</div></div>
+      <div class="flow-arrow">↓</div>
+      <div class="flow-node"><b>erp_*_raw</b> (tablas de auditoría)<div class="tag">append-only, no modificar manualmente</div></div>
+      <div class="flow-arrow">↓</div>
+      <div class="flow-node"><b>Services Python</b><div class="tag">padron_ingestion → ventas_ingestion → cc_enrichment</div></div>
+      <div class="flow-arrow">↓</div>
+      <div class="flow-node"><b>Tablas v2</b> (fuente de verdad)<div class="tag">sucursales_v2 → vendedores_v2 → rutas_v2 → clientes_pdv_v2 → ventas_v2</div></div>
+      <div class="flow-arrow">↓</div>
+      <div class="flow-node"><b>cc_detalle</b> (cuentas corrientes normalizadas)<div class="tag">UNIQUE por (dist, snapshot, vendedor, cliente)</div></div>
+    </div>
+  </div>
+
+  <!-- Frontend -->
+  <div class="card" style="--stripe:var(--accent4)">
+    <h2>🖥 Frontend Next.js <span class="badge yellow">React 19</span></h2>
+    <div class="flow">
+      <div class="flow-node"><b>Auth JWT</b> — POST /auth/login<div class="tag">HS256, 8h, payload: {id_usuario, id_distribuidor, rol}</div></div>
+      <div class="flow-arrow">↓</div>
+      <div class="flow-node"><b>Dashboard</b> — KPIs + Ranking<div class="tag">/api/dashboard/kpis · /api/dashboard/ranking</div></div>
+      <div class="flow-arrow">↓</div>
+      <div class="flow-node"><b>TabSupervision</b> — Mapa PDV + Ventas + CC<div class="tag">MapLibre GL · MapaRutas.tsx · cc_detalle paginado</div></div>
+      <div class="flow-arrow">↓</div>
+      <div class="flow-node"><b>Visor Exhibiciones</b> — Evaluación<div class="tag">/api/supervision/pendientes + POST /api/evaluar</div></div>
+      <div class="flow-arrow">↓</div>
+      <div class="flow-node"><b>Reportes + Academy</b><div class="tag">ERP ROI · Ventas resumen · SIGO · CC upload</div></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ROW 2 -->
+<div class="grid">
+
+  <!-- Tenants -->
+  <div class="card" style="--stripe:var(--accent2)">
+    <h2>🏢 Tenants Activos</h2>
+    <table class="tbl">
+      <thead><tr><th>tenant_id</th><th>Nombre</th><th>id_dist</th><th>Estado</th></tr></thead>
+      <tbody>
+        <tr><td>tabaco</td><td>Tabaco &amp; Hnos</td><td>3</td><td><span class="badge green">Activo</span></td></tr>
+        <tr><td>aloma</td><td>Aloma Dist.</td><td>4</td><td><span class="badge green">Activo</span></td></tr>
+        <tr><td>liver</td><td>Liver SRL</td><td>5</td><td><span class="badge green">Activo</span></td></tr>
+        <tr><td>real</td><td>Real Tabacalera</td><td>2</td><td><span class="badge green">Activo</span></td></tr>
+        <tr><td>extra</td><td>GyG Dist.</td><td>6</td><td><span class="badge yellow">Pendiente creds</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Tablas DB -->
+  <div class="card" style="--stripe:var(--accent)">
+    <h2>🗄 Tablas Supabase (activas)</h2>
+    <table class="tbl">
+      <thead><tr><th>Tabla</th><th>Rol</th></tr></thead>
+      <tbody>
+        <tr><td>exhibiciones</td><td>Core — fotos evaluadas</td></tr>
+        <tr><td>cc_detalle</td><td>CC normalizada (authoritative)</td></tr>
+        <tr><td>clientes_pdv_v2</td><td>PDVs con coords y ERP id</td></tr>
+        <tr><td>vendedores_v2</td><td>Vendedores ERP</td></tr>
+        <tr><td>rutas_v2</td><td>Rutas por vendedor/día</td></tr>
+        <tr><td>matcheo_rutas_excepciones</td><td><span class="badge">NUEVO</span> Intercept franquiciados</td></tr>
+        <tr><td>integrantes_grupo</td><td>Vendedores Telegram</td></tr>
+        <tr><td>distribuidores</td><td>Tenants SaaS</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Deploy -->
+  <div class="card" style="--stripe:var(--accent3)">
+    <h2>🚀 Deploy</h2>
+    <div class="flow">
+      <div class="flow-node"><b>Backend → Railway</b><div class="tag">api.shelfycenter.com · auto-deploy desde main</div></div>
+      <div class="flow-arrow">↓</div>
+      <div class="flow-node"><b>Frontend → Vercel</b><div class="tag">auto-deploy desde main · ignoreBuildErrors=true</div></div>
+      <div class="flow-arrow">↓</div>
+      <div class="flow-node"><b>RPA → Mac local</b><div class="tag">python runner.py [padron|ventas|cuentas|sigo|todos]</div></div>
+      <div class="flow-arrow">↓</div>
+      <div class="flow-node"><b>Credenciales → Supabase Vault</b><div class="tag">chess_tabaco_usuario/password · shelfy_api_url</div></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ROW 3: Interceptor + Security -->
+<div class="grid">
+
+  <!-- Interceptor detail -->
+  <div class="card full" style="--stripe:var(--accent4)">
+    <h2>🔀 Interceptor de Franquiciados (Phase 1 — NUEVO)</h2>
+    <p style="font-size:.8rem;color:var(--muted);margin-bottom:12px;">
+      Solución estructural para vendedores que operan bajo cuentas delegadas (ej. Ivan Soto).
+      Las exhibiciones se reatribuyen al vendedor real en el momento de registro.
+    </p>
+    <div class="iflow">
+      <div class="inode red">📱 Soto sube foto<br><small>uploader_id = soto_tuid</small></div>
+      <div class="iarrow">→</div>
+      <div class="inode gold">🔍 lookup_soto_intercept()<br><small>DB: matcheo_rutas_excepciones</small></div>
+      <div class="iarrow">→</div>
+      <div class="inode teal">✅ Match encontrado<br><small>real_tuid = monchi / jorge</small></div>
+      <div class="iarrow">→</div>
+      <div class="inode purple">📝 registrar_exhibicion()<br><small>vendedor_id = real_tuid</small></div>
+    </div>
+    <div style="margin-top:16px;">
+      <details>
+        <summary>▶ Ver SQL — Crear tabla matcheo_rutas_excepciones</summary>
+        <div class="detail-body">
+          <pre style="background:rgba(0,0,0,.3);padding:12px;border-radius:8px;font-size:.72rem;overflow-x:auto;color:var(--accent2)">CREATE TABLE IF NOT EXISTS matcheo_rutas_excepciones (
+    id                            SERIAL PRIMARY KEY,
+    id_distribuidor               INTEGER NOT NULL,
+    telegram_user_id_franquiciado BIGINT  NOT NULL,
+    id_cliente_erp                TEXT    NOT NULL,
+    telegram_user_id_real         BIGINT  NOT NULL,
+    nombre_vendedor_real          TEXT,
+    ruta_inferida                 TEXT,
+    confianza                     TEXT DEFAULT 'alta',
+    created_at                    TIMESTAMPTZ DEFAULT now(),
+    UNIQUE (id_distribuidor, telegram_user_id_franquiciado, id_cliente_erp)
+);</pre>
+        </div>
+      </details>
+    </div>
+
+    <div style="margin-top:16px;display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+      <div>
+        <p style="font-size:.78rem;font-weight:600;margin-bottom:6px;">Scripts de ejecución:</p>
+        <div class="flow-node" style="font-size:.78rem;margin-bottom:6px;">
+          <b>1. unify_wutrich_records.py</b><br>
+          <span class="tag">Reasigna exhibiciones Matias → Ivan · Desactiva Matias</span><br>
+          <code style="color:var(--accent2);font-size:.72rem;">python unify_wutrich_records.py --dry-run</code>
+        </div>
+        <div class="flow-node" style="font-size:.78rem;">
+          <b>2. match_rutas_soto.py</b><br>
+          <span class="tag">Construye matcheo_rutas_excepciones · Opcional --deactivate-soto</span><br>
+          <code style="color:var(--accent2);font-size:.72rem;">python match_rutas_soto.py --dry-run</code>
+        </div>
+      </div>
+      <div>
+        <p style="font-size:.78rem;font-weight:600;margin-bottom:6px;">Orden de ejecución recomendado:</p>
+        <ol style="font-size:.78rem;color:var(--muted);padding-left:16px;line-height:1.8;">
+          <li>Crear tabla en Supabase SQL Editor (DDL arriba)</li>
+          <li><code>python unify_wutrich_records.py --dry-run</code></li>
+          <li><code>python unify_wutrich_records.py</code></li>
+          <li><code>python match_rutas_soto.py --dry-run</code></li>
+          <li><code>python match_rutas_soto.py [--deactivate-soto]</code></li>
+          <li>Deploy backend (interceptor ya en bot_worker.py)</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ROW 4: Security -->
+<div class="grid">
+
+  <div class="card" style="--stripe:var(--accent3)">
+    <h2>🔒 Auditoría de Seguridad — Hallazgos <span class="badge yellow">Phase 2</span></h2>
+
+    <div class="sec-item">
+      <div class="sec-icon">✅</div>
+      <div>
+        <div class="sec-label">Credenciales en código fuente</div>
+        <div class="sec-detail">Sin credenciales hardcodeadas encontradas en api.py, bot_worker.py ni services/. Todas las claves se leen de variables de entorno.</div>
+      </div>
+    </div>
+
+    <div class="sec-item">
+      <div class="sec-icon">⚠️</div>
+      <div>
+        <div class="sec-label">Paths Windows hardcodeados en scripts de audit</div>
+        <div class="sec-detail">~30 scripts de diagnóstico usan <code>load_dotenv("c:\Users\cigar\...")</code>. Estos fallan silenciosamente en Mac/Linux. Scripts afectados son de diagnóstico/auditoría (no producción). Corrección: reemplazar con <code>load_dotenv(Path(__file__).parent / ".env")</code>.</div>
+      </div>
+    </div>
+
+    <div class="sec-item">
+      <div class="sec-icon">✅</div>
+      <div>
+        <div class="sec-label">SQL Injection (api.py)</div>
+        <div class="sec-detail">Todos los queries usan el client Supabase Python con parámetros tipados. No se encontró concatenación dinámica de SQL. Las RPCs usan parámetros nombrados (<code>p_dist_id</code>, etc.).</div>
+      </div>
+    </div>
+
+    <div class="sec-item">
+      <div class="sec-icon">✅</div>
+      <div>
+        <div class="sec-label">Supabase Storage — Content-Type</div>
+        <div class="sec-detail"><code>SupabaseUploader.upload()</code> fuerza <code>content-type: image/jpeg</code> en todas las subidas. No se aceptan uploads arbitrarios desde el bot.</div>
+      </div>
+    </div>
+
+    <div class="sec-item">
+      <div class="sec-icon">✅</div>
+      <div>
+        <div class="sec-label">Autenticación — JWT + API Key</div>
+        <div class="sec-detail"><code>verify_auth()</code> valida ambos métodos. <code>check_dist_permission()</code> previene acceso cruzado entre tenants. Algoritmo HS256 con expiración 8h.</div>
+      </div>
+    </div>
+
+    <div class="sec-item">
+      <div class="sec-icon">⚠️</div>
+      <div>
+        <div class="sec-label">Path Traversal en nro_cliente (Telegram)</div>
+        <div class="sec-detail">El <code>nro_cliente</code> ingresado por el vendedor se usa en el filename de Storage (<code>{nro_cliente}_{clean_code}_{ts}.jpg</code>). El storage path usa <code>safe_dist</code> filtrado, pero <code>nro_cliente</code> no se sanitiza antes de entrar al filename. Recomendación: aplicar <code>re.sub(r'[^a-zA-Z0-9_-]', '_', nro_cliente)</code> en el filename.</div>
+      </div>
+    </div>
+
+    <div class="sec-item">
+      <div class="sec-icon">✅</div>
+      <div>
+        <div class="sec-label">Tokens JWT en JWT — sin exposición</div>
+        <div class="sec-detail">No se encontraron JWT hardcodeados (patrón <code>eyJ...</code>) en ningún archivo .py del repositorio.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Pending ops -->
+  <div class="card" style="--stripe:var(--warning)">
+    <h2>⏳ Pendientes Operativos</h2>
+    <div class="sec-item">
+      <div class="sec-icon">🗄</div>
+      <div>
+        <div class="sec-label">ALTER TABLE cc_detalle ADD COLUMN id_cliente_erp</div>
+        <div class="sec-detail">Correr en Supabase SQL Editor si no existe. El RPA fallará al sincronizar CC sin esta columna.</div>
+      </div>
+    </div>
+    <div class="sec-item">
+      <div class="sec-icon">🗄</div>
+      <div>
+        <div class="sec-label">CREATE TABLE matcheo_rutas_excepciones</div>
+        <div class="sec-detail">DDL en sección interceptor arriba. Necesario antes de deployar el interceptor en producción.</div>
+      </div>
+    </div>
+    <div class="sec-item">
+      <div class="sec-icon">🔑</div>
+      <div>
+        <div class="sec-label">Vault — Credenciales Tabaco</div>
+        <div class="sec-detail">Verificar <code>chess_tabaco_usuario</code> / <code>chess_tabaco_password</code> en Supabase Vault para producción.</div>
+      </div>
+    </div>
+    <div class="sec-item">
+      <div class="sec-icon">👤</div>
+      <div>
+        <div class="sec-label">Padrón Tabaco (id=3)</div>
+        <div class="sec-detail">Verificar que vendedores_v2 esté poblado para Dist 3. Sin padrón los vendedores de CC aparecen como "ghost".</div>
+      </div>
+    </div>
+    <div class="sec-item">
+      <div class="sec-icon">🏢</div>
+      <div>
+        <div class="sec-label">Tenant extra (GyG, id=6)</div>
+        <div class="sec-detail">Credenciales CHESS pendientes de obtener para activar el tenant.</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<footer>
+  Shelfy CenterMind · SaaS B2B Gestión de Fuerza de Ventas ·
+  Backend FastAPI/Railway · Frontend Next.js/Vercel · Bot Telegram · RPA Playwright
+</footer>
+
+</body>
+</html>

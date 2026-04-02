@@ -526,6 +526,60 @@ fn_login(p_usuario, p_password)        -- Auth del portal React
 
 ---
 
+## Sistema de Franquiciados (Phase 1 — Abril 2026)
+
+### Tabla `matcheo_rutas_excepciones`
+
+Tabla nueva que mapea clientes de vendedores franquiciados (ej. Ivan Soto, que actúa como canal para Monchi Ayala y Jorge Coronel) al vendedor real que realizó la visita.
+
+```sql
+-- Correr en Supabase SQL Editor antes de deployar el interceptor
+CREATE TABLE IF NOT EXISTS matcheo_rutas_excepciones (
+    id                            SERIAL PRIMARY KEY,
+    id_distribuidor               INTEGER NOT NULL,
+    telegram_user_id_franquiciado BIGINT  NOT NULL,
+    id_cliente_erp                TEXT    NOT NULL,
+    telegram_user_id_real         BIGINT  NOT NULL,
+    nombre_vendedor_real          TEXT,
+    ruta_inferida                 TEXT,
+    confianza                     TEXT DEFAULT 'alta',
+    created_at                    TIMESTAMPTZ DEFAULT now(),
+    UNIQUE (id_distribuidor, telegram_user_id_franquiciado, id_cliente_erp)
+);
+```
+
+### Interceptor en `bot_worker.py`
+
+Función `Database.lookup_soto_intercept(distribuidor_id, uploader_tuid, id_cliente_erp)` consulta la tabla y devuelve el `telegram_user_id_real` del vendedor efectivo. El interceptor corre en el flujo de subida **antes** de construir los parámetros de `fn_bot_registrar_exhibicion`, reemplazando el `vendedor_id` con el real si hay match. Log: `🔀 Intercepción franquiciado: UID X → UID Y (Nombre) para cliente 'Z'`.
+
+### Scripts de migración
+
+| Script | Acción |
+|---|---|
+| `unify_wutrich_records.py` | Reasigna exhibiciones de Matias Wutrich → Ivan Wutrich y desactiva cuenta Matias |
+| `match_rutas_soto.py` | Construye `matcheo_rutas_excepciones` con matcheo heurístico (ruta → histórico) |
+
+**Orden de ejecución**:
+1. Crear tabla (SQL arriba) en Supabase
+2. `python unify_wutrich_records.py --dry-run` → verificar → ejecutar sin flag
+3. `python match_rutas_soto.py --dry-run` → verificar → ejecutar (+ `--deactivate-soto` cuando Soto quede completamente inactivo)
+4. Deploy backend (`git push origin main`) — el interceptor ya está en `bot_worker.py`
+
+### Auditoría de Seguridad (Phase 2)
+
+- **Credenciales hardcodeadas**: no se encontraron en `api.py`, `bot_worker.py` ni `services/`. ✅
+- **Paths Windows en scripts de diagnóstico**: ~30 scripts de audit usan `load_dotenv("c:\Users\cigar\...")`. Fallan silenciosamente en Mac. No son código de producción — corregir si se reutilizan.
+- **SQL Injection**: todos los queries usan el client Supabase con parámetros tipados. Sin concatenación dinámica de SQL. ✅
+- **Content-Type Storage**: `SupabaseUploader` fuerza `image/jpeg`. ✅
+- **Path Traversal en filename**: `nro_cliente` se incluye en el filename del Storage sin sanitizar. Riesgo bajo (bucket privado en producción) pero recomendado: `re.sub(r'[^a-zA-Z0-9_-]', '_', nro_cliente)` antes de construir el filename.
+- **JWT tokens**: ningún token hardcodeado encontrado en el repo. ✅
+
+### Mapa arquitectónico
+
+Archivo `shelfy_mapa_arquitectonico.html` en la raíz del repo. Dashboard HTML estático con diagrama interactivo del sistema completo (flujo bot, ERP, frontend, deploy, seguridad, pendientes).
+
+---
+
 ## Estado actual del proyecto (Marzo 2026)
 
 ### Módulos estables
@@ -545,7 +599,4 @@ fn_login(p_usuario, p_password)        -- Auth del portal React
 - `/api/admin/hierarchy/rutas` y endpoints afines usan tablas `sucursales`/`vendedores` (sin v2) — poco usados, pendiente de migrar
 
 ### Pendientes operativos
-- **Migración DB pendiente**: `ALTER TABLE cc_detalle ADD COLUMN IF NOT EXISTS id_cliente_erp TEXT;` — correr en Supabase SQL editor. El código ya escribe `id_cliente_erp` en el INSERT; sin esta columna el RPA fallará al sincronizar CC.
-- **Padrón de Tabaco (id=3)**: `vendedores_v2` puede estar vacío si el usuario no subió el padrón desde la UI. Sin padrón, los vendedores de CC aparecen como "ghost" (sin id_vendedor resuelto).
-- **Credenciales Tabaco en Vault**: se agregaron `CHESS_TABACO_USUARIO=emap` / `CHESS_TABACO_PASSWORD=EMAP1983` al `.env` local. Verificar que estén también en Supabase Vault para producción (`chess_tabaco_usuario`, `chess_tabaco_password`).
 - **Tenant `extra` (GyG, id=6)**: credenciales CHESS pendientes de obtener.

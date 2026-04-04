@@ -242,6 +242,9 @@ function ObjetivoRow({ obj, onToggle, onDelete }: {
           <div className="flex items-center gap-1.5 mb-0.5">
             <MapPin className="w-3 h-3 text-[var(--shelfy-muted)] shrink-0" />
             <span className="text-xs text-[var(--shelfy-muted)] truncate">{obj.nombre_pdv}</span>
+            {obj.id_cliente_erp && (
+              <span className="text-[10px] text-[var(--shelfy-muted)]/60 font-mono shrink-0">#{obj.id_cliente_erp}</span>
+            )}
           </div>
         )}
         <ObjetivoPhrase obj={obj} />
@@ -298,9 +301,12 @@ function KanbanCard({ obj, onToggle, onDelete }: {
         <span className="text-xs font-medium text-[var(--shelfy-text)]">{obj.nombre_vendedor ?? `ID ${obj.id_vendedor}`}</span>
       </div>
       {obj.nombre_pdv && (
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 flex-wrap">
           <MapPin className="w-3 h-3 text-[var(--shelfy-muted)] shrink-0" />
           <span className="text-xs text-[var(--shelfy-muted)]">{obj.nombre_pdv}</span>
+          {obj.id_cliente_erp && (
+            <span className="text-[10px] text-[var(--shelfy-muted)]/60 font-mono">#{obj.id_cliente_erp}</span>
+          )}
         </div>
       )}
       <ObjetivoPhrase obj={obj} />

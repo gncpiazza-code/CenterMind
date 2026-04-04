@@ -348,16 +348,14 @@ def supervision_cuentas(dist_id: int, sucursal: Optional[str] = Query(None), use
             mapping = {"1": "RECONQUISTA", "2": "RESISTENCIA", "3": "SAENZ PEÑA", "4": "CORRIENTES", "5": "CORDOBA"}
             sucursal_norm = mapping.get(str(sucursal).strip(), sucursal)
 
+        # Load all rows without sucursal filter (filter in Python to handle unmatched enrichments)
         def build_query():
-            q = (
+            return (
                 sb.table("cc_detalle")
                 .select("id_vendedor, vendedor_nombre, sucursal_nombre, cliente_nombre, id_cliente_erp, deuda_total, antiguedad_dias, rango_antiguedad, cantidad_comprobantes, alerta_credito")
                 .eq("id_distribuidor", d_id)
                 .eq("fecha_snapshot", fecha_snapshot)
             )
-            if sucursal_norm:
-                q = q.ilike("sucursal_nombre", f"%{sucursal_norm.strip()}%")
-            return q
 
         rows = []
         page_size, page_offset = 1000, 0
@@ -367,6 +365,34 @@ def supervision_cuentas(dist_id: int, sucursal: Optional[str] = Query(None), use
             if len(batch) < page_size:
                 break
             page_offset += page_size
+
+        # Python-level sucursal filter: match by sucursal_nombre OR by id_vendedor membership
+        if sucursal_norm:
+            suc_q = (
+                sb.table("sucursales_v2")
+                .select("id_sucursal")
+                .eq("id_distribuidor", d_id)
+                .ilike("nombre_erp", f"%{sucursal_norm.strip()}%")
+                .execute()
+            )
+            valid_suc_ids = {s["id_sucursal"] for s in (suc_q.data or [])}
+            valid_vend_ids: set = set()
+            if valid_suc_ids:
+                vend_q = (
+                    sb.table("vendedores_v2")
+                    .select("id_vendedor")
+                    .eq("id_distribuidor", d_id)
+                    .in_("id_sucursal", list(valid_suc_ids))
+                    .execute()
+                )
+                valid_vend_ids = {v["id_vendedor"] for v in (vend_q.data or [])}
+
+            norm_filter = sucursal_norm.strip().upper()
+            rows = [
+                r for r in rows
+                if (r.get("id_vendedor") and r["id_vendedor"] in valid_vend_ids)
+                or norm_filter in (r.get("sucursal_nombre") or "").upper()
+            ]
 
         # Cache PDV info for extra metadata (last purchase date)
         fecha_uc_map: dict = {}
@@ -828,7 +854,21 @@ def listar_objetivos(
         if cumplido   is not None: q = q.eq("cumplido", cumplido)
         if tipo       is not None: q = q.eq("tipo", tipo)
         res = q.order("created_at", desc=True).execute()
-        return res.data or []
+        items = res.data or []
+
+        # Enrich with id_cliente_erp from clientes_pdv_v2
+        pdv_ids = list({o["id_target_pdv"] for o in items if o.get("id_target_pdv")})
+        if pdv_ids:
+            pdv_res = sb.table("clientes_pdv_v2") \
+                .select("id, id_cliente_erp") \
+                .in_("id", pdv_ids) \
+                .execute()
+            pdv_erp_map = {p["id"]: p.get("id_cliente_erp") for p in (pdv_res.data or [])}
+            for obj in items:
+                if obj.get("id_target_pdv"):
+                    obj["id_cliente_erp"] = pdv_erp_map.get(obj["id_target_pdv"])
+
+        return items
     except Exception as e:
         logger.error(f"Error en listar_objetivos dist_id={dist_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))

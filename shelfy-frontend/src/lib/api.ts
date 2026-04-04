@@ -1151,6 +1151,7 @@ export interface Objetivo {
   descripcion?: string | null;
   nombre_pdv?: string | null;
   nombre_vendedor?: string | null;
+  id_cliente_erp?: string | null;
   estado_inicial?: string | null;
   estado_objetivo?: string | null;
   valor_objetivo?: number | null;

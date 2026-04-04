@@ -233,9 +233,13 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode, mode
         const popupHTML = `
           <div style="min-width:180px;max-width:240px;font-size:12px;font-family:sans-serif;
                       background:#fff;color:#1e293b;padding:10px 12px;border-radius:8px;
-                      box-shadow:0 4px 20px #0003;line-height:1.4">
+                      box-shadow:0 4px 20px #0003;line-height:1.4;position:relative">
+            <button onclick="this.closest('.maplibregl-popup').querySelector('.maplibregl-popup-close-button').click()"
+              style="position:absolute;top:6px;right:6px;background:none;border:none;cursor:pointer;
+                     color:#94a3b8;font-size:14px;line-height:1;padding:2px 4px;border-radius:4px"
+              title="Cerrar">✕</button>
             ${p.idClienteErp ? `<div style="font-size:9px;font-weight:800;color:#94a3b8;text-transform:uppercase;margin-bottom:2px">Nº CLIENTE: ${p.idClienteErp}</div>` : ""}
-            <b style="display:block;font-size:13px;color:#0f172a;margin-bottom:4px">${p.nombre}</b>
+            <b style="display:block;font-size:13px;color:#0f172a;margin-bottom:4px;padding-right:20px">${p.nombre}</b>
 
             <div style="display:flex;align-items:center;gap:6px;margin:6px 0">
               <span style="width:8px;height:8px;border-radius:50%;background:${vendorColor};flex-shrink:0"></span>
@@ -252,7 +256,7 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode, mode
             ${exhibLine}
           </div>`;
 
-        const popup = new maplibregl.Popup({ offset: 12, closeButton: false, closeOnClick: false })
+        const popup = new maplibregl.Popup({ offset: 12, closeButton: true, closeOnClick: true })
           .setHTML(popupHTML);
 
         // Click: selection toggle

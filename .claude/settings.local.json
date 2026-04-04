@@ -33,7 +33,9 @@
       "Bash(ls /Users/ignaciopiazza/Desktop/CenterMind/*.html /Users/ignaciopiazza/Desktop/CenterMind/*.png)",
       "Bash(ls:*)",
       "Bash(npm run:*)",
-      "Bash(wc -l /Users/ignaciopiazza/Desktop/CenterMind/CenterMind/api.py /Users/ignaciopiazza/Desktop/CenterMind/CenterMind/core/*.py /Users/ignaciopiazza/Desktop/CenterMind/CenterMind/models/*.py /Users/ignaciopiazza/Desktop/CenterMind/CenterMind/routers/*.py)"
+      "Bash(wc -l /Users/ignaciopiazza/Desktop/CenterMind/CenterMind/api.py /Users/ignaciopiazza/Desktop/CenterMind/CenterMind/core/*.py /Users/ignaciopiazza/Desktop/CenterMind/CenterMind/models/*.py /Users/ignaciopiazza/Desktop/CenterMind/CenterMind/routers/*.py)",
+      "Read(//Users/ignaciopiazza/.claude/**)",
+      "Bash(node node_modules/aidesigner/dist/mcp/mcp/server.js)"
     ]
   }
 }

@@ -777,6 +777,13 @@ class PadronIngestionService:
             cli_count            = self._sync_clientes(df, cols, dist_id, ruta_map, vend_map, suc_map)
             exhib_linked         = self._reconcile_exhibiciones(dist_id)
 
+            # Actualizar progreso de objetivos activos
+            try:
+                from services.objetivos_watcher_service import objetivos_watcher
+                objetivos_watcher.run_watcher(dist_id)
+            except Exception as e_watch:
+                logger.warning(f"[Padrón] Watcher de objetivos omitido: {e_watch}")
+
             duracion = (datetime.now(timezone.utc) - t0).total_seconds()
             registros = {
                 "sucursales":       suc_count,

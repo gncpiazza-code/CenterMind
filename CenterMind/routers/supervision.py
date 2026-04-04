@@ -618,11 +618,28 @@ def crear_objetivo(body: ObjetivoCreate, user_payload=Depends(verify_auth)):
     if body.tipo not in TIPOS_VALIDOS:
         raise HTTPException(status_code=400, detail=f"tipo inválido. Valores permitidos: {sorted(TIPOS_VALIDOS)}")
     try:
+        estado_inicial = body.estado_inicial
+
+        # Para cobranza: snapshot de la deuda actual del vendedor como baseline
+        if body.tipo == "cobranza" and not estado_inicial:
+            try:
+                cc_res = sb.table("cc_detalle").select("deuda_total") \
+                    .eq("id_distribuidor", body.id_distribuidor) \
+                    .eq("id_vendedor", body.id_vendedor).execute()
+                deuda_actual = sum(float(r.get("deuda_total") or 0) for r in (cc_res.data or []))
+                estado_inicial = str(deuda_actual)
+                logger.info(
+                    f"[Objetivo] Cobranza snapshot vend={body.id_vendedor}: "
+                    f"deuda_inicial={deuda_actual}"
+                )
+            except Exception as e_cc:
+                logger.warning(f"[Objetivo] No se pudo snapshotear deuda para cobranza: {e_cc}")
+
         payload = {
             "id_distribuidor": body.id_distribuidor, "id_vendedor": body.id_vendedor,
             "tipo": body.tipo, "id_target_pdv": body.id_target_pdv, "id_target_ruta": body.id_target_ruta,
             "descripcion": body.descripcion, "nombre_pdv": body.nombre_pdv, "nombre_vendedor": body.nombre_vendedor,
-            "estado_inicial": body.estado_inicial, "estado_objetivo": body.estado_objetivo,
+            "estado_inicial": estado_inicial, "estado_objetivo": body.estado_objetivo,
             "valor_objetivo": body.valor_objetivo, "fecha_objetivo": body.fecha_objetivo,
         }
         res = sb.table("objetivos").insert(payload).execute()
@@ -731,11 +748,34 @@ def listar_objetivos(
     vendedor_id: Optional[int] = Query(None),
     cumplido: Optional[bool]   = Query(None),
     tipo: Optional[str]        = Query(None),
+    sucursal_nombre: Optional[str] = Query(None),
     user_payload=Depends(verify_auth),
 ):
     check_dist_permission(user_payload, dist_id)
     try:
+        # Si se filtra por sucursal, resolver los id_vendedor de esa sucursal primero
+        vendedor_ids_filtro: list[int] | None = None
+        if sucursal_nombre:
+            suc_res = sb.table("sucursales_v2") \
+                .select("id_sucursal") \
+                .eq("id_distribuidor", dist_id) \
+                .ilike("nombre_erp", f"%{sucursal_nombre}%") \
+                .execute()
+            suc_ids = [r["id_sucursal"] for r in (suc_res.data or [])]
+            if suc_ids:
+                vend_res = sb.table("vendedores_v2") \
+                    .select("id_vendedor") \
+                    .in_("id_sucursal", suc_ids) \
+                    .execute()
+                vendedor_ids_filtro = [r["id_vendedor"] for r in (vend_res.data or [])]
+            else:
+                vendedor_ids_filtro = []  # sucursal no encontrada → sin resultados
+
         q = sb.table("objetivos").select("*").eq("id_distribuidor", dist_id)
+        if vendedor_ids_filtro is not None:
+            if not vendedor_ids_filtro:
+                return []
+            q = q.in_("id_vendedor", vendedor_ids_filtro)
         if vendedor_id is not None: q = q.eq("id_vendedor", vendedor_id)
         if cumplido   is not None: q = q.eq("cumplido", cumplido)
         if tipo       is not None: q = q.eq("tipo", tipo)

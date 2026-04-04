@@ -263,6 +263,13 @@ def ingest(tenant_id: str, tipo: str, file_bytes: bytes) -> dict:
 
     logger.info(f"[Ventas] fecha_ultima_compra actualizada: {actualizados} clientes")
 
+    # Actualizar progreso de objetivos activos
+    try:
+        from services.objetivos_watcher_service import objetivos_watcher
+        objetivos_watcher.run_watcher(dist_id)
+    except Exception as e_watch:
+        logger.warning(f"[Ventas] Watcher de objetivos omitido: {e_watch}")
+
     return {
         "registros":   upserted,
         "vinculados":  len(ids_cliente_actualizados),

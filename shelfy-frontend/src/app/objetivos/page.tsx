@@ -128,18 +128,39 @@ function ObjetivoPhrase({ obj }: { obj: Objetivo }) {
   const tiempoUnidad = obj.estado_objetivo;  // e.g. "semanas"
   const cantidad     = obj.valor_objetivo;
 
+  // Cobranza: show $cobrado / $meta display
+  if (obj.tipo === "cobranza" && obj.valor_objetivo) {
+    const pct = obj.valor_objetivo > 0
+      ? Math.min(100, Math.round((obj.valor_actual / obj.valor_objetivo) * 100))
+      : 0;
+    return (
+      <p className="text-xs text-[var(--shelfy-muted)] leading-snug">
+        Meta: cobrar{" "}
+        <span className="text-[var(--shelfy-text)] font-semibold">
+          ${obj.valor_objetivo.toLocaleString("es-AR")}
+        </span>
+        {" "}— Cobrado:{" "}
+        <span className="text-emerald-500 font-medium">
+          ${obj.valor_actual.toLocaleString("es-AR")}
+        </span>
+        {" "}
+        <span className="text-[var(--shelfy-muted)]">({pct}%)</span>
+      </p>
+    );
+  }
+
   // If it has the phrase-builder fields, show the phrase
   if (cantidad && tiempoValor && tiempoUnidad) {
     const unidadLabel = TIEMPO_UNIDADES.find(u => u.value === tiempoUnidad)?.label ?? tiempoUnidad;
     return (
-      <p className="text-xs text-white/70 leading-snug">
+      <p className="text-xs text-[var(--shelfy-muted)] leading-snug">
         Debe{" "}
-        <span className="text-white font-medium">
+        <span className="text-[var(--shelfy-text)] font-medium">
           {ACTIVIDADES_FRASE.find(a => a.tipo === obj.tipo)?.label ?? obj.tipo}
         </span>{" "}
         <span className="text-[var(--shelfy-accent)] font-semibold">{Math.round(cantidad)} PDVs</span>
         {" "}en{" "}
-        <span className="text-white/80">{tiempoValor} {unidadLabel}</span>
+        <span className="text-[var(--shelfy-muted)]">{tiempoValor} {unidadLabel}</span>
       </p>
     );
   }
@@ -167,7 +188,7 @@ function StatCard({ icon: Icon, label, value, sub, color }: {
       </div>
       <div>
         <p className="text-xs text-[var(--shelfy-muted)]">{label}</p>
-        <p className="text-xl font-semibold text-white leading-tight">{value}</p>
+        <p className="text-xl font-semibold text-[var(--shelfy-text)] leading-tight">{value}</p>
         {sub && <p className="text-[10px] text-[var(--shelfy-muted)] mt-0.5">{sub}</p>}
       </div>
     </div>
@@ -198,7 +219,7 @@ function ObjetivoRow({ obj, onToggle, onDelete }: {
       <td className="px-4 py-3">
         <div className="flex items-center gap-1.5">
           <User className="w-3 h-3 text-[var(--shelfy-muted)] shrink-0" />
-          <span className="text-xs text-white/80">{obj.nombre_vendedor ?? `ID ${obj.id_vendedor}`}</span>
+          <span className="text-xs text-[var(--shelfy-text)]">{obj.nombre_vendedor ?? `ID ${obj.id_vendedor}`}</span>
         </div>
       </td>
       <td className="px-4 py-3">
@@ -208,7 +229,7 @@ function ObjetivoRow({ obj, onToggle, onDelete }: {
         {obj.nombre_pdv && (
           <div className="flex items-center gap-1.5 mb-0.5">
             <MapPin className="w-3 h-3 text-[var(--shelfy-muted)] shrink-0" />
-            <span className="text-xs text-white/60 truncate">{obj.nombre_pdv}</span>
+            <span className="text-xs text-[var(--shelfy-muted)] truncate">{obj.nombre_pdv}</span>
           </div>
         )}
         <ObjetivoPhrase obj={obj} />
@@ -216,7 +237,7 @@ function ObjetivoRow({ obj, onToggle, onDelete }: {
       <td className="px-4 py-3 w-36">
         {obj.valor_objetivo ? (
           <div>
-            <div className="text-xs text-white/70 mb-1 tabular-nums">
+            <div className="text-xs text-[var(--shelfy-muted)] mb-1 tabular-nums">
               {obj.valor_actual} / {Math.round(obj.valor_objetivo)}
             </div>
             <ProgressBar actual={obj.valor_actual} objetivo={obj.valor_objetivo} />
@@ -262,12 +283,12 @@ function KanbanCard({ obj, onToggle, onDelete }: {
       </div>
       <div className="flex items-center gap-1.5">
         <User className="w-3 h-3 text-[var(--shelfy-muted)] shrink-0" />
-        <span className="text-xs font-medium text-white/80">{obj.nombre_vendedor ?? `ID ${obj.id_vendedor}`}</span>
+        <span className="text-xs font-medium text-[var(--shelfy-text)]">{obj.nombre_vendedor ?? `ID ${obj.id_vendedor}`}</span>
       </div>
       {obj.nombre_pdv && (
         <div className="flex items-center gap-1.5">
           <MapPin className="w-3 h-3 text-[var(--shelfy-muted)] shrink-0" />
-          <span className="text-xs text-white/60">{obj.nombre_pdv}</span>
+          <span className="text-xs text-[var(--shelfy-muted)]">{obj.nombre_pdv}</span>
         </div>
       )}
       <ObjetivoPhrase obj={obj} />
@@ -294,6 +315,11 @@ function KanbanCard({ obj, onToggle, onDelete }: {
 // ── Vista Supervisor — tabla de agregación ────────────────────────────────────
 
 function VendedorResumenRow({ v }: { v: ResumenVendedorObjetivos }) {
+  const allCobranza = v.tipos?.length > 0 && v.tipos.every((t: string) => t === "cobranza");
+  const unitLabel = allCobranza ? "$" : "PDVs";
+  const formatVal = (n: number) =>
+    allCobranza ? n.toLocaleString("es-AR") : String(Math.round(n));
+
   return (
     <tr className="border-b border-[var(--shelfy-border)]/50 hover:bg-white/[0.02] transition-colors">
       <td className="px-4 py-3">
@@ -301,21 +327,22 @@ function VendedorResumenRow({ v }: { v: ResumenVendedorObjetivos }) {
           <div className="w-6 h-6 rounded-full bg-[var(--shelfy-accent)]/15 flex items-center justify-center shrink-0">
             <User className="w-3 h-3 text-[var(--shelfy-accent)]" />
           </div>
-          <span className="text-xs font-medium text-white/90">{v.nombre_vendedor}</span>
+          <span className="text-xs font-medium text-[var(--shelfy-text)]">{v.nombre_vendedor}</span>
         </div>
       </td>
       <td className="px-4 py-3 text-center">
         <span className="text-xs text-[var(--shelfy-muted)] tabular-nums">{v.objetivos_count}</span>
       </td>
       <td className="px-4 py-3 text-center">
+        {allCobranza && <span className="text-xs font-semibold text-[var(--shelfy-accent)] tabular-nums">$</span>}
         <span className="text-xs font-semibold text-[var(--shelfy-accent)] tabular-nums">
-          {Math.round(v.cantidad_objetivo_total)}
+          {formatVal(v.cantidad_objetivo_total)}
         </span>
-        <span className="text-[10px] text-[var(--shelfy-muted)] ml-1">PDVs</span>
+        {!allCobranza && <span className="text-[10px] text-[var(--shelfy-muted)] ml-1">{unitLabel}</span>}
       </td>
       <td className="px-4 py-3 w-40">
         <div className="text-[10px] text-[var(--shelfy-muted)] mb-1 tabular-nums">
-          {Math.round(v.cantidad_actual_total)} / {Math.round(v.cantidad_objetivo_total)}
+          {formatVal(v.cantidad_actual_total)} / {formatVal(v.cantidad_objetivo_total)}
         </div>
         <ProgressBar actual={v.cantidad_actual_total} objetivo={v.cantidad_objetivo_total} />
       </td>
@@ -393,9 +420,9 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
         <div className="flex items-center justify-between mb-5">
           <div className="flex items-center gap-2">
             <Target className="w-4 h-4 text-[var(--shelfy-accent)]" />
-            <h2 className="text-sm font-semibold text-white">Nuevo objetivo</h2>
+            <h2 className="text-sm font-semibold text-[var(--shelfy-text)]">Nuevo objetivo</h2>
           </div>
-          <button onClick={onClose} className="w-6 h-6 flex items-center justify-center rounded text-[var(--shelfy-muted)] hover:text-white transition-colors">
+          <button onClick={onClose} className="w-6 h-6 flex items-center justify-center rounded text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] transition-colors">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -408,8 +435,8 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
               onClick={() => setModo(m)}
               className={`flex-1 py-1.5 text-xs rounded-md transition-all font-medium ${
                 modo === m
-                  ? "bg-[var(--shelfy-panel)] text-white shadow-sm"
-                  : "text-[var(--shelfy-muted)] hover:text-white"
+                  ? "bg-[var(--shelfy-panel)] text-[var(--shelfy-text)] shadow-sm"
+                  : "text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
               }`}
             >
               {m === "frase" ? "Constructor de frase" : "Libre"}
@@ -425,16 +452,16 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
               <p className="text-[11px] text-[var(--shelfy-muted)] mb-1 uppercase tracking-wider font-medium">
                 Objetivo generado
               </p>
-              <p className="text-sm text-white leading-relaxed">
+              <p className="text-sm text-[var(--shelfy-text)] leading-relaxed">
                 <span className="text-[var(--shelfy-accent)] font-semibold">
                   {nombreVendedorFrase || "[ Vendedor ]"}
                 </span>
                 {" "}debe{" "}
-                <span className="text-emerald-400 font-medium">{actividadLabel}</span>
+                <span className="text-emerald-500 font-medium">{actividadLabel}</span>
                 {" "}
-                <span className="text-white font-semibold">{fraseCantidad || "?"} PDVs</span>
+                <span className="text-[var(--shelfy-text)] font-semibold">{fraseCantidad || "?"} PDVs</span>
                 {" "}en{" "}
-                <span className="text-white/80">{fraseTiempoValor} {unidadLabel}</span>
+                <span className="text-[var(--shelfy-muted)]">{fraseTiempoValor} {unidadLabel}</span>
               </p>
             </div>
 
@@ -446,7 +473,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
               <div className="relative">
                 <select
                   required
-                  className="w-full appearance-none bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                  className="w-full appearance-none bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
                   value={fraseVendedor}
                   onChange={e => setFraseVendedor(Number(e.target.value) || "")}
                 >
@@ -473,7 +500,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
                     className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
                       fraseActividad === a.tipo
                         ? "border-[var(--shelfy-accent)] bg-[var(--shelfy-accent)]/15 text-[var(--shelfy-accent)]"
-                        : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-white"
+                        : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
                     }`}
                   >
                     {TIPO_CONFIG[a.tipo].label}
@@ -494,7 +521,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
                   min={1}
                   step={1}
                   placeholder="10"
-                  className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-white placeholder-white/20 focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                  className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-[var(--shelfy-text)] placeholder-[var(--shelfy-muted)]/60 focus:outline-none focus:border-[var(--shelfy-accent)]/60"
                   value={fraseCantidad}
                   onChange={e => setFraseCantidad(e.target.value)}
                 />
@@ -508,13 +535,13 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
                     type="number"
                     min={1}
                     step={1}
-                    className="w-16 bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-2 py-2 text-sm text-white focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                    className="w-16 bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-2 py-2 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
                     value={fraseTiempoValor}
                     onChange={e => setFraseTiempoValor(e.target.value)}
                   />
                   <div className="relative flex-1">
                     <select
-                      className="w-full appearance-none bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-2 py-2 text-sm text-white focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                      className="w-full appearance-none bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-2 py-2 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
                       value={fraseTiempoUnidad}
                       onChange={e => setFraseTiempoUnidad(e.target.value)}
                     >
@@ -531,11 +558,11 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
             {/* Fecha límite */}
             <div>
               <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">
-                Fecha límite <span className="text-white/20 normal-case">(opcional)</span>
+                Fecha límite <span className="text-[var(--shelfy-muted)] normal-case">(opcional)</span>
               </label>
               <input
                 type="date"
-                className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
                 value={fraseFecha}
                 onChange={e => setFraseFecha(e.target.value)}
               />
@@ -543,7 +570,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
 
             <div className="flex gap-2 pt-2">
               <button type="button" onClick={onClose}
-                className="flex-1 py-2 rounded-lg border border-[var(--shelfy-border)] text-sm text-[var(--shelfy-muted)] hover:text-white transition-colors">
+                className="flex-1 py-2 rounded-lg border border-[var(--shelfy-border)] text-sm text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] transition-colors">
                 Cancelar
               </button>
               <button type="submit" disabled={loading}
@@ -561,7 +588,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
               <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">Vendedor</label>
               <div className="relative">
                 <select required
-                  className="w-full appearance-none bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                  className="w-full appearance-none bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
                   value={libreForm.id_vendedor ?? ""}
                   onChange={e => {
                     const v = vendedores.find(x => x.id_vendedor === Number(e.target.value));
@@ -580,7 +607,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
               <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">Tipo</label>
               <div className="relative">
                 <select
-                  className="w-full appearance-none bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                  className="w-full appearance-none bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
                   value={libreForm.tipo ?? "general"}
                   onChange={e => setL("tipo", e.target.value as ObjetivoTipo)}>
                   {Object.entries(TIPO_CONFIG).map(([k, cfg]) => <option key={k} value={k}>{cfg.label}</option>)}
@@ -593,7 +620,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
             <div>
               <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">Descripción</label>
               <textarea rows={2} placeholder="Qué debe lograr el vendedor..."
-                className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-white placeholder-white/20 focus:outline-none focus:border-[var(--shelfy-accent)]/60 resize-none"
+                className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-[var(--shelfy-text)] placeholder-[var(--shelfy-muted)]/60 focus:outline-none focus:border-[var(--shelfy-accent)]/60 resize-none"
                 value={libreForm.descripcion ?? ""}
                 onChange={e => setL("descripcion", e.target.value || undefined)} />
             </div>
@@ -603,7 +630,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
               <div>
                 <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">Meta ($)</label>
                 <input type="number" min={0} step={0.01} placeholder="0.00"
-                  className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-white placeholder-white/20 focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                  className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-[var(--shelfy-text)] placeholder-[var(--shelfy-muted)]/60 focus:outline-none focus:border-[var(--shelfy-accent)]/60"
                   value={libreForm.valor_objetivo ?? ""}
                   onChange={e => setL("valor_objetivo", e.target.value ? Number(e.target.value) : undefined)} />
               </div>
@@ -612,17 +639,17 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
             {/* Fecha */}
             <div>
               <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">
-                Fecha límite <span className="text-white/20 normal-case">(opcional)</span>
+                Fecha límite <span className="text-[var(--shelfy-muted)] normal-case">(opcional)</span>
               </label>
               <input type="date"
-                className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
                 value={libreForm.fecha_objetivo ?? ""}
                 onChange={e => setL("fecha_objetivo", e.target.value || undefined)} />
             </div>
 
             <div className="flex gap-2 pt-2">
               <button type="button" onClick={onClose}
-                className="flex-1 py-2 rounded-lg border border-[var(--shelfy-border)] text-sm text-[var(--shelfy-muted)] hover:text-white transition-colors">
+                className="flex-1 py-2 rounded-lg border border-[var(--shelfy-border)] text-sm text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] transition-colors">
                 Cancelar
               </button>
               <button type="submit" disabled={loading}
@@ -685,7 +712,7 @@ function VistaSupervisor({ distId }: { distId: number }) {
             <p className="text-xs text-[var(--shelfy-muted)] uppercase tracking-wider font-medium mb-0.5">
               Meta agregada del equipo
             </p>
-            <p className="text-2xl font-bold text-white tabular-nums">
+            <p className="text-2xl font-bold text-[var(--shelfy-text)] tabular-nums">
               {Math.round(totales.cantidad_objetivo_total)}
               <span className="text-sm font-normal text-[var(--shelfy-muted)] ml-1.5">PDVs</span>
             </p>
@@ -740,6 +767,9 @@ export default function ObjetivosPage() {
     setFilterTipo, setFilterCumplido, setSearchText, setViewMode,
   } = useObjetivosStore();
 
+  const [selectedSucursal, setSelectedSucursal] = useState<string>("");
+  const [selectedVendedorId, setSelectedVendedorId] = useState<number | null>(null);
+
   // ── Data ──────────────────────────────────────────────────────────────────
 
   const { data: vendedoresData } = useQuery({
@@ -786,17 +816,66 @@ export default function ObjetivosPage() {
     },
   });
 
+  // ── Derived vendedores + sucursales ──────────────────────────────────────
+
+  const vendedores = (vendedoresData ?? []).map(v => ({
+    id_vendedor: v.id_vendedor,
+    nombre_erp: v.nombre_vendedor,
+    sucursal_nombre: v.sucursal_nombre,
+  }));
+
+  const sucursales = useMemo(() => {
+    const seen = new Set<string>();
+    return vendedores
+      .map(v => v.sucursal_nombre)
+      .filter((s): s is string => !!s && !seen.has(s) && seen.add(s) !== undefined)
+      .sort((a, b) => a.localeCompare(b, "es"));
+  }, [vendedores]);
+
+  const vendedoresEnSucursal = useMemo(() => {
+    if (!selectedSucursal) return vendedores;
+    return vendedores.filter(v => v.sucursal_nombre === selectedSucursal);
+  }, [vendedores, selectedSucursal]);
+
+  // Names for client-side sucursal filter
+  const vendedorNamesEnSucursal = useMemo(
+    () => new Set(vendedoresEnSucursal.map(v => v.nombre_erp.toLowerCase())),
+    [vendedoresEnSucursal],
+  );
+
   // ── Filtered list ─────────────────────────────────────────────────────────
 
   const filtered = useMemo(() => {
-    if (!searchText) return objetivos;
-    const q = searchText.toLowerCase();
-    return objetivos.filter(o =>
-      (o.nombre_vendedor ?? "").toLowerCase().includes(q) ||
-      (o.nombre_pdv ?? "").toLowerCase().includes(q) ||
-      (o.descripcion ?? "").toLowerCase().includes(q)
-    );
-  }, [objetivos, searchText]);
+    let list = objetivos;
+
+    // Text search
+    if (searchText) {
+      const q = searchText.toLowerCase();
+      list = list.filter(o =>
+        (o.nombre_vendedor ?? "").toLowerCase().includes(q) ||
+        (o.nombre_pdv ?? "").toLowerCase().includes(q) ||
+        (o.descripcion ?? "").toLowerCase().includes(q)
+      );
+    }
+
+    // Sucursal filter (client-side: match nombre_vendedor against vendedores in that sucursal)
+    if (selectedSucursal) {
+      list = list.filter(o =>
+        vendedorNamesEnSucursal.has((o.nombre_vendedor ?? "").toLowerCase())
+      );
+    }
+
+    // Specific vendedor filter
+    if (selectedVendedorId !== null) {
+      const target = vendedores.find(v => v.id_vendedor === selectedVendedorId);
+      if (target) {
+        const name = target.nombre_erp.toLowerCase();
+        list = list.filter(o => (o.nombre_vendedor ?? "").toLowerCase() === name);
+      }
+    }
+
+    return list;
+  }, [objetivos, searchText, selectedSucursal, selectedVendedorId, vendedorNamesEnSucursal, vendedores]);
 
   // ── Stats ─────────────────────────────────────────────────────────────────
 
@@ -818,11 +897,6 @@ export default function ObjetivosPage() {
     completado:  filtered.filter(o => o.cumplido),
   }), [filtered]);
 
-  const vendedores = (vendedoresData ?? []).map(v => ({
-    id_vendedor: v.id_vendedor,
-    nombre_erp: v.nombre_vendedor,
-  }));
-
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -835,7 +909,7 @@ export default function ObjetivosPage() {
           {/* Header */}
           <div className="flex items-start justify-between mb-6">
             <div>
-              <h1 className="text-xl font-semibold text-white">Objetivos</h1>
+              <h1 className="text-xl font-semibold text-[var(--shelfy-text)]">Objetivos</h1>
               <p className="text-sm text-[var(--shelfy-muted)] mt-0.5">
                 Seguimiento de metas por vendedor
               </p>
@@ -864,7 +938,7 @@ export default function ObjetivosPage() {
             <button
               onClick={() => setPageTab("objetivos")}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                pageTab === "objetivos" ? "bg-white/10 text-white" : "text-[var(--shelfy-muted)] hover:text-white"
+                pageTab === "objetivos" ? "bg-white/10 text-[var(--shelfy-text)]" : "text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
               }`}
             >
               <Target className="w-3.5 h-3.5" />
@@ -873,7 +947,7 @@ export default function ObjetivosPage() {
             <button
               onClick={() => setPageTab("supervisor")}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                pageTab === "supervisor" ? "bg-white/10 text-white" : "text-[var(--shelfy-muted)] hover:text-white"
+                pageTab === "supervisor" ? "bg-white/10 text-[var(--shelfy-text)]" : "text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
               }`}
             >
               <Users className="w-3.5 h-3.5" />
@@ -895,14 +969,14 @@ export default function ObjetivosPage() {
                     placeholder="Buscar vendedor, PDV..."
                     value={searchText}
                     onChange={e => setSearchText(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-lg text-sm text-white placeholder-white/20 focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                    className="w-full pl-9 pr-3 py-2 bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-lg text-sm text-[var(--shelfy-text)] placeholder-[var(--shelfy-muted)]/60 focus:outline-none focus:border-[var(--shelfy-accent)]/60"
                   />
                 </div>
 
                 {/* Tipo */}
                 <div className="relative">
                   <select
-                    className="appearance-none bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-lg pl-3 pr-8 py-2 text-sm text-white focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                    className="appearance-none bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-lg pl-3 pr-8 py-2 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
                     value={filterTipo ?? ""}
                     onChange={e => setFilterTipo((e.target.value || null) as ObjetivoTipo | null)}
                   >
@@ -917,7 +991,7 @@ export default function ObjetivosPage() {
                 {/* Estado */}
                 <div className="relative">
                   <select
-                    className="appearance-none bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-lg pl-3 pr-8 py-2 text-sm text-white focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                    className="appearance-none bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-lg pl-3 pr-8 py-2 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
                     value={filterCumplido === null ? "" : String(filterCumplido)}
                     onChange={e => {
                       const v = e.target.value;
@@ -935,18 +1009,62 @@ export default function ObjetivosPage() {
                 <div className="flex gap-1 bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-lg p-1">
                   <button
                     onClick={() => setViewMode("lista")}
-                    className={`p-1.5 rounded transition-colors ${viewMode === "lista" ? "bg-white/10 text-white" : "text-[var(--shelfy-muted)] hover:text-white"}`}
+                    className={`p-1.5 rounded transition-colors ${viewMode === "lista" ? "bg-white/10 text-[var(--shelfy-text)]" : "text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"}`}
                   >
                     <LayoutList className="w-3.5 h-3.5" />
                   </button>
                   <button
                     onClick={() => setViewMode("tablero")}
-                    className={`p-1.5 rounded transition-colors ${viewMode === "tablero" ? "bg-white/10 text-white" : "text-[var(--shelfy-muted)] hover:text-white"}`}
+                    className={`p-1.5 rounded transition-colors ${viewMode === "tablero" ? "bg-white/10 text-[var(--shelfy-text)]" : "text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"}`}
                   >
                     <LayoutGrid className="w-3.5 h-3.5" />
                   </button>
                 </div>
               </div>
+
+              {/* Cascading sucursal → vendedor filter */}
+              {sucursales.length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-4">
+                  <div className="relative">
+                    <select
+                      className="appearance-none bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-lg pl-3 pr-8 py-2 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                      value={selectedSucursal}
+                      onChange={e => {
+                        setSelectedSucursal(e.target.value);
+                        setSelectedVendedorId(null);
+                      }}
+                    >
+                      <option value="">Sucursal: Todas</option>
+                      {sucursales.map(s => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
+                    </select>
+                    <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-[var(--shelfy-muted)] pointer-events-none" />
+                  </div>
+                  <div className="relative">
+                    <select
+                      className="appearance-none bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-lg pl-3 pr-8 py-2 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                      value={selectedVendedorId ?? ""}
+                      onChange={e => setSelectedVendedorId(e.target.value ? Number(e.target.value) : null)}
+                    >
+                      <option value="">Vendedor: Todos</option>
+                      {vendedoresEnSucursal.map(v => (
+                        <option key={v.id_vendedor} value={v.id_vendedor}>{v.nombre_erp}</option>
+                      ))}
+                    </select>
+                    <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-[var(--shelfy-muted)] pointer-events-none" />
+                  </div>
+                  {(selectedSucursal || selectedVendedorId !== null) && (
+                    <button
+                      onClick={() => { setSelectedSucursal(""); setSelectedVendedorId(null); }}
+                      className="flex items-center gap-1 px-2.5 py-2 rounded-lg border border-[var(--shelfy-border)] text-xs text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] transition-colors"
+                    >
+                      <X className="w-3 h-3" />
+                      Limpiar
+                    </button>
+                  )}
+                </div>
+              )}
 
               {/* Content */}
               {isLoading ? (

@@ -2495,7 +2495,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                 <div>
                   <label className="text-[10px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1">Tipo</label>
                   <select
-                    className="w-full appearance-none bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                    className="w-full appearance-none bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-1.5 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
                     value={objTipo}
                     onChange={e => setObjTipo(e.target.value as ObjetivoTipo)}
                   >
@@ -2513,7 +2513,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                   <textarea
                     rows={2}
                     placeholder="Qué debe lograr el vendedor..."
-                    className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-1.5 text-sm text-white placeholder-white/20 focus:outline-none focus:border-[var(--shelfy-accent)]/60 resize-none"
+                    className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-1.5 text-sm text-[var(--shelfy-text)] placeholder-[var(--shelfy-muted)]/60 focus:outline-none focus:border-[var(--shelfy-accent)]/60 resize-none"
                     value={objDesc}
                     onChange={e => setObjDesc(e.target.value)}
                   />
@@ -2524,7 +2524,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                   <label className="text-[10px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1">Fecha límite</label>
                   <input
                     type="date"
-                    className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                    className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-1.5 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
                     value={objFecha}
                     onChange={e => setObjFecha(e.target.value)}
                   />

@@ -266,13 +266,17 @@ Payload del JWT: `{ id_usuario, id_distribuidor, rol, is_superadmin }`
 Expira en 8 horas. Algoritmo HS256.
 
 ### Roles
-- `superadmin`: ve todas las distribuidoras
-- `admin`: administra su distribuidora
-- `supervisor`: supervisa vendedores de su distribuidora
-- `evaluador`: evalúa exhibiciones
+- `superadmin`: ve todas las distribuidoras (bypass total de permisos).
+- `admin`: administra su distribuidora.
+- `directorio`: acceso ejecutivo global (multi-tenant con permisos específicos).
+- `supervisor`: supervisa vendedores de su distribuidora.
+- `evaluador`: rol específico para evaluación de exhibiciones.
 
 ### `check_dist_permission(user_payload, dist_id)`
-Función en api.py que lanza 403 si un usuario no-superadmin intenta acceder a una distribuidora que no es la suya. Se llama al inicio de cada endpoint que recibe `dist_id`.
+Función en `core/security.py` que lanza 403 si un usuario intenta acceder a una distribuidora ajena. 
+**Excepciones**:
+1. Si `is_superadmin` es `True`.
+2. Si el usuario cuenta con el permiso `action_switch_tenant` en su payload de JWT (permiso fundamental de cambio de entorno).
 
 ---
 
@@ -526,8 +530,8 @@ El popup HTML del marcador muestra:
 - ## Desarrollo y Convenciones
 - **Auth**: Usar `useAuthContext()` para acceder al usuario y permisos.
 - **RBAC**: Para proteger UI, usar `hasPermiso('key')`. En `Sidebar`, añadir `permisoKey` al item de navegación. No hardcodear roles en componentes si existe una `permisoKey` asociada.
-- **Estilos**: Usar variables CSS de `globals.css` (`--shelfy-primary`, etc.) para mantener consistencia con el tema dark/glassmorphism.
-- **Componentes**: Priorizar componentes de `shadcn/ui` (@/components/ui) para nuevos desarrollos.
+- **Estilos**: Usar variables CSS de `globals.css` (`--shelfy-primary`, etc.) para mantener consistencia con el tema **light-violet**. El `:root` por defecto es modo claro; `.dark` existe como fallback. No usar valores hex hardcodeados cuando existe una variable `--shelfy-*` equivalente.
+- **Componentes**: Priorizar componentes de `shadcn/ui` (`@/components/ui`) para nuevos desarrollos. Primitivos disponibles: `Button`, `Checkbox`, `Table` (con `TableHeader/Body/Row/Head/Cell/Caption`), `DropdownMenu` (con todos los sub-componentes). Agregar nuevos con `npx shadcn@latest add <component>`.
 - **Backend Routing**: Seguir el patrón modular: `routers/` para agrupar endpoints y Pydantic para esquemas.
 - No modificar tablas `erp_*_raw` directamente — son append-only desde los services
 - No usar `clientes_pdv` (sin v2) en código nuevo
@@ -613,7 +617,10 @@ Archivo `shelfy_mapa_arquitectonico.html` en la raíz del repo. Dashboard HTML e
 ### TypeScript (frontend)
 - Comunicación vía `src/lib/api.ts` — NO fetch directo en componentes.
 - Tipos definidos en `api.ts`.
-- Tailwind con variables CSS en `globals.css`.
+- Tailwind con variables CSS en `globals.css`. Tema por defecto: **light-violet** (`:root` es claro, `.dark` es fallback).
+- Iconos de Lucide se tipan como `React.ElementType` en interfaces de navItems (no `any`).
+- Listas derivadas de constantes de módulo (ej. `PERMISSION_GROUPS`, `PERMISSIONS_BY_GROUP`) deben hoistarse a nivel de módulo, no computarse en render. Usar `useMemo` solo para derivaciones que dependen de props/state.
+- Fetches en `useEffect` con posibilidad de re-disparo deben incluir cleanup con flag `cancelled` o `AbortController`.
 
 ### Base de datos
 - Siempre filtrar por `id_distribuidor`.

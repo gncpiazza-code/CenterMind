@@ -39,7 +39,13 @@ Este documento describe la infraestructura, tecnologías y flujos de datos que c
 3. **RPC (Remote Procedure Calls)**: Se utilizan funciones PL/pgSQL en Supabase para operaciones complejas como `fn_supervision_vendedores` o `fn_login`.
 4. **WebSocket (Realtime)**: Supabase Realtime se utiliza para sincronización de estado en el mapa (navegación coordinada).
 5. **Storage**: Las imágenes subidas por el bot se guardan en Supabase Storage. El frontend usa las URLs públicas para renderizar fotos de exhibiciones.
-6. **RBAC (Role Based Access Control)**: New table `roles_permisos` defines per-role access keys. Frontend uses `hasPermiso(key)` via `AuthContext` to filter UI elements.
+6. **Sidebar — Switcher de Distribuidora**:
+    - **Componente**: `shadcn/ui` `DropdownMenu` (reemplaza el dropdown custom anterior).
+    - **Visibilidad**: Disponible para Superadmin y usuarios con el permiso `action_switch_tenant`.
+    - **Posición**: `side="top"`, aparece sobre el trigger, alineado al ancho del botón trigger.
+    - **Optimización**: `navItems` se memoiza con `useMemo([rol, hasPermiso])` para evitar re-cómputos.
+7. **RBAC (Role Based Access Control)**: La tabla `roles_permisos` define llaves de acceso por rol. El frontend usa `hasPermiso(key)` via `AuthContext`.
+8. **Multi-tenant Switcher**: El backend permite el cambio de contexto operativo a usuarios no-superadmin si cuentan con el permiso `action_switch_tenant`, validado en `check_dist_permission`.
 
 ---
 

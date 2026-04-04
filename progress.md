@@ -1,6 +1,6 @@
 # Progress — Shelfy CenterMind
 
-**Última actualización: 4 de Abril, 2026**
+**Última actualización: 4 de Abril, 2026 (3)**
 
 Este archivo detalla el estado actual del proyecto, las funcionalidades operativas y los pendientes técnicos.
 
@@ -63,6 +63,8 @@ El proyecto se encuentra en una fase de expansión de funcionalidades de supervi
 ---
 
 ## 📅 Historial Reciente (Abril 2026)
+- **04/04 (4)**: **Estabilidad y Multi-tenant Switcher** — Implementación del permiso `action_switch_tenant` que habilita el selector de distribuidora a usuarios administrativos autorizados. Actualización de `security.py` (backend) para permitir bypass de ownership vía permisos. Fix crítico de estabilidad: resolución de errores 500 en Dashboard (date parsing robusto) y eliminación de warnings de Recharts (`minWidth`/`minHeight` en `ResponsiveContainer`). Sincronización de interfaz `MotorRun` con el esquema real de BD (`iniciado_en`, `finalizado_en`).
+- **04/04 (3)**: **Migración a Light-Violet Theme** — `:root` cambiado a modo claro (`#F8FAFC` bg, violeta como acento). Nuevos primitivos shadcn/ui: `Checkbox`, `Table`, `DropdownMenu`. `permissions/page.tsx` reescrito con shadcn `Table`+`Checkbox`; constantes de grupos/permisos hoistadas a módulo. `Sidebar.tsx` actualiza el switcher de distribuidora con `DropdownMenu`, memoiza `navItems` con `useMemo`, agrega cleanup en fetch y tipado correcto (`React.ElementType`). Mejoras de calidad: `Fragment key`, guardas simplificadas, wrapper divs eliminados.
 - **04/04 (2)**: La **Matriz de Permisos** ahora es totalmente **editable** por el Superadmin con persistencia en base de datos.
 - **04/04**: Implementación de **Matriz de Permisos** (RBAC), nuevo rol **Directorio** con acceso global, y **Jerarquía de Objetivos** (contención de progreso). Rediseño estético completo adoptando **shadcn/ui** y refinando la paleta violeta.
 - **03/04 (tarde)**: Refactorización modular de `api.py` (4067 → 98 líneas). Nuevo árbol: `core/` (config, security, lifespan, helpers), `models/schemas.py`, `routers/` (auth, erp, supervision, admin, reportes). Cero cambios en contratos HTTP — URLs, métodos y esquemas JSON idénticos. Backup en `api_legacy.py.bak`.

@@ -97,18 +97,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     router.push("/login");
   }, [router]);
 
-  const switchDistributor = useCallback((id: number, nombre: string) => {
-    if (user?.rol !== "superadmin") return;
-    setUser(prev => prev ? { ...prev, id_distribuidor: id, nombre_empresa: nombre } : null);
-    localStorage.setItem("shelfy_active_dist", JSON.stringify({ id, nombre }));
-    window.location.reload();
-  }, [user?.rol]);
-
-  const setTutorialSeen = useCallback(() => {
-    localStorage.setItem("shelfy_tutorial_v2_seen", "true");
-    setUser(prev => prev ? { ...prev, show_tutorial: false } : null);
-  }, []);
-
   // Superadmin bypasses all permission checks (always true).
   // If permisos dict is empty (old tokens without permisos), default to true for backward compat.
   const hasPermiso = useCallback((key: string): boolean => {
@@ -119,17 +107,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return permisos[key] ?? true;
   }, [user]);
 
+  const switchDistributor = useCallback((id: number, nombre: string) => {
+    if (!user?.is_superadmin && !hasPermiso("action_switch_tenant")) return;
+    setUser(prev => prev ? { ...prev, id_distribuidor: id, nombre_empresa: nombre } : null);
+    localStorage.setItem("shelfy_active_dist", JSON.stringify({ id, nombre }));
+    window.location.reload();
+  }, [user?.is_superadmin, hasPermiso]);
+
+  const setTutorialSeen = useCallback(() => {
+    localStorage.setItem("shelfy_tutorial_v2_seen", "true");
+    setUser(prev => prev ? { ...prev, show_tutorial: false } : null);
+  }, []);
+
   useEffect(() => {
     const stored = localStorage.getItem("shelfy_active_dist");
-    if (stored && user?.rol === "superadmin") {
+    const canSwitch = user?.is_superadmin || hasPermiso("action_switch_tenant");
+    
+    if (stored && canSwitch) {
       try {
         const { id, nombre } = JSON.parse(stored);
-        if (user.id_distribuidor !== id) {
+        if (user && user.id_distribuidor !== id) {
           setUser(prev => prev ? { ...prev, id_distribuidor: id, nombre_empresa: nombre } : null);
         }
       } catch { }
     }
-  }, [user?.rol, user?.id_distribuidor]);
+  }, [user?.is_superadmin, user?.id_distribuidor, hasPermiso]);
 
   return (
     <AuthContext.Provider value={{

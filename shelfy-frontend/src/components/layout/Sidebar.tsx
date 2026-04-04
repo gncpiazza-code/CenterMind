@@ -71,13 +71,14 @@ export function Sidebar() {
   };
 
   useEffect(() => {
-    if (user?.rol !== "superadmin") return;
+    const canSwitch = user?.rol === "superadmin" || hasPermiso("action_switch_tenant");
+    if (!canSwitch) return;
     let cancelled = false;
     fetchDistribuidores()
-      .then(data => { if (!cancelled) setDists(data); })
+      .then((data: any) => { if (!cancelled) setDists(data); })
       .catch(console.error);
     return () => { cancelled = true; };
-  }, [user?.rol]);
+  }, [user?.rol, hasPermiso]);
 
   return (
     <aside
@@ -219,8 +220,8 @@ export function Sidebar() {
                 )}
               </div>
 
-              {/* Distributor Switcher — SuperAdmin only */}
-              {user.rol === "superadmin" && !isCollapsed && (
+              {/* Distributor Switcher — SuperAdmin or authorized users */}
+              {(user.rol === "superadmin" || hasPermiso("action_switch_tenant")) && !isCollapsed && (
                 <div className="px-1 animate-in fade-in duration-500">
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>

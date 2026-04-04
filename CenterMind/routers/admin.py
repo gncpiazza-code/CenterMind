@@ -43,8 +43,11 @@ CC_LOG_PATH = os.path.join(os.path.dirname(__file__), "../../ShelfMind-RPA/logs/
 
 @router.get("/admin/distribuidoras", summary="Lista de distribuidoras")
 def admin_get_distribuidoras(solo_activas: str = "true", payload=Depends(verify_auth)):
+    # Superadmin o usuarios con permiso explícito de cambio de entorno
     if not payload.get("is_superadmin"):
-        raise HTTPException(status_code=403, detail="Acceso denegado")
+        permisos = payload.get("permisos", {})
+        if not permisos.get("action_switch_tenant"):
+            raise HTTPException(status_code=403, detail="Acceso denegado")
     q = sb.table("distribuidores").select("id_distribuidor, nombre_empresa, token_bot, estado, id_carpeta_drive, ruta_credencial_drive")
     if solo_activas.lower() == "true":
         q = q.eq("estado", "activo")

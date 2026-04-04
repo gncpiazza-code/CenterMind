@@ -75,6 +75,11 @@ def check_dist_permission(payload: dict, required_dist_id: int):
         return True
     user_dist_id = payload.get("id_distribuidor")
     if user_dist_id != required_dist_id:
+        # Permiso fundamental para cambiar de entorno
+        permisos = payload.get("permisos", {})
+        if permisos.get("action_switch_tenant"):
+            return True
+
         logger.warning(
             f"🚫 Intento de acceso no autorizado: Usuario dist {user_dist_id} -> Recurso dist {required_dist_id}"
         )

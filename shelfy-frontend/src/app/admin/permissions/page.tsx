@@ -39,6 +39,7 @@ const PERMISSION_KEYS: { key: string; label: string; group: string }[] = [
   { key: "action_edit_objetivos",       label: "Editar Objetivos",         group: "Acciones" },
   { key: "action_toggle_vendedores",    label: "Activar/Desactivar Vend.", group: "Acciones" },
   { key: "action_evaluar_exhibiciones", label: "Evaluar Exhibiciones",     group: "Acciones" },
+  { key: "action_switch_tenant",        label: "Cambiar de Entorno (Tenant)", group: "Acciones" },
 ];
 
 const PERMISSION_GROUPS = Array.from(new Set(PERMISSION_KEYS.map(p => p.group)));

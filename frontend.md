@@ -57,6 +57,14 @@ Los paneles utilizan el estilo "Glass-Card" adaptado al tema claro:
 ### 2. TabSupervision
 - **Layout**: Sidebar de selección de distribuidor/sucursal + Tabs centrales (Mapa, Ventas, Cuentas).
 - **Sticky Headers**: Los selectores se mantienen visibles durante el scroll en móviles.
+- **Actualizar CC**: Botón "Actualizar CC" (`RefreshCw`) en el header de la sección Cuentas Corrientes (visible cuando `selectedDist > 0`). Abre un `<Dialog>` con file picker `.xlsx` y flujo: `idle` → `uploading` (Progress 60) → `polling` cada 3s contra `GET /api/supervision/cc-status/{distId}` (Progress 80) → cierre automático al recibir `estado: "completado"` + `invalidateQueries({queryKey:["supervision-cuentas"]})`. Timeout de seguridad de 120s. Toda la lógica de polling usa refs (`ccPollingRef`, `ccTimeoutRef`) limpiados en `useEffect(() => () => stopCCPolling(), [])`.
+
+### 2b. Supervision Page — Generar Informe
+- **Botón "Generar Informe"** (`FileBarChart2`) en el header de `/supervision/page.tsx`, alineado a la derecha del título.
+- **Sheet**: `<Sheet side="right" sm:max-w-md>` con zona drag-and-drop para múltiples `.xlsx/.xls`. Drag activo aplica `border-[var(--shelfy-primary)]` + `bg-[var(--shelfy-primary)]/5`.
+- **Edge case**: Si `distId === 0` (superadmin sin distribuidora en sesión) el sheet muestra un `<Alert>` explicativo en lugar de la zona de drop.
+- **Download automático**: Respuesta binaria del backend → `URL.createObjectURL(blob)` + click programático + `URL.revokeObjectURL`. Nombrado: `informe_ventas_YYYY-MM-DD.pdf`.
+- **Protección de cierre**: `onOpenChange` bloquea el cierre del sheet mientras `generating === true` para evitar pérdida de estado.
 
 ### 3. Floating Objetivos ("Carrito")
 - **UI**: Panel flotante en la esquina inferior derecha del mapa.
@@ -76,7 +84,20 @@ Los paneles utilizan el estilo "Glass-Card" adaptado al tema claro:
 - **Rendimiento**: `PERMISSION_GROUPS` y `PERMISSIONS_BY_GROUP` son constantes de módulo (no se recomputan en render). Los grupos de permisos se renderizan con `<Fragment key={group}>`.
 - **Seguridad**: Los elementos del menú en el `Sidebar` se ocultan automáticamente si el usuario no tiene la `permisoKey` correspondiente.
 
-### 5. Sidebar — Switcher de Distribuidora
+### 5. Motor de Informes Excel (supervision/page.tsx)
+- **Botón "Generar Informe"**: icono `FileBarChart2`, abre `<Sheet side="right">`.
+- **Sheet**: zona drag-and-drop multi-archivo `.xlsx`, lista removible de archivos, `<Progress>` durante generación, descarga automática del PDF al completar.
+- **Edge case**: si `distId === 0` (superadmin sin dist), muestra `<Alert>` en lugar de la zona de drop.
+- **API**: `generateInformeExcel(distId, files[]) → Promise<Blob>`. POST a `/api/reports/generate/{dist_id}` con multipart (campo `files`).
+
+### 6. Actualizar CC en TabSupervision
+- **Botón "Actualizar CC"**: icono `RefreshCw`, `variant="outline" size="sm"`, visible cuando `selectedDist > 0`.
+- **Dialog**: upload single-file `.xlsx`, estados `idle → uploading → polling → done`.
+- **Polling**: `setInterval` en `ccPollingRef` (useRef) cada 3s a `fetchCCStatus`. Timeout a 120s. Cleanup en `useEffect` al desmontar.
+- **Al completar**: `queryClient.invalidateQueries({queryKey:["supervision-cuentas"]})` + `toast.success`.
+- **APIs**: `uploadCCForDist(distId, file)`, `fetchCCStatus(distId)`, interfaz `CCStatusResponse`.
+
+### 7. Sidebar — Switcher de Distribuidora
 - **Componente**: `shadcn/ui` `DropdownMenu` (reemplaza el dropdown custom anterior).
 - **Visibilidad**: Disponible para Superadmin y usuarios con el permiso `action_switch_tenant`.
 - **Posición**: `side="top"`, aparece sobre el trigger, alineado al ancho del botón trigger.

@@ -3,15 +3,17 @@
 Panel de supervisión: vendedores, rutas, clientes PDV, ventas, cuentas corrientes,
 objetivos, PDVs cercanos, evaluación de exhibiciones.
 """
+import io
 import logging
 import math
+import tempfile
 import unicodedata
 from datetime import datetime, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
 
-from core.helpers import _get_erp_name_map
+from core.helpers import _get_erp_name_map, _enrich_and_store_cc
 from core.security import verify_auth, check_dist_permission
 from db import sb
 from models.schemas import EvaluarRequest, ObjetivoCreate, ObjetivoUpdate, RevertirRequest
@@ -878,4 +880,119 @@ def eliminar_objetivo(objetivo_id: str, user_payload=Depends(verify_auth)):
         raise
     except Exception as e:
         logger.error(f"Error en eliminar_objetivo objetivo_id={objetivo_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── Actualizar Cuentas Corrientes (desde /supervision) ───────────────────────
+
+# Mapeo inverso dist_id → tenant_id para el procesamiento de CC
+_DIST_TENANT_MAP: dict[int, str] = {3: "tabaco", 4: "aloma", 5: "liver", 2: "real"}
+
+
+@router.post("/api/supervision/upload-cc/{dist_id}", tags=["Supervisión"])
+async def supervision_upload_cc(
+    dist_id: int,
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    user_payload=Depends(verify_auth),
+):
+    """
+    Carga un Excel de Cuentas Corrientes para un distribuidor específico.
+    Procesa el archivo en segundo plano y actualiza cc_detalle.
+    Devuelve inmediatamente un job_id para que el frontend pueda consultar el estado.
+    """
+    check_dist_permission(user_payload, dist_id)
+
+    if not file.filename or not file.filename.lower().endswith((".xlsx", ".xls")):
+        raise HTTPException(status_code=400, detail="Se requiere un archivo .xlsx o .xls")
+
+    file_bytes = await file.read()
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="El archivo está vacío.")
+
+    # Registrar inicio de motor_run
+    try:
+        run_res = sb.table("motor_runs").insert({
+            "motor": "cuentas_corrientes",
+            "dist_id": dist_id,
+            "estado": "iniciado",
+            "iniciado_en": datetime.utcnow().isoformat(),
+        }).execute()
+        job_id = run_res.data[0]["id"] if run_res.data else None
+    except Exception as e:
+        logger.warning(f"No se pudo registrar motor_run para dist={dist_id}: {e}")
+        job_id = None
+
+    def _run_cc_background(fb: bytes, d_id: int, run_id: int | None) -> None:
+        """Proceso de fondo: parsea el Excel CC y guarda en cc_detalle."""
+        from services.cuentas_corrientes_service import procesar_cuentas_corrientes_service
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+                tmp.write(fb)
+                tmp_path = tmp.name
+
+            import os
+            try:
+                _, json_data = procesar_cuentas_corrientes_service(tmp_path, "/tmp", {"reglas_generales": {}})
+            finally:
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
+
+            rows_cc = json_data.get("detalle_cuentas", []) if json_data else []
+            saved = 0
+            if rows_cc:
+                fecha_str = datetime.utcnow().strftime("%Y-%m-%d")
+                saved = _enrich_and_store_cc(d_id, fecha_str, rows_cc)
+
+            if run_id:
+                sb.table("motor_runs").update({
+                    "estado": "completado",
+                    "finalizado_en": datetime.utcnow().isoformat(),
+                    "registros": saved,
+                }).eq("id", run_id).execute()
+
+            logger.info(f"[upload-cc] dist={d_id} — {saved} registros guardados en cc_detalle.")
+
+        except Exception as e:
+            logger.error(f"[upload-cc] Error procesando CC dist={d_id}: {e}")
+            if run_id:
+                try:
+                    sb.table("motor_runs").update({
+                        "estado": "error",
+                        "finalizado_en": datetime.utcnow().isoformat(),
+                        "error_msg": str(e)[:500],
+                    }).eq("id", run_id).execute()
+                except Exception:
+                    pass
+
+    background_tasks.add_task(_run_cc_background, file_bytes, dist_id, job_id)
+
+    return {
+        "ok": True,
+        "status": "accepted",
+        "message": f"Archivo CC recibido para dist {dist_id}. Procesando en segundo plano.",
+        "job_id": job_id,
+    }
+
+
+@router.get("/api/supervision/cc-status/{dist_id}", tags=["Supervisión"])
+def supervision_cc_status(dist_id: int, user_payload=Depends(verify_auth)):
+    """Estado del último motor_run de cuentas corrientes para un distribuidor."""
+    check_dist_permission(user_payload, dist_id)
+    try:
+        res = (
+            sb.table("motor_runs")
+            .select("id, estado, iniciado_en, finalizado_en, registros, error_msg")
+            .eq("motor", "cuentas_corrientes")
+            .eq("dist_id", dist_id)
+            .order("iniciado_en", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if not res.data:
+            return {"estado": "sin_ejecuciones"}
+        return res.data[0]
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

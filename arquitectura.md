@@ -65,9 +65,10 @@ CenterMind/                     # Raíz del Repositorio
 │   ├── routers/
 │   │   ├── auth.py             # /login, /auth/login, /auth/switch-context
 │   │   ├── erp.py              # ERP ingesta, sync v1, padrón, motores RPA, CC
-│   │   ├── supervision.py      # Pendientes, evaluar, mapa, objetivos, GPS
+│   │   ├── supervision.py      # Pendientes, evaluar, mapa, objetivos, GPS, upload-cc, cc-status
 │   │   ├── admin.py            # Distribuidoras, usuarios, integrantes, jerarquía
-│   │   └── reportes.py         # Dashboard, reports, bonos, reportes exhibiciones
+│   │   ├── reportes.py         # Dashboard, reports, bonos, reportes exhibiciones
+│   │   └── informes_excel.py   # Motor de informes: infer-config, tenant config, generate PDF
 │   ├── bot_worker.py           # Gestión de Bots de Telegram
 │   ├── db.py                   # Conexión Supabase (singleton)
 │   ├── services/               # Lógica de negocio (Ingesta ERP, CC, Monitoring)

@@ -1246,3 +1246,56 @@ export async function fetchResumenSupervisorObjetivos(
     `/api/supervision/objetivos/${distId}/resumen-supervisor`
   );
 }
+
+// ── Informe de Ventas (PDF) ───────────────────────────────────────────────────
+export async function generateInformeExcel(distId: number, files: File[]): Promise<Blob> {
+  const token = localStorage.getItem(TOKEN_KEY);
+  const form = new FormData();
+  files.forEach(f => form.append("files", f));
+  const res = await fetch(`${API_URL}/api/reports/generate/${distId}`, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Error generando informe" }));
+    throw new Error(err.detail ?? "Error generando informe");
+  }
+  return res.blob();
+}
+
+// ── Cuentas Corrientes upload por dist_id ─────────────────────────────────────
+export async function uploadCCForDist(
+  distId: number,
+  file: File
+): Promise<{ ok: boolean; job_id: number | null }> {
+  const token = localStorage.getItem(TOKEN_KEY);
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(`${API_URL}/api/supervision/upload-cc/${distId}`, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Error subiendo CC" }));
+    throw new Error(err.detail ?? "Error subiendo CC");
+  }
+  return res.json();
+}
+
+export interface CCStatusResponse {
+  estado: string;
+  registros?: number;
+  error_msg?: string;
+  finalizado_en?: string;
+}
+
+export async function fetchCCStatus(distId: number): Promise<CCStatusResponse> {
+  const token = localStorage.getItem(TOKEN_KEY);
+  const res = await fetch(`${API_URL}/api/supervision/cc-status/${distId}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new Error("Error consultando estado CC");
+  return res.json();
+}

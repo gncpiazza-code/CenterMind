@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
 import {
@@ -53,6 +53,17 @@ import {
 import type { PinCliente } from "./MapaRutas";
 import { useSupervisionStore } from "@/store/useSupervisionStore";
 import { useAuth } from "@/hooks/useAuth";
+import { Button } from "@/components/ui/Button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Progress } from "@/components/ui/progress";
+import { toast } from "sonner";
+import { uploadCCForDist, fetchCCStatus } from "@/lib/api";
 
 const ModoRuteo = dynamic(() => import("./ModoRuteo"), {
   ssr: false,
@@ -310,6 +321,86 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
   const [objCobranzaMode, setObjCobranzaMode] = useState<"total" | "parcial">("total");
   const [objCobranzaMonto, setObjCobranzaMonto] = useState<number | "">("");
   const [objSelectedDeudor, setObjSelectedDeudor] = useState<{cliente_nombre: string; deuda_total: number} | null>(null);
+
+  // ── CC Upload Dialog ──────────────────────────────────────────────────────
+  type CCUploadStatus = "idle" | "uploading" | "polling" | "done" | "error";
+  const [ccDialogOpen, setCCDialogOpen]     = useState(false);
+  const [ccFile, setCCFile]                 = useState<File | null>(null);
+  const [ccUploadStatus, setCCUploadStatus] = useState<CCUploadStatus>("idle");
+  const [ccMessage, setCCMessage]           = useState("");
+  const ccFileInputRef                      = useRef<HTMLInputElement>(null);
+  const ccPollingRef                        = useRef<ReturnType<typeof setInterval> | null>(null);
+  const ccTimeoutRef                        = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function stopCCPolling() {
+    if (ccPollingRef.current) { clearInterval(ccPollingRef.current); ccPollingRef.current = null; }
+    if (ccTimeoutRef.current) { clearTimeout(ccTimeoutRef.current); ccTimeoutRef.current = null; }
+  }
+
+  function resetCCDialog() {
+    stopCCPolling();
+    setCCFile(null);
+    setCCUploadStatus("idle");
+    setCCMessage("");
+  }
+
+  function handleCCDialogClose(open: boolean) {
+    if (!open && ccUploadStatus !== "uploading" && ccUploadStatus !== "polling") {
+      resetCCDialog();
+      setCCDialogOpen(false);
+    }
+    if (open) setCCDialogOpen(true);
+  }
+
+  async function handleCCUpload() {
+    if (!ccFile) return;
+    setCCUploadStatus("uploading");
+    setCCMessage("Enviando archivo...");
+    try {
+      await uploadCCForDist(selectedDist, ccFile);
+      setCCUploadStatus("polling");
+      setCCMessage("Procesando en segundo plano...");
+
+      // Timeout de 2 minutos
+      ccTimeoutRef.current = setTimeout(() => {
+        stopCCPolling();
+        toast.warning("El proceso está tardando. Refrescá la página en unos minutos.");
+        resetCCDialog();
+        setCCDialogOpen(false);
+      }, 120_000);
+
+      // Poll cada 3s
+      ccPollingRef.current = setInterval(async () => {
+        try {
+          const status = await fetchCCStatus(selectedDist);
+          if (status.estado === "completado") {
+            stopCCPolling();
+            toast.success(
+              `Cuentas corrientes actualizadas. ${status.registros ?? 0} registros procesados.`
+            );
+            queryClient.invalidateQueries({ queryKey: ["supervision-cuentas"] });
+            resetCCDialog();
+            setCCDialogOpen(false);
+          } else if (status.estado === "error") {
+            stopCCPolling();
+            toast.error(`Error: ${status.error_msg ?? "Error desconocido"}`);
+            resetCCDialog();
+            setCCDialogOpen(false);
+          }
+        } catch {
+          // Transient network error — keep polling
+        }
+      }, 3_000);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Error subiendo CC";
+      toast.error(msg);
+      setCCUploadStatus("error");
+      setCCMessage(msg);
+    }
+  }
+
+  // Cleanup polling on unmount
+  useEffect(() => () => stopCCPolling(), []);
 
   // ── TanStack Query: Distribuidoras ────────────────────────────────────────
   const { data: distribuidoras = [] } = useQuery({
@@ -1910,6 +2001,17 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                 </button>
               </>
             )}
+            {selectedDist > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCCDialogOpen(true)}
+                className="flex items-center gap-1.5 text-xs h-7 px-2.5"
+              >
+                <RefreshCw className="w-3 h-3" />
+                Actualizar CC
+              </Button>
+            )}
             {loadingCuentas && <Loader2 className="w-4 h-4 animate-spin text-[var(--shelfy-muted)]" />}
           </div>
         </div>
@@ -2799,6 +2901,87 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
           </button>
         </div>
       )}
+
+      {/* ── Dialog: Actualizar Cuentas Corrientes ──────────────────────────── */}
+      <Dialog open={ccDialogOpen} onOpenChange={handleCCDialogClose}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <RefreshCw className="w-4 h-4 text-amber-400" />
+              Actualizar Cuentas Corrientes
+            </DialogTitle>
+            <DialogDescription>
+              Subí el Excel de cuentas corrientes para actualizar los datos de este distribuidor.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex flex-col gap-4 pt-1">
+            {/* File picker */}
+            {ccUploadStatus === "idle" || ccUploadStatus === "error" ? (
+              <>
+                <label
+                  htmlFor="cc-file-input"
+                  className="flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-[var(--shelfy-border)] hover:border-amber-400/50 hover:bg-amber-500/5 cursor-pointer transition-colors py-8 text-center"
+                >
+                  <div className="w-9 h-9 rounded-lg bg-amber-400/10 flex items-center justify-center">
+                    <CreditCard className="w-4 h-4 text-amber-400" />
+                  </div>
+                  {ccFile ? (
+                    <p className="text-sm font-medium text-[var(--shelfy-text)]">{ccFile.name}</p>
+                  ) : (
+                    <>
+                      <p className="text-sm font-semibold text-[var(--shelfy-text)]">
+                        Seleccioná el archivo Excel
+                      </p>
+                      <p className="text-xs text-[var(--shelfy-muted)]">Solo .xlsx</p>
+                    </>
+                  )}
+                  <input
+                    id="cc-file-input"
+                    ref={ccFileInputRef}
+                    type="file"
+                    accept=".xlsx,.xls"
+                    className="hidden"
+                    onChange={e => {
+                      if (e.target.files?.[0]) setCCFile(e.target.files[0]);
+                    }}
+                  />
+                </label>
+
+                {ccUploadStatus === "error" && ccMessage && (
+                  <p className="text-xs text-rose-400 text-center">{ccMessage}</p>
+                )}
+
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => { resetCCDialog(); setCCDialogOpen(false); }}
+                  >
+                    Cancelar
+                  </Button>
+                  <Button
+                    className="flex-1"
+                    disabled={!ccFile}
+                    onClick={handleCCUpload}
+                  >
+                    Subir y Procesar
+                  </Button>
+                </div>
+              </>
+            ) : (
+              /* Upload / polling state */
+              <div className="flex flex-col gap-3 py-4">
+                <Progress
+                  value={ccUploadStatus === "uploading" ? 60 : 80}
+                  className="h-1.5"
+                />
+                <p className="text-sm text-[var(--shelfy-muted)] text-center">{ccMessage}</p>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

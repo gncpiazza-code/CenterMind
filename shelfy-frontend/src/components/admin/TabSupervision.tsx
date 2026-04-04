@@ -24,6 +24,7 @@ import {
   Image as ImageIcon,
   Search,
   Navigation,
+  Target,
 } from "lucide-react";
 import {
   fetchVendedoresSupervision,
@@ -36,6 +37,7 @@ import {
   fetchClienteInfo,
   fetchReporteExhibiciones,
   resolveImageUrl,
+  createObjetivo,
   type PDVsCercanosResponse,
   type VendedorSupervision,
   type RutaSupervision,
@@ -45,6 +47,8 @@ import {
   type CuentasSupervision,
   type PDVCercano,
   type ClienteContacto,
+  type ObjetivoCreate,
+  type ObjetivoTipo,
 } from "@/lib/api";
 import type { PinCliente } from "./MapaRutas";
 import { useSupervisionStore } from "@/store/useSupervisionStore";
@@ -69,22 +73,28 @@ const MapaRutas = dynamic(() => import("./MapaRutas"), {
 });
 
 // ── Vendor color palette ──────────────────────────────────────────────────────
-// 12 colors, each ≥27° apart on the hue wheel at full saturation.
-// Old palette had cyan/teal/sky within 26° of each other, green/emerald within
-// 15°, amber/orange/yellow within 19°, and red/rose within 7° — all confusing.
+// 20 colors that avoid Red, Blue, Orange, and Green (used for PDV statuses).
 const VENDOR_COLORS = [
-  "#E60020", // 1  — Red           (H≈353)
-  "#FF7700", // 2  — Orange        (H≈29)
-  "#FFD100", // 3  — Yellow        (H≈49)
-  "#88CC00", // 4  — Lime          (H≈83)  gap 34°
-  "#44BB00", // 5  — Spring-Green  (H≈110) gap 27°
-  "#00BB44", // 6  — Green         (H≈137) gap 27°
-  "#00BB99", // 7  — Teal          (H≈166) gap 29°
-  "#00AADD", // 8  — Cyan          (H≈193) gap 27°
-  "#2244FF", // 9  — Blue          (H≈231) gap 38°
-  "#7700EE", // 10 — Violet        (H≈270) gap 39°
-  "#CC00BB", // 11 — Magenta       (H≈303) gap 33°
-  "#FF0077", // 12 — Hot Pink      (H≈332) gap 29° / back to Red: 21°
+  "#FF00FF", // 1  — Magenta
+  "#8B5CF6", // 2  — Violet
+  "#06B6D4", // 3  — Cyan
+  "#F472B6", // 4  — Pink
+  "#D946EF", // 5  — Fuchsia
+  "#71717A", // 6  — Grey
+  "#78350F", // 7  — Brown
+  "#4338CA", // 8  — Indigo
+  "#BE123C", // 9  — Crimson
+  "#CA8A04", // 10 — Ochre
+  "#14B8A6", // 11 — Teal
+  "#9333EA", // 12 — Purple
+  "#DB2777", // 13 — Deep Pink
+  "#0F766E", // 14 — Dark Teal
+  "#0369A1", // 15 — Deep Sky
+  "#57534E", // 16 — Stone
+  "#A855F7", // 17 — Medium Purple
+  "#0891B2", // 18 — Deep Cyan
+  "#C026D3", // 19 — Fuchsia Deep
+  "#4B5563", // 20 — Cool Grey
 ];
 const vendorColor = (i: number) => VENDOR_COLORS[i % VENDOR_COLORS.length];
 
@@ -240,6 +250,9 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
     setVisibleRutas,
     setVisibleClientes,
     clearAll,
+    selectedPDVsForObjective,
+    togglePDVForObjective,
+    clearSelectedPDVs,
   } = useSupervisionStore();
 
   // accordion state (local UI only)
@@ -279,6 +292,13 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
   const [loadingExhib, setLoadingExhib] = useState(false);
   const [exhibFilter, setExhibFilter] = useState<string>("Todos");
   const [exhibSearch, setExhibSearch] = useState("");
+
+  // ── Floating Objetivos Menu ───────────────────────────────────────────────
+  const [objMenuOpen, setObjMenuOpen] = useState(false);
+  const [objTipo, setObjTipo] = useState<ObjetivoTipo>("general");
+  const [objFecha, setObjFecha] = useState("");
+  const [objDesc, setObjDesc] = useState("");
+  const [objSubmitting, setObjSubmitting] = useState(false);
 
   // ── TanStack Query: Distribuidoras ────────────────────────────────────────
   const { data: distribuidoras = [] } = useQuery({
@@ -749,7 +769,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
             activo:                !isInactivo30(c.fecha_ultima_compra),
             vendedor:              v.nombre_vendedor,
             ultimaCompra:          fmt(c.fecha_ultima_compra),
-            conExhibicion:         c.fecha_ultima_exhibicion != null, // true si alguna vez tuvo exhibición registrada
+            conExhibicion:         c.fecha_ultima_exhibicion != null,
             idClienteErp:          c.id_cliente_erp ?? null,
             nroRuta:               r.dia_semana ?? null,
             fechaUltimaCompra:     c.fecha_ultima_compra ?? null,
@@ -758,6 +778,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
             deuda:                 deudaInfo?.deuda ?? null,
             antiguedadDias:        deudaInfo?.antiguedad ?? null,
             totalExhibiciones:     c.total_exhibiciones ?? 0,
+            id_vendedor:           v.id_vendedor,
           });
         });
       });
@@ -775,6 +796,34 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
   const totalPdv     = vendedoresFiltrados.reduce((s, v) => s + v.total_pdv, 0);
   const totalActivos = vendedoresFiltrados.reduce((s, v) => s + (v.pdv_activos ?? 0), 0);
   const pctActivos   = totalPdv > 0 ? Math.round((totalActivos / totalPdv) * 100) : 0;
+
+  // ── Floating Objetivos submit ─────────────────────────────────────────────
+  const handleSubmitObjectives = async () => {
+    if (selectedPDVsForObjective.length === 0) return;
+    setObjSubmitting(true);
+    try {
+      for (const pdvId of selectedPDVsForObjective) {
+        const pin = pines.find(p => p.id === pdvId);
+        if (!pin || !pin.id_vendedor) continue;
+        await createObjetivo({
+          id_distribuidor: selectedDist,
+          id_vendedor: pin.id_vendedor,
+          tipo: objTipo,
+          id_target_pdv: pdvId,
+          nombre_pdv: pin.nombre,
+          nombre_vendedor: pin.vendedor,
+          descripcion: objDesc || undefined,
+          fecha_objetivo: objFecha || undefined,
+        } as ObjetivoCreate);
+      }
+      clearSelectedPDVs();
+      setObjMenuOpen(false);
+      setObjDesc("");
+      setObjFecha("");
+    } finally {
+      setObjSubmitting(false);
+    }
+  };
 
   // ── Map mode selector ─────────────────────────────────────────────────────
   const MAP_MODES = [
@@ -1125,6 +1174,8 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                     )
                   : undefined
                 }
+                selectedPDVs={selectedPDVsForObjective}
+                onTogglePDV={togglePDVForObjective}
               />
             )}
           </div>
@@ -2396,6 +2447,116 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ── Floating Objetivos Menu ("Shopping Cart") ────────────────────── */}
+      {selectedPDVsForObjective.length > 0 && (
+        <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-2">
+          {objMenuOpen && (
+            <div className="w-80 rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] shadow-2xl overflow-hidden">
+              {/* Header */}
+              <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--shelfy-border)]">
+                <div className="flex items-center gap-2">
+                  <ShoppingCart className="w-4 h-4 text-[var(--shelfy-accent)]" />
+                  <span className="text-sm font-semibold text-white">
+                    Crear objetivo ({selectedPDVsForObjective.length} PDV)
+                  </span>
+                </div>
+                <button onClick={() => setObjMenuOpen(false)} className="text-[var(--shelfy-muted)] hover:text-white transition-colors">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Selected PDVs list */}
+              <div className="max-h-32 overflow-y-auto px-4 py-2 space-y-1">
+                {selectedPDVsForObjective.map(id => {
+                  const pin = pines.find(p => p.id === id);
+                  if (!pin) return null;
+                  return (
+                    <div key={id} className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="w-2 h-2 rounded-full shrink-0" style={{ background: pin.color }} />
+                        <span className="text-xs text-white/80 truncate">{pin.nombre}</span>
+                      </div>
+                      <button onClick={() => togglePDVForObjective(id)} className="text-[var(--shelfy-muted)] hover:text-red-400 transition-colors shrink-0">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Form */}
+              <div className="px-4 pb-4 space-y-3 border-t border-[var(--shelfy-border)] pt-3">
+                {/* Tipo */}
+                <div>
+                  <label className="text-[10px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1">Tipo</label>
+                  <select
+                    className="w-full appearance-none bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                    value={objTipo}
+                    onChange={e => setObjTipo(e.target.value as ObjetivoTipo)}
+                  >
+                    <option value="conversion_estado">Activación</option>
+                    <option value="cobranza">Cobranza</option>
+                    <option value="ruteo_alteo">Ruteo</option>
+                    <option value="exhibicion">Exhibición</option>
+                    <option value="general">General</option>
+                  </select>
+                </div>
+
+                {/* Descripción */}
+                <div>
+                  <label className="text-[10px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1">Descripción</label>
+                  <textarea
+                    rows={2}
+                    placeholder="Qué debe lograr el vendedor..."
+                    className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-1.5 text-sm text-white placeholder-white/20 focus:outline-none focus:border-[var(--shelfy-accent)]/60 resize-none"
+                    value={objDesc}
+                    onChange={e => setObjDesc(e.target.value)}
+                  />
+                </div>
+
+                {/* Fecha */}
+                <div>
+                  <label className="text-[10px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1">Fecha límite</label>
+                  <input
+                    type="date"
+                    className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                    value={objFecha}
+                    onChange={e => setObjFecha(e.target.value)}
+                  />
+                </div>
+
+                {/* Actions */}
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { clearSelectedPDVs(); setObjMenuOpen(false); }}
+                    className="flex-1 py-1.5 rounded-lg border border-[var(--shelfy-border)] text-xs text-[var(--shelfy-muted)] hover:text-white transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleSubmitObjectives}
+                    disabled={objSubmitting}
+                    className="flex-1 py-1.5 rounded-lg bg-[var(--shelfy-accent)] text-white text-xs font-medium hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-1.5"
+                  >
+                    {objSubmitting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Target className="w-3 h-3" />}
+                    Crear {selectedPDVsForObjective.length} obj.
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Cart button */}
+          <button
+            onClick={() => setObjMenuOpen(o => !o)}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[var(--shelfy-accent)] text-white text-sm font-semibold shadow-lg hover:opacity-90 transition-opacity"
+          >
+            <ShoppingCart className="w-4 h-4" />
+            <span>{selectedPDVsForObjective.length} PDV seleccionado{selectedPDVsForObjective.length !== 1 ? "s" : ""}</span>
+          </button>
         </div>
       )}
     </div>

@@ -24,6 +24,8 @@ export interface PinCliente {
   deuda?: number | null;
   antiguedadDias?: number | null;
   totalExhibiciones?: number;
+  // Vendor FK for objective creation
+  id_vendedor?: number;
 }
 
 export interface DeudorInfo {
@@ -99,9 +101,11 @@ interface MapaRutasProps {
   shelfyMapsMode?: boolean;
   mode?: 'activos' | 'deudores';
   deudoresData?: DeudorInfo[];
+  selectedPDVs?: number[];
+  onTogglePDV?: (id: number) => void;
 }
 
-export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode, mode = 'activos', deudoresData }: MapaRutasProps) {
+export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode, mode = 'activos', deudoresData, selectedPDVs, onTogglePDV }: MapaRutasProps) {
   const mapRef        = useRef<any>(null);
   const markersRef    = useRef<any[]>([]);
   const fittedRef     = useRef(false); // fitBounds sólo en la primera carga con datos
@@ -152,6 +156,8 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode, mode
     const map = mapRef.current;
     if (!map || !mapLoaded) return;
 
+    const selSet = new Set(selectedPDVs ?? []);
+
     const addMarkers = () => {
       // Limpiar anteriores
       markersRef.current.forEach(m => m.remove());
@@ -164,6 +170,7 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode, mode
         const statusColor = STATUS_COLORS[status];
         const vendorColor = p.color;
         const hasCount = p.totalExhibiciones && p.totalExhibiciones > 0;
+        const isSelected  = selSet.has(p.id);
         const size        = p.activo ? 18 : 14;
 
         const wrapper = document.createElement("div");
@@ -178,7 +185,8 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode, mode
           display:flex;
           align-items:center;
           justify-content:center;
-          box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+          box-shadow: ${isSelected ? `0 0 0 3px white, 0 1px 3px rgba(0,0,0,0.3)` : `0 1px 3px rgba(0,0,0,0.3)`};
+          cursor: ${onTogglePDV ? 'pointer' : 'default'};
         `;
         wrapper.innerHTML = hasCount
           ? `<span style="font-size:10px;font-weight:900;color:#fff;line-height:1;text-shadow:0 0 2px #000">${p.totalExhibiciones}</span>`
@@ -247,6 +255,14 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode, mode
         const popup = new maplibregl.Popup({ offset: 12, closeButton: false, closeOnClick: false })
           .setHTML(popupHTML);
 
+        // Click: selection toggle
+        if (onTogglePDV) {
+          wrapper.addEventListener('click', (e) => {
+            e.stopPropagation();
+            onTogglePDV(p.id);
+          });
+        }
+
         // Hover event listeners
         wrapper.addEventListener('mouseenter', () => {
           popup.setLngLat([p.lng, p.lat]).addTo(map);
@@ -273,7 +289,7 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode, mode
     };
 
     addMarkers();
-  }, [filteredPines, mapLoaded, mode, deudoresData]);
+  }, [filteredPines, mapLoaded, mode, deudoresData, selectedPDVs, onTogglePDV]);
 
   // ESC to exit fullscreen
   useEffect(() => {

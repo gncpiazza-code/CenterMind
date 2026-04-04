@@ -29,6 +29,11 @@ interface SupervisionStore {
 
   // Clear all
   clearAll: () => void;
+
+  // PDV selection for objective creation ("shopping cart")
+  selectedPDVsForObjective: number[];
+  togglePDVForObjective: (id: number) => void;
+  clearSelectedPDVs: () => void;
 }
 
 export const useSupervisionStore = create<SupervisionStore>()(
@@ -39,6 +44,7 @@ export const useSupervisionStore = create<SupervisionStore>()(
       visibleVends: new Set(),
       visibleRutas: new Set(),
       visibleClientes: new Set(),
+      selectedPDVsForObjective: [],
 
       setSelectedSucursal: (sucursal) => set({ selectedSucursal: sucursal }),
       setMapMode: (mode) => set({ mapMode: mode }),
@@ -86,6 +92,18 @@ export const useSupervisionStore = create<SupervisionStore>()(
           visibleRutas: new Set(),
           visibleClientes: new Set(),
         }),
+
+      togglePDVForObjective: (id) =>
+        set((state) => {
+          const exists = state.selectedPDVsForObjective.includes(id);
+          return {
+            selectedPDVsForObjective: exists
+              ? state.selectedPDVsForObjective.filter(x => x !== id)
+              : [...state.selectedPDVsForObjective, id],
+          };
+        }),
+
+      clearSelectedPDVs: () => set({ selectedPDVsForObjective: [] }),
     }),
     {
       name: 'supervision-store',

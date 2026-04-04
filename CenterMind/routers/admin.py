@@ -26,6 +26,7 @@ from models.schemas import (
     IntegranteUpdateRequest,
     LocationRequest,
     MapeoVendedorRequest,
+    RolePermissionUpdate,
     UsuarioEditRequest,
     UsuarioRequest,
 )
@@ -537,6 +538,32 @@ def motor_runs_by_dist(dist_id: int, motor: Optional[str] = None, limit: int = 2
         if motor: q = q.eq("motor", motor)
         return q.execute().data or []
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/admin/permissions", tags=["Admin"])
+def get_all_permissions(user_payload=Depends(verify_auth)):
+    if not user_payload.get("is_superadmin"):
+        raise HTTPException(status_code=403, detail="Acceso denegado. Exclusivo para SuperAdmins.")
+    res = sb.table("roles_permisos").select("*").execute()
+    return res.data or []
+
+
+@router.post("/api/admin/permissions", tags=["Admin"])
+def update_permissions_batch(req: RolePermissionUpdate, user_payload=Depends(verify_auth)):
+    if not user_payload.get("is_superadmin"):
+        raise HTTPException(status_code=403, detail="Acceso denegado. Exclusivo para SuperAdmins.")
+    try:
+        # Upsert cada permiso. En Supabase/Postgres, upsert requiere que el conflicto esté definido.
+        for p in req.permissions:
+            sb.table("roles_permisos").upsert({
+                "rol": p.rol,
+                "permiso_key": p.permiso_key,
+                "valor": p.valor
+            }, on_conflict="rol, permiso_key").execute()
+        return {"ok": True}
+    except Exception as e:
+        logger.error(f"Error actualizando permisos: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

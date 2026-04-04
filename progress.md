@@ -27,10 +27,10 @@ El proyecto se encuentra en una fase de expansión de funcionalidades de supervi
 - **Jerarquía y Contención**: Los objetivos de Supervisores/Gerentes reflejan la suma del progreso de sus subordinados.
 - **Tracking Automático**: Persistencia en Supabase para seguimiento de cumplimiento en tiempo real.
 
-### 3. Sistema de Roles y Permisos (RBAC) — **NUEVO**
+### 3. Sistema de Roles y Permisos (RBAC) — **OPERATIVO**
 - **Roles Definidos**: Superadmin, Directorio (acceso multi-tenant global), Administrador, Supervisor, Vendedor.
-- **Matriz de Accesos**: Interfaz visual en `/admin/permissions` para control granular de submenús y acciones.
-- **Seguridad en Frontend**: Hooks de protección (`hasPermiso`) para ocultar/bloquear elementos de la UI según el rol.
+- **Matriz de Accesos Editable**: Interfaz interactiva en `/admin/permissions` que permite a los Superadmins alternar permisos de módulos y acciones en tiempo real.
+- **Seguridad en Frontend**: Hooks de protección (`hasPermiso`) para ocultar/bloquear elementos de la UI según la configuración de la matriz.
 
 ### 3. Ingesta de Datos ERP
 - **RPA (ShelfMind-RPA)**: Sincronización automática de Clientes, Ventas y Cuentas Corrientes desde CHESS ERP (distribuidores: Tabaco, Aloma, Liver, Real).
@@ -63,6 +63,7 @@ El proyecto se encuentra en una fase de expansión de funcionalidades de supervi
 ---
 
 ## 📅 Historial Reciente (Abril 2026)
+- **04/04 (2)**: La **Matriz de Permisos** ahora es totalmente **editable** por el Superadmin con persistencia en base de datos.
 - **04/04**: Implementación de **Matriz de Permisos** (RBAC), nuevo rol **Directorio** con acceso global, y **Jerarquía de Objetivos** (contención de progreso). Rediseño estético completo adoptando **shadcn/ui** y refinando la paleta violeta.
 - **03/04 (tarde)**: Refactorización modular de `api.py` (4067 → 98 líneas). Nuevo árbol: `core/` (config, security, lifespan, helpers), `models/schemas.py`, `routers/` (auth, erp, supervision, admin, reportes). Cero cambios en contratos HTTP — URLs, métodos y esquemas JSON idénticos. Backup en `api_legacy.py.bak`.
 - **03/04**: Implementación de sistema de objetivos y carrito de selección en el mapa de supervisión.

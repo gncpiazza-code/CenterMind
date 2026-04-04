@@ -152,3 +152,13 @@ class ObjetivoUpdate(BaseModel):
     descripcion: Optional[str] = None
     estado_objetivo: Optional[str] = None
     fecha_objetivo: Optional[str] = None
+
+
+class RolePermission(BaseModel):
+    rol: str
+    permiso_key: str
+    valor: bool
+
+
+class RolePermissionUpdate(BaseModel):
+    permissions: List[RolePermission]

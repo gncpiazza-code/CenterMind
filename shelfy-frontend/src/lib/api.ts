@@ -430,6 +430,25 @@ export async function eliminarUsuario(id: number) {
   return apiFetch(`/api/admin/usuarios/${id}`, { method: "DELETE" });
 }
 
+// ── Admin: Permissions Matrix ───────────────────────────────────────────────
+
+export interface PermissionEntry {
+  rol: string;
+  permiso_key: string;
+  valor: boolean;
+}
+
+export async function fetchAllPermissions(): Promise<PermissionEntry[]> {
+  return apiFetch<PermissionEntry[]>("/api/admin/permissions");
+}
+
+export async function updatePermissionsBatch(permissions: PermissionEntry[]) {
+  return apiFetch("/api/admin/permissions", {
+    method: "POST",
+    body: JSON.stringify({ permissions }),
+  });
+}
+
 // ── Reportes ────────────────────────────────────────────────────────────────
 
 export async function fetchReporteVendedores(distId: number): Promise<string[]> {

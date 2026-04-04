@@ -2001,7 +2001,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                 </button>
               </>
             )}
-            {selectedDist > 0 && (
+            {isSuperadmin && selectedDist > 0 && (
               <Button
                 variant="outline"
                 size="sm"

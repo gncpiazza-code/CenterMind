@@ -901,6 +901,8 @@ async def supervision_upload_cc(
     Procesa el archivo en segundo plano y actualiza cc_detalle.
     Devuelve inmediatamente un job_id para que el frontend pueda consultar el estado.
     """
+    if not user_payload.get("is_superadmin"):
+        raise HTTPException(status_code=403, detail="Solo superadmin puede actualizar cuentas corrientes.")
     check_dist_permission(user_payload, dist_id)
 
     if not file.filename or not file.filename.lower().endswith((".xlsx", ".xls")):

@@ -118,15 +118,17 @@ export default function SupervisionPage() {
                 </p>
               </div>
 
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setSheetOpen(true)}
-                className="flex items-center gap-2 shrink-0"
-              >
-                <FileBarChart2 className="w-4 h-4" />
-                Generar Informe
-              </Button>
+              {isSuperadmin && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSheetOpen(true)}
+                  className="flex items-center gap-2 shrink-0"
+                >
+                  <FileBarChart2 className="w-4 h-4" />
+                  Generar Informe
+                </Button>
+              )}
             </div>
 
             {/* ── Mapa de Rutas ─────────────────────────────────────────────── */}

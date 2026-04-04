@@ -107,6 +107,8 @@ async def generate_report(
     files: List[UploadFile] = File(...),
     user_payload=Depends(verify_auth),
 ):
+    if not user_payload.get("is_superadmin"):
+        raise HTTPException(status_code=403, detail="Solo superadmin puede generar informes.")
     check_dist_permission(user_payload, dist_id)
 
     if not files:

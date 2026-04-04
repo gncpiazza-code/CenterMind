@@ -15,12 +15,14 @@ import {
   deleteObjetivo,
   fetchVendedoresSupervision,
   fetchRutasSupervision,
+  fetchClientesSupervision,
   fetchCuentasSupervision,
   type Objetivo,
   type ObjetivoCreate,
   type ObjetivoTipo,
   type ResumenVendedorObjetivos,
   type RutaSupervision,
+  type ClienteSupervision,
   type CuentasSupervision,
 } from "@/lib/api";
 import {
@@ -54,6 +56,11 @@ const TIPO_CONFIG: Record<ObjetivoTipo, { label: string; color: string; bg: stri
   ruteo_alteo:       { label: "Alteo",      color: "text-violet-400",  bg: "bg-violet-500/15 border-violet-500/25" },
   exhibicion:        { label: "Exhibición", color: "text-emerald-400", bg: "bg-emerald-500/15 border-emerald-500/25" },
   general:           { label: "General",    color: "text-slate-400",   bg: "bg-slate-500/15 border-slate-500/25" },
+};
+
+const DIA_ORDER: Record<string, number> = {
+  "Lunes": 0, "Martes": 1, "Miércoles": 2, "Jueves": 3,
+  "Viernes": 4, "Sábado": 5, "Domingo": 6,
 };
 
 // Actividades que tienen sentido para el phrase builder (PDV-based)
@@ -387,6 +394,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
 
   // Activación/Exhibición state
   const [inactivePdvCount, setInactivePdvCount] = useState<number>(0);
+  const [activacionPdvs, setActivacionPdvs] = useState<{ nombre: string; fechaCompra: string | null; diasSinCompra: number | null }[]>([]);
 
   const [loadingCtx, setLoadingCtx] = useState(false);
 
@@ -403,6 +411,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
     setCobranzaMode("total");
     setCobranzaMonto("");
     setInactivePdvCount(0);
+    setActivacionPdvs([]);
   }
 
   // Load contextual data when vendor or tipo changes
@@ -414,15 +423,14 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
 
     if (tipo === "ruteo_alteo") {
       fetchRutasSupervision(Number(vendedorId))
-        .then(data => setRutas(data))
+        .then(data => setRutas([...data].sort((a, b) => (DIA_ORDER[a.dia_semana] ?? 9) - (DIA_ORDER[b.dia_semana] ?? 9))))
         .catch(() => setRutas([]))
         .finally(() => setLoadingCtx(false));
     } else if (tipo === "cobranza") {
       fetchCuentasSupervision(distId)
         .then((data: CuentasSupervision) => {
-          const vend = data.vendedores.find(
-            v => v.vendedor.toLowerCase() === nombre.toLowerCase()
-          );
+          const norm = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+          const vend = data.vendedores.find(v => norm(v.vendedor) === norm(nombre));
           if (vend) {
             setDeudores(
               (vend.clientes ?? [])
@@ -434,6 +442,41 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
           }
         })
         .catch(() => setDeudores([]))
+        .finally(() => setLoadingCtx(false));
+    } else if (tipo === "conversion_estado" || tipo === "exhibicion") {
+      fetchRutasSupervision(Number(vendedorId))
+        .then(async (rutasData) => {
+          const allClients: { nombre: string; fechaCompra: string | null; diasSinCompra: number | null; tieneExhibicion: boolean }[] = [];
+          const now = Date.now();
+          for (const ruta of rutasData) {
+            const clientes = await fetchClientesSupervision(ruta.id_ruta).catch(() => [] as ClienteSupervision[]);
+            for (const c of clientes) {
+              const nombreCliente = c.nombre_fantasia || c.nombre_razon_social || "S/N";
+              const fechaCompra = c.fecha_ultima_compra ?? null;
+              const diasSinCompra = fechaCompra
+                ? Math.floor((now - new Date(fechaCompra).getTime()) / 86_400_000)
+                : null;
+              allClients.push({ nombre: nombreCliente, fechaCompra, diasSinCompra, tieneExhibicion: c.tiene_exhibicion_reciente ?? false });
+            }
+          }
+          const seen = new Set<string>();
+          const filtered = allClients.filter(c => {
+            if (seen.has(c.nombre)) return false;
+            seen.add(c.nombre);
+            if (tipo === "conversion_estado") {
+              return c.diasSinCompra === null || (c.diasSinCompra ?? 0) > 30;
+            } else {
+              return !c.tieneExhibicion;
+            }
+          });
+          filtered.sort((a, b) => {
+            if (a.diasSinCompra === null) return 1;
+            if (b.diasSinCompra === null) return -1;
+            return b.diasSinCompra - a.diasSinCompra;
+          });
+          setActivacionPdvs(filtered.map(c => ({ nombre: c.nombre, fechaCompra: c.fechaCompra, diasSinCompra: c.diasSinCompra })));
+        })
+        .catch(() => setActivacionPdvs([]))
         .finally(() => setLoadingCtx(false));
     } else {
       setLoadingCtx(false);
@@ -589,12 +632,11 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
               {selectedRutaId && (
                 <div>
                   <label className="text-[10px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1">
-                    Cantidad a altear (máx {selectedRuta?.total_pdv ?? "?"})
+                    Cantidad a altear
                   </label>
                   <input
                     type="number"
                     min={1}
-                    max={selectedRuta?.total_pdv ?? undefined}
                     placeholder={String(selectedRuta?.total_pdv ?? "Todos")}
                     className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-1.5 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
                     value={cantidadAlteo}
@@ -672,13 +714,37 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
             </div>
           )}
 
-          {/* ── Contextual: Activación / Exhibición (placeholder info) ─────── */}
+          {/* ── Contextual: Activación / Exhibición — PDV list ──────────── */}
           {(tipo === "conversion_estado" || tipo === "exhibicion") && vendedorId && (
-            <div className="rounded-xl bg-blue-500/10 border border-blue-500/20 px-3 py-2">
-              <p className="text-xs text-blue-300">
-                El vendedor recibirá un objetivo de <span className="font-semibold">{TIPO_CONFIG[tipo].label}</span>.
-                El progreso se calcula automáticamente desde el mapa.
+            <div className="space-y-2 rounded-xl bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] p-3">
+              <p className="text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider">
+                {tipo === "conversion_estado" ? "PDVs sin compra +30 días" : "PDVs sin exhibición reciente"}
               </p>
+              {loadingCtx ? (
+                <div className="flex items-center gap-1.5 text-xs text-[var(--shelfy-muted)]">
+                  <Loader2 className="w-3 h-3 animate-spin" /> Cargando PDVs...
+                </div>
+              ) : activacionPdvs.length === 0 ? (
+                <p className="text-xs text-[var(--shelfy-muted)]">Sin PDVs en esa condición</p>
+              ) : (
+                <div className="max-h-36 overflow-y-auto space-y-0.5">
+                  {activacionPdvs.slice(0, 15).map((pdv, i) => (
+                    <div key={i} className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-white/5 text-xs">
+                      <span className="text-[var(--shelfy-text)] truncate max-w-[65%]">{pdv.nombre}</span>
+                      {pdv.diasSinCompra !== null ? (
+                        <span className={`font-medium tabular-nums ${pdv.diasSinCompra > 60 ? "text-red-400" : "text-orange-400"}`}>
+                          Hace {pdv.diasSinCompra}d
+                        </span>
+                      ) : (
+                        <span className="text-[var(--shelfy-muted)]">Sin compras</span>
+                      )}
+                    </div>
+                  ))}
+                  {activacionPdvs.length > 15 && (
+                    <p className="text-[10px] text-[var(--shelfy-muted)] text-center pt-1">+{activacionPdvs.length - 15} más</p>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

@@ -230,6 +230,15 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode, mode
             </div>`;
         }
 
+        const deudaLine = p.deuda != null && p.deuda > 0
+          ? `<div style="margin-top:5px;padding-top:5px;border-top:1px solid #f1f5f9">
+               <span style="color:#d97706;font-size:11px;font-weight:700">
+                 💰 Deuda: $${p.deuda.toLocaleString("es-AR", { maximumFractionDigits: 0 })}
+               </span>
+               ${p.antiguedadDias != null ? `<span style="color:#94a3b8;font-size:10px"> · ${p.antiguedadDias}d de antigüedad</span>` : ""}
+             </div>`
+          : "";
+
         const popupHTML = `
           <div style="min-width:180px;max-width:240px;font-size:12px;font-family:sans-serif;
                       background:#fff;color:#1e293b;padding:10px 12px;border-radius:8px;
@@ -254,6 +263,7 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode, mode
 
             <div style="font-size:11px">${compraLabel}</div>
             ${exhibLine}
+            ${deudaLine}
           </div>`;
 
         const popup = new maplibregl.Popup({ offset: 12, closeButton: true, closeOnClick: true })
@@ -305,6 +315,7 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode, mode
 
                 <div style="font-size:11px">${compraLabel}</div>
                 ${exhibLine}
+                ${deudaLine}
                 ${photoBlock}
               </div>`;
             popup.setHTML(upgradedHTML).setLngLat([p.lng, p.lat]).addTo(map);

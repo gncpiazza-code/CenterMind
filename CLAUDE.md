@@ -525,11 +525,10 @@ El popup HTML del marcador muestra:
 - No leer de `maestro_jerarquia` en código nuevo — usar tablas `_v2`
 - No hacer queries a `cuentas_corrientes_data` en el endpoint de supervisión — usar `cc_detalle`
 - No hacer queries a `erp_deuda_clientes` — tabla obsoleta, no se alimenta más. Usar `cc_detalle`
-- No usar la tabla `clientes` (sin v2 ni pdv) — migrada a `clientes_pdv_v2`
-- No queries sin filtro `id_distribuidor` (excepto superadmin explícito)
-- ## Desarrollo y Convenciones
-- **Auth**: Usar `useAuthContext()` para acceder al usuario y permisos.
-- **RBAC**: Para proteger UI, usar `hasPermiso('key')`. En `Sidebar`, añadir `permisoKey` al item de navegación. No hardcodear roles en componentes si existe una `permisoKey` asociada.
+- No usar la tabla `clientes` (sin v2 ni pdv) — **State Management**: **Zustand** is the standard for client-side global state (coordinating UI, filters, and cross-component logic). Use **TanStack Query v5** for all server-side data fetching and caching. Avoid prop-drilling.
+- **Aesthetics**: Focus on the **Shelfy Light-Violet** theme as the primary project style (per `globals.css`). Use HSL Hues, 0.5px borders, and glassmorphism.
+- **RBAC**: Always use **`hasPermiso('key')`** for UI conditional rendering. Do not use hardcoded role strings in components.
+- **Animations**: Use **Framer Motion** for subtle (0.4s max) transitions and micro-interactions. Ensure animations do not impede high-density productivity.
 - **Estilos**: Usar variables CSS de `globals.css` (`--shelfy-primary`, etc.) para mantener consistencia con el tema **light-violet**. El `:root` por defecto es modo claro; `.dark` existe como fallback. No usar valores hex hardcodeados cuando existe una variable `--shelfy-*` equivalente.
 - **Componentes**: Priorizar componentes de `shadcn/ui` (`@/components/ui`) para nuevos desarrollos. Primitivos disponibles: `Button`, `Checkbox`, `Table` (con `TableHeader/Body/Row/Head/Cell/Caption`), `DropdownMenu` (con todos los sub-componentes). Agregar nuevos con `npx shadcn@latest add <component>`.
 - **Backend Routing**: Seguir el patrón modular: `routers/` para agrupar endpoints y Pydantic para esquemas.

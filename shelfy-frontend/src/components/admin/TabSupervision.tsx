@@ -822,12 +822,14 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
       setObjLoadingContext(true);
       fetchRutasSupervision(vendedorId)
         .then(rutas => setObjVendedorRoutes(
-          rutas.map((r: RutaSupervision) => ({
-            id_ruta: r.id_ruta,
-            nro_ruta: r.nombre_ruta ?? String(r.id_ruta),
-            dia_semana: r.dia_semana ?? "",
-            total_pdv: r.total_pdv ?? 0,
-          }))
+          [...rutas]
+            .sort((a, b) => (DIA_ORDER[a.dia_semana?.toLowerCase() ?? ""] ?? 9) - (DIA_ORDER[b.dia_semana?.toLowerCase() ?? ""] ?? 9))
+            .map((r: RutaSupervision) => ({
+              id_ruta: r.id_ruta,
+              nro_ruta: r.nombre_ruta ?? String(r.id_ruta),
+              dia_semana: r.dia_semana ?? "",
+              total_pdv: r.total_pdv ?? 0,
+            }))
         ))
         .catch(() => setObjVendedorRoutes([]))
         .finally(() => setObjLoadingContext(false));
@@ -838,9 +840,8 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
           // Match by vendor name since VendedorCuentas doesn't expose id_vendedor
           const firstPin = pines.find(p => p.id === selectedPDVsForObjective[0] && p.id_vendedor);
           const vendorName = firstPin?.vendedor ?? "";
-          const vend = data.vendedores.find((v) =>
-            v.vendedor.toLowerCase() === vendorName.toLowerCase()
-          );
+          const norm = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+          const vend = data.vendedores.find((v) => norm(v.vendedor) === norm(vendorName));
           if (vend) {
             setObjDebtList(
               (vend.clientes ?? [])
@@ -2593,11 +2594,16 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                     <div key={id} className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-1.5 min-w-0">
                         <span className="w-2 h-2 rounded-full shrink-0" style={{ background: pin.color }} />
-                        <span className="text-xs text-white/80 truncate">{pin.nombre}</span>
+                        <span className="text-xs text-[var(--shelfy-text)] truncate">{pin.nombre}</span>
                       </div>
-                      <button onClick={() => togglePDVForObjective(id)} className="text-[var(--shelfy-muted)] hover:text-red-400 transition-colors shrink-0">
-                        <X className="w-3 h-3" />
-                      </button>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {objTipo === "cobranza" && pin.deuda != null && pin.deuda > 0 && (
+                          <span className="text-[10px] font-semibold text-orange-400 tabular-nums">${pin.deuda.toLocaleString("es-AR", { maximumFractionDigits: 0 })}</span>
+                        )}
+                        <button onClick={() => togglePDVForObjective(id)} className="text-[var(--shelfy-muted)] hover:text-red-400 transition-colors shrink-0">
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
                     </div>
                   );
                 })}
@@ -2651,12 +2657,11 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                     {objSelectedRutaId && (
                       <div>
                         <label className="text-[10px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1">
-                          Cantidad de PDVs a altear{objVendedorRoutes.find(r => r.id_ruta === objSelectedRutaId)?.total_pdv ? ` (máx ${objVendedorRoutes.find(r => r.id_ruta === objSelectedRutaId)?.total_pdv})` : ""}
+                          Cantidad de PDVs a altear
                         </label>
                         <input
                           type="number"
                           min={1}
-                          max={objVendedorRoutes.find(r => r.id_ruta === objSelectedRutaId)?.total_pdv ?? undefined}
                           placeholder={String(objVendedorRoutes.find(r => r.id_ruta === objSelectedRutaId)?.total_pdv ?? "N PDVs")}
                           className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-1.5 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
                           value={objCantidadAlteo}

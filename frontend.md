@@ -82,7 +82,16 @@ Los paneles utilizan el estilo "Glass-Card" adaptado al tema claro:
 - **Posición**: `side="top"`, aparece sobre el trigger, alineado al ancho del botón trigger.
 - **Optimización**: `navItems` se memoiza con `useMemo([rol, hasPermiso])` para evitar re-cómputos.
 
----
+## State Management & Ingesta
+
+Para garantizar el rendimiento y la mantenibilidad de Shelfy, se siguen estos patrones:
+
+1. **Zustand**: Estándar para el **estado global del cliente** (UI sync, filtros entre componentes, estado del mapa, carrito de objetivos). 
+   - *Ejemplo*: `useObjetivosStore` para coordinar el panel flotante y los pines del mapa.
+2. **TanStack Query v5**: Única herramienta para el **estado del servidor** (fetching de API, caching, mutaciones).
+   - *Regla*: Todas las funciones fetch deben estar en `src/lib/api.ts` y usarse únicamente vía Query/Mutation hooks.
+3. **Animations (Framer Motion)**: Se utilizan para mejorar la percepción de fluidez sin sacrificar la densidad.
+   - *Performance*: Máximo `0.4s` de duración. Se evitan animaciones de entrada pesadas en tablas con gran volumen de datos para priorizar la productividad.
 
 ## Primitivos shadcn/ui Disponibles
 

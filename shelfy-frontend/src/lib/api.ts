@@ -32,6 +32,7 @@ export interface AuthResponse {
   usa_contexto_erp?: boolean;
   usa_mapeo_vendedores?: boolean;
   show_tutorial?: boolean;
+  permisos?: Record<string, boolean>;
 }
 
 export interface ERPUploadResponse {
@@ -1193,4 +1194,36 @@ export async function updateObjetivo(id: string, data: ObjetivoUpdate): Promise<
 
 export async function deleteObjetivo(id: string): Promise<void> {
   return apiFetch<void>(`/api/supervision/objetivos/${id}`, { method: 'DELETE' });
+}
+
+// ── Objetivos — Supervisor aggregation ────────────────────────────────────────
+
+export interface ResumenVendedorObjetivos {
+  id_vendedor: number;
+  nombre_vendedor: string;
+  cantidad_objetivo_total: number;
+  cantidad_actual_total: number;
+  objetivos_count: number;
+  objetivos_cumplidos: number;
+  proxima_fecha: string | null;
+  tipos: string[];
+  pct_progreso: number;
+}
+
+export interface ResumenSupervisorObjetivos {
+  vendedores: ResumenVendedorObjetivos[];
+  totales: {
+    cantidad_objetivo_total: number;
+    cantidad_actual_total: number;
+    pct_progreso: number;
+    vendedores_count: number;
+  };
+}
+
+export async function fetchResumenSupervisorObjetivos(
+  distId: number
+): Promise<ResumenSupervisorObjetivos> {
+  return apiFetch<ResumenSupervisorObjetivos>(
+    `/api/supervision/objetivos/${distId}/resumen-supervisor`
+  );
 }

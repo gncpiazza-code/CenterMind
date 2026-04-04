@@ -52,6 +52,7 @@ import {
 } from "@/lib/api";
 import type { PinCliente } from "./MapaRutas";
 import { useSupervisionStore } from "@/store/useSupervisionStore";
+import { useAuth } from "@/hooks/useAuth";
 
 const ModoRuteo = dynamic(() => import("./ModoRuteo"), {
   ssr: false,
@@ -232,6 +233,7 @@ interface TabSupervisionProps {
 // ─────────────────────────────────────────────────────────────────────────────
 export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionProps) {
   const queryClient = useQueryClient();
+  const { hasPermiso } = useAuth();
   const [selectedDist, setSelectedDist]         = useState(distId);
   
   // Zustand store for persistent visibility state
@@ -1174,8 +1176,8 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                     )
                   : undefined
                 }
-                selectedPDVs={selectedPDVsForObjective}
-                onTogglePDV={togglePDVForObjective}
+                selectedPDVs={hasPermiso("action_edit_objetivos") ? selectedPDVsForObjective : []}
+                onTogglePDV={hasPermiso("action_edit_objetivos") ? togglePDVForObjective : undefined}
               />
             )}
           </div>
@@ -2451,7 +2453,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
       )}
 
       {/* ── Floating Objetivos Menu ("Shopping Cart") ────────────────────── */}
-      {selectedPDVsForObjective.length > 0 && (
+      {selectedPDVsForObjective.length > 0 && hasPermiso("action_edit_objetivos") && (
         <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-2">
           {objMenuOpen && (
             <div className="w-80 rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] shadow-2xl overflow-hidden">

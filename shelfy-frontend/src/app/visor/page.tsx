@@ -90,6 +90,7 @@ export default function VisorPage() {
   const [loadingERP, setLoadingERP] = useState(false);
 
   const distId = user?.id_distribuidor || 0;
+  const isSubmittingRef = useRef(false);
 
   // Queries con TanStack Query
   const { data: grupos = [], isLoading: loadingPendientes, error: errorPend } = useQuery({
@@ -129,6 +130,9 @@ export default function VisorPage() {
   const mutationEvaluar = useMutation({
     mutationFn: ({ ids, estado, comentario }: { ids: number[], estado: string, comentario: string }) => 
       evaluar(ids, estado, user?.usuario || "system", comentario),
+    onSettled: () => {
+      isSubmittingRef.current = false;
+    },
     onMutate: async (variables) => {
       // Optimistic Update: Remove from local cache immediately
       await queryClient.cancelQueries({ queryKey: ['pendientes', distId] });
@@ -154,7 +158,17 @@ export default function VisorPage() {
       // Instead, we just move the store index, and when the mutation finishes, we refetch or update cache properly.
       return { previousPendientes };
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      if (data?.affected === 0) {
+        // Another evaluator got there first — refresh silently
+        setFlash({ msg: "Ya evaluado por otro usuario", type: "err" });
+        setTimeout(() => setFlash(null), 2000);
+        queryClient.invalidateQueries({ queryKey: ['pendientes', distId] });
+        queryClient.invalidateQueries({ queryKey: ['stats', distId] });
+        setCurrentIndex(0);
+        resetGroupState();
+        return;
+      }
       // Move to next group instantly (Hypersonic)
       if (currentIndex < filtrados.length - 1) {
         // incrementIndex(); // Ya se hizo en handleEvaluar para máxima velocidad
@@ -222,19 +236,19 @@ export default function VisorPage() {
 
   // Handlers
   async function handleEvaluar(estado: "Aprobado" | "Destacado" | "Rechazado") {
-    if (!grupo || !user || mutationEvaluar.isPending || !todasVistas) return;
+    if (!grupo || !user || mutationEvaluar.isPending || !todasVistas || isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
     const ids = grupo.fotos.map((f) => f.id_exhibicion);
     lastEvalIds.current = ids;
-    
+
     // 1. Trigger network request
     mutationEvaluar.mutate({ ids, estado, comentario });
-    
+
     // 2. Immediate UI jump
     if (currentIndex < filtrados.length - 1) {
       incrementIndex();
     } else {
-      // Last one
-      // The mutation onSuccess will handle the final state
+      // Last one — onSuccess will handle the final state
     }
   }
 

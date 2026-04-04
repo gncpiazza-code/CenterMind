@@ -11,6 +11,7 @@ interface AuthContextType {
   logout: () => void;
   switchDistributor: (id: number, nombre: string) => void;
   setTutorialSeen: () => void;
+  hasPermiso: (key: string) => boolean;
   loading: boolean;
   error: string | null;
   isAuthenticated: boolean;
@@ -55,6 +56,7 @@ function parseStoredUser(): AuthResponse | null {
       usa_contexto_erp: payload.usa_contexto_erp,
       usa_mapeo_vendedores: payload.usa_mapeo_vendedores,
       show_tutorial: locallySeen ? false : showTutorialFromToken,
+      permisos: payload.permisos ?? {},
     };
   } catch {
     return null;
@@ -107,6 +109,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(prev => prev ? { ...prev, show_tutorial: false } : null);
   }, []);
 
+  // Superadmin bypasses all permission checks (always true).
+  // If permisos dict is empty (old tokens without permisos), default to true for backward compat.
+  const hasPermiso = useCallback((key: string): boolean => {
+    if (!user) return false;
+    if (user.is_superadmin) return true;
+    const permisos = user.permisos ?? {};
+    if (Object.keys(permisos).length === 0) return true;
+    return permisos[key] ?? true;
+  }, [user]);
+
   useEffect(() => {
     const stored = localStorage.getItem("shelfy_active_dist");
     if (stored && user?.rol === "superadmin") {
@@ -126,6 +138,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       logout,
       switchDistributor,
       setTutorialSeen,
+      hasPermiso,
       loading,
       error,
       isAuthenticated: !!user

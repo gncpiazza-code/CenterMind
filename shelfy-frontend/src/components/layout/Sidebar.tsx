@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
-import { LayoutDashboard, Eye, Users, BarChart2, Gift, LogOut, ChevronDown, ChevronRight, Activity, MapPin, Globe, PanelLeftClose, PanelLeft, Briefcase, Route, Monitor, Target } from "lucide-react";
+import { LayoutDashboard, Eye, Users, BarChart2, Gift, LogOut, ChevronDown, ChevronRight, Activity, MapPin, Globe, PanelLeftClose, PanelLeft, Briefcase, Route, Monitor, Target, ShieldCheck } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { fetchDistribuidores } from "@/lib/api";
 import { useUI } from "@/contexts/UIContext";
@@ -13,16 +13,18 @@ interface NavItem {
   label: string;
   icon: any;
   roles?: string[];
+  permisoKey?: string;
   subItems?: NavItem[];
 }
 
 const ALL_NAV: NavItem[] = [
-  { href: "/visor",       label: "Evaluar",             icon: Eye,       roles: ["superadmin", "admin", "supervisor"] },
-  { href: "/dashboard",   label: "Dashboard",           icon: LayoutDashboard, roles: ["superadmin", "admin", "supervisor"] },
-  { href: "/supervision", label: "Panel de Supervisión", icon: Route,    roles: ["superadmin", "admin", "supervisor"] },
-  { href: "/objetivos",   label: "Objetivos",            icon: Target,   roles: ["superadmin", "admin", "supervisor"] },
-  { href: "/bonos", label: "Bonos", icon: Gift, roles: ["superadmin"] },
-  { href: "/admin", label: "Administrar", icon: Users, roles: ["superadmin"] },
+  { href: "/visor",       label: "Evaluar",             icon: Eye,       roles: ["superadmin", "admin", "supervisor", "evaluador"], permisoKey: "action_evaluar_exhibiciones" },
+  { href: "/dashboard",   label: "Dashboard",           icon: LayoutDashboard, roles: ["superadmin", "admin", "supervisor", "directorio"], permisoKey: "menu_dashboard" },
+  { href: "/supervision", label: "Panel de Supervisión", icon: Route,    roles: ["superadmin", "admin", "supervisor"], permisoKey: "menu_supervision" },
+  { href: "/objetivos",   label: "Objetivos",            icon: Target,   roles: ["superadmin", "admin", "supervisor"], permisoKey: "menu_objetivos" },
+  { href: "/bonos", label: "Bonos", icon: Gift, roles: ["superadmin", "admin", "directorio"], permisoKey: "menu_bonos" },
+  { href: "/admin", label: "Administrar", icon: Users, roles: ["superadmin", "admin"], permisoKey: "menu_admin" },
+  { href: "/admin/permissions", label: "Permisos", icon: ShieldCheck, roles: ["superadmin", "admin"], permisoKey: "menu_admin" },
   {
     href: "/admin/dashboard",
     label: "Panel Global",
@@ -51,13 +53,19 @@ const ROL_LABEL: Record<string, string> = {
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { user, logout, switchDistributor } = useAuth();
+  const { user, logout, switchDistributor, hasPermiso } = useAuth();
   const [dists, setDists] = useState<{ id_distribuidor: number; nombre_dist: string }[]>([]);
   const [showSwitch, setShowSwitch] = useState(false);
   const { isSidebarCollapsed: isCollapsed } = useUI();
 
   const rol = user?.rol ?? "";
-  const navItems: NavItem[] = ALL_NAV.filter(i => (i.roles as string[]).includes(rol));
+  const navItems: NavItem[] = ALL_NAV.filter(i => {
+    if (!(i.roles as string[]).includes(rol)) return false;
+    // Superadmin bypasses permission checks (hasPermiso already handles this,
+    // but the permisoKey filter only applies when a key is defined).
+    if (i.permisoKey && !hasPermiso(i.permisoKey)) return false;
+    return true;
+  });
 
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
 

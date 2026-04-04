@@ -31,7 +31,9 @@
       "Bash(curl -s \"https://api.shelfycenter.com/api/reports/performance/3?mes=3&anio=2026\" -H \"X-Api-Key: shelfy-clave-2025\")",
       "Bash(curl:*)",
       "Bash(ls /Users/ignaciopiazza/Desktop/CenterMind/*.html /Users/ignaciopiazza/Desktop/CenterMind/*.png)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(npm run:*)",
+      "Bash(wc -l /Users/ignaciopiazza/Desktop/CenterMind/CenterMind/api.py /Users/ignaciopiazza/Desktop/CenterMind/CenterMind/core/*.py /Users/ignaciopiazza/Desktop/CenterMind/CenterMind/models/*.py /Users/ignaciopiazza/Desktop/CenterMind/CenterMind/routers/*.py)"
     ]
   }
 }

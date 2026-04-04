@@ -9,6 +9,7 @@ import { Topbar } from "@/components/layout/Topbar";
 import { useObjetivosStore } from "@/store/useObjetivosStore";
 import {
   fetchObjetivos,
+  fetchResumenSupervisorObjetivos,
   createObjetivo,
   updateObjetivo,
   deleteObjetivo,
@@ -16,6 +17,7 @@ import {
   type Objetivo,
   type ObjetivoCreate,
   type ObjetivoTipo,
+  type ResumenVendedorObjetivos,
 } from "@/lib/api";
 import {
   Target,
@@ -35,17 +37,32 @@ import {
   Calendar,
   User,
   MapPin,
+  Users,
+  BarChart3,
 } from "lucide-react";
 
-// ── Tipo badge config ─────────────────────────────────────────────────────────
+// ── Tipo / actividad config ───────────────────────────────────────────────────
 
 const TIPO_CONFIG: Record<ObjetivoTipo, { label: string; color: string; bg: string }> = {
   conversion_estado: { label: "Activación", color: "text-blue-400",    bg: "bg-blue-500/15 border-blue-500/25" },
   cobranza:          { label: "Cobranza",   color: "text-orange-400",  bg: "bg-orange-500/15 border-orange-500/25" },
-  ruteo_alteo:       { label: "Ruteo",      color: "text-violet-400",  bg: "bg-violet-500/15 border-violet-500/25" },
+  ruteo_alteo:       { label: "Visita",     color: "text-violet-400",  bg: "bg-violet-500/15 border-violet-500/25" },
   exhibicion:        { label: "Exhibición", color: "text-emerald-400", bg: "bg-emerald-500/15 border-emerald-500/25" },
   general:           { label: "General",    color: "text-slate-400",   bg: "bg-slate-500/15 border-slate-500/25" },
 };
+
+// Actividades que tienen sentido para el phrase builder (PDV-based)
+const ACTIVIDADES_FRASE: { tipo: ObjetivoTipo; label: string }[] = [
+  { tipo: "ruteo_alteo",       label: "visitar" },
+  { tipo: "exhibicion",        label: "exhibir en" },
+  { tipo: "conversion_estado", label: "activar" },
+];
+
+const TIEMPO_UNIDADES = [
+  { value: "dias",    label: "días" },
+  { value: "semanas", label: "semanas" },
+  { value: "mes",     label: "el mes" },
+];
 
 function TipoBadge({ tipo }: { tipo: ObjetivoTipo }) {
   const cfg = TIPO_CONFIG[tipo] ?? TIPO_CONFIG.general;
@@ -58,12 +75,12 @@ function TipoBadge({ tipo }: { tipo: ObjetivoTipo }) {
 
 // ── Progress bar ──────────────────────────────────────────────────────────────
 
-function ProgressBar({ actual, objetivo }: { actual: number; objetivo: number | null }) {
+function ProgressBar({ actual, objetivo, className }: { actual: number; objetivo: number | null; className?: string }) {
   if (!objetivo || objetivo === 0) return null;
   const pct = Math.min(100, Math.round((actual / objetivo) * 100));
   const color = pct >= 100 ? "bg-emerald-500" : pct >= 50 ? "bg-orange-400" : "bg-red-500";
   return (
-    <div className="flex items-center gap-2">
+    <div className={`flex items-center gap-2 ${className ?? ""}`}>
       <div className="flex-1 h-1.5 rounded-full bg-white/10 overflow-hidden">
         <div className={`h-full rounded-full ${color} transition-all`} style={{ width: `${pct}%` }} />
       </div>
@@ -101,6 +118,37 @@ function DateChip({ date }: { date: string | null | undefined }) {
       {isSoon && !isOverdue && ` (${days}d)`}
     </span>
   );
+}
+
+// ── Phrase rendering ──────────────────────────────────────────────────────────
+// Reconstructs the human-readable phrase from stored fields
+
+function ObjetivoPhrase({ obj }: { obj: Objetivo }) {
+  const tiempoValor  = obj.estado_inicial;   // e.g. "2"
+  const tiempoUnidad = obj.estado_objetivo;  // e.g. "semanas"
+  const cantidad     = obj.valor_objetivo;
+
+  // If it has the phrase-builder fields, show the phrase
+  if (cantidad && tiempoValor && tiempoUnidad) {
+    const unidadLabel = TIEMPO_UNIDADES.find(u => u.value === tiempoUnidad)?.label ?? tiempoUnidad;
+    return (
+      <p className="text-xs text-white/70 leading-snug">
+        Debe{" "}
+        <span className="text-white font-medium">
+          {ACTIVIDADES_FRASE.find(a => a.tipo === obj.tipo)?.label ?? obj.tipo}
+        </span>{" "}
+        <span className="text-[var(--shelfy-accent)] font-semibold">{Math.round(cantidad)} PDVs</span>
+        {" "}en{" "}
+        <span className="text-white/80">{tiempoValor} {unidadLabel}</span>
+      </p>
+    );
+  }
+
+  // Fallback: show description or tipo label
+  if (obj.descripcion) {
+    return <p className="text-xs text-[var(--shelfy-muted)] leading-snug">{obj.descripcion}</p>;
+  }
+  return null;
 }
 
 // ── Stat card ─────────────────────────────────────────────────────────────────
@@ -156,22 +204,20 @@ function ObjetivoRow({ obj, onToggle, onDelete }: {
       <td className="px-4 py-3">
         <TipoBadge tipo={obj.tipo} />
       </td>
-      <td className="px-4 py-3 max-w-[200px]">
+      <td className="px-4 py-3 max-w-[220px]">
         {obj.nombre_pdv && (
           <div className="flex items-center gap-1.5 mb-0.5">
             <MapPin className="w-3 h-3 text-[var(--shelfy-muted)] shrink-0" />
             <span className="text-xs text-white/60 truncate">{obj.nombre_pdv}</span>
           </div>
         )}
-        {obj.descripcion && (
-          <p className="text-xs text-[var(--shelfy-muted)] truncate">{obj.descripcion}</p>
-        )}
+        <ObjetivoPhrase obj={obj} />
       </td>
       <td className="px-4 py-3 w-36">
-        {obj.tipo === "cobranza" && obj.valor_objetivo ? (
+        {obj.valor_objetivo ? (
           <div>
-            <div className="text-xs text-white/70 mb-1">
-              ${obj.valor_actual.toLocaleString("es-AR")} / ${obj.valor_objetivo.toLocaleString("es-AR")}
+            <div className="text-xs text-white/70 mb-1 tabular-nums">
+              {obj.valor_actual} / {Math.round(obj.valor_objetivo)}
             </div>
             <ProgressBar actual={obj.valor_actual} objetivo={obj.valor_objetivo} />
           </div>
@@ -224,12 +270,10 @@ function KanbanCard({ obj, onToggle, onDelete }: {
           <span className="text-xs text-white/60">{obj.nombre_pdv}</span>
         </div>
       )}
-      {obj.descripcion && (
-        <p className="text-[11px] text-[var(--shelfy-muted)] leading-snug">{obj.descripcion}</p>
-      )}
-      {obj.tipo === "cobranza" && obj.valor_objetivo && (
+      <ObjetivoPhrase obj={obj} />
+      {obj.valor_objetivo ? (
         <ProgressBar actual={obj.valor_actual} objetivo={obj.valor_objetivo} />
-      )}
+      ) : null}
       <div className="flex items-center justify-between pt-1">
         <DateChip date={obj.fecha_objetivo} />
         <button
@@ -247,7 +291,42 @@ function KanbanCard({ obj, onToggle, onDelete }: {
   );
 }
 
-// ── Modal nuevo objetivo ──────────────────────────────────────────────────────
+// ── Vista Supervisor — tabla de agregación ────────────────────────────────────
+
+function VendedorResumenRow({ v }: { v: ResumenVendedorObjetivos }) {
+  return (
+    <tr className="border-b border-[var(--shelfy-border)]/50 hover:bg-white/[0.02] transition-colors">
+      <td className="px-4 py-3">
+        <div className="flex items-center gap-2">
+          <div className="w-6 h-6 rounded-full bg-[var(--shelfy-accent)]/15 flex items-center justify-center shrink-0">
+            <User className="w-3 h-3 text-[var(--shelfy-accent)]" />
+          </div>
+          <span className="text-xs font-medium text-white/90">{v.nombre_vendedor}</span>
+        </div>
+      </td>
+      <td className="px-4 py-3 text-center">
+        <span className="text-xs text-[var(--shelfy-muted)] tabular-nums">{v.objetivos_count}</span>
+      </td>
+      <td className="px-4 py-3 text-center">
+        <span className="text-xs font-semibold text-[var(--shelfy-accent)] tabular-nums">
+          {Math.round(v.cantidad_objetivo_total)}
+        </span>
+        <span className="text-[10px] text-[var(--shelfy-muted)] ml-1">PDVs</span>
+      </td>
+      <td className="px-4 py-3 w-40">
+        <div className="text-[10px] text-[var(--shelfy-muted)] mb-1 tabular-nums">
+          {Math.round(v.cantidad_actual_total)} / {Math.round(v.cantidad_objetivo_total)}
+        </div>
+        <ProgressBar actual={v.cantidad_actual_total} objetivo={v.cantidad_objetivo_total} />
+      </td>
+      <td className="px-4 py-3">
+        <DateChip date={v.proxima_fecha} />
+      </td>
+    </tr>
+  );
+}
+
+// ── Modal nuevo objetivo — Phrase Builder ─────────────────────────────────────
 
 interface NuevoObjetivoModalProps {
   distId: number;
@@ -257,25 +336,61 @@ interface NuevoObjetivoModalProps {
   loading: boolean;
 }
 
+type ModoCreacion = "frase" | "libre";
+
 function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: NuevoObjetivoModalProps) {
-  const [form, setForm] = useState<Partial<ObjetivoCreate>>({
+  const [modo, setModo] = useState<ModoCreacion>("frase");
+
+  // Phrase builder state
+  const [fraseVendedor, setFraseVendedor] = useState<number | "">("");
+  const [fraseActividad, setFraseActividad] = useState<ObjetivoTipo>("ruteo_alteo");
+  const [fraseCantidad, setFraseCantidad] = useState<string>("10");
+  const [fraseTiempoValor, setFraseTiempoValor] = useState<string>("1");
+  const [fraseTiempoUnidad, setFraseTiempoUnidad] = useState<string>("semanas");
+  const [fraseFecha, setFraseFecha] = useState<string>("");
+
+  // Free mode state
+  const [libreForm, setLibreForm] = useState<Partial<ObjetivoCreate>>({
     id_distribuidor: distId,
     tipo: "general",
   });
+  const setL = (k: keyof ObjetivoCreate, v: unknown) =>
+    setLibreForm(p => ({ ...p, [k]: v }));
 
-  const set = (k: keyof ObjetivoCreate, v: unknown) => setForm(p => ({ ...p, [k]: v }));
+  const nombreVendedorFrase = vendedores.find(v => v.id_vendedor === fraseVendedor)?.nombre_erp ?? "";
+  const actividadLabel = ACTIVIDADES_FRASE.find(a => a.tipo === fraseActividad)?.label ?? "hacer algo en";
+  const unidadLabel = TIEMPO_UNIDADES.find(u => u.value === fraseTiempoUnidad)?.label ?? fraseTiempoUnidad;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmitFrase = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.id_vendedor || !form.tipo) return;
-    onCreate(form as ObjetivoCreate);
+    if (!fraseVendedor || !fraseCantidad) return;
+    const cantidad = Number(fraseCantidad);
+    const descrip = `Debe ${actividadLabel} ${cantidad} PDVs en ${fraseTiempoValor} ${unidadLabel}`;
+    onCreate({
+      id_distribuidor: distId,
+      id_vendedor: Number(fraseVendedor),
+      nombre_vendedor: nombreVendedorFrase,
+      tipo: fraseActividad,
+      descripcion: descrip,
+      valor_objetivo: cantidad,
+      estado_inicial: fraseTiempoValor,   // tiempo_valor
+      estado_objetivo: fraseTiempoUnidad, // tiempo_unidad
+      ...(fraseFecha ? { fecha_objetivo: fraseFecha } : {}),
+    });
+  };
+
+  const handleSubmitLibre = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!libreForm.id_vendedor || !libreForm.tipo) return;
+    onCreate(libreForm as ObjetivoCreate);
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div className="relative w-full max-w-md rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] p-6 shadow-2xl">
-        <div className="flex items-center justify-between mb-6">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-5">
           <div className="flex items-center gap-2">
             <Target className="w-4 h-4 text-[var(--shelfy-accent)]" />
             <h2 className="text-sm font-semibold text-white">Nuevo objetivo</h2>
@@ -285,128 +400,325 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Vendedor */}
-          <div>
-            <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">
-              Vendedor
-            </label>
-            <div className="relative">
-              <select
-                required
-                className="w-full appearance-none bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[var(--shelfy-accent)]/60"
-                value={form.id_vendedor ?? ""}
-                onChange={e => {
-                  const v = vendedores.find(x => x.id_vendedor === Number(e.target.value));
-                  set("id_vendedor", Number(e.target.value));
-                  if (v) set("nombre_vendedor", v.nombre_erp);
-                }}
-              >
-                <option value="">Seleccionar...</option>
-                {vendedores.map(v => (
-                  <option key={v.id_vendedor} value={v.id_vendedor}>{v.nombre_erp}</option>
-                ))}
-              </select>
-              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--shelfy-muted)] pointer-events-none" />
+        {/* Modo tabs */}
+        <div className="flex gap-1 bg-[var(--shelfy-bg)] rounded-lg p-1 mb-5">
+          {(["frase", "libre"] as ModoCreacion[]).map(m => (
+            <button
+              key={m}
+              onClick={() => setModo(m)}
+              className={`flex-1 py-1.5 text-xs rounded-md transition-all font-medium ${
+                modo === m
+                  ? "bg-[var(--shelfy-panel)] text-white shadow-sm"
+                  : "text-[var(--shelfy-muted)] hover:text-white"
+              }`}
+            >
+              {m === "frase" ? "Constructor de frase" : "Libre"}
+            </button>
+          ))}
+        </div>
+
+        {modo === "frase" ? (
+          /* ── Phrase Builder ── */
+          <form onSubmit={handleSubmitFrase} className="space-y-4">
+            {/* Preview phrase */}
+            <div className="rounded-xl bg-[var(--shelfy-bg)] border border-[var(--shelfy-accent)]/20 p-3">
+              <p className="text-[11px] text-[var(--shelfy-muted)] mb-1 uppercase tracking-wider font-medium">
+                Objetivo generado
+              </p>
+              <p className="text-sm text-white leading-relaxed">
+                <span className="text-[var(--shelfy-accent)] font-semibold">
+                  {nombreVendedorFrase || "[ Vendedor ]"}
+                </span>
+                {" "}debe{" "}
+                <span className="text-emerald-400 font-medium">{actividadLabel}</span>
+                {" "}
+                <span className="text-white font-semibold">{fraseCantidad || "?"} PDVs</span>
+                {" "}en{" "}
+                <span className="text-white/80">{fraseTiempoValor} {unidadLabel}</span>
+              </p>
             </div>
-          </div>
 
-          {/* Tipo */}
-          <div>
-            <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">
-              Tipo
-            </label>
-            <div className="relative">
-              <select
-                className="w-full appearance-none bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[var(--shelfy-accent)]/60"
-                value={form.tipo ?? "general"}
-                onChange={e => set("tipo", e.target.value as ObjetivoTipo)}
-              >
-                {Object.entries(TIPO_CONFIG).map(([k, cfg]) => (
-                  <option key={k} value={k}>{cfg.label}</option>
-                ))}
-              </select>
-              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--shelfy-muted)] pointer-events-none" />
-            </div>
-          </div>
-
-          {/* PDV */}
-          <div>
-            <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">
-              PDV / Cliente <span className="text-white/20 normal-case">(opcional)</span>
-            </label>
-            <input
-              type="text"
-              placeholder="Nombre del punto de venta"
-              className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-white placeholder-white/20 focus:outline-none focus:border-[var(--shelfy-accent)]/60"
-              value={form.nombre_pdv ?? ""}
-              onChange={e => set("nombre_pdv", e.target.value || undefined)}
-            />
-          </div>
-
-          {/* Descripción */}
-          <div>
-            <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">
-              Descripción
-            </label>
-            <textarea
-              rows={2}
-              placeholder="Qué debe lograr el vendedor..."
-              className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-white placeholder-white/20 focus:outline-none focus:border-[var(--shelfy-accent)]/60 resize-none"
-              value={form.descripcion ?? ""}
-              onChange={e => set("descripcion", e.target.value || undefined)}
-            />
-          </div>
-
-          {/* Valor objetivo (solo para cobranza) */}
-          {form.tipo === "cobranza" && (
+            {/* Vendedor */}
             <div>
               <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">
-                Meta de cobranza ($)
+                Vendedor
+              </label>
+              <div className="relative">
+                <select
+                  required
+                  className="w-full appearance-none bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                  value={fraseVendedor}
+                  onChange={e => setFraseVendedor(Number(e.target.value) || "")}
+                >
+                  <option value="">Seleccionar...</option>
+                  {vendedores.map(v => (
+                    <option key={v.id_vendedor} value={v.id_vendedor}>{v.nombre_erp}</option>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--shelfy-muted)] pointer-events-none" />
+              </div>
+            </div>
+
+            {/* Actividad */}
+            <div>
+              <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">
+                Actividad
+              </label>
+              <div className="flex gap-2 flex-wrap">
+                {ACTIVIDADES_FRASE.map(a => (
+                  <button
+                    key={a.tipo}
+                    type="button"
+                    onClick={() => setFraseActividad(a.tipo)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                      fraseActividad === a.tipo
+                        ? "border-[var(--shelfy-accent)] bg-[var(--shelfy-accent)]/15 text-[var(--shelfy-accent)]"
+                        : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-white"
+                    }`}
+                  >
+                    {TIPO_CONFIG[a.tipo].label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Cantidad + Tiempo */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">
+                  Cantidad (PDVs)
+                </label>
+                <input
+                  type="number"
+                  required
+                  min={1}
+                  step={1}
+                  placeholder="10"
+                  className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-white placeholder-white/20 focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                  value={fraseCantidad}
+                  onChange={e => setFraseCantidad(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">
+                  Tiempo
+                </label>
+                <div className="flex gap-1.5">
+                  <input
+                    type="number"
+                    min={1}
+                    step={1}
+                    className="w-16 bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-2 py-2 text-sm text-white focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                    value={fraseTiempoValor}
+                    onChange={e => setFraseTiempoValor(e.target.value)}
+                  />
+                  <div className="relative flex-1">
+                    <select
+                      className="w-full appearance-none bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-2 py-2 text-sm text-white focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                      value={fraseTiempoUnidad}
+                      onChange={e => setFraseTiempoUnidad(e.target.value)}
+                    >
+                      {TIEMPO_UNIDADES.map(u => (
+                        <option key={u.value} value={u.value}>{u.label}</option>
+                      ))}
+                    </select>
+                    <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-[var(--shelfy-muted)] pointer-events-none" />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Fecha límite */}
+            <div>
+              <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">
+                Fecha límite <span className="text-white/20 normal-case">(opcional)</span>
               </label>
               <input
-                type="number"
-                min={0}
-                step={0.01}
-                placeholder="0.00"
-                className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-white placeholder-white/20 focus:outline-none focus:border-[var(--shelfy-accent)]/60"
-                value={form.valor_objetivo ?? ""}
-                onChange={e => set("valor_objetivo", e.target.value ? Number(e.target.value) : undefined)}
+                type="date"
+                className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                value={fraseFecha}
+                onChange={e => setFraseFecha(e.target.value)}
               />
             </div>
-          )}
 
-          {/* Fecha */}
+            <div className="flex gap-2 pt-2">
+              <button type="button" onClick={onClose}
+                className="flex-1 py-2 rounded-lg border border-[var(--shelfy-border)] text-sm text-[var(--shelfy-muted)] hover:text-white transition-colors">
+                Cancelar
+              </button>
+              <button type="submit" disabled={loading}
+                className="flex-1 py-2 rounded-lg bg-[var(--shelfy-accent)] text-white text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2">
+                {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                Crear objetivo
+              </button>
+            </div>
+          </form>
+        ) : (
+          /* ── Modo libre ── */
+          <form onSubmit={handleSubmitLibre} className="space-y-4">
+            {/* Vendedor */}
+            <div>
+              <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">Vendedor</label>
+              <div className="relative">
+                <select required
+                  className="w-full appearance-none bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                  value={libreForm.id_vendedor ?? ""}
+                  onChange={e => {
+                    const v = vendedores.find(x => x.id_vendedor === Number(e.target.value));
+                    setL("id_vendedor", Number(e.target.value));
+                    if (v) setL("nombre_vendedor", v.nombre_erp);
+                  }}>
+                  <option value="">Seleccionar...</option>
+                  {vendedores.map(v => <option key={v.id_vendedor} value={v.id_vendedor}>{v.nombre_erp}</option>)}
+                </select>
+                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--shelfy-muted)] pointer-events-none" />
+              </div>
+            </div>
+
+            {/* Tipo */}
+            <div>
+              <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">Tipo</label>
+              <div className="relative">
+                <select
+                  className="w-full appearance-none bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                  value={libreForm.tipo ?? "general"}
+                  onChange={e => setL("tipo", e.target.value as ObjetivoTipo)}>
+                  {Object.entries(TIPO_CONFIG).map(([k, cfg]) => <option key={k} value={k}>{cfg.label}</option>)}
+                </select>
+                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--shelfy-muted)] pointer-events-none" />
+              </div>
+            </div>
+
+            {/* Descripción */}
+            <div>
+              <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">Descripción</label>
+              <textarea rows={2} placeholder="Qué debe lograr el vendedor..."
+                className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-white placeholder-white/20 focus:outline-none focus:border-[var(--shelfy-accent)]/60 resize-none"
+                value={libreForm.descripcion ?? ""}
+                onChange={e => setL("descripcion", e.target.value || undefined)} />
+            </div>
+
+            {/* Valor objetivo */}
+            {libreForm.tipo === "cobranza" && (
+              <div>
+                <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">Meta ($)</label>
+                <input type="number" min={0} step={0.01} placeholder="0.00"
+                  className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-white placeholder-white/20 focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                  value={libreForm.valor_objetivo ?? ""}
+                  onChange={e => setL("valor_objetivo", e.target.value ? Number(e.target.value) : undefined)} />
+              </div>
+            )}
+
+            {/* Fecha */}
+            <div>
+              <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">
+                Fecha límite <span className="text-white/20 normal-case">(opcional)</span>
+              </label>
+              <input type="date"
+                className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                value={libreForm.fecha_objetivo ?? ""}
+                onChange={e => setL("fecha_objetivo", e.target.value || undefined)} />
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button type="button" onClick={onClose}
+                className="flex-1 py-2 rounded-lg border border-[var(--shelfy-border)] text-sm text-[var(--shelfy-muted)] hover:text-white transition-colors">
+                Cancelar
+              </button>
+              <button type="submit" disabled={loading}
+                className="flex-1 py-2 rounded-lg bg-[var(--shelfy-accent)] text-white text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2">
+                {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                Crear objetivo
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Vista Supervisor ──────────────────────────────────────────────────────────
+
+function VistaSupervisor({ distId }: { distId: number }) {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["objetivos-resumen-supervisor", distId],
+    queryFn: () => fetchResumenSupervisorObjetivos(distId),
+    enabled: !!distId,
+    staleTime: 60 * 1000,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-32 text-[var(--shelfy-muted)]">
+        <Loader2 className="w-4 h-4 animate-spin mr-2" />
+        <span className="text-sm">Calculando resumen...</span>
+      </div>
+    );
+  }
+  if (isError || !data) {
+    return (
+      <div className="flex items-center justify-center h-32 text-red-400 gap-2">
+        <AlertCircle className="w-4 h-4" />
+        <span className="text-sm">Error al cargar el resumen</span>
+      </div>
+    );
+  }
+
+  const { totales, vendedores } = data;
+
+  if (vendedores.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-32 text-[var(--shelfy-muted)]">
+        <Users className="w-8 h-8 opacity-15 mb-2" />
+        <p className="text-sm">No hay objetivos activos para agregar</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Grand total bar */}
+      <div className="rounded-xl border border-[var(--shelfy-accent)]/20 bg-[var(--shelfy-accent)]/5 p-4">
+        <div className="flex items-start justify-between mb-3">
           <div>
-            <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">
-              Fecha límite <span className="text-white/20 normal-case">(opcional)</span>
-            </label>
-            <input
-              type="date"
-              className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[var(--shelfy-accent)]/60"
-              value={form.fecha_objetivo ?? ""}
-              onChange={e => set("fecha_objetivo", e.target.value || undefined)}
-            />
+            <p className="text-xs text-[var(--shelfy-muted)] uppercase tracking-wider font-medium mb-0.5">
+              Meta agregada del equipo
+            </p>
+            <p className="text-2xl font-bold text-white tabular-nums">
+              {Math.round(totales.cantidad_objetivo_total)}
+              <span className="text-sm font-normal text-[var(--shelfy-muted)] ml-1.5">PDVs</span>
+            </p>
+            <p className="text-xs text-[var(--shelfy-muted)] mt-0.5">
+              {totales.vendedores_count} vendedores · {Math.round(totales.cantidad_actual_total)} completados
+            </p>
           </div>
+          <div className="flex items-center gap-1.5 bg-[var(--shelfy-bg)] rounded-lg px-3 py-2">
+            <BarChart3 className="w-4 h-4 text-[var(--shelfy-accent)]" />
+            <span className="text-lg font-bold text-[var(--shelfy-accent)]">{totales.pct_progreso}%</span>
+          </div>
+        </div>
+        <ProgressBar actual={totales.cantidad_actual_total} objetivo={totales.cantidad_objetivo_total} />
+      </div>
 
-          <div className="flex gap-2 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 py-2 rounded-lg border border-[var(--shelfy-border)] text-sm text-[var(--shelfy-muted)] hover:text-white transition-colors"
-            >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="flex-1 py-2 rounded-lg bg-[var(--shelfy-accent)] text-white text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
-            >
-              {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-              Crear objetivo
-            </button>
-          </div>
-        </form>
+      {/* Per-vendedor table */}
+      <div className="rounded-xl border border-[var(--shelfy-border)] overflow-hidden">
+        <table className="w-full">
+          <thead>
+            <tr className="border-b border-[var(--shelfy-border)] bg-[var(--shelfy-panel)]">
+              <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider">Vendedor</th>
+              <th className="px-4 py-2.5 text-center text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider">Objetivos</th>
+              <th className="px-4 py-2.5 text-center text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider">Meta PDVs</th>
+              <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider w-40">Progreso</th>
+              <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider">Fecha</th>
+            </tr>
+          </thead>
+          <tbody className="bg-[var(--shelfy-bg)]">
+            {vendedores.map(v => (
+              <VendedorResumenRow key={v.id_vendedor} v={v} />
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );
@@ -414,15 +726,18 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
+type PageTab = "objetivos" | "supervisor";
+
 export default function ObjetivosPage() {
   const { user } = useAuth();
   const distId = user?.id_distribuidor ?? 0;
   const qc = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
+  const [pageTab, setPageTab] = useState<PageTab>("objetivos");
 
   const {
     filterVendedor, filterTipo, filterCumplido, searchText, viewMode,
-    setFilterVendedor, setFilterTipo, setFilterCumplido, setSearchText, setViewMode,
+    setFilterTipo, setFilterCumplido, setSearchText, setViewMode,
   } = useObjetivosStore();
 
   // ── Data ──────────────────────────────────────────────────────────────────
@@ -441,7 +756,7 @@ export default function ObjetivosPage() {
       ...(filterTipo && { tipo: filterTipo }),
       ...(filterVendedor && { vendedor_id: filterVendedor }),
     }),
-    enabled: !!distId,
+    enabled: !!distId && pageTab === "objetivos",
     staleTime: 30 * 1000,
   });
 
@@ -449,6 +764,7 @@ export default function ObjetivosPage() {
     mutationFn: createObjetivo,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["objetivos", distId] });
+      qc.invalidateQueries({ queryKey: ["objetivos-resumen-supervisor", distId] });
       setModalOpen(false);
     },
   });
@@ -456,12 +772,18 @@ export default function ObjetivosPage() {
   const toggleMut = useMutation({
     mutationFn: ({ id, cumplido }: { id: string; cumplido: boolean }) =>
       updateObjetivo(id, { cumplido }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["objetivos", distId] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["objetivos", distId] });
+      qc.invalidateQueries({ queryKey: ["objetivos-resumen-supervisor", distId] });
+    },
   });
 
   const deleteMut = useMutation({
     mutationFn: deleteObjetivo,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["objetivos", distId] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["objetivos", distId] });
+      qc.invalidateQueries({ queryKey: ["objetivos-resumen-supervisor", distId] });
+    },
   });
 
   // ── Filtered list ─────────────────────────────────────────────────────────
@@ -491,9 +813,9 @@ export default function ObjetivosPage() {
   // ── Kanban groups ─────────────────────────────────────────────────────────
 
   const kanbanGroups = useMemo(() => ({
-    pendiente: filtered.filter(o => !o.cumplido && (!o.valor_objetivo || o.valor_actual < o.valor_objetivo)),
+    pendiente:   filtered.filter(o => !o.cumplido && (!o.valor_objetivo || o.valor_actual < o.valor_objetivo)),
     en_progreso: filtered.filter(o => !o.cumplido && o.valor_objetivo && o.valor_actual > 0 && o.valor_actual < o.valor_objetivo),
-    completado: filtered.filter(o => o.cumplido),
+    completado:  filtered.filter(o => o.cumplido),
   }), [filtered]);
 
   const vendedores = (vendedoresData ?? []).map(v => ({
@@ -527,159 +849,189 @@ export default function ObjetivosPage() {
             </button>
           </div>
 
-          {/* Stats */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-            <StatCard icon={Target}       label="Total"           value={stats.total}              color="bg-white/5" />
-            <StatCard icon={Clock}        label="Pendientes"      value={stats.pendientes}          color="bg-orange-500/10 text-orange-400" />
-            <StatCard icon={CheckCircle2} label="Esta semana"     value={stats.completadosSemana}   sub="completados" color="bg-emerald-500/10 text-emerald-400" />
-            <StatCard icon={TrendingUp}   label="% Cumplimiento"  value={`${stats.pct}%`}           sub={`${stats.cumplidos} de ${stats.total}`} color="bg-[var(--shelfy-accent)]/10 text-[var(--shelfy-accent)]" />
+          {/* Stats (only on objetivos tab) */}
+          {pageTab === "objetivos" && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+              <StatCard icon={Target}       label="Total"          value={stats.total}             color="bg-white/5" />
+              <StatCard icon={Clock}        label="Pendientes"     value={stats.pendientes}         color="bg-orange-500/10 text-orange-400" />
+              <StatCard icon={CheckCircle2} label="Esta semana"    value={stats.completadosSemana}  sub="completados" color="bg-emerald-500/10 text-emerald-400" />
+              <StatCard icon={TrendingUp}   label="% Cumplimiento" value={`${stats.pct}%`}          sub={`${stats.cumplidos} de ${stats.total}`} color="bg-[var(--shelfy-accent)]/10 text-[var(--shelfy-accent)]" />
+            </div>
+          )}
+
+          {/* Page tabs */}
+          <div className="flex gap-1 bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-lg p-1 mb-4 w-fit">
+            <button
+              onClick={() => setPageTab("objetivos")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                pageTab === "objetivos" ? "bg-white/10 text-white" : "text-[var(--shelfy-muted)] hover:text-white"
+              }`}
+            >
+              <Target className="w-3.5 h-3.5" />
+              Por objetivo
+            </button>
+            <button
+              onClick={() => setPageTab("supervisor")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                pageTab === "supervisor" ? "bg-white/10 text-white" : "text-[var(--shelfy-muted)] hover:text-white"
+              }`}
+            >
+              <Users className="w-3.5 h-3.5" />
+              Vista supervisor
+            </button>
           </div>
 
-          {/* Filtros */}
-          <div className="flex flex-wrap gap-2 mb-4">
-            {/* Search */}
-            <div className="relative flex-1 min-w-48">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--shelfy-muted)] pointer-events-none" />
-              <input
-                type="text"
-                placeholder="Buscar vendedor, PDV..."
-                value={searchText}
-                onChange={e => setSearchText(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-lg text-sm text-white placeholder-white/20 focus:outline-none focus:border-[var(--shelfy-accent)]/60"
-              />
-            </div>
-
-            {/* Tipo */}
-            <div className="relative">
-              <select
-                className="appearance-none bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-lg pl-3 pr-8 py-2 text-sm text-white focus:outline-none focus:border-[var(--shelfy-accent)]/60"
-                value={filterTipo ?? ""}
-                onChange={e => setFilterTipo((e.target.value || null) as ObjetivoTipo | null)}
-              >
-                <option value="">Todos los tipos</option>
-                {Object.entries(TIPO_CONFIG).map(([k, cfg]) => (
-                  <option key={k} value={k}>{cfg.label}</option>
-                ))}
-              </select>
-              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-[var(--shelfy-muted)] pointer-events-none" />
-            </div>
-
-            {/* Estado */}
-            <div className="relative">
-              <select
-                className="appearance-none bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-lg pl-3 pr-8 py-2 text-sm text-white focus:outline-none focus:border-[var(--shelfy-accent)]/60"
-                value={filterCumplido === null ? "" : String(filterCumplido)}
-                onChange={e => {
-                  const v = e.target.value;
-                  setFilterCumplido(v === "" ? null : v === "true");
-                }}
-              >
-                <option value="">Todos</option>
-                <option value="false">Pendientes</option>
-                <option value="true">Completados</option>
-              </select>
-              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-[var(--shelfy-muted)] pointer-events-none" />
-            </div>
-
-            {/* View toggle */}
-            <div className="flex gap-1 bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-lg p-1">
-              <button
-                onClick={() => setViewMode("lista")}
-                className={`p-1.5 rounded transition-colors ${viewMode === "lista" ? "bg-white/10 text-white" : "text-[var(--shelfy-muted)] hover:text-white"}`}
-              >
-                <LayoutList className="w-3.5 h-3.5" />
-              </button>
-              <button
-                onClick={() => setViewMode("tablero")}
-                className={`p-1.5 rounded transition-colors ${viewMode === "tablero" ? "bg-white/10 text-white" : "text-[var(--shelfy-muted)] hover:text-white"}`}
-              >
-                <LayoutGrid className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-
-          {/* Content */}
-          {isLoading ? (
-            <div className="flex items-center justify-center h-48 text-[var(--shelfy-muted)]">
-              <Loader2 className="w-5 h-5 animate-spin mr-2" />
-              <span className="text-sm">Cargando objetivos...</span>
-            </div>
-          ) : isError ? (
-            <div className="flex items-center justify-center h-48 text-red-400 gap-2">
-              <AlertCircle className="w-5 h-5" />
-              <span className="text-sm">Error al cargar objetivos</span>
-            </div>
-          ) : filtered.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-48 text-[var(--shelfy-muted)]">
-              <Target className="w-10 h-10 opacity-15 mb-2" />
-              <p className="text-sm">No hay objetivos que coincidan</p>
-              <button
-                onClick={() => setModalOpen(true)}
-                className="mt-3 text-xs text-[var(--shelfy-accent)] hover:underline"
-              >
-                Crear el primero
-              </button>
-            </div>
-          ) : viewMode === "lista" ? (
-            /* ── Lista ── */
-            <div className="rounded-xl border border-[var(--shelfy-border)] overflow-hidden">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-[var(--shelfy-border)] bg-[var(--shelfy-panel)]">
-                    <th className="w-8 px-4 py-2.5" />
-                    <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider">Vendedor</th>
-                    <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider">Tipo</th>
-                    <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider">Detalle</th>
-                    <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider w-36">Progreso</th>
-                    <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider">Fecha</th>
-                    <th className="w-10 px-4 py-2.5" />
-                  </tr>
-                </thead>
-                <tbody className="bg-[var(--shelfy-bg)]">
-                  {filtered.map(obj => (
-                    <ObjetivoRow
-                      key={obj.id}
-                      obj={obj}
-                      onToggle={() => toggleMut.mutate({ id: obj.id, cumplido: !obj.cumplido })}
-                      onDelete={() => deleteMut.mutate(obj.id)}
-                    />
-                  ))}
-                </tbody>
-              </table>
-            </div>
+          {pageTab === "supervisor" ? (
+            <VistaSupervisor distId={distId} />
           ) : (
-            /* ── Tablero Kanban ── */
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {[
-                { key: "pendiente" as const, label: "Pendiente", color: "text-[var(--shelfy-muted)]" },
-                { key: "en_progreso" as const, label: "En progreso", color: "text-orange-400" },
-                { key: "completado" as const, label: "Completado", color: "text-emerald-400" },
-              ].map(col => (
-                <div key={col.key} className="rounded-xl border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] overflow-hidden">
-                  <div className="px-4 py-3 border-b border-[var(--shelfy-border)] flex items-center justify-between">
-                    <span className={`text-xs font-semibold ${col.color}`}>{col.label}</span>
-                    <span className="text-xs text-[var(--shelfy-muted)] bg-white/5 px-1.5 py-0.5 rounded">
-                      {kanbanGroups[col.key].length}
-                    </span>
-                  </div>
-                  <div className="p-3 space-y-2 min-h-24">
-                    {kanbanGroups[col.key].map(obj => (
-                      <KanbanCard
-                        key={obj.id}
-                        obj={obj}
-                        onToggle={() => toggleMut.mutate({ id: obj.id, cumplido: !obj.cumplido })}
-                        onDelete={() => deleteMut.mutate(obj.id)}
-                      />
-                    ))}
-                    {kanbanGroups[col.key].length === 0 && (
-                      <p className="text-[11px] text-[var(--shelfy-muted)] text-center py-4 opacity-50">
-                        Sin objetivos
-                      </p>
-                    )}
-                  </div>
+            <>
+              {/* Filtros */}
+              <div className="flex flex-wrap gap-2 mb-4">
+                {/* Search */}
+                <div className="relative flex-1 min-w-48">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--shelfy-muted)] pointer-events-none" />
+                  <input
+                    type="text"
+                    placeholder="Buscar vendedor, PDV..."
+                    value={searchText}
+                    onChange={e => setSearchText(e.target.value)}
+                    className="w-full pl-9 pr-3 py-2 bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-lg text-sm text-white placeholder-white/20 focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                  />
                 </div>
-              ))}
-            </div>
+
+                {/* Tipo */}
+                <div className="relative">
+                  <select
+                    className="appearance-none bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-lg pl-3 pr-8 py-2 text-sm text-white focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                    value={filterTipo ?? ""}
+                    onChange={e => setFilterTipo((e.target.value || null) as ObjetivoTipo | null)}
+                  >
+                    <option value="">Todos los tipos</option>
+                    {Object.entries(TIPO_CONFIG).map(([k, cfg]) => (
+                      <option key={k} value={k}>{cfg.label}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-[var(--shelfy-muted)] pointer-events-none" />
+                </div>
+
+                {/* Estado */}
+                <div className="relative">
+                  <select
+                    className="appearance-none bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-lg pl-3 pr-8 py-2 text-sm text-white focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                    value={filterCumplido === null ? "" : String(filterCumplido)}
+                    onChange={e => {
+                      const v = e.target.value;
+                      setFilterCumplido(v === "" ? null : v === "true");
+                    }}
+                  >
+                    <option value="">Todos</option>
+                    <option value="false">Pendientes</option>
+                    <option value="true">Completados</option>
+                  </select>
+                  <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-[var(--shelfy-muted)] pointer-events-none" />
+                </div>
+
+                {/* View toggle */}
+                <div className="flex gap-1 bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-lg p-1">
+                  <button
+                    onClick={() => setViewMode("lista")}
+                    className={`p-1.5 rounded transition-colors ${viewMode === "lista" ? "bg-white/10 text-white" : "text-[var(--shelfy-muted)] hover:text-white"}`}
+                  >
+                    <LayoutList className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => setViewMode("tablero")}
+                    className={`p-1.5 rounded transition-colors ${viewMode === "tablero" ? "bg-white/10 text-white" : "text-[var(--shelfy-muted)] hover:text-white"}`}
+                  >
+                    <LayoutGrid className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Content */}
+              {isLoading ? (
+                <div className="flex items-center justify-center h-48 text-[var(--shelfy-muted)]">
+                  <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                  <span className="text-sm">Cargando objetivos...</span>
+                </div>
+              ) : isError ? (
+                <div className="flex items-center justify-center h-48 text-red-400 gap-2">
+                  <AlertCircle className="w-5 h-5" />
+                  <span className="text-sm">Error al cargar objetivos</span>
+                </div>
+              ) : filtered.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-48 text-[var(--shelfy-muted)]">
+                  <Target className="w-10 h-10 opacity-15 mb-2" />
+                  <p className="text-sm">No hay objetivos que coincidan</p>
+                  <button
+                    onClick={() => setModalOpen(true)}
+                    className="mt-3 text-xs text-[var(--shelfy-accent)] hover:underline"
+                  >
+                    Crear el primero
+                  </button>
+                </div>
+              ) : viewMode === "lista" ? (
+                /* ── Lista ── */
+                <div className="rounded-xl border border-[var(--shelfy-border)] overflow-hidden">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-[var(--shelfy-border)] bg-[var(--shelfy-panel)]">
+                        <th className="w-8 px-4 py-2.5" />
+                        <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider">Vendedor</th>
+                        <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider">Tipo</th>
+                        <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider">Objetivo</th>
+                        <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider w-36">Progreso</th>
+                        <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider">Fecha</th>
+                        <th className="w-10 px-4 py-2.5" />
+                      </tr>
+                    </thead>
+                    <tbody className="bg-[var(--shelfy-bg)]">
+                      {filtered.map(obj => (
+                        <ObjetivoRow
+                          key={obj.id}
+                          obj={obj}
+                          onToggle={() => toggleMut.mutate({ id: obj.id, cumplido: !obj.cumplido })}
+                          onDelete={() => deleteMut.mutate(obj.id)}
+                        />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                /* ── Tablero Kanban ── */
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {[
+                    { key: "pendiente" as const,   label: "Pendiente",   color: "text-[var(--shelfy-muted)]" },
+                    { key: "en_progreso" as const, label: "En progreso", color: "text-orange-400" },
+                    { key: "completado" as const,  label: "Completado",  color: "text-emerald-400" },
+                  ].map(col => (
+                    <div key={col.key} className="rounded-xl border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] overflow-hidden">
+                      <div className="px-4 py-3 border-b border-[var(--shelfy-border)] flex items-center justify-between">
+                        <span className={`text-xs font-semibold ${col.color}`}>{col.label}</span>
+                        <span className="text-xs text-[var(--shelfy-muted)] bg-white/5 px-1.5 py-0.5 rounded">
+                          {kanbanGroups[col.key].length}
+                        </span>
+                      </div>
+                      <div className="p-3 space-y-2 min-h-24">
+                        {kanbanGroups[col.key].map(obj => (
+                          <KanbanCard
+                            key={obj.id}
+                            obj={obj}
+                            onToggle={() => toggleMut.mutate({ id: obj.id, cumplido: !obj.cumplido })}
+                            onDelete={() => deleteMut.mutate(obj.id)}
+                          />
+                        ))}
+                        {kanbanGroups[col.key].length === 0 && (
+                          <p className="text-[11px] text-[var(--shelfy-muted)] text-center py-4 opacity-50">
+                            Sin objetivos
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
           )}
 
         </main>

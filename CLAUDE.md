@@ -18,7 +18,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **python-telegram-bot v20** para bots multi-tenant
 - **APScheduler** para jobs programados (no distribuido, corre en el mismo proceso)
 - **pandas / openpyxl / xlsxwriter** para procesamiento de Excel del ERP
-- Archivo principal: `api.py` (~3000 líneas)
+- Archivo principal: `api.py` (98 líneas — entry point slim). Lógica distribuida en:
+  - `core/` → config, security, lifespan (bots/scheduler), helpers compartidos
+  - `models/schemas.py` → todos los modelos Pydantic
+  - `routers/` → auth, erp, supervision, admin, reportes (5 archivos)
 
 ### Frontend (`shelfy-frontend/`)
 - **Next.js 16** (App Router) + **React 19** + **TypeScript 5.9**
@@ -127,7 +130,20 @@ Hay un quinto tenant (`extra`) con credenciales pendientes, sin activar.
 ```
 CenterMind/                     # Root del repo
 ├── CenterMind/                 # Backend Python
-│   ├── api.py                  # FastAPI — todos los endpoints (~3000 líneas)
+│   ├── api.py                  # FastAPI entry point slim (98 líneas): app + include_router + health + WS
+│   ├── core/                   # Infraestructura transversal
+│   │   ├── config.py           # API_KEY, JWT_*, WEBHOOK_URL, CORS_ORIGINS
+│   │   ├── security.py         # verify_auth, verify_key, check_dist_permission, check_distributor_status
+│   │   ├── lifespan.py         # bots{}, ConnectionManager, scheduler, lifespan()
+│   │   └── helpers.py          # _get_erp_name_map, _enrich_and_store_cc
+│   ├── models/
+│   │   └── schemas.py          # Todos los modelos Pydantic del sistema
+│   ├── routers/
+│   │   ├── auth.py             # /login, /auth/login, /auth/switch-context
+│   │   ├── erp.py              # ERP ingesta, sync v1, padrón, motores RPA, CC
+│   │   ├── supervision.py      # Pendientes, evaluar, mapa supervisión, objetivos, GPS
+│   │   ├── admin.py            # Distribuidoras, usuarios, integrantes, jerarquía, monitoring
+│   │   └── reportes.py         # Dashboard, reports, bonos, reportes exhibiciones
 │   ├── bot_worker.py           # Bot Telegram parametrizado por distribuidor
 │   ├── db.py                   # Cliente Supabase singleton
 │   ├── utils.py                # leer_excel(), parse_fecha_robusta()
@@ -478,7 +494,7 @@ El popup HTML del marcador muestra:
 ## Convenciones del proyecto
 
 ### Python (backend)
-- Un archivo `api.py` monolítico con todos los endpoints (no microservicios)
+- `api.py` es el entry point slim (98L). Los endpoints viven en `routers/` (auth, erp, supervision, admin, reportes), la infraestructura en `core/` (config, security, lifespan, helpers) y los modelos en `models/schemas.py`
 - Los services en `services/` son clases instanciadas una vez al inicio
 - El cliente Supabase es `sb` (importado de `db.py`)
 - Logging con `logger = logging.getLogger("ShelfyAPI")`
@@ -507,6 +523,12 @@ El popup HTML del marcador muestra:
 - No hacer queries a `erp_deuda_clientes` — tabla obsoleta, no se alimenta más. Usar `cc_detalle`
 - No usar la tabla `clientes` (sin v2 ni pdv) — migrada a `clientes_pdv_v2`
 - No queries sin filtro `id_distribuidor` (excepto superadmin explícito)
+- ## Desarrollo y Convenciones
+- **Auth**: Usar `useAuthContext()` para acceder al usuario y permisos.
+- **RBAC**: Para proteger UI, usar `hasPermiso('key')`. En `Sidebar`, añadir `permisoKey` al item de navegación. No hardcodear roles en componentes si existe una `permisoKey` asociada.
+- **Estilos**: Usar variables CSS de `globals.css` (`--shelfy-primary`, etc.) para mantener consistencia con el tema dark/glassmorphism.
+- **Componentes**: Priorizar componentes de `shadcn/ui` (@/components/ui) para nuevos desarrollos.
+- **Backend Routing**: Seguir el patrón modular: `routers/` para agrupar endpoints y Pydantic para esquemas.
 - No modificar tablas `erp_*_raw` directamente — son append-only desde los services
 - No usar `clientes_pdv` (sin v2) en código nuevo
 - No usar animaciones CSS `transform` en marcadores HTML sobre MapLibre GL — usar `box-shadow` o `opacity`
@@ -580,23 +602,25 @@ Archivo `shelfy_mapa_arquitectonico.html` en la raíz del repo. Dashboard HTML e
 
 ---
 
-## Estado actual del proyecto (Marzo 2026)
+## Desarrollo y Convenciones
 
-### Módulos estables
-- Exhibiciones (Telegram → evaluación → sync)
-- Ingesta ERP (Excel upload + RPA push)
-- Dashboard KPIs y ranking
-- Panel de supervisión (mapa de rutas con popup enriquecido)
-- Autenticación JWT
-- **Cuentas Corrientes en supervisión**: `cc_detalle` poblada y funcionando para los 4 tenants, con paginación y filtro por sucursal
-- **Mapa PDV**: marcadores estables (sin drift), sin animación aura, popup con compra/exhibición/foto
-- **Popup de contacto en CC**: al tocar un deudor muestra datos de `clientes_pdv_v2` usando `id_cliente_erp` como clave (más robusto que name matching)
-- **Tablas limpias**: `erp_deuda_clientes` y `clientes` (sin sufijos) ya no se usan
+### Python (backend)
+- Un archivo `api.py` monolítico con todos los endpoints.
+- Los services en `services/` son clases instanciadas una vez al inicio.
+- El cliente Supabase es `sb` (importado de `db.py`).
+- Logging con `logger = logging.getLogger("ShelfyAPI")`.
 
-### Deuda técnica conocida
-- `api.py` monolítico de ~3000 líneas (no refactorizar sin pedido explícito)
-- APScheduler no distribuido (corre en proceso único)
-- `/api/admin/hierarchy/rutas` y endpoints afines usan tablas `sucursales`/`vendedores` (sin v2) — poco usados, pendiente de migrar
+### TypeScript (frontend)
+- Comunicación vía `src/lib/api.ts` — NO fetch directo en componentes.
+- Tipos definidos en `api.ts`.
+- Tailwind con variables CSS en `globals.css`.
 
-### Pendientes operativos
-- **Tenant `extra` (GyG, id=6)**: credenciales CHESS pendientes de obtener.
+### Base de datos
+- Siempre filtrar por `id_distribuidor`.
+- Usar tablas `_v2` (las activas).
+- Paginación con `.range()` para tablas grandes (>1000 filas).
+
+---
+
+> [!NOTE]
+> Para ver el progreso actual, tareas pendientes y roadmap, consultar [progress.md](file:///Users/ignaciopiazza/Desktop/CenterMind/progress.md).

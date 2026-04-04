@@ -47,14 +47,14 @@ import {
 const TIPO_CONFIG: Record<ObjetivoTipo, { label: string; color: string; bg: string }> = {
   conversion_estado: { label: "Activación", color: "text-blue-400",    bg: "bg-blue-500/15 border-blue-500/25" },
   cobranza:          { label: "Cobranza",   color: "text-orange-400",  bg: "bg-orange-500/15 border-orange-500/25" },
-  ruteo_alteo:       { label: "Visita",     color: "text-violet-400",  bg: "bg-violet-500/15 border-violet-500/25" },
+  ruteo_alteo:       { label: "Alteo",      color: "text-violet-400",  bg: "bg-violet-500/15 border-violet-500/25" },
   exhibicion:        { label: "Exhibición", color: "text-emerald-400", bg: "bg-emerald-500/15 border-emerald-500/25" },
   general:           { label: "General",    color: "text-slate-400",   bg: "bg-slate-500/15 border-slate-500/25" },
 };
 
 // Actividades que tienen sentido para el phrase builder (PDV-based)
 const ACTIVIDADES_FRASE: { tipo: ObjetivoTipo; label: string }[] = [
-  { tipo: "ruteo_alteo",       label: "visitar" },
+  { tipo: "ruteo_alteo",       label: "altear" },
   { tipo: "exhibicion",        label: "exhibir en" },
   { tipo: "conversion_estado", label: "activar" },
 ];

@@ -61,6 +61,14 @@ Los paneles utilizan el estilo "Glass-Card" adaptado al tema claro:
 ### 3. Floating Objetivos ("Carrito")
 - **UI**: Panel flotante en la esquina inferior derecha del mapa.
 - **Interacción**: Permite "añadir" PDVs al tocar el icono de objetivo en el pin.
+- **Tipos de objetivo** (labels en UI):
+  - `conversion_estado` → "Activación"
+  - `cobranza` → "Cobranza"
+  - `ruteo_alteo` → **"Alteo"** (nunca "Visita" — tipo inexistente en el negocio)
+  - `exhibicion` → "Exhibición"
+  - `general` → "General"
+- **Alteo flow**: Al seleccionar tipo Alteo, carga rutas del vendedor. Al elegir ruta, aparece campo numérico de cantidad (con máximo = `total_pdv` de la ruta). Frase generada: `[vendedor] debe Altear [N] PDVs en [ruta] de los días [dia]. Tenés [N] días.`
+- **Cobranza flow**: Carga lista de deudores del vendedor (seleccionable). Toggle Total/Parcial: "Total" usa toda la deuda; "Parcial" muestra input de monto. Persiste `valor_objetivo` en Supabase. Frase: `[vendedor] deberá cobrarle $[monto] a [cliente] para la fecha [fecha].`
 
 ### 4. Matriz de Permisos (RBAC)
 - **UI**: Tabla de doble entrada (Rol vs Permiso) ubicada en `/admin/permissions`.

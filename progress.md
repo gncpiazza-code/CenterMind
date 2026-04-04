@@ -1,6 +1,6 @@
 # Progress — Shelfy CenterMind
 
-**Última actualización: 4 de Abril, 2026 (5)**
+**Última actualización: 4 de Abril, 2026 (6)**
 
 Este archivo detalla el estado actual del proyecto, las funcionalidades operativas y los pendientes técnicos.
 
@@ -24,7 +24,7 @@ El proyecto se encuentra en una fase de expansión de funcionalidades de supervi
 - **Interfaz de Selección**: "Carrito flotante" en el mapa para seleccionar múltiples PDVs.
 - **Asignación Masiva**: Permite asignar objetivos (Activación, Exhibición, Cobranza) con fechas límite y observaciones.
 - **Formato de Frase**: `Vendedor + Actividad + Cantidad + Tiempo`.
-- **Modal Inteligente**: Al crear un objetivo tipo Alteo, Cobranza o Activación desde el mapa, el panel carga automáticamente datos contextuales (rutas del vendedor, lista de deudores, PDVs inactivos).
+- **Modal Inteligente**: Al crear un objetivo tipo Alteo, Cobranza o Activación desde el mapa, el panel carga automáticamente datos contextuales (rutas del vendedor, lista de deudores, PDVs inactivos). Alteo incluye selector de cantidad. Cobranza incluye selección de deudor específico + modo Total/Parcial.
 - **Watcher Inmediato**: `crear_objetivo` ejecuta el watcher tras la inserción para que `valor_actual` refleje el estado real desde el primer momento.
 - **Popup con Peek Fotográfico**: Los pines del mapa muestran popup con auto-close (2s en click) y carga de foto de exhibición tras 3s de hover.
 - **Módulo de Impresión**: La página de objetivos incluye vista de impresión A4 con un objetivo por página y checkbox de seguimiento manual.
@@ -67,6 +67,7 @@ El proyecto se encuentra en una fase de expansión de funcionalidades de supervi
 ---
 
 ## 📅 Historial Reciente (Abril 2026)
+- **04/04 (6)**: **Objetivos v6 — Alteo, Cobranza selectiva y frases enriquecidas** — (1) Renombrado `ruteo_alteo` de "Visita" a "Alteo" en toda la UI (`TIPO_CONFIG`, `ACTIVIDADES_FRASE`, dropdown de creación). (2) Campo de cantidad en modal Alteo: aparece al seleccionar ruta, con máximo = total_pdv de la ruta. (3) Frase auto-generada para Alteo incluye ahora cantidad de PDVs, día de visita y días disponibles hasta la fecha límite. (4) Modal Cobranza: lista de deudores ahora es seleccionable (click para elegir un deudor); toggle Total/Parcial + input de monto parcial; `valor_objetivo` se persiste en Supabase. (5) Frases Cobranza por deudor: `[vendedor] deberá cobrarle $[monto] a [cliente]` para la fecha`[fecha]`.
 - **04/04 (5)**: **Ecosistema de Objetivos v5** — Mejoras profundas en tres capas: (1) **Backend**: `crear_objetivo` ahora llama al `ObjetivosWatcherService` inmediatamente tras la inserción para que `valor_actual` arranque con el estado real (0 cobrado, N PDVs ya en ruta, etc.) y devuelve la fila actualizada. Comentario aclaratorio sobre el snapshot de deuda para objetivos de cobranza con montos parciales. (2) **TabSupervision**: El "carrito flotante" de objetivos es ahora inteligente — al seleccionar tipo _Alteo_ carga las rutas del vendedor vía `fetchRutasSupervision`; tipo _Cobranza_ obtiene la lista de deudores desde `fetchCuentasSupervision`; tipos _Activación/Exhibición_ calculan el conteo de PDVs inactivos (+30d) desde los pines locales. `buildObjectivePhrase` auto-genera la descripción cuando el campo está vacío. (3) **MapaRutas**: Click en pin ahora abre el popup con cierre automático a los 2s. Hover con "Progressive Peek" de 3s tras el cual aparece la foto de la última exhibición en el popup. (4) **Objetivos Page**: Módulo de impresión `ObjectivePrintOut` con layout A4 (un objetivo por sección, checkbox para seguimiento manual en campo) y botón _Imprimir_.
 - **04/04 (4)**: **Estabilidad y Multi-tenant Switcher** — Implementación del permiso `action_switch_tenant` que habilita el selector de distribuidora a usuarios administrativos autorizados. Actualización de `security.py` (backend) para permitir bypass de ownership vía permisos. Fix crítico de estabilidad: resolución de errores 500 en Dashboard (date parsing robusto) y eliminación de warnings de Recharts (`minWidth`/`minHeight` en `ResponsiveContainer`). Sincronización de interfaz `MotorRun` con el esquema real de BD (`iniciado_en`, `finalizado_en`).
 - **04/04 (3)**: **Migración a Light-Violet Theme** — `:root` cambiado a modo claro (`#F8FAFC` bg, violeta como acento). Nuevos primitivos shadcn/ui: `Checkbox`, `Table`, `DropdownMenu`. `permissions/page.tsx` reescrito con shadcn `Table`+`Checkbox`; constantes de grupos/permisos hoistadas a módulo. `Sidebar.tsx` actualiza el switcher de distribuidora con `DropdownMenu`, memoiza `navItems` con `useMemo`, agrega cleanup en fetch y tipado correcto (`React.ElementType`). Mejoras de calidad: `Fragment key`, guardas simplificadas, wrapper divs eliminados.

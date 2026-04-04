@@ -306,6 +306,10 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
   const [objDebtList, setObjDebtList] = useState<{ cliente_nombre: string; deuda_total: number }[]>([]);
   const [objInactivePdvCount, setObjInactivePdvCount] = useState<number>(0);
   const [objLoadingContext, setObjLoadingContext] = useState(false);
+  const [objCantidadAlteo, setObjCantidadAlteo] = useState<number | "">("");
+  const [objCobranzaMode, setObjCobranzaMode] = useState<"total" | "parcial">("total");
+  const [objCobranzaMonto, setObjCobranzaMonto] = useState<number | "">("");
+  const [objSelectedDeudor, setObjSelectedDeudor] = useState<{cliente_nombre: string; deuda_total: number} | null>(null);
 
   // ── TanStack Query: Distribuidoras ────────────────────────────────────────
   const { data: distribuidoras = [] } = useQuery({
@@ -865,19 +869,33 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
     vendorName: string,
     selectedRuta: { id_ruta: number; nro_ruta: string; dia_semana: string; total_pdv: number } | null,
     fecha: string,
+    cantidadAlteo?: number | "",
+    selectedDeudor?: {cliente_nombre: string; deuda_total: number} | null,
+    cobranzaMode?: "total" | "parcial",
+    cobranzaMonto?: number | "",
   ): string {
-    const fechaLabel = fecha ? ` para el ${fecha}` : "";
+    const diasDisponibles = fecha
+      ? Math.max(0, Math.ceil((new Date(fecha).getTime() - Date.now()) / 86400000))
+      : null;
+    const fechaLabel = fecha ? ` para el día ${fecha}` : "";
+    const diasLabel = diasDisponibles !== null ? ` Tenés ${diasDisponibles} días para cumplir el objetivo.` : "";
+
     if (tipo === "ruteo_alteo" && selectedRuta) {
-      return `${vendorName} debe altear PDVs en la ruta ${selectedRuta.nro_ruta} (Visita: ${selectedRuta.dia_semana}${fechaLabel})`;
+      const qty = cantidadAlteo || selectedRuta.total_pdv;
+      return `${vendorName} debe Altear ${qty} PDVs en la ruta ${selectedRuta.nro_ruta} de los días ${selectedRuta.dia_semana}${fechaLabel}.${diasLabel}`;
     }
     if (tipo === "cobranza") {
-      return `${vendorName} deberá cobrar deuda pendiente${fechaLabel}`;
+      if (selectedDeudor) {
+        const monto = cobranzaMode === "parcial" && cobranzaMonto ? cobranzaMonto : selectedDeudor.deuda_total;
+        return `${vendorName} deberá cobrarle $${monto.toLocaleString("es-AR")} a ${selectedDeudor.cliente_nombre}${fechaLabel}.`;
+      }
+      return `${vendorName} deberá cobrar deuda pendiente${fechaLabel}.`;
     }
     if (tipo === "conversion_estado") {
-      return `${vendorName} debe activar clientes inactivos${fechaLabel}`;
+      return `${vendorName} debe activar clientes inactivos${fechaLabel}.`;
     }
     if (tipo === "exhibicion") {
-      return `${vendorName} debe exhibir en PDVs${fechaLabel}`;
+      return `${vendorName} debe exhibir en PDVs${fechaLabel}.`;
     }
     return "";
   }
@@ -891,7 +909,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
         const pin = pines.find(p => p.id === pdvId);
         if (!pin || !pin.id_vendedor) continue;
         const selectedRuta = objVendedorRoutes.find(r => r.id_ruta === objSelectedRutaId) ?? null;
-        const autoDesc = objDesc || buildObjectivePhrase(objTipo, pin.vendedor, selectedRuta, objFecha);
+        const autoDesc = objDesc || buildObjectivePhrase(objTipo, pin.vendedor, selectedRuta, objFecha, objCantidadAlteo, objSelectedDeudor, objCobranzaMode, objCobranzaMonto);
         await createObjetivo({
           id_distribuidor: selectedDist,
           id_vendedor: pin.id_vendedor,
@@ -901,6 +919,9 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
           nombre_vendedor: pin.vendedor,
           descripcion: autoDesc || undefined,
           fecha_objetivo: objFecha || undefined,
+          ...(objTipo === "cobranza" && objSelectedDeudor ? {
+            valor_objetivo: objCobranzaMode === "parcial" && objCobranzaMonto ? Number(objCobranzaMonto) : objSelectedDeudor.deuda_total,
+          } : {}),
         } as ObjetivoCreate);
       }
       clearSelectedPDVs();
@@ -911,6 +932,10 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
       setObjSelectedRutaId(null);
       setObjDebtList([]);
       setObjInactivePdvCount(0);
+      setObjCantidadAlteo("");
+      setObjCobranzaMode("total");
+      setObjCobranzaMonto("");
+      setObjSelectedDeudor(null);
     } finally {
       setObjSubmitting(false);
     }
@@ -2590,7 +2615,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                   >
                     <option value="conversion_estado">Activación</option>
                     <option value="cobranza">Cobranza</option>
-                    <option value="ruteo_alteo">Ruteo</option>
+                    <option value="ruteo_alteo">Alteo</option>
                     <option value="exhibicion">Exhibición</option>
                     <option value="general">General</option>
                   </select>
@@ -2598,35 +2623,54 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
 
                 {/* Contextual section: Alteo — ruta selector */}
                 {objTipo === "ruteo_alteo" && (
-                  <div>
-                    <label className="text-[10px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1">Ruta</label>
-                    {objLoadingContext ? (
-                      <div className="flex items-center gap-1.5 text-xs text-[var(--shelfy-muted)]">
-                        <Loader2 className="w-3 h-3 animate-spin" /> Cargando rutas...
+                  <div className="space-y-2">
+                    <div>
+                      <label className="text-[10px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1">Ruta</label>
+                      {objLoadingContext ? (
+                        <div className="flex items-center gap-1.5 text-xs text-[var(--shelfy-muted)]">
+                          <Loader2 className="w-3 h-3 animate-spin" /> Cargando rutas...
+                        </div>
+                      ) : objVendedorRoutes.length === 0 ? (
+                        <p className="text-xs text-[var(--shelfy-muted)]">Sin rutas encontradas</p>
+                      ) : (
+                        <select
+                          className="w-full appearance-none bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-1.5 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                          value={objSelectedRutaId ?? ""}
+                          onChange={e => setObjSelectedRutaId(e.target.value ? Number(e.target.value) : null)}
+                        >
+                          <option value="">Seleccionar ruta...</option>
+                          {objVendedorRoutes.map(r => (
+                            <option key={r.id_ruta} value={r.id_ruta}>
+                              {r.nro_ruta} · {r.dia_semana} · {r.total_pdv} PDVs
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                    {/* Cantidad a altear */}
+                    {objSelectedRutaId && (
+                      <div>
+                        <label className="text-[10px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1">
+                          Cantidad de PDVs a altear{objVendedorRoutes.find(r => r.id_ruta === objSelectedRutaId)?.total_pdv ? ` (máx ${objVendedorRoutes.find(r => r.id_ruta === objSelectedRutaId)?.total_pdv})` : ""}
+                        </label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={objVendedorRoutes.find(r => r.id_ruta === objSelectedRutaId)?.total_pdv ?? undefined}
+                          placeholder={String(objVendedorRoutes.find(r => r.id_ruta === objSelectedRutaId)?.total_pdv ?? "N PDVs")}
+                          className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-1.5 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                          value={objCantidadAlteo}
+                          onChange={e => setObjCantidadAlteo(e.target.value ? Number(e.target.value) : "")}
+                        />
                       </div>
-                    ) : objVendedorRoutes.length === 0 ? (
-                      <p className="text-xs text-[var(--shelfy-muted)]">Sin rutas encontradas</p>
-                    ) : (
-                      <select
-                        className="w-full appearance-none bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-1.5 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
-                        value={objSelectedRutaId ?? ""}
-                        onChange={e => setObjSelectedRutaId(e.target.value ? Number(e.target.value) : null)}
-                      >
-                        <option value="">Seleccionar ruta...</option>
-                        {objVendedorRoutes.map(r => (
-                          <option key={r.id_ruta} value={r.id_ruta}>
-                            {r.nro_ruta} · {r.dia_semana} · {r.total_pdv} PDVs
-                          </option>
-                        ))}
-                      </select>
                     )}
                   </div>
                 )}
 
                 {/* Contextual section: Cobranza — top debtors list */}
                 {objTipo === "cobranza" && (
-                  <div>
-                    <label className="text-[10px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1">Deuda del vendedor</label>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block">Seleccionar deudor</label>
                     {objLoadingContext ? (
                       <div className="flex items-center gap-1.5 text-xs text-[var(--shelfy-muted)]">
                         <Loader2 className="w-3 h-3 animate-spin" /> Cargando...
@@ -2634,13 +2678,60 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                     ) : objDebtList.length === 0 ? (
                       <p className="text-xs text-[var(--shelfy-muted)]">Sin deuda registrada</p>
                     ) : (
-                      <div className="max-h-24 overflow-y-auto space-y-0.5 rounded-lg border border-[var(--shelfy-border)] p-2 bg-[var(--shelfy-bg)]">
+                      <div className="max-h-28 overflow-y-auto space-y-0.5 rounded-lg border border-[var(--shelfy-border)] p-1.5 bg-[var(--shelfy-bg)]">
                         {objDebtList.map((c, i) => (
-                          <div key={i} className="flex items-center justify-between text-xs">
-                            <span className="text-[var(--shelfy-text)] truncate max-w-[60%]">{c.cliente_nombre}</span>
+                          <button
+                            key={i}
+                            onClick={() => setObjSelectedDeudor(objSelectedDeudor?.cliente_nombre === c.cliente_nombre ? null : c)}
+                            className={`w-full flex items-center justify-between text-xs px-2 py-1 rounded-md transition-colors ${
+                              objSelectedDeudor?.cliente_nombre === c.cliente_nombre
+                                ? "bg-[var(--shelfy-accent)]/20 border border-[var(--shelfy-accent)]/40"
+                                : "hover:bg-white/5"
+                            }`}
+                          >
+                            <span className="text-[var(--shelfy-text)] truncate max-w-[60%] text-left">{c.cliente_nombre}</span>
                             <span className="text-orange-400 font-medium tabular-nums">${c.deuda_total.toLocaleString("es-AR")}</span>
-                          </div>
+                          </button>
                         ))}
+                      </div>
+                    )}
+
+                    {/* Total / Parcial toggle */}
+                    {objSelectedDeudor && (
+                      <div className="space-y-1.5">
+                        <div className="flex gap-1.5">
+                          <button
+                            onClick={() => setObjCobranzaMode("total")}
+                            className={`flex-1 py-1 rounded-lg text-xs font-medium transition-colors ${
+                              objCobranzaMode === "total"
+                                ? "bg-orange-500/20 text-orange-400 border border-orange-500/40"
+                                : "border border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-white"
+                            }`}
+                          >
+                            Total (${objSelectedDeudor.deuda_total.toLocaleString("es-AR")})
+                          </button>
+                          <button
+                            onClick={() => setObjCobranzaMode("parcial")}
+                            className={`flex-1 py-1 rounded-lg text-xs font-medium transition-colors ${
+                              objCobranzaMode === "parcial"
+                                ? "bg-orange-500/20 text-orange-400 border border-orange-500/40"
+                                : "border border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-white"
+                            }`}
+                          >
+                            Parcial
+                          </button>
+                        </div>
+                        {objCobranzaMode === "parcial" && (
+                          <input
+                            type="number"
+                            min={1}
+                            max={objSelectedDeudor.deuda_total}
+                            placeholder="Monto a cobrar..."
+                            className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-1.5 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                            value={objCobranzaMonto}
+                            onChange={e => setObjCobranzaMonto(e.target.value ? Number(e.target.value) : "")}
+                          />
+                        )}
                       </div>
                     )}
                   </div>

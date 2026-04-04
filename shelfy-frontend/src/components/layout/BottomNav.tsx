@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Eye, Users, BarChart2, Gift, Briefcase, GraduationCap, Route } from "lucide-react";
+import { LayoutDashboard, Eye, Users, BarChart2, Gift, GraduationCap, Route, Target } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 
 const ALL_NAV = [
   { href: "/visor",       label: "Evaluar",      icon: Eye,             roles: ["superadmin", "admin", "supervisor"] },
   { href: "/dashboard",   label: "Dashboard",    icon: LayoutDashboard, roles: ["superadmin", "admin", "supervisor"] },
   { href: "/supervision", label: "Supervisión",  icon: Route,           roles: ["superadmin", "admin", "supervisor"] },
+  { href: "/objetivos",   label: "Objetivos",    icon: Target,          roles: ["superadmin", "admin", "supervisor"] },
   { href: "/reportes",    label: "Reportes",     icon: BarChart2,       roles: ["superadmin", "admin", "supervisor"] },
   { href: "/bonos",       label: "Bonos",        icon: Gift,            roles: ["superadmin", "admin"] },
   { href: "/academy",     label: "Academy",      icon: GraduationCap,   roles: ["superadmin", "admin"] },
@@ -19,16 +20,7 @@ export function BottomNav() {
   const pathname = usePathname();
   const { user } = useAuth();
   const rol = user?.rol ?? "";
-  const navItems = ALL_NAV.filter(i => {
-    if (!(i.roles as string[]).includes(rol)) return false;
-
-    if (user?.usuario !== "NachoPiazza") {
-      const allowedHrefs = ["/visor", "/dashboard", "/supervision", "/academy", "/reportes"];
-      if (!allowedHrefs.includes(i.href)) return false;
-    }
-
-    return true;
-  });
+  const navItems = ALL_NAV.filter(i => (i.roles as string[]).includes(rol));
 
   if (!user) return null;
 

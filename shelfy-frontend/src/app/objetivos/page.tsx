@@ -40,11 +40,11 @@ import {
 // ── Tipo badge config ─────────────────────────────────────────────────────────
 
 const TIPO_CONFIG: Record<ObjetivoTipo, { label: string; color: string; bg: string }> = {
-  conversion_estado: { label: "Activación", color: "text-blue-300",    bg: "bg-blue-500/20 border-blue-500/35" },
-  cobranza:          { label: "Cobranza",   color: "text-orange-300",  bg: "bg-orange-500/20 border-orange-500/35" },
-  ruteo_alteo:       { label: "Ruteo",      color: "text-violet-300",  bg: "bg-violet-500/20 border-violet-500/35" },
-  exhibicion:        { label: "Exhibición", color: "text-emerald-300", bg: "bg-emerald-500/20 border-emerald-500/35" },
-  general:           { label: "General",    color: "text-slate-300",   bg: "bg-slate-500/20 border-slate-500/35" },
+  conversion_estado: { label: "Activación", color: "text-blue-400",    bg: "bg-blue-500/15 border-blue-500/25" },
+  cobranza:          { label: "Cobranza",   color: "text-orange-400",  bg: "bg-orange-500/15 border-orange-500/25" },
+  ruteo_alteo:       { label: "Ruteo",      color: "text-violet-400",  bg: "bg-violet-500/15 border-violet-500/25" },
+  exhibicion:        { label: "Exhibición", color: "text-emerald-400", bg: "bg-emerald-500/15 border-emerald-500/25" },
+  general:           { label: "General",    color: "text-slate-400",   bg: "bg-slate-500/15 border-slate-500/25" },
 };
 
 function TipoBadge({ tipo }: { tipo: ObjetivoTipo }) {
@@ -150,7 +150,7 @@ function ObjetivoRow({ obj, onToggle, onDelete }: {
       <td className="px-4 py-3">
         <div className="flex items-center gap-1.5">
           <User className="w-3 h-3 text-[var(--shelfy-muted)] shrink-0" />
-          <span className="text-xs text-white/90">{obj.nombre_vendedor ?? `ID ${obj.id_vendedor}`}</span>
+          <span className="text-xs text-white/80">{obj.nombre_vendedor ?? `ID ${obj.id_vendedor}`}</span>
         </div>
       </td>
       <td className="px-4 py-3">
@@ -160,11 +160,11 @@ function ObjetivoRow({ obj, onToggle, onDelete }: {
         {obj.nombre_pdv && (
           <div className="flex items-center gap-1.5 mb-0.5">
             <MapPin className="w-3 h-3 text-[var(--shelfy-muted)] shrink-0" />
-            <span className="text-xs text-white/75 truncate">{obj.nombre_pdv}</span>
+            <span className="text-xs text-white/60 truncate">{obj.nombre_pdv}</span>
           </div>
         )}
         {obj.descripcion && (
-          <p className="text-xs text-white/55 truncate">{obj.descripcion}</p>
+          <p className="text-xs text-[var(--shelfy-muted)] truncate">{obj.descripcion}</p>
         )}
       </td>
       <td className="px-4 py-3 w-36">
@@ -216,16 +216,16 @@ function KanbanCard({ obj, onToggle, onDelete }: {
       </div>
       <div className="flex items-center gap-1.5">
         <User className="w-3 h-3 text-[var(--shelfy-muted)] shrink-0" />
-        <span className="text-xs font-medium text-white/90">{obj.nombre_vendedor ?? `ID ${obj.id_vendedor}`}</span>
+        <span className="text-xs font-medium text-white/80">{obj.nombre_vendedor ?? `ID ${obj.id_vendedor}`}</span>
       </div>
       {obj.nombre_pdv && (
         <div className="flex items-center gap-1.5">
           <MapPin className="w-3 h-3 text-[var(--shelfy-muted)] shrink-0" />
-          <span className="text-xs text-white/75">{obj.nombre_pdv}</span>
+          <span className="text-xs text-white/60">{obj.nombre_pdv}</span>
         </div>
       )}
       {obj.descripcion && (
-        <p className="text-[11px] text-white/55 leading-snug">{obj.descripcion}</p>
+        <p className="text-[11px] text-[var(--shelfy-muted)] leading-snug">{obj.descripcion}</p>
       )}
       {obj.tipo === "cobranza" && obj.valor_objetivo && (
         <ProgressBar actual={obj.valor_actual} objetivo={obj.valor_objetivo} />

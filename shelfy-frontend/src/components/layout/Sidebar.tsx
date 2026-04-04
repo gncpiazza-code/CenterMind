@@ -57,14 +57,7 @@ export function Sidebar() {
   const { isSidebarCollapsed: isCollapsed } = useUI();
 
   const rol = user?.rol ?? "";
-  const navItems: NavItem[] = rol === "superadmin" || user?.usuario === "NachoPiazza"
-    ? ALL_NAV.filter(i => (i.roles as string[]).includes(rol))
-    : [
-      { href: "/visor",       label: "Evaluar",             icon: Eye },
-      { href: "/dashboard",   label: "Dashboard",           icon: LayoutDashboard },
-      { href: "/supervision", label: "Panel de Supervisión", icon: Route },
-      { href: "/modo-oficina", label: "Modo Oficina",       icon: Monitor },
-    ];
+  const navItems: NavItem[] = ALL_NAV.filter(i => (i.roles as string[]).includes(rol));
 
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
 

@@ -39,6 +39,7 @@ import {
   MapPin,
   Users,
   BarChart3,
+  Printer,
 } from "lucide-react";
 
 // ── Tipo / actividad config ───────────────────────────────────────────────────
@@ -751,6 +752,45 @@ function VistaSupervisor({ distId }: { distId: number }) {
   );
 }
 
+// ── Print Module ──────────────────────────────────────────────────────────────
+
+function ObjectivePrintOut({ objetivos }: { objetivos: Objetivo[] }) {
+  return (
+    <div className="print-zone hidden print:block">
+      <style>{`
+        @media print {
+          body > * { display: none !important; }
+          .print-zone { display: block !important; }
+          .print-card { page-break-after: always; border: 1px solid #e2e8f0; padding: 32px; margin-bottom: 0; }
+          .print-card:last-child { page-break-after: avoid; }
+        }
+      `}</style>
+      {objetivos.map(obj => (
+        <div key={obj.id} className="print-card">
+          <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 2, marginBottom: 8 }}>
+            Objetivo de venta
+          </div>
+          <div style={{ fontSize: 28, fontWeight: 700, color: '#1e293b', marginBottom: 4 }}>
+            {obj.nombre_vendedor ?? `Vendedor ${obj.id_vendedor}`}
+          </div>
+          <div style={{ fontSize: 13, color: '#334155', marginBottom: 16, lineHeight: 1.6, borderLeft: '3px solid #6d28d9', paddingLeft: 12 }}>
+            {obj.descripcion || `${TIPO_CONFIG[obj.tipo]?.label ?? obj.tipo} — Meta: ${obj.valor_objetivo ?? '–'}`}
+          </div>
+          {obj.fecha_objetivo && (
+            <div style={{ fontSize: 12, color: '#64748b', marginBottom: 16 }}>
+              Fecha límite: <strong>{obj.fecha_objetivo}</strong>
+            </div>
+          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 24, paddingTop: 12, borderTop: '1px solid #e2e8f0' }}>
+            <div style={{ width: 18, height: 18, border: '2px solid #64748b', borderRadius: 3 }} />
+            <span style={{ fontSize: 12, color: '#64748b' }}>Completado</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 type PageTab = "objetivos" | "supervisor";
@@ -914,13 +954,22 @@ export default function ObjetivosPage() {
                 Seguimiento de metas por vendedor
               </p>
             </div>
-            <button
-              onClick={() => setModalOpen(true)}
-              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[var(--shelfy-accent)] text-white text-sm font-medium hover:opacity-90 transition-opacity"
-            >
-              <Plus className="w-4 h-4" />
-              Nuevo objetivo
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => window.print()}
+                className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[var(--shelfy-border)] text-sm text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] transition-colors"
+              >
+                <Printer className="w-4 h-4" />
+                Imprimir
+              </button>
+              <button
+                onClick={() => setModalOpen(true)}
+                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[var(--shelfy-accent)] text-white text-sm font-medium hover:opacity-90 transition-opacity"
+              >
+                <Plus className="w-4 h-4" />
+                Nuevo objetivo
+              </button>
+            </div>
           </div>
 
           {/* Stats (only on objetivos tab) */}
@@ -1152,6 +1201,7 @@ export default function ObjetivosPage() {
             </>
           )}
 
+          <ObjectivePrintOut objetivos={filtered} />
         </main>
       </div>
       <BottomNav />

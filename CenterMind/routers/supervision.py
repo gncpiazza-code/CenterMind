@@ -620,7 +620,9 @@ def crear_objetivo(body: ObjetivoCreate, user_payload=Depends(verify_auth)):
     try:
         estado_inicial = body.estado_inicial
 
-        # Para cobranza: snapshot de la deuda actual del vendedor como baseline
+        # Para cobranza: snapshot de la deuda actual del vendedor como baseline.
+        # Se ejecuta siempre (incluso si valor_objetivo es una cantidad parcial)
+        # para que el watcher pueda calcular cobrado = deuda_inicial - deuda_actual.
         if body.tipo == "cobranza" and not estado_inicial:
             try:
                 cc_res = sb.table("cc_detalle").select("deuda_total") \
@@ -646,6 +648,22 @@ def crear_objetivo(body: ObjetivoCreate, user_payload=Depends(verify_auth)):
         rows = res.data or []
         if not rows:
             raise HTTPException(status_code=500, detail="No se pudo crear el objetivo")
+
+        # Watcher refresh: compute valor_actual immediately so the UI shows
+        # the correct starting state (e.g. 0 cobrado, N PDVs ya en ruta, etc.)
+        try:
+            from services.objetivos_watcher_service import objetivos_watcher
+            objetivos_watcher.run_watcher(body.id_distribuidor)
+        except Exception as e_watch:
+            logger.warning(f"[Objetivo] Watcher post-create omitido: {e_watch}")
+
+        # Re-fetch to return the row with updated valor_actual
+        try:
+            refreshed = sb.table("objetivos").select("*").eq("id", rows[0]["id"]).execute()
+            if refreshed.data:
+                return refreshed.data[0]
+        except Exception:
+            pass
         return rows[0]
     except HTTPException:
         raise

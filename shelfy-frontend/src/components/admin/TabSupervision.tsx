@@ -301,6 +301,11 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
   const [objFecha, setObjFecha] = useState("");
   const [objDesc, setObjDesc] = useState("");
   const [objSubmitting, setObjSubmitting] = useState(false);
+  const [objVendedorRoutes, setObjVendedorRoutes] = useState<{ id_ruta: number; nro_ruta: string; dia_semana: string; total_pdv: number }[]>([]);
+  const [objSelectedRutaId, setObjSelectedRutaId] = useState<number | null>(null);
+  const [objDebtList, setObjDebtList] = useState<{ cliente_nombre: string; deuda_total: number }[]>([]);
+  const [objInactivePdvCount, setObjInactivePdvCount] = useState<number>(0);
+  const [objLoadingContext, setObjLoadingContext] = useState(false);
 
   // ── TanStack Query: Distribuidoras ────────────────────────────────────────
   const { data: distribuidoras = [] } = useQuery({
@@ -799,6 +804,84 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
   const totalActivos = vendedoresFiltrados.reduce((s, v) => s + (v.pdv_activos ?? 0), 0);
   const pctActivos   = totalPdv > 0 ? Math.round((totalActivos / totalPdv) * 100) : 0;
 
+  // ── Floating Objetivos: contextual data loader ───────────────────────────
+  useEffect(() => {
+    const firstPin = pines.find(p => selectedPDVsForObjective.includes(p.id) && p.id_vendedor);
+    if (!firstPin?.id_vendedor) {
+      setObjVendedorRoutes([]);
+      setObjDebtList([]);
+      return;
+    }
+    const vendedorId = firstPin.id_vendedor;
+
+    if (objTipo === "ruteo_alteo") {
+      setObjLoadingContext(true);
+      fetchRutasSupervision(vendedorId)
+        .then(rutas => setObjVendedorRoutes(
+          rutas.map((r: RutaSupervision) => ({
+            id_ruta: r.id_ruta,
+            nro_ruta: r.nombre_ruta ?? String(r.id_ruta),
+            dia_semana: r.dia_semana ?? "",
+            total_pdv: r.total_pdv ?? 0,
+          }))
+        ))
+        .catch(() => setObjVendedorRoutes([]))
+        .finally(() => setObjLoadingContext(false));
+    } else if (objTipo === "cobranza") {
+      setObjLoadingContext(true);
+      fetchCuentasSupervision(selectedDist)
+        .then((data: CuentasSupervision) => {
+          // Match by vendor name since VendedorCuentas doesn't expose id_vendedor
+          const firstPin = pines.find(p => p.id === selectedPDVsForObjective[0] && p.id_vendedor);
+          const vendorName = firstPin?.vendedor ?? "";
+          const vend = data.vendedores.find((v) =>
+            v.vendedor.toLowerCase() === vendorName.toLowerCase()
+          );
+          if (vend) {
+            setObjDebtList(
+              (vend.clientes ?? [])
+                .filter((c) => (c.deuda_total ?? 0) > 0)
+                .sort((a, b) => (b.deuda_total ?? 0) - (a.deuda_total ?? 0))
+                .slice(0, 10)
+                .map((c) => ({ cliente_nombre: c.cliente ?? "–", deuda_total: c.deuda_total ?? 0 }))
+            );
+          }
+        })
+        .catch(() => setObjDebtList([]))
+        .finally(() => setObjLoadingContext(false));
+    } else if (objTipo === "conversion_estado" || objTipo === "exhibicion") {
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+      const vendorPins = pines.filter(p => p.id_vendedor === vendedorId);
+      const inactive = vendorPins.filter(p =>
+        !p.fechaUltimaCompra || p.fechaUltimaCompra < thirtyDaysAgo
+      );
+      setObjInactivePdvCount(inactive.length);
+    }
+  }, [objTipo, selectedPDVsForObjective.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Objective phrase builder ─────────────────────────────────────────────
+  function buildObjectivePhrase(
+    tipo: ObjetivoTipo,
+    vendorName: string,
+    selectedRuta: { id_ruta: number; nro_ruta: string; dia_semana: string; total_pdv: number } | null,
+    fecha: string,
+  ): string {
+    const fechaLabel = fecha ? ` para el ${fecha}` : "";
+    if (tipo === "ruteo_alteo" && selectedRuta) {
+      return `${vendorName} debe altear PDVs en la ruta ${selectedRuta.nro_ruta} (Visita: ${selectedRuta.dia_semana}${fechaLabel})`;
+    }
+    if (tipo === "cobranza") {
+      return `${vendorName} deberá cobrar deuda pendiente${fechaLabel}`;
+    }
+    if (tipo === "conversion_estado") {
+      return `${vendorName} debe activar clientes inactivos${fechaLabel}`;
+    }
+    if (tipo === "exhibicion") {
+      return `${vendorName} debe exhibir en PDVs${fechaLabel}`;
+    }
+    return "";
+  }
+
   // ── Floating Objetivos submit ─────────────────────────────────────────────
   const handleSubmitObjectives = async () => {
     if (selectedPDVsForObjective.length === 0) return;
@@ -807,6 +890,8 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
       for (const pdvId of selectedPDVsForObjective) {
         const pin = pines.find(p => p.id === pdvId);
         if (!pin || !pin.id_vendedor) continue;
+        const selectedRuta = objVendedorRoutes.find(r => r.id_ruta === objSelectedRutaId) ?? null;
+        const autoDesc = objDesc || buildObjectivePhrase(objTipo, pin.vendedor, selectedRuta, objFecha);
         await createObjetivo({
           id_distribuidor: selectedDist,
           id_vendedor: pin.id_vendedor,
@@ -814,7 +899,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
           id_target_pdv: pdvId,
           nombre_pdv: pin.nombre,
           nombre_vendedor: pin.vendedor,
-          descripcion: objDesc || undefined,
+          descripcion: autoDesc || undefined,
           fecha_objetivo: objFecha || undefined,
         } as ObjetivoCreate);
       }
@@ -822,6 +907,10 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
       setObjMenuOpen(false);
       setObjDesc("");
       setObjFecha("");
+      setObjVendedorRoutes([]);
+      setObjSelectedRutaId(null);
+      setObjDebtList([]);
+      setObjInactivePdvCount(0);
     } finally {
       setObjSubmitting(false);
     }
@@ -2506,6 +2595,65 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                     <option value="general">General</option>
                   </select>
                 </div>
+
+                {/* Contextual section: Alteo — ruta selector */}
+                {objTipo === "ruteo_alteo" && (
+                  <div>
+                    <label className="text-[10px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1">Ruta</label>
+                    {objLoadingContext ? (
+                      <div className="flex items-center gap-1.5 text-xs text-[var(--shelfy-muted)]">
+                        <Loader2 className="w-3 h-3 animate-spin" /> Cargando rutas...
+                      </div>
+                    ) : objVendedorRoutes.length === 0 ? (
+                      <p className="text-xs text-[var(--shelfy-muted)]">Sin rutas encontradas</p>
+                    ) : (
+                      <select
+                        className="w-full appearance-none bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-1.5 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                        value={objSelectedRutaId ?? ""}
+                        onChange={e => setObjSelectedRutaId(e.target.value ? Number(e.target.value) : null)}
+                      >
+                        <option value="">Seleccionar ruta...</option>
+                        {objVendedorRoutes.map(r => (
+                          <option key={r.id_ruta} value={r.id_ruta}>
+                            {r.nro_ruta} · {r.dia_semana} · {r.total_pdv} PDVs
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                )}
+
+                {/* Contextual section: Cobranza — top debtors list */}
+                {objTipo === "cobranza" && (
+                  <div>
+                    <label className="text-[10px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1">Deuda del vendedor</label>
+                    {objLoadingContext ? (
+                      <div className="flex items-center gap-1.5 text-xs text-[var(--shelfy-muted)]">
+                        <Loader2 className="w-3 h-3 animate-spin" /> Cargando...
+                      </div>
+                    ) : objDebtList.length === 0 ? (
+                      <p className="text-xs text-[var(--shelfy-muted)]">Sin deuda registrada</p>
+                    ) : (
+                      <div className="max-h-24 overflow-y-auto space-y-0.5 rounded-lg border border-[var(--shelfy-border)] p-2 bg-[var(--shelfy-bg)]">
+                        {objDebtList.map((c, i) => (
+                          <div key={i} className="flex items-center justify-between text-xs">
+                            <span className="text-[var(--shelfy-text)] truncate max-w-[60%]">{c.cliente_nombre}</span>
+                            <span className="text-orange-400 font-medium tabular-nums">${c.deuda_total.toLocaleString("es-AR")}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Contextual section: Activación / Exhibición — inactive PDV count */}
+                {(objTipo === "conversion_estado" || objTipo === "exhibicion") && objInactivePdvCount > 0 && (
+                  <div className="rounded-lg bg-blue-500/10 border border-blue-500/20 px-3 py-2">
+                    <p className="text-xs text-blue-300">
+                      <span className="font-semibold">{objInactivePdvCount} PDVs</span> sin compra en 30+ días del vendedor
+                    </p>
+                  </div>
+                )}
 
                 {/* Descripción */}
                 <div>

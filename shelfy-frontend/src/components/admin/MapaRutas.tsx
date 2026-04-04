@@ -259,19 +259,60 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode, mode
         const popup = new maplibregl.Popup({ offset: 12, closeButton: true, closeOnClick: true })
           .setHTML(popupHTML);
 
-        // Click: selection toggle
-        if (onTogglePDV) {
-          wrapper.addEventListener('click', (e) => {
-            e.stopPropagation();
-            onTogglePDV(p.id);
-          });
-        }
+        // Per-marker timers
+        let peekTimer: ReturnType<typeof setTimeout>;
+        let autoCloseTimer: ReturnType<typeof setTimeout>;
 
-        // Hover event listeners
+        // Click: selection toggle + open popup with auto-close after 2000ms
+        wrapper.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (onTogglePDV) onTogglePDV(p.id);
+          popup.setLngLat([p.lng, p.lat]).addTo(map);
+          clearTimeout(autoCloseTimer);
+          autoCloseTimer = setTimeout(() => { popup.remove(); }, 2000);
+        });
+
+        // Hover event listeners with 3s peek-upgrade to show photo
+        const photoBlock = p.urlExhibicion
+          ? `<div style="margin-top:8px;border-radius:6px;overflow:hidden"><img src="${p.urlExhibicion}" style="width:100%;max-height:90px;object-fit:cover;display:block" loading="lazy" /></div>`
+          : "";
+
         wrapper.addEventListener('mouseenter', () => {
           popup.setLngLat([p.lng, p.lat]).addTo(map);
+          clearTimeout(peekTimer);
+          peekTimer = setTimeout(() => {
+            const upgradedHTML = `
+              <div style="min-width:180px;max-width:240px;font-size:12px;font-family:sans-serif;
+                          background:#fff;color:#1e293b;padding:10px 12px;border-radius:8px;
+                          box-shadow:0 4px 20px #0003;line-height:1.4;position:relative">
+                <button onclick="this.closest('.maplibregl-popup').querySelector('.maplibregl-popup-close-button').click()"
+                  style="position:absolute;top:6px;right:6px;background:none;border:none;cursor:pointer;
+                         color:#94a3b8;font-size:14px;line-height:1;padding:2px 4px;border-radius:4px"
+                  title="Cerrar">✕</button>
+                ${p.idClienteErp ? `<div style="font-size:9px;font-weight:800;color:#94a3b8;text-transform:uppercase;margin-bottom:2px">Nº CLIENTE: ${p.idClienteErp}</div>` : ""}
+                <b style="display:block;font-size:13px;color:#0f172a;margin-bottom:4px;padding-right:20px">${p.nombre}</b>
+
+                <div style="display:flex;align-items:center;gap:6px;margin:6px 0">
+                  <span style="width:8px;height:8px;border-radius:50%;background:${vendorColor};flex-shrink:0"></span>
+                  <span style="font-size:11px;font-weight:600;color:#475569">${p.vendedor}</span>
+                </div>
+
+                <div style="font-size:10px;padding:3px 8px;border-radius:5px;display:inline-block;
+                            background:${statusColor}15;color:${statusColor};
+                            border:1px solid ${statusColor}40;font-weight:700;margin-bottom:6px">
+                  ${STATUS_LABELS[status]}
+                </div>
+
+                <div style="font-size:11px">${compraLabel}</div>
+                ${exhibLine}
+                ${photoBlock}
+              </div>`;
+            popup.setHTML(upgradedHTML).setLngLat([p.lng, p.lat]).addTo(map);
+          }, 3000);
         });
         wrapper.addEventListener('mouseleave', () => {
+          clearTimeout(peekTimer);
+          clearTimeout(autoCloseTimer);
           popup.remove();
         });
 

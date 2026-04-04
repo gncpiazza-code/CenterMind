@@ -38,14 +38,15 @@ Antes de realizar cualquier análisis o cambio, el agente **DEBE** leer los arch
 - `frontend.md` (Diseño y componentes UI)
 
 ### Fase 1: Análisis del Plan de Acción
-El agente debe leer en detalle el requerimiento del usuario o el `implementation_plan.md` aprobado. Debe analizar las implicaciones técnicas antes de proceder a la ejecución.
+El agente debe leer en detalle el requerimiento del usuario o el `implementation_plan.md` aprobado. Debe analizar las implicaciones técnicas y el impacto en el sistema antes de proceder a la ejecución.
 
-### Fase 2: Ejecución y Delegación Especializada
-- Si la tarea requiere **cualquier modificación en el frontend o la interfaz de usuario**, el agente principal **DEBE desplegar al subagente `shelfy_frontend_expert`** para asegurar una implementación de alta fidelidad.
-- El agente principal supervisa la integración entre el frontend y el backend.
+### Fase 2: Ejecución y Delegación Especializada (Frontend)
+- Si la tarea requiere **cualquier modificación en el frontend o la interfaz de usuario**, el agente principal **DEBE desplegar al subagente `shelfy_frontend_expert`**.
+- Este subagente se especializa en React 19, Tailwind 4 y la estética premium de Shelfy.
+- El agente principal actúa como orquestador y supervisor de la integración.
 
-### Fase 3: Sincronización de Documentación
-Al finalizar la tarea, el agente debe actualizar automáticamente los archivos de contexto mencionados en la Fase 0 para reflejar los nuevos cambios realizados.
+### Fase 3: Sincronización de Documentación Final
+Al finalizar la ejecución, el agente debe actualizar automáticamente los archivos de contexto mencionados en la Fase 0 para reflejar los cambios realizados y mantener la "memoria" del proyecto actualizada.
 
 > [!TIP]
 > **Antes de cerrar la sesión:**

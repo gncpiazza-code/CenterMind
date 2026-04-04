@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { Sidebar } from "@/components/layout/Sidebar";
@@ -14,10 +14,14 @@ import {
   updateObjetivo,
   deleteObjetivo,
   fetchVendedoresSupervision,
+  fetchRutasSupervision,
+  fetchCuentasSupervision,
   type Objetivo,
   type ObjetivoCreate,
   type ObjetivoTipo,
   type ResumenVendedorObjetivos,
+  type RutaSupervision,
+  type CuentasSupervision,
 } from "@/lib/api";
 import {
   Target,
@@ -354,7 +358,7 @@ function VendedorResumenRow({ v }: { v: ResumenVendedorObjetivos }) {
   );
 }
 
-// ── Modal nuevo objetivo — Phrase Builder ─────────────────────────────────────
+// ── Modal nuevo objetivo — Smart Unified Form ─────────────────────────────────
 
 interface NuevoObjetivoModalProps {
   distId: number;
@@ -364,59 +368,132 @@ interface NuevoObjetivoModalProps {
   loading: boolean;
 }
 
-type ModoCreacion = "frase" | "libre";
-
 function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: NuevoObjetivoModalProps) {
-  const [modo, setModo] = useState<ModoCreacion>("frase");
+  const [vendedorId, setVendedorId] = useState<number | "">("");
+  const [tipo, setTipo] = useState<ObjetivoTipo>("ruteo_alteo");
+  const [fecha, setFecha] = useState<string>("");
+  const [desc, setDesc] = useState<string>("");
 
-  // Phrase builder state
-  const [fraseVendedor, setFraseVendedor] = useState<number | "">("");
-  const [fraseActividad, setFraseActividad] = useState<ObjetivoTipo>("ruteo_alteo");
-  const [fraseCantidad, setFraseCantidad] = useState<string>("10");
-  const [fraseTiempoValor, setFraseTiempoValor] = useState<string>("1");
-  const [fraseTiempoUnidad, setFraseTiempoUnidad] = useState<string>("semanas");
-  const [fraseFecha, setFraseFecha] = useState<string>("");
+  // Alteo state
+  const [rutas, setRutas] = useState<RutaSupervision[]>([]);
+  const [selectedRutaId, setSelectedRutaId] = useState<number | null>(null);
+  const [cantidadAlteo, setCantidadAlteo] = useState<number | "">("");
 
-  // Free mode state
-  const [libreForm, setLibreForm] = useState<Partial<ObjetivoCreate>>({
-    id_distribuidor: distId,
-    tipo: "general",
-  });
-  const setL = (k: keyof ObjetivoCreate, v: unknown) =>
-    setLibreForm(p => ({ ...p, [k]: v }));
+  // Cobranza state
+  const [deudores, setDeudores] = useState<{ cliente_nombre: string; deuda_total: number }[]>([]);
+  const [selectedDeudor, setSelectedDeudor] = useState<{ cliente_nombre: string; deuda_total: number } | null>(null);
+  const [cobranzaMode, setCobranzaMode] = useState<"total" | "parcial">("total");
+  const [cobranzaMonto, setCobranzaMonto] = useState<number | "">("");
 
-  const nombreVendedorFrase = vendedores.find(v => v.id_vendedor === fraseVendedor)?.nombre_erp ?? "";
-  const actividadLabel = ACTIVIDADES_FRASE.find(a => a.tipo === fraseActividad)?.label ?? "hacer algo en";
-  const unidadLabel = TIEMPO_UNIDADES.find(u => u.value === fraseTiempoUnidad)?.label ?? fraseTiempoUnidad;
+  // Activación/Exhibición state
+  const [inactivePdvCount, setInactivePdvCount] = useState<number>(0);
 
-  const handleSubmitFrase = (e: React.FormEvent) => {
+  const [loadingCtx, setLoadingCtx] = useState(false);
+
+  const vendedorNombre = vendedores.find(v => v.id_vendedor === vendedorId)?.nombre_erp ?? "";
+  const selectedRuta = rutas.find(r => r.id_ruta === selectedRutaId) ?? null;
+
+  // Reset contextual state when tipo or vendor changes
+  function resetCtx() {
+    setRutas([]);
+    setSelectedRutaId(null);
+    setCantidadAlteo("");
+    setDeudores([]);
+    setSelectedDeudor(null);
+    setCobranzaMode("total");
+    setCobranzaMonto("");
+    setInactivePdvCount(0);
+  }
+
+  // Load contextual data when vendor or tipo changes
+  useEffect(() => {
+    if (!vendedorId) return;
+    resetCtx();
+    setLoadingCtx(true);
+    const nombre = vendedores.find(v => v.id_vendedor === vendedorId)?.nombre_erp ?? "";
+
+    if (tipo === "ruteo_alteo") {
+      fetchRutasSupervision(Number(vendedorId))
+        .then(data => setRutas(data))
+        .catch(() => setRutas([]))
+        .finally(() => setLoadingCtx(false));
+    } else if (tipo === "cobranza") {
+      fetchCuentasSupervision(distId)
+        .then((data: CuentasSupervision) => {
+          const vend = data.vendedores.find(
+            v => v.vendedor.toLowerCase() === nombre.toLowerCase()
+          );
+          if (vend) {
+            setDeudores(
+              (vend.clientes ?? [])
+                .filter(c => (c.deuda_total ?? 0) > 0)
+                .sort((a, b) => (b.deuda_total ?? 0) - (a.deuda_total ?? 0))
+                .slice(0, 10)
+                .map(c => ({ cliente_nombre: c.cliente ?? "–", deuda_total: c.deuda_total ?? 0 }))
+            );
+          }
+        })
+        .catch(() => setDeudores([]))
+        .finally(() => setLoadingCtx(false));
+    } else {
+      setLoadingCtx(false);
+    }
+  }, [vendedorId, tipo]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Build the live phrase preview
+  function buildPhrase(): string {
+    if (!vendedorNombre) return "[ Vendedor ] …";
+    const diasDisponibles = fecha
+      ? Math.max(0, Math.ceil((new Date(fecha).getTime() - Date.now()) / 86400000))
+      : null;
+    const fechaLabel = fecha ? ` para el día ${fecha}` : "";
+    const diasLabel = diasDisponibles !== null ? ` Tenés ${diasDisponibles} días para cumplir el objetivo.` : "";
+
+    if (tipo === "ruteo_alteo" && selectedRuta) {
+      const qty = cantidadAlteo || selectedRuta.total_pdv;
+      return `${vendedorNombre} debe Altear ${qty} PDVs en la ruta ${selectedRuta.nombre_ruta} de los días ${selectedRuta.dia_semana}${fechaLabel}.${diasLabel}`;
+    }
+    if (tipo === "cobranza" && selectedDeudor) {
+      const monto = cobranzaMode === "parcial" && cobranzaMonto ? cobranzaMonto : selectedDeudor.deuda_total;
+      return `${vendedorNombre} deberá cobrarle $${Number(monto).toLocaleString("es-AR")} a ${selectedDeudor.cliente_nombre}${fechaLabel}.`;
+    }
+    if (tipo === "conversion_estado") return `${vendedorNombre} debe activar clientes inactivos${fechaLabel}.`;
+    if (tipo === "exhibicion") return `${vendedorNombre} debe exhibir en PDVs${fechaLabel}.`;
+    return `${vendedorNombre} — objetivo ${TIPO_CONFIG[tipo]?.label ?? tipo}${fechaLabel}.`;
+  }
+
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!fraseVendedor || !fraseCantidad) return;
-    const cantidad = Number(fraseCantidad);
-    const descrip = `Debe ${actividadLabel} ${cantidad} PDVs en ${fraseTiempoValor} ${unidadLabel}`;
-    onCreate({
+    if (!vendedorId) return;
+    const phrase = desc || buildPhrase();
+    const payload: ObjetivoCreate = {
       id_distribuidor: distId,
-      id_vendedor: Number(fraseVendedor),
-      nombre_vendedor: nombreVendedorFrase,
-      tipo: fraseActividad,
-      descripcion: descrip,
-      valor_objetivo: cantidad,
-      estado_inicial: fraseTiempoValor,   // tiempo_valor
-      estado_objetivo: fraseTiempoUnidad, // tiempo_unidad
-      ...(fraseFecha ? { fecha_objetivo: fraseFecha } : {}),
-    });
+      id_vendedor: Number(vendedorId),
+      nombre_vendedor: vendedorNombre,
+      tipo,
+      descripcion: phrase || undefined,
+      ...(fecha ? { fecha_objetivo: fecha } : {}),
+    };
+    // Alteo
+    if (tipo === "ruteo_alteo") {
+      payload.valor_objetivo = cantidadAlteo ? Number(cantidadAlteo) : (selectedRuta?.total_pdv ?? undefined);
+      if (selectedRuta) payload.estado_inicial = selectedRuta.dia_semana;
+    }
+    // Cobranza
+    if (tipo === "cobranza" && selectedDeudor) {
+      payload.valor_objetivo = cobranzaMode === "parcial" && cobranzaMonto
+        ? Number(cobranzaMonto)
+        : selectedDeudor.deuda_total;
+    }
+    onCreate(payload);
   };
 
-  const handleSubmitLibre = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!libreForm.id_vendedor || !libreForm.tipo) return;
-    onCreate(libreForm as ObjetivoCreate);
-  };
+  const TIPOS_DISPONIBLES: ObjetivoTipo[] = ["ruteo_alteo", "conversion_estado", "exhibicion", "cobranza", "general"];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-md rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] p-6 shadow-2xl">
+      <div className="relative w-full max-w-md rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-5">
           <div className="flex items-center gap-2">
@@ -428,239 +505,222 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
           </button>
         </div>
 
-        {/* Modo tabs */}
-        <div className="flex gap-1 bg-[var(--shelfy-bg)] rounded-lg p-1 mb-5">
-          {(["frase", "libre"] as ModoCreacion[]).map(m => (
-            <button
-              key={m}
-              onClick={() => setModo(m)}
-              className={`flex-1 py-1.5 text-xs rounded-md transition-all font-medium ${
-                modo === m
-                  ? "bg-[var(--shelfy-panel)] text-[var(--shelfy-text)] shadow-sm"
-                  : "text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
-              }`}
-            >
-              {m === "frase" ? "Constructor de frase" : "Libre"}
-            </button>
-          ))}
-        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Live phrase preview */}
+          <div className="rounded-xl bg-[var(--shelfy-bg)] border border-[var(--shelfy-accent)]/20 p-3">
+            <p className="text-[11px] text-[var(--shelfy-muted)] mb-1 uppercase tracking-wider font-medium">Objetivo generado</p>
+            <p className="text-sm text-[var(--shelfy-text)] leading-relaxed">{buildPhrase()}</p>
+          </div>
 
-        {modo === "frase" ? (
-          /* ── Phrase Builder ── */
-          <form onSubmit={handleSubmitFrase} className="space-y-4">
-            {/* Preview phrase */}
-            <div className="rounded-xl bg-[var(--shelfy-bg)] border border-[var(--shelfy-accent)]/20 p-3">
-              <p className="text-[11px] text-[var(--shelfy-muted)] mb-1 uppercase tracking-wider font-medium">
-                Objetivo generado
-              </p>
-              <p className="text-sm text-[var(--shelfy-text)] leading-relaxed">
-                <span className="text-[var(--shelfy-accent)] font-semibold">
-                  {nombreVendedorFrase || "[ Vendedor ]"}
-                </span>
-                {" "}debe{" "}
-                <span className="text-emerald-500 font-medium">{actividadLabel}</span>
-                {" "}
-                <span className="text-[var(--shelfy-text)] font-semibold">{fraseCantidad || "?"} PDVs</span>
-                {" "}en{" "}
-                <span className="text-[var(--shelfy-muted)]">{fraseTiempoValor} {unidadLabel}</span>
-              </p>
-            </div>
-
-            {/* Vendedor */}
-            <div>
-              <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">
-                Vendedor
-              </label>
-              <div className="relative">
-                <select
-                  required
-                  className="w-full appearance-none bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
-                  value={fraseVendedor}
-                  onChange={e => setFraseVendedor(Number(e.target.value) || "")}
-                >
-                  <option value="">Seleccionar...</option>
-                  {vendedores.map(v => (
-                    <option key={v.id_vendedor} value={v.id_vendedor}>{v.nombre_erp}</option>
-                  ))}
-                </select>
-                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--shelfy-muted)] pointer-events-none" />
-              </div>
-            </div>
-
-            {/* Actividad */}
-            <div>
-              <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">
-                Actividad
-              </label>
-              <div className="flex gap-2 flex-wrap">
-                {ACTIVIDADES_FRASE.map(a => (
-                  <button
-                    key={a.tipo}
-                    type="button"
-                    onClick={() => setFraseActividad(a.tipo)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
-                      fraseActividad === a.tipo
-                        ? "border-[var(--shelfy-accent)] bg-[var(--shelfy-accent)]/15 text-[var(--shelfy-accent)]"
-                        : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
-                    }`}
-                  >
-                    {TIPO_CONFIG[a.tipo].label}
-                  </button>
+          {/* Vendedor */}
+          <div>
+            <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">Vendedor</label>
+            <div className="relative">
+              <select
+                required
+                className="w-full appearance-none bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                value={vendedorId}
+                onChange={e => setVendedorId(Number(e.target.value) || "")}
+              >
+                <option value="">Seleccionar...</option>
+                {vendedores.map(v => (
+                  <option key={v.id_vendedor} value={v.id_vendedor}>{v.nombre_erp}</option>
                 ))}
-              </div>
+              </select>
+              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--shelfy-muted)] pointer-events-none" />
             </div>
+          </div>
 
-            {/* Cantidad + Tiempo */}
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">
-                  Cantidad (PDVs)
-                </label>
-                <input
-                  type="number"
-                  required
-                  min={1}
-                  step={1}
-                  placeholder="10"
-                  className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-[var(--shelfy-text)] placeholder-[var(--shelfy-muted)]/60 focus:outline-none focus:border-[var(--shelfy-accent)]/60"
-                  value={fraseCantidad}
-                  onChange={e => setFraseCantidad(e.target.value)}
-                />
-              </div>
-              <div>
-                <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">
-                  Tiempo
-                </label>
-                <div className="flex gap-1.5">
+          {/* Tipo — pill selector */}
+          <div>
+            <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">Tipo</label>
+            <div className="flex gap-1.5 flex-wrap">
+              {TIPOS_DISPONIBLES.map(t => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setTipo(t)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                    tipo === t
+                      ? "border-[var(--shelfy-accent)] bg-[var(--shelfy-accent)]/15 text-[var(--shelfy-accent)]"
+                      : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
+                  }`}
+                >
+                  {TIPO_CONFIG[t].label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* ── Contextual: Alteo ─────────────────────────────────────────── */}
+          {tipo === "ruteo_alteo" && (
+            <div className="space-y-2 rounded-xl bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] p-3">
+              <p className="text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider">Ruta del vendedor</p>
+              {!vendedorId ? (
+                <p className="text-xs text-[var(--shelfy-muted)]">Seleccioná un vendedor para ver sus rutas</p>
+              ) : loadingCtx ? (
+                <div className="flex items-center gap-1.5 text-xs text-[var(--shelfy-muted)]">
+                  <Loader2 className="w-3 h-3 animate-spin" /> Cargando rutas...
+                </div>
+              ) : rutas.length === 0 ? (
+                <p className="text-xs text-[var(--shelfy-muted)]">Sin rutas registradas</p>
+              ) : (
+                <div className="space-y-1">
+                  {rutas.map(r => (
+                    <button
+                      key={r.id_ruta}
+                      type="button"
+                      onClick={() => setSelectedRutaId(selectedRutaId === r.id_ruta ? null : r.id_ruta)}
+                      className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs transition-colors border ${
+                        selectedRutaId === r.id_ruta
+                          ? "border-[var(--shelfy-accent)]/60 bg-[var(--shelfy-accent)]/10 text-[var(--shelfy-text)]"
+                          : "border-transparent hover:bg-white/5 text-[var(--shelfy-muted)]"
+                      }`}
+                    >
+                      <span className="font-medium">{r.nombre_ruta}</span>
+                      <span className="flex items-center gap-2 text-[10px]">
+                        <span className="opacity-70">{r.dia_semana}</span>
+                        <span className="text-[var(--shelfy-accent)] font-semibold">{r.total_pdv} PDVs</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {selectedRutaId && (
+                <div>
+                  <label className="text-[10px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1">
+                    Cantidad a altear (máx {selectedRuta?.total_pdv ?? "?"})
+                  </label>
                   <input
                     type="number"
                     min={1}
-                    step={1}
-                    className="w-16 bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-2 py-2 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
-                    value={fraseTiempoValor}
-                    onChange={e => setFraseTiempoValor(e.target.value)}
+                    max={selectedRuta?.total_pdv ?? undefined}
+                    placeholder={String(selectedRuta?.total_pdv ?? "Todos")}
+                    className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-1.5 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                    value={cantidadAlteo}
+                    onChange={e => setCantidadAlteo(e.target.value ? Number(e.target.value) : "")}
                   />
-                  <div className="relative flex-1">
-                    <select
-                      className="w-full appearance-none bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-2 py-2 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
-                      value={fraseTiempoUnidad}
-                      onChange={e => setFraseTiempoUnidad(e.target.value)}
-                    >
-                      {TIEMPO_UNIDADES.map(u => (
-                        <option key={u.value} value={u.value}>{u.label}</option>
-                      ))}
-                    </select>
-                    <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-[var(--shelfy-muted)] pointer-events-none" />
-                  </div>
                 </div>
-              </div>
+              )}
             </div>
+          )}
 
-            {/* Fecha límite */}
-            <div>
-              <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">
-                Fecha límite <span className="text-[var(--shelfy-muted)] normal-case">(opcional)</span>
-              </label>
-              <input
-                type="date"
-                className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
-                value={fraseFecha}
-                onChange={e => setFraseFecha(e.target.value)}
-              />
+          {/* ── Contextual: Cobranza ──────────────────────────────────────── */}
+          {tipo === "cobranza" && (
+            <div className="space-y-2 rounded-xl bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] p-3">
+              <p className="text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider">Deudores del vendedor</p>
+              {!vendedorId ? (
+                <p className="text-xs text-[var(--shelfy-muted)]">Seleccioná un vendedor para ver sus deudores</p>
+              ) : loadingCtx ? (
+                <div className="flex items-center gap-1.5 text-xs text-[var(--shelfy-muted)]">
+                  <Loader2 className="w-3 h-3 animate-spin" /> Cargando deudores...
+                </div>
+              ) : deudores.length === 0 ? (
+                <p className="text-xs text-[var(--shelfy-muted)]">Sin deuda registrada</p>
+              ) : (
+                <div className="max-h-36 overflow-y-auto space-y-0.5">
+                  {deudores.map((d, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => setSelectedDeudor(selectedDeudor?.cliente_nombre === d.cliente_nombre ? null : d)}
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors border ${
+                        selectedDeudor?.cliente_nombre === d.cliente_nombre
+                          ? "border-orange-500/40 bg-orange-500/10"
+                          : "border-transparent hover:bg-white/5"
+                      }`}
+                    >
+                      <span className="text-[var(--shelfy-text)] truncate max-w-[65%] text-left">{d.cliente_nombre}</span>
+                      <span className="text-orange-400 font-medium tabular-nums">${d.deuda_total.toLocaleString("es-AR")}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {selectedDeudor && (
+                <div className="space-y-1.5 pt-1 border-t border-[var(--shelfy-border)]">
+                  <div className="flex gap-1.5">
+                    <button type="button" onClick={() => setCobranzaMode("total")}
+                      className={`flex-1 py-1 rounded-lg text-xs font-medium transition-colors border ${
+                        cobranzaMode === "total"
+                          ? "border-orange-500/40 bg-orange-500/10 text-orange-400"
+                          : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)]"
+                      }`}>
+                      Total (${selectedDeudor.deuda_total.toLocaleString("es-AR")})
+                    </button>
+                    <button type="button" onClick={() => setCobranzaMode("parcial")}
+                      className={`flex-1 py-1 rounded-lg text-xs font-medium transition-colors border ${
+                        cobranzaMode === "parcial"
+                          ? "border-orange-500/40 bg-orange-500/10 text-orange-400"
+                          : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)]"
+                      }`}>
+                      Parcial
+                    </button>
+                  </div>
+                  {cobranzaMode === "parcial" && (
+                    <input
+                      type="number"
+                      min={1}
+                      max={selectedDeudor.deuda_total}
+                      placeholder="Monto a cobrar..."
+                      className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-1.5 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                      value={cobranzaMonto}
+                      onChange={e => setCobranzaMonto(e.target.value ? Number(e.target.value) : "")}
+                    />
+                  )}
+                </div>
+              )}
             </div>
+          )}
 
-            <div className="flex gap-2 pt-2">
-              <button type="button" onClick={onClose}
-                className="flex-1 py-2 rounded-lg border border-[var(--shelfy-border)] text-sm text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] transition-colors">
-                Cancelar
-              </button>
-              <button type="submit" disabled={loading}
-                className="flex-1 py-2 rounded-lg bg-[var(--shelfy-accent)] text-white text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2">
-                {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-                Crear objetivo
-              </button>
+          {/* ── Contextual: Activación / Exhibición (placeholder info) ─────── */}
+          {(tipo === "conversion_estado" || tipo === "exhibicion") && vendedorId && (
+            <div className="rounded-xl bg-blue-500/10 border border-blue-500/20 px-3 py-2">
+              <p className="text-xs text-blue-300">
+                El vendedor recibirá un objetivo de <span className="font-semibold">{TIPO_CONFIG[tipo].label}</span>.
+                El progreso se calcula automáticamente desde el mapa.
+              </p>
             </div>
-          </form>
-        ) : (
-          /* ── Modo libre ── */
-          <form onSubmit={handleSubmitLibre} className="space-y-4">
-            {/* Vendedor */}
-            <div>
-              <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">Vendedor</label>
-              <div className="relative">
-                <select required
-                  className="w-full appearance-none bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
-                  value={libreForm.id_vendedor ?? ""}
-                  onChange={e => {
-                    const v = vendedores.find(x => x.id_vendedor === Number(e.target.value));
-                    setL("id_vendedor", Number(e.target.value));
-                    if (v) setL("nombre_vendedor", v.nombre_erp);
-                  }}>
-                  <option value="">Seleccionar...</option>
-                  {vendedores.map(v => <option key={v.id_vendedor} value={v.id_vendedor}>{v.nombre_erp}</option>)}
-                </select>
-                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--shelfy-muted)] pointer-events-none" />
-              </div>
-            </div>
+          )}
 
-            {/* Tipo */}
-            <div>
-              <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">Tipo</label>
-              <div className="relative">
-                <select
-                  className="w-full appearance-none bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
-                  value={libreForm.tipo ?? "general"}
-                  onChange={e => setL("tipo", e.target.value as ObjetivoTipo)}>
-                  {Object.entries(TIPO_CONFIG).map(([k, cfg]) => <option key={k} value={k}>{cfg.label}</option>)}
-                </select>
-                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--shelfy-muted)] pointer-events-none" />
-              </div>
-            </div>
+          {/* Fecha límite */}
+          <div>
+            <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">
+              Fecha límite <span className="normal-case font-normal">(opcional)</span>
+            </label>
+            <input
+              type="date"
+              className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+              value={fecha}
+              onChange={e => setFecha(e.target.value)}
+            />
+          </div>
 
-            {/* Descripción */}
-            <div>
-              <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">Descripción</label>
-              <textarea rows={2} placeholder="Qué debe lograr el vendedor..."
-                className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-[var(--shelfy-text)] placeholder-[var(--shelfy-muted)]/60 focus:outline-none focus:border-[var(--shelfy-accent)]/60 resize-none"
-                value={libreForm.descripcion ?? ""}
-                onChange={e => setL("descripcion", e.target.value || undefined)} />
-            </div>
+          {/* Descripción (opcional, sobreescribe el auto-phrase) */}
+          <div>
+            <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">
+              Descripción <span className="normal-case font-normal">(deja vacío para usar la frase generada)</span>
+            </label>
+            <textarea
+              rows={2}
+              placeholder="Descripción personalizada..."
+              className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-[var(--shelfy-text)] placeholder-[var(--shelfy-muted)]/60 focus:outline-none focus:border-[var(--shelfy-accent)]/60 resize-none"
+              value={desc}
+              onChange={e => setDesc(e.target.value)}
+            />
+          </div>
 
-            {/* Valor objetivo */}
-            {libreForm.tipo === "cobranza" && (
-              <div>
-                <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">Meta ($)</label>
-                <input type="number" min={0} step={0.01} placeholder="0.00"
-                  className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-[var(--shelfy-text)] placeholder-[var(--shelfy-muted)]/60 focus:outline-none focus:border-[var(--shelfy-accent)]/60"
-                  value={libreForm.valor_objetivo ?? ""}
-                  onChange={e => setL("valor_objetivo", e.target.value ? Number(e.target.value) : undefined)} />
-              </div>
-            )}
-
-            {/* Fecha */}
-            <div>
-              <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">
-                Fecha límite <span className="text-[var(--shelfy-muted)] normal-case">(opcional)</span>
-              </label>
-              <input type="date"
-                className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
-                value={libreForm.fecha_objetivo ?? ""}
-                onChange={e => setL("fecha_objetivo", e.target.value || undefined)} />
-            </div>
-
-            <div className="flex gap-2 pt-2">
-              <button type="button" onClick={onClose}
-                className="flex-1 py-2 rounded-lg border border-[var(--shelfy-border)] text-sm text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] transition-colors">
-                Cancelar
-              </button>
-              <button type="submit" disabled={loading}
-                className="flex-1 py-2 rounded-lg bg-[var(--shelfy-accent)] text-white text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2">
-                {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-                Crear objetivo
-              </button>
-            </div>
-          </form>
-        )}
+          <div className="flex gap-2 pt-2">
+            <button type="button" onClick={onClose}
+              className="flex-1 py-2 rounded-lg border border-[var(--shelfy-border)] text-sm text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] transition-colors">
+              Cancelar
+            </button>
+            <button type="submit" disabled={loading || !vendedorId}
+              className="flex-1 py-2 rounded-lg bg-[var(--shelfy-accent)] text-white text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2">
+              {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+              Crear objetivo
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );

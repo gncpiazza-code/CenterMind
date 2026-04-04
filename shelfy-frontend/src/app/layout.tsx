@@ -20,6 +20,7 @@ export const metadata: Metadata = {
 import { UIProvider } from "@/contexts/UIContext";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ReactQueryProvider } from "@/components/providers/ReactQueryProvider";
+import { Toaster } from "@/components/ui/sonner";
 
 export default function RootLayout({
   children,
@@ -33,6 +34,7 @@ export default function RootLayout({
           <AuthProvider>
             <UIProvider>
               {children}
+              <Toaster richColors position="top-right" />
             </UIProvider>
           </AuthProvider>
         </ReactQueryProvider>

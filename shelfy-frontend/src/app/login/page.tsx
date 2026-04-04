@@ -4,6 +4,11 @@ import { useState, FormEvent, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import { User, Lock, Eye, EyeOff, ArrowRight, Loader2 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/Button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { cn } from "@/lib/utils";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -25,7 +30,6 @@ export default function LoginPage() {
     if (isAuthenticated) {
       const locallySeen = typeof window !== "undefined" && localStorage.getItem("shelfy_tutorial_v2_seen") === "true";
       const shouldShow = user?.show_tutorial && !locallySeen;
-
       if (shouldShow) {
         router.replace("/tutorial");
       } else {
@@ -85,50 +89,26 @@ export default function LoginPage() {
         .delay-300 { animation-delay: 0.30s; }
         .delay-400 { animation-delay: 0.40s; }
         .delay-500 { animation-delay: 0.50s; }
-
-        .login-input {
-          width: 100%;
-          background: rgba(255,255,255,0.7);
-          border: 1.5px solid #ddd6fe;
-          border-radius: 12px;
-          padding: 12px 12px 12px 42px;
-          font-size: 14px;
-          color: #1e1b4b;
-          outline: none;
-          transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
-        }
-        .login-input::placeholder { color: #a5b4fc; }
-        .login-input:focus {
-          border-color: #7c3aed;
-          box-shadow: 0 0 0 3px rgba(124,58,237,0.12);
-          background: rgba(255,255,255,0.95);
-        }
-        .login-btn {
-          width: 100%;
-          background: linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%);
-          color: white;
-          font-weight: 700;
-          font-size: 15px;
-          border: none;
-          border-radius: 14px;
-          padding: 14px;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 8px;
-          transition: transform 0.15s, box-shadow 0.15s, opacity 0.15s;
-          box-shadow: 0 4px 20px rgba(124,58,237,0.35);
-        }
-        .login-btn:hover:not(:disabled) {
-          transform: translateY(-2px);
-          box-shadow: 0 8px 28px rgba(124,58,237,0.45);
-        }
-        .login-btn:active:not(:disabled) { transform: translateY(0); }
-        .login-btn:disabled { opacity: 0.7; cursor: not-allowed; }
         .orb {
           position: absolute; border-radius: 50%;
           filter: blur(50px); pointer-events: none;
+        }
+        /* Override shadcn Input to match login violet style */
+        .login-input-wrap .shelfy-input {
+          background: rgba(255,255,255,0.7);
+          border: 1.5px solid #ddd6fe;
+          border-radius: 12px;
+          padding-left: 42px;
+          color: #1e1b4b;
+          transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+        }
+        .login-input-wrap .shelfy-input::placeholder { color: #a5b4fc; }
+        .login-input-wrap .shelfy-input:focus {
+          border-color: #7c3aed;
+          box-shadow: 0 0 0 3px rgba(124,58,237,0.12);
+          background: rgba(255,255,255,0.95);
+          outline: none;
+          ring: none;
         }
       `}</style>
 
@@ -136,14 +116,14 @@ export default function LoginPage() {
         className="min-h-screen flex flex-col items-center justify-center px-4 relative overflow-hidden"
         style={{ background: "linear-gradient(145deg, #f0eeff 0%, #ede9ff 40%, #e8f0fe 100%)" }}
       >
-        {/* Orbs decorativos */}
+        {/* Decorative orbs */}
         <div className="orb anim-fade-in" style={{ width: 360, height: 360, background: "rgba(124,58,237,0.12)", top: "-80px", right: "-80px" }} />
         <div className="orb anim-fade-in delay-200" style={{ width: 280, height: 280, background: "rgba(79,70,229,0.10)", bottom: "-60px", left: "-60px" }} />
 
         <div className="w-full max-w-sm relative z-10">
 
           {/* Logo */}
-          <div className={`flex flex-col items-center mb-8 ${mounted ? "anim-fade-up" : "opacity-0"}`}>
+          <div className={cn("flex flex-col items-center mb-8", mounted ? "anim-fade-up" : "opacity-0")}>
             <div className="anim-float mb-4">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
@@ -153,12 +133,11 @@ export default function LoginPage() {
                 style={{ filter: "drop-shadow(0 8px 24px rgba(124,58,237,0.25))" }}
               />
             </div>
-            {/* Slot subtitle movido hacia abajo */}
           </div>
 
           {/* Card */}
           <div
-            className={`rounded-2xl p-7 ${mounted ? "anim-fade-up delay-200" : "opacity-0"}`}
+            className={cn("rounded-2xl p-7", mounted ? "anim-fade-up delay-200" : "opacity-0")}
             style={{
               background: "rgba(255,255,255,0.75)",
               backdropFilter: "blur(16px)",
@@ -169,32 +148,46 @@ export default function LoginPage() {
             <form onSubmit={handleSubmit} className="flex flex-col gap-4">
 
               {/* Usuario */}
-              <div className={mounted ? "anim-fade-up delay-300" : "opacity-0"}>
-                <label className="block text-xs font-semibold mb-1.5" style={{ color: "#5b21b6" }}>Usuario</label>
+              <div className={cn("login-input-wrap", mounted ? "anim-fade-up delay-300" : "opacity-0")}>
+                <Label className="text-xs font-semibold mb-1.5 block" style={{ color: "#5b21b6" }}>
+                  Usuario
+                </Label>
                 <div className="relative">
-                  <User size={15} className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: "#a78bfa" }} />
-                  <input
-                    type="text" value={usuario} onChange={e => setUsuario(e.target.value)}
-                    required autoComplete="username" placeholder="Tu nombre de usuario"
-                    className="login-input"
+                  <User size={15} className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none z-10" style={{ color: "#a78bfa" }} />
+                  <Input
+                    type="text"
+                    value={usuario}
+                    onChange={e => setUsuario(e.target.value)}
+                    required
+                    autoComplete="username"
+                    placeholder="Tu nombre de usuario"
+                    className="shelfy-input"
                   />
                 </div>
               </div>
 
               {/* Contraseña */}
-              <div className={mounted ? "anim-fade-up delay-400" : "opacity-0"}>
-                <label className="block text-xs font-semibold mb-1.5" style={{ color: "#5b21b6" }}>Contraseña</label>
+              <div className={cn("login-input-wrap", mounted ? "anim-fade-up delay-400" : "opacity-0")}>
+                <Label className="text-xs font-semibold mb-1.5 block" style={{ color: "#5b21b6" }}>
+                  Contraseña
+                </Label>
                 <div className="relative">
-                  <Lock size={15} className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: "#a78bfa" }} />
-                  <input
-                    type={showPass ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)}
-                    required autoComplete="current-password" placeholder="••••••••"
-                    className="login-input" style={{ paddingRight: "42px" }}
+                  <Lock size={15} className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none z-10" style={{ color: "#a78bfa" }} />
+                  <Input
+                    type={showPass ? "text" : "password"}
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    required
+                    autoComplete="current-password"
+                    placeholder="••••••••"
+                    className="shelfy-input pr-10"
                   />
                   <button
-                    type="button" onClick={() => setShowPass(v => !v)} tabIndex={-1}
-                    className="absolute right-3 top-1/2 -translate-y-1/2"
-                    style={{ color: "#a78bfa", background: "none", border: "none", cursor: "pointer", padding: 0 }}
+                    type="button"
+                    onClick={() => setShowPass(v => !v)}
+                    tabIndex={-1}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-0 bg-transparent border-none cursor-pointer"
+                    style={{ color: "#a78bfa" }}
                   >
                     {showPass ? <EyeOff size={15} /> : <Eye size={15} />}
                   </button>
@@ -203,26 +196,37 @@ export default function LoginPage() {
 
               {/* Error */}
               {error && (
-                <div className="anim-fade-up rounded-xl px-4 py-3 text-sm font-medium"
-                  style={{ background: "#fef2f2", color: "#b91c1c", border: "1px solid #fca5a5" }}>
-                  {error}
-                </div>
+                <Alert variant="destructive" className="anim-fade-up rounded-xl">
+                  <AlertDescription className="text-sm font-medium">{error}</AlertDescription>
+                </Alert>
               )}
 
               {/* Submit */}
-              <div className={`pt-1 ${mounted ? "anim-fade-up delay-500" : "opacity-0"}`}>
-                <button type="submit" disabled={loading} className="login-btn">
-                  {loading
-                    ? <><Loader2 size={16} className="animate-spin" /> Ingresando...</>
-                    : <>Iniciar Sesión <ArrowRight size={16} /></>
-                  }
-                </button>
+              <div className={cn("pt-1", mounted ? "anim-fade-up delay-500" : "opacity-0")}>
+                <Button
+                  type="submit"
+                  size="lg"
+                  loading={loading}
+                  className="w-full font-bold rounded-2xl text-[15px] h-[50px]"
+                  style={{
+                    background: "linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%)",
+                    boxShadow: "0 4px 20px rgba(124,58,237,0.35)",
+                    transition: "transform 0.15s, box-shadow 0.15s",
+                  }}
+                >
+                  {!loading && (
+                    <>
+                      Iniciar Sesión <ArrowRight size={16} />
+                    </>
+                  )}
+                  {loading && "Ingresando..."}
+                </Button>
               </div>
             </form>
           </div>
 
-          {/* Animación "Mentalidad enfocada en" debajo del Login */}
-          <div className={`flex flex-col items-center mt-8 mb-4 ${mounted ? "anim-fade-up delay-400" : "opacity-0"}`}>
+          {/* Slot machine animation */}
+          <div className={cn("flex flex-col items-center mt-8 mb-4", mounted ? "anim-fade-up delay-400" : "opacity-0")}>
             <span className="text-slate-800 font-semibold text-[14.5px] tracking-tight">Mentalidad enfocada en</span>
             <div className="flex items-center gap-2 mt-1 py-1 overflow-hidden" style={{ height: 42 }}>
               <div style={{ width: 185 }} className="flex justify-end">
@@ -250,8 +254,10 @@ export default function LoginPage() {
         </div>
 
         {/* Footer */}
-        <p className={`absolute bottom-6 text-xs ${mounted ? "anim-fade-in delay-500" : "opacity-0"}`}
-          style={{ color: "#8b7cf6", letterSpacing: "0.08em", textTransform: "uppercase" }}>
+        <p
+          className={cn("absolute bottom-6 text-xs", mounted ? "anim-fade-in delay-500" : "opacity-0")}
+          style={{ color: "#8b7cf6", letterSpacing: "0.08em", textTransform: "uppercase" }}
+        >
           © {new Date().getFullYear()} Shelfy
         </p>
       </div>

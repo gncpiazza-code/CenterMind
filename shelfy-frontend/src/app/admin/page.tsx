@@ -16,6 +16,7 @@ import {
   Link2,
   BarChart3,
 } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import dynamic from "next/dynamic";
 const UnifiedDashboard = dynamic(() => import("./UnifiedDashboard"), { ssr: false });
@@ -65,7 +66,7 @@ export default function AdminPage() {
       <div className="flex flex-col flex-1 min-w-0">
         <Topbar title="Administración" />
         <main className="flex-1 p-4 md:p-8 pb-24 md:pb-8 overflow-auto">
-          
+
           <div className="max-w-7xl mx-auto">
             {/* Header Section */}
             <div className="mb-8">
@@ -73,35 +74,51 @@ export default function AdminPage() {
               <p className="text-slate-500 font-medium mt-1">Gestiona usuarios, jerarquías y sincronización de datos.</p>
             </div>
 
-            {/* Premium Style Tabs */}
-            <div className="flex gap-2 bg-slate-100/50 backdrop-blur-md border border-slate-200 rounded-2xl p-1.5 mb-8 w-fit overflow-x-auto max-w-full no-scrollbar">
-              {TABS.map(({ id, label, icon: Icon }) => (
-                <button 
-                  key={id} 
-                  onClick={() => setTab(id)}
-                  className={`flex items-center gap-2.5 px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 whitespace-nowrap
-                    ${tab === id
-                      ? "bg-white text-[var(--shelfy-primary)] shadow-md shadow-blue-100 ring-1 ring-slate-200"
-                      : "text-slate-500 hover:text-slate-800 hover:bg-white/50"
-                    }`}
-                >
-                  <Icon size={18} className={tab === id ? "text-[var(--shelfy-primary)]" : "text-slate-400"} />
-                  {label}
-                </button>
-              ))}
-            </div>
+            {/* shadcn Tabs */}
+            <Tabs value={tab} onValueChange={setTab} className="w-full">
+              <TabsList className="flex h-auto gap-1 bg-slate-100/50 backdrop-blur-md border border-slate-200 rounded-2xl p-1.5 mb-8 w-fit overflow-x-auto max-w-full flex-wrap">
+                {TABS.map(({ id, label, icon: Icon }) => (
+                  <TabsTrigger
+                    key={id}
+                    value={id}
+                    className="flex items-center gap-2.5 px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 whitespace-nowrap data-[state=active]:bg-white data-[state=active]:text-[var(--shelfy-primary)] data-[state=active]:shadow-md data-[state=inactive]:text-slate-500 data-[state=inactive]:hover:text-slate-800"
+                  >
+                    <Icon size={18} />
+                    {label}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
 
-            {/* Tab Content with Animation Wrapper */}
-            <div className="min-h-[500px]">
-              {tab === "supervision"      && <TabSupervision distId={user.id_distribuidor || 0} isSuperadmin={isSuperadmin} />}
-              {tab === "jerarquia_global" && <UnifiedDashboard isSuperadmin={isSuperadmin} currentDistId={user.id_distribuidor || 0} />}
-              {tab === "padron"           && <TabPadron distId={user.id_distribuidor || 0} />}
-              {tab === "mapeo"            && <TabMapeoVendedores distId={user.id_distribuidor || 0} isSuperadmin={isSuperadmin} />}
-              {tab === "usuarios"         && <TabUsuarios isSuperadmin={isSuperadmin} distId={user.id_distribuidor || 0} />}
-              {tab === "erp"              && <TabERP distId={user.id_distribuidor || 0} isSuperadmin={isSuperadmin} />}
-              {tab === "distribuidoras"   && <TabDistribuidoras />}
-              {tab === "integrantes"      && <TabIntegrantes isSuperadmin={isSuperadmin} distId={user.id_distribuidor || 0} />}
-            </div>
+              {/* Tab Content */}
+              <TabsContent value="supervision" className="min-h-[500px] mt-0">
+                <TabSupervision distId={user.id_distribuidor || 0} isSuperadmin={isSuperadmin} />
+              </TabsContent>
+              <TabsContent value="jerarquia_global" className="min-h-[500px] mt-0">
+                <UnifiedDashboard isSuperadmin={isSuperadmin} currentDistId={user.id_distribuidor || 0} />
+              </TabsContent>
+              <TabsContent value="padron" className="min-h-[500px] mt-0">
+                <TabPadron distId={user.id_distribuidor || 0} />
+              </TabsContent>
+              <TabsContent value="mapeo" className="min-h-[500px] mt-0">
+                <TabMapeoVendedores distId={user.id_distribuidor || 0} isSuperadmin={isSuperadmin} />
+              </TabsContent>
+              <TabsContent value="usuarios" className="min-h-[500px] mt-0">
+                <TabUsuarios isSuperadmin={isSuperadmin} distId={user.id_distribuidor || 0} />
+              </TabsContent>
+              <TabsContent value="erp" className="min-h-[500px] mt-0">
+                <TabERP distId={user.id_distribuidor || 0} isSuperadmin={isSuperadmin} />
+              </TabsContent>
+              {isSuperadmin && (
+                <>
+                  <TabsContent value="distribuidoras" className="min-h-[500px] mt-0">
+                    <TabDistribuidoras />
+                  </TabsContent>
+                  <TabsContent value="integrantes" className="min-h-[500px] mt-0">
+                    <TabIntegrantes isSuperadmin={isSuperadmin} distId={user.id_distribuidor || 0} />
+                  </TabsContent>
+                </>
+              )}
+            </Tabs>
           </div>
 
         </main>

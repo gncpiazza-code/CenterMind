@@ -19,6 +19,8 @@ import type {
 import {
   Clock, CheckCircle, Star, XCircle
 } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 // Dashboard Components
 import { KpiCard } from "@/components/dashboard/KpiCard";
@@ -199,10 +201,12 @@ export default function DashboardPage() {
           />
 
           {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 rounded-3xl px-5 py-4 text-sm font-black mb-6 flex items-center gap-3 shadow-md">
-              <XCircle size={20} className="text-red-500" />
-              Falló la conexión de red con el servidor ({error instanceof Error ? error.message : "Error al cargar"}). Asegúrese de encender el backend de la API e intente nuevamente.
-            </div>
+            <Alert variant="destructive" className="mb-6 rounded-3xl">
+              <XCircle className="size-4" />
+              <AlertDescription className="text-sm font-black">
+                Falló la conexión de red con el servidor ({error instanceof Error ? error.message : "Error al cargar"}). Asegúrese de encender el backend de la API e intente nuevamente.
+              </AlertDescription>
+            </Alert>
           )}
 
           {/* Layout 50/50 principal */}
@@ -213,7 +217,7 @@ export default function DashboardPage() {
               <div className="flex-1 min-h-[500px]">
                 {loading && ultimas.length === 0 ? (
                   <Card className="h-full flex items-center justify-center p-12 bg-white rounded-[2.5rem]">
-                    <div className="animate-pulse bg-white/5 rounded h-8 w-full" />
+                    <Skeleton className="h-8 w-full" />
                   </Card>
                 ) : (
                   <HeroCarousel items={ultimas} />
@@ -256,7 +260,7 @@ export default function DashboardPage() {
               ) : loadingKpis ? (
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 shrink-0">
                   {[0, 1, 2, 3].map((i) => (
-                    <div key={i} className="animate-pulse bg-white/5 rounded h-24 w-full" />
+                    <Skeleton key={i} className="h-24 w-full rounded-[2rem]" />
                   ))}
                 </div>
               ) : null}

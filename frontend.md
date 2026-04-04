@@ -95,15 +95,32 @@ Para garantizar el rendimiento y la mantenibilidad de Shelfy, se siguen estos pa
 
 ## Primitivos shadcn/ui Disponibles
 
-Los siguientes componentes están instalados en `src/components/ui/`:
+Los siguientes componentes están instalados en `src/components/ui/` (completo desde 2026-04-04):
 
 | Componente | Archivo | Uso |
 |---|---|---|
-| `Button` | `Button.tsx` | Acciones primarias y secundarias. `variant="default"` usa violeta. |
+| `Button` | `button.tsx` + `Button.tsx` | Acciones primarias y secundarias. `variant="default"` usa violeta. |
+| `Card` | `card.tsx` | KPI cards, paneles. Usar `CardHeader`/`CardContent`/`CardFooter`. |
+| `Input` | `input.tsx` | Campos de texto (login, filtros, búsqueda). |
+| `Label` | `label.tsx` | Etiquetas de formulario. |
+| `Avatar` | `avatar.tsx` | Avatares de usuario con `AvatarFallback`. |
+| `Badge` | `badge.tsx` | Chips de estado (roles, PDV activo/inactivo). |
+| `Skeleton` | `skeleton.tsx` | Placeholders de carga (reemplaza `animate-pulse`). |
+| `Select` | `select.tsx` | Dropdowns de filtro. |
+| `Alert` | `alert.tsx` | Banners de error/advertencia (`variant="destructive"`). |
+| `Sonner` | `sonner.tsx` | Toasts via `toast()` de `sonner`. `<Toaster>` en `layout.tsx`. |
+| `Dialog` | `dialog.tsx` | Modales con `DialogTitle` obligatorio. |
+| `Sheet` | `sheet.tsx` | Paneles laterales/drawers con `SheetTitle`. |
+| `Tabs` | `tabs.tsx` | Navegación multi-sección (admin, reportes). |
+| `Progress` | `progress.tsx` | Barras de progreso. |
+| `Tooltip` | `tooltip.tsx` | Accesibilidad en botones solo-icono. |
+| `Separator` | `separator.tsx` | Divisores visuales (reemplaza `border-t` divs). |
+| `ScrollArea` | `scroll-area.tsx` | Contenedores scrolleables con scrollbar custom. |
+| `Form` | `form.tsx` | Formularios validados con `react-hook-form`. |
+| `Popover` | `popover.tsx` | Selectores de fecha, filtros flotantes. |
 | `Checkbox` | `checkbox.tsx` | Toggles de permisos, listas de selección. |
-| `Table` | `table.tsx` | Matrices de datos (permisos, reportes). Incluye `TableHeader`, `TableBody`, `TableRow`, `TableHead`, `TableCell`, `TableCaption`. |
-| `DropdownMenu` | `dropdown-menu.tsx` | Menús contextuales. Incluye submenús, separadores, items con checkboxes y radio. |
-| `Input`, `Select`, `Badge`, etc. | Varios | Ver directorio `src/components/ui/`. |
+| `Table` | `table.tsx` | Matrices de datos (permisos, reportes). |
+| `DropdownMenu` | `dropdown-menu.tsx` | Menús contextuales. Sidebar tenant switcher. |
 
 ## Gráficos y Visualización
 - **Recharts**: Se utilizan paletas de colores basadas en `--shelfy-primary` para consistencia.

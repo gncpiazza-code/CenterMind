@@ -15,6 +15,8 @@ import {
 import * as XLSX from "xlsx";
 import { useSearchParams } from "next/navigation";
 import { Printer, Download, Search, X, ChevronDown, Check, BarChart3, Trophy, Briefcase, SwitchCamera, PieChart, AlertTriangle, Users, MapPin, Flame, RefreshCw, DollarSign, Package, CloudUpload, Activity } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Skeleton } from "@/components/ui/skeleton";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
 import TabGenerarInforme from "@/app/academy/cuentas-corrientes/components/TabGenerarInforme";
@@ -397,10 +399,12 @@ function ReportesContent() {
 
   return (
     <>
-      <div className="bg-yellow-100 border border-yellow-300 text-yellow-800 text-sm px-4 py-3 rounded mb-4">
-        Esta sección está en proceso de retiro. Los reportes están disponibles directamente en el{" "}
-        <a href="/dashboard" className="underline font-medium">Dashboard</a>.
-      </div>
+      <Alert className="mb-4 bg-yellow-50 border-yellow-300 text-yellow-800">
+        <AlertDescription className="text-sm">
+          Esta sección está en proceso de retiro. Los reportes están disponibles directamente en el{" "}
+          <a href="/dashboard" className="underline font-medium">Dashboard</a>.
+        </AlertDescription>
+      </Alert>
       <style>{`
         @media print {
           body { background: white !important; }

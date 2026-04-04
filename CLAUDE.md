@@ -530,7 +530,11 @@ El popup HTML del marcador muestra:
 - **RBAC**: Always use **`hasPermiso('key')`** for UI conditional rendering. Do not use hardcoded role strings in components.
 - **Animations**: Use **Framer Motion** for subtle (0.4s max) transitions and micro-interactions. Ensure animations do not impede high-density productivity.
 - **Estilos**: Usar variables CSS de `globals.css` (`--shelfy-primary`, etc.) para mantener consistencia con el tema **light-violet**. El `:root` por defecto es modo claro; `.dark` existe como fallback. No usar valores hex hardcodeados cuando existe una variable `--shelfy-*` equivalente.
-- **Componentes**: Priorizar componentes de `shadcn/ui` (`@/components/ui`) para nuevos desarrollos. Primitivos disponibles: `Button`, `Checkbox`, `Table` (con `TableHeader/Body/Row/Head/Cell/Caption`), `DropdownMenu` (con todos los sub-componentes). Agregar nuevos con `npx shadcn@latest add <component>`.
+- **Componentes**: Priorizar componentes de `shadcn/ui` (`@/components/ui`) para nuevos desarrollos. Primitivos instalados (completo desde 2026-04-04): `Button`, `Card` (con `CardHeader/Title/Description/Content/Footer`), `Input`, `Label`, `Avatar` (con `AvatarImage/AvatarFallback`), `Badge`, `Skeleton`, `Select`, `Alert` (con `AlertTitle/Description`), `Sonner` (toast via `sonner`), `Dialog`, `Sheet`, `Tabs`, `Progress`, `Tooltip`, `Separator`, `ScrollArea`, `Form`, `Popover`, `Checkbox`, `Table`, `DropdownMenu`. Agregar nuevos con `npx shadcn@latest add <component>` desde `shelfy-frontend/`.
+- **shadcn reglas críticas**: Usar `cn()` para clases condicionales. `size-*` para dimensiones iguales. `gap-*` no `space-y-*`. Colores semánticos (`text-muted-foreground`, `bg-primary`) nunca hex hardcodeado. `Avatar` siempre con `AvatarFallback`. `Dialog`/`Sheet` siempre con `Title` (sr-only si visually hidden). Iconos en `Button` usan `data-icon="inline-start|end"`.
+- **Toasts**: Usar `toast()` de `sonner` — `<Toaster>` ya está en `layout.tsx`. No crear divs de notificación custom.
+- **Loading states**: Usar `<Skeleton>` — no `animate-pulse` divs custom.
+- **Errores/warnings**: Usar `<Alert variant="destructive">` — no divs con border rojo custom.
 - **Backend Routing**: Seguir el patrón modular: `routers/` para agrupar endpoints y Pydantic para esquemas.
 - No modificar tablas `erp_*_raw` directamente — son append-only desde los services
 - No usar `clientes_pdv` (sin v2) en código nuevo
@@ -629,4 +633,4 @@ Archivo `shelfy_mapa_arquitectonico.html` en la raíz del repo. Dashboard HTML e
 ---
 
 > [!NOTE]
-> Para ver el progreso actual, tareas pendientes y roadmap, consultar [progress.md](file:///Users/ignaciopiazza/Desktop/CenterMind/progress.md).
+>- **Sincronización Obligatoria**: Al finalizar cada implementación, el agente debe seguir el protocolo definido en el Skill oficial: [.claude/skills/shelfy-protocol/SKILL.md](file:///Users/ignaciopiazza/Desktop/CenterMind/.claude/skills/shelfy-protocol/SKILL.md).

@@ -790,12 +790,13 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
       description: 'Estado de deuda por vendedor',
       icon: CreditCard,
     },
-    {
-      id: 'ruteo' as const,
-      label: 'Ruteo',
-      description: 'Optimizar distribución de rutas',
-      icon: RouteIcon,
-    },
+    // Modo ruteo oculto temporalmente
+    // {
+    //   id: 'ruteo' as const,
+    //   label: 'Ruteo',
+    //   description: 'Optimizar distribución de rutas',
+    //   icon: RouteIcon,
+    // },
   ] as const;
 
   function MapModeSelector() {

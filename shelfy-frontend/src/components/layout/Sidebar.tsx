@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
-import { LayoutDashboard, Eye, Users, BarChart2, Gift, LogOut, ChevronDown, ChevronRight, Activity, MapPin, Globe, PanelLeftClose, PanelLeft, Briefcase, Route, Monitor } from "lucide-react";
+import { LayoutDashboard, Eye, Users, BarChart2, Gift, LogOut, ChevronDown, ChevronRight, Activity, MapPin, Globe, PanelLeftClose, PanelLeft, Briefcase, Route, Monitor, Target } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { fetchDistribuidores } from "@/lib/api";
 import { useUI } from "@/contexts/UIContext";
@@ -20,6 +20,7 @@ const ALL_NAV: NavItem[] = [
   { href: "/visor",       label: "Evaluar",             icon: Eye,       roles: ["superadmin", "admin", "supervisor"] },
   { href: "/dashboard",   label: "Dashboard",           icon: LayoutDashboard, roles: ["superadmin", "admin", "supervisor"] },
   { href: "/supervision", label: "Panel de Supervisión", icon: Route,    roles: ["superadmin", "admin", "supervisor"] },
+  { href: "/objetivos",   label: "Objetivos",            icon: Target,   roles: ["superadmin", "admin", "supervisor"] },
   { href: "/bonos", label: "Bonos", icon: Gift, roles: ["superadmin"] },
   { href: "/admin", label: "Administrar", icon: Users, roles: ["superadmin"] },
   {

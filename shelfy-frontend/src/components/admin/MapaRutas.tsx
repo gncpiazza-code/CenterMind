@@ -26,6 +26,24 @@ export interface PinCliente {
   totalExhibiciones?: number;
 }
 
+export interface DeudorInfo {
+  id_cliente_erp: string | null;
+  cliente_nombre: string;
+  deuda_total: number;
+  antiguedad_dias: number;
+  vendedor_nombre: string;
+}
+
+// Debt status thresholds
+// verde: antiguedad_dias <= 30
+// naranja: 31-60
+// rojo: > 60
+function debtBorderColor(antiguedad: number): string {
+  if (antiguedad <= 30) return '#22c55e';   // green-500
+  if (antiguedad <= 60) return '#f97316';   // orange-500
+  return '#ef4444';                          // red-500
+}
+
 // ── Status helpers ────────────────────────────────────────────────────────────
 export type PinStatus = "activo_exhibicion" | "activo" | "inactivo_exhibicion" | "inactivo";
 
@@ -79,9 +97,11 @@ interface MapaRutasProps {
   pines: PinCliente[];
   fullscreenPanel?: React.ReactNode;
   shelfyMapsMode?: boolean;
+  mode?: 'activos' | 'deudores';
+  deudoresData?: DeudorInfo[];
 }
 
-export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode }: MapaRutasProps) {
+export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode, mode = 'activos', deudoresData }: MapaRutasProps) {
   const mapRef        = useRef<any>(null);
   const markersRef    = useRef<any[]>([]);
   const fittedRef     = useRef(false); // fitBounds sólo en la primera carga con datos
@@ -164,6 +184,19 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode }: Ma
           ? `<span style="font-size:10px;font-weight:900;color:#fff;line-height:1;text-shadow:0 0 2px #000">${p.totalExhibiciones}</span>`
           : '';
 
+        // ── Modo deudores: aplicar outline por estado de deuda ─────────────
+        if (mode === 'deudores' && deudoresData) {
+          const deudor = deudoresData.find(d =>
+            d.id_cliente_erp && p.idClienteErp &&
+            d.id_cliente_erp === p.idClienteErp
+          );
+          if (deudor) {
+            const borderColor = debtBorderColor(deudor.antiguedad_dias);
+            wrapper.style.outline = `3px solid ${borderColor}`;
+            wrapper.style.outlineOffset = '2px';
+          }
+        }
+
         // ── Popup Content ──────────────────────────────────────────────────
         const diasDesde = (iso: string | null | undefined): number | null => {
           if (!iso) return null;
@@ -195,18 +228,18 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode }: Ma
                       box-shadow:0 4px 20px #0003;line-height:1.4">
             ${p.idClienteErp ? `<div style="font-size:9px;font-weight:800;color:#94a3b8;text-transform:uppercase;margin-bottom:2px">Nº CLIENTE: ${p.idClienteErp}</div>` : ""}
             <b style="display:block;font-size:13px;color:#0f172a;margin-bottom:4px">${p.nombre}</b>
-            
+
             <div style="display:flex;align-items:center;gap:6px;margin:6px 0">
               <span style="width:8px;height:8px;border-radius:50%;background:${vendorColor};flex-shrink:0"></span>
               <span style="font-size:11px;font-weight:600;color:#475569">${p.vendedor}</span>
             </div>
-            
+
             <div style="font-size:10px;padding:3px 8px;border-radius:5px;display:inline-block;
                         background:${statusColor}15;color:${statusColor};
                         border:1px solid ${statusColor}40;font-weight:700;margin-bottom:6px">
               ${STATUS_LABELS[status]}
             </div>
-            
+
             <div style="font-size:11px">${compraLabel}</div>
             ${exhibLine}
           </div>`;
@@ -240,7 +273,7 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode }: Ma
     };
 
     addMarkers();
-  }, [filteredPines, mapLoaded]);
+  }, [filteredPines, mapLoaded, mode, deudoresData]);
 
   // ESC to exit fullscreen
   useEffect(() => {
@@ -380,13 +413,32 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode }: Ma
         </div>
       )}
 
-      {/* Filter legend */}
-      {!shelfyMapsMode && (
+      {/* Filter legend (modo activos) */}
+      {!shelfyMapsMode && mode !== 'deudores' && (
         <div style={{
           position: "absolute", bottom: 40, left: panelOffset + 12,
           zIndex: 30, transition: "left 0.2s ease",
         }}>
           <FilterLegend />
+        </div>
+      )}
+
+      {/* Debt legend (modo deudores) */}
+      {mode === 'deudores' && (
+        <div className="absolute bottom-4 left-4 z-10 bg-black/70 backdrop-blur-sm rounded-lg p-3 text-xs space-y-1.5">
+          <div className="text-white/50 font-medium mb-1">Estado de deuda</div>
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded-full bg-green-500" />
+            <span className="text-white/70">≤ 30 días</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded-full bg-orange-500" />
+            <span className="text-white/70">31 – 60 días</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded-full bg-red-500" />
+            <span className="text-white/70">{'> 60 días'}</span>
+          </div>
         </div>
       )}
 

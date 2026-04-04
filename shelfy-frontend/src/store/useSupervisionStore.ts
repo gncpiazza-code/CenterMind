@@ -1,10 +1,16 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
+export type MapMode = 'activos' | 'deudores' | 'ruteo';
+
 interface SupervisionStore {
   // Selected filters
   selectedSucursal: string | null;
   setSelectedSucursal: (sucursal: string | null) => void;
+
+  // Map mode
+  mapMode: MapMode;
+  setMapMode: (mode: MapMode) => void;
 
   // Visibility state (3-level hierarchy)
   visibleVends: Set<number>;
@@ -15,12 +21,12 @@ interface SupervisionStore {
   toggleVendor: (vendorId: number) => void;
   toggleRuta: (rutaId: number) => void;
   toggleCliente: (clienteId: number) => void;
-  
+
   // Batch operations
   setVisibleVends: (ids: Set<number>) => void;
   setVisibleRutas: (ids: Set<number>) => void;
   setVisibleClientes: (ids: Set<number>) => void;
-  
+
   // Clear all
   clearAll: () => void;
 }
@@ -29,11 +35,13 @@ export const useSupervisionStore = create<SupervisionStore>()(
   persist(
     (set) => ({
       selectedSucursal: null,
+      mapMode: 'activos',
       visibleVends: new Set(),
       visibleRutas: new Set(),
       visibleClientes: new Set(),
 
       setSelectedSucursal: (sucursal) => set({ selectedSucursal: sucursal }),
+      setMapMode: (mode) => set({ mapMode: mode }),
 
       toggleVendor: (vendorId) =>
         set((state) => {
@@ -81,17 +89,17 @@ export const useSupervisionStore = create<SupervisionStore>()(
     }),
     {
       name: 'supervision-store',
-      // Custom serialization for Sets
       partialize: (state) => ({
         selectedSucursal: state.selectedSucursal,
+        mapMode: state.mapMode,
         visibleVends: Array.from(state.visibleVends),
         visibleRutas: Array.from(state.visibleRutas),
         visibleClientes: Array.from(state.visibleClientes),
       }),
-      // Custom deserialization
       merge: (persistedState: any, currentState) => ({
         ...currentState,
         ...persistedState,
+        mapMode: persistedState?.mapMode ?? 'activos',
         visibleVends: new Set(persistedState?.visibleVends || []),
         visibleRutas: new Set(persistedState?.visibleRutas || []),
         visibleClientes: new Set(persistedState?.visibleClientes || []),

@@ -3907,6 +3907,161 @@ def pdvs_cercanos(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ─── MÓDULO OBJETIVOS ─────────────────────────────────────────────────────────
+
+class ObjetivoCreate(BaseModel):
+    id_distribuidor: int
+    id_vendedor: int
+    tipo: str  # 'conversion_estado' | 'cobranza' | 'ruteo_alteo' | 'exhibicion' | 'general'
+    id_target_pdv: Optional[int] = None
+    id_target_ruta: Optional[int] = None
+    descripcion: Optional[str] = None
+    nombre_pdv: Optional[str] = None
+    nombre_vendedor: Optional[str] = None
+    estado_inicial: Optional[str] = None
+    estado_objetivo: Optional[str] = None
+    valor_objetivo: Optional[float] = None
+    fecha_objetivo: Optional[str] = None  # ISO date string YYYY-MM-DD
+
+
+class ObjetivoUpdate(BaseModel):
+    valor_actual: Optional[float] = None
+    cumplido: Optional[bool] = None
+    descripcion: Optional[str] = None
+    estado_objetivo: Optional[str] = None
+    fecha_objetivo: Optional[str] = None
+
+
+@app.post("/api/supervision/objetivos", tags=["Supervisión"])
+def crear_objetivo(body: ObjetivoCreate, user_payload=Depends(verify_auth)):
+    """Crea un nuevo objetivo para un vendedor de una distribuidora."""
+    check_dist_permission(user_payload, body.id_distribuidor)
+    TIPOS_VALIDOS = {"conversion_estado", "cobranza", "ruteo_alteo", "exhibicion", "general"}
+    if body.tipo not in TIPOS_VALIDOS:
+        raise HTTPException(status_code=400, detail=f"tipo inválido. Valores permitidos: {sorted(TIPOS_VALIDOS)}")
+    try:
+        payload = {
+            "id_distribuidor": body.id_distribuidor,
+            "id_vendedor": body.id_vendedor,
+            "tipo": body.tipo,
+            "id_target_pdv": body.id_target_pdv,
+            "id_target_ruta": body.id_target_ruta,
+            "descripcion": body.descripcion,
+            "nombre_pdv": body.nombre_pdv,
+            "nombre_vendedor": body.nombre_vendedor,
+            "estado_inicial": body.estado_inicial,
+            "estado_objetivo": body.estado_objetivo,
+            "valor_objetivo": body.valor_objetivo,
+            "fecha_objetivo": body.fecha_objetivo,
+        }
+        res = sb.table("objetivos").insert(payload).execute()
+        rows = res.data or []
+        if not rows:
+            raise HTTPException(status_code=500, detail="No se pudo crear el objetivo")
+        return rows[0]
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error en crear_objetivo: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/supervision/objetivos/vendedor/{vendedor_id}", tags=["Supervisión"])
+def objetivos_por_vendedor(vendedor_id: int, user_payload=Depends(verify_auth)):
+    """Devuelve todos los objetivos de un vendedor."""
+    try:
+        q = sb.table("objetivos").select("*").eq("id_vendedor", vendedor_id)
+        if not user_payload.get("is_superadmin"):
+            dist_id = user_payload.get("id_distribuidor")
+            if dist_id:
+                q = q.eq("id_distribuidor", dist_id)
+        res = q.order("created_at", desc=True).execute()
+        return res.data or []
+    except Exception as e:
+        logger.error(f"Error en objetivos_por_vendedor vendedor_id={vendedor_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/supervision/objetivos/{dist_id}", tags=["Supervisión"])
+def listar_objetivos(
+    dist_id: int,
+    vendedor_id: Optional[int] = Query(None),
+    cumplido: Optional[bool] = Query(None),
+    tipo: Optional[str] = Query(None),
+    user_payload=Depends(verify_auth),
+):
+    """Lista objetivos de una distribuidora. Acepta filtros: ?vendedor_id=, ?cumplido=true/false, ?tipo=."""
+    check_dist_permission(user_payload, dist_id)
+    try:
+        q = sb.table("objetivos").select("*").eq("id_distribuidor", dist_id)
+        if vendedor_id is not None:
+            q = q.eq("id_vendedor", vendedor_id)
+        if cumplido is not None:
+            q = q.eq("cumplido", cumplido)
+        if tipo is not None:
+            q = q.eq("tipo", tipo)
+        res = q.order("created_at", desc=True).execute()
+        return res.data or []
+    except Exception as e:
+        logger.error(f"Error en listar_objetivos dist_id={dist_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/supervision/objetivos/{objetivo_id}", tags=["Supervisión"])
+def actualizar_objetivo(objetivo_id: str, body: ObjetivoUpdate, user_payload=Depends(verify_auth)):
+    """Actualiza progreso, estado o marca un objetivo como cumplido."""
+    try:
+        existing = sb.table("objetivos").select("id_distribuidor").eq("id", objetivo_id).execute()
+        if not existing.data:
+            raise HTTPException(status_code=404, detail="Objetivo no encontrado")
+        dist_id = existing.data[0]["id_distribuidor"]
+        check_dist_permission(user_payload, dist_id)
+        updates: dict = {}
+        if body.valor_actual is not None:
+            updates["valor_actual"] = body.valor_actual
+        if body.cumplido is not None:
+            updates["cumplido"] = body.cumplido
+            if body.cumplido:
+                updates["completed_at"] = datetime.utcnow().isoformat()
+        if body.descripcion is not None:
+            updates["descripcion"] = body.descripcion
+        if body.estado_objetivo is not None:
+            updates["estado_objetivo"] = body.estado_objetivo
+        if body.fecha_objetivo is not None:
+            updates["fecha_objetivo"] = body.fecha_objetivo
+        if not updates:
+            raise HTTPException(status_code=400, detail="No hay campos para actualizar")
+        updates["updated_at"] = datetime.utcnow().isoformat()
+        res = sb.table("objetivos").update(updates).eq("id", objetivo_id).execute()
+        rows = res.data or []
+        if not rows:
+            raise HTTPException(status_code=404, detail="Objetivo no encontrado o sin cambios")
+        return rows[0]
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error en actualizar_objetivo objetivo_id={objetivo_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/supervision/objetivos/{objetivo_id}", tags=["Supervisión"])
+def eliminar_objetivo(objetivo_id: str, user_payload=Depends(verify_auth)):
+    """Elimina un objetivo por su UUID."""
+    try:
+        existing = sb.table("objetivos").select("id_distribuidor").eq("id", objetivo_id).execute()
+        if not existing.data:
+            raise HTTPException(status_code=404, detail="Objetivo no encontrado")
+        dist_id = existing.data[0]["id_distribuidor"]
+        check_dist_permission(user_payload, dist_id)
+        sb.table("objetivos").delete().eq("id", objetivo_id).execute()
+        return {"ok": True, "id": objetivo_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error en eliminar_objetivo objetivo_id={objetivo_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

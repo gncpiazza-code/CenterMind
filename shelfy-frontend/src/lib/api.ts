@@ -1116,3 +1116,81 @@ export async function fetchPDVsCercanos(
     `/api/supervision/pdvs-cercanos?lat=${lat}&lng=${lng}&radio=${radio}&dist_id=${distId}`
   );
 }
+
+// ── Objetivos ──────────────────────────────────────────────────────────────
+
+export type ObjetivoTipo = 'conversion_estado' | 'cobranza' | 'ruteo_alteo' | 'exhibicion' | 'general';
+
+export interface Objetivo {
+  id: string;
+  id_distribuidor: number;
+  id_vendedor: number;
+  tipo: ObjetivoTipo;
+  id_target_pdv?: number | null;
+  id_target_ruta?: number | null;
+  descripcion?: string | null;
+  nombre_pdv?: string | null;
+  nombre_vendedor?: string | null;
+  estado_inicial?: string | null;
+  estado_objetivo?: string | null;
+  valor_objetivo?: number | null;
+  valor_actual: number;
+  cumplido: boolean;
+  fecha_objetivo?: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at?: string | null;
+}
+
+export interface ObjetivoCreate {
+  id_distribuidor: number;
+  id_vendedor: number;
+  tipo: ObjetivoTipo;
+  id_target_pdv?: number;
+  id_target_ruta?: number;
+  descripcion?: string;
+  nombre_pdv?: string;
+  nombre_vendedor?: string;
+  estado_inicial?: string;
+  estado_objetivo?: string;
+  valor_objetivo?: number;
+  fecha_objetivo?: string;
+}
+
+export interface ObjetivoUpdate {
+  valor_actual?: number;
+  cumplido?: boolean;
+  descripcion?: string;
+  estado_objetivo?: string;
+  fecha_objetivo?: string;
+}
+
+export async function fetchObjetivos(
+  distId: number,
+  params?: { cumplido?: boolean; tipo?: ObjetivoTipo; vendedor_id?: number }
+): Promise<Objetivo[]> {
+  const q = new URLSearchParams();
+  if (params?.cumplido !== undefined) q.set('cumplido', String(params.cumplido));
+  if (params?.tipo) q.set('tipo', params.tipo);
+  if (params?.vendedor_id) q.set('vendedor_id', String(params.vendedor_id));
+  const qs = q.toString();
+  return apiFetch<Objetivo[]>(`/api/supervision/objetivos/${distId}${qs ? `?${qs}` : ''}`);
+}
+
+export async function createObjetivo(data: ObjetivoCreate): Promise<Objetivo> {
+  return apiFetch<Objetivo>('/api/supervision/objetivos', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateObjetivo(id: string, data: ObjetivoUpdate): Promise<Objetivo> {
+  return apiFetch<Objetivo>(`/api/supervision/objetivos/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteObjetivo(id: string): Promise<void> {
+  return apiFetch<void>(`/api/supervision/objetivos/${id}`, { method: 'DELETE' });
+}

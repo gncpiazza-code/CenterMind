@@ -23,6 +23,7 @@ import {
   X,
   Image as ImageIcon,
   Search,
+  Navigation,
 } from "lucide-react";
 import {
   fetchVendedoresSupervision,
@@ -47,6 +48,15 @@ import {
 } from "@/lib/api";
 import type { PinCliente } from "./MapaRutas";
 import { useSupervisionStore } from "@/store/useSupervisionStore";
+
+const ModoRuteo = dynamic(() => import("./ModoRuteo"), {
+  ssr: false,
+  loading: () => (
+    <div className="w-full h-full flex items-center justify-center bg-[var(--shelfy-panel)]">
+      <Loader2 className="w-5 h-5 animate-spin text-[var(--shelfy-muted)]" />
+    </div>
+  ),
+});
 
 // ── Map: SSR off ──────────────────────────────────────────────────────────────
 const MapaRutas = dynamic(() => import("./MapaRutas"), {
@@ -218,6 +228,8 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
   const {
     selectedSucursal,
     setSelectedSucursal,
+    mapMode,
+    setMapMode,
     visibleVends,
     visibleRutas,
     visibleClientes,
@@ -764,6 +776,60 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
   const totalActivos = vendedoresFiltrados.reduce((s, v) => s + (v.pdv_activos ?? 0), 0);
   const pctActivos   = totalPdv > 0 ? Math.round((totalActivos / totalPdv) * 100) : 0;
 
+  // ── Map mode selector ─────────────────────────────────────────────────────
+  const MAP_MODES = [
+    {
+      id: 'activos' as const,
+      label: 'Activos / Exhibidos',
+      description: 'Actividad y cobertura de PDVs',
+      icon: MapPin,
+    },
+    {
+      id: 'deudores' as const,
+      label: 'Deudores',
+      description: 'Estado de deuda por vendedor',
+      icon: CreditCard,
+    },
+    {
+      id: 'ruteo' as const,
+      label: 'Ruteo',
+      description: 'Optimizar distribución de rutas',
+      icon: RouteIcon,
+    },
+  ] as const;
+
+  function MapModeSelector() {
+    return (
+      <div className="flex gap-2 p-3 border-b border-[var(--shelfy-border)]">
+        {MAP_MODES.map((mode) => {
+          const Icon = mode.icon;
+          const isActive = mapMode === mode.id;
+          return (
+            <button
+              key={mode.id}
+              onClick={() => setMapMode(mode.id)}
+              className={`flex-1 flex items-start gap-2.5 p-3 rounded-lg border text-left transition-all ${
+                isActive
+                  ? 'border-[var(--shelfy-accent)] bg-[var(--shelfy-accent)]/10 text-[var(--shelfy-accent)]'
+                  : 'border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-[var(--shelfy-muted)] hover:border-[var(--shelfy-accent)]/50 hover:text-white'
+              }`}
+            >
+              <Icon className="w-4 h-4 mt-0.5 shrink-0" />
+              <div>
+                <div className={`text-xs font-semibold ${isActive ? 'text-[var(--shelfy-accent)]' : 'text-white/80'}`}>
+                  {mode.label}
+                </div>
+                <div className="text-[10px] text-[var(--shelfy-muted)] leading-tight mt-0.5">
+                  {mode.description}
+                </div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+
   // ── Vendor panel content for MapaRutas fullscreen overlay ────────────────
   const vendorPanelContent = (
     <div className="flex flex-col h-full bg-[var(--shelfy-panel)] text-white">
@@ -1002,26 +1068,65 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
       <div className="flex flex-col xl:grid xl:grid-cols-5 gap-3 xl:h-[680px]">
 
         {/* ── MAP — oculto en mobile ──────────────────────────────────────── */}
-        <div className="hidden xl:block xl:col-span-3 rounded-2xl overflow-hidden border border-[var(--shelfy-border)] relative bg-[var(--shelfy-panel)]">
-          {loading ? (
-            <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-[var(--shelfy-muted)]">
-              <Loader2 className="w-6 h-6 animate-spin" />
-              <p className="text-sm">Cargando...</p>
-            </div>
-          ) : pines.length === 0 ? (
-            <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-[var(--shelfy-muted)]">
-              <MapIcon className="w-12 h-12 opacity-15" />
-              <p className="text-sm font-medium text-center px-8 leading-relaxed">
-                {!selectedSucursal
-                  ? "Seleccioná una sucursal para comenzar"
-                  : "Activá un vendedor, ruta o PDV para verlos en el mapa"
+        <div className="hidden xl:flex xl:col-span-3 flex-col rounded-2xl overflow-hidden border border-[var(--shelfy-border)] relative bg-[var(--shelfy-panel)]">
+          <MapModeSelector />
+          <div className="flex-1 relative">
+            {loading ? (
+              <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-[var(--shelfy-muted)]">
+                <Loader2 className="w-6 h-6 animate-spin" />
+                <p className="text-sm">Cargando...</p>
+              </div>
+            ) : mapMode === 'ruteo' ? (
+              <ModoRuteo
+                vendedores={vendedoresFiltrados}
+                distId={selectedDist}
+                rutas={Object.fromEntries(
+                  vendedoresFiltrados.map(v => [
+                    v.id_vendedor,
+                    queryClient.getQueryData<RutaSupervision[]>(['supervision-rutas', v.id_vendedor]) ?? []
+                  ])
+                )}
+                clientes={Object.fromEntries(
+                  vendedoresFiltrados.flatMap(v => {
+                    const vRutas = queryClient.getQueryData<RutaSupervision[]>(['supervision-rutas', v.id_vendedor]) ?? [];
+                    return vRutas.map(r => [
+                      r.id_ruta,
+                      queryClient.getQueryData<ClienteSupervision[]>(['supervision-clientes', r.id_ruta]) ?? []
+                    ]);
+                  })
+                )}
+                onClose={() => setMapMode('activos')}
+              />
+            ) : pines.length === 0 ? (
+              <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-[var(--shelfy-muted)]">
+                <MapIcon className="w-12 h-12 opacity-15" />
+                <p className="text-sm font-medium text-center px-8 leading-relaxed">
+                  {!selectedSucursal
+                    ? "Seleccioná una sucursal para comenzar"
+                    : "Activá un vendedor, ruta o PDV para verlos en el mapa"
+                  }
+                </p>
+              </div>
+            ) : (
+              <MapaRutas
+                pines={pines}
+                fullscreenPanel={vendorPanelContent}
+                mode={mapMode}
+                deudoresData={mapMode === 'deudores'
+                  ? cuentasData?.vendedores?.flatMap(v =>
+                      (v.clientes ?? []).map(c => ({
+                        id_cliente_erp: null,
+                        cliente_nombre: c.cliente ?? '',
+                        deuda_total: c.deuda_total,
+                        antiguedad_dias: c.antiguedad ?? 0,
+                        vendedor_nombre: v.vendedor,
+                      }))
+                    )
+                  : undefined
                 }
-              </p>
-            </div>
-          ) : (
-            <MapaRutas pines={pines} fullscreenPanel={vendorPanelContent} />
-          )}
-
+              />
+            )}
+          </div>
         </div>
 
         {/* ── RIGHT PANEL — lista vendedores/rutas ────────────────────────── */}

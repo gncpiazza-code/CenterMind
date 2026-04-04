@@ -149,12 +149,13 @@ export default function LoginPage() {
 
               {/* Usuario */}
               <div className={cn("login-input-wrap", mounted ? "anim-fade-up delay-300" : "opacity-0")}>
-                <Label className="text-xs font-semibold mb-1.5 block" style={{ color: "#5b21b6" }}>
+                <Label htmlFor="usuario" className="text-xs font-semibold mb-1.5 block" style={{ color: "#5b21b6" }}>
                   Usuario
                 </Label>
                 <div className="relative">
                   <User size={15} className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none z-10" style={{ color: "#a78bfa" }} />
                   <Input
+                    id="usuario"
                     type="text"
                     value={usuario}
                     onChange={e => setUsuario(e.target.value)}
@@ -168,12 +169,13 @@ export default function LoginPage() {
 
               {/* Contraseña */}
               <div className={cn("login-input-wrap", mounted ? "anim-fade-up delay-400" : "opacity-0")}>
-                <Label className="text-xs font-semibold mb-1.5 block" style={{ color: "#5b21b6" }}>
+                <Label htmlFor="password" className="text-xs font-semibold mb-1.5 block" style={{ color: "#5b21b6" }}>
                   Contraseña
                 </Label>
                 <div className="relative">
                   <Lock size={15} className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none z-10" style={{ color: "#a78bfa" }} />
                   <Input
+                    id="password"
                     type={showPass ? "text" : "password"}
                     value={password}
                     onChange={e => setPassword(e.target.value)}

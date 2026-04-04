@@ -526,9 +526,19 @@ El popup HTML del marcador muestra:
 - No hacer queries a `cuentas_corrientes_data` en el endpoint de supervisión — usar `cc_detalle`
 - No hacer queries a `erp_deuda_clientes` — tabla obsoleta, no se alimenta más. Usar `cc_detalle`
 - No usar la tabla `clientes` (sin v2 ni pdv) — **State Management**: **Zustand** is the standard for client-side global state (coordinating UI, filters, and cross-component logic). Use **TanStack Query v5** for all server-side data fetching and caching. Avoid prop-drilling.
-- **Aesthetics**: Focus on the **Shelfy Light-Violet** theme as the primary project style (per `globals.css`). Use HSL Hues, 0.5px borders, and glassmorphism.
-- **RBAC**: Always use **`hasPermiso('key')`** for UI conditional rendering. Do not use hardcoded role strings in components.
-- **Animations**: Use **Framer Motion** for subtle (0.4s max) transitions and micro-interactions. Ensure animations do not impede high-density productivity.
+- **Aesthetics**: Focus on the **Shelfy Light-Violet**### Testing & Estándares "Pro"
+- **Stack**: Vitest (Unitarios/Componentes) + React Testing Library + Playwright (E2E/Smoke).
+- **Smoke Tests**: Mandatorios para cada nueva página o componente complejo.
+- **Ubicación**: 
+    - Unitarios: En carpeta `tests/unit/` o junto al componente (`*.test.tsx`).
+    - Smoke: En carpeta `tests/smoke/*.spec.ts`.
+- **Scripts**: `npm run test` (Vitest), `npm run test:smoke` (Playwright).
+**## Desarrollo y Convenciones (PRO)
+- **Testing**: Smoke Tests mandatorios con Vitest (unidad) y Playwright (E2E).
+- **State Management**: Zustand para UI global, TanStack Query para datos server.
+- **Borders**: 0.5px con `--shelfy-border`.
+- **Animations**: Máximo 0.4s con Framer Motion.
+** for subtle (0.4s max) transitions and micro-interactions. Ensure animations do not impede high-density productivity.
 - **Estilos**: Usar variables CSS de `globals.css` (`--shelfy-primary`, etc.) para mantener consistencia con el tema **light-violet**. El `:root` por defecto es modo claro; `.dark` existe como fallback. No usar valores hex hardcodeados cuando existe una variable `--shelfy-*` equivalente.
 - **Componentes**: Priorizar componentes de `shadcn/ui` (`@/components/ui`) para nuevos desarrollos. Primitivos instalados (completo desde 2026-04-04): `Button`, `Card` (con `CardHeader/Title/Description/Content/Footer`), `Input`, `Label`, `Avatar` (con `AvatarImage/AvatarFallback`), `Badge`, `Skeleton`, `Select`, `Alert` (con `AlertTitle/Description`), `Sonner` (toast via `sonner`), `Dialog`, `Sheet`, `Tabs`, `Progress`, `Tooltip`, `Separator`, `ScrollArea`, `Form`, `Popover`, `Checkbox`, `Table`, `DropdownMenu`. Agregar nuevos con `npx shadcn@latest add <component>` desde `shelfy-frontend/`.
 - **shadcn reglas críticas**: Usar `cn()` para clases condicionales. `size-*` para dimensiones iguales. `gap-*` no `space-y-*`. Colores semánticos (`text-muted-foreground`, `bg-primary`) nunca hex hardcodeado. `Avatar` siempre con `AvatarFallback`. `Dialog`/`Sheet` siempre con `Title` (sr-only si visually hidden). Iconos en `Button` usan `data-icon="inline-start|end"`.

@@ -2576,11 +2576,11 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
               <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--shelfy-border)]">
                 <div className="flex items-center gap-2">
                   <ShoppingCart className="w-4 h-4 text-[var(--shelfy-accent)]" />
-                  <span className="text-sm font-semibold text-white">
+                  <span className="text-sm font-semibold text-[var(--shelfy-text)]">
                     Crear objetivo ({selectedPDVsForObjective.length} PDV)
                   </span>
                 </div>
-                <button onClick={() => setObjMenuOpen(false)} className="text-[var(--shelfy-muted)] hover:text-white transition-colors">
+                <button onClick={() => setObjMenuOpen(false)} className="text-[var(--shelfy-muted)] hover:text-[var(--shelfy-accent)] transition-colors">
                   <X className="w-4 h-4" />
                 </button>
               </div>
@@ -2743,13 +2743,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                 )}
 
                 {/* Contextual section: Activación / Exhibición — inactive PDV count */}
-                {(objTipo === "conversion_estado" || objTipo === "exhibicion") && objInactivePdvCount > 0 && (
-                  <div className="rounded-lg bg-blue-500/10 border border-blue-500/20 px-3 py-2">
-                    <p className="text-xs text-blue-300">
-                      <span className="font-semibold">{objInactivePdvCount} PDVs</span> sin compra en 30+ días del vendedor
-                    </p>
-                  </div>
-                )}
+                {/* (Phrase builder preview hidden per v12 plan) */}
 
                 {/* Descripción */}
                 <div>

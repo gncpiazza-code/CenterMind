@@ -59,8 +59,8 @@ const TIPO_CONFIG: Record<ObjetivoTipo, { label: string; color: string; bg: stri
 };
 
 const DIA_ORDER: Record<string, number> = {
-  "Lunes": 0, "Martes": 1, "Miércoles": 2, "Jueves": 3,
-  "Viernes": 4, "Sábado": 5, "Domingo": 6,
+  "lunes": 0, "martes": 1, "miercoles": 2, "miércoles": 2, "jueves": 3,
+  "viernes": 4, "sabado": 5, "sábado": 5, "domingo": 6,
 };
 
 // Actividades que tienen sentido para el phrase builder (PDV-based)
@@ -423,14 +423,26 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
 
     if (tipo === "ruteo_alteo") {
       fetchRutasSupervision(Number(vendedorId))
-        .then(data => setRutas([...data].sort((a, b) => (DIA_ORDER[a.dia_semana] ?? 9) - (DIA_ORDER[b.dia_semana] ?? 9))))
+        .then(data => {
+          const sorted = [...data].sort((a, b) => {
+            const oa = DIA_ORDER[a.dia_semana.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")] ?? 9;
+            const ob = DIA_ORDER[b.dia_semana.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")] ?? 9;
+            return oa - ob;
+          });
+          setRutas(sorted);
+        })
         .catch(() => setRutas([]))
         .finally(() => setLoadingCtx(false));
     } else if (tipo === "cobranza") {
       fetchCuentasSupervision(distId)
         .then((data: CuentasSupervision) => {
           const norm = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
-          const vend = data.vendedores.find(v => norm(v.vendedor) === norm(nombre));
+          const targetNorm = norm(nombre);
+          
+          // Debug assist: if perfect match fails, try fuzzy or partial
+          let vend = data.vendedores.find(v => norm(v.vendedor) === targetNorm);
+          if (!vend) vend = data.vendedores.find(v => norm(v.vendedor).includes(targetNorm) || targetNorm.includes(norm(v.vendedor)));
+
           if (vend) {
             setDeudores(
               (vend.clientes ?? [])
@@ -727,10 +739,20 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
               ) : activacionPdvs.length === 0 ? (
                 <p className="text-xs text-[var(--shelfy-muted)]">Sin PDVs en esa condición</p>
               ) : (
-                <div className="max-h-36 overflow-y-auto space-y-0.5">
-                  {activacionPdvs.slice(0, 15).map((pdv, i) => (
-                    <div key={i} className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-white/5 text-xs">
-                      <span className="text-[var(--shelfy-text)] truncate max-w-[65%]">{pdv.nombre}</span>
+               <div className="max-h-36 overflow-y-auto space-y-0.5">
+                  {activacionPdvs.slice(0, 20).map((pdv, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => {
+                        const targetPhrase = tipo === "conversion_estado" 
+                          ? `Activar a ${pdv.nombre} (sin compra hace ${pdv.diasSinCompra ?? 'N'} días)`
+                          : `Lograr exhibición en ${pdv.nombre}`;
+                        setDesc(targetPhrase);
+                      }}
+                      className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-[var(--shelfy-accent)]/10 text-xs transition-colors border border-transparent hover:border-[var(--shelfy-accent)]/30"
+                    >
+                      <span className="text-[var(--shelfy-text)] truncate max-w-[65%] text-left">{pdv.nombre}</span>
                       {pdv.diasSinCompra !== null ? (
                         <span className={`font-medium tabular-nums ${pdv.diasSinCompra > 60 ? "text-red-400" : "text-orange-400"}`}>
                           Hace {pdv.diasSinCompra}d
@@ -738,7 +760,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
                       ) : (
                         <span className="text-[var(--shelfy-muted)]">Sin compras</span>
                       )}
-                    </div>
+                    </button>
                   ))}
                   {activacionPdvs.length > 15 && (
                     <p className="text-[10px] text-[var(--shelfy-muted)] text-center pt-1">+{activacionPdvs.length - 15} más</p>

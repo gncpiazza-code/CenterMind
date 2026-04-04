@@ -322,29 +322,35 @@ def supervision_ventas(dist_id: int, dias: int = 30, user_payload=Depends(verify
 def supervision_cuentas(dist_id: int, sucursal: Optional[str] = Query(None), user_payload=Depends(verify_auth)):
     check_dist_permission(user_payload, dist_id)
     try:
+        try:
+            d_id = int(dist_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="ID de distribuidor inválido")
+
         snap_res = (
             sb.table("cc_detalle")
             .select("fecha_snapshot")
-            .eq("id_distribuidor", int(dist_id))
+            .eq("id_distribuidor", d_id)
             .order("fecha_snapshot", desc=True)
             .limit(1)
             .execute()
         )
         if not snap_res.data:
+            logger.warning(f"No se encontró fecha_snapshot en cc_detalle para dist_id={d_id}")
             return {"fecha": None, "metadatos": {}, "vendedores": []}
 
         fecha_snapshot = snap_res.data[0]["fecha_snapshot"]
 
         sucursal_norm = sucursal
-        if dist_id == 3 and sucursal:
+        if d_id == 3 and sucursal:
             mapping = {"1": "RECONQUISTA", "2": "RESISTENCIA", "3": "SAENZ PEÑA", "4": "CORRIENTES", "5": "CORDOBA"}
-            sucursal_norm = mapping.get(sucursal.strip(), sucursal)
+            sucursal_norm = mapping.get(str(sucursal).strip(), sucursal)
 
         def build_query():
             q = (
                 sb.table("cc_detalle")
-                .select("id_vendedor, vendedor_nombre, sucursal_nombre, cliente_nombre, deuda_total, antiguedad_dias, rango_antiguedad, cantidad_comprobantes, alerta_credito")
-                .eq("id_distribuidor", int(dist_id))
+                .select("id_vendedor, vendedor_nombre, sucursal_nombre, cliente_nombre, id_cliente_erp, deuda_total, antiguedad_dias, rango_antiguedad, cantidad_comprobantes, alerta_credito")
+                .eq("id_distribuidor", d_id)
                 .eq("fecha_snapshot", fecha_snapshot)
             )
             if sucursal_norm:
@@ -360,6 +366,7 @@ def supervision_cuentas(dist_id: int, sucursal: Optional[str] = Query(None), use
                 break
             page_offset += page_size
 
+        # Cache PDV info for extra metadata (last purchase date)
         fecha_uc_map: dict = {}
         erp_id_map:   dict = {}
         try:
@@ -368,7 +375,7 @@ def supervision_cuentas(dist_id: int, sucursal: Optional[str] = Query(None), use
                 pdv_res = (
                     sb.table("clientes_pdv_v2")
                     .select("nombre_fantasia, nombre_razon_social, id_cliente_erp, fecha_ultima_compra")
-                    .eq("id_distribuidor", int(dist_id))
+                    .eq("id_distribuidor", d_id)
                     .range(pdv_offset, pdv_offset + 999)
                     .execute()
                 )
@@ -391,11 +398,14 @@ def supervision_cuentas(dist_id: int, sucursal: Optional[str] = Query(None), use
 
         vendors: dict = {}
         for item in rows:
-            v_key = item.get("id_vendedor") or item.get("vendedor_nombre", "Sin Vendedor")
+            # Normalize vendor keys for grouping
+            raw_v_name = (item.get("vendedor_nombre") or "Sin Vendedor").strip()
+            v_key = str(item.get("id_vendedor") or raw_v_name.upper())
+
             if v_key not in vendors:
                 vendors[v_key] = {
                     "id_vendedor": item.get("id_vendedor"),
-                    "vendedor": item.get("vendedor_nombre") or "Sin Vendedor",
+                    "vendedor": raw_v_name,
                     "sucursal": item.get("sucursal_nombre") or "",
                     "deuda_total": 0.0, "cantidad_clientes": 0, "clientes": [],
                 }
@@ -416,6 +426,24 @@ def supervision_cuentas(dist_id: int, sucursal: Optional[str] = Query(None), use
         for vd in vendors.values():
             vd["clientes"].sort(key=lambda x: x["deuda_total"], reverse=True)
         result = sorted(vendors.values(), key=lambda x: x["deuda_total"], reverse=True)
+
+        all_clientes = [c for v in result for c in v["clientes"]]
+        total_deuda  = sum(v["deuda_total"] for v in result)
+        total_cli    = sum(v["cantidad_clientes"] for v in result)
+        avg_dias     = (sum(c["antiguedad"] or 0 for c in all_clientes) / len(all_clientes) if all_clientes else 0)
+
+        return {
+            "fecha": fecha_snapshot,
+            "metadatos": {
+                "total_deuda": round(total_deuda, 2),
+                "clientes_deudores": total_cli,
+                "promedio_dias_retraso": round(avg_dias, 1),
+            },
+            "vendedores": result,
+        }
+    except Exception as e:
+        logger.error(f"Error en supervision_cuentas: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
         all_clientes = [c for v in result for c in v["clientes"]]
         total_deuda  = sum(v["deuda_total"] for v in result)

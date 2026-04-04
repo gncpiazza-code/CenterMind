@@ -106,7 +106,7 @@ export default function SystemHealthMonitor() {
                 <Card className="lg:col-span-2 p-6">
                     <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-6">Gráfico de Stress (Tiempo Real)</h3>
                     <div className="h-64">
-                        <ResponsiveContainer width="100%" height="100%">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                             <AreaChart data={history}>
                                 <defs>
                                     <linearGradient id="colorCpu" x1="0" y1="0" x2="0" y2="1">

@@ -817,13 +817,13 @@ export async function fetchCCLogs(lines: number = 100): Promise<{ logs: string }
 
 export interface MotorRun {
   id: number;
-  motor_tipo: string;
+  motor: string;
   estado: string;
-  inicio: string | null;
-  fin: string | null;
-  mensaje: string | null;
-  id_distribuidor: number | null;
-  created_at: string;
+  iniciado_en: string | null;
+  finalizado_en: string | null;
+  registros?: number;
+  error_msg?: string | null;
+  dist_id: number | null;
 }
 
 export async function fetchMotorRuns(tipo?: string, limit = 20): Promise<MotorRun[]> {

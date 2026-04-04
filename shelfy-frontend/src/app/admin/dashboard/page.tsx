@@ -112,8 +112,8 @@ function LogsModal({
   onClose: () => void;
 }) {
   function duration(run: MotorRun) {
-    if (!run.inicio || !run.fin) return "–";
-    const ms = new Date(run.fin).getTime() - new Date(run.inicio).getTime();
+    if (!run.iniciado_en || !run.finalizado_en) return "–";
+    const ms = new Date(run.finalizado_en).getTime() - new Date(run.iniciado_en).getTime();
     const s = Math.round(ms / 1000);
     if (s < 60) return `${s}s`;
     return `${Math.floor(s / 60)}m ${s % 60}s`;
@@ -158,14 +158,14 @@ function LogsModal({
                 {runs.map((r) => (
                   <tr key={r.id} className="border-b border-white/5 hover:bg-white/3 transition-colors">
                     <td className="px-4 py-3 text-[11px] text-white/60 whitespace-nowrap font-mono">
-                      {r.created_at ? format(new Date(r.created_at), "dd/MM HH:mm", { locale: es }) : "–"}
+                      {r.iniciado_en ? format(new Date(r.iniciado_en), "dd/MM HH:mm", { locale: es }) : "–"}
                     </td>
                     <td className="px-4 py-3">
                       <StatusBadge status={getStatus([r])} />
                     </td>
-                    <td className="px-4 py-3 text-[11px] text-white/60">{r.id_distribuidor ?? "–"}</td>
+                    <td className="px-4 py-3 text-[11px] text-white/60">{r.dist_id ?? "–"}</td>
                     <td className="px-4 py-3 text-[11px] text-white/60 font-mono">{duration(r)}</td>
-                    <td className="px-4 py-3 text-[11px] text-white/50 max-w-[200px] truncate">{r.mensaje || "–"}</td>
+                    <td className="px-4 py-3 text-[11px] text-white/60 text-white/50 max-w-[200px] truncate">{r.error_msg || "–"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -218,7 +218,7 @@ function MotorCard({
           <span>
             Última ejecución:{" "}
             <span className="text-white/60 font-semibold">
-              {formatDistanceToNow(new Date(latest.created_at), { addSuffix: true, locale: es })}
+              {latest.iniciado_en ? formatDistanceToNow(new Date(latest.iniciado_en), { addSuffix: true, locale: es }) : "–"}
             </span>
           </span>
         ) : (

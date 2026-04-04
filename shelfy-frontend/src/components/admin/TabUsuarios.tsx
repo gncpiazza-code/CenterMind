@@ -11,6 +11,8 @@ const ROL_LABEL: Record<string, string> = {
   superadmin: "Super Admin",
   admin: "Admin",
   supervisor: "Supervisor",
+  directorio: "Directorio",
+  evaluador: "Evaluador",
 };
 
 const INPUT_CLS = "rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-[var(--shelfy-text)] px-3 py-2 text-sm focus:outline-none focus:border-[var(--shelfy-primary)]";
@@ -20,6 +22,8 @@ export function RolBadge({ rol }: { rol: string }) {
     superadmin: "bg-purple-100 text-purple-700",
     admin: "bg-blue-100 text-blue-700",
     supervisor: "bg-green-100 text-green-700",
+    directorio: "bg-slate-100 text-slate-700",
+    evaluador: "bg-amber-100 text-amber-700",
   };
   return (
     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${colors[rol] ?? "bg-gray-100 text-gray-700"}`}>
@@ -46,7 +50,9 @@ export default function TabUsuarios({ isSuperadmin, distId }: TabUsuariosProps) 
   const [editUserForm, setEditUserForm] = useState({ login: "", password: "", rol: "supervisor" });
   const [changingUserId, setChangingUserId] = useState<number | null>(null);
 
-  const rolesDisponibles = isSuperadmin ? ["supervisor", "admin", "superadmin"] : ["supervisor", "admin"];
+  const rolesDisponibles = isSuperadmin 
+    ? ["supervisor", "admin", "superadmin", "directorio", "evaluador"] 
+    : ["supervisor", "admin", "evaluador"];
 
   const load = () => {
     setLoading(true);

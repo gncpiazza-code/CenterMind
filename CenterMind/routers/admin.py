@@ -534,7 +534,7 @@ def admin_motor_runs(motor: Optional[str] = None, limit: int = 20, user_payload=
 def motor_runs_by_dist(dist_id: int, motor: Optional[str] = None, limit: int = 20, user_payload=Depends(verify_auth)):
     check_dist_permission(user_payload, dist_id)
     try:
-        q = sb.table("motor_runs").select("id, motor, estado, iniciado_en, finalizado_en, registros, error_msg").eq("dist_id", dist_id).order("iniciado_en", desc=True).limit(limit)
+        q = sb.table("motor_runs").select("*").eq("dist_id", dist_id).order("iniciado_en", desc=True).limit(limit)
         if motor: q = q.eq("motor", motor)
         return q.execute().data or []
     except Exception as e:

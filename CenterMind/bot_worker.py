@@ -1573,21 +1573,36 @@ class BotWorker:
             # y se notifica al supervisor en tiempo real.
             objetivo_badge = ""
             try:
+                self.logger.info(
+                    f"[ObjInterceptor] Iniciando para nro_cliente='{nro_cliente}' "
+                    f"uid={effective_uploader_id} dist={self.distribuidor_id}"
+                )
                 ig_obj_res = self.db.sb.table("integrantes_grupo") \
                     .select("id_vendedor_v2") \
                     .eq("id_distribuidor", self.distribuidor_id) \
                     .eq("telegram_user_id", effective_uploader_id) \
                     .limit(1).execute()
-                if ig_obj_res.data and ig_obj_res.data[0].get("id_vendedor_v2"):
+                if not ig_obj_res.data or not ig_obj_res.data[0].get("id_vendedor_v2"):
+                    self.logger.warning(
+                        f"[ObjInterceptor] Sin id_vendedor_v2 para uid={effective_uploader_id} — saliendo"
+                    )
+                else:
                     id_vendedor_v2_obj = ig_obj_res.data[0]["id_vendedor_v2"]
+                    self.logger.info(f"[ObjInterceptor] id_vendedor_v2={id_vendedor_v2_obj}")
                     pdv_obj_res = self.db.sb.table("clientes_pdv_v2") \
                         .select("id, nombre_cliente") \
                         .eq("id_distribuidor", self.distribuidor_id) \
                         .eq("id_cliente_erp", nro_cliente) \
                         .limit(1).execute()
-                    if pdv_obj_res.data:
+                    if not pdv_obj_res.data:
+                        self.logger.warning(
+                            f"[ObjInterceptor] PDV no encontrado en clientes_pdv_v2 "
+                            f"para id_cliente_erp='{nro_cliente}' dist={self.distribuidor_id} — saliendo"
+                        )
+                    else:
                         id_pdv_obj = pdv_obj_res.data[0]["id"]
                         pdv_nombre_obj = pdv_obj_res.data[0].get("nombre_cliente") or nro_cliente
+                        self.logger.info(f"[ObjInterceptor] PDV id={id_pdv_obj} '{pdv_nombre_obj}'")
                         # Buscar objetivo con id_target_pdv explícito
                         obj_match_res = self.db.sb.table("objetivos") \
                             .select("id") \
@@ -1597,6 +1612,10 @@ class BotWorker:
                             .eq("tipo", "exhibicion") \
                             .eq("cumplido", False) \
                             .limit(1).execute()
+                        self.logger.info(
+                            f"[ObjInterceptor] Match por id_target_pdv={id_pdv_obj}: "
+                            f"{'ENCONTRADO' if obj_match_res.data else 'no encontrado'}"
+                        )
                         # Fallback: objetivo sin id_target_pdv asignado
                         if not obj_match_res.data:
                             obj_match_res = self.db.sb.table("objetivos") \
@@ -1607,11 +1626,11 @@ class BotWorker:
                                 .eq("cumplido", False) \
                                 .is_("id_target_pdv", "null") \
                                 .limit(1).execute()
-                            if obj_match_res.data:
-                                self.logger.info(
-                                    f"🎯 Objetivo exhibicion match via fallback (sin id_target_pdv) "
-                                    f"vend={id_vendedor_v2_obj} pdv={nro_cliente}"
-                                )
+                            self.logger.info(
+                                f"[ObjInterceptor] Fallback (id_target_pdv IS NULL): "
+                                f"{'ENCONTRADO' if obj_match_res.data else 'no encontrado'}"
+                            )
+
                         if obj_match_res.data:
                             obj_id_match = obj_match_res.data[0]["id"]
                             objetivo_badge = (
@@ -1679,7 +1698,7 @@ class BotWorker:
                                 f"vend={id_vendedor_v2_obj} obj={obj_id_match}"
                             )
             except Exception as e_obj:
-                self.logger.warning(f"⚠️ Error en intercept objetivo exhibicion: {e_obj}")
+                self.logger.warning(f"⚠️ Error en intercept objetivo exhibicion: {e_obj}", exc_info=True)
             # ── FIN INTERCEPTOR OBJETIVO ────────────────────────────────────
 
             msg_text = (

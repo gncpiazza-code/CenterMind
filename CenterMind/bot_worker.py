@@ -1597,25 +1597,70 @@ class BotWorker:
                             .eq("cumplido", False) \
                             .limit(1).execute()
                         if obj_match_res.data:
+                            obj_id_match = obj_match_res.data[0]["id"]
                             objetivo_badge = (
                                 f"\n\n🎯 <b>¡Objetivo de Exhibición!</b>\n"
                                 f"Este PDV (<b>{pdv_nombre_obj}</b>) está en tus metas. "
                                 f"Ha pasado a revisión del supervisor."
                             )
-                            # Notificar al supervisor
+
+                            # 1. Patch id_cliente_pdv en exhibiciones para que
+                            #    listar_objetivos detecte tiene_exhibicion_pendiente
+                            try:
+                                ids_a_patchear = [e["id"] for e in exhibicion_ids if e.get("id")]
+                                if ids_a_patchear:
+                                    self.db.sb.table("exhibiciones") \
+                                        .update({"id_cliente_pdv": id_pdv_obj}) \
+                                        .in_("id_exhibicion", ids_a_patchear) \
+                                        .execute()
+                            except Exception as e_patch:
+                                self.logger.warning(f"⚠️ Error patching id_cliente_pdv: {e_patch}")
+
+                            # 2. Insertar tracking exhibicion_pendiente para que el
+                            #    watcher no duplique la notificación al correr después
+                            try:
+                                tracking_rows = [
+                                    {
+                                        "id_objetivo": obj_id_match,
+                                        "id_referencia": e["id"],
+                                        "tipo_evento": "exhibicion_pendiente",
+                                        "metadata": {"nro_cliente": nro_cliente},
+                                    }
+                                    for e in exhibicion_ids if e.get("id")
+                                ]
+                                if tracking_rows:
+                                    self.db.sb.table("objetivos_tracking") \
+                                        .upsert(
+                                            tracking_rows,
+                                            on_conflict="id_objetivo,id_referencia,tipo_evento"
+                                        ).execute()
+                            except Exception as e_track:
+                                self.logger.warning(f"⚠️ Error insertando tracking pendiente: {e_track}")
+
                             from services.objetivos_notification_service import objetivos_notification
+
+                            # Notificar al vendedor: "Foto recibida, pendiente de evaluación"
+                            objetivos_notification.notify_vendor_telegram(
+                                dist_id=self.distribuidor_id,
+                                id_objetivo=obj_id_match,
+                                id_vendedor=id_vendedor_v2_obj,
+                                tipo_evento="exhibicion_pendiente",
+                                pdv_data={"nombre_cliente": pdv_nombre_obj, "id_cliente_erp": nro_cliente},
+                            )
+
+                            # Notificar al supervisor vía WebSocket
                             objetivos_notification.notify_supervisor_ws(
                                 dist_id=self.distribuidor_id,
                                 event_data={
-                                    "tipo_evento": "exhibicion",
-                                    "id_objetivo": obj_match_res.data[0]["id"],
+                                    "tipo_evento": "exhibicion_pendiente",
+                                    "id_objetivo": obj_id_match,
                                     "pdv": {"nombre": pdv_nombre_obj, "id_cliente_erp": nro_cliente},
                                     "vendedor": uploader_name,
                                 },
                             )
                             self.logger.info(
                                 f"🎯 Objetivo exhibicion match: PDV '{pdv_nombre_obj}' "
-                                f"vend={id_vendedor_v2_obj} obj={obj_match_res.data[0]['id']}"
+                                f"vend={id_vendedor_v2_obj} obj={obj_id_match}"
                             )
             except Exception as e_obj:
                 self.logger.warning(f"⚠️ Error en intercept objetivo exhibicion: {e_obj}")

@@ -47,7 +47,16 @@ import {
   Users,
   BarChart3,
   Printer,
+  RefreshCw,
+  FileDown,
 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 
 // ── Tipo / actividad config ───────────────────────────────────────────────────
 
@@ -279,17 +288,110 @@ function ObjetivoRow({ obj, onToggle, onDelete }: {
   );
 }
 
+// ── PDF Certificate ───────────────────────────────────────────────────────────
+
+function downloadCertificado(obj: Objetivo) {
+  import("jspdf").then(({ jsPDF }) => {
+    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+    const accent = "#7C3AED";
+    const W = 210;
+
+    // Header band
+    doc.setFillColor(accent);
+    doc.rect(0, 0, W, 32, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(18);
+    doc.text("SHELFY", 20, 14);
+    doc.setFontSize(11);
+    doc.setFont("helvetica", "normal");
+    doc.text("CERTIFICADO DE OBJETIVO", 20, 24);
+
+    // Body
+    doc.setTextColor(30, 41, 59);
+    doc.setFontSize(10);
+    let y = 50;
+    const line = (label: string, value: string) => {
+      doc.setFont("helvetica", "bold");
+      doc.text(`${label}:`, 20, y);
+      doc.setFont("helvetica", "normal");
+      doc.text(value, 65, y);
+      y += 10;
+    };
+
+    const tipoLabel = TIPO_CONFIG[obj.tipo]?.label ?? obj.tipo;
+    const resultado = obj.resultado_final === "exito" ? "EXITO" : obj.resultado_final === "falla" ? "FALLÓ" : "—";
+    const pct = obj.valor_objetivo && obj.valor_objetivo > 0
+      ? `${Math.min(100, Math.round((obj.valor_actual / obj.valor_objetivo) * 100))}%`
+      : "—";
+    const progreso = obj.valor_objetivo
+      ? `${obj.valor_actual} / ${Math.round(obj.valor_objetivo)} (${pct})`
+      : obj.cumplido ? "Completado" : "Pendiente";
+
+    line("Vendedor", obj.nombre_vendedor ?? `ID ${obj.id_vendedor}`);
+    line("Tipo", tipoLabel);
+    line("Descripción", obj.descripcion ?? "—");
+    line("Fecha objetivo", obj.fecha_objetivo ?? "—");
+    line("Resultado", resultado);
+    line("Progreso", progreso);
+
+    // Divider
+    y += 4;
+    doc.setDrawColor(200, 200, 220);
+    doc.line(20, y, W - 20, y);
+    y += 10;
+
+    // Historial
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.setTextColor(100, 116, 139);
+    doc.text("HISTORIAL DE INTENTOS", 20, y);
+    y += 8;
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(30, 41, 59);
+    if (obj.id_objetivo_padre) {
+      doc.text("· Intento anterior registrado", 24, y);
+      y += 7;
+      doc.text(`· Este intento (actual) — ID: ${obj.id}`, 24, y);
+    } else {
+      doc.text("· Primer intento", 24, y);
+    }
+
+    doc.save(`certificado-${(obj.nombre_vendedor ?? "vendedor").replace(/\s+/g, "_")}-${obj.id}.pdf`);
+  });
+}
+
 // ── Kanban card ───────────────────────────────────────────────────────────────
 
-function KanbanCard({ obj, onToggle, onDelete }: {
+function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado }: {
   obj: Objetivo;
-  onToggle: () => void;
   onDelete: () => void;
+  onReagendar: (obj: Objetivo) => void;
+  onDownloadCertificado: (obj: Objetivo) => void;
 }) {
+  const borderClass =
+    obj.resultado_final === "exito"
+      ? "border-emerald-500/40 shadow-emerald-500/10 shadow-md"
+      : obj.resultado_final === "falla"
+        ? "border-red-500/40 shadow-red-500/10 shadow-md"
+        : "border-[var(--shelfy-border)]";
+
   return (
-    <div className="p-3 rounded-xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] space-y-2 group">
+    <div className={`p-3 rounded-xl border bg-[var(--shelfy-panel)] space-y-2 group ${borderClass}`}>
       <div className="flex items-start justify-between gap-2">
-        <TipoBadge tipo={obj.tipo} />
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <TipoBadge tipo={obj.tipo} />
+          {obj.resultado_final === "exito" && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-semibold">
+              ✓ Éxito
+            </span>
+          )}
+          {obj.resultado_final === "falla" && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/15 text-red-400 font-semibold">
+              ✗ Falló
+            </span>
+          )}
+        </div>
         <button
           onClick={onDelete}
           className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center rounded text-[var(--shelfy-muted)] hover:text-red-400 transition-all"
@@ -314,18 +416,26 @@ function KanbanCard({ obj, onToggle, onDelete }: {
       {obj.valor_objetivo ? (
         <ProgressBar actual={obj.valor_actual} objetivo={obj.valor_objetivo} />
       ) : null}
-      <div className="flex items-center justify-between pt-1">
+      <div className="flex items-center justify-between pt-1 gap-1.5 flex-wrap">
         <DateChip date={obj.fecha_objetivo} />
-        <button
-          onClick={onToggle}
-          className={`text-[10px] px-2 py-0.5 rounded border transition-all ${
-            obj.cumplido
-              ? "border-emerald-500/30 text-emerald-400 bg-emerald-500/10"
-              : "border-white/10 text-[var(--shelfy-muted)] hover:border-emerald-500/30"
-          }`}
-        >
-          {obj.cumplido ? "Completado" : "Marcar listo"}
-        </button>
+        <div className="flex items-center gap-1">
+          {obj.cumplido && (
+            <button
+              onClick={() => onDownloadCertificado(obj)}
+              className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-accent)] hover:border-[var(--shelfy-accent)]/40 transition-all"
+            >
+              <FileDown className="w-3 h-3" /> PDF
+            </button>
+          )}
+          {obj.resultado_final === "falla" && (
+            <button
+              onClick={() => onReagendar(obj)}
+              className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border border-orange-500/30 text-orange-400 hover:bg-orange-500/10 transition-all"
+            >
+              <RefreshCw className="w-3 h-3" /> Re-agendar
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -1307,22 +1417,17 @@ export default function ObjetivosPage() {
 
   // ── Kanban groups ─────────────────────────────────────────────────────────
 
-  const kanbanGroups = useMemo(() => {
-    // An objective is "en progreso" if:
-    //   - valor_actual > 0 (generic progress), OR
-    //   - tipo === "exhibicion" AND tiene_exhibicion_pendiente (bot already detected an upload pending approval)
-    const isEnProgreso = (o: Objetivo) =>
-      !o.cumplido && (
-        (o.valor_objetivo && o.valor_actual > 0 && o.valor_actual < o.valor_objetivo) ||
-        (o.tipo === "exhibicion" && o.tiene_exhibicion_pendiente && !o.cumplido)
-      );
+  const kanbanGroups = useMemo(() => ({
+    pendiente:   filtered.filter(o => !o.cumplido && o.valor_actual === 0),
+    en_progreso: filtered.filter(o => !o.cumplido && o.valor_actual > 0),
+    terminado:   filtered.filter(o => o.cumplido === true),
+  }), [filtered]);
 
-    return {
-      pendiente:   filtered.filter(o => !o.cumplido && !isEnProgreso(o)),
-      en_progreso: filtered.filter(o => isEnProgreso(o)),
-      completado:  filtered.filter(o => o.cumplido),
-    };
-  }, [filtered]);
+  // ── Re-agendar state ──────────────────────────────────────────────────────
+
+  const [reagendarObj, setReagendarObj] = useState<Objetivo | null>(null);
+  const [fechaReagendar, setFechaReagendar] = useState<string>("");
+  const [observacionReagendar, setObservacionReagendar] = useState<string>("");
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -1566,13 +1671,16 @@ export default function ObjetivosPage() {
                 /* ── Tablero Kanban ── */
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {[
-                    { key: "pendiente" as const,   label: "Pendiente",   color: "text-[var(--shelfy-muted)]" },
-                    { key: "en_progreso" as const, label: "En progreso", color: "text-orange-400" },
-                    { key: "completado" as const,  label: "Completado",  color: "text-emerald-400" },
+                    { key: "pendiente"   as const, label: "Pendiente",   Icon: Clock,        color: "text-[var(--shelfy-muted)]" },
+                    { key: "en_progreso" as const, label: "En progreso", Icon: TrendingUp,   color: "text-orange-400" },
+                    { key: "terminado"   as const, label: "Terminado",   Icon: CheckCircle2, color: "text-emerald-400" },
                   ].map(col => (
                     <div key={col.key} className="rounded-xl border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] overflow-hidden">
                       <div className="px-4 py-3 border-b border-[var(--shelfy-border)] flex items-center justify-between">
-                        <span className={`text-xs font-semibold ${col.color}`}>{col.label}</span>
+                        <span className={`flex items-center gap-1.5 text-xs font-semibold ${col.color}`}>
+                          <col.Icon className="w-3.5 h-3.5" />
+                          {col.label}
+                        </span>
                         <span className="text-xs text-[var(--shelfy-muted)] bg-white/5 px-1.5 py-0.5 rounded">
                           {kanbanGroups[col.key].length}
                         </span>
@@ -1582,8 +1690,9 @@ export default function ObjetivosPage() {
                           <KanbanCard
                             key={obj.id}
                             obj={obj}
-                            onToggle={() => toggleMut.mutate({ id: obj.id, cumplido: !obj.cumplido })}
                             onDelete={() => deleteMut.mutate(obj.id)}
+                            onReagendar={(o) => { setReagendarObj(o); setFechaReagendar(""); setObservacionReagendar(""); }}
+                            onDownloadCertificado={downloadCertificado}
                           />
                         ))}
                         {kanbanGroups[col.key].length === 0 && (
@@ -1604,7 +1713,7 @@ export default function ObjetivosPage() {
       </div>
       <BottomNav />
 
-      {/* Modal */}
+      {/* Modal nuevo objetivo */}
       {modalOpen && (
         <NuevoObjetivoModal
           distId={distId}
@@ -1614,6 +1723,110 @@ export default function ObjetivosPage() {
           loading={createMut.isPending}
         />
       )}
+
+      {/* Dialog Re-agendar */}
+      <Dialog open={!!reagendarObj} onOpenChange={(open) => { if (!open) setReagendarObj(null); }}>
+        <DialogContent className="bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-sm font-semibold text-[var(--shelfy-text)]">
+              Re-agendar objetivo fallido
+            </DialogTitle>
+            <DialogDescription className="text-xs text-[var(--shelfy-muted)]">
+              Se creará un nuevo objetivo vinculado al anterior.
+            </DialogDescription>
+          </DialogHeader>
+
+          {reagendarObj && (
+            <div className="space-y-4 pt-1">
+              {/* Resumen del objetivo anterior */}
+              <div className="rounded-lg bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] p-3 space-y-1">
+                <p className="text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider">Objetivo anterior</p>
+                <div className="flex items-center gap-1.5">
+                  <User className="w-3 h-3 text-[var(--shelfy-muted)] shrink-0" />
+                  <span className="text-xs text-[var(--shelfy-text)]">{reagendarObj.nombre_vendedor ?? `ID ${reagendarObj.id_vendedor}`}</span>
+                </div>
+                <TipoBadge tipo={reagendarObj.tipo} />
+                {reagendarObj.descripcion && (
+                  <p className="text-xs text-[var(--shelfy-muted)] line-clamp-2">{reagendarObj.descripcion}</p>
+                )}
+              </div>
+
+              {/* Nueva fecha */}
+              <div>
+                <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">
+                  Nueva fecha límite
+                </label>
+                <input
+                  type="date"
+                  min={new Date().toISOString().split("T")[0]}
+                  value={fechaReagendar}
+                  onChange={e => setFechaReagendar(e.target.value)}
+                  className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                />
+              </div>
+
+              {/* Observación */}
+              <div>
+                <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">
+                  Observación <span className="normal-case font-normal">(opcional)</span>
+                </label>
+                <textarea
+                  rows={2}
+                  placeholder="Motivo del re-agendamiento..."
+                  value={observacionReagendar}
+                  onChange={e => setObservacionReagendar(e.target.value)}
+                  className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-[var(--shelfy-text)] placeholder-[var(--shelfy-muted)]/60 focus:outline-none focus:border-[var(--shelfy-accent)]/60 resize-none"
+                />
+              </div>
+
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setReagendarObj(null)}
+                  className="flex-1 py-2 rounded-lg border border-[var(--shelfy-border)] text-sm text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  disabled={!fechaReagendar || createMut.isPending}
+                  onClick={() => {
+                    if (!reagendarObj || !fechaReagendar) return;
+                    createMut.mutate([{
+                      id_distribuidor: distId,
+                      id_vendedor: reagendarObj.id_vendedor,
+                      tipo: reagendarObj.tipo,
+                      nombre_pdv: reagendarObj.nombre_pdv ?? undefined,
+                      nombre_vendedor: reagendarObj.nombre_vendedor ?? undefined,
+                      id_target_pdv: reagendarObj.id_target_pdv ?? undefined,
+                      id_target_ruta: reagendarObj.id_target_ruta ?? undefined,
+                      estado_inicial: reagendarObj.estado_inicial ?? undefined,
+                      estado_objetivo: reagendarObj.estado_objetivo ?? undefined,
+                      valor_objetivo: reagendarObj.valor_objetivo ?? undefined,
+                      fecha_objetivo: fechaReagendar,
+                      descripcion: observacionReagendar || reagendarObj.descripcion || undefined,
+                      id_objetivo_padre: reagendarObj.id,
+                    }], {
+                      onSuccess: () => {
+                        setReagendarObj(null);
+                        qc.invalidateQueries({ queryKey: ["objetivos", distId] });
+                      },
+                    });
+                  }}
+                  className="flex-1 py-2 rounded-lg bg-[var(--shelfy-accent)] text-white text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {createMut.isPending ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <RefreshCw className="w-3.5 h-3.5" />
+                  )}
+                  Crear nuevo objetivo
+                </button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

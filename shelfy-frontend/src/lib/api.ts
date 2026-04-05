@@ -1162,6 +1162,9 @@ export interface Objetivo {
   updated_at: string;
   completed_at?: string | null;
   tiene_exhibicion_pendiente?: boolean;
+  id_objetivo_padre?: string | null;
+  resultado_final?: 'exito' | 'falla' | null;
+  observacion_revision?: string | null;
 }
 
 export interface ObjetivoCreate {
@@ -1177,6 +1180,7 @@ export interface ObjetivoCreate {
   estado_objetivo?: string;
   valor_objetivo?: number;
   fecha_objetivo?: string;
+  id_objetivo_padre?: string;
 }
 
 export interface ObjetivoUpdate {

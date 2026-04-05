@@ -16,7 +16,7 @@ Tipos soportados:
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 
 from db import sb
@@ -71,15 +71,18 @@ class ObjetivosWatcherService:
                     }
 
                     valor_obj = obj.get("valor_objetivo")
+                    ahora = datetime.now(timezone.utc)
+
+                    # ── Cumplido por progreso (meta alcanzada) ─────────────────
                     if (
                         valor_obj
                         and float(valor_obj) > 0
                         and valor_aprobados >= float(valor_obj)
                     ):
                         updates["cumplido"] = True
-                        updates["completed_at"] = datetime.now(timezone.utc).isoformat()
+                        updates["resultado_final"] = "exito"
+                        updates["completed_at"] = ahora.isoformat()
                         cumplidos += 1
-                        # Notificar al vendedor que el objetivo fue cumplido
                         try:
                             from services.objetivos_notification_service import objetivos_notification
                             objetivos_notification.notify_objetivo_cumplido(
@@ -90,6 +93,39 @@ class ObjetivosWatcherService:
                             )
                         except Exception as e_notif:
                             logger.warning(f"[Watcher] Notif cumplido omitida obj={obj.get('id')}: {e_notif}")
+
+                    # ── Expiración automática (fecha_objetivo vencida) ─────────
+                    elif not updates.get("cumplido"):
+                        fecha_obj_str = obj.get("fecha_objetivo")
+                        if fecha_obj_str:
+                            try:
+                                fecha_limite = date.fromisoformat(str(fecha_obj_str)[:10])
+                                if date.today() > fecha_limite:
+                                    resultado = (
+                                        "exito"
+                                        if (valor_obj and float(valor_obj) > 0 and valor_aprobados >= float(valor_obj))
+                                        else "falla"
+                                    )
+                                    updates["cumplido"] = True
+                                    updates["resultado_final"] = resultado
+                                    updates["completed_at"] = ahora.isoformat()
+                                    cumplidos += 1
+                                    logger.info(
+                                        f"[Watcher] Objetivo {obj.get('id')} expirado → resultado={resultado}"
+                                    )
+                                    if resultado == "exito":
+                                        try:
+                                            from services.objetivos_notification_service import objetivos_notification
+                                            objetivos_notification.notify_objetivo_cumplido(
+                                                dist_id=dist_id,
+                                                id_vendedor=obj.get("id_vendedor"),
+                                                tipo=obj.get("tipo"),
+                                                nombre_pdv=obj.get("nombre_pdv"),
+                                            )
+                                        except Exception as e_notif:
+                                            logger.warning(f"[Watcher] Notif expirado omitida obj={obj.get('id')}: {e_notif}")
+                            except (ValueError, TypeError) as e_fecha:
+                                logger.warning(f"[Watcher] fecha_objetivo inválida obj={obj.get('id')}: {e_fecha}")
 
                     sb.table("objetivos").update(updates).eq("id", obj["id"]).execute()
                     actualizados += 1

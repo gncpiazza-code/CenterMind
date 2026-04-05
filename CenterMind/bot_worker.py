@@ -1588,6 +1588,7 @@ class BotWorker:
                     if pdv_obj_res.data:
                         id_pdv_obj = pdv_obj_res.data[0]["id"]
                         pdv_nombre_obj = pdv_obj_res.data[0].get("nombre_cliente") or nro_cliente
+                        # Buscar objetivo con id_target_pdv explícito
                         obj_match_res = self.db.sb.table("objetivos") \
                             .select("id") \
                             .eq("id_distribuidor", self.distribuidor_id) \
@@ -1596,6 +1597,21 @@ class BotWorker:
                             .eq("tipo", "exhibicion") \
                             .eq("cumplido", False) \
                             .limit(1).execute()
+                        # Fallback: objetivo sin id_target_pdv asignado
+                        if not obj_match_res.data:
+                            obj_match_res = self.db.sb.table("objetivos") \
+                                .select("id") \
+                                .eq("id_distribuidor", self.distribuidor_id) \
+                                .eq("id_vendedor", id_vendedor_v2_obj) \
+                                .eq("tipo", "exhibicion") \
+                                .eq("cumplido", False) \
+                                .is_("id_target_pdv", "null") \
+                                .limit(1).execute()
+                            if obj_match_res.data:
+                                self.logger.info(
+                                    f"🎯 Objetivo exhibicion match via fallback (sin id_target_pdv) "
+                                    f"vend={id_vendedor_v2_obj} pdv={nro_cliente}"
+                                )
                         if obj_match_res.data:
                             obj_id_match = obj_match_res.data[0]["id"]
                             objetivo_badge = (

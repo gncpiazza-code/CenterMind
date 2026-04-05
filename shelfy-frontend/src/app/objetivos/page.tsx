@@ -378,7 +378,7 @@ interface NuevoObjetivoModalProps {
   distId: number;
   vendedores: { id_vendedor: number; nombre_erp: string }[];
   onClose: () => void;
-  onCreate: (data: ObjetivoCreate) => void;
+  onCreate: (data: ObjetivoCreate[]) => void;
   loading: boolean;
 }
 
@@ -401,7 +401,9 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
 
   // Activación/Exhibición state
   const [inactivePdvCount, setInactivePdvCount] = useState<number>(0);
-  const [activacionPdvs, setActivacionPdvs] = useState<{ nombre: string; fechaCompra: string | null; diasSinCompra: number | null }[]>([]);
+  const [activacionPdvs, setActivacionPdvs] = useState<{ id: number; idErp: string; nombre: string; fechaCompra: string | null; diasSinCompra: number | null }[]>([]);
+  // Multi-select para exhibicion
+  const [selectedPdvIds, setSelectedPdvIds] = useState<Set<number>>(new Set());
 
   const [loadingCtx, setLoadingCtx] = useState(false);
 
@@ -419,6 +421,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
     setCobranzaMonto("");
     setInactivePdvCount(0);
     setActivacionPdvs([]);
+    setSelectedPdvIds(new Set());
   }
 
   // Load contextual data when vendor or tipo changes
@@ -465,7 +468,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
     } else if (tipo === "conversion_estado" || tipo === "exhibicion") {
       fetchRutasSupervision(Number(vendedorId))
         .then(async (rutasData) => {
-          const allClients: { nombre: string; fechaCompra: string | null; diasSinCompra: number | null; tieneExhibicion: boolean }[] = [];
+          const allClients: { id: number; idErp: string; nombre: string; fechaCompra: string | null; diasSinCompra: number | null; tieneExhibicion: boolean }[] = [];
           const now = Date.now();
           for (const ruta of rutasData) {
             const clientes = await fetchClientesSupervision(ruta.id_ruta).catch(() => [] as ClienteSupervision[]);
@@ -475,13 +478,13 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
               const diasSinCompra = fechaCompra
                 ? Math.floor((now - new Date(fechaCompra).getTime()) / 86_400_000)
                 : null;
-              allClients.push({ nombre: nombreCliente, fechaCompra, diasSinCompra, tieneExhibicion: c.tiene_exhibicion_reciente ?? false });
+              allClients.push({ id: c.id_cliente, idErp: c.id_cliente_erp, nombre: nombreCliente, fechaCompra, diasSinCompra, tieneExhibicion: c.tiene_exhibicion_reciente ?? false });
             }
           }
-          const seen = new Set<string>();
+          const seen = new Set<number>();
           const filtered = allClients.filter(c => {
-            if (seen.has(c.nombre)) return false;
-            seen.add(c.nombre);
+            if (seen.has(c.id)) return false;
+            seen.add(c.id);
             if (tipo === "conversion_estado") {
               return c.diasSinCompra === null || (c.diasSinCompra ?? 0) > 30;
             } else {
@@ -493,7 +496,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
             if (b.diasSinCompra === null) return -1;
             return b.diasSinCompra - a.diasSinCompra;
           });
-          setActivacionPdvs(filtered.map(c => ({ nombre: c.nombre, fechaCompra: c.fechaCompra, diasSinCompra: c.diasSinCompra })));
+          setActivacionPdvs(filtered.map(c => ({ id: c.id, idErp: c.idErp, nombre: c.nombre, fechaCompra: c.fechaCompra, diasSinCompra: c.diasSinCompra })));
         })
         .catch(() => setActivacionPdvs([]))
         .finally(() => setLoadingCtx(false));
@@ -527,27 +530,55 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!vendedorId) return;
-    const phrase = desc || buildPhrase();
-    const payload: ObjetivoCreate = {
+
+    const base: ObjetivoCreate = {
       id_distribuidor: distId,
       id_vendedor: Number(vendedorId),
       nombre_vendedor: vendedorNombre,
       tipo,
-      descripcion: phrase || undefined,
       ...(fecha ? { fecha_objetivo: fecha } : {}),
     };
+
     // Alteo
     if (tipo === "ruteo_alteo") {
-      payload.valor_objetivo = cantidadAlteo ? Number(cantidadAlteo) : (selectedRuta?.total_pdv ?? undefined);
-      if (selectedRuta) payload.estado_inicial = selectedRuta.dia_semana;
+      base.valor_objetivo = cantidadAlteo ? Number(cantidadAlteo) : (selectedRuta?.total_pdv ?? undefined);
+      if (selectedRuta) { base.estado_inicial = selectedRuta.dia_semana; base.id_target_ruta = selectedRuta.id_ruta; }
+      base.descripcion = desc || buildPhrase();
+      onCreate([base]);
+      return;
     }
+
     // Cobranza
-    if (tipo === "cobranza" && selectedDeudor) {
-      payload.valor_objetivo = cobranzaMode === "parcial" && cobranzaMonto
-        ? Number(cobranzaMonto)
-        : selectedDeudor.deuda_total;
+    if (tipo === "cobranza") {
+      if (selectedDeudor) {
+        base.valor_objetivo = cobranzaMode === "parcial" && cobranzaMonto
+          ? Number(cobranzaMonto)
+          : selectedDeudor.deuda_total;
+      }
+      base.descripcion = desc || buildPhrase();
+      onCreate([base]);
+      return;
     }
-    onCreate(payload);
+
+    // Exhibicion — uno por PDV seleccionado
+    if (tipo === "exhibicion" && selectedPdvIds.size > 0) {
+      const payloads: ObjetivoCreate[] = [];
+      for (const pdvId of selectedPdvIds) {
+        const pdv = activacionPdvs.find(p => p.id === pdvId);
+        if (!pdv) continue;
+        payloads.push({
+          ...base,
+          id_target_pdv: pdv.id,
+          nombre_pdv: pdv.nombre,
+          descripcion: desc || `Lograr exhibición en ${pdv.nombre}`,
+        });
+      }
+      if (payloads.length > 0) { onCreate(payloads); return; }
+    }
+
+    // Fallback: general / conversion_estado / exhibicion sin selección
+    base.descripcion = desc || buildPhrase();
+    onCreate([base]);
   };
 
   const TIPOS_DISPONIBLES: ObjetivoTipo[] = ["ruteo_alteo", "conversion_estado", "exhibicion", "cobranza", "general"];
@@ -736,9 +767,16 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
           {/* ── Contextual: Activación / Exhibición — PDV list ──────────── */}
           {(tipo === "conversion_estado" || tipo === "exhibicion") && vendedorId && (
             <div className="space-y-2 rounded-xl bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] p-3">
-              <p className="text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider">
-                {tipo === "conversion_estado" ? "PDVs sin compra +30 días" : "PDVs sin exhibición reciente"}
-              </p>
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider">
+                  {tipo === "conversion_estado" ? "PDVs sin compra +30 días" : "PDVs sin exhibición reciente"}
+                </p>
+                {tipo === "exhibicion" && selectedPdvIds.size > 0 && (
+                  <span className="text-[10px] font-semibold text-[var(--shelfy-accent)]">
+                    {selectedPdvIds.size} seleccionado{selectedPdvIds.size > 1 ? "s" : ""}
+                  </span>
+                )}
+              </div>
               {loadingCtx ? (
                 <div className="flex items-center gap-1.5 text-xs text-[var(--shelfy-muted)]">
                   <Loader2 className="w-3 h-3 animate-spin" /> Cargando PDVs...
@@ -746,31 +784,50 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
               ) : activacionPdvs.length === 0 ? (
                 <p className="text-xs text-[var(--shelfy-muted)]">Sin PDVs en esa condición</p>
               ) : (
-               <div className="max-h-36 overflow-y-auto space-y-0.5">
-                  {activacionPdvs.slice(0, 20).map((pdv, i) => (
-                    <button
-                      key={i}
-                      type="button"
-                      onClick={() => {
-                        const targetPhrase = tipo === "conversion_estado" 
-                          ? `Activar a ${pdv.nombre} (sin compra hace ${pdv.diasSinCompra ?? 'N'} días)`
-                          : `Lograr exhibición en ${pdv.nombre}`;
-                        setDesc(targetPhrase);
-                      }}
-                      className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-[var(--shelfy-accent)]/10 text-xs transition-colors border border-transparent hover:border-[var(--shelfy-accent)]/30"
-                    >
-                      <span className="text-[var(--shelfy-text)] truncate max-w-[65%] text-left">{pdv.nombre}</span>
-                      {pdv.diasSinCompra !== null ? (
-                        <span className={`font-medium tabular-nums ${pdv.diasSinCompra > 60 ? "text-red-400" : "text-orange-400"}`}>
-                          Hace {pdv.diasSinCompra}d
-                        </span>
-                      ) : (
-                        <span className="text-[var(--shelfy-muted)]">Sin compras</span>
-                      )}
-                    </button>
-                  ))}
-                  {activacionPdvs.length > 15 && (
-                    <p className="text-[10px] text-[var(--shelfy-muted)] text-center pt-1">+{activacionPdvs.length - 15} más</p>
+                <div className="max-h-40 overflow-y-auto space-y-0.5">
+                  {activacionPdvs.slice(0, 25).map((pdv) => {
+                    const isSelected = tipo === "exhibicion" && selectedPdvIds.has(pdv.id);
+                    return (
+                      <button
+                        key={pdv.id}
+                        type="button"
+                        onClick={() => {
+                          if (tipo === "exhibicion") {
+                            setSelectedPdvIds(prev => {
+                              const next = new Set(prev);
+                              if (next.has(pdv.id)) next.delete(pdv.id); else next.add(pdv.id);
+                              return next;
+                            });
+                          } else {
+                            setDesc(`Activar a ${pdv.nombre} (sin compra hace ${pdv.diasSinCompra ?? "N"} días)`);
+                          }
+                        }}
+                        className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs transition-colors border ${
+                          isSelected
+                            ? "bg-[var(--shelfy-accent)]/15 border-[var(--shelfy-accent)]/40"
+                            : "bg-white/5 border-transparent hover:bg-[var(--shelfy-accent)]/10 hover:border-[var(--shelfy-accent)]/20"
+                        }`}
+                      >
+                        {tipo === "exhibicion" && (
+                          <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 transition-colors ${
+                            isSelected ? "bg-[var(--shelfy-accent)] border-[var(--shelfy-accent)]" : "border-white/25"
+                          }`}>
+                            {isSelected && <Check className="w-2.5 h-2.5 text-white" />}
+                          </div>
+                        )}
+                        <span className="text-[var(--shelfy-text)] truncate flex-1 text-left">{pdv.nombre}</span>
+                        {pdv.diasSinCompra !== null ? (
+                          <span className={`font-medium tabular-nums shrink-0 ${pdv.diasSinCompra > 60 ? "text-red-400" : "text-orange-400"}`}>
+                            {pdv.diasSinCompra}d
+                          </span>
+                        ) : (
+                          <span className="text-[var(--shelfy-muted)] shrink-0">S/C</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                  {activacionPdvs.length > 25 && (
+                    <p className="text-[10px] text-[var(--shelfy-muted)] text-center pt-1">+{activacionPdvs.length - 25} más</p>
                   )}
                 </div>
               )}
@@ -1139,7 +1196,9 @@ export default function ObjetivosPage() {
   });
 
   const createMut = useMutation({
-    mutationFn: createObjetivo,
+    mutationFn: async (items: ObjetivoCreate[]) => {
+      for (const d of items) await createObjetivo(d);
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["objetivos", distId] });
       qc.invalidateQueries({ queryKey: ["objetivos-resumen-supervisor", distId] });
@@ -1551,7 +1610,7 @@ export default function ObjetivosPage() {
           distId={distId}
           vendedores={vendedores}
           onClose={() => setModalOpen(false)}
-          onCreate={data => createMut.mutate(data)}
+          onCreate={items => createMut.mutate(items)}
           loading={createMut.isPending}
         />
       )}

@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { useAuth } from "@/hooks/useAuth";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { BottomNav } from "@/components/layout/BottomNav";
@@ -945,9 +946,162 @@ function ObjectivePrintOut({ objetivos }: { objetivos: Objetivo[] }) {
   );
 }
 
+// ── Vista Estadísticas ────────────────────────────────────────────────────────
+
+const PIE_COLORS: Record<string, string> = {
+  conversion_estado: "#60a5fa",
+  cobranza:          "#fb923c",
+  ruteo_alteo:       "#a78bfa",
+  exhibicion:        "#34d399",
+  general:           "#94a3b8",
+};
+
+function VistaEstadisticas({ objetivos }: { objetivos: Objetivo[] }) {
+  const total      = objetivos.length;
+  const cumplidos  = objetivos.filter(o => o.cumplido).length;
+  const pendientes = total - cumplidos;
+  const eficiencia = total > 0 ? Math.round((cumplidos / total) * 100) : 0;
+
+  // Ranking vendedores (by completed objectives)
+  const rankingMap: Record<string, { nombre: string; completados: number; total: number }> = {};
+  for (const o of objetivos) {
+    const key = String(o.id_vendedor);
+    if (!rankingMap[key]) rankingMap[key] = { nombre: o.nombre_vendedor ?? `Vendedor ${o.id_vendedor}`, completados: 0, total: 0 };
+    rankingMap[key].total++;
+    if (o.cumplido) rankingMap[key].completados++;
+  }
+  const ranking = Object.values(rankingMap)
+    .sort((a, b) => b.completados - a.completados || b.total - a.total)
+    .slice(0, 8);
+
+  // Tipo distribution for pie
+  const tipoCount: Record<string, number> = {};
+  for (const o of objetivos) {
+    tipoCount[o.tipo] = (tipoCount[o.tipo] || 0) + 1;
+  }
+  const pieData = Object.entries(tipoCount).map(([tipo, count]) => ({
+    name: TIPO_CONFIG[tipo as ObjetivoTipo]?.label ?? tipo,
+    value: count,
+    tipo,
+  }));
+
+  if (total === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-48 text-[var(--shelfy-muted)]">
+        <BarChart3 className="w-8 h-8 opacity-15 mb-2" />
+        <p className="text-sm">Sin objetivos para analizar</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* KPI cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <StatCard icon={Target}       label="Total objetivos"  value={total}       color="bg-white/5" />
+        <StatCard icon={CheckCircle2} label="Completados"       value={cumplidos}   color="bg-emerald-500/10 text-emerald-400" />
+        <StatCard icon={Clock}        label="En curso"          value={pendientes}  color="bg-orange-500/10 text-orange-400" />
+        <StatCard
+          icon={TrendingUp}
+          label="Eficiencia"
+          value={`${eficiencia}%`}
+          sub={`${cumplidos} de ${total}`}
+          color="bg-[var(--shelfy-accent)]/10 text-[var(--shelfy-accent)]"
+        />
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Ranking vendedores */}
+        <div className="rounded-xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden">
+          <div className="px-4 py-3 border-b border-[var(--shelfy-border)]">
+            <p className="text-xs font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider">
+              Ranking vendedores
+            </p>
+          </div>
+          <div className="divide-y divide-[var(--shelfy-border)]/50">
+            {ranking.map((v, i) => {
+              const pct = v.total > 0 ? Math.round((v.completados / v.total) * 100) : 0;
+              return (
+                <div key={v.nombre} className="flex items-center gap-3 px-4 py-2.5">
+                  <span className={`w-5 text-center text-xs font-bold tabular-nums ${
+                    i === 0 ? "text-yellow-400" : i === 1 ? "text-slate-400" : i === 2 ? "text-amber-600" : "text-[var(--shelfy-muted)]"
+                  }`}>
+                    {i + 1}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-[var(--shelfy-text)] truncate">{v.nombre}</p>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <div className="flex-1 h-1 rounded-full bg-white/10 overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-[var(--shelfy-accent)] transition-all"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                      <span className="text-[10px] text-[var(--shelfy-muted)] tabular-nums">{pct}%</span>
+                    </div>
+                  </div>
+                  <span className="text-xs font-semibold text-emerald-400 tabular-nums">{v.completados}</span>
+                  <span className="text-[10px] text-[var(--shelfy-muted)] tabular-nums">/ {v.total}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Distribución por tipo (pie) */}
+        <div className="rounded-xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden">
+          <div className="px-4 py-3 border-b border-[var(--shelfy-border)]">
+            <p className="text-xs font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider">
+              Distribución por tipo
+            </p>
+          </div>
+          <div className="p-4" style={{ height: 240 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={pieData}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={55}
+                  outerRadius={80}
+                  paddingAngle={3}
+                  dataKey="value"
+                >
+                  {pieData.map((entry) => (
+                    <Cell
+                      key={entry.tipo}
+                      fill={PIE_COLORS[entry.tipo] ?? "#94a3b8"}
+                    />
+                  ))}
+                </Pie>
+                <Tooltip
+                  contentStyle={{
+                    background: "var(--shelfy-panel)",
+                    border: "0.5px solid var(--shelfy-border)",
+                    borderRadius: 8,
+                    fontSize: 12,
+                    color: "var(--shelfy-text)",
+                  }}
+                />
+                <Legend
+                  iconType="circle"
+                  iconSize={8}
+                  formatter={(value) => (
+                    <span style={{ fontSize: 11, color: "var(--shelfy-text)" }}>{value}</span>
+                  )}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-type PageTab = "objetivos" | "supervisor";
+type PageTab = "objetivos" | "supervisor" | "estadisticas";
 
 export default function ObjetivosPage() {
   const { user } = useAuth();
@@ -980,7 +1134,7 @@ export default function ObjetivosPage() {
       ...(filterTipo && { tipo: filterTipo }),
       ...(filterVendedor && { vendedor_id: filterVendedor }),
     }),
-    enabled: !!distId && pageTab === "objetivos",
+    enabled: !!distId && pageTab !== "supervisor",
     staleTime: 30 * 1000,
   });
 
@@ -1126,7 +1280,7 @@ export default function ObjetivosPage() {
             </div>
           </div>
 
-          {/* Stats (only on objetivos tab) */}
+          {/* Stats (only on objetivos tab — estadisticas tab has its own) */}
           {pageTab === "objetivos" && (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
               <StatCard icon={Target}       label="Total"          value={stats.total}             color="bg-white/5" />
@@ -1156,10 +1310,21 @@ export default function ObjetivosPage() {
               <Users className="w-3.5 h-3.5" />
               Vista supervisor
             </button>
+            <button
+              onClick={() => setPageTab("estadisticas")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                pageTab === "estadisticas" ? "bg-white/10 text-[var(--shelfy-text)]" : "text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
+              }`}
+            >
+              <BarChart3 className="w-3.5 h-3.5" />
+              Estadísticas
+            </button>
           </div>
 
           {pageTab === "supervisor" ? (
             <VistaSupervisor distId={distId} />
+          ) : pageTab === "estadisticas" ? (
+            <VistaEstadisticas objetivos={objetivos} />
           ) : (
             <>
               {/* Filtros */}

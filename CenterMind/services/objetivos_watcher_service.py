@@ -2,20 +2,22 @@
 """
 services/objetivos_watcher_service.py
 =======================================
-Recalcula valor_actual de los objetivos activos a partir de datos reales.
-Se invoca automáticamente después de cada ingesta de padrón o ventas.
+Detecta diferencias (nuevos eventos) para cada objetivo activo y actualiza
+valor_actual con precisión de evento, insertando registros en objetivos_tracking
+para evitar duplicados y disparar notificaciones solo ante hechos nuevos.
 
 Tipos soportados:
-  - ruteo_alteo      → cuenta nuevos PDVs agregados a las rutas del vendedor
-  - conversion_estado → cuenta clientes que realizaron su primera compra
-  - exhibicion       → cuenta exhibiciones aprobadas del vendedor
-  - cobranza         → calcula deuda cobrada vs. snapshot inicial
-  - general          → no se actualiza automáticamente (control manual)
+  - ruteo_alteo      → nuevos PDVs incorporados a rutas del vendedor
+  - conversion_estado → PDVs que realizaron su primera compra
+  - exhibicion       → exhibiciones aprobadas
+  - cobranza         → deuda cobrada vs. snapshot inicial (cálculo global)
+  - general          → sin actualización automática
 """
 from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+from typing import Any
 
 from db import sb
 
@@ -24,14 +26,13 @@ logger = logging.getLogger("ObjetivosWatcher")
 
 class ObjetivosWatcherService:
     """
-    Actualiza valor_actual para todos los objetivos activos de un distribuidor.
-    No lanza excepciones — errores individuales quedan en logs de warning.
+    Actualiza valor_actual mediante detección de diferencias.
+    Usa objetivos_tracking como tabla de deduplicación para no notificar
+    el mismo evento dos veces.
     """
 
     def run_watcher(self, dist_id: int) -> dict:
-        """
-        Entry point. Retorna dict con estadísticas de la ejecución.
-        """
+        """Entry point. Retorna dict con estadísticas de la ejecución."""
         try:
             res = (
                 sb.table("objetivos")
@@ -47,20 +48,28 @@ class ObjetivosWatcherService:
 
             actualizados = 0
             cumplidos = 0
+            eventos_nuevos = 0
 
             for obj in objetivos:
                 try:
-                    nuevo_valor = self._compute_valor_actual(obj, dist_id)
-                    if nuevo_valor is None:
-                        continue  # tipo general o sin snapshot
+                    result = self._process_objetivo(obj, dist_id)
+                    if result is None:
+                        continue  # tipo general o sin datos base
 
-                    updates: dict = {
+                    nuevo_valor, nuevos_eventos = result
+                    eventos_nuevos += nuevos_eventos
+
+                    updates: dict[str, Any] = {
                         "valor_actual": nuevo_valor,
                         "updated_at": datetime.now(timezone.utc).isoformat(),
                     }
 
                     valor_obj = obj.get("valor_objetivo")
-                    if valor_obj and float(valor_obj) > 0 and nuevo_valor >= float(valor_obj):
+                    if (
+                        valor_obj
+                        and float(valor_obj) > 0
+                        and nuevo_valor >= float(valor_obj)
+                    ):
                         updates["cumplido"] = True
                         updates["completed_at"] = datetime.now(timezone.utc).isoformat()
                         cumplidos += 1
@@ -76,13 +85,15 @@ class ObjetivosWatcherService:
 
             logger.info(
                 f"[Watcher] dist={dist_id}: {len(objetivos)} objetivos, "
-                f"{actualizados} actualizados, {cumplidos} marcados cumplidos"
+                f"{actualizados} actualizados, {cumplidos} cumplidos, "
+                f"{eventos_nuevos} eventos nuevos"
             )
             return {
                 "dist_id": dist_id,
                 "procesados": len(objetivos),
                 "actualizados": actualizados,
                 "cumplidos": cumplidos,
+                "eventos_nuevos": eventos_nuevos,
             }
 
         except Exception as e:
@@ -91,31 +102,40 @@ class ObjetivosWatcherService:
 
     # ── Dispatcher ────────────────────────────────────────────────────────────
 
-    def _compute_valor_actual(self, obj: dict, dist_id: int) -> float | None:
+    def _process_objetivo(
+        self, obj: dict, dist_id: int
+    ) -> tuple[float, int] | None:
+        """
+        Retorna (nuevo_valor_actual, cantidad_eventos_nuevos) o None si
+        el tipo no se procesa automáticamente.
+        """
         tipo = obj.get("tipo")
         id_vendedor = obj.get("id_vendedor")
         created_at = obj.get("created_at", "")
 
         if tipo == "ruteo_alteo":
-            return self._count_nuevos_pdvs(id_vendedor, dist_id, created_at)
+            return self._diff_alteo(obj, id_vendedor, dist_id, created_at)
         if tipo == "conversion_estado":
-            return self._count_conversiones(id_vendedor, dist_id, created_at)
+            return self._diff_activacion(obj, id_vendedor, dist_id, created_at)
         if tipo == "exhibicion":
-            return self._count_exhibiciones(id_vendedor, dist_id, created_at)
+            return self._diff_exhibicion(obj, id_vendedor, dist_id, created_at)
         if tipo == "cobranza":
-            return self._compute_cobranza(obj, dist_id)
-        # "general" → sin actualización automática
-        return None
+            valor = self._compute_cobranza(obj, dist_id)
+            if valor is None:
+                return None
+            return (valor, 0)  # cobranza no tiene eventos discretos
+        return None  # "general"
 
-    # ── Implementaciones por tipo ─────────────────────────────────────────────
+    # ── Alteo ─────────────────────────────────────────────────────────────────
 
-    def _count_nuevos_pdvs(
-        self, id_vendedor: int, dist_id: int, since: str
-    ) -> float:
+    def _diff_alteo(
+        self, obj: dict, id_vendedor: int, dist_id: int, since: str
+    ) -> tuple[float, int]:
         """
-        Cuenta PDVs incorporados a las rutas del vendedor después de que
-        se creó el objetivo (ruteo de altas).
+        Detecta nuevos PDVs en las rutas del vendedor creados después de
+        'since' que no estén registrados en objetivos_tracking.
         """
+        obj_id = obj["id"]
         try:
             rutas_res = (
                 sb.table("rutas_v2")
@@ -125,29 +145,40 @@ class ObjetivosWatcherService:
             )
             ruta_ids = [r["id_ruta"] for r in (rutas_res.data or [])]
             if not ruta_ids:
-                return 0.0
+                return (float(obj.get("valor_actual") or 0), 0)
 
             clientes_res = (
                 sb.table("clientes_pdv_v2")
-                .select("id_cliente", count="exact")
+                .select("id, id_cliente_erp, nombre_cliente, created_at")
                 .eq("id_distribuidor", dist_id)
                 .in_("id_ruta", ruta_ids)
                 .gte("created_at", since)
                 .execute()
             )
-            return float(clientes_res.count or 0)
+            all_clients = clientes_res.data or []
+
+            ya_trackeados = self._get_tracked_refs(obj_id, "alteo")
+            nuevos = [c for c in all_clients if str(c["id"]) not in ya_trackeados]
+
+            if nuevos:
+                self._insert_tracking_batch(obj_id, "alteo", nuevos, id_llave="id", dist_id=dist_id, id_vendedor=id_vendedor)
+
+            nuevo_valor = float(len(all_clients))
+            return (nuevo_valor, len(nuevos))
 
         except Exception as e:
-            logger.warning(f"[Watcher] ruteo_alteo vend={id_vendedor}: {e}")
-            return 0.0
+            logger.warning(f"[Watcher] alteo vend={id_vendedor}: {e}")
+            return (float(obj.get("valor_actual") or 0), 0)
 
-    def _count_conversiones(
-        self, id_vendedor: int, dist_id: int, since: str
-    ) -> float:
+    # ── Activación ────────────────────────────────────────────────────────────
+
+    def _diff_activacion(
+        self, obj: dict, id_vendedor: int, dist_id: int, since: str
+    ) -> tuple[float, int]:
         """
-        Cuenta PDVs que realizaron su primera compra (activación) desde
-        que se creó el objetivo.
+        Detecta PDVs cuya fecha_ultima_compra >= since que no estén en tracking.
         """
+        obj_id = obj["id"]
         try:
             rutas_res = (
                 sb.table("rutas_v2")
@@ -157,65 +188,101 @@ class ObjetivosWatcherService:
             )
             ruta_ids = [r["id_ruta"] for r in (rutas_res.data or [])]
             if not ruta_ids:
-                return 0.0
+                return (float(obj.get("valor_actual") or 0), 0)
 
             clientes_res = (
                 sb.table("clientes_pdv_v2")
-                .select("id_cliente", count="exact")
+                .select("id, id_cliente_erp, nombre_cliente, fecha_ultima_compra")
                 .eq("id_distribuidor", dist_id)
                 .in_("id_ruta", ruta_ids)
-                .gte("fecha_ultima_compra", since[:10])  # date only
+                .gte("fecha_ultima_compra", since[:10])
                 .execute()
             )
-            return float(clientes_res.count or 0)
+            all_clients = clientes_res.data or []
+
+            ya_trackeados = self._get_tracked_refs(obj_id, "activacion")
+            nuevos = [c for c in all_clients if str(c["id"]) not in ya_trackeados]
+
+            if nuevos:
+                self._insert_tracking_batch(obj_id, "activacion", nuevos, id_llave="id", dist_id=dist_id, id_vendedor=id_vendedor)
+
+            nuevo_valor = float(len(all_clients))
+            return (nuevo_valor, len(nuevos))
 
         except Exception as e:
-            logger.warning(f"[Watcher] conversion_estado vend={id_vendedor}: {e}")
-            return 0.0
+            logger.warning(f"[Watcher] activacion vend={id_vendedor}: {e}")
+            return (float(obj.get("valor_actual") or 0), 0)
 
-    def _count_exhibiciones(
-        self, id_vendedor: int, dist_id: int, since: str
-    ) -> float:
+    # ── Exhibición ────────────────────────────────────────────────────────────
+
+    def _diff_exhibicion(
+        self, obj: dict, id_vendedor_v2: int, dist_id: int, since: str
+    ) -> tuple[float, int]:
         """
-        Cuenta exhibiciones aprobadas del vendedor desde que se creó
-        el objetivo.
+        Detecta exhibiciones aprobadas no registradas en tracking.
         """
+        obj_id = obj["id"]
         try:
-            res = (
+            # Mapear id_vendedor_v2 → id_integrante
+            int_res = (
+                sb.table("integrantes_grupo")
+                .select("id_integrante")
+                .eq("id_distribuidor", dist_id)
+                .eq("id_vendedor_v2", id_vendedor_v2)
+                .limit(1)
+                .execute()
+            )
+            if not int_res.data:
+                logger.warning(
+                    f"[Watcher] No id_integrante para id_vendedor_v2={id_vendedor_v2}"
+                )
+                return (float(obj.get("valor_actual") or 0), 0)
+
+            id_integrante = int_res.data[0]["id_integrante"]
+
+            exhibs_res = (
                 sb.table("exhibiciones")
-                .select("id_exhibicion", count="exact")
+                .select("id_exhibicion, nro_cliente, timestamp_subida")
                 .eq("id_distribuidor", dist_id)
-                .eq("id_vendedor", id_vendedor)
-                .eq("estado", "Aprobada")
-                .gte("created_at", since)
+                .eq("id_integrante", id_integrante)
+                .eq("estado", "Aprobado")
+                .gte("timestamp_subida", since)
                 .execute()
             )
-            return float(res.count or 0)
+            all_exhibs = exhibs_res.data or []
+
+            ya_trackeados = self._get_tracked_refs(obj_id, "exhibicion")
+            nuevas = [e for e in all_exhibs if str(e["id_exhibicion"]) not in ya_trackeados]
+
+            if nuevas:
+                self._insert_tracking_batch(
+                    obj_id, "exhibicion", nuevas,
+                    id_llave="id_exhibicion",
+                    dist_id=dist_id,
+                    id_vendedor=id_vendedor_v2,
+                )
+
+            nuevo_valor = float(len(all_exhibs))
+            return (nuevo_valor, len(nuevas))
 
         except Exception as e:
-            logger.warning(f"[Watcher] exhibicion vend={id_vendedor}: {e}")
-            return 0.0
+            logger.error(f"[Watcher] exhibicion vend={id_vendedor_v2}: {e}")
+            return (float(obj.get("valor_actual") or 0), 0)
+
+    # ── Cobranza ──────────────────────────────────────────────────────────────
 
     def _compute_cobranza(self, obj: dict, dist_id: int) -> float | None:
-        """
-        Calcula cuánto se cobró (deuda_inicial - deuda_actual).
-
-        La deuda inicial queda en estado_inicial como número al crear
-        el objetivo (snapshot automático de cc_detalle).
-        """
+        """Calcula cuánto se cobró (deuda_inicial - deuda_actual)."""
         estado_inicial = obj.get("estado_inicial")
         if not estado_inicial:
-            return None  # Sin snapshot no hay base
-
+            return None
         try:
             deuda_inicial = float(estado_inicial)
         except (ValueError, TypeError):
             return None
 
         id_vendedor = obj.get("id_vendedor")
-
         try:
-            # Deuda actual: última snapshot en cc_detalle (suma de filas del vendedor)
             res = (
                 sb.table("cc_detalle")
                 .select("deuda_total")
@@ -226,12 +293,90 @@ class ObjetivosWatcherService:
             deuda_actual = sum(
                 float(r.get("deuda_total") or 0) for r in (res.data or [])
             )
-            cobrado = max(0.0, deuda_inicial - deuda_actual)
-            return cobrado
-
+            return max(0.0, deuda_inicial - deuda_actual)
         except Exception as e:
             logger.warning(f"[Watcher] cobranza obj={obj.get('id')}: {e}")
             return None
+
+    # ── Tracking helpers ──────────────────────────────────────────────────────
+
+    def _get_tracked_refs(self, obj_id: str, tipo_evento: str) -> set[str]:
+        """Devuelve el conjunto de id_referencia ya registrados en tracking."""
+        try:
+            res = (
+                sb.table("objetivos_tracking")
+                .select("id_referencia")
+                .eq("id_objetivo", obj_id)
+                .eq("tipo_evento", tipo_evento)
+                .execute()
+            )
+            return {r["id_referencia"] for r in (res.data or [])}
+        except Exception as e:
+            logger.warning(f"[Watcher] _get_tracked_refs obj={obj_id}: {e}")
+            return set()
+
+    def _insert_tracking_batch(
+        self,
+        obj_id: str,
+        tipo_evento: str,
+        items: list[dict],
+        id_llave: str,
+        dist_id: int,
+        id_vendedor: int,
+    ) -> None:
+        """
+        Inserta registros nuevos en objetivos_tracking y dispara notificaciones.
+        Usa upsert con on_conflict para evitar duplicados en race conditions.
+        """
+        from services.objetivos_notification_service import objetivos_notification
+
+        rows = [
+            {
+                "id_objetivo": obj_id,
+                "id_referencia": str(item[id_llave]),
+                "tipo_evento": tipo_evento,
+                "metadata": {
+                    k: v for k, v in item.items()
+                    if k not in (id_llave, "created_at")
+                },
+            }
+            for item in items
+        ]
+
+        try:
+            sb.table("objetivos_tracking").upsert(
+                rows, on_conflict="id_objetivo,id_referencia,tipo_evento"
+            ).execute()
+            logger.info(
+                f"[Watcher] tracking insertado: obj={obj_id} "
+                f"tipo={tipo_evento} count={len(rows)}"
+            )
+        except Exception as e:
+            logger.warning(f"[Watcher] upsert tracking: {e}")
+            return
+
+        # Notificar por cada evento nuevo
+        for item in items:
+            try:
+                # Telegram al grupo del vendedor
+                objetivos_notification.notify_vendor_telegram(
+                    dist_id=dist_id,
+                    id_objetivo=obj_id,
+                    id_vendedor=id_vendedor,
+                    tipo_evento=tipo_evento,
+                    pdv_data=item,
+                )
+                # WebSocket al supervisor
+                objetivos_notification.notify_supervisor_ws(
+                    dist_id=dist_id,
+                    event_data={
+                        "tipo_evento": tipo_evento,
+                        "id_objetivo": obj_id,
+                        "pdv": item,
+                    },
+                )
+            except Exception as e:
+                logger.warning(f"[Watcher] Notificación fallida para item={item}: {e}")
 
 
 # Singleton

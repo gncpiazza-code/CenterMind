@@ -1567,6 +1567,60 @@ class BotWorker:
                 "⏳ <b>Estado:</b> Pendiente de evaluación"
             )
 
+            # ── INTERCEPTOR DE OBJETIVO DE EXHIBICIÓN ──────────────────────
+            # Si existe un objetivo activo de tipo 'exhibicion' para este
+            # vendedor y PDV, se añade un badge al mensaje de confirmación
+            # y se notifica al supervisor en tiempo real.
+            objetivo_badge = ""
+            try:
+                ig_obj_res = self.db.sb.table("integrantes_grupo") \
+                    .select("id_vendedor_v2") \
+                    .eq("id_distribuidor", self.distribuidor_id) \
+                    .eq("telegram_user_id", effective_uploader_id) \
+                    .limit(1).execute()
+                if ig_obj_res.data and ig_obj_res.data[0].get("id_vendedor_v2"):
+                    id_vendedor_v2_obj = ig_obj_res.data[0]["id_vendedor_v2"]
+                    pdv_obj_res = self.db.sb.table("clientes_pdv_v2") \
+                        .select("id, nombre_cliente") \
+                        .eq("id_distribuidor", self.distribuidor_id) \
+                        .eq("id_cliente_erp", nro_cliente) \
+                        .limit(1).execute()
+                    if pdv_obj_res.data:
+                        id_pdv_obj = pdv_obj_res.data[0]["id"]
+                        pdv_nombre_obj = pdv_obj_res.data[0].get("nombre_cliente") or nro_cliente
+                        obj_match_res = self.db.sb.table("objetivos") \
+                            .select("id") \
+                            .eq("id_distribuidor", self.distribuidor_id) \
+                            .eq("id_vendedor", id_vendedor_v2_obj) \
+                            .eq("id_target_pdv", id_pdv_obj) \
+                            .eq("tipo", "exhibicion") \
+                            .eq("cumplido", False) \
+                            .limit(1).execute()
+                        if obj_match_res.data:
+                            objetivo_badge = (
+                                f"\n\n🎯 <b>¡Objetivo de Exhibición!</b>\n"
+                                f"Este PDV (<b>{pdv_nombre_obj}</b>) está en tus metas. "
+                                f"Ha pasado a revisión del supervisor."
+                            )
+                            # Notificar al supervisor
+                            from services.objetivos_notification_service import objetivos_notification
+                            objetivos_notification.notify_supervisor_ws(
+                                dist_id=self.distribuidor_id,
+                                event_data={
+                                    "tipo_evento": "exhibicion",
+                                    "id_objetivo": obj_match_res.data[0]["id"],
+                                    "pdv": {"nombre": pdv_nombre_obj, "id_cliente_erp": nro_cliente},
+                                    "vendedor": uploader_name,
+                                },
+                            )
+                            self.logger.info(
+                                f"🎯 Objetivo exhibicion match: PDV '{pdv_nombre_obj}' "
+                                f"vend={id_vendedor_v2_obj} obj={obj_match_res.data[0]['id']}"
+                            )
+            except Exception as e_obj:
+                self.logger.warning(f"⚠️ Error en intercept objetivo exhibicion: {e_obj}")
+            # ── FIN INTERCEPTOR OBJETIVO ────────────────────────────────────
+
             msg_text = (
                 f"📋 <b>Exhibición registrada</b>\n\n"
                 f"{fotos_text}"
@@ -1575,6 +1629,7 @@ class BotWorker:
                 f"📍 <b>Tipo:</b> {tipo_pdv}\n"
                 f"{foto_line}"
                 f"{estado_label}"
+                f"{objetivo_badge}"
                 f"{stats_text}"
                 f"{historial_text}"
             )

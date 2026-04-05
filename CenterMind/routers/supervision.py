@@ -884,10 +884,10 @@ def listar_objetivos(
         pdv_ids = list({o["id_target_pdv"] for o in items if o.get("id_target_pdv")})
         if pdv_ids:
             pdv_res = sb.table("clientes_pdv_v2") \
-                .select("id, id_cliente_erp") \
-                .in_("id", pdv_ids) \
+                .select("id_cliente, id_cliente_erp") \
+                .in_("id_cliente", pdv_ids) \
                 .execute()
-            pdv_erp_map = {p["id"]: p.get("id_cliente_erp") for p in (pdv_res.data or [])}
+            pdv_erp_map = {p["id_cliente"]: p.get("id_cliente_erp") for p in (pdv_res.data or [])}
             for obj in items:
                 if obj.get("id_target_pdv"):
                     obj["id_cliente_erp"] = pdv_erp_map.get(obj["id_target_pdv"])

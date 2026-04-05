@@ -1445,6 +1445,20 @@ class BotWorker:
                                 except Exception as ex_pdv:
                                     self.logger.warning(f"⚠️ Error lookup PDV real-time: {ex_pdv}")
                             
+                            # Trigger objetivos watcher so valor_actual updates immediately
+                            try:
+                                import threading
+                                from services.objetivos_watcher_service import objetivos_watcher as _watcher
+                                _dist = self.distribuidor_id
+                                threading.Thread(
+                                    target=_watcher.run_watcher,
+                                    args=(_dist,),
+                                    daemon=True,
+                                ).start()
+                                self.logger.debug(f"[Watcher] trigger background para dist={_dist}")
+                            except Exception as _e_watch:
+                                self.logger.warning(f"[Watcher] No se pudo disparar: {_e_watch}")
+
                             # Real-time Broadcast via WebSocket
                             if self.ws_manager:
                                 try:

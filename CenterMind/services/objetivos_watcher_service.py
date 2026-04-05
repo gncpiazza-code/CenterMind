@@ -56,7 +56,13 @@ class ObjetivosWatcherService:
                     if result is None:
                         continue  # tipo general o sin datos base
 
-                    nuevo_valor, nuevos_eventos = result
+                    # exhibicion returns a 3-tuple (display_valor, eventos, approved_valor)
+                    # all other types return a 2-tuple (valor, eventos)
+                    if len(result) == 3:
+                        nuevo_valor, nuevos_eventos, valor_aprobados = result
+                    else:
+                        nuevo_valor, nuevos_eventos = result
+                        valor_aprobados = nuevo_valor
                     eventos_nuevos += nuevos_eventos
 
                     updates: dict[str, Any] = {
@@ -68,7 +74,7 @@ class ObjetivosWatcherService:
                     if (
                         valor_obj
                         and float(valor_obj) > 0
-                        and nuevo_valor >= float(valor_obj)
+                        and valor_aprobados >= float(valor_obj)
                     ):
                         updates["cumplido"] = True
                         updates["completed_at"] = datetime.now(timezone.utc).isoformat()
@@ -296,8 +302,10 @@ class ObjetivosWatcherService:
                     id_vendedor=id_vendedor_v2,
                 )
 
-            nuevo_valor = float(len(all_exhibs))
-            return (nuevo_valor, len(nuevas) + len(nuevas_pend))
+            # Display valor includes pending photos so the UI shows immediate progress.
+            # The third element (approved count) is used exclusively for the cumplido check.
+            nuevo_valor = float(len(all_exhibs) + len(pendientes))
+            return (nuevo_valor, len(nuevas) + len(nuevas_pend), float(len(all_exhibs)))
 
         except Exception as e:
             logger.error(f"[Watcher] exhibicion vend={id_vendedor_v2}: {e}")

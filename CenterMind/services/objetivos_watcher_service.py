@@ -31,16 +31,22 @@ class ObjetivosWatcherService:
     el mismo evento dos veces.
     """
 
-    def run_watcher(self, dist_id: int) -> dict:
-        """Entry point. Retorna dict con estadísticas de la ejecución."""
+    def run_watcher(self, dist_id: int, obj_id: str | None = None) -> dict:
+        """Entry point. Retorna dict con estadísticas de la ejecución.
+
+        Si se pasa obj_id, sólo procesa ese objetivo (evita tocar objetivos
+        ya en progreso cuando se crea uno nuevo).
+        """
         try:
-            res = (
+            q = (
                 sb.table("objetivos")
                 .select("*")
                 .eq("id_distribuidor", dist_id)
                 .eq("cumplido", False)
-                .execute()
             )
+            if obj_id is not None:
+                q = q.eq("id", obj_id)
+            res = q.execute()
             objetivos = res.data or []
 
             if not objetivos:

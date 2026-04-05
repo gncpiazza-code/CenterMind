@@ -729,11 +729,11 @@ def crear_objetivo(body: ObjetivoCreate, user_payload=Depends(verify_auth)):
         except Exception as e_notif:
             logger.warning(f"[Objetivo] Notificación inicial omitida: {e_notif}")
 
-        # Watcher refresh: compute valor_actual immediately so the UI shows
-        # the correct starting state (e.g. 0 cobrado, N PDVs ya en ruta, etc.)
+        # Watcher refresh: compute valor_actual immediately SÓLO para el nuevo
+        # objetivo (no todos), para no pisar valor_actual de objetivos en progreso.
         try:
             from services.objetivos_watcher_service import objetivos_watcher
-            objetivos_watcher.run_watcher(body.id_distribuidor)
+            objetivos_watcher.run_watcher(body.id_distribuidor, obj_id=str(rows[0]["id"]))
         except Exception as e_watch:
             logger.warning(f"[Objetivo] Watcher post-create omitido: {e_watch}")
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { useAuth } from "@/hooks/useAuth";
@@ -18,6 +18,7 @@ import {
   fetchRutasSupervision,
   fetchClientesSupervision,
   fetchCuentasSupervision,
+  getWSUrl,
   type Objetivo,
   type ObjetivoCreate,
   type ObjetivoTipo,
@@ -1332,6 +1333,57 @@ export default function ObjetivosPage() {
       qc.invalidateQueries({ queryKey: ["objetivos-resumen-supervisor", distId] });
     },
   });
+
+  // ── WebSocket — auto-refresh on objetivo_evento ───────────────────────────
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!distId) return;
+
+    let socket: WebSocket | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let alive = true;
+
+    const invalidate = () => {
+      // Leading-edge 500ms debounce: fire immediately, suppress subsequent calls
+      if (debounceRef.current) return;
+      qc.invalidateQueries({ queryKey: ["objetivos", distId] });
+      qc.invalidateQueries({ queryKey: ["objetivos-resumen-supervisor", distId] });
+      debounceRef.current = setTimeout(() => {
+        debounceRef.current = null;
+      }, 500);
+    };
+
+    const connect = () => {
+      if (!alive) return;
+      socket = new WebSocket(getWSUrl(distId));
+
+      socket.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === "objetivo_evento") {
+            invalidate();
+          }
+        } catch {
+          // malformed frame — ignore
+        }
+      };
+
+      socket.onclose = () => {
+        if (!alive) return;
+        reconnectTimer = setTimeout(connect, 3000);
+      };
+    };
+
+    connect();
+
+    return () => {
+      alive = false;
+      if (socket) socket.close();
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [distId, qc]);
 
   // ── Derived vendedores + sucursales ──────────────────────────────────────
 

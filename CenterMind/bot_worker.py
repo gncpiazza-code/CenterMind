@@ -1634,11 +1634,27 @@ class BotWorker:
                         return q
                     # Match by explicit id_target_pdv first; fallback to any objective without PDV target
                     obj_match_res = _obj_q().eq("id_target_pdv", id_pdv_obj).limit(1).execute()
-                    self.logger.info(
-                        f"[ObjInterceptor] Match por id_target_pdv={id_pdv_obj}: "
-                        f"{'ENCONTRADO' if obj_match_res.data else 'no encontrado'}"
-                    )
-                    if not obj_match_res.data:
+                    
+                    if obj_match_res.data:
+                        self.logger.info(f"[ObjInterceptor] ✅ Match por id_target_pdv={id_pdv_obj} ENCONTRADO")
+                    else:
+                        # Diagnostic: check if the PDV exists for OTHER sellers
+                        try:
+                            other_v_res = self.db.sb.table("objetivos") \
+                                .select("id_vendedor, nombre_vendedor") \
+                                .eq("id_distribuidor", self.distribuidor_id) \
+                                .eq("tipo", "exhibicion") \
+                                .eq("cumplido", False) \
+                                .eq("id_target_pdv", id_pdv_obj) \
+                                .limit(1).execute()
+                            if other_v_res.data:
+                                other_v = other_v_res.data[0]
+                                self.logger.warning(
+                                    f"[ObjInterceptor] ⚠️ PDV {id_pdv_obj} tiene objetivo pero para OTRO vendedor: "
+                                    f"ID {other_v['id_vendedor']} ({other_v['nombre_vendedor']})"
+                                )
+                        except Exception: pass
+                        
                         obj_match_res = _obj_q().is_("id_target_pdv", "null").limit(1).execute()
                         self.logger.info(
                             f"[ObjInterceptor] Fallback (id_target_pdv IS NULL): "
@@ -1686,6 +1702,24 @@ class BotWorker:
                                     ).execute()
                         except Exception as e_track:
                             self.logger.warning(f"⚠️ Error insertando tracking pendiente: {e_track}")
+
+                        # 2b. Incrementar valor_actual inmediatamente para que el
+                        #     frontend reciba datos frescos al invalidar la query
+                        try:
+                            cur_res = self.db.sb.table("objetivos") \
+                                .select("valor_actual").eq("id", obj_id_match) \
+                                .single().execute()
+                            if cur_res.data:
+                                new_val = (cur_res.data.get("valor_actual") or 0) + 1
+                                self.db.sb.table("objetivos") \
+                                    .update({"valor_actual": new_val}) \
+                                    .eq("id", obj_id_match).execute()
+                                self.logger.info(
+                                    f"[ObjInterceptor] valor_actual → {new_val} "
+                                    f"para obj={obj_id_match}"
+                                )
+                        except Exception as e_upd:
+                            self.logger.warning(f"⚠️ Error actualizando valor_actual: {e_upd}")
 
                         # 3. Notificar al vendedor directo via bot (chat_id ya conocido)
                         try:

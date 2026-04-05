@@ -1596,54 +1596,52 @@ class BotWorker:
                     .eq("id_distribuidor", self.distribuidor_id) \
                     .eq("telegram_user_id", effective_uploader_id) \
                     .limit(1).execute()
-                if not ig_obj_res.data or not ig_obj_res.data[0].get("id_vendedor_v2"):
+                id_vendedor_v2_obj = (
+                    ig_obj_res.data[0].get("id_vendedor_v2")
+                    if ig_obj_res.data else None
+                )
+                self.logger.info(
+                    f"[ObjInterceptor] id_vendedor_v2={id_vendedor_v2_obj} "
+                    f"uid={effective_uploader_id}"
+                )
+                # Proceed even without id_vendedor_v2 — PDV match is enough
+                pdv_obj_res = self.db.sb.table("clientes_pdv_v2") \
+                    .select("id_cliente, nombre_cliente") \
+                    .eq("id_distribuidor", self.distribuidor_id) \
+                    .eq("id_cliente_erp", nro_cliente) \
+                    .limit(1).execute()
+                if not pdv_obj_res.data:
                     self.logger.warning(
-                        f"[ObjInterceptor] Sin id_vendedor_v2 para uid={effective_uploader_id} — saliendo"
+                        f"[ObjInterceptor] PDV no encontrado en clientes_pdv_v2 "
+                        f"para id_cliente_erp='{nro_cliente}' dist={self.distribuidor_id} — saliendo"
                     )
                 else:
-                    id_vendedor_v2_obj = ig_obj_res.data[0]["id_vendedor_v2"]
-                    self.logger.info(f"[ObjInterceptor] id_vendedor_v2={id_vendedor_v2_obj}")
-                    pdv_obj_res = self.db.sb.table("clientes_pdv_v2") \
-                        .select("id, nombre_cliente") \
-                        .eq("id_distribuidor", self.distribuidor_id) \
-                        .eq("id_cliente_erp", nro_cliente) \
-                        .limit(1).execute()
-                    if not pdv_obj_res.data:
-                        self.logger.warning(
-                            f"[ObjInterceptor] PDV no encontrado en clientes_pdv_v2 "
-                            f"para id_cliente_erp='{nro_cliente}' dist={self.distribuidor_id} — saliendo"
-                        )
-                    else:
-                        id_pdv_obj = pdv_obj_res.data[0]["id"]
-                        pdv_nombre_obj = pdv_obj_res.data[0].get("nombre_cliente") or nro_cliente
-                        self.logger.info(f"[ObjInterceptor] PDV id={id_pdv_obj} '{pdv_nombre_obj}'")
-                        # Buscar objetivo con id_target_pdv explícito
-                        obj_match_res = self.db.sb.table("objetivos") \
+                    id_pdv_obj = pdv_obj_res.data[0]["id_cliente"]
+                    pdv_nombre_obj = pdv_obj_res.data[0].get("nombre_cliente") or nro_cliente
+                    self.logger.info(f"[ObjInterceptor] PDV id={id_pdv_obj} '{pdv_nombre_obj}'")
+                    # Build base query — vendor filter applied only when known
+                    def _obj_q():
+                        q = self.db.sb.table("objetivos") \
                             .select("id") \
                             .eq("id_distribuidor", self.distribuidor_id) \
-                            .eq("id_vendedor", id_vendedor_v2_obj) \
-                            .eq("id_target_pdv", id_pdv_obj) \
                             .eq("tipo", "exhibicion") \
-                            .eq("cumplido", False) \
-                            .limit(1).execute()
+                            .eq("cumplido", False)
+                        if id_vendedor_v2_obj:
+                            q = q.eq("id_vendedor", id_vendedor_v2_obj)
+                        return q
+                    # Match by explicit id_target_pdv
+                    obj_match_res = _obj_q().eq("id_target_pdv", id_pdv_obj).limit(1).execute()
+                    self.logger.info(
+                        f"[ObjInterceptor] Match por id_target_pdv={id_pdv_obj}: "
+                        f"{'ENCONTRADO' if obj_match_res.data else 'no encontrado'}"
+                    )
+                    # Fallback: objective without specific PDV target
+                    if not obj_match_res.data:
+                        obj_match_res = _obj_q().is_("id_target_pdv", "null").limit(1).execute()
                         self.logger.info(
-                            f"[ObjInterceptor] Match por id_target_pdv={id_pdv_obj}: "
+                            f"[ObjInterceptor] Fallback (id_target_pdv IS NULL): "
                             f"{'ENCONTRADO' if obj_match_res.data else 'no encontrado'}"
                         )
-                        # Fallback: objetivo sin id_target_pdv asignado
-                        if not obj_match_res.data:
-                            obj_match_res = self.db.sb.table("objetivos") \
-                                .select("id") \
-                                .eq("id_distribuidor", self.distribuidor_id) \
-                                .eq("id_vendedor", id_vendedor_v2_obj) \
-                                .eq("tipo", "exhibicion") \
-                                .eq("cumplido", False) \
-                                .is_("id_target_pdv", "null") \
-                                .limit(1).execute()
-                            self.logger.info(
-                                f"[ObjInterceptor] Fallback (id_target_pdv IS NULL): "
-                                f"{'ENCONTRADO' if obj_match_res.data else 'no encontrado'}"
-                            )
 
                         if obj_match_res.data:
                             obj_id_match = obj_match_res.data[0]["id"]

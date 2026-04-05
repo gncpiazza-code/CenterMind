@@ -262,7 +262,7 @@ class ObjetivosWatcherService:
             # ── Fase 1: fotos Pendientes ──────────────────────────────────────
             pend_res = (
                 sb.table("exhibiciones")
-                .select("id_exhibicion, nro_cliente, timestamp_subida")
+                .select("id_exhibicion, id_cliente, timestamp_subida")
                 .eq("id_distribuidor", dist_id)
                 .eq("id_integrante", id_integrante)
                 .eq("estado", "Pendiente")
@@ -283,7 +283,7 @@ class ObjetivosWatcherService:
             # ── Fase 2: fotos Aprobadas ───────────────────────────────────────
             aprov_res = (
                 sb.table("exhibiciones")
-                .select("id_exhibicion, nro_cliente, timestamp_subida")
+                .select("id_exhibicion, id_cliente, timestamp_subida")
                 .eq("id_distribuidor", dist_id)
                 .eq("id_integrante", id_integrante)
                 .eq("estado", "Aprobado")

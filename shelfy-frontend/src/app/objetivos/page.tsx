@@ -1196,6 +1196,15 @@ export default function ObjetivosPage() {
   const filtered = useMemo(() => {
     let list = objetivos;
 
+    // Privacy Filter: Exclude Nacho Piazza (test) and test IDs (Plan B) for non-superadmins
+    if (!user?.is_superadmin) {
+      list = list.filter(o => 
+        !(o.nombre_vendedor ?? "").toLowerCase().includes("nacho piazza") &&
+        !(o.nombre_vendedor ?? "").toLowerCase().includes("test") &&
+        !(o.id_cliente_erp ?? "").startsWith("999")
+      );
+    }
+
     // Text search
     if (searchText) {
       const q = searchText.toLowerCase();
@@ -1223,19 +1232,19 @@ export default function ObjetivosPage() {
     }
 
     return list;
-  }, [objetivos, searchText, selectedSucursal, selectedVendedorId, vendedorNamesEnSucursal, vendedores]);
+  }, [objetivos, searchText, selectedSucursal, selectedVendedorId, vendedorNamesEnSucursal, vendedores, user?.is_superadmin]);
 
   // ── Stats ─────────────────────────────────────────────────────────────────
 
   const stats = useMemo(() => {
-    const total = objetivos.length;
-    const cumplidos = objetivos.filter(o => o.cumplido).length;
+    const total = filtered.length;
+    const cumplidos = filtered.filter(o => o.cumplido).length;
     const pendientes = total - cumplidos;
     const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
-    const completadosSemana = objetivos.filter(o => o.cumplido && o.completed_at && o.completed_at > weekAgo).length;
+    const completadosSemana = filtered.filter(o => o.cumplido && o.completed_at && o.completed_at > weekAgo).length;
     const pct = total > 0 ? Math.round((cumplidos / total) * 100) : 0;
     return { total, cumplidos, pendientes, completadosSemana, pct };
-  }, [objetivos]);
+  }, [filtered]);
 
   // ── Kanban groups ─────────────────────────────────────────────────────────
 
@@ -1335,7 +1344,7 @@ export default function ObjetivosPage() {
           {pageTab === "supervisor" ? (
             <VistaSupervisor distId={distId} />
           ) : pageTab === "estadisticas" ? (
-            <VistaEstadisticas objetivos={objetivos} />
+            <VistaEstadisticas objetivos={filtered} />
           ) : (
             <>
               {/* Filtros */}

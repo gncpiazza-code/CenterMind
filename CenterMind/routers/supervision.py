@@ -130,6 +130,20 @@ def evaluar(req: EvaluarRequest, user_payload=Depends(verify_auth)):
             "synced_telegram": 0,
         }).in_("id_exhibicion", req.ids_exhibicion).eq("estado", "Pendiente").execute()
         affected = len(r.data) if r.data else 0
+
+        # Si se aprobó al menos una foto, disparar el watcher para detectar cumplidos
+        if affected > 0 and req.estado == "Aprobado":
+            try:
+                import threading
+                from services.objetivos_watcher_service import objetivos_watcher
+                threading.Thread(
+                    target=objetivos_watcher.run_watcher,
+                    args=(dist_id,),
+                    daemon=True,
+                ).start()
+            except Exception as e_watch:
+                logger.warning(f"[evaluar] Watcher trigger omitido: {e_watch}")
+
         return {"affected": affected}
     except HTTPException:
         raise
@@ -166,12 +180,14 @@ def supervision_vendedores(dist_id: int, user_payload=Depends(verify_auth)):
         rows = res.data or []
         erp_name_map = _get_erp_name_map(dist_id)
         filtered = []
+        is_sa = user_payload.get("is_superadmin")
         for r in rows:
             tg_name = (r.get("nombre_vendedor") or "").strip()
-            if dist_id == 3 and tg_name.lower() == "nacho":
+            # Privacy: Exclude Nacho for non-admins to avoid skewing stats
+            if not is_sa and dist_id == 3 and tg_name.lower() == "nacho":
                 continue
             erp_name = erp_name_map.get(tg_name.lower(), tg_name)
-            if dist_id == 3 and erp_name.lower() == "nacho":
+            if not is_sa and dist_id == 3 and erp_name.lower() == "nacho":
                 continue
             r["nombre_vendedor"] = erp_name
             filtered.append(r)
@@ -284,12 +300,13 @@ def supervision_ventas(dist_id: int, dias: int = 30, user_payload=Depends(verify
 
         erp_name_map = _get_erp_name_map(dist_id)
         vendors: dict = {}
+        is_sa = user_payload.get("is_superadmin")
         for row in rows:
             v_raw = row.get("vendedor") or "Sin Vendedor"
-            if dist_id == 3 and v_raw.lower() == "nacho":
+            if not is_sa and dist_id == 3 and v_raw.lower() == "nacho":
                 continue
             v = erp_name_map.get(v_raw.lower(), v_raw)
-            if dist_id == 3 and v.lower() == "nacho":
+            if not is_sa and dist_id == 3 and v.lower() == "nacho":
                 continue
             if v not in vendors:
                 vendors[v] = {"vendedor": v, "total_facturas": 0, "monto_total": 0.0, "monto_recaudado": 0.0, "transacciones": []}
@@ -704,6 +721,13 @@ def crear_objetivo(body: ObjetivoCreate, user_payload=Depends(verify_auth)):
         rows = res.data or []
         if not rows:
             raise HTTPException(status_code=500, detail="No se pudo crear el objetivo")
+
+        # Telegram Notification for NEW objective
+        try:
+            from services.objetivos_notification_service import objetivos_notification
+            objetivos_notification.notify_new_objective_telegram(body.id_distribuidor, payload)
+        except Exception as e_notif:
+            logger.warning(f"[Objetivo] Notificación inicial omitida: {e_notif}")
 
         # Watcher refresh: compute valor_actual immediately so the UI shows
         # the correct starting state (e.g. 0 cobrado, N PDVs ya en ruta, etc.)

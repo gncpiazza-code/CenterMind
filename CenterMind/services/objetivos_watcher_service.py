@@ -73,6 +73,17 @@ class ObjetivosWatcherService:
                         updates["cumplido"] = True
                         updates["completed_at"] = datetime.now(timezone.utc).isoformat()
                         cumplidos += 1
+                        # Notificar al vendedor que el objetivo fue cumplido
+                        try:
+                            from services.objetivos_notification_service import objetivos_notification
+                            objetivos_notification.notify_objetivo_cumplido(
+                                dist_id=dist_id,
+                                id_vendedor=obj.get("id_vendedor"),
+                                tipo=obj.get("tipo"),
+                                nombre_pdv=obj.get("nombre_pdv"),
+                            )
+                        except Exception as e_notif:
+                            logger.warning(f"[Watcher] Notif cumplido omitida obj={obj.get('id')}: {e_notif}")
 
                     sb.table("objetivos").update(updates).eq("id", obj["id"]).execute()
                     actualizados += 1
@@ -219,7 +230,9 @@ class ObjetivosWatcherService:
         self, obj: dict, id_vendedor_v2: int, dist_id: int, since: str
     ) -> tuple[float, int]:
         """
-        Detecta exhibiciones aprobadas no registradas en tracking.
+        Detección dual de exhibiciones:
+          Fase 1 (Pendiente): foto subida pero aún no aprobada — notifica "Foto recibida".
+          Fase 2 (Aprobado):  foto aprobada — incrementa valor_actual y puede marcar cumplido.
         """
         obj_id = obj["id"]
         try:
@@ -240,7 +253,29 @@ class ObjetivosWatcherService:
 
             id_integrante = int_res.data[0]["id_integrante"]
 
-            exhibs_res = (
+            # ── Fase 1: fotos Pendientes ──────────────────────────────────────
+            pend_res = (
+                sb.table("exhibiciones")
+                .select("id_exhibicion, nro_cliente, timestamp_subida")
+                .eq("id_distribuidor", dist_id)
+                .eq("id_integrante", id_integrante)
+                .eq("estado", "Pendiente")
+                .gte("timestamp_subida", since)
+                .execute()
+            )
+            pendientes = pend_res.data or []
+            ya_pend = self._get_tracked_refs(obj_id, "exhibicion_pendiente")
+            nuevas_pend = [e for e in pendientes if str(e["id_exhibicion"]) not in ya_pend]
+            if nuevas_pend:
+                self._insert_tracking_batch(
+                    obj_id, "exhibicion_pendiente", nuevas_pend,
+                    id_llave="id_exhibicion",
+                    dist_id=dist_id,
+                    id_vendedor=id_vendedor_v2,
+                )
+
+            # ── Fase 2: fotos Aprobadas ───────────────────────────────────────
+            aprov_res = (
                 sb.table("exhibiciones")
                 .select("id_exhibicion, nro_cliente, timestamp_subida")
                 .eq("id_distribuidor", dist_id)
@@ -249,11 +284,10 @@ class ObjetivosWatcherService:
                 .gte("timestamp_subida", since)
                 .execute()
             )
-            all_exhibs = exhibs_res.data or []
+            all_exhibs = aprov_res.data or []
 
             ya_trackeados = self._get_tracked_refs(obj_id, "exhibicion")
             nuevas = [e for e in all_exhibs if str(e["id_exhibicion"]) not in ya_trackeados]
-
             if nuevas:
                 self._insert_tracking_batch(
                     obj_id, "exhibicion", nuevas,
@@ -263,7 +297,7 @@ class ObjetivosWatcherService:
                 )
 
             nuevo_valor = float(len(all_exhibs))
-            return (nuevo_valor, len(nuevas))
+            return (nuevo_valor, len(nuevas) + len(nuevas_pend))
 
         except Exception as e:
             logger.error(f"[Watcher] exhibicion vend={id_vendedor_v2}: {e}")

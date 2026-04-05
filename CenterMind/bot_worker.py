@@ -1606,7 +1606,7 @@ class BotWorker:
                 )
                 # Proceed even without id_vendedor_v2 — PDV match is enough
                 pdv_obj_res = self.db.sb.table("clientes_pdv_v2") \
-                    .select("id_cliente, nombre_cliente") \
+                    .select("id_cliente, nombre_fantasia") \
                     .eq("id_distribuidor", self.distribuidor_id) \
                     .eq("id_cliente_erp", nro_cliente) \
                     .limit(1).execute()
@@ -1617,7 +1617,7 @@ class BotWorker:
                     )
                 else:
                     id_pdv_obj = pdv_obj_res.data[0]["id_cliente"]
-                    pdv_nombre_obj = pdv_obj_res.data[0].get("nombre_cliente") or nro_cliente
+                    pdv_nombre_obj = pdv_obj_res.data[0].get("nombre_fantasia") or nro_cliente
                     self.logger.info(f"[ObjInterceptor] PDV id={id_pdv_obj} '{pdv_nombre_obj}'")
                     # Build base query — vendor filter applied only when known
                     def _obj_q():

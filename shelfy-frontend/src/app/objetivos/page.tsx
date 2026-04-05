@@ -1239,11 +1239,22 @@ export default function ObjetivosPage() {
 
   // ── Kanban groups ─────────────────────────────────────────────────────────
 
-  const kanbanGroups = useMemo(() => ({
-    pendiente:   filtered.filter(o => !o.cumplido && (!o.valor_objetivo || o.valor_actual < o.valor_objetivo)),
-    en_progreso: filtered.filter(o => !o.cumplido && o.valor_objetivo && o.valor_actual > 0 && o.valor_actual < o.valor_objetivo),
-    completado:  filtered.filter(o => o.cumplido),
-  }), [filtered]);
+  const kanbanGroups = useMemo(() => {
+    // An objective is "en progreso" if:
+    //   - valor_actual > 0 (generic progress), OR
+    //   - tipo === "exhibicion" AND tiene_exhibicion_pendiente (bot already detected an upload pending approval)
+    const isEnProgreso = (o: Objetivo) =>
+      !o.cumplido && (
+        (o.valor_objetivo && o.valor_actual > 0 && o.valor_actual < o.valor_objetivo) ||
+        (o.tipo === "exhibicion" && o.tiene_exhibicion_pendiente && !o.cumplido)
+      );
+
+    return {
+      pendiente:   filtered.filter(o => !o.cumplido && !isEnProgreso(o)),
+      en_progreso: filtered.filter(o => isEnProgreso(o)),
+      completado:  filtered.filter(o => o.cumplido),
+    };
+  }, [filtered]);
 
   // ── Render ────────────────────────────────────────────────────────────────
 

@@ -1161,6 +1161,7 @@ export interface Objetivo {
   created_at: string;
   updated_at: string;
   completed_at?: string | null;
+  tiene_exhibicion_pendiente?: boolean;
 }
 
 export interface ObjetivoCreate {

@@ -868,6 +868,29 @@ def listar_objetivos(
                 if obj.get("id_target_pdv"):
                     obj["id_cliente_erp"] = pdv_erp_map.get(obj["id_target_pdv"])
 
+        # Enrich exhibicion objectives with tiene_exhibicion_pendiente flag.
+        # A pending upload (estado='Pendiente') exists for the target PDV → show as "En progreso"
+        # even before the supervisor approves the photo.
+        exhibicion_pdv_ids = [
+            o["id_target_pdv"] for o in items
+            if o.get("tipo") == "exhibicion" and o.get("id_target_pdv") and not o.get("cumplido")
+        ]
+        pdvs_con_pendiente: set = set()
+        if exhibicion_pdv_ids:
+            try:
+                pend_res = sb.table("exhibiciones") \
+                    .select("id_cliente_pdv") \
+                    .eq("id_distribuidor", dist_id) \
+                    .in_("id_cliente_pdv", list(set(exhibicion_pdv_ids))) \
+                    .eq("estado", "Pendiente") \
+                    .execute()
+                pdvs_con_pendiente = {r["id_cliente_pdv"] for r in (pend_res.data or [])}
+            except Exception as e_pend:
+                logger.warning(f"[listar_objetivos] No se pudo consultar exhibiciones pendientes: {e_pend}")
+        for obj in items:
+            if obj.get("tipo") == "exhibicion":
+                obj["tiene_exhibicion_pendiente"] = obj.get("id_target_pdv") in pdvs_con_pendiente
+
         return items
     except Exception as e:
         logger.error(f"Error en listar_objetivos dist_id={dist_id}: {e}")

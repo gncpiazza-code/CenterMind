@@ -1165,6 +1165,18 @@ export interface Objetivo {
   id_objetivo_padre?: string | null;
   resultado_final?: 'exito' | 'falla' | null;
   observacion_revision?: string | null;
+  kanban_phase?: 'pendiente' | 'en_progreso' | 'terminado';
+  items?: ObjetivoItem[];
+  items_count?: number;
+  items_cumplidos?: number;
+}
+
+export interface ObjetivoItem {
+  id: string;
+  id_objetivo: string;
+  id_cliente_pdv: number;
+  nombre_pdv?: string | null;
+  estado_item: 'pendiente' | 'foto_subida' | 'cumplido';
 }
 
 export interface ObjetivoCreate {
@@ -1181,6 +1193,7 @@ export interface ObjetivoCreate {
   valor_objetivo?: number;
   fecha_objetivo?: string;
   id_objetivo_padre?: string;
+  pdv_items?: { id_cliente_pdv: number; nombre_pdv?: string }[];
 }
 
 export interface ObjetivoUpdate {

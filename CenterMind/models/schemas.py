@@ -131,6 +131,12 @@ class BonusConfigPayload(BaseModel):
     puestos: List[dict] = []
 
 
+class ObjetivoItemCreate(BaseModel):
+    """Un PDV dentro de un objetivo multi-PDV."""
+    id_cliente_pdv: int
+    nombre_pdv: Optional[str] = None
+
+
 class ObjetivoCreate(BaseModel):
     id_distribuidor: int
     id_vendedor: int
@@ -144,6 +150,8 @@ class ObjetivoCreate(BaseModel):
     estado_objetivo: Optional[str] = None
     valor_objetivo: Optional[float] = None
     fecha_objetivo: Optional[str] = None
+    # Multi-PDV: lista de ítems para exhibicion/alteo/activacion
+    pdv_items: Optional[List[ObjetivoItemCreate]] = None
 
 
 class ObjetivoUpdate(BaseModel):

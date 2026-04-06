@@ -195,6 +195,26 @@ function ObjetivoPhrase({ obj }: { obj: Objetivo }) {
   return null;
 }
 
+// ── Kanban phase resolver ─────────────────────────────────────────────────────
+
+function getObjectiveKanbanPhase(obj: Objetivo): 'pendiente' | 'en_progreso' | 'terminado' {
+  // Prefer server-computed phase
+  if (obj.kanban_phase) return obj.kanban_phase;
+  // Local fallback
+  if (obj.cumplido) return 'terminado';
+  const actual = obj.valor_actual ?? 0;
+  const objetivo = obj.valor_objetivo;
+  if (obj.tipo === 'exhibicion') {
+    if (obj.tiene_exhibicion_pendiente || actual > 0) return 'en_progreso';
+    return 'pendiente';
+  }
+  if (actual > 0) {
+    if (objetivo && actual >= objetivo) return 'terminado';
+    return 'en_progreso';
+  }
+  return 'pendiente';
+}
+
 // ── Stat card ─────────────────────────────────────────────────────────────────
 
 function StatCard({ icon: Icon, label, value, sub, color }: {
@@ -417,6 +437,30 @@ function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado }: {
       {obj.valor_objetivo ? (
         <ProgressBar actual={obj.valor_actual} objetivo={obj.valor_objetivo} />
       ) : null}
+      {obj.items_count && obj.items_count > 1 && (
+        <div className="flex items-center gap-1.5 text-[10px] text-[var(--shelfy-muted)]">
+          <span className="tabular-nums">
+            <span className="text-[var(--shelfy-text)] font-medium">{obj.items_cumplidos ?? 0}</span>
+            {' / '}{obj.items_count} PDVs
+          </span>
+          {obj.items && obj.items.length > 0 && (
+            <div className="flex gap-0.5 flex-wrap">
+              {obj.items.slice(0, 5).map(it => (
+                <span
+                  key={it.id_cliente_pdv}
+                  className={`w-2 h-2 rounded-full ${
+                    it.estado_item === 'cumplido' ? 'bg-emerald-500' :
+                    it.estado_item === 'foto_subida' ? 'bg-orange-400' :
+                    'bg-white/20'
+                  }`}
+                  title={it.nombre_pdv ?? String(it.id_cliente_pdv)}
+                />
+              ))}
+              {obj.items.length > 5 && <span className="text-[var(--shelfy-muted)]">+{obj.items.length - 5}</span>}
+            </div>
+          )}
+        </div>
+      )}
       <div className="flex items-center justify-between pt-1 gap-1.5 flex-wrap">
         <DateChip date={obj.fecha_objetivo} />
         <div className="flex items-center gap-1">
@@ -671,20 +715,18 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
       return;
     }
 
-    // Exhibicion — uno por PDV seleccionado
+    // Exhibicion — single POST with pdv_items array
     if (tipo === "exhibicion" && selectedPdvIds.size > 0) {
-      const payloads: ObjetivoCreate[] = [];
-      for (const pdvId of selectedPdvIds) {
+      const pdvItems = Array.from(selectedPdvIds).map(pdvId => {
         const pdv = activacionPdvs.find(p => p.id === pdvId);
-        if (!pdv) continue;
-        payloads.push({
-          ...base,
-          id_target_pdv: pdv.id,
-          nombre_pdv: pdv.nombre,
-          descripcion: desc || `Lograr exhibición en ${pdv.nombre}`,
-        });
-      }
-      if (payloads.length > 0) { onCreate(payloads); return; }
+        return { id_cliente_pdv: pdvId, nombre_pdv: pdv?.nombre };
+      });
+      const count = pdvItems.length;
+      base.pdv_items = pdvItems;
+      base.valor_objetivo = count;
+      base.descripcion = desc || `Lograr exhibición en ${count} PDV${count > 1 ? 's' : ''}`;
+      onCreate([base]);
+      return;
     }
 
     // Fallback: general / conversion_estado / exhibicion sin selección
@@ -1470,9 +1512,9 @@ export default function ObjetivosPage() {
   // ── Kanban groups ─────────────────────────────────────────────────────────
 
   const kanbanGroups = useMemo(() => ({
-    pendiente:   filtered.filter(o => !o.cumplido && o.valor_actual === 0),
-    en_progreso: filtered.filter(o => !o.cumplido && o.valor_actual > 0),
-    terminado:   filtered.filter(o => o.cumplido === true),
+    pendiente:   filtered.filter(o => getObjectiveKanbanPhase(o) === 'pendiente'),
+    en_progreso: filtered.filter(o => getObjectiveKanbanPhase(o) === 'en_progreso'),
+    terminado:   filtered.filter(o => getObjectiveKanbanPhase(o) === 'terminado'),
   }), [filtered]);
 
   // ── Re-agendar state ──────────────────────────────────────────────────────

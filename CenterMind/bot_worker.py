@@ -1445,17 +1445,43 @@ class BotWorker:
                                 except Exception as ex_pdv:
                                     self.logger.warning(f"⚠️ Error lookup PDV real-time: {ex_pdv}")
                             
-                            # Trigger objetivos watcher so valor_actual updates immediately
+                            # Trigger objetivos watcher scoped al PDV recién subido.
+                            # Busca si hay un objetivo activo con ítem para este PDV
+                            # y lanza el watcher solo para esos objetivos (no global).
                             try:
                                 import threading
                                 from services.objetivos_watcher_service import objetivos_watcher as _watcher
                                 _dist = self.distribuidor_id
+
+                                def _run_scoped_watcher(dist_id: int, id_cliente_pdv_val):
+                                    try:
+                                        if id_cliente_pdv_val:
+                                            # Obtener objetivos con ítem para este PDV
+                                            items_res = _watcher.__class__.__new__(_watcher.__class__)
+                                            from db import sb as _sb
+                                            obj_items = _sb.table("objetivo_items") \
+                                                .select("id_objetivo") \
+                                                .eq("id_distribuidor", dist_id) \
+                                                .eq("id_cliente_pdv", id_cliente_pdv_val) \
+                                                .execute()
+                                            obj_ids = list({r["id_objetivo"] for r in (obj_items.data or [])})
+                                            if obj_ids:
+                                                for oid in obj_ids:
+                                                    _watcher.run_watcher(dist_id, obj_id=str(oid))
+                                                return
+                                        # Fallback: watcher global (solo si no se encontró ítem específico)
+                                        _watcher.run_watcher(dist_id)
+                                    except Exception as _e:
+                                        import logging
+                                        logging.getLogger("BotWorker").warning(f"[Watcher] scoped error: {_e}")
+
+                                _pdv_id = rpc_result.get("id_cliente_pdv")
                                 threading.Thread(
-                                    target=_watcher.run_watcher,
-                                    args=(_dist,),
+                                    target=_run_scoped_watcher,
+                                    args=(_dist, _pdv_id),
                                     daemon=True,
                                 ).start()
-                                self.logger.debug(f"[Watcher] trigger background para dist={_dist}")
+                                self.logger.debug(f"[Watcher] trigger scoped background para dist={_dist}")
                             except Exception as _e_watch:
                                 self.logger.warning(f"[Watcher] No se pudo disparar: {_e_watch}")
 

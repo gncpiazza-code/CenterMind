@@ -16,7 +16,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Qu
 from core.helpers import _get_erp_name_map, _enrich_and_store_cc
 from core.security import verify_auth, check_dist_permission
 from db import sb
-from models.schemas import EvaluarRequest, ObjetivoCreate, ObjetivoUpdate, RevertirRequest
+from models.schemas import EvaluarRequest, ObjetivoCreate, ObjetivoItemCreate, ObjetivoUpdate, RevertirRequest
 
 logger = logging.getLogger("ShelfyAPI")
 router = APIRouter()
@@ -684,6 +684,60 @@ def pdvs_cercanos(
 
 # ─── Objetivos ────────────────────────────────────────────────────────────────
 
+def _compute_kanban_phase(obj: dict) -> str:
+    """
+    Deriva la columna Kanban de un objetivo a partir de su estado y sus ítems.
+    Retorna: 'pendiente' | 'en_progreso' | 'terminado'
+    """
+    if obj.get("cumplido"):
+        return "terminado"
+
+    tipo = obj.get("tipo")
+    obj_items = obj.get("items", [])
+    items_count = obj.get("items_count", 0)
+    items_cumplidos = obj.get("items_cumplidos", 0)
+
+    if tipo == "exhibicion":
+        # En progreso: al menos un ítem con foto subida o cumplido, no todos terminados
+        items_con_foto = sum(
+            1 for it in obj_items
+            if it.get("estado_item") in ("foto_subida", "cumplido")
+        )
+        if items_count > 0:
+            if items_cumplidos == items_count:
+                return "terminado"
+            if items_con_foto > 0:
+                return "en_progreso"
+            return "pendiente"
+        # Fallback sin ítems: usa tiene_exhibicion_pendiente o valor_actual
+        if obj.get("tiene_exhibicion_pendiente"):
+            return "en_progreso"
+        if (obj.get("valor_actual") or 0) > 0:
+            return "en_progreso"
+        return "pendiente"
+
+    # Alteo / activación / cobranza
+    valor_actual = obj.get("valor_actual") or 0
+    valor_objetivo = obj.get("valor_objetivo")
+
+    if items_count > 0:
+        if items_count == 1:
+            # Un solo ítem: Pendiente → Terminado directamente
+            return "terminado" if items_cumplidos >= 1 else "pendiente"
+        # Multi-PDV: En progreso si al menos uno cumplió
+        if items_cumplidos >= items_count:
+            return "terminado"
+        if items_cumplidos > 0:
+            return "en_progreso"
+        return "pendiente"
+
+    # Fallback sin ítems: valor_actual > 0 → en_progreso
+    if valor_actual > 0:
+        if valor_objetivo and valor_actual >= float(valor_objetivo):
+            return "terminado"
+        return "en_progreso"
+    return "pendiente"
+
 @router.post("/api/supervision/objetivos", tags=["Supervisión"])
 def crear_objetivo(body: ObjetivoCreate, user_payload=Depends(verify_auth)):
     check_dist_permission(user_payload, body.id_distribuidor)
@@ -710,17 +764,44 @@ def crear_objetivo(body: ObjetivoCreate, user_payload=Depends(verify_auth)):
             except Exception as e_cc:
                 logger.warning(f"[Objetivo] No se pudo snapshotear deuda para cobranza: {e_cc}")
 
+        # Para tipos multi-PDV: si vienen ítems, valor_objetivo = cantidad de ítems
+        TIPOS_MULTI_PDV = {"exhibicion", "ruteo_alteo", "conversion_estado"}
+        valor_objetivo = body.valor_objetivo
+        if body.pdv_items and body.tipo in TIPOS_MULTI_PDV and not valor_objetivo:
+            valor_objetivo = float(len(body.pdv_items))
+
         payload = {
             "id_distribuidor": body.id_distribuidor, "id_vendedor": body.id_vendedor,
             "tipo": body.tipo, "id_target_pdv": body.id_target_pdv, "id_target_ruta": body.id_target_ruta,
             "descripcion": body.descripcion, "nombre_pdv": body.nombre_pdv, "nombre_vendedor": body.nombre_vendedor,
             "estado_inicial": estado_inicial, "estado_objetivo": body.estado_objetivo,
-            "valor_objetivo": body.valor_objetivo, "fecha_objetivo": body.fecha_objetivo,
+            "valor_objetivo": valor_objetivo, "fecha_objetivo": body.fecha_objetivo,
         }
         res = sb.table("objetivos").insert(payload).execute()
         rows = res.data or []
         if not rows:
             raise HTTPException(status_code=500, detail="No se pudo crear el objetivo")
+
+        # Insertar ítems en objetivo_items si vienen en el payload
+        obj_id = str(rows[0]["id"])
+        if body.pdv_items:
+            item_rows = [
+                {
+                    "id_objetivo": obj_id,
+                    "id_distribuidor": body.id_distribuidor,
+                    "id_cliente_pdv": item.id_cliente_pdv,
+                    "nombre_pdv": item.nombre_pdv,
+                    "estado_item": "pendiente",
+                }
+                for item in body.pdv_items
+            ]
+            try:
+                sb.table("objetivo_items").upsert(
+                    item_rows, on_conflict="id_objetivo,id_cliente_pdv"
+                ).execute()
+                logger.info(f"[Objetivo] {len(item_rows)} ítems creados para objetivo {obj_id}")
+            except Exception as e_items:
+                logger.warning(f"[Objetivo] Error al crear ítems objetivo {obj_id}: {e_items}")
 
         # Telegram Notification for NEW objective
         try:
@@ -733,7 +814,7 @@ def crear_objetivo(body: ObjetivoCreate, user_payload=Depends(verify_auth)):
         # objetivo (no todos), para no pisar valor_actual de objetivos en progreso.
         try:
             from services.objetivos_watcher_service import objetivos_watcher
-            objetivos_watcher.run_watcher(body.id_distribuidor, obj_id=str(rows[0]["id"]))
+            objetivos_watcher.run_watcher(body.id_distribuidor, obj_id=obj_id)
         except Exception as e_watch:
             logger.warning(f"[Objetivo] Watcher post-create omitido: {e_watch}")
 
@@ -914,6 +995,34 @@ def listar_objetivos(
         for obj in items:
             if obj.get("tipo") == "exhibicion":
                 obj["tiene_exhibicion_pendiente"] = obj.get("id_target_pdv") in pdvs_con_pendiente
+
+        # ── Enriquecer con ítems de objetivo_items ───────────────────────────
+        obj_ids = [o["id"] for o in items]
+        if obj_ids:
+            try:
+                items_res = sb.table("objetivo_items") \
+                    .select("id_objetivo, id_cliente_pdv, nombre_pdv, estado_item") \
+                    .in_("id_objetivo", obj_ids) \
+                    .execute()
+                items_by_obj: dict[str, list] = {}
+                for it in (items_res.data or []):
+                    items_by_obj.setdefault(str(it["id_objetivo"]), []).append(it)
+                for obj in items:
+                    oid = str(obj["id"])
+                    obj_items = items_by_obj.get(oid, [])
+                    obj["items"] = obj_items
+                    obj["items_count"] = len(obj_items)
+                    obj["items_cumplidos"] = sum(1 for it in obj_items if it.get("estado_item") == "cumplido")
+            except Exception as e_items:
+                logger.warning(f"[listar_objetivos] Error cargando objetivo_items: {e_items}")
+                for obj in items:
+                    obj["items"] = []
+                    obj["items_count"] = 0
+                    obj["items_cumplidos"] = 0
+
+        # ── Calcular kanban_phase por objetivo ───────────────────────────────
+        for obj in items:
+            obj["kanban_phase"] = _compute_kanban_phase(obj)
 
         return items
     except Exception as e:

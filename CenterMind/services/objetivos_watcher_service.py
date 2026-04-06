@@ -274,6 +274,33 @@ class ObjetivosWatcherService:
 
     # ── Exhibición ────────────────────────────────────────────────────────────
 
+    def _get_item_pdv_ids(self, obj_id: str) -> list[int] | None:
+        """Devuelve los id_cliente_pdv de objetivo_items para un objetivo, o None si no hay ítems."""
+        try:
+            res = (
+                sb.table("objetivo_items")
+                .select("id_cliente_pdv")
+                .eq("id_objetivo", obj_id)
+                .execute()
+            )
+            if res.data:
+                return [r["id_cliente_pdv"] for r in res.data if r.get("id_cliente_pdv")]
+            return None
+        except Exception as e:
+            logger.warning(f"[Watcher] _get_item_pdv_ids obj={obj_id}: {e}")
+            return None
+
+    def _update_item_estado(self, obj_id: str, id_cliente_pdv: int, estado_item: str) -> None:
+        """Actualiza el estado_item de un ítem específico."""
+        try:
+            from datetime import datetime, timezone
+            sb.table("objetivo_items").update({
+                "estado_item": estado_item,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }).eq("id_objetivo", obj_id).eq("id_cliente_pdv", id_cliente_pdv).execute()
+        except Exception as e:
+            logger.warning(f"[Watcher] _update_item_estado obj={obj_id} pdv={id_cliente_pdv}: {e}")
+
     def _diff_exhibicion(
         self, obj: dict, id_vendedor_v2: int, dist_id: int, since: str
     ) -> tuple[float, int]:
@@ -281,9 +308,14 @@ class ObjetivosWatcherService:
         Detección dual de exhibiciones:
           Fase 1 (Pendiente): foto subida pero aún no aprobada — notifica "Foto recibida".
           Fase 2 (Aprobado):  foto aprobada — incrementa valor_actual y puede marcar cumplido.
+
+        Si el objetivo tiene ítems en objetivo_items, scope a esos PDVs específicamente.
         """
         obj_id = obj["id"]
         try:
+            # Resolver ítems PDV (si existen)
+            item_pdv_ids = self._get_item_pdv_ids(obj_id)
+
             # Mapear id_vendedor_v2 → id_integrante
             int_res = (
                 sb.table("integrantes_grupo")
@@ -301,16 +333,21 @@ class ObjetivosWatcherService:
 
             id_integrante = int_res.data[0]["id_integrante"]
 
+            def _build_exhibicion_query(estado: str):
+                q = (
+                    sb.table("exhibiciones")
+                    .select("id_exhibicion, id_cliente_pdv, timestamp_subida")
+                    .eq("id_distribuidor", dist_id)
+                    .eq("id_integrante", id_integrante)
+                    .eq("estado", estado)
+                    .gte("timestamp_subida", since)
+                )
+                if item_pdv_ids:
+                    q = q.in_("id_cliente_pdv", item_pdv_ids)
+                return q.execute()
+
             # ── Fase 1: fotos Pendientes ──────────────────────────────────────
-            pend_res = (
-                sb.table("exhibiciones")
-                .select("id_exhibicion, id_cliente, timestamp_subida")
-                .eq("id_distribuidor", dist_id)
-                .eq("id_integrante", id_integrante)
-                .eq("estado", "Pendiente")
-                .gte("timestamp_subida", since)
-                .execute()
-            )
+            pend_res = _build_exhibicion_query("Pendiente")
             pendientes = pend_res.data or []
             ya_pend = self._get_tracked_refs(obj_id, "exhibicion_pendiente")
             nuevas_pend = [e for e in pendientes if str(e["id_exhibicion"]) not in ya_pend]
@@ -321,17 +358,15 @@ class ObjetivosWatcherService:
                     dist_id=dist_id,
                     id_vendedor=id_vendedor_v2,
                 )
+                # Marcar ítems como foto_subida
+                if item_pdv_ids:
+                    for exhib in nuevas_pend:
+                        pdv = exhib.get("id_cliente_pdv")
+                        if pdv and pdv in item_pdv_ids:
+                            self._update_item_estado(obj_id, pdv, "foto_subida")
 
             # ── Fase 2: fotos Aprobadas ───────────────────────────────────────
-            aprov_res = (
-                sb.table("exhibiciones")
-                .select("id_exhibicion, id_cliente, timestamp_subida")
-                .eq("id_distribuidor", dist_id)
-                .eq("id_integrante", id_integrante)
-                .eq("estado", "Aprobado")
-                .gte("timestamp_subida", since)
-                .execute()
-            )
+            aprov_res = _build_exhibicion_query("Aprobado")
             all_exhibs = aprov_res.data or []
 
             ya_trackeados = self._get_tracked_refs(obj_id, "exhibicion")
@@ -343,9 +378,28 @@ class ObjetivosWatcherService:
                     dist_id=dist_id,
                     id_vendedor=id_vendedor_v2,
                 )
+                # Marcar ítems como cumplido
+                if item_pdv_ids:
+                    for exhib in nuevas:
+                        pdv = exhib.get("id_cliente_pdv")
+                        if pdv and pdv in item_pdv_ids:
+                            self._update_item_estado(obj_id, pdv, "cumplido")
 
-            # Display valor includes pending photos so the UI shows immediate progress.
-            # The third element (approved count) is used exclusively for the cumplido check.
+            # Si hay ítems: valor_actual = ítems con foto o cumplidos
+            if item_pdv_ids:
+                try:
+                    items_res = sb.table("objetivo_items") \
+                        .select("estado_item") \
+                        .eq("id_objetivo", obj_id) \
+                        .execute()
+                    items = items_res.data or []
+                    con_foto = sum(1 for it in items if it.get("estado_item") in ("foto_subida", "cumplido"))
+                    aprobados = sum(1 for it in items if it.get("estado_item") == "cumplido")
+                    return (float(con_foto), len(nuevas) + len(nuevas_pend), float(aprobados))
+                except Exception as e_items:
+                    logger.warning(f"[Watcher] Error releyendo items exhibicion obj={obj_id}: {e_items}")
+
+            # Fallback sin ítems: comportamiento original
             nuevo_valor = float(len(all_exhibs) + len(pendientes))
             return (nuevo_valor, len(nuevas) + len(nuevas_pend), float(len(all_exhibs)))
 

@@ -1,6 +1,6 @@
 # Progress — Shelfy CenterMind
 
-**Última actualización: 7 de Abril, 2026 (18)**
+**Última actualización: 7 de Abril, 2026 (19)**
 
 Este archivo detalla el estado actual del proyecto, las funcionalidades operativas y los pendientes técnicos.
 
@@ -77,6 +77,7 @@ El proyecto se encuentra en una fase de expansión de funcionalidades de supervi
 ---
 
 ## 📅 Historial Reciente (Abril 2026)
+- **07/04 (19)**: **Fix dist_id en upload padrón** — `padron_upload/{dist_id}` ahora llama `padron_service.ingest_for_dist(file_bytes, dist_id)` (no ingesta global). Se agrega método `ingest_for_dist` en `padron_ingestion_service.py` para filtrar filas por `idempresa` del distribuidor objetivo y mantener compatibilidad Bolívar extrayendo `OSCAR ONDARRETA` desde filas de Real cuando el target es Bolívar.
 - **07/04 (18)**: **Fix timeout upload padrón (524/CORS)** — `POST /api/admin/padron/upload/{dist_id}` en `routers/erp.py` ahora dispara la ingesta en `threading.Thread(..., daemon=True)` y responde inmediatamente, evitando que el proxy devuelva 524 en subidas pesadas. Se agrega `exc_info=True` al log de errores en background.
 - **07/04 (17)**: **Fix matcher sucursal ONDARRETA** — el enrutamiento Real→Bolívar del padrón ahora detecta la sucursal por tokens (`oscar` + `ondarreta`) sin depender del orden textual, cubriendo variantes reales del Excel como `OSCAR ONDARRETA` u `ONDARRETA OSCAR`.
 - **07/04 (16)**: **Padrón Real → Bolívar por sucursal** — `padron_ingestion_service.py` incorpora enrutamiento previo a la ingesta: cuando una fila entra por `Real Tabacalera` y su sucursal es `OSCAR ONDARRETA`, se procesa bajo el `id_distribuidor` de `Bolivar Distribuiciones` (resuelto por `nombre_empresa` en `distribuidores`). `SUCURSAL_FILTER` de Real vuelve a quedar en `uequin rodrigo` para evitar mezcla de sucursales.

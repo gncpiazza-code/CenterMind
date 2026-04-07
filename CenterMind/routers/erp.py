@@ -230,7 +230,7 @@ async def padron_upload(
 
     def _run_ingestion(fb: bytes) -> None:
         try:
-            padron_service.ingest(fb)
+            padron_service.ingest_for_dist(fb, dist_id)
         except Exception as e:
             logger.error(f"[Padrón background] error global: {e}", exc_info=True)
 

@@ -789,6 +789,63 @@ class PadronIngestionService:
         logger.info(f"[Padrón] Global OK — {len(resultados)} distribuidores procesados")
         return resultados
 
+    def ingest_for_dist(self, file_bytes: bytes, target_dist_id: int) -> dict:
+        """
+        Ingesta manual focalizada por distribuidor.
+        - Filtra filas por idempresa mapeado al target.
+        - Caso especial Bolívar: también toma filas de Real con sucursal OSCAR ONDARRETA.
+        """
+        df = self._parse_excel(file_bytes)
+        cols = self._detect_columns(df)
+
+        if not cols["id_cliente"]:
+            raise ValueError("No se encontró columna de ID de cliente en el archivo.")
+
+        empresa_col = _flexible_col(df, ["idempresa", "id_empresa", "empresa_id"])
+        if not empresa_col:
+            raise ValueError("No se encontró columna idempresa en el archivo.")
+
+        def _clean_erp(v: Any) -> str:
+            s = _safe_str(v, "")
+            return s[:-2] if s.endswith(".0") else s
+
+        df = df.copy()
+        df["_empresa_key"] = df[empresa_col].apply(_clean_erp)
+
+        dist_rows = self._load_distribuidores()
+        dist_map = self._load_dist_map(dist_rows)
+        real_dist_id, bolivar_dist_id = self._resolve_dist_ids_for_real_bolivar(dist_rows)
+
+        empresa_keys_target = {
+            erp_key for erp_key, dist_id in dist_map.items() if dist_id == target_dist_id
+        }
+        df_target = df[df["_empresa_key"].isin(empresa_keys_target)].copy()
+
+        # Compatibilidad operativa: si cargan padrón de Real y apuntan a Bolívar,
+        # extraer OSCAR ONDARRETA desde Real para impactar en Bolívar.
+        suc_col = cols.get("sucursal")
+        if (
+            target_dist_id == bolivar_dist_id
+            and real_dist_id is not None
+            and suc_col
+        ):
+            empresa_keys_real = {
+                erp_key for erp_key, dist_id in dist_map.items() if dist_id == real_dist_id
+            }
+            df_real = df[df["_empresa_key"].isin(empresa_keys_real)].copy()
+            if not df_real.empty:
+                df_ondarreta = df_real[df_real[suc_col].apply(_is_ondarreta_sucursal)].copy()
+                if not df_ondarreta.empty:
+                    df_target = pd.concat([df_target, df_ondarreta], ignore_index=True)
+
+        if df_target.empty:
+            raise ValueError(
+                f"No se encontraron filas para id_distribuidor={target_dist_id} en el archivo."
+            )
+
+        empresa_hint = ",".join(sorted(empresa_keys_target)) or "derived"
+        return self._ingest_for_dist(df_target, cols, target_dist_id, f"manual:{empresa_hint}")
+
     def _ingest_for_dist(
         self, df: pd.DataFrame, cols: dict, dist_id: int, empresa_erp: str
     ) -> dict:

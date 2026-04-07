@@ -152,6 +152,8 @@ class ObjetivoCreate(BaseModel):
     fecha_objetivo: Optional[str] = None
     # Multi-PDV: lista de ítems para exhibicion/alteo/activacion
     pdv_items: Optional[List[ObjetivoItemCreate]] = None
+    id_objetivo_padre: Optional[str] = None
+    resultado_final: Optional[str] = None
 
 
 class ObjetivoUpdate(BaseModel):
@@ -160,6 +162,28 @@ class ObjetivoUpdate(BaseModel):
     descripcion: Optional[str] = None
     estado_objetivo: Optional[str] = None
     fecha_objetivo: Optional[str] = None
+    resultado_final: Optional[str] = None
+    kanban_phase: Optional[str] = None
+
+
+class ObjetivoTimelineEvent(BaseModel):
+    id: Optional[str] = None
+    id_objetivo: str
+    tipo_evento: str
+    id_referencia: Optional[str] = None
+    metadata: Optional[dict] = None
+    created_at: Optional[str] = None
+
+
+class ObjetivoTimeline(BaseModel):
+    id_objetivo: str
+    nombre_vendedor: Optional[str] = None
+    tipo: Optional[str] = None
+    descripcion: Optional[str] = None
+    fecha_objetivo: Optional[str] = None
+    kanban_phase: Optional[str] = None
+    resultado_final: Optional[str] = None
+    eventos: List[ObjetivoTimelineEvent] = []
 
 
 class RolePermission(BaseModel):

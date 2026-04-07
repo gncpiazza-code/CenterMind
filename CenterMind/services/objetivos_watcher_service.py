@@ -46,6 +46,11 @@ class ObjetivosWatcherService:
             )
             if obj_id is not None:
                 q = q.eq("id", obj_id)
+            else:
+                # Omitir objetivos vencidos hace más de 1 día — los maneja la expiración
+                from datetime import date, timedelta
+                cutoff = (date.today() - timedelta(days=1)).isoformat()
+                q = q.or_(f"fecha_objetivo.is.null,fecha_objetivo.gte.{cutoff}")
             res = q.execute()
             objetivos = res.data or []
 
@@ -315,6 +320,9 @@ class ObjetivosWatcherService:
         try:
             # Resolver ítems PDV (si existen)
             item_pdv_ids = self._get_item_pdv_ids(obj_id)
+            # Guard: lista explícitamente vacía significa 0 PDVs asignados → nada que trackear
+            if item_pdv_ids is not None and len(item_pdv_ids) == 0:
+                return (float(obj.get("valor_actual") or 0), 0)
 
             # Mapear id_vendedor_v2 → id_integrante
             int_res = (

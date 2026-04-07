@@ -280,12 +280,12 @@ function getHeaders(): HeadersInit {
 export function getWSUrl(distId: number): string {
   // En producción (Vercel) necesitamos wss:// si el origen es https://
   const protocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss' : 'ws';
-  
+
   if (API_URL.startsWith('http')) {
-    const baseUrl = API_URL.replace(/^http/, 'ws'); 
+    const baseUrl = API_URL.replace(/^http/, 'ws');
     return `${baseUrl}/api/ws/exhibiciones/${distId}`;
   }
-  
+
   // Si API_URL es relativa (ej: /api), construimos la absoluta basada en el host actual
   if (typeof window !== 'undefined') {
     const host = window.location.host;
@@ -1174,9 +1174,32 @@ export interface Objetivo {
 export interface ObjetivoItem {
   id: string;
   id_objetivo: string;
+  id_distribuidor?: number;
   id_cliente_pdv: number;
   nombre_pdv?: string | null;
   estado_item: 'pendiente' | 'foto_subida' | 'cumplido';
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ObjetivoTimelineEvent {
+  id?: string;
+  id_objetivo: string;
+  tipo_evento: string;
+  id_referencia?: string | null;
+  metadata?: Record<string, unknown> | null;
+  created_at?: string;
+}
+
+export interface ObjetivoTimeline {
+  id_objetivo: string;
+  nombre_vendedor?: string | null;
+  tipo?: string | null;
+  descripcion?: string | null;
+  fecha_objetivo?: string | null;
+  kanban_phase?: string | null;
+  resultado_final?: 'exito' | 'falla' | null;
+  eventos: ObjetivoTimelineEvent[];
 }
 
 export interface ObjetivoCreate {
@@ -1206,12 +1229,13 @@ export interface ObjetivoUpdate {
 
 export async function fetchObjetivos(
   distId: number,
-  params?: { cumplido?: boolean; tipo?: ObjetivoTipo; vendedor_id?: number }
+  params?: { cumplido?: boolean; tipo?: ObjetivoTipo; vendedor_id?: number; sucursal_nombre?: string }
 ): Promise<Objetivo[]> {
   const q = new URLSearchParams();
   if (params?.cumplido !== undefined) q.set('cumplido', String(params.cumplido));
   if (params?.tipo) q.set('tipo', params.tipo);
   if (params?.vendedor_id) q.set('vendedor_id', String(params.vendedor_id));
+  if (params?.sucursal_nombre) q.set('sucursal_nombre', params.sucursal_nombre);
   const qs = q.toString();
   return apiFetch<Objetivo[]>(`/api/supervision/objetivos/${distId}${qs ? `?${qs}` : ''}`);
 }
@@ -1232,6 +1256,24 @@ export async function updateObjetivo(id: string, data: ObjetivoUpdate): Promise<
 
 export async function deleteObjetivo(id: string): Promise<void> {
   return apiFetch<void>(`/api/supervision/objetivos/${id}`, { method: 'DELETE' });
+}
+
+export async function fetchObjetivosTimeline(
+  distId: number,
+  vendedorId?: number,
+  sucursalNombre?: string
+): Promise<ObjetivoTimeline[]> {
+  const params = new URLSearchParams();
+  if (vendedorId) params.set('vendedor_id', String(vendedorId));
+  if (sucursalNombre) params.set('sucursal_nombre', sucursalNombre);
+  const qs = params.toString();
+  try {
+    return await apiFetch<ObjetivoTimeline[]>(
+      `/api/supervision/objetivos/${distId}/timeline${qs ? `?${qs}` : ''}`
+    );
+  } catch {
+    return [];
+  }
 }
 
 // ── Objetivos — Supervisor aggregation ────────────────────────────────────────

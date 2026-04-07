@@ -210,3 +210,11 @@ body {
   .maplibregl-canvas { max-width: 100% !important; }
   .shelfy-map-controls { display: none !important; }
 }
+
+/* Print tokens for objetivos */
+@media print {
+  .print-hidden { display: none !important; }
+  .print-page-break { page-break-after: always; break-after: page; }
+  .print-page-break:last-child { page-break-after: avoid; break-after: avoid; }
+  .shelfy-objetivos-print { display: block !important; }
+}

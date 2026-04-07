@@ -16,7 +16,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Qu
 from core.helpers import _get_erp_name_map, _enrich_and_store_cc
 from core.security import verify_auth, check_dist_permission
 from db import sb
-from models.schemas import EvaluarRequest, ObjetivoCreate, ObjetivoItemCreate, ObjetivoUpdate, RevertirRequest
+from models.schemas import EvaluarRequest, ObjetivoCreate, ObjetivoItemCreate, ObjetivoUpdate, ObjetivoTimeline, ObjetivoTimelineEvent, RevertirRequest
 
 logger = logging.getLogger("ShelfyAPI")
 router = APIRouter()
@@ -131,8 +131,28 @@ def evaluar(req: EvaluarRequest, user_payload=Depends(verify_auth)):
         }).in_("id_exhibicion", req.ids_exhibicion).eq("estado", "Pendiente").execute()
         affected = len(r.data) if r.data else 0
 
-        # Si se aprobó al menos una foto, disparar el watcher para detectar cumplidos
+        # Si se aprobó al menos una foto, actualizar objetivo_items y disparar watcher
         if affected > 0 and req.estado == "Aprobado":
+            # Cerrar items de objetivo_items que estaban en foto_subida para estos PDVs
+            try:
+                from datetime import timezone
+                exhib_data = sb.table("exhibiciones").select("id_cliente_pdv") \
+                    .in_("id_exhibicion", req.ids_exhibicion).execute()
+                pdv_ids = [e["id_cliente_pdv"] for e in (exhib_data.data or []) if e.get("id_cliente_pdv")]
+                if pdv_ids:
+                    items_res = sb.table("objetivo_items") \
+                        .select("id, id_objetivo, id_cliente_pdv") \
+                        .in_("id_cliente_pdv", pdv_ids) \
+                        .eq("estado_item", "foto_subida") \
+                        .execute()
+                    for item in (items_res.data or []):
+                        sb.table("objetivo_items").update({
+                            "estado_item": "cumplido",
+                            "updated_at": datetime.now(timezone.utc).isoformat(),
+                        }).eq("id", item["id"]).execute()
+            except Exception as e_items:
+                logger.warning(f"[evaluar] No se pudo actualizar objetivo_items: {e_items}")
+            # Disparar watcher para recalcular cabecera
             try:
                 import threading
                 from services.objetivos_watcher_service import objetivos_watcher
@@ -921,6 +941,116 @@ def resumen_supervisor_objetivos(dist_id: int, user_payload=Depends(verify_auth)
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/api/supervision/objetivos/{dist_id}/timeline", tags=["Supervisión"])
+def objetivos_timeline(
+    dist_id: int,
+    vendedor_id: Optional[int] = Query(None),
+    sucursal_nombre: Optional[str] = Query(None),
+    user_payload=Depends(verify_auth),
+):
+    """Devuelve objetivos con su historial de eventos de tracking, filtrable por vendedor y/o sucursal."""
+    check_dist_permission(user_payload, dist_id)
+    try:
+        # Resolver sucursal → lista de id_vendedor
+        vendedor_ids_filtro: list[int] | None = None
+        if sucursal_nombre:
+            suc_res = sb.table("sucursales_v2") \
+                .select("id_sucursal") \
+                .eq("id_distribuidor", dist_id) \
+                .ilike("nombre_erp", f"%{sucursal_nombre}%") \
+                .execute()
+            suc_ids = [r["id_sucursal"] for r in (suc_res.data or [])]
+            if suc_ids:
+                vend_res = sb.table("vendedores_v2") \
+                    .select("id_vendedor") \
+                    .in_("id_sucursal", suc_ids) \
+                    .execute()
+                vendedor_ids_filtro = [r["id_vendedor"] for r in (vend_res.data or [])]
+            else:
+                return []
+
+        # Query objetivos
+        q = sb.table("objetivos").select(
+            "id, id_vendedor, nombre_vendedor, tipo, descripcion, fecha_objetivo, "
+            "cumplido, kanban_phase, resultado_final, id_objetivo_padre, valor_actual, valor_objetivo, created_at"
+        ).eq("id_distribuidor", dist_id)
+        if vendedor_ids_filtro is not None:
+            if not vendedor_ids_filtro:
+                return []
+            q = q.in_("id_vendedor", vendedor_ids_filtro)
+        if vendedor_id is not None:
+            q = q.eq("id_vendedor", vendedor_id)
+        res = q.order("created_at", desc=True).execute()
+        obj_list = res.data or []
+
+        if not obj_list:
+            return []
+
+        obj_ids = [str(o["id"]) for o in obj_list]
+
+        # Cargar eventos de tracking
+        tracking_by_obj: dict[str, list] = {}
+        try:
+            track_res = sb.table("objetivos_tracking") \
+                .select("id, id_objetivo, tipo_evento, id_referencia, metadata, created_at") \
+                .in_("id_objetivo", obj_ids) \
+                .order("created_at", desc=True) \
+                .execute()
+            for t in (track_res.data or []):
+                oid = str(t["id_objetivo"])
+                tracking_by_obj.setdefault(oid, []).append(t)
+        except Exception as e_track:
+            logger.warning(f"[objetivos_timeline] Error cargando tracking: {e_track}")
+
+        # Cargar items para _compute_kanban_phase
+        items_by_obj: dict[str, list] = {}
+        try:
+            items_res = sb.table("objetivo_items") \
+                .select("id_objetivo, id_cliente_pdv, nombre_pdv, estado_item") \
+                .in_("id_objetivo", obj_ids) \
+                .execute()
+            for it in (items_res.data or []):
+                items_by_obj.setdefault(str(it["id_objetivo"]), []).append(it)
+        except Exception as e_items:
+            logger.warning(f"[objetivos_timeline] Error cargando items: {e_items}")
+
+        result = []
+        for obj in obj_list:
+            oid = str(obj["id"])
+            obj["items"] = items_by_obj.get(oid, [])
+            obj["items_count"] = len(obj["items"])
+            obj["items_cumplidos"] = sum(1 for it in obj["items"] if it.get("estado_item") == "cumplido")
+            kanban = _compute_kanban_phase(obj)
+
+            eventos = [
+                ObjetivoTimelineEvent(
+                    id=str(e.get("id")) if e.get("id") else None,
+                    id_objetivo=oid,
+                    tipo_evento=e.get("tipo_evento", ""),
+                    id_referencia=e.get("id_referencia"),
+                    metadata=e.get("metadata"),
+                    created_at=e.get("created_at"),
+                )
+                for e in tracking_by_obj.get(oid, [])
+            ]
+
+            result.append(ObjetivoTimeline(
+                id_objetivo=oid,
+                nombre_vendedor=obj.get("nombre_vendedor"),
+                tipo=obj.get("tipo"),
+                descripcion=obj.get("descripcion"),
+                fecha_objetivo=obj.get("fecha_objetivo"),
+                kanban_phase=kanban,
+                resultado_final=obj.get("resultado_final"),
+                eventos=eventos,
+            ))
+
+        return result
+    except Exception as e:
+        logger.error(f"Error en objetivos_timeline dist_id={dist_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/api/supervision/objetivos/{dist_id}", tags=["Supervisión"])
 def listar_objetivos(
     dist_id: int,
@@ -1046,7 +1176,9 @@ def actualizar_objetivo(objetivo_id: str, body: ObjetivoUpdate, user_payload=Dep
                 updates["completed_at"] = datetime.utcnow().isoformat()
         if body.descripcion   is not None: updates["descripcion"]    = body.descripcion
         if body.estado_objetivo is not None: updates["estado_objetivo"] = body.estado_objetivo
-        if body.fecha_objetivo is not None: updates["fecha_objetivo"] = body.fecha_objetivo
+        if body.fecha_objetivo  is not None: updates["fecha_objetivo"]  = body.fecha_objetivo
+        if body.resultado_final is not None: updates["resultado_final"] = body.resultado_final
+        if body.kanban_phase    is not None: updates["kanban_phase"]    = body.kanban_phase
         if not updates:
             raise HTTPException(status_code=400, detail="No hay campos para actualizar")
         updates["updated_at"] = datetime.utcnow().isoformat()

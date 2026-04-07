@@ -59,6 +59,18 @@ def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", s.lower().strip())
 
 
+def _is_ondarreta_sucursal(val: Any) -> bool:
+    """
+    Detecta sucursal OSCAR ONDARRETA de forma robusta, sin depender del orden.
+    Acepta variantes como "OSCAR ONDARRETA" u "ONDARRETA OSCAR".
+    """
+    n = _norm(_safe_str(val, ""))
+    if not n:
+        return False
+    tokens = set(n.split())
+    return {"oscar", "ondarreta"}.issubset(tokens)
+
+
 def _flexible_col(df: pd.DataFrame, candidates: list[str]) -> str | None:
     """Devuelve el nombre de columna del DataFrame que coincida con algún candidato."""
     norm_cols = {c: _norm(c) for c in df.columns}
@@ -743,7 +755,7 @@ class PadronIngestionService:
             suc_col = cols.get("sucursal")
             if dist_id == real_dist_id and suc_col:
                 mask_ondarreta = df_dist[suc_col].apply(
-                    lambda v: _norm(_safe_str(v, "")) == "ondarreta oscar"
+                    _is_ondarreta_sucursal
                 )
                 df_bolivar = df_dist[mask_ondarreta].copy()
                 df_real = df_dist[~mask_ondarreta].copy()

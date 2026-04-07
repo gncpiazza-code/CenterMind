@@ -1,6 +1,6 @@
 # Progress — Shelfy CenterMind
 
-**Última actualización: 7 de Abril, 2026 (16)**
+**Última actualización: 7 de Abril, 2026 (17)**
 
 Este archivo detalla el estado actual del proyecto, las funcionalidades operativas y los pendientes técnicos.
 
@@ -77,6 +77,7 @@ El proyecto se encuentra en una fase de expansión de funcionalidades de supervi
 ---
 
 ## 📅 Historial Reciente (Abril 2026)
+- **07/04 (17)**: **Fix matcher sucursal ONDARRETA** — el enrutamiento Real→Bolívar del padrón ahora detecta la sucursal por tokens (`oscar` + `ondarreta`) sin depender del orden textual, cubriendo variantes reales del Excel como `OSCAR ONDARRETA` u `ONDARRETA OSCAR`.
 - **07/04 (16)**: **Padrón Real → Bolívar por sucursal** — `padron_ingestion_service.py` incorpora enrutamiento previo a la ingesta: cuando una fila entra por `Real Tabacalera` y su sucursal es `OSCAR ONDARRETA`, se procesa bajo el `id_distribuidor` de `Bolivar Distribuiciones` (resuelto por `nombre_empresa` en `distribuidores`). `SUCURSAL_FILTER` de Real vuelve a quedar en `uequin rodrigo` para evitar mezcla de sucursales.
 - **07/04 (15)**: **Filtro de sucursal Real (La Mágica + Bolívar)** — `padron_ingestion_service.py` actualiza `SUCURSAL_FILTER` para `id_distribuidor=2` y habilita dos sucursales permitidas por nombre normalizado: `uequin rodrigo` y `ondarreta oscar`. Esto permite que los datos de Bolívar (dentro de Real Tabacalera) queden restringidos a `OSCAR ONDARRETA`, manteniendo a La Mágica en `RODRIGO UEQUIN`.
 - **07/04 (14)**: **Objetivos v9 — Ultra Kanban + Timeline + PDV 1:N hardening** — (1) Backend: `schemas.py` amplía `ObjetivoCreate` (`id_objetivo_padre`, `resultado_final`) y `ObjetivoUpdate` (`resultado_final`, `kanban_phase`); nuevos modelos `ObjetivoTimelineEvent` + `ObjetivoTimeline`. (2) `supervision.py`: nuevo endpoint `GET /api/supervision/objetivos/{dist_id}/timeline` (antes del `/{dist_id}` GET para evitar route swallowing); `evaluar` ahora cierra `objetivo_items.estado_item="cumplido"` para PDVs aprobados antes de disparar el watcher; `actualizar_objetivo` maneja `resultado_final` y `kanban_phase`. (3) `objetivos_watcher_service.py`: `run_watcher` global omite objetivos vencidos hace más de 1 día; `_diff_exhibicion` tiene guard para `item_pdv_ids=[]`. (4) Frontend: `api.ts` añade tipos `ObjetivoItem`, `ObjetivoTimeline`, `ObjetivoTimelineEvent` y función `fetchObjetivosTimeline`; `useObjetivosStore` refactorizado con `viewMode: 'kanban'|'timeline'|'stats'|'print'`, `filterVendedores: number[]`, `filterSucursal`; `objetivos/page.tsx` rediseñado con Framer Motion `KanbanCard`, `VistaTimeline`, `VistaEstadisticas`, switcher 4-vistas. (5) `migrations/objetivos_v9_hardening.sql` listo para Supabase. (6) Smoke test `tests/smoke/objetivos.spec.ts`.

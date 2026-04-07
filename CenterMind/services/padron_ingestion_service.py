@@ -39,8 +39,9 @@ logger = logging.getLogger("PadronIngestion")
 
 SUCURSAL_FILTER: dict[int, dict] = {
     2: {  # Real Tabacalera de Santiago S.A. (id_distribuidor=2)
-        "ids":     ["8"],             # id_sucursal_erp numérico como string
-        "nombres": ["uequin rodrigo"],  # nombre normalizado (sin acentos, minúsculas)
+        "ids":     ["8"],  # id_sucursal_erp numérico como string
+        # La Mágica queda acotada a UEQUIN. ONDARRETA se enruta a Bolívar en ingest().
+        "nombres": ["uequin rodrigo"],  # nombre normalizado
     },
 }
 
@@ -657,14 +658,35 @@ class PadronIngestionService:
 
     # ── Helpers multi-tenant ──────────────────────────────────────────────────
 
-    def _load_dist_map(self) -> dict[str, int]:
-        """Carga {id_empresa_erp → id_distribuidor} desde distribuidores."""
-        res = sb.table("distribuidores").select("id_distribuidor, id_empresa_erp").execute()
+    def _load_distribuidores(self) -> list[dict[str, Any]]:
+        """Carga distribuidores activos para mapear por ERP y por nombre."""
+        res = sb.table("distribuidores").select(
+            "id_distribuidor, id_empresa_erp, nombre_empresa"
+        ).execute()
+        return res.data or []
+
+    def _load_dist_map(self, dist_rows: list[dict[str, Any]]) -> dict[str, int]:
+        """Construye {id_empresa_erp → id_distribuidor}."""
         return {
             str(r["id_empresa_erp"]): r["id_distribuidor"]
-            for r in (res.data or [])
+            for r in dist_rows
             if r.get("id_empresa_erp")
         }
+
+    def _resolve_dist_ids_for_real_bolivar(
+        self, dist_rows: list[dict[str, Any]]
+    ) -> tuple[int | None, int | None]:
+        """Resuelve ids de Real Tabacalera y Bolívar por nombre de distribuidor."""
+        real_dist_id: int | None = None
+        bolivar_dist_id: int | None = None
+        for r in dist_rows:
+            nombre = _norm(_safe_str(r.get("nombre_empresa"), ""))
+            if "real tabacalera" in nombre:
+                real_dist_id = r.get("id_distribuidor")
+            # Acepta ambas variantes de escritura: "distribuiciones"/"distribuciones".
+            if "bolivar distribuciones" in nombre or "bolivar distribuiciones" in nombre:
+                bolivar_dist_id = r.get("id_distribuidor")
+        return real_dist_id, bolivar_dist_id
 
     # ── Entry point ───────────────────────────────────────────────────────────
 
@@ -695,13 +717,15 @@ class PadronIngestionService:
         df = df.copy()
         df["_empresa_key"] = df[empresa_col].apply(_clean_erp)
 
-        # Cargar mapping empresa_erp → dist_id
-        dist_map = self._load_dist_map()
+        # Cargar distribuidores y mapping empresa_erp → dist_id
+        dist_rows = self._load_distribuidores()
+        dist_map = self._load_dist_map(dist_rows)
         if not dist_map:
             raise ValueError(
                 "No hay distribuidores con id_empresa_erp configurado. "
                 "Ejecute: UPDATE distribuidores SET id_empresa_erp = id_erp WHERE id_erp IS NOT NULL;"
             )
+        real_dist_id, bolivar_dist_id = self._resolve_dist_ids_for_real_bolivar(dist_rows)
 
         resultados = []
         for empresa_erp, df_dist in df.groupby("_empresa_key"):
@@ -712,6 +736,39 @@ class PadronIngestionService:
                     f"[Padrón] Empresa ERP '{empresa_erp}' sin distribuidor mapeado "
                     f"— saltando {len(df_dist)} filas"
                 )
+                continue
+
+            # Regla de negocio: filas de Real + sucursal OSCAR ONDARRETA deben
+            # impactar en Bolívar Distribuiciones (dist independiente).
+            suc_col = cols.get("sucursal")
+            if dist_id == real_dist_id and suc_col:
+                mask_ondarreta = df_dist[suc_col].apply(
+                    lambda v: _norm(_safe_str(v, "")) == "ondarreta oscar"
+                )
+                df_bolivar = df_dist[mask_ondarreta].copy()
+                df_real = df_dist[~mask_ondarreta].copy()
+
+                if not df_bolivar.empty:
+                    if not bolivar_dist_id:
+                        raise ValueError(
+                            "Se detectaron filas de sucursal OSCAR ONDARRETA en Real, "
+                            "pero no existe distribuidor 'Bolivar Distribuiciones' en tabla distribuidores."
+                        )
+                    logger.info(
+                        f"[Padrón] Reenrutando {len(df_bolivar)} filas de OSCAR ONDARRETA "
+                        f"desde dist {real_dist_id} hacia dist {bolivar_dist_id} (Bolívar)."
+                    )
+                    resultados.append(
+                        self._ingest_for_dist(
+                            df_bolivar,
+                            cols,
+                            bolivar_dist_id,
+                            f"{empresa_erp}->bolivar",
+                        )
+                    )
+
+                if not df_real.empty:
+                    resultados.append(self._ingest_for_dist(df_real, cols, dist_id, empresa_erp))
                 continue
 
             resultado = self._ingest_for_dist(df_dist.copy(), cols, dist_id, empresa_erp)

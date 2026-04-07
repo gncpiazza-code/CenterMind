@@ -361,6 +361,8 @@ SUCURSAL_FILTER: dict[int, dict] = {
 }
 ```
 
+Además, `padron_ingestion_service.py` aplica una regla de enrutamiento previa al filtro: las filas del padrón que entran por Real Tabacalera (`idempresa` mapeado a Real) y traen sucursal `OSCAR ONDARRETA` se redirigen al `id_distribuidor` de **Bolivar Distribuiciones** (resuelto por `nombre_empresa` en tabla `distribuidores`).
+
 Si el resultado post-filtro está vacío, lanza `ValueError`. Agregar aquí si alguna otra distribuidora necesita filtrar sucursales.
 
 ---

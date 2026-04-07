@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import tempfile
+import threading
 from datetime import datetime
 from typing import Optional
 
@@ -217,7 +218,6 @@ def get_erp_vendedores(dist_id: int, _=Depends(verify_auth)):
 @router.post("/api/admin/padron/upload/{dist_id}", tags=["Padrón"], summary="Carga manual del Padrón de Clientes")
 async def padron_upload(
     dist_id: int,
-    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     user_payload=Depends(verify_auth),
 ):
@@ -232,9 +232,10 @@ async def padron_upload(
         try:
             padron_service.ingest(fb)
         except Exception as e:
-            logger.error(f"[Padrón background] error global: {e}")
+            logger.error(f"[Padrón background] error global: {e}", exc_info=True)
 
-    background_tasks.add_task(_run_ingestion, file_bytes)
+    # Evita timeouts 524 del proxy: responder inmediato y procesar fuera del ciclo HTTP.
+    threading.Thread(target=_run_ingestion, args=(file_bytes,), daemon=True).start()
     return {"ok": True, "message": f"Padrón recibido ({len(file_bytes):,} bytes). Procesando en segundo plano.", "dist_id": dist_id}
 
 

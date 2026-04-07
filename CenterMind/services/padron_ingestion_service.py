@@ -838,6 +838,36 @@ class PadronIngestionService:
                 if not df_ondarreta.empty:
                     df_target = pd.concat([df_target, df_ondarreta], ignore_index=True)
 
+        # Caso principal pedido: upload a Real también debe derivar ONDARRETA a Bolívar.
+        if (
+            target_dist_id == real_dist_id
+            and bolivar_dist_id is not None
+            and suc_col
+        ):
+            mask_ondarreta = df_target[suc_col].apply(_is_ondarreta_sucursal)
+            df_real = df_target[~mask_ondarreta].copy()
+            df_bolivar = df_target[mask_ondarreta].copy()
+
+            result_real: dict | None = None
+            if not df_real.empty:
+                empresa_hint_real = ",".join(sorted(empresa_keys_target)) or "derived"
+                result_real = self._ingest_for_dist(
+                    df_real, cols, target_dist_id, f"manual:{empresa_hint_real}"
+                )
+
+            if not df_bolivar.empty:
+                logger.info(
+                    f"[Padrón] Derivando {len(df_bolivar)} filas OSCAR ONDARRETA "
+                    f"de Real (dist {real_dist_id}) a Bolívar (dist {bolivar_dist_id}) en upload manual."
+                )
+                self._ingest_for_dist(df_bolivar, cols, bolivar_dist_id, "manual:real->bolivar")
+
+            if result_real is not None:
+                result_real["derivadas_bolivar"] = int(len(df_bolivar))
+                return result_real
+            if not df_bolivar.empty:
+                return {"ok": True, "derivadas_bolivar": int(len(df_bolivar)), "dist_id": target_dist_id}
+
         if df_target.empty:
             raise ValueError(
                 f"No se encontraron filas para id_distribuidor={target_dist_id} en el archivo."

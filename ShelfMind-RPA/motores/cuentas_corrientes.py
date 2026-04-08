@@ -46,7 +46,7 @@ import os
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any
 from zoneinfo import ZoneInfo
 
 from playwright.async_api import (
@@ -65,6 +65,19 @@ DOWNLOADS_DIR = BASE_DIR / "downloads"
 ERRORS_DIR    = BASE_DIR / "logs" / "errors"
 HEADLESS      = os.environ.get("RPA_HEADLESS", "true").lower() != "false"
 TIMEOUT_MS    = 30_000
+CHROME_MAC_PATH = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+
+
+def _norm_txt(value: Any) -> str:
+    """Normaliza texto para comparaciones tolerantes (acentos/case/espacios)."""
+    import unicodedata
+    import re
+
+    txt = "" if value is None else str(value)
+    txt = "".join(ch for ch in unicodedata.normalize("NFKD", txt) if not unicodedata.combining(ch))
+    txt = txt.lower().strip()
+    txt = re.sub(r"[\W_]+", " ", txt)
+    return re.sub(r"\s+", " ", txt).strip()
 
 # ─────────────────────────────────────────────────────────────────
 # TENANTS
@@ -104,7 +117,15 @@ TENANTS = [
         "vault_user": "chess_real_usuario",
         "vault_pass": "chess_real_password",
         "id_dist":    2,
-        "sucursal":   "UEQUIN RODRIGO",
+        "sucursales": ["UEQUIN RODRIGO", "OSCAR ONDARRETA"],
+        # Split operativo solicitado:
+        # - UEQUIN RODRIGO  -> La Magica
+        # - OSCAR ONDARRETA -> Bolivar Distribuiciones
+        # Los id_dist se resuelven dinámicamente por nombre de distribuidor.
+        "split_por_sucursal": {
+            "uequin rodrigo": "La Magica - Santiago del Estero",
+            "oscar ondarreta": "Bolivar Distribuciones",
+        },
         "activo":     True,
     },
     {
@@ -186,6 +207,73 @@ async def _cerrar_accesos_concurrentes(page: Page) -> None:
         pass
 
 
+async def _seleccionar_opcion_sucursal(page: Page, sucursal_objetivo: str) -> None:
+    """
+    Selecciona una opción de sucursal con matching tolerante:
+    - exacto normalizado
+    - por tokens sin importar orden (UEQUIN RODRIGO == RODRIGO UEQUIN)
+    """
+    objetivo_norm = _norm_txt(sucursal_objetivo)
+    objetivo_tokens = set(objetivo_norm.split())
+
+    objetivo_tokens_sorted = " ".join(sorted(objetivo_tokens))
+    for intento in range(1, 5):
+        opciones = page.locator("mat-option")
+        total = await opciones.count()
+        if total == 0:
+            await page.wait_for_timeout(400)
+            continue
+
+        for i in range(total):
+            op = opciones.nth(i)
+            texto = _norm_txt(await op.inner_text())
+            tokens = set(texto.split())
+            if texto == objetivo_norm or (objetivo_tokens and objetivo_tokens.issubset(tokens)):
+                await op.click()
+                await page.wait_for_timeout(120)
+                return
+
+        # Fallback por token distintivo (ej: ONDARRETA) para listas virtualizadas.
+        if "ondarreta" in objetivo_norm:
+            op_ond = page.locator('mat-option:has-text("ONDARRETA")').first
+            if await op_ond.count() > 0:
+                await op_ond.click()
+                await page.wait_for_timeout(120)
+                return
+        if "uequin" in objetivo_norm:
+            op_ueq = page.locator('mat-option:has-text("UEQUIN")').first
+            if await op_ueq.count() > 0:
+                await op_ueq.click()
+                await page.wait_for_timeout(120)
+                return
+
+        # Fallback keyboard typeahead del mat-select (si hay opciones no renderizadas).
+        try:
+            await page.keyboard.type(objetivo_tokens_sorted, delay=35)
+            await page.wait_for_timeout(250)
+            await page.keyboard.press("Enter")
+            await page.wait_for_timeout(180)
+            return
+        except Exception:
+            pass
+
+        # Retry: puede tardar en poblar opciones tras abrir el mat-select
+        await page.wait_for_timeout(400)
+
+    try:
+        opciones = page.locator("mat-option")
+        total = await opciones.count()
+        visibles = []
+        for i in range(min(total, 20)):
+            txt = (await opciones.nth(i).inner_text()).strip().replace("\n", " | ")
+            if txt:
+                visibles.append(txt)
+        logger.warning(f"  Opciones visibles de sucursal ({total}): {visibles}")
+    except Exception:
+        pass
+    raise RuntimeError(f"No se encontró opción de sucursal para '{sucursal_objetivo}'")
+
+
 # ─────────────────────────────────────────────────────────────────
 # PASO 3: LOGIN
 # ─────────────────────────────────────────────────────────────────
@@ -260,10 +348,11 @@ async def _navegar_y_procesar(page: Page, tenant: dict) -> None:
     # Puede aparecer el dialog de accesos al navegar
     await _cerrar_accesos_concurrentes(page)
     
-    btn_procesar = page.locator('button.btn.btn-primary')
+    btn_procesar = page.locator('button.btn.btn-primary:visible').first
     await btn_procesar.wait_for(state="visible", timeout=TIMEOUT_MS)
 
     # ── Configurar Filtros (Sucursal / Vendedor) ────────
+    sucursales = tenant.get("sucursales")
     sucursal = tenant.get("sucursal")
 
     # Capturar screenshot de filtros para debug (todos los tenants la primera vez)
@@ -275,14 +364,18 @@ async def _navegar_y_procesar(page: Page, tenant: dict) -> None:
         pass
 
     # 1a. Caso Sucursal específica (ej: Real Tabacalera)
-    if sucursal:
-        logger.info(f"  Configurando sucursal específica: '{sucursal}'")
+    if sucursales:
+        logger.info(f"  Configurando sucursales específicas: {', '.join(sucursales)}")
         selector_sucursal = page.locator('mat-select').filter(has=page.locator('mat-label:has-text("Sucursal")')).first
         if await selector_sucursal.count() == 0:
             selector_sucursal = page.locator('mat-select').nth(1)
 
         await selector_sucursal.wait_for(state="visible", timeout=TIMEOUT_MS)
-        await selector_sucursal.click()
+        for _ in range(2):
+            await selector_sucursal.click()
+            await page.wait_for_timeout(250)
+            if await page.locator("mat-option").count() > 0:
+                break
         await page.wait_for_timeout(500)
 
         # Deseleccionar todo — siempre nth(0) para evitar shifting de índices
@@ -293,10 +386,34 @@ async def _navegar_y_procesar(page: Page, tenant: dict) -> None:
             await opciones_marcadas.nth(0).click()
             await page.wait_for_timeout(100)
 
-        # Seleccionar solo la sucursal deseada — esperar a que esté visible (evita race condition)
-        opcion = page.locator(f'mat-option:has-text("{sucursal}")')
-        await opcion.wait_for(state="visible", timeout=TIMEOUT_MS)
-        await opcion.click()
+        # Seleccionar solo las sucursales deseadas
+        for suc in sucursales:
+            await _seleccionar_opcion_sucursal(page, suc)
+        await page.keyboard.press("Escape")
+        await page.wait_for_timeout(500)
+    elif sucursal:
+        # Backward compatibility (tenant con una sola sucursal definida)
+        logger.info(f"  Configurando sucursal específica: '{sucursal}'")
+        selector_sucursal = page.locator('mat-select').filter(has=page.locator('mat-label:has-text("Sucursal")')).first
+        if await selector_sucursal.count() == 0:
+            selector_sucursal = page.locator('mat-select').nth(1)
+
+        await selector_sucursal.wait_for(state="visible", timeout=TIMEOUT_MS)
+        for _ in range(2):
+            await selector_sucursal.click()
+            await page.wait_for_timeout(250)
+            if await page.locator("mat-option").count() > 0:
+                break
+        await page.wait_for_timeout(500)
+
+        while True:
+            opciones_marcadas = page.locator('mat-option[aria-selected="true"]')
+            if await opciones_marcadas.count() == 0:
+                break
+            await opciones_marcadas.nth(0).click()
+            await page.wait_for_timeout(100)
+
+        await _seleccionar_opcion_sucursal(page, sucursal)
         await page.keyboard.press("Escape")
         await page.wait_for_timeout(500)
 
@@ -564,6 +681,40 @@ async def _subir_a_api(tenant: dict, datos: dict, filename: str) -> bool:
         return False
 
 
+def _resolver_id_dist_por_nombre(nombre_dist: str) -> Optional[int]:
+    """
+    Resuelve id_distribuidor por nombre usando API Shelfy.
+    Evita hardcodear IDs para escenarios operativos especiales.
+    """
+    try:
+        import httpx
+        from lib.vault_client import get_secret as _gs
+
+        api_url = _gs("shelfy_api_url").rstrip("/")
+        api_key = _gs("shelfy_api_key")
+        target = _norm_txt(nombre_dist)
+
+        with httpx.Client(timeout=30) as client:
+            resp = client.get(
+                f"{api_url}/admin/distribuidoras",
+                headers={"x-api-key": api_key},
+            )
+        if resp.status_code != 200:
+            logger.warning(f"  No se pudo resolver distribuidor '{nombre_dist}' (HTTP {resp.status_code})")
+            return None
+
+        for row in (resp.json() or []):
+            nombre = _norm_txt(row.get("nombre"))
+            if nombre == target or target in nombre or nombre in target:
+                try:
+                    return int(row.get("id"))
+                except Exception:
+                    return None
+    except Exception as e:
+        logger.warning(f"  No se pudo resolver id_distribuidor para '{nombre_dist}': {e}")
+    return None
+
+
 # ─────────────────────────────────────────────────────────────────
 # PROCESAMIENTO COMPLETO DE UN TENANT
 # ─────────────────────────────────────────────────────────────────
@@ -583,10 +734,16 @@ async def _procesar_tenant(tenant: dict) -> dict:
     logger.info(f"{'─'*50}")
 
     async with async_playwright() as pw:
-        browser: Browser = await pw.chromium.launch(
-            headless=HEADLESS,
-            args=["--no-sandbox", "--disable-dev-shm-usage"]
-        )
+        launch_kwargs = {
+            "headless": HEADLESS,
+            "args": ["--no-sandbox", "--disable-dev-shm-usage"],
+        }
+        # En algunos entornos arm64 el binario bundled de Playwright llega x86_64.
+        # Si Chrome local existe, usarlo evita el crash "Unknown system error -86".
+        if os.path.exists(CHROME_MAC_PATH):
+            launch_kwargs["executable_path"] = CHROME_MAC_PATH
+
+        browser: Browser = await pw.chromium.launch(**launch_kwargs)
         context: BrowserContext = await browser.new_context(
             locale="es-AR",
             timezone_id="America/Argentina/Buenos_Aires",
@@ -597,50 +754,159 @@ async def _procesar_tenant(tenant: dict) -> dict:
         page.set_default_timeout(TIMEOUT_MS)
 
         try:
-            # Login
-            await _hacer_login(page, tenant)
-            await _cerrar_popup_nexty(page)
+            split_map = tenant.get("split_por_sucursal")
+            if split_map:
+                ok_global = True
+                hubo_subida = False
+                uploads = []
 
-            # Navegar y procesar (sin tocar filtros — todos en default)
-            await _navegar_y_procesar(page, tenant)
+                for sucursal_objetivo, nombre_dist_destino in split_map.items():
+                    # Sesión limpia por sucursal para evitar estado residual de filtros/UI.
+                    await _hacer_login(page, tenant)
+                    await _cerrar_popup_nexty(page)
 
-            # Abrir modal de exportación
-            await _abrir_modal_exportacion(page)
+                    # Flujo robusto: procesar una sucursal por vez, descargar un Excel por sucursal.
+                    tenant_sucursal = dict(tenant)
+                    tenant_sucursal.pop("sucursales", None)
+                    tenant_sucursal["sucursal"] = sucursal_objetivo.upper()
 
-            # Descargar Excel
-            file_bytes = await _descargar_excel(page, tenant_id)
-            if not file_bytes:
-                resultado["error"] = "descarga fallida"
-                await _screenshot_error(page, tenant_id, "descarga")
-                return resultado
+                    await _navegar_y_procesar(page, tenant_sucursal)
+                    await _abrir_modal_exportacion(page)
 
-            # Cerrar modal
-            try:
-                await page.locator('kendo-dialog:not(#error-dialog) button.btn.btn-md.btn-default').click()
-            except Exception:
-                pass
+                    sufijo = _norm_txt(sucursal_objetivo).replace(" ", "_")
+                    file_bytes = await _descargar_excel(page, f"{tenant_id}_{sufijo}")
+                    if not file_bytes:
+                        ok_global = False
+                        uploads.append(
+                            {
+                                "sucursal": sucursal_objetivo,
+                                "destino": nombre_dist_destino,
+                                "ok": False,
+                                "error": "descarga fallida",
+                            }
+                        )
+                        await _screenshot_error(page, tenant_id, f"descarga_{sufijo}")
+                        continue
 
-            # Hash Guard — ¿cambió desde ayer?
-            clave_hash = f"cuentas_{tenant_id}"
-            if es_duplicado(clave_hash, file_bytes):
-                resultado["estado"] = "sin_cambios"
-                return resultado
+                    try:
+                        await page.locator('kendo-dialog:not(#error-dialog) button.btn.btn-md.btn-default').click()
+                    except Exception:
+                        pass
 
-            # Parsear con cuentas_parser
-            datos = _parsear_excel(file_bytes, tenant_id)
-            if not datos:
-                resultado["error"] = "fallo en parseo"
-                return resultado
+                    clave_hash = f"cuentas_{tenant_id}_{sufijo}"
+                    if es_duplicado(clave_hash, file_bytes):
+                        uploads.append(
+                            {
+                                "sucursal": sucursal_objetivo,
+                                "destino": nombre_dist_destino,
+                                "ok": True,
+                                "sin_cambios": True,
+                            }
+                        )
+                        continue
 
-            # Subir a la API
-            filename = f"cuentas_{tenant_id}_{_timestamp()}.xlsx"
-            ok = await _subir_a_api(tenant, datos, filename)
-            if ok:
-                guardar_hash(clave_hash, file_bytes)
-                resultado["estado"] = "subida_ok"
-                resultado["metadatos"] = datos["metadatos"]
+                    datos = _parsear_excel(file_bytes, f"{tenant_id}_{sufijo}")
+                    if not datos:
+                        ok_global = False
+                        uploads.append(
+                            {
+                                "sucursal": sucursal_objetivo,
+                                "destino": nombre_dist_destino,
+                                "ok": False,
+                                "error": "fallo en parseo",
+                            }
+                        )
+                        continue
+
+                    id_dist_destino = _resolver_id_dist_por_nombre(nombre_dist_destino)
+                    if not id_dist_destino:
+                        logger.error(f"  ❌ No se pudo resolver id_dist de '{nombre_dist_destino}'.")
+                        ok_global = False
+                        uploads.append(
+                            {
+                                "sucursal": sucursal_objetivo,
+                                "destino": nombre_dist_destino,
+                                "ok": False,
+                                "error": "id_dist no resuelto",
+                            }
+                        )
+                        continue
+
+                    tenant_override = dict(tenant)
+                    tenant_override["id_dist"] = id_dist_destino
+                    logger.info(
+                        f"  🔀 Ruta sucursal '{sucursal_objetivo}' -> "
+                        f"'{nombre_dist_destino}' (dist={id_dist_destino})"
+                    )
+
+                    ok_subida = await _subir_a_api(
+                        tenant_override,
+                        datos,
+                        f"cuentas_{tenant_id}_{sufijo}_{_timestamp()}.xlsx",
+                    )
+                    uploads.append(
+                        {
+                            "sucursal": sucursal_objetivo,
+                            "destino": nombre_dist_destino,
+                            "id_dist": id_dist_destino,
+                            "filas": len(datos.get("detalle_cuentas", [])),
+                            "ok": ok_subida,
+                        }
+                    )
+                    if ok_subida:
+                        guardar_hash(clave_hash, file_bytes)
+                        hubo_subida = True
+                    else:
+                        ok_global = False
+
+                if ok_global and any(not u.get("sin_cambios") for u in uploads):
+                    resultado["estado"] = "subida_ok"
+                    resultado["uploads"] = uploads
+                elif ok_global and uploads and not hubo_subida:
+                    resultado["estado"] = "sin_cambios"
+                    resultado["uploads"] = uploads
+                else:
+                    resultado["estado"] = "error"
+                    resultado["error"] = "fallo en split/subida a API"
+                    resultado["uploads"] = uploads
             else:
-                resultado["error"] = "fallo en subida a API"
+                # Login
+                await _hacer_login(page, tenant)
+                await _cerrar_popup_nexty(page)
+
+                # Flujo estándar (tenants sin split por sucursal)
+                await _navegar_y_procesar(page, tenant)
+                await _abrir_modal_exportacion(page)
+
+                file_bytes = await _descargar_excel(page, tenant_id)
+                if not file_bytes:
+                    resultado["error"] = "descarga fallida"
+                    await _screenshot_error(page, tenant_id, "descarga")
+                    return resultado
+
+                try:
+                    await page.locator('kendo-dialog:not(#error-dialog) button.btn.btn-md.btn-default').click()
+                except Exception:
+                    pass
+
+                clave_hash = f"cuentas_{tenant_id}"
+                if es_duplicado(clave_hash, file_bytes):
+                    resultado["estado"] = "sin_cambios"
+                    return resultado
+
+                datos = _parsear_excel(file_bytes, tenant_id)
+                if not datos:
+                    resultado["error"] = "fallo en parseo"
+                    return resultado
+
+                filename = f"cuentas_{tenant_id}_{_timestamp()}.xlsx"
+                ok = await _subir_a_api(tenant, datos, filename)
+                if ok:
+                    guardar_hash(clave_hash, file_bytes)
+                    resultado["estado"] = "subida_ok"
+                    resultado["metadatos"] = datos["metadatos"]
+                else:
+                    resultado["error"] = "fallo en subida a API"
 
         except Exception as e:
             msg = str(e)[:300]

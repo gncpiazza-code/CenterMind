@@ -394,6 +394,8 @@ Frontend TabSupervision → carga CC solo al seleccionar sucursal (no en mount)
 
 **Importante — id_cliente_erp**: `cc_detalle` tiene columna `id_cliente_erp TEXT` (requiere `ALTER TABLE cc_detalle ADD COLUMN IF NOT EXISTS id_cliente_erp TEXT;`). Se llena desde `cod_cliente` del Excel parseado. El endpoint `/api/supervision/cuentas` incluye `id_cliente_erp` en la respuesta. El endpoint `/api/supervision/cliente-info/{dist_id}` lo usa como strategy 0 para buscar en `clientes_pdv_v2` sin depender de name matching.
 
+**Importante — split Real Tabacalera en RPA CC**: el motor `ShelfMind-RPA/motores/cuentas_corrientes.py` selecciona dos sucursales (`UEQUIN RODRIGO`, `OSCAR ONDARRETA`) en CHESS y luego divide `detalle_cuentas` por sucursal para subir a distintos distribuidores: `UEQUIN RODRIGO -> La Magica` y `OSCAR ONDARRETA -> Bolivar Distribuiciones` (resolviendo `id_distribuidor` por nombre vía API para evitar hardcodeo).
+
 ### Endpoint `/api/supervision/cliente-info/{dist_id}`
 Busca datos de contacto de un PDV en `clientes_pdv_v2`. Estrategias en orden:
 0. Match exacto por `id_cliente_erp` (más robusto — bypasa name matching)

@@ -96,5 +96,6 @@ CenterMind/                     # Raíz del Repositorio
 ## Flujo de Datos Crítico
 
 1. **ERP → Supabase**: El RPA extrae datos del ERP local → `POST` a la API → `erp_ingestion_service` → Tablas `_v2`.
+   - Caso especial Cuentas Corrientes (Real Tabacalera): el motor selecciona `UEQUIN RODRIGO` + `OSCAR ONDARRETA` y luego divide server-payload por sucursal para enrutar cada bloque al distribuidor destino correcto (`La Magica` / `Bolivar Distribuiciones`).
 2. **Telegram → Supabase**: Vendedor sube foto → `bot_worker.py` → Supabase Storage → Tabla `exhibiciones`.
 3. **Supabase → Portal**: `api.py` consulta vistas/tablas → Frontend Renderiza dashboard y mapas.

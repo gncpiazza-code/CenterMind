@@ -1751,10 +1751,10 @@ class BotWorker:
                         # Debe hacerse ANTES del WS broadcast para que cuando el frontend
                         # invalide la query, _compute_kanban_phase encuentre items_con_foto > 0.
                         try:
-                            from datetime import datetime, timezone as _tz
+                            from datetime import timezone as _tz_utc
                             self.db.sb.table("objetivo_items").update({
                                 "estado_item": "foto_subida",
-                                "updated_at": datetime.now(_tz.utc).isoformat(),
+                                "updated_at": datetime.now(_tz_utc.utc).isoformat(),
                             }).eq("id_objetivo", obj_id_match).eq("id_cliente_pdv", id_pdv_obj).execute()
                             self.logger.info(
                                 f"[ObjInterceptor] objetivo_items.estado_item=foto_subida "

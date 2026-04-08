@@ -836,25 +836,55 @@ class PadronIngestionService:
         # idempresa devolvía 0 filas siempre (.isin([])). En upload focalizado el usuario
         # ya eligió el tenant: aceptar archivo con un solo idempresa como todo el lote.
         used_full_file_fallback = False
+        bolivar_ondarreta_only = False
         if not empresa_keys_target:
             n_emp = int(df["_empresa_key"].nunique())
-            if n_emp > 1:
-                uniq = sorted(
-                    str(x) for x in df["_empresa_key"].dropna().unique().tolist()
-                )[:25]
-                raise ValueError(
-                    f"El distribuidor id_distribuidor={target_dist_id} no tiene "
-                    f"id_empresa_erp configurado en tabla distribuidores (o está vacío). "
-                    f"Configurá el código CHESS de empresa (misma columna idempresa del padrón) "
-                    f"o subí un archivo que contenga una sola empresa. "
-                    f"Valores idempresa distintos en este archivo ({n_emp}): {uniq}"
+            # Bolívar suele no tener id_empresa_erp propio (comparte idempresa CHESS con Real).
+            # Si suben el padrón global multi-empresa eligiendo Bolívar, tomar sólo filas
+            # idempresa de Real + sucursal OSCAR ONDARRETA.
+            if (
+                n_emp > 1
+                and target_dist_id == bolivar_dist_id
+                and bolivar_dist_id is not None
+                and real_dist_id is not None
+                and cols.get("sucursal")
+            ):
+                empresa_keys_real = {
+                    erp_key
+                    for erp_key, dist_id in dist_map.items()
+                    if dist_id == real_dist_id
+                }
+                if empresa_keys_real:
+                    suc0 = cols["sucursal"]
+                    df_real_part = df[df["_empresa_key"].isin(empresa_keys_real)].copy()
+                    df_ond_only = df_real_part[
+                        df_real_part[suc0].apply(_is_ondarreta_sucursal)
+                    ].copy()
+                    if not df_ond_only.empty:
+                        df_target = df_ond_only
+                        bolivar_ondarreta_only = True
+                        logger.info(
+                            f"[Padrón] Bolívar sin id_empresa_erp: {len(df_target)} filas "
+                            f"OSCAR ONDARRETA (idempresa Real: {sorted(empresa_keys_real)})."
+                        )
+            if not bolivar_ondarreta_only:
+                if n_emp > 1:
+                    uniq = sorted(
+                        str(x) for x in df["_empresa_key"].dropna().unique().tolist()
+                    )[:25]
+                    raise ValueError(
+                        f"El distribuidor id_distribuidor={target_dist_id} no tiene "
+                        f"id_empresa_erp configurado en tabla distribuidores (o está vacío). "
+                        f"Configurá el código CHESS de empresa (misma columna idempresa del padrón) "
+                        f"o subí un archivo que contenga una sola empresa. "
+                        f"Valores idempresa distintos en este archivo ({n_emp}): {uniq}"
+                    )
+                logger.info(
+                    f"[Padrón] Dist {target_dist_id} sin id_empresa_erp; "
+                    f"archivo con idempresa único — ingiriendo todas las filas (upload focalizado)."
                 )
-            logger.info(
-                f"[Padrón] Dist {target_dist_id} sin id_empresa_erp; "
-                f"archivo con idempresa único — ingiriendo todas las filas (upload focalizado)."
-            )
-            df_target = df.copy()
-            used_full_file_fallback = True
+                df_target = df.copy()
+                used_full_file_fallback = True
         else:
             df_target = df[df["_empresa_key"].isin(empresa_keys_target)].copy()
 
@@ -867,6 +897,7 @@ class PadronIngestionService:
             and real_dist_id is not None
             and suc_col
             and not used_full_file_fallback
+            and not bolivar_ondarreta_only
         ):
             empresa_keys_real = {
                 erp_key for erp_key, dist_id in dist_map.items() if dist_id == real_dist_id

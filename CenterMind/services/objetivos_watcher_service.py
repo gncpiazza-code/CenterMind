@@ -485,10 +485,28 @@ class ObjetivosWatcherService:
                     return (float(con_foto), len(nuevas) + len(nuevas_pend), float(aprobados))
                 except Exception as e_items:
                     logger.warning(f"[Watcher] Error releyendo items exhibicion obj={obj_id}: {e_items}")
+                    # Caer al conteo por exhibiciones acotado a item_pdv_ids (único PDV)
 
-            # Fallback sin ítems: comportamiento original
-            nuevo_valor = float(len(all_exhibs) + len(pendientes))
-            return (nuevo_valor, len(nuevas) + len(nuevas_pend), float(len(all_exhibs)))
+            # Sin filas en objetivo_items (item_pdv_ids es None), o falló la relecutura de ítems:
+            # contar PDVs únicos, no filas de exhibiciones.
+            # no filas de exhibiciones — varias fotos al mismo cliente no duplican progreso.
+            pdv_con_actividad: set[int] = set()
+            for e in pendientes:
+                pid = e.get("id_cliente_pdv")
+                if pid is not None:
+                    pdv_con_actividad.add(int(pid))
+            for e in all_exhibs:
+                pid = e.get("id_cliente_pdv")
+                if pid is not None:
+                    pdv_con_actividad.add(int(pid))
+            nuevo_valor = float(len(pdv_con_actividad))
+            pdv_solo_aprob = {
+                int(e["id_cliente_pdv"])
+                for e in all_exhibs
+                if e.get("id_cliente_pdv") is not None
+            }
+            valor_aprobados = float(len(pdv_solo_aprob))
+            return (nuevo_valor, len(nuevas) + len(nuevas_pend), valor_aprobados)
 
         except Exception as e:
             logger.error(f"[Watcher] exhibicion vend={id_vendedor_v2}: {e}")

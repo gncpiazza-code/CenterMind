@@ -1,6 +1,6 @@
 # Progress — Shelfy CenterMind
 
-**Última actualización: 8 de Abril, 2026 (27)**
+**Última actualización: 8 de Abril, 2026 (28)**
 
 Este archivo detalla el estado actual del proyecto, las funcionalidades operativas y los pendientes técnicos.
 
@@ -77,6 +77,7 @@ El proyecto se encuentra en una fase de expansión de funcionalidades de supervi
 ---
 
 ## 📅 Historial Reciente (Abril 2026)
+- **08/04 (28)**: **Objetivos exhibición — 2 fotos mismo PDV** — `bot_worker` ObjInterceptor: deja de hacer `valor_actual += 1` por tanda (varias fotos en un mensaje contaban como varios PDV). Ahora recalcula desde `objetivo_items` (estados `foto_subida`/`cumplido`) o `1` si el objetivo es sólo `id_target_pdv` sin ítems. `objetivos_watcher_service._diff_exhibicion`: sin `objetivo_items`, `valor_actual` y umbral de aprobados usan **conjuntos de `id_cliente_pdv`** únicos, no `len(pendientes)+len(aprobados)`.
 - **08/04 (27)**: **Objetivos — Telegram asignación** — `objetivos_notification_service.py`: `notify_new_objective_telegram` ahora registra warning si falta `token_bot`, `id_vendedor` o `telegram_group_id`. `_get_vendor_group_chat_id` ya no usa un único `.limit(1)` que podía devolver fila con grupo nulo: recorre integrantes con `id_vendedor_v2` y toma el primero con `telegram_group_id` válido; fallback por `id_vendedor_erp` (vendedores_v2 → integrantes_grupo). Fix consulta `clientes_pdv_v2`: PK es `id_cliente`, no `id`, más filtro `id_distribuidor`. Tipos multi-PDV en mensaje incluyen `activacion` por compatibilidad.
 - **08/04 (26)**: **Padrón franquicias — mismo id_empresa_erp CHESS, distintos id_distribuidor** — `padron_ingestion_service`: `_franchise_erp_keys_from_rows` agrupa códigos ERP declarados en cualquiera de Real / La Mágica / Bolívar. Ingesta global hace split UEQUIN/ONDARRETA cuando `idempresa` del archivo está en ese conjunto aunque `dist_map` apunte a La Mágica (p. ej. id=2) y no a fila “Real”. Manuales: fallback multi-empresa y concat Bolívar usan las mismas claves; upload con target La Mágica o Real matriz dispara el split si Bolívar está resuelto. Mensaje de `_franchise_collision_guard` aclara que el choque es mismo PK Shelfy, no compartir ERP.
 - **08/04 (25)**: **Padrón Real — La Mágica vs Bolívar (IDs y sucursales)** — `padron_ingestion_service.py`: resolución explícita de tres tenants por `nombre_empresa` (`_resolve_real_franchise_dists`: Real matriz, La Mágica, Bolívar) + `_franchise_collision_guard` si dos nombres comparten el mismo `id_distribuidor`. Ingesta global: tras separar ONDARRETA → Bolívar, las filas UEQUIN RODRIGO van a **La Mágica** si existe fila en `distribuidores`; el resto de sucursales del mismo `idempresa` se omite (log). Upload manual a Real deriva UEQUIN a La Mágica igual; sin fila La Mágica, comportamiento previo (todo el remanente a Real con filtro `SUCURSAL_FILTER[2]`). `ingest_for_dist`: fallback multi-empresa sin `id_empresa_erp` también para **La Mágica** (solo UEQUIN del bloque Real). `_ingest_for_dist` aplica filtros estrictos por sucursal para Bolívar y La Mágica y aplica `MAGICA_UEQUIN_FILTER` como filtro secundario cuando el dist es La Mágica.

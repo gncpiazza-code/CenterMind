@@ -1763,22 +1763,29 @@ class BotWorker:
                         except Exception as e_item:
                             self.logger.warning(f"⚠️ Error actualizando objetivo_items: {e_item}")
 
-                        # 2c. Incrementar valor_actual inmediatamente para que el
-                        #     frontend reciba datos frescos al invalidar la query.
-                        #     El watcher consolidará correctamente desde los ítems.
+                        # 2c. valor_actual coherente con PDVs únicos (N fotos del mismo PDV = 1).
+                        #     Antes: +=1 por tanda → 2 fotos en un mensaje contaban como 2 PDVs.
                         try:
-                            cur_res = self.db.sb.table("objetivos") \
-                                .select("valor_actual").eq("id", obj_id_match) \
-                                .single().execute()
-                            if cur_res.data:
-                                new_val = (cur_res.data.get("valor_actual") or 0) + 1
-                                self.db.sb.table("objetivos") \
-                                    .update({"valor_actual": new_val}) \
-                                    .eq("id", obj_id_match).execute()
-                                self.logger.info(
-                                    f"[ObjInterceptor] valor_actual → {new_val} "
-                                    f"para obj={obj_id_match}"
+                            items_vc = self.db.sb.table("objetivo_items") \
+                                .select("estado_item") \
+                                .eq("id_objetivo", obj_id_match) \
+                                .execute()
+                            rows_it = items_vc.data or []
+                            if rows_it:
+                                new_val = sum(
+                                    1 for it in rows_it
+                                    if it.get("estado_item") in ("foto_subida", "cumplido")
                                 )
+                            else:
+                                # Objetivo sólo con id_target_pdv (sin filas en objetivo_items)
+                                new_val = 1
+                            self.db.sb.table("objetivos") \
+                                .update({"valor_actual": float(new_val)}) \
+                                .eq("id", obj_id_match).execute()
+                            self.logger.info(
+                                f"[ObjInterceptor] valor_actual → {new_val} (recalculado, "
+                                f"{procesadas} foto(s) mismo PDV cuenta una vez) obj={obj_id_match}"
+                            )
                         except Exception as e_upd:
                             self.logger.warning(f"⚠️ Error actualizando valor_actual: {e_upd}")
 

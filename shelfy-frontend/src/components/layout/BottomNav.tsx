@@ -30,7 +30,8 @@ export function BottomNav() {
   const rol = user?.rol ?? "";
   const navItems = ALL_NAV.filter(i => {
     const roleAllowed = i.roles.includes(rol);
-    if (!roleAllowed && !(i.permisoKey && hasPermiso(i.permisoKey))) return false;
+    const allowRoleOverride = i.permisoKey === "action_evaluar_exhibiciones" && hasPermiso("action_evaluar_exhibiciones");
+    if (!roleAllowed && !allowRoleOverride) return false;
     if (i.permisoKey && !hasPermiso(i.permisoKey)) return false;
     return true;
   });

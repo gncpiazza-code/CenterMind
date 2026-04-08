@@ -63,8 +63,9 @@ export function Sidebar() {
   const navItems = useMemo(
     () => ALL_NAV.filter(i => {
       const roleAllowed = (i.roles as string[]).includes(rol);
-      // If the permission is explicitly granted, allow access even if role lists are lagging behind.
-      if (!roleAllowed && !(i.permisoKey && hasPermiso(i.permisoKey))) return false;
+      // Narrow exception: only allow role override for visor evaluation access.
+      const allowRoleOverride = i.permisoKey === "action_evaluar_exhibiciones" && hasPermiso("action_evaluar_exhibiciones");
+      if (!roleAllowed && !allowRoleOverride) return false;
       if (i.permisoKey && !hasPermiso(i.permisoKey)) return false;
       return true;
     }),

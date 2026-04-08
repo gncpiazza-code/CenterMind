@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { ObjetivoTipo } from '@/lib/api';
 
-type ViewMode = 'kanban' | 'timeline' | 'stats' | 'print';
+type ViewMode = 'kanban' | 'lista' | 'timeline' | 'stats' | 'print';
 type KanbanPhase = 'pendiente' | 'en_progreso' | 'terminado' | null;
 
 interface ObjetivosStore {
@@ -19,6 +19,9 @@ interface ObjetivosStore {
   // View
   viewMode: ViewMode;
 
+  // Cross-tenant selection (superadmin / directorio)
+  selectedTenantId: number | null;
+
   // Actions
   setFilterVendedor: (id: number | null) => void;
   setFilterVendedores: (ids: number[]) => void;
@@ -31,6 +34,7 @@ interface ObjetivosStore {
   setFilterFechaHasta: (date: string | null) => void;
   setSearchText: (text: string) => void;
   setViewMode: (mode: ViewMode) => void;
+  setSelectedTenantId: (id: number | null) => void;
   resetFilters: () => void;
 }
 
@@ -45,6 +49,7 @@ export const useObjetivosStore = create<ObjetivosStore>((set) => ({
   filterFechaHasta: null,
   searchText: '',
   viewMode: 'kanban',
+  selectedTenantId: null,
 
   setFilterVendedor: (id) => set({ filterVendedor: id }),
   setFilterVendedores: (ids) => set({ filterVendedores: ids }),
@@ -61,6 +66,7 @@ export const useObjetivosStore = create<ObjetivosStore>((set) => ({
   setFilterFechaHasta: (date) => set({ filterFechaHasta: date }),
   setSearchText: (text) => set({ searchText: text }),
   setViewMode: (mode) => set({ viewMode: mode }),
+  setSelectedTenantId: (id) => set({ selectedTenantId: id }),
   resetFilters: () => set({
     filterVendedor: null,
     filterVendedores: [],

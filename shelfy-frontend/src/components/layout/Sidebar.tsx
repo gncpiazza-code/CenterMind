@@ -38,7 +38,7 @@ const ALL_NAV: NavItem[] = [
   { href: "/visor",       label: "Evaluar",              icon: Eye,            roles: ["superadmin", "admin", "supervisor", "evaluador", "directorio"], permisoKey: "action_evaluar_exhibiciones" },
   { href: "/dashboard",   label: "Dashboard",            icon: LayoutDashboard,roles: ["superadmin", "admin", "supervisor", "directorio"], permisoKey: "menu_dashboard" },
   { href: "/supervision", label: "Panel de Supervisión", icon: Route,          roles: ["superadmin", "admin", "supervisor"], permisoKey: "menu_supervision" },
-  { href: "/objetivos",   label: "Objetivos",            icon: Target,         roles: ["superadmin", "admin", "supervisor"], permisoKey: "menu_objetivos" },
+  { href: "/objetivos",   label: "Objetivos",            icon: Target,         roles: ["superadmin", "admin", "supervisor", "directorio"], permisoKey: "menu_objetivos" },
   { href: "/bonos",       label: "Bonos",                icon: Gift,           roles: ["superadmin", "admin", "directorio"], permisoKey: "menu_bonos" },
   { href: "/admin",       label: "Administrar",          icon: Users,          roles: ["superadmin", "admin"], permisoKey: "menu_admin" },
   { href: "/admin/permissions", label: "Permisos",       icon: ShieldCheck,    roles: ["superadmin", "admin"], permisoKey: "menu_admin" },

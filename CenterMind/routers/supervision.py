@@ -789,6 +789,22 @@ def crear_objetivo(body: ObjetivoCreate, user_payload=Depends(verify_auth)):
     TIPOS_VALIDOS = {"conversion_estado", "cobranza", "ruteo_alteo", "exhibicion", "general"}
     if body.tipo not in TIPOS_VALIDOS:
         raise HTTPException(status_code=400, detail=f"tipo inválido. Valores permitidos: {sorted(TIPOS_VALIDOS)}")
+
+    # Validar que el vendedor pertenece a la distribuidora
+    if not user_payload.get("is_superadmin"):
+        vend_check = sb.table("vendedores_v2").select("id_vendedor").eq("id_vendedor", body.id_vendedor).eq("id_distribuidor", body.id_distribuidor).limit(1).execute()
+        if not vend_check.data:
+            raise HTTPException(status_code=400, detail="El vendedor no pertenece a la distribuidora indicada")
+
+    # Validar que todos los PDV ítems pertenecen a la distribuidora
+    if not user_payload.get("is_superadmin") and body.pdv_items:
+        pdv_ids = [item.id_cliente_pdv for item in body.pdv_items]
+        pdv_check = sb.table("clientes_pdv_v2").select("id_cliente").in_("id_cliente", pdv_ids).eq("id_distribuidor", body.id_distribuidor).execute()
+        found_ids = {r["id_cliente"] for r in (pdv_check.data or [])}
+        invalid = set(pdv_ids) - found_ids
+        if invalid:
+            raise HTTPException(status_code=400, detail=f"PDV(s) {invalid} no pertenecen a la distribuidora indicada")
+
     try:
         estado_inicial = body.estado_inicial
 
@@ -1073,6 +1089,83 @@ def objetivos_timeline(
         return result
     except Exception as e:
         logger.error(f"Error en objetivos_timeline dist_id={dist_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/supervision/pdvs-catalog/{dist_id}", tags=["Supervisión"])
+def get_pdvs_catalog(
+    dist_id: int,
+    vendedor_id: int = None,
+    limit: int = 35,
+    offset: int = 0,
+    user_payload=Depends(verify_auth),
+):
+    check_dist_permission(user_payload, dist_id)
+    try:
+        # Obtener clientes filtrados por vendedor (vía rutas_v2) o todos
+        if vendedor_id is not None:
+            rutas_res = (
+                sb.table("rutas_v2")
+                .select("id_ruta")
+                .eq("id_vendedor", vendedor_id)
+                .eq("id_distribuidor", dist_id)
+                .execute()
+            )
+            route_ids = [r["id_ruta"] for r in (rutas_res.data or [])]
+            if not route_ids:
+                return []
+            clients_res = (
+                sb.table("clientes_pdv_v2")
+                .select("id_cliente, nombre_cliente, id_cliente_erp, domicilio")
+                .in_("id_ruta", route_ids)
+                .eq("id_distribuidor", dist_id)
+                .execute()
+            )
+        else:
+            clients_res = (
+                sb.table("clientes_pdv_v2")
+                .select("id_cliente, nombre_cliente, id_cliente_erp, domicilio")
+                .eq("id_distribuidor", dist_id)
+                .execute()
+            )
+        clients = clients_res.data or []
+
+        # Obtener la exhibición más reciente por nro_cliente (id_cliente_erp)
+        fecha_map: dict[str, str] = {}
+        erp_ids = [c["id_cliente_erp"] for c in clients if c.get("id_cliente_erp")]
+        if erp_ids:
+            exh_res = (
+                sb.table("exhibiciones")
+                .select("nro_cliente, created_at")
+                .eq("id_distribuidor", dist_id)
+                .in_("nro_cliente", erp_ids)
+                .execute()
+            )
+            for row in (exh_res.data or []):
+                nro = row.get("nro_cliente")
+                ts = row.get("created_at")
+                if nro and ts:
+                    if nro not in fecha_map or ts > fecha_map[nro]:
+                        fecha_map[nro] = ts
+
+        # Enriquecer y ordenar: sin exhibición primero, luego más antiguo
+        enriched = []
+        for c in clients:
+            erp = c.get("id_cliente_erp")
+            fecha = fecha_map.get(erp) if erp else None
+            enriched.append({
+                "id_cliente": c["id_cliente"],
+                "nombre_cliente": c.get("nombre_cliente"),
+                "id_cliente_erp": erp,
+                "domicilio": c.get("domicilio"),
+                "fecha_ultima_exhibicion": fecha,
+            })
+
+        enriched.sort(key=lambda x: (x["fecha_ultima_exhibicion"] is not None, x["fecha_ultima_exhibicion"] or ""))
+
+        return enriched[offset: offset + limit]
+    except Exception as e:
+        logger.error(f"Error en get_pdvs_catalog dist={dist_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

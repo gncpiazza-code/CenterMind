@@ -1363,3 +1363,25 @@ export async function fetchCCStatus(distId: number): Promise<CCStatusResponse> {
   if (!res.ok) throw new Error("Error consultando estado CC");
   return res.json();
 }
+
+// ── PDV Catalog for exhibición objectives ─────────────────────────────────────
+export interface PDVCatalogItem {
+  id_cliente: number;
+  nombre_cliente: string;
+  id_cliente_erp: string | null;
+  domicilio: string | null;
+  fecha_ultima_exhibicion: string | null; // ISO datetime or null = never exhibited
+}
+
+export async function fetchPDVCatalog(
+  distId: number,
+  params: { vendedorId?: number; limit?: number; offset?: number } = {}
+): Promise<PDVCatalogItem[]> {
+  const { vendedorId, limit = 35, offset = 0 } = params;
+  const qs = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+    ...(vendedorId ? { vendedor_id: String(vendedorId) } : {}),
+  });
+  return apiFetch<PDVCatalogItem[]>(`/api/supervision/pdvs-catalog/${distId}?${qs}`);
+}

@@ -23,6 +23,8 @@ import {
   fetchRutasSupervision,
   fetchClientesSupervision,
   fetchCuentasSupervision,
+  fetchDistribuidoras,
+  fetchPDVCatalog,
   getWSUrl,
   type Objetivo,
   type ObjetivoCreate,
@@ -32,6 +34,7 @@ import {
   type ClienteSupervision,
   type CuentasSupervision,
   type ObjetivoTimeline,
+  type PDVCatalogItem,
 } from "@/lib/api";
 import {
   Target,
@@ -58,6 +61,7 @@ import {
   FileDown,
   GitBranch,
   Activity,
+  Building2,
 } from "lucide-react";
 import {
   Dialog,
@@ -625,6 +629,12 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
   const [activacionPdvs, setActivacionPdvs] = useState<{ id: number; idErp: string; nombre: string; fechaCompra: string | null; diasSinCompra: number | null }[]>([]);
   const [selectedPdvIds, setSelectedPdvIds] = useState<Set<number>>(new Set());
 
+  // PDV Catalog for exhibición (paginated via API)
+  const [pdvCatalogAll, setPdvCatalogAll] = useState<PDVCatalogItem[]>([]);
+  const [pdvCatalogPage, setPdvCatalogPage] = useState(0);
+  const [pdvCatalogHasMore, setPdvCatalogHasMore] = useState(false);
+  const [loadingMorePdv, setLoadingMorePdv] = useState(false);
+
   const [loadingCtx, setLoadingCtx] = useState(false);
 
   const vendedorNombre = vendedores.find(v => v.id_vendedor === vendedorId)?.nombre_erp ?? "";
@@ -641,6 +651,9 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
     setInactivePdvCount(0);
     setActivacionPdvs([]);
     setSelectedPdvIds(new Set());
+    setPdvCatalogAll([]);
+    setPdvCatalogPage(0);
+    setPdvCatalogHasMore(false);
   }
 
   useEffect(() => {
@@ -682,10 +695,19 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
         })
         .catch(() => setDeudores([]))
         .finally(() => setLoadingCtx(false));
-    } else if (tipo === "conversion_estado" || tipo === "exhibicion") {
+    } else if (tipo === "exhibicion") {
+      fetchPDVCatalog(distId, { vendedorId: Number(vendedorId), limit: 35, offset: 0 })
+        .then(data => {
+          setPdvCatalogAll(data);
+          setPdvCatalogHasMore(data.length === 35);
+          setPdvCatalogPage(0);
+        })
+        .catch(() => setPdvCatalogAll([]))
+        .finally(() => setLoadingCtx(false));
+    } else if (tipo === "conversion_estado") {
       fetchRutasSupervision(Number(vendedorId))
         .then(async (rutasData) => {
-          const allClients: { id: number; idErp: string; nombre: string; fechaCompra: string | null; diasSinCompra: number | null; tieneExhibicion: boolean }[] = [];
+          const allClients: { id: number; idErp: string; nombre: string; fechaCompra: string | null; diasSinCompra: number | null }[] = [];
           const now = Date.now();
           for (const ruta of rutasData) {
             const clientes = await fetchClientesSupervision(ruta.id_ruta).catch(() => [] as ClienteSupervision[]);
@@ -695,18 +717,14 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
               const diasSinCompra = fechaCompra
                 ? Math.floor((now - new Date(fechaCompra).getTime()) / 86_400_000)
                 : null;
-              allClients.push({ id: c.id_cliente, idErp: c.id_cliente_erp, nombre: nombreCliente, fechaCompra, diasSinCompra, tieneExhibicion: c.tiene_exhibicion_reciente ?? false });
+              allClients.push({ id: c.id_cliente, idErp: c.id_cliente_erp, nombre: nombreCliente, fechaCompra, diasSinCompra });
             }
           }
           const seen = new Set<number>();
           const filtered = allClients.filter(c => {
             if (seen.has(c.id)) return false;
             seen.add(c.id);
-            if (tipo === "conversion_estado") {
-              return c.diasSinCompra === null || (c.diasSinCompra ?? 0) > 30;
-            } else {
-              return !c.tieneExhibicion;
-            }
+            return c.diasSinCompra === null || (c.diasSinCompra ?? 0) > 30;
           });
           filtered.sort((a, b) => {
             if (a.diasSinCompra === null) return 1;
@@ -776,8 +794,8 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
 
     if (tipo === "exhibicion" && selectedPdvIds.size > 0) {
       const pdvItems = Array.from(selectedPdvIds).map(pdvId => {
-        const pdv = activacionPdvs.find(p => p.id === pdvId);
-        return { id_cliente_pdv: pdvId, nombre_pdv: pdv?.nombre };
+        const pdv = pdvCatalogAll.find(p => p.id_cliente === pdvId);
+        return { id_cliente_pdv: pdvId, nombre_pdv: pdv?.nombre_cliente };
       });
       const count = pdvItems.length;
       base.pdv_items = pdvItems;
@@ -973,14 +991,53 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
             </div>
           )}
 
-          {/* Contextual: Activación / Exhibición */}
-          {(tipo === "conversion_estado" || tipo === "exhibicion") && vendedorId && (
+          {/* Contextual: Activación (conversion_estado) */}
+          {tipo === "conversion_estado" && vendedorId && (
+            <div className="space-y-2 rounded-xl bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] p-3">
+              <p className="text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider">
+                PDVs sin compra +30 días
+              </p>
+              {loadingCtx ? (
+                <div className="flex items-center gap-1.5 text-xs text-[var(--shelfy-muted)]">
+                  <Loader2 className="w-3 h-3 animate-spin" /> Cargando PDVs...
+                </div>
+              ) : activacionPdvs.length === 0 ? (
+                <p className="text-xs text-[var(--shelfy-muted)]">Sin PDVs en esa condición</p>
+              ) : (
+                <div className="max-h-40 overflow-y-auto space-y-0.5">
+                  {activacionPdvs.slice(0, 25).map((pdv) => (
+                    <button
+                      key={pdv.id}
+                      type="button"
+                      onClick={() => setDesc(`Activar a ${pdv.nombre} (sin compra hace ${pdv.diasSinCompra ?? "N"} días)`)}
+                      className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs transition-colors border bg-black/[0.02] border-transparent hover:bg-[var(--shelfy-accent)]/10 hover:border-[var(--shelfy-accent)]/20"
+                    >
+                      <span className="text-[var(--shelfy-text)] truncate flex-1 text-left">{pdv.nombre}</span>
+                      {pdv.diasSinCompra !== null ? (
+                        <span className={`font-medium tabular-nums shrink-0 ${pdv.diasSinCompra > 60 ? "text-red-500" : "text-orange-500"}`}>
+                          {pdv.diasSinCompra}d
+                        </span>
+                      ) : (
+                        <span className="text-[var(--shelfy-muted)] shrink-0">S/C</span>
+                      )}
+                    </button>
+                  ))}
+                  {activacionPdvs.length > 25 && (
+                    <p className="text-[10px] text-[var(--shelfy-muted)] text-center pt-1">+{activacionPdvs.length - 25} más</p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Contextual: Exhibición — catálogo paginado ordenado por antigüedad */}
+          {tipo === "exhibicion" && vendedorId && (
             <div className="space-y-2 rounded-xl bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] p-3">
               <div className="flex items-center justify-between">
                 <p className="text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider">
-                  {tipo === "conversion_estado" ? "PDVs sin compra +30 días" : "PDVs sin exhibición reciente"}
+                  PDVs — ordenados por antigüedad de exhibición
                 </p>
-                {tipo === "exhibicion" && selectedPdvIds.size > 0 && (
+                {selectedPdvIds.size > 0 && (
                   <span className="text-[10px] font-semibold text-[var(--shelfy-accent)]">
                     {selectedPdvIds.size} seleccionado{selectedPdvIds.size > 1 ? "s" : ""}
                   </span>
@@ -990,55 +1047,76 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
                 <div className="flex items-center gap-1.5 text-xs text-[var(--shelfy-muted)]">
                   <Loader2 className="w-3 h-3 animate-spin" /> Cargando PDVs...
                 </div>
-              ) : activacionPdvs.length === 0 ? (
-                <p className="text-xs text-[var(--shelfy-muted)]">Sin PDVs en esa condición</p>
+              ) : pdvCatalogAll.length === 0 ? (
+                <p className="text-xs text-[var(--shelfy-muted)]">Sin PDVs registrados</p>
               ) : (
-                <div className="max-h-40 overflow-y-auto space-y-0.5">
-                  {activacionPdvs.slice(0, 25).map((pdv) => {
-                    const isSelected = tipo === "exhibicion" && selectedPdvIds.has(pdv.id);
-                    return (
-                      <button
-                        key={pdv.id}
-                        type="button"
-                        onClick={() => {
-                          if (tipo === "exhibicion") {
-                            setSelectedPdvIds(prev => {
-                              const next = new Set(prev);
-                              if (next.has(pdv.id)) next.delete(pdv.id); else next.add(pdv.id);
-                              return next;
-                            });
-                          } else {
-                            setDesc(`Activar a ${pdv.nombre} (sin compra hace ${pdv.diasSinCompra ?? "N"} días)`);
-                          }
-                        }}
-                        className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs transition-colors border ${
-                          isSelected
-                            ? "bg-[var(--shelfy-accent)]/10 border-[var(--shelfy-accent)]/40"
-                            : "bg-black/[0.02] border-transparent hover:bg-[var(--shelfy-accent)]/10 hover:border-[var(--shelfy-accent)]/20"
-                        }`}
-                      >
-                        {tipo === "exhibicion" && (
-                          <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 transition-colors ${
-                            isSelected ? "bg-[var(--shelfy-accent)] border-[var(--shelfy-accent)]" : "border-[var(--shelfy-border)]"
-                          }`}>
-                            {isSelected && <Check className="w-2.5 h-2.5 text-white" />}
-                          </div>
-                        )}
-                        <span className="text-[var(--shelfy-text)] truncate flex-1 text-left">{pdv.nombre}</span>
-                        {pdv.diasSinCompra !== null ? (
-                          <span className={`font-medium tabular-nums shrink-0 ${pdv.diasSinCompra > 60 ? "text-red-500" : "text-orange-500"}`}>
-                            {pdv.diasSinCompra}d
-                          </span>
-                        ) : (
-                          <span className="text-[var(--shelfy-muted)] shrink-0">S/C</span>
-                        )}
-                      </button>
-                    );
-                  })}
-                  {activacionPdvs.length > 25 && (
-                    <p className="text-[10px] text-[var(--shelfy-muted)] text-center pt-1">+{activacionPdvs.length - 25} más</p>
+                <>
+                  <ScrollArea className="max-h-48">
+                    <div className="space-y-0.5 pr-2">
+                      {pdvCatalogAll.map((pdv) => {
+                        const sel = selectedPdvIds.has(pdv.id_cliente);
+                        const diasSinExhib = pdv.fecha_ultima_exhibicion
+                          ? Math.floor((Date.now() - new Date(pdv.fecha_ultima_exhibicion).getTime()) / 86400000)
+                          : null;
+                        return (
+                          <button
+                            key={pdv.id_cliente}
+                            type="button"
+                            onClick={() => {
+                              setSelectedPdvIds(prev => {
+                                const next = new Set(prev);
+                                if (next.has(pdv.id_cliente)) next.delete(pdv.id_cliente);
+                                else next.add(pdv.id_cliente);
+                                return next;
+                              });
+                            }}
+                            className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs transition-colors border ${
+                              sel
+                                ? "bg-[var(--shelfy-accent)]/10 border-[var(--shelfy-accent)]/40"
+                                : "bg-black/[0.02] border-transparent hover:bg-[var(--shelfy-accent)]/10 hover:border-[var(--shelfy-accent)]/20"
+                            }`}
+                          >
+                            <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 transition-colors ${
+                              sel ? "bg-[var(--shelfy-accent)] border-[var(--shelfy-accent)]" : "border-[var(--shelfy-border)]"
+                            }`}>
+                              {sel && <Check className="w-2.5 h-2.5 text-white" />}
+                            </div>
+                            <span className="text-[var(--shelfy-text)] truncate flex-1 text-left">{pdv.nombre_cliente}</span>
+                            {diasSinExhib === null ? (
+                              <span className="text-red-500 font-semibold shrink-0 text-[10px]">Nunca</span>
+                            ) : (
+                              <span className={`font-medium tabular-nums shrink-0 ${diasSinExhib > 30 ? "text-orange-500" : "text-[var(--shelfy-muted)]"}`}>
+                                {diasSinExhib}d
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </ScrollArea>
+                  {pdvCatalogHasMore && (
+                    <button
+                      type="button"
+                      disabled={loadingMorePdv}
+                      onClick={() => {
+                        const nextOffset = (pdvCatalogPage + 1) * 35;
+                        setLoadingMorePdv(true);
+                        fetchPDVCatalog(distId, { vendedorId: Number(vendedorId), limit: 35, offset: nextOffset })
+                          .then(more => {
+                            setPdvCatalogAll(prev => [...prev, ...more]);
+                            setPdvCatalogHasMore(more.length === 35);
+                            setPdvCatalogPage(p => p + 1);
+                          })
+                          .catch(() => {})
+                          .finally(() => setLoadingMorePdv(false));
+                      }}
+                      className="w-full py-1.5 text-xs text-[var(--shelfy-accent)] hover:text-[var(--shelfy-accent)]/80 border border-[var(--shelfy-border)] rounded-lg transition-colors flex items-center justify-center gap-1.5"
+                    >
+                      {loadingMorePdv && <Loader2 className="w-3 h-3 animate-spin" />}
+                      Cargar más
+                    </button>
                   )}
-                </div>
+                </>
               )}
             </div>
           )}
@@ -1048,12 +1126,42 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
             <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">
               Fecha límite <span className="normal-case font-normal">(opcional)</span>
             </label>
-            <input
-              type="date"
-              className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
-              value={fecha}
-              onChange={e => setFecha(e.target.value)}
-            />
+            <div className="flex gap-1.5 flex-wrap items-center">
+              {([{ label: "Hoy", days: 0 }, { label: "+7d", days: 7 }, { label: "+15d", days: 15 }, { label: "+30d", days: 30 }] as const).map(({ label, days }) => {
+                const d = new Date();
+                d.setDate(d.getDate() + days);
+                const iso = d.toISOString().split("T")[0];
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => setFecha(iso)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-all ${
+                      fecha === iso
+                        ? "border-[var(--shelfy-accent)] bg-[var(--shelfy-accent)]/10 text-[var(--shelfy-accent)]"
+                        : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+              <input
+                type="date"
+                className="flex-1 min-w-0 bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-1.5 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                value={fecha}
+                onChange={e => setFecha(e.target.value)}
+              />
+              {fecha && (
+                <button
+                  type="button"
+                  onClick={() => setFecha("")}
+                  className="p-1.5 rounded text-[var(--shelfy-muted)] hover:text-red-500 transition-colors"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Descripción */}
@@ -1546,7 +1654,7 @@ type PageTab = "objetivos" | "supervisor" | "estadisticas";
 
 export default function ObjetivosPage() {
   const { user } = useAuth();
-  const distId = user?.id_distribuidor ?? 0;
+  const isCrossTenant = !!(user?.is_superadmin || user?.permisos?.action_switch_tenant);
   const qc = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
   const [pageTab, setPageTab] = useState<PageTab>("objetivos");
@@ -1555,12 +1663,22 @@ export default function ObjetivosPage() {
     filterTipo, filterCumplido, searchText, viewMode,
     setFilterTipo, setFilterCumplido, setSearchText, setViewMode,
     filterVendedores, filterKanbanPhase, setFilterKanbanPhase,
+    selectedTenantId, setSelectedTenantId,
   } = useObjetivosStore();
+
+  const distId = (isCrossTenant && selectedTenantId) ? selectedTenantId : (user?.id_distribuidor ?? 0);
 
   const [selectedSucursal, setSelectedSucursal] = useState<string>("");
   const [selectedVendedorId, setSelectedVendedorId] = useState<number | null>(null);
 
   // ── Data ──────────────────────────────────────────────────────────────────
+
+  const { data: distribuidoras = [] } = useQuery({
+    queryKey: ["distribuidoras-list"],
+    queryFn: () => fetchDistribuidoras(true),
+    enabled: isCrossTenant,
+    staleTime: 5 * 60 * 1000,
+  });
 
   const { data: vendedoresData } = useQuery({
     queryKey: ["vendedores-supervision", distId],
@@ -1746,8 +1864,10 @@ export default function ObjetivosPage() {
 
   // ── View mode helpers ─────────────────────────────────────────────────────
 
-  const VIEW_BUTTONS: { key: typeof viewMode; label: string; Icon: React.ElementType }[] = [
+  type ViewModeKey = 'kanban' | 'lista' | 'timeline' | 'stats' | 'print';
+  const VIEW_BUTTONS: { key: ViewModeKey; label: string; Icon: React.ElementType }[] = [
     { key: "kanban",   label: "Kanban",   Icon: LayoutGrid },
+    { key: "lista",    label: "Lista",    Icon: LayoutList },
     { key: "timeline", label: "Timeline", Icon: GitBranch },
     { key: "stats",    label: "Stats",    Icon: BarChart3 },
     { key: "print",    label: "Imprimir", Icon: Printer },
@@ -1799,6 +1919,29 @@ export default function ObjetivosPage() {
               </button>
             </div>
           </div>
+
+          {/* Tenant selector — superadmin / directorio only */}
+          {isCrossTenant && (
+            <div className="flex items-center gap-2 mb-4 print-hidden">
+              <Building2 className="w-4 h-4 text-[var(--shelfy-muted)] shrink-0" />
+              <div className="relative">
+                <select
+                  className="appearance-none bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-lg pl-3 pr-8 py-2 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                  value={selectedTenantId ?? (user?.id_distribuidor ?? "")}
+                  onChange={e => setSelectedTenantId(e.target.value ? Number(e.target.value) : null)}
+                >
+                  <option value="">Todas las distribuidoras</option>
+                  {distribuidoras.map(d => (
+                    <option key={d.id} value={d.id}>{d.nombre}</option>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-[var(--shelfy-muted)] pointer-events-none" />
+              </div>
+              {selectedTenantId && selectedTenantId !== user?.id_distribuidor && (
+                <span className="text-xs text-[var(--shelfy-accent)] font-medium">Vista cruzada activa</span>
+              )}
+            </div>
+          )}
 
           {/* Stats (only on objetivos / kanban view) */}
           {pageTab === "objetivos" && viewMode !== "stats" && viewMode !== "timeline" && (
@@ -1882,31 +2025,6 @@ export default function ObjetivosPage() {
                   <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-[var(--shelfy-muted)] pointer-events-none" />
                 </div>
 
-                {/* Lista view toggle (only visible on kanban tab) */}
-                {viewMode === "kanban" && (
-                  <div className="flex gap-1 bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-lg p-1">
-                    <button
-                      onClick={() => setViewMode("kanban")}
-                      className="p-1.5 rounded bg-white/10 text-[var(--shelfy-text)]"
-                      title="Kanban"
-                    >
-                      <LayoutGrid className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => {
-                        // Switch to lista within the objetivos tab context using a local toggle
-                        // since "lista" was the old mode name, we repurpose the viewMode switcher
-                        // to indicate lista via a local flag
-                        setViewMode("kanban"); // stays kanban — lista is toggled via alt param
-                      }}
-                      className="p-1.5 rounded text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
-                      title="Lista"
-                      onClick={() => (document.querySelector('[data-lista-toggle]') as HTMLElement)?.click()}
-                    >
-                      <LayoutList className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                )}
               </div>
 
               {/* Cascading sucursal → vendedor filter */}
@@ -1957,6 +2075,31 @@ export default function ObjetivosPage() {
                 <VistaTimeline distId={distId} vendedores={vendedores} />
               ) : viewMode === "stats" ? (
                 <VistaEstadisticas objetivos={filtered} />
+              ) : viewMode === "lista" ? (
+                <div className="rounded-xl border border-[var(--shelfy-border)] overflow-hidden">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-[var(--shelfy-border)] bg-[var(--shelfy-panel)]">
+                        <th className="w-8 px-4 py-2.5" />
+                        <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider">Vendedor</th>
+                        <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider">Tipo</th>
+                        <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider">Objetivo</th>
+                        <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider w-36">Progreso</th>
+                        <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider">Fecha</th>
+                        <th className="w-10 px-4 py-2.5" />
+                      </tr>
+                    </thead>
+                    <tbody className="bg-[var(--shelfy-bg)]">
+                      {filtered.map(obj => (
+                        <ObjetivoRow
+                          key={obj.id}
+                          obj={obj}
+                          onDelete={() => deleteMut.mutate(obj.id)}
+                        />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               ) : isLoading ? (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-32 w-full rounded-xl" />)}
@@ -1978,9 +2121,8 @@ export default function ObjetivosPage() {
                   </button>
                 </div>
               ) : (
-                /* ── Kanban + Lista toggle ── */
+                /* ── Kanban ── */
                 <KanbanOrListaView
-                  filtered={filtered}
                   kanbanGroups={kanbanGroups}
                   onDelete={(id) => deleteMut.mutate(id)}
                   onReagendar={(o) => { setReagendarObj(o); setFechaReagendar(""); setObservacionReagendar(""); }}
@@ -2116,7 +2258,6 @@ export default function ObjetivosPage() {
 // ── Kanban / Lista split view ─────────────────────────────────────────────────
 
 function KanbanOrListaView({
-  filtered,
   kanbanGroups,
   onDelete,
   onReagendar,
@@ -2124,7 +2265,6 @@ function KanbanOrListaView({
   filterKanbanPhase,
   setFilterKanbanPhase,
 }: {
-  filtered: Objetivo[];
   kanbanGroups: { pendiente: Objetivo[]; en_progreso: Objetivo[]; terminado: Objetivo[] };
   onDelete: (id: string) => void;
   onReagendar: (obj: Objetivo) => void;
@@ -2132,8 +2272,6 @@ function KanbanOrListaView({
   filterKanbanPhase: 'pendiente' | 'en_progreso' | 'terminado' | null;
   setFilterKanbanPhase: (phase: 'pendiente' | 'en_progreso' | 'terminado' | null) => void;
 }) {
-  const [listaMode, setListaMode] = useState(false);
-
   const COLUMNS = [
     { key: "pendiente" as const,   label: "Pendiente",   Icon: Clock,        headerClass: "text-[var(--shelfy-muted)]",  borderClass: "border-t-2 border-t-slate-300" },
     { key: "en_progreso" as const, label: "En progreso", Icon: TrendingUp,   headerClass: "text-violet-600",              borderClass: "border-t-2 border-t-violet-500" },
@@ -2141,98 +2279,46 @@ function KanbanOrListaView({
   ];
 
   return (
-    <div>
-      {/* Local lista/kanban toggle */}
-      <div className="flex items-center gap-2 mb-3 print-hidden">
-        <div className="flex gap-1 bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-lg p-1">
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {COLUMNS.map(col => {
+        const isActive = filterKanbanPhase === col.key;
+        return (
+        <div key={col.key} className={`rounded-xl border bg-[var(--shelfy-bg)] overflow-hidden ${col.borderClass} ${isActive ? "border-[var(--shelfy-accent)]/40" : "border-[var(--shelfy-border)]"}`}>
           <button
-            onClick={() => setListaMode(false)}
-            className={`p-1.5 rounded transition-colors ${!listaMode ? "bg-[var(--shelfy-accent)]/10 text-[var(--shelfy-accent)]" : "text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"}`}
-            title="Kanban"
+            type="button"
+            onClick={() => setFilterKanbanPhase(isActive ? null : col.key)}
+            className={`w-full px-4 py-3 border-b border-[var(--shelfy-border)] flex items-center justify-between transition-colors ${isActive ? "bg-[var(--shelfy-accent)]/10" : "bg-[var(--shelfy-panel)] hover:bg-[var(--shelfy-accent)]/5"}`}
+            title={isActive ? `Quitar filtro "${col.label}"` : `Filtrar por "${col.label}"`}
           >
-            <LayoutGrid className="w-3.5 h-3.5" />
+            <span className={`flex items-center gap-1.5 text-xs font-semibold ${isActive ? "text-[var(--shelfy-accent)]" : col.headerClass}`}>
+              <col.Icon className="w-3.5 h-3.5" />
+              {col.label}
+            </span>
+            <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-full border ${isActive ? "bg-[var(--shelfy-accent)]/10 text-[var(--shelfy-accent)] border-[var(--shelfy-accent)]/30" : "text-[var(--shelfy-muted)] bg-[var(--shelfy-bg)] border-[var(--shelfy-border)]"}`}>
+              {kanbanGroups[col.key].length}
+            </span>
           </button>
-          <button
-            onClick={() => setListaMode(true)}
-            data-lista-toggle
-            className={`p-1.5 rounded transition-colors ${listaMode ? "bg-[var(--shelfy-accent)]/10 text-[var(--shelfy-accent)]" : "text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"}`}
-            title="Lista"
-          >
-            <LayoutList className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      </div>
-
-      {listaMode ? (
-        /* ── Lista ── */
-        <div className="rounded-xl border border-[var(--shelfy-border)] overflow-hidden">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-[var(--shelfy-border)] bg-[var(--shelfy-panel)]">
-                <th className="w-8 px-4 py-2.5" />
-                <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider">Vendedor</th>
-                <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider">Tipo</th>
-                <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider">Objetivo</th>
-                <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider w-36">Progreso</th>
-                <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider">Fecha</th>
-                <th className="w-10 px-4 py-2.5" />
-              </tr>
-            </thead>
-            <tbody className="bg-[var(--shelfy-bg)]">
-              {filtered.map(obj => (
-                <ObjetivoRow
+          <div className="p-3 space-y-2 min-h-24">
+            <AnimatePresence mode="popLayout">
+              {kanbanGroups[col.key].map(obj => (
+                <KanbanCard
                   key={obj.id}
                   obj={obj}
                   onDelete={() => onDelete(obj.id)}
+                  onReagendar={onReagendar}
+                  onDownloadCertificado={onDownloadCertificado}
                 />
               ))}
-            </tbody>
-          </table>
+            </AnimatePresence>
+            {kanbanGroups[col.key].length === 0 && (
+              <p className="text-[11px] text-[var(--shelfy-muted)] text-center py-4 opacity-50">
+                Sin objetivos
+              </p>
+            )}
+          </div>
         </div>
-      ) : (
-        /* ── Kanban ── */
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {COLUMNS.map(col => {
-            const isActive = filterKanbanPhase === col.key;
-            return (
-            <div key={col.key} className={`rounded-xl border bg-[var(--shelfy-bg)] overflow-hidden ${col.borderClass} ${isActive ? "border-[var(--shelfy-accent)]/40" : "border-[var(--shelfy-border)]"}`}>
-              <button
-                type="button"
-                onClick={() => setFilterKanbanPhase(isActive ? null : col.key)}
-                className={`w-full px-4 py-3 border-b border-[var(--shelfy-border)] flex items-center justify-between transition-colors ${isActive ? "bg-[var(--shelfy-accent)]/10" : "bg-[var(--shelfy-panel)] hover:bg-[var(--shelfy-accent)]/5"}`}
-                title={isActive ? `Quitar filtro "${col.label}"` : `Filtrar por "${col.label}"`}
-              >
-                <span className={`flex items-center gap-1.5 text-xs font-semibold ${isActive ? "text-[var(--shelfy-accent)]" : col.headerClass}`}>
-                  <col.Icon className="w-3.5 h-3.5" />
-                  {col.label}
-                </span>
-                <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-full border ${isActive ? "bg-[var(--shelfy-accent)]/10 text-[var(--shelfy-accent)] border-[var(--shelfy-accent)]/30" : "text-[var(--shelfy-muted)] bg-[var(--shelfy-bg)] border-[var(--shelfy-border)]"}`}>
-                  {kanbanGroups[col.key].length}
-                </span>
-              </button>
-              <div className="p-3 space-y-2 min-h-24">
-                <AnimatePresence mode="popLayout">
-                  {kanbanGroups[col.key].map(obj => (
-                    <KanbanCard
-                      key={obj.id}
-                      obj={obj}
-                      onDelete={() => onDelete(obj.id)}
-                      onReagendar={onReagendar}
-                      onDownloadCertificado={onDownloadCertificado}
-                    />
-                  ))}
-                </AnimatePresence>
-                {kanbanGroups[col.key].length === 0 && (
-                  <p className="text-[11px] text-[var(--shelfy-muted)] text-center py-4 opacity-50">
-                    Sin objetivos
-                  </p>
-                )}
-              </div>
-            </div>
-            );
-          })}
-        </div>
-      )}
+        );
+      })}
     </div>
   );
 }

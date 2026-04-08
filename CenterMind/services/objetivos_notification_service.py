@@ -99,30 +99,49 @@ class ObjetivosNotificationService:
                     )
                     items = items_res.data or []
                     if items:
-                        # Enrich with id_cliente_erp from clientes_pdv_v2
+                        # Enrich with id_cliente_erp, domicilio, telefono from clientes_pdv_v2
                         pdv_ids = [it["id_cliente_pdv"] for it in items if it.get("id_cliente_pdv")]
-                        erp_map: dict[int, str] = {}
+                        erp_map: dict[int, dict] = {}
                         if pdv_ids:
                             erp_res = (
                                 sb.table("clientes_pdv_v2")
-                                .select("id_cliente, id_cliente_erp")
+                                .select("id_cliente, id_cliente_erp, domicilio, telefono")
                                 .in_("id_cliente", pdv_ids)
                                 .execute()
                             )
                             erp_map = {
-                                r["id_cliente"]: r.get("id_cliente_erp") or ""
+                                r["id_cliente"]: {
+                                    "erp": r.get("id_cliente_erp") or "",
+                                    "domicilio": r.get("domicilio") or "",
+                                    "telefono": r.get("telefono") or "",
+                                }
                                 for r in (erp_res.data or [])
                             }
+                        MAX_PDV_DISPLAY = 5
                         lineas = []
                         for it in items:
                             nombre = it.get("nombre_pdv") or f"PDV #{it.get('id_cliente_pdv')}"
-                            erp = erp_map.get(it.get("id_cliente_pdv") or 0, "")
+                            info = erp_map.get(it.get("id_cliente_pdv") or 0, {})
+                            erp = info.get("erp", "")
+                            domicilio = info.get("domicilio", "")
+                            telefono = info.get("telefono", "")
                             cod = f" (#{erp})" if erp else ""
-                            lineas.append(f"  • {nombre}{cod}")
-                        pdv_lines = (
-                            f"\n📍 <b>PDVs asignados ({len(items)}):</b>\n"
-                            + "\n".join(lineas)
-                        )
+                            dom = f" — {domicilio}" if domicilio else ""
+                            tel = f" ☎ {telefono}" if telefono else ""
+                            lineas.append(f"  • {nombre}{cod}{dom}{tel}")
+                        if len(items) > MAX_PDV_DISPLAY:
+                            shown = lineas[:MAX_PDV_DISPLAY]
+                            remaining = len(items) - MAX_PDV_DISPLAY
+                            shown.append(f"  <i>...y {remaining} más</i>")
+                            pdv_lines = (
+                                f"\n📍 <b>PDVs asignados ({len(items)}):</b>\n"
+                                + "\n".join(shown)
+                            )
+                        else:
+                            pdv_lines = (
+                                f"\n📍 <b>PDVs asignados ({len(items)}):</b>\n"
+                                + "\n".join(lineas)
+                            )
 
                 # Fallback modo simple (un solo PDV o sin ítems)
                 if not pdv_lines:

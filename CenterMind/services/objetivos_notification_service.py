@@ -45,11 +45,24 @@ class ObjetivosNotificationService:
         """
         try:
             token = self._get_bot_token(dist_id)
-            if not token: return
+            if not token:
+                logger.warning(
+                    f"[Notif] nuevo objetivo: distribuidor {dist_id} sin token_bot — no se envía Telegram"
+                )
+                return
 
             id_vendedor = obj_data.get("id_vendedor")
-            chat_id = self._get_vendor_group_chat_id(dist_id, id_vendedor)
-            if not chat_id: return
+            if id_vendedor is None:
+                logger.warning("[Notif] nuevo objetivo: payload sin id_vendedor — no se envía Telegram")
+                return
+
+            chat_id = self._get_vendor_group_chat_id(dist_id, int(id_vendedor))
+            if not chat_id:
+                logger.warning(
+                    f"[Notif] nuevo objetivo: sin telegram_group_id para vendedor_v2={id_vendedor} "
+                    f"dist={dist_id} — revisá integrantes_grupo (id_vendedor_v2 o id_vendedor_erp)"
+                )
+                return
 
             tipo = obj_data.get("tipo")
             emoji = TIPO_EMOJI.get(tipo, "🎯")
@@ -90,7 +103,12 @@ class ObjetivosNotificationService:
             id_target_ruta = obj_data.get("id_target_ruta")
             try:
                 # Modo multi-PDV: cargar objetivo_items si tenemos obj_id
-                if obj_id and tipo in ("exhibicion", "ruteo_alteo", "conversion_estado"):
+                if obj_id and tipo in (
+                    "exhibicion",
+                    "ruteo_alteo",
+                    "conversion_estado",
+                    "activacion",
+                ):
                     items_res = (
                         sb.table("objetivo_items")
                         .select("id_cliente_pdv, nombre_pdv")
@@ -151,7 +169,8 @@ class ObjetivosNotificationService:
                         pdv_res = (
                             sb.table("clientes_pdv_v2")
                             .select("id_cliente_erp")
-                            .eq("id", id_target_pdv)
+                            .eq("id_cliente", id_target_pdv)
+                            .eq("id_distribuidor", dist_id)
                             .limit(1)
                             .execute()
                         )
@@ -373,20 +392,57 @@ class ObjetivosNotificationService:
         self, dist_id: int, id_vendedor: int
     ) -> int | None:
         """
-        Busca el telegram_group_id del grupo al que pertenece el vendedor.
-        Estrategia: integrantes_grupo.telegram_group_id WHERE id_vendedor_v2 = id_vendedor.
+        Busca telegram_group_id del grupo del vendedor.
+
+        1) integrantes_grupo filas con id_vendedor_v2 y telegram_group_id no nulo
+        2) Fallback: id_vendedor_erp en vendedores_v2 → misma columna en integrantes_grupo
+        (evita .limit(1) sobre filas huérfanas sin grupo).
         """
         try:
             res = (
                 sb.table("integrantes_grupo")
-                .select("telegram_group_id")
+                .select("telegram_group_id, id_vendedor_erp")
                 .eq("id_distribuidor", dist_id)
                 .eq("id_vendedor_v2", id_vendedor)
+                .execute()
+            )
+            for row in res.data or []:
+                gid = row.get("telegram_group_id")
+                if gid is not None and str(gid).strip() not in ("", "0", "None"):
+                    return int(gid)
+
+            vres = (
+                sb.table("vendedores_v2")
+                .select("id_vendedor_erp")
+                .eq("id_distribuidor", dist_id)
+                .eq("id_vendedor", id_vendedor)
                 .limit(1)
                 .execute()
             )
-            row = (res.data or [{}])[0]
-            return row.get("telegram_group_id")
+            verp = (vres.data or [{}])[0].get("id_vendedor_erp")
+            if verp is None or verp == "":
+                return None
+            verp_s = str(verp).strip().lower()
+            ires = (
+                sb.table("integrantes_grupo")
+                .select("telegram_group_id, id_vendedor_erp")
+                .eq("id_distribuidor", dist_id)
+                .execute()
+            )
+            for row in ires.data or []:
+                ig_erp = row.get("id_vendedor_erp")
+                if ig_erp is None:
+                    continue
+                if str(ig_erp).strip().lower() != verp_s:
+                    continue
+                gid = row.get("telegram_group_id")
+                if gid is not None and str(gid).strip() not in ("", "0", "None"):
+                    logger.info(
+                        f"[Notif] grupo Telegram vía id_vendedor_erp={verp!r} "
+                        f"vendedor_v2={id_vendedor} dist={dist_id}"
+                    )
+                    return int(gid)
+            return None
         except Exception as e:
             logger.warning(
                 f"[Notif] _get_vendor_group_chat_id vend={id_vendedor}: {e}"

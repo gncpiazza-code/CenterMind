@@ -678,12 +678,25 @@ class PadronIngestionService:
         return res.data or []
 
     def _load_dist_map(self, dist_rows: list[dict[str, Any]]) -> dict[str, int]:
-        """Construye {id_empresa_erp → id_distribuidor}."""
-        return {
-            str(r["id_empresa_erp"]): r["id_distribuidor"]
-            for r in dist_rows
-            if r.get("id_empresa_erp")
-        }
+        """Construye {id_empresa_erp → id_distribuidor} con normalización CHESS/Excel."""
+
+        def _norm_erp_key(v: Any) -> str | None:
+            if v is None or (isinstance(v, float) and pd.isna(v)):
+                return None
+            s = _safe_str(v, "").strip()
+            if not s:
+                return None
+            if s.endswith(".0"):
+                s = s[:-2]
+            return s
+
+        out: dict[str, int] = {}
+        for r in dist_rows:
+            key = _norm_erp_key(r.get("id_empresa_erp"))
+            if not key:
+                continue
+            out[key] = r["id_distribuidor"]
+        return out
 
     def _resolve_dist_ids_for_real_bolivar(
         self, dist_rows: list[dict[str, Any]]
@@ -819,15 +832,41 @@ class PadronIngestionService:
         empresa_keys_target = {
             erp_key for erp_key, dist_id in dist_map.items() if dist_id == target_dist_id
         }
-        df_target = df[df["_empresa_key"].isin(empresa_keys_target)].copy()
+        # Si el distribuidor no tiene id_empresa_erp en `distribuidores`, el filtro por
+        # idempresa devolvía 0 filas siempre (.isin([])). En upload focalizado el usuario
+        # ya eligió el tenant: aceptar archivo con un solo idempresa como todo el lote.
+        used_full_file_fallback = False
+        if not empresa_keys_target:
+            n_emp = int(df["_empresa_key"].nunique())
+            if n_emp > 1:
+                uniq = sorted(
+                    str(x) for x in df["_empresa_key"].dropna().unique().tolist()
+                )[:25]
+                raise ValueError(
+                    f"El distribuidor id_distribuidor={target_dist_id} no tiene "
+                    f"id_empresa_erp configurado en tabla distribuidores (o está vacío). "
+                    f"Configurá el código CHESS de empresa (misma columna idempresa del padrón) "
+                    f"o subí un archivo que contenga una sola empresa. "
+                    f"Valores idempresa distintos en este archivo ({n_emp}): {uniq}"
+                )
+            logger.info(
+                f"[Padrón] Dist {target_dist_id} sin id_empresa_erp; "
+                f"archivo con idempresa único — ingiriendo todas las filas (upload focalizado)."
+            )
+            df_target = df.copy()
+            used_full_file_fallback = True
+        else:
+            df_target = df[df["_empresa_key"].isin(empresa_keys_target)].copy()
+
+        suc_col = cols.get("sucursal")
 
         # Compatibilidad operativa: si cargan padrón de Real y apuntan a Bolívar,
         # extraer OSCAR ONDARRETA desde Real para impactar en Bolívar.
-        suc_col = cols.get("sucursal")
         if (
             target_dist_id == bolivar_dist_id
             and real_dist_id is not None
             and suc_col
+            and not used_full_file_fallback
         ):
             empresa_keys_real = {
                 erp_key for erp_key, dist_id in dist_map.items() if dist_id == real_dist_id
@@ -869,8 +908,15 @@ class PadronIngestionService:
                 return {"ok": True, "derivadas_bolivar": int(len(df_bolivar)), "dist_id": target_dist_id}
 
         if df_target.empty:
+            in_file = sorted(
+                str(x) for x in df["_empresa_key"].dropna().unique().tolist()
+            )[:30]
+            expected = sorted(empresa_keys_target)
             raise ValueError(
-                f"No se encontraron filas para id_distribuidor={target_dist_id} en el archivo."
+                f"No se encontraron filas para id_distribuidor={target_dist_id} en el archivo. "
+                f"id_empresa_erp esperado para este distribuidor en BD: {expected or '(sin configurar)'}. "
+                f"Valores idempresa en el archivo (muestra): {in_file}. "
+                f"Verificá distribuidores.id_empresa_erp o que el padrón corresponda a esa empresa."
             )
 
         empresa_hint = ",".join(sorted(empresa_keys_target)) or "derived"

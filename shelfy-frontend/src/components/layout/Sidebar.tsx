@@ -35,7 +35,7 @@ interface NavItem {
 }
 
 const ALL_NAV: NavItem[] = [
-  { href: "/visor",       label: "Evaluar",              icon: Eye,            roles: ["superadmin", "admin", "supervisor", "evaluador"], permisoKey: "action_evaluar_exhibiciones" },
+  { href: "/visor",       label: "Evaluar",              icon: Eye,            roles: ["superadmin", "admin", "supervisor", "evaluador", "directorio"], permisoKey: "action_evaluar_exhibiciones" },
   { href: "/dashboard",   label: "Dashboard",            icon: LayoutDashboard,roles: ["superadmin", "admin", "supervisor", "directorio"], permisoKey: "menu_dashboard" },
   { href: "/supervision", label: "Panel de Supervisión", icon: Route,          roles: ["superadmin", "admin", "supervisor"], permisoKey: "menu_supervision" },
   { href: "/objetivos",   label: "Objetivos",            icon: Target,         roles: ["superadmin", "admin", "supervisor"], permisoKey: "menu_objetivos" },
@@ -62,7 +62,9 @@ export function Sidebar() {
   const rol = user?.rol ?? "";
   const navItems = useMemo(
     () => ALL_NAV.filter(i => {
-      if (!(i.roles as string[]).includes(rol)) return false;
+      const roleAllowed = (i.roles as string[]).includes(rol);
+      // If the permission is explicitly granted, allow access even if role lists are lagging behind.
+      if (!roleAllowed && !(i.permisoKey && hasPermiso(i.permisoKey))) return false;
       if (i.permisoKey && !hasPermiso(i.permisoKey)) return false;
       return true;
     }),

@@ -5,8 +5,16 @@ import { usePathname } from "next/navigation";
 import { LayoutDashboard, Eye, Users, BarChart2, Gift, GraduationCap, Route, Target } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 
-const ALL_NAV = [
-  { href: "/visor",       label: "Evaluar",      icon: Eye,             roles: ["superadmin", "admin", "supervisor"] },
+interface MobileNavItem {
+  href: string;
+  label: string;
+  icon: React.ElementType;
+  roles: string[];
+  permisoKey?: string;
+}
+
+const ALL_NAV: MobileNavItem[] = [
+  { href: "/visor",       label: "Evaluar",      icon: Eye,             roles: ["superadmin", "admin", "supervisor", "evaluador", "directorio"], permisoKey: "action_evaluar_exhibiciones" },
   { href: "/dashboard",   label: "Dashboard",    icon: LayoutDashboard, roles: ["superadmin", "admin", "supervisor"] },
   { href: "/supervision", label: "Supervisión",  icon: Route,           roles: ["superadmin", "admin", "supervisor"] },
   { href: "/objetivos",   label: "Objetivos",    icon: Target,          roles: ["superadmin", "admin", "supervisor"] },
@@ -18,9 +26,14 @@ const ALL_NAV = [
 
 export function BottomNav() {
   const pathname = usePathname();
-  const { user } = useAuth();
+  const { user, hasPermiso } = useAuth();
   const rol = user?.rol ?? "";
-  const navItems = ALL_NAV.filter(i => (i.roles as string[]).includes(rol));
+  const navItems = ALL_NAV.filter(i => {
+    const roleAllowed = i.roles.includes(rol);
+    if (!roleAllowed && !(i.permisoKey && hasPermiso(i.permisoKey))) return false;
+    if (i.permisoKey && !hasPermiso(i.permisoKey)) return false;
+    return true;
+  });
 
   if (!user) return null;
 

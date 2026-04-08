@@ -37,12 +37,17 @@ logger = logging.getLogger("PadronIngestion")
 # Los nombres se comparan normalizados (sin acentos, minúsculas).
 # Si un distribuidor NO aparece aquí, se toman TODAS sus sucursales.
 
+# Franquiciados de Real Tabacalera (CHESS suele traer un solo idempresa con varias dssucur).
+# La Mágica → sólo UEQUIN RODRIGO; Bolívar → sólo OSCAR ONDARRETA; filas con otros dssucur
+# no se asignan a esos tenants (ver lógica en ingest / _ingest_for_dist).
+MAGICA_UEQUIN_FILTER: dict = {
+    "ids":     ["8"],  # idsucur ERP típico UEQUIN RODRIGO
+    "nombres": ["uequin rodrigo"],
+}
+
 SUCURSAL_FILTER: dict[int, dict] = {
-    2: {  # Real Tabacalera de Santiago S.A. (id_distribuidor=2)
-        "ids":     ["8"],  # id_sucursal_erp numérico como string
-        # La Mágica queda acotada a UEQUIN. ONDARRETA se enruta a Bolívar en ingest().
-        "nombres": ["uequin rodrigo"],  # nombre normalizado
-    },
+    # Real matriz (legado): mismo criterio UEQUIN que La Mágica si no hay fila separada
+    2: {**MAGICA_UEQUIN_FILTER},
 }
 
 
@@ -69,6 +74,15 @@ def _is_ondarreta_sucursal(val: Any) -> bool:
         return False
     tokens = set(n.split())
     return {"oscar", "ondarreta"}.issubset(tokens)
+
+
+def _is_uequin_rodrigo_sucursal(val: Any) -> bool:
+    """Sucursal UEQUIN RODRIGO (franquicia La Mágica en CHESS)."""
+    n = _norm(_safe_str(val, ""))
+    if not n:
+        return False
+    tokens = set(n.split())
+    return {"uequin", "rodrigo"}.issubset(tokens)
 
 
 def _flexible_col(df: pd.DataFrame, candidates: list[str]) -> str | None:
@@ -698,20 +712,57 @@ class PadronIngestionService:
             out[key] = r["id_distribuidor"]
         return out
 
-    def _resolve_dist_ids_for_real_bolivar(
+    def _resolve_real_franchise_dists(
         self, dist_rows: list[dict[str, Any]]
-    ) -> tuple[int | None, int | None]:
-        """Resuelve ids de Real Tabacalera y Bolívar por nombre de distribuidor."""
+    ) -> tuple[int | None, int | None, int | None]:
+        """
+        Resuelve por nombre_empresa: Real Tabacalera (matriz ERP), La Mágica (franquicia UEQUIN),
+        Bolívar (franquicia ONDARRETA). Tres id_distribuidor distintos en tabla distribuidores.
+        """
         real_dist_id: int | None = None
+        magica_dist_id: int | None = None
         bolivar_dist_id: int | None = None
         for r in dist_rows:
             nombre = _norm(_safe_str(r.get("nombre_empresa"), ""))
             if "real tabacalera" in nombre:
                 real_dist_id = r.get("id_distribuidor")
-            # Acepta ambas variantes de escritura: "distribuiciones"/"distribuciones".
+            # RPA / alta manual: "La Magica - Santiago del Estero", "La Mágica", etc.
+            if "la magica" in nombre or (
+                "magica" in nombre and "santiago" in nombre
+            ):
+                magica_dist_id = r.get("id_distribuidor")
             if "bolivar distribuciones" in nombre or "bolivar distribuiciones" in nombre:
                 bolivar_dist_id = r.get("id_distribuidor")
-        return real_dist_id, bolivar_dist_id
+        return real_dist_id, magica_dist_id, bolivar_dist_id
+
+    def _resolve_dist_ids_for_real_bolivar(
+        self, dist_rows: list[dict[str, Any]]
+    ) -> tuple[int | None, int | None]:
+        """Compat: Real + Bolívar (sin exponer La Mágica)."""
+        r, _, b = self._resolve_real_franchise_dists(dist_rows)
+        return r, b
+
+    def _franchise_collision_guard(
+        self,
+        real_id: int | None,
+        magica_id: int | None,
+        bolivar_id: int | None,
+    ) -> None:
+        ids = [
+            ("Real Tabacalera", real_id),
+            ("La Mágica", magica_id),
+            ("Bolívar Distribuciones", bolivar_id),
+        ]
+        seen: dict[int, str] = {}
+        for label, i in ids:
+            if i is None:
+                continue
+            if i in seen:
+                raise ValueError(
+                    f"Padrón Real/franquicias: {label} y {seen[i]} comparten id_distribuidor={i}. "
+                    f"Cada tenant debe tener su propia fila y PK en tabla distribuidores."
+                )
+            seen[i] = label
 
     # ── Entry point ───────────────────────────────────────────────────────────
 
@@ -750,7 +801,10 @@ class PadronIngestionService:
                 "No hay distribuidores con id_empresa_erp configurado. "
                 "Ejecute: UPDATE distribuidores SET id_empresa_erp = id_erp WHERE id_erp IS NOT NULL;"
             )
-        real_dist_id, bolivar_dist_id = self._resolve_dist_ids_for_real_bolivar(dist_rows)
+        real_dist_id, magica_dist_id, bolivar_dist_id = self._resolve_real_franchise_dists(
+            dist_rows
+        )
+        self._franchise_collision_guard(real_dist_id, magica_dist_id, bolivar_dist_id)
 
         resultados = []
         for empresa_erp, df_dist in df.groupby("_empresa_key"):
@@ -763,15 +817,13 @@ class PadronIngestionService:
                 )
                 continue
 
-            # Regla de negocio: filas de Real + sucursal OSCAR ONDARRETA deben
-            # impactar en Bolívar Distribuiciones (dist independiente).
+            # Regla de negocio: mismo idempresa CHESS de Real → ONDARRETA a Bolívar;
+            # UEQUIN RODRIGO a La Mágica si hay fila separada, si no a Real (id 2) con filtro.
             suc_col = cols.get("sucursal")
             if dist_id == real_dist_id and suc_col:
-                mask_ondarreta = df_dist[suc_col].apply(
-                    _is_ondarreta_sucursal
-                )
+                mask_ondarreta = df_dist[suc_col].apply(_is_ondarreta_sucursal)
                 df_bolivar = df_dist[mask_ondarreta].copy()
-                df_real = df_dist[~mask_ondarreta].copy()
+                df_after_bol = df_dist[~mask_ondarreta].copy()
 
                 if not df_bolivar.empty:
                     if not bolivar_dist_id:
@@ -792,8 +844,30 @@ class PadronIngestionService:
                         )
                     )
 
-                if not df_real.empty:
-                    resultados.append(self._ingest_for_dist(df_real, cols, dist_id, empresa_erp))
+                if magica_dist_id and not df_after_bol.empty:
+                    mask_ueq = df_after_bol[suc_col].apply(_is_uequin_rodrigo_sucursal)
+                    df_magica = df_after_bol[mask_ueq].copy()
+                    df_tail = df_after_bol[~mask_ueq].copy()
+                    if not df_magica.empty:
+                        logger.info(
+                            f"[Padrón] Reenrutando {len(df_magica)} filas UEQUIN RODRIGO "
+                            f"hacia La Mágica (dist {magica_dist_id})."
+                        )
+                        resultados.append(
+                            self._ingest_for_dist(
+                                df_magica, cols, magica_dist_id, f"{empresa_erp}->magica"
+                            )
+                        )
+                    if not df_tail.empty:
+                        logger.info(
+                            f"[Padrón] {len(df_tail)} filas de idempresa {empresa_erp} "
+                            f"no son UEQUIN ni ONDARRETA — no se asignan a franquicias "
+                            f"(omitido)."
+                        )
+                elif not df_after_bol.empty:
+                    resultados.append(
+                        self._ingest_for_dist(df_after_bol, cols, dist_id, empresa_erp)
+                    )
                 continue
 
             resultado = self._ingest_for_dist(df_dist.copy(), cols, dist_id, empresa_erp)
@@ -827,7 +901,10 @@ class PadronIngestionService:
 
         dist_rows = self._load_distribuidores()
         dist_map = self._load_dist_map(dist_rows)
-        real_dist_id, bolivar_dist_id = self._resolve_dist_ids_for_real_bolivar(dist_rows)
+        real_dist_id, magica_dist_id, bolivar_dist_id = self._resolve_real_franchise_dists(
+            dist_rows
+        )
+        self._franchise_collision_guard(real_dist_id, magica_dist_id, bolivar_dist_id)
 
         empresa_keys_target = {
             erp_key for erp_key, dist_id in dist_map.items() if dist_id == target_dist_id
@@ -837,6 +914,7 @@ class PadronIngestionService:
         # ya eligió el tenant: aceptar archivo con un solo idempresa como todo el lote.
         used_full_file_fallback = False
         bolivar_ondarreta_only = False
+        magica_uequin_only = False
         if not empresa_keys_target:
             n_emp = int(df["_empresa_key"].nunique())
             # Bolívar suele no tener id_empresa_erp propio (comparte idempresa CHESS con Real).
@@ -867,7 +945,32 @@ class PadronIngestionService:
                             f"[Padrón] Bolívar sin id_empresa_erp: {len(df_target)} filas "
                             f"OSCAR ONDARRETA (idempresa Real: {sorted(empresa_keys_real)})."
                         )
-            if not bolivar_ondarreta_only:
+            # La Mágica: mismo patrón — idempresa de Real + sólo UEQUIN RODRIGO.
+            if (
+                not bolivar_ondarreta_only
+                and n_emp > 1
+                and target_dist_id == magica_dist_id
+                and magica_dist_id is not None
+                and real_dist_id is not None
+                and cols.get("sucursal")
+            ):
+                empresa_keys_real_m = {
+                    erp_key
+                    for erp_key, dist_id in dist_map.items()
+                    if dist_id == real_dist_id
+                }
+                if empresa_keys_real_m:
+                    suc_m = cols["sucursal"]
+                    df_rp = df[df["_empresa_key"].isin(empresa_keys_real_m)].copy()
+                    df_uq = df_rp[df_rp[suc_m].apply(_is_uequin_rodrigo_sucursal)].copy()
+                    if not df_uq.empty:
+                        df_target = df_uq
+                        magica_uequin_only = True
+                        logger.info(
+                            f"[Padrón] La Mágica sin id_empresa_erp: {len(df_target)} filas "
+                            f"UEQUIN RODRIGO (idempresa Real: {sorted(empresa_keys_real_m)})."
+                        )
+            if not bolivar_ondarreta_only and not magica_uequin_only:
                 if n_emp > 1:
                     uniq = sorted(
                         str(x) for x in df["_empresa_key"].dropna().unique().tolist()
@@ -898,6 +1001,7 @@ class PadronIngestionService:
             and suc_col
             and not used_full_file_fallback
             and not bolivar_ondarreta_only
+            and not magica_uequin_only
         ):
             empresa_keys_real = {
                 erp_key for erp_key, dist_id in dist_map.items() if dist_id == real_dist_id
@@ -908,35 +1012,62 @@ class PadronIngestionService:
                 if not df_ondarreta.empty:
                     df_target = pd.concat([df_target, df_ondarreta], ignore_index=True)
 
-        # Caso principal pedido: upload a Real también debe derivar ONDARRETA a Bolívar.
+        # Upload a Real matriz: ONDARRETA → Bolívar; UEQUIN → La Mágica si existe fila; resto omitido.
         if (
             target_dist_id == real_dist_id
             and bolivar_dist_id is not None
             and suc_col
         ):
             mask_ondarreta = df_target[suc_col].apply(_is_ondarreta_sucursal)
-            df_real = df_target[~mask_ondarreta].copy()
+            df_after_bol = df_target[~mask_ondarreta].copy()
             df_bolivar = df_target[mask_ondarreta].copy()
 
+            result_magica: dict | None = None
             result_real: dict | None = None
-            if not df_real.empty:
-                empresa_hint_real = ",".join(sorted(empresa_keys_target)) or "derived"
-                result_real = self._ingest_for_dist(
-                    df_real, cols, target_dist_id, f"manual:{empresa_hint_real}"
-                )
 
             if not df_bolivar.empty:
                 logger.info(
                     f"[Padrón] Derivando {len(df_bolivar)} filas OSCAR ONDARRETA "
-                    f"de Real (dist {real_dist_id}) a Bolívar (dist {bolivar_dist_id}) en upload manual."
+                    f"a Bolívar (dist {bolivar_dist_id}) en upload manual."
                 )
-                self._ingest_for_dist(df_bolivar, cols, bolivar_dist_id, "manual:real->bolivar")
+                self._ingest_for_dist(
+                    df_bolivar, cols, bolivar_dist_id, "manual:real->bolivar"
+                )
 
-            if result_real is not None:
-                result_real["derivadas_bolivar"] = int(len(df_bolivar))
-                return result_real
+            if magica_dist_id and not df_after_bol.empty:
+                mask_ueq = df_after_bol[suc_col].apply(_is_uequin_rodrigo_sucursal)
+                df_magica = df_after_bol[mask_ueq].copy()
+                df_tail = df_after_bol[~mask_ueq].copy()
+                empresa_hint = ",".join(sorted(empresa_keys_target)) or "derived"
+                if not df_magica.empty:
+                    logger.info(
+                        f"[Padrón] Derivando {len(df_magica)} filas UEQUIN RODRIGO "
+                        f"a La Mágica (dist {magica_dist_id}) en upload manual."
+                    )
+                    result_magica = self._ingest_for_dist(
+                        df_magica, cols, magica_dist_id, f"manual:magica:{empresa_hint}"
+                    )
+                if not df_tail.empty:
+                    logger.info(
+                        f"[Padrón] {len(df_tail)} filas (no UEQUIN/ONDARRETA) omitidas "
+                        f"(franquicias separadas activas)."
+                    )
+            elif not df_after_bol.empty:
+                empresa_hint_real = ",".join(sorted(empresa_keys_target)) or "derived"
+                result_real = self._ingest_for_dist(
+                    df_after_bol, cols, target_dist_id, f"manual:{empresa_hint_real}"
+                )
+
+            merged = result_real or result_magica
+            if merged is not None:
+                merged["derivadas_bolivar"] = int(len(df_bolivar))
+                return merged
             if not df_bolivar.empty:
-                return {"ok": True, "derivadas_bolivar": int(len(df_bolivar)), "dist_id": target_dist_id}
+                return {
+                    "ok": True,
+                    "derivadas_bolivar": int(len(df_bolivar)),
+                    "dist_id": target_dist_id,
+                }
 
         if df_target.empty:
             in_file = sorted(
@@ -965,10 +1096,48 @@ class PadronIngestionService:
         )
 
         try:
+            dist_rows_fr = self._load_distribuidores()
+            _, magica_fr_id, bolivar_fr_id = self._resolve_real_franchise_dists(
+                dist_rows_fr
+            )
+            # Defensa en profundidad: franquicias sólo reciben su sucursal CHESS.
+            if bolivar_fr_id is not None and dist_id == bolivar_fr_id and cols.get(
+                "sucursal"
+            ):
+                sc_b = cols["sucursal"]
+                n_antes_b = len(df)
+                df = df[df[sc_b].apply(_is_ondarreta_sucursal)].copy()
+                logger.info(
+                    f"[Padrón] Bolívar (unicidad OSCAR ONDARRETA): {n_antes_b} → {len(df)} filas"
+                )
+                if df.empty:
+                    raise ValueError(
+                        "Tras filtrar por sucursal OSCAR ONDARRETA no quedaron filas para Bolívar."
+                    )
+            if magica_fr_id is not None and dist_id == magica_fr_id and cols.get(
+                "sucursal"
+            ):
+                sc_m = cols["sucursal"]
+                n_antes_m = len(df)
+                df = df[df[sc_m].apply(_is_uequin_rodrigo_sucursal)].copy()
+                logger.info(
+                    f"[Padrón] La Mágica (unicidad UEQUIN RODRIGO): {n_antes_m} → {len(df)} filas"
+                )
+                if df.empty:
+                    raise ValueError(
+                        "Tras filtrar por sucursal UEQUIN RODRIGO no quedaron filas para La Mágica."
+                    )
+
             # ── Filtro de sucursales por distribuidor ─────────────────────────
             # Si el distribuidor tiene una lista de sucursales permitidas,
             # descartar filas de otras sucursales ANTES de procesar cualquier dato.
             suc_filter = SUCURSAL_FILTER.get(dist_id)
+            if (
+                suc_filter is None
+                and magica_fr_id is not None
+                and dist_id == magica_fr_id
+            ):
+                suc_filter = MAGICA_UEQUIN_FILTER
             if suc_filter:
                 id_suc_col  = cols.get("id_sucursal")
                 nom_suc_col = cols.get("sucursal")

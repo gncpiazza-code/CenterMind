@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { ObjetivoTipo } from '@/lib/api';
 
-type ViewMode = 'kanban' | 'lista' | 'timeline' | 'stats' | 'print';
+type ViewMode = 'kanban' | 'lista' | 'timeline' | 'stats' | 'supervisor' | 'print';
 type KanbanPhase = 'pendiente' | 'en_progreso' | 'terminado' | null;
 
 interface ObjetivosStore {

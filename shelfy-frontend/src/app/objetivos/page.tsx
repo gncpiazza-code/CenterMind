@@ -604,7 +604,7 @@ function VendedorResumenRow({ v }: { v: ResumenVendedorObjetivos }) {
 
 interface NuevoObjetivoModalProps {
   distId: number;
-  vendedores: { id_vendedor: number; nombre_erp: string }[];
+  vendedores: { id_vendedor: number; nombre_erp: string; sucursal_nombre?: string }[];
   onClose: () => void;
   onCreate: (data: ObjetivoCreate[]) => void;
   loading: boolean;
@@ -629,11 +629,28 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
   const [activacionPdvs, setActivacionPdvs] = useState<{ id: number; idErp: string; nombre: string; fechaCompra: string | null; diasSinCompra: number | null }[]>([]);
   const [selectedPdvIds, setSelectedPdvIds] = useState<Set<number>>(new Set());
 
+  // Sucursal filter inside modal
+  const [modalSucursal, setModalSucursal] = useState<string>("");
+  const modalSucursales = useMemo(() => {
+    const seen = new Set<string>();
+    return vendedores
+      .map(v => v.sucursal_nombre ?? "")
+      .filter(s => s && !seen.has(s) && seen.add(s) !== undefined)
+      .sort((a, b) => a.localeCompare(b, "es"));
+  }, [vendedores]);
+  const vendedoresFiltrados = modalSucursal
+    ? vendedores.filter(v => v.sucursal_nombre === modalSucursal)
+    : vendedores;
+
   // PDV Catalog for exhibición (paginated via API)
   const [pdvCatalogAll, setPdvCatalogAll] = useState<PDVCatalogItem[]>([]);
   const [pdvCatalogPage, setPdvCatalogPage] = useState(0);
   const [pdvCatalogHasMore, setPdvCatalogHasMore] = useState(false);
   const [loadingMorePdv, setLoadingMorePdv] = useState(false);
+
+  // Exhibición mode: general (quantity only) or por_pdv (select specific PDVs)
+  const [exhibicionMode, setExhibicionMode] = useState<"general" | "por_pdv">("general");
+  const [cantidadExhibicion, setCantidadExhibicion] = useState<number | "">("");
 
   const [loadingCtx, setLoadingCtx] = useState(false);
 
@@ -654,6 +671,8 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
     setPdvCatalogAll([]);
     setPdvCatalogPage(0);
     setPdvCatalogHasMore(false);
+    setExhibicionMode("general");
+    setCantidadExhibicion("");
   }
 
   useEffect(() => {
@@ -757,7 +776,12 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
       return `${vendedorNombre} deberá cobrarle $${Number(monto).toLocaleString("es-AR")} a ${selectedDeudor.cliente_nombre}${fechaLabel}.`;
     }
     if (tipo === "conversion_estado") return `${vendedorNombre} debe activar clientes inactivos${fechaLabel}.`;
-    if (tipo === "exhibicion") return `${vendedorNombre} debe exhibir en PDVs${fechaLabel}.`;
+    if (tipo === "exhibicion") {
+      const qty = exhibicionMode === "general" && cantidadExhibicion ? cantidadExhibicion : selectedPdvIds.size || null;
+      return qty
+        ? `${vendedorNombre} debe realizar ${qty} exhibicione${Number(qty) !== 1 ? "s" : ""}${fechaLabel}.${diasLabel}`
+        : `${vendedorNombre} debe exhibir en PDVs${fechaLabel}.`;
+    }
     return `${vendedorNombre} — objetivo ${TIPO_CONFIG[tipo]?.label ?? tipo}${fechaLabel}.`;
   }
 
@@ -792,17 +816,27 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
       return;
     }
 
-    if (tipo === "exhibicion" && selectedPdvIds.size > 0) {
-      const pdvItems = Array.from(selectedPdvIds).map(pdvId => {
-        const pdv = pdvCatalogAll.find(p => p.id_cliente === pdvId);
-        return { id_cliente_pdv: pdvId, nombre_pdv: pdv?.nombre_cliente };
-      });
-      const count = pdvItems.length;
-      base.pdv_items = pdvItems;
-      base.valor_objetivo = count;
-      base.descripcion = desc || `Lograr exhibición en ${count} PDV${count > 1 ? 's' : ''}`;
-      onCreate([base]);
-      return;
+    if (tipo === "exhibicion") {
+      if (exhibicionMode === "general") {
+        const qty = cantidadExhibicion ? Number(cantidadExhibicion) : undefined;
+        base.valor_objetivo = qty;
+        base.descripcion = desc || buildPhrase();
+        onCreate([base]);
+        return;
+      }
+      if (selectedPdvIds.size > 0) {
+        const pdvItems = Array.from(selectedPdvIds).map(pdvId => {
+          const pdv = pdvCatalogAll.find(p => p.id_cliente === pdvId);
+          return { id_cliente_pdv: pdvId, nombre_pdv: pdv?.nombre_cliente };
+        });
+        const count = pdvItems.length;
+        base.pdv_items = pdvItems;
+        base.valor_objetivo = count;
+        base.descripcion = desc || `Lograr exhibición en ${count} PDV${count > 1 ? 's' : ''}`;
+        onCreate([base]);
+        return;
+      }
+      // por_pdv with nothing selected — fallthrough to generic
     }
 
     base.descripcion = desc || buildPhrase();
@@ -832,6 +866,26 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
             <p className="text-sm text-[var(--shelfy-text)] leading-relaxed">{buildPhrase()}</p>
           </div>
 
+          {/* Sucursal → Vendedor cascade */}
+          {modalSucursales.length > 1 && (
+            <div>
+              <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">Sucursal</label>
+              <div className="relative">
+                <select
+                  className="w-full appearance-none bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                  value={modalSucursal}
+                  onChange={e => { setModalSucursal(e.target.value); setVendedorId(""); resetCtx(); }}
+                >
+                  <option value="">Todas las sucursales</option>
+                  {modalSucursales.map(s => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--shelfy-muted)] pointer-events-none" />
+              </div>
+            </div>
+          )}
+
           {/* Vendedor */}
           <div>
             <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">Vendedor</label>
@@ -840,10 +894,10 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
                 required
                 className="w-full appearance-none bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
                 value={vendedorId}
-                onChange={e => setVendedorId(Number(e.target.value) || "")}
+                onChange={e => { setVendedorId(Number(e.target.value) || ""); resetCtx(); }}
               >
-                <option value="">Seleccionar...</option>
-                {vendedores.map(v => (
+                <option value="">{modalSucursal ? "Seleccionar vendedor..." : "Seleccionar sucursal primero..."}</option>
+                {vendedoresFiltrados.map(v => (
                   <option key={v.id_vendedor} value={v.id_vendedor}>{v.nombre_erp}</option>
                 ))}
               </select>
@@ -1030,91 +1084,138 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
             </div>
           )}
 
-          {/* Contextual: Exhibición — catálogo paginado ordenado por antigüedad */}
+          {/* Contextual: Exhibición */}
           {tipo === "exhibicion" && vendedorId && (
-            <div className="space-y-2 rounded-xl bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] p-3">
-              <div className="flex items-center justify-between">
-                <p className="text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider">
-                  PDVs — ordenados por antigüedad de exhibición
-                </p>
-                {selectedPdvIds.size > 0 && (
-                  <span className="text-[10px] font-semibold text-[var(--shelfy-accent)]">
-                    {selectedPdvIds.size} seleccionado{selectedPdvIds.size > 1 ? "s" : ""}
-                  </span>
-                )}
+            <div className="space-y-3 rounded-xl bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] p-3">
+              {/* Mode toggle */}
+              <div className="flex gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setExhibicionMode("general")}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                    exhibicionMode === "general"
+                      ? "border-[var(--shelfy-accent)] bg-[var(--shelfy-accent)]/10 text-[var(--shelfy-accent)]"
+                      : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
+                  }`}
+                >
+                  Meta general
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setExhibicionMode("por_pdv")}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                    exhibicionMode === "por_pdv"
+                      ? "border-[var(--shelfy-accent)] bg-[var(--shelfy-accent)]/10 text-[var(--shelfy-accent)]"
+                      : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
+                  }`}
+                >
+                  Por PDV
+                </button>
               </div>
-              {loadingCtx ? (
-                <div className="flex items-center gap-1.5 text-xs text-[var(--shelfy-muted)]">
-                  <Loader2 className="w-3 h-3 animate-spin" /> Cargando PDVs...
+
+              {exhibicionMode === "general" ? (
+                /* ── General: just set a quantity ── */
+                <div>
+                  <label className="text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">
+                    Cantidad de exhibiciones
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    placeholder="Ej: 5"
+                    className="w-full bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                    value={cantidadExhibicion}
+                    onChange={e => setCantidadExhibicion(e.target.value ? Number(e.target.value) : "")}
+                  />
+                  <p className="text-[10px] text-[var(--shelfy-muted)] mt-1">
+                    El vendedor debe completar X exhibiciones sin restricción de PDV específico.
+                  </p>
                 </div>
-              ) : pdvCatalogAll.length === 0 ? (
-                <p className="text-xs text-[var(--shelfy-muted)]">Sin PDVs registrados</p>
               ) : (
+                /* ── Por PDV: catalog ordered by exhibition age ── */
                 <>
-                  <ScrollArea className="max-h-48">
-                    <div className="space-y-0.5 pr-2">
-                      {pdvCatalogAll.map((pdv) => {
-                        const sel = selectedPdvIds.has(pdv.id_cliente);
-                        const diasSinExhib = pdv.fecha_ultima_exhibicion
-                          ? Math.floor((Date.now() - new Date(pdv.fecha_ultima_exhibicion).getTime()) / 86400000)
-                          : null;
-                        return (
-                          <button
-                            key={pdv.id_cliente}
-                            type="button"
-                            onClick={() => {
-                              setSelectedPdvIds(prev => {
-                                const next = new Set(prev);
-                                if (next.has(pdv.id_cliente)) next.delete(pdv.id_cliente);
-                                else next.add(pdv.id_cliente);
-                                return next;
-                              });
-                            }}
-                            className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs transition-colors border ${
-                              sel
-                                ? "bg-[var(--shelfy-accent)]/10 border-[var(--shelfy-accent)]/40"
-                                : "bg-black/[0.02] border-transparent hover:bg-[var(--shelfy-accent)]/10 hover:border-[var(--shelfy-accent)]/20"
-                            }`}
-                          >
-                            <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 transition-colors ${
-                              sel ? "bg-[var(--shelfy-accent)] border-[var(--shelfy-accent)]" : "border-[var(--shelfy-border)]"
-                            }`}>
-                              {sel && <Check className="w-2.5 h-2.5 text-white" />}
-                            </div>
-                            <span className="text-[var(--shelfy-text)] truncate flex-1 text-left">{pdv.nombre_cliente}</span>
-                            {diasSinExhib === null ? (
-                              <span className="text-red-500 font-semibold shrink-0 text-[10px]">Nunca</span>
-                            ) : (
-                              <span className={`font-medium tabular-nums shrink-0 ${diasSinExhib > 30 ? "text-orange-500" : "text-[var(--shelfy-muted)]"}`}>
-                                {diasSinExhib}d
-                              </span>
-                            )}
-                          </button>
-                        );
-                      })}
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider">
+                      PDVs — por antigüedad de exhibición
+                    </p>
+                    {selectedPdvIds.size > 0 && (
+                      <span className="text-[10px] font-semibold text-[var(--shelfy-accent)]">
+                        {selectedPdvIds.size} seleccionado{selectedPdvIds.size > 1 ? "s" : ""}
+                      </span>
+                    )}
+                  </div>
+                  {loadingCtx ? (
+                    <div className="flex items-center gap-1.5 text-xs text-[var(--shelfy-muted)]">
+                      <Loader2 className="w-3 h-3 animate-spin" /> Cargando PDVs...
                     </div>
-                  </ScrollArea>
-                  {pdvCatalogHasMore && (
-                    <button
-                      type="button"
-                      disabled={loadingMorePdv}
-                      onClick={() => {
-                        const nextOffset = (pdvCatalogPage + 1) * 35;
-                        setLoadingMorePdv(true);
-                        fetchPDVCatalog(distId, { vendedorId: Number(vendedorId), limit: 35, offset: nextOffset })
-                          .then(more => {
-                            setPdvCatalogAll(prev => [...prev, ...more]);
-                            setPdvCatalogHasMore(more.length === 35);
-                            setPdvCatalogPage(p => p + 1);
-                          })
-                          .catch(() => {})
-                          .finally(() => setLoadingMorePdv(false));
-                      }}
-                      className="w-full py-1.5 text-xs text-[var(--shelfy-accent)] hover:text-[var(--shelfy-accent)]/80 border border-[var(--shelfy-border)] rounded-lg transition-colors flex items-center justify-center gap-1.5"
-                    >
-                      {loadingMorePdv && <Loader2 className="w-3 h-3 animate-spin" />}
-                      Cargar más
-                    </button>
+                  ) : pdvCatalogAll.length === 0 ? (
+                    <p className="text-xs text-[var(--shelfy-muted)]">Sin PDVs registrados</p>
+                  ) : (
+                    <>
+                      <ScrollArea className="max-h-48">
+                        <div className="space-y-0.5 pr-2">
+                          {pdvCatalogAll.map((pdv) => {
+                            const sel = selectedPdvIds.has(pdv.id_cliente);
+                            const diasSinExhib = pdv.fecha_ultima_exhibicion
+                              ? Math.floor((Date.now() - new Date(pdv.fecha_ultima_exhibicion).getTime()) / 86400000)
+                              : null;
+                            return (
+                              <button
+                                key={pdv.id_cliente}
+                                type="button"
+                                onClick={() => setSelectedPdvIds(prev => {
+                                  const next = new Set(prev);
+                                  if (next.has(pdv.id_cliente)) next.delete(pdv.id_cliente);
+                                  else next.add(pdv.id_cliente);
+                                  return next;
+                                })}
+                                className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs transition-colors border ${
+                                  sel
+                                    ? "bg-[var(--shelfy-accent)]/10 border-[var(--shelfy-accent)]/40"
+                                    : "bg-black/[0.02] border-transparent hover:bg-[var(--shelfy-accent)]/10 hover:border-[var(--shelfy-accent)]/20"
+                                }`}
+                              >
+                                <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 transition-colors ${
+                                  sel ? "bg-[var(--shelfy-accent)] border-[var(--shelfy-accent)]" : "border-[var(--shelfy-border)]"
+                                }`}>
+                                  {sel && <Check className="w-2.5 h-2.5 text-white" />}
+                                </div>
+                                <span className="text-[var(--shelfy-text)] truncate flex-1 text-left">{pdv.nombre_cliente}</span>
+                                {diasSinExhib === null ? (
+                                  <span className="text-red-500 font-semibold shrink-0 text-[10px]">Nunca</span>
+                                ) : (
+                                  <span className={`font-medium tabular-nums shrink-0 ${diasSinExhib > 30 ? "text-orange-500" : "text-[var(--shelfy-muted)]"}`}>
+                                    {diasSinExhib}d
+                                  </span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </ScrollArea>
+                      {pdvCatalogHasMore && (
+                        <button
+                          type="button"
+                          disabled={loadingMorePdv}
+                          onClick={() => {
+                            const nextOffset = (pdvCatalogPage + 1) * 35;
+                            setLoadingMorePdv(true);
+                            fetchPDVCatalog(distId, { vendedorId: Number(vendedorId), limit: 35, offset: nextOffset })
+                              .then(more => {
+                                setPdvCatalogAll(prev => [...prev, ...more]);
+                                setPdvCatalogHasMore(more.length === 35);
+                                setPdvCatalogPage(p => p + 1);
+                              })
+                              .catch(() => {})
+                              .finally(() => setLoadingMorePdv(false));
+                          }}
+                          className="w-full py-1.5 text-xs text-[var(--shelfy-accent)] hover:text-[var(--shelfy-accent)]/80 border border-[var(--shelfy-border)] rounded-lg transition-colors flex items-center justify-center gap-1.5"
+                        >
+                          {loadingMorePdv && <Loader2 className="w-3 h-3 animate-spin" />}
+                          Cargar más
+                        </button>
+                      )}
+                    </>
                   )}
                 </>
               )}
@@ -1650,14 +1751,15 @@ function VistaEstadisticas({ objetivos }: { objetivos: Objetivo[] }) {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-type PageTab = "objetivos" | "supervisor" | "estadisticas";
+// PageTab type kept for legacy refs — replaced by viewMode
+type PageTab = "objetivos";
 
 export default function ObjetivosPage() {
   const { user } = useAuth();
   const isCrossTenant = !!(user?.is_superadmin || user?.permisos?.action_switch_tenant);
   const qc = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
-  const [pageTab, setPageTab] = useState<PageTab>("objetivos");
+  const pageTab: PageTab = "objetivos"; // legacy — view routing now uses viewMode
 
   const {
     filterTipo, filterCumplido, searchText, viewMode,
@@ -1693,7 +1795,7 @@ export default function ObjetivosPage() {
       ...(filterCumplido !== null && { cumplido: filterCumplido }),
       ...(filterTipo && { tipo: filterTipo }),
     }),
-    enabled: !!distId && pageTab !== "supervisor",
+    enabled: !!distId && viewMode !== "supervisor",
     staleTime: 30 * 1000,
   });
 
@@ -1864,13 +1966,14 @@ export default function ObjetivosPage() {
 
   // ── View mode helpers ─────────────────────────────────────────────────────
 
-  type ViewModeKey = 'kanban' | 'lista' | 'timeline' | 'stats' | 'print';
+  type ViewModeKey = 'kanban' | 'lista' | 'timeline' | 'stats' | 'supervisor' | 'print';
   const VIEW_BUTTONS: { key: ViewModeKey; label: string; Icon: React.ElementType }[] = [
-    { key: "kanban",   label: "Kanban",   Icon: LayoutGrid },
-    { key: "lista",    label: "Lista",    Icon: LayoutList },
-    { key: "timeline", label: "Timeline", Icon: GitBranch },
-    { key: "stats",    label: "Stats",    Icon: BarChart3 },
-    { key: "print",    label: "Imprimir", Icon: Printer },
+    { key: "kanban",     label: "Kanban",      Icon: LayoutGrid },
+    { key: "lista",      label: "Lista",       Icon: LayoutList },
+    { key: "timeline",   label: "Timeline",    Icon: GitBranch },
+    { key: "stats",      label: "Stats",       Icon: BarChart3 },
+    { key: "supervisor", label: "Supervisor",  Icon: Users },
+    { key: "print",      label: "Imprimir",    Icon: Printer },
   ];
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -1943,8 +2046,8 @@ export default function ObjetivosPage() {
             </div>
           )}
 
-          {/* Stats (only on objetivos / kanban view) */}
-          {pageTab === "objetivos" && viewMode !== "stats" && viewMode !== "timeline" && (
+          {/* Stats (hidden on dedicated stats/timeline/supervisor views) */}
+          {viewMode !== "stats" && viewMode !== "timeline" && viewMode !== "supervisor" && (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6 print-hidden">
               <StatCard icon={Target}       label="Total"          value={stats.total}             color="bg-[var(--shelfy-border)]" />
               <StatCard icon={Clock}        label="Pendientes"     value={stats.pendientes}         color="bg-orange-500/10 text-orange-500" />
@@ -1953,30 +2056,8 @@ export default function ObjetivosPage() {
             </div>
           )}
 
-          {/* Page tabs */}
-          <div className="flex gap-1 bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-lg p-1 mb-4 w-fit print-hidden">
-            {[
-              { key: "objetivos" as const,    label: "Por objetivo",     Icon: Target },
-              { key: "supervisor" as const,   label: "Vista supervisor",  Icon: Users },
-              { key: "estadisticas" as const, label: "Estadísticas",     Icon: BarChart3 },
-            ].map(({ key, label, Icon }) => (
-              <button
-                key={key}
-                onClick={() => setPageTab(key)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                  pageTab === key ? "bg-[var(--shelfy-accent)]/10 text-[var(--shelfy-accent)]" : "text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
-                }`}
-              >
-                <Icon className="w-3.5 h-3.5" />
-                {label}
-              </button>
-            ))}
-          </div>
-
-          {pageTab === "supervisor" ? (
+          {viewMode === "supervisor" ? (
             <VistaSupervisor distId={distId} />
-          ) : pageTab === "estadisticas" ? (
-            <VistaEstadisticas objetivos={filtered} />
           ) : (
             <>
               {/* Filtros */}

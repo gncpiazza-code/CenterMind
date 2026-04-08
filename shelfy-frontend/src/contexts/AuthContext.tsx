@@ -78,11 +78,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setError(null);
     try {
       const data = await loginApi(usuario, password);
-      // Clear local tutorial override on new login to respect the new token/views count
-      localStorage.removeItem("shelfy_tutorial_v2_seen");
       setToken(data.access_token);
       setUser(data);
-      router.push(data.show_tutorial ? "/tutorial" : "/dashboard");
+      router.push("/dashboard");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Error al iniciar sesión");
     } finally {

@@ -36,10 +36,7 @@ def auth_login(req: LoginRequest):
         if not user.get("activo", True):
             raise HTTPException(status_code=403, detail="Tu usuario ha sido desactivado. Contacta al administrador.")
 
-        tutorial_views = user.get("tutorial_views", 0)
-        show_tutorial = tutorial_views < 3
-        if show_tutorial:
-            sb.table("usuarios_portal").update({"tutorial_views": tutorial_views + 1}).eq("id_usuario", user["id_usuario"]).execute()
+        show_tutorial = False  # Tutorial desactivado — no redirigir a /tutorial
 
         dist_id = user.get("id_distribuidor")
         flags = {"usa_quarentena": False, "usa_contexto_erp": False, "usa_mapeo_vendedores": False}

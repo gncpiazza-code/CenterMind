@@ -158,7 +158,6 @@ class ObjetivoCreate(BaseModel):
 
 class ObjetivoUpdate(BaseModel):
     valor_actual: Optional[float] = None
-    cumplido: Optional[bool] = None
     descripcion: Optional[str] = None
     estado_objetivo: Optional[str] = None
     fecha_objetivo: Optional[str] = None

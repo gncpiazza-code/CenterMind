@@ -5,7 +5,6 @@ import { BottomNav } from "@/components/layout/BottomNav";
 import { Topbar } from "@/components/layout/Topbar";
 import { Card } from "@/components/ui/Card";
 import { useAuth } from "@/hooks/useAuth";
-import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
@@ -89,7 +88,6 @@ const kpiItemVariants = {
 
 export default function DashboardPage() {
   const { user } = useAuth();
-  const router = useRouter();
   const initVars = getCurrentYearMonth();
 
   const [year, setYear] = useState(initVars.year);
@@ -101,12 +99,6 @@ export default function DashboardPage() {
   const distId = user?.id_distribuidor || 0;
   const isSuper = user?.is_superadmin;
 
-  useEffect(() => {
-    const locallySeen = typeof window !== "undefined" && localStorage.getItem("shelfy_tutorial_v2_seen") === "true";
-    if (user?.show_tutorial && !locallySeen) {
-      router.replace("/tutorial");
-    }
-  }, [user, router]);
 
   const enabled = !!user;
 

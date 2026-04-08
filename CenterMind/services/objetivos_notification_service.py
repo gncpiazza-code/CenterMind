@@ -36,9 +36,12 @@ class ObjetivosNotificationService:
         self,
         dist_id: int,
         obj_data: dict[str, Any],
+        obj_id: str | None = None,
     ) -> None:
         """
         Notifica al vendedor que se le ha asignado un NUEVO objetivo.
+        Si obj_id se provee, carga objetivo_items para listar todos los PDVs
+        y calcula los días restantes desde la fecha límite.
         """
         try:
             token = self._get_bot_token(dist_id)
@@ -57,29 +60,87 @@ class ObjetivosNotificationService:
                 "cobranza":   "Cobranza",
             }.get(tipo, "General")
 
-            pdv_nombre = obj_data.get("nombre_pdv") or "PDV"
             fecha = obj_data.get("fecha_objetivo")
-            limite_str = f"\n📅 <b>Fecha límite:</b> {fecha}" if fecha else ""
             desc = obj_data.get("descripcion")
             desc_str = f"\n📝 <i>{desc}</i>" if desc else ""
 
-            # Enrich with id_cliente_erp and route day
-            nro_cliente_str = ""
+            # Días restantes hasta la fecha límite
+            dias_str = ""
+            if fecha:
+                try:
+                    from datetime import date as _date
+                    from zoneinfo import ZoneInfo
+                    hoy = _date.today()
+                    fecha_limite = _date.fromisoformat(str(fecha)[:10])
+                    dias = (fecha_limite - hoy).days
+                    if dias > 0:
+                        dias_str = f"\n⏰ <b>Tenés {dias} día{'s' if dias != 1 else ''} para completarlo.</b>"
+                    elif dias == 0:
+                        dias_str = "\n⏰ <b>¡Vence hoy!</b>"
+                    else:
+                        dias_str = f"\n⏰ <i>Venció hace {abs(dias)} día{'s' if abs(dias) != 1 else ''}.</i>"
+                except Exception:
+                    pass
+            limite_str = f"\n📅 <b>Fecha límite:</b> {fecha}{dias_str}" if fecha else ""
+
+            # ── PDVs a incluir en el mensaje ──────────────────────────────────
+            pdv_lines = ""
             ruta_str = ""
             id_target_pdv = obj_data.get("id_target_pdv")
             id_target_ruta = obj_data.get("id_target_ruta")
             try:
-                if id_target_pdv:
-                    pdv_res = (
-                        sb.table("clientes_pdv_v2")
-                        .select("id_cliente_erp")
-                        .eq("id", id_target_pdv)
-                        .limit(1)
+                # Modo multi-PDV: cargar objetivo_items si tenemos obj_id
+                if obj_id and tipo in ("exhibicion", "ruteo_alteo", "conversion_estado"):
+                    items_res = (
+                        sb.table("objetivo_items")
+                        .select("id_cliente_pdv, nombre_pdv")
+                        .eq("id_objetivo", obj_id)
                         .execute()
                     )
-                    erp = (pdv_res.data or [{}])[0].get("id_cliente_erp")
-                    if erp:
-                        nro_cliente_str = f"\n🔢 <b>Nº Cliente:</b> {erp}"
+                    items = items_res.data or []
+                    if items:
+                        # Enrich with id_cliente_erp from clientes_pdv_v2
+                        pdv_ids = [it["id_cliente_pdv"] for it in items if it.get("id_cliente_pdv")]
+                        erp_map: dict[int, str] = {}
+                        if pdv_ids:
+                            erp_res = (
+                                sb.table("clientes_pdv_v2")
+                                .select("id_cliente, id_cliente_erp")
+                                .in_("id_cliente", pdv_ids)
+                                .execute()
+                            )
+                            erp_map = {
+                                r["id_cliente"]: r.get("id_cliente_erp") or ""
+                                for r in (erp_res.data or [])
+                            }
+                        lineas = []
+                        for it in items:
+                            nombre = it.get("nombre_pdv") or f"PDV #{it.get('id_cliente_pdv')}"
+                            erp = erp_map.get(it.get("id_cliente_pdv") or 0, "")
+                            cod = f" (#{erp})" if erp else ""
+                            lineas.append(f"  • {nombre}{cod}")
+                        pdv_lines = (
+                            f"\n📍 <b>PDVs asignados ({len(items)}):</b>\n"
+                            + "\n".join(lineas)
+                        )
+
+                # Fallback modo simple (un solo PDV o sin ítems)
+                if not pdv_lines:
+                    pdv_nombre = obj_data.get("nombre_pdv") or "PDV"
+                    nro_cliente_str = ""
+                    if id_target_pdv:
+                        pdv_res = (
+                            sb.table("clientes_pdv_v2")
+                            .select("id_cliente_erp")
+                            .eq("id", id_target_pdv)
+                            .limit(1)
+                            .execute()
+                        )
+                        erp = (pdv_res.data or [{}])[0].get("id_cliente_erp")
+                        if erp:
+                            nro_cliente_str = f" (#{erp})"
+                    pdv_lines = f"\n📍 <b>PDV:</b> {pdv_nombre}{nro_cliente_str}"
+
                 if id_target_ruta:
                     ruta_res = (
                         sb.table("rutas_v2")
@@ -99,9 +160,8 @@ class ObjetivosNotificationService:
 
             text = (
                 f"🚀 <b>¡Nuevo Objetivo Asignado!</b>\n\n"
-                f"Se ha creado un objetivo de <b>{tipo_label}</b> {emoji}\n"
-                f"📍 <b>PDV:</b> {pdv_nombre}"
-                f"{nro_cliente_str}"
+                f"Se ha creado un objetivo de <b>{tipo_label}</b> {emoji}"
+                f"{pdv_lines}"
                 f"{ruta_str}"
                 f"{limite_str}"
                 f"{desc_str}\n\n"

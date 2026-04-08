@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login, loading, error, isAuthenticated, user } = useAuth();
+  const { login, loading, error, isAuthenticated } = useAuth();
   const [usuario, setUsuario] = useState("");
   const [password, setPassword] = useState("");
   const [showPass, setShowPass] = useState(false);
@@ -28,15 +28,9 @@ export default function LoginPage() {
   useEffect(() => {
     setMounted(true);
     if (isAuthenticated) {
-      const locallySeen = typeof window !== "undefined" && localStorage.getItem("shelfy_tutorial_v2_seen") === "true";
-      const shouldShow = user?.show_tutorial && !locallySeen;
-      if (shouldShow) {
-        router.replace("/tutorial");
-      } else {
-        router.replace("/dashboard");
-      }
+      router.replace("/dashboard");
     }
-  }, [isAuthenticated, user, router]);
+  }, [isAuthenticated, router]);
 
   // Slot machine cycle
   useEffect(() => {

@@ -1658,9 +1658,9 @@ class BotWorker:
                         if id_vendedor_v2_obj:
                             q = q.eq("id_vendedor", id_vendedor_v2_obj)
                         return q
-                    # Match by explicit id_target_pdv first; fallback to any objective without PDV target
+                    # Match strategy 1: id_target_pdv == id_pdv_obj
                     obj_match_res = _obj_q().eq("id_target_pdv", id_pdv_obj).limit(1).execute()
-                    
+
                     if obj_match_res.data:
                         self.logger.info(f"[ObjInterceptor] ✅ Match por id_target_pdv={id_pdv_obj} ENCONTRADO")
                     else:
@@ -1679,13 +1679,32 @@ class BotWorker:
                                     f"[ObjInterceptor] ⚠️ PDV {id_pdv_obj} tiene objetivo pero para OTRO vendedor: "
                                     f"ID {other_v['id_vendedor']} ({other_v['nombre_vendedor']})"
                                 )
-                        except Exception: pass
-                        
-                        obj_match_res = _obj_q().is_("id_target_pdv", "null").limit(1).execute()
-                        self.logger.info(
-                            f"[ObjInterceptor] Fallback (id_target_pdv IS NULL): "
-                            f"{'ENCONTRADO' if obj_match_res.data else 'no encontrado'}"
-                        )
+                        except Exception:
+                            pass
+
+                        # Match strategy 2: PDV listado en objetivo_items del vendedor
+                        if id_vendedor_v2_obj:
+                            try:
+                                items_match_res = self.db.sb.table("objetivo_items") \
+                                    .select("id_objetivo") \
+                                    .eq("id_cliente_pdv", id_pdv_obj) \
+                                    .execute()
+                                item_obj_ids = [r["id_objetivo"] for r in (items_match_res.data or [])]
+                                if item_obj_ids:
+                                    obj_via_items = _obj_q().in_("id", item_obj_ids).limit(1).execute()
+                                    if obj_via_items.data:
+                                        obj_match_res = obj_via_items
+                                        self.logger.info(
+                                            f"[ObjInterceptor] ✅ Match por objetivo_items pdv={id_pdv_obj} ENCONTRADO"
+                                        )
+                            except Exception as e_items:
+                                self.logger.warning(f"[ObjInterceptor] Error en match via items: {e_items}")
+
+                        if not obj_match_res.data:
+                            self.logger.info(
+                                f"[ObjInterceptor] Sin objetivo activo para PDV={id_pdv_obj} "
+                                f"vend={id_vendedor_v2_obj} — sin badge"
+                            )
 
                     # ── Objetivo encontrado (por cualquier estrategia) ─────────
                     if obj_match_res.data:
@@ -1696,17 +1715,16 @@ class BotWorker:
                             f"Ha pasado a revisión del supervisor."
                         )
 
-                        # 1. Patch id_cliente_pdv en exhibiciones para que
-                        #    listar_objetivos detecte tiene_exhibicion_pendiente
+                        # 1. Patch id_cliente_pdv + id_objetivo en exhibiciones
                         try:
                             ids_a_patchear = [e["id"] for e in exhibicion_ids if e.get("id")]
                             if ids_a_patchear:
                                 self.db.sb.table("exhibiciones") \
-                                    .update({"id_cliente_pdv": id_pdv_obj}) \
+                                    .update({"id_cliente_pdv": id_pdv_obj, "id_objetivo": obj_id_match}) \
                                     .in_("id_exhibicion", ids_a_patchear) \
                                     .execute()
                         except Exception as e_patch:
-                            self.logger.warning(f"⚠️ Error patching id_cliente_pdv: {e_patch}")
+                            self.logger.warning(f"⚠️ Error patching id_cliente_pdv/id_objetivo: {e_patch}")
 
                         # 2. Insertar tracking exhibicion_pendiente para que el
                         #    watcher no duplique la notificación al correr después
@@ -1747,24 +1765,7 @@ class BotWorker:
                         except Exception as e_upd:
                             self.logger.warning(f"⚠️ Error actualizando valor_actual: {e_upd}")
 
-                        # 3. Notificar al vendedor directo via bot (chat_id ya conocido)
-                        try:
-                            cod_str = f" (#{nro_cliente})" if nro_cliente else ""
-                            notif_text = (
-                                f"📸 <b>¡Foto recibida!</b>\n"
-                                f"Tu exhibición en <b>{pdv_nombre_obj}</b>{cod_str} "
-                                f"fue enviada al supervisor.\n"
-                                f"En cuanto sea aprobada, tu objetivo avanzará. ⏳"
-                            )
-                            await context.bot.send_message(
-                                chat_id=chat_id,
-                                text=notif_text,
-                                parse_mode=ParseMode.HTML,
-                            )
-                        except Exception as e_notif:
-                            self.logger.warning(f"⚠️ Error enviando notif objetivo: {e_notif}")
-
-                        # 4. Notificar al supervisor vía WebSocket
+                        # 3. Notificar al supervisor vía WebSocket
                         from services.objetivos_notification_service import objetivos_notification
                         objetivos_notification.notify_supervisor_ws(
                             dist_id=self.distribuidor_id,
@@ -1783,13 +1784,16 @@ class BotWorker:
                 self.logger.warning(f"⚠️ Error en intercept objetivo exhibicion: {e_obj}", exc_info=True)
             # ── FIN INTERCEPTOR OBJETIVO ────────────────────────────────────
 
+            # Suprimir enlace de foto cuando hay badge de objetivo para evitar
+            # que Telegram genere un segundo preview de imagen en el mismo mensaje.
+            foto_line_efectivo = "" if objetivo_badge else foto_line
             msg_text = (
                 f"📋 <b>Exhibición registrada</b>\n\n"
                 f"{fotos_text}"
                 f"👤 <b>Vendedor:</b> {uploader_name}\n"
                 f"🏪 <b>Cliente:</b> {nro_cliente}\n"
                 f"📍 <b>Tipo:</b> {tipo_pdv}\n"
-                f"{foto_line}"
+                f"{foto_line_efectivo}"
                 f"{estado_label}"
                 f"{objetivo_badge}"
                 f"{stats_text}"

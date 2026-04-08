@@ -252,24 +252,22 @@ function StatCard({ icon: Icon, label, value, sub, color }: {
 
 // ── Objetivo row (lista) ──────────────────────────────────────────────────────
 
-function ObjetivoRow({ obj, onToggle, onDelete }: {
+function ObjetivoRow({ obj, onDelete }: {
   obj: Objetivo;
-  onToggle: () => void;
   onDelete: () => void;
 }) {
   return (
     <tr className={`border-b border-[var(--shelfy-border)]/50 transition-colors hover:bg-black/[0.02] ${obj.cumplido ? "opacity-50" : ""}`}>
       <td className="px-4 py-3">
-        <button
-          onClick={onToggle}
-          className={`w-4 h-4 rounded border flex items-center justify-center transition-all shrink-0 ${
+        <div
+          className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
             obj.cumplido
               ? "bg-emerald-500 border-emerald-500 text-white"
-              : "border-[var(--shelfy-border)] hover:border-emerald-500/50"
+              : "border-[var(--shelfy-border)]"
           }`}
         >
           {obj.cumplido && <Check className="w-2.5 h-2.5" />}
-        </button>
+        </div>
       </td>
       <td className="px-4 py-3">
         <div className="flex items-center gap-1.5">
@@ -1592,15 +1590,6 @@ export default function ObjetivosPage() {
     },
   });
 
-  const toggleMut = useMutation({
-    mutationFn: ({ id, cumplido }: { id: string; cumplido: boolean }) =>
-      updateObjetivo(id, { cumplido }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["objetivos", distId] });
-      qc.invalidateQueries({ queryKey: ["objetivos-resumen-supervisor", distId] });
-    },
-  });
-
   const deleteMut = useMutation({
     mutationFn: deleteObjetivo,
     onSuccess: () => {
@@ -1989,7 +1978,6 @@ export default function ObjetivosPage() {
                 <KanbanOrListaView
                   filtered={filtered}
                   kanbanGroups={kanbanGroups}
-                  onToggle={(id, cumplido) => toggleMut.mutate({ id, cumplido })}
                   onDelete={(id) => deleteMut.mutate(id)}
                   onReagendar={(o) => { setReagendarObj(o); setFechaReagendar(""); setObservacionReagendar(""); }}
                   onDownloadCertificado={downloadCertificado}
@@ -2124,14 +2112,12 @@ export default function ObjetivosPage() {
 function KanbanOrListaView({
   filtered,
   kanbanGroups,
-  onToggle,
   onDelete,
   onReagendar,
   onDownloadCertificado,
 }: {
   filtered: Objetivo[];
   kanbanGroups: { pendiente: Objetivo[]; en_progreso: Objetivo[]; terminado: Objetivo[] };
-  onToggle: (id: string, cumplido: boolean) => void;
   onDelete: (id: string) => void;
   onReagendar: (obj: Objetivo) => void;
   onDownloadCertificado: (obj: Objetivo) => void;
@@ -2187,7 +2173,6 @@ function KanbanOrListaView({
                 <ObjetivoRow
                   key={obj.id}
                   obj={obj}
-                  onToggle={() => onToggle(obj.id, !obj.cumplido)}
                   onDelete={() => onDelete(obj.id)}
                 />
               ))}

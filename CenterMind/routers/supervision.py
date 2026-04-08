@@ -51,6 +51,23 @@ def get_pendientes(id_distribuidor: int, payload=Depends(verify_auth)):
 
         erp_name_map = _get_erp_name_map(id_distribuidor)
         grupos: dict = {}
+        all_ex_ids = [d.get("id_exhibicion") for d in rows if d.get("id_exhibicion")]
+
+        # Batch-fetch id_objetivo para marcar exhibiciones de objetivo
+        obj_id_map: dict[int, str | None] = {}
+        if all_ex_ids:
+            try:
+                obj_res = sb.table("exhibiciones") \
+                    .select("id_exhibicion, id_objetivo") \
+                    .in_("id_exhibicion", all_ex_ids) \
+                    .execute()
+                obj_id_map = {
+                    r["id_exhibicion"]: r.get("id_objetivo")
+                    for r in (obj_res.data or [])
+                }
+            except Exception as e_obj:
+                logger.warning(f"[pendientes] Error fetching id_objetivo: {e_obj}")
+
         for d in rows:
             ex_id = d.get("id_exhibicion")
             if not ex_id:
@@ -66,7 +83,14 @@ def get_pendientes(id_distribuidor: int, payload=Depends(verify_auth)):
                     "fecha_hora": d.get("fecha_hora") or "",
                     "fotos": [],
                 }
-            grupos[key]["fotos"].append({"id_exhibicion": ex_id, "drive_link": d.get("drive_link") or "", "estado": d.get("estado")})
+            id_obj = obj_id_map.get(ex_id)
+            grupos[key]["fotos"].append({
+                "id_exhibicion": ex_id,
+                "drive_link": d.get("drive_link") or "",
+                "estado": d.get("estado"),
+                "id_objetivo": id_obj,
+                "es_objetivo": id_obj is not None,
+            })
         return list(grupos.values())
     except Exception as e:
         logger.error(f"Error en get_pendientes dist={id_distribuidor}: {e}")
@@ -826,7 +850,7 @@ def crear_objetivo(body: ObjetivoCreate, user_payload=Depends(verify_auth)):
         # Telegram Notification for NEW objective
         try:
             from services.objetivos_notification_service import objetivos_notification
-            objetivos_notification.notify_new_objective_telegram(body.id_distribuidor, payload)
+            objetivos_notification.notify_new_objective_telegram(body.id_distribuidor, payload, obj_id=obj_id)
         except Exception as e_notif:
             logger.warning(f"[Objetivo] Notificación inicial omitida: {e_notif}")
 
@@ -1170,10 +1194,6 @@ def actualizar_objetivo(objetivo_id: str, body: ObjetivoUpdate, user_payload=Dep
         check_dist_permission(user_payload, dist_id)
         updates: dict = {}
         if body.valor_actual  is not None: updates["valor_actual"]   = body.valor_actual
-        if body.cumplido      is not None:
-            updates["cumplido"] = body.cumplido
-            if body.cumplido:
-                updates["completed_at"] = datetime.utcnow().isoformat()
         if body.descripcion   is not None: updates["descripcion"]    = body.descripcion
         if body.estado_objetivo is not None: updates["estado_objetivo"] = body.estado_objetivo
         if body.fecha_objetivo  is not None: updates["fecha_objetivo"]  = body.fecha_objetivo

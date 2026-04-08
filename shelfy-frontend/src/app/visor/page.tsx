@@ -84,6 +84,7 @@ export default function VisorPage() {
 
   // Local state para UI efímera
   const [filtroVendedor, setFiltroVendedor] = useState("Todos");
+  const [visorTab, setVisorTab] = useState<"todas" | "objetivo">("todas");
   const [comentario, setComentario] = useState("");
   const [flash, setFlash] = useState<{ msg: string; type: "ok" | "err" } | null>(null);
   const [erpContext, setErpContext] = useState<ERPContexto | null>(null);
@@ -113,9 +114,11 @@ export default function VisorPage() {
   });
 
   // Filtrado
-  const filtrados = filtroVendedor === "Todos"
-    ? grupos
-    : grupos.filter((g) => g.vendedor === filtroVendedor);
+  const filtrados = (() => {
+    let base = filtroVendedor === "Todos" ? grupos : grupos.filter((g) => g.vendedor === filtroVendedor);
+    if (visorTab === "objetivo") base = base.filter(g => g.fotos.some(f => f.es_objetivo));
+    return base;
+  })();
 
   const grupo = filtrados[currentIndex] ?? null;
   const totalGrupos = filtrados.length;
@@ -292,6 +295,29 @@ export default function VisorPage() {
           <Topbar title="Evaluar Exhibiciones" />
         </div>
 
+        {/* ── Tab toggle: Todas / Con Objetivo ── */}
+        <div className="hidden md:flex shrink-0 items-center gap-2 px-4 py-1.5 border-b border-[var(--shelfy-border)] bg-[var(--shelfy-panel)]">
+          <div className="flex gap-1 bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg p-0.5">
+            <button
+              onClick={() => { setVisorTab("todas"); setCurrentIndex(0); resetGroupState(); }}
+              className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${visorTab === "todas" ? "bg-[var(--shelfy-accent)]/10 text-[var(--shelfy-accent)]" : "text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"}`}
+            >
+              Todas
+            </button>
+            <button
+              onClick={() => { setVisorTab("objetivo"); setCurrentIndex(0); resetGroupState(); }}
+              className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors flex items-center gap-1 ${visorTab === "objetivo" ? "bg-[var(--shelfy-accent)]/10 text-[var(--shelfy-accent)]" : "text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"}`}
+            >
+              Con Objetivo
+              {grupos.filter(g => g.fotos.some(f => f.es_objetivo)).length > 0 && (
+                <span className="text-[9px] font-black bg-[var(--shelfy-accent)]/20 text-[var(--shelfy-accent)] px-1 py-0 rounded-full">
+                  {grupos.filter(g => g.fotos.some(f => f.es_objetivo)).length}
+                </span>
+              )}
+            </button>
+          </div>
+        </div>
+
         {/* ── MAIN CONTENT: fills remaining viewport ── */}
         <div className="flex-1 flex flex-col min-h-0 p-0 md:p-4 md:pt-2 relative">
           {/* Flash notification */}
@@ -422,10 +448,19 @@ export default function VisorPage() {
                 {/* ── MOBILE TOP OVERLAY: compact info ── */}
                 <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/80 via-black/40 to-transparent pt-3 pb-6 px-3 text-white md:hidden z-10">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <div className="flex items-center gap-2 min-w-0 flex-1 flex-wrap">
                       <span className="text-[10px] font-black bg-violet-600/90 px-2 py-0.5 rounded-md">#{grupo.fotos[currentFotoIdx]?.id_exhibicion || "—"}</span>
                       <span className="text-[10px] font-bold truncate text-white/90">🏪 Cód. {grupo.nro_cliente ?? "—"}</span>
                       <span className="text-[10px] font-bold truncate text-white/70">👤 {grupo.vendedor ?? "—"}</span>
+                      {grupo.fotos.some(f => f.es_objetivo) && (
+                        <motion.span
+                          animate={{ scale: [1, 1.08, 1] }}
+                          transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
+                          className="inline-flex items-center gap-0.5 text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-violet-500/30 text-violet-200 border border-violet-400/40"
+                        >
+                          🎯 Objetivo
+                        </motion.span>
+                      )}
                     </div>
                     <span className="text-[9px] font-bold text-white/50 shrink-0 ml-2">{currentIndex + 1}/{totalGrupos}</span>
                   </div>
@@ -471,6 +506,18 @@ export default function VisorPage() {
                         <p className="text-[8px] font-medium text-white/40">Vendedor</p>
                       </div>
                     </div>
+                    {grupo.fotos.some(f => f.es_objetivo) && (
+                      <>
+                        <div className="h-5 w-px bg-white/15" />
+                        <motion.span
+                          animate={{ scale: [1, 1.08, 1] }}
+                          transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
+                          className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[var(--shelfy-primary)]/15 text-[var(--shelfy-primary)] border border-[var(--shelfy-primary)]/30"
+                        >
+                          🎯 Objetivo
+                        </motion.span>
+                      </>
+                    )}
                     <div className="h-5 w-px bg-white/15" />
                     {/* Nombre */}
                     <div className="min-w-0 max-w-[160px]">

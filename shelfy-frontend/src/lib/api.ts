@@ -115,6 +115,8 @@ export interface FotoGrupo {
   id_exhibicion: number;
   drive_link: string;
   estado?: string; // PASO 7: puede ser 'Cuarentena' o 'Revisión' para bloquear la evaluación
+  es_objetivo?: boolean;
+  id_objetivo?: string | null;
 }
 
 export interface GrupoPendiente {
@@ -1221,7 +1223,6 @@ export interface ObjetivoCreate {
 
 export interface ObjetivoUpdate {
   valor_actual?: number;
-  cumplido?: boolean;
   descripcion?: string;
   estado_objetivo?: string;
   fecha_objetivo?: string;

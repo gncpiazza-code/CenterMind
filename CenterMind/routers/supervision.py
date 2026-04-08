@@ -167,6 +167,7 @@ def evaluar(req: EvaluarRequest, user_payload=Depends(verify_auth)):
                     items_res = sb.table("objetivo_items") \
                         .select("id, id_objetivo, id_cliente_pdv") \
                         .in_("id_cliente_pdv", pdv_ids) \
+                        .eq("id_distribuidor", dist_id) \
                         .eq("estado_item", "foto_subida") \
                         .execute()
                     for item in (items_res.data or []):

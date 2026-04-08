@@ -198,9 +198,51 @@ class ObjetivosWatcherService:
         """
         Detecta nuevos PDVs en las rutas del vendedor creados después de
         'since' que no estén registrados en objetivos_tracking.
+
+        Si el objetivo tiene objetivo_items, sólo evalúa esos PDVs específicos
+        y marca como cumplido cada ítem cuyo PDV ya aparece en la ruta.
         """
         obj_id = obj["id"]
         try:
+            # Multi-PDV con ítems: scope a los PDVs listados en objetivo_items
+            item_pdv_ids = self._get_item_pdv_ids(obj_id)
+            if item_pdv_ids is not None and len(item_pdv_ids) == 0:
+                return (float(obj.get("valor_actual") or 0), 0)
+
+            if item_pdv_ids:
+                # Verificar qué ítems ya están en la ruta del vendedor
+                clientes_res = (
+                    sb.table("clientes_pdv_v2")
+                    .select("id, id_cliente_erp, nombre_cliente, created_at, id_ruta")
+                    .eq("id_distribuidor", dist_id)
+                    .in_("id", item_pdv_ids)
+                    .execute()
+                )
+                all_clients = clientes_res.data or []
+
+                # Filtrar los que tienen una ruta asignada al vendedor
+                rutas_res = sb.table("rutas_v2").select("id_ruta").eq("id_vendedor", id_vendedor).execute()
+                ruta_ids = {r["id_ruta"] for r in (rutas_res.data or [])}
+
+                ya_trackeados = self._get_tracked_refs(obj_id, "alteo")
+                cumplidos = [c for c in all_clients if c.get("id_ruta") in ruta_ids and str(c["id"]) not in ya_trackeados]
+
+                if cumplidos:
+                    self._insert_tracking_batch(obj_id, "alteo", cumplidos, id_llave="id", dist_id=dist_id, id_vendedor=id_vendedor)
+                    for c in cumplidos:
+                        self._update_item_estado(obj_id, c["id"], "cumplido")
+
+                # valor_actual = count de ítems cumplidos (por estado_item)
+                try:
+                    items_res = sb.table("objetivo_items").select("estado_item").eq("id_objetivo", obj_id).execute()
+                    items = items_res.data or []
+                    cumplidos_count = sum(1 for it in items if it.get("estado_item") == "cumplido")
+                    return (float(cumplidos_count), len(cumplidos))
+                except Exception as e_items:
+                    logger.warning(f"[Watcher] alteo items relecture obj={obj_id}: {e_items}")
+                return (float(obj.get("valor_actual") or 0), len(cumplidos))
+
+            # Sin ítems: comportamiento original — contar PDVs nuevos en ruta
             rutas_res = (
                 sb.table("rutas_v2")
                 .select("id_ruta")
@@ -241,9 +283,46 @@ class ObjetivosWatcherService:
     ) -> tuple[float, int]:
         """
         Detecta PDVs cuya fecha_ultima_compra >= since que no estén en tracking.
+
+        Si el objetivo tiene objetivo_items, sólo evalúa esos PDVs específicos
+        y marca como cumplido cada ítem cuyo PDV realizó una compra reciente.
         """
         obj_id = obj["id"]
         try:
+            item_pdv_ids = self._get_item_pdv_ids(obj_id)
+            if item_pdv_ids is not None and len(item_pdv_ids) == 0:
+                return (float(obj.get("valor_actual") or 0), 0)
+
+            if item_pdv_ids:
+                clientes_res = (
+                    sb.table("clientes_pdv_v2")
+                    .select("id, id_cliente_erp, nombre_cliente, fecha_ultima_compra")
+                    .eq("id_distribuidor", dist_id)
+                    .in_("id", item_pdv_ids)
+                    .gte("fecha_ultima_compra", since[:10])
+                    .execute()
+                )
+                all_clients = clientes_res.data or []
+
+                ya_trackeados = self._get_tracked_refs(obj_id, "activacion")
+                nuevos = [c for c in all_clients if str(c["id"]) not in ya_trackeados]
+
+                if nuevos:
+                    self._insert_tracking_batch(obj_id, "activacion", nuevos, id_llave="id", dist_id=dist_id, id_vendedor=id_vendedor)
+                    for c in nuevos:
+                        self._update_item_estado(obj_id, c["id"], "cumplido")
+
+                # valor_actual = count de ítems cumplidos
+                try:
+                    items_res = sb.table("objetivo_items").select("estado_item").eq("id_objetivo", obj_id).execute()
+                    items = items_res.data or []
+                    cumplidos_count = sum(1 for it in items if it.get("estado_item") == "cumplido")
+                    return (float(cumplidos_count), len(nuevos))
+                except Exception as e_items:
+                    logger.warning(f"[Watcher] activacion items relecture obj={obj_id}: {e_items}")
+                return (float(obj.get("valor_actual") or 0), len(nuevos))
+
+            # Sin ítems: comportamiento original
             rutas_res = (
                 sb.table("rutas_v2")
                 .select("id_ruta")

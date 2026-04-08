@@ -1747,8 +1747,25 @@ class BotWorker:
                         except Exception as e_track:
                             self.logger.warning(f"⚠️ Error insertando tracking pendiente: {e_track}")
 
-                        # 2b. Incrementar valor_actual inmediatamente para que el
-                        #     frontend reciba datos frescos al invalidar la query
+                        # 2b. Marcar objetivo_items.estado_item = "foto_subida" para este PDV.
+                        # Debe hacerse ANTES del WS broadcast para que cuando el frontend
+                        # invalide la query, _compute_kanban_phase encuentre items_con_foto > 0.
+                        try:
+                            from datetime import datetime, timezone as _tz
+                            self.db.sb.table("objetivo_items").update({
+                                "estado_item": "foto_subida",
+                                "updated_at": datetime.now(_tz.utc).isoformat(),
+                            }).eq("id_objetivo", obj_id_match).eq("id_cliente_pdv", id_pdv_obj).execute()
+                            self.logger.info(
+                                f"[ObjInterceptor] objetivo_items.estado_item=foto_subida "
+                                f"para obj={obj_id_match} pdv={id_pdv_obj}"
+                            )
+                        except Exception as e_item:
+                            self.logger.warning(f"⚠️ Error actualizando objetivo_items: {e_item}")
+
+                        # 2c. Incrementar valor_actual inmediatamente para que el
+                        #     frontend reciba datos frescos al invalidar la query.
+                        #     El watcher consolidará correctamente desde los ítems.
                         try:
                             cur_res = self.db.sb.table("objetivos") \
                                 .select("valor_actual").eq("id", obj_id_match) \

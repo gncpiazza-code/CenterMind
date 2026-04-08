@@ -1554,7 +1554,7 @@ export default function ObjetivosPage() {
   const {
     filterTipo, filterCumplido, searchText, viewMode,
     setFilterTipo, setFilterCumplido, setSearchText, setViewMode,
-    filterVendedores,
+    filterVendedores, filterKanbanPhase, setFilterKanbanPhase,
   } = useObjetivosStore();
 
   const [selectedSucursal, setSelectedSucursal] = useState<string>("");
@@ -1711,8 +1711,12 @@ export default function ObjetivosPage() {
       }
     }
 
+    if (filterKanbanPhase) {
+      list = list.filter(o => getObjectiveKanbanPhase(o) === filterKanbanPhase);
+    }
+
     return list;
-  }, [objetivos, searchText, selectedSucursal, selectedVendedorId, vendedorNamesEnSucursal, vendedores, user?.is_superadmin]);
+  }, [objetivos, searchText, selectedSucursal, selectedVendedorId, vendedorNamesEnSucursal, vendedores, user?.is_superadmin, filterKanbanPhase]);
 
   // ── Stats ─────────────────────────────────────────────────────────────────
 
@@ -1981,6 +1985,8 @@ export default function ObjetivosPage() {
                   onDelete={(id) => deleteMut.mutate(id)}
                   onReagendar={(o) => { setReagendarObj(o); setFechaReagendar(""); setObservacionReagendar(""); }}
                   onDownloadCertificado={downloadCertificado}
+                  filterKanbanPhase={filterKanbanPhase}
+                  setFilterKanbanPhase={setFilterKanbanPhase}
                 />
               )}
             </>
@@ -2115,12 +2121,16 @@ function KanbanOrListaView({
   onDelete,
   onReagendar,
   onDownloadCertificado,
+  filterKanbanPhase,
+  setFilterKanbanPhase,
 }: {
   filtered: Objetivo[];
   kanbanGroups: { pendiente: Objetivo[]; en_progreso: Objetivo[]; terminado: Objetivo[] };
   onDelete: (id: string) => void;
   onReagendar: (obj: Objetivo) => void;
   onDownloadCertificado: (obj: Objetivo) => void;
+  filterKanbanPhase: 'pendiente' | 'en_progreso' | 'terminado' | null;
+  setFilterKanbanPhase: (phase: 'pendiente' | 'en_progreso' | 'terminado' | null) => void;
 }) {
   const [listaMode, setListaMode] = useState(false);
 
@@ -2182,17 +2192,24 @@ function KanbanOrListaView({
       ) : (
         /* ── Kanban ── */
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {COLUMNS.map(col => (
-            <div key={col.key} className={`rounded-xl border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] overflow-hidden ${col.borderClass}`}>
-              <div className="px-4 py-3 border-b border-[var(--shelfy-border)] flex items-center justify-between bg-[var(--shelfy-panel)]">
-                <span className={`flex items-center gap-1.5 text-xs font-semibold ${col.headerClass}`}>
+          {COLUMNS.map(col => {
+            const isActive = filterKanbanPhase === col.key;
+            return (
+            <div key={col.key} className={`rounded-xl border bg-[var(--shelfy-bg)] overflow-hidden ${col.borderClass} ${isActive ? "border-[var(--shelfy-accent)]/40" : "border-[var(--shelfy-border)]"}`}>
+              <button
+                type="button"
+                onClick={() => setFilterKanbanPhase(isActive ? null : col.key)}
+                className={`w-full px-4 py-3 border-b border-[var(--shelfy-border)] flex items-center justify-between transition-colors ${isActive ? "bg-[var(--shelfy-accent)]/10" : "bg-[var(--shelfy-panel)] hover:bg-[var(--shelfy-accent)]/5"}`}
+                title={isActive ? `Quitar filtro "${col.label}"` : `Filtrar por "${col.label}"`}
+              >
+                <span className={`flex items-center gap-1.5 text-xs font-semibold ${isActive ? "text-[var(--shelfy-accent)]" : col.headerClass}`}>
                   <col.Icon className="w-3.5 h-3.5" />
                   {col.label}
                 </span>
-                <span className="text-xs font-semibold text-[var(--shelfy-muted)] bg-[var(--shelfy-bg)] px-1.5 py-0.5 rounded-full border border-[var(--shelfy-border)]">
+                <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-full border ${isActive ? "bg-[var(--shelfy-accent)]/10 text-[var(--shelfy-accent)] border-[var(--shelfy-accent)]/30" : "text-[var(--shelfy-muted)] bg-[var(--shelfy-bg)] border-[var(--shelfy-border)]"}`}>
                   {kanbanGroups[col.key].length}
                 </span>
-              </div>
+              </button>
               <div className="p-3 space-y-2 min-h-24">
                 <AnimatePresence mode="popLayout">
                   {kanbanGroups[col.key].map(obj => (
@@ -2212,7 +2229,8 @@ function KanbanOrListaView({
                 )}
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

@@ -1226,6 +1226,8 @@ export interface ObjetivoUpdate {
   descripcion?: string;
   estado_objetivo?: string;
   fecha_objetivo?: string;
+  resultado_final?: 'exito' | 'falla';
+  kanban_phase?: 'pendiente' | 'en_progreso' | 'terminado';
 }
 
 export async function fetchObjetivos(

@@ -1,6 +1,6 @@
 # Progress — Shelfy CenterMind
 
-**Última actualización: 8 de Abril, 2026 (21)**
+**Última actualización: 8 de Abril, 2026 (22)**
 
 Este archivo detalla el estado actual del proyecto, las funcionalidades operativas y los pendientes técnicos.
 
@@ -77,6 +77,7 @@ El proyecto se encuentra en una fase de expansión de funcionalidades de supervi
 ---
 
 ## 📅 Historial Reciente (Abril 2026)
+- **08/04 (22)**: **Objetivos Multi-PDV v9 — Fix Race Condition Bot + Watcher Items + Frontend Kanban Filter** — (1) `bot_worker.py`: corregida race condition crítica en el interceptor de objetivos: se agrega paso 2b para actualizar `objetivo_items.estado_item = "foto_subida"` ANTES del broadcast WS (así cuando el frontend invalida la query tras el WS event, `_compute_kanban_phase` ya encuentra `items_con_foto > 0` y devuelve "en_progreso" correctamente); paso 2c incrementa `valor_actual` inmediatamente para datos frescos sin esperar al watcher. (2) `supervision.py`: fix de seguridad en endpoint `evaluar` — query sobre `objetivo_items` ahora incluye `.eq("id_distribuidor", dist_id)` para evitar cross-tenant item updates. (3) `objetivos_watcher_service.py`: `_diff_alteo` y `_diff_activacion` ahora tienen path item-scoped: cuando `item_pdv_ids` existe, scopean el check a esos PDVs específicos, detectan cumplimiento y actualizan `objetivo_items.estado_item = "cumplido"` (con fallback al comportamiento global original cuando no hay items). (4) `api.ts`: `ObjetivoUpdate` amplía con campos `resultado_final` y `kanban_phase` que el backend ya aceptaba. (5) `objetivos/page.tsx`: fix de `filterKanbanPhase` — destructurado desde `useObjetivosStore` y aplicado en el `filtered` useMemo (con dependency array actualizado); permite filtrar el Kanban por columna de fase al hacer clic en el header de cada columna.
 - **08/04 (21)**: **Cuentas Corrientes Real→Split por sucursal (RPA)** — `ShelfMind-RPA/motores/cuentas_corrientes.py` ahora, para Real Tabacalera, selecciona dos sucursales en Playwright (`UEQUIN RODRIGO` y `OSCAR ONDARRETA`), parsea un único Excel y divide `detalle_cuentas` por sucursal para subir por separado a cada distribuidor destino: `UEQUIN RODRIGO → La Magica` y `OSCAR ONDARRETA → Bolivar Distribuiciones` (resolviendo `id_distribuidor` dinámicamente por nombre vía API).
 - **07/04 (20)**: **Split manual Real→Bolívar en padrón** — `ingest_for_dist` ahora, cuando el upload se hace sobre Real, divide filas por sucursal y deriva automáticamente `OSCAR ONDARRETA` a `Bolivar Distribuiciones` en una segunda corrida interna, manteniendo el resto en Real. Esto corrige el caso operativo donde el frontend aún sube a `dist 3`.
 - **07/04 (19)**: **Fix dist_id en upload padrón** — `padron_upload/{dist_id}` ahora llama `padron_service.ingest_for_dist(file_bytes, dist_id)` (no ingesta global). Se agrega método `ingest_for_dist` en `padron_ingestion_service.py` para filtrar filas por `idempresa` del distribuidor objetivo y mantener compatibilidad Bolívar extrayendo `OSCAR ONDARRETA` desde filas de Real cuando el target es Bolívar.

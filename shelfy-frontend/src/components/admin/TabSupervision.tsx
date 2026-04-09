@@ -1038,24 +1038,49 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
           } as ObjetivoCreate);
         }
       } else {
+        // Agrupar PDVs por vendedor → un solo objetivo por vendedor con pdv_items
+        const byVendedor = new Map<number, { vendedor: string; pdvs: typeof pines }>();
         for (const pdvId of selectedPDVsForObjective) {
           const pin = pines.find(p => p.id === pdvId);
           if (!pin || !pin.id_vendedor) continue;
+          if (!byVendedor.has(pin.id_vendedor)) {
+            byVendedor.set(pin.id_vendedor, { vendedor: pin.vendedor, pdvs: [] });
+          }
+          byVendedor.get(pin.id_vendedor)!.pdvs.push(pin);
+        }
+
+        for (const [vendedorId, { vendedor, pdvs }] of byVendedor) {
           const selectedRuta = objVendedorRoutes.find(r => r.id_ruta === objSelectedRutaId) ?? null;
-          const autoDesc = objDesc || buildObjectivePhrase(objTipo, pin.vendedor, selectedRuta, objFecha, objCantidadAlteo, objSelectedDeudor, objCobranzaMode, objCobranzaMonto);
-          await createObjetivo({
-            id_distribuidor: selectedDist,
-            id_vendedor: pin.id_vendedor,
-            tipo: objTipo,
-            id_target_pdv: pdvId,
-            nombre_pdv: pin.nombre,
-            nombre_vendedor: pin.vendedor,
-            descripcion: autoDesc || undefined,
-            fecha_objetivo: objFecha || undefined,
-            ...(objTipo === "cobranza" && objSelectedDeudor ? {
-              valor_objetivo: objCobranzaMode === "parcial" && objCobranzaMonto ? Number(objCobranzaMonto) : objSelectedDeudor.deuda_total,
-            } : {}),
-          } as ObjetivoCreate);
+          const autoDesc = objDesc || buildObjectivePhrase(objTipo, vendedor, selectedRuta, objFecha, objCantidadAlteo, objSelectedDeudor, objCobranzaMode, objCobranzaMonto);
+
+          // Para cobranza (objetivo de deuda, no multi-PDV) usar id_target_pdv del primer pin
+          if (objTipo === "cobranza") {
+            await createObjetivo({
+              id_distribuidor: selectedDist,
+              id_vendedor: vendedorId,
+              tipo: objTipo,
+              id_target_pdv: pdvs[0].id,
+              nombre_pdv: pdvs[0].nombre,
+              nombre_vendedor: vendedor,
+              descripcion: autoDesc || undefined,
+              fecha_objetivo: objFecha || undefined,
+              ...(objSelectedDeudor ? {
+                valor_objetivo: objCobranzaMode === "parcial" && objCobranzaMonto ? Number(objCobranzaMonto) : objSelectedDeudor.deuda_total,
+              } : {}),
+            } as ObjetivoCreate);
+          } else {
+            // Un solo objetivo con todos los PDVs como pdv_items
+            await createObjetivo({
+              id_distribuidor: selectedDist,
+              id_vendedor: vendedorId,
+              tipo: objTipo,
+              nombre_vendedor: vendedor,
+              descripcion: autoDesc || undefined,
+              fecha_objetivo: objFecha || undefined,
+              valor_objetivo: pdvs.length,
+              pdv_items: pdvs.map(pin => ({ id_cliente_pdv: pin.id, nombre_pdv: pin.nombre })),
+            } as ObjetivoCreate);
+          }
         }
       }
       clearSelectedPDVs();

@@ -343,6 +343,7 @@ def supervision_ventas(dist_id: int, dias: int = 30, user_payload=Depends(verify
             .execute()
         )
 
+        rows = res.data or []
         erp_name_map = _get_erp_name_map(dist_id)
         vendors: dict = {}
         is_sa = user_payload.get("is_superadmin")

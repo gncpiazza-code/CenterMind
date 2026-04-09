@@ -247,6 +247,84 @@ class Database:
         self.sb.table("integrantes_grupo").update({"rol_telegram": rol}).eq("id_distribuidor", distribuidor_id).eq("telegram_group_id", chat_id).eq("telegram_user_id", user_id).execute()
 
     # ── Exhibiciones ────────────────────────────────────────────────
+    def _is_cliente_pdv_fk_error(self, err_text: str) -> bool:
+        txt = (err_text or "").lower()
+        return "exhibiciones_id_cliente_pdv_v2_fkey" in txt or (
+            "id_cliente_pdv" in txt and "violates foreign key constraint" in txt
+        )
+
+    def _insert_exhibicion_limbo(
+        self,
+        distribuidor_id: int,
+        vendedor_id: int,
+        nro_cliente: str,
+        tipo_pdv: str,
+        drive_link: str,
+        telegram_msg_id: Optional[int] = None,
+        telegram_chat_id: Optional[int] = None,
+    ) -> dict:
+        """
+        Fallback para clientes recién creados que aún no están en clientes_pdv_v2.
+        Inserta la exhibición sin id_cliente_pdv y guarda cliente_sombra_codigo.
+        """
+        try:
+            ig_res = (
+                self.sb.table("integrantes_grupo")
+                .select("id_integrante")
+                .eq("id_distribuidor", distribuidor_id)
+                .eq("telegram_user_id", vendedor_id)
+                .limit(1)
+                .execute()
+            )
+            if not ig_res.data:
+                return {
+                    "id_exhibicion": None,
+                    "estado_final": None,
+                    "id_cliente_pdv": None,
+                    "error": "VENDEDOR_NO_REGISTRADO",
+                }
+
+            id_integrante = ig_res.data[0]["id_integrante"]
+            payload = {
+                "id_distribuidor": distribuidor_id,
+                "id_integrante": id_integrante,
+                "cliente_sombra_codigo": (nro_cliente or "").strip() or None,
+                "id_cliente_pdv": None,
+                "tipo_pdv": tipo_pdv,
+                "url_foto_drive": drive_link,
+                "estado": "Pendiente",
+                "telegram_msg_id": telegram_msg_id,
+                "telegram_chat_id": telegram_chat_id,
+            }
+
+            ins = self.sb.table("exhibiciones").insert(payload).execute()
+            inserted = ins.data[0] if isinstance(ins.data, list) and ins.data else (ins.data or {})
+            ex_id = inserted.get("id_exhibicion")
+
+            if not ex_id:
+                latest = (
+                    self.sb.table("exhibiciones")
+                    .select("id_exhibicion")
+                    .eq("id_distribuidor", distribuidor_id)
+                    .eq("id_integrante", id_integrante)
+                    .eq("url_foto_drive", drive_link)
+                    .order("timestamp_subida", desc=True)
+                    .limit(1)
+                    .execute()
+                )
+                if latest.data:
+                    ex_id = latest.data[0].get("id_exhibicion")
+
+            return {
+                "id_exhibicion": ex_id,
+                "estado_final": "PENDIENTE",
+                "id_cliente_pdv": None,
+                "error": None,
+            }
+        except Exception as e:
+            self.logger.error(f"Error fallback limbo exhibicion: {e}")
+            return {"id_exhibicion": None, "estado_final": None, "id_cliente_pdv": None, "error": str(e)}
+
     @retry_supabase()
     def registrar_exhibicion(
         self,
@@ -286,6 +364,21 @@ class Database:
             return {"id_exhibicion": None, "estado_final": None, "error": "Formato de respuesta inválido"}
 
         except Exception as e:
+            err = str(e)
+            if self._is_cliente_pdv_fk_error(err):
+                self.logger.warning(
+                    "RPC registrar_exhibicion cayó por FK id_cliente_pdv; "
+                    "registrando en modo limbo para reconciliar en próxima ingesta de padrón."
+                )
+                return self._insert_exhibicion_limbo(
+                    distribuidor_id=distribuidor_id,
+                    vendedor_id=vendedor_id,
+                    nro_cliente=nro_cliente,
+                    tipo_pdv=tipo_pdv,
+                    drive_link=drive_link,
+                    telegram_msg_id=telegram_msg_id,
+                    telegram_chat_id=telegram_chat_id,
+                )
             self.logger.error(f"Error en RPC registrar_exhibicion: {e}")
             return {"id_exhibicion": None, "estado_final": None, "error": str(e)}
 

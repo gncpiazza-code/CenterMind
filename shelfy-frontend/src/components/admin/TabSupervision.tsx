@@ -2795,7 +2795,6 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                     <option value="ruteo_alteo">Alteo</option>
                     <option value="ruteo">Ruteo</option>
                     <option value="exhibicion">Exhibición</option>
-                    <option value="general">General</option>
                   </select>
                 </div>
 

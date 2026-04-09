@@ -787,7 +787,7 @@ def _compute_kanban_phase(obj: dict) -> str:
 @router.post("/api/supervision/objetivos", tags=["Supervisión"])
 def crear_objetivo(body: ObjetivoCreate, user_payload=Depends(verify_auth)):
     check_dist_permission(user_payload, body.id_distribuidor)
-    TIPOS_VALIDOS = {"conversion_estado", "cobranza", "ruteo_alteo", "exhibicion", "general", "ruteo"}
+    TIPOS_VALIDOS = {"conversion_estado", "cobranza", "ruteo_alteo", "exhibicion", "ruteo"}
     if body.tipo not in TIPOS_VALIDOS:
         raise HTTPException(status_code=400, detail=f"tipo inválido. Valores permitidos: {sorted(TIPOS_VALIDOS)}")
 

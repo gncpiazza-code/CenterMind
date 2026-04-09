@@ -83,7 +83,6 @@ const TIPO_CONFIG: Record<ObjetivoTipo, { label: string; color: string; bg: stri
   cobranza:          { label: "Cobranza",   color: "text-orange-500",  bg: "bg-orange-500/10 border-orange-500/20" },
   ruteo_alteo:       { label: "Alteo",      color: "text-violet-600",  bg: "bg-violet-500/10 border-violet-500/20" },
   exhibicion:        { label: "Exhibición", color: "text-emerald-600", bg: "bg-emerald-500/10 border-emerald-500/20" },
-  general:           { label: "General",    color: "text-slate-500",   bg: "bg-slate-500/10 border-slate-500/20" },
   ruteo:             { label: "Ruteo",      color: "text-purple-600",  bg: "bg-purple-500/10 border-purple-500/20" },
 };
 
@@ -116,7 +115,7 @@ const TIMELINE_EVENT_COLORS: Record<string, string> = {
 };
 
 function TipoBadge({ tipo }: { tipo: ObjetivoTipo }) {
-  const cfg = TIPO_CONFIG[tipo] ?? TIPO_CONFIG.general;
+  const cfg = TIPO_CONFIG[tipo] ?? { label: tipo, color: "text-slate-500", bg: "bg-slate-500/10 border-slate-500/20" };
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold border ${cfg.bg} ${cfg.color}`}>
       {cfg.label}
@@ -907,7 +906,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
     onCreate([base]);
   };
 
-  const TIPOS_DISPONIBLES: ObjetivoTipo[] = ["ruteo_alteo", "conversion_estado", "exhibicion", "cobranza", "general", "ruteo"];
+  const TIPOS_DISPONIBLES: ObjetivoTipo[] = ["ruteo_alteo", "conversion_estado", "exhibicion", "cobranza", "ruteo"];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">

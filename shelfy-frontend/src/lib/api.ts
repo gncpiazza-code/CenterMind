@@ -1141,7 +1141,7 @@ export async function fetchPDVsCercanos(
 
 // ── Objetivos ──────────────────────────────────────────────────────────────
 
-export type ObjetivoTipo = 'conversion_estado' | 'cobranza' | 'ruteo_alteo' | 'exhibicion' | 'general' | 'ruteo';
+export type ObjetivoTipo = 'conversion_estado' | 'cobranza' | 'ruteo_alteo' | 'exhibicion' | 'ruteo';
 
 export interface Objetivo {
   id: string;

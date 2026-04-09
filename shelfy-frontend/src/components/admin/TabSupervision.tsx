@@ -54,6 +54,7 @@ import type { PinCliente } from "./MapaRutas";
 import { useSupervisionStore } from "@/store/useSupervisionStore";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/Button";
+import { DatePicker } from "@/components/ui/date-picker";
 import {
   Dialog,
   DialogContent,
@@ -321,6 +322,11 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
   const [objCobranzaMode, setObjCobranzaMode] = useState<"total" | "parcial">("total");
   const [objCobranzaMonto, setObjCobranzaMonto] = useState<number | "">("");
   const [objSelectedDeudor, setObjSelectedDeudor] = useState<{cliente_nombre: string; deuda_total: number} | null>(null);
+
+  // Ruteo state
+  type ObjRuteoAccion = 'cambio_ruta' | 'baja';
+  const [objRuteoAccionGlobal, setObjRuteoAccionGlobal] = useState<ObjRuteoAccion>('cambio_ruta');
+  const [objRuteoItemsMap, setObjRuteoItemsMap] = useState<Record<number, { accion: ObjRuteoAccion; id_ruta_destino?: number; motivo_baja?: string }>>({});
 
   // ── CC Upload Dialog ──────────────────────────────────────────────────────
   type CCUploadStatus = "idle" | "uploading" | "polling" | "done" | "error";
@@ -945,6 +951,9 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
         })
         .catch(() => setObjDebtList([]))
         .finally(() => setObjLoadingContext(false));
+    } else if (objTipo === "ruteo") {
+      // Ruteo uses existing pins — no extra fetch needed
+      setObjLoadingContext(false);
     } else if (objTipo === "conversion_estado" || objTipo === "exhibicion") {
       const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
       const vendorPins = pines.filter(p => p.id_vendedor === vendedorId);
@@ -989,6 +998,9 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
     if (tipo === "exhibicion") {
       return `${vendorName} debe exhibir en PDVs${fechaLabel}.`;
     }
+    if (tipo === "ruteo") {
+      return `${vendorName} debe reasignar PDVs${fechaLabel}.`;
+    }
     return "";
   }
 
@@ -997,24 +1009,54 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
     if (selectedPDVsForObjective.length === 0) return;
     setObjSubmitting(true);
     try {
-      for (const pdvId of selectedPDVsForObjective) {
-        const pin = pines.find(p => p.id === pdvId);
-        if (!pin || !pin.id_vendedor) continue;
-        const selectedRuta = objVendedorRoutes.find(r => r.id_ruta === objSelectedRutaId) ?? null;
-        const autoDesc = objDesc || buildObjectivePhrase(objTipo, pin.vendedor, selectedRuta, objFecha, objCantidadAlteo, objSelectedDeudor, objCobranzaMode, objCobranzaMonto);
-        await createObjetivo({
-          id_distribuidor: selectedDist,
-          id_vendedor: pin.id_vendedor,
-          tipo: objTipo,
-          id_target_pdv: pdvId,
-          nombre_pdv: pin.nombre,
-          nombre_vendedor: pin.vendedor,
-          descripcion: autoDesc || undefined,
-          fecha_objetivo: objFecha || undefined,
-          ...(objTipo === "cobranza" && objSelectedDeudor ? {
-            valor_objetivo: objCobranzaMode === "parcial" && objCobranzaMonto ? Number(objCobranzaMonto) : objSelectedDeudor.deuda_total,
-          } : {}),
-        } as ObjetivoCreate);
+      if (objTipo === "ruteo") {
+        // For ruteo: group all selected PDVs into a single objetivo with pdv_items
+        const firstPin = pines.find(p => selectedPDVsForObjective.includes(p.id) && p.id_vendedor);
+        if (firstPin?.id_vendedor) {
+          const autoDesc = objDesc || buildObjectivePhrase(objTipo, firstPin.vendedor, null, objFecha);
+          const pdvItems = selectedPDVsForObjective.map((pdvId, idx) => {
+            const pin = pines.find(p => p.id === pdvId);
+            const item = objRuteoItemsMap[pdvId] ?? { accion: objRuteoAccionGlobal };
+            return {
+              id_cliente_pdv: pdvId,
+              nombre_pdv: pin?.nombre,
+              accion_ruteo: item.accion,
+              ...(item.accion === 'cambio_ruta' && item.id_ruta_destino ? { id_ruta_destino: item.id_ruta_destino } : {}),
+              ...(item.accion === 'baja' && item.motivo_baja ? { motivo_baja: item.motivo_baja } : {}),
+              orden_sugerido: idx + 1,
+            };
+          });
+          await createObjetivo({
+            id_distribuidor: selectedDist,
+            id_vendedor: firstPin.id_vendedor,
+            tipo: objTipo,
+            nombre_vendedor: firstPin.vendedor,
+            descripcion: autoDesc || undefined,
+            fecha_objetivo: objFecha || undefined,
+            valor_objetivo: selectedPDVsForObjective.length,
+            pdv_items: pdvItems,
+          } as ObjetivoCreate);
+        }
+      } else {
+        for (const pdvId of selectedPDVsForObjective) {
+          const pin = pines.find(p => p.id === pdvId);
+          if (!pin || !pin.id_vendedor) continue;
+          const selectedRuta = objVendedorRoutes.find(r => r.id_ruta === objSelectedRutaId) ?? null;
+          const autoDesc = objDesc || buildObjectivePhrase(objTipo, pin.vendedor, selectedRuta, objFecha, objCantidadAlteo, objSelectedDeudor, objCobranzaMode, objCobranzaMonto);
+          await createObjetivo({
+            id_distribuidor: selectedDist,
+            id_vendedor: pin.id_vendedor,
+            tipo: objTipo,
+            id_target_pdv: pdvId,
+            nombre_pdv: pin.nombre,
+            nombre_vendedor: pin.vendedor,
+            descripcion: autoDesc || undefined,
+            fecha_objetivo: objFecha || undefined,
+            ...(objTipo === "cobranza" && objSelectedDeudor ? {
+              valor_objetivo: objCobranzaMode === "parcial" && objCobranzaMonto ? Number(objCobranzaMonto) : objSelectedDeudor.deuda_total,
+            } : {}),
+          } as ObjetivoCreate);
+        }
       }
       clearSelectedPDVs();
       setObjMenuOpen(false);
@@ -1028,6 +1070,8 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
       setObjCobranzaMode("total");
       setObjCobranzaMonto("");
       setObjSelectedDeudor(null);
+      setObjRuteoAccionGlobal('cambio_ruta');
+      setObjRuteoItemsMap({});
     } finally {
       setObjSubmitting(false);
     }
@@ -2724,6 +2768,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                     <option value="conversion_estado">Activación</option>
                     <option value="cobranza">Cobranza</option>
                     <option value="ruteo_alteo">Alteo</option>
+                    <option value="ruteo">Ruteo</option>
                     <option value="exhibicion">Exhibición</option>
                     <option value="general">General</option>
                   </select>
@@ -2844,6 +2889,99 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                   </div>
                 )}
 
+                {/* Contextual section: Ruteo */}
+                {objTipo === "ruteo" && (
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block">
+                      Acción por defecto · Configurar por PDV
+                    </label>
+                    {/* Global action toggle */}
+                    <div className="flex gap-1.5">
+                      <button
+                        onClick={() => setObjRuteoAccionGlobal('cambio_ruta')}
+                        className={`flex-1 py-1 rounded-lg text-xs font-medium transition-colors border ${
+                          objRuteoAccionGlobal === 'cambio_ruta'
+                            ? "bg-purple-500/20 text-purple-400 border-purple-500/40"
+                            : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-white"
+                        }`}
+                      >
+                        Cambio de ruta
+                      </button>
+                      <button
+                        onClick={() => setObjRuteoAccionGlobal('baja')}
+                        className={`flex-1 py-1 rounded-lg text-xs font-medium transition-colors border ${
+                          objRuteoAccionGlobal === 'baja'
+                            ? "bg-red-500/20 text-red-400 border-red-500/40"
+                            : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-white"
+                        }`}
+                      >
+                        Baja
+                      </button>
+                    </div>
+
+                    {/* Per-PDV configuration */}
+                    {selectedPDVsForObjective.length > 0 && (
+                      <div className="max-h-44 overflow-y-auto space-y-1.5 rounded-lg border border-[var(--shelfy-border)] p-2 bg-[var(--shelfy-bg)]">
+                        {selectedPDVsForObjective.map(pdvId => {
+                          const pin = pines.find(p => p.id === pdvId);
+                          if (!pin) return null;
+                          const item = objRuteoItemsMap[pdvId] ?? { accion: objRuteoAccionGlobal };
+                          return (
+                            <div key={pdvId} className="space-y-1 p-2 rounded-lg bg-white/5">
+                              <div className="flex items-center gap-1.5">
+                                <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: pin.color }} />
+                                <span className="text-xs text-[var(--shelfy-text)] truncate flex-1">{pin.nombre}</span>
+                              </div>
+                              <div className="flex gap-1">
+                                {(['cambio_ruta', 'baja'] as ObjRuteoAccion[]).map(accion => (
+                                  <button
+                                    key={accion}
+                                    onClick={() => setObjRuteoItemsMap(m => ({ ...m, [pdvId]: { ...(m[pdvId] ?? {}), accion } }))}
+                                    className={`flex-1 py-0.5 rounded text-[10px] font-medium border transition-all ${
+                                      item.accion === accion
+                                        ? accion === 'cambio_ruta'
+                                          ? "border-purple-500/50 bg-purple-500/15 text-purple-400"
+                                          : "border-red-500/50 bg-red-500/15 text-red-400"
+                                        : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)]"
+                                    }`}
+                                  >
+                                    {accion === 'cambio_ruta' ? 'Cambio' : 'Baja'}
+                                  </button>
+                                ))}
+                              </div>
+                              {item.accion === 'cambio_ruta' && (
+                                <input
+                                  type="number"
+                                  min={1}
+                                  placeholder="ID ruta destino..."
+                                  className="w-full bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded px-2 py-0.5 text-xs text-[var(--shelfy-text)] focus:outline-none focus:border-purple-500/60"
+                                  value={item.id_ruta_destino ?? ""}
+                                  onChange={e => setObjRuteoItemsMap(m => ({
+                                    ...m,
+                                    [pdvId]: { ...(m[pdvId] ?? { accion: objRuteoAccionGlobal }), id_ruta_destino: e.target.value ? Number(e.target.value) : undefined },
+                                  }))}
+                                />
+                              )}
+                              {item.accion === 'baja' && (
+                                <input
+                                  type="text"
+                                  placeholder="Motivo de baja..."
+                                  className="w-full bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded px-2 py-0.5 text-xs text-[var(--shelfy-text)] focus:outline-none focus:border-red-500/60"
+                                  value={item.motivo_baja ?? ""}
+                                  onChange={e => setObjRuteoItemsMap(m => ({
+                                    ...m,
+                                    [pdvId]: { ...(m[pdvId] ?? { accion: objRuteoAccionGlobal }), motivo_baja: e.target.value },
+                                  }))}
+                                />
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Contextual section: Activación / Exhibición — inactive PDV count */}
                 {/* (Phrase builder preview hidden per v12 plan) */}
 
@@ -2862,11 +3000,10 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                 {/* Fecha */}
                 <div>
                   <label className="text-[10px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1">Fecha límite</label>
-                  <input
-                    type="date"
-                    className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-1.5 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                  <DatePicker
                     value={objFecha}
-                    onChange={e => setObjFecha(e.target.value)}
+                    onChange={setObjFecha}
+                    placeholder="Fecha límite"
                   />
                 </div>
 

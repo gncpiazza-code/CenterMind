@@ -1141,7 +1141,7 @@ export async function fetchPDVsCercanos(
 
 // ── Objetivos ──────────────────────────────────────────────────────────────
 
-export type ObjetivoTipo = 'conversion_estado' | 'cobranza' | 'ruteo_alteo' | 'exhibicion' | 'general';
+export type ObjetivoTipo = 'conversion_estado' | 'cobranza' | 'ruteo_alteo' | 'exhibicion' | 'general' | 'ruteo';
 
 export interface Objetivo {
   id: string;
@@ -1171,6 +1171,7 @@ export interface Objetivo {
   items?: ObjetivoItem[];
   items_count?: number;
   items_cumplidos?: number;
+  url_pdf_ruteo?: string | null;
 }
 
 export interface ObjetivoItem {
@@ -1180,6 +1181,11 @@ export interface ObjetivoItem {
   id_cliente_pdv: number;
   nombre_pdv?: string | null;
   estado_item: 'pendiente' | 'foto_subida' | 'cumplido';
+  accion_ruteo?: 'cambio_ruta' | 'baja' | null;
+  id_ruta_destino?: number | null;
+  motivo_baja?: string | null;
+  orden_sugerido?: number | null;
+  metadata_ruteo?: Record<string, unknown> | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -1218,7 +1224,15 @@ export interface ObjetivoCreate {
   valor_objetivo?: number;
   fecha_objetivo?: string;
   id_objetivo_padre?: string;
-  pdv_items?: { id_cliente_pdv: number; nombre_pdv?: string }[];
+  pdv_items?: {
+    id_cliente_pdv: number;
+    nombre_pdv?: string;
+    accion_ruteo?: 'cambio_ruta' | 'baja';
+    id_ruta_destino?: number;
+    motivo_baja?: string;
+    orden_sugerido?: number;
+    metadata_ruteo?: Record<string, unknown>;
+  }[];
 }
 
 export interface ObjetivoUpdate {
@@ -1277,6 +1291,17 @@ export async function fetchObjetivosTimeline(
   } catch {
     return [];
   }
+}
+
+export interface ObjetivoDocumento {
+  id: string;
+  tipo_documento: string;
+  url_documento: string;
+  created_at: string;
+}
+
+export async function fetchObjetivoDocumentos(objetivoId: string): Promise<ObjetivoDocumento[]> {
+  return apiFetch<ObjetivoDocumento[]>(`/api/supervision/objetivos/${objetivoId}/documentos`);
 }
 
 // ── Objetivos — Supervisor aggregation ────────────────────────────────────────

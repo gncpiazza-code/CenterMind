@@ -74,6 +74,7 @@ import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { DatePicker } from "@/components/ui/date-picker";
 
 // ── Tipo / actividad config ───────────────────────────────────────────────────
 
@@ -83,6 +84,7 @@ const TIPO_CONFIG: Record<ObjetivoTipo, { label: string; color: string; bg: stri
   ruteo_alteo:       { label: "Alteo",      color: "text-violet-600",  bg: "bg-violet-500/10 border-violet-500/20" },
   exhibicion:        { label: "Exhibición", color: "text-emerald-600", bg: "bg-emerald-500/10 border-emerald-500/20" },
   general:           { label: "General",    color: "text-slate-500",   bg: "bg-slate-500/10 border-slate-500/20" },
+  ruteo:             { label: "Ruteo",      color: "text-purple-600",  bg: "bg-purple-500/10 border-purple-500/20" },
 };
 
 const DIA_ORDER: Record<string, number> = {
@@ -94,6 +96,7 @@ const ACTIVIDADES_FRASE: { tipo: ObjetivoTipo; label: string }[] = [
   { tipo: "ruteo_alteo",       label: "altear" },
   { tipo: "exhibicion",        label: "exhibir en" },
   { tipo: "conversion_estado", label: "activar" },
+  { tipo: "ruteo",             label: "reasignar" },
 ];
 
 const TIEMPO_UNIDADES = [
@@ -536,6 +539,17 @@ function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado }: {
         <div className="flex items-center justify-between pt-1 gap-1.5 flex-wrap" onClick={(e) => e.stopPropagation()}>
           <DateChip date={obj.fecha_objetivo} />
           <div className="flex items-center gap-1 print-hidden">
+            {obj.url_pdf_ruteo && (
+              <a
+                href={obj.url_pdf_ruteo}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border border-purple-500/30 text-purple-600 hover:bg-purple-500/10 transition-all"
+              >
+                <FileDown className="w-3 h-3" /> PDF Ruteo
+              </a>
+            )}
             {obj.cumplido && (
               <button
                 onClick={() => onDownloadCertificado(obj)}
@@ -652,6 +666,11 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
   const [exhibicionMode, setExhibicionMode] = useState<"general" | "por_pdv">("general");
   const [cantidadExhibicion, setCantidadExhibicion] = useState<number | "">("");
 
+  // Ruteo per-PDV actions
+  type RuteoAccion = 'cambio_ruta' | 'baja';
+  const [ruteoAccionGlobal, setRuteoAccionGlobal] = useState<RuteoAccion>('cambio_ruta');
+  const [ruteoItemsMap, setRuteoItemsMap] = useState<Record<number, { accion: RuteoAccion; id_ruta_destino?: number; motivo_baja?: string }>>({});
+
   const [loadingCtx, setLoadingCtx] = useState(false);
 
   const vendedorNombre = vendedores.find(v => v.id_vendedor === vendedorId)?.nombre_erp ?? "";
@@ -673,6 +692,8 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
     setPdvCatalogHasMore(false);
     setExhibicionMode("general");
     setCantidadExhibicion("");
+    setRuteoAccionGlobal('cambio_ruta');
+    setRuteoItemsMap({});
   }
 
   useEffect(() => {
@@ -714,7 +735,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
         })
         .catch(() => setDeudores([]))
         .finally(() => setLoadingCtx(false));
-    } else if (tipo === "exhibicion") {
+    } else if (tipo === "exhibicion" || tipo === "ruteo") {
       fetchPDVCatalog(distId, { vendedorId: Number(vendedorId), limit: 35, offset: 0 })
         .then(data => {
           setPdvCatalogAll(data);
@@ -782,6 +803,13 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
         ? `${vendedorNombre} debe realizar ${qty} exhibicione${Number(qty) !== 1 ? "s" : ""}${fechaLabel}.${diasLabel}`
         : `${vendedorNombre} debe exhibir en PDVs${fechaLabel}.`;
     }
+    if (tipo === "ruteo") {
+      const total = selectedPdvIds.size;
+      if (total > 0) {
+        return `${vendedorNombre} debe reasignar ${total} PDV${total !== 1 ? "s" : ""}${fechaLabel}.`;
+      }
+      return `${vendedorNombre} debe reasignar PDVs${fechaLabel}.`;
+    }
     return `${vendedorNombre} — objetivo ${TIPO_CONFIG[tipo]?.label ?? tipo}${fechaLabel}.`;
   }
 
@@ -839,11 +867,47 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
       // por_pdv with nothing selected — fallthrough to generic
     }
 
+    if (tipo === "ruteo") {
+      const selected = Array.from(selectedPdvIds);
+      if (selected.length === 0) {
+        base.descripcion = desc || buildPhrase();
+        onCreate([base]);
+        return;
+      }
+      // Validate: every selected PDV must have an action + required field
+      for (const pdvId of selected) {
+        const item = ruteoItemsMap[pdvId] ?? { accion: ruteoAccionGlobal };
+        if (item.accion === 'cambio_ruta' && !item.id_ruta_destino) {
+          // allow submit without ruta destino — supervisor can add later
+        }
+        if (item.accion === 'baja' && !item.motivo_baja?.trim()) {
+          // allow submit without motivo — supervisor can add later
+        }
+      }
+      const pdvItems = selected.map((pdvId, idx) => {
+        const pdv = pdvCatalogAll.find(p => p.id_cliente === pdvId);
+        const item = ruteoItemsMap[pdvId] ?? { accion: ruteoAccionGlobal };
+        return {
+          id_cliente_pdv: pdvId,
+          nombre_pdv: pdv?.nombre_cliente,
+          accion_ruteo: item.accion,
+          ...(item.accion === 'cambio_ruta' && item.id_ruta_destino ? { id_ruta_destino: item.id_ruta_destino } : {}),
+          ...(item.accion === 'baja' && item.motivo_baja ? { motivo_baja: item.motivo_baja } : {}),
+          orden_sugerido: idx + 1,
+        };
+      });
+      base.pdv_items = pdvItems;
+      base.valor_objetivo = selected.length;
+      base.descripcion = desc || buildPhrase();
+      onCreate([base]);
+      return;
+    }
+
     base.descripcion = desc || buildPhrase();
     onCreate([base]);
   };
 
-  const TIPOS_DISPONIBLES: ObjetivoTipo[] = ["ruteo_alteo", "conversion_estado", "exhibicion", "cobranza", "general"];
+  const TIPOS_DISPONIBLES: ObjetivoTipo[] = ["ruteo_alteo", "conversion_estado", "exhibicion", "cobranza", "general", "ruteo"];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -1222,6 +1286,153 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
             </div>
           )}
 
+          {/* Contextual: Ruteo */}
+          {tipo === "ruteo" && vendedorId && (
+            <div className="space-y-3 rounded-xl bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] p-3">
+              {/* Acción global */}
+              <div>
+                <p className="text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider mb-1.5">Acción por defecto</p>
+                <div className="flex gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setRuteoAccionGlobal('cambio_ruta')}
+                    className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                      ruteoAccionGlobal === 'cambio_ruta'
+                        ? "border-purple-500/60 bg-purple-500/10 text-purple-600"
+                        : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
+                    }`}
+                  >
+                    Cambio de ruta
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRuteoAccionGlobal('baja')}
+                    className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                      ruteoAccionGlobal === 'baja'
+                        ? "border-red-500/60 bg-red-500/10 text-red-500"
+                        : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
+                    }`}
+                  >
+                    Baja
+                  </button>
+                </div>
+              </div>
+
+              {/* PDV selector */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <p className="text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider">
+                    PDVs a reasignar
+                  </p>
+                  {selectedPdvIds.size > 0 && (
+                    <span className="text-[10px] font-semibold text-purple-600">
+                      {selectedPdvIds.size} seleccionado{selectedPdvIds.size > 1 ? "s" : ""}
+                    </span>
+                  )}
+                </div>
+                {loadingCtx ? (
+                  <div className="flex items-center gap-1.5 text-xs text-[var(--shelfy-muted)]">
+                    <Loader2 className="w-3 h-3 animate-spin" /> Cargando PDVs...
+                  </div>
+                ) : pdvCatalogAll.length === 0 ? (
+                  <p className="text-xs text-[var(--shelfy-muted)]">Sin PDVs registrados</p>
+                ) : (
+                  <ScrollArea className="max-h-48">
+                    <div className="space-y-0.5 pr-2">
+                      {pdvCatalogAll.map((pdv) => {
+                        const sel = selectedPdvIds.has(pdv.id_cliente);
+                        const itemData = ruteoItemsMap[pdv.id_cliente] ?? { accion: ruteoAccionGlobal };
+                        return (
+                          <div key={pdv.id_cliente} className={`rounded-lg border transition-colors ${
+                            sel
+                              ? "bg-purple-500/10 border-purple-500/40"
+                              : "bg-black/[0.02] border-transparent hover:border-[var(--shelfy-border)]"
+                          }`}>
+                            <button
+                              type="button"
+                              onClick={() => setSelectedPdvIds(prev => {
+                                const next = new Set(prev);
+                                if (next.has(pdv.id_cliente)) {
+                                  next.delete(pdv.id_cliente);
+                                  setRuteoItemsMap(m => { const n = { ...m }; delete n[pdv.id_cliente]; return n; });
+                                } else {
+                                  next.add(pdv.id_cliente);
+                                }
+                                return next;
+                              })}
+                              className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs"
+                            >
+                              <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 transition-colors ${
+                                sel ? "bg-purple-500 border-purple-500" : "border-[var(--shelfy-border)]"
+                              }`}>
+                                {sel && <Check className="w-2.5 h-2.5 text-white" />}
+                              </div>
+                              <span className="text-[var(--shelfy-text)] truncate flex-1 text-left">{pdv.nombre_cliente}</span>
+                            </button>
+
+                            {/* Per-item action (only when selected) */}
+                            {sel && (
+                              <div className="px-2.5 pb-2 space-y-1.5">
+                                <div className="flex gap-1.5">
+                                  {(['cambio_ruta', 'baja'] as RuteoAccion[]).map(accion => (
+                                    <button
+                                      key={accion}
+                                      type="button"
+                                      onClick={() => setRuteoItemsMap(m => ({
+                                        ...m,
+                                        [pdv.id_cliente]: { ...(m[pdv.id_cliente] ?? {}), accion },
+                                      }))}
+                                      className={`flex-1 py-1 rounded text-[10px] font-medium border transition-all ${
+                                        itemData.accion === accion
+                                          ? accion === 'cambio_ruta'
+                                            ? "border-purple-500/60 bg-purple-500/10 text-purple-600"
+                                            : "border-red-500/60 bg-red-500/10 text-red-500"
+                                          : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)]"
+                                      }`}
+                                    >
+                                      {accion === 'cambio_ruta' ? 'Cambio ruta' : 'Baja'}
+                                    </button>
+                                  ))}
+                                </div>
+                                {itemData.accion === 'cambio_ruta' && (
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    placeholder="ID ruta destino..."
+                                    className="w-full bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded px-2.5 py-1 text-xs text-[var(--shelfy-text)] focus:outline-none focus:border-purple-500/60"
+                                    value={itemData.id_ruta_destino ?? ""}
+                                    onClick={e => e.stopPropagation()}
+                                    onChange={e => setRuteoItemsMap(m => ({
+                                      ...m,
+                                      [pdv.id_cliente]: { ...(m[pdv.id_cliente] ?? { accion: ruteoAccionGlobal }), id_ruta_destino: e.target.value ? Number(e.target.value) : undefined },
+                                    }))}
+                                  />
+                                )}
+                                {itemData.accion === 'baja' && (
+                                  <input
+                                    type="text"
+                                    placeholder="Motivo de baja..."
+                                    className="w-full bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded px-2.5 py-1 text-xs text-[var(--shelfy-text)] focus:outline-none focus:border-red-500/60"
+                                    value={itemData.motivo_baja ?? ""}
+                                    onClick={e => e.stopPropagation()}
+                                    onChange={e => setRuteoItemsMap(m => ({
+                                      ...m,
+                                      [pdv.id_cliente]: { ...(m[pdv.id_cliente] ?? { accion: ruteoAccionGlobal }), motivo_baja: e.target.value },
+                                    }))}
+                                  />
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </ScrollArea>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Fecha límite */}
           <div>
             <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">
@@ -1247,21 +1458,13 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
                   </button>
                 );
               })}
-              <input
-                type="date"
-                className="flex-1 min-w-0 bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-1.5 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
-                value={fecha}
-                onChange={e => setFecha(e.target.value)}
-              />
-              {fecha && (
-                <button
-                  type="button"
-                  onClick={() => setFecha("")}
-                  className="p-1.5 rounded text-[var(--shelfy-muted)] hover:text-red-500 transition-colors"
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              )}
+              <div className="flex-1 min-w-0">
+                <DatePicker
+                  value={fecha}
+                  onChange={setFecha}
+                  placeholder="Fecha límite"
+                />
+              </div>
             </div>
           </div>
 
@@ -1578,6 +1781,7 @@ const PIE_COLORS: Record<string, string> = {
   ruteo_alteo:       "#a78bfa",
   exhibicion:        "#34d399",
   general:           "#94a3b8",
+  ruteo:             "#c084fc",
 };
 
 function VistaEstadisticas({ objetivos }: { objetivos: Objetivo[] }) {
@@ -2262,12 +2466,11 @@ export default function ObjetivosPage() {
                 <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">
                   Nueva fecha límite
                 </label>
-                <input
-                  type="date"
-                  min={new Date().toISOString().split("T")[0]}
+                <DatePicker
                   value={fechaReagendar}
-                  onChange={e => setFechaReagendar(e.target.value)}
-                  className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                  onChange={setFechaReagendar}
+                  minDate={new Date().toISOString().split("T")[0]}
+                  placeholder="Nueva fecha límite"
                 />
               </div>
 

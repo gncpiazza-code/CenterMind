@@ -135,6 +135,12 @@ class ObjetivoItemCreate(BaseModel):
     """Un PDV dentro de un objetivo multi-PDV."""
     id_cliente_pdv: int
     nombre_pdv: Optional[str] = None
+    # Campos de ruteo (solo para tipo='ruteo')
+    accion_ruteo: Optional[str] = None       # 'cambio_ruta' | 'baja'
+    id_ruta_destino: Optional[int] = None    # FK rutas_v2.id_ruta (requerido si cambio_ruta)
+    motivo_baja: Optional[str] = None        # Requerido si baja
+    orden_sugerido: Optional[int] = None
+    metadata_ruteo: Optional[dict] = None
 
 
 class ObjetivoCreate(BaseModel):

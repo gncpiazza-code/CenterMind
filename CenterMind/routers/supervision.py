@@ -787,9 +787,22 @@ def _compute_kanban_phase(obj: dict) -> str:
 @router.post("/api/supervision/objetivos", tags=["Supervisión"])
 def crear_objetivo(body: ObjetivoCreate, user_payload=Depends(verify_auth)):
     check_dist_permission(user_payload, body.id_distribuidor)
-    TIPOS_VALIDOS = {"conversion_estado", "cobranza", "ruteo_alteo", "exhibicion", "general"}
+    TIPOS_VALIDOS = {"conversion_estado", "cobranza", "ruteo_alteo", "exhibicion", "general", "ruteo"}
     if body.tipo not in TIPOS_VALIDOS:
         raise HTTPException(status_code=400, detail=f"tipo inválido. Valores permitidos: {sorted(TIPOS_VALIDOS)}")
+
+    # Para tipo ruteo: pdv_items es obligatorio y cada ítem debe tener accion_ruteo válida
+    if body.tipo == "ruteo":
+        if not body.pdv_items:
+            raise HTTPException(status_code=400, detail="tipo 'ruteo' requiere pdv_items con al menos 1 PDV")
+        ACCIONES_VALIDAS = {"cambio_ruta", "baja"}
+        for item in body.pdv_items:
+            if not item.accion_ruteo or item.accion_ruteo not in ACCIONES_VALIDAS:
+                raise HTTPException(status_code=400, detail=f"Cada ítem de ruteo debe tener accion_ruteo en {ACCIONES_VALIDAS}")
+            if item.accion_ruteo == "cambio_ruta" and not item.id_ruta_destino:
+                raise HTTPException(status_code=400, detail=f"PDV {item.id_cliente_pdv}: accion 'cambio_ruta' requiere id_ruta_destino")
+            if item.accion_ruteo == "baja" and not (item.motivo_baja and item.motivo_baja.strip()):
+                raise HTTPException(status_code=400, detail=f"PDV {item.id_cliente_pdv}: accion 'baja' requiere motivo_baja")
 
     # Validar que el vendedor pertenece a la distribuidora
     if not user_payload.get("is_superadmin"):
@@ -827,7 +840,7 @@ def crear_objetivo(body: ObjetivoCreate, user_payload=Depends(verify_auth)):
                 logger.warning(f"[Objetivo] No se pudo snapshotear deuda para cobranza: {e_cc}")
 
         # Para tipos multi-PDV: si vienen ítems, valor_objetivo = cantidad de ítems
-        TIPOS_MULTI_PDV = {"exhibicion", "ruteo_alteo", "conversion_estado"}
+        TIPOS_MULTI_PDV = {"exhibicion", "ruteo_alteo", "conversion_estado", "ruteo"}
         valor_objetivo = body.valor_objetivo
         if body.pdv_items and body.tipo in TIPOS_MULTI_PDV and not valor_objetivo:
             valor_objetivo = float(len(body.pdv_items))
@@ -847,16 +860,23 @@ def crear_objetivo(body: ObjetivoCreate, user_payload=Depends(verify_auth)):
         # Insertar ítems en objetivo_items si vienen en el payload
         obj_id = str(rows[0]["id"])
         if body.pdv_items:
-            item_rows = [
-                {
+            item_rows = []
+            for idx, item in enumerate(body.pdv_items):
+                row: dict = {
                     "id_objetivo": obj_id,
                     "id_distribuidor": body.id_distribuidor,
                     "id_cliente_pdv": item.id_cliente_pdv,
                     "nombre_pdv": item.nombre_pdv,
                     "estado_item": "pendiente",
                 }
-                for item in body.pdv_items
-            ]
+                # Campos de ruteo (solo para tipo='ruteo')
+                if body.tipo == "ruteo":
+                    row["accion_ruteo"]    = item.accion_ruteo
+                    row["id_ruta_destino"] = item.id_ruta_destino
+                    row["motivo_baja"]     = item.motivo_baja
+                    row["orden_sugerido"]  = item.orden_sugerido if item.orden_sugerido is not None else idx + 1
+                    row["metadata_ruteo"]  = item.metadata_ruteo
+                item_rows.append(row)
             try:
                 sb.table("objetivo_items").upsert(
                     item_rows, on_conflict="id_objetivo,id_cliente_pdv"
@@ -864,6 +884,27 @@ def crear_objetivo(body: ObjetivoCreate, user_payload=Depends(verify_auth)):
                 logger.info(f"[Objetivo] {len(item_rows)} ítems creados para objetivo {obj_id}")
             except Exception as e_items:
                 logger.warning(f"[Objetivo] Error al crear ítems objetivo {obj_id}: {e_items}")
+
+        # Para tipo ruteo: generar PDF y registrar en objetivo_documentos
+        if body.tipo == "ruteo":
+            try:
+                from services.objetivos_ruteo_pdf_service import objetivos_ruteo_pdf_service
+                pdf_result = objetivos_ruteo_pdf_service.generate_and_store(
+                    dist_id=body.id_distribuidor,
+                    objetivo_id=obj_id,
+                    nombre_vendedor=body.nombre_vendedor or "",
+                    pdv_items=body.pdv_items or [],
+                )
+                if pdf_result.get("url"):
+                    sb.table("objetivo_documentos").insert({
+                        "id_objetivo": obj_id,
+                        "id_distribuidor": body.id_distribuidor,
+                        "tipo_documento": "ruteo_pdf",
+                        "url_documento": pdf_result["url"],
+                    }).execute()
+                    rows[0]["url_pdf_ruteo"] = pdf_result["url"]
+            except Exception as e_pdf:
+                logger.warning(f"[Objetivo] PDF ruteo omitido: {e_pdf}")
 
         # Telegram Notification for NEW objective
         try:
@@ -1250,7 +1291,7 @@ def listar_objetivos(
         if obj_ids:
             try:
                 items_res = sb.table("objetivo_items") \
-                    .select("id_objetivo, id_cliente_pdv, nombre_pdv, estado_item") \
+                    .select("id_objetivo, id_cliente_pdv, nombre_pdv, estado_item, accion_ruteo, id_ruta_destino, motivo_baja, orden_sugerido, metadata_ruteo") \
                     .in_("id_objetivo", obj_ids) \
                     .execute()
                 items_by_obj: dict[str, list] = {}
@@ -1262,6 +1303,27 @@ def listar_objetivos(
                     obj["items"] = obj_items
                     obj["items_count"] = len(obj_items)
                     obj["items_cumplidos"] = sum(1 for it in obj_items if it.get("estado_item") == "cumplido")
+
+            # ── Para objetivos de tipo ruteo: adjuntar último PDF ─────────────
+            ruteo_ids = [o["id"] for o in items if o.get("tipo") == "ruteo"]
+            if ruteo_ids:
+                try:
+                    docs_res = sb.table("objetivo_documentos") \
+                        .select("id_objetivo, url_documento, created_at") \
+                        .in_("id_objetivo", ruteo_ids) \
+                        .eq("tipo_documento", "ruteo_pdf") \
+                        .order("created_at", desc=True) \
+                        .execute()
+                    last_doc: dict[str, str] = {}
+                    for doc in (docs_res.data or []):
+                        oid = str(doc["id_objetivo"])
+                        if oid not in last_doc:
+                            last_doc[oid] = doc["url_documento"]
+                    for obj in items:
+                        if obj.get("tipo") == "ruteo":
+                            obj["url_pdf_ruteo"] = last_doc.get(str(obj["id"]))
+                except Exception as e_docs:
+                    logger.warning(f"[listar_objetivos] Error cargando documentos ruteo: {e_docs}")
             except Exception as e_items:
                 logger.warning(f"[listar_objetivos] Error cargando objetivo_items: {e_items}")
                 for obj in items:
@@ -1306,6 +1368,28 @@ def actualizar_objetivo(objetivo_id: str, body: ObjetivoUpdate, user_payload=Dep
         raise
     except Exception as e:
         logger.error(f"Error en actualizar_objetivo objetivo_id={objetivo_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/supervision/objetivos/{objetivo_id}/documentos", tags=["Supervisión"])
+def listar_objetivo_documentos(objetivo_id: str, user_payload=Depends(verify_auth)):
+    """Devuelve todos los documentos (PDFs) generados para un objetivo de ruteo."""
+    try:
+        existing = sb.table("objetivos").select("id_distribuidor, tipo").eq("id", objetivo_id).execute()
+        if not existing.data:
+            raise HTTPException(status_code=404, detail="Objetivo no encontrado")
+        dist_id = existing.data[0]["id_distribuidor"]
+        check_dist_permission(user_payload, dist_id)
+        docs_res = sb.table("objetivo_documentos") \
+            .select("id, tipo_documento, url_documento, created_at") \
+            .eq("id_objetivo", objetivo_id) \
+            .order("created_at", desc=True) \
+            .execute()
+        return docs_res.data or []
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error en listar_objetivo_documentos objetivo_id={objetivo_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

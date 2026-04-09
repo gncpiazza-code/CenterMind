@@ -1303,33 +1303,33 @@ def listar_objetivos(
                     obj["items"] = obj_items
                     obj["items_count"] = len(obj_items)
                     obj["items_cumplidos"] = sum(1 for it in obj_items if it.get("estado_item") == "cumplido")
-
-            # ── Para objetivos de tipo ruteo: adjuntar último PDF ─────────────
-            ruteo_ids = [o["id"] for o in items if o.get("tipo") == "ruteo"]
-            if ruteo_ids:
-                try:
-                    docs_res = sb.table("objetivo_documentos") \
-                        .select("id_objetivo, url_documento, created_at") \
-                        .in_("id_objetivo", ruteo_ids) \
-                        .eq("tipo_documento", "ruteo_pdf") \
-                        .order("created_at", desc=True) \
-                        .execute()
-                    last_doc: dict[str, str] = {}
-                    for doc in (docs_res.data or []):
-                        oid = str(doc["id_objetivo"])
-                        if oid not in last_doc:
-                            last_doc[oid] = doc["url_documento"]
-                    for obj in items:
-                        if obj.get("tipo") == "ruteo":
-                            obj["url_pdf_ruteo"] = last_doc.get(str(obj["id"]))
-                except Exception as e_docs:
-                    logger.warning(f"[listar_objetivos] Error cargando documentos ruteo: {e_docs}")
             except Exception as e_items:
                 logger.warning(f"[listar_objetivos] Error cargando objetivo_items: {e_items}")
                 for obj in items:
                     obj["items"] = []
                     obj["items_count"] = 0
                     obj["items_cumplidos"] = 0
+
+        # ── Para objetivos de tipo ruteo: adjuntar último PDF ────────────────
+        ruteo_ids = [o["id"] for o in items if o.get("tipo") == "ruteo"]
+        if ruteo_ids:
+            try:
+                docs_res = sb.table("objetivo_documentos") \
+                    .select("id_objetivo, url_documento, created_at") \
+                    .in_("id_objetivo", ruteo_ids) \
+                    .eq("tipo_documento", "ruteo_pdf") \
+                    .order("created_at", desc=True) \
+                    .execute()
+                last_doc: dict[str, str] = {}
+                for doc in (docs_res.data or []):
+                    oid = str(doc["id_objetivo"])
+                    if oid not in last_doc:
+                        last_doc[oid] = doc["url_documento"]
+                for obj in items:
+                    if obj.get("tipo") == "ruteo":
+                        obj["url_pdf_ruteo"] = last_doc.get(str(obj["id"]))
+            except Exception as e_docs:
+                logger.warning(f"[listar_objetivos] Error cargando documentos ruteo: {e_docs}")
 
         # ── Calcular kanban_phase por objetivo ───────────────────────────────
         for obj in items:

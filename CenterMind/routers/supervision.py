@@ -155,39 +155,75 @@ def evaluar(req: EvaluarRequest, user_payload=Depends(verify_auth)):
         }).in_("id_exhibicion", req.ids_exhibicion).eq("estado", "Pendiente").execute()
         affected = len(r.data) if r.data else 0
 
-        # Si se aprobó al menos una foto, actualizar objetivo_items y disparar watcher
-        if affected > 0 and req.estado == "Aprobado":
-            # Cerrar items de objetivo_items que estaban en foto_subida para estos PDVs
+        # Aprobado / Destacado: cerrar ítems de objetivo vinculados a la exhibición
+        estados_avance_objetivo = ("Aprobado", "Destacado")
+        if affected > 0 and req.estado in estados_avance_objetivo:
             try:
                 from datetime import timezone
-                exhib_data = sb.table("exhibiciones").select("id_cliente_pdv") \
-                    .in_("id_exhibicion", req.ids_exhibicion).execute()
-                pdv_ids = [e["id_cliente_pdv"] for e in (exhib_data.data or []) if e.get("id_cliente_pdv")]
-                if pdv_ids:
-                    items_res = sb.table("objetivo_items") \
-                        .select("id, id_objetivo, id_cliente_pdv") \
-                        .in_("id_cliente_pdv", pdv_ids) \
-                        .eq("id_distribuidor", dist_id) \
-                        .eq("estado_item", "foto_subida") \
-                        .execute()
-                    for item in (items_res.data or []):
-                        sb.table("objetivo_items").update({
-                            "estado_item": "cumplido",
-                            "updated_at": datetime.now(timezone.utc).isoformat(),
-                        }).eq("id", item["id"]).execute()
+                exhib_data = sb.table("exhibiciones").select(
+                    "id_cliente_pdv, id_objetivo"
+                ).in_("id_exhibicion", req.ids_exhibicion).execute()
+                obj_ids_watch: set[str] = set()
+                for ex in exhib_data.data or []:
+                    oid = ex.get("id_objetivo")
+                    pid = ex.get("id_cliente_pdv")
+                    if not oid or not pid:
+                        continue
+                    oid_s = str(oid).strip()
+                    obj_ids_watch.add(oid_s)
+                    sb.table("objetivo_items").update({
+                        "estado_item": "cumplido",
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                    }).eq("id_objetivo", oid_s).eq("id_cliente_pdv", pid).eq(
+                        "id_distribuidor", dist_id
+                    ).in_(
+                        "estado_item", ["pendiente", "foto_subida"]
+                    ).execute()
+                # Sin id_objetivo en la fila: cerrar por PDV + estado foto_subida (comportamiento previo)
+                if not obj_ids_watch:
+                    pdv_ids = [
+                        e["id_cliente_pdv"]
+                        for e in (exhib_data.data or [])
+                        if e.get("id_cliente_pdv")
+                    ]
+                    if pdv_ids:
+                        items_res = sb.table("objetivo_items") \
+                            .select("id, id_objetivo, id_cliente_pdv") \
+                            .in_("id_cliente_pdv", pdv_ids) \
+                            .eq("id_distribuidor", dist_id) \
+                            .eq("estado_item", "foto_subida") \
+                            .execute()
+                        for item in (items_res.data or []):
+                            sb.table("objetivo_items").update({
+                                "estado_item": "cumplido",
+                                "updated_at": datetime.now(timezone.utc).isoformat(),
+                            }).eq("id", item["id"]).execute()
+                            obj_ids_watch.add(str(item["id_objetivo"]))
+                if obj_ids_watch:
+                    import threading
+                    from services.objetivos_watcher_service import objetivos_watcher
+
+                    def _run_evaluar_watchers():
+                        try:
+                            for oid_w in obj_ids_watch:
+                                objetivos_watcher.run_watcher(dist_id, obj_id=oid_w)
+                        except Exception as _we:
+                            logger.warning(f"[evaluar] Watcher batch: {_we}")
+
+                    threading.Thread(target=_run_evaluar_watchers, daemon=True).start()
+                else:
+                    try:
+                        import threading
+                        from services.objetivos_watcher_service import objetivos_watcher
+                        threading.Thread(
+                            target=objetivos_watcher.run_watcher,
+                            args=(dist_id,),
+                            daemon=True,
+                        ).start()
+                    except Exception as e_watch:
+                        logger.warning(f"[evaluar] Watcher global omitido: {e_watch}")
             except Exception as e_items:
                 logger.warning(f"[evaluar] No se pudo actualizar objetivo_items: {e_items}")
-            # Disparar watcher para recalcular cabecera
-            try:
-                import threading
-                from services.objetivos_watcher_service import objetivos_watcher
-                threading.Thread(
-                    target=objetivos_watcher.run_watcher,
-                    args=(dist_id,),
-                    daemon=True,
-                ).start()
-            except Exception as e_watch:
-                logger.warning(f"[evaluar] Watcher trigger omitido: {e_watch}")
 
         return {"affected": affected}
     except HTTPException:

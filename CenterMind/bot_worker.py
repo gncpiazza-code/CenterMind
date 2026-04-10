@@ -1537,46 +1537,6 @@ class BotWorker:
                                         self.logger.warning(f"⚠️ PDV no encontrado en clientes_pdv_v2 para id_cliente_erp='{nro_cliente}' dist={self.distribuidor_id} — resultado vacío")
                                 except Exception as ex_pdv:
                                     self.logger.warning(f"⚠️ Error lookup PDV real-time: {ex_pdv}")
-                            
-                            # Trigger objetivos watcher scoped al PDV recién subido.
-                            # Busca si hay un objetivo activo con ítem para este PDV
-                            # y lanza el watcher solo para esos objetivos (no global).
-                            try:
-                                import threading
-                                from services.objetivos_watcher_service import objetivos_watcher as _watcher
-                                _dist = self.distribuidor_id
-
-                                def _run_scoped_watcher(dist_id: int, id_cliente_pdv_val):
-                                    try:
-                                        if id_cliente_pdv_val:
-                                            # Obtener objetivos con ítem para este PDV
-                                            items_res = _watcher.__class__.__new__(_watcher.__class__)
-                                            from db import sb as _sb
-                                            obj_items = _sb.table("objetivo_items") \
-                                                .select("id_objetivo") \
-                                                .eq("id_distribuidor", dist_id) \
-                                                .eq("id_cliente_pdv", id_cliente_pdv_val) \
-                                                .execute()
-                                            obj_ids = list({r["id_objetivo"] for r in (obj_items.data or [])})
-                                            if obj_ids:
-                                                for oid in obj_ids:
-                                                    _watcher.run_watcher(dist_id, obj_id=str(oid))
-                                                return
-                                        # Fallback: watcher global (solo si no se encontró ítem específico)
-                                        _watcher.run_watcher(dist_id)
-                                    except Exception as _e:
-                                        import logging
-                                        logging.getLogger("BotWorker").warning(f"[Watcher] scoped error: {_e}")
-
-                                _pdv_id = rpc_result.get("id_cliente_pdv")
-                                threading.Thread(
-                                    target=_run_scoped_watcher,
-                                    args=(_dist, _pdv_id),
-                                    daemon=True,
-                                ).start()
-                                self.logger.debug(f"[Watcher] trigger scoped background para dist={_dist}")
-                            except Exception as _e_watch:
-                                self.logger.warning(f"[Watcher] No se pudo disparar: {_e_watch}")
 
                             # Real-time Broadcast via WebSocket
                             if self.ws_manager:
@@ -1705,6 +1665,7 @@ class BotWorker:
             # vendedor y PDV, se añade un badge al mensaje de confirmación
             # y se notifica al supervisor en tiempo real.
             objetivo_badge = ""
+            obj_ids_watcher_refresh: list = []
             try:
                 self.logger.info(
                     f"[ObjInterceptor] Iniciando para nro_cliente='{nro_cliente}' "
@@ -1722,6 +1683,19 @@ class BotWorker:
                     ig_obj_res.data[0].get("id_vendedor_v2")
                     if ig_obj_res.data else None
                 )
+                if id_vendedor_v2_obj is None:
+                    ig_fb = self.db.sb.table("integrantes_grupo") \
+                        .select("id_vendedor_v2") \
+                        .eq("id_distribuidor", self.distribuidor_id) \
+                        .eq("telegram_user_id", effective_uploader_id) \
+                        .not_.is_("id_vendedor_v2", "null") \
+                        .limit(1).execute()
+                    if ig_fb.data:
+                        id_vendedor_v2_obj = ig_fb.data[0].get("id_vendedor_v2")
+                        self.logger.info(
+                            f"[ObjInterceptor] id_vendedor_v2 vía fallback (sin filtro grupo)="
+                            f"{id_vendedor_v2_obj}"
+                        )
                 self.logger.info(
                     f"[ObjInterceptor] id_vendedor_v2={id_vendedor_v2_obj} "
                     f"uid={effective_uploader_id}"
@@ -1732,6 +1706,14 @@ class BotWorker:
                     .eq("id_distribuidor", self.distribuidor_id) \
                     .eq("id_cliente_erp", nro_cliente) \
                     .limit(1).execute()
+                if not pdv_obj_res.data and nro_cliente:
+                    nro_strip = nro_cliente.lstrip("0") or nro_cliente
+                    if nro_strip != nro_cliente:
+                        pdv_obj_res = self.db.sb.table("clientes_pdv_v2") \
+                            .select("id_cliente, nombre_fantasia") \
+                            .eq("id_distribuidor", self.distribuidor_id) \
+                            .eq("id_cliente_erp", nro_strip) \
+                            .limit(1).execute()
                 if not pdv_obj_res.data:
                     self.logger.warning(
                         f"[ObjInterceptor] PDV no encontrado en clientes_pdv_v2 "
@@ -1775,11 +1757,13 @@ class BotWorker:
                         except Exception:
                             pass
 
-                        # Match strategy 2: PDV listado en objetivo_items del vendedor
-                        if id_vendedor_v2_obj:
+                        # Match strategy 2: PDV listado en objetivo_items (multi-PDV).
+                        # Debe correr aunque falle el lookup de id_vendedor_v2 por grupo Telegram.
+                        if not obj_match_res.data:
                             try:
                                 items_match_res = self.db.sb.table("objetivo_items") \
                                     .select("id_objetivo") \
+                                    .eq("id_distribuidor", self.distribuidor_id) \
                                     .eq("id_cliente_pdv", id_pdv_obj) \
                                     .execute()
                                 item_obj_ids = [r["id_objetivo"] for r in (items_match_res.data or [])]
@@ -1802,6 +1786,7 @@ class BotWorker:
                     # ── Objetivo encontrado (por cualquier estrategia) ─────────
                     if obj_match_res.data:
                         obj_id_match = obj_match_res.data[0]["id"]
+                        obj_ids_watcher_refresh.append(obj_id_match)
                         objetivo_badge = (
                             f"\n\n🎯 <b>¡Objetivo de Exhibición!</b>\n"
                             f"Este PDV (<b>{pdv_nombre_obj}</b>) está en tus metas. "
@@ -1900,6 +1885,34 @@ class BotWorker:
             except Exception as e_obj:
                 self.logger.warning(f"⚠️ Error en intercept objetivo exhibicion: {e_obj}", exc_info=True)
             # ── FIN INTERCEPTOR OBJETIVO ────────────────────────────────────
+            # Watcher DESPUÉS del interceptor: evita carrera que ponga valor_actual=0
+            # antes de patch id_cliente_pdv / foto_subida en objetivo_items.
+            if obj_ids_watcher_refresh:
+                try:
+                    import threading
+                    from services.objetivos_watcher_service import objetivos_watcher as _watcher_post
+                    _dist_w = self.distribuidor_id
+                    _oids = list({str(x) for x in obj_ids_watcher_refresh})
+
+                    def _run_post_interceptor_watcher():
+                        try:
+                            for _oid in _oids:
+                                _watcher_post.run_watcher(_dist_w, obj_id=_oid)
+                        except Exception as _ew:
+                            import logging
+                            logging.getLogger("BotWorker").warning(
+                                f"[Watcher] post-interceptor error: {_ew}"
+                            )
+
+                    threading.Thread(
+                        target=_run_post_interceptor_watcher,
+                        daemon=True,
+                    ).start()
+                    self.logger.debug(
+                        f"[Watcher] post-interceptor dist={_dist_w} objs={_oids}"
+                    )
+                except Exception as _e_wpost:
+                    self.logger.warning(f"[Watcher] No se pudo disparar post-interceptor: {_e_wpost}")
 
             # Suprimir enlace de foto cuando hay badge de objetivo para evitar
             # que Telegram genere un segundo preview de imagen en el mismo mensaje.

@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import requests
+from datetime import datetime
 from typing import Any
 
 from db import sb
@@ -34,6 +36,26 @@ TIPO_EMOJI = {
 
 class ObjetivosNotificationService:
     # ── Telegram ──────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _format_fecha_dd_mm_yyyy(value: Any) -> str:
+        """ISO / datetime → dd/mm/aaaa (solo fecha)."""
+        if not value:
+            return ""
+        s = str(value).strip()
+        if not s:
+            return ""
+        try:
+            if "T" in s:
+                s = s.split("T", 1)[0]
+            m = re.match(r"^(\d{4})-(\d{2})-(\d{2})", s)
+            if m:
+                y, mo, d = m.group(1), m.group(2), m.group(3)
+                return f"{d}/{mo}/{y}"
+            dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+            return dt.strftime("%d/%m/%Y")
+        except Exception:
+            return s[:10]
 
     def _ruta_label(self, id_ruta: int | None) -> str:
         if not id_ruta:
@@ -105,12 +127,13 @@ class ObjetivosNotificationService:
             )
 
             created = obj_data.get("created_at")
-            inicio_str = ""
-            if created:
-                inicio_str = f"\n📆 <b>Inicio del objetivo:</b> {str(created)[:19].replace('T', ' ')}"
+            inicio_fmt = self._format_fecha_dd_mm_yyyy(created)
+            inicio_str = (
+                f"\n📆 <b>Inicio del objetivo:</b> {inicio_fmt}" if inicio_fmt else ""
+            )
 
             sup = obj_data.get("asignado_por_usuario") or obj_data.get("supervisor")
-            supervisor_str = f"\n👤 <b>Supervisor que asignó:</b> {sup}" if sup else ""
+            supervisor_str = f"\n👤 <b>Supervisor:</b> {sup}" if sup else ""
 
             fecha = obj_data.get("fecha_objetivo")
             desc = obj_data.get("descripcion")
@@ -149,17 +172,24 @@ class ObjetivosNotificationService:
             )
 
             try:
-                if obj_id and tipo in TIPOS_MULTI_PDV:
+                obj_id_s = str(obj_id).strip() if obj_id else ""
+                if obj_id_s and tipo in TIPOS_MULTI_PDV:
                     cols = "id_cliente_pdv, nombre_pdv"
                     if tipo == "ruteo":
                         cols += ", accion_ruteo, id_ruta_destino, motivo_baja"
                     items_res = (
                         sb.table("objetivo_items")
                         .select(cols)
-                        .eq("id_objetivo", obj_id)
+                        .eq("id_objetivo", obj_id_s)
+                        .eq("id_distribuidor", dist_id)
                         .execute()
                     )
                     items = items_res.data or []
+                    if not items:
+                        logger.warning(
+                            f"[Notif] objetivo {obj_id_s} tipo={tipo}: sin filas en objetivo_items "
+                            f"(dist={dist_id}) — usando fallback PDV único si aplica"
+                        )
                     if items:
                         pdv_ids = [it["id_cliente_pdv"] for it in items if it.get("id_cliente_pdv")]
                         erp_map: dict[int, dict] = {}
@@ -167,7 +197,7 @@ class ObjetivosNotificationService:
                             erp_res = (
                                 sb.table("clientes_pdv_v2")
                                 .select(
-                                    "id_cliente, id_cliente_erp, domicilio, telefono, id_ruta"
+                                    "id_cliente, id_cliente_erp, nombre_fantasia, domicilio, telefono, id_ruta"
                                 )
                                 .in_("id_cliente", pdv_ids)
                                 .eq("id_distribuidor", dist_id)
@@ -176,6 +206,7 @@ class ObjetivosNotificationService:
                             erp_map = {
                                 r["id_cliente"]: {
                                     "erp": r.get("id_cliente_erp") or "",
+                                    "nombre_fantasia": (r.get("nombre_fantasia") or "").strip(),
                                     "domicilio": r.get("domicilio") or "",
                                     "telefono": r.get("telefono") or "",
                                     "id_ruta": r.get("id_ruta"),
@@ -201,8 +232,12 @@ class ObjetivosNotificationService:
 
                         for it in items:
                             cid = it.get("id_cliente_pdv") or 0
-                            nombre = it.get("nombre_pdv") or f"PDV #{cid}"
                             info = erp_map.get(cid, {})
+                            nombre = (
+                                (it.get("nombre_pdv") or "").strip()
+                                or info.get("nombre_fantasia")
+                                or f"PDV #{cid}"
+                            )
                             erp = info.get("erp", "")
                             cod = f" <b>#{erp}</b>" if erp else ""
                             ruta_actual = self._ruta_label(info.get("id_ruta"))
@@ -223,16 +258,19 @@ class ObjetivosNotificationService:
 
                             lineas.append(f"  • <b>{nombre}</b>{cod}{ruta_part}{extra}")
 
+                        n_items = len(items)
+                        pdv_word = "PDV objetivo" if n_items == 1 else "PDVs objetivo"
                         if len(items) > MAX_PDV_DISPLAY:
                             shown = lineas[:MAX_PDV_DISPLAY]
                             remaining = len(items) - MAX_PDV_DISPLAY
-                            shown.append(f"  <i>...y {remaining} PDV más</i>")
+                            resto = "PDV" if remaining == 1 else "PDVs"
+                            shown.append(f"  <i>...y {remaining} {resto} más</i>")
                             pdv_lines = (
-                                f"\n📍 <b>PDVs afectados ({len(items)}):</b>\n" + "\n".join(shown)
+                                f"\n📍 <b>{pdv_word} ({n_items}):</b>\n" + "\n".join(shown)
                             )
                         else:
                             pdv_lines = (
-                                f"\n📍 <b>PDVs afectados ({len(items)}):</b>\n" + "\n".join(lineas)
+                                f"\n📍 <b>{pdv_word} ({n_items}):</b>\n" + "\n".join(lineas)
                             )
 
                         if tipo == "ruteo" and accion_resumen:
@@ -243,7 +281,13 @@ class ObjetivosNotificationService:
                         elif tipo == "ruteo_alteo":
                             accion_block = "\n⚙️ <b>Acción a realizar:</b> Alteo en la ruta indicada"
                         elif tipo == "exhibicion":
-                            accion_block = "\n⚙️ <b>Acción a realizar:</b> Exhibición en PDV(s)"
+                            ex_n = len(items)
+                            if ex_n == 1:
+                                accion_block = "\n⚙️ <b>Acción a realizar:</b> Exhibición en el PDV objetivo"
+                            else:
+                                accion_block = (
+                                    f"\n⚙️ <b>Acción a realizar:</b> Exhibición en los {ex_n} PDVs objetivo"
+                                )
                         elif tipo == "conversion_estado":
                             accion_block = "\n⚙️ <b>Acción a realizar:</b> Activación de cliente(s)"
                         elif tipo == "cobranza":
@@ -252,14 +296,14 @@ class ObjetivosNotificationService:
                             accion_block = "\n⚙️ <b>Acción a realizar:</b> Activación"
 
                 if not pdv_lines:
-                    pdv_nombre = obj_data.get("nombre_pdv") or "PDV"
+                    pdv_nombre = (obj_data.get("nombre_pdv") or "").strip()
                     nro_cliente_str = ""
                     erp = ""
                     id_ruta_pdv = None
                     if id_target_pdv:
                         pdv_res = (
                             sb.table("clientes_pdv_v2")
-                            .select("id_cliente_erp, id_ruta")
+                            .select("id_cliente_erp, id_ruta, nombre_fantasia")
                             .eq("id_cliente", id_target_pdv)
                             .eq("id_distribuidor", dist_id)
                             .limit(1)
@@ -268,16 +312,20 @@ class ObjetivosNotificationService:
                         row0 = (pdv_res.data or [{}])[0]
                         erp = row0.get("id_cliente_erp") or ""
                         id_ruta_pdv = row0.get("id_ruta")
+                        if not pdv_nombre:
+                            pdv_nombre = (row0.get("nombre_fantasia") or "").strip()
+                    if not pdv_nombre:
+                        pdv_nombre = "PDV sin nombre"
                     if erp:
                         nro_cliente_str = f" <b>#{erp}</b>"
                     ruta_p = self._ruta_label(id_ruta_pdv) if id_ruta_pdv else ""
                     ruta_txt = f" · Ruta: {ruta_p}" if ruta_p else ""
-                    pdv_lines = f"\n📍 <b>PDV afectado:</b> {pdv_nombre}{nro_cliente_str}{ruta_txt}"
+                    pdv_lines = f"\n📍 <b>PDV objetivo:</b> {pdv_nombre}{nro_cliente_str}{ruta_txt}"
 
                     if tipo == "cobranza":
                         accion_block = "\n⚙️ <b>Acción a realizar:</b> Cobranza"
                     elif tipo == "exhibicion":
-                        accion_block = "\n⚙️ <b>Acción a realizar:</b> Exhibición"
+                        accion_block = "\n⚙️ <b>Acción a realizar:</b> Exhibición en el PDV objetivo"
                     elif tipo == "ruteo_alteo":
                         accion_block = "\n⚙️ <b>Acción a realizar:</b> Alteo"
                     elif tipo == "conversion_estado":

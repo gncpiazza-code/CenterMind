@@ -3,6 +3,10 @@ import { API_URL, TOKEN_KEY } from "./constants";
 // ── Tipos ──────────────────────────────────────────────────────────────────
 export interface ClienteMaestro {
   id_cliente_erp_local: string;
+  /** Legacy field alias — some endpoints return this as the numeric PK */
+  id_cliente?: number;
+  /** ERP client number as displayed in UI (e.g. "00123") */
+  numero_cliente_local?: string;
   nombre_cliente: string;
   nombre_fantasia?: string;
   razon_social?: string;
@@ -194,6 +198,8 @@ export interface LiveMapEvent {
   vendedor_nombre: string;
   lat: number;
   lng: number;
+  /** Alias for lng — populated by the admin/mapa select transform */
+  lon?: number;
   timestamp_evento: string;
   nro_cliente: string;
   cliente_nombre?: string;
@@ -392,7 +398,7 @@ export async function fetchPendientes(distribuidorId: number): Promise<GrupoPend
 }
 
 export async function evaluar(ids: number[], estado: string, supervisor: string, comentario: string = "") {
-  return apiFetch("/api/evaluar", {
+  return apiFetch<{ affected?: number }>("/api/evaluar", {
     method: "POST",
     body: JSON.stringify({ ids_exhibicion: ids, estado, supervisor, comentario }),
   });
@@ -449,6 +455,33 @@ export async function updatePermissionsBatch(permissions: PermissionEntry[]) {
     method: "POST",
     body: JSON.stringify({ permissions }),
   });
+}
+
+// ── Reportes ERP (ventas/auditoría) ─────────────────────────────────────────
+
+export async function fetchAuditoriaSigo(distId: number, desde: string, hasta: string): Promise<any[]> {
+  const q = new URLSearchParams({ desde, hasta });
+  const raw = await apiFetch<any[]>(`/api/reports/auditoria-sigo/${distId}?${q.toString()}`);
+  return (raw ?? []).filter((p: any) => p.lat && p.lon && Math.abs(p.lat) > 0);
+}
+
+export async function fetchVentasResumen(distId: number, desde: string, hasta: string): Promise<any[]> {
+  const q = new URLSearchParams({ desde, hasta });
+  return apiFetch<any[]>(`/api/reports/ventas-resumen/${distId}?${q.toString()}`);
+}
+
+export async function fetchVentasBultos(distId: number, desde: string, hasta: string, proveedor?: string): Promise<any[]> {
+  const q = new URLSearchParams({ desde, hasta });
+  if (proveedor) q.set("proveedor", proveedor);
+  return apiFetch<any[]>(`/api/reports/ventas-bultos/${distId}?${q.toString()}`);
+}
+
+export async function fetchCuentasCorrientesLegacy(distId: number): Promise<{
+  fecha: string;
+  data: { detalle_cuentas: any[]; metadatos: any } | null;
+  file_b64: string | null;
+} | null> {
+  return apiFetch(`/api/cuentas-corrientes/${distId}`);
 }
 
 // ── Reportes ────────────────────────────────────────────────────────────────

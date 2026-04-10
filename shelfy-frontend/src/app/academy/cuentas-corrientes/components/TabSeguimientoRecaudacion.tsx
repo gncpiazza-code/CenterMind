@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { PageSpinner } from "@/components/ui/Spinner";
@@ -19,52 +20,58 @@ import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
     PieChart, Pie, Sector
 } from "recharts";
-import { fetchRecaudacionSummary, fetchRecaudacionDetallada, fetchClientesMuertos, fetchERPVendedores } from "@/lib/api";
+import {
+    fetchRecaudacionSummary,
+    fetchRecaudacionDetallada,
+    fetchClientesMuertos,
+    fetchERPVendedores,
+} from "@/lib/api";
+import { academiaKeys } from "@/lib/query-keys";
 
 export default function TabSeguimientoRecaudacion({ distId }: { distId: number }) {
-    const [loading, setLoading] = useState(true);
     const [desde, setDesde] = useState(() => {
         const d = new Date();
-        d.setDate(d.getDate() - 1); // Ayer por defecto
+        d.setDate(d.getDate() - 1);
         return d.toISOString().split('T')[0];
     });
     const [hasta, setHasta] = useState(new Date().toISOString().split('T')[0]);
-    const [vendedorList, setVendedorList] = useState<string[]>([]);
     const [selectedVendedor, setSelectedVendedor] = useState<string>("");
-
-    const [summary, setSummary] = useState<any>(null);
-    const [detallada, setDetallada] = useState<any[]>([]);
-    const [muertos, setMuertos] = useState<any[]>([]);
     const [view, setView] = useState<"kpis" | "detallada" | "mapa" | "muertos">("kpis");
 
-    const loadData = async () => {
-        setLoading(true);
-        try {
-            const [s, d, m, v] = await Promise.all([
-                fetchRecaudacionSummary(distId, desde, hasta, selectedVendedor || undefined),
-                fetchRecaudacionDetallada(distId, desde, hasta, selectedVendedor || undefined),
-                fetchClientesMuertos(distId, 30),
-                fetchERPVendedores(distId)
-            ]);
-            setSummary(s);
-            setDetallada(d);
-            setMuertos(m);
-            setVendedorList(v);
-        } catch (e) {
-            console.error(e);
-        } finally {
-            setLoading(false);
-        }
-    };
+    const { data: summary, isLoading: loadingSummary } = useQuery({
+        queryKey: academiaKeys.recaudacionSummary(distId, desde, hasta, selectedVendedor),
+        queryFn: () => fetchRecaudacionSummary(distId, desde, hasta, selectedVendedor || undefined),
+        enabled: !!distId,
+        staleTime: 5 * 60 * 1000,
+        placeholderData: (prev) => prev,
+    });
 
-    useEffect(() => {
-        loadData();
-    }, [distId, selectedVendedor]);
+    const { data: detallada = [] } = useQuery({
+        queryKey: academiaKeys.recaudacionDetallada(distId, desde, hasta, selectedVendedor),
+        queryFn: () => fetchRecaudacionDetallada(distId, desde, hasta, selectedVendedor || undefined),
+        enabled: !!distId,
+        staleTime: 5 * 60 * 1000,
+        placeholderData: (prev) => prev,
+    });
+
+    const { data: muertos = [] } = useQuery({
+        queryKey: academiaKeys.clientesMuertos(distId),
+        queryFn: () => fetchClientesMuertos(distId, 30),
+        enabled: !!distId,
+        staleTime: 10 * 60 * 1000,
+    });
+
+    const { data: vendedorList = [] } = useQuery({
+        queryKey: academiaKeys.erpVendedores(distId),
+        queryFn: () => fetchERPVendedores(distId),
+        enabled: !!distId,
+        staleTime: 10 * 60 * 1000,
+    });
 
     const formatCurrency = (val: number) =>
         new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(val);
 
-    if (loading && !summary) return <PageSpinner />;
+    if (loadingSummary && !summary) return <PageSpinner />;
 
     return (
         <div className="flex flex-col gap-6 animate-in fade-in duration-500">

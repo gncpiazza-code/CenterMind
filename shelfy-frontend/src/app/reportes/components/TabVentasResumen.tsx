@@ -1,14 +1,15 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useMemo, useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card } from "@/components/ui/Card";
 import { PageSpinner } from "@/components/ui/Spinner";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { DollarSign, Receipt, TrendingUp, Download, UploadCloud, Check, AlertTriangle } from "lucide-react";
 import * as XLSX from "xlsx";
-import { uploadERPFile } from "@/lib/api";
+import { uploadERPFile, fetchVentasResumen } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
-import { API_URL, TOKEN_KEY } from "@/lib/constants";
+import { reportesKeys } from "@/lib/query-keys";
 
 interface VentasResumenItem {
   sucursal: string;
@@ -20,47 +21,34 @@ interface VentasResumenItem {
 }
 
 export default function TabVentasResumen({ distId, desde, hasta }: { distId: number, desde: string, hasta: string }) {
-  const [data, setData] = useState<VentasResumenItem[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  const queryClient = useQueryClient();
   const [uploadResult, setUploadResult] = useState<{ msg: string; type: "ok" | "err" } | null>(null);
 
-  const fetchData = async () => {
-    setLoading(true);
-    try {
-      const token = localStorage.getItem(TOKEN_KEY);
-      const res = await fetch(`${API_URL}/api/reports/ventas-resumen/${distId}?desde=${desde}&hasta=${hasta}`, {
-        headers: { "Authorization": `Bearer ${token}` }
-      });
-      const json = await res.json();
-      setData(json);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const { data = [], isLoading } = useQuery<VentasResumenItem[]>({
+    queryKey: reportesKeys.ventasResumen(distId, desde, hasta),
+    queryFn: () => fetchVentasResumen(distId, desde, hasta),
+    enabled: !!distId,
+    staleTime: 5 * 60 * 1000,
+    placeholderData: (prev) => prev,
+  });
 
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const uploadMutation = useMutation({
+    mutationFn: (file: File) => uploadERPFile("ventas", file),
+    onSuccess: (res) => {
+      setUploadResult({ msg: `Éxito: ${res.count} registros.`, type: "ok" });
+      queryClient.invalidateQueries({ queryKey: reportesKeys.ventasResumen(distId, desde, hasta) });
+    },
+    onError: (err: any) => {
+      setUploadResult({ msg: err.message || "Error al subir", type: "err" });
+    },
+  });
+
+  const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    setUploading(true);
     setUploadResult(null);
-    try {
-      const res = await uploadERPFile("ventas", file);
-      setUploadResult({ msg: `Éxito: ${res.count} registros.`, type: "ok" });
-      fetchData(); // Recargar datos
-    } catch (err: any) {
-      setUploadResult({ msg: err.message || "Error al subir", type: "err" });
-    } finally {
-      setUploading(false);
-    }
+    uploadMutation.mutate(file);
   };
-
-  useEffect(() => {
-    if (distId) fetchData();
-  }, [distId, desde, hasta]);
 
   const stats = useMemo(() => {
     const totalFacturado = data.reduce((acc, current) => acc + Number(current.total_final), 0);
@@ -70,12 +58,10 @@ export default function TabVentasResumen({ distId, desde, hasta }: { distId: num
     const totalVentas = data
       .filter(d => d.tipo_pago.includes("Venta"))
       .reduce((acc, current) => acc + Number(current.total_final), 0);
-
     return { totalFacturado, totalRecaudado, totalVentas };
   }, [data]);
 
   const chartData = useMemo(() => {
-    // Agrupar por sucursal
     const map: Record<string, { sucursal: string, ventas: number, recaudacion: number }> = {};
     data.forEach(d => {
       if (!map[d.sucursal]) map[d.sucursal] = { sucursal: d.sucursal, ventas: 0, recaudacion: 0 };
@@ -92,7 +78,7 @@ export default function TabVentasResumen({ distId, desde, hasta }: { distId: num
     XLSX.writeFile(wb, `Resumen_Ventas_${desde}_${hasta}.xlsx`);
   };
 
-  if (loading) return <div className="py-20"><PageSpinner /></div>;
+  if (isLoading) return <div className="py-20"><PageSpinner /></div>;
 
   return (
     <div className="space-y-6">
@@ -109,7 +95,7 @@ export default function TabVentasResumen({ distId, desde, hasta }: { distId: num
             <h2 className="text-xl font-black text-slate-900 tracking-tight">Rendimiento de Ventas</h2>
           </div>
           <p className="text-sm text-slate-500 font-medium ml-12">Monitoreo y análisis de facturación y cobranza.</p>
-          
+
           {uploadResult && (
             <div className={`mt-3 ml-12 px-3 py-1.5 rounded-lg text-xs font-bold border flex items-center gap-2 w-fit animate-in fade-in duration-300 ${
               uploadResult.type === "ok" ? "bg-emerald-50 border-emerald-200 text-emerald-700" : "bg-rose-50 border-rose-200 text-rose-700"
@@ -119,9 +105,8 @@ export default function TabVentasResumen({ distId, desde, hasta }: { distId: num
             </div>
           )}
         </div>
-        
+
         <div className="flex flex-col items-end gap-3 relative z-10">
-          {/* Motor RPA Status Indicator */}
           <div className="flex items-center gap-2 bg-emerald-50 text-emerald-700 px-4 py-2 rounded-xl border border-emerald-200 text-xs font-bold shadow-sm">
             <div className="relative flex h-2.5 w-2.5">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -134,24 +119,24 @@ export default function TabVentasResumen({ distId, desde, hasta }: { distId: num
 
           <div className="flex items-center gap-2">
             <div className="relative group">
-              <input 
-                type="file" 
-                accept=".xlsx" 
+              <input
+                type="file"
+                accept=".xlsx"
                 onChange={handleUpload}
                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                disabled={uploading}
+                disabled={uploadMutation.isPending}
               />
               <Button
                 size="sm"
                 variant="outline"
-                loading={uploading}
+                loading={uploadMutation.isPending}
                 className="flex items-center gap-2 bg-white border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-50 shadow-sm text-xs h-9"
               >
                 <UploadCloud size={14} />
                 Subida Manual
               </Button>
             </div>
-            
+
             <button
               onClick={handleExport}
               className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-lg text-xs font-bold hover:bg-slate-800 transition-colors shadow-md h-9"

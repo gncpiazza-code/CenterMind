@@ -9,6 +9,8 @@ import { useRouter } from "next/navigation";
 import { MapPin, Zap, Clock, Users, Building2, BarChart2, ChevronRight, ChevronLeft, Target, Info, X, Map as MapIcon } from "lucide-react";
 import { fetchLiveMapEvents, fetchSucursalesCruce, type LiveMapEvent, type BranchCruce } from "@/lib/api";
 import { useRef, useEffect, useState, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { adminMapaKeys } from "@/lib/query-keys";
 import dynamic from "next/dynamic";
 import { type MapRef } from "@/components/ui/map";
 import { formatDistanceToNow, format } from "date-fns";
@@ -27,8 +29,6 @@ const MapaExhibiciones = dynamic(() => import("../components/MapaExhibiciones"),
 export default function LiveMapPage() {
     const { user, loading: authLoading } = useAuth();
     const router = useRouter();
-    const [events, setEvents] = useState<LiveMapEvent[]>([]);
-    const [loading, setLoading] = useState(true);
     const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
     const [branchStats, setBranchStats] = useState<Record<string, BranchCruce[]>>({});
     const [loadingBranches, setLoadingBranches] = useState<string | null>(null);
@@ -36,8 +36,6 @@ export default function LiveMapPage() {
     const [showRoutes, setShowRoutes] = useState(true);
     const [selectedDate, setSelectedDate] = useState<string>(getTodayStr());
     const [showStatsPanel, setShowStatsPanel] = useState(false);
-
-    // Para detectar nuevos eventos y hacer "fly-to"
     const [lastNewestId, setLastNewestId] = useState<number | null>(null);
     const mapRef = useRef<MapRef>(null);
 
@@ -48,67 +46,44 @@ export default function LiveMapPage() {
         }
     }, [user, authLoading, router]);
 
-    const loadEvents = async (dateToLoad?: string) => {
-        try {
-            const date = dateToLoad || selectedDate;
-            // Siempre usamos la fecha para traer "lo del día" (00:00 a 23:59)
-            const res = await fetchLiveMapEvents(undefined, date);
-            // Filtrar eventos sin ubicación válida o datos inconsistentes
-            const validEvents = res.filter(e => e.lat && e.lon && e.lat !== 0 && e.lon !== 0);
+    const isToday = selectedDate === getTodayStr();
 
-            // Detectar si hay un evento nuevo para hacer fly-to
-            if (validEvents.length > 0 && date === getTodayStr()) {
-                const newest = validEvents[0];
-                if (lastNewestId && newest.id_ex > lastNewestId) {
-                    setSelectedEventId(newest.id_ex);
-                    // Si hay un evento nuevo, hacemos flyTo
-                    mapRef.current?.flyTo({
-                        center: [newest.lon, newest.lat],
-                        zoom: 17,
-                        duration: 3000
-                    });
-                }
-                setLastNewestId(newest.id_ex);
-            }
+    const { data: rawEvents = [], isLoading: loading } = useQuery<LiveMapEvent[]>({
+        queryKey: adminMapaKeys.liveEvents(selectedDate),
+        queryFn: () => fetchLiveMapEvents(undefined, selectedDate),
+        enabled: !!user,
+        staleTime: 20 * 1000,
+        refetchInterval: isToday ? 30_000 : false,
+        select: (res) => res.filter(e => e.lat && e.lng && e.lat !== 0 && e.lng !== 0)
+            .map(e => ({ ...e, lon: e.lng })) as any[],
+        placeholderData: (prev) => prev,
+    });
 
-            setEvents(validEvents);
+    // Alias to maintain compat with rest of component
+    const events = rawEvents;
 
-            // AUTO-FIT: Si es la primera carga y hay eventos, centrar el mapa
-            if (validEvents.length > 0 && mapRef.current && !selectedEventId) {
-                const lats = validEvents.map(e => e.lat);
-                const lons = validEvents.map(e => e.lon);
-                const minLat = Math.min(...lats);
-                const maxLat = Math.max(...lats);
-                const minLon = Math.min(...lons);
-                const maxLon = Math.max(...lons);
-
-                mapRef.current.fitBounds(
-                    [[minLon, minLat], [maxLon, maxLat]],
-                    { padding: 100, duration: 1000 }
-                );
-            }
-        } catch (e) {
-            console.error("Error loading map events", e);
-        } finally {
-            setLoading(false);
-        }
-    };
-
+    // Fly-to and auto-fit on new events
     useEffect(() => {
-        // Only load if user exists
-        if (!user) return;
-        const today = getTodayStr();
-        loadEvents(selectedDate);
-
-        let interval: any;
-        if (selectedDate === today) {
-            interval = setInterval(() => loadEvents(today), 30000);
+        if (events.length === 0) return;
+        if (isToday) {
+            const newest = events[0];
+            if (lastNewestId && newest.id_ex > lastNewestId) {
+                setSelectedEventId(newest.id_ex);
+                mapRef.current?.flyTo({ center: [newest.lon!, newest.lat], zoom: 17, duration: 3000 });
+            }
+            setLastNewestId(newest.id_ex);
         }
-
-        return () => {
-            if (interval) clearInterval(interval);
-        };
-    }, [user, selectedDate]);
+        // AUTO-FIT on first load (lastNewestId is null)
+        if (!lastNewestId && mapRef.current && !selectedEventId) {
+            const lats = events.map(e => e.lat);
+            const lons = events.map(e => e.lon!);
+            mapRef.current.fitBounds(
+                [[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]],
+                { padding: 100, duration: 1000 },
+            );
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [events]);
 
     const { statsByDist, distColorMap, sellerColorMap } = useMemo(() => {
         const groups: Record<string, {

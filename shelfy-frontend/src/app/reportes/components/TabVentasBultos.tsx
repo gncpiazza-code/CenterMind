@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useMemo, useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card } from "@/components/ui/Card";
 import { PageSpinner } from "@/components/ui/Spinner";
-import { Package, Search, Download, AlertCircle, ChevronRight, UploadCloud, Check, AlertTriangle } from "lucide-react";
+import { Package, Search, Download, ChevronRight, UploadCloud, Check, AlertTriangle } from "lucide-react";
 import * as XLSX from "xlsx";
 import { Button } from "@/components/ui/Button";
-import { uploadERPFile } from "@/lib/api";
-import { API_URL, TOKEN_KEY } from "@/lib/constants";
+import { uploadERPFile, fetchVentasBultos } from "@/lib/api";
+import { reportesKeys } from "@/lib/query-keys";
 
 interface VentasBultosItem {
   cliente_erp_id: string;
@@ -22,51 +23,37 @@ interface VentasBultosItem {
 }
 
 export default function TabVentasBultos({ distId, desde, hasta }: { distId: number, desde: string, hasta: string }) {
-  const [data, setData] = useState<VentasBultosItem[]>([]);
-  const [loading, setLoading] = useState(false);
+  const queryClient = useQueryClient();
   const [proveedor, setProveedor] = useState("");
-  const [uploading, setUploading] = useState(false);
   const [uploadResult, setUploadResult] = useState<{ msg: string; type: "ok" | "err" } | null>(null);
 
-  const fetchData = async () => {
-    setLoading(true);
-    try {
-      const url = `${API_URL}/api/reports/ventas-bultos/${distId}?desde=${desde}&hasta=${hasta}${proveedor ? `&proveedor=${encodeURIComponent(proveedor)}` : ""}`;
-      const res = await fetch(url, {
-        headers: { "Authorization": `Bearer ${localStorage.getItem(TOKEN_KEY)}` }
-      });
-      const json = await res.json();
-      setData(json || []);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const { data = [], isLoading } = useQuery<VentasBultosItem[]>({
+    queryKey: reportesKeys.ventasBultos(distId, desde, hasta, proveedor),
+    queryFn: () => fetchVentasBultos(distId, desde, hasta, proveedor || undefined),
+    enabled: !!distId,
+    staleTime: 5 * 60 * 1000,
+    placeholderData: (prev) => prev,
+  });
 
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const uploadMutation = useMutation({
+    mutationFn: (file: File) => uploadERPFile("ventas", file),
+    onSuccess: (res) => {
+      setUploadResult({ msg: `Éxito: ${res.count} registros.`, type: "ok" });
+      queryClient.invalidateQueries({ queryKey: ['reportes', 'ventas-bultos', distId] });
+    },
+    onError: (err: any) => {
+      setUploadResult({ msg: err.message || "Error al subir", type: "err" });
+    },
+  });
+
+  const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    setUploading(true);
     setUploadResult(null);
-    try {
-      const res = await uploadERPFile("ventas", file);
-      setUploadResult({ msg: `Éxito: ${res.count} registros.`, type: "ok" });
-      fetchData(); // Recargar datos
-    } catch (err: any) {
-      setUploadResult({ msg: err.message || "Error al subir", type: "err" });
-    } finally {
-      setUploading(false);
-    }
+    uploadMutation.mutate(file);
   };
 
-  useEffect(() => {
-    if (distId) fetchData();
-  }, [distId, desde, hasta, proveedor]);
-
   const highVolumePDVs = useMemo(() => {
-    // Agrupar por cliente para sumar bultos de distintos artículos del mismo proveedor
     const map: Record<string, { nombre: string, total: number, promedio: number, canal: string }> = {};
     data.forEach(d => {
       if (!map[d.cliente_erp_id]) {
@@ -75,7 +62,6 @@ export default function TabVentasBultos({ distId, desde, hasta }: { distId: numb
       map[d.cliente_erp_id].total += Number(d.total_bultos);
       map[d.cliente_erp_id].promedio += Number(d.promedio_semanal);
     });
-
     return Object.entries(map)
       .map(([id, val]) => ({ id, ...val }))
       .filter(v => v.promedio >= 2.5)
@@ -96,7 +82,7 @@ export default function TabVentasBultos({ distId, desde, hasta }: { distId: numb
           <h2 className="text-lg font-bold text-[var(--shelfy-text)]">Análisis de Bultos por Cliente</h2>
           <p className="text-xs text-[var(--shelfy-muted)]">Cálculo de volumen y promedio semanal por fabricante.</p>
         </div>
-        
+
         <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
           {uploadResult && (
             <div className={`px-2 py-1 rounded-lg text-[9px] font-bold border flex items-center gap-2 animate-in fade-in duration-300 ${
@@ -106,19 +92,19 @@ export default function TabVentasBultos({ distId, desde, hasta }: { distId: numb
               {uploadResult.msg}
             </div>
           )}
-          
+
           <div className="relative group">
-            <input 
-              type="file" 
-              accept=".xlsx" 
+            <input
+              type="file"
+              accept=".xlsx"
               onChange={handleUpload}
               className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-              disabled={uploading}
+              disabled={uploadMutation.isPending}
             />
             <Button
               size="sm"
               variant="outline"
-              loading={uploading}
+              loading={uploadMutation.isPending}
               className="flex items-center gap-2 bg-white border-slate-200 text-slate-700 hover:bg-slate-50 shadow-sm whitespace-nowrap"
             >
               <UploadCloud size={14} />
@@ -128,7 +114,7 @@ export default function TabVentasBultos({ distId, desde, hasta }: { distId: numb
 
           <div className="relative flex-1 md:w-48">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--shelfy-muted)]" size={14} />
-            <input 
+            <input
               type="text"
               placeholder="Proveedor..."
               value={proveedor}
@@ -146,11 +132,10 @@ export default function TabVentasBultos({ distId, desde, hasta }: { distId: numb
         </div>
       </div>
 
-      {loading ? (
+      {isLoading ? (
         <div className="py-20"><PageSpinner /></div>
       ) : (
         <>
-          {/* Alerta Clientes Premium (>2.5 Bultos) */}
           {highVolumePDVs.length > 0 && (
             <Card className="p-4 border-l-4 border-l-emerald-500 bg-emerald-50">
               <div className="flex items-start gap-4">

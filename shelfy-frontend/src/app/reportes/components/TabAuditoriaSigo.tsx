@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useState, useMemo } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card } from "@/components/ui/Card";
 import { PageSpinner } from "@/components/ui/Spinner";
 import { Map, MapMarker, MarkerContent, MarkerPopup, MapControls } from "@/components/ui/map";
@@ -8,72 +9,45 @@ import { MapPin, User, Calendar, DollarSign, Image as ImageIcon, ExternalLink, N
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { Button } from "@/components/ui/Button";
-import { uploadERPFile } from "@/lib/api";
-import { API_URL, TOKEN_KEY } from "@/lib/constants";
-
-interface SigoAuditItem {
-  id_exhibicion: number;
-  vendedor_nombre: string;
-  cliente_id_erp: string;
-  cliente_nombre: string;
-  lat: number;
-  lon: number;
-  fecha_visita: string;
-  venta_periodo: number;
-  url_foto: string;
-}
+import { uploadERPFile, fetchAuditoriaSigo } from "@/lib/api";
+import { reportesKeys } from "@/lib/query-keys";
 
 export default function TabAuditoriaSigo({ distId, desde, hasta }: { distId: number, desde: string, hasta: string }) {
-  const [data, setData] = useState<SigoAuditItem[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [selectedPoint, setSelectedPoint] = useState<SigoAuditItem | null>(null);
-  const [uploading, setUploading] = useState(false);
+  const queryClient = useQueryClient();
+  const [selectedPoint, setSelectedPoint] = useState<any | null>(null);
   const [uploadResult, setUploadResult] = useState<{ msg: string; type: "ok" | "err" } | null>(null);
 
-  const fetchData = async () => {
-    setLoading(true);
-    try {
-      const token = localStorage.getItem(TOKEN_KEY);
-      const res = await fetch(`${API_URL}/api/reports/auditoria-sigo/${distId}?desde=${desde}&hasta=${hasta}`, {
-        headers: { "Authorization": `Bearer ${token}` }
-      });
-      const json = await res.json();
-      // Filtrar puntos sin coordenadas válidas
-      const validPoints = (json || []).filter((p: any) => p.lat && p.lon && Math.abs(p.lat) > 0);
-      setData(validPoints);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const { data = [], isLoading } = useQuery({
+    queryKey: reportesKeys.auditoriaSigo(distId, desde, hasta),
+    queryFn: () => fetchAuditoriaSigo(distId, desde, hasta),
+    enabled: !!distId,
+    staleTime: 5 * 60 * 1000,
+    placeholderData: (prev) => prev,
+  });
 
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const uploadMutation = useMutation({
+    mutationFn: (file: File) => uploadERPFile("ventas", file),
+    onSuccess: (res) => {
+      setUploadResult({ msg: `Éxito: ${res.count} registros.`, type: "ok" });
+      queryClient.invalidateQueries({ queryKey: reportesKeys.auditoriaSigo(distId, desde, hasta) });
+    },
+    onError: (err: any) => {
+      setUploadResult({ msg: err.message || "Error al subir", type: "err" });
+    },
+  });
+
+  const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    setUploading(true);
     setUploadResult(null);
-    try {
-      const res = await uploadERPFile("ventas", file);
-      setUploadResult({ msg: `Éxito: ${res.count} registros.`, type: "ok" });
-      fetchData(); // Recargar datos
-    } catch (err: any) {
-      setUploadResult({ msg: err.message || "Error al subir", type: "err" });
-    } finally {
-      setUploading(false);
-    }
+    uploadMutation.mutate(file);
   };
 
-  useEffect(() => {
-    if (distId) fetchData();
-  }, [distId, desde, hasta]);
-
   const mapCenter = useMemo(() => {
-    if (data.length === 0) return [-58.4, -34.6]; // Buenos Aires fallback
-    const avgLat = data.reduce((a, b) => a + Number(b.lat), 0) / data.length;
-    const avgLon = data.reduce((a, b) => a + Number(b.lon), 0) / data.length;
-    return [avgLon, avgLat]; // MapLibre uses [lng, lat]
+    if (data.length === 0) return [-58.4, -34.6];
+    const avgLat = data.reduce((a: number, b: any) => a + Number(b.lat), 0) / data.length;
+    const avgLon = data.reduce((a: number, b: any) => a + Number(b.lon), 0) / data.length;
+    return [avgLon, avgLat];
   }, [data]);
 
   return (
@@ -91,20 +65,20 @@ export default function TabAuditoriaSigo({ distId, desde, hasta }: { distId: num
             </div>
           )}
         </div>
-        
+
         <div className="flex items-center gap-3">
           <div className="relative group">
-            <input 
-              type="file" 
-              accept=".xlsx" 
+            <input
+              type="file"
+              accept=".xlsx"
               onChange={handleUpload}
               className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-              disabled={uploading}
+              disabled={uploadMutation.isPending}
             />
             <Button
               size="sm"
               variant="outline"
-              loading={uploading}
+              loading={uploadMutation.isPending}
               className="flex items-center gap-2 bg-white border-slate-200 text-slate-700 hover:bg-slate-50 shadow-sm"
             >
               <UploadCloud size={14} />
@@ -129,9 +103,9 @@ export default function TabAuditoriaSigo({ distId, desde, hasta }: { distId: num
              className="w-full h-full"
            >
              <MapControls position="bottom-right" showZoom showLocate />
-             
-             {data.map((p) => (
-               <MapMarker 
+
+             {data.map((p: any) => (
+               <MapMarker
                  key={p.id_exhibicion}
                  longitude={Number(p.lon)}
                  latitude={Number(p.lat)}
@@ -139,7 +113,7 @@ export default function TabAuditoriaSigo({ distId, desde, hasta }: { distId: num
                >
                  <MarkerContent>
                     <div className={`p-1 rounded-full border-2 border-white shadow-lg transition-transform hover:scale-125 cursor-pointer ${
-                      Number(p.venta_periodo) > 500000 ? "bg-red-500" : 
+                      Number(p.venta_periodo) > 500000 ? "bg-red-500" :
                       Number(p.venta_periodo) > 100000 ? "bg-orange-500" : "bg-blue-500"
                     }`}>
                        <MapPin size={14} className="text-white" />
@@ -157,9 +131,9 @@ export default function TabAuditoriaSigo({ distId, desde, hasta }: { distId: num
                              <DollarSign size={12} /> <span className="font-bold text-emerald-600">${Number(p.venta_periodo || 0).toLocaleString()} (Venta Mes)</span>
                           </div>
                           {p.url_foto && (
-                             <a 
-                               href={p.url_foto} 
-                               target="_blank" 
+                             <a
+                               href={p.url_foto}
+                               target="_blank"
                                rel="noreferrer"
                                className="flex items-center justify-center gap-2 mt-2 py-1.5 bg-slate-100 rounded-lg text-[10px] font-bold text-slate-600 hover:bg-slate-200"
                              >
@@ -172,8 +146,8 @@ export default function TabAuditoriaSigo({ distId, desde, hasta }: { distId: num
                </MapMarker>
              ))}
            </Map>
-           
-           {loading && (
+
+           {isLoading && (
              <div className="absolute inset-0 bg-white/50 backdrop-blur-sm flex items-center justify-center z-50">
                 <PageSpinner />
              </div>
@@ -187,8 +161,8 @@ export default function TabAuditoriaSigo({ distId, desde, hasta }: { distId: num
                  <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500">Últimas Visitas</h3>
               </div>
               <div className="flex-1 overflow-auto divide-y divide-slate-100">
-                 {data.slice(0, 20).map((p) => (
-                    <div 
+                 {data.slice(0, 20).map((p: any) => (
+                    <div
                       key={p.id_exhibicion}
                       onClick={() => setSelectedPoint(p)}
                       className={`p-4 cursor-pointer hover:bg-slate-50 transition-colors ${selectedPoint?.id_exhibicion === p.id_exhibicion ? "bg-indigo-50 border-l-4 border-l-indigo-600" : ""}`}
@@ -210,7 +184,7 @@ export default function TabAuditoriaSigo({ distId, desde, hasta }: { distId: num
                        </div>
                     </div>
                  ))}
-                 {data.length === 0 && !loading && (
+                 {data.length === 0 && !isLoading && (
                     <div className="p-10 text-center space-y-2">
                        <MapPin className="mx-auto text-slate-200" size={32} />
                        <p className="text-xs text-slate-400">No se detectaron visitas en el periodo.</p>
@@ -229,9 +203,9 @@ export default function TabAuditoriaSigo({ distId, desde, hasta }: { distId: num
                        <span className="font-bold">{format(new Date(selectedPoint.fecha_visita), "dd MMM, yyyy", { locale: es })}</span>
                     </div>
                     {selectedPoint.url_foto && (
-                       <a 
-                         href={selectedPoint.url_foto} 
-                         target="_blank" 
+                       <a
+                         href={selectedPoint.url_foto}
+                         target="_blank"
                          rel="noreferrer"
                          className="flex items-center justify-center gap-2 mt-4 py-2 bg-white/10 rounded-xl hover:bg-white/20 transition-colors text-xs font-bold"
                        >

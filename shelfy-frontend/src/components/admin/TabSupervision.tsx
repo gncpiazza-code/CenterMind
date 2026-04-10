@@ -52,6 +52,7 @@ import {
 } from "@/lib/api";
 import type { PinCliente } from "./MapaRutas";
 import { useSupervisionStore } from "@/store/useSupervisionStore";
+import { useObjetivosMenuStore } from "@/store/useObjetivosMenuStore";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/Button";
 import { DatePicker } from "@/components/ui/date-picker";
@@ -314,29 +315,51 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
   const [exhibFilter, setExhibFilter] = useState<string>("Todos");
   const [exhibSearch, setExhibSearch] = useState("");
 
-  // ── Floating Objetivos Menu ───────────────────────────────────────────────
-  const [objMenuOpen, setObjMenuOpen] = useState(false);
-  const [objTipo, setObjTipo] = useState<ObjetivoTipo>("exhibicion");
-  const [objFecha, setObjFecha] = useState("");
-  const [objDesc, setObjDesc] = useState("");
-  const [objSubmitting, setObjSubmitting] = useState(false);
-  const [objVendedorRoutes, setObjVendedorRoutes] = useState<{ id_ruta: number; nro_ruta: string; dia_semana: string; total_pdv: number }[]>([]);
-  const [objSelectedRutaId, setObjSelectedRutaId] = useState<number | null>(null);
-  const [objDebtList, setObjDebtList] = useState<{ cliente_nombre: string; deuda_total: number }[]>([]);
-  const [objInactivePdvCount, setObjInactivePdvCount] = useState<number>(0);
-  const [objLoadingContext, setObjLoadingContext] = useState(false);
-  const [objCantidadAlteo, setObjCantidadAlteo] = useState<number | "">("");
-  const [objCobranzaMode, setObjCobranzaMode] = useState<"total" | "parcial">("total");
-  const [objCobranzaMonto, setObjCobranzaMonto] = useState<number | "">("");
-  const [objSelectedDeudor, setObjSelectedDeudor] = useState<{cliente_nombre: string; deuda_total: number} | null>(null);
+  // ── Floating Objetivos Menu — state lives in Zustand store ───────────────
+  // Fine-grained selectors: each subscription only triggers a re-render
+  // of the consumer, not of MapaRutas or other unrelated siblings.
+  const objMenuOpen          = useObjetivosMenuStore(s => s.objMenuOpen);
+  const setObjMenuOpen       = useObjetivosMenuStore(s => s.setObjMenuOpen);
+  const objTipo              = useObjetivosMenuStore(s => s.objTipo);
+  const setObjTipo           = useObjetivosMenuStore(s => s.setObjTipo);
+  const objFecha             = useObjetivosMenuStore(s => s.objFecha);
+  const setObjFecha          = useObjetivosMenuStore(s => s.setObjFecha);
+  const objDesc              = useObjetivosMenuStore(s => s.objDesc);
+  const setObjDesc           = useObjetivosMenuStore(s => s.setObjDesc);
+  const objSubmitting        = useObjetivosMenuStore(s => s.objSubmitting);
+  const setObjSubmitting     = useObjetivosMenuStore(s => s.setObjSubmitting);
+  const objVendedorRoutes    = useObjetivosMenuStore(s => s.objVendedorRoutes);
+  const setObjVendedorRoutes = useObjetivosMenuStore(s => s.setObjVendedorRoutes);
+  const objSelectedRutaId    = useObjetivosMenuStore(s => s.objSelectedRutaId);
+  const setObjSelectedRutaId = useObjetivosMenuStore(s => s.setObjSelectedRutaId);
+  const objDebtList          = useObjetivosMenuStore(s => s.objDebtList);
+  const setObjDebtList       = useObjetivosMenuStore(s => s.setObjDebtList);
+  const objInactivePdvCount  = useObjetivosMenuStore(s => s.objInactivePdvCount);
+  const setObjInactivePdvCount = useObjetivosMenuStore(s => s.setObjInactivePdvCount);
+  const objLoadingContext    = useObjetivosMenuStore(s => s.objLoadingContext);
+  const setObjLoadingContext = useObjetivosMenuStore(s => s.setObjLoadingContext);
+  const objCantidadAlteo     = useObjetivosMenuStore(s => s.objCantidadAlteo);
+  const setObjCantidadAlteo  = useObjetivosMenuStore(s => s.setObjCantidadAlteo);
+  const objCobranzaMode      = useObjetivosMenuStore(s => s.objCobranzaMode);
+  const setObjCobranzaMode   = useObjetivosMenuStore(s => s.setObjCobranzaMode);
+  const objCobranzaMonto     = useObjetivosMenuStore(s => s.objCobranzaMonto);
+  const setObjCobranzaMonto  = useObjetivosMenuStore(s => s.setObjCobranzaMonto);
+  const objSelectedDeudor    = useObjetivosMenuStore(s => s.objSelectedDeudor);
+  const setObjSelectedDeudor = useObjetivosMenuStore(s => s.setObjSelectedDeudor);
 
-  // Ruteo state
+  // Ruteo state (also in store)
   type ObjRuteoAccion = 'cambio_ruta' | 'baja';
-  const [objRuteoAccionGlobal, setObjRuteoAccionGlobal] = useState<ObjRuteoAccion>('cambio_ruta');
-  const [objRuteoItemsMap, setObjRuteoItemsMap] = useState<Record<number, { accion: ObjRuteoAccion; id_ruta_destino?: number; motivo_baja?: string }>>({});
-  const [objRuteoConfigMode, setObjRuteoConfigMode] = useState<"global" | "per_pdv">("global");
-  const [objRuteoGlobalDestinoId, setObjRuteoGlobalDestinoId] = useState<number | null>(null);
-  const [objRuteoGlobalMotivo, setObjRuteoGlobalMotivo] = useState("");
+  const objRuteoAccionGlobal    = useObjetivosMenuStore(s => s.objRuteoAccionGlobal);
+  const setObjRuteoAccionGlobal = useObjetivosMenuStore(s => s.setObjRuteoAccionGlobal);
+  const objRuteoItemsMap        = useObjetivosMenuStore(s => s.objRuteoItemsMap);
+  const setObjRuteoItemsMap     = useObjetivosMenuStore(s => s.setObjRuteoItemsMap);
+  const objRuteoConfigMode      = useObjetivosMenuStore(s => s.objRuteoConfigMode);
+  const setObjRuteoConfigMode   = useObjetivosMenuStore(s => s.setObjRuteoConfigMode);
+  const objRuteoGlobalDestinoId = useObjetivosMenuStore(s => s.objRuteoGlobalDestinoId);
+  const setObjRuteoGlobalDestinoId = useObjetivosMenuStore(s => s.setObjRuteoGlobalDestinoId);
+  const objRuteoGlobalMotivo    = useObjetivosMenuStore(s => s.objRuteoGlobalMotivo);
+  const setObjRuteoGlobalMotivo = useObjetivosMenuStore(s => s.setObjRuteoGlobalMotivo);
+  const resetObjForm            = useObjetivosMenuStore(s => s.resetObjForm);
 
   // ── CC Upload Dialog ──────────────────────────────────────────────────────
   type CCUploadStatus = "idle" | "uploading" | "polling" | "done" | "error";
@@ -1131,22 +1154,8 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
         }
       }
       clearSelectedPDVs();
+      resetObjForm();
       setObjMenuOpen(false);
-      setObjDesc("");
-      setObjFecha("");
-      setObjVendedorRoutes([]);
-      setObjSelectedRutaId(null);
-      setObjDebtList([]);
-      setObjInactivePdvCount(0);
-      setObjCantidadAlteo("");
-      setObjCobranzaMode("total");
-      setObjCobranzaMonto("");
-      setObjSelectedDeudor(null);
-      setObjRuteoAccionGlobal('cambio_ruta');
-      setObjRuteoItemsMap({});
-      setObjRuteoConfigMode("global");
-      setObjRuteoGlobalDestinoId(null);
-      setObjRuteoGlobalMotivo("");
     } finally {
       setObjSubmitting(false);
     }
@@ -3100,7 +3109,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                                   <button
                                     type="button"
                                     key={accion}
-                                    onClick={() => setObjRuteoItemsMap(m => ({ ...m, [pdvId]: { ...(m[pdvId] ?? {}), accion } }))}
+                                    onClick={() => setObjRuteoItemsMap({ ...objRuteoItemsMap, [pdvId]: { ...(objRuteoItemsMap[pdvId] ?? {}), accion } })}
                                     className={`flex-1 py-0.5 rounded text-[10px] font-medium border transition-all ${
                                       item.accion === accion
                                         ? accion === 'cambio_ruta'
@@ -3116,10 +3125,10 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                               {item.accion === 'cambio_ruta' && (
                                 <Select
                                   value={item.id_ruta_destino != null ? String(item.id_ruta_destino) : ""}
-                                  onValueChange={v => setObjRuteoItemsMap(m => ({
-                                    ...m,
-                                    [pdvId]: { ...(m[pdvId] ?? { accion: objRuteoAccionGlobal }), id_ruta_destino: v ? Number(v) : undefined },
-                                  }))}
+                                  onValueChange={v => setObjRuteoItemsMap({
+                                    ...objRuteoItemsMap,
+                                    [pdvId]: { ...(objRuteoItemsMap[pdvId] ?? { accion: objRuteoAccionGlobal }), id_ruta_destino: v ? Number(v) : undefined },
+                                  })}
                                 >
                                   <SelectTrigger className="h-8 w-full bg-[var(--shelfy-panel)] border-[var(--shelfy-border)] text-xs">
                                     <SelectValue placeholder="Ruta destino..." />
@@ -3139,10 +3148,10 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                                   placeholder="Motivo de baja..."
                                   className="w-full bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded px-2 py-0.5 text-xs text-[var(--shelfy-text)] focus:outline-none focus:border-red-500/60"
                                   value={item.motivo_baja ?? ""}
-                                  onChange={e => setObjRuteoItemsMap(m => ({
-                                    ...m,
-                                    [pdvId]: { ...(m[pdvId] ?? { accion: objRuteoAccionGlobal }), motivo_baja: e.target.value },
-                                  }))}
+                                  onChange={e => setObjRuteoItemsMap({
+                                    ...objRuteoItemsMap,
+                                    [pdvId]: { ...(objRuteoItemsMap[pdvId] ?? { accion: objRuteoAccionGlobal }), motivo_baja: e.target.value },
+                                  })}
                                 />
                               )}
                             </div>
@@ -3201,7 +3210,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
 
           {/* Cart button */}
           <button
-            onClick={() => setObjMenuOpen(o => !o)}
+            onClick={() => setObjMenuOpen(!objMenuOpen)}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[var(--shelfy-accent)] text-white text-sm font-semibold shadow-lg hover:opacity-90 transition-opacity"
           >
             <ShoppingCart className="w-4 h-4" />

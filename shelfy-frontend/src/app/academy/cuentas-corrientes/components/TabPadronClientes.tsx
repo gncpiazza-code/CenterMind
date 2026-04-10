@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useRef, useMemo } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { PageSpinner } from "@/components/ui/Spinner";
@@ -30,6 +31,7 @@ import {
     fetchHierarchyConfig,
     type ClienteMaestro
 } from "@/lib/api";
+import { academiaKeys } from "@/lib/query-keys";
 import {
     Map as CustomMap,
     MapMarker,
@@ -38,7 +40,6 @@ import {
     MapControls,
     type MapRef
 } from "@/components/ui/map";
-import { useRef, useMemo } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 
@@ -51,33 +52,64 @@ const cn = (...inputs: any[]) => inputs.filter(Boolean).join(" ");
 const COLORS = ['#7c3aed', '#ec4899', '#f59e0b', '#10b981', '#3b82f6', '#6366f1'];
 
 export default function TabPadronClientes({ distId }: { distId: number }) {
-    const [loading, setLoading] = useState(true);
-    const [stats, setStats] = useState<any>(null);
-    const [temporal, setTemporal] = useState<any[]>([]);
-    const [desgloseVendedores, setDesgloseVendedores] = useState<any[]>([]);
-    const [desgloseLocalidades, setDesgloseLocalidades] = useState<any[]>([]);
-    const [clientesList, setClientesList] = useState<ClienteMaestro[]>([]);
+    const queryClient = useQueryClient();
     const [search, setSearch] = useState("");
     const [view, setView] = useState<"general" | "vendedores" | "geografia" | "listado" | "inactivos">("general");
-    const [loadingList, setLoadingList] = useState(false);
 
     // Jerarquía y Filtros
-    const [hierarchy, setHierarchy] = useState<any>(null);
     const [selectedSucursal, setSelectedSucursal] = useState("");
     const [selectedVendedores, setSelectedVendedores] = useState<Set<string>>(new Set());
-    const [branchColors, setBranchColors] = useState<Record<string, string>>({});
 
     const mapRef = useRef<MapRef>(null);
     const [popupClient, setPopupClient] = useState<ClienteMaestro | null>(null);
 
+    const { data: stats, isLoading: loadingStats } = useQuery({
+        queryKey: academiaKeys.clientesStats(distId),
+        queryFn: () => fetchClientesStats(distId),
+        enabled: !!distId,
+        staleTime: 10 * 60 * 1000,
+    });
+
+    const { data: temporal = [] } = useQuery({
+        queryKey: academiaKeys.clientesTemporal(distId),
+        queryFn: () => fetchClientesTemporal(distId),
+        enabled: !!distId,
+        staleTime: 10 * 60 * 1000,
+    });
+
+    const { data: desgloseVendedores = [] } = useQuery({
+        queryKey: academiaKeys.clientesDesgloseVendedor(distId),
+        queryFn: () => fetchClientesDesglose(distId, "vendedor"),
+        enabled: !!distId,
+        staleTime: 10 * 60 * 1000,
+    });
+
+    const { data: desgloseLocalidades = [] } = useQuery({
+        queryKey: academiaKeys.clientesDesgloseLocalidad(distId),
+        queryFn: () => fetchClientesDesglose(distId, "localidad"),
+        enabled: !!distId,
+        staleTime: 10 * 60 * 1000,
+    });
+
+    const listadoEnabled = view === "listado" || view === "inactivos" || view === "geografia";
+    const vendorIds = Array.from(selectedVendedores).join(",");
+    const listadoLimit = view === "geografia" ? 5000 : 500;
+
+    const { data: clientesList = [], isFetching: loadingList } = useQuery({
+        queryKey: ['academia', 'clientes-listado-full', distId, view, search, selectedSucursal, vendorIds],
+        queryFn: () => fetchClientesListado(distId, search, listadoLimit, selectedSucursal, vendorIds),
+        enabled: !!distId && listadoEnabled,
+        staleTime: 5 * 60 * 1000,
+        placeholderData: (prev) => prev,
+    });
+
     const sellerColorMap = useMemo(() => {
         const colors: Record<string, string> = {};
         const SELLER_COLORS = [
-            '#7c3aed', '#ec4899', '#f59e0b', '#10b981', '#3b82f6', 
+            '#7c3aed', '#ec4899', '#f59e0b', '#10b981', '#3b82f6',
             '#6366f1', '#ef4444', '#f97316', '#84cc16', '#06b6d4',
             '#0891b2', '#4d7c0f', '#be185d', '#4338ca', '#b45309'
         ];
-        
         const uniqueSellers = Array.from(new Set(clientesList.map(c => c.vendedor_nombre))).sort();
         uniqueSellers.forEach((name, idx) => {
             colors[name] = SELLER_COLORS[idx % SELLER_COLORS.length];
@@ -85,76 +117,23 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
         return colors;
     }, [clientesList]);
 
-    const loadData = async () => {
-        setLoading(true);
-        try {
-            const [s, t, v, l] = await Promise.all([
-                fetchClientesStats(distId),
-                fetchClientesTemporal(distId),
-                fetchClientesDesglose(distId, "vendedor"),
-                fetchClientesDesglose(distId, "localidad")
-            ]);
-            setStats(s);
-            setTemporal(t);
-            setDesgloseVendedores(v);
-            setDesgloseLocalidades(l);
-        } catch (e) {
-            console.error("Error al cargar padrón de clientes:", e);
-        } finally {
-            setLoading(false);
-        }
-    };
+    const loading = loadingStats;
 
-    const loadListado = async () => {
-        setLoadingList(true);
-        try {
-            const limit = view === "geografia" ? 5000 : 500;
-            // Join selected vendor IDs with commas for the multi-select SQL filter
-            const vendorIds = Array.from(selectedVendedores).join(",");
-            const data = await fetchClientesListado(distId, search, limit, selectedSucursal, vendorIds);
-            setClientesList(data);
-        } catch (e) {
-            console.error("Error al cargar listado de clientes:", e);
-        } finally {
-            setLoadingList(false);
-        }
-    };
+    const { data: hierarchy } = useQuery({
+        queryKey: academiaKeys.hierarchyConfig(distId),
+        queryFn: () => fetchHierarchyConfig(distId),
+        enabled: !!distId,
+        staleTime: 15 * 60 * 1000,
+    });
 
-    const fetchHierarchy = async () => {
-        try {
-            const res = await fetchHierarchyConfig(distId);
-            setHierarchy(res);
-            
-            // Generar colores para sucursales
-            const colors: Record<string, string> = {};
-            (res.erp_hierarchy || []).forEach((s: any, idx: number) => {
-                const name = s.sucursal_nombre;
-                if (name) {
-                    colors[name] = COLORS[idx % COLORS.length];
-                }
-            });
-            setBranchColors(colors);
-        } catch (e) {
-            console.error("Error fetching hierarchy:", e);
-        }
-    };
-
-    useEffect(() => {
-        fetchHierarchy();
-    }, [distId]);
-
-    useEffect(() => {
-        loadData();
-    }, [distId]);
-
-    useEffect(() => {
-        if (view === "listado" || view === "inactivos" || view === "geografia") {
-            const timer = setTimeout(() => {
-                loadListado();
-            }, 500);
-            return () => clearTimeout(timer);
-        }
-    }, [view, search, distId, selectedSucursal, selectedVendedores]);
+    const branchColors = useMemo(() => {
+        const colors: Record<string, string> = {};
+        (hierarchy?.erp_hierarchy || []).forEach((s: any, idx: number) => {
+            const name = s.sucursal_nombre;
+            if (name) colors[name] = COLORS[idx % COLORS.length];
+        });
+        return colors;
+    }, [hierarchy]);
 
     // Estados para los filtros en cascada de Inactivos
     const [selSucursal, setSelSucursal] = useState<string>("");
@@ -212,7 +191,7 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
                 </div>
 
                 <div className="flex items-center gap-2">
-                    <Button variant="secondary" onClick={loadData} size="sm">
+                    <Button variant="secondary" onClick={() => queryClient.invalidateQueries({ queryKey: ['academia'] })} size="sm">
                         Totalizar Datos
                     </Button>
                 </div>

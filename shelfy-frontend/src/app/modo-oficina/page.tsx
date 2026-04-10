@@ -1,7 +1,8 @@
 "use client";
 
 import { useAuth } from "@/hooks/useAuth";
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   fetchRanking,
@@ -10,6 +11,7 @@ import {
   fetchEvolucionTiempo,
   getWSUrl,
 } from "@/lib/api";
+import { modoOficinaKeys } from "@/lib/query-keys";
 import type { VendedorRanking, KPIs, LiveMapEvent, EvolucionTiempo } from "@/lib/api";
 import type { MapRef } from "@/components/ui/map";
 import dynamic from "next/dynamic";
@@ -64,17 +66,14 @@ export default function ModoOficinaPage() {
   const { user } = useAuth();
   const router = useRouter();
   const distId = user?.id_distribuidor || 0;
+  const queryClient = useQueryClient();
 
-  const [ranking, setRanking] = useState<VendedorRanking[]>([]);
-  const [kpis, setKpis] = useState<KPIs | null>(null);
-  const [events, setEvents] = useState<LiveMapEvent[]>([]);
-  const [evolucion, setEvolucion] = useState<EvolucionTiempo[]>([]);
   const [newEvent, setNewEvent] = useState<LiveMapEvent | null>(null);
+  // WS-pushed events (immediate display before query refetches)
+  const [wsEvents, setWsEvents] = useState<LiveMapEvent[]>([]);
   const [mode, setMode] = useState<"kpi" | "map">("kpi");
   const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
   const [kpiIndex, setKpiIndex] = useState(0);
-  const [loaded, setLoaded] = useState(false);
-  const [lastCheck, setLastCheck] = useState<Date | null>(null);
   const [isImmersive, setIsImmersive] = useState(false);
   const [showNotification, setShowNotification] = useState(false);
   const [showPDVCard, setShowPDVCard] = useState(false);
@@ -88,6 +87,7 @@ export default function ModoOficinaPage() {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   };
+  const periodo = getCurrentPeriodo();
 
   const isFullscreen = typeof window !== 'undefined' && !!document.fullscreenElement;
 
@@ -103,51 +103,75 @@ export default function ModoOficinaPage() {
     }
   };
 
-  // ── Data loading ─────────────────────────────────────────────────────────────
-  const loadData = useCallback(async (isInitial = false) => {
-    if (!distId) return;
-    try {
-      const periodo = getCurrentPeriodo();
-      const [r, k, e, ev] = await Promise.all([
-        fetchRanking(distId, periodo),
-        fetchKPIs(distId, periodo),
-        fetchLiveMapEvents(distId),
-        fetchEvolucionTiempo(distId),
-      ]);
-      // Detect points gain for NBA animation (only on non-initial loads)
-      if (!isInitial && prevRankingRef.current.length > 0) {
-        for (const newV of r) {
-          const oldV = prevRankingRef.current.find(p => p.vendedor === newV.vendedor);
-          if (oldV && newV.puntos > oldV.puntos) {
-            setPointsAnim({ points: newV.puntos - oldV.puntos, vendedor: newV.vendedor });
-            break;
-          }
-        }
-      }
-      prevRankingRef.current = r;
+  // ── Data loading via TanStack Query ──────────────────────────────────────────
+  const { data: ranking = [], isSuccess: rankingReady } = useQuery<VendedorRanking[]>({
+    queryKey: modoOficinaKeys.ranking(distId, periodo),
+    queryFn: () => fetchRanking(distId, periodo),
+    enabled: !!distId,
+    staleTime: 20 * 1000,
+    refetchInterval: POLL_INTERVAL,
+    placeholderData: (prev) => prev,
+  });
 
-      setRanking(r);
-      setKpis(k);
-      setEvents(e);
-      setEvolucion(ev);
-      setLastCheck(new Date());
+  const { data: kpis = null } = useQuery<KPIs | null>({
+    queryKey: modoOficinaKeys.kpis(distId, periodo),
+    queryFn: () => fetchKPIs(distId, periodo),
+    enabled: !!distId,
+    staleTime: 20 * 1000,
+    refetchInterval: POLL_INTERVAL,
+    placeholderData: (prev) => prev,
+  });
 
-      // Initialize seenIds on first load
-      if (isInitial && e.length > 0) {
-        e.forEach(evnt => seenIdsRef.current.add(evnt.id_ex));
-      }
-    } catch (err) {
-      console.error("Error loading office mode data:", err);
-    } finally {
-      if (isInitial) setLoaded(true);
-    }
-  }, [distId]);
+  const { data: events = [], isSuccess: eventsReady } = useQuery<LiveMapEvent[]>({
+    queryKey: modoOficinaKeys.liveEvents(distId),
+    queryFn: () => fetchLiveMapEvents(distId),
+    enabled: !!distId,
+    staleTime: 20 * 1000,
+    refetchInterval: POLL_INTERVAL,
+    placeholderData: (prev) => prev,
+  });
 
+  const { data: evolucion = [] } = useQuery<EvolucionTiempo[]>({
+    queryKey: modoOficinaKeys.evolucion(distId, periodo),
+    queryFn: () => fetchEvolucionTiempo(distId),
+    enabled: !!distId,
+    staleTime: 20 * 1000,
+    refetchInterval: POLL_INTERVAL,
+    placeholderData: (prev) => prev,
+  });
+
+  const loaded = rankingReady && eventsReady;
+  const lastCheck = loaded ? new Date() : null;
+
+  // Merge query events with WS-pushed events (deduplicated)
+  const allEvents = useMemo(() => {
+    const seen = new Set(events.map(e => e.id_ex));
+    const extras = wsEvents.filter(e => !seen.has(e.id_ex));
+    return [...extras, ...events];
+  }, [events, wsEvents]);
+
+  // NBA points-gain animation on ranking updates
   useEffect(() => {
-    loadData(true);
-    const intv = setInterval(() => loadData(false), POLL_INTERVAL);
-    return () => clearInterval(intv);
-  }, [loadData]);
+    if (!rankingReady || prevRankingRef.current.length === 0) {
+      prevRankingRef.current = ranking;
+      return;
+    }
+    for (const newV of ranking) {
+      const oldV = prevRankingRef.current.find(p => p.vendedor === newV.vendedor);
+      if (oldV && newV.puntos > oldV.puntos) {
+        setPointsAnim({ points: newV.puntos - oldV.puntos, vendedor: newV.vendedor });
+        break;
+      }
+    }
+    prevRankingRef.current = ranking;
+  }, [ranking, rankingReady]);
+
+  // Seed seenIds once after initial load
+  useEffect(() => {
+    if (eventsReady && seenIdsRef.current.size === 0 && events.length > 0) {
+      events.forEach(evnt => seenIdsRef.current.add(evnt.id_ex));
+    }
+  }, [eventsReady, events]);
 
   // ── WebSocket ────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -208,8 +232,9 @@ export default function ModoOficinaPage() {
             setShowNotification(true);
             setTimeout(() => setShowNotification(false), 5000);
 
-            // 2. Add to event list (must be before selectedEventId so map can find it)
-            setEvents(prev => [evnt, ...prev].slice(0, 50));
+            // 2. Add to event list immediately (query will catch up on next refetch)
+            setWsEvents(prev => [evnt, ...prev].slice(0, 50));
+            queryClient.invalidateQueries({ queryKey: modoOficinaKeys.liveEvents(distId) });
 
             // 3. Show floating PDV profile card
             setShowPDVCard(true);
@@ -222,8 +247,9 @@ export default function ModoOficinaPage() {
             // 5. Snapshot ranking for points diff detection
             prevRankingRef.current = ranking;
 
-            // 6. Update data (ranking/kpis) to reflect the new exhibition
-            loadData(false);
+            // 6. Invalidate ranking/kpis so they refetch with the new exhibition
+            queryClient.invalidateQueries({ queryKey: modoOficinaKeys.ranking(distId, periodo) });
+            queryClient.invalidateQueries({ queryKey: modoOficinaKeys.kpis(distId, periodo) });
 
             // 7. Auto-revert after duration
             if (mapTimerRef.current) clearTimeout(mapTimerRef.current);
@@ -392,7 +418,7 @@ export default function ModoOficinaPage() {
               {isFullscreen ? "Salir Fullscreen" : "Pantalla Completa"}
             </button>
             <button
-              onClick={() => loadData(false)}
+              onClick={() => queryClient.invalidateQueries({ queryKey: ['dashboard'] })}
               style={{
                 background: "rgba(255,255,255,0.05)",
                 border: "1px solid rgba(255,255,255,0.1)",

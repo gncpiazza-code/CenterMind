@@ -1,11 +1,13 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Settings2, Plus, Trash2, Search, SlidersHorizontal, ShieldAlert, BadgeInfo, Check, Loader2 } from "lucide-react";
 
 import { fetchERPConfig, saveERPConfig, fetchClientesListado } from "@/lib/api";
+import { academiaKeys } from "@/lib/query-keys";
 
 export interface ReglaCredito {
     activo: boolean;
@@ -49,95 +51,102 @@ function useOnClickOutside(ref: React.RefObject<HTMLDivElement | null>, handler:
 }
 
 export default function TabAlertasCredito({ distId }: { distId: number }) {
+    const queryClient = useQueryClient();
     const [reglas, setReglas] = useState<ReglasGenerales>(DEFAULT_REGLAS);
     const [excepciones, setExcepciones] = useState<Excepcion[]>([]);
     const [montoExt, setMontoExt] = useState("");
     const [cbteExt, setCbteExt] = useState("");
     const [diasExt, setDiasExt] = useState("");
     const [toastMessage, setToastMessage] = useState("");
-    const [loading, setLoading] = useState(false);
+    const [configLoaded, setConfigLoaded] = useState(false);
 
     // Búsqueda de clientes para excepciones
     const [searchExcepcion, setSearchExcepcion] = useState("");
-    const [filteredClients, setFilteredClients] = useState<any[]>([]);
-    const [searching, setSearching] = useState(false);
+    const [debouncedSearch, setDebouncedSearch] = useState("");
     const [showDropdown, setShowDropdown] = useState(false);
     const [selectedClient, setSelectedClient] = useState<any | null>(null);
     const dropdownRef = useRef<HTMLDivElement>(null);
 
     useOnClickOutside(dropdownRef, () => setShowDropdown(false));
 
+    // Debounce searchExcepcion → debouncedSearch
     useEffect(() => {
-        setLoading(true);
-        fetchERPConfig(distId)
-            .then(data => {
-                setReglas({
-                    limite_dinero: {
-                        activo: data.limite_dinero_activo !== undefined ? data.limite_dinero_activo : true,
-                        valor: data.limite_dinero || 500000
-                    },
-                    limite_cbte: {
-                        activo: data.limite_cbte_activo !== undefined ? data.limite_cbte_activo : true,
-                        valor: data.limite_cbte || 3
-                    },
-                    limite_dias: {
-                        activo: data.limite_dias_activo !== undefined ? data.limite_dias_activo : true,
-                        valor: data.limite_dias || 0
-                    },
-                });
-                if (data.excepciones) {
-                    setExcepciones(data.excepciones);
-                }
-            })
-            .catch(console.error)
-            .finally(() => setLoading(false));
-    }, [distId]);
+        const t = setTimeout(() => setDebouncedSearch(searchExcepcion), 300);
+        return () => clearTimeout(t);
+    }, [searchExcepcion]);
 
-    // Llenar estados locales al cargar reglas
+    const { data: erpConfigData, isLoading: loadingConfig } = useQuery({
+        queryKey: academiaKeys.erpConfig(distId),
+        queryFn: () => fetchERPConfig(distId),
+        enabled: !!distId,
+        staleTime: 10 * 60 * 1000,
+    });
+
+    // Seed local state once after first successful fetch
+    useEffect(() => {
+        if (!erpConfigData || configLoaded) return;
+        const data = erpConfigData as any;
+        setReglas({
+            limite_dinero: {
+                activo: data.limite_dinero_activo !== undefined ? data.limite_dinero_activo : true,
+                valor: data.limite_dinero || 500000,
+            },
+            limite_cbte: {
+                activo: data.limite_cbte_activo !== undefined ? data.limite_cbte_activo : true,
+                valor: data.limite_cbte || 3,
+            },
+            limite_dias: {
+                activo: data.limite_dias_activo !== undefined ? data.limite_dias_activo : true,
+                valor: data.limite_dias || 0,
+            },
+        });
+        if (data.excepciones) setExcepciones(data.excepciones);
+        setMontoExt((data.limite_dinero || 500000).toString());
+        setCbteExt((data.limite_cbte || 3).toString());
+        setDiasExt((data.limite_dias || 0).toString());
+        setConfigLoaded(true);
+    }, [erpConfigData, configLoaded]);
+
+    const { data: filteredClients = [], isFetching: searching } = useQuery({
+        queryKey: academiaKeys.clientesListado(distId, debouncedSearch),
+        queryFn: () => fetchClientesListado(distId, debouncedSearch, 10),
+        enabled: !!distId && debouncedSearch.length >= 2,
+        staleTime: 2 * 60 * 1000,
+    });
+
+    const saveMutation = useMutation({
+        mutationFn: (config: any) => saveERPConfig(distId, config),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: academiaKeys.erpConfig(distId) });
+            setToastMessage("Configuración guardada exitosamente");
+            setTimeout(() => setToastMessage(""), 3000);
+        },
+        onError: () => {
+            setToastMessage("Error al guardar");
+            setTimeout(() => setToastMessage(""), 3000);
+        },
+    });
+
+    const loading = loadingConfig || saveMutation.isPending;
+
+    // Llenar estados locales al cargar reglas (si se modificaron externamente)
     useEffect(() => {
         setMontoExt(reglas.limite_dinero.valor.toString());
         setCbteExt(reglas.limite_cbte.valor.toString());
         setDiasExt(reglas.limite_dias.valor.toString());
     }, [reglas]);
 
-    // Debounce búsqueda de clientes
-    useEffect(() => {
-        if (searchExcepcion.length < 2) {
-            setFilteredClients([]);
-            return;
-        }
-        setSearching(true);
-        const timer = setTimeout(() => {
-            fetchClientesListado(distId, searchExcepcion, 10)
-                .then(setFilteredClients)
-                .catch(console.error)
-                .finally(() => setSearching(false));
-        }, 300);
-        return () => clearTimeout(timer);
-    }, [searchExcepcion, distId]);
-
-    const handleSave = async () => {
-        setLoading(true);
-        try {
-            await saveERPConfig(distId, {
-                limite_dinero: Number(montoExt) || 0,
-                limite_cbte: Number(cbteExt) || 0,
-                limite_dias: Number(diasExt) || 0,
-                activo: true, // Master switch
-                limite_dinero_activo: reglas.limite_dinero.activo,
-                limite_cbte_activo: reglas.limite_cbte.activo,
-                limite_dias_activo: reglas.limite_dias.activo,
-                excepciones: excepciones // SAVE EXCEPTIONS TO DB
-            });
-
-            setToastMessage("Configuración guardada exitosamente");
-            setTimeout(() => setToastMessage(""), 3000);
-        } catch (e) {
-            setToastMessage("Error al guardar");
-            setTimeout(() => setToastMessage(""), 3000);
-        } finally {
-            setLoading(false);
-        }
+    const handleSave = () => {
+        saveMutation.mutate({
+            limite_dinero: Number(montoExt) || 0,
+            limite_cbte: Number(cbteExt) || 0,
+            limite_dias: Number(diasExt) || 0,
+            activo: true,
+            limite_dinero_activo: reglas.limite_dinero.activo,
+            limite_cbte_activo: reglas.limite_cbte.activo,
+            limite_dias_activo: reglas.limite_dias.activo,
+            excepciones,
+        });
     };
 
     const handleAddException = () => {

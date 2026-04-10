@@ -1,13 +1,15 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { PageSpinner } from "@/components/ui/Spinner";
-import { API_URL } from "@/lib/constants";
 import { FileSpreadsheet, AlertCircle, RefreshCw, Briefcase, Download } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, Legend } from "recharts";
 import * as XLSX from "xlsx";
+import { fetchCuentasCorrientesLegacy } from "@/lib/api";
+import { reportesKeys } from "@/lib/query-keys";
 
 interface CuentasDashboardProps {
   distId: number;
@@ -27,107 +29,67 @@ interface CuentaRow {
 const RANGOS = ["1-7 Días", "8-15 Días", "16-21 Días", "22-30 Días", "+30 Días"];
 const COLORS = ["#10b981", "#f59e0b", "#ef4444", "#3b82f6", "#111827"];
 
-export default function TabCuentasDashboard({ distId }: CuentasDashboardProps) {
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [data, setData] = useState<{
-    fecha: string;
-    detalle_cuentas: CuentaRow[];
-    metadatos: any;
-    file_b64: string | null;
-  } | null>(null);
+const formatCurrency = (val: number) =>
+  new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(val);
 
+export default function TabCuentasDashboard({ distId }: CuentasDashboardProps) {
   const [selectedVendedor, setSelectedVendedor] = useState<string>("TODOS");
 
-  const fetchData = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const token = localStorage.getItem("shelfy_token");
-      const headersInit: HeadersInit = {};
-      if (token) headersInit["Authorization"] = `Bearer ${token}`;
+  const { data: raw, isLoading, isError, error, refetch } = useQuery({
+    queryKey: reportesKeys.cuentasDashboard(distId),
+    queryFn: () => fetchCuentasCorrientesLegacy(distId),
+    enabled: !!distId,
+    staleTime: 10 * 60 * 1000,
+  });
 
-      const res = await fetch(`${API_URL}/api/cuentas-corrientes/${distId}`, {
-        headers: headersInit
-      });
-      if (!res.ok) throw new Error("Error fetching cuentas corrientes");
-      
-      const resJson = await res.json();
-      if (!resJson || !resJson.data) {
-        setData(null);
-      } else {
-        setData({
-          fecha: resJson.fecha,
-          detalle_cuentas: resJson.data.detalle_cuentas || [],
-          metadatos: resJson.data.metadatos || {},
-          file_b64: resJson.file_b64
-        });
-      }
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (distId) fetchData();
-  }, [distId]);
+  const data = raw?.data ? {
+    fecha: raw.fecha,
+    detalle_cuentas: raw.data.detalle_cuentas || [],
+    metadatos: raw.data.metadatos || {},
+    file_b64: raw.file_b64,
+  } : null;
 
   const vendedores = useMemo(() => {
     if (!data) return [];
-    // Only vendors from valid rows (or all if preferred. Excel usually has valid only)
     const setV = new Set<string>();
-    data.detalle_cuentas.forEach(r => {
+    data.detalle_cuentas.forEach((r: CuentaRow) => {
       if (r.es_valido) setV.add(r.vendedor);
     });
     return Array.from(setV).sort();
   }, [data]);
 
-  // Set default selected vendor to the first one available
-  useEffect(() => {
-    if (vendedores.length > 0 && selectedVendedor === "TODOS") {
-      setSelectedVendedor(vendedores[0]);
-    }
-  }, [vendedores]);
-
   const filteredCuentas = useMemo(() => {
     if (!data) return [];
-    let rows = data.detalle_cuentas.filter(r => r.es_valido);
+    let rows = data.detalle_cuentas.filter((r: CuentaRow) => r.es_valido);
     if (selectedVendedor !== "TODOS") {
-      rows = rows.filter(r => r.vendedor === selectedVendedor);
+      rows = rows.filter((r: CuentaRow) => r.vendedor === selectedVendedor);
     }
-    // sorting by antiguedad descending like Excel
-    return rows.sort((a, b) => b.antiguedad - a.antiguedad);
+    return rows.sort((a: CuentaRow, b: CuentaRow) => b.antiguedad - a.antiguedad);
   }, [data, selectedVendedor]);
 
-  const totalCuentas = useMemo(() => {
-    return filteredCuentas.reduce((acc, row) => acc + row.deuda_total, 0);
-  }, [filteredCuentas]);
+  const totalCuentas = useMemo(
+    () => filteredCuentas.reduce((acc: number, row: CuentaRow) => acc + row.deuda_total, 0),
+    [filteredCuentas],
+  );
 
-  // Analystics by range for the selected vendor
   const analytics = useMemo(() => {
     const defaultStats = RANGOS.map((r, i) => ({ rango: r, clientes: 0, saldo: 0, pctClientes: 0, fill: COLORS[i] }));
     if (filteredCuentas.length === 0) return defaultStats;
-
     const totalClientes = filteredCuentas.length;
-    let totals: Record<string, { clientes: number, saldo: number }> = {};
-    RANGOS.forEach(r => totals[r] = { clientes: 0, saldo: 0 });
-
-    filteredCuentas.forEach(row => {
-      const r = row.rango_antiguedad;
-      if (totals[r]) {
-        totals[r].clientes += 1;
-        totals[r].saldo += row.deuda_total;
+    const totals: Record<string, { clientes: number, saldo: number }> = {};
+    RANGOS.forEach(r => (totals[r] = { clientes: 0, saldo: 0 }));
+    filteredCuentas.forEach((row: CuentaRow) => {
+      if (totals[row.rango_antiguedad]) {
+        totals[row.rango_antiguedad].clientes += 1;
+        totals[row.rango_antiguedad].saldo += row.deuda_total;
       }
     });
-
     return RANGOS.map((rango, idx) => ({
       rango,
       clientes: totals[rango].clientes,
       saldo: totals[rango].saldo,
       pctClientes: totalClientes > 0 ? (totals[rango].clientes / totalClientes) * 100 : 0,
-      fill: COLORS[idx]
+      fill: COLORS[idx],
     }));
   }, [filteredCuentas]);
 
@@ -144,41 +106,27 @@ export default function TabCuentasDashboard({ distId }: CuentasDashboardProps) {
 
   const handleExportViewExcel = () => {
     if (filteredCuentas.length === 0) return;
-    
-    // Exact Excel replication logic
-    // Add columns
-    const sheetData: any[] = [];
-    filteredCuentas.forEach(f => {
-      sheetData.push({
-        "Vendedor": f.vendedor,
-        "Cliente": f.cliente,
-        "Cant. Comprobantes": f.cantidad_comprobantes,
-        "Saldo Total": f.deuda_total,
-        "Antigüedad (días)": f.antiguedad
-      });
-    });
-
+    const sheetData = filteredCuentas.map((f: CuentaRow) => ({
+      "Vendedor": f.vendedor,
+      "Cliente": f.cliente,
+      "Cant. Comprobantes": f.cantidad_comprobantes,
+      "Saldo Total": f.deuda_total,
+      "Antigüedad (días)": f.antiguedad,
+    }));
     const wsDetalle = XLSX.utils.json_to_sheet(sheetData);
-    
-    // Add total row
     XLSX.utils.sheet_add_json(wsDetalle, [{
       "Vendedor": "",
       "Cliente": "TOTAL",
       "Cant. Comprobantes": "",
       "Saldo Total": totalCuentas,
-      "Antigüedad (días)": ""
+      "Antigüedad (días)": "",
     }], { skipHeader: true, origin: -1 });
-
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, wsDetalle, "Detalle Cuentas");
     XLSX.writeFile(wb, `Reporte_Cuentas_${selectedVendedor}_${data?.fecha}.xlsx`);
   };
 
-  const formatCurrency = (val: number) => {
-    return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(val);
-  };
-
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="flex flex-col items-center justify-center p-12 w-full h-full">
         <PageSpinner />
@@ -187,13 +135,13 @@ export default function TabCuentasDashboard({ distId }: CuentasDashboardProps) {
     );
   }
 
-  if (error) {
+  if (isError) {
     return (
       <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-8 text-sm flex flex-col items-center gap-3">
         <AlertCircle size={32} />
         <p className="font-semibold text-lg">Error cargando Cuentas Corrientes</p>
-        <p>{error}</p>
-        <Button onClick={fetchData} variant="secondary" className="mt-4">Reintentar</Button>
+        <p>{(error as Error).message}</p>
+        <Button onClick={() => refetch()} variant="secondary" className="mt-4">Reintentar</Button>
       </div>
     );
   }
@@ -203,16 +151,15 @@ export default function TabCuentasDashboard({ distId }: CuentasDashboardProps) {
       <div className="bg-slate-50 border border-slate-200 text-slate-700 rounded-xl px-4 py-12 text-sm flex flex-col items-center gap-3">
         <Briefcase size={40} className="text-slate-300" />
         <p className="font-semibold text-lg text-slate-800">No hay datos de cuentas corrientes</p>
-        <p className="text-slate-500">El motor RPA RPA aún no ha sincronizado datos para esta distribuidora.</p>
-        <Button onClick={fetchData} className="mt-4"><RefreshCw size={16} /> Reintentar</Button>
+        <p className="text-slate-500">El motor RPA aún no ha sincronizado datos para esta distribuidora.</p>
+        <Button onClick={() => refetch()} className="mt-4"><RefreshCw size={16} /> Reintentar</Button>
       </div>
     );
   }
 
   return (
     <div className="flex flex-col gap-6 animate-in slide-in-from-bottom-4 duration-500">
-      
-      {/* Top Header & Toggles */}
+
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
         <div>
           <h2 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
@@ -242,7 +189,6 @@ export default function TabCuentasDashboard({ distId }: CuentasDashboardProps) {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column - Main Table */}
         <div className="lg:col-span-2">
           <Card className="p-0 border-0 shadow-sm overflow-hidden flex flex-col h-full bg-white">
             <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
@@ -263,7 +209,7 @@ export default function TabCuentasDashboard({ distId }: CuentasDashboardProps) {
                    </tr>
                 </thead>
                 <tbody>
-                  {filteredCuentas.map((row, idx) => (
+                  {filteredCuentas.map((row: CuentaRow, idx: number) => (
                     <tr key={idx} className="hover:bg-slate-50">
                       <td className="px-4 py-1.5 border border-slate-200 text-slate-700 truncate max-w-[150px]">{row.vendedor}</td>
                       <td className="px-4 py-1.5 border border-slate-200 text-slate-700 truncate max-w-[200px]">{row.cliente}</td>
@@ -285,7 +231,6 @@ export default function TabCuentasDashboard({ distId }: CuentasDashboardProps) {
           </Card>
         </div>
 
-        {/* Right Column - Analytics (Chart & Subtable) */}
         <div className="flex flex-col gap-6">
           <Card className="h-auto">
             <h3 className="text-sm font-bold text-slate-800 mb-4 bg-[#e2efda] text-[#375623] px-3 py-1 text-center border border-[#c6e0b4]">Análisis por Antigüedad</h3>
@@ -330,16 +275,16 @@ export default function TabCuentasDashboard({ distId }: CuentasDashboardProps) {
                       <Cell key={`cell-${index}`} fill={entry.fill} />
                     ))}
                   </Pie>
-                  <RechartsTooltip 
+                  <RechartsTooltip
                     formatter={(value: any) => formatCurrency(value || 0)}
                     contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                   />
-                  <Legend 
-                     verticalAlign="middle" 
-                     align="right" 
+                  <Legend
+                     verticalAlign="middle"
+                     align="right"
                      layout="vertical"
                      iconType="square"
-                     formatter={(value, entry: any) => <span className="text-xs font-medium text-slate-600">{value}</span>}
+                     formatter={(value) => <span className="text-xs font-medium text-slate-600">{value}</span>}
                   />
                 </PieChart>
               </ResponsiveContainer>
@@ -347,7 +292,7 @@ export default function TabCuentasDashboard({ distId }: CuentasDashboardProps) {
           </Card>
         </div>
       </div>
-      
+
     </div>
   );
 }

@@ -906,10 +906,17 @@ def crear_objetivo(body: ObjetivoCreate, user_payload=Depends(verify_auth)):
             except Exception as e_pdf:
                 logger.warning(f"[Objetivo] PDF ruteo omitido: {e_pdf}")
 
-        # Telegram Notification for NEW objective
+        # Telegram Notification for NEW objective (enriched: supervisor + timestamps)
         try:
             from services.objetivos_notification_service import objetivos_notification
-            objetivos_notification.notify_new_objective_telegram(body.id_distribuidor, payload, obj_id=obj_id)
+            notify_payload = {
+                **payload,
+                "created_at": rows[0].get("created_at"),
+                "asignado_por_usuario": user_payload.get("sub"),
+            }
+            objetivos_notification.notify_new_objective_telegram(
+                body.id_distribuidor, notify_payload, obj_id=obj_id
+            )
         except Exception as e_notif:
             logger.warning(f"[Objetivo] Notificación inicial omitida: {e_notif}")
 

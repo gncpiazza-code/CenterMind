@@ -1,6 +1,6 @@
 "use client";
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Map } from "@/components/ui/map";
+import { Map as MapCanvas } from "@/components/ui/map";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 
@@ -108,6 +108,8 @@ interface MapaRutasProps {
 export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode, mode = 'activos', deudoresData, selectedPDVs, onTogglePDV }: MapaRutasProps) {
   const mapRef        = useRef<any>(null);
   const markersRef    = useRef<any[]>([]);
+  /** PDV id → marker wrapper (actualizar selección sin recrear marcadores = evita popup fantasma) */
+  const pinWrapRef    = useRef<Map<number, HTMLDivElement>>(new Map());
   const fittedRef     = useRef(false); // fitBounds sólo en la primera carga con datos
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [mapLoaded, setMapLoaded] = useState(false);
@@ -156,12 +158,11 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode, mode
     const map = mapRef.current;
     if (!map || !mapLoaded) return;
 
-    const selSet = new Set(selectedPDVs ?? []);
-
     const addMarkers = () => {
       // Limpiar anteriores
       markersRef.current.forEach(m => m.remove());
       markersRef.current = [];
+      pinWrapRef.current.clear();
 
       const conCoords = filteredPines.filter(p => p.lat && p.lng);
 
@@ -170,7 +171,6 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode, mode
         const statusColor = STATUS_COLORS[status];
         const vendorColor = p.color;
         const hasCount = p.totalExhibiciones && p.totalExhibiciones > 0;
-        const isSelected  = selSet.has(p.id);
         const size        = p.activo ? 18 : 14;
 
         const wrapper = document.createElement("div");
@@ -185,7 +185,7 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode, mode
           display:flex;
           align-items:center;
           justify-content:center;
-          box-shadow: ${isSelected ? `0 0 0 3px white, 0 1px 3px rgba(0,0,0,0.3)` : `0 1px 3px rgba(0,0,0,0.3)`};
+          box-shadow: 0 1px 3px rgba(0,0,0,0.3);
           cursor: ${onTogglePDV ? 'pointer' : 'default'};
         `;
         wrapper.innerHTML = hasCount
@@ -331,6 +331,7 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode, mode
           .setLngLat([p.lng, p.lat])
           .addTo(map);
         markersRef.current.push(marker);
+        pinWrapRef.current.set(p.id, wrapper);
       });
 
       if (conCoords.length > 0 && !fittedRef.current) {
@@ -345,7 +346,18 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode, mode
     };
 
     addMarkers();
-  }, [filteredPines, mapLoaded, mode, deudoresData, selectedPDVs, onTogglePDV]);
+  }, [filteredPines, mapLoaded, mode, deudoresData, onTogglePDV]);
+
+  // Selección de objetivos: solo actualiza sombra (no recrea markers → no re-dispara mouseenter del pin)
+  useEffect(() => {
+    const sel = new Set(selectedPDVs ?? []);
+    pinWrapRef.current.forEach((wrapper, id) => {
+      const on = sel.has(id);
+      wrapper.style.boxShadow = on
+        ? "0 0 0 3px white, 0 1px 3px rgba(0,0,0,0.3)"
+        : "0 1px 3px rgba(0,0,0,0.3)";
+    });
+  }, [selectedPDVs, filteredPines]);
 
   // ESC to exit fullscreen
   useEffect(() => {
@@ -452,7 +464,7 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode, mode
 
       {/* Map area */}
       <div style={{ flex: 1, position: "relative", marginLeft: panelOffset }}>
-        <Map
+        <MapCanvas
           ref={mapRef}
           theme="light"
           onLoad={() => setMapLoaded(true)}

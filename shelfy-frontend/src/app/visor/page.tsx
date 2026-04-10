@@ -17,7 +17,40 @@ import {
   fetchERPContexto,
   type GrupoPendiente, type StatsHoy, type ERPContexto,
 } from "@/lib/api";
-import { Check, X, Flame, RotateCcw, RefreshCw, ChevronLeft, ChevronRight, ImageOff, Info, User, Lock } from "lucide-react";
+import { Check, X, Flame, RotateCcw, RefreshCw, ChevronLeft, ChevronRight, ImageOff, User, Lock, ChevronUp } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { Button } from "@/components/ui/Button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+
+const VISOR_TEMPLATE_KEY = "shelfy:visor:comment-templates";
+
+function readCommentTemplates(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(VISOR_TEMPLATE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed)
+      ? parsed.filter((x: unknown): x is string => typeof x === "string" && x.trim().length > 0)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveCommentTemplates(templates: string[]) {
+  try {
+    localStorage.setItem(VISOR_TEMPLATE_KEY, JSON.stringify(templates));
+  } catch {
+    /* ignore */
+  }
+}
+
+function daysSinceIso(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return null;
+  return Math.floor((Date.now() - t) / 86_400_000);
+}
 
 // ── Componente foto con Precarga y Hypersonic ────────────────────────────────
 
@@ -87,8 +120,8 @@ export default function VisorPage() {
   const [visorTab, setVisorTab] = useState<"todas" | "objetivo">("todas");
   const [comentario, setComentario] = useState("");
   const [flash, setFlash] = useState<{ msg: string; type: "ok" | "err" } | null>(null);
-  const [erpContext, setErpContext] = useState<ERPContexto | null>(null);
-  const [loadingERP, setLoadingERP] = useState(false);
+  const [commentTemplates, setCommentTemplates] = useState<string[]>([]);
+  const [newTemplateText, setNewTemplateText] = useState("");
 
   const distId = user?.id_distribuidor || 0;
   const isSubmittingRef = useRef(false);
@@ -121,6 +154,44 @@ export default function VisorPage() {
   })();
 
   const grupo = filtrados[currentIndex] ?? null;
+  const nroForErp = grupo?.nro_cliente ? String(grupo.nro_cliente).trim() : "";
+  const skipErpFetch =
+    !nroForErp || nroForErp === "S/C" || nroForErp === "0" || nroForErp === "—";
+
+  const { data: erpRaw, isFetching: loadingERP } = useQuery({
+    queryKey: ["visor", "erp-contexto", distId, nroForErp],
+    queryFn: () => fetchERPContexto(distId, nroForErp),
+    enabled: !!user?.usa_contexto_erp && distId > 0 && !skipErpFetch,
+    staleTime: 60_000,
+  });
+
+  const erpContext: ERPContexto | null = erpRaw
+    ? {
+        ...erpRaw,
+        nombre_fantasia: erpRaw.nombre_fantasia || erpRaw.razon_social || undefined,
+        ultima_compra: erpRaw.ultima_compra ?? undefined,
+        promedio_factura: erpRaw.promedio_factura ?? undefined,
+        deuda_total: erpRaw.deuda_total ?? 0,
+        cant_facturas: erpRaw.cant_facturas ?? undefined,
+        domicilio: erpRaw.domicilio ?? undefined,
+        localidad: erpRaw.localidad ?? undefined,
+        nro_ruta: erpRaw.nro_ruta ?? undefined,
+        dia_visita: erpRaw.dia_visita ?? undefined,
+      }
+    : null;
+
+  const diasUltCompra = daysSinceIso(erpContext?.ultima_compra);
+  const ventas30 =
+    typeof erpContext?.total_30d === "number" && erpContext.total_30d > 0;
+  const compraUltimos30 =
+    ventas30 ||
+    (diasUltCompra !== null && diasUltCompra <= 30 && !!erpContext?.ultima_compra);
+  const conIngresoComercio =
+    !!erpContext?.encontrado &&
+    (ventas30 ||
+      (diasUltCompra !== null && diasUltCompra < 90) ||
+      (erpContext.cant_facturas != null && erpContext.cant_facturas > 0));
+
   const totalGrupos = filtrados.length;
   const totalFotos = grupo?.fotos.length ?? 0;
   const todasVistas = vistas.size >= totalFotos;
@@ -161,7 +232,7 @@ export default function VisorPage() {
       // Instead, we just move the store index, and when the mutation finishes, we refetch or update cache properly.
       return { previousPendientes };
     },
-    onSuccess: (data) => {
+    onSuccess: (data: { affected?: number } | undefined) => {
       if (data?.affected === 0) {
         // Another evaluator got there first — refresh silently
         setFlash({ msg: "Ya evaluado por otro usuario", type: "err" });
@@ -198,44 +269,29 @@ export default function VisorPage() {
 
   // Effects
   useEffect(() => {
-    // Reset group state when index changes
     resetGroupState();
     setComentario("");
-    setErpContext(null);
+    setNewTemplateText("");
   }, [currentIndex, filtroVendedor, resetGroupState]);
 
   useEffect(() => {
-    if (!grupo || !user || !user.usa_contexto_erp) return;
-    const cargarContexto = async () => {
-      setLoadingERP(true);
-      try {
-        const ctx = await fetchERPContexto(user.id_distribuidor!, grupo.nro_cliente);
-        if (ctx) {
-          setErpContext({
-            ...ctx,
-            nombre_fantasia: ctx.nombre_fantasia || ctx.razon_social || null,
-            ultima_compra: ctx.ultima_compra ?? null,
-            promedio_factura: ctx.promedio_factura ?? null,
-            deuda_total: ctx.deuda_total ?? 0,
-            cant_facturas: ctx.cant_facturas ?? null,
-            domicilio: ctx.domicilio ?? null,
-            localidad: ctx.localidad ?? null,
-            nro_ruta: ctx.nro_ruta ?? null,
-            dia_visita: ctx.dia_visita ?? null,
-          });
-        } else {
-          console.warn("fetchERPContexto: respuesta vacía para cliente", grupo.nro_cliente);
-          setErpContext(null);
-        }
-      } catch (e) {
-        console.error("Error cargando contexto ERP para cliente", grupo.nro_cliente, ":", e);
-        setErpContext(null);
-      } finally {
-        setLoadingERP(false);
-      }
-    };
-    cargarContexto();
-  }, [grupo, user]);
+    setCommentTemplates(readCommentTemplates());
+  }, []);
+
+  function applyCommentTemplate(text: string) {
+    const t = text.trim();
+    if (!t) return;
+    setComentario((c) => (c.trim() ? `${c.trim()} ${t}` : t));
+  }
+
+  function addCommentTemplate() {
+    const t = newTemplateText.trim();
+    if (!t) return;
+    const next = [...commentTemplates.filter((x) => x !== t), t];
+    setCommentTemplates(next);
+    saveCommentTemplates(next);
+    setNewTemplateText("");
+  }
 
   // Handlers
   async function handleEvaluar(estado: "Aprobado" | "Destacado" | "Rechazado") {
@@ -392,7 +448,7 @@ export default function VisorPage() {
                           {erpContext.nombre_fantasia || erpContext.razon_social || "Cliente"}
                         </h3>
                         <p className="text-[9px] font-bold text-white/60 uppercase tracking-wider">
-                          Cód. Cliente: {grupo.nro_cliente ?? "—"}
+                          Cód. Cliente: {nroForErp || grupo.nro_cliente || "—"}
                         </p>
                       </div>
                       <div className="flex gap-1 ml-2">
@@ -493,133 +549,251 @@ export default function VisorPage() {
                   </div>
                 )}
 
-                {/* ── FROSTED BOTTOM BAR: Info + Comments + Buttons (Desktop) ── */}
+                {/* ── FROSTED BOTTOM BAR: izq info · centro botones · der comentarios (Desktop) ── */}
                 <div className="hidden md:flex absolute bottom-0 left-0 right-0 z-10 flex-col pointer-events-none">
-                  <div className="pointer-events-auto flex items-center gap-3 px-4 py-2.5 bg-black/55 backdrop-blur-xl border-t border-white/10 text-white">
-                    {/* Vendedor */}
-                    <div className="flex items-center gap-2 min-w-0">
-                      <div className="w-7 h-7 rounded-full bg-white/10 flex items-center justify-center shrink-0 border border-white/10">
-                        <User className="text-white/80" size={14} />
+                  <div className="pointer-events-auto grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto_minmax(220px,300px)] gap-3 px-4 py-2.5 bg-black/55 backdrop-blur-xl border-t border-white/10 text-white items-end">
+                    {/* IZQUIERDA: vendedor, código ERP, envío, ingreso, 30d */}
+                    <div className="min-w-0 flex flex-col gap-1 text-left">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center shrink-0 border border-white/10">
+                            <User className="text-white/80" size={12} />
+                          </div>
+                          <span className="text-[11px] font-bold text-white truncate">{grupo.vendedor || "Sin asignar"}</span>
+                        </div>
+                        {grupo.fotos.some(f => f.es_objetivo) && (
+                          <motion.span
+                            animate={{ scale: [1, 1.06, 1] }}
+                            transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
+                            className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-[var(--shelfy-primary)]/20 text-[var(--shelfy-primary)] border border-[var(--shelfy-primary)]/35"
+                          >
+                            Objetivo
+                          </motion.span>
+                        )}
                       </div>
-                      <div className="min-w-0">
-                        <p className="text-[10px] font-bold text-white truncate leading-tight">{grupo.vendedor || "Sin asignar"}</p>
-                        <p className="text-[8px] font-medium text-white/40">Vendedor</p>
-                      </div>
+                      <p className="text-[10px] text-white/85">
+                        <span className="text-white/45">id cliente ERP</span>{" "}
+                        <span className="font-mono font-bold">{nroForErp || grupo.nro_cliente || "—"}</span>
+                      </p>
+                      <p className="text-[10px] text-white/85">
+                        <span className="text-white/45">Envío</span>{" "}
+                        {grupo.fecha_hora?.slice(0, 16).replace("T", " ") || "—"}
+                      </p>
+                      <p className="text-[10px]">
+                        <span className="text-white/45">Comercio</span>{" "}
+                        {!user?.usa_contexto_erp || skipErpFetch ? (
+                          <span className="text-white/50">Sin contexto ERP</span>
+                        ) : loadingERP ? (
+                          <span className="text-white/50">Cargando…</span>
+                        ) : erpContext?.encontrado ? (
+                          <span className={conIngresoComercio ? "text-emerald-400 font-semibold" : "text-red-400 font-semibold"}>
+                            {conIngresoComercio ? "Con ingreso" : "Sin ingreso"}
+                          </span>
+                        ) : (
+                          <span className="text-amber-300/90">No encontrado en ERP</span>
+                        )}
+                      </p>
+                      <p className="text-[10px]">
+                        <span className="text-white/45">¿Compra en los últimos 30 días?</span>{" "}
+                        {!user?.usa_contexto_erp || skipErpFetch ? (
+                          <span className="text-white/50">—</span>
+                        ) : loadingERP ? (
+                          <span className="text-white/50">…</span>
+                        ) : erpContext?.encontrado ? (
+                          <span className={compraUltimos30 ? "text-emerald-400 font-black" : "text-red-400 font-black"}>
+                            {compraUltimos30 ? "SÍ" : "NO"}
+                          </span>
+                        ) : (
+                          <span className="text-white/50">—</span>
+                        )}
+                      </p>
                     </div>
-                    {grupo.fotos.some(f => f.es_objetivo) && (
-                      <>
-                        <div className="h-5 w-px bg-white/15" />
-                        <motion.span
-                          animate={{ scale: [1, 1.08, 1] }}
-                          transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
-                          className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[var(--shelfy-primary)]/15 text-[var(--shelfy-primary)] border border-[var(--shelfy-primary)]/30"
+
+                    {/* CENTRO: botones evaluación */}
+                    <div className="flex flex-col items-center gap-1 shrink-0 justify-end pb-0.5">
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={handleRevertir}
+                          disabled={!lastEvalIds.current.length || mutationRevertir.isPending}
+                          title="Revertir"
+                          className="w-9 h-9 flex items-center justify-center rounded-full bg-white/10 text-white/60 hover:bg-white/20 hover:text-white disabled:opacity-30 transition-all active:scale-95 border border-white/10"
                         >
-                          🎯 Objetivo
-                        </motion.span>
-                      </>
-                    )}
-                    <div className="h-5 w-px bg-white/15" />
-                    {/* Nombre */}
-                    <div className="min-w-0 max-w-[160px]">
-                      <p className="text-[10px] font-bold text-white truncate leading-tight">
-                        {erpContext?.nombre_fantasia || erpContext?.razon_social || (grupo.nro_cliente ? `Cód. ERP ${grupo.nro_cliente}` : "—")}
-                      </p>
-                      <p className="text-[8px] text-white/40 truncate">{erpContext?.domicilio ? `${erpContext.domicilio}${erpContext.localidad ? `, ${erpContext.localidad}` : ""}` : "—"}</p>
-                    </div>
-                    <div className="h-5 w-px bg-white/15" />
-                    {/* Últ. Compra */}
-                    <div className="min-w-0">
-                      <p className="text-[8px] font-medium text-white/40">Últ. Compra</p>
-                      <p className="text-[10px] font-bold text-white truncate">
-                        {erpContext?.ultima_compra ? erpContext.ultima_compra.slice(0, 10) : "Sin datos"}
-                      </p>
-                    </div>
-                    <div className="h-5 w-px bg-white/15" />
-                    {/* Fecha envío */}
-                    <div className="min-w-0">
-                      <p className="text-[8px] font-medium text-white/40">Envío</p>
-                      <p className="text-[10px] font-bold text-white truncate">{grupo.fecha_hora?.slice(0, 16).replace('T', ' ') || "—"}</p>
+                          <RotateCcw size={16} strokeWidth={2.5} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleEvaluar("Rechazado")}
+                          disabled={mutationEvaluar.isPending || !todasVistas || isValidacion}
+                          title="Rechazar"
+                          className="w-11 h-11 flex items-center justify-center rounded-full bg-[#fa5252] text-white shadow-[0_4px_16px_rgba(250,82,82,0.4)] hover:scale-110 disabled:opacity-20 transition-all duration-200 active:scale-95"
+                        >
+                          <X size={22} strokeWidth={3.5} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleEvaluar("Destacado")}
+                          disabled={mutationEvaluar.isPending || !todasVistas || isValidacion}
+                          title="Destacar"
+                          className="w-12 h-12 flex items-center justify-center rounded-full bg-[#f97316] text-white shadow-[0_4px_16px_rgba(249,115,22,0.45)] hover:scale-110 disabled:opacity-20 transition-all duration-200 active:scale-95"
+                        >
+                          <Flame size={24} strokeWidth={3} className="fill-white/20" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleEvaluar("Aprobado")}
+                          disabled={mutationEvaluar.isPending || !todasVistas || isValidacion}
+                          title="Aprobar"
+                          className="w-11 h-11 flex items-center justify-center rounded-full bg-[#10b981] text-white shadow-[0_4px_16px_rgba(16,185,129,0.4)] hover:scale-110 disabled:opacity-20 transition-all duration-200 active:scale-95"
+                        >
+                          <Check size={22} strokeWidth={3.5} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => queryClient.invalidateQueries({ queryKey: ['pendientes', distId] })}
+                          title="Refrescar"
+                          className="w-9 h-9 flex items-center justify-center rounded-full bg-[#fbbf24]/80 text-white hover:bg-[#fbbf24] transition-all active:scale-95 border border-white/10"
+                        >
+                          <RefreshCw size={16} strokeWidth={2.5} />
+                        </button>
+                      </div>
+                      <span className="text-[9px] font-bold text-white/45">
+                        {currentIndex + 1}<span className="text-white/25">/{totalGrupos}</span>
+                      </span>
                     </div>
 
-                    {/* Spacer */}
-                    <div className="flex-1" />
-
-                    {/* Comentario inline */}
-                    <div className="w-48 xl:w-64 shrink-0">
-                      <textarea
-                        placeholder="Observaciones..."
-                        className="w-full bg-white/10 hover:bg-white/15 focus:bg-white/20 border border-white/10 focus:border-violet-400/50 rounded-lg px-2.5 py-1 text-[10px] text-white placeholder-white/35 outline-none transition-all resize-none"
-                        rows={1}
+                    {/* DERECHA: plantillas + observaciones */}
+                    <div className="min-w-0 flex flex-col gap-1.5 w-full">
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            className="h-8 w-full justify-between text-[10px] bg-white/10 border-white/15 text-white hover:bg-white/20"
+                          >
+                            Frases rápidas
+                            <ChevronUp className="size-3.5 opacity-70" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent
+                          side="top"
+                          align="end"
+                          className="w-72 max-h-72 overflow-y-auto border-white/10 bg-zinc-900 text-white p-3"
+                        >
+                          <p className="text-[10px] font-semibold text-white/50 uppercase tracking-wider mb-2">Insertar con un clic</p>
+                          <div className="flex flex-col gap-1 mb-3">
+                            {commentTemplates.length === 0 ? (
+                              <span className="text-xs text-white/40">No hay frases guardadas.</span>
+                            ) : (
+                              commentTemplates.map((t) => (
+                                <button
+                                  key={t}
+                                  type="button"
+                                  className="text-left text-xs py-1.5 px-2 rounded-md bg-white/5 hover:bg-violet-500/25 border border-white/10"
+                                  onClick={() => applyCommentTemplate(t)}
+                                >
+                                  {t}
+                                </button>
+                              ))
+                            )}
+                          </div>
+                          <p className="text-[10px] font-semibold text-white/50 uppercase tracking-wider mb-1">Nueva frase</p>
+                          <div className="flex gap-1">
+                            <input
+                              type="text"
+                              value={newTemplateText}
+                              onChange={(e) => setNewTemplateText(e.target.value)}
+                              placeholder="Ej. Falta cartel con precios"
+                              className="flex-1 min-w-0 rounded-md border border-white/15 bg-black/40 px-2 py-1.5 text-xs text-white placeholder:text-white/35"
+                            />
+                            <Button type="button" size="sm" className="shrink-0 h-8 text-xs" onClick={addCommentTemplate}>
+                              Guardar
+                            </Button>
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+                      <Textarea
+                        placeholder="Observaciones…"
+                        rows={2}
                         value={comentario}
                         onChange={(e) => setComentario(e.target.value)}
+                        className="min-h-[52px] resize-none bg-white/10 border-white/15 text-[11px] text-white placeholder:text-white/35 focus-visible:ring-violet-400/50"
                       />
-                    </div>
-
-                    <div className="h-5 w-px bg-white/15" />
-
-                    {/* ── EVALUATION BUTTONS (inline in the bar) ── */}
-                    <div className="flex items-center gap-2 shrink-0">
-                      <button
-                        onClick={handleRevertir}
-                        disabled={!lastEvalIds.current.length || mutationRevertir.isPending}
-                        title="Revertir"
-                        className="w-9 h-9 flex items-center justify-center rounded-full bg-white/10 text-white/60 hover:bg-white/20 hover:text-white disabled:opacity-30 transition-all active:scale-95 border border-white/10"
-                      >
-                        <RotateCcw size={16} strokeWidth={2.5} />
-                      </button>
-                      <button
-                        onClick={() => handleEvaluar("Rechazado")}
-                        disabled={mutationEvaluar.isPending || !todasVistas || isValidacion}
-                        title="Rechazar"
-                        className="w-11 h-11 flex items-center justify-center rounded-full bg-[#fa5252] text-white shadow-[0_4px_16px_rgba(250,82,82,0.4)] hover:scale-110 disabled:opacity-20 transition-all duration-200 active:scale-95"
-                      >
-                        <X size={22} strokeWidth={3.5} />
-                      </button>
-                      <button
-                        onClick={() => handleEvaluar("Destacado")}
-                        disabled={mutationEvaluar.isPending || !todasVistas || isValidacion}
-                        title="Destacar"
-                        className="w-12 h-12 flex items-center justify-center rounded-full bg-[#f97316] text-white shadow-[0_4px_16px_rgba(249,115,22,0.45)] hover:scale-110 disabled:opacity-20 transition-all duration-200 active:scale-95"
-                      >
-                        <Flame size={24} strokeWidth={3} className="fill-white/20" />
-                      </button>
-                      <button
-                        onClick={() => handleEvaluar("Aprobado")}
-                        disabled={mutationEvaluar.isPending || !todasVistas || isValidacion}
-                        title="Aprobar"
-                        className="w-11 h-11 flex items-center justify-center rounded-full bg-[#10b981] text-white shadow-[0_4px_16px_rgba(16,185,129,0.4)] hover:scale-110 disabled:opacity-20 transition-all duration-200 active:scale-95"
-                      >
-                        <Check size={22} strokeWidth={3.5} />
-                      </button>
-                      <button
-                        onClick={() => queryClient.invalidateQueries({ queryKey: ['pendientes', distId] })}
-                        title="Refrescar"
-                        className="w-9 h-9 flex items-center justify-center rounded-full bg-[#fbbf24]/80 text-white hover:bg-[#fbbf24] transition-all active:scale-95 border border-white/10"
-                      >
-                        <RefreshCw size={16} strokeWidth={2.5} />
-                      </button>
-                    </div>
-
-                    <div className="h-5 w-px bg-white/15" />
-
-                    {/* Progress counter */}
-                    <div className="text-[10px] font-bold text-white/60 whitespace-nowrap shrink-0">
-                      {currentIndex + 1}<span className="text-white/30">/{totalGrupos}</span>
                     </div>
                   </div>
                 </div>
 
                 {/* ── MOBILE FROSTED BOTTOM BAR ── */}
                 <div className="flex md:hidden absolute bottom-0 left-0 right-0 z-10 flex-col pointer-events-none">
-                  <div className="pointer-events-auto flex items-center gap-2 px-3 py-2 bg-black/60 backdrop-blur-xl border-t border-white/10 text-white" style={{ paddingBottom: 'max(8px, env(safe-area-inset-bottom))' }}>
-                    {/* Mini info */}
-                    <div className="flex flex-col min-w-0 flex-1">
-                      <p className="text-[9px] font-bold text-white/90 truncate leading-tight">{erpContext?.nombre_fantasia || erpContext?.razon_social || (grupo.nro_cliente ? `Cód. ERP ${grupo.nro_cliente}` : "—")}</p>
-                      <p className="text-[8px] text-white/40 truncate">{erpContext?.domicilio ? `${erpContext.domicilio}${erpContext.localidad ? `, ${erpContext.localidad}` : ""}` : grupo.fecha_hora?.slice(0, 16).replace('T', ' ') || "—"}</p>
+                  <div
+                    className="pointer-events-auto flex flex-col gap-2 px-3 py-2 bg-black/65 backdrop-blur-xl border-t border-white/10 text-white"
+                    style={{ paddingBottom: "max(8px, env(safe-area-inset-bottom))" }}
+                  >
+                    <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[9px] leading-tight">
+                      <span className="font-bold truncate max-w-[45%]">{grupo.vendedor || "—"}</span>
+                      <span className="text-white/50 font-mono">#{nroForErp || grupo.nro_cliente || "—"}</span>
+                      <span className="text-white/45">{grupo.fecha_hora?.slice(0, 16).replace("T", " ") || ""}</span>
+                      {erpContext?.encontrado && !loadingERP && (
+                        <>
+                          <span className={conIngresoComercio ? "text-emerald-400" : "text-red-400"}>
+                            {conIngresoComercio ? "Con ingreso" : "Sin ingreso"}
+                          </span>
+                          <span className={compraUltimos30 ? "text-emerald-400 font-bold" : "text-red-400 font-bold"}>
+                            30d: {compraUltimos30 ? "SÍ" : "NO"}
+                          </span>
+                        </>
+                      )}
                     </div>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          className="h-7 w-full justify-between text-[10px] bg-white/10 border-white/15 text-white"
+                        >
+                          Frases rápidas
+                          <ChevronUp className="size-3.5 opacity-70" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent side="top" className="w-[min(100vw-2rem,18rem)] max-h-64 overflow-y-auto border-white/10 bg-zinc-900 text-white p-3">
+                        <div className="flex flex-col gap-1 mb-2">
+                          {commentTemplates.map((t) => (
+                            <button
+                              key={t}
+                              type="button"
+                              className="text-left text-xs py-1.5 px-2 rounded-md bg-white/5 hover:bg-violet-500/25"
+                              onClick={() => applyCommentTemplate(t)}
+                            >
+                              {t}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="flex gap-1">
+                          <input
+                            type="text"
+                            value={newTemplateText}
+                            onChange={(e) => setNewTemplateText(e.target.value)}
+                            placeholder="Nueva frase…"
+                            className="flex-1 rounded-md border border-white/15 bg-black/40 px-2 py-1 text-xs text-white"
+                          />
+                          <Button type="button" size="sm" className="h-7 text-xs shrink-0" onClick={addCommentTemplate}>
+                            +
+                          </Button>
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                    <Textarea
+                      placeholder="Observaciones…"
+                      rows={2}
+                      value={comentario}
+                      onChange={(e) => setComentario(e.target.value)}
+                      className="min-h-[44px] resize-none bg-white/10 border-white/15 text-xs text-white placeholder:text-white/35"
+                    />
 
                     {/* Evaluation buttons — compact for mobile */}
-                    <div className="flex items-center gap-1.5 shrink-0">
+                    <div className="flex items-center gap-1.5 shrink-0 justify-center">
                       <button
                         onClick={handleRevertir}
                         disabled={!lastEvalIds.current.length || mutationRevertir.isPending}

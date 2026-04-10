@@ -62,6 +62,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import { uploadCCForDist, fetchCCStatus } from "@/lib/api";
@@ -309,7 +316,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
 
   // ── Floating Objetivos Menu ───────────────────────────────────────────────
   const [objMenuOpen, setObjMenuOpen] = useState(false);
-  const [objTipo, setObjTipo] = useState<ObjetivoTipo>("general");
+  const [objTipo, setObjTipo] = useState<ObjetivoTipo>("exhibicion");
   const [objFecha, setObjFecha] = useState("");
   const [objDesc, setObjDesc] = useState("");
   const [objSubmitting, setObjSubmitting] = useState(false);
@@ -327,6 +334,9 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
   type ObjRuteoAccion = 'cambio_ruta' | 'baja';
   const [objRuteoAccionGlobal, setObjRuteoAccionGlobal] = useState<ObjRuteoAccion>('cambio_ruta');
   const [objRuteoItemsMap, setObjRuteoItemsMap] = useState<Record<number, { accion: ObjRuteoAccion; id_ruta_destino?: number; motivo_baja?: string }>>({});
+  const [objRuteoConfigMode, setObjRuteoConfigMode] = useState<"global" | "per_pdv">("global");
+  const [objRuteoGlobalDestinoId, setObjRuteoGlobalDestinoId] = useState<number | null>(null);
+  const [objRuteoGlobalMotivo, setObjRuteoGlobalMotivo] = useState("");
 
   // ── CC Upload Dialog ──────────────────────────────────────────────────────
   type CCUploadStatus = "idle" | "uploading" | "polling" | "done" | "error";
@@ -952,8 +962,20 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
         .catch(() => setObjDebtList([]))
         .finally(() => setObjLoadingContext(false));
     } else if (objTipo === "ruteo") {
-      // Ruteo uses existing pins — no extra fetch needed
-      setObjLoadingContext(false);
+      setObjLoadingContext(true);
+      fetchRutasSupervision(vendedorId)
+        .then(rutas => setObjVendedorRoutes(
+          [...rutas]
+            .sort((a, b) => (DIA_ORDER[a.dia_semana?.toLowerCase() ?? ""] ?? 9) - (DIA_ORDER[b.dia_semana?.toLowerCase() ?? ""] ?? 9))
+            .map((r: RutaSupervision) => ({
+              id_ruta: r.id_ruta,
+              nro_ruta: r.nombre_ruta ?? String(r.id_ruta),
+              dia_semana: r.dia_semana ?? "",
+              total_pdv: r.total_pdv ?? 0,
+            }))
+        ))
+        .catch(() => setObjVendedorRoutes([]))
+        .finally(() => setObjLoadingContext(false));
     } else if (objTipo === "conversion_estado" || objTipo === "exhibicion") {
       const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
       const vendorPins = pines.filter(p => p.id_vendedor === vendedorId);
@@ -1010,12 +1032,37 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
     setObjSubmitting(true);
     try {
       if (objTipo === "ruteo") {
+        if (objRuteoConfigMode === "global") {
+          if (objRuteoAccionGlobal === "cambio_ruta" && !objRuteoGlobalDestinoId) {
+            toast.error("Seleccioná la ruta destino");
+            return;
+          }
+          if (objRuteoAccionGlobal === "baja" && !objRuteoGlobalMotivo.trim()) {
+            toast.error("Indicá el motivo de baja");
+            return;
+          }
+        }
         // For ruteo: group all selected PDVs into a single objetivo with pdv_items
         const firstPin = pines.find(p => selectedPDVsForObjective.includes(p.id) && p.id_vendedor);
         if (firstPin?.id_vendedor) {
           const autoDesc = objDesc || buildObjectivePhrase(objTipo, firstPin.vendedor, null, objFecha);
           const pdvItems = selectedPDVsForObjective.map((pdvId, idx) => {
             const pin = pines.find(p => p.id === pdvId);
+            if (objRuteoConfigMode === "global") {
+              const acc = objRuteoAccionGlobal;
+              return {
+                id_cliente_pdv: pdvId,
+                nombre_pdv: pin?.nombre,
+                accion_ruteo: acc,
+                ...(acc === "cambio_ruta" && objRuteoGlobalDestinoId
+                  ? { id_ruta_destino: objRuteoGlobalDestinoId }
+                  : {}),
+                ...(acc === "baja" && objRuteoGlobalMotivo.trim()
+                  ? { motivo_baja: objRuteoGlobalMotivo.trim() }
+                  : {}),
+                orden_sugerido: idx + 1,
+              };
+            }
             const item = objRuteoItemsMap[pdvId] ?? { accion: objRuteoAccionGlobal };
             return {
               id_cliente_pdv: pdvId,
@@ -1097,6 +1144,9 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
       setObjSelectedDeudor(null);
       setObjRuteoAccionGlobal('cambio_ruta');
       setObjRuteoItemsMap({});
+      setObjRuteoConfigMode("global");
+      setObjRuteoGlobalDestinoId(null);
+      setObjRuteoGlobalMotivo("");
     } finally {
       setObjSubmitting(false);
     }
@@ -2916,12 +2966,64 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                 {/* Contextual section: Ruteo */}
                 {objTipo === "ruteo" && (
                   <div className="space-y-2">
+                    {objLoadingContext ? (
+                      <div className="flex items-center gap-1.5 text-xs text-[var(--shelfy-muted)]">
+                        <Loader2 className="w-3 h-3 animate-spin" /> Cargando rutas del vendedor...
+                      </div>
+                    ) : objVendedorRoutes.length === 0 ? (
+                      <p className="text-xs text-amber-500/90">No hay rutas cargadas para este vendedor.</p>
+                    ) : (
+                      <div className="rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] p-2 max-h-28 overflow-y-auto">
+                        <p className="text-[9px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider mb-1">Rutas asignadas al vendedor</p>
+                        <ul className="text-[11px] text-[var(--shelfy-text)] space-y-0.5">
+                          {objVendedorRoutes.map(r => (
+                            <li key={r.id_ruta}>
+                              <span className="font-mono text-[var(--shelfy-accent)]">id_ruta {r.id_ruta}</span>
+                              {" · "}
+                              <span className="text-[var(--shelfy-muted)]">{r.nro_ruta}</span>
+                              {" · "}
+                              <span className="capitalize">{r.dia_semana || "—"}</span>
+                              {r.total_pdv != null ? <span className="text-[var(--shelfy-muted)]"> · {r.total_pdv} PDV</span> : null}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
                     <label className="text-[10px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block">
-                      Acción por defecto · Configurar por PDV
+                      Modo de configuración
                     </label>
-                    {/* Global action toggle */}
                     <div className="flex gap-1.5">
                       <button
+                        type="button"
+                        onClick={() => setObjRuteoConfigMode("global")}
+                        className={`flex-1 py-1 rounded-lg text-xs font-medium transition-colors border ${
+                          objRuteoConfigMode === "global"
+                            ? "bg-[var(--shelfy-accent)]/20 text-[var(--shelfy-accent)] border-[var(--shelfy-accent)]/40"
+                            : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-white"
+                        }`}
+                      >
+                        Global (todos los PDV)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setObjRuteoConfigMode("per_pdv")}
+                        className={`flex-1 py-1 rounded-lg text-xs font-medium transition-colors border ${
+                          objRuteoConfigMode === "per_pdv"
+                            ? "bg-[var(--shelfy-accent)]/20 text-[var(--shelfy-accent)] border-[var(--shelfy-accent)]/40"
+                            : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-white"
+                        }`}
+                      >
+                        Por PDV
+                      </button>
+                    </div>
+
+                    <label className="text-[10px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block">
+                      Acción
+                    </label>
+                    <div className="flex gap-1.5">
+                      <button
+                        type="button"
                         onClick={() => setObjRuteoAccionGlobal('cambio_ruta')}
                         className={`flex-1 py-1 rounded-lg text-xs font-medium transition-colors border ${
                           objRuteoAccionGlobal === 'cambio_ruta'
@@ -2932,6 +3034,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                         Cambio de ruta
                       </button>
                       <button
+                        type="button"
                         onClick={() => setObjRuteoAccionGlobal('baja')}
                         className={`flex-1 py-1 rounded-lg text-xs font-medium transition-colors border ${
                           objRuteoAccionGlobal === 'baja'
@@ -2943,8 +3046,44 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                       </button>
                     </div>
 
-                    {/* Per-PDV configuration */}
-                    {selectedPDVsForObjective.length > 0 && (
+                    {objRuteoConfigMode === "global" && (
+                      <div className="space-y-2 pt-1">
+                        {objRuteoAccionGlobal === "cambio_ruta" && (
+                          <div>
+                            <label className="text-[10px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1">Ruta destino</label>
+                            <Select
+                              value={objRuteoGlobalDestinoId != null ? String(objRuteoGlobalDestinoId) : ""}
+                              onValueChange={v => setObjRuteoGlobalDestinoId(v ? Number(v) : null)}
+                            >
+                              <SelectTrigger className="h-9 w-full bg-[var(--shelfy-bg)] border-[var(--shelfy-border)] text-sm text-[var(--shelfy-text)]">
+                                <SelectValue placeholder="Elegir ruta destino..." />
+                              </SelectTrigger>
+                              <SelectContent className="max-h-60">
+                                {objVendedorRoutes.map(r => (
+                                  <SelectItem key={r.id_ruta} value={String(r.id_ruta)}>
+                                    id {r.id_ruta} · {r.nro_ruta} · {r.dia_semana || "—"}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        )}
+                        {objRuteoAccionGlobal === "baja" && (
+                          <div>
+                            <label className="text-[10px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1">Motivo de baja (todos los PDV)</label>
+                            <input
+                              type="text"
+                              placeholder="Motivo..."
+                              className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-1.5 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-red-500/60"
+                              value={objRuteoGlobalMotivo}
+                              onChange={e => setObjRuteoGlobalMotivo(e.target.value)}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {objRuteoConfigMode === "per_pdv" && selectedPDVsForObjective.length > 0 && (
                       <div className="max-h-44 overflow-y-auto space-y-1.5 rounded-lg border border-[var(--shelfy-border)] p-2 bg-[var(--shelfy-bg)]">
                         {selectedPDVsForObjective.map(pdvId => {
                           const pin = pines.find(p => p.id === pdvId);
@@ -2959,6 +3098,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                               <div className="flex gap-1">
                                 {(['cambio_ruta', 'baja'] as ObjRuteoAccion[]).map(accion => (
                                   <button
+                                    type="button"
                                     key={accion}
                                     onClick={() => setObjRuteoItemsMap(m => ({ ...m, [pdvId]: { ...(m[pdvId] ?? {}), accion } }))}
                                     className={`flex-1 py-0.5 rounded text-[10px] font-medium border transition-all ${
@@ -2974,17 +3114,24 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                                 ))}
                               </div>
                               {item.accion === 'cambio_ruta' && (
-                                <input
-                                  type="number"
-                                  min={1}
-                                  placeholder="ID ruta destino..."
-                                  className="w-full bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded px-2 py-0.5 text-xs text-[var(--shelfy-text)] focus:outline-none focus:border-purple-500/60"
-                                  value={item.id_ruta_destino ?? ""}
-                                  onChange={e => setObjRuteoItemsMap(m => ({
+                                <Select
+                                  value={item.id_ruta_destino != null ? String(item.id_ruta_destino) : ""}
+                                  onValueChange={v => setObjRuteoItemsMap(m => ({
                                     ...m,
-                                    [pdvId]: { ...(m[pdvId] ?? { accion: objRuteoAccionGlobal }), id_ruta_destino: e.target.value ? Number(e.target.value) : undefined },
+                                    [pdvId]: { ...(m[pdvId] ?? { accion: objRuteoAccionGlobal }), id_ruta_destino: v ? Number(v) : undefined },
                                   }))}
-                                />
+                                >
+                                  <SelectTrigger className="h-8 w-full bg-[var(--shelfy-panel)] border-[var(--shelfy-border)] text-xs">
+                                    <SelectValue placeholder="Ruta destino..." />
+                                  </SelectTrigger>
+                                  <SelectContent className="max-h-52">
+                                    {objVendedorRoutes.map(r => (
+                                      <SelectItem key={`${pdvId}-${r.id_ruta}`} value={String(r.id_ruta)}>
+                                        id {r.id_ruta} · {r.nro_ruta} · {r.dia_semana || "—"}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
                               )}
                               {item.accion === 'baja' && (
                                 <input

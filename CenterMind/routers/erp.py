@@ -302,6 +302,30 @@ def padron_status(dist_id: int, user_payload=Depends(verify_auth)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/api/admin/padron/last-global", tags=["Padrón"], summary="Última ingesta global de padrón (superadmin)")
+def padron_last_global(user_payload=Depends(verify_auth)):
+    """Una sola corrida multi-tenant: motor padron_global (dist_id=0)."""
+    if not user_payload.get("is_superadmin"):
+        raise HTTPException(
+            status_code=403,
+            detail="Solo superadmin puede consultar el estado de ingesta global del padrón.",
+        )
+    try:
+        res = (
+            sb.table("motor_runs")
+            .select("id, estado, iniciado_en, finalizado_en, registros, error_msg")
+            .eq("motor", "padron_global")
+            .order("iniciado_en", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if not res.data:
+            return {"estado": "sin_ejecuciones"}
+        return res.data[0]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ─── Motores RPA ──────────────────────────────────────────────────────────────
 
 @router.post("/api/motor/ventas", tags=["Motores RPA"])

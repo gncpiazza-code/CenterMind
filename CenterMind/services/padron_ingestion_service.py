@@ -239,6 +239,47 @@ class PadronIngestionService:
             "error_msg": error_msg,
         }).eq("id", run_id).execute()
 
+    def _start_global_padron_run(self) -> int:
+        """Un solo motor_run para toda la ingesta multi-tenant (panel superadmin)."""
+        res = sb.table("motor_runs").insert({
+            "motor": "padron_global",
+            "dist_id": 0,
+            "estado": "en_curso",
+            "iniciado_en": datetime.now(timezone.utc).isoformat(),
+        }).execute()
+        return res.data[0]["id"]
+
+    def _finish_global_padron_run(
+        self,
+        run_id: int,
+        estado: str,
+        resultados: list[dict],
+        error_msg: str | None = None,
+    ) -> None:
+        keys = ("sucursales", "vendedores", "rutas", "clientes", "exhib_vinculadas")
+        agg: dict[str, int] = {k: 0 for k in keys}
+        dist_ids: list[int] = []
+        for r in resultados:
+            did = r.get("dist_id")
+            if did is not None:
+                dist_ids.append(int(did))
+            for k in keys:
+                try:
+                    agg[k] += int(r.get(k) or 0)
+                except (TypeError, ValueError):
+                    pass
+        registros = {
+            **agg,
+            "tenants_procesados": len(resultados),
+            "dist_ids": dist_ids,
+        }
+        sb.table("motor_runs").update({
+            "estado": estado,
+            "finalizado_en": datetime.now(timezone.utc).isoformat(),
+            "registros": registros,
+            "error_msg": error_msg,
+        }).eq("id", run_id).execute()
+
     # ── Parseo del Excel ──────────────────────────────────────────────────────
 
     def _parse_excel(self, file_bytes: bytes) -> pd.DataFrame:
@@ -832,75 +873,91 @@ class PadronIngestionService:
             dist_rows, real_dist_id, magica_dist_id, bolivar_dist_id
         )
 
-        resultados = []
-        for empresa_erp, df_dist in df.groupby("_empresa_key"):
-            empresa_erp = str(empresa_erp)
-            dist_id = dist_map.get(empresa_erp)
-            if not dist_id:
-                logger.warning(
-                    f"[Padrón] Empresa ERP '{empresa_erp}' sin distribuidor mapeado "
-                    f"— saltando {len(df_dist)} filas"
-                )
-                continue
+        global_run_id: int | None = None
+        try:
+            global_run_id = self._start_global_padron_run()
+        except Exception as e_run:
+            logger.warning(f"[Padrón] No se pudo abrir motor_run padron_global (se omite tracking): {e_run}")
 
-            # Mismo idempresa CHESS en varios tenants Shelfy (p. ej. id en La Mágica=2, Bolívar=7):
-            # split por sucursal aunque dist_map apunte a La Mágica u otro holder del id_empresa_erp.
-            suc_col = cols.get("sucursal")
-            if suc_col and empresa_erp in franchise_erp_keys:
-                mask_ondarreta = df_dist[suc_col].apply(_is_ondarreta_sucursal)
-                df_bolivar = df_dist[mask_ondarreta].copy()
-                df_after_bol = df_dist[~mask_ondarreta].copy()
-
-                if not df_bolivar.empty:
-                    if not bolivar_dist_id:
-                        raise ValueError(
-                            "Se detectaron filas de sucursal OSCAR ONDARRETA en Real, "
-                            "pero no existe distribuidor 'Bolivar Distribuiciones' en tabla distribuidores."
-                        )
-                    logger.info(
-                        f"[Padrón] Reenrutando {len(df_bolivar)} filas de OSCAR ONDARRETA "
-                        f"(idempresa {empresa_erp}) hacia dist {bolivar_dist_id} (Bolívar)."
+        resultados: list[dict] = []
+        try:
+            for empresa_erp, df_dist in df.groupby("_empresa_key"):
+                empresa_erp = str(empresa_erp)
+                dist_id = dist_map.get(empresa_erp)
+                if not dist_id:
+                    logger.warning(
+                        f"[Padrón] Empresa ERP '{empresa_erp}' sin distribuidor mapeado "
+                        f"— saltando {len(df_dist)} filas"
                     )
-                    resultados.append(
-                        self._ingest_for_dist(
-                            df_bolivar,
-                            cols,
-                            bolivar_dist_id,
-                            f"{empresa_erp}->bolivar",
-                        )
-                    )
+                    continue
 
-                if magica_dist_id and not df_after_bol.empty:
-                    mask_ueq = df_after_bol[suc_col].apply(_is_uequin_rodrigo_sucursal)
-                    df_magica = df_after_bol[mask_ueq].copy()
-                    df_tail = df_after_bol[~mask_ueq].copy()
-                    if not df_magica.empty:
+                # Mismo idempresa CHESS en varios tenants Shelfy (p. ej. id en La Mágica=2, Bolívar=7):
+                # split por sucursal aunque dist_map apunte a La Mágica u otro holder del id_empresa_erp.
+                suc_col = cols.get("sucursal")
+                if suc_col and empresa_erp in franchise_erp_keys:
+                    mask_ondarreta = df_dist[suc_col].apply(_is_ondarreta_sucursal)
+                    df_bolivar = df_dist[mask_ondarreta].copy()
+                    df_after_bol = df_dist[~mask_ondarreta].copy()
+
+                    if not df_bolivar.empty:
+                        if not bolivar_dist_id:
+                            raise ValueError(
+                                "Se detectaron filas de sucursal OSCAR ONDARRETA en Real, "
+                                "pero no existe distribuidor 'Bolivar Distribuiciones' en tabla distribuidores."
+                            )
                         logger.info(
-                            f"[Padrón] Reenrutando {len(df_magica)} filas UEQUIN RODRIGO "
-                            f"hacia La Mágica (dist {magica_dist_id})."
+                            f"[Padrón] Reenrutando {len(df_bolivar)} filas de OSCAR ONDARRETA "
+                            f"(idempresa {empresa_erp}) hacia dist {bolivar_dist_id} (Bolívar)."
                         )
                         resultados.append(
                             self._ingest_for_dist(
-                                df_magica, cols, magica_dist_id, f"{empresa_erp}->magica"
+                                df_bolivar,
+                                cols,
+                                bolivar_dist_id,
+                                f"{empresa_erp}->bolivar",
                             )
                         )
-                    if not df_tail.empty:
-                        logger.info(
-                            f"[Padrón] {len(df_tail)} filas de idempresa {empresa_erp} "
-                            f"no son UEQUIN ni ONDARRETA — no se asignan a franquicias "
-                            f"(omitido)."
+
+                    if magica_dist_id and not df_after_bol.empty:
+                        mask_ueq = df_after_bol[suc_col].apply(_is_uequin_rodrigo_sucursal)
+                        df_magica = df_after_bol[mask_ueq].copy()
+                        df_tail = df_after_bol[~mask_ueq].copy()
+                        if not df_magica.empty:
+                            logger.info(
+                                f"[Padrón] Reenrutando {len(df_magica)} filas UEQUIN RODRIGO "
+                                f"hacia La Mágica (dist {magica_dist_id})."
+                            )
+                            resultados.append(
+                                self._ingest_for_dist(
+                                    df_magica, cols, magica_dist_id, f"{empresa_erp}->magica"
+                                )
+                            )
+                        if not df_tail.empty:
+                            logger.info(
+                                f"[Padrón] {len(df_tail)} filas de idempresa {empresa_erp} "
+                                f"no son UEQUIN ni ONDARRETA — no se asignan a franquicias "
+                                f"(omitido)."
+                            )
+                    elif not df_after_bol.empty:
+                        resultados.append(
+                            self._ingest_for_dist(df_after_bol, cols, dist_id, empresa_erp)
                         )
-                elif not df_after_bol.empty:
-                    resultados.append(
-                        self._ingest_for_dist(df_after_bol, cols, dist_id, empresa_erp)
-                    )
-                continue
+                    continue
 
-            resultado = self._ingest_for_dist(df_dist.copy(), cols, dist_id, empresa_erp)
-            resultados.append(resultado)
+                resultado = self._ingest_for_dist(df_dist.copy(), cols, dist_id, empresa_erp)
+                resultados.append(resultado)
 
-        logger.info(f"[Padrón] Global OK — {len(resultados)} distribuidores procesados")
-        return resultados
+            logger.info(f"[Padrón] Global OK — {len(resultados)} distribuidores procesados")
+            if global_run_id is not None:
+                self._finish_global_padron_run(global_run_id, "ok", resultados, None)
+            return resultados
+        except Exception as e:
+            logger.error(f"[Padrón] Global ERROR tras {len(resultados)} tenants: {e}")
+            if global_run_id is not None:
+                self._finish_global_padron_run(
+                    global_run_id, "error", resultados, str(e)[:2000]
+                )
+            raise
 
     def ingest_for_dist(self, file_bytes: bytes, target_dist_id: int) -> dict:
         """

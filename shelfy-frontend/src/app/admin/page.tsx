@@ -116,7 +116,7 @@ export default function AdminPage() {
               </TabsContent>
               {isSuperadmin && (
                 <TabsContent value="padron" className="min-h-[500px] mt-0">
-                  <TabPadron distId={user.id_distribuidor || 0} />
+                  <TabPadron />
                 </TabsContent>
               )}
               <TabsContent value="mapeo" className="min-h-[500px] mt-0">

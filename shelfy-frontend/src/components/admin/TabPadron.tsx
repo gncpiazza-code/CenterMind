@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   UploadCloud,
   CheckCircle2,
@@ -12,6 +12,7 @@ import {
   Map,
   Store,
   Link2,
+  Landmark,
 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -25,6 +26,8 @@ interface MotorRun {
   iniciado_en: string | null;
   finalizado_en: string | null;
   registros: {
+    tenants_procesados?: number;
+    dist_ids?: number[];
     sucursales?: number;
     vendedores?: number;
     rutas?: number;
@@ -32,11 +35,6 @@ interface MotorRun {
     exhib_vinculadas?: number;
   } | null;
   error_msg: string | null;
-}
-
-interface TabPadronProps {
-  /** Distribuidora activa en el portal: solo para “Última ingesta” (motor_runs de ese tenant). */
-  distId: number;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -56,7 +54,7 @@ function authHeaders(): HeadersInit {
 
 // ─── Componente (solo invocado desde /admin para superadmin) ─────────────────
 
-export default function TabPadron({ distId }: TabPadronProps) {
+export default function TabPadron() {
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -67,24 +65,20 @@ export default function TabPadron({ distId }: TabPadronProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const loadStatus = useCallback(async () => {
-    if (distId <= 0) {
-      setStatus(null);
-      return;
-    }
     setLoadingStatus(true);
     try {
-      const res = await fetch(`${API_URL}/api/admin/padron/status/${distId}`, {
+      const res = await fetch(`${API_URL}/api/admin/padron/last-global`, {
         headers: authHeaders(),
       });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
       setStatus(data);
     } catch (e) {
-      console.error("Error cargando estado del Padrón:", e);
+      console.error("Error cargando estado global del Padrón:", e);
     } finally {
       setLoadingStatus(false);
     }
-  }, [distId]);
+  }, []);
 
   useEffect(() => {
     loadStatus();
@@ -152,13 +146,25 @@ export default function TabPadron({ distId }: TabPadronProps) {
     sin_ejecuciones: "Sin ejecuciones",
   };
 
-  const metrics = [
-    { label: "Sucursales",    icon: Building2, value: status?.registros?.sucursales        },
-    { label: "Vendedores",    icon: Users,     value: status?.registros?.vendedores        },
-    { label: "Rutas",         icon: Map,       value: status?.registros?.rutas             },
-    { label: "Clientes",      icon: Store,     value: status?.registros?.clientes          },
-    { label: "Exhib. vinc.", icon: Link2,      value: status?.registros?.exhib_vinculadas  },
-  ];
+  const metrics = useMemo(() => {
+    const r = status?.registros;
+    const rows: { label: string; icon: typeof Building2; value: number | undefined }[] = [];
+    if (r?.tenants_procesados != null) {
+      rows.push({ label: "Distribuidoras", icon: Landmark, value: r.tenants_procesados });
+    }
+    rows.push(
+      { label: "Sucursales", icon: Building2, value: r?.sucursales },
+      { label: "Vendedores", icon: Users, value: r?.vendedores },
+      { label: "Rutas", icon: Map, value: r?.rutas },
+      { label: "Clientes", icon: Store, value: r?.clientes },
+      { label: "Exhib. vinc.", icon: Link2, value: r?.exhib_vinculadas },
+    );
+    return rows;
+  }, [status?.registros]);
+
+  const distIdsLine = status?.registros?.dist_ids?.length
+    ? `IDs Shelfy: ${status.registros.dist_ids.join(", ")}`
+    : null;
 
   return (
     <div className="space-y-6">
@@ -241,11 +247,11 @@ export default function TabPadron({ distId }: TabPadronProps) {
       <Card>
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-[var(--shelfy-text)] font-semibold text-base">
-            Última ingesta (distribuidora activa en el portal)
+            Última actualización general (padrón)
           </h2>
           <button
             onClick={loadStatus}
-            disabled={loadingStatus || distId <= 0}
+            disabled={loadingStatus}
             className="text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] transition-colors"
             title="Actualizar"
           >
@@ -253,12 +259,15 @@ export default function TabPadron({ distId }: TabPadronProps) {
           </button>
         </div>
 
-        {distId <= 0 ? (
+        <p className="text-[var(--shelfy-muted)] text-xs mb-4">
+          Un solo registro por corrida global: inicio al subir el archivo y fin cuando terminaron todos los tenants.
+          Los totales de sucursales / clientes / etc. son la suma de todas las distribuidoras procesadas en esa corrida.
+        </p>
+
+        {!status || status.estado === "sin_ejecuciones" ? (
           <p className="text-[var(--shelfy-muted)] text-sm">
-            Elegí una distribuidora en el selector del portal para ver aquí el último run de padrón de ese tenant.
+            Todavía no hay una ingesta global registrada (o el backend no pudo crear el log <code className="text-xs">padron_global</code>).
           </p>
-        ) : !status || status.estado === "sin_ejecuciones" ? (
-          <p className="text-[var(--shelfy-muted)] text-sm">No hay ejecuciones registradas para esta distribuidora.</p>
         ) : (
           <>
             <div className="flex flex-wrap gap-4 text-sm mb-5">
@@ -270,19 +279,23 @@ export default function TabPadron({ distId }: TabPadronProps) {
                 </p>
               </div>
               <div>
-                <span className="text-[var(--shelfy-muted)] text-xs uppercase tracking-wide">Iniciado</span>
+                <span className="text-[var(--shelfy-muted)] text-xs uppercase tracking-wide">Inicio corrida</span>
                 <p className="text-[var(--shelfy-text)] mt-0.5">{fmtDate(status.iniciado_en)}</p>
               </div>
               {status.finalizado_en && (
                 <div>
-                  <span className="text-[var(--shelfy-muted)] text-xs uppercase tracking-wide">Finalizado</span>
+                  <span className="text-[var(--shelfy-muted)] text-xs uppercase tracking-wide">Fin corrida</span>
                   <p className="text-[var(--shelfy-text)] mt-0.5">{fmtDate(status.finalizado_en)}</p>
                 </div>
               )}
             </div>
 
+            {distIdsLine && (
+              <p className="text-[var(--shelfy-muted)] text-xs mb-4 font-mono break-all">{distIdsLine}</p>
+            )}
+
             {status.registros && (
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
                 {metrics.map(({ label, icon: Icon, value }) => (
                   <div
                     key={label}
@@ -293,7 +306,7 @@ export default function TabPadron({ distId }: TabPadronProps) {
                       <span className="text-xs">{label}</span>
                     </div>
                     <span className="text-2xl font-bold text-[var(--shelfy-text)]">
-                      {value?.toLocaleString("es-AR") ?? "—"}
+                      {value != null ? value.toLocaleString("es-AR") : "—"}
                     </span>
                   </div>
                 ))}

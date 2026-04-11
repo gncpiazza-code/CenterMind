@@ -21,7 +21,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { toast } from "sonner";
 import { generateInformeExcel } from "@/lib/api";
 
-const ALLOWED_ROLES = ["superadmin", "admin", "supervisor"];
+const ALLOWED_ROLES = ["superadmin", "admin", "supervisor", "directorio"];
 
 export default function SupervisionPage() {
   const { user } = useAuth();

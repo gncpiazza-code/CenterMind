@@ -11,6 +11,7 @@ Canales soportados:
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
 import re
 import requests
@@ -20,6 +21,115 @@ from typing import Any
 from db import sb
 
 logger = logging.getLogger("ObjetivosNotification")
+
+
+def _row_usable_telegram_group(row: dict[str, Any]) -> bool:
+    gid = row.get("telegram_group_id")
+    return gid is not None and str(gid).strip() not in ("", "0", "None")
+
+
+def _pick_integrante_row(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Prefiere fila con telegram_group_id válido; si no, primera con id_integrante."""
+    if not rows:
+        return None
+    for row in rows:
+        if row.get("id_integrante") is not None and _row_usable_telegram_group(row):
+            return row
+    for row in rows:
+        if row.get("id_integrante") is not None:
+            return row
+    return None
+
+
+def resolve_integrante_for_objetivos(
+    dist_id: int, id_vendedor: int
+) -> dict[str, Any] | None:
+    """
+    Fila de integrantes_grupo para vincular objetivos / Telegram / exhibiciones.
+
+    1) id_vendedor_v2
+    2) id_vendedor_erp exacto (vendedores_v2 → integrantes_grupo)
+    3) Paginado por distribuidor con comparación case-insensitive de ERP
+       (evita techo ~1000 filas del fallback anterior que cargaba todo de una vez).
+    """
+    try:
+        cols = "id_integrante, telegram_group_id, id_vendedor_erp"
+        res_v2 = (
+            sb.table("integrantes_grupo")
+            .select(cols)
+            .eq("id_distribuidor", dist_id)
+            .eq("id_vendedor_v2", id_vendedor)
+            .execute()
+        )
+        picked = _pick_integrante_row(res_v2.data or [])
+        if picked:
+            return picked
+
+        vres = (
+            sb.table("vendedores_v2")
+            .select("id_vendedor_erp")
+            .eq("id_distribuidor", dist_id)
+            .eq("id_vendedor", id_vendedor)
+            .limit(1)
+            .execute()
+        )
+        verp = (vres.data or [{}])[0].get("id_vendedor_erp")
+        if verp is None or str(verp).strip() == "":
+            return None
+        verp_stripped = str(verp).strip()
+        verp_s = verp_stripped.lower()
+
+        erp_exact = (
+            sb.table("integrantes_grupo")
+            .select(cols)
+            .eq("id_distribuidor", dist_id)
+            .eq("id_vendedor_erp", verp_stripped)
+            .execute()
+        )
+        picked = _pick_integrante_row(erp_exact.data or [])
+        if picked:
+            logger.info(
+                f"[Notif] integrante vía id_vendedor_erp exact={verp_stripped!r} "
+                f"vendedor_v2={id_vendedor} dist={dist_id}"
+            )
+            return picked
+
+        offset = 0
+        batch = 500
+        while True:
+            page = (
+                sb.table("integrantes_grupo")
+                .select(cols)
+                .eq("id_distribuidor", dist_id)
+                .range(offset, offset + batch - 1)
+                .execute()
+            )
+            rows = page.data or []
+            if not rows:
+                break
+            for row in rows:
+                ig_erp = row.get("id_vendedor_erp")
+                if ig_erp is None:
+                    continue
+                if str(ig_erp).strip().lower() != verp_s:
+                    continue
+                if row.get("id_integrante") is None:
+                    continue
+                logger.info(
+                    f"[Notif] integrante vía id_vendedor_erp paginado "
+                    f"vendedor_v2={id_vendedor} dist={dist_id}"
+                )
+                return row
+            if len(rows) < batch:
+                break
+            offset += batch
+        return None
+    except Exception as e:
+        logger.warning(
+            f"[Notif] resolve_integrante_for_objetivos dist={dist_id} "
+            f"vend={id_vendedor}: {e}"
+        )
+        return None
 
 TELEGRAM_API = "https://api.telegram.org/bot{token}/sendMessage"
 
@@ -133,11 +243,13 @@ class ObjetivosNotificationService:
             )
 
             sup = obj_data.get("asignado_por_usuario") or obj_data.get("supervisor")
-            supervisor_str = f"\n👤 <b>Supervisor:</b> {sup}" if sup else ""
+            sup_esc = html.escape(str(sup), quote=False) if sup else ""
+            supervisor_str = f"\n👤 <b>Supervisor:</b> {sup_esc}" if sup_esc else ""
 
             fecha = obj_data.get("fecha_objetivo")
             desc = obj_data.get("descripcion")
-            desc_str = f"\n📝 <b>Detalle:</b> <i>{desc}</i>" if desc else ""
+            desc_esc = html.escape(str(desc), quote=False) if desc else ""
+            desc_str = f"\n📝 <b>Detalle:</b> <i>{desc_esc}</i>" if desc_esc else ""
 
             dias_str = ""
             if fecha:
@@ -233,11 +345,12 @@ class ObjetivosNotificationService:
                         for it in items:
                             cid = it.get("id_cliente_pdv") or 0
                             info = erp_map.get(cid, {})
-                            nombre = (
+                            nombre_raw = (
                                 (it.get("nombre_pdv") or "").strip()
                                 or info.get("nombre_fantasia")
                                 or f"PDV #{cid}"
                             )
+                            nombre = html.escape(nombre_raw, quote=False)
                             erp = info.get("erp", "")
                             cod = f" <b>#{erp}</b>" if erp else ""
                             ruta_actual = self._ruta_label(info.get("id_ruta"))
@@ -252,7 +365,9 @@ class ObjetivosNotificationService:
                                     extra = f"\n    → <b>Cambio de ruta</b> → {dl or '—'}"
                                     accion_resumen.append("Cambio de ruta")
                                 elif ar == "baja":
-                                    mot = (it.get("motivo_baja") or "").strip()
+                                    mot = html.escape(
+                                        (it.get("motivo_baja") or "").strip(), quote=False
+                                    )
                                     extra = f"\n    → <b>Baja de ruta</b>{(': ' + mot) if mot else ''}"
                                     accion_resumen.append("Baja de ruta")
 
@@ -316,6 +431,7 @@ class ObjetivosNotificationService:
                             pdv_nombre = (row0.get("nombre_fantasia") or "").strip()
                     if not pdv_nombre:
                         pdv_nombre = "PDV sin nombre"
+                    pdv_nombre = html.escape(pdv_nombre, quote=False)
                     if erp:
                         nro_cliente_str = f" <b>#{erp}</b>"
                     ruta_p = self._ruta_label(id_ruta_pdv) if id_ruta_pdv else ""
@@ -397,9 +513,13 @@ class ObjetivosNotificationService:
                 return
 
             emoji = TIPO_EMOJI.get(tipo_evento, "🎯")
-            pdv_nombre = pdv_data.get("nombre_cliente") or pdv_data.get("nombre") or "PDV"
+            pdv_nombre_raw = (
+                pdv_data.get("nombre_cliente") or pdv_data.get("nombre") or "PDV"
+            )
+            pdv_nombre = html.escape(str(pdv_nombre_raw), quote=False)
             pdv_codigo = pdv_data.get("id_cliente_erp") or pdv_data.get("codigo") or ""
-            cod_str = f" (#{pdv_codigo})" if pdv_codigo else ""
+            cod_esc = html.escape(str(pdv_codigo), quote=False) if pdv_codigo else ""
+            cod_str = f" (#{cod_esc})" if cod_esc else ""
 
             tipo_label = {
                 "alteo":               "Alteo",
@@ -465,7 +585,11 @@ class ObjetivosNotificationService:
                 "cobranza":   "Cobranza",
             }.get(tipo, tipo.capitalize() if tipo else "Objetivo")
 
-            pdv_str = f" en <b>{nombre_pdv}</b>" if nombre_pdv else ""
+            pdv_str = (
+                f" en <b>{html.escape(str(nombre_pdv), quote=False)}</b>"
+                if nombre_pdv
+                else ""
+            )
             text = (
                 f"🏆 <b>¡OBJETIVO CUMPLIDO!</b> {emoji}\n\n"
                 f"Completaste tu objetivo de <b>{tipo_label}</b>{pdv_str}.\n"
@@ -541,56 +665,16 @@ class ObjetivosNotificationService:
         self, dist_id: int, id_vendedor: int
     ) -> int | None:
         """
-        Busca telegram_group_id del grupo del vendedor.
-
-        1) integrantes_grupo filas con id_vendedor_v2 y telegram_group_id no nulo
-        2) Fallback: id_vendedor_erp en vendedores_v2 → misma columna en integrantes_grupo
-        (evita .limit(1) sobre filas huérfanas sin grupo).
+        Busca telegram_group_id del grupo del vendedor via
+        resolve_integrante_for_objetivos (v2 + ERP exacto + paginado ERP).
         """
         try:
-            res = (
-                sb.table("integrantes_grupo")
-                .select("telegram_group_id, id_vendedor_erp")
-                .eq("id_distribuidor", dist_id)
-                .eq("id_vendedor_v2", id_vendedor)
-                .execute()
-            )
-            for row in res.data or []:
-                gid = row.get("telegram_group_id")
-                if gid is not None and str(gid).strip() not in ("", "0", "None"):
-                    return int(gid)
-
-            vres = (
-                sb.table("vendedores_v2")
-                .select("id_vendedor_erp")
-                .eq("id_distribuidor", dist_id)
-                .eq("id_vendedor", id_vendedor)
-                .limit(1)
-                .execute()
-            )
-            verp = (vres.data or [{}])[0].get("id_vendedor_erp")
-            if verp is None or verp == "":
+            row = resolve_integrante_for_objetivos(dist_id, id_vendedor)
+            if not row:
                 return None
-            verp_s = str(verp).strip().lower()
-            ires = (
-                sb.table("integrantes_grupo")
-                .select("telegram_group_id, id_vendedor_erp")
-                .eq("id_distribuidor", dist_id)
-                .execute()
-            )
-            for row in ires.data or []:
-                ig_erp = row.get("id_vendedor_erp")
-                if ig_erp is None:
-                    continue
-                if str(ig_erp).strip().lower() != verp_s:
-                    continue
-                gid = row.get("telegram_group_id")
-                if gid is not None and str(gid).strip() not in ("", "0", "None"):
-                    logger.info(
-                        f"[Notif] grupo Telegram vía id_vendedor_erp={verp!r} "
-                        f"vendedor_v2={id_vendedor} dist={dist_id}"
-                    )
-                    return int(gid)
+            gid = row.get("telegram_group_id")
+            if gid is not None and str(gid).strip() not in ("", "0", "None"):
+                return int(gid)
             return None
         except Exception as e:
             logger.warning(

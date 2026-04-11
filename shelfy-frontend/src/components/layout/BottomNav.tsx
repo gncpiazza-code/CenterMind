@@ -16,7 +16,7 @@ interface MobileNavItem {
 const ALL_NAV: MobileNavItem[] = [
   { href: "/visor",       label: "Evaluar",      icon: Eye,             roles: ["superadmin", "admin", "supervisor", "evaluador", "directorio"], permisoKey: "action_evaluar_exhibiciones" },
   { href: "/dashboard",   label: "Dashboard",    icon: LayoutDashboard, roles: ["superadmin", "admin", "supervisor"] },
-  { href: "/supervision", label: "Supervisión",  icon: Route,           roles: ["superadmin", "admin", "supervisor"] },
+  { href: "/supervision", label: "Supervisión",  icon: Route,           roles: ["superadmin", "admin", "supervisor", "directorio"], permisoKey: "menu_supervision" },
   { href: "/objetivos",   label: "Objetivos",    icon: Target,          roles: ["superadmin", "admin", "supervisor", "directorio"] },
   { href: "/reportes",    label: "Reportes",     icon: BarChart2,       roles: ["superadmin", "admin", "supervisor"] },
   { href: "/bonos",       label: "Bonos",        icon: Gift,            roles: ["superadmin", "admin"] },

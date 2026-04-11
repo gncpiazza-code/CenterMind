@@ -403,22 +403,20 @@ class ObjetivosWatcherService:
             if item_pdv_ids is not None and len(item_pdv_ids) == 0:
                 return (float(obj.get("valor_actual") or 0), 0)
 
-            # Mapear id_vendedor_v2 → id_integrante
-            int_res = (
-                sb.table("integrantes_grupo")
-                .select("id_integrante")
-                .eq("id_distribuidor", dist_id)
-                .eq("id_vendedor_v2", id_vendedor_v2)
-                .limit(1)
-                .execute()
+            # Mapear vendedor → id_integrante (v2, luego ERP / paginado — misma lógica que Telegram)
+            from services.objetivos_notification_service import (
+                resolve_integrante_for_objetivos,
             )
-            if not int_res.data:
+
+            ig_row = resolve_integrante_for_objetivos(dist_id, id_vendedor_v2)
+            if not ig_row or ig_row.get("id_integrante") is None:
                 logger.warning(
-                    f"[Watcher] No id_integrante para id_vendedor_v2={id_vendedor_v2}"
+                    f"[Watcher] No id_integrante para id_vendedor_v2={id_vendedor_v2} "
+                    f"dist={dist_id} — revisá integrantes_grupo (id_vendedor_v2 / id_vendedor_erp)"
                 )
                 return (float(obj.get("valor_actual") or 0), 0)
 
-            id_integrante = int_res.data[0]["id_integrante"]
+            id_integrante = ig_row["id_integrante"]
 
             def _build_exhibicion_query(estado: str):
                 q = (

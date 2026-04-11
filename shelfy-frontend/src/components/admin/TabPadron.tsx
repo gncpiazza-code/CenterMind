@@ -35,6 +35,7 @@ interface MotorRun {
 }
 
 interface TabPadronProps {
+  /** Distribuidora activa en el portal: solo para “Última ingesta” (motor_runs de ese tenant). */
   distId: number;
 }
 
@@ -53,7 +54,7 @@ function authHeaders(): HeadersInit {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-// ─── Componente ───────────────────────────────────────────────────────────────
+// ─── Componente (solo invocado desde /admin para superadmin) ─────────────────
 
 export default function TabPadron({ distId }: TabPadronProps) {
   const [file, setFile] = useState<File | null>(null);
@@ -65,9 +66,11 @@ export default function TabPadron({ distId }: TabPadronProps) {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // ── Carga del estado ──────────────────────────────────────────────────────
-
   const loadStatus = useCallback(async () => {
+    if (distId <= 0) {
+      setStatus(null);
+      return;
+    }
     setLoadingStatus(true);
     try {
       const res = await fetch(`${API_URL}/api/admin/padron/status/${distId}`, {
@@ -87,7 +90,6 @@ export default function TabPadron({ distId }: TabPadronProps) {
     loadStatus();
   }, [loadStatus]);
 
-  // Polling mientras el run está en curso
   useEffect(() => {
     if (status?.estado === "en_curso") {
       pollRef.current = setInterval(loadStatus, 4000);
@@ -97,16 +99,12 @@ export default function TabPadron({ distId }: TabPadronProps) {
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [status?.estado, loadStatus]);
 
-  // ── Drag & drop ───────────────────────────────────────────────────────────
-
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setDragging(false);
     const f = e.dataTransfer.files[0];
     if (f) setFile(f);
   }, []);
-
-  // ── Upload ────────────────────────────────────────────────────────────────
 
   async function handleUpload() {
     if (!file) return;
@@ -116,7 +114,7 @@ export default function TabPadron({ distId }: TabPadronProps) {
       const fd = new FormData();
       fd.append("file", file);
 
-      const res = await fetch(`${API_URL}/api/admin/padron/upload/${distId}`, {
+      const res = await fetch(`${API_URL}/api/admin/padron/upload-global`, {
         method: "POST",
         headers: authHeaders(),
         body: fd,
@@ -127,7 +125,6 @@ export default function TabPadron({ distId }: TabPadronProps) {
       setUploadMsg({ text: data.message, ok: true });
       setFile(null);
       if (inputRef.current) inputRef.current.value = "";
-      // Espera un momento y luego empieza a hacer polling
       setTimeout(loadStatus, 1500);
     } catch (e: unknown) {
       setUploadMsg({
@@ -138,8 +135,6 @@ export default function TabPadron({ distId }: TabPadronProps) {
       setUploading(false);
     }
   }
-
-  // ── Render ────────────────────────────────────────────────────────────────
 
   const estadoColor: Record<string, string> = {
     ok:              "text-green-400",
@@ -168,16 +163,16 @@ export default function TabPadron({ distId }: TabPadronProps) {
   return (
     <div className="space-y-6">
 
-      {/* Upload */}
       <Card>
         <h2 className="text-[var(--shelfy-text)] font-semibold text-base mb-1">
-          Cargar Padrón de Clientes
+          Cargar Padrón de Clientes (todas las distribuidoras)
         </h2>
         <p className="text-[var(--shelfy-muted)] text-sm mb-4">
-          Subí el Excel del ERP. Se reconstruirán sucursales, vendedores, rutas y clientes PDV en cascada.
+          Subí el Excel consolidado del ERP. El sistema agrupa por <strong>idempresa</strong> y actualiza
+          en cascada sucursales, vendedores, rutas y clientes PDV en <strong>cada tenant</strong> mapeado
+          en base de datos (no depende de la distribuidora seleccionada en el portal).
         </p>
 
-        {/* Drop zone */}
         <div
           onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
           onDragLeave={() => setDragging(false)}
@@ -220,7 +215,7 @@ export default function TabPadron({ distId }: TabPadronProps) {
               ? <Loader2 className="w-4 h-4 animate-spin" />
               : <UploadCloud className="w-4 h-4" />
             }
-            {uploading ? "Subiendo..." : "Procesar Padrón"}
+            {uploading ? "Subiendo..." : "Procesar padrón global"}
           </Button>
           {file && !uploading && (
             <button
@@ -243,15 +238,14 @@ export default function TabPadron({ distId }: TabPadronProps) {
         )}
       </Card>
 
-      {/* Estado de la última ingesta */}
       <Card>
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-[var(--shelfy-text)] font-semibold text-base">
-            Última ingesta
+            Última ingesta (distribuidora activa en el portal)
           </h2>
           <button
             onClick={loadStatus}
-            disabled={loadingStatus}
+            disabled={loadingStatus || distId <= 0}
             className="text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] transition-colors"
             title="Actualizar"
           >
@@ -259,11 +253,14 @@ export default function TabPadron({ distId }: TabPadronProps) {
           </button>
         </div>
 
-        {!status || status.estado === "sin_ejecuciones" ? (
+        {distId <= 0 ? (
+          <p className="text-[var(--shelfy-muted)] text-sm">
+            Elegí una distribuidora en el selector del portal para ver aquí el último run de padrón de ese tenant.
+          </p>
+        ) : !status || status.estado === "sin_ejecuciones" ? (
           <p className="text-[var(--shelfy-muted)] text-sm">No hay ejecuciones registradas para esta distribuidora.</p>
         ) : (
           <>
-            {/* Estado + fechas */}
             <div className="flex flex-wrap gap-4 text-sm mb-5">
               <div>
                 <span className="text-[var(--shelfy-muted)] text-xs uppercase tracking-wide">Estado</span>
@@ -284,7 +281,6 @@ export default function TabPadron({ distId }: TabPadronProps) {
               )}
             </div>
 
-            {/* Métricas de registros */}
             {status.registros && (
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                 {metrics.map(({ label, icon: Icon, value }) => (
@@ -304,7 +300,6 @@ export default function TabPadron({ distId }: TabPadronProps) {
               </div>
             )}
 
-            {/* Error */}
             {status.estado === "error" && status.error_msg && (
               <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-400 font-mono break-all">
                 {status.error_msg}

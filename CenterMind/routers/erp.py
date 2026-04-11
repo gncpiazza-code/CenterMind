@@ -221,6 +221,12 @@ async def padron_upload(
     file: UploadFile = File(...),
     user_payload=Depends(verify_auth),
 ):
+    if not user_payload.get("is_superadmin"):
+        raise HTTPException(
+            status_code=403,
+            detail="La carga del padrón por API está restringida a superadmin. "
+            "Usá POST /api/admin/padron/upload-global desde el panel.",
+        )
     check_dist_permission(user_payload, dist_id)
     if not file.filename or not file.filename.lower().endswith((".xlsx", ".xls", ".csv")):
         raise HTTPException(status_code=400, detail="El archivo debe ser .xlsx, .xls o .csv")
@@ -237,6 +243,43 @@ async def padron_upload(
     # Evita timeouts 524 del proxy: responder inmediato y procesar fuera del ciclo HTTP.
     threading.Thread(target=_run_ingestion, args=(file_bytes,), daemon=True).start()
     return {"ok": True, "message": f"Padrón recibido ({len(file_bytes):,} bytes). Procesando en segundo plano.", "dist_id": dist_id}
+
+
+@router.post("/api/admin/padron/upload-global", tags=["Padrón"], summary="Carga global del Padrón (todas las distribuidoras del Excel)")
+async def padron_upload_global(
+    file: UploadFile = File(...),
+    user_payload=Depends(verify_auth),
+):
+    """
+    Igual que la ingesta RPA consolidada: agrupa el Excel por idempresa y actualiza
+    cada id_distribuidor según erp_empresa_mapping / distribuidores.id_empresa_erp.
+    Solo superadmin (evita que un admin de un tenant dispare escritura masiva).
+    """
+    if not user_payload.get("is_superadmin"):
+        raise HTTPException(
+            status_code=403,
+            detail="La ingesta global del padrón está restringida a superadmin.",
+        )
+    if not file.filename or not file.filename.lower().endswith((".xlsx", ".xls", ".csv")):
+        raise HTTPException(status_code=400, detail="El archivo debe ser .xlsx, .xls o .csv")
+    file_bytes = await file.read()
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="El archivo está vacío.")
+
+    def _run_global(fb: bytes) -> None:
+        try:
+            padron_service.ingest(fb)
+        except Exception as e:
+            logger.error(f"[Padrón global background] error: {e}", exc_info=True)
+
+    threading.Thread(target=_run_global, args=(file_bytes,), daemon=True).start()
+    return {
+        "ok": True,
+        "message": (
+            f"Padrón global recibido ({len(file_bytes):,} bytes). "
+            "Procesando en segundo plano todas las distribuidoras mapeadas desde el archivo."
+        ),
+    }
 
 
 @router.get("/api/admin/padron/status/{dist_id}", tags=["Padrón"], summary="Estado de la última ingesta del Padrón")

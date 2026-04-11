@@ -4,7 +4,7 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { BottomNav } from "@/components/layout/BottomNav";
 import { Topbar } from "@/components/layout/Topbar";
 import { useAuth } from "@/hooks/useAuth";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Shield,
@@ -35,18 +35,32 @@ export default function AdminPage() {
   const router = useRouter();
   const isSuperadmin = user?.rol === "superadmin";
 
-  const TABS = [
-    { id: "supervision",      label: "Supervisión",        icon: BarChart3 },
-    { id: "jerarquia_global", label: "Jerarquía Global",   icon: Network },
-    { id: "padron",           label: "Padrón de Clientes", icon: BookUser },
-    { id: "mapeo",            label: "Mapeo Vendedores", icon: Link2 },
-    { id: "usuarios",         label: "Usuarios Admin", icon: Shield },
-    { id: "erp",              label: "Importar ERP / Mapeo", icon: FileSpreadsheet },
-    ...(isSuperadmin ? [
-      { id: "distribuidoras", label: "Distribuidoras", icon: Building2 },
-      { id: "integrantes",    label: "Integrantes Bot", icon: Users }
-    ] : [])
-  ];
+  const TABS = useMemo(() => {
+    const head = [
+      { id: "supervision",      label: "Supervisión",        icon: BarChart3 },
+      { id: "jerarquia_global", label: "Jerarquía Global",   icon: Network },
+    ] as const;
+    const mid = [
+      { id: "mapeo",     label: "Mapeo Vendedores",       icon: Link2 },
+      { id: "usuarios",  label: "Usuarios Admin",         icon: Shield },
+      { id: "erp",       label: "Importar ERP / Mapeo",  icon: FileSpreadsheet },
+    ] as const;
+    const tail = isSuperadmin
+      ? [
+          { id: "distribuidoras", label: "Distribuidoras", icon: Building2 },
+          { id: "integrantes",    label: "Integrantes Bot", icon: Users },
+        ] as const
+      : [];
+    if (isSuperadmin) {
+      return [
+        ...head,
+        { id: "padron", label: "Padrón de Clientes", icon: BookUser },
+        ...mid,
+        ...tail,
+      ];
+    }
+    return [...head, ...mid];
+  }, [isSuperadmin]);
 
   const [tab, setTab] = useState("supervision");
 
@@ -55,6 +69,10 @@ export default function AdminPage() {
       router.replace("/dashboard");
     }
   }, [user, router]);
+
+  useEffect(() => {
+    if (!isSuperadmin && tab === "padron") setTab("supervision");
+  }, [isSuperadmin, tab]);
 
   if (user?.rol === "supervisor") return null;
   if (!user) return null;
@@ -96,9 +114,11 @@ export default function AdminPage() {
               <TabsContent value="jerarquia_global" className="min-h-[500px] mt-0">
                 <UnifiedDashboard isSuperadmin={isSuperadmin} currentDistId={user.id_distribuidor || 0} />
               </TabsContent>
-              <TabsContent value="padron" className="min-h-[500px] mt-0">
-                <TabPadron distId={user.id_distribuidor || 0} />
-              </TabsContent>
+              {isSuperadmin && (
+                <TabsContent value="padron" className="min-h-[500px] mt-0">
+                  <TabPadron distId={user.id_distribuidor || 0} />
+                </TabsContent>
+              )}
               <TabsContent value="mapeo" className="min-h-[500px] mt-0">
                 <TabMapeoVendedores distId={user.id_distribuidor || 0} isSuperadmin={isSuperadmin} />
               </TabsContent>

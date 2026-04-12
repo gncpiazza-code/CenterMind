@@ -1327,7 +1327,11 @@ def listar_objetivos(
                 logger.warning(f"[listar_objetivos] No se pudo consultar exhibiciones pendientes: {e_pend}")
         for obj in items:
             if obj.get("tipo") == "exhibicion":
-                obj["tiene_exhibicion_pendiente"] = obj.get("id_target_pdv") in pdvs_con_pendiente
+                obj["tiene_exhibicion_pendiente"] = (
+                    obj.get("id_target_pdv") in pdvs_con_pendiente
+                    if obj.get("id_target_pdv")
+                    else False
+                )
 
         # ── Enriquecer con ítems de objetivo_items ───────────────────────────
         obj_ids = [o["id"] for o in items]
@@ -1352,6 +1356,42 @@ def listar_objetivos(
                     obj["items"] = []
                     obj["items_count"] = 0
                     obj["items_cumplidos"] = 0
+
+        # Exhibición global (sin id_target_pdv ni ítems): pendiente de evaluación
+        # si existe al menos una exhibición Pendiente vinculada por id_objetivo.
+        try:
+            global_exhib_ids = [
+                str(o["id"])
+                for o in items
+                if o.get("tipo") == "exhibicion"
+                and not o.get("cumplido")
+                and not o.get("id_target_pdv")
+                and (o.get("items_count") or 0) == 0
+            ]
+            objs_con_foto_pend_global: set[str] = set()
+            if global_exhib_ids:
+                pend_g = (
+                    sb.table("exhibiciones")
+                    .select("id_objetivo")
+                    .eq("id_distribuidor", dist_id)
+                    .eq("estado", "Pendiente")
+                    .in_("id_objetivo", global_exhib_ids)
+                    .execute()
+                )
+                for r in pend_g.data or []:
+                    oid = r.get("id_objetivo")
+                    if oid is not None:
+                        objs_con_foto_pend_global.add(str(oid))
+            for obj in items:
+                if (
+                    obj.get("tipo") == "exhibicion"
+                    and not obj.get("cumplido")
+                    and not obj.get("id_target_pdv")
+                    and (obj.get("items_count") or 0) == 0
+                ):
+                    obj["tiene_exhibicion_pendiente"] = str(obj["id"]) in objs_con_foto_pend_global
+        except Exception as e_pend_g:
+            logger.warning(f"[listar_objetivos] exhibiciones pendientes (global): {e_pend_g}")
 
         # ── Para objetivos de tipo ruteo: adjuntar último PDF ────────────────
         ruteo_ids = [o["id"] for o in items if o.get("tipo") == "ruteo"]

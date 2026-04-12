@@ -1723,6 +1723,7 @@ class BotWorker:
                     id_pdv_obj = pdv_obj_res.data[0]["id_cliente"]
                     pdv_nombre_obj = pdv_obj_res.data[0].get("nombre_fantasia") or nro_cliente
                     self.logger.info(f"[ObjInterceptor] PDV id={id_pdv_obj} '{pdv_nombre_obj}'")
+                    obj_match_es_global = False
                     # Build base query — vendor filter applied only when known
                     def _obj_q():
                         q = self.db.sb.table("objetivos") \
@@ -1777,6 +1778,46 @@ class BotWorker:
                             except Exception as e_items:
                                 self.logger.warning(f"[ObjInterceptor] Error en match via items: {e_items}")
 
+                        # Match strategy 3: objetivo global (sin PDV fijo ni filas en objetivo_items).
+                        # Requiere id_vendedor_v2 para no asociar la foto a metas de otro vendedor.
+                        if not obj_match_res.data and id_vendedor_v2_obj is not None:
+                            try:
+                                global_cand = (
+                                    _obj_q()
+                                    .is_("id_target_pdv", "null")
+                                    .order("created_at", desc=True)
+                                    .limit(25)
+                                    .execute()
+                                )
+                                for row in global_cand.data or []:
+                                    oid = row.get("id")
+                                    if not oid:
+                                        continue
+                                    it_chk = (
+                                        self.db.sb.table("objetivo_items")
+                                        .select("id")
+                                        .eq("id_objetivo", oid)
+                                        .limit(1)
+                                        .execute()
+                                    )
+                                    if it_chk.data:
+                                        continue
+                                    obj_match_res = (
+                                        self.db.sb.table("objetivos")
+                                        .select("id")
+                                        .eq("id", oid)
+                                        .limit(1)
+                                        .execute()
+                                    )
+                                    obj_match_es_global = True
+                                    self.logger.info(
+                                        f"[ObjInterceptor] ✅ Match por objetivo global exhibicion "
+                                        f"id={oid} (sin id_target_pdv, sin ítems)"
+                                    )
+                                    break
+                            except Exception as e_glob:
+                                self.logger.warning(f"[ObjInterceptor] Error match global: {e_glob}")
+
                         if not obj_match_res.data:
                             self.logger.info(
                                 f"[ObjInterceptor] Sin objetivo activo para PDV={id_pdv_obj} "
@@ -1787,11 +1828,18 @@ class BotWorker:
                     if obj_match_res.data:
                         obj_id_match = obj_match_res.data[0]["id"]
                         obj_ids_watcher_refresh.append(obj_id_match)
-                        objetivo_badge = (
-                            f"\n\n🎯 <b>¡Objetivo de Exhibición!</b>\n"
-                            f"Este PDV (<b>{pdv_nombre_obj}</b>) está en tus metas. "
-                            f"Ha pasado a revisión del supervisor."
-                        )
+                        if obj_match_es_global:
+                            objetivo_badge = (
+                                f"\n\n🎯 <b>¡Objetivo de Exhibición!</b>\n"
+                                f"Esta exhibición cuenta para tu meta general. "
+                                f"Quedó a la espera de evaluación del supervisor."
+                            )
+                        else:
+                            objetivo_badge = (
+                                f"\n\n🎯 <b>¡Objetivo de Exhibición!</b>\n"
+                                f"Este PDV (<b>{pdv_nombre_obj}</b>) está en tus metas. "
+                                f"Ha pasado a revisión del supervisor."
+                            )
 
                         # 1. Patch id_cliente_pdv + id_objetivo en exhibiciones
                         try:
@@ -1843,29 +1891,37 @@ class BotWorker:
 
                         # 2c. valor_actual coherente con PDVs únicos (N fotos del mismo PDV = 1).
                         #     Antes: +=1 por tanda → 2 fotos en un mensaje contaban como 2 PDVs.
-                        try:
-                            items_vc = self.db.sb.table("objetivo_items") \
-                                .select("estado_item") \
-                                .eq("id_objetivo", obj_id_match) \
-                                .execute()
-                            rows_it = items_vc.data or []
-                            if rows_it:
-                                new_val = sum(
-                                    1 for it in rows_it
-                                    if it.get("estado_item") in ("foto_subida", "cumplido")
+                        #     Objetivo global (sin ítems): no forzar valor_actual aquí — el watcher
+                        #     recalcula por PDVs únicos y no pisaría mal un umbral > 1.
+                        if not obj_match_es_global:
+                            try:
+                                items_vc = self.db.sb.table("objetivo_items") \
+                                    .select("estado_item") \
+                                    .eq("id_objetivo", obj_id_match) \
+                                    .execute()
+                                rows_it = items_vc.data or []
+                                if rows_it:
+                                    new_val = sum(
+                                        1 for it in rows_it
+                                        if it.get("estado_item") in ("foto_subida", "cumplido")
+                                    )
+                                else:
+                                    # Objetivo sólo con id_target_pdv (sin filas en objetivo_items)
+                                    new_val = 1
+                                self.db.sb.table("objetivos") \
+                                    .update({"valor_actual": float(new_val)}) \
+                                    .eq("id", obj_id_match).execute()
+                                self.logger.info(
+                                    f"[ObjInterceptor] valor_actual → {new_val} (recalculado, "
+                                    f"{procesadas} foto(s) mismo PDV cuenta una vez) obj={obj_id_match}"
                                 )
-                            else:
-                                # Objetivo sólo con id_target_pdv (sin filas en objetivo_items)
-                                new_val = 1
-                            self.db.sb.table("objetivos") \
-                                .update({"valor_actual": float(new_val)}) \
-                                .eq("id", obj_id_match).execute()
+                            except Exception as e_upd:
+                                self.logger.warning(f"⚠️ Error actualizando valor_actual: {e_upd}")
+                        else:
                             self.logger.info(
-                                f"[ObjInterceptor] valor_actual → {new_val} (recalculado, "
-                                f"{procesadas} foto(s) mismo PDV cuenta una vez) obj={obj_id_match}"
+                                f"[ObjInterceptor] valor_actual delegado al watcher (objetivo global) "
+                                f"obj={obj_id_match}"
                             )
-                        except Exception as e_upd:
-                            self.logger.warning(f"⚠️ Error actualizando valor_actual: {e_upd}")
 
                         # 3. Notificar al supervisor vía WebSocket
                         from services.objetivos_notification_service import objetivos_notification

@@ -394,6 +394,8 @@ class ObjetivosWatcherService:
           Fase 2 (Aprobado):  foto aprobada — incrementa valor_actual y puede marcar cumplido.
 
         Si el objetivo tiene ítems en objetivo_items, scope a esos PDVs específicamente.
+        Si no hay ítems ni id_target_pdv (meta global de exhibición), sólo cuenta exhibiciones
+        con id_objetivo = esta meta (seteado por el bot al subir la foto).
         """
         obj_id = obj["id"]
         try:
@@ -429,6 +431,9 @@ class ObjetivosWatcherService:
                 )
                 if item_pdv_ids:
                     q = q.in_("id_cliente_pdv", item_pdv_ids)
+                elif obj.get("id_target_pdv") is None:
+                    # Exhibición global: no mezclar con otras metas ni fotos sin enlazar.
+                    q = q.eq("id_objetivo", obj_id)
                 return q.execute()
 
             # ── Fase 1: fotos Pendientes ──────────────────────────────────────

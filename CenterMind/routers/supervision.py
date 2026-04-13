@@ -179,7 +179,8 @@ def _enrich_exhibicion_objetivo_vinculos(dist_id: int, ids_exhibicion: list[int]
         rows = (
             sb.table("exhibiciones")
             .select(
-                "id_exhibicion, id_cliente_pdv, id_objetivo, id_integrante, nro_cliente"
+                "id_exhibicion, id_cliente_pdv, id_objetivo, id_integrante, "
+                "id_cliente, cliente_sombra_codigo"
             )
             .in_("id_exhibicion", ids_exhibicion)
             .execute()
@@ -190,7 +191,13 @@ def _enrich_exhibicion_objetivo_vinculos(dist_id: int, ids_exhibicion: list[int]
                 continue
             pid = ex.get("id_cliente_pdv")
             oid = ex.get("id_objetivo")
-            nro = ex.get("nro_cliente")
+            # En tabla real no hay nro_cliente (fn_pendientes lo expone como alias).
+            ic = ex.get("id_cliente")
+            if ic is not None and str(ic).strip() not in ("", "0"):
+                raw_nro = ic
+            else:
+                raw_nro = ex.get("cliente_sombra_codigo")
+            nro = str(raw_nro).strip() if raw_nro is not None and str(raw_nro).strip() else None
             id_int = ex.get("id_integrante")
 
             patch: dict = {}

@@ -1,17 +1,25 @@
-import React, { useState, useEffect } from 'react';
+"use client";
+
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ImageOff, Clock, MapPin, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ImageOff, Clock, MapPin, ChevronLeft, ChevronRight, Activity } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
+import { Skeleton } from '@/components/ui/skeleton';
 import { resolveImageUrl, type UltimaEvaluada } from '@/lib/api';
+import Link from 'next/link';
 
 interface HeroCarouselProps {
   items: UltimaEvaluada[];
 }
 
+const AUTOPLAY_MS = 8000;
+
 export function HeroCarousel({ items }: HeroCarouselProps) {
   const [ci, setCi] = useState(0);
   const [imgErr, setImgErr] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  // Mejora #10: Barra de progreso de autoplay
+  const [progressKey, setProgressKey] = useState(0);
 
   // Auto-play
   useEffect(() => {
@@ -20,24 +28,45 @@ export function HeroCarousel({ items }: HeroCarouselProps) {
       setCi(curr => (curr + 1) % items.length);
       setImgErr(false);
       setLoaded(false);
-    }, 8000);
+      setProgressKey(k => k + 1);
+    }, AUTOPLAY_MS);
     return () => clearInterval(timer);
   }, [items.length]);
 
+  // Mejora #13: Empty state mejorado
   if (items.length === 0) return (
-    <Card className="h-full flex flex-col items-center justify-center bg-slate-50 border-slate-200 border-dashed border-2 shadow-inner min-h-[500px]">
-      <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mb-6">
-        <ImageOff size={32} className="text-slate-300" />
+    <Card className="h-full flex flex-col items-center justify-center bg-slate-50 border-slate-200 border-dashed border-2 shadow-inner min-h-[500px] gap-4">
+      <div className="w-20 h-20 bg-violet-50 rounded-full flex items-center justify-center">
+        <Activity size={32} className="text-violet-300 animate-pulse" />
       </div>
-      <span className="text-slate-500 font-bold uppercase tracking-widest text-xs">No hay actividad reciente en este filtro</span>
+      <div className="flex flex-col items-center gap-1">
+        <span className="text-slate-700 font-black uppercase tracking-widest text-xs">
+          Sin actividad reciente
+        </span>
+        <span className="text-slate-400 font-bold text-xs">
+          Las fotos evaluadas aparecerán aquí
+        </span>
+      </div>
+      <Link
+        href="/visor"
+        className="mt-2 px-5 py-2 rounded-2xl border border-violet-300 text-violet-600 font-black text-[10px] uppercase tracking-widest hover:bg-violet-50 transition-all"
+      >
+        Ir al Visor
+      </Link>
     </Card>
   );
 
   const item = items[ci];
   const imgSrc = resolveImageUrl(item.drive_link, item.id_exhibicion);
 
-  const prev = () => { setCi((i) => (i === 0 ? items.length - 1 : i - 1)); setImgErr(false); setLoaded(false); };
-  const next = () => { setCi((i) => (i === items.length - 1 ? 0 : i + 1)); setImgErr(false); setLoaded(false); };
+  const prev = () => {
+    setCi((i) => (i === 0 ? items.length - 1 : i - 1));
+    setImgErr(false); setLoaded(false); setProgressKey(k => k + 1);
+  };
+  const next = () => {
+    setCi((i) => (i === items.length - 1 ? 0 : i + 1));
+    setImgErr(false); setLoaded(false); setProgressKey(k => k + 1);
+  };
 
   const getStatusColor = (e: string) => {
     if (e === "Destacado") return "from-purple-600 to-fuchsia-600";
@@ -61,6 +90,26 @@ export function HeroCarousel({ items }: HeroCarouselProps) {
   return (
     <div className="relative w-full h-full rounded-[2.5rem] overflow-hidden shadow-2xl ring-1 ring-slate-200/50 flex flex-col bg-slate-950 group">
 
+      {/* Mejora #10: Barra de progreso autoplay — parte superior */}
+      <div className="absolute top-0 left-0 right-0 h-0.5 bg-white/20 z-30">
+        <div
+          key={progressKey}
+          className="h-0.5 bg-white"
+          style={{
+            width: '0%',
+            animation: `shelfy-progress ${AUTOPLAY_MS}ms linear forwards`,
+          }}
+        />
+      </div>
+
+      {/* Keyframes inline para la barra de progreso */}
+      <style>{`
+        @keyframes shelfy-progress {
+          from { width: 0%; }
+          to   { width: 100%; }
+        }
+      `}</style>
+
       {/* IMAGEN DE FONDO & CONTENIDO */}
       <AnimatePresence mode="wait">
         <motion.div
@@ -73,13 +122,17 @@ export function HeroCarousel({ items }: HeroCarouselProps) {
         >
           {!imgErr && imgSrc ? (
             <div className="relative w-full h-full overflow-hidden flex items-center justify-center bg-slate-900/50">
-              {/* Layer 1: Blurred Background (Full covers) */}
+              {/* Layer 1: Blurred Background */}
               <img
                 src={imgSrc}
                 alt="Exhibicion Background"
                 className="absolute inset-0 w-full h-full object-cover opacity-30 blur-2xl scale-110"
               />
-              {/* Layer 2: Sharp Foregound (Contained) */}
+              {/* Mejora #12: Skeleton durante carga */}
+              {!loaded && !imgErr && (
+                <Skeleton className="absolute inset-0 z-10 rounded-none" />
+              )}
+              {/* Layer 2: Sharp Foreground */}
               <img
                 src={imgSrc}
                 alt="Exhibicion"
@@ -118,10 +171,11 @@ export function HeroCarousel({ items }: HeroCarouselProps) {
               </span>
             </div>
 
-            <h2 className="text-4xl md:text-6xl font-black text-white leading-[1.1] mb-4 drop-shadow-2xl tracking-tighter">
+            {/* Mejora #14: Truncate en nombre del vendedor */}
+            <h2 className="text-4xl md:text-6xl font-black text-white leading-[1.1] mb-4 drop-shadow-2xl tracking-tighter line-clamp-1 truncate">
               {item.vendedor}
             </h2>
-            
+
             <div className="flex flex-wrap items-center gap-3 md:gap-4">
               <div className="flex items-center gap-2.5 bg-white/10 backdrop-blur-xl px-4 py-2.5 rounded-2xl border border-white/20 shadow-xl group/badge hover:bg-white/20 transition-all cursor-default">
                 <div className="w-2.5 h-2.5 rounded-full bg-blue-400 group-hover/badge:scale-125 transition-transform" />
@@ -132,7 +186,7 @@ export function HeroCarousel({ items }: HeroCarouselProps) {
                   {item.tipo_pdv}
                 </span>
               </div>
-              
+
               {item.ciudad && (
                 <div className="flex items-center gap-2 text-white/50 text-xs font-black uppercase tracking-[0.15em] ml-2">
                   <MapPin size={14} className="text-white/30" /> {item.ciudad}
@@ -153,13 +207,13 @@ export function HeroCarousel({ items }: HeroCarouselProps) {
         </button>
       </div>
 
-      {/* INDICADORES */}
-      <div className="absolute top-8 right-10 flex gap-2 z-20">
+      {/* Mejora #11: Indicadores al centro-inferior */}
+      <div className="absolute bottom-[140px] left-1/2 -translate-x-1/2 flex gap-2 z-20">
         {items.map((_, i) => (
           <button
             key={i}
-            onClick={() => setCi(i)}
-            className={`h-1 rounded-full transition-all duration-500 shadow-sm ${i === ci ? 'w-10 bg-white' : 'w-2 bg-white/20 hover:bg-white/40'}`} 
+            onClick={() => { setCi(i); setProgressKey(k => k + 1); }}
+            className={`h-1 rounded-full transition-all duration-500 shadow-sm ${i === ci ? 'w-10 bg-white' : 'w-2 bg-white/20 hover:bg-white/40'}`}
           />
         ))}
       </div>

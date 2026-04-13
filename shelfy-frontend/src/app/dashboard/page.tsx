@@ -5,8 +5,8 @@ import { BottomNav } from "@/components/layout/BottomNav";
 import { Topbar } from "@/components/layout/Topbar";
 import { Card } from "@/components/ui/Card";
 import { useAuth } from "@/hooks/useAuth";
-import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
   fetchKPIs, fetchRanking, fetchUltimasEvaluadas, fetchPorSucursal,
@@ -57,12 +57,10 @@ function formatPeriodoLabel(periodo: string): string {
   if (periodo === "hoy") {
     return `Hoy ${now.toLocaleDateString("es-AR", { day: "2-digit", month: "long", year: "numeric" })}`;
   }
-  // "2026-03"
   if (/^\d{4}-\d{2}$/.test(periodo)) {
     const [y, m] = periodo.split("-").map(Number);
     return `${MESES_ES[m - 1]} ${y}`;
   }
-  // "2026-03-15" — a specific day
   if (/^\d{4}-\d{2}-\d{2}$/.test(periodo)) {
     const [y, m, d] = periodo.split("-").map(Number);
     return `${d} de ${MESES_ES[m - 1]} ${y}`;
@@ -72,11 +70,7 @@ function formatPeriodoLabel(periodo: string): string {
 
 const kpiVariants = {
   hidden: {},
-  show: {
-    transition: {
-      staggerChildren: 0.08,
-    },
-  },
+  show: { transition: { staggerChildren: 0.08 } },
 };
 
 const kpiItemVariants = {
@@ -84,10 +78,21 @@ const kpiItemVariants = {
   show: { opacity: 1, y: 0, transition: { duration: 0.3 } },
 };
 
+// Mejora #23: Variantes para entrada staggered de secciones
+const sectionVariants = {
+  hidden: { opacity: 0, y: 24 },
+  show: (delay: number) => ({
+    opacity: 1,
+    y: 0,
+    transition: { delay: delay * 0.1, duration: 0.4, ease: "easeOut" as const },
+  }),
+};
+
 // ── Página principal ──────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   const initVars = getCurrentYearMonth();
 
   const [year, setYear] = useState(initVars.year);
@@ -99,10 +104,14 @@ export default function DashboardPage() {
   const distId = user?.id_distribuidor || 0;
   const isSuper = user?.is_superadmin;
 
-
   const enabled = !!user;
 
-  const { data: kpis, isLoading: loadingKpis, error: errorKpis } = useQuery<KPIs>({
+  // Mejora #6: onRefresh conectado a queryClient.invalidateQueries
+  function handleRefresh() {
+    queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+  }
+
+  const { data: kpis, isLoading: loadingKpis, isFetching: fetchingKpis, error: errorKpis } = useQuery<KPIs>({
     queryKey: ["dashboard", "kpis", distId, periodo, sucursalFiltro],
     queryFn: () => fetchKPIs(distId, periodo, sucursalFiltro),
     enabled,
@@ -110,7 +119,7 @@ export default function DashboardPage() {
     refetchInterval: 90_000,
   });
 
-  const { data: ranking = [], isLoading: loadingRanking, error: errorRanking } = useQuery<VendedorRanking[]>({
+  const { data: ranking = [], isLoading: loadingRanking, isFetching: fetchingRanking, error: errorRanking } = useQuery<VendedorRanking[]>({
     queryKey: ["dashboard", "ranking", distId, periodo, sucursalFiltro],
     queryFn: () => fetchRanking(distId, periodo, sucursalFiltro),
     enabled,
@@ -118,7 +127,7 @@ export default function DashboardPage() {
     refetchInterval: 90_000,
   });
 
-  const { data: ultimas = [], isLoading: loadingUltimas } = useQuery<UltimaEvaluada[]>({
+  const { data: ultimas = [], isLoading: loadingUltimas, isFetching: fetchingUltimas } = useQuery<UltimaEvaluada[]>({
     queryKey: ["dashboard", "ultimas", distId, sucursalFiltro],
     queryFn: () => fetchUltimasEvaluadas(distId, 12, sucursalFiltro),
     enabled,
@@ -161,6 +170,10 @@ export default function DashboardPage() {
   const loading = loadingKpis || loadingRanking || loadingUltimas || loadingSucursales;
   const error = errorKpis || errorRanking;
 
+  // Mejora #24: estados de refetch (datos placeholder visibles pero actualizando)
+  const isFetchingLeft = fetchingUltimas && !loadingUltimas;
+  const isFetchingRight = (fetchingKpis && !loadingKpis) || (fetchingRanking && !loadingRanking);
+
   function handleDateChange(y: number, m: number, d: number) {
     setYear(y); setMonth(m); setDay(d);
     setSucursalFiltro("");
@@ -176,21 +189,29 @@ export default function DashboardPage() {
       <Sidebar />
       <BottomNav />
       <div className="flex flex-col flex-1 min-w-0 relative h-full">
-        {/* Decorative background vectors */}
-        <div className="absolute top-[-20%] right-[-10%] w-[50%] h-[50%] rounded-full bg-blue-500/5 blur-[100px] pointer-events-none" />
-        <div className="absolute bottom-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-emerald-500/5 blur-[100px] pointer-events-none" />
+        {/* Mejora #9: Background blobs violet/indigo */}
+        <div className="absolute top-[-20%] right-[-10%] w-[50%] h-[50%] rounded-full bg-violet-500/5 blur-[100px] pointer-events-none" />
+        <div className="absolute bottom-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-indigo-500/5 blur-[100px] pointer-events-none" />
 
         <Topbar title="Dashboard en Vivo" />
 
         <main className="flex-1 p-4 md:p-6 pb-24 md:pb-6 overflow-y-auto w-full max-w-[1800px] mx-auto z-10 custom-scrollbar">
 
-          <FiltrosBar
-            year={year} month={month} day={day}
-            sucursalFiltro={sucursalFiltro} sucursales={sucursales}
-            onDateChange={handleDateChange}
-            onSucursal={setSucursalFiltro}
-            onRefresh={() => {}}
-          />
+          {/* Mejora #23: FiltrosBar entra primero (delay 0) */}
+          <motion.div
+            variants={sectionVariants}
+            initial="hidden"
+            animate="show"
+            custom={0}
+          >
+            <FiltrosBar
+              year={year} month={month} day={day}
+              sucursalFiltro={sucursalFiltro} sucursales={sucursales}
+              onDateChange={handleDateChange}
+              onSucursal={setSucursalFiltro}
+              onRefresh={handleRefresh}
+            />
+          </motion.div>
 
           {error && (
             <Alert variant="destructive" className="mb-6 rounded-3xl">
@@ -201,11 +222,24 @@ export default function DashboardPage() {
             </Alert>
           )}
 
-          {/* Layout 50/50 principal */}
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 h-auto xl:h-[calc(100vh-220px)] min-h-[850px]">
+          {/* Mejora #26: Grid 3fr 2fr en lugar de 50/50 */}
+          <div className="grid grid-cols-1 xl:grid-cols-[3fr_2fr] gap-8 h-auto xl:h-[calc(100vh-220px)] min-h-[850px]">
 
-            {/* LADO IZQUIERDO: Carrusel masivo y Gráficos */}
-            <div className="flex flex-col gap-6 xl:h-full">
+            {/* LADO IZQUIERDO: Carrusel masivo y Gráficos — Mejora #23 delay 1 */}
+            <motion.div
+              className="flex flex-col gap-6 xl:h-full relative"
+              variants={sectionVariants}
+              initial="hidden"
+              animate="show"
+              custom={1}
+            >
+              {/* Mejora #24: Loading overlay izquierdo */}
+              {isFetchingLeft && (
+                <div className="absolute inset-0 bg-white/30 rounded-[2rem] backdrop-blur-[1px] z-50 flex items-center justify-center pointer-events-none">
+                  <div className="w-4 h-4 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
+                </div>
+              )}
+
               <div className="flex-1 min-h-[500px]">
                 {loading && ultimas.length === 0 ? (
                   <Card className="h-full flex items-center justify-center p-12 bg-white rounded-[2.5rem]">
@@ -218,16 +252,29 @@ export default function DashboardPage() {
 
               <div className="shrink-0">
                 <ChartCarousel
-                   sucursales={sucursales}
-                   evolucion={evolucion}
-                   ciudades={ciudades}
-                   empresas={empresas}
-                 />
+                  sucursales={sucursales}
+                  evolucion={evolucion}
+                  ciudades={ciudades}
+                  empresas={empresas}
+                />
               </div>
-            </div>
+            </motion.div>
 
-            {/* LADO DERECHO: Métricas & Ranking */}
-            <div className="flex flex-col gap-6 xl:h-full">
+            {/* LADO DERECHO: Métricas & Ranking — Mejora #23 delay 2 */}
+            <motion.div
+              className="flex flex-col gap-6 xl:h-full relative"
+              variants={sectionVariants}
+              initial="hidden"
+              animate="show"
+              custom={2}
+            >
+              {/* Mejora #24: Loading overlay derecho */}
+              {isFetchingRight && (
+                <div className="absolute inset-0 bg-white/30 rounded-[2rem] backdrop-blur-[1px] z-50 flex items-center justify-center pointer-events-none">
+                  <div className="w-4 h-4 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
+                </div>
+              )}
+
               {/* KPIs ROW */}
               {kpis ? (
                 <motion.div
@@ -240,7 +287,14 @@ export default function DashboardPage() {
                     <KpiCard label="Pendientes" value={kpis.pendientes} icon={<Clock size={20} />} color="#f59e0b" bgColor="bg-white" />
                   </motion.div>
                   <motion.div variants={kpiItemVariants}>
-                    <KpiCard label="Aprobadas" value={kpis.aprobadas} icon={<CheckCircle size={20} />} color="#10b981" bgColor="bg-white" />
+                    <KpiCard
+                      label="Aprobadas"
+                      value={kpis.aprobadas}
+                      icon={<CheckCircle size={20} />}
+                      color="#10b981"
+                      bgColor="bg-white"
+                      total={kpis.aprobadas + kpis.rechazadas}
+                    />
                   </motion.div>
                   <motion.div variants={kpiItemVariants}>
                     <KpiCard label="Destacadas" value={kpis.destacadas} icon={<Star size={20} />} color="#8b5cf6" bgColor="bg-gradient-to-br from-violet-50/50 to-fuchsia-50/50" />
@@ -271,7 +325,7 @@ export default function DashboardPage() {
                   nombreEmpresa={user?.nombre_empresa || "Distribuidora"}
                 />
               </div>
-            </div>
+            </motion.div>
 
           </div>
 

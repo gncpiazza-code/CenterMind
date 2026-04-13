@@ -5,7 +5,7 @@ import { BottomNav } from "@/components/layout/BottomNav";
 import { Topbar } from "@/components/layout/Topbar";
 import { Card } from "@/components/ui/Card";
 import { useAuth } from "@/hooks/useAuth";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
@@ -15,24 +15,21 @@ import {
 import type {
   KPIs, VendedorRanking, UltimaEvaluada, SucursalStats, EvolucionTiempo, RendimientoCiudad,
 } from "@/lib/api";
-import {
-  Clock, CheckCircle, Star, XCircle
-} from "lucide-react";
+import { Clock, CheckCircle, Star, XCircle, TrendingUp } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
-// Dashboard Components
 import { KpiCard } from "@/components/dashboard/KpiCard";
 import { HeroCarousel } from "@/components/dashboard/HeroCarousel";
 import { ChartCarousel } from "@/components/dashboard/ChartCarousel";
 import { RankingTable } from "@/components/dashboard/RankingTable";
 import { FiltrosBar } from "@/components/dashboard/FiltrosBar";
 
-// ── Helpers ─────────────────────────────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 const MESES_ES = [
-  "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
-  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+  "Enero","Febrero","Marzo","Abril","Mayo","Junio",
+  "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre",
 ];
 
 function getCurrentYearMonth() {
@@ -50,13 +47,8 @@ function periodoString(year: number, month: number, day: number): string {
 
 function formatPeriodoLabel(periodo: string): string {
   const now = new Date();
-
-  if (periodo === "mes") {
-    return `${MESES_ES[now.getMonth()]} ${now.getFullYear()}`;
-  }
-  if (periodo === "hoy") {
-    return `Hoy ${now.toLocaleDateString("es-AR", { day: "2-digit", month: "long", year: "numeric" })}`;
-  }
+  if (periodo === "mes") return `${MESES_ES[now.getMonth()]} ${now.getFullYear()}`;
+  if (periodo === "hoy") return `Hoy ${now.toLocaleDateString("es-AR", { day: "2-digit", month: "long", year: "numeric" })}`;
   if (/^\d{4}-\d{2}$/.test(periodo)) {
     const [y, m] = periodo.split("-").map(Number);
     return `${MESES_ES[m - 1]} ${y}`;
@@ -68,22 +60,13 @@ function formatPeriodoLabel(periodo: string): string {
   return periodo;
 }
 
-const kpiVariants = {
-  hidden: {},
-  show: { transition: { staggerChildren: 0.08 } },
-};
+const kpiVariants     = { hidden: {}, show: { transition: { staggerChildren: 0.08 } } };
+const kpiItemVariants = { hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0, transition: { duration: 0.3 } } };
 
-const kpiItemVariants = {
-  hidden: { opacity: 0, y: 20 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.3 } },
-};
-
-// Mejora #23: Variantes para entrada staggered de secciones
 const sectionVariants = {
   hidden: { opacity: 0, y: 24 },
   show: (delay: number) => ({
-    opacity: 1,
-    y: 0,
+    opacity: 1, y: 0,
     transition: { delay: delay * 0.1, duration: 0.4, ease: "easeOut" as const },
   }),
 };
@@ -91,125 +74,137 @@ const sectionVariants = {
 // ── Página principal ──────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
-  const { user } = useAuth();
-  const queryClient = useQueryClient();
-  const initVars = getCurrentYearMonth();
+  const { user }       = useAuth();
+  const queryClient    = useQueryClient();
+  const initVars       = getCurrentYearMonth();
 
-  const [year, setYear] = useState(initVars.year);
-  const [month, setMonth] = useState(initVars.month);
-  const [day, setDay] = useState(initVars.day);
+  const [year, setYear]                 = useState(initVars.year);
+  const [month, setMonth]               = useState(initVars.month);
+  const [day, setDay]                   = useState(initVars.day);
   const [sucursalFiltro, setSucursalFiltro] = useState("");
 
-  const periodo = periodoString(year, month, day);
-  const distId = user?.id_distribuidor || 0;
-  const isSuper = user?.is_superadmin;
+  // Mejora #18: último update exitoso
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const prevKpisRef = useRef<KPIs | undefined>(undefined);
 
+  const periodo = periodoString(year, month, day);
+  const distId  = user?.id_distribuidor || 0;
+  const isSuper = user?.is_superadmin;
   const enabled = !!user;
 
-  // Mejora #6: onRefresh conectado a queryClient.invalidateQueries
+  // Mejora #17: estado de refresh manual
+  const [isManualRefreshing, setIsManualRefreshing] = useState(false);
+
   function handleRefresh() {
+    setIsManualRefreshing(true);
     queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+    // El flag se resetea cuando los queries terminan (ver useEffect abajo)
   }
 
   const { data: kpis, isLoading: loadingKpis, isFetching: fetchingKpis, error: errorKpis } = useQuery<KPIs>({
-    queryKey: ["dashboard", "kpis", distId, periodo, sucursalFiltro],
+    queryKey: ["dashboard","kpis",distId,periodo,sucursalFiltro],
     queryFn: () => fetchKPIs(distId, periodo, sucursalFiltro),
-    enabled,
-    placeholderData: (prev: unknown) => prev as KPIs | undefined,
-    refetchInterval: 90_000,
+    enabled, placeholderData: (prev: unknown) => prev as KPIs | undefined, refetchInterval: 90_000,
   });
 
   const { data: ranking = [], isLoading: loadingRanking, isFetching: fetchingRanking, error: errorRanking } = useQuery<VendedorRanking[]>({
-    queryKey: ["dashboard", "ranking", distId, periodo, sucursalFiltro],
+    queryKey: ["dashboard","ranking",distId,periodo,sucursalFiltro],
     queryFn: () => fetchRanking(distId, periodo, sucursalFiltro),
-    enabled,
-    placeholderData: (prev: unknown) => prev as VendedorRanking[] | undefined,
-    refetchInterval: 90_000,
+    enabled, placeholderData: (prev: unknown) => prev as VendedorRanking[] | undefined, refetchInterval: 90_000,
   });
 
   const { data: ultimas = [], isLoading: loadingUltimas, isFetching: fetchingUltimas } = useQuery<UltimaEvaluada[]>({
-    queryKey: ["dashboard", "ultimas", distId, sucursalFiltro],
+    queryKey: ["dashboard","ultimas",distId,sucursalFiltro],
     queryFn: () => fetchUltimasEvaluadas(distId, 12, sucursalFiltro),
-    enabled,
-    placeholderData: (prev: unknown) => prev as UltimaEvaluada[] | undefined,
-    refetchInterval: 90_000,
+    enabled, placeholderData: (prev: unknown) => prev as UltimaEvaluada[] | undefined, refetchInterval: 90_000,
   });
 
   const { data: sucursales = [], isLoading: loadingSucursales } = useQuery<SucursalStats[]>({
-    queryKey: ["dashboard", "sucursales", distId, periodo, sucursalFiltro],
+    queryKey: ["dashboard","sucursales",distId,periodo,sucursalFiltro],
     queryFn: () => fetchPorSucursal(distId, periodo, sucursalFiltro),
-    enabled,
-    placeholderData: (prev: unknown) => prev as SucursalStats[] | undefined,
-    refetchInterval: 90_000,
+    enabled, placeholderData: (prev: unknown) => prev as SucursalStats[] | undefined, refetchInterval: 90_000,
   });
 
   const { data: evolucion = [] } = useQuery<EvolucionTiempo[]>({
-    queryKey: ["dashboard", "evolucion", distId, periodo, sucursalFiltro],
+    queryKey: ["dashboard","evolucion",distId,periodo,sucursalFiltro],
     queryFn: () => fetchEvolucionTiempo(distId, periodo, sucursalFiltro),
-    enabled,
-    placeholderData: (prev: unknown) => prev as EvolucionTiempo[] | undefined,
-    refetchInterval: 90_000,
+    enabled, placeholderData: (prev: unknown) => prev as EvolucionTiempo[] | undefined, refetchInterval: 90_000,
   });
 
   const { data: ciudades = [] } = useQuery<RendimientoCiudad[]>({
-    queryKey: ["dashboard", "ciudades", distId, periodo, sucursalFiltro],
+    queryKey: ["dashboard","ciudades",distId,periodo,sucursalFiltro],
     queryFn: () => fetchRendimientoCiudad(distId, periodo, sucursalFiltro),
-    enabled,
-    placeholderData: (prev: unknown) => prev as RendimientoCiudad[] | undefined,
-    refetchInterval: 90_000,
+    enabled, placeholderData: (prev: unknown) => prev as RendimientoCiudad[] | undefined, refetchInterval: 90_000,
   });
 
   const { data: empresas = [] } = useQuery<RendimientoCiudad[]>({
-    queryKey: ["dashboard", "empresas", periodo, sucursalFiltro],
+    queryKey: ["dashboard","empresas",periodo,sucursalFiltro],
     queryFn: () => isSuper ? fetchPorEmpresa(periodo, sucursalFiltro) : Promise.resolve([]),
-    enabled,
-    placeholderData: (prev: unknown) => prev as RendimientoCiudad[] | undefined,
-    refetchInterval: 90_000,
+    enabled, placeholderData: (prev: unknown) => prev as RendimientoCiudad[] | undefined, refetchInterval: 90_000,
   });
 
   const loading = loadingKpis || loadingRanking || loadingUltimas || loadingSucursales;
-  const error = errorKpis || errorRanking;
+  const error   = errorKpis || errorRanking;
 
-  // Mejora #24: estados de refetch (datos placeholder visibles pero actualizando)
-  const isFetchingLeft = fetchingUltimas && !loadingUltimas;
+  const isFetchingLeft  = fetchingUltimas && !loadingUltimas;
   const isFetchingRight = (fetchingKpis && !loadingKpis) || (fetchingRanking && !loadingRanking);
+  const isAnyFetching   = fetchingKpis || fetchingRanking || fetchingUltimas;
+
+  // Mejora #18: registrar cuando los datos llegan exitosamente
+  useEffect(() => {
+    if (kpis && kpis !== prevKpisRef.current) {
+      setLastUpdated(new Date());
+      setIsManualRefreshing(false);
+      prevKpisRef.current = kpis;
+    }
+  }, [kpis]);
+
+  // Reset manual refresh si se cancela
+  useEffect(() => {
+    if (!isAnyFetching && isManualRefreshing) {
+      setIsManualRefreshing(false);
+    }
+  }, [isAnyFetching, isManualRefreshing]);
 
   function handleDateChange(y: number, m: number, d: number) {
     setYear(y); setMonth(m); setDay(d);
     setSucursalFiltro("");
   }
 
-  // Filtrar ranking por sucursal
   const rankingFiltrado = sucursalFiltro
-    ? ranking.filter((v) => v.location_id === sucursalFiltro)
+    ? ranking.filter(v => v.location_id === sucursalFiltro)
     : ranking;
 
+  // Mejora #24: tasa de aprobación calculada
+  const tasaAprobacion = kpis && (kpis.aprobadas + kpis.rechazadas) > 0
+    ? Math.round((kpis.aprobadas / (kpis.aprobadas + kpis.rechazadas)) * 100)
+    : null;
+
   return (
-    <div className="flex h-screen bg-slate-50 overflow-hidden font-sans">
+    <div className="flex h-screen overflow-hidden font-sans" style={{ background: "var(--shelfy-bg)" }}>
       <Sidebar />
       <BottomNav />
       <div className="flex flex-col flex-1 min-w-0 relative h-full">
-        {/* Mejora #9: Background blobs violet/indigo */}
-        <div className="absolute top-[-20%] right-[-10%] w-[50%] h-[50%] rounded-full bg-violet-500/5 blur-[100px] pointer-events-none" />
-        <div className="absolute bottom-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-indigo-500/5 blur-[100px] pointer-events-none" />
 
-        <Topbar title="Dashboard en Vivo" />
+        {/* Mejora #19: blobs decorativos más visibles (5% → 10/12%) */}
+        <div className="absolute top-[-15%] right-[-8%] w-[45%] h-[45%] rounded-full bg-violet-500/[0.10] blur-[120px] pointer-events-none" />
+        <div className="absolute bottom-[-10%] left-[-8%] w-[35%] h-[35%] rounded-full bg-indigo-500/[0.08] blur-[100px] pointer-events-none" />
+        <div className="absolute top-[40%] left-[30%] w-[25%] h-[25%] rounded-full bg-fuchsia-500/[0.05] blur-[80px] pointer-events-none" />
+
+        {/* Mejora #4: live prop en el Topbar */}
+        <Topbar title="Dashboard" live />
 
         <main className="flex-1 p-4 md:p-6 pb-24 md:pb-6 overflow-y-auto w-full max-w-[1800px] mx-auto z-10 custom-scrollbar">
 
-          {/* Mejora #23: FiltrosBar entra primero (delay 0) */}
-          <motion.div
-            variants={sectionVariants}
-            initial="hidden"
-            animate="show"
-            custom={0}
-          >
+          <motion.div variants={sectionVariants} initial="hidden" animate="show" custom={0}>
             <FiltrosBar
               year={year} month={month} day={day}
               sucursalFiltro={sucursalFiltro} sucursales={sucursales}
               onDateChange={handleDateChange}
               onSucursal={setSucursalFiltro}
               onRefresh={handleRefresh}
+              isRefreshing={isManualRefreshing || isAnyFetching}
+              lastUpdated={lastUpdated}
             />
           </motion.div>
 
@@ -222,25 +217,21 @@ export default function DashboardPage() {
             </Alert>
           )}
 
-          {/* Mejora #26: Grid 3fr 2fr en lugar de 50/50 */}
-          <div className="grid grid-cols-1 xl:grid-cols-[3fr_2fr] gap-8 h-auto xl:h-[calc(100vh-220px)] min-h-[850px]">
+          {/* Mejora #3: grid con separador visual entre columnas */}
+          <div className="grid grid-cols-1 xl:grid-cols-[3fr_2fr] gap-6 h-auto xl:h-[calc(100vh-200px)] min-h-[850px]">
 
-            {/* LADO IZQUIERDO: Carrusel masivo y Gráficos — Mejora #23 delay 1 */}
+            {/* LADO IZQUIERDO */}
             <motion.div
-              className="flex flex-col gap-6 xl:h-full relative"
-              variants={sectionVariants}
-              initial="hidden"
-              animate="show"
-              custom={1}
+              className="flex flex-col gap-5 xl:h-full relative"
+              variants={sectionVariants} initial="hidden" animate="show" custom={1}
             >
-              {/* Mejora #24: Loading overlay izquierdo */}
               {isFetchingLeft && (
                 <div className="absolute inset-0 bg-white/30 rounded-[2rem] backdrop-blur-[1px] z-50 flex items-center justify-center pointer-events-none">
                   <div className="w-4 h-4 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
                 </div>
               )}
 
-              <div className="flex-1 min-h-[500px]">
+              <div className="flex-1 min-h-[460px]">
                 {loading && ultimas.length === 0 ? (
                   <Card className="h-full flex items-center justify-center p-12 bg-white rounded-[2.5rem]">
                     <Skeleton className="h-8 w-full" />
@@ -260,58 +251,68 @@ export default function DashboardPage() {
               </div>
             </motion.div>
 
-            {/* LADO DERECHO: Métricas & Ranking — Mejora #23 delay 2 */}
+            {/* Mejora #3: separador visual vertical (solo xl) */}
+            <div className="hidden xl:block absolute left-[60%] top-0 bottom-0 w-px bg-gradient-to-b from-transparent via-slate-200/60 to-transparent pointer-events-none" />
+
+            {/* LADO DERECHO */}
             <motion.div
-              className="flex flex-col gap-6 xl:h-full relative"
-              variants={sectionVariants}
-              initial="hidden"
-              animate="show"
-              custom={2}
+              className="flex flex-col gap-5 xl:h-full relative"
+              variants={sectionVariants} initial="hidden" animate="show" custom={2}
             >
-              {/* Mejora #24: Loading overlay derecho */}
               {isFetchingRight && (
                 <div className="absolute inset-0 bg-white/30 rounded-[2rem] backdrop-blur-[1px] z-50 flex items-center justify-center pointer-events-none">
                   <div className="w-4 h-4 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
                 </div>
               )}
 
-              {/* KPIs ROW */}
+              {/* KPIs — Mejora #24: 5 cards incluyendo tasa de aprobación */}
               {kpis ? (
                 <motion.div
-                  className="grid grid-cols-2 lg:grid-cols-4 gap-4 shrink-0"
-                  variants={kpiVariants}
-                  initial="hidden"
-                  animate="show"
+                  className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 shrink-0"
+                  variants={kpiVariants} initial="hidden" animate="show"
                 >
                   <motion.div variants={kpiItemVariants}>
-                    <KpiCard label="Pendientes" value={kpis.pendientes} icon={<Clock size={20} />} color="#f59e0b" bgColor="bg-white" />
+                    <KpiCard
+                      label="Pendientes" value={kpis.pendientes}
+                      icon={<Clock size={18} />} colorName="amber" bgColor="bg-white"
+                    />
                   </motion.div>
                   <motion.div variants={kpiItemVariants}>
                     <KpiCard
-                      label="Aprobadas"
-                      value={kpis.aprobadas}
-                      icon={<CheckCircle size={20} />}
-                      color="#10b981"
-                      bgColor="bg-white"
+                      label="Aprobadas" value={kpis.aprobadas}
+                      icon={<CheckCircle size={18} />} colorName="emerald" bgColor="bg-white"
                       total={kpis.aprobadas + kpis.rechazadas}
                     />
                   </motion.div>
                   <motion.div variants={kpiItemVariants}>
-                    <KpiCard label="Destacadas" value={kpis.destacadas} icon={<Star size={20} />} color="#8b5cf6" bgColor="bg-gradient-to-br from-violet-50/50 to-fuchsia-50/50" />
+                    <KpiCard
+                      label="Destacadas" value={kpis.destacadas}
+                      icon={<Star size={18} />} colorName="violet"
+                      bgColor="bg-gradient-to-br from-violet-50/60 to-fuchsia-50/40"
+                    />
                   </motion.div>
                   <motion.div variants={kpiItemVariants}>
-                    <KpiCard label="Rechazadas" value={kpis.rechazadas} icon={<XCircle size={20} />} color="#ef4444" bgColor="bg-white" />
+                    <KpiCard
+                      label="Rechazadas" value={kpis.rechazadas}
+                      icon={<XCircle size={18} />} colorName="red" bgColor="bg-white"
+                    />
+                  </motion.div>
+                  {/* Mejora #24: tasa de aprobación */}
+                  <motion.div variants={kpiItemVariants}>
+                    <KpiCard
+                      label="Tasa Aprob." value={tasaAprobacion ?? 0}
+                      icon={<TrendingUp size={18} />} colorName="blue" bgColor="bg-white"
+                      subtitle={`de ${(kpis.aprobadas + kpis.rechazadas)} evaluadas`}
+                    />
                   </motion.div>
                 </motion.div>
               ) : loadingKpis ? (
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 shrink-0">
-                  {[0, 1, 2, 3].map((i) => (
-                    <Skeleton key={i} className="h-24 w-full rounded-[2rem]" />
-                  ))}
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 shrink-0">
+                  {[0,1,2,3,4].map(i => <Skeleton key={i} className="h-24 w-full rounded-[2rem]" />)}
                 </div>
               ) : null}
 
-              {/* RANKING TOP 15 */}
+              {/* RANKING */}
               <div className="flex-1 min-h-0">
                 <RankingTable
                   ranking={rankingFiltrado}

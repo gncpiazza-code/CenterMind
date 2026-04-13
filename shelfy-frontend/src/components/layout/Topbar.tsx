@@ -6,19 +6,22 @@ import { Button } from "@/components/ui/Button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useUI } from "@/contexts/UIContext";
+import { cn } from "@/lib/utils";
 
 interface TopbarProps {
   title: string;
+  /** Mejora #4: muestra badge "LIVE" pulsante junto al título */
+  live?: boolean;
 }
 
-export function Topbar({ title }: TopbarProps) {
+export function Topbar({ title, live = false }: TopbarProps) {
   const { user, logout } = useAuth();
   const { toggleSidebar } = useUI();
 
   return (
     <TooltipProvider delayDuration={300}>
       <header className="h-14 flex items-center justify-between px-4 md:px-6 border-b border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] shrink-0 z-50">
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           {/* Toggle sidebar */}
           <Tooltip>
             <TooltipTrigger asChild>
@@ -35,12 +38,24 @@ export function Topbar({ title }: TopbarProps) {
             <TooltipContent side="bottom">Toggle Sidebar</TooltipContent>
           </Tooltip>
 
-          <h1 className="text-[var(--shelfy-text)] font-semibold text-base">{title}</h1>
+          {/* Mejora #4: título con badge LIVE opcional */}
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-[var(--shelfy-text)] font-semibold text-base">{title}</h1>
+            {live && (
+              <span className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-200/60 text-emerald-700 text-[9px] font-black uppercase tracking-[0.18em] px-2 py-0.5 rounded-full">
+                <span className="relative flex size-1.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex size-1.5 rounded-full bg-emerald-500" />
+                </span>
+                Live
+              </span>
+            )}
+          </div>
         </div>
 
         {user && (
-          <div className="flex items-center gap-2 md:gap-4">
-            {/* Modo Oficina */}
+          <div className="flex items-center gap-2 md:gap-3">
+            {/* Mejora #21: Modo Oficina visible en mobile también (solo ícono) */}
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -50,10 +65,13 @@ export function Topbar({ title }: TopbarProps) {
                     window.location.href = "/modo-oficina";
                     document.documentElement.requestFullscreen?.().catch(() => {});
                   }}
-                  className="hidden md:flex items-center gap-2 text-[var(--shelfy-muted)] hover:text-[var(--shelfy-primary)] hover:bg-[var(--shelfy-primary)]/5 border border-transparent hover:border-[var(--shelfy-primary)]/20"
+                  className={cn(
+                    "flex items-center gap-2 text-[var(--shelfy-muted)] hover:text-[var(--shelfy-primary)] hover:bg-[var(--shelfy-primary)]/5 border border-transparent hover:border-[var(--shelfy-primary)]/20 transition-all"
+                  )}
                 >
-                  <Monitor size={18} />
-                  <span className="text-xs font-bold uppercase tracking-wider">Modo Oficina</span>
+                  <Monitor size={17} />
+                  {/* texto solo visible en md+ */}
+                  <span className="hidden md:inline text-xs font-bold uppercase tracking-wider">Modo Oficina</span>
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="bottom">Abrir Modo Oficina (Pantalla Completa)</TooltipContent>
@@ -72,7 +90,7 @@ export function Topbar({ title }: TopbarProps) {
               </AvatarFallback>
             </Avatar>
 
-            {/* Logout — mobile only (desktop has it in Sidebar) */}
+            {/* Logout — mobile only */}
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button

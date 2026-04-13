@@ -375,13 +375,13 @@ def supervision_clientes(id_ruta: int, user_payload=Depends(verify_auth)):
             .select(
                 "id_cliente, id_cliente_erp, nombre_fantasia, nombre_razon_social, "
                 "domicilio, localidad, provincia, canal, latitud, longitud, "
-                "fecha_ultima_compra, fecha_alta, id_distribuidor, id_ruta"
+                "fecha_ultima_compra, fecha_alta, id_distribuidor, id_ruta, estado"
             )
             .eq("id_ruta", id_ruta)
             .order("nombre_fantasia")
             .execute()
         )
-        rows = res.data or []
+        rows = [r for r in (res.data or []) if r.get("estado") != "inactivo"]
 
         if rows:
             ids_pdv  = [r["id_cliente"] for r in rows]
@@ -1280,7 +1280,7 @@ def get_pdvs_catalog(
                 return []
             clients_res = (
                 sb.table("clientes_pdv_v2")
-                .select("id_cliente, nombre_cliente, id_cliente_erp, domicilio")
+                .select("id_cliente, nombre_cliente, id_cliente_erp, domicilio, estado")
                 .in_("id_ruta", route_ids)
                 .eq("id_distribuidor", dist_id)
                 .execute()
@@ -1288,11 +1288,11 @@ def get_pdvs_catalog(
         else:
             clients_res = (
                 sb.table("clientes_pdv_v2")
-                .select("id_cliente, nombre_cliente, id_cliente_erp, domicilio")
+                .select("id_cliente, nombre_cliente, id_cliente_erp, domicilio, estado")
                 .eq("id_distribuidor", dist_id)
                 .execute()
             )
-        clients = clients_res.data or []
+        clients = [c for c in (clients_res.data or []) if c.get("estado") != "inactivo"]
 
         # Obtener la exhibición más reciente por nro_cliente (id_cliente_erp)
         fecha_map: dict[str, str] = {}

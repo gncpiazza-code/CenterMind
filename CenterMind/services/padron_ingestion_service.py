@@ -9,6 +9,10 @@ Flujo: un Excel (el Padrón) → jerarquía limpia en Supabase
 
 Características:
 - Idempotente: correr N veces con el mismo archivo produce el mismo resultado
+- Tras upsert: marca `clientes_pdv_v2.estado='inactivo'` para PDV que ya no están en
+  el archivo. El padrón que subís **ya viene filtrado** (solo clientes activos, sin
+  anulados en export), así que ausencia en el Excel = baja operativa para el mapa.
+  Alcance total vs parcial (SUCURSAL_FILTER, Bolívar, La Mágica) igual que antes.
 - Registra cada ejecución en motor_runs (ok / error)
 - Rollback lógico: si falla, el run queda marcado como 'error' con el mensaje
 - No modifica exhibiciones ni ninguna tabla legacy
@@ -256,7 +260,7 @@ class PadronIngestionService:
         resultados: list[dict],
         error_msg: str | None = None,
     ) -> None:
-        keys = ("sucursales", "vendedores", "rutas", "clientes", "exhib_vinculadas")
+        keys = ("sucursales", "vendedores", "rutas", "clientes", "clientes_inactivos_padron", "exhib_vinculadas")
         agg: dict[str, int] = {k: 0 for k in keys}
         dist_ids: list[int] = []
         for r in resultados:
@@ -603,13 +607,17 @@ class PadronIngestionService:
     def _sync_clientes(
         self, df: pd.DataFrame, cols: dict, dist_id: int,
         ruta_map: dict[tuple, int], vend_map: dict[tuple, int], suc_map: dict[str, int]
-    ) -> int:
+    ) -> tuple[int, dict[str, int], set[int]]:
         """
         Upsert masivo de clientes PDV.
 
         Además, adopta clientes 'limbo' existentes: si hay un cliente en
         clientes_pdv con es_limbo=True cuyo id_cliente_erp aparece en este
         padrón, lo reasigna a la ruta correcta y marca es_limbo=False.
+
+        Retorna (total_upserted, mapa id_cliente_erp → id_ruta esperado en este archivo,
+        conjunto de id_ruta presentes en el archivo) para marcar inactivos los PDV
+        que ya no están en el padrón o quedaron en una ruta obsoleta.
         """
         BATCH = 300
         records = []
@@ -679,6 +687,19 @@ class PadronIngestionService:
 
         logger.info(f"[Padrón] Clientes: {len(records)} a procesar, {skip_no_id} sin id_erp, {skip_no_ruta} sin ruta mapeada")
 
+        if not records:
+            return 0, {}, set()
+
+        erp_to_ruta: dict[str, int] = {}
+        rutas_en_archivo: set[int] = set()
+        for payload in records:
+            erp = str(payload.get("id_cliente_erp") or "").strip()
+            rid = payload.get("id_ruta")
+            if not erp or not rid:
+                continue
+            erp_to_ruta[erp] = int(rid)
+            rutas_en_archivo.add(int(rid))
+
         # ── Adoptar clientes limbo ────────────────────────────────────────────
         # Busca registros es_limbo=True cuyo id_cliente_erp aparece en este padrón
         # y los actualiza con los datos reales + los reasigna a la ruta correcta.
@@ -728,7 +749,94 @@ class PadronIngestionService:
                 logger.info(f"[Padrón] Clientes procesados: {total}/{len(records)}...")
 
         logger.info(f"[Padrón] Clientes upserted: {total} (adoptados del limbo: {adopted})")
-        return total
+        return total, erp_to_ruta, rutas_en_archivo
+
+    def _tombstone_padron_absents(
+        self,
+        dist_id: int,
+        erp_to_ruta: dict[str, int],
+        rutas_en_archivo: set[int],
+        partial_scope: bool,
+    ) -> int:
+        """
+        Marca `estado='inactivo'` en clientes_pdv_v2 que ya no corresponden al padrón cargado.
+
+        Operativa típica: el Excel **solo incluye clientes activos** (export sin anulados).
+        Por tanto, quien no aparezca en esta corrida no está en el padrón activo y se
+        marca inactivo en Shelfy para mapa / catálogos.
+
+        - Alcance **completo** (p. ej. Tabaco sin SUCURSAL_FILTER): todo PDV no limbo del
+          distribuidor que no esté en el archivo o esté en una ruta distinta a la del archivo
+          pasa a inactivo.
+        - Alcance **parcial** (Real con filtro de sucursal, Bolívar, La Mágica): sólo se
+          consideran filas cuyo `id_ruta` aparece en este archivo; en esas rutas, los
+          id_cliente_erp ausentes del archivo pasan a inactivo (y duplicados de ruta obsoleta).
+        """
+        if not erp_to_ruta:
+            return 0
+        if partial_scope and not rutas_en_archivo:
+            return 0
+
+        erp_en = set(erp_to_ruta.keys())
+        ts = datetime.now(timezone.utc).isoformat()
+        to_inactivo: list[int] = []
+        offset = 0
+        page = 1000
+        while True:
+            res = (
+                sb.table("clientes_pdv_v2")
+                .select("id_cliente,id_cliente_erp,id_ruta,estado,es_limbo")
+                .eq("id_distribuidor", dist_id)
+                .eq("es_limbo", False)
+                .range(offset, offset + page - 1)
+                .execute()
+            )
+            chunk = res.data or []
+            if not chunk:
+                break
+            for r in chunk:
+                if r.get("estado") == "inactivo":
+                    continue
+                erp = str(r.get("id_cliente_erp") or "").strip()
+                rid = r.get("id_ruta")
+                if not erp or rid is None:
+                    continue
+                if partial_scope:
+                    if rid not in rutas_en_archivo:
+                        continue
+                    if erp in erp_en:
+                        if int(rid) != erp_to_ruta[erp]:
+                            to_inactivo.append(int(r["id_cliente"]))
+                    else:
+                        to_inactivo.append(int(r["id_cliente"]))
+                else:
+                    if erp in erp_en:
+                        if int(rid) != erp_to_ruta[erp]:
+                            to_inactivo.append(int(r["id_cliente"]))
+                    else:
+                        to_inactivo.append(int(r["id_cliente"]))
+            offset += page
+            if len(chunk) < page:
+                break
+
+        ids = list(dict.fromkeys(to_inactivo))
+        upd = 0
+        for i in range(0, len(ids), 200):
+            batch = ids[i : i + 200]
+            try:
+                sb.table("clientes_pdv_v2").update({
+                    "estado": "inactivo",
+                    "updated_at": ts,
+                }).in_("id_cliente", batch).execute()
+                upd += len(batch)
+            except Exception as e:
+                logger.error(f"[Padrón] Tombstone batch error: {e}")
+        if upd:
+            logger.info(
+                f"[Padrón] Clientes marcados inactivo (fuera de padrón o ruta obsoleta): {upd} "
+                f"(partial_scope={partial_scope})"
+            )
+        return upd
 
     # ── Paso 5: Reconciliación retroactiva de exhibiciones ───────────────────
 
@@ -1250,7 +1358,17 @@ class PadronIngestionService:
             suc_count,  suc_map  = self._sync_sucursales(df, cols, dist_id)
             vend_count, vend_map = self._sync_vendedores(df, cols, dist_id, suc_map)
             ruta_count, ruta_map = self._sync_rutas(df, cols, dist_id, vend_map, suc_map)
-            cli_count            = self._sync_clientes(df, cols, dist_id, ruta_map, vend_map, suc_map)
+            cli_count, erp_map, rutas_archivo = self._sync_clientes(
+                df, cols, dist_id, ruta_map, vend_map, suc_map
+            )
+            partial_scope = bool(SUCURSAL_FILTER.get(dist_id)) or (
+                bolivar_fr_id is not None and dist_id == bolivar_fr_id
+            ) or (
+                magica_fr_id is not None and dist_id == magica_fr_id
+            )
+            cli_inactivos = self._tombstone_padron_absents(
+                dist_id, erp_map, rutas_archivo, partial_scope
+            )
             exhib_linked         = self._reconcile_exhibiciones(dist_id)
 
             # Actualizar progreso de objetivos activos
@@ -1266,6 +1384,7 @@ class PadronIngestionService:
                 "vendedores":       vend_count,
                 "rutas":            ruta_count,
                 "clientes":         cli_count,
+                "clientes_inactivos_padron": cli_inactivos,
                 "exhib_vinculadas": exhib_linked,
             }
             self._finish_run(run_id, "ok", registros=registros)

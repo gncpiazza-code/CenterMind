@@ -334,6 +334,10 @@ GET/PUT /api/mapeo-integrantes/{dist_id}
 
 ---
 
+## Padrón — clientes dados de baja en ERP
+
+El archivo de padrón que subís suele traer **solo clientes activos** (export sin anulados). Tras cada ingesta exitosa, `padron_ingestion_service` marca `clientes_pdv_v2.estado='inactivo'` en PDV que **no figuran** en ese Excel (alcance total) o que faltan en las rutas tocadas por el archivo cuando aplica `SUCURSAL_FILTER` / Bolívar / La Mágica (alcance parcial). Supervisión (`/api/supervision/clientes`, `/api/supervision/pdvs-catalog`) excluye `estado=inactivo` para el mapa y objetivos.
+
 ## Flujo de datos ERP
 
 ```

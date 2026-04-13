@@ -50,7 +50,9 @@ Este documento describe la infraestructura, tecnologías y flujos de datos que c
     - El cambio de distribuidora se centraliza en `Sidebar` + `AuthContext` (`switchDistributor` + `shelfy_active_dist`).
     - `TabSupervision` y `objetivos/page.tsx` ya no exponen selectores locales de tenant para evitar estados desalineados.
     - Las consultas de rutas/clientes en supervisión se cachean con `dist_id` en la query key para aislar datos por tenant.
-10. **Cuentas de prueba exhibiciones (Tabaco, Abr 2026)**:
+10. **Padrón ERP — PDV dados de baja (Abr 2026)**:
+    - El padrón exportado **solo incluye clientes activos** (sin anulados). Tras ingesta, `padron_ingestion_service` marca `clientes_pdv_v2.estado='inactivo'` cuando el PDV ya no está en ese Excel (o queda en ruta obsoleta según alcance parcial). Los endpoints de supervisión que alimentan mapa y catálogo filtran `estado != inactivo`.
+11. **Cuentas de prueba exhibiciones (Tabaco, Abr 2026)**:
     - `core/helpers.py` centraliza IDs QA (`id_vendedor_v2` 157 / 76) y resolución de `id_integrante` por nombre (Grimaldi).
     - `routers/reportes.py` y `routers/supervision.py` filtran ranking, pendientes y evaluación para usuarios no superadmin; el bot excluye esas filas del ranking en Telegram.
 

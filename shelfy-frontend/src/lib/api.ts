@@ -1215,7 +1215,7 @@ export interface ObjetivoItem {
   id_distribuidor?: number;
   id_cliente_pdv: number;
   nombre_pdv?: string | null;
-  estado_item: 'pendiente' | 'foto_subida' | 'cumplido';
+  estado_item: 'pendiente' | 'foto_subida' | 'cumplido' | 'falla';
   accion_ruteo?: 'cambio_ruta' | 'baja' | null;
   id_ruta_destino?: number | null;
   motivo_baja?: string | null;

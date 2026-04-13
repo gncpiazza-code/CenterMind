@@ -1,6 +1,6 @@
 # Progress — Shelfy CenterMind
 
-**Última actualización: 13 de Abril, 2026 (supervisión: mapa vs conteos + visibilidad PDV)**
+**Última actualización: 13 de Abril, 2026 (objetivos exhibición: cierre al evaluar + ítem `falla` si rechazo)**
 
 Este archivo detalla el estado actual del proyecto, las funcionalidades operativas y los pendientes técnicos.
 
@@ -34,7 +34,7 @@ El proyecto se encuentra en una fase de expansión de funcionalidades de supervi
 - **Vista Timeline**: `GET /api/supervision/objetivos/{dist_id}/timeline` — historial de eventos de tracking por objetivo, filtrable por vendedor y/o sucursal. Frontend con dots coloreados por `tipo_evento`.
 - **Vista Stats/Print**: Switcher de 4 vistas (kanban/timeline/stats/print) via Zustand `viewMode`.
 - **Modelo 1:N Objetivo→PDV (v9)**: `objetivo_items` con constraint `UNIQUE(id_objetivo, id_cliente_pdv)` + índices. `objetivos_tracking` con índice compuesto. `objetivos` con columnas `resultado_final`, `id_objetivo_padre`, `kanban_phase` (migration: `migrations/objetivos_v9_hardening.sql`).
-- **evaluar cierra items**: Al aprobar fotos el endpoint actualiza `objetivo_items.estado_item = "cumplido"` para los PDVs aprobados antes de disparar el watcher.
+- **evaluar cierra items**: Al aprobar/rechazar fotos el endpoint actualiza `objetivo_items` (`cumplido` / `falla`) validando el objetivo por tenant; ya no exige `id_distribuidor` en la fila del ítem (evitaba el UPDATE en ítems legacy con NULL). El watcher cierra la cabecera de exhibición multi-PDV cuando todos los ítems tienen desenlace.
 - **Expiración Automática**: El watcher marca objetivos vencidos como `cumplido=True` con `resultado_final='exito'|'falla'`.
 - **Re-agendar**: Objetivos fallidos pueden re-agendarse vinculando al padre con `id_objetivo_padre`.
 - **Certificado PDF**: Generación de certificado via `jspdf` con header violeta para objetivos cumplidos.

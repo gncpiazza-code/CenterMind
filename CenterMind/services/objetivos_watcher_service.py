@@ -138,6 +138,56 @@ class ObjetivosWatcherService:
                             except (ValueError, TypeError) as e_fecha:
                                 logger.warning(f"[Watcher] fecha_objetivo inválida obj={obj.get('id')}: {e_fecha}")
 
+                    # ── Exhibición con ítems: cerrar cabecera cuando cada PDV tiene desenlace ──
+                    if obj.get("tipo") == "exhibicion" and not updates.get("cumplido"):
+                        try:
+                            items_rx = (
+                                sb.table("objetivo_items")
+                                .select("estado_item")
+                                .eq("id_objetivo", obj["id"])
+                                .execute()
+                            )
+                            its = items_rx.data or []
+                            if its:
+                                n_pend = sum(
+                                    1
+                                    for it in its
+                                    if it.get("estado_item") in ("pendiente", "foto_subida")
+                                )
+                                n_falla = sum(
+                                    1 for it in its if it.get("estado_item") == "falla"
+                                )
+                                n_ok = sum(
+                                    1 for it in its if it.get("estado_item") == "cumplido"
+                                )
+                                if n_pend == 0 and (n_ok + n_falla) == len(its):
+                                    updates["cumplido"] = True
+                                    updates["resultado_final"] = (
+                                        "falla" if n_falla else "exito"
+                                    )
+                                    updates["completed_at"] = ahora.isoformat()
+                                    cumplidos += 1
+                                    if n_falla == 0:
+                                        try:
+                                            from services.objetivos_notification_service import (
+                                                objetivos_notification,
+                                            )
+                                            objetivos_notification.notify_objetivo_cumplido(
+                                                dist_id=dist_id,
+                                                id_vendedor=obj.get("id_vendedor"),
+                                                tipo=obj.get("tipo"),
+                                                nombre_pdv=obj.get("nombre_pdv"),
+                                            )
+                                        except Exception as e_notif:
+                                            logger.warning(
+                                                f"[Watcher] Notif cierre exhibición omitida "
+                                                f"obj={obj.get('id')}: {e_notif}"
+                                            )
+                        except Exception as e_te:
+                            logger.warning(
+                                f"[Watcher] Cierre terminal exhibición obj={obj.get('id')}: {e_te}"
+                            )
+
                     sb.table("objetivos").update(updates).eq("id", obj["id"]).execute()
                     actualizados += 1
 

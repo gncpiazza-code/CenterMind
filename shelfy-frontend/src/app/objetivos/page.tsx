@@ -487,6 +487,7 @@ function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado }: {
                     className={`w-2 h-2 rounded-full ${
                       it.estado_item === 'cumplido' ? 'bg-emerald-500' :
                       it.estado_item === 'foto_subida' ? 'bg-yellow-400' :
+                      it.estado_item === 'falla' ? 'bg-red-500' :
                       'bg-[var(--shelfy-border)]'
                     }`}
                     title={it.nombre_pdv ?? String(it.id_cliente_pdv)}
@@ -519,6 +520,7 @@ function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado }: {
                         <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
                           it.estado_item === 'cumplido' ? 'bg-emerald-500' :
                           it.estado_item === 'foto_subida' ? 'bg-yellow-400' :
+                          it.estado_item === 'falla' ? 'bg-red-500' :
                           'bg-[var(--shelfy-muted)]/30'
                         }`} />
                         <span className="text-[var(--shelfy-text)] truncate">{it.nombre_pdv ?? `PDV ${it.id_cliente_pdv}`}</span>

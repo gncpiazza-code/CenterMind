@@ -28,6 +28,23 @@ logger = logging.getLogger("ShelfyAPI")
 router = APIRouter()
 
 
+def _objetivo_belongs_to_dist(obj_id: str, dist_id: int) -> bool:
+    """True si el objetivo existe y pertenece al distribuidor (tenant-safe)."""
+    try:
+        r = (
+            sb.table("objetivos")
+            .select("id")
+            .eq("id", obj_id)
+            .eq("id_distribuidor", dist_id)
+            .limit(1)
+            .execute()
+        )
+        return bool(r.data)
+    except Exception as e:
+        logger.warning(f"[objetivos] _objetivo_belongs_to_dist obj={obj_id} dist={dist_id}: {e}")
+        return False
+
+
 # ─── Exhibiciones: pendientes, evaluar, revertir ──────────────────────────────
 
 @router.get("/api/pendientes/{id_distribuidor}", summary="Exhibiciones pendientes agrupadas por mensaje")
@@ -211,26 +228,37 @@ def evaluar(req: EvaluarRequest, user_payload=Depends(verify_auth)):
 
         # Aprobado / Destacado: cerrar ítems de objetivo vinculados a la exhibición
         estados_avance_objetivo = ("Aprobado", "Destacado")
-        if affected > 0 and req.estado in estados_avance_objetivo:
+        # Rechazado: marcar ítem como falla para que la meta pueda cerrarse (terminado / falla)
+        estados_cierre_objetivo = ("Aprobado", "Destacado", "Rechazado")
+        if affected > 0 and req.estado in estados_cierre_objetivo:
             try:
                 from datetime import timezone
                 exhib_data = sb.table("exhibiciones").select(
                     "id_cliente_pdv, id_objetivo"
                 ).in_("id_exhibicion", req.ids_exhibicion).execute()
                 obj_ids_watch: set[str] = set()
+                nuevo_estado_item = (
+                    "cumplido" if req.estado in estados_avance_objetivo else "falla"
+                )
                 for ex in exhib_data.data or []:
                     oid = ex.get("id_objetivo")
                     pid = ex.get("id_cliente_pdv")
                     if not oid or not pid:
                         continue
                     oid_s = str(oid).strip()
+                    if not _objetivo_belongs_to_dist(oid_s, dist_id):
+                        logger.warning(
+                            f"[evaluar] Objetivo {oid_s} no pertenece a dist={dist_id}, "
+                            "omitido cierre de ítem"
+                        )
+                        continue
                     obj_ids_watch.add(oid_s)
+                    # No filtrar por id_distribuidor en ítems: filas legacy pueden tener NULL
+                    # y el UPDATE no matcheaba → el Kanban quedaba eternamente "en progreso".
                     sb.table("objetivo_items").update({
-                        "estado_item": "cumplido",
+                        "estado_item": nuevo_estado_item,
                         "updated_at": datetime.now(timezone.utc).isoformat(),
-                    }).eq("id_objetivo", oid_s).eq("id_cliente_pdv", pid).eq(
-                        "id_distribuidor", dist_id
-                    ).in_(
+                    }).eq("id_objetivo", oid_s).eq("id_cliente_pdv", pid).in_(
                         "estado_item", ["pendiente", "foto_subida"]
                     ).execute()
                 # Sin id_objetivo en la fila: cerrar por PDV + estado foto_subida (comportamiento previo)
@@ -244,15 +272,17 @@ def evaluar(req: EvaluarRequest, user_payload=Depends(verify_auth)):
                         items_res = sb.table("objetivo_items") \
                             .select("id, id_objetivo, id_cliente_pdv") \
                             .in_("id_cliente_pdv", pdv_ids) \
-                            .eq("id_distribuidor", dist_id) \
                             .eq("estado_item", "foto_subida") \
                             .execute()
                         for item in (items_res.data or []):
+                            oid_item = str(item["id_objetivo"])
+                            if not _objetivo_belongs_to_dist(oid_item, dist_id):
+                                continue
                             sb.table("objetivo_items").update({
-                                "estado_item": "cumplido",
+                                "estado_item": nuevo_estado_item,
                                 "updated_at": datetime.now(timezone.utc).isoformat(),
                             }).eq("id", item["id"]).execute()
-                            obj_ids_watch.add(str(item["id_objetivo"]))
+                            obj_ids_watch.add(oid_item)
                 if obj_ids_watch:
                     import threading
                     from services.objetivos_watcher_service import objetivos_watcher
@@ -865,7 +895,12 @@ def _compute_kanban_phase(obj: dict) -> str:
             if it.get("estado_item") in ("foto_subida", "cumplido")
         )
         if items_count > 0:
-            if items_cumplidos == items_count:
+            resolved = sum(
+                1
+                for it in obj_items
+                if it.get("estado_item") in ("cumplido", "falla")
+            )
+            if resolved == items_count:
                 return "terminado"
             if items_con_foto > 0:
                 return "en_progreso"

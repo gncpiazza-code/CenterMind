@@ -23,7 +23,6 @@ import {
   fetchRutasSupervision,
   fetchClientesSupervision,
   fetchCuentasSupervision,
-  fetchDistribuidoras,
   fetchPDVCatalog,
   getWSUrl,
   type Objetivo,
@@ -61,7 +60,6 @@ import {
   FileDown,
   GitBranch,
   Activity,
-  Building2,
 } from "lucide-react";
 import {
   Dialog,
@@ -1959,7 +1957,6 @@ type PageTab = "objetivos";
 
 export default function ObjetivosPage() {
   const { user } = useAuth();
-  const isCrossTenant = !!(user?.is_superadmin || user?.permisos?.action_switch_tenant);
   const qc = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
   const pageTab: PageTab = "objetivos"; // legacy — view routing now uses viewMode
@@ -1968,22 +1965,14 @@ export default function ObjetivosPage() {
     filterTipo, filterCumplido, searchText, viewMode,
     setFilterTipo, setFilterCumplido, setSearchText, setViewMode,
     filterVendedores, filterKanbanPhase, setFilterKanbanPhase,
-    selectedTenantId, setSelectedTenantId,
   } = useObjetivosStore();
 
-  const distId = (isCrossTenant && selectedTenantId) ? selectedTenantId : (user?.id_distribuidor ?? 0);
+  const distId = user?.id_distribuidor ?? 0;
 
   const [selectedSucursal, setSelectedSucursal] = useState<string>("");
   const [selectedVendedorId, setSelectedVendedorId] = useState<number | null>(null);
 
   // ── Data ──────────────────────────────────────────────────────────────────
-
-  const { data: distribuidoras = [] } = useQuery({
-    queryKey: ["distribuidoras-list"],
-    queryFn: () => fetchDistribuidoras(true),
-    enabled: isCrossTenant,
-    staleTime: 5 * 60 * 1000,
-  });
 
   const { data: vendedoresData } = useQuery({
     queryKey: ["vendedores-supervision", distId],
@@ -2225,29 +2214,6 @@ export default function ObjetivosPage() {
               </button>
             </div>
           </div>
-
-          {/* Tenant selector — superadmin / directorio only */}
-          {isCrossTenant && (
-            <div className="flex items-center gap-2 mb-4 print-hidden">
-              <Building2 className="w-4 h-4 text-[var(--shelfy-muted)] shrink-0" />
-              <div className="relative">
-                <select
-                  className="appearance-none bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-lg pl-3 pr-8 py-2 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
-                  value={selectedTenantId ?? (user?.id_distribuidor ?? "")}
-                  onChange={e => setSelectedTenantId(e.target.value ? Number(e.target.value) : null)}
-                >
-                  <option value="">Todas las distribuidoras</option>
-                  {distribuidoras.map(d => (
-                    <option key={d.id} value={d.id}>{d.nombre}</option>
-                  ))}
-                </select>
-                <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-[var(--shelfy-muted)] pointer-events-none" />
-              </div>
-              {selectedTenantId && selectedTenantId !== user?.id_distribuidor && (
-                <span className="text-xs text-[var(--shelfy-accent)] font-medium">Vista cruzada activa</span>
-              )}
-            </div>
-          )}
 
           {/* Stats (hidden on dedicated stats/timeline/supervisor views) */}
           {viewMode !== "stats" && viewMode !== "timeline" && viewMode !== "supervisor" && (

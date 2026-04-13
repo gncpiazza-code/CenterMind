@@ -30,7 +30,6 @@ import {
   fetchVendedoresSupervision,
   fetchRutasSupervision,
   fetchClientesSupervision,
-  fetchDistribuidoras,
   fetchVentasSupervision,
   fetchCuentasSupervision,
   fetchPDVsCercanos,
@@ -441,20 +440,19 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
   // Cleanup polling on unmount
   useEffect(() => () => stopCCPolling(), []);
 
-  // ── TanStack Query: Distribuidoras ────────────────────────────────────────
-  const { data: distribuidoras = [] } = useQuery({
-    queryKey: ['distribuidoras'],
-    queryFn: () => fetchDistribuidoras(true),
-    enabled: isSuperadmin,
-    staleTime: 5 * 60 * 1000, // 5 minutes
-  });
-
   // ── Sync selectedDist when distId changes (handles auth loading delay) ─────
   useEffect(() => {
     if (!isSuperadmin && distId > 0 && distId !== selectedDist) {
       setSelectedDist(distId);
     }
   }, [distId, isSuperadmin, selectedDist]);
+
+  // Superadmin and cross-tenant users now use the global context switcher only.
+  useEffect(() => {
+    if (distId > 0 && distId !== selectedDist) {
+      setSelectedDist(distId);
+    }
+  }, [distId, selectedDist]);
 
   // ── TanStack Query: Vendedores ────────────────────────────────────────────
   const {
@@ -486,7 +484,10 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
     setOpenVend(null);
     setOpenRuta(null);
     setOpenCliente(null);
-  }, [selectedDist, clearAll]);
+    // Prevent cross-tenant cache bleeding (same route/vendor ids across dists).
+    queryClient.removeQueries({ queryKey: ['supervision-rutas'] });
+    queryClient.removeQueries({ queryKey: ['supervision-clientes'] });
+  }, [selectedDist, clearAll, queryClient]);
 
   const { data: ventasData = null, isLoading: loadingVentas } = useQuery({
     queryKey: ['supervision-ventas', selectedDist, ventasDias],
@@ -739,7 +740,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
 
   // ── TanStack Query: Rutas (lazy-loaded per vendor) ───────────────────────
   const getRutasQuery = (vendorId: number) => ({
-    queryKey: ['supervision-rutas', vendorId],
+    queryKey: ['supervision-rutas', selectedDist, vendorId],
     queryFn: () => fetchRutasSupervision(vendorId),
     staleTime: 5 * 60 * 1000, // 5 minutes
     enabled: false, // Lazy load
@@ -747,7 +748,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
 
   // ── TanStack Query: Clientes (lazy-loaded per ruta) ──────────────────────
   const getClientesQuery = (rutaId: number) => ({
-    queryKey: ['supervision-clientes', rutaId],
+    queryKey: ['supervision-clientes', selectedDist, rutaId],
     queryFn: () => fetchClientesSupervision(rutaId),
     staleTime: Infinity, // Clientes don't change often - cache forever until manual invalidation
     enabled: false, // Lazy load
@@ -830,7 +831,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
     const isOn = visibleRutas.has(rutaId);
     if (isOn) {
       // Turn OFF: remove ruta and all its clients
-      const rutaClientes = queryClient.getQueryData<ClienteSupervision[]>(['supervision-clientes', rutaId]) ?? [];
+      const rutaClientes = queryClient.getQueryData<ClienteSupervision[]>(['supervision-clientes', selectedDist, rutaId]) ?? [];
       const clientIds = rutaClientes.map(c => c.id_cliente);
       
       toggleRutaStore(rutaId);
@@ -882,13 +883,13 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
       const color = vendorColor(idx);
       
       // Get rutas from query cache
-      const vendRutas = queryClient.getQueryData<RutaSupervision[]>(['supervision-rutas', v.id_vendedor]) ?? [];
+      const vendRutas = queryClient.getQueryData<RutaSupervision[]>(['supervision-rutas', selectedDist, v.id_vendedor]) ?? [];
       
       vendRutas.forEach(r => {
         if (!visibleRutas.has(r.id_ruta)) return;
         
         // Get clientes from query cache
-        const rutaClientes = queryClient.getQueryData<ClienteSupervision[]>(['supervision-clientes', r.id_ruta]) ?? [];
+        const rutaClientes = queryClient.getQueryData<ClienteSupervision[]>(['supervision-clientes', selectedDist, r.id_ruta]) ?? [];
         
         rutaClientes.forEach(c => {
           if (!visibleClientes.has(c.id_cliente)) return;
@@ -1258,7 +1259,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
           const idx       = vendedores.indexOf(v);
           const color     = vendorColor(idx);
           const vOpen     = openVend === v.id_vendedor;
-          const vRutasRaw = queryClient.getQueryData<RutaSupervision[]>(['supervision-rutas', v.id_vendedor]) ?? [];
+          const vRutasRaw = queryClient.getQueryData<RutaSupervision[]>(['supervision-rutas', selectedDist, v.id_vendedor]) ?? [];
           const vRutas    = [...vRutasRaw].sort(
             (a, b) =>
               (DIA_ORDER[a.dia_semana?.toLowerCase() ?? ""] ?? 9) -
@@ -1307,7 +1308,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                   {vRutas.map(r => {
                     const rOpen    = openRuta === r.id_ruta;
                     const isRutaOn = visibleRutas.has(r.id_ruta);
-                    const rCli     = queryClient.getQueryData<ClienteSupervision[]>(['supervision-clientes', r.id_ruta]) ?? [];
+                    const rCli     = queryClient.getQueryData<ClienteSupervision[]>(['supervision-clientes', selectedDist, r.id_ruta]) ?? [];
                     const cliVis   = rCli.filter(c => visibleClientes.has(c.id_cliente)).length;
 
                     return (
@@ -1393,17 +1394,6 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
               </select>
             </div>
           )}
-          {isSuperadmin && distribuidoras.length > 0 && (
-            <select
-              value={selectedDist}
-              onChange={e => setSelectedDist(Number(e.target.value))}
-              className="rounded-xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] text-[var(--shelfy-text)] px-3 py-1.5 text-sm focus:outline-none font-medium h-[38px]"
-            >
-              {distribuidoras.map(d => (
-                <option key={d.id} value={d.id}>{d.nombre}</option>
-              ))}
-            </select>
-          )}
           <button
             onClick={handleScanner}
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 text-xs font-medium transition-colors"
@@ -1469,15 +1459,15 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                 rutas={Object.fromEntries(
                   vendedoresFiltrados.map(v => [
                     v.id_vendedor,
-                    queryClient.getQueryData<RutaSupervision[]>(['supervision-rutas', v.id_vendedor]) ?? []
+                    queryClient.getQueryData<RutaSupervision[]>(['supervision-rutas', selectedDist, v.id_vendedor]) ?? []
                   ])
                 )}
                 clientes={Object.fromEntries(
                   vendedoresFiltrados.flatMap(v => {
-                    const vRutas = queryClient.getQueryData<RutaSupervision[]>(['supervision-rutas', v.id_vendedor]) ?? [];
+                    const vRutas = queryClient.getQueryData<RutaSupervision[]>(['supervision-rutas', selectedDist, v.id_vendedor]) ?? [];
                     return vRutas.map(r => [
                       r.id_ruta,
-                      queryClient.getQueryData<ClienteSupervision[]>(['supervision-clientes', r.id_ruta]) ?? []
+                      queryClient.getQueryData<ClienteSupervision[]>(['supervision-clientes', selectedDist, r.id_ruta]) ?? []
                     ]);
                   })
                 )}
@@ -1576,7 +1566,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                 const idx       = vendedores.indexOf(v);
                 const color     = vendorColor(idx);
                 const vOpen     = openVend === v.id_vendedor;
-                const vRutasRaw = queryClient.getQueryData<RutaSupervision[]>(['supervision-rutas', v.id_vendedor]) ?? [];
+                const vRutasRaw = queryClient.getQueryData<RutaSupervision[]>(['supervision-rutas', selectedDist, v.id_vendedor]) ?? [];
                 const vRutas    = [...vRutasRaw].sort(
                   (a, b) =>
                     (DIA_ORDER[a.dia_semana?.toLowerCase() ?? ""] ?? 9) -
@@ -1675,7 +1665,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
 
                         {vRutas.map(r => {
                           const rOpen    = openRuta === r.id_ruta;
-                          const rCli     = queryClient.getQueryData<ClienteSupervision[]>(['supervision-clientes', r.id_ruta]) ?? [];
+                          const rCli     = queryClient.getQueryData<ClienteSupervision[]>(['supervision-clientes', selectedDist, r.id_ruta]) ?? [];
                           const isRutaOn = visibleRutas.has(r.id_ruta);
                           // count how many clients in this route are visible
                           const cliVisible = rCli.filter(c => visibleClientes.has(c.id_cliente)).length;

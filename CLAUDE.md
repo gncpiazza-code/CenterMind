@@ -450,7 +450,12 @@ Es el componente central del panel de supervisión. Tiene 3 tabs principales:
 
 Props que recibe: `{ distId: number, isSuperadmin?: boolean }`
 - No-superadmin: `distId` viene del JWT y está fijo
-- Superadmin: puede cambiar `distId` con un selector
+- Superadmin/directorio: el cambio de `distId` se hace sólo desde `Sidebar` (contexto global), no desde selectores locales del módulo.
+
+**Cache por tenant en supervisión**:
+- Las keys de React Query para rutas/clientes deben incluir `id_distribuidor` para evitar cruces de datos:
+  - `['supervision-rutas', distId, id_vendedor]`
+  - `['supervision-clientes', distId, id_ruta]`
 
 ---
 

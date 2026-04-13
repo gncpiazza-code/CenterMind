@@ -102,6 +102,13 @@ Los paneles utilizan el estilo "Glass-Card" adaptado al tema claro:
 - **Visibilidad**: Disponible para Superadmin y usuarios con el permiso `action_switch_tenant`.
 - **Posición**: `side="top"`, aparece sobre el trigger, alineado al ancho del botón trigger.
 - **Optimización**: `navItems` se memoiza con `useMemo([rol, hasPermiso])` para evitar re-cómputos.
+- **Fuente única de contexto**: Desde 13/04/2026 este es el único punto de cambio de entorno; se removieron selectores locales de tenant en `/supervision` y `/objetivos`.
+
+### 8. Supervisión — Aislamiento de Cache por Tenant
+- `TabSupervision.tsx` scopea las query keys de rutas/clientes con `dist_id`:
+  - `['supervision-rutas', distId, id_vendedor]`
+  - `['supervision-clientes', distId, id_ruta]`
+- Al cambiar distribuidora limpia caches de rutas/clientes para evitar cruces de datos entre contextos y etiquetas de vendedor incorrectas en mapa.
 
 ## State Management & Ingesta
 

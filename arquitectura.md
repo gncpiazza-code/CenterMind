@@ -46,6 +46,10 @@ Este documento describe la infraestructura, tecnologías y flujos de datos que c
     - **Optimización**: `navItems` se memoiza con `useMemo([rol, hasPermiso])` para evitar re-cómputos.
 7. **RBAC (Role Based Access Control)**: La tabla `roles_permisos` define llaves de acceso por rol. El frontend usa `hasPermiso(key)` via `AuthContext`.
 8. **Multi-tenant Switcher**: El backend permite el cambio de contexto operativo a usuarios no-superadmin si cuentan con el permiso `action_switch_tenant`, validado en `check_dist_permission`.
+9. **Contexto Único de Entorno (Abr 2026)**:
+    - El cambio de distribuidora se centraliza en `Sidebar` + `AuthContext` (`switchDistributor` + `shelfy_active_dist`).
+    - `TabSupervision` y `objetivos/page.tsx` ya no exponen selectores locales de tenant para evitar estados desalineados.
+    - Las consultas de rutas/clientes en supervisión se cachean con `dist_id` en la query key para aislar datos por tenant.
 
 ---
 

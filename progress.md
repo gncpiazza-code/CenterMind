@@ -1,6 +1,6 @@
 # Progress — Shelfy CenterMind
 
-**Última actualización: 10 de Abril, 2026 (fix Telegram objetivos)**
+**Última actualización: 13 de Abril, 2026 (fix supervision cache + contexto único)**
 
 Este archivo detalla el estado actual del proyecto, las funcionalidades operativas y los pendientes técnicos.
 
@@ -77,6 +77,8 @@ El proyecto se encuentra en una fase de expansión de funcionalidades de supervi
 ---
 
 ## 📅 Historial Reciente (Abril 2026)
+- **13/04 (31)**: **Supervisión — fix cruce vendedor/cliente + contexto único** — `TabSupervision.tsx` ahora scopea cache/query keys por `id_distribuidor` (`['supervision-rutas', distId, id_vendedor]` y `['supervision-clientes', distId, id_ruta]`) y limpia caches de rutas/clientes al cambiar distribuidora para evitar contaminación cross-tenant que podía mostrar PDVs de un vendedor con el nombre de otro. Además se elimina el selector local de distribuidora en Supervisión (superadmin) para forzar un único punto de cambio de entorno vía Sidebar.
+- **13/04 (31b)**: **Objetivos — unificación de cambio de entorno** — `objetivos/page.tsx` deja de usar selector local de tenant y consume únicamente `user.id_distribuidor` del contexto global, alineando el flujo con Sidebar/AuthContext y eliminando duplicidad de “cambio de entorno” dentro de la página.
 - **10/04 (30)**: **Objetivos — Telegram asignación y progreso** — `resolve_integrante_for_objetivos()` en `objetivos_notification_service.py`: unifica resolución de `integrantes_grupo` por `id_vendedor_v2`, luego `id_vendedor_erp` exacto y paginación (evita techo ~1000 filas del fallback que cargaba todos los integrantes del distribuidor). `_get_vendor_group_chat_id` delega ahí; `_diff_exhibicion` (watcher) usa la misma resolución para `id_integrante` cuando falta fila sólo por v2. Escape HTML en textos Telegram (`descripcion`, nombres PDV, supervisor) para no romper `parse_mode=HTML`.
 - **09/04 (29)**: **Bot Telegram — fallback coherente para clientes nuevos sin padrón** — `bot_worker.py` (`Database.registrar_exhibicion`) ahora detecta el error FK `exhibiciones_id_cliente_pdv_v2_fkey` al registrar por RPC y hace fallback automático a inserción en modo limbo (`id_cliente_pdv = NULL`, `cliente_sombra_codigo = nro_cliente`, `estado = Pendiente`). Esto evita rechazar fotos cuando el cliente fue dado de alta en el momento y todavía no entró en `clientes_pdv_v2`; la reconciliación posterior queda a cargo del flujo normal de padrón (`fn_reconcile_exhibiciones`).
 - **08/04 (28)**: **Objetivos exhibición — 2 fotos mismo PDV** — `bot_worker` ObjInterceptor: deja de hacer `valor_actual += 1` por tanda (varias fotos en un mensaje contaban como varios PDV). Ahora recalcula desde `objetivo_items` (estados `foto_subida`/`cumplido`) o `1` si el objetivo es sólo `id_target_pdv` sin ítems. `objetivos_watcher_service._diff_exhibicion`: sin `objetivo_items`, `valor_actual` y umbral de aprobados usan **conjuntos de `id_cliente_pdv`** únicos, no `len(pendientes)+len(aprobados)`.

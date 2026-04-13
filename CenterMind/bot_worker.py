@@ -2170,13 +2170,14 @@ class BotWorker:
                         reply_markup=None,
                     )
                     self.logger.info(f"✅ Mensaje {msg_id} actualizado → {estado}")
+                    await asyncio.to_thread(self.db.marcar_synced, ex["id"])
                 except BadRequest as e:
                     self.logger.warning(f"⚠️ No se pudo editar msg {msg_id}: {e}")
+                    # Mismo contenido → Telegram no edita; evitar reintentos eternos
+                    if "message is not modified" in str(e).lower():
+                        await asyncio.to_thread(self.db.marcar_synced, ex["id"])
                 except Exception as e:
                     self.logger.error(f"❌ Error editando msg {msg_id}: {e}")
-
-                # Marcar como sincronizado (aunque haya fallado — evita bucle infinito en mensajes viejos)
-                await asyncio.to_thread(self.db.marcar_synced, ex["id"])
 
         except Exception as e:
             self.logger.error(f"Error en sync_evaluaciones_job: {e}")

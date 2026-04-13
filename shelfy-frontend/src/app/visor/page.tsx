@@ -125,6 +125,8 @@ export default function VisorPage() {
 
   const distId = user?.id_distribuidor || 0;
   const isSubmittingRef = useRef(false);
+  /** True si handleEvaluar ya hizo incrementIndex() antes de que termine la mutación (para alinear índice tras refetch). */
+  const evalDidAdvanceIndex = useRef(false);
 
   // Queries con TanStack Query
   const { data: grupos = [], isLoading: loadingPendientes, error: errorPend } = useQuery({
@@ -241,13 +243,16 @@ export default function VisorPage() {
         queryClient.invalidateQueries({ queryKey: ['stats', distId] });
         setCurrentIndex(0);
         resetGroupState();
+        evalDidAdvanceIndex.current = false;
         return;
       }
-      // Move to next group instantly (Hypersonic)
-      if (currentIndex < filtrados.length - 1) {
-        // incrementIndex(); // Ya se hizo en handleEvaluar para máxima velocidad
+      // Siempre refrescar pendientes: si no, la caché deja el grupo con estado "Pendiente" aunque la DB ya esté Aprobado/Rechazado.
+      queryClient.invalidateQueries({ queryKey: ['pendientes', distId] });
+      queryClient.invalidateQueries({ queryKey: ['stats', distId] });
+      if (evalDidAdvanceIndex.current) {
+        setCurrentIndex((i) => Math.max(0, i - 1));
+        evalDidAdvanceIndex.current = false;
       } else {
-        queryClient.invalidateQueries({ queryKey: ['pendientes', distId] });
         setCurrentIndex(0);
         resetGroupState();
       }
@@ -255,6 +260,10 @@ export default function VisorPage() {
     onError: (err) => {
       setFlash({ msg: "Error al evaluar", type: "err" });
       console.error(err);
+      if (evalDidAdvanceIndex.current) {
+        setCurrentIndex((i) => Math.max(0, i - 1));
+        evalDidAdvanceIndex.current = false;
+      }
     }
   });
 
@@ -300,15 +309,15 @@ export default function VisorPage() {
     const ids = grupo.fotos.map((f) => f.id_exhibicion);
     lastEvalIds.current = ids;
 
-    // 1. Trigger network request
-    mutationEvaluar.mutate({ ids, estado, comentario });
-
-    // 2. Immediate UI jump
+    evalDidAdvanceIndex.current = false;
+    // 1. Immediate UI jump (Hypersonic) — onSuccess compensará el índice tras refetch
     if (currentIndex < filtrados.length - 1) {
       incrementIndex();
-    } else {
-      // Last one — onSuccess will handle the final state
+      evalDidAdvanceIndex.current = true;
     }
+
+    // 2. Trigger network request
+    mutationEvaluar.mutate({ ids, estado, comentario });
   }
 
   const handleNextFoto = () => {

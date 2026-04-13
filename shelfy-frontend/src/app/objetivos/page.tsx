@@ -781,11 +781,25 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
 
   function buildPhrase(): string {
     if (!vendedorNombre) return "[ Vendedor ] …";
-    const diasDisponibles = fecha
-      ? Math.max(0, Math.ceil((new Date(fecha).getTime() - Date.now()) / 86400000))
-      : null;
+    let diasCalendario: number | null = null;
+    if (fecha) {
+      const parts = fecha.slice(0, 10).split("-").map(Number);
+      if (parts.length === 3 && parts.every((n) => !Number.isNaN(n))) {
+        const [yy, mm, dd] = parts;
+        const target = new Date(yy, mm - 1, dd);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        target.setHours(0, 0, 0, 0);
+        diasCalendario = Math.round((target.getTime() - today.getTime()) / 86_400_000);
+      }
+    }
     const fechaLabel = fecha ? ` para el día ${fecha}` : "";
-    const diasLabel = diasDisponibles !== null ? ` Tenés ${diasDisponibles} días para cumplir el objetivo.` : "";
+    const diasLabel =
+      diasCalendario === null
+        ? ""
+        : diasCalendario <= 0
+          ? " El plazo vence hoy."
+          : ` Tenés ${diasCalendario} día${diasCalendario !== 1 ? "s" : ""} para cumplir el objetivo.`;
 
     if (tipo === "ruteo_alteo" && selectedRuta) {
       const qty = cantidadAlteo || selectedRuta.total_pdv;
@@ -799,7 +813,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
     if (tipo === "exhibicion") {
       const qty = exhibicionMode === "general" && cantidadExhibicion ? cantidadExhibicion : selectedPdvIds.size || null;
       return qty
-        ? `${vendedorNombre} debe realizar ${qty} exhibicione${Number(qty) !== 1 ? "s" : ""}${fechaLabel}.${diasLabel}`
+        ? `${vendedorNombre} debe realizar ${qty} exhibición${Number(qty) !== 1 ? "es" : ""}${fechaLabel}.${diasLabel}`
         : `${vendedorNombre} debe exhibir en PDVs${fechaLabel}.`;
     }
     if (tipo === "ruteo") {

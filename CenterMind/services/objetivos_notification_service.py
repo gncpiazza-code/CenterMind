@@ -248,8 +248,19 @@ class ObjetivosNotificationService:
 
             fecha = obj_data.get("fecha_objetivo")
             desc = obj_data.get("descripcion")
-            desc_esc = html.escape(str(desc), quote=False) if desc else ""
-            desc_str = f"\n📝 <b>Detalle:</b> <i>{desc_esc}</i>" if desc_esc else ""
+            desc_str = ""
+            if desc:
+                desc_s = str(desc).strip()
+                # Evitar "Tenés 0 días…" duplicado con la línea de fecha límite / vence hoy
+                desc_s = re.sub(
+                    r"\s*Tenés\s+0\s+días?\s+para\s+cumplir\s+el\s+objetivo\.?",
+                    "",
+                    desc_s,
+                    flags=re.IGNORECASE,
+                ).strip()
+                if desc_s:
+                    desc_esc = html.escape(desc_s, quote=False)
+                    desc_str = f"\n📝 <b>Detalle:</b> <i>{desc_esc}</i>"
 
             dias_str = ""
             if fecha:
@@ -267,7 +278,10 @@ class ObjetivosNotificationService:
                         dias_str = f"\n⏰ <i>Venció hace {abs(dias)} día{'s' if abs(dias) != 1 else ''}.</i>"
                 except Exception:
                     pass
-            limite_str = f"\n📅 <b>Fecha límite:</b> {fecha}{dias_str}" if fecha else ""
+            limite_fmt = self._format_fecha_dd_mm_yyyy(fecha) if fecha else ""
+            limite_str = (
+                f"\n📅 <b>Fecha límite:</b> {limite_fmt or fecha}{dias_str}" if fecha else ""
+            )
 
             pdv_lines = ""
             ruta_str = ""
@@ -286,20 +300,34 @@ class ObjetivosNotificationService:
             try:
                 obj_id_s = str(obj_id).strip() if obj_id else ""
                 if obj_id_s and tipo in TIPOS_MULTI_PDV:
+                    obj_own = (
+                        sb.table("objetivos")
+                        .select("id")
+                        .eq("id", obj_id_s)
+                        .eq("id_distribuidor", dist_id)
+                        .limit(1)
+                        .execute()
+                    )
+                    if not (obj_own.data or []):
+                        logger.warning(
+                            f"[Notif] objetivo {obj_id_s} no pertenece a dist={dist_id} — skip ítems"
+                        )
+                        obj_id_s = ""
                     cols = "id_cliente_pdv, nombre_pdv"
                     if tipo == "ruteo":
                         cols += ", accion_ruteo, id_ruta_destino, motivo_baja"
-                    items_res = (
-                        sb.table("objetivo_items")
-                        .select(cols)
-                        .eq("id_objetivo", obj_id_s)
-                        .eq("id_distribuidor", dist_id)
-                        .execute()
-                    )
-                    items = items_res.data or []
+                    items: list[dict[str, Any]] = []
+                    if obj_id_s:
+                        items_res = (
+                            sb.table("objetivo_items")
+                            .select(cols)
+                            .eq("id_objetivo", obj_id_s)
+                            .execute()
+                        )
+                        items = items_res.data or []
                     if not items:
                         logger.warning(
-                            f"[Notif] objetivo {obj_id_s} tipo={tipo}: sin filas en objetivo_items "
+                            f"[Notif] objetivo {obj_id or '?'} tipo={tipo}: sin filas en objetivo_items "
                             f"(dist={dist_id}) — usando fallback PDV único si aplica"
                         )
                     if items:
@@ -309,7 +337,8 @@ class ObjetivosNotificationService:
                             erp_res = (
                                 sb.table("clientes_pdv_v2")
                                 .select(
-                                    "id_cliente, id_cliente_erp, nombre_fantasia, domicilio, telefono, id_ruta"
+                                    "id_cliente, id_cliente_erp, nombre_fantasia, nombre_cliente, "
+                                    "nombre_razon_social, domicilio, telefono, id_ruta"
                                 )
                                 .in_("id_cliente", pdv_ids)
                                 .eq("id_distribuidor", dist_id)
@@ -319,6 +348,8 @@ class ObjetivosNotificationService:
                                 r["id_cliente"]: {
                                     "erp": r.get("id_cliente_erp") or "",
                                     "nombre_fantasia": (r.get("nombre_fantasia") or "").strip(),
+                                    "nombre_cliente": (r.get("nombre_cliente") or "").strip(),
+                                    "nombre_razon_social": (r.get("nombre_razon_social") or "").strip(),
                                     "domicilio": r.get("domicilio") or "",
                                     "telefono": r.get("telefono") or "",
                                     "id_ruta": r.get("id_ruta"),
@@ -348,6 +379,9 @@ class ObjetivosNotificationService:
                             nombre_raw = (
                                 (it.get("nombre_pdv") or "").strip()
                                 or info.get("nombre_fantasia")
+                                or info.get("nombre_cliente")
+                                or info.get("nombre_razon_social")
+                                or (f"Cliente #{info.get('erp')}" if info.get("erp") else "")
                                 or f"PDV #{cid}"
                             )
                             nombre = html.escape(nombre_raw, quote=False)
@@ -418,7 +452,9 @@ class ObjetivosNotificationService:
                     if id_target_pdv:
                         pdv_res = (
                             sb.table("clientes_pdv_v2")
-                            .select("id_cliente_erp, id_ruta, nombre_fantasia")
+                            .select(
+                                "id_cliente_erp, id_ruta, nombre_fantasia, nombre_cliente, nombre_razon_social"
+                            )
                             .eq("id_cliente", id_target_pdv)
                             .eq("id_distribuidor", dist_id)
                             .limit(1)
@@ -428,9 +464,16 @@ class ObjetivosNotificationService:
                         erp = row0.get("id_cliente_erp") or ""
                         id_ruta_pdv = row0.get("id_ruta")
                         if not pdv_nombre:
-                            pdv_nombre = (row0.get("nombre_fantasia") or "").strip()
+                            pdv_nombre = (
+                                (row0.get("nombre_fantasia") or "").strip()
+                                or (row0.get("nombre_cliente") or "").strip()
+                                or (row0.get("nombre_razon_social") or "").strip()
+                            )
                     if not pdv_nombre:
-                        pdv_nombre = "PDV sin nombre"
+                        pdv_nombre = (
+                            (f"Cliente ERP {erp}" if erp else "")
+                            or "PDV (sin nombre en padrón)"
+                        )
                     pdv_nombre = html.escape(pdv_nombre, quote=False)
                     if erp:
                         nro_cliente_str = f" <b>#{erp}</b>"

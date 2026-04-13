@@ -9,7 +9,12 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from core.config import AR_OFFSET
-from core.helpers import _get_erp_name_map
+from core.helpers import (
+    _get_erp_name_map,
+    build_qa_exhibicion_integrante_ids,
+    is_exhibicion_qa_display_for_dist,
+    should_apply_exhibicion_qa_filter,
+)
 from core.security import verify_auth, check_dist_permission
 from db import sb
 from models.schemas import BonusConfigPayload, ReporteQuery
@@ -116,13 +121,17 @@ def dashboard_ranking(distribuidor_id: int, periodo: str = "mes", top: int = 999
     rows = result.data or []
 
     erp_name_map = _get_erp_name_map(distribuidor_id)
+    hide_qa = should_apply_exhibicion_qa_filter(distribuidor_id, payload)
     aggregated: dict = {}
     NUMERIC_FIELDS = ("total", "aprobadas", "rechazadas", "destacadas", "pendientes", "total_enviadas", "total_aprobadas", "total_rechazadas", "total_destacadas", "puntos")
     for row in rows:
         tg_name = (row.get("vendedor") or "").strip()
-        if distribuidor_id == 3 and tg_name.lower() == "nacho": continue
         erp_name = erp_name_map.get(tg_name.lower(), tg_name)
-        if distribuidor_id == 3 and erp_name.lower() == "nacho": continue
+        if hide_qa and (
+            is_exhibicion_qa_display_for_dist(distribuidor_id, erp_name)
+            or is_exhibicion_qa_display_for_dist(distribuidor_id, tg_name)
+        ):
+            continue
         if erp_name not in aggregated:
             aggregated[erp_name] = {**row, "vendedor": erp_name}
         else:
@@ -161,14 +170,18 @@ def dashboard_ranking_historico(distribuidor_id: int, sucursal_id: int = Query(N
     int_map = {r["id_integrante"]: r["nombre_integrante"] for r in (integrantes_res.data or [])}
 
     daily: dict[tuple[str, str], int] = {}
+    hide_qa = should_apply_exhibicion_qa_filter(distribuidor_id, payload)
     for r in rows:
         ts     = r.get("timestamp_subida") or ""
         fecha  = ts.split("T")[0]
         id_int = r.get("id_integrante")
         tg_name = int_map.get(id_int, "Desconocido")
-        if distribuidor_id == 3 and tg_name.lower() == "nacho": continue
         erp_name = erp_name_map.get(tg_name.lower(), tg_name)
-        if distribuidor_id == 3 and erp_name.lower() == "nacho": continue
+        if hide_qa and (
+            is_exhibicion_qa_display_for_dist(distribuidor_id, erp_name)
+            or is_exhibicion_qa_display_for_dist(distribuidor_id, tg_name)
+        ):
+            continue
         est = (r.get("estado") or "").lower()
         pts = 2 if "destacad" in est else (1 if "aprobad" in est else 0)
         if pts > 0:
@@ -222,11 +235,27 @@ def dashboard_por_sucursal(distribuidor_id: int, periodo: str = "mes", sucursal_
 def dashboard_ultimas(distribuidor_id: int, n: int = 8, payload=Depends(verify_auth)):
     check_dist_permission(payload, distribuidor_id)
     ar_today = (datetime.utcnow() - timedelta(hours=3)).date()
+    hide_qa = should_apply_exhibicion_qa_filter(distribuidor_id, payload)
+    qa_ids = build_qa_exhibicion_integrante_ids(distribuidor_id) if hide_qa else frozenset()
+    erp_name_map = _get_erp_name_map(distribuidor_id) if hide_qa else {}
     for days_back in range(90):
         fecha  = (ar_today - timedelta(days=days_back)).isoformat()
         result = sb.rpc("fn_ultimas_evaluadas", {"p_dist_id": distribuidor_id, "p_fecha": fecha, "p_limit": n}).execute()
         if result.data:
-            return result.data
+            if not hide_qa:
+                return result.data
+            out = []
+            for row in result.data:
+                iid = row.get("id_integrante")
+                tg = (row.get("vendedor") or "").strip()
+                erp = erp_name_map.get(tg.lower(), tg) if tg else ""
+                if iid in qa_ids:
+                    continue
+                if is_exhibicion_qa_display_for_dist(distribuidor_id, erp) or is_exhibicion_qa_display_for_dist(distribuidor_id, tg):
+                    continue
+                out.append(row)
+            if out:
+                return out
     return []
 
 
@@ -238,21 +267,29 @@ def dashboard_imagen(file_id: str):
 # ─── Reportes de exhibiciones / ERP ──────────────────────────────────────────
 
 @router.get("/api/reportes/vendedores/{distribuidor_id}")
-def reportes_vendedores(distribuidor_id: int, _=Depends(verify_auth)):
+def reportes_vendedores(distribuidor_id: int, user_payload=Depends(verify_auth)):
+    check_dist_permission(user_payload, distribuidor_id)
     erp_name_map = _get_erp_name_map(distribuidor_id)
+    hide_qa = should_apply_exhibicion_qa_filter(distribuidor_id, user_payload)
+    qa_ids = build_qa_exhibicion_integrante_ids(distribuidor_id) if hide_qa else frozenset()
     q = sb.table("exhibiciones").select("id_integrante")
     if distribuidor_id > 0: q = q.eq("id_distribuidor", distribuidor_id)
     ex_result = q.execute()
     integrante_ids = list(set(r["id_integrante"] for r in (ex_result.data or []) if r.get("id_integrante")))
     if not integrante_ids: return []
-    ig_result = sb.table("integrantes_grupo").select("nombre_integrante").in_("id_integrante", integrante_ids).not_.is_("nombre_integrante", "null").execute()
+    ig_result = sb.table("integrantes_grupo").select("id_integrante,nombre_integrante").in_("id_integrante", integrante_ids).not_.is_("nombre_integrante", "null").execute()
     vendedores_unicos = set()
     for r in ig_result.data or []:
+        if hide_qa and r.get("id_integrante") in qa_ids:
+            continue
         tg_name = r["nombre_integrante"]
         if not tg_name: continue
-        if distribuidor_id == 3 and tg_name.lower() == "nacho": continue
         erp_name = erp_name_map.get(tg_name.lower(), tg_name)
-        if distribuidor_id == 3 and erp_name.lower() == "nacho": continue
+        if hide_qa and (
+            is_exhibicion_qa_display_for_dist(distribuidor_id, erp_name)
+            or is_exhibicion_qa_display_for_dist(distribuidor_id, tg_name)
+        ):
+            continue
         vendedores_unicos.add(erp_name)
     return sorted(list(vendedores_unicos))
 

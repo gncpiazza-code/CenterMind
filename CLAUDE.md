@@ -519,6 +519,10 @@ El popup HTML del marcador muestra:
 - No hay Redux ni Zustand — estado local con useState + contexto mínimo
 - Tailwind con variables CSS (`var(--shelfy-bg)`, `var(--shelfy-panel)`, etc.)
 
+### Backend (mapeo nombres supervisión)
+- `_get_erp_name_map` debe preservar identidad si `nombre_integrante` ya coincide con `vendedores_v2.nombre_erp`. Nunca sobreescribir ese nombre con otro ERP por un mapping roto en `integrantes_grupo`.
+- **Exhibiciones QA (Tabaco `id_distribuidor=3`)**: `build_qa_exhibicion_integrante_ids` / `is_exhibicion_qa_display_for_dist` / `should_apply_exhibicion_qa_filter` en `core/helpers.py` — NACHO PIAZZA (v2=157) y JESUS GRIMALDI (v2=76) no entran en ranking ni visor de evaluación salvo **superadmin**; `evaluar`/`revertir` devuelven 403 si no lo sos.
+
 ### Base de datos
 - Siempre filtrar por `id_distribuidor` — nunca queries sin tenant
 - Las tablas `_v2` son las activas; las sin sufijo son legacy

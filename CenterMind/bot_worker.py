@@ -41,6 +41,8 @@ from telegram.ext import (
 # Google Drive imports eliminados — fotos van a Supabase Storage
 import json
 
+from core.helpers import build_qa_exhibicion_integrante_ids, is_exhibicion_qa_display_for_dist
+
 # PARCHE SSL (fix PostgreSQL sobreescribe SSL_CERT_FILE)
 # ─────────────────────────────────────────────
 try:
@@ -489,6 +491,8 @@ class Database:
                 start_date = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
                 end_date = None
 
+            qa_ids = build_qa_exhibicion_integrante_ids(distribuidor_id)
+
             # 2. Fetch Exhibitions (con paginación para > 1000 registros)
             exhibiciones = []
             offset = 0
@@ -568,6 +572,8 @@ class Database:
 
             for e in exhibiciones:
                 iid = e.get("id_integrante")
+                if iid in qa_ids:
+                    continue
                 tuid = int_to_user.get(iid)
                 if not tuid or tuid in EXCLUDE_UIDS: continue
                 
@@ -604,9 +610,12 @@ class Database:
             ranking = []
             for tuid, s in stats.items():
                 meta = user_meta.get(tuid, {})
+                nombre_fin = meta.get("nombre", f"User {tuid}")
+                if is_exhibicion_qa_display_for_dist(distribuidor_id, nombre_fin):
+                    continue
                 suc_id = meta.get("sucursal_id")
                 ranking.append({
-                    "vendedor":   meta.get("nombre", f"User {tuid}"),
+                    "vendedor":   nombre_fin,
                     "sucursal":   suc_map.get(suc_id, "S/D"),
                     "puntos":     s["puntos"],
                     "aprobadas":  s["aprobadas"],

@@ -104,6 +104,9 @@ Los paneles utilizan el estilo "Glass-Card" adaptado al tema claro:
 - **Optimización**: `navItems` se memoiza con `useMemo([rol, hasPermiso])` para evitar re-cómputos.
 - **Fuente única de contexto**: Desde 13/04/2026 este es el único punto de cambio de entorno; se removieron selectores locales de tenant en `/supervision` y `/objetivos`.
 
+### 8b. Visor — Exhibiciones de prueba (Tabaco)
+- El backend excluye de `/api/pendientes` y de listas de ranking a integrantes/vendedores marcados como QA (NACHO PIAZZA, JESUS GRIMALDI) salvo sesión **superadmin**; no requiere cambios de UI en el visor.
+
 ### 8. Supervisión — Aislamiento de Cache por Tenant
 - `TabSupervision.tsx` scopea las query keys de rutas/clientes con `dist_id`:
   - `['supervision-rutas', distId, id_vendedor]`

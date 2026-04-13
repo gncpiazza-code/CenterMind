@@ -13,7 +13,13 @@ from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
 
-from core.helpers import _get_erp_name_map, _enrich_and_store_cc
+from core.helpers import (
+    _get_erp_name_map,
+    _enrich_and_store_cc,
+    build_qa_exhibicion_integrante_ids,
+    is_exhibicion_qa_display_for_dist,
+    should_apply_exhibicion_qa_filter,
+)
 from core.security import verify_auth, check_dist_permission
 from db import sb
 from models.schemas import EvaluarRequest, ObjetivoCreate, ObjetivoItemCreate, ObjetivoUpdate, ObjetivoTimeline, ObjetivoTimelineEvent, RevertirRequest
@@ -30,6 +36,32 @@ def get_pendientes(id_distribuidor: int, payload=Depends(verify_auth)):
     try:
         result = sb.rpc("fn_pendientes", {"p_dist_id": id_distribuidor}).execute()
         rows = result.data or []
+
+        hide_qa = should_apply_exhibicion_qa_filter(id_distribuidor, payload)
+        qa_ids = build_qa_exhibicion_integrante_ids(id_distribuidor) if hide_qa else frozenset()
+        ex_to_int: dict[int, int | None] = {}
+        if rows and hide_qa and qa_ids:
+            ex_ids = [r.get("id_exhibicion") for r in rows if r.get("id_exhibicion")]
+            if ex_ids:
+                try:
+                    ex_map_res = (
+                        sb.table("exhibiciones")
+                        .select("id_exhibicion, id_integrante")
+                        .in_("id_exhibicion", ex_ids)
+                        .execute()
+                    )
+                    ex_to_int = {
+                        r["id_exhibicion"]: r.get("id_integrante")
+                        for r in (ex_map_res.data or [])
+                    }
+                except Exception as _e_map:
+                    logger.warning(f"[pendientes] map id_integrante QA: {_e_map}")
+
+        if hide_qa and qa_ids and ex_to_int:
+            rows = [
+                r for r in rows
+                if ex_to_int.get(r.get("id_exhibicion")) not in qa_ids
+            ]
 
         pendientes_sin_nro = [r.get("id_exhibicion") for r in rows if r.get("id_exhibicion") and (not r.get("nro_cliente") or r.get("nro_cliente") == "0")]
         if pendientes_sin_nro:
@@ -116,11 +148,17 @@ def get_vendedores(id_distribuidor: int, payload=Depends(verify_auth)):
     try:
         result = sb.rpc("fn_vendedores_pendientes", {"p_dist_id": id_distribuidor}).execute()
         erp_name_map = _get_erp_name_map(id_distribuidor)
+        hide_qa = should_apply_exhibicion_qa_filter(id_distribuidor, payload)
         nombres = []
         seen = set()
         for r in result.data or []:
             tg_name = (r.get("nombre_integrante") or "").strip()
             display = erp_name_map.get(tg_name.lower(), tg_name)
+            if hide_qa and (
+                is_exhibicion_qa_display_for_dist(id_distribuidor, display)
+                or is_exhibicion_qa_display_for_dist(id_distribuidor, tg_name)
+            ):
+                continue
             if display and display not in seen:
                 nombres.append(display)
                 seen.add(display)
@@ -144,6 +182,22 @@ def evaluar(req: EvaluarRequest, user_payload=Depends(verify_auth)):
 
         from core.security import check_distributor_status
         check_distributor_status(dist_id, user_payload)
+
+        if should_apply_exhibicion_qa_filter(dist_id, user_payload):
+            qa_ids = build_qa_exhibicion_integrante_ids(dist_id)
+            if qa_ids:
+                ex_chk = (
+                    sb.table("exhibiciones")
+                    .select("id_integrante")
+                    .in_("id_exhibicion", req.ids_exhibicion)
+                    .execute()
+                )
+                for row in ex_chk.data or []:
+                    if row.get("id_integrante") in qa_ids:
+                        raise HTTPException(
+                            status_code=403,
+                            detail="Estas exhibiciones son de cuentas de prueba y solo el superadmin puede evaluarlas.",
+                        )
 
         r = sb.table("exhibiciones").update({
             "estado": req.estado,
@@ -234,8 +288,31 @@ def evaluar(req: EvaluarRequest, user_payload=Depends(verify_auth)):
 
 
 @router.post("/api/revertir", summary="Revertir evaluacion a Pendiente")
-def revertir(req: RevertirRequest, _=Depends(verify_auth)):
+def revertir(req: RevertirRequest, user_payload=Depends(verify_auth)):
     try:
+        if not req.ids_exhibicion:
+            return {"affected": 0}
+        first = req.ids_exhibicion[0]
+        ex0 = sb.table("exhibiciones").select("id_distribuidor").eq("id_exhibicion", first).execute()
+        if not ex0.data:
+            raise HTTPException(status_code=404, detail="Exhibición no encontrada")
+        dist_id = ex0.data[0]["id_distribuidor"]
+        check_dist_permission(user_payload, dist_id)
+        if should_apply_exhibicion_qa_filter(dist_id, user_payload):
+            qa_ids = build_qa_exhibicion_integrante_ids(dist_id)
+            if qa_ids:
+                ex_chk = (
+                    sb.table("exhibiciones")
+                    .select("id_integrante")
+                    .in_("id_exhibicion", req.ids_exhibicion)
+                    .execute()
+                )
+                for row in ex_chk.data or []:
+                    if row.get("id_integrante") in qa_ids:
+                        raise HTTPException(
+                            status_code=403,
+                            detail="Solo el superadmin puede revertir exhibiciones de cuentas de prueba.",
+                        )
         affected = 0
         for id_ex in req.ids_exhibicion:
             r = sb.table("exhibiciones").update({
@@ -247,6 +324,8 @@ def revertir(req: RevertirRequest, _=Depends(verify_auth)):
             }).eq("id_exhibicion", id_ex).execute()
             affected += len(r.data) if r.data else 0
         return {"affected": affected}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -261,14 +340,14 @@ def supervision_vendedores(dist_id: int, user_payload=Depends(verify_auth)):
         rows = res.data or []
         erp_name_map = _get_erp_name_map(dist_id)
         filtered = []
-        is_sa = user_payload.get("is_superadmin")
+        hide_qa = should_apply_exhibicion_qa_filter(dist_id, user_payload)
         for r in rows:
             tg_name = (r.get("nombre_vendedor") or "").strip()
-            # Privacy: Exclude Nacho for non-admins to avoid skewing stats
-            if not is_sa and dist_id == 3 and tg_name.lower() == "nacho":
-                continue
             erp_name = erp_name_map.get(tg_name.lower(), tg_name)
-            if not is_sa and dist_id == 3 and erp_name.lower() == "nacho":
+            if hide_qa and (
+                is_exhibicion_qa_display_for_dist(dist_id, erp_name)
+                or is_exhibicion_qa_display_for_dist(dist_id, tg_name)
+            ):
                 continue
             r["nombre_vendedor"] = erp_name
             filtered.append(r)

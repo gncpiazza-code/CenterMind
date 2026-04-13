@@ -50,6 +50,9 @@ Este documento describe la infraestructura, tecnologías y flujos de datos que c
     - El cambio de distribuidora se centraliza en `Sidebar` + `AuthContext` (`switchDistributor` + `shelfy_active_dist`).
     - `TabSupervision` y `objetivos/page.tsx` ya no exponen selectores locales de tenant para evitar estados desalineados.
     - Las consultas de rutas/clientes en supervisión se cachean con `dist_id` en la query key para aislar datos por tenant.
+10. **Cuentas de prueba exhibiciones (Tabaco, Abr 2026)**:
+    - `core/helpers.py` centraliza IDs QA (`id_vendedor_v2` 157 / 76) y resolución de `id_integrante` por nombre (Grimaldi).
+    - `routers/reportes.py` y `routers/supervision.py` filtran ranking, pendientes y evaluación para usuarios no superadmin; el bot excluye esas filas del ranking en Telegram.
 
 ---
 

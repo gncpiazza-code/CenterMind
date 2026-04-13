@@ -1,6 +1,6 @@
 # Progress — Shelfy CenterMind
 
-**Última actualización: 13 de Abril, 2026 (fix supervision cache + contexto único)**
+**Última actualización: 13 de Abril, 2026 (QA exhibiciones + limpieza integrantes Tabaco)**
 
 Este archivo detalla el estado actual del proyecto, las funcionalidades operativas y los pendientes técnicos.
 
@@ -77,6 +77,8 @@ El proyecto se encuentra en una fase de expansión de funcionalidades de supervi
 ---
 
 ## 📅 Historial Reciente (Abril 2026)
+- **13/04 (33)**: **Exhibiciones QA (Tabaco) + integrantes duplicados** — `core/helpers.py`: helpers `build_qa_exhibicion_integrante_ids`, `is_exhibicion_qa_display_for_dist`, `should_apply_exhibicion_qa_filter` para **NACHO PIAZZA** (`id_vendedor_v2=157`) y **JESUS GRIMALDI** (`id_vendedor_v2=76`) + integrantes cuyo nombre normalizado incluye Grimaldi. Si el usuario **no** es superadmin: se excluyen del **ranking** (`reportes.py` ranking + histórico + últimas evaluadas + reportes/vendedores), **visor pendientes** y lista de vendedores con pendientes (`supervision.py`), **supervision/vendedores** RPC, **evaluar/revertir** devuelven 403; el **bot** (`bot_worker.get_ranking_periodo`) no suma esas exhibiciones al ranking Telegram. En Supabase, filas legacy de `integrantes_grupo` (homónimos y duplicados Nacho/Jesus) pasan a `estado_mapeo=fusionado` dejando activas las cuentas operativas.
+- **13/04 (32)**: **Fix mapeo nombres supervisión (Tabaco)** — `core/helpers.py::_get_erp_name_map` ahora preserva identidad de nombres ERP (`vendedores_v2`) y bloquea remapeos conflictivos desde `integrantes_grupo` (ej: `David Brunetto` mal asociado a `ADRIAN AZULA`). Se agrega warning explícito de conflicto en logs para detectar mappings rotos sin romper la visualización correcta en `/supervision`.
 - **13/04 (31)**: **Supervisión — fix cruce vendedor/cliente + contexto único** — `TabSupervision.tsx` ahora scopea cache/query keys por `id_distribuidor` (`['supervision-rutas', distId, id_vendedor]` y `['supervision-clientes', distId, id_ruta]`) y limpia caches de rutas/clientes al cambiar distribuidora para evitar contaminación cross-tenant que podía mostrar PDVs de un vendedor con el nombre de otro. Además se elimina el selector local de distribuidora en Supervisión (superadmin) para forzar un único punto de cambio de entorno vía Sidebar.
 - **13/04 (31b)**: **Objetivos — unificación de cambio de entorno** — `objetivos/page.tsx` deja de usar selector local de tenant y consume únicamente `user.id_distribuidor` del contexto global, alineando el flujo con Sidebar/AuthContext y eliminando duplicidad de “cambio de entorno” dentro de la página.
 - **10/04 (30)**: **Objetivos — Telegram asignación y progreso** — `resolve_integrante_for_objetivos()` en `objetivos_notification_service.py`: unifica resolución de `integrantes_grupo` por `id_vendedor_v2`, luego `id_vendedor_erp` exacto y paginación (evita techo ~1000 filas del fallback que cargaba todos los integrantes del distribuidor). `_get_vendor_group_chat_id` delega ahí; `_diff_exhibicion` (watcher) usa la misma resolución para `id_integrante` cuando falta fila sólo por v2. Escape HTML en textos Telegram (`descripcion`, nombres PDV, supervisor) para no romper `parse_mode=HTML`.

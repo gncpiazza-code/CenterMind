@@ -1499,7 +1499,7 @@ class BotWorker:
                                         .eq("id_distribuidor", self.distribuidor_id)
                                         .eq("telegram_user_id", uploader_id)
                                         .limit(1)
-                                        .execute
+                                        .execute,
                                     )
                                     if int_res.data:
                                         vendedor_real = int_res.data[0].get("nombre_integrante") or vendedor_real
@@ -1771,14 +1771,23 @@ class BotWorker:
                         # Debe correr aunque falle el lookup de id_vendedor_v2 por grupo Telegram.
                         if not obj_match_res.data:
                             try:
+                                # Sin filtrar id_distribuidor en ítems: filas legacy con NULL no matcheaban
+                                # y la exhibición quedaba sin id_objetivo.
                                 items_match_res = self.db.sb.table("objetivo_items") \
                                     .select("id_objetivo") \
-                                    .eq("id_distribuidor", self.distribuidor_id) \
                                     .eq("id_cliente_pdv", id_pdv_obj) \
                                     .execute()
-                                item_obj_ids = [r["id_objetivo"] for r in (items_match_res.data or [])]
+                                item_obj_ids = list(
+                                    {
+                                        r["id_objetivo"]
+                                        for r in (items_match_res.data or [])
+                                        if r.get("id_objetivo")
+                                    }
+                                )
                                 if item_obj_ids:
-                                    obj_via_items = _obj_q().in_("id", item_obj_ids).limit(1).execute()
+                                    obj_via_items = (
+                                        _obj_q().in_("id", item_obj_ids).order("created_at", desc=True).limit(1).execute()
+                                    )
                                     if obj_via_items.data:
                                         obj_match_res = obj_via_items
                                         self.logger.info(

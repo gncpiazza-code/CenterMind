@@ -1,6 +1,6 @@
 # Progress — Shelfy CenterMind
 
-**Última actualización: 13 de Abril, 2026 (visor invalidación post-evaluar + Telegram objetivo / sync)**
+**Última actualización: 13 de Abril, 2026 (evaluar: reparar vínculo exhibición↔objetivo + bot match ítems sin dist)**
 
 Este archivo detalla el estado actual del proyecto, las funcionalidades operativas y los pendientes técnicos.
 

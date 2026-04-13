@@ -45,6 +45,176 @@ def _objetivo_belongs_to_dist(obj_id: str, dist_id: int) -> bool:
         return False
 
 
+def _resolve_pdv_id_from_nro_cliente(dist_id: int, nro: str | None) -> int | None:
+    """Resuelve id_cliente (PK clientes_pdv_v2) desde nro_cliente / id_cliente_erp."""
+    if not nro or str(nro).strip() in ("", "0", "S/C", "—"):
+        return None
+    raw = str(nro).strip()
+    for cand in (raw, raw.lstrip("0") or raw):
+        try:
+            r = (
+                sb.table("clientes_pdv_v2")
+                .select("id_cliente")
+                .eq("id_distribuidor", dist_id)
+                .eq("id_cliente_erp", cand)
+                .limit(1)
+                .execute()
+            )
+            if r.data:
+                return int(r.data[0]["id_cliente"])
+        except (TypeError, ValueError, KeyError):
+            continue
+    return None
+
+
+def _resolve_vendedor_v2_from_integrante(dist_id: int, id_integrante: int | None) -> int | None:
+    if id_integrante is None:
+        return None
+    try:
+        r = (
+            sb.table("integrantes_grupo")
+            .select("id_vendedor_v2")
+            .eq("id_distribuidor", dist_id)
+            .eq("id_integrante", id_integrante)
+            .limit(1)
+            .execute()
+        )
+        if not r.data:
+            return None
+        v = r.data[0].get("id_vendedor_v2")
+        return int(v) if v is not None else None
+    except (TypeError, ValueError, KeyError) as e:
+        logger.warning(f"[evaluar] id_vendedor_v2 desde integrante={id_integrante}: {e}")
+        return None
+
+
+def _resolve_objetivo_exhibicion_id(
+    dist_id: int, id_vendedor_v2: int, id_cliente_pdv: int
+) -> str | None:
+    """
+    Alineado con bot_worker ObjInterceptor: id_target_pdv → objetivo_items → global sin ítems.
+    """
+    if not id_vendedor_v2 or not id_cliente_pdv:
+        return None
+    try:
+        base = (
+            sb.table("objetivos")
+            .select("id")
+            .eq("id_distribuidor", dist_id)
+            .eq("tipo", "exhibicion")
+            .eq("cumplido", False)
+            .eq("id_vendedor", id_vendedor_v2)
+        )
+        r1 = base.eq("id_target_pdv", id_cliente_pdv).limit(1).execute()
+        if r1.data:
+            return str(r1.data[0]["id"])
+
+        items = (
+            sb.table("objetivo_items")
+            .select("id_objetivo")
+            .eq("id_cliente_pdv", id_cliente_pdv)
+            .execute()
+        )
+        oids = list(
+            {str(x["id_objetivo"]) for x in (items.data or []) if x.get("id_objetivo")}
+        )
+        if oids:
+            r2 = (
+                sb.table("objetivos")
+                .select("id")
+                .eq("id_distribuidor", dist_id)
+                .eq("tipo", "exhibicion")
+                .eq("cumplido", False)
+                .eq("id_vendedor", id_vendedor_v2)
+                .in_("id", oids)
+                .order("created_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+            if r2.data:
+                return str(r2.data[0]["id"])
+
+        cands = (
+            sb.table("objetivos")
+            .select("id")
+            .eq("id_distribuidor", dist_id)
+            .eq("tipo", "exhibicion")
+            .eq("cumplido", False)
+            .eq("id_vendedor", id_vendedor_v2)
+            .is_("id_target_pdv", "null")
+            .order("created_at", desc=True)
+            .limit(25)
+            .execute()
+        )
+        for row in cands.data or []:
+            oid = row.get("id")
+            if not oid:
+                continue
+            it_chk = (
+                sb.table("objetivo_items")
+                .select("id")
+                .eq("id_objetivo", oid)
+                .limit(1)
+                .execute()
+            )
+            if it_chk.data:
+                continue
+            return str(oid)
+    except Exception as e:
+        logger.warning(
+            f"[evaluar] _resolve_objetivo_exhibicion_id dist={dist_id} "
+            f"vend={id_vendedor_v2} pdv={id_cliente_pdv}: {e}"
+        )
+    return None
+
+
+def _enrich_exhibicion_objetivo_vinculos(dist_id: int, ids_exhibicion: list[int]) -> None:
+    """
+    Si la fila de exhibición perdió o nunca tuvo id_objetivo / id_cliente_pdv,
+    los recalcula y persiste para que evaluar y el Kanban retomen el rastro.
+    """
+    if not ids_exhibicion:
+        return
+    try:
+        rows = (
+            sb.table("exhibiciones")
+            .select(
+                "id_exhibicion, id_cliente_pdv, id_objetivo, id_integrante, nro_cliente"
+            )
+            .in_("id_exhibicion", ids_exhibicion)
+            .execute()
+        )
+        for ex in rows.data or []:
+            id_ex = ex.get("id_exhibicion")
+            if not id_ex:
+                continue
+            pid = ex.get("id_cliente_pdv")
+            oid = ex.get("id_objetivo")
+            nro = ex.get("nro_cliente")
+            id_int = ex.get("id_integrante")
+
+            patch: dict = {}
+            if not pid:
+                resolved = _resolve_pdv_id_from_nro_cliente(dist_id, nro)
+                if resolved:
+                    patch["id_cliente_pdv"] = resolved
+                    pid = resolved
+
+            id_v2 = _resolve_vendedor_v2_from_integrante(dist_id, id_int)
+            if not oid and id_v2 and pid:
+                oid_s = _resolve_objetivo_exhibicion_id(dist_id, id_v2, int(pid))
+                if oid_s:
+                    patch["id_objetivo"] = oid_s
+
+            if patch:
+                sb.table("exhibiciones").update(patch).eq("id_exhibicion", id_ex).execute()
+                logger.info(
+                    f"[evaluar] Vínculo exhibición→objetivo reparado id_ex={id_ex} patch={patch}"
+                )
+    except Exception as e:
+        logger.warning(f"[evaluar] _enrich_exhibicion_objetivo_vinculos: {e}")
+
+
 # ─── Exhibiciones: pendientes, evaluar, revertir ──────────────────────────────
 
 @router.get("/api/pendientes/{id_distribuidor}", summary="Exhibiciones pendientes agrupadas por mensaje")
@@ -225,6 +395,14 @@ def evaluar(req: EvaluarRequest, user_payload=Depends(verify_auth)):
             "synced_telegram": 0,
         }).in_("id_exhibicion", req.ids_exhibicion).eq("estado", "Pendiente").execute()
         affected = len(r.data) if r.data else 0
+
+        # Reparar id_objetivo / id_cliente_pdv si el bot no alcanzó a persistirlos (ítems con
+        # id_distribuidor NULL no matcheaban, race, etc.) — sin esto el objetivo "pierde" la foto.
+        if affected > 0:
+            try:
+                _enrich_exhibicion_objetivo_vinculos(dist_id, req.ids_exhibicion)
+            except Exception as e_vin:
+                logger.warning(f"[evaluar] enrich vínculo exhibición-objetivo: {e_vin}")
 
         # Aprobado / Destacado: cerrar ítems de objetivo vinculados a la exhibición
         estados_avance_objetivo = ("Aprobado", "Destacado")

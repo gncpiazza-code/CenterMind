@@ -1031,6 +1031,8 @@ export interface ClienteSupervision {
   id_ruta: number | null;
   tiene_exhibicion_reciente: boolean; // Server-calculated flag (last 30 days)
   total_exhibiciones?: number;
+  /** Padrón: `inactivo` = dado de baja (tombstone); omitido = activo en listados vivos */
+  estado?: string | null;
 }
 
 export async function fetchVendedoresSupervision(distId: number): Promise<VendedorSupervision[]> {

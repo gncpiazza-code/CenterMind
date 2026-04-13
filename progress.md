@@ -1,6 +1,6 @@
 # Progress — Shelfy CenterMind
 
-**Última actualización: 13 de Abril, 2026 (padrón: baja PDV + QA exhibiciones Tabaco)**
+**Última actualización: 13 de Abril, 2026 (supervisión: mapa vs conteos + visibilidad PDV)**
 
 Este archivo detalla el estado actual del proyecto, las funcionalidades operativas y los pendientes técnicos.
 
@@ -77,6 +77,7 @@ El proyecto se encuentra en una fase de expansión de funcionalidades de supervi
 ---
 
 ## 📅 Historial Reciente (Abril 2026)
+- **13/04 (35)**: **Supervisión — mapa vs “activos” y PDV persistidos** — `useSupervisionStore`: ya no se persiste `visibleVends` / `visibleRutas` / `visibleClientes` en `localStorage` (evitaba IDs fantasma tras bajas de padrón). `TabSupervision`: PDV `estado=inactivo` excluidos de pines, de toggles al prender vendedor/ruta/cliente y ojo deshabilitado en lista; conteos por vendedor y barra superior usan datos cacheados con **misma regla que el mapa** (coords válidas + actividad 30 días) cuando todas las rutas del vendedor tienen clientes cargados en caché, si no fallback al RPC `fn_supervision_vendedores` (90 días / sin filtro coords). Suscripción al `QueryCache` para refrescar conteos al cargar rutas/clientes.
 - **13/04 (34)**: **Padrón — clientes dados de baja en ERP** — `padron_ingestion_service.py` tras el upsert marca `clientes_pdv_v2.estado='inactivo'` para PDV que ya no están en el Excel (el export operativo **solo incluye activos**, sin anulados). Alcance completo vs parcial (`SUCURSAL_FILTER` / Bolívar / La Mágica) como arriba. `motor_runs.registros` incluye `clientes_inactivos_padron`. `GET /api/supervision/clientes/{id_ruta}` y `GET /api/supervision/pdvs-catalog/{dist_id}` excluyen `estado=inactivo` para el mapa y objetivos.
 - **13/04 (33)**: **Exhibiciones QA (Tabaco) + integrantes duplicados** — `core/helpers.py`: helpers `build_qa_exhibicion_integrante_ids`, `is_exhibicion_qa_display_for_dist`, `should_apply_exhibicion_qa_filter` para **NACHO PIAZZA** (`id_vendedor_v2=157`) y **JESUS GRIMALDI** (`id_vendedor_v2=76`) + integrantes cuyo nombre normalizado incluye Grimaldi. Si el usuario **no** es superadmin: se excluyen del **ranking** (`reportes.py` ranking + histórico + últimas evaluadas + reportes/vendedores), **visor pendientes** y lista de vendedores con pendientes (`supervision.py`), **supervision/vendedores** RPC, **evaluar/revertir** devuelven 403; el **bot** (`bot_worker.get_ranking_periodo`) no suma esas exhibiciones al ranking Telegram. En Supabase, filas legacy de `integrantes_grupo` (homónimos y duplicados Nacho/Jesus) pasan a `estado_mapeo=fusionado` dejando activas las cuentas operativas.
 - **13/04 (32)**: **Fix mapeo nombres supervisión (Tabaco)** — `core/helpers.py::_get_erp_name_map` ahora preserva identidad de nombres ERP (`vendedores_v2`) y bloquea remapeos conflictivos desde `integrantes_grupo` (ej: `David Brunetto` mal asociado a `ADRIAN AZULA`). Se agrega warning explícito de conflicto en logs para detectar mappings rotos sin romper la visualización correcta en `/supervision`.

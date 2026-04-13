@@ -107,20 +107,19 @@ export const useSupervisionStore = create<SupervisionStore>()(
     }),
     {
       name: 'supervision-store',
+      // No persistir visibilidad mapa: IDs viejos en localStorage seguían "prendidos"
+      // tras bajas de padrón aunque el API ya no devuelva esos PDV.
       partialize: (state) => ({
         selectedSucursal: state.selectedSucursal,
         mapMode: state.mapMode,
-        visibleVends: Array.from(state.visibleVends),
-        visibleRutas: Array.from(state.visibleRutas),
-        visibleClientes: Array.from(state.visibleClientes),
       }),
       merge: (persistedState: any, currentState) => ({
         ...currentState,
-        ...persistedState,
-        mapMode: persistedState?.mapMode ?? 'activos',
-        visibleVends: new Set(persistedState?.visibleVends || []),
-        visibleRutas: new Set(persistedState?.visibleRutas || []),
-        visibleClientes: new Set(persistedState?.visibleClientes || []),
+        mapMode: persistedState?.mapMode ?? currentState.mapMode,
+        selectedSucursal: persistedState?.selectedSucursal ?? currentState.selectedSucursal,
+        visibleVends: new Set(),
+        visibleRutas: new Set(),
+        visibleClientes: new Set(),
       }),
     }
   )

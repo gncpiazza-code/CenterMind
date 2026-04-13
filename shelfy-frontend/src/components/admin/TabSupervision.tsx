@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
+import { useQuery, useQueryClient, keepPreviousData, type QueryClient } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
 import {
   ChevronRight,
@@ -179,6 +179,64 @@ function hasValidCoords(lat: number | null, lng: number | null): boolean {
   if (!lat || !lng) return false;
   return lat >= -55 && lat <= -21 && lng >= -74 && lng <= -53;
 }
+
+/** PDV dado de baja en padrón — no mapa ni toggles de visibilidad */
+function isClientePadronActivo(c: ClienteSupervision): boolean {
+  return c.estado?.trim().toLowerCase() !== "inactivo";
+}
+
+interface VendorMapEligibleStats {
+  /** PDV únicos con coords válidas (misma regla que pines del mapa) */
+  totalMap: number;
+  /** Subconjunto con compra en últimos 30 días (alineado a `isInactivo30` / leyenda del mapa) */
+  activosMap: number;
+  /** true si hay rutas y cada ruta tiene respuesta en caché (aunque sea []) */
+  complete: boolean;
+}
+
+function getVendorMapEligibleStats(
+  qc: QueryClient,
+  distId: number,
+  idVendedor: number
+): VendorMapEligibleStats {
+  const vendRutas = qc.getQueryData<RutaSupervision[]>(["supervision-rutas", distId, idVendedor]);
+  if (!vendRutas?.length) {
+    return { totalMap: 0, activosMap: 0, complete: false };
+  }
+  const seen = new Set<number>();
+  let totalMap = 0;
+  let activosMap = 0;
+  let complete = true;
+  for (const r of vendRutas) {
+    const rows = qc.getQueryData<ClienteSupervision[]>(["supervision-clientes", distId, r.id_ruta]);
+    if (rows === undefined) {
+      complete = false;
+      continue;
+    }
+    for (const c of rows) {
+      if (!isClientePadronActivo(c)) continue;
+      if (!hasValidCoords(c.latitud, c.longitud)) continue;
+      if (seen.has(c.id_cliente)) continue;
+      seen.add(c.id_cliente);
+      totalMap++;
+      if (!isInactivo30(c.fecha_ultima_compra)) activosMap++;
+    }
+  }
+  return { totalMap, activosMap, complete };
+}
+
+function findClienteInDistCache(
+  qc: QueryClient,
+  distId: number,
+  clienteId: number
+): ClienteSupervision | null {
+  const entries = qc.getQueriesData<ClienteSupervision[]>({ queryKey: ["supervision-clientes", distId] });
+  for (const [, rows] of entries) {
+    const hit = rows?.find((x) => x.id_cliente === clienteId);
+    if (hit) return hit;
+  }
+  return null;
+}
 function diasDesde(fecha: string | null | undefined): string {
   if (!fecha) return "Sin registro";
   const dias = Math.floor((Date.now() - new Date(fecha).getTime()) / 86_400_000);
@@ -217,21 +275,29 @@ const VendorAvatar = ({ nombre, color }: { nombre: string; color: string }) => {
 
 // ── Small eye toggle button ───────────────────────────────────────────────────
 function EyeBtn({
-  on, loading, color, onClick, title, className,
+  on, loading, color, onClick, title, className, disabled,
 }: {
   on: boolean; loading?: boolean; color?: string;
-  onClick: () => void; title?: string; className?: string;
+  onClick: () => void; title?: string; className?: string; disabled?: boolean;
 }) {
   return (
     <button
-      onClick={e => { e.stopPropagation(); onClick(); }}
+      type="button"
+      disabled={!!disabled}
+      onClick={e => {
+        e.stopPropagation();
+        if (disabled) return;
+        onClick();
+      }}
       title={title ?? (on ? "Ocultar del mapa" : "Mostrar en mapa")}
       className={`hidden xl:flex rounded-md items-center justify-center border transition-all duration-200 shrink-0 ${
-        on
-          ? "border-transparent text-white"
-          : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] hover:border-current"
+        disabled
+          ? "border-transparent opacity-35 cursor-not-allowed text-[var(--shelfy-muted)]"
+          : on
+            ? "border-transparent text-white"
+            : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] hover:border-current"
       } ${className ?? "w-6 h-6"}`}
-      style={on && color ? { backgroundColor: color, boxShadow: `0 0 6px ${color}55` } : {}}
+      style={on && color && !disabled ? { backgroundColor: color, boxShadow: `0 0 6px ${color}55` } : {}}
     >
       {loading
         ? <Loader2 className="w-3 h-3 animate-spin" />
@@ -283,6 +349,8 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
 
   // loading states for async operations
   const [loadingMap, setLoadingMap]             = useState<Set<number>>(new Set());
+  /** Re-render conteos alineados al mapa cuando cambia caché de rutas/clientes */
+  const [mapStatsTick, setMapStatsTick]         = useState(0);
 
   // ── Scanner GPS ───────────────────────────────────────────────────────────
   const [scannerOpen, setScannerOpen]           = useState(false);
@@ -530,6 +598,46 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
     selectedSucursal ? vendedores.filter(v => v.sucursal_nombre === selectedSucursal) : [],
     [vendedores, selectedSucursal]
   );
+
+  useEffect(() => {
+    const unsub = queryClient.getQueryCache().subscribe((e) => {
+      const qk = e.query?.queryKey;
+      if (!Array.isArray(qk) || qk[1] !== selectedDist) return;
+      if (qk[0] === "supervision-clientes" || qk[0] === "supervision-rutas") {
+        setMapStatsTick((t) => t + 1);
+      }
+    });
+    return unsub;
+  }, [queryClient, selectedDist]);
+
+  const vendorMapEligibleStats = useMemo(() => {
+    const m = new Map<number, VendorMapEligibleStats>();
+    if (!selectedDist) return m;
+    for (const v of vendedoresFiltrados) {
+      m.set(v.id_vendedor, getVendorMapEligibleStats(queryClient, selectedDist, v.id_vendedor));
+    }
+    return m;
+  }, [vendedoresFiltrados, selectedDist, queryClient, mapStatsTick]);
+
+  const { totalPdv, totalActivos, pctActivos } = useMemo(() => {
+    let tp = 0;
+    let ta = 0;
+    for (const v of vendedoresFiltrados) {
+      const s = vendorMapEligibleStats.get(v.id_vendedor);
+      if (s?.complete) {
+        tp += s.totalMap;
+        ta += s.activosMap;
+      } else {
+        tp += v.total_pdv;
+        ta += v.pdv_activos ?? 0;
+      }
+    }
+    return {
+      totalPdv: tp,
+      totalActivos: ta,
+      pctActivos: tp > 0 ? Math.round((ta / tp) * 100) : 0,
+    };
+  }, [vendedoresFiltrados, vendorMapEligibleStats]);
 
   const ventasFiltradas = useMemo(() => {
     if (!ventasData || !selectedSucursal) return null;
@@ -794,12 +902,17 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
     const vendRutas = await queryClient.fetchQuery(getRutasQuery(vendId));
     const allRutaIds: number[] = vendRutas.map(r => r.id_ruta);
     const allClientIds: number[] = [];
-    
-    // Fetch all clientes in parallel
+    const seenCli = new Set<number>();
+
     await Promise.all(
       vendRutas.map(async r => {
         const cli = await queryClient.fetchQuery(getClientesQuery(r.id_ruta));
-        cli.forEach(c => allClientIds.push(c.id_cliente));
+        cli.forEach((c) => {
+          if (!isClientePadronActivo(c)) return;
+          if (seenCli.has(c.id_cliente)) return;
+          seenCli.add(c.id_cliente);
+          allClientIds.push(c.id_cliente);
+        });
       })
     );
     
@@ -843,11 +956,11 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
       setLoadingMap(p => new Set([...p, vendId]));
       try {
         const cli = await queryClient.fetchQuery(getClientesQuery(rutaId));
-        
-        // auto-enable vendor if not already
+
         setVisibleVends(new Set([...visibleVends, vendId]));
         setVisibleRutas(new Set([...visibleRutas, rutaId]));
-        setVisibleClientes(new Set([...visibleClientes, ...cli.map(c => c.id_cliente)]));
+        const ids = cli.filter(isClientePadronActivo).map((c) => c.id_cliente);
+        setVisibleClientes(new Set([...visibleClientes, ...ids]));
       } finally {
         setLoadingMap(p => { const s = new Set(p); s.delete(vendId); return s; });
       }
@@ -856,6 +969,8 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
 
   // ── PDV TOGGLE (uses Zustand store) ──────────────────────────────────────
   function toggleCliente(clienteId: number) {
+    const row = findClienteInDistCache(queryClient, selectedDist, clienteId);
+    if (row && !isClientePadronActivo(row)) return;
     toggleClienteStore(clienteId);
   }
 
@@ -893,6 +1008,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
         
         rutaClientes.forEach(c => {
           if (!visibleClientes.has(c.id_cliente)) return;
+          if (!isClientePadronActivo(c)) return;
           if (!hasValidCoords(c.latitud, c.longitud)) return;
           
           // Cross-reference deuda
@@ -933,11 +1049,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
       seen.add(p.id);
       return true;
     });
-  }, [vendedores, visibleVends, visibleRutas, visibleClientes, cuentasData, queryClient]);
-
-  const totalPdv     = vendedoresFiltrados.reduce((s, v) => s + v.total_pdv, 0);
-  const totalActivos = vendedoresFiltrados.reduce((s, v) => s + (v.pdv_activos ?? 0), 0);
-  const pctActivos   = totalPdv > 0 ? Math.round((totalActivos / totalPdv) * 100) : 0;
+  }, [vendedores, visibleVends, visibleRutas, visibleClientes, cuentasData, queryClient, mapStatsTick]);
 
   // ── Floating Objetivos: contextual data loader ───────────────────────────
   useEffect(() => {
@@ -1267,7 +1379,10 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
           );
           const isVendOn  = visibleVends.has(v.id_vendedor);
           const isVendLoad = loadingMap.has(v.id_vendedor);
-          const pct       = v.total_pdv > 0 ? Math.round(((v.pdv_activos ?? 0) / v.total_pdv) * 100) : 0;
+          const mapS      = vendorMapEligibleStats.get(v.id_vendedor);
+          const pdvTot    = mapS?.complete ? mapS.totalMap : v.total_pdv;
+          const pdvAct    = mapS?.complete ? mapS.activosMap : (v.pdv_activos ?? 0);
+          const pct       = pdvTot > 0 ? Math.round((pdvAct / pdvTot) * 100) : 0;
 
           return (
             <div key={v.id_vendedor}>
@@ -1278,7 +1393,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                     <VendorAvatar nombre={v.nombre_vendedor} color={color} />
                     <div className="flex-1 min-w-0">
                       <p className="text-[12px] font-bold text-white truncate leading-snug">{v.nombre_vendedor}</p>
-                      <p className="text-[10px] text-white/40">{v.total_pdv} PDV · {pct}% activos</p>
+                      <p className="text-[10px] text-white/40">{pdvTot} PDV · {pct}% activos</p>
                     </div>
                     <button
                       onClick={() => toggleVendor(v.id_vendedor)}
@@ -1327,18 +1442,29 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                         <Accordion open={rOpen}>
                           <div className="bg-black/40">
                             {rCli.map(c => {
+                              const padronOff = !isClientePadronActivo(c);
                               const isCliOn = visibleClientes.has(c.id_cliente);
                               const inactivo = isInactivo(c.fecha_ultima_compra);
-                              const dotColor = !isRutaOn || !isCliOn ? "#4b5563" : inactivo ? "#6b7280" : color;
+                              const dotColor = padronOff ? "#374151" : !isRutaOn || !isCliOn ? "#4b5563" : inactivo ? "#6b7280" : color;
                               return (
                                 <div key={c.id_cliente} className="flex items-center gap-2 pl-10 pr-2 py-1.5 hover:bg-white/5 transition-colors">
-                                  <div className="flex-1 flex items-center gap-2 min-w-0" onClick={() => toggleCliente(c.id_cliente)}>
+                                  <div
+                                    className="flex-1 flex items-center gap-2 min-w-0"
+                                    onClick={() => { if (!padronOff) toggleCliente(c.id_cliente); }}
+                                  >
                                     <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: dotColor }} />
-                                    <span className={`text-[10px] truncate ${!isCliOn ? "text-white/20" : inactivo ? "text-white/40" : "text-white/80"}`}>
+                                    <span className={`text-[10px] truncate ${padronOff ? "text-white/25 line-through" : !isCliOn ? "text-white/20" : inactivo ? "text-white/40" : "text-white/80"}`}>
                                       {c.nombre_fantasia || c.nombre_razon_social}
                                     </span>
                                   </div>
-                                  <EyeBtn on={isCliOn} color={inactivo ? "#6b7280" : color} className="w-4 h-4" onClick={() => toggleCliente(c.id_cliente)} />
+                                  <EyeBtn
+                                    on={isCliOn}
+                                    color={inactivo ? "#6b7280" : color}
+                                    className="w-4 h-4"
+                                    disabled={padronOff}
+                                    title={padronOff ? "Dado de baja en padrón" : undefined}
+                                    onClick={() => toggleCliente(c.id_cliente)}
+                                  />
                                 </div>
                               );
                             })}
@@ -1574,9 +1700,10 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                 );
                 const isVendOn  = visibleVends.has(v.id_vendedor);
                 const isVendLoad = loadingMap.has(v.id_vendedor);
-                const pct       = v.total_pdv > 0
-                  ? Math.round(((v.pdv_activos ?? 0) / v.total_pdv) * 100)
-                  : 0;
+                const mapS      = vendorMapEligibleStats.get(v.id_vendedor);
+                const pdvTot    = mapS?.complete ? mapS.totalMap : v.total_pdv;
+                const pdvAct    = mapS?.complete ? mapS.activosMap : (v.pdv_activos ?? 0);
+                const pct       = pdvTot > 0 ? Math.round((pdvAct / pdvTot) * 100) : 0;
 
                 return (
                   <div key={v.id_vendedor}>
@@ -1596,7 +1723,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                               {v.nombre_vendedor}
                             </p>
                             <p className="text-[11px] text-[var(--shelfy-muted)]">
-                              {v.total_pdv.toLocaleString()} PDV · {v.total_rutas} rutas
+                              {pdvTot.toLocaleString()} PDV · {v.total_rutas} rutas
                             </p>
                           </div>
                           {/* Vendor eye: bigger, toggles everything — hidden on mobile (no map) */}
@@ -1619,11 +1746,11 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                           </button>
                         </div>
                         {/* Activity bar */}
-                        {v.total_pdv > 0 && (
+                        {pdvTot > 0 && (
                           <div className="mb-2">
                             <div className="flex justify-between items-center mb-0.5">
                               <span className="text-[10px] text-emerald-400 font-semibold">
-                                {(v.pdv_activos ?? 0).toLocaleString()} activos
+                                {pdvAct.toLocaleString()} activos
                               </span>
                               <span className="text-[10px] font-bold" style={{ color }}>
                                 {pct}%
@@ -1722,6 +1849,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                                   )}
 
                                   {rCli.map(c => {
+                                    const padronOff  = !isClientePadronActivo(c);
                                     const cOpen      = openCliente === c.id_cliente;
                                     const inactivo   = isInactivo(c.fecha_ultima_compra);
                                     const fechaAlta  = fmt(c.fecha_alta);
@@ -1730,10 +1858,11 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                                     const mapUrl     = c.latitud && c.longitud
                                       ? `https://www.google.com/maps/search/?api=1&query=${c.latitud},${c.longitud}`
                                       : null;
-                                    // effective dot color: if route is on but client off → gray
-                                    const dotColor   = !isRutaOn || !isCliOn
+                                    const dotColor   = padronOff
                                       ? "#4b5563"
-                                      : inactivo ? "#6b7280" : color;
+                                      : !isRutaOn || !isCliOn
+                                        ? "#4b5563"
+                                        : inactivo ? "#6b7280" : color;
 
                                     return (
                                       <div key={c.id_cliente}>
@@ -1748,12 +1877,15 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                                             />
                                             {/* Dot = PDV map toggle */}
                                             <span
-                                              className="w-2 h-2 rounded-full shrink-0 cursor-pointer transition-all"
-                                              style={{ backgroundColor: dotColor, boxShadow: isCliOn && isRutaOn && !inactivo ? `0 0 4px ${color}88` : "none" }}
-                                              onClick={e => { e.stopPropagation(); toggleCliente(c.id_cliente); }}
-                                              title={isCliOn ? "Ocultar PDV del mapa" : "Mostrar PDV en mapa"}
+                                              className={`w-2 h-2 rounded-full shrink-0 transition-all ${padronOff ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
+                                              style={{ backgroundColor: dotColor, boxShadow: isCliOn && isRutaOn && !inactivo && !padronOff ? `0 0 4px ${color}88` : "none" }}
+                                              onClick={e => {
+                                                e.stopPropagation();
+                                                if (!padronOff) toggleCliente(c.id_cliente);
+                                              }}
+                                              title={padronOff ? "Dado de baja en padrón" : isCliOn ? "Ocultar PDV del mapa" : "Mostrar PDV en mapa"}
                                             />
-                                            <span className={`text-[11px] flex-1 truncate ${!isCliOn || !isRutaOn ? "opacity-50" : inactivo ? "text-[var(--shelfy-muted)]" : "text-[var(--shelfy-text)]"}`}>
+                                            <span className={`text-[11px] flex-1 truncate ${padronOff ? "line-through opacity-50" : !isCliOn || !isRutaOn ? "opacity-50" : inactivo ? "text-[var(--shelfy-muted)]" : "text-[var(--shelfy-text)]"}`}>
                                               <span className="font-mono text-[9px] bg-white/10 px-1 rounded mr-1 opacity-70">
                                                 {c.id_cliente_erp}
                                               </span>
@@ -1765,7 +1897,8 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                                             on={isCliOn}
                                             color={inactivo ? "#6b7280" : color}
                                             onClick={() => toggleCliente(c.id_cliente)}
-                                            title={isCliOn ? "Ocultar PDV del mapa" : "Mostrar PDV en mapa"}
+                                            disabled={padronOff}
+                                            title={padronOff ? "Dado de baja en padrón" : isCliOn ? "Ocultar PDV del mapa" : "Mostrar PDV en mapa"}
                                           />
                                         </div>
 

@@ -67,6 +67,40 @@ def _pick_integrante_row(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
     return None
 
 
+def _select_integrantes(
+    dist_id: int,
+    cols_primary: str,
+    cols_fallback: str,
+    *,
+    id_vendedor_v2: int | None = None,
+    id_vendedor_erp: str | None = None,
+    offset: int | None = None,
+    limit: int | None = None,
+) -> list[dict[str, Any]]:
+    """
+    Lee integrantes_grupo con fallback de columnas para esquemas legacy
+    que no tienen `activo`.
+    """
+    def _run(cols: str) -> list[dict[str, Any]]:
+        q = sb.table("integrantes_grupo").select(cols).eq("id_distribuidor", dist_id)
+        if id_vendedor_v2 is not None:
+            q = q.eq("id_vendedor_v2", id_vendedor_v2)
+        if id_vendedor_erp is not None:
+            q = q.eq("id_vendedor_erp", id_vendedor_erp)
+        if offset is not None and limit is not None:
+            q = q.range(offset, offset + limit - 1)
+        res = q.execute()
+        return res.data or []
+
+    try:
+        return _run(cols_primary)
+    except Exception as e:
+        msg = str(e).lower()
+        if "column integrantes_grupo.activo does not exist" in msg or "42703" in msg:
+            return _run(cols_fallback)
+        raise
+
+
 def resolve_integrante_for_objetivos(
     dist_id: int, id_vendedor: int
 ) -> dict[str, Any] | None:
@@ -80,18 +114,21 @@ def resolve_integrante_for_objetivos(
     4) Fallback por nombre ERP del vendedor vs nombre_integrante (normalizado).
     """
     try:
-        cols = (
+        cols_primary = (
             "id_integrante, telegram_group_id, id_vendedor_erp, telegram_user_id, "
             "nombre_integrante, activo, estado_mapeo"
         )
-        res_v2 = (
-            sb.table("integrantes_grupo")
-            .select(cols)
-            .eq("id_distribuidor", dist_id)
-            .eq("id_vendedor_v2", id_vendedor)
-            .execute()
+        cols_fallback = (
+            "id_integrante, telegram_group_id, id_vendedor_erp, telegram_user_id, "
+            "nombre_integrante, estado_mapeo"
         )
-        picked = _pick_integrante_row(res_v2.data or [])
+        res_v2_rows = _select_integrantes(
+            dist_id,
+            cols_primary,
+            cols_fallback,
+            id_vendedor_v2=id_vendedor,
+        )
+        picked = _pick_integrante_row(res_v2_rows)
         if picked:
             return picked
 
@@ -112,14 +149,13 @@ def resolve_integrante_for_objetivos(
             verp_stripped = str(verp).strip()
             verp_s = verp_stripped.lower()
 
-            erp_exact = (
-                sb.table("integrantes_grupo")
-                .select(cols)
-                .eq("id_distribuidor", dist_id)
-                .eq("id_vendedor_erp", verp_stripped)
-                .execute()
+            erp_exact_rows = _select_integrantes(
+                dist_id,
+                cols_primary,
+                cols_fallback,
+                id_vendedor_erp=verp_stripped,
             )
-            picked = _pick_integrante_row(erp_exact.data or [])
+            picked = _pick_integrante_row(erp_exact_rows)
             if picked:
                 logger.info(
                     f"[Notif] integrante vía id_vendedor_erp exact={verp_stripped!r} "
@@ -131,14 +167,13 @@ def resolve_integrante_for_objetivos(
         batch = 500
         name_match_candidate: dict[str, Any] | None = None
         while True:
-            page = (
-                sb.table("integrantes_grupo")
-                .select(cols)
-                .eq("id_distribuidor", dist_id)
-                .range(offset, offset + batch - 1)
-                .execute()
+            rows = _select_integrantes(
+                dist_id,
+                cols_primary,
+                cols_fallback,
+                offset=offset,
+                limit=batch,
             )
-            rows = page.data or []
             if not rows:
                 break
             for row in rows:

@@ -14,6 +14,7 @@ import asyncio
 import html
 import logging
 import re
+import unicodedata
 import requests
 from datetime import datetime
 from typing import Any
@@ -28,15 +29,40 @@ def _row_usable_telegram_group(row: dict[str, Any]) -> bool:
     return gid is not None and str(gid).strip() not in ("", "0", "None")
 
 
+def _row_operational(row: dict[str, Any]) -> bool:
+    """Evita cuentas legacy fusionadas/inactivas al resolver destinatario."""
+    if row.get("activo") is False:
+        return False
+    estado = str(row.get("estado_mapeo") or "").strip().lower()
+    if estado in {"fusionado", "franquiciado_inactivo", "inactivo"}:
+        return False
+    return True
+
+
+def _norm_name(value: str | None) -> str:
+    if not value:
+        return ""
+    txt = str(value).strip().lower()
+    txt = "".join(
+        c for c in unicodedata.normalize("NFD", txt)
+        if unicodedata.category(c) != "Mn"
+    )
+    return " ".join(txt.split())
+
+
 def _pick_integrante_row(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
     """Prefiere fila con telegram_group_id válido; si no, primera con id_integrante."""
     if not rows:
         return None
     for row in rows:
-        if row.get("id_integrante") is not None and _row_usable_telegram_group(row):
+        if (
+            row.get("id_integrante") is not None
+            and _row_operational(row)
+            and _row_usable_telegram_group(row)
+        ):
             return row
     for row in rows:
-        if row.get("id_integrante") is not None:
+        if row.get("id_integrante") is not None and _row_operational(row):
             return row
     return None
 
@@ -51,9 +77,13 @@ def resolve_integrante_for_objetivos(
     2) id_vendedor_erp exacto (vendedores_v2 → integrantes_grupo)
     3) Paginado por distribuidor con comparación case-insensitive de ERP
        (evita techo ~1000 filas del fallback anterior que cargaba todo de una vez).
+    4) Fallback por nombre ERP del vendedor vs nombre_integrante (normalizado).
     """
     try:
-        cols = "id_integrante, telegram_group_id, id_vendedor_erp"
+        cols = (
+            "id_integrante, telegram_group_id, id_vendedor_erp, telegram_user_id, "
+            "nombre_integrante, activo, estado_mapeo"
+        )
         res_v2 = (
             sb.table("integrantes_grupo")
             .select(cols)
@@ -67,35 +97,39 @@ def resolve_integrante_for_objetivos(
 
         vres = (
             sb.table("vendedores_v2")
-            .select("id_vendedor_erp")
+            .select("id_vendedor_erp, nombre_erp")
             .eq("id_distribuidor", dist_id)
             .eq("id_vendedor", id_vendedor)
             .limit(1)
             .execute()
         )
-        verp = (vres.data or [{}])[0].get("id_vendedor_erp")
+        vrow = (vres.data or [{}])[0]
+        verp = vrow.get("id_vendedor_erp")
+        nombre_erp_norm = _norm_name(vrow.get("nombre_erp"))
         if verp is None or str(verp).strip() == "":
-            return None
-        verp_stripped = str(verp).strip()
-        verp_s = verp_stripped.lower()
+            verp_s = ""
+        else:
+            verp_stripped = str(verp).strip()
+            verp_s = verp_stripped.lower()
 
-        erp_exact = (
-            sb.table("integrantes_grupo")
-            .select(cols)
-            .eq("id_distribuidor", dist_id)
-            .eq("id_vendedor_erp", verp_stripped)
-            .execute()
-        )
-        picked = _pick_integrante_row(erp_exact.data or [])
-        if picked:
-            logger.info(
-                f"[Notif] integrante vía id_vendedor_erp exact={verp_stripped!r} "
-                f"vendedor_v2={id_vendedor} dist={dist_id}"
+            erp_exact = (
+                sb.table("integrantes_grupo")
+                .select(cols)
+                .eq("id_distribuidor", dist_id)
+                .eq("id_vendedor_erp", verp_stripped)
+                .execute()
             )
-            return picked
+            picked = _pick_integrante_row(erp_exact.data or [])
+            if picked:
+                logger.info(
+                    f"[Notif] integrante vía id_vendedor_erp exact={verp_stripped!r} "
+                    f"vendedor_v2={id_vendedor} dist={dist_id}"
+                )
+                return picked
 
         offset = 0
         batch = 500
+        name_match_candidate: dict[str, Any] | None = None
         while True:
             page = (
                 sb.table("integrantes_grupo")
@@ -108,21 +142,29 @@ def resolve_integrante_for_objetivos(
             if not rows:
                 break
             for row in rows:
+                if not _row_operational(row):
+                    continue
                 ig_erp = row.get("id_vendedor_erp")
-                if ig_erp is None:
-                    continue
-                if str(ig_erp).strip().lower() != verp_s:
-                    continue
-                if row.get("id_integrante") is None:
-                    continue
-                logger.info(
-                    f"[Notif] integrante vía id_vendedor_erp paginado "
-                    f"vendedor_v2={id_vendedor} dist={dist_id}"
-                )
-                return row
+                if ig_erp is not None and verp_s and str(ig_erp).strip().lower() == verp_s:
+                    if row.get("id_integrante") is not None:
+                        logger.info(
+                            f"[Notif] integrante vía id_vendedor_erp paginado "
+                            f"vendedor_v2={id_vendedor} dist={dist_id}"
+                        )
+                        return row
+                if not name_match_candidate and nombre_erp_norm:
+                    ni_norm = _norm_name(row.get("nombre_integrante"))
+                    if ni_norm and ni_norm == nombre_erp_norm and row.get("id_integrante") is not None:
+                        name_match_candidate = row
             if len(rows) < batch:
                 break
             offset += batch
+        if name_match_candidate:
+            logger.info(
+                f"[Notif] integrante vía nombre_erp≈nombre_integrante "
+                f"vendedor_v2={id_vendedor} dist={dist_id}"
+            )
+            return name_match_candidate
         return None
     except Exception as e:
         logger.warning(

@@ -125,8 +125,6 @@ export default function VisorPage() {
 
   const distId = user?.id_distribuidor || 0;
   const isSubmittingRef = useRef(false);
-  /** True si handleEvaluar ya hizo incrementIndex() antes de que termine la mutación (para alinear índice tras refetch). */
-  const evalDidAdvanceIndex = useRef(false);
 
   // Queries con TanStack Query
   const { data: grupos = [], isLoading: loadingPendientes, error: errorPend } = useQuery({
@@ -230,8 +228,17 @@ export default function VisorPage() {
       setFlash({ msg: variables.estado, type: "ok" });
       setTimeout(() => setFlash(null), 2000);
 
-      // We don't remove from 'pendientes' query data yet because that would mess up 'filtrados' indexes
-      // Instead, we just move the store index, and when the mutation finishes, we refetch or update cache properly.
+      // Remover optimísticamente el grupo evaluado para que la UI avance
+      // de forma estable al siguiente pendiente, sin saltos al inicio.
+      const firstEvalId = variables.ids[0];
+      queryClient.setQueryData<GrupoPendiente[]>(['pendientes', distId], (old = []) => {
+        const next = old.filter((g) => !g.fotos.some((f) => f.id_exhibicion === firstEvalId));
+        const lastIdx = Math.max(0, next.length - 1);
+        setCurrentIndex((idx) => Math.min(idx, lastIdx));
+        resetGroupState();
+        return next;
+      });
+
       return { previousPendientes };
     },
     onSuccess: (data: { affected?: number } | undefined) => {
@@ -241,29 +248,17 @@ export default function VisorPage() {
         setTimeout(() => setFlash(null), 2000);
         queryClient.invalidateQueries({ queryKey: ['pendientes', distId] });
         queryClient.invalidateQueries({ queryKey: ['stats', distId] });
-        setCurrentIndex(0);
-        resetGroupState();
-        evalDidAdvanceIndex.current = false;
         return;
       }
       // Siempre refrescar pendientes: si no, la caché deja el grupo con estado "Pendiente" aunque la DB ya esté Aprobado/Rechazado.
       queryClient.invalidateQueries({ queryKey: ['pendientes', distId] });
       queryClient.invalidateQueries({ queryKey: ['stats', distId] });
-      if (evalDidAdvanceIndex.current) {
-        setCurrentIndex((i) => Math.max(0, i - 1));
-        evalDidAdvanceIndex.current = false;
-      } else {
-        setCurrentIndex(0);
-        resetGroupState();
-      }
     },
     onError: (err) => {
       setFlash({ msg: "Error al evaluar", type: "err" });
       console.error(err);
-      if (evalDidAdvanceIndex.current) {
-        setCurrentIndex((i) => Math.max(0, i - 1));
-        evalDidAdvanceIndex.current = false;
-      }
+      queryClient.invalidateQueries({ queryKey: ['pendientes', distId] });
+      queryClient.invalidateQueries({ queryKey: ['stats', distId] });
     }
   });
 
@@ -317,15 +312,7 @@ export default function VisorPage() {
     isSubmittingRef.current = true;
     const ids = grupo.fotos.map((f) => f.id_exhibicion);
     lastEvalIds.current = ids;
-
-    evalDidAdvanceIndex.current = false;
-    // 1. Immediate UI jump (Hypersonic) — onSuccess compensará el índice tras refetch
-    if (currentIndex < filtrados.length - 1) {
-      incrementIndex();
-      evalDidAdvanceIndex.current = true;
-    }
-
-    // 2. Trigger network request
+    // Trigger network request (el avance visual lo maneja onMutate de forma estable)
     mutationEvaluar.mutate({ ids, estado, comentario });
   }
 
@@ -566,17 +553,30 @@ export default function VisorPage() {
 
                 {/* ── PHOTO NAVIGATION (multi-photo groups) ── */}
                 {grupo.fotos.length > 1 && (
-                  <div className="absolute top-10 md:top-4 left-3 md:left-auto md:right-4 flex gap-1 bg-black/30 backdrop-blur-md p-1 rounded-full text-white z-10">
-                    <button onClick={handlePrevFoto} disabled={currentFotoIdx === 0} className="w-7 h-7 md:w-8 md:h-8 flex items-center justify-center rounded-full hover:bg-black/40 disabled:opacity-30 transition-colors">
-                      <ChevronLeft size={16} />
+                  <>
+                    {/* Flechas laterales estilo carrusel */}
+                    <button
+                      onClick={handlePrevFoto}
+                      disabled={currentFotoIdx === 0}
+                      className="absolute left-2 md:left-4 top-1/2 -translate-y-1/2 z-20 w-9 h-9 md:w-11 md:h-11 flex items-center justify-center rounded-full bg-black/40 backdrop-blur-md text-white border border-white/20 hover:bg-black/60 disabled:opacity-25 disabled:cursor-not-allowed transition-all"
+                      aria-label="Foto anterior"
+                    >
+                      <ChevronLeft size={20} />
                     </button>
-                    <span className="w-7 md:w-8 flex items-center justify-center text-[10px] md:text-xs font-bold font-mono">
+                    <button
+                      onClick={handleNextFoto}
+                      disabled={currentFotoIdx >= grupo.fotos.length - 1}
+                      className="absolute right-2 md:right-4 top-1/2 -translate-y-1/2 z-20 w-9 h-9 md:w-11 md:h-11 flex items-center justify-center rounded-full bg-black/40 backdrop-blur-md text-white border border-white/20 hover:bg-black/60 disabled:opacity-25 disabled:cursor-not-allowed transition-all"
+                      aria-label="Foto siguiente"
+                    >
+                      <ChevronRight size={20} />
+                    </button>
+
+                    {/* Contador de fotos */}
+                    <div className="absolute top-10 md:top-4 right-3 md:right-4 z-20 bg-black/35 backdrop-blur-md px-2 py-1 rounded-full text-white/90 text-[10px] md:text-xs font-bold font-mono border border-white/15">
                       {currentFotoIdx + 1}/{grupo.fotos.length}
-                    </span>
-                    <button onClick={handleNextFoto} disabled={currentFotoIdx >= grupo.fotos.length - 1} className="w-7 h-7 md:w-8 md:h-8 flex items-center justify-center rounded-full hover:bg-black/40 disabled:opacity-30 transition-colors">
-                      <ChevronRight size={16} />
-                    </button>
-                  </div>
+                    </div>
+                  </>
                 )}
 
                 {/* ── FROSTED BOTTOM BAR: izq info · centro botones · der comentarios (Desktop) ── */}

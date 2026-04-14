@@ -71,6 +71,7 @@ def _pick_integrante_row_strict(
     rows: list[dict[str, Any]],
     *,
     expected_vendor_name: str | None = None,
+    allow_ambiguous: bool = False,
 ) -> dict[str, Any] | None:
     """
     Selección determinística para evitar cruces entre homónimos o filas ambiguas.
@@ -103,7 +104,7 @@ def _pick_integrante_row_strict(
         for r in candidates
         if _norm_name(r.get("nombre_integrante"))
     }
-    if len(distinct_names) > 1:
+    if len(distinct_names) > 1 and not allow_ambiguous:
         return None
 
     # Candidato único (o múltiples filas equivalentes): orden estable.
@@ -170,7 +171,9 @@ def resolve_integrante_for_objetivos(
             cols_fallback,
             id_vendedor_v2=id_vendedor,
         )
-        picked = _pick_integrante_row_strict(res_v2_rows)
+        # Match por id_vendedor_v2 es la señal más fuerte: si hay varias filas,
+        # tomar una determinísticamente en lugar de bloquear por ambigüedad nominal.
+        picked = _pick_integrante_row_strict(res_v2_rows, allow_ambiguous=True)
         if picked:
             return picked
 

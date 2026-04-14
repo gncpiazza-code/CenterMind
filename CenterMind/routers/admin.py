@@ -288,13 +288,22 @@ def toggle_integrante_activo(integrante_id: int, body: dict, payload=Depends(ver
     activo = body.get("activo")
     if not isinstance(activo, bool):
         raise HTTPException(status_code=400, detail="'activo' debe ser boolean")
-    q = sb.table("integrantes_grupo").update({"activo": activo}).eq("id_integrante", integrante_id)
-    if not payload.get("is_superadmin"):
-        q = q.eq("id_distribuidor", payload.get("id_distribuidor"))
-    r = q.execute()
-    if not r.data:
-        raise HTTPException(status_code=403, detail="Sin permisos o integrante no encontrado")
-    return {"ok": True, "data": r.data[0]}
+    try:
+        q = sb.table("integrantes_grupo").update({"activo": activo}).eq("id_integrante", integrante_id)
+        if not payload.get("is_superadmin"):
+            q = q.eq("id_distribuidor", payload.get("id_distribuidor"))
+        r = q.execute()
+        if not r.data:
+            raise HTTPException(status_code=403, detail="Sin permisos o integrante no encontrado")
+        return {"ok": True, "data": r.data[0]}
+    except Exception as e:
+        # Compatibilidad con esquemas donde `integrantes_grupo` no expone columna `activo`.
+        if "column integrantes_grupo.activo does not exist" in str(e).lower() or "42703" in str(e):
+            raise HTTPException(
+                status_code=501,
+                detail="Este entorno no soporta toggle de 'activo' en integrantes_grupo (columna ausente).",
+            )
+        raise
 
 
 @router.put("/api/admin/integrantes/{id_integrante}", summary="Editar nombre/rol de integrante")
@@ -636,8 +645,8 @@ def get_hierarchy_config(dist_id: int, _=Depends(verify_auth)):
             hierarchy_map[sid]["vendedores"].append({"vendedor_id": vid, "vendedor_nombre": v.get("nombre_erp") or f"Vendedor {vid}"})
         formatted_erp  = sorted(list(hierarchy_map.values()), key=lambda x: x["sucursal_nombre"])
         formatted_locs = [{"location_id": sid, "label": sname} for sid, sname in suc_names.items()]
-        groups = sb.table("integrantes_grupo").select("telegram_group_id, nombre_grupo").eq("id_distribuidor", dist_id).execute()
-        formatted_groups = [{"id": g.get("telegram_group_id"), "nombre": g.get("nombre_grupo") or f"Grupo {g.get('telegram_group_id')}"} for g in (groups.data or []) if g.get("telegram_group_id")]
+        groups = sb.table("integrantes_grupo").select("telegram_group_id").eq("id_distribuidor", dist_id).execute()
+        formatted_groups = [{"id": g.get("telegram_group_id"), "nombre": f"Grupo {g.get('telegram_group_id')}"} for g in (groups.data or []) if g.get("telegram_group_id")]
         integrantes = sb.table("integrantes_grupo").select("id_integrante, nombre_integrante, id_vendedor_erp, id_sucursal_erp, telegram_group_id").eq("id_distribuidor", dist_id).execute()
         return {"locations": formatted_locs, "erp_hierarchy": formatted_erp, "telegram_groups": formatted_groups, "integrantes": integrantes.data or []}
     except Exception as e:

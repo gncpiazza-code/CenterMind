@@ -1600,7 +1600,7 @@ def get_pdvs_catalog(
                 return []
             clients_res = (
                 sb.table("clientes_pdv_v2")
-                .select("id_cliente, nombre_cliente, id_cliente_erp, domicilio, estado")
+                .select("id_cliente, nombre_fantasia, id_cliente_erp, domicilio, estado")
                 .in_("id_ruta", route_ids)
                 .eq("id_distribuidor", dist_id)
                 .execute()
@@ -1608,7 +1608,7 @@ def get_pdvs_catalog(
         else:
             clients_res = (
                 sb.table("clientes_pdv_v2")
-                .select("id_cliente, nombre_cliente, id_cliente_erp, domicilio, estado")
+                .select("id_cliente, nombre_fantasia, id_cliente_erp, domicilio, estado")
                 .eq("id_distribuidor", dist_id)
                 .execute()
             )
@@ -1620,17 +1620,18 @@ def get_pdvs_catalog(
         if erp_ids:
             exh_res = (
                 sb.table("exhibiciones")
-                .select("nro_cliente, created_at")
+                .select("id_cliente, cliente_sombra_codigo, timestamp_subida")
                 .eq("id_distribuidor", dist_id)
-                .in_("nro_cliente", erp_ids)
                 .execute()
             )
+            erp_set = {str(x).strip() for x in erp_ids if str(x).strip()}
             for row in (exh_res.data or []):
-                nro = row.get("nro_cliente")
-                ts = row.get("created_at")
-                if nro and ts:
-                    if nro not in fecha_map or ts > fecha_map[nro]:
-                        fecha_map[nro] = ts
+                raw_key = row.get("id_cliente") or row.get("cliente_sombra_codigo")
+                key = str(raw_key).strip() if raw_key is not None else ""
+                ts = row.get("timestamp_subida")
+                if key and key in erp_set and ts:
+                    if key not in fecha_map or ts > fecha_map[key]:
+                        fecha_map[key] = ts
 
         # Enriquecer y ordenar: sin exhibición primero, luego más antiguo
         enriched = []
@@ -1639,7 +1640,7 @@ def get_pdvs_catalog(
             fecha = fecha_map.get(erp) if erp else None
             enriched.append({
                 "id_cliente": c["id_cliente"],
-                "nombre_cliente": c.get("nombre_cliente"),
+                "nombre_cliente": c.get("nombre_fantasia"),
                 "id_cliente_erp": erp,
                 "domicilio": c.get("domicilio"),
                 "fecha_ultima_exhibicion": fecha,

@@ -262,9 +262,9 @@ class ObjetivosWatcherService:
                 # Verificar qué ítems ya están en la ruta del vendedor
                 clientes_res = (
                     sb.table("clientes_pdv_v2")
-                    .select("id, id_cliente_erp, nombre_cliente, created_at, id_ruta")
+                    .select("id_cliente, id_cliente_erp, nombre_fantasia, fecha_alta, id_ruta")
                     .eq("id_distribuidor", dist_id)
-                    .in_("id", item_pdv_ids)
+                    .in_("id_cliente", item_pdv_ids)
                     .execute()
                 )
                 all_clients = clientes_res.data or []
@@ -274,12 +274,12 @@ class ObjetivosWatcherService:
                 ruta_ids = {r["id_ruta"] for r in (rutas_res.data or [])}
 
                 ya_trackeados = self._get_tracked_refs(obj_id, "alteo")
-                cumplidos = [c for c in all_clients if c.get("id_ruta") in ruta_ids and str(c["id"]) not in ya_trackeados]
+                cumplidos = [c for c in all_clients if c.get("id_ruta") in ruta_ids and str(c["id_cliente"]) not in ya_trackeados]
 
                 if cumplidos:
-                    self._insert_tracking_batch(obj_id, "alteo", cumplidos, id_llave="id", dist_id=dist_id, id_vendedor=id_vendedor)
+                    self._insert_tracking_batch(obj_id, "alteo", cumplidos, id_llave="id_cliente", dist_id=dist_id, id_vendedor=id_vendedor)
                     for c in cumplidos:
-                        self._update_item_estado(obj_id, c["id"], "cumplido")
+                        self._update_item_estado(obj_id, c["id_cliente"], "cumplido")
 
                 # valor_actual = count de ítems cumplidos (por estado_item)
                 try:
@@ -304,19 +304,19 @@ class ObjetivosWatcherService:
 
             clientes_res = (
                 sb.table("clientes_pdv_v2")
-                .select("id, id_cliente_erp, nombre_cliente, created_at")
+                .select("id_cliente, id_cliente_erp, nombre_fantasia, fecha_alta")
                 .eq("id_distribuidor", dist_id)
                 .in_("id_ruta", ruta_ids)
-                .gte("created_at", since)
+                .gte("fecha_alta", since[:10])
                 .execute()
             )
             all_clients = clientes_res.data or []
 
             ya_trackeados = self._get_tracked_refs(obj_id, "alteo")
-            nuevos = [c for c in all_clients if str(c["id"]) not in ya_trackeados]
+            nuevos = [c for c in all_clients if str(c["id_cliente"]) not in ya_trackeados]
 
             if nuevos:
-                self._insert_tracking_batch(obj_id, "alteo", nuevos, id_llave="id", dist_id=dist_id, id_vendedor=id_vendedor)
+                self._insert_tracking_batch(obj_id, "alteo", nuevos, id_llave="id_cliente", dist_id=dist_id, id_vendedor=id_vendedor)
 
             nuevo_valor = float(len(all_clients))
             return (nuevo_valor, len(nuevos))
@@ -345,21 +345,21 @@ class ObjetivosWatcherService:
             if item_pdv_ids:
                 clientes_res = (
                     sb.table("clientes_pdv_v2")
-                    .select("id, id_cliente_erp, nombre_cliente, fecha_ultima_compra")
+                    .select("id_cliente, id_cliente_erp, nombre_fantasia, fecha_ultima_compra")
                     .eq("id_distribuidor", dist_id)
-                    .in_("id", item_pdv_ids)
+                    .in_("id_cliente", item_pdv_ids)
                     .gte("fecha_ultima_compra", since[:10])
                     .execute()
                 )
                 all_clients = clientes_res.data or []
 
                 ya_trackeados = self._get_tracked_refs(obj_id, "activacion")
-                nuevos = [c for c in all_clients if str(c["id"]) not in ya_trackeados]
+                nuevos = [c for c in all_clients if str(c["id_cliente"]) not in ya_trackeados]
 
                 if nuevos:
-                    self._insert_tracking_batch(obj_id, "activacion", nuevos, id_llave="id", dist_id=dist_id, id_vendedor=id_vendedor)
+                    self._insert_tracking_batch(obj_id, "activacion", nuevos, id_llave="id_cliente", dist_id=dist_id, id_vendedor=id_vendedor)
                     for c in nuevos:
-                        self._update_item_estado(obj_id, c["id"], "cumplido")
+                        self._update_item_estado(obj_id, c["id_cliente"], "cumplido")
 
                 # valor_actual = count de ítems cumplidos
                 try:
@@ -384,7 +384,7 @@ class ObjetivosWatcherService:
 
             clientes_res = (
                 sb.table("clientes_pdv_v2")
-                .select("id, id_cliente_erp, nombre_cliente, fecha_ultima_compra")
+                .select("id_cliente, id_cliente_erp, nombre_fantasia, fecha_ultima_compra")
                 .eq("id_distribuidor", dist_id)
                 .in_("id_ruta", ruta_ids)
                 .gte("fecha_ultima_compra", since[:10])
@@ -393,10 +393,10 @@ class ObjetivosWatcherService:
             all_clients = clientes_res.data or []
 
             ya_trackeados = self._get_tracked_refs(obj_id, "activacion")
-            nuevos = [c for c in all_clients if str(c["id"]) not in ya_trackeados]
+            nuevos = [c for c in all_clients if str(c["id_cliente"]) not in ya_trackeados]
 
             if nuevos:
-                self._insert_tracking_batch(obj_id, "activacion", nuevos, id_llave="id", dist_id=dist_id, id_vendedor=id_vendedor)
+                self._insert_tracking_batch(obj_id, "activacion", nuevos, id_llave="id_cliente", dist_id=dist_id, id_vendedor=id_vendedor)
 
             nuevo_valor = float(len(all_clients))
             return (nuevo_valor, len(nuevos))

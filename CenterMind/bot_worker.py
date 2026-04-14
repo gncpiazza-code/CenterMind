@@ -514,9 +514,18 @@ class Database:
                 offset += 1000
 
             # 3. Fetch Integrantes y Sucursales para nombres y unificación
-            res_int = self.sb.table("integrantes_grupo")\
-                .select("id_integrante, telegram_user_id, nombre_integrante, id_sucursal_erp, id_vendedor_v2, activo")\
-                .eq("id_distribuidor", distribuidor_id).execute()
+            try:
+                res_int = self.sb.table("integrantes_grupo")\
+                    .select("id_integrante, telegram_user_id, nombre_integrante, id_sucursal_erp, id_vendedor_v2, activo")\
+                    .eq("id_distribuidor", distribuidor_id).execute()
+            except Exception as e_int:
+                # Compatibilidad con esquemas legacy sin columna `activo`.
+                if "column integrantes_grupo.activo does not exist" in str(e_int).lower() or "42703" in str(e_int):
+                    res_int = self.sb.table("integrantes_grupo")\
+                        .select("id_integrante, telegram_user_id, nombre_integrante, id_sucursal_erp, id_vendedor_v2")\
+                        .eq("id_distribuidor", distribuidor_id).execute()
+                else:
+                    raise
 
             # Mapas para metadata
             int_to_user = {i["id_integrante"]: i["telegram_user_id"] for i in res_int.data or [] if i.get("telegram_user_id")}
@@ -939,13 +948,26 @@ class BotWorker:
             related_uids = LUCIANO_UIDS if uid in LUCIANO_UIDS else [uid]
             
             # 1. Obtener todos los id_integrante para este vendedor (scoped a este distribuidor)
-            res_int = await asyncio.to_thread(
-                self.db.sb.table("integrantes_grupo")
-                    .select("id_integrante, activo")
-                    .eq("id_distribuidor", self.distribuidor_id)
-                    .in_("telegram_user_id", related_uids)
-                    .execute
-            )
+            try:
+                res_int = await asyncio.to_thread(
+                    self.db.sb.table("integrantes_grupo")
+                        .select("id_integrante, activo")
+                        .eq("id_distribuidor", self.distribuidor_id)
+                        .in_("telegram_user_id", related_uids)
+                        .execute
+                )
+            except Exception as e_int:
+                # Compatibilidad con esquemas legacy donde `integrantes_grupo` no tiene `activo`.
+                if "column integrantes_grupo.activo does not exist" in str(e_int).lower() or "42703" in str(e_int):
+                    res_int = await asyncio.to_thread(
+                        self.db.sb.table("integrantes_grupo")
+                            .select("id_integrante")
+                            .eq("id_distribuidor", self.distribuidor_id)
+                            .in_("telegram_user_id", related_uids)
+                            .execute
+                    )
+                else:
+                    raise
             # Filtrar inactivos (activo=False); si la columna no existe, tratar como activo
             iids = [r["id_integrante"] for r in res_int.data or [] if r.get("activo") is not False]
             if not iids:

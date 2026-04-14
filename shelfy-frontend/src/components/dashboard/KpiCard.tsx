@@ -6,7 +6,7 @@ import { Card, CardContent } from "@/components/ui/Card";
 import { cn } from "@/lib/utils";
 
 // Mejora #14: mapa semántico de color → CSS variable / tailwind class
-export type KpiColorName = "amber" | "emerald" | "violet" | "red" | "blue";
+export type KpiColorName = "amber" | "emerald" | "violet" | "red" | "blue" | "slate";
 
 const COLOR_MAP: Record<KpiColorName, { hex: string; bg: string; badge: string; ring: string }> = {
   amber:   { hex: "#f59e0b", bg: "bg-amber-500",   badge: "bg-amber-50 text-amber-700 border-amber-200/60",    ring: "ring-amber-200" },
@@ -14,6 +14,7 @@ const COLOR_MAP: Record<KpiColorName, { hex: string; bg: string; badge: string; 
   violet:  { hex: "#8b5cf6", bg: "bg-violet-500",  badge: "bg-violet-50/70 text-violet-700 border-violet-200/60",  ring: "ring-violet-200" },
   red:     { hex: "#ef4444", bg: "bg-red-500",     badge: "bg-red-50 text-red-600 border-red-200/60",           ring: "ring-red-200" },
   blue:    { hex: "#3b82f6", bg: "bg-blue-500",    badge: "bg-blue-50 text-blue-600 border-blue-200/60",        ring: "ring-blue-200" },
+  slate:   { hex: "#64748b", bg: "bg-slate-500",   badge: "bg-slate-50 text-slate-600 border-slate-200/60",     ring: "ring-slate-200" },
 };
 
 interface KpiCardProps {

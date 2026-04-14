@@ -58,6 +58,7 @@ function detectPreset(year: number, month: number, day: number): Preset {
 
 function formatLastUpdated(date: Date): string {
   const secs = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (secs <= 10) return "Actualizado";
   if (secs < 60)  return `hace ${secs}s`;
   if (secs < 3600) return `hace ${Math.floor(secs / 60)}m`;
   return `hace ${Math.floor(secs / 3600)}h`;

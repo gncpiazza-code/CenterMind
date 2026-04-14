@@ -107,6 +107,20 @@ Los paneles utilizan el estilo "Glass-Card" adaptado al tema claro:
 ### 8b. Visor — Exhibiciones de prueba (Tabaco)
 - El backend excluye de `/api/pendientes` y de listas de ranking a integrantes/vendedores marcados como QA (NACHO PIAZZA, JESUS GRIMALDI) salvo sesión **superadmin**; no requiere cambios de UI en el visor.
 
+### 9. Dashboard — KPI Carousel Rotante (14/04/2026)
+- **2 grupos de 3 KPIs**: Grupo 0 (Pendientes/Aprobadas/Destacadas), Grupo 1 (Rechazadas/Tasa Aprob./Total).
+- **Auto-rotación**: `setInterval(7000)` con cleanup en `useEffect`. Estado `kpiGroup: 0 | 1`.
+- **`AnimatePresence` + `motion.div`**: `initial={{ opacity:0, y:10 }}` → `animate={{ opacity:1, y:0 }}` → `exit={{ opacity:0, y:-10 }}` con `key={kpiGroup}`.
+- **Dot indicators**: pills clickeables `onClick={() => setKpiGroup(i)}` con `bg-[var(--shelfy-primary)]` para el activo.
+- **KpiCard `colorName="slate"`**: nuevo color añadido a `KpiColorName` type y `COLOR_MAP`.
+- **Carousel height**: fijo `h-[380px] md:h-[420px]` (no más `flex-1 min-h-[460px]` que causaba scroll).
+
+### 10. ApiError — Errores Estructurados de API (14/04/2026)
+- **Clase `ApiError extends Error`** en `api.ts` con campos `status: number` y `detail: unknown`.
+- **`apiFetch`**: lanza `ApiError` en lugar de `Error` genérico; extrae `detail.mensaje` para 409 duplicados.
+- **Uso en mutaciones**: `onError: (err) => { if (err instanceof ApiError && err.status === 409) toast.warning(...) }`.
+- **Wizard sequential blocking en Objetivos**: Secciones Tipo y Fecha límite con `opacity-40 pointer-events-none select-none` cuando `!vendedorId`.
+
 ### 8. Supervisión — Aislamiento de Cache por Tenant
 - `TabSupervision.tsx` scopea las query keys de rutas/clientes con `dist_id`:
   - `['supervision-rutas', distId, id_vendedor]`

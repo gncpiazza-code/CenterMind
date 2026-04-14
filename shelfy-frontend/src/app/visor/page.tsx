@@ -388,16 +388,20 @@ export default function VisorPage() {
           {/* Flash notification */}
           <AnimatePresence>
             {flash && (
-              <motion.div 
+              <motion.div
                 initial={{ opacity: 0, y: -20, scale: 0.95 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: -10, scale: 0.95 }}
                 className={`mx-4 px-6 py-2.5 rounded-2xl text-sm font-bold shadow-lg flex items-center justify-center absolute top-2 left-0 right-0 z-50
-                  ${flash.type === "ok"
-                    ? "bg-green-500/90 backdrop-blur-md text-white border border-green-400"
-                    : "bg-red-500/90 backdrop-blur-md text-white border border-red-400"
+                  ${flash.msg === "Rechazado"
+                    ? "bg-red-500/90 backdrop-blur-md text-white border border-red-400"
+                    : flash.msg === "Destacado"
+                      ? "bg-amber-500/90 backdrop-blur-md text-white border border-amber-400"
+                      : flash.type === "ok"
+                        ? "bg-emerald-500/90 backdrop-blur-md text-white border border-emerald-400"
+                        : "bg-red-500/90 backdrop-blur-md text-white border border-red-400"
                   }`}>
-                {flash.msg === "Aprobado" && <Check className="mr-2" size={18} strokeWidth={3} />}
+                {flash.msg === "Aprobado"  && <Check className="mr-2" size={18} strokeWidth={3} />}
                 {flash.msg === "Rechazado" && <X className="mr-2" size={18} strokeWidth={3} />}
                 {flash.msg === "Destacado" && <Flame className="mr-2" size={18} strokeWidth={3} />}
                 {flash.msg}
@@ -589,7 +593,7 @@ export default function VisorPage() {
                         {grupo.fecha_hora?.slice(0, 16).replace("T", " ") || "—"}
                       </p>
                       <p className="text-[10px]">
-                        <span className="text-white/45">Comercio</span>{" "}
+                        <span className="text-white/45">Tipo de comercio</span>{" "}
                         {!user?.usa_contexto_erp || skipErpFetch ? (
                           <span className="text-white/50">Sin contexto ERP</span>
                         ) : loadingERP ? (
@@ -603,15 +607,21 @@ export default function VisorPage() {
                         )}
                       </p>
                       <p className="text-[10px]">
-                        <span className="text-white/45">¿Compra en los últimos 30 días?</span>{" "}
+                        <span className="text-white/45">Compró últimos 30d</span>{" "}
                         {!user?.usa_contexto_erp || skipErpFetch ? (
                           <span className="text-white/50">—</span>
                         ) : loadingERP ? (
                           <span className="text-white/50">…</span>
                         ) : erpContext?.encontrado ? (
-                          <span className={compraUltimos30 ? "text-emerald-400 font-black" : "text-red-400 font-black"}>
+                          <motion.span
+                            key={compraUltimos30 ? "si" : "no"}
+                            initial={{ scale: 0.8, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            transition={{ duration: 0.2 }}
+                            className={`font-black inline-block px-1.5 py-0.5 rounded text-[9px] ${compraUltimos30 ? "bg-emerald-500/20 text-emerald-300" : "bg-red-500/20 text-red-300"}`}
+                          >
                             {compraUltimos30 ? "SÍ" : "NO"}
-                          </span>
+                          </motion.span>
                         ) : (
                           <span className="text-white/50">—</span>
                         )}

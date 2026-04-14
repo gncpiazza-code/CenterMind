@@ -424,10 +424,35 @@ class ObjetivosWatcherService:
             logger.warning(f"[Watcher] _get_item_pdv_ids obj={obj_id}: {e}")
             return None
 
+    # Orden de estados de ítem: menor índice = estado más temprano
+    _ITEM_STATE_ORDER = {"pendiente": 0, "foto_subida": 1, "cumplido": 2, "falla": 2}
+
     def _update_item_estado(self, obj_id: str, id_cliente_pdv: int, estado_item: str) -> None:
-        """Actualiza el estado_item de un ítem específico."""
+        """Actualiza el estado_item de un ítem específico.
+
+        Guard: los estados terminales ('cumplido', 'falla') no pueden retroceder a
+        estados anteriores. Esto evita que el watcher revierta evaluaciones ya cerradas.
+        """
+        TERMINAL = {"cumplido", "falla"}
         try:
             from datetime import datetime, timezone
+            # Verificar estado actual antes de sobreescribir
+            existing = (
+                sb.table("objetivo_items")
+                .select("estado_item")
+                .eq("id_objetivo", obj_id)
+                .eq("id_cliente_pdv", id_cliente_pdv)
+                .limit(1)
+                .execute()
+            )
+            current = (existing.data or [{}])[0].get("estado_item", "")
+            if current in TERMINAL and estado_item not in TERMINAL:
+                # No retroceder desde un estado terminal
+                logger.debug(
+                    f"[Watcher] Guard: ítem obj={obj_id} pdv={id_cliente_pdv} "
+                    f"permanece en '{current}' (ignorando '{estado_item}')"
+                )
+                return
             sb.table("objetivo_items").update({
                 "estado_item": estado_item,
                 "updated_at": datetime.now(timezone.utc).isoformat(),

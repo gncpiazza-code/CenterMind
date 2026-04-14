@@ -73,6 +73,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { DatePicker } from "@/components/ui/date-picker";
+import { toast } from "sonner";
 
 // ── Tipo / actividad config ───────────────────────────────────────────────────
 
@@ -982,14 +983,18 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
             </div>
           </div>
 
-          {/* Tipo */}
-          <div>
-            <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">Tipo</label>
+          {/* Tipo — bloqueado hasta que el vendedor esté seleccionado */}
+          <div className={!vendedorId ? "opacity-40 pointer-events-none select-none" : ""}>
+            <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5 flex items-center gap-1.5">
+              Tipo
+              {!vendedorId && <span className="text-[9px] font-normal normal-case text-[var(--shelfy-muted)]/60">(seleccioná un vendedor primero)</span>}
+            </label>
             <div className="flex gap-1.5 flex-wrap">
               {TIPOS_DISPONIBLES.map(t => (
                 <button
                   key={t}
                   type="button"
+                  disabled={!vendedorId}
                   onClick={() => setTipo(t)}
                   className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
                     tipo === t
@@ -1446,8 +1451,8 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
             </div>
           )}
 
-          {/* Fecha límite */}
-          <div>
+          {/* Fecha límite — bloqueada hasta que vendedor Y tipo estén seleccionados */}
+          <div className={!vendedorId ? "opacity-40 pointer-events-none select-none" : ""}>
             <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">
               Fecha límite <span className="normal-case font-normal">(opcional)</span>
             </label>
@@ -2015,6 +2020,17 @@ export default function ObjetivosPage() {
       qc.invalidateQueries({ queryKey: ["objetivos", distId] });
       qc.invalidateQueries({ queryKey: ["objetivos-resumen-supervisor", distId] });
       setModalOpen(false);
+      toast.success("Objetivo creado correctamente");
+    },
+    onError: (err: unknown) => {
+      // Manejar 409 duplicado con mensaje accionable
+      const apiErr = err as { status?: number; detail?: { code?: string; mensaje?: string } | string };
+      const detail = typeof apiErr.detail === "object" ? apiErr.detail : null;
+      if (apiErr.status === 409 && detail?.code === "OBJETIVO_DUPLICADO") {
+        toast.warning(detail.mensaje ?? "Ya existe un objetivo activo similar. Editá el existente.");
+      } else {
+        toast.error("Error al crear el objetivo");
+      }
     },
   });
 
@@ -2139,12 +2155,11 @@ export default function ObjetivosPage() {
       }
     }
 
-    if (filterKanbanPhase) {
-      list = list.filter(o => getObjectiveKanbanPhase(o) === filterKanbanPhase);
-    }
+    // Nota: filterKanbanPhase NO se aplica al `filtered` global.
+    // Lo aplica internamente KanbanOrListaView por columna para preservar los conteos reales.
 
     return list;
-  }, [objetivos, searchText, selectedSucursal, selectedVendedorId, vendedorNamesEnSucursal, vendedores, user?.is_superadmin, filterKanbanPhase]);
+  }, [objetivos, searchText, selectedSucursal, selectedVendedorId, vendedorNamesEnSucursal, vendedores, user?.is_superadmin]);
 
   // ── Stats ─────────────────────────────────────────────────────────────────
 
@@ -2547,8 +2562,13 @@ function KanbanOrListaView({
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
       {COLUMNS.map(col => {
         const isActive = filterKanbanPhase === col.key;
+        // Cuando hay un filtro de fase activo, dimear las columnas no activas (pero siempre mostrar todas)
+        const isDimmed = filterKanbanPhase !== null && !isActive;
         return (
-        <div key={col.key} className={`rounded-xl border bg-[var(--shelfy-bg)] overflow-hidden ${col.borderClass} ${isActive ? "border-[var(--shelfy-accent)]/40" : "border-[var(--shelfy-border)]"}`}>
+        <div
+          key={col.key}
+          className={`rounded-xl border bg-[var(--shelfy-bg)] overflow-hidden transition-opacity duration-200 ${col.borderClass} ${isActive ? "border-[var(--shelfy-accent)]/40" : "border-[var(--shelfy-border)]"} ${isDimmed ? "opacity-50" : "opacity-100"}`}
+        >
           <button
             type="button"
             onClick={() => setFilterKanbanPhase(isActive ? null : col.key)}

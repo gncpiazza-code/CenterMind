@@ -938,13 +938,18 @@ class BotWorker:
 
             related_uids = LUCIANO_UIDS if uid in LUCIANO_UIDS else [uid]
             
-            # 1. Obtener todos los id_integrante para este vendedor
+            # 1. Obtener todos los id_integrante para este vendedor (scoped a este distribuidor)
             res_int = await asyncio.to_thread(
-                self.sb.table("integrantes_grupo").select("id_integrante, activo").in_("telegram_user_id", related_uids).execute
+                self.sb.table("integrantes_grupo")
+                    .select("id_integrante, activo")
+                    .eq("id_distribuidor", self.distribuidor_id)
+                    .in_("telegram_user_id", related_uids)
+                    .execute
             )
             # Filtrar inactivos (activo=False); si la columna no existe, tratar como activo
             iids = [r["id_integrante"] for r in res_int.data or [] if r.get("activo") is not False]
             if not iids:
+                self.logger.warning(f"[stats] uid={uid} dist={self.distribuidor_id} no tiene integrantes activos")
                 await m.reply_text("⚠️ <b>No estás registrado en el sistema.</b>", parse_mode=ParseMode.HTML)
                 return
 
@@ -959,15 +964,26 @@ class BotWorker:
             start_mes_prev = now.replace(year=prev_y, month=prev_m, day=1, hour=0, minute=0, second=0, microsecond=0)
             end_mes_prev = start_mes_actual
 
-            # 3. Consultar exhibiciones de ambos meses en una sola query (desde inicio del mes anterior)
-            res_ex = await asyncio.to_thread(
-                self.sb.table("exhibiciones").select("*")\
-                .eq("id_distribuidor", self.distribuidor_id)\
-                .in_("id_integrante", iids)\
-                .gte("timestamp_subida", start_mes_prev.isoformat())\
-                .execute
-            )
-            all_ex = res_ex.data or []
+            # 3. Consultar exhibiciones de ambos meses (paginar en lotes de 1000 por límite PostgREST)
+            all_ex: list[dict] = []
+            BATCH = 1000
+            offset = 0
+            while True:
+                res_ex = await asyncio.to_thread(
+                    self.sb.table("exhibiciones")
+                        .select("id_integrante, telegram_chat_id, telegram_msg_id, url_foto_drive, timestamp_subida, estado")
+                        .eq("id_distribuidor", self.distribuidor_id)
+                        .in_("id_integrante", iids)
+                        .gte("timestamp_subida", start_mes_prev.isoformat())
+                        .range(offset, offset + BATCH - 1)
+                        .execute
+                )
+                batch = res_ex.data or []
+                all_ex.extend(batch)
+                if len(batch) < BATCH:
+                    break
+                offset += BATCH
+            self.logger.debug(f"[stats] uid={uid} dist={self.distribuidor_id} total_ex={len(all_ex)}")
 
             def _calc_counts(exhibiciones_list):
                 seen_urls = set()
@@ -1032,8 +1048,8 @@ class BotWorker:
             )
             await m.reply_text(msg, parse_mode=ParseMode.HTML)
         except Exception as e:
-            self.logger.error(f"Error en /stats: {e}")
-            await m.reply_text("❌ Error al obtener estadísticas.")
+            self.logger.error(f"[stats] Error uid={uid} dist={self.distribuidor_id}: {type(e).__name__}: {e}", exc_info=True)
+            await m.reply_text("❌ Error al obtener estadísticas. Intentá de nuevo en un momento.")
 
     async def cmd_ranking(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not update.message:

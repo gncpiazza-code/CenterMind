@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/Card";
 import { useAuth } from "@/hooks/useAuth";
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   fetchKPIs, fetchRanking, fetchUltimasEvaluadas, fetchPorSucursal,
   fetchEvolucionTiempo, fetchRendimientoCiudad, fetchPorEmpresa, getWSUrl,
@@ -15,7 +15,7 @@ import {
 import type {
   KPIs, VendedorRanking, UltimaEvaluada, SucursalStats, EvolucionTiempo, RendimientoCiudad,
 } from "@/lib/api";
-import { Clock, CheckCircle, Star, XCircle, TrendingUp } from "lucide-react";
+import { Clock, CheckCircle, Star, XCircle, TrendingUp, BarChart2 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
@@ -94,6 +94,17 @@ export default function DashboardPage() {
 
   // Mejora #17: estado de refresh manual
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
+
+  // KPI rotating groups: 0 = grupo A (Pendientes/Aprobadas/Destacadas), 1 = grupo B (Rechazadas/Tasa/Total)
+  const [kpiGroup, setKpiGroup] = useState(0);
+  const kpiGroupRef = useRef(0);
+  useEffect(() => {
+    const interval = setInterval(() => {
+      kpiGroupRef.current = (kpiGroupRef.current + 1) % 2;
+      setKpiGroup(kpiGroupRef.current);
+    }, 7000);
+    return () => clearInterval(interval);
+  }, []);
 
   function handleRefresh() {
     setIsManualRefreshing(true);
@@ -204,8 +215,9 @@ export default function DashboardPage() {
     setSucursalFiltro("");
   }
 
-  const rankingFiltrado = sucursalFiltro
-    ? ranking.filter(v => v.location_id === sucursalFiltro)
+  // El servidor ya filtra por sucursal_id; este filter local es fallback por si el campo viene en la respuesta
+  const rankingFiltrado = sucursalFiltro && ranking.some(v => v.location_id != null)
+    ? ranking.filter(v => String(v.location_id ?? "") === String(sucursalFiltro))
     : ranking;
 
   // Mejora #24: tasa de aprobación calculada
@@ -264,7 +276,7 @@ export default function DashboardPage() {
                 </div>
               )}
 
-              <div className="flex-1 min-h-[460px]">
+              <div className="shrink-0 h-[380px] md:h-[420px]">
                 {loading && ultimas.length === 0 ? (
                   <Card className="h-full flex items-center justify-center p-12 bg-white rounded-[2.5rem]">
                     <Skeleton className="h-8 w-full" />
@@ -298,50 +310,47 @@ export default function DashboardPage() {
                 </div>
               )}
 
-              {/* KPIs — Mejora #24: 5 cards incluyendo tasa de aprobación */}
+              {/* KPIs — 6 tarjetas en rotación 2 grupos de 3 */}
               {kpis ? (
-                <motion.div
-                  className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-3 2xl:grid-cols-5 gap-3 shrink-0"
-                  variants={kpiVariants} initial="hidden" animate="show"
-                >
-                  <motion.div variants={kpiItemVariants}>
-                    <KpiCard
-                      label="Pendientes" value={kpis.pendientes}
-                      icon={<Clock size={18} />} colorName="amber" bgColor="bg-white"
-                    />
-                  </motion.div>
-                  <motion.div variants={kpiItemVariants}>
-                    <KpiCard
-                      label="Aprobadas" value={kpis.aprobadas}
-                      icon={<CheckCircle size={18} />} colorName="emerald" bgColor="bg-white"
-                      total={kpis.aprobadas + kpis.rechazadas}
-                    />
-                  </motion.div>
-                  <motion.div variants={kpiItemVariants}>
-                    <KpiCard
-                      label="Destacadas" value={kpis.destacadas}
-                      icon={<Star size={18} />} colorName="violet"
-                      bgColor="bg-gradient-to-br from-violet-50/60 to-fuchsia-50/40"
-                    />
-                  </motion.div>
-                  <motion.div variants={kpiItemVariants}>
-                    <KpiCard
-                      label="Rechazadas" value={kpis.rechazadas}
-                      icon={<XCircle size={18} />} colorName="red" bgColor="bg-white"
-                    />
-                  </motion.div>
-                  {/* Mejora #24: tasa de aprobación */}
-                  <motion.div variants={kpiItemVariants}>
-                    <KpiCard
-                      label="Tasa Aprob." value={tasaAprobacion ?? 0}
-                      icon={<TrendingUp size={18} />} colorName="blue" bgColor="bg-white"
-                      subtitle={`de ${(kpis.aprobadas + kpis.rechazadas)} evaluadas`}
-                    />
-                  </motion.div>
-                </motion.div>
+                <div className="relative shrink-0">
+                  {/* Indicador de grupo */}
+                  <div className="flex items-center justify-end gap-1.5 mb-2">
+                    {[0, 1].map(g => (
+                      <button
+                        key={g}
+                        onClick={() => setKpiGroup(g)}
+                        className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${kpiGroup === g ? "bg-violet-500 w-3" : "bg-slate-300"}`}
+                      />
+                    ))}
+                  </div>
+                  <AnimatePresence mode="wait">
+                    <motion.div
+                      key={kpiGroup}
+                      initial={{ opacity: 0, x: kpiGroup === 0 ? -10 : 10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: kpiGroup === 0 ? 10 : -10 }}
+                      transition={{ duration: 0.3 }}
+                      className="grid grid-cols-3 gap-3"
+                    >
+                      {kpiGroup === 0 ? (
+                        <>
+                          <KpiCard label="Pendientes" value={kpis.pendientes} icon={<Clock size={18} />} colorName="amber" bgColor="bg-white" />
+                          <KpiCard label="Aprobadas" value={kpis.aprobadas} icon={<CheckCircle size={18} />} colorName="emerald" bgColor="bg-white" total={kpis.aprobadas + kpis.rechazadas} />
+                          <KpiCard label="Destacadas" value={kpis.destacadas} icon={<Star size={18} />} colorName="violet" bgColor="bg-gradient-to-br from-violet-50/60 to-fuchsia-50/40" />
+                        </>
+                      ) : (
+                        <>
+                          <KpiCard label="Rechazadas" value={kpis.rechazadas} icon={<XCircle size={18} />} colorName="red" bgColor="bg-white" />
+                          <KpiCard label="Tasa Aprob." value={tasaAprobacion ?? 0} icon={<TrendingUp size={18} />} colorName="blue" bgColor="bg-white" subtitle={`de ${kpis.aprobadas + kpis.rechazadas} eval.`} />
+                          <KpiCard label="Total" value={kpis.total} icon={<BarChart2 size={18} />} colorName="slate" bgColor="bg-white" subtitle="del período" />
+                        </>
+                      )}
+                    </motion.div>
+                  </AnimatePresence>
+                </div>
               ) : loadingKpis ? (
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-3 2xl:grid-cols-5 gap-3 shrink-0">
-                  {[0,1,2,3,4].map(i => <Skeleton key={i} className="h-24 w-full rounded-[2rem]" />)}
+                <div className="grid grid-cols-3 gap-3 shrink-0">
+                  {[0,1,2].map(i => <Skeleton key={i} className="h-24 w-full rounded-[2rem]" />)}
                 </div>
               ) : null}
 

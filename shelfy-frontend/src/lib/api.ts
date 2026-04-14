@@ -303,6 +303,17 @@ export function getWSUrl(distId: number): string {
   return `ws://localhost:8000/api/ws/exhibiciones/${distId}`;
 }
 
+class ApiError extends Error {
+  status: number;
+  detail: unknown;
+  constructor(message: string, status: number, detail: unknown) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
     ...options,
@@ -310,7 +321,8 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail ?? `HTTP ${res.status}`);
+    const detailMsg = typeof err.detail === "string" ? err.detail : (err.detail?.mensaje ?? `HTTP ${res.status}`);
+    throw new ApiError(detailMsg, res.status, err.detail);
   }
   return res.json();
 }

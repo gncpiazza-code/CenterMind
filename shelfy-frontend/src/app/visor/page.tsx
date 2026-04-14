@@ -284,6 +284,15 @@ export default function VisorPage() {
   }, [currentIndex, filtroVendedor, resetGroupState]);
 
   useEffect(() => {
+    // Evita estado "pantalla vacía" cuando cambia la lista filtrada mientras
+    // el índice fue adelantado optimísticamente tras evaluar.
+    if (totalGrupos <= 0) return;
+    if (currentIndex < totalGrupos) return;
+    setCurrentIndex(totalGrupos - 1);
+    resetGroupState();
+  }, [currentIndex, totalGrupos, setCurrentIndex, resetGroupState]);
+
+  useEffect(() => {
     setCommentTemplates(readCommentTemplates());
   }, []);
 
@@ -425,7 +434,15 @@ export default function VisorPage() {
                 <RefreshCw size={16} /> Buscar nuevas
               </button>
             </div>
-          ) : grupo && (
+          ) : !grupo ? (
+            <div className="flex flex-col items-center justify-center flex-1 text-center px-6">
+              <div className="w-14 h-14 rounded-2xl bg-slate-200/80 flex items-center justify-center mb-4">
+                <RefreshCw size={20} className="text-slate-500 animate-spin" />
+              </div>
+              <p className="text-slate-700 font-semibold">Reacomodando exhibiciones...</p>
+              <p className="text-slate-500 text-sm mt-1">Actualizando la siguiente pendiente.</p>
+            </div>
+          ) : (
             /* ── VISOR LAYOUT: Image + overlays, fills entire remaining space ── */
             <div className="flex-1 flex flex-col min-h-0">
               {/* IMAGE CONTAINER — takes all remaining space */}

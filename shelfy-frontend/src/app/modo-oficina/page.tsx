@@ -124,7 +124,7 @@ export default function ModoOficinaPage() {
 
   const { data: events = [], isSuccess: eventsReady } = useQuery<LiveMapEvent[]>({
     queryKey: modoOficinaKeys.liveEvents(distId),
-    queryFn: () => fetchLiveMapEvents(distId),
+    queryFn: () => fetchLiveMapEvents(),
     enabled: !!distId,
     staleTime: 20 * 1000,
     refetchInterval: POLL_INTERVAL,
@@ -181,6 +181,7 @@ export default function ModoOficinaPage() {
     }
 
     let socket: WebSocket | null = null;
+    let alive = true;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
     const connect = () => {
@@ -211,7 +212,7 @@ export default function ModoOficinaPage() {
               vendedor_nombre: payload.vendedor_nombre,
               lat:             payload.lat || 0,
               lng:             payload.lng || 0,
-              timestamp:       payload.timestamp_evento || new Date().toISOString(),
+              timestamp_evento: payload.timestamp_evento || new Date().toISOString(),
               id_cliente_erp:  payload.nro_cliente || "",
               cliente_nombre:  payload.nombre_fantasia || "Punto de Venta",
               drive_link:      payload.drive_link || "",
@@ -267,6 +268,7 @@ export default function ModoOficinaPage() {
 
       socket.onclose = () => {
         console.log("🔌 WS desconectado. Reintentando...");
+        if (!alive) return;
         reconnectTimer = setTimeout(connect, 5000);
       };
     };
@@ -274,6 +276,7 @@ export default function ModoOficinaPage() {
     connect();
 
     return () => {
+      alive = false;
       if (socket) socket.close();
       if (reconnectTimer) clearTimeout(reconnectTimer);
     };

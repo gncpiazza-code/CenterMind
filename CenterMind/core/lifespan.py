@@ -6,6 +6,7 @@ Estado global compartido del servidor:
   - scheduler: APScheduler
   - lifespan: contexto de arranque/apagado de FastAPI
 """
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -60,6 +61,20 @@ class ConnectionManager:
 
 
 manager = ConnectionManager()
+
+
+def broadcast_sync(dist_id: int, message: dict) -> None:
+    """
+    Fire-and-forget WS broadcast callable from a sync FastAPI endpoint.
+    Uses asyncio.run_coroutine_threadsafe to schedule the async broadcast
+    on the running event loop without blocking the calling thread.
+    """
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            asyncio.run_coroutine_threadsafe(manager.broadcast(dist_id, message), loop)
+    except Exception as e:
+        logger.debug(f"[WS] broadcast_sync skipped: {e}")
 
 
 # ── Tarea programada ERP ───────────────────────────────────────────────────────

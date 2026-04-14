@@ -24,7 +24,7 @@ import io
 import logging
 import unicodedata
 import re
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 import pandas as pd
@@ -663,6 +663,31 @@ class PadronIngestionService:
             lng_raw = _safe_str(row.get(cols["longitud"])) if cols.get("longitud") else ""
             latitud, longitud = _parse_latlng(lat_raw, lng_raw)
 
+            fuc_raw = _safe_date(row.get(cols["fecha_ultima_compra"]) if cols.get("fecha_ultima_compra") else None)
+
+            # Regla de negocio: estado según última compra
+            _now_ts = datetime.now(timezone.utc).isoformat()
+            if fuc_raw is None:
+                _estado = "inactivo"
+                _motivo = "sin_compra_null"
+                _fecha_inact = _now_ts
+            else:
+                try:
+                    fuc_date = date.fromisoformat(fuc_raw)
+                    _thirty_ago = datetime.now(timezone.utc).date() - timedelta(days=30)
+                    if fuc_date < _thirty_ago:
+                        _estado = "inactivo"
+                        _motivo = "sin_compra_30d"
+                        _fecha_inact = _now_ts
+                    else:
+                        _estado = "activo"
+                        _motivo = None
+                        _fecha_inact = None
+                except ValueError:
+                    _estado = "activo"
+                    _motivo = None
+                    _fecha_inact = None
+
             payload = {
                 "id_ruta":             id_ruta,
                 "id_distribuidor":     dist_id,
@@ -674,13 +699,15 @@ class PadronIngestionService:
                 "localidad":           _safe_str(row.get(cols["localidad"]) if cols.get("localidad") else None, "").upper(),
                 "provincia":           _safe_str(row.get(cols["provincia"]) if cols.get("provincia") else None, "").upper(),
                 "canal":               _safe_str(row.get(cols["canal"]) if cols.get("canal") else None, "").upper(),
-                "fecha_ultima_compra": _safe_date(row.get(cols["fecha_ultima_compra"]) if cols.get("fecha_ultima_compra") else None),
+                "fecha_ultima_compra": fuc_raw,
                 "fecha_alta":          _safe_date(row.get(cols["fecha_alta"]) if cols.get("fecha_alta") else None),
                 "latitud":             latitud,
                 "longitud":            longitud,
                 "es_limbo":            False,
-                "estado":              "activo",
-                "updated_at":          datetime.now(timezone.utc).isoformat(),
+                "estado":              _estado,
+                "motivo_inactivo":     _motivo,
+                "fecha_inactivacion":  _fecha_inact,
+                "updated_at":          _now_ts,
             }
             records.append(payload)
             erp_ids_en_padron[id_erp] = payload
@@ -826,6 +853,8 @@ class PadronIngestionService:
             try:
                 sb.table("clientes_pdv_v2").update({
                     "estado": "inactivo",
+                    "motivo_inactivo": "padron_absent",
+                    "fecha_inactivacion": ts,
                     "updated_at": ts,
                 }).in_("id_cliente", batch).execute()
                 upd += len(batch)

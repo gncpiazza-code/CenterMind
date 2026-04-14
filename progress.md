@@ -1,6 +1,6 @@
 # Progress — Shelfy CenterMind
 
-**Última actualización: 13 de Abril, 2026 (evaluar: reparar vínculo exhibición↔objetivo + bot match ítems sin dist)**
+**Última actualización: 14 de Abril, 2026 (padrón: reglas inactividad por compra + trazabilidad motivo; supervision_clientes: tenant guard; WS: evaluation_updated en evaluar/revertir; dashboard: WS realtime + KPI fix + ranking simplificado; modo-oficina: WS lifecycle + fix fetchLiveMapEvents)**
 
 Este archivo detalla el estado actual del proyecto, las funcionalidades operativas y los pendientes técnicos.
 
@@ -50,6 +50,12 @@ El proyecto se encuentra en una fase de expansión de funcionalidades de supervi
 - **RPA (ShelfMind-RPA)**: Sincronización automática de Clientes, Ventas y Cuentas Corrientes desde CHESS ERP (distribuidores: Tabaco, Aloma, Liver, Real).
 - **Upload Manual**: Interfaz en `/admin/erp/upload-global` para ingesta vía Excel.
 - **Deduplicación**: Upsert idempotente basado en `id_cliente_erp` y `id_distribuidor`.
+- **Reglas de inactividad en Padrón**: `_sync_clientes` aplica `estado='inactivo'` con `motivo_inactivo` (`sin_compra_null`, `sin_compra_30d`) si `fecha_ultima_compra` es null o >30 días. `_tombstone_padron_absents` agrega `motivo_inactivo='padron_absent'` y `fecha_inactivacion` timestamp. Requiere migración SQL: `ALTER TABLE clientes_pdv_v2 ADD COLUMN IF NOT EXISTS motivo_inactivo TEXT; ADD COLUMN IF NOT EXISTS fecha_inactivacion TIMESTAMPTZ; ADD COLUMN IF NOT EXISTS fecha_reactivacion TIMESTAMPTZ;`
+
+### 6. Realtime WebSocket
+- **Dashboard**: Listener WS en `dashboard/page.tsx` — invalida queries `ranking` y `kpis` al recibir `new_exhibition` o `evaluation_updated`.
+- **Modo Oficina**: Fix `fetchLiveMapEvents()` (ya no pasaba distId como minutos), `alive` flag para cleanup limpio sin bucle de reconexión, fix campo `timestamp_evento` en mapping WS.
+- **Backend `evaluar`/`revertir`**: Emiten evento `evaluation_updated` vía `broadcast_sync` (fire-and-forget desde endpoints síncronos).
 
 ### 4. Bots de Telegram
 - **Bot Multi-tenant**: Registro de exhibiciones por vendedor.

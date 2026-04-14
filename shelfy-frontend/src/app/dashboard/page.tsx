@@ -10,7 +10,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
   fetchKPIs, fetchRanking, fetchUltimasEvaluadas, fetchPorSucursal,
-  fetchEvolucionTiempo, fetchRendimientoCiudad, fetchPorEmpresa,
+  fetchEvolucionTiempo, fetchRendimientoCiudad, fetchPorEmpresa, getWSUrl,
 } from "@/lib/api";
 import type {
   KPIs, VendedorRanking, UltimaEvaluada, SucursalStats, EvolucionTiempo, RendimientoCiudad,
@@ -165,6 +165,39 @@ export default function DashboardPage() {
       setIsManualRefreshing(false);
     }
   }, [isAnyFetching, isManualRefreshing]);
+
+  // Realtime: WS listener que invalida ranking/KPIs al recibir evaluaciones o nuevas fotos
+  useEffect(() => {
+    if (!distId) return;
+    let socket: WebSocket | null = null;
+    let alive = true;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const connect = () => {
+      socket = new WebSocket(getWSUrl(distId));
+      socket.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === "new_exhibition" || data.type === "evaluation_updated") {
+            queryClient.invalidateQueries({ queryKey: ["dashboard", "kpis"] });
+            queryClient.invalidateQueries({ queryKey: ["dashboard", "ranking"] });
+          }
+        } catch {}
+      };
+      socket.onclose = () => {
+        if (!alive) return;
+        reconnectTimer = setTimeout(connect, 5000);
+      };
+    };
+
+    connect();
+
+    return () => {
+      alive = false;
+      if (socket) socket.close();
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+    };
+  }, [distId, queryClient]);
 
   function handleDateChange(y: number, m: number, d: number) {
     setYear(y); setMonth(m); setDay(d);

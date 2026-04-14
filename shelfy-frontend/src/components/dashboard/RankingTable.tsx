@@ -2,9 +2,8 @@
 
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Star, Award, FileText, Download, Loader2, RefreshCw, MoreHorizontal } from 'lucide-react';
+import { Award, FileText, Download, Loader2, RefreshCw, MoreHorizontal } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -40,10 +39,6 @@ function downloadHTML(html: string, filename: string) {
   setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
 }
 
-function getInitials(name: string): string {
-  return name.split(" ").map(p => p[0]).filter(Boolean).slice(0, 2).join("").toUpperCase();
-}
-
 // Mejora #16: Paleta oro/plata/bronce semánticamente correcta
 const TOP3_STYLES = [
   { // Oro
@@ -77,9 +72,6 @@ export function RankingTable({
     : null;
 
   const hasSavedReport = savedReport !== null && savedReport.distId === distId && savedReport.periodo === periodo;
-
-  // Mejora #8: maxPuntos para la barra de progreso visible
-  const maxPuntos = ranking[0]?.puntos ?? 1;
 
   async function handleGenerateReport() {
     if (!kpis || !distId) return;
@@ -134,9 +126,10 @@ export function RankingTable({
         <div className="shrink-0">
           <div className="flex items-center gap-2.5">
             <h3 className="text-slate-900 font-black text-xl tracking-tighter">Ranking en Vivo</h3>
-            <div className="bg-violet-100/50 p-1 rounded-lg">
-              <Star className="text-violet-500 fill-violet-500 animate-pulse" size={16} />
-            </div>
+            <span className="inline-flex items-center gap-1 bg-violet-50 px-2 py-0.5 rounded-full border border-violet-100/60">
+              <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse" />
+              <span className="text-[8px] font-black uppercase tracking-[0.15em] text-violet-500">Live</span>
+            </span>
           </div>
           <p className="text-[10px] text-slate-400 font-black uppercase tracking-[0.18em] mt-1 opacity-70">
             Líderes de rendimiento
@@ -200,38 +193,24 @@ export function RankingTable({
                     </td>
 
                     <td className="py-2.5 px-2">
-                      <div className="flex items-center gap-2">
-                        <Avatar className="size-7 rounded-lg shrink-0">
-                          <AvatarFallback className={cn("rounded-lg text-[10px] font-black", style?.avatar ?? "bg-slate-100 text-slate-600")}>
-                            {getInitials(v.vendedor)}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="flex flex-col flex-1 min-w-0">
-                          <span className={cn("font-black text-[13px] tracking-tight truncate max-w-[110px]", isTop3 ? "text-slate-900" : "text-slate-700")}>
-                            {v.vendedor}
+                      <div className="flex flex-col min-w-0">
+                        <span className={cn("font-black text-[13px] tracking-tight truncate max-w-[130px]", isTop3 ? "text-slate-900" : "text-slate-700")}>
+                          {v.vendedor}
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider truncate max-w-[90px]">
+                            {v.sucursal || "General"}
                           </span>
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider truncate max-w-[80px]">
-                              {v.sucursal || "General"}
+                          {ratio !== null && (
+                            <span className={cn(
+                              "text-[8px] font-black px-1 py-0 rounded-md",
+                              ratio >= 80 ? "bg-emerald-50 text-emerald-600" :
+                              ratio >= 60 ? "bg-amber-50 text-amber-600" :
+                                            "bg-red-50 text-red-500"
+                            )}>
+                              {ratio}%
                             </span>
-                            {ratio !== null && (
-                              <span className={cn(
-                                "text-[8px] font-black px-1 py-0 rounded-md",
-                                ratio >= 80 ? "bg-emerald-50 text-emerald-600" :
-                                ratio >= 60 ? "bg-amber-50 text-amber-600" :
-                                              "bg-red-50 text-red-500"
-                              )}>
-                                {ratio}%
-                              </span>
-                            )}
-                          </div>
-                          {/* Mejora #8: barra h-1 visible */}
-                          <div className="h-1 rounded-full bg-slate-100 mt-1 w-full overflow-hidden">
-                            <div
-                              className="h-1 rounded-full bg-violet-400 transition-all duration-700"
-                              style={{ width: `${(v.puntos / maxPuntos) * 100}%` }}
-                            />
-                          </div>
+                          )}
                         </div>
                       </div>
                     </td>

@@ -20,6 +20,7 @@ from core.helpers import (
     is_exhibicion_qa_display_for_dist,
     should_apply_exhibicion_qa_filter,
 )
+from core.lifespan import broadcast_sync
 from core.security import verify_auth, check_dist_permission
 from db import sb
 from models.schemas import EvaluarRequest, ObjetivoCreate, ObjetivoItemCreate, ObjetivoUpdate, ObjetivoTimeline, ObjetivoTimelineEvent, RevertirRequest
@@ -494,6 +495,20 @@ def evaluar(req: EvaluarRequest, user_payload=Depends(verify_auth)):
             except Exception as e_items:
                 logger.warning(f"[evaluar] No se pudo actualizar objetivo_items: {e_items}")
 
+        if affected > 0:
+            try:
+                broadcast_sync(dist_id, {
+                    "type": "evaluation_updated",
+                    "payload": {
+                        "dist_id": dist_id,
+                        "estado": req.estado,
+                        "ids_exhibicion": req.ids_exhibicion,
+                        "affected": affected,
+                    },
+                })
+            except Exception as e_ws:
+                logger.debug(f"[evaluar] WS notify skipped: {e_ws}")
+
         return {"affected": affected}
     except HTTPException:
         raise
@@ -538,6 +553,20 @@ def revertir(req: RevertirRequest, user_payload=Depends(verify_auth)):
                 "synced_telegram": 0,
             }).eq("id_exhibicion", id_ex).execute()
             affected += len(r.data) if r.data else 0
+        if affected > 0:
+            try:
+                broadcast_sync(dist_id, {
+                    "type": "evaluation_updated",
+                    "payload": {
+                        "dist_id": dist_id,
+                        "estado": "Pendiente",
+                        "ids_exhibicion": req.ids_exhibicion,
+                        "affected": affected,
+                    },
+                })
+            except Exception as e_ws:
+                logger.debug(f"[revertir] WS notify skipped: {e_ws}")
+
         return {"affected": affected}
     except HTTPException:
         raise
@@ -585,6 +614,24 @@ def supervision_rutas(id_vendedor: int, user_payload=Depends(verify_auth)):
 @router.get("/api/supervision/clientes/{id_ruta}", tags=["Supervisión"])
 def supervision_clientes(id_ruta: int, user_payload=Depends(verify_auth)):
     try:
+        # Tenant-guard: resolve distribuidor from ruta before fetching PDV data
+        try:
+            ruta_res = sb.table("rutas_v2").select("id_vendedor").eq("id_ruta", id_ruta).limit(1).execute()
+            if ruta_res.data:
+                vend_res = (
+                    sb.table("vendedores_v2")
+                    .select("id_distribuidor")
+                    .eq("id_vendedor", ruta_res.data[0]["id_vendedor"])
+                    .limit(1)
+                    .execute()
+                )
+                if vend_res.data:
+                    check_dist_permission(user_payload, vend_res.data[0]["id_distribuidor"])
+        except HTTPException:
+            raise
+        except Exception as e_guard:
+            logger.warning(f"[supervision_clientes] tenant guard fallback: {e_guard}")
+
         res = (
             sb.table("clientes_pdv_v2")
             .select(

@@ -121,7 +121,7 @@ export function KpiCard({ label, value, icon, colorName, color, bgColor = "bg-wh
             </div>
             {/* Valor con contador animado */}
             <div
-              className={cn("font-black tracking-tighter", valueFontClass)}
+              className={cn("font-black tracking-tighter shrink-0 whitespace-nowrap", valueFontClass)}
               style={{ color: hexColor }}
             >
               {animatedValue}

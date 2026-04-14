@@ -301,7 +301,7 @@ export default function DashboardPage() {
               {/* KPIs — Mejora #24: 5 cards incluyendo tasa de aprobación */}
               {kpis ? (
                 <motion.div
-                  className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 shrink-0"
+                  className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-3 2xl:grid-cols-5 gap-3 shrink-0"
                   variants={kpiVariants} initial="hidden" animate="show"
                 >
                   <motion.div variants={kpiItemVariants}>
@@ -340,7 +340,7 @@ export default function DashboardPage() {
                   </motion.div>
                 </motion.div>
               ) : loadingKpis ? (
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 shrink-0">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-3 2xl:grid-cols-5 gap-3 shrink-0">
                   {[0,1,2,3,4].map(i => <Skeleton key={i} className="h-24 w-full rounded-[2rem]" />)}
                 </div>
               ) : null}

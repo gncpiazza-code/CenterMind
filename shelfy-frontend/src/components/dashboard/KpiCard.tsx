@@ -116,19 +116,22 @@ export function KpiCard({ label, value, icon, colorName, color, bgColor = "bg-wh
 
         <CardContent className="p-0 flex flex-col justify-between h-full">
           <div className="flex items-start justify-between relative z-10">
-            <div className={cn("p-2.5 rounded-2xl mb-2 text-white shadow-lg ring-4 ring-white/10", bgClass)}>
+            <div className={cn("p-2.5 rounded-2xl text-white shadow-lg ring-4 ring-white/10 shrink-0", bgClass)}>
               {icon}
             </div>
-            {/* Valor con contador animado */}
+          </div>
+
+          {/* Valor con contador animado — debajo del icono, siempre visible */}
+          <div className="mt-2 relative z-10">
             <div
-              className={cn("font-black tracking-tighter shrink-0 whitespace-nowrap", valueFontClass)}
+              className={cn("font-black tracking-tighter leading-none", valueFontClass)}
               style={{ color: hexColor }}
             >
               {animatedValue}
             </div>
           </div>
 
-          <div className="mt-3 relative z-10">
+          <div className="mt-2 relative z-10">
             {/* Mejora #15: jerarquía tipográfica — label más legible */}
             <div className="text-[11px] font-black uppercase tracking-[0.12em] text-slate-500 group-hover:text-slate-700 transition-colors">
               {label}

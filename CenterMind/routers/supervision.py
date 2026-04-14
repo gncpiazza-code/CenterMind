@@ -1593,7 +1593,6 @@ def get_pdvs_catalog(
                 sb.table("rutas_v2")
                 .select("id_ruta")
                 .eq("id_vendedor", vendedor_id)
-                .eq("id_distribuidor", dist_id)
                 .execute()
             )
             route_ids = [r["id_ruta"] for r in (rutas_res.data or [])]

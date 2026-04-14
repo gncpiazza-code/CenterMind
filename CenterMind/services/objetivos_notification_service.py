@@ -50,6 +50,19 @@ def _norm_name(value: str | None) -> str:
     return " ".join(txt.split())
 
 
+def _norm_erp_code(value: Any) -> str:
+    if value is None:
+        return ""
+    raw = str(value).strip().lower()
+    if not raw:
+        return ""
+    # Unificar variantes numéricas (e.g. 0076 vs 76)
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    if digits:
+        return str(int(digits))
+    return raw
+
+
 def _pick_integrante_row(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
     """Prefiere fila con telegram_group_id válido; si no, primera con id_integrante."""
     if not rows:
@@ -188,11 +201,12 @@ def resolve_integrante_for_objetivos(
         vrow = (vres.data or [{}])[0]
         verp = vrow.get("id_vendedor_erp")
         vendor_name = vrow.get("nombre_erp")
+        vendor_name_norm = _norm_name(vendor_name)
         if verp is None or str(verp).strip() == "":
             verp_s = ""
         else:
             verp_stripped = str(verp).strip()
-            verp_s = verp_stripped.lower()
+            verp_s = _norm_erp_code(verp_stripped)
 
             erp_exact_rows = _select_integrantes(
                 dist_id,
@@ -232,7 +246,7 @@ def resolve_integrante_for_objetivos(
                 if not _row_operational(row):
                     continue
                 ig_erp = row.get("id_vendedor_erp")
-                if ig_erp is not None and verp_s and str(ig_erp).strip().lower() == verp_s:
+                if ig_erp is not None and verp_s and _norm_erp_code(ig_erp) == verp_s:
                     if row.get("id_integrante") is not None:
                         logger.info(
                             f"[Notif] integrante vía id_vendedor_erp paginado "
@@ -253,6 +267,38 @@ def resolve_integrante_for_objetivos(
             if len(rows) < batch:
                 break
             offset += batch
+
+        # Fallback final controlado: nombre ERP exacto normalizado (solo si es único).
+        if vendor_name_norm:
+            try:
+                all_rows = _select_integrantes(
+                    dist_id,
+                    cols_primary,
+                    cols_fallback,
+                    offset=0,
+                    limit=2000,
+                )
+                by_name = [
+                    r for r in all_rows
+                    if _row_operational(r)
+                    and _norm_name(r.get("nombre_integrante")) == vendor_name_norm
+                    and r.get("id_integrante") is not None
+                ]
+                if len(by_name) == 1:
+                    logger.info(
+                        f"[Notif] integrante vía nombre exacto único "
+                        f"vendedor_v2={id_vendedor} dist={dist_id}"
+                    )
+                    return by_name[0]
+                if len(by_name) > 1:
+                    logger.warning(
+                        f"[Notif] Ambigüedad por nombre exacto vend={id_vendedor} "
+                        f"dist={dist_id}; filas={len(by_name)}"
+                    )
+            except Exception as e_name:
+                logger.warning(
+                    f"[Notif] fallback nombre exacto vend={id_vendedor} dist={dist_id}: {e_name}"
+                )
         return None
     except Exception as e:
         logger.warning(

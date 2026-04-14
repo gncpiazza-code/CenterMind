@@ -16,7 +16,7 @@ Tipos soportados:
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from db import sb
@@ -48,7 +48,6 @@ class ObjetivosWatcherService:
                 q = q.eq("id", obj_id)
             else:
                 # Omitir objetivos vencidos hace más de 1 día — los maneja la expiración
-                from datetime import date, timedelta
                 cutoff = (date.today() - timedelta(days=1)).isoformat()
                 q = q.or_(f"fecha_objetivo.is.null,fecha_objetivo.gte.{cutoff}")
             res = q.execute()

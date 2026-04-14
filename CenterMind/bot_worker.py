@@ -940,7 +940,7 @@ class BotWorker:
             
             # 1. Obtener todos los id_integrante para este vendedor (scoped a este distribuidor)
             res_int = await asyncio.to_thread(
-                self.sb.table("integrantes_grupo")
+                self.db.sb.table("integrantes_grupo")
                     .select("id_integrante, activo")
                     .eq("id_distribuidor", self.distribuidor_id)
                     .in_("telegram_user_id", related_uids)
@@ -970,7 +970,7 @@ class BotWorker:
             offset = 0
             while True:
                 res_ex = await asyncio.to_thread(
-                    self.sb.table("exhibiciones")
+                    self.db.sb.table("exhibiciones")
                         .select("id_integrante, telegram_chat_id, telegram_msg_id, url_foto_drive, timestamp_subida, estado")
                         .eq("id_distribuidor", self.distribuidor_id)
                         .in_("id_integrante", iids)

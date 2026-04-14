@@ -67,6 +67,49 @@ def _pick_integrante_row(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
     return None
 
 
+def _pick_integrante_row_strict(
+    rows: list[dict[str, Any]],
+    *,
+    expected_vendor_name: str | None = None,
+) -> dict[str, Any] | None:
+    """
+    Selección determinística para evitar cruces entre homónimos o filas ambiguas.
+    Si hay `expected_vendor_name`, prioriza coincidencia exacta normalizada con
+    `nombre_integrante`. Si hay múltiples candidatos de distintos nombres y no
+    se puede desambiguar, devuelve None para no notificar al grupo incorrecto.
+    """
+    base = [r for r in rows if r.get("id_integrante") is not None and _row_operational(r)]
+    if not base:
+        return None
+
+    with_group = [r for r in base if _row_usable_telegram_group(r)]
+    candidates = with_group or base
+
+    expected_norm = _norm_name(expected_vendor_name)
+    if expected_norm:
+        named = [
+            r for r in candidates
+            if _norm_name(r.get("nombre_integrante")) == expected_norm
+        ]
+        if len(named) == 1:
+            return named[0]
+        if len(named) > 1:
+            # Múltiples filas del mismo vendedor; tomar estable la de menor id.
+            return sorted(named, key=lambda r: int(r.get("id_integrante") or 0))[0]
+
+    # Sin match por nombre esperado: si hay más de un nombre distinto, no adivinar.
+    distinct_names = {
+        _norm_name(r.get("nombre_integrante"))
+        for r in candidates
+        if _norm_name(r.get("nombre_integrante"))
+    }
+    if len(distinct_names) > 1:
+        return None
+
+    # Candidato único (o múltiples filas equivalentes): orden estable.
+    return sorted(candidates, key=lambda r: int(r.get("id_integrante") or 0))[0]
+
+
 def _select_integrantes(
     dist_id: int,
     cols_primary: str,
@@ -127,7 +170,7 @@ def resolve_integrante_for_objetivos(
             cols_fallback,
             id_vendedor_v2=id_vendedor,
         )
-        picked = _pick_integrante_row(res_v2_rows)
+        picked = _pick_integrante_row_strict(res_v2_rows)
         if picked:
             return picked
 
@@ -141,6 +184,7 @@ def resolve_integrante_for_objetivos(
         )
         vrow = (vres.data or [{}])[0]
         verp = vrow.get("id_vendedor_erp")
+        vendor_name = vrow.get("nombre_erp")
         if verp is None or str(verp).strip() == "":
             verp_s = ""
         else:
@@ -153,13 +197,21 @@ def resolve_integrante_for_objetivos(
                 cols_fallback,
                 id_vendedor_erp=verp_stripped,
             )
-            picked = _pick_integrante_row(erp_exact_rows)
+            picked = _pick_integrante_row_strict(
+                erp_exact_rows,
+                expected_vendor_name=vendor_name,
+            )
             if picked:
                 logger.info(
                     f"[Notif] integrante vía id_vendedor_erp exact={verp_stripped!r} "
                     f"vendedor_v2={id_vendedor} dist={dist_id}"
                 )
                 return picked
+            if erp_exact_rows:
+                logger.warning(
+                    f"[Notif] Ambigüedad id_vendedor_erp exact para vend={id_vendedor} "
+                    f"dist={dist_id}; filas={len(erp_exact_rows)}"
+                )
 
         offset = 0
         batch = 500
@@ -183,7 +235,18 @@ def resolve_integrante_for_objetivos(
                             f"[Notif] integrante vía id_vendedor_erp paginado "
                             f"vendedor_v2={id_vendedor} dist={dist_id}"
                         )
-                        return row
+                        # Evitar cruces: validar contra nombre esperado cuando haya ambigüedad
+                        chosen = _pick_integrante_row_strict(
+                            rows,
+                            expected_vendor_name=vendor_name,
+                        )
+                        if chosen:
+                            return chosen
+                        logger.warning(
+                            f"[Notif] Ambigüedad paginada id_vendedor_erp para vend={id_vendedor} "
+                            f"dist={dist_id}; no se selecciona grupo"
+                        )
+                        return None
             if len(rows) < batch:
                 break
             offset += batch

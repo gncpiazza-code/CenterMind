@@ -111,7 +111,6 @@ def resolve_integrante_for_objetivos(
     2) id_vendedor_erp exacto (vendedores_v2 → integrantes_grupo)
     3) Paginado por distribuidor con comparación case-insensitive de ERP
        (evita techo ~1000 filas del fallback anterior que cargaba todo de una vez).
-    4) Fallback por nombre ERP del vendedor vs nombre_integrante (normalizado).
     """
     try:
         cols_primary = (
@@ -142,7 +141,6 @@ def resolve_integrante_for_objetivos(
         )
         vrow = (vres.data or [{}])[0]
         verp = vrow.get("id_vendedor_erp")
-        nombre_erp_norm = _norm_name(vrow.get("nombre_erp"))
         if verp is None or str(verp).strip() == "":
             verp_s = ""
         else:
@@ -165,7 +163,6 @@ def resolve_integrante_for_objetivos(
 
         offset = 0
         batch = 500
-        name_match_candidate: dict[str, Any] | None = None
         while True:
             rows = _select_integrantes(
                 dist_id,
@@ -187,19 +184,9 @@ def resolve_integrante_for_objetivos(
                             f"vendedor_v2={id_vendedor} dist={dist_id}"
                         )
                         return row
-                if not name_match_candidate and nombre_erp_norm:
-                    ni_norm = _norm_name(row.get("nombre_integrante"))
-                    if ni_norm and ni_norm == nombre_erp_norm and row.get("id_integrante") is not None:
-                        name_match_candidate = row
             if len(rows) < batch:
                 break
             offset += batch
-        if name_match_candidate:
-            logger.info(
-                f"[Notif] integrante vía nombre_erp≈nombre_integrante "
-                f"vendedor_v2={id_vendedor} dist={dist_id}"
-            )
-            return name_match_candidate
         return None
     except Exception as e:
         logger.warning(

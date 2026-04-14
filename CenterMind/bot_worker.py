@@ -1709,18 +1709,10 @@ class BotWorker:
                     if ig_obj_res.data else None
                 )
                 if id_vendedor_v2_obj is None:
-                    ig_fb = self.db.sb.table("integrantes_grupo") \
-                        .select("id_vendedor_v2") \
-                        .eq("id_distribuidor", self.distribuidor_id) \
-                        .eq("telegram_user_id", effective_uploader_id) \
-                        .not_.is_("id_vendedor_v2", "null") \
-                        .limit(1).execute()
-                    if ig_fb.data:
-                        id_vendedor_v2_obj = ig_fb.data[0].get("id_vendedor_v2")
-                        self.logger.info(
-                            f"[ObjInterceptor] id_vendedor_v2 vía fallback (sin filtro grupo)="
-                            f"{id_vendedor_v2_obj}"
-                        )
+                    self.logger.warning(
+                        "[ObjInterceptor] Sin id_vendedor_v2 por grupo/uid; "
+                        "se desactiva fallback sin grupo para evitar cruce entre vendedores"
+                    )
                 self.logger.info(
                     f"[ObjInterceptor] id_vendedor_v2={id_vendedor_v2_obj} "
                     f"uid={effective_uploader_id}"
@@ -1784,8 +1776,8 @@ class BotWorker:
                             pass
 
                         # Match strategy 2: PDV listado en objetivo_items (multi-PDV).
-                        # Debe correr aunque falle el lookup de id_vendedor_v2 por grupo Telegram.
-                        if not obj_match_res.data:
+                        # Requiere id_vendedor_v2 para no cruzar objetivos entre vendedores/sucursales.
+                        if not obj_match_res.data and id_vendedor_v2_obj is not None:
                             try:
                                 # Sin filtrar id_distribuidor en ítems: filas legacy con NULL no matcheaban
                                 # y la exhibición quedaba sin id_objetivo.
@@ -2034,28 +2026,11 @@ class BotWorker:
                     ex_data["id"], sent_msg.message_id, chat_id
                 )
 
-            # PASO 6: Mensaje de cuarentena con cuenta regresiva
+            # PASO 6: Cuarentena silenciosa (sin notificación al chat)
             if en_cuarentena_flag:
-                from datetime import timezone
-                now_ar = datetime.now(AR_TZ)
-                # Próxima ejecución del ETL → 03:00 AM hora Argentina
-                etl_hour = 3
-                next_etl = now_ar.replace(hour=etl_hour, minute=0, second=0, microsecond=0)
-                if now_ar >= next_etl:
-                    next_etl = next_etl.replace(day=next_etl.day + 1)
-                delta = next_etl - now_ar
-                horas = int(delta.total_seconds() // 3600)
-                minutos = int((delta.total_seconds() % 3600) // 60)
-                await context.bot.send_message(
-                    chat_id=chat_id,
-                    text=(
-                        f"⚠️ <b>PDV / VENDEDOR EN REVISIÓN.</b> Esta exhibición ha sido puesta en "
-                        f"<b>REVISIÓN</b> y se validará al actualizar la base de clientes "
-                        f"en <b>{horas}h {minutos}m</b>.\n\n"
-                        f"Si te equivocaste de número, ignorá este mensaje y volvé a enviar la foto con el código correcto."
-                    ),
-                    parse_mode=ParseMode.HTML,
-                    reply_to_message_id=photos[0]["message_id"],
+                self.logger.info(
+                    f"[Cuarentena] exhibición en revisión silenciosa "
+                    f"dist={self.distribuidor_id} chat={chat_id} uploader={uploader_id}"
                 )
 
             # Cache local para sync

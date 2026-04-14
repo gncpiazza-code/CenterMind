@@ -126,10 +126,6 @@ export function RankingTable({
         <div className="shrink-0">
           <div className="flex items-center gap-2.5">
             <h3 className="text-slate-900 font-black text-xl tracking-tighter">Ranking en Vivo</h3>
-            <span className="inline-flex items-center gap-1 bg-violet-50 px-2 py-0.5 rounded-full border border-violet-100/60">
-              <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse" />
-              <span className="text-[8px] font-black uppercase tracking-[0.15em] text-violet-500">Live</span>
-            </span>
           </div>
           <p className="text-[10px] text-slate-400 font-black uppercase tracking-[0.18em] mt-1 opacity-70">
             Líderes de rendimiento

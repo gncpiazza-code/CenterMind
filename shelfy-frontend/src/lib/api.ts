@@ -571,6 +571,7 @@ export interface FuerzaVentasVendedor {
   telegram_group_id: number | null;
   telegram_user_id: number | null;
   tiene_binding: boolean;
+  binding_source?: "fuerza_ventas" | "legacy_admin" | "none";
 }
 
 export interface FuerzaVentasVendedorDetalle extends FuerzaVentasVendedor {
@@ -635,6 +636,25 @@ export async function updateFuerzaVentasVendedor(
     method: "PUT",
     body: JSON.stringify({ perfil_req: perfil, binding_req: binding }),
   });
+}
+
+export async function uploadFotoFuerzaVentas(
+  idVendedor: number,
+  file: File,
+): Promise<{ ok: boolean; foto_url: string }> {
+  const token = localStorage.getItem(TOKEN_KEY);
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(`${API_URL}/api/fuerza-ventas/vendedor/${idVendedor}/foto`, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Error subiendo foto" }));
+    throw new Error(err.detail ?? "Error subiendo foto");
+  }
+  return res.json();
 }
 
 export async function fetchTelegramGruposFuerzaVentas(distId: number): Promise<TelegramGrupo[]> {

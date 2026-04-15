@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Wand2, Save, Loader2, User, MapPin, CalendarDays, Wifi } from "lucide-react";
+import { Wand2, Save, Loader2, User, CalendarDays, Wifi, Upload } from "lucide-react";
 
 import {
   Sheet,
@@ -33,6 +33,7 @@ import {
   fetchTelegramUsuariosGrupoFuerzaVentas,
   autocompletarFuerzaVentas,
   updateFuerzaVentasVendedor,
+  uploadFotoFuerzaVentas,
   type FuerzaVentasVendedorDetalle,
 } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
@@ -73,6 +74,7 @@ export function VendedorEditSheet({ idVendedor, distId, open, onClose }: Vendedo
   const [activo, setActivo] = useState(true);
   const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
+  const [uploadingFoto, setUploadingFoto] = useState(false);
 
   // Usuarios del grupo seleccionado
   const { data: usuarios = [] } = useQuery({
@@ -90,7 +92,7 @@ export function VendedorEditSheet({ idVendedor, distId, open, onClose }: Vendedo
       setLocalidad(vendedor.localidad ?? "");
       setFechaIngreso(vendedor.fecha_ingreso ?? "");
       setActivo(vendedor.activo ?? true);
-      setSelectedGroupId(null);
+      setSelectedGroupId(vendedor.telegram_group_id ?? null);
       setSelectedUserId(vendedor.telegram_user_id ?? null);
     }
   }, [vendedor]);
@@ -109,6 +111,9 @@ export function VendedorEditSheet({ idVendedor, distId, open, onClose }: Vendedo
       const confianzaLabel = { alta: "Alta", media: "Media", baja: "Baja" }[sug.confianza];
       if (sug.sugerencia_telegram_user_id) {
         setSelectedUserId(sug.sugerencia_telegram_user_id);
+      }
+      if (sug.sugerencia_telegram_group_id) {
+        setSelectedGroupId(sug.sugerencia_telegram_group_id);
       }
       toast.success(
         `Autocompletado (confianza ${confianzaLabel} · ${Math.round(sug.score * 100)}%): ${sug.nombre_usuario_sugerido ?? "—"}`
@@ -143,6 +148,20 @@ export function VendedorEditSheet({ idVendedor, distId, open, onClose }: Vendedo
     .map((w) => w[0])
     .join("")
     .toUpperCase() ?? "?";
+
+  const handleFotoFile = useCallback(async (file?: File) => {
+    if (!file || !idVendedor) return;
+    setUploadingFoto(true);
+    try {
+      const res = await uploadFotoFuerzaVentas(idVendedor, file);
+      setFotoUrl(res.foto_url);
+      toast.success("Foto subida correctamente");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudo subir la foto");
+    } finally {
+      setUploadingFoto(false);
+    }
+  }, [idVendedor]);
 
   return (
     <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
@@ -181,16 +200,42 @@ export function VendedorEditSheet({ idVendedor, distId, open, onClose }: Vendedo
               <div className="space-y-3">
                 <div>
                   <Label htmlFor="foto_url" className="text-xs font-semibold" style={{ color: "var(--shelfy-muted)" }}>
-                    URL de Foto
+                    Foto del vendedor
                   </Label>
-                  <Input
-                    id="foto_url"
-                    value={fotoUrl}
-                    onChange={(e) => setFotoUrl(e.target.value)}
-                    placeholder="https://..."
-                    disabled={!canEdit}
-                    className="mt-1 h-9 text-sm"
-                  />
+                  <div className="mt-1 flex items-center gap-2">
+                    <Input
+                      id="foto_url"
+                      value={fotoUrl}
+                      onChange={(e) => setFotoUrl(e.target.value)}
+                      placeholder="URL pública (opcional)"
+                      disabled={!canEdit}
+                      className="h-9 text-sm"
+                    />
+                    {canEdit && (
+                      <label className="inline-flex">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => handleFotoFile(e.target.files?.[0])}
+                          disabled={uploadingFoto}
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={uploadingFoto}
+                          className="h-9 gap-1.5"
+                          asChild
+                        >
+                          <span>
+                            {uploadingFoto ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
+                            Subir
+                          </span>
+                        </Button>
+                      </label>
+                    )}
+                  </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -275,7 +320,9 @@ export function VendedorEditSheet({ idVendedor, distId, open, onClose }: Vendedo
               <div className="rounded-xl border px-3 py-2 mb-3 flex items-center gap-2" style={{ borderColor: "var(--shelfy-border)" }}>
                 <span className="text-xs font-semibold" style={{ color: "var(--shelfy-muted)" }}>Estado actual:</span>
                 {vendedor?.tiene_binding ? (
-                  <Badge className="text-[10px] bg-green-100 text-green-700 border border-green-200">Vinculado</Badge>
+                  <Badge className="text-[10px] bg-green-100 text-green-700 border border-green-200">
+                    {vendedor.binding_source === "legacy_admin" ? "Vinculado (Legacy Admin)" : "Vinculado (Fuerza de Ventas)"}
+                  </Badge>
                 ) : (
                   <Badge variant="secondary" className="text-[10px]">Sin vincular</Badge>
                 )}

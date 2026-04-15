@@ -170,6 +170,55 @@ def resolve_integrante_for_objetivos(
        (evita techo ~1000 filas del fallback anterior que cargaba todo de una vez).
     """
     try:
+        # 0) Prioridad al nuevo vínculo de Fuerza de Ventas (migración progresiva)
+        try:
+            bres = (
+                sb.table("vendedores_telegram_binding")
+                .select("telegram_group_id, telegram_user_id")
+                .eq("id_distribuidor", dist_id)
+                .eq("id_vendedor_v2", id_vendedor)
+                .limit(1)
+                .execute()
+            )
+            brow = (bres.data or [{}])[0] if bres.data else None
+            if brow and (brow.get("telegram_group_id") or brow.get("telegram_user_id")):
+                q = (
+                    sb.table("integrantes_grupo")
+                    .select(
+                        "id_integrante, telegram_group_id, id_vendedor_erp, telegram_user_id, "
+                        "nombre_integrante, estado_mapeo"
+                    )
+                    .eq("id_distribuidor", dist_id)
+                )
+                if brow.get("telegram_user_id"):
+                    q = q.eq("telegram_user_id", brow["telegram_user_id"])
+                if brow.get("telegram_group_id"):
+                    q = q.eq("telegram_group_id", brow["telegram_group_id"])
+                qres = q.limit(1).execute()
+                if qres.data:
+                    row = qres.data[0]
+                    logger.info(
+                        f"[Notif] integrante vía fuerza_ventas vend={id_vendedor} dist={dist_id}"
+                    )
+                    return row
+
+                # Si no encontró integrante, devolver al menos group/user para notificar Telegram.
+                logger.info(
+                    f"[Notif] vínculo fuerza_ventas sin integrante vend={id_vendedor} dist={dist_id} "
+                    f"(usa telegram_group_id directo)"
+                )
+                return {
+                    "id_integrante": None,
+                    "telegram_group_id": brow.get("telegram_group_id"),
+                    "telegram_user_id": brow.get("telegram_user_id"),
+                    "id_vendedor_erp": None,
+                    "nombre_integrante": None,
+                }
+        except Exception as e_bind:
+            logger.warning(
+                f"[Notif] fallback a legacy (binding no disponible) vend={id_vendedor} dist={dist_id}: {e_bind}"
+            )
+
         cols_primary = (
             "id_integrante, telegram_group_id, id_vendedor_erp, telegram_user_id, "
             "nombre_integrante, activo, estado_mapeo"

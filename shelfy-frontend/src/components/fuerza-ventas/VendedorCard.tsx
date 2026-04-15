@@ -82,7 +82,11 @@ export function VendedorCard({ vendedor, onClick }: VendedorCardProps) {
         {vendedor.tiene_binding ? (
           <>
             <Wifi size={12} className="shrink-0" />
-            <span>Telegram vinculado</span>
+            <span>
+              Telegram vinculado
+              {vendedor.binding_source === "legacy_admin" ? " (Legacy Admin)" : ""}
+              {vendedor.binding_source === "fuerza_ventas" ? " (Fuerza de Ventas)" : ""}
+            </span>
           </>
         ) : (
           <>

@@ -59,6 +59,25 @@ def _get_vendedor_dist(id_vendedor: int) -> Optional[int]:
     return r.data[0]["id_distribuidor"] if r.data else None
 
 
+def _safe_text(value) -> str:
+    """Convierte cualquier valor a string seguro para operaciones de texto."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    return str(value)
+
+
+def _safe_int(value) -> Optional[int]:
+    """Convierte a int de forma segura; devuelve None si no puede parsear."""
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _resolve_binding_progressive(dist_id: int, id_vendedor: int) -> dict:
     """
     Prioriza vínculo nuevo (vendedores_telegram_binding).
@@ -144,7 +163,11 @@ def fuerza_ventas_list_vendedores(dist_id: int, payload=Depends(verify_auth)):
             .eq("id_distribuidor", dist_id)
             .execute()
         )
-        suc_map = {s["id_sucursal"]: s["nombre_erp"] for s in (suc_r.data or [])}
+        suc_map = {
+            _safe_int(s.get("id_sucursal")): _safe_text(s.get("nombre_erp"))
+            for s in (suc_r.data or [])
+            if _safe_int(s.get("id_sucursal")) is not None
+        }
 
         # Perfiles
         perfil_r = (
@@ -646,7 +669,11 @@ def galeria_list_vendedores(
             .eq("id_distribuidor", dist_id)
             .execute()
         )
-        foto_map = {p["id_vendedor_v2"]: p.get("foto_url") for p in (perfil_r.data or [])}
+        foto_map = {
+            _safe_int(p.get("id_vendedor_v2")): p.get("foto_url")
+            for p in (perfil_r.data or [])
+            if _safe_int(p.get("id_vendedor_v2")) is not None
+        }
 
         # Mapping integrante → vendedor para cruzar exhibiciones
         integ_r = (
@@ -658,20 +685,25 @@ def galeria_list_vendedores(
         # integrante.id → id_vendedor_v2
         integ_vend_map: dict[int, int] = {}
         for ig in (integ_r.data or []):
-            if ig.get("id_vendedor_v2"):
-                integ_vend_map[ig["id_integrante"]] = ig["id_vendedor_v2"]
+            id_integrante = _safe_int(ig.get("id_integrante"))
+            id_vendedor_v2 = _safe_int(ig.get("id_vendedor_v2"))
+            if id_integrante is not None and id_vendedor_v2 is not None:
+                integ_vend_map[id_integrante] = id_vendedor_v2
 
         # Exhibiciones del distribuidor (paginado)
         exhibiciones: list[dict] = []
         batch, offset_e = 1000, 0
         while True:
-            ex_r = (
+            ex_q = (
                 sb.table("exhibiciones")
                 .select("id_exhibicion, id_integrante, estado, timestamp_subida")
                 .eq("id_distribuidor", dist_id)
-                .range(offset_e, offset_e + batch - 1)
-                .execute()
             )
+            if desde:
+                ex_q = ex_q.gte("timestamp_subida", f"{desde}T00:00:00")
+            if hasta:
+                ex_q = ex_q.lte("timestamp_subida", f"{hasta}T23:59:59")
+            ex_r = ex_q.range(offset_e, offset_e + batch - 1).execute()
             chunk = ex_r.data or []
             exhibiciones.extend(chunk)
             if len(chunk) < batch:
@@ -683,7 +715,7 @@ def galeria_list_vendedores(
             suc_norm = _normalize(sucursal)
             vendedores = [
                 v for v in vendedores
-                if _normalize(suc_map.get(v["id_sucursal"], "")) == suc_norm
+                if _normalize(suc_map.get(_safe_int(v.get("id_sucursal")), "")) == suc_norm
             ]
             if not vendedores:
                 return []
@@ -691,11 +723,13 @@ def galeria_list_vendedores(
         # Agregar por vendedor
         stats: dict[int, dict] = {}
         for v in vendedores:
-            vid = v["id_vendedor"]
+            vid = _safe_int(v.get("id_vendedor"))
+            if vid is None:
+                continue
             stats[vid] = {
                 "id_vendedor": vid,
-                "nombre_erp": v["nombre_erp"],
-                "sucursal_nombre": suc_map.get(v["id_sucursal"]),
+                "nombre_erp": _safe_text(v.get("nombre_erp")),
+                "sucursal_nombre": suc_map.get(_safe_int(v.get("id_sucursal"))),
                 "foto_url": foto_map.get(vid),
                 "total_exhibiciones": 0,
                 "aprobadas": 0,
@@ -705,17 +739,17 @@ def galeria_list_vendedores(
             }
 
         for ex in exhibiciones:
-            ts = (ex.get("timestamp_subida") or "").strip()
+            ts = _safe_text(ex.get("timestamp_subida")).strip()
             fecha = ts[:10] if ts else ""
             if desde and fecha and fecha < desde:
                 continue
             if hasta and fecha and fecha > hasta:
                 continue
-            ig_id = ex.get("id_integrante")
-            vid = integ_vend_map.get(ig_id)  # type: ignore
+            ig_id = _safe_int(ex.get("id_integrante"))
+            vid = integ_vend_map.get(ig_id) if ig_id is not None else None
             if vid is None or vid not in stats:
                 continue
-            estado = (ex.get("estado") or "").lower()
+            estado = _safe_text(ex.get("estado")).lower()
             stats[vid]["total_exhibiciones"] += 1
             if "aprobad" in estado:
                 stats[vid]["aprobadas"] += 1
@@ -728,8 +762,17 @@ def galeria_list_vendedores(
 
         return [row for row in stats.values() if row["total_exhibiciones"] > 0 or not (desde or hasta)]
     except Exception as e:
-        logger.error(f"[galeria] list_vendedores dist={dist_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception(
+            "[galeria] list_vendedores failed dist=%s sucursal=%s desde=%s hasta=%s",
+            dist_id,
+            sucursal,
+            desde,
+            hasta,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"galeria_vendedores_error: {type(e).__name__}: {e}",
+        )
 
 
 @router.get("/api/galeria/vendedor/{id_vendedor}/clientes", tags=["Galería"])
@@ -754,7 +797,10 @@ def galeria_list_clientes_por_vendedor(
             .eq("id_vendedor_v2", id_vendedor)
             .execute()
         )
-        integ_ids = [ig["id_integrante"] for ig in (integ_r.data or [])]
+        integ_ids = [
+            iid for iid in (_safe_int(ig.get("id_integrante")) for ig in (integ_r.data or []))
+            if iid is not None
+        ]
         if not integ_ids:
             return []
 
@@ -765,7 +811,10 @@ def galeria_list_clientes_por_vendedor(
             .eq("id_vendedor", id_vendedor)
             .execute()
         )
-        ruta_ids = [r["id_ruta"] for r in (rutas_r.data or [])]
+        ruta_ids = [
+            rid for rid in (_safe_int(r.get("id_ruta")) for r in (rutas_r.data or []))
+            if rid is not None
+        ]
 
         clientes_pdv: list[dict] = []
         if ruta_ids:
@@ -796,27 +845,27 @@ def galeria_list_clientes_por_vendedor(
         if not clientes_pdv:
             return []
 
-        cliente_ids = list({c["id_cliente"] for c in clientes_pdv})
-        cliente_info = {c["id_cliente"]: c for c in clientes_pdv}
-
         # Última exhibición por cliente (paginado)
         exhibiciones: list[dict] = []
         batch, offset_e = 1000, 0
         while True:
-            ex_r = (
+            ex_q = (
                 sb.table("exhibiciones")
                 .select("id_exhibicion, nro_cliente, url_foto_drive, estado, timestamp_subida, id_integrante")
                 .eq("id_distribuidor", dist_id)
                 .in_("id_integrante", integ_ids)
                 .order("timestamp_subida", desc=True)
-                .range(offset_e, offset_e + batch - 1)
-                .execute()
             )
+            if desde:
+                ex_q = ex_q.gte("timestamp_subida", f"{desde}T00:00:00")
+            if hasta:
+                ex_q = ex_q.lte("timestamp_subida", f"{hasta}T23:59:59")
+            ex_r = ex_q.range(offset_e, offset_e + batch - 1).execute()
             chunk = ex_r.data or []
             if desde or hasta:
                 filtered_chunk = []
                 for ex in chunk:
-                    ts = (ex.get("timestamp_subida") or "").strip()
+                    ts = _safe_text(ex.get("timestamp_subida")).strip()
                     fecha = ts[:10] if ts else ""
                     if desde and fecha and fecha < desde:
                         continue
@@ -832,31 +881,37 @@ def galeria_list_clientes_por_vendedor(
 
         # Última exhibición por nro_cliente
         ultima_por_cliente: dict[str, dict] = {}
+        total_por_cliente: dict[str, int] = {}
         for ex in exhibiciones:
-            nro = str(ex.get("nro_cliente") or "").strip()
-            if nro and nro not in ultima_por_cliente:
+            nro = _safe_text(ex.get("nro_cliente")).strip()
+            if not nro:
+                continue
+            if nro not in ultima_por_cliente:
                 ultima_por_cliente[nro] = ex
+            total_por_cliente[nro] = total_por_cliente.get(nro, 0) + 1
 
         result = []
         seen_ids: set[int] = set()
         for c in clientes_pdv:
-            cid = c["id_cliente"]
+            cid = _safe_int(c.get("id_cliente"))
+            if cid is None:
+                continue
             if cid in seen_ids:
                 continue
             seen_ids.add(cid)
-            erp_key = str(c.get("id_cliente_erp") or "").strip()
+            erp_key = _safe_text(c.get("id_cliente_erp")).strip()
             ultima = ultima_por_cliente.get(erp_key)
-            total = 0
-            if erp_key:
-                for ex in exhibiciones:
-                    if str(ex.get("nro_cliente") or "").strip() == erp_key:
-                        total += 1
+            total = total_por_cliente.get(erp_key, 0)
+
+            nombre_fantasia = _safe_text(c.get("nombre_fantasia")).strip()
+            nombre_cliente = _safe_text(c.get("nombre_cliente")).strip()
+            nombre_final = nombre_fantasia or nombre_cliente or f"Cliente {erp_key or cid}"
 
             result.append(GaleriaClienteCard(
                 id_cliente=cid,
                 id_cliente_erp=c.get("id_cliente_erp"),
-                nombre_cliente=c.get("nombre_fantasia") or f"Cliente {c.get('id_cliente_erp') or cid}",
-                nombre_fantasia=c.get("nombre_fantasia"),
+                nombre_cliente=nombre_final,
+                nombre_fantasia=nombre_fantasia or None,
                 ultima_exhibicion_url=ultima.get("url_foto_drive") if ultima else None,
                 ultima_exhibicion_fecha=ultima.get("timestamp_subida") if ultima else None,
                 ultimo_estado=ultima.get("estado") if ultima else None,
@@ -866,7 +921,13 @@ def galeria_list_clientes_por_vendedor(
 
         return result
     except Exception as e:
-        logger.error(f"[galeria] clientes_por_vendedor vid={id_vendedor}: {e}")
+        logger.exception(
+            "[galeria] clientes_por_vendedor failed vid=%s dist=%s desde=%s hasta=%s",
+            id_vendedor,
+            dist_id,
+            desde,
+            hasta,
+        )
         # No bloquear la vista si el esquema del tenant difiere.
         return []
 
@@ -933,5 +994,12 @@ def galeria_timeline_cliente(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"[galeria] timeline cliente={id_cliente_pdv} dist={dist_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception(
+            "[galeria] timeline failed cliente=%s dist=%s",
+            id_cliente_pdv,
+            dist_id,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"galeria_timeline_error: {type(e).__name__}: {e}",
+        )

@@ -1416,28 +1416,16 @@ class BotWorker:
         session["nro_cliente"] = clean
         session["stage"] = self.STAGE_WAITING_TYPE
 
-        # Silent-first: si el perfil del PDV tiene trust_level alto,
-        # evitamos preguntar y registramos automáticamente.
+        # Safety-first (producción): aunque el perfil tenga alta confianza,
+        # mantenemos el flujo único de selección manual para no desviar
+        # de la ruta legacy ya validada en calle.
         inferred = await asyncio.to_thread(
             self.db.infer_tipo_pdv_for_cliente,
             self.distribuidor_id,
             clean,
         )
         if inferred.get("use_auto") and inferred.get("tipo_pdv"):
-            tipo_pdv = inferred["tipo_pdv"]
-            clean_code = "".join(c for c in tipo_pdv if c.isalnum()).upper()
-            session["tipo_pdv"] = tipo_pdv
-            await self._process_upload_with_selected_type(
-                context=context,
-                uploader_id=user_id,
-                uploader_name=nombre,
-                tipo_pdv=tipo_pdv,
-                clean_code=clean_code,
-                source="telegram_auto_high_trust",
-                status_chat_id=chat_id,
-                status_reply_to=msg_id,
-            )
-            return
+            session["tipo_pdv_sugerido"] = inferred["tipo_pdv"]
 
         # Botones de tipo PDV (de la lista editable)
         botones = [

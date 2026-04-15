@@ -291,6 +291,58 @@ def fuerza_ventas_update_vendedor(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/api/fuerza-ventas/vendedor/{id_vendedor}/adoptar-legacy", tags=["Fuerza de Ventas"])
+def fuerza_ventas_adoptar_legacy(id_vendedor: int, payload=Depends(verify_auth)):
+    """
+    Copia el mapping legacy (/admin via integrantes_grupo) al binding nuevo
+    para ese vendedor. Útil en migración progresiva.
+    """
+    dist_id = _get_vendedor_dist(id_vendedor)
+    if dist_id is None:
+        raise HTTPException(status_code=404, detail="Vendedor no encontrado")
+    check_dist_permission(payload, dist_id)
+    try:
+        legacy = (
+            sb.table("integrantes_grupo")
+            .select("telegram_group_id, telegram_user_id")
+            .eq("id_distribuidor", dist_id)
+            .eq("id_vendedor_v2", id_vendedor)
+            .limit(1)
+            .execute()
+        )
+        if not legacy.data:
+            raise HTTPException(status_code=404, detail="No hay mapping legacy para este vendedor")
+        row = legacy.data[0]
+        group_id = row.get("telegram_group_id")
+        user_id = row.get("telegram_user_id")
+        if group_id is None and user_id is None:
+            raise HTTPException(status_code=400, detail="El mapping legacy no tiene datos de Telegram")
+
+        sb.table("vendedores_telegram_binding").upsert(
+            {
+                "id_distribuidor": dist_id,
+                "id_vendedor_v2": id_vendedor,
+                "telegram_group_id": group_id,
+                "telegram_user_id": user_id,
+                "updated_by": payload.get("sub") or payload.get("usuario") or "portal",
+            },
+            on_conflict="id_distribuidor,id_vendedor_v2",
+        ).execute()
+
+        return {
+            "ok": True,
+            "id_vendedor": id_vendedor,
+            "telegram_group_id": group_id,
+            "telegram_user_id": user_id,
+            "binding_source": "fuerza_ventas",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[fuerza_ventas] adoptar_legacy vid={id_vendedor}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/api/fuerza-ventas/vendedor/{id_vendedor}/foto", tags=["Fuerza de Ventas"])
 async def fuerza_ventas_upload_foto(
     id_vendedor: int,
@@ -556,7 +608,13 @@ def fuerza_ventas_autocompletar(id_vendedor: int, payload=Depends(verify_auth)):
 # ── Galería de Exhibiciones ───────────────────────────────────────────────────
 
 @router.get("/api/galeria/vendedores/{dist_id}", tags=["Galería"])
-def galeria_list_vendedores(dist_id: int, payload=Depends(verify_auth)):
+def galeria_list_vendedores(
+    dist_id: int,
+    sucursal: Optional[str] = Query(None),
+    desde: Optional[str] = Query(None),
+    hasta: Optional[str] = Query(None),
+    payload=Depends(verify_auth),
+):
     """Métricas de exhibiciones agrupadas por vendedor."""
     check_dist_permission(payload, dist_id)
     try:
@@ -609,7 +667,7 @@ def galeria_list_vendedores(dist_id: int, payload=Depends(verify_auth)):
         while True:
             ex_r = (
                 sb.table("exhibiciones")
-                .select("id_exhibicion, id_integrante, estado")
+                .select("id_exhibicion, id_integrante, estado, timestamp_subida")
                 .eq("id_distribuidor", dist_id)
                 .range(offset_e, offset_e + batch - 1)
                 .execute()
@@ -619,6 +677,16 @@ def galeria_list_vendedores(dist_id: int, payload=Depends(verify_auth)):
             if len(chunk) < batch:
                 break
             offset_e += batch
+
+        # Filtro por sucursal (opcional)
+        if sucursal:
+            suc_norm = _normalize(sucursal)
+            vendedores = [
+                v for v in vendedores
+                if _normalize(suc_map.get(v["id_sucursal"], "")) == suc_norm
+            ]
+            if not vendedores:
+                return []
 
         # Agregar por vendedor
         stats: dict[int, dict] = {}
@@ -637,29 +705,40 @@ def galeria_list_vendedores(dist_id: int, payload=Depends(verify_auth)):
             }
 
         for ex in exhibiciones:
+            ts = (ex.get("timestamp_subida") or "").strip()
+            fecha = ts[:10] if ts else ""
+            if desde and fecha and fecha < desde:
+                continue
+            if hasta and fecha and fecha > hasta:
+                continue
             ig_id = ex.get("id_integrante")
             vid = integ_vend_map.get(ig_id)  # type: ignore
             if vid is None or vid not in stats:
                 continue
             estado = (ex.get("estado") or "").lower()
             stats[vid]["total_exhibiciones"] += 1
-            if estado == "aprobada":
+            if "aprobad" in estado:
                 stats[vid]["aprobadas"] += 1
-            elif estado == "rechazada":
+            elif "rechaz" in estado:
                 stats[vid]["rechazadas"] += 1
-            elif estado == "destacada":
+            elif "destacad" in estado:
                 stats[vid]["destacadas"] += 1
             else:
                 stats[vid]["pendientes"] += 1
 
-        return list(stats.values())
+        return [row for row in stats.values() if row["total_exhibiciones"] > 0 or not (desde or hasta)]
     except Exception as e:
         logger.error(f"[galeria] list_vendedores dist={dist_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/api/galeria/vendedor/{id_vendedor}/clientes", tags=["Galería"])
-def galeria_list_clientes_por_vendedor(id_vendedor: int, payload=Depends(verify_auth)):
+def galeria_list_clientes_por_vendedor(
+    id_vendedor: int,
+    desde: Optional[str] = Query(None),
+    hasta: Optional[str] = Query(None),
+    payload=Depends(verify_auth),
+):
     """Última exhibición por cliente para un vendedor."""
     dist_id = _get_vendedor_dist(id_vendedor)
     if dist_id is None:
@@ -692,14 +771,25 @@ def galeria_list_clientes_por_vendedor(id_vendedor: int, payload=Depends(verify_
         if ruta_ids:
             for i in range(0, len(ruta_ids), 50):
                 chunk_ids = ruta_ids[i:i+50]
-                cpv_r = (
-                    sb.table("clientes_pdv_v2")
-                    .select("id_cliente, id_cliente_erp, nombre_fantasia, fecha_ultima_compra")
-                    .eq("id_distribuidor", dist_id)
-                    .in_("id_ruta", chunk_ids)
-                    .execute()
-                )
-                clientes_pdv.extend(cpv_r.data or [])
+                try:
+                    cpv_r = (
+                        sb.table("clientes_pdv_v2")
+                        .select("id_cliente, id_cliente_erp, nombre_fantasia, fecha_ultima_compra")
+                        .eq("id_distribuidor", dist_id)
+                        .in_("id_ruta", chunk_ids)
+                        .execute()
+                    )
+                    clientes_pdv.extend(cpv_r.data or [])
+                except Exception:
+                    # Fallback para esquemas legacy sin nombre_fantasia o fecha_ultima_compra
+                    cpv_r = (
+                        sb.table("clientes_pdv_v2")
+                        .select("id_cliente, id_cliente_erp, nombre_cliente")
+                        .eq("id_distribuidor", dist_id)
+                        .in_("id_ruta", chunk_ids)
+                        .execute()
+                    )
+                    clientes_pdv.extend(cpv_r.data or [])
 
         if not clientes_pdv:
             return []
@@ -721,7 +811,19 @@ def galeria_list_clientes_por_vendedor(id_vendedor: int, payload=Depends(verify_
                 .execute()
             )
             chunk = ex_r.data or []
-            exhibiciones.extend(chunk)
+            if desde or hasta:
+                filtered_chunk = []
+                for ex in chunk:
+                    ts = (ex.get("timestamp_subida") or "").strip()
+                    fecha = ts[:10] if ts else ""
+                    if desde and fecha and fecha < desde:
+                        continue
+                    if hasta and fecha and fecha > hasta:
+                        continue
+                    filtered_chunk.append(ex)
+                exhibiciones.extend(filtered_chunk)
+            else:
+                exhibiciones.extend(chunk)
             if len(chunk) < batch:
                 break
             offset_e += batch
@@ -742,15 +844,11 @@ def galeria_list_clientes_por_vendedor(id_vendedor: int, payload=Depends(verify_
             seen_ids.add(cid)
             erp_key = str(c.get("id_cliente_erp") or "").strip()
             ultima = ultima_por_cliente.get(erp_key)
-            conteo_r = (
-                sb.table("exhibiciones")
-                .select("id_exhibicion", count="exact")
-                .eq("id_distribuidor", dist_id)
-                .in_("id_integrante", integ_ids)
-                .eq("nro_cliente", erp_key)
-                .execute()
-            ) if erp_key else None
-            total = conteo_r.count if conteo_r else 0
+            total = 0
+            if erp_key:
+                for ex in exhibiciones:
+                    if str(ex.get("nro_cliente") or "").strip() == erp_key:
+                        total += 1
 
             result.append(GaleriaClienteCard(
                 id_cliente=cid,

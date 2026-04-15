@@ -675,6 +675,14 @@ export async function autocompletarFuerzaVentas(idVendedor: number): Promise<Aut
   });
 }
 
+export async function adoptarLegacyBindingFuerzaVentas(
+  idVendedor: number,
+): Promise<{ ok: boolean; id_vendedor: number; telegram_group_id: number | null; telegram_user_id: number | null; binding_source: string }> {
+  return apiFetch(`/api/fuerza-ventas/vendedor/${idVendedor}/adoptar-legacy`, {
+    method: "POST",
+  });
+}
+
 // ── Galería de Exhibiciones ───────────────────────────────────────────────────
 
 export interface GaleriaVendedorStats {
@@ -712,12 +720,27 @@ export interface GaleriaTimelineItem {
   tipo_pdv: string | null;
 }
 
-export async function fetchGaleriaVendedores(distId: number): Promise<GaleriaVendedorStats[]> {
-  return apiFetch<GaleriaVendedorStats[]>(`/api/galeria/vendedores/${distId}`);
+export async function fetchGaleriaVendedores(
+  distId: number,
+  params?: { sucursal?: string; desde?: string; hasta?: string },
+): Promise<GaleriaVendedorStats[]> {
+  const qs = new URLSearchParams();
+  if (params?.sucursal) qs.set("sucursal", params.sucursal);
+  if (params?.desde) qs.set("desde", params.desde);
+  if (params?.hasta) qs.set("hasta", params.hasta);
+  const q = qs.toString();
+  return apiFetch<GaleriaVendedorStats[]>(`/api/galeria/vendedores/${distId}${q ? `?${q}` : ""}`);
 }
 
-export async function fetchGaleriaClientesPorVendedor(idVendedor: number): Promise<GaleriaClienteCard[]> {
-  return apiFetch<GaleriaClienteCard[]>(`/api/galeria/vendedor/${idVendedor}/clientes`);
+export async function fetchGaleriaClientesPorVendedor(
+  idVendedor: number,
+  params?: { desde?: string; hasta?: string },
+): Promise<GaleriaClienteCard[]> {
+  const qs = new URLSearchParams();
+  if (params?.desde) qs.set("desde", params.desde);
+  if (params?.hasta) qs.set("hasta", params.hasta);
+  const q = qs.toString();
+  return apiFetch<GaleriaClienteCard[]>(`/api/galeria/vendedor/${idVendedor}/clientes${q ? `?${q}` : ""}`);
 }
 
 export async function fetchGaleriaTimelineCliente(

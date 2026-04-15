@@ -10,6 +10,13 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 import { GaleriaVendedorCard } from "@/components/galeria/GaleriaVendedorCard";
 import { GaleriaClienteCard } from "@/components/galeria/GaleriaClienteCard";
@@ -36,22 +43,42 @@ export default function GaleriaExhibicionesPage() {
   // Búsqueda
   const [searchVendedor, setSearchVendedor] = useState("");
   const [searchCliente, setSearchCliente] = useState("");
+  const [filtroSucursal, setFiltroSucursal] = useState("todas");
+  const [fechaDesde, setFechaDesde] = useState("");
+  const [fechaHasta, setFechaHasta] = useState("");
 
   // Vista 1: vendedores
   const { data: vendedores = [], isLoading: loadingVendedores, error: errorVendedores } = useQuery<GaleriaVendedorStats[]>({
-    queryKey: ["galeria-vendedores", distId],
-    queryFn: () => fetchGaleriaVendedores(distId),
+    queryKey: ["galeria-vendedores", distId, filtroSucursal, fechaDesde, fechaHasta],
+    queryFn: () =>
+      fetchGaleriaVendedores(distId, {
+        sucursal: filtroSucursal === "todas" ? undefined : filtroSucursal,
+        desde: fechaDesde || undefined,
+        hasta: fechaHasta || undefined,
+      }),
     enabled: distId > 0 && selectedVendedor === null,
     staleTime: 60_000,
   });
 
   // Vista 2: clientes del vendedor seleccionado
   const { data: clientes = [], isLoading: loadingClientes, error: errorClientes } = useQuery<GaleriaClienteCardType[]>({
-    queryKey: ["galeria-clientes", selectedVendedor?.id_vendedor],
-    queryFn: () => fetchGaleriaClientesPorVendedor(selectedVendedor!.id_vendedor),
+    queryKey: ["galeria-clientes", selectedVendedor?.id_vendedor, fechaDesde, fechaHasta],
+    queryFn: () =>
+      fetchGaleriaClientesPorVendedor(selectedVendedor!.id_vendedor, {
+        desde: fechaDesde || undefined,
+        hasta: fechaHasta || undefined,
+      }),
     enabled: selectedVendedor != null,
     staleTime: 60_000,
   });
+
+  const sucursales = useMemo(() => {
+    const set = new Set<string>();
+    vendedores.forEach((v) => {
+      if (v.sucursal_nombre) set.add(v.sucursal_nombre);
+    });
+    return Array.from(set).sort();
+  }, [vendedores]);
 
   // Filtros vendedores
   const filteredVendedores = useMemo(() => {
@@ -155,15 +182,40 @@ export default function GaleriaExhibicionesPage() {
         <>
           {/* Buscador */}
           <div
-            className="rounded-2xl border p-3 mb-5 flex items-center gap-2"
+            className="rounded-2xl border p-3 mb-5 flex flex-wrap items-center gap-2"
             style={{ background: "var(--shelfy-panel)", borderColor: "var(--shelfy-border)" }}
           >
-            <Search size={14} style={{ color: "var(--shelfy-muted)" }} />
+            <Search size={14} style={{ color: "var(--shelfy-muted)" }} className="shrink-0" />
             <Input
               value={searchVendedor}
               onChange={(e) => setSearchVendedor(e.target.value)}
               placeholder="Buscar vendedor..."
-              className="border-0 shadow-none focus-visible:ring-0 h-8 text-sm p-0 bg-transparent"
+              className="border-0 shadow-none focus-visible:ring-0 h-8 text-sm p-0 bg-transparent min-w-[180px] flex-1"
+            />
+            <Select value={filtroSucursal} onValueChange={setFiltroSucursal}>
+              <SelectTrigger className="h-8 w-[180px] text-xs">
+                <SelectValue placeholder="Sucursal" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todas">Todas las sucursales</SelectItem>
+                {sucursales.map((s) => (
+                  <SelectItem key={s} value={s}>{s}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Input
+              type="date"
+              value={fechaDesde}
+              onChange={(e) => setFechaDesde(e.target.value)}
+              className="h-8 w-[145px] text-xs"
+              placeholder="Desde"
+            />
+            <Input
+              type="date"
+              value={fechaHasta}
+              onChange={(e) => setFechaHasta(e.target.value)}
+              className="h-8 w-[145px] text-xs"
+              placeholder="Hasta"
             />
           </div>
 
@@ -196,15 +248,29 @@ export default function GaleriaExhibicionesPage() {
         <>
           {/* Buscador clientes */}
           <div
-            className="rounded-2xl border p-3 mb-5 flex items-center gap-2"
+            className="rounded-2xl border p-3 mb-5 flex flex-wrap items-center gap-2"
             style={{ background: "var(--shelfy-panel)", borderColor: "var(--shelfy-border)" }}
           >
-            <Search size={14} style={{ color: "var(--shelfy-muted)" }} />
+            <Search size={14} style={{ color: "var(--shelfy-muted)" }} className="shrink-0" />
             <Input
               value={searchCliente}
               onChange={(e) => setSearchCliente(e.target.value)}
               placeholder="Buscar cliente por nombre o código..."
-              className="border-0 shadow-none focus-visible:ring-0 h-8 text-sm p-0 bg-transparent"
+              className="border-0 shadow-none focus-visible:ring-0 h-8 text-sm p-0 bg-transparent min-w-[180px] flex-1"
+            />
+            <Input
+              type="date"
+              value={fechaDesde}
+              onChange={(e) => setFechaDesde(e.target.value)}
+              className="h-8 w-[145px] text-xs"
+              placeholder="Desde"
+            />
+            <Input
+              type="date"
+              value={fechaHasta}
+              onChange={(e) => setFechaHasta(e.target.value)}
+              className="h-8 w-[145px] text-xs"
+              placeholder="Hasta"
             />
             {filteredClientes.length !== clientes.length && (
               <Badge variant="secondary" className="text-[10px] shrink-0">

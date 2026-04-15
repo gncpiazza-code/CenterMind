@@ -32,6 +32,7 @@ import {
   fetchTelegramGruposFuerzaVentas,
   fetchTelegramUsuariosGrupoFuerzaVentas,
   autocompletarFuerzaVentas,
+  adoptarLegacyBindingFuerzaVentas,
   updateFuerzaVentasVendedor,
   uploadFotoFuerzaVentas,
   type FuerzaVentasVendedorDetalle,
@@ -75,6 +76,7 @@ export function VendedorEditSheet({ idVendedor, distId, open, onClose }: Vendedo
   const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
   const [uploadingFoto, setUploadingFoto] = useState(false);
+  const [adoptingLegacy, setAdoptingLegacy] = useState(false);
 
   // Usuarios del grupo seleccionado
   const { data: usuarios = [] } = useQuery({
@@ -162,6 +164,23 @@ export function VendedorEditSheet({ idVendedor, distId, open, onClose }: Vendedo
       setUploadingFoto(false);
     }
   }, [idVendedor]);
+
+  const handleAdoptLegacy = useCallback(async () => {
+    if (!idVendedor) return;
+    setAdoptingLegacy(true);
+    try {
+      const res = await adoptarLegacyBindingFuerzaVentas(idVendedor);
+      setSelectedGroupId(res.telegram_group_id ?? null);
+      setSelectedUserId(res.telegram_user_id ?? null);
+      toast.success("Se copió la configuración de /admin al nuevo binding");
+      qc.invalidateQueries({ queryKey: ["fv-vendedores", distId] });
+      qc.invalidateQueries({ queryKey: ["fv-vendedor", idVendedor] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudo copiar el mapping legacy");
+    } finally {
+      setAdoptingLegacy(false);
+    }
+  }, [idVendedor, qc, distId]);
 
   return (
     <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
@@ -303,16 +322,30 @@ export function VendedorEditSheet({ idVendedor, distId, open, onClose }: Vendedo
                   Binding Telegram
                 </h3>
                 {canEdit && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleAutocompletar}
-                    disabled={autoLoading}
-                    className="h-7 text-xs font-bold gap-1.5 border-violet-300 text-violet-700 hover:bg-violet-50"
-                  >
-                    {autoLoading ? <Loader2 size={12} className="animate-spin" /> : <Wand2 size={12} />}
-                    Autocompletar con IA
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    {vendedor?.binding_source === "legacy_admin" && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleAdoptLegacy}
+                        disabled={adoptingLegacy}
+                        className="h-7 text-xs font-bold gap-1.5 border-amber-300 text-amber-700 hover:bg-amber-50"
+                      >
+                        {adoptingLegacy ? <Loader2 size={12} className="animate-spin" /> : <Wifi size={12} />}
+                        Mantener Admin Set
+                      </Button>
+                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleAutocompletar}
+                      disabled={autoLoading}
+                      className="h-7 text-xs font-bold gap-1.5 border-violet-300 text-violet-700 hover:bg-violet-50"
+                    >
+                      {autoLoading ? <Loader2 size={12} className="animate-spin" /> : <Wand2 size={12} />}
+                      Autocompletar con IA
+                    </Button>
+                  </div>
                 )}
               </div>
 

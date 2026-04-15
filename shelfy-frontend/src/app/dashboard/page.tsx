@@ -199,6 +199,7 @@ export default function DashboardPage() {
         if (!alive) return;
         reconnectTimer = setTimeout(connect, 5000);
       };
+      socket.onerror = () => {};
     };
 
     connect();

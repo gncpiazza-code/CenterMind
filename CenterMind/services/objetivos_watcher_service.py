@@ -134,6 +134,17 @@ class ObjetivosWatcherService:
                                             )
                                         except Exception as e_notif:
                                             logger.warning(f"[Watcher] Notif expirado omitida obj={obj.get('id')}: {e_notif}")
+                                    else:
+                                        try:
+                                            from services.objetivos_notification_service import objetivos_notification
+                                            objetivos_notification.notify_objetivo_fallido(
+                                                dist_id=dist_id,
+                                                id_vendedor=obj.get("id_vendedor"),
+                                                tipo=obj.get("tipo"),
+                                                nombre_pdv=obj.get("nombre_pdv"),
+                                            )
+                                        except Exception as e_notif:
+                                            logger.warning(f"[Watcher] Notif fallido omitida obj={obj.get('id')}: {e_notif}")
                             except (ValueError, TypeError) as e_fecha:
                                 logger.warning(f"[Watcher] fecha_objetivo inválida obj={obj.get('id')}: {e_fecha}")
 
@@ -180,6 +191,22 @@ class ObjetivosWatcherService:
                                         except Exception as e_notif:
                                             logger.warning(
                                                 f"[Watcher] Notif cierre exhibición omitida "
+                                                f"obj={obj.get('id')}: {e_notif}"
+                                            )
+                                    else:
+                                        try:
+                                            from services.objetivos_notification_service import (
+                                                objetivos_notification,
+                                            )
+                                            objetivos_notification.notify_objetivo_fallido(
+                                                dist_id=dist_id,
+                                                id_vendedor=obj.get("id_vendedor"),
+                                                tipo=obj.get("tipo"),
+                                                nombre_pdv=obj.get("nombre_pdv"),
+                                            )
+                                        except Exception as e_notif:
+                                            logger.warning(
+                                                f"[Watcher] Notif cierre exhibición falla omitida "
                                                 f"obj={obj.get('id')}: {e_notif}"
                                             )
                         except Exception as e_te:

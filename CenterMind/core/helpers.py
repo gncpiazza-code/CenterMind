@@ -245,3 +245,33 @@ def build_qa_exhibicion_integrante_ids(dist_id: int) -> frozenset[int]:
     except Exception as e:
         logger.warning(f"build_qa_exhibicion_integrante_ids dist={dist_id}: {e}")
     return frozenset(ids)
+
+
+def load_active_vendedor_ids(dist_id: int) -> set[int]:
+    """
+    Devuelve el set de id_vendedor_v2 ACTIVOS para un distribuidor.
+    Un vendedor sin fila en vendedores_perfil se considera activo (default True).
+    Un vendedor con vendedores_perfil.activo = False se excluye.
+    """
+    try:
+        vend_res = (
+            sb.table("vendedores_v2")
+            .select("id_vendedor")
+            .eq("id_distribuidor", dist_id)
+            .execute()
+        )
+        all_ids = {v["id_vendedor"] for v in (vend_res.data or [])}
+        if not all_ids:
+            return set()
+        perfil_res = (
+            sb.table("vendedores_perfil")
+            .select("id_vendedor_v2")
+            .eq("id_distribuidor", dist_id)
+            .eq("activo", False)
+            .execute()
+        )
+        inactive_ids = {p["id_vendedor_v2"] for p in (perfil_res.data or [])}
+        return all_ids - inactive_ids
+    except Exception as e:
+        logger.warning(f"load_active_vendedor_ids dist={dist_id}: {e}")
+        return set()

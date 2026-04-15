@@ -803,6 +803,12 @@ class ObjetivosNotificationService:
                     f"Tu exhibición en <b>{pdv_nombre}</b>{cod_str} fue enviada al supervisor.\n"
                     f"En cuanto sea aprobada, tu objetivo avanzará. ⏳"
                 )
+            elif tipo_evento == "exhibicion":
+                text = (
+                    f"✅ <b>¡Foto aprobada!</b>\n"
+                    f"El supervisor aprobó tu exhibición en <b>{pdv_nombre}</b>{cod_str}.\n"
+                    f"¡Objetivo avanzando! 📈"
+                )
             else:
                 text = (
                     f"{emoji} <b>¡Objetivo en Marcha!</b>\n"
@@ -877,6 +883,57 @@ class ObjetivosNotificationService:
                 )
         except Exception as e:
             logger.error(f"[Notif] Error en notify_objetivo_cumplido: {e}")
+
+    def notify_objetivo_fallido(
+        self,
+        dist_id: int,
+        id_vendedor: int,
+        tipo: str,
+        nombre_pdv: str | None = None,
+    ) -> None:
+        """Notifica al vendedor que su objetivo fue cerrado como FALLIDO (no cumplido)."""
+        try:
+            token = self._get_bot_token(dist_id)
+            if not token:
+                return
+
+            chat_id = self._get_vendor_group_chat_id(dist_id, id_vendedor)
+            if not chat_id:
+                return
+
+            emoji = TIPO_EMOJI.get(tipo, "🎯")
+            tipo_label = {
+                "alteo":      "Alteo",
+                "activacion": "Activación",
+                "exhibicion": "Exhibición",
+                "cobranza":   "Cobranza",
+                "ruteo":      "Ruteo",
+            }.get(tipo, tipo.capitalize() if tipo else "Objetivo")
+
+            pdv_str = (
+                f" en <b>{html.escape(str(nombre_pdv), quote=False)}</b>"
+                if nombre_pdv
+                else ""
+            )
+            text = (
+                f"⏱️ <b>Objetivo cerrado sin completar</b> {emoji}\n\n"
+                f"Tu objetivo de <b>{tipo_label}</b>{pdv_str} venció sin alcanzar la meta.\n"
+                f"¡En la próxima tenés la revancha! 💪"
+            )
+
+            resp = requests.post(
+                TELEGRAM_API.format(token=token),
+                json={"chat_id": chat_id, "text": text, "parse_mode": "HTML"},
+                timeout=8,
+            )
+            if resp.ok:
+                logger.info(f"[Notif] Fallido enviado a chat={chat_id} dist={dist_id}")
+            else:
+                logger.warning(
+                    f"[Notif] Error enviando fallido: {resp.status_code} {resp.text[:80]}"
+                )
+        except Exception as e:
+            logger.error(f"[Notif] Error en notify_objetivo_fallido: {e}")
 
     # ── WebSocket (supervisor) ────────────────────────────────────────────────
 

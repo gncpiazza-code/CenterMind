@@ -325,70 +325,118 @@ function ObjetivoRow({ obj, onDelete }: {
 
 // ── PDF Certificate ───────────────────────────────────────────────────────────
 
-function downloadCertificado(obj: Objetivo) {
+function downloadCertificado(obj: Objetivo, sucursalNombre?: string) {
   import("jspdf").then(({ jsPDF }) => {
     const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
     const accent = "#7C3AED";
     const W = 210;
+    const L = 20;
+    const R = W - 20;
+    const textWidth = R - L;
 
+    // Header
     doc.setFillColor(accent);
     doc.rect(0, 0, W, 32, "F");
     doc.setTextColor(255, 255, 255);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(18);
-    doc.text("SHELFY", 20, 14);
+    doc.text("SHELFY", L, 14);
     doc.setFontSize(11);
     doc.setFont("helvetica", "normal");
-    doc.text("CERTIFICADO DE OBJETIVO", 20, 24);
+    doc.text("CERTIFICADO DE OBJETIVO", L, 24);
 
     doc.setTextColor(30, 41, 59);
     doc.setFontSize(10);
-    let y = 50;
+    let y = 46;
+
     const line = (label: string, value: string) => {
       doc.setFont("helvetica", "bold");
-      doc.text(`${label}:`, 20, y);
+      doc.text(`${label}:`, L, y);
       doc.setFont("helvetica", "normal");
-      doc.text(value, 65, y);
-      y += 10;
+      const lines = doc.splitTextToSize(value, textWidth - 48);
+      doc.text(lines, 68, y);
+      y += Math.max(8, lines.length * 6);
     };
 
     const tipoLabel = TIPO_CONFIG[obj.tipo]?.label ?? obj.tipo;
-    const resultado = obj.resultado_final === "exito" ? "EXITO" : obj.resultado_final === "falla" ? "FALLÓ" : "—";
-    const pct = obj.valor_objetivo && obj.valor_objetivo > 0
-      ? `${Math.min(100, Math.round((obj.valor_actual / obj.valor_objetivo) * 100))}%`
-      : "—";
+    const resultado =
+      obj.resultado_final === "exito"
+        ? "Éxito ✓"
+        : obj.resultado_final === "falla"
+        ? "No cumplido"
+        : "—";
+    const pct =
+      obj.valor_objetivo && obj.valor_objetivo > 0
+        ? `${Math.min(100, Math.round((obj.valor_actual / obj.valor_objetivo) * 100))}%`
+        : "—";
     const progreso = obj.valor_objetivo
       ? `${obj.valor_actual} / ${Math.round(obj.valor_objetivo)} (${pct})`
-      : obj.cumplido ? "Completado" : "Pendiente";
+      : obj.cumplido
+      ? "Completado"
+      : "Pendiente";
 
     line("Vendedor", obj.nombre_vendedor ?? `ID ${obj.id_vendedor}`);
+    if (sucursalNombre) line("Sucursal", sucursalNombre);
     line("Tipo", tipoLabel);
-    line("Descripción", obj.descripcion ?? "—");
+    if (obj.descripcion) line("Descripción", obj.descripcion);
     line("Fecha objetivo", obj.fecha_objetivo ?? "—");
     line("Resultado", resultado);
     line("Progreso", progreso);
 
+    // Items / PDVs section
+    if (obj.items && obj.items.length > 0) {
+      y += 4;
+      doc.setDrawColor(200, 200, 220);
+      doc.line(L, y, R, y);
+      y += 8;
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      doc.setTextColor(100, 116, 139);
+      doc.text(`PDVs OBJETIVO (${obj.items.length})`, L, y);
+      y += 7;
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(30, 41, 59);
+      doc.setFontSize(9);
+      for (const item of obj.items.slice(0, 15)) {
+        const nombre = item.nombre_pdv ?? `PDV #${item.id_cliente_pdv}`;
+        const estado = item.estado_item ?? "pendiente";
+        const estadoIcon = estado === "cumplido" ? "✓" : estado === "falla" ? "✗" : "·";
+        const lineas = doc.splitTextToSize(`${estadoIcon} ${nombre}`, textWidth - 8);
+        if (y + lineas.length * 5 > 270) {
+          const restantes = obj.items.length - obj.items.indexOf(item);
+          doc.text(`  ...y ${restantes} PDVs más`, L + 4, y);
+          y += 5;
+          break;
+        }
+        doc.text(lineas, L + 4, y);
+        y += lineas.length * 5 + 1;
+      }
+      doc.setFontSize(10);
+    }
+
+    // Historial
     y += 4;
     doc.setDrawColor(200, 200, 220);
-    doc.line(20, y, W - 20, y);
-    y += 10;
-
+    doc.line(L, y, R, y);
+    y += 8;
     doc.setFont("helvetica", "bold");
     doc.setFontSize(10);
     doc.setTextColor(100, 116, 139);
-    doc.text("HISTORIAL DE INTENTOS", 20, y);
-    y += 8;
+    doc.text("HISTORIAL DE INTENTOS", L, y);
+    y += 7;
     doc.setFont("helvetica", "normal");
     doc.setTextColor(30, 41, 59);
     if (obj.id_objetivo_padre) {
-      doc.text("· Intento anterior registrado", 24, y);
-      y += 7;
-      doc.text(`· Este intento (actual) — ID: ${obj.id}`, 24, y);
+      doc.text("· Intento anterior registrado", L + 4, y);
+      y += 6;
+      doc.text(`· Este intento (actual) — ID: ${obj.id}`, L + 4, y);
     } else {
-      doc.text("· Primer intento", 24, y);
+      doc.text("· Primer intento", L + 4, y);
     }
 
-    doc.save(`certificado-${(obj.nombre_vendedor ?? "vendedor").replace(/\s+/g, "_")}-${obj.id}.pdf`);
+    doc.save(
+      `certificado-${(obj.nombre_vendedor ?? "vendedor").replace(/\s+/g, "_")}-${obj.id}.pdf`
+    );
   });
 }
 
@@ -2190,6 +2238,7 @@ export default function ObjetivosPage() {
         if (!alive) return;
         reconnectTimer = setTimeout(connect, 3000);
       };
+      socket.onerror = () => {};
     };
 
     connect();
@@ -2308,6 +2357,13 @@ export default function ObjetivosPage() {
     { key: "supervisor", label: "Supervisor",  Icon: Users },
     { key: "print",      label: "Imprimir",    Icon: Printer },
   ];
+
+  // ── Certificado wrapper ───────────────────────────────────────────────────
+
+  const handleDownloadCertificado = useCallback((obj: Objetivo) => {
+    const vend = vendedores.find(v => v.id_vendedor === obj.id_vendedor);
+    downloadCertificado(obj, vend?.sucursal_nombre ?? undefined);
+  }, [vendedores]);
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -2517,7 +2573,7 @@ export default function ObjetivosPage() {
                   kanbanGroups={kanbanGroups}
                   onDelete={(id) => deleteMut.mutate(id)}
                   onReagendar={(o) => { setReagendarObj(o); setFechaReagendar(""); setObservacionReagendar(""); }}
-                  onDownloadCertificado={downloadCertificado}
+                  onDownloadCertificado={handleDownloadCertificado}
                   filterKanbanPhase={filterKanbanPhase}
                   setFilterKanbanPhase={setFilterKanbanPhase}
                 />

@@ -753,6 +753,25 @@ def galeria_list_vendedores(
             if _safe_int(p.get("id_vendedor_v2")) is not None
         }
 
+        # Excluir vendedores marcados inactivos en galería
+        perfil_activo_r = (
+            sb.table("vendedores_perfil")
+            .select("id_vendedor_v2")
+            .eq("id_distribuidor", dist_id)
+            .eq("activo", False)
+            .execute()
+        )
+        galeria_inactive_ids = {
+            _safe_int(p.get("id_vendedor_v2"))
+            for p in (perfil_activo_r.data or [])
+            if _safe_int(p.get("id_vendedor_v2")) is not None
+        }
+        if galeria_inactive_ids:
+            vendedores = [
+                v for v in vendedores
+                if _safe_int(v.get("id_vendedor")) not in galeria_inactive_ids
+            ]
+
         # Mapping integrante → vendedor para cruzar exhibiciones
         integ_r = (
             sb.table("integrantes_grupo")

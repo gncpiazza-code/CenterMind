@@ -19,6 +19,7 @@ from core.helpers import (
     build_qa_exhibicion_integrante_ids,
     is_exhibicion_qa_display_for_dist,
     should_apply_exhibicion_qa_filter,
+    load_active_vendedor_ids,
 )
 from core.lifespan import broadcast_sync
 from core.security import verify_auth, check_dist_permission
@@ -583,9 +584,14 @@ def supervision_vendedores(dist_id: int, user_payload=Depends(verify_auth)):
         res = sb.rpc("fn_supervision_vendedores", {"p_dist_id": dist_id}).execute()
         rows = res.data or []
         erp_name_map = _get_erp_name_map(dist_id)
+        active_ids = load_active_vendedor_ids(dist_id)
         filtered = []
         hide_qa = should_apply_exhibicion_qa_filter(dist_id, user_payload)
         for r in rows:
+            # Exclude vendedores marked inactive in vendedores_perfil
+            vid = r.get("id_vendedor")
+            if active_ids and vid is not None and int(vid) not in active_ids:
+                continue
             tg_name = (r.get("nombre_vendedor") or "").strip()
             erp_name = erp_name_map.get(tg_name.lower(), tg_name)
             if hide_qa and (

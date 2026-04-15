@@ -429,7 +429,7 @@ export function VendedorEditSheet({ idVendedor, distId, open, onClose }: Vendedo
                       <SelectTrigger className="mt-1 h-9 text-sm">
                         <SelectValue placeholder="Seleccionar grupo..." />
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent className="max-h-72">
                         {grupos.map((g) => (
                           <SelectItem key={g.id} value={g.id.toString()} className="text-sm">
                             {g.nombre_grupo}
@@ -449,7 +449,7 @@ export function VendedorEditSheet({ idVendedor, distId, open, onClose }: Vendedo
                       <SelectTrigger className="mt-1 h-9 text-sm">
                         <SelectValue placeholder={selectedGroupId ? "Seleccionar usuario..." : "Primero elige grupo"} />
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent className="max-h-72">
                         {usuarios.map((u) => (
                           <SelectItem key={u.id} value={(u.telegram_user_id ?? u.id).toString()} className="text-sm">
                             {u.nombre_integrante}

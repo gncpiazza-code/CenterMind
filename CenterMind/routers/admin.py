@@ -422,14 +422,22 @@ def get_system_health(user_payload=Depends(verify_auth)):
 
 @router.get("/api/admin/live-map-events", tags=["Admin"])
 def get_live_map_events(minutos: int | None = None, fecha: str | None = None, user_payload=Depends(verify_auth)):
-    if not user_payload.get("is_superadmin"):
-        raise HTTPException(status_code=403, detail="Acceso denegado. El mapa en vivo es exclusivo para SuperAdmins.")
+    is_superadmin = bool(user_payload.get("is_superadmin"))
+    permisos = user_payload.get("permisos", {}) or {}
+    can_access_modo_oficina = is_superadmin or bool(permisos.get("menu_modo_oficina"))
+    if not can_access_modo_oficina:
+        raise HTTPException(status_code=403, detail="Acceso denegado a Modo Oficina")
     try:
         from datetime import timedelta
         query = sb.table("exhibiciones").select(
             "id_exhibicion, id_distribuidor, timestamp_subida, url_foto_drive, tipo_pdv, estado, "
             "latitud_gps, longitud_gps, id_integrante, id_cliente, cliente_sombra_codigo, id_cliente_pdv"
         )
+        if not is_superadmin:
+            user_dist_id = user_payload.get("id_distribuidor")
+            if user_dist_id is None:
+                raise HTTPException(status_code=403, detail="Modo Oficina requiere distribuidora activa")
+            query = query.eq("id_distribuidor", user_dist_id)
         if fecha:
             query = query.gte("timestamp_subida", f"{fecha}T00:00:00-03:00").lte("timestamp_subida", f"{fecha}T23:59:59-03:00")
         else:

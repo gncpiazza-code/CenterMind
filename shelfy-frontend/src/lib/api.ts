@@ -657,6 +657,8 @@ export interface TelegramIntegrante {
   telegram_user_id: number | null;
   rol_telegram: string | null;
   id_grupo: number | null;
+  total_exhibiciones?: number;
+  ultima_exhibicion?: string | null;
 }
 
 export async function fetchFuerzaVentasVendedores(distId: number): Promise<FuerzaVentasVendedor[]> {

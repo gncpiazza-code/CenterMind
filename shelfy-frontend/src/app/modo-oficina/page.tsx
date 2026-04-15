@@ -742,7 +742,7 @@ function KpiDisplay({ slide, index, evolucion }: { slide: any; index: number; ev
 
         {evolucion.length > 0 && (
           <div style={{ marginTop: 40, height: 100, width: "100%", opacity: 0.6 }}>
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={80}>
               <AreaChart data={evolucion}>
                 <defs>
                   <linearGradient id={"grad-" + index} x1="0" y1="0" x2="0" y2="1">

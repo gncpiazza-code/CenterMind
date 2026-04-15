@@ -500,6 +500,44 @@ def fuerza_ventas_list_usuarios_grupo(
             q = q.eq("telegram_group_id", group_id)
         q = q.order("nombre_integrante")
         r = q.execute()
+        integrantes = r.data or []
+        id_integrantes = [
+            iid for iid in (_safe_int(row.get("id_integrante")) for row in integrantes)
+            if iid is not None
+        ]
+
+        exhib_stats: dict[int, dict] = {}
+        if id_integrantes:
+            exhibiciones: list[dict] = []
+            batch, offset_e = 1000, 0
+            while True:
+                ex_r = (
+                    sb.table("exhibiciones")
+                    .select("id_integrante, timestamp_subida")
+                    .eq("id_distribuidor", dist_id)
+                    .in_("id_integrante", id_integrantes)
+                    .order("timestamp_subida", desc=True)
+                    .range(offset_e, offset_e + batch - 1)
+                    .execute()
+                )
+                chunk = ex_r.data or []
+                exhibiciones.extend(chunk)
+                if len(chunk) < batch:
+                    break
+                offset_e += batch
+
+            for ex in exhibiciones:
+                iid = _safe_int(ex.get("id_integrante"))
+                if iid is None:
+                    continue
+                timestamp = _safe_text(ex.get("timestamp_subida")) or None
+                if iid not in exhib_stats:
+                    exhib_stats[iid] = {
+                        "total_exhibiciones": 0,
+                        "ultima_exhibicion": timestamp,
+                    }
+                exhib_stats[iid]["total_exhibiciones"] += 1
+
         return [
             {
                 "id": row.get("id_integrante"),
@@ -507,8 +545,10 @@ def fuerza_ventas_list_usuarios_grupo(
                 "telegram_user_id": row.get("telegram_user_id"),
                 "rol_telegram": row.get("rol_telegram"),
                 "id_grupo": row.get("telegram_group_id"),
+                "total_exhibiciones": exhib_stats.get(_safe_int(row.get("id_integrante")) or -1, {}).get("total_exhibiciones", 0),
+                "ultima_exhibicion": exhib_stats.get(_safe_int(row.get("id_integrante")) or -1, {}).get("ultima_exhibicion"),
             }
-            for row in (r.data or [])
+            for row in integrantes
         ]
     except Exception as e:
         logger.error(f"[fuerza_ventas] list_usuarios_grupo dist={dist_id} group={group_id}: {e}")

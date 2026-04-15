@@ -223,6 +223,16 @@ export function VendedorEditSheet({ idVendedor, distId, open, onClose }: Vendedo
     }
   }, [idVendedor, qc, distId]);
 
+  const formatExhibicionMeta = useCallback((ultima?: string | null, total?: number) => {
+    const count = total ?? 0;
+    if (!count) return "Sin exhibiciones registradas";
+    const fecha = ultima ? new Date(ultima) : null;
+    const fechaLabel = fecha && !Number.isNaN(fecha.getTime())
+      ? fecha.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" })
+      : "s/f";
+    return `${count} exhibición${count === 1 ? "" : "es"} · última ${fechaLabel}`;
+  }, []);
+
   return (
     <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
       <SheetContent side="right" className="w-full sm:max-w-[480px] overflow-y-auto p-0">
@@ -451,8 +461,13 @@ export function VendedorEditSheet({ idVendedor, distId, open, onClose }: Vendedo
                       </SelectTrigger>
                       <SelectContent className="max-h-72">
                         {usuarios.map((u) => (
-                          <SelectItem key={u.id} value={(u.telegram_user_id ?? u.id).toString()} className="text-sm">
-                            {u.nombre_integrante}
+                          <SelectItem key={u.id} value={(u.telegram_user_id ?? u.id).toString()} className="text-sm py-2.5">
+                            <div className="flex min-w-0 flex-col gap-0.5">
+                              <span className="truncate">{u.nombre_integrante}</span>
+                              <span className="truncate text-[11px] text-muted-foreground">
+                                {formatExhibicionMeta(u.ultima_exhibicion, u.total_exhibiciones)}
+                              </span>
+                            </div>
                           </SelectItem>
                         ))}
                       </SelectContent>

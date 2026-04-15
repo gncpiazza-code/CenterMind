@@ -75,14 +75,22 @@ const SHELFY_PIN_CSS = `
   border-radius: 50%;
   pointer-events: auto;
   cursor: pointer;
-  /* NO transition: transform — having it here promotes the element to a separate
-     GPU compositing layer. During MapLibre pan/zoom (which positions markers via
-     transform on the parent .maplibregl-marker), that separate layer composites
-     independently from the WebGL canvas, causing 1-frame drift ("dancing pins"). */
   transition: box-shadow 0.15s ease;
 }
 .shelfy-pin:hover {
-  box-shadow: 0 0 0 3px rgba(255,255,255,0.75), 0 0 10px rgba(0,0,0,0.35) !important;
+  box-shadow: 0 0 0 3px rgba(255,255,255,0.9), 0 0 12px rgba(0,0,0,0.35) !important;
+}
+.shelfy-pin-aura {
+  animation: shelfy-aura 2s ease-out infinite;
+}
+@keyframes shelfy-aura {
+  0%   { box-shadow: 0 1px 3px rgba(0,0,0,0.3), 0 0 0 1px var(--ac, #22c55e); }
+  70%  { box-shadow: 0 1px 3px rgba(0,0,0,0.3), 0 0 0 9px transparent; }
+  100% { box-shadow: 0 1px 3px rgba(0,0,0,0.3), 0 0 0 9px transparent; }
+}
+@keyframes slideIn {
+  from { transform: translateX(-100%); opacity: 0; }
+  to   { transform: translateX(0); opacity: 1; }
 }
 `;
 
@@ -174,14 +182,17 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode, mode
         const size        = p.activo ? 18 : 14;
 
         const wrapper = document.createElement("div");
-        wrapper.className = "shelfy-pin";
+        wrapper.className = status === "activo_exhibicion"
+          ? "shelfy-pin shelfy-pin-aura"
+          : "shelfy-pin";
         wrapper.style.cssText = `
+          --ac: ${statusColor};
           width:${size}px;
           height:${size}px;
           background:${vendorColor};
-          border:2px solid ${statusColor};
+          border:2.5px solid ${statusColor};
           box-sizing:border-box;
-          opacity:${p.activo ? 1 : 0.8};
+          opacity:${p.activo ? 1 : 0.75};
           display:flex;
           align-items:center;
           justify-content:center;
@@ -214,115 +225,85 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode, mode
 
         const diasCompra = diasDesde(p.fechaUltimaCompra);
         const diasExhib  = diasDesde(p.fechaUltimaExhibicion);
-        const compraColor = p.activo ? "#16a34a" : "#dc2626";
+        const compraColor = p.activo ? "#86efac" : "#fca5a5";
         const compraLabel = diasCompra === null
-          ? `<span style="color:#94a3b8">Sin compras registradas</span>`
-          : `<span style="color:${compraColor}">Últ. compra: ${p.ultimaCompra} · <b>hace ${diasCompra}d</b></span>`;
+          ? `<span style="color:#475569">Sin compras registradas</span>`
+          : `<span style="color:${compraColor}">🛒 Últ. compra: ${p.ultimaCompra} · <b>hace ${diasCompra}d</b></span>`;
 
         let exhibLine = "";
         if (p.fechaUltimaExhibicion) {
           const exhDateStr = p.fechaUltimaExhibicion.split("T")[0];
           exhibLine = `
-            <div style="margin-top:5px;padding-top:5px;border-top:1px solid #f1f5f9">
-              <span style="color:#d97706;font-size:11px">
-                ● Exhibición: ${exhDateStr} · <b>hace ${diasExhib}d</b>
+            <div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.07)">
+              <span style="color:#fbbf24;font-size:11px">
+                📸 Exhibición: ${exhDateStr}${diasExhib !== null ? ` · <b>hace ${diasExhib}d</b>` : ""}
               </span>
             </div>`;
         }
 
         const deudaLine = p.deuda != null && p.deuda > 0
-          ? `<div style="margin-top:5px;padding-top:5px;border-top:1px solid #f1f5f9">
-               <span style="color:#d97706;font-size:11px;font-weight:700">
+          ? `<div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.07)">
+               <span style="color:#fb923c;font-size:11px;font-weight:700">
                  💰 Deuda: $${p.deuda.toLocaleString("es-AR", { maximumFractionDigits: 0 })}
                </span>
-               ${p.antiguedadDias != null ? `<span style="color:#94a3b8;font-size:10px"> · ${p.antiguedadDias}d de antigüedad</span>` : ""}
+               ${p.antiguedadDias != null ? `<span style="color:#64748b;font-size:10px"> · ${p.antiguedadDias}d antigüedad</span>` : ""}
              </div>`
           : "";
 
+        const photoBlock = p.urlExhibicion
+          ? `<div style="margin-top:8px;border-radius:6px;overflow:hidden"><img src="${p.urlExhibicion}" style="width:100%;max-height:90px;object-fit:cover;display:block" loading="lazy" /></div>`
+          : "";
+
         const popupHTML = `
-          <div style="min-width:180px;max-width:240px;font-size:12px;font-family:sans-serif;
-                      background:#fff;color:#1e293b;padding:10px 12px;border-radius:8px;
-                      box-shadow:0 4px 20px #0003;line-height:1.4;position:relative">
+          <div style="min-width:200px;max-width:260px;font-size:12px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+                      background:#1e293b;color:#e2e8f0;padding:12px 14px;border-radius:10px;
+                      box-shadow:0 8px 30px rgba(0,0,0,0.45);line-height:1.5;position:relative;border:1px solid rgba(255,255,255,0.08)">
             <button onclick="this.closest('.maplibregl-popup').querySelector('.maplibregl-popup-close-button').click()"
-              style="position:absolute;top:6px;right:6px;background:none;border:none;cursor:pointer;
-                     color:#94a3b8;font-size:14px;line-height:1;padding:2px 4px;border-radius:4px"
+              style="position:absolute;top:8px;right:8px;background:rgba(255,255,255,0.08);border:none;cursor:pointer;
+                     color:#94a3b8;font-size:13px;line-height:1;padding:3px 5px;border-radius:5px;transition:background 0.1s"
+              onmouseover="this.style.background='rgba(255,255,255,0.16)'" onmouseout="this.style.background='rgba(255,255,255,0.08)'"
               title="Cerrar">✕</button>
-            ${p.idClienteErp ? `<div style="font-size:9px;font-weight:800;color:#94a3b8;text-transform:uppercase;margin-bottom:2px">Nº CLIENTE: ${p.idClienteErp}</div>` : ""}
-            <b style="display:block;font-size:13px;color:#0f172a;margin-bottom:4px;padding-right:20px">${p.nombre}</b>
+            ${p.idClienteErp ? `<div style="font-size:9px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px">Cliente ${p.idClienteErp}</div>` : ""}
+            <b style="display:block;font-size:14px;color:#f8fafc;margin-bottom:6px;padding-right:24px;line-height:1.3">${p.nombre}</b>
 
             <div style="display:flex;align-items:center;gap:6px;margin:6px 0">
-              <span style="width:8px;height:8px;border-radius:50%;background:${vendorColor};flex-shrink:0"></span>
-              <span style="font-size:11px;font-weight:600;color:#475569">${p.vendedor}</span>
+              <span style="width:9px;height:9px;border-radius:50%;background:${vendorColor};flex-shrink:0;border:1px solid rgba(255,255,255,0.2)"></span>
+              <span style="font-size:11px;font-weight:600;color:#94a3b8">${p.vendedor}</span>
             </div>
 
-            <div style="font-size:10px;padding:3px 8px;border-radius:5px;display:inline-block;
-                        background:${statusColor}15;color:${statusColor};
-                        border:1px solid ${statusColor}40;font-weight:700;margin-bottom:6px">
+            <div style="font-size:10px;padding:3px 8px;border-radius:20px;display:inline-flex;align-items:center;gap:4px;
+                        background:${statusColor}22;color:${statusColor};
+                        border:1px solid ${statusColor}44;font-weight:700;margin-bottom:8px">
+              <span style="width:6px;height:6px;border-radius:50%;background:${statusColor};flex-shrink:0"></span>
               ${STATUS_LABELS[status]}
             </div>
 
-            <div style="font-size:11px">${compraLabel}</div>
+            <div style="font-size:11px;color:${p.activo ? '#86efac' : '#fca5a5'}">${compraLabel}</div>
             ${exhibLine}
             ${deudaLine}
+            ${photoBlock}
           </div>`;
 
         const popup = new maplibregl.Popup({ offset: 12, closeButton: true, closeOnClick: true })
           .setHTML(popupHTML);
 
-        // Per-marker timers
-        let peekTimer: ReturnType<typeof setTimeout>;
+        // Auto-close timer for click-opened popups
         let autoCloseTimer: ReturnType<typeof setTimeout>;
 
         // Click: selection toggle + open popup with auto-close after 2000ms
         wrapper.addEventListener('click', (e) => {
           e.stopPropagation();
           if (onTogglePDV) onTogglePDV(p.id);
-          popup.setLngLat([p.lng, p.lat]).addTo(map);
+          popup.setHTML(popupHTML).setLngLat([p.lng, p.lat]).addTo(map);
           clearTimeout(autoCloseTimer);
           autoCloseTimer = setTimeout(() => { popup.remove(); }, 2000);
         });
 
-        // Hover event listeners with 3s peek-upgrade to show photo
-        const photoBlock = p.urlExhibicion
-          ? `<div style="margin-top:8px;border-radius:6px;overflow:hidden"><img src="${p.urlExhibicion}" style="width:100%;max-height:90px;object-fit:cover;display:block" loading="lazy" /></div>`
-          : "";
-
+        // Hover: show popup immediately (photo already included in popupHTML)
         wrapper.addEventListener('mouseenter', () => {
-          popup.setLngLat([p.lng, p.lat]).addTo(map);
-          clearTimeout(peekTimer);
-          peekTimer = setTimeout(() => {
-            const upgradedHTML = `
-              <div style="min-width:180px;max-width:240px;font-size:12px;font-family:sans-serif;
-                          background:#fff;color:#1e293b;padding:10px 12px;border-radius:8px;
-                          box-shadow:0 4px 20px #0003;line-height:1.4;position:relative">
-                <button onclick="this.closest('.maplibregl-popup').querySelector('.maplibregl-popup-close-button').click()"
-                  style="position:absolute;top:6px;right:6px;background:none;border:none;cursor:pointer;
-                         color:#94a3b8;font-size:14px;line-height:1;padding:2px 4px;border-radius:4px"
-                  title="Cerrar">✕</button>
-                ${p.idClienteErp ? `<div style="font-size:9px;font-weight:800;color:#94a3b8;text-transform:uppercase;margin-bottom:2px">Nº CLIENTE: ${p.idClienteErp}</div>` : ""}
-                <b style="display:block;font-size:13px;color:#0f172a;margin-bottom:4px;padding-right:20px">${p.nombre}</b>
-
-                <div style="display:flex;align-items:center;gap:6px;margin:6px 0">
-                  <span style="width:8px;height:8px;border-radius:50%;background:${vendorColor};flex-shrink:0"></span>
-                  <span style="font-size:11px;font-weight:600;color:#475569">${p.vendedor}</span>
-                </div>
-
-                <div style="font-size:10px;padding:3px 8px;border-radius:5px;display:inline-block;
-                            background:${statusColor}15;color:${statusColor};
-                            border:1px solid ${statusColor}40;font-weight:700;margin-bottom:6px">
-                  ${STATUS_LABELS[status]}
-                </div>
-
-                <div style="font-size:11px">${compraLabel}</div>
-                ${exhibLine}
-                ${deudaLine}
-                ${photoBlock}
-              </div>`;
-            popup.setHTML(upgradedHTML).setLngLat([p.lng, p.lat]).addTo(map);
-          }, 3000);
+          popup.setHTML(popupHTML).setLngLat([p.lng, p.lat]).addTo(map);
         });
         wrapper.addEventListener('mouseleave', () => {
-          clearTimeout(peekTimer);
           clearTimeout(autoCloseTimer);
           popup.remove();
         });
@@ -394,12 +375,12 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode, mode
   const FilterLegend = () => (
     <div style={{
       display: "flex", flexWrap: "wrap", gap: 5,
-      padding: "7px 9px",
-      background: "rgba(255,255,255,0.92)",
-      backdropFilter: "blur(8px)",
-      borderRadius: 10,
-      border: "1px solid #e2e8f0",
-      boxShadow: "0 2px 8px #0001",
+      padding: "8px 10px",
+      background: "rgba(15,23,42,0.82)",
+      backdropFilter: "blur(10px)",
+      borderRadius: 12,
+      border: "1px solid rgba(255,255,255,0.10)",
+      boxShadow: "0 4px 16px rgba(0,0,0,0.35)",
     }}>
       {STATUS_ORDER.map(s => {
         const on    = filterEnabled[s];
@@ -410,20 +391,21 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode, mode
             title={on ? `Ocultar: ${STATUS_LABELS[s]}` : `Mostrar: ${STATUS_LABELS[s]}`}
             style={{
               display: "flex", alignItems: "center", gap: 5,
-              padding: "3px 8px", borderRadius: 6,
-              border: `1px solid ${on ? color + "66" : "#e2e8f0"}`,
-              background: on ? color + "12" : "#f8fafc",
-              color: on ? color : "#94a3b8",
+              padding: "4px 9px", borderRadius: 7,
+              border: `1px solid ${on ? color + "88" : "rgba(255,255,255,0.08)"}`,
+              background: on ? color + "28" : "rgba(255,255,255,0.05)",
+              color: on ? color : "rgba(255,255,255,0.45)",
               cursor: "pointer", fontSize: 11, fontWeight: 600,
-              transition: "all 0.15s", opacity: count === 0 ? 0.4 : 1,
+              transition: "all 0.15s", opacity: count === 0 ? 0.35 : 1,
             }}>
             <span style={{ width: 8, height: 8, borderRadius: "50%", background: on ? color : "#cbd5e1", flexShrink: 0 }} />
             <span style={{ maxWidth: 110, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {STATUS_LABELS[s]}
             </span>
             <span style={{
-              background: on ? color + "22" : "#f1f5f9", color: on ? color : "#94a3b8",
-              borderRadius: 4, padding: "0 4px", fontSize: 10, minWidth: 18, textAlign: "center",
+              background: on ? color + "33" : "rgba(255,255,255,0.08)",
+              color: on ? color : "rgba(255,255,255,0.4)",
+              borderRadius: 4, padding: "0 5px", fontSize: 10, minWidth: 18, textAlign: "center", fontWeight: 700,
             }}>{count}</span>
           </button>
         );
@@ -453,10 +435,12 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode, mode
         <div style={{
           position: "absolute", left: 0, top: 0, bottom: 0, width: 300,
           zIndex: 20, display: "flex", flexDirection: "column",
-          background: "rgba(10,14,24,0.96)",
-          backdropFilter: "blur(12px)",
-          borderRight: "1px solid rgba(255,255,255,0.08)",
+          background: "rgba(10,14,24,0.97)",
+          backdropFilter: "blur(16px)",
+          borderRight: "1px solid rgba(255,255,255,0.07)",
           overflowY: "auto",
+          boxShadow: "4px 0 24px rgba(0,0,0,0.4)",
+          animation: "slideIn 0.25s ease-out",
         }}>
           {fullscreenPanel}
         </div>
@@ -477,23 +461,33 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode, mode
       {!shelfyMapsMode && (
         <div className="shelfy-map-controls" style={{
           position: "absolute", top: 10, right: 10,
-          display: "flex", gap: 6, zIndex: 30,
+          display: "flex", gap: 5, zIndex: 30,
         }}>
           <button onClick={() => setIsFullscreen(f => !f)}
             title={isFullscreen ? "Salir de pantalla completa" : "Pantalla completa"}
             style={{
-              background: "rgba(255,255,255,0.92)", border: "1px solid #e2e8f0",
-              borderRadius: 6, color: "#334155", padding: "6px 8px",
+              background: "rgba(15,23,42,0.75)", backdropFilter: "blur(8px)",
+              border: "1px solid rgba(255,255,255,0.12)",
+              borderRadius: 8, color: "#e2e8f0", padding: "7px 9px",
               cursor: "pointer", fontSize: 14, lineHeight: 1,
-              boxShadow: "0 1px 4px #0001",
-            }}>{isFullscreen ? "⊠" : "⛶"}</button>
+              boxShadow: "0 2px 8px rgba(0,0,0,0.25)",
+              transition: "background 0.15s",
+            }}
+            onMouseOver={e => (e.currentTarget.style.background = "rgba(15,23,42,0.92)")}
+            onMouseOut={e => (e.currentTarget.style.background = "rgba(15,23,42,0.75)")}
+          >{isFullscreen ? "✕ Salir" : "⛶"}</button>
           <button onClick={handlePrint} title="Imprimir mapa A4 horizontal"
             style={{
-              background: "rgba(255,255,255,0.92)", border: "1px solid #e2e8f0",
-              borderRadius: 6, color: "#334155", padding: "6px 8px",
+              background: "rgba(15,23,42,0.75)", backdropFilter: "blur(8px)",
+              border: "1px solid rgba(255,255,255,0.12)",
+              borderRadius: 8, color: "#e2e8f0", padding: "7px 9px",
               cursor: "pointer", fontSize: 14, lineHeight: 1,
-              boxShadow: "0 1px 4px #0001",
-            }}>🖨️</button>
+              boxShadow: "0 2px 8px rgba(0,0,0,0.25)",
+              transition: "background 0.15s",
+            }}
+            onMouseOver={e => (e.currentTarget.style.background = "rgba(15,23,42,0.92)")}
+            onMouseOut={e => (e.currentTarget.style.background = "rgba(15,23,42,0.75)")}
+          >🖨️</button>
         </div>
       )}
 
@@ -531,14 +525,14 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode, mode
         <div style={{
           position: "absolute", top: 10, left: panelOffset + 10,
           zIndex: 30,
-          background: "rgba(255,255,255,0.92)", backdropFilter: "blur(4px)",
-          color: "#334155", fontSize: 11, fontWeight: 700,
-          padding: "4px 10px", borderRadius: 8,
-          border: "1px solid #e2e8f0",
-          boxShadow: "0 1px 4px #0001",
-          pointerEvents: "none", transition: "left 0.2s ease",
+          background: "rgba(15,23,42,0.75)", backdropFilter: "blur(8px)",
+          color: "#e2e8f0", fontSize: 11, fontWeight: 700,
+          padding: "5px 11px", borderRadius: 8,
+          border: "1px solid rgba(255,255,255,0.10)",
+          boxShadow: "0 2px 8px rgba(0,0,0,0.25)",
+          pointerEvents: "none", transition: "left 0.3s ease",
         }}>
-          {filteredPines.length.toLocaleString()} PDV visibles
+          {filteredPines.length.toLocaleString()} <span style={{ color: "rgba(255,255,255,0.5)", fontWeight: 400 }}>PDVs visibles</span>
         </div>
       )}
     </div>

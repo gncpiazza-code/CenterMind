@@ -1,7 +1,6 @@
 "use client";
 
-import { Images, ShoppingCart, Calendar } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { Images, ShoppingCart, CheckCircle2, XCircle, Flame, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { GaleriaClienteCard as GaleriaClienteCardType } from "@/lib/api";
 
@@ -10,11 +9,14 @@ interface Props {
   onClick: () => void;
 }
 
-const ESTADO_COLOR: Record<string, string> = {
-  Aprobada: "bg-green-100 text-green-700 border-green-200",
-  Rechazada: "bg-red-100 text-red-700 border-red-200",
-  Destacada: "bg-amber-100 text-amber-700 border-amber-200",
-  Pendiente: "bg-slate-100 text-slate-600 border-slate-200",
+const ESTADO_CONFIG: Record<string, { label: string; cls: string; Icon: React.ElementType }> = {
+  Aprobado:   { label: "Aprobado",   cls: "bg-green-500/90 text-white",       Icon: CheckCircle2 },
+  Aprobada:   { label: "Aprobado",   cls: "bg-green-500/90 text-white",       Icon: CheckCircle2 },
+  Rechazado:  { label: "Rechazado",  cls: "bg-red-500/90 text-white",         Icon: XCircle },
+  Rechazada:  { label: "Rechazada",  cls: "bg-red-500/90 text-white",         Icon: XCircle },
+  Destacado:  { label: "Destacado",  cls: "bg-amber-400/95 text-amber-950",   Icon: Flame },
+  Destacada:  { label: "Destacada",  cls: "bg-amber-400/95 text-amber-950",   Icon: Flame },
+  Pendiente:  { label: "Pendiente",  cls: "bg-slate-600/80 text-white",       Icon: Clock },
 };
 
 function formatDate(iso: string | null): string {
@@ -36,20 +38,34 @@ function daysSince(iso: string | null): number | null {
   }
 }
 
+function DaysChip({ days }: { days: number }) {
+  const cls =
+    days === 0 ? "text-green-600 font-bold" :
+    days <= 7  ? "text-green-600 font-semibold" :
+    days <= 30 ? "text-amber-500 font-semibold" :
+    "text-red-500 font-bold";
+  return <span className={cls}>hace {days}d</span>;
+}
+
 export function GaleriaClienteCard({ cliente, onClick }: Props) {
-  const estadoClass = ESTADO_COLOR[cliente.ultimo_estado ?? ""] ?? ESTADO_COLOR.Pendiente;
+  const cfg = ESTADO_CONFIG[cliente.ultimo_estado ?? ""] ?? ESTADO_CONFIG.Pendiente;
+  const { Icon } = cfg;
   const dias = daysSince(cliente.ultima_exhibicion_fecha);
+  const diasCompra = daysSince(cliente.fecha_ultima_compra);
   const nombre = cliente.nombre_fantasia || cliente.nombre_cliente;
+  const hasExhib = cliente.total_exhibiciones > 0;
 
   return (
     <button
       onClick={onClick}
       className={cn(
         "group w-full text-left rounded-2xl border overflow-hidden transition-all duration-200",
-        "hover:shadow-md hover:-translate-y-0.5 hover:border-[var(--shelfy-primary)]",
-        "bg-[var(--shelfy-panel)] flex flex-col"
+        "hover:shadow-lg hover:-translate-y-0.5 active:scale-[0.98]",
+        "bg-[var(--shelfy-panel)] flex flex-col",
+        hasExhib
+          ? "border-[var(--shelfy-border)] hover:border-[var(--shelfy-primary)]"
+          : "border-dashed border-[var(--shelfy-border)] opacity-75 hover:opacity-100"
       )}
-      style={{ borderColor: "var(--shelfy-border)" }}
     >
       {/* Thumbnail */}
       <div className="relative h-32 bg-slate-100 overflow-hidden">
@@ -61,21 +77,31 @@ export function GaleriaClienteCard({ cliente, onClick }: Props) {
             className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center">
-            <Images size={32} style={{ color: "var(--shelfy-muted)" }} />
+          <div className="w-full h-full flex flex-col items-center justify-center gap-1.5">
+            <Images size={28} style={{ color: "var(--shelfy-muted)", opacity: 0.4 }} />
+            <span className="text-[10px] font-semibold" style={{ color: "var(--shelfy-muted)", opacity: 0.5 }}>
+              Sin exhibición
+            </span>
           </div>
         )}
 
-        {/* Estado badge */}
-        {cliente.ultimo_estado && (
-          <div className={cn("absolute top-2 right-2 text-[10px] font-bold px-2 py-0.5 rounded-full border", estadoClass)}>
-            {cliente.ultimo_estado}
+        {/* Estado badge — top-right */}
+        {cliente.ultimo_estado && hasExhib && (
+          <div className={cn(
+            "absolute top-2 right-2 flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full backdrop-blur-sm",
+            cfg.cls
+          )}>
+            <Icon size={10} />
+            {cfg.label}
           </div>
         )}
 
-        {/* Counter */}
-        <div className="absolute bottom-2 left-2 flex items-center gap-1 bg-black/60 backdrop-blur-sm rounded-full px-2 py-0.5">
-          <Images size={10} className="text-white" />
+        {/* Total counter — bottom-left */}
+        <div className={cn(
+          "absolute bottom-2 left-2 flex items-center gap-1 rounded-full px-2 py-0.5",
+          hasExhib ? "bg-black/60 backdrop-blur-sm" : "bg-black/30"
+        )}>
+          <Images size={10} className="text-white/80" />
           <span className="text-white text-[10px] font-bold">{cliente.total_exhibiciones}</span>
         </div>
       </div>
@@ -84,36 +110,39 @@ export function GaleriaClienteCard({ cliente, onClick }: Props) {
       <div className="p-3 flex flex-col gap-1.5">
         <div>
           {cliente.id_cliente_erp && (
-            <p className="text-[10px] font-semibold" style={{ color: "var(--shelfy-muted)" }}>
+            <p className="text-[10px] font-bold tracking-wide" style={{ color: "var(--shelfy-muted)" }}>
               #{cliente.id_cliente_erp}
             </p>
           )}
           <p className="text-sm font-bold leading-tight line-clamp-2" style={{ color: "var(--shelfy-text)" }}>
             {nombre}
           </p>
-          {cliente.nombre_fantasia && (
-            <p className="text-xs truncate" style={{ color: "var(--shelfy-muted)" }}>
+          {cliente.nombre_fantasia && cliente.nombre_cliente !== nombre && (
+            <p className="text-xs truncate mt-0.5" style={{ color: "var(--shelfy-muted)" }}>
               {cliente.nombre_cliente}
             </p>
           )}
         </div>
 
         <div className="flex flex-col gap-1 text-xs" style={{ color: "var(--shelfy-muted)" }}>
-          {cliente.ultima_exhibicion_fecha && (
-            <span className="flex items-center gap-1">
-              <Images size={11} />
-              {formatDate(cliente.ultima_exhibicion_fecha)}
-              {dias != null && (
-                <span className={cn("font-semibold ml-1", dias > 30 ? "text-red-500" : dias > 14 ? "text-amber-500" : "text-green-600")}>
-                  (hace {dias}d)
-                </span>
-              )}
-            </span>
-          )}
+          {/* Exhibición */}
+          <span className="flex items-center gap-1 flex-wrap">
+            <Images size={11} className="shrink-0" />
+            {cliente.ultima_exhibicion_fecha ? (
+              <>
+                {formatDate(cliente.ultima_exhibicion_fecha)}
+                {dias != null && <DaysChip days={dias} />}
+              </>
+            ) : (
+              <span className="italic opacity-60">Sin exhibición</span>
+            )}
+          </span>
+          {/* Compra */}
           {cliente.fecha_ultima_compra && (
-            <span className="flex items-center gap-1">
-              <ShoppingCart size={11} />
-              Compra: {formatDate(cliente.fecha_ultima_compra)}
+            <span className="flex items-center gap-1 flex-wrap">
+              <ShoppingCart size={11} className="shrink-0" />
+              {formatDate(cliente.fecha_ultima_compra)}
+              {diasCompra != null && <DaysChip days={diasCompra} />}
             </span>
           )}
         </div>

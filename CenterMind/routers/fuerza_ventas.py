@@ -942,15 +942,24 @@ def galeria_list_clientes_por_vendedor(
         if not clientes_pdv:
             return []
 
-        # Última exhibición por cliente (paginado)
+        # Colectar PKs de PDVs para filtrar exhibiciones directamente por id_cliente_pdv
+        # (más confiable que filtrar por id_integrante, que excluye fotos de franquiciados
+        # u otros integrantes que fotografiaron el mismo PDV)
+        pdv_pk_ids = [
+            _safe_int(c.get("id_cliente"))
+            for c in clientes_pdv
+            if _safe_int(c.get("id_cliente")) is not None
+        ]
+
+        # Última exhibición por cliente (paginado, filtrado por PDV)
         exhibiciones: list[dict] = []
         batch, offset_e = 1000, 0
         while True:
             ex_q = (
                 sb.table("exhibiciones")
-                .select("id_exhibicion, id_cliente, url_foto_drive, estado, timestamp_subida, id_integrante")
+                .select("id_exhibicion, id_cliente_pdv, id_cliente, url_foto_drive, estado, timestamp_subida")
                 .eq("id_distribuidor", dist_id)
-                .in_("id_integrante", integ_ids)
+                .in_("id_cliente_pdv", pdv_pk_ids)
                 .order("timestamp_subida", desc=True)
             )
             if desde:
@@ -976,24 +985,16 @@ def galeria_list_clientes_por_vendedor(
                 break
             offset_e += batch
 
-        def _norm_erp(v) -> str:
-            """Normaliza código ERP: strip + quita leading zeros para comparar."""
-            s = _safe_text(v).strip()
-            if not s or s in ("0", "S/C", "—"):
-                return ""
-            stripped = s.lstrip("0")
-            return stripped if stripped else "0"
-
-        # Última exhibición por id_cliente (código ERP del PDV, normalizado)
-        ultima_por_cliente: dict[str, dict] = {}
-        total_por_cliente: dict[str, int] = {}
+        # Indexar por id_cliente_pdv (PK integer — match exacto sin problemas de formato)
+        ultima_por_pdv: dict[int, dict] = {}
+        total_por_pdv: dict[int, int] = {}
         for ex in exhibiciones:
-            nro = _norm_erp(ex.get("id_cliente"))
-            if not nro:
+            pid = _safe_int(ex.get("id_cliente_pdv"))
+            if pid is None:
                 continue
-            if nro not in ultima_por_cliente:
-                ultima_por_cliente[nro] = ex
-            total_por_cliente[nro] = total_por_cliente.get(nro, 0) + 1
+            if pid not in ultima_por_pdv:
+                ultima_por_pdv[pid] = ex
+            total_por_pdv[pid] = total_por_pdv.get(pid, 0) + 1
 
         result = []
         seen_ids: set[int] = set()
@@ -1004,9 +1005,8 @@ def galeria_list_clientes_por_vendedor(
             if cid in seen_ids:
                 continue
             seen_ids.add(cid)
-            erp_key = _norm_erp(c.get("id_cliente_erp"))
-            ultima = ultima_por_cliente.get(erp_key)
-            total = total_por_cliente.get(erp_key, 0)
+            ultima = ultima_por_pdv.get(cid)
+            total = total_por_pdv.get(cid, 0)
 
             nombre_fantasia = _safe_text(c.get("nombre_fantasia")).strip()
             nombre_cliente = _safe_text(c.get("nombre_cliente")).strip()

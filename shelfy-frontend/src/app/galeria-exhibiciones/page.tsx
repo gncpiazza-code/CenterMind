@@ -48,6 +48,12 @@ export default function GaleriaExhibicionesPage() {
   const [fechaDesde, setFechaDesde] = useState("");
   const [fechaHasta, setFechaHasta] = useState("");
 
+  // Sorting (vista 2)
+  type SortField = "exhibicion" | "compra";
+  type SortDir = "desc" | "asc";
+  const [sortField, setSortField] = useState<SortField>("exhibicion");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+
   // Vista 1: vendedores
   const { data: vendedores = [], isLoading: loadingVendedores, error: errorVendedores } = useQuery<GaleriaVendedorStats[]>({
     queryKey: ["galeria-vendedores", distId, filtroSucursal, fechaDesde, fechaHasta],
@@ -90,15 +96,33 @@ export default function GaleriaExhibicionesPage() {
 
   // Filtros clientes
   const filteredClientes = useMemo(() => {
-    if (!searchCliente) return clientes;
-    const q = searchCliente.toLowerCase();
-    return clientes.filter(
-      (c) =>
-        c.nombre_cliente.toLowerCase().includes(q) ||
-        (c.nombre_fantasia?.toLowerCase().includes(q)) ||
-        (c.id_cliente_erp?.toLowerCase().includes(q))
-    );
-  }, [clientes, searchCliente]);
+    let list = clientes;
+    if (searchCliente) {
+      const q = searchCliente.toLowerCase();
+      list = list.filter(
+        (c) =>
+          c.nombre_cliente.toLowerCase().includes(q) ||
+          (c.nombre_fantasia?.toLowerCase().includes(q) ?? false) ||
+          (c.id_cliente_erp?.toLowerCase().includes(q) ?? false)
+      );
+    }
+    // Sorting
+    list = [...list].sort((a, b) => {
+      const dateA = sortField === "exhibicion"
+        ? (a.ultima_exhibicion_fecha ?? "")
+        : (a.fecha_ultima_compra ?? "");
+      const dateB = sortField === "exhibicion"
+        ? (b.ultima_exhibicion_fecha ?? "")
+        : (b.fecha_ultima_compra ?? "");
+      if (!dateA && !dateB) return 0;
+      if (!dateA) return 1;
+      if (!dateB) return -1;
+      return sortDir === "desc"
+        ? dateB.localeCompare(dateA)
+        : dateA.localeCompare(dateB);
+    });
+    return list;
+  }, [clientes, searchCliente, sortField, sortDir]);
 
   // Stats globales
   const globalStats = useMemo(() => ({
@@ -311,6 +335,27 @@ export default function GaleriaExhibicionesPage() {
                 {filteredClientes.length}/{clientes.length}
               </Badge>
             )}
+            <div className="flex items-center gap-1.5 ml-auto">
+              <span className="text-xs font-semibold" style={{ color: "var(--shelfy-muted)" }}>Ordenar:</span>
+              <Select value={sortField} onValueChange={(v) => setSortField(v as SortField)}>
+                <SelectTrigger className="h-8 w-[148px] text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="exhibicion">Última exhibición</SelectItem>
+                  <SelectItem value="compra">Última compra</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 w-8 p-0"
+                title={sortDir === "desc" ? "Más reciente primero" : "Más antiguo primero"}
+                onClick={() => setSortDir(d => d === "desc" ? "asc" : "desc")}
+              >
+                {sortDir === "desc" ? "↓" : "↑"}
+              </Button>
+            </div>
           </div>
 
           {errorClientes ? (

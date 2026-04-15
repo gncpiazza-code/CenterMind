@@ -15,6 +15,7 @@ type DatePickerProps = {
   placeholder?: string
   className?: string
   minDate?: string
+  disabled?: boolean
 }
 
 function parseIsoDate(iso?: string): Date | undefined {
@@ -30,6 +31,7 @@ export function DatePicker({
   placeholder = "Seleccionar fecha",
   className,
   minDate,
+  disabled = false,
 }: DatePickerProps) {
   const selectedDate = parseIsoDate(value)
   const min = parseIsoDate(minDate)
@@ -46,6 +48,7 @@ export function DatePicker({
           <Button
             type="button"
             variant="outline"
+            disabled={disabled}
             className={cn(
               "w-full justify-start text-left font-normal",
               !selectedDate && "text-[var(--shelfy-muted)]"
@@ -59,6 +62,7 @@ export function DatePicker({
           <Calendar
             mode="single"
             selected={selectedDate}
+            disabled={disabled ? true : min ? { before: min } : undefined}
             onSelect={(date) => {
               if (!date) return
               const y = date.getFullYear()
@@ -66,12 +70,11 @@ export function DatePicker({
               const d = String(date.getDate()).padStart(2, "0")
               onChange(`${y}-${m}-${d}`)
             }}
-            disabled={min ? { before: min } : undefined}
             timeZone={timeZone}
           />
         </PopoverContent>
       </Popover>
-      {!!selectedDate && (
+      {!!selectedDate && !disabled && (
         <Button
           type="button"
           variant="ghost"

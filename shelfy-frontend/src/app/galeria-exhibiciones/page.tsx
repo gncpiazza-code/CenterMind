@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Images, ChevronLeft, Search, Loader2, CheckCircle2, XCircle, Flame, Clock } from "lucide-react";
 
@@ -111,6 +111,30 @@ export default function GaleriaExhibicionesPage() {
 
   const initials = selectedVendedor?.nombre_erp
     .split(" ").slice(0, 2).map((w) => w[0]).join("").toUpperCase() ?? "";
+
+  useEffect(() => {
+    if (errorVendedores) {
+      console.group("[Galeria Debug] Error cargando vendedores");
+      console.error("distId:", distId);
+      console.error("filtroSucursal:", filtroSucursal);
+      console.error("fechaDesde:", fechaDesde);
+      console.error("fechaHasta:", fechaHasta);
+      console.error(errorVendedores);
+      console.groupEnd();
+    }
+  }, [errorVendedores, distId, filtroSucursal, fechaDesde, fechaHasta]);
+
+  useEffect(() => {
+    if (errorClientes && selectedVendedor) {
+      console.group("[Galeria Debug] Error cargando clientes");
+      console.error("distId:", distId);
+      console.error("idVendedor:", selectedVendedor.id_vendedor);
+      console.error("fechaDesde:", fechaDesde);
+      console.error("fechaHasta:", fechaHasta);
+      console.error(errorClientes);
+      console.groupEnd();
+    }
+  }, [errorClientes, selectedVendedor, distId, fechaDesde, fechaHasta]);
 
   return (
     <div className="min-h-screen p-4 md:p-8" style={{ background: "var(--shelfy-bg)" }}>
@@ -226,7 +250,10 @@ export default function GaleriaExhibicionesPage() {
           {errorVendedores ? (
             <Alert variant="destructive">
               <AlertTitle>Error</AlertTitle>
-              <AlertDescription>No se pudo cargar la galería. Reintenta más tarde.</AlertDescription>
+              <AlertDescription>
+                No se pudo cargar la galería.{" "}
+                {errorVendedores instanceof Error ? errorVendedores.message : "Reintenta más tarde."}
+              </AlertDescription>
             </Alert>
           ) : loadingVendedores ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
@@ -289,7 +316,10 @@ export default function GaleriaExhibicionesPage() {
           {errorClientes ? (
             <Alert variant="destructive">
               <AlertTitle>Error</AlertTitle>
-              <AlertDescription>No se pudo cargar los clientes.</AlertDescription>
+              <AlertDescription>
+                No se pudo cargar los clientes.{" "}
+                {errorClientes instanceof Error ? errorClientes.message : ""}
+              </AlertDescription>
             </Alert>
           ) : loadingClientes ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">

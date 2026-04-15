@@ -26,11 +26,14 @@ import {
 } from "@/components/ui/select";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Switch } from "@/components/ui/switch";
+import { DatePicker } from "@/components/ui/date-picker";
 
 import {
   fetchFuerzaVentasVendedor,
   fetchTelegramGruposFuerzaVentas,
   fetchTelegramUsuariosGrupoFuerzaVentas,
+  fetchLocations,
+  type Location,
   autocompletarFuerzaVentas,
   adoptarLegacyBindingFuerzaVentas,
   updateFuerzaVentasVendedor,
@@ -63,6 +66,14 @@ export function VendedorEditSheet({ idVendedor, distId, open, onClose }: Vendedo
   const { data: grupos = [] } = useQuery({
     queryKey: ["fv-grupos", distId],
     queryFn: () => fetchTelegramGruposFuerzaVentas(distId),
+    enabled: open && canEdit,
+    staleTime: 60_000,
+  });
+
+  // Ciudades/localidades del tenant
+  const { data: locations = [] } = useQuery<Location[]>({
+    queryKey: ["fv-locations", distId],
+    queryFn: () => fetchLocations(distId),
     enabled: open && canEdit,
     staleTime: 60_000,
   });
@@ -101,6 +112,36 @@ export function VendedorEditSheet({ idVendedor, distId, open, onClose }: Vendedo
 
   // Autocompletar
   const [autoLoading, setAutoLoading] = useState(false);
+  const ciudadesBase = Array.from(
+    new Set(
+      locations
+        .map((loc) => (loc.ciudad ?? "").trim())
+        .filter(Boolean)
+    )
+  ).sort((a, b) => a.localeCompare(b));
+
+  const ciudades = ciudad && !ciudadesBase.includes(ciudad) ? [...ciudadesBase, ciudad] : ciudadesBase;
+
+  const localidadesBase = Array.from(
+    new Set(
+      locations
+        .filter((loc) => (loc.ciudad ?? "").trim() === ciudad)
+        .map((loc) => (loc.label ?? "").trim())
+        .filter(Boolean)
+    )
+  ).sort((a, b) => a.localeCompare(b));
+  const localidades = localidad && !localidadesBase.includes(localidad) ? [...localidadesBase, localidad] : localidadesBase;
+
+  useEffect(() => {
+    if (!ciudad) {
+      setLocalidad("");
+      return;
+    }
+    if (localidad && !localidades.includes(localidad)) {
+      setLocalidad("");
+    }
+  }, [ciudad, localidad, localidades]);
+
   const handleAutocompletar = useCallback(async () => {
     if (!idVendedor) return;
     setAutoLoading(true);
@@ -258,27 +299,43 @@ export function VendedorEditSheet({ idVendedor, distId, open, onClose }: Vendedo
                     <Label htmlFor="ciudad" className="text-xs font-semibold" style={{ color: "var(--shelfy-muted)" }}>
                       Ciudad
                     </Label>
-                    <Input
-                      id="ciudad"
-                      value={ciudad}
-                      onChange={(e) => setCiudad(e.target.value)}
-                      placeholder="Ciudad"
-                      disabled={!canEdit}
-                      className="mt-1 h-9 text-sm"
-                    />
+                    <Select
+                      value={ciudad || "__none__"}
+                      onValueChange={(v) => setCiudad(v === "__none__" ? "" : v)}
+                      disabled={!canEdit || ciudades.length === 0}
+                    >
+                      <SelectTrigger id="ciudad" className="mt-1 h-9 text-sm">
+                        <SelectValue placeholder={ciudades.length === 0 ? "Sin ciudades disponibles" : "Seleccionar ciudad"} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">Sin asignar</SelectItem>
+                        {ciudades.map((c) => (
+                          <SelectItem key={c} value={c}>{c}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div>
                     <Label htmlFor="localidad" className="text-xs font-semibold" style={{ color: "var(--shelfy-muted)" }}>
                       Localidad
                     </Label>
-                    <Input
-                      id="localidad"
-                      value={localidad}
-                      onChange={(e) => setLocalidad(e.target.value)}
-                      placeholder="Localidad"
-                      disabled={!canEdit}
-                      className="mt-1 h-9 text-sm"
-                    />
+                    <Select
+                      value={localidad || "__none__"}
+                      onValueChange={(v) => setLocalidad(v === "__none__" ? "" : v)}
+                      disabled={!canEdit || !ciudad || localidades.length === 0}
+                    >
+                      <SelectTrigger id="localidad" className="mt-1 h-9 text-sm">
+                        <SelectValue
+                          placeholder={!ciudad ? "Primero elegi ciudad" : localidades.length === 0 ? "Sin localidades disponibles" : "Seleccionar localidad"}
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">Sin asignar</SelectItem>
+                        {localidades.map((l) => (
+                          <SelectItem key={l} value={l}>{l}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
                 <div>
@@ -286,14 +343,14 @@ export function VendedorEditSheet({ idVendedor, distId, open, onClose }: Vendedo
                     <CalendarDays size={11} />
                     Fecha de Ingreso
                   </Label>
-                  <Input
-                    id="fecha_ingreso"
-                    type="date"
-                    value={fechaIngreso}
-                    onChange={(e) => setFechaIngreso(e.target.value)}
-                    disabled={!canEdit}
-                    className="mt-1 h-9 text-sm"
-                  />
+                  <div className="mt-1">
+                    <DatePicker
+                      value={fechaIngreso}
+                      onChange={setFechaIngreso}
+                      placeholder="Seleccionar fecha"
+                      disabled={!canEdit}
+                    />
+                  </div>
                 </div>
                 <div className="flex items-center justify-between rounded-xl border px-3 py-2.5" style={{ borderColor: "var(--shelfy-border)" }}>
                   <Label htmlFor="activo" className="text-sm font-semibold cursor-pointer" style={{ color: "var(--shelfy-text)" }}>

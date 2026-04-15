@@ -17,6 +17,24 @@ import { useSearchParams } from "next/navigation";
 import { Printer, Download, Search, X, ChevronDown, Check, BarChart3, Trophy, Briefcase, SwitchCamera, PieChart, AlertTriangle, Users, MapPin, Flame, RefreshCw, DollarSign, Package, CloudUpload, Activity } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
+import { DatePicker } from "@/components/ui/date-picker";
+import {
+  Drawer,
+  DrawerContent,
+  DrawerDescription,
+  DrawerFooter,
+  DrawerHeader,
+  DrawerTitle,
+  DrawerTrigger,
+} from "@/components/ui/drawer";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
 import TabGenerarInforme from "@/app/academy/cuentas-corrientes/components/TabGenerarInforme";
@@ -204,6 +222,7 @@ function ReportesContent() {
   const [loadingOpts, setLoadingOpts] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searched, setSearched] = useState(false);
+  const [filtersDrawerOpen, setFiltersDrawerOpen] = useState(false);
 
   // Cargar listas de filtros al cambiar distribuidor
   useEffect(() => {
@@ -434,6 +453,61 @@ function ReportesContent() {
                   Supervisa el rendimiento de ventas, clientes y exhibiciones corporativas en tiempo real.
                 </p>
               </div>
+              <Drawer open={filtersDrawerOpen} onOpenChange={setFiltersDrawerOpen}>
+                <DrawerTrigger asChild>
+                  <Button variant="secondary" className="md:hidden self-start">
+                    <Filter data-icon="inline-start" />
+                    Filtros
+                  </Button>
+                </DrawerTrigger>
+                <DrawerContent>
+                  <DrawerHeader>
+                    <DrawerTitle>Filtros rápidos</DrawerTitle>
+                    <DrawerDescription>Aplica rango de fechas y búsqueda por cliente.</DrawerDescription>
+                  </DrawerHeader>
+                  <div className="px-4 flex flex-col gap-3">
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs text-[var(--shelfy-muted)] font-medium">Desde</label>
+                      <DatePicker value={desde} onChange={setDesde} placeholder="Desde" />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs text-[var(--shelfy-muted)] font-medium">Hasta</label>
+                      <DatePicker value={hasta} onChange={setHasta} placeholder="Hasta" minDate={desde || undefined} />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs text-[var(--shelfy-muted)] font-medium">N° Cliente / Local</label>
+                      <input
+                        type="text"
+                        value={nroCliente}
+                        onChange={(e) => setNroCliente(e.target.value)}
+                        placeholder="Buscar..."
+                        className="rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-[var(--shelfy-text)] px-3 py-2 text-sm focus:outline-none focus:border-[var(--shelfy-primary)]"
+                      />
+                    </div>
+                  </div>
+                  <DrawerFooter>
+                    <Button
+                      onClick={() => {
+                        handleBuscar();
+                        setFiltersDrawerOpen(false);
+                      }}
+                      loading={loading}
+                    >
+                      <Search data-icon="inline-start" />
+                      Buscar
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        handleLimpiar();
+                        setFiltersDrawerOpen(false);
+                      }}
+                    >
+                      Limpiar
+                    </Button>
+                  </DrawerFooter>
+                </DrawerContent>
+              </Drawer>
 
               {/* Context Switcher SuperAdmin */}
               {user?.rol === "superadmin" && distribuidoras.length > 0 && (
@@ -523,17 +597,15 @@ function ReportesContent() {
                       {/* Fecha */}
                       <div>
                         <label className="block text-xs text-[var(--shelfy-muted)] mb-1.5 font-medium">Desde</label>
-                        <input
-                          type="date" value={desde} onChange={(e) => setDesde(e.target.value)}
-                          className="rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-[var(--shelfy-text)] px-3 py-2 text-sm focus:outline-none focus:border-[var(--shelfy-primary)] w-[140px]"
-                        />
+                        <div className="w-[180px]">
+                          <DatePicker value={desde} onChange={setDesde} placeholder="Desde" />
+                        </div>
                       </div>
                       <div>
                         <label className="block text-xs text-[var(--shelfy-muted)] mb-1.5 font-medium">Hasta</label>
-                        <input
-                          type="date" value={hasta} onChange={(e) => setHasta(e.target.value)}
-                          className="rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-[var(--shelfy-text)] px-3 py-2 text-sm focus:outline-none focus:border-[var(--shelfy-primary)] w-[140px]"
-                        />
+                        <div className="w-[180px]">
+                          <DatePicker value={hasta} onChange={setHasta} placeholder="Hasta" minDate={desde || undefined} />
+                        </div>
                       </div>
                       <div>
                         <label className="block text-xs text-[var(--shelfy-muted)] mb-1.5 font-medium">N° Cliente / Local</label>
@@ -652,28 +724,28 @@ function ReportesContent() {
                           Puntuación y Ranking
                         </div>
                         <div className="overflow-x-auto">
-                          <table className="w-full text-sm text-left">
-                            <thead>
-                              <tr className="text-[var(--shelfy-muted)] border-b border-[var(--shelfy-border)]">
-                                <th className="pb-2 pr-3 w-8">#</th>
-                                <th className="pb-2 pr-3">Vendedor</th>
-                                <th className="pb-2 pr-3 text-center">Aprob</th>
-                                <th className="pb-2 pr-3 text-center">Dest</th>
-                                <th className="pb-2 text-right">Pts Totales</th>
-                              </tr>
-                            </thead>
-                            <tbody>
+                          <Table>
+                            <TableHeader>
+                              <TableRow className="text-[var(--shelfy-muted)] border-b border-[var(--shelfy-border)]">
+                                <TableHead className="pb-2 pr-3 w-8">#</TableHead>
+                                <TableHead className="pb-2 pr-3">Vendedor</TableHead>
+                                <TableHead className="pb-2 pr-3 text-center">Aprob</TableHead>
+                                <TableHead className="pb-2 pr-3 text-center">Dest</TableHead>
+                                <TableHead className="pb-2 text-right">Pts Totales</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
                               {rankingData.slice(0, 10).map((r, i) => (
-                                <tr key={r.vendedor} className="border-b border-[var(--shelfy-border)] last:border-0 hover:bg-[var(--shelfy-bg)] transition-colors">
-                                  <td className="py-2.5 pr-3 text-[var(--shelfy-muted)] tabular-nums">{i + 1}</td>
-                                  <td className="py-2.5 pr-3 font-medium text-[var(--shelfy-text)] truncate max-w-[120px]">{r.vendedor}</td>
-                                  <td className="py-2.5 pr-3 text-center text-green-600">{r.aprobados}</td>
-                                  <td className="py-2.5 pr-3 text-center text-purple-600">{r.destacados}</td>
-                                  <td className="py-2.5 text-right font-bold tabular-nums text-[var(--shelfy-primary)]">{r.puntos}</td>
-                                </tr>
+                                <TableRow key={r.vendedor} className="border-b border-[var(--shelfy-border)] last:border-0 hover:bg-[var(--shelfy-bg)] transition-colors">
+                                  <TableCell className="py-2.5 pr-3 text-[var(--shelfy-muted)] tabular-nums">{i + 1}</TableCell>
+                                  <TableCell className="py-2.5 pr-3 font-medium text-[var(--shelfy-text)] truncate max-w-[120px]">{r.vendedor}</TableCell>
+                                  <TableCell className="py-2.5 pr-3 text-center text-green-600">{r.aprobados}</TableCell>
+                                  <TableCell className="py-2.5 pr-3 text-center text-purple-600">{r.destacados}</TableCell>
+                                  <TableCell className="py-2.5 text-right font-bold tabular-nums text-[var(--shelfy-primary)]">{r.puntos}</TableCell>
+                                </TableRow>
                               ))}
-                            </tbody>
-                          </table>
+                            </TableBody>
+                          </Table>
                           {rankingData.length > 10 && (
                             <p className="text-xs text-[var(--shelfy-muted)] mt-3 text-center no-print">
                               Mostrando el top 10 de {rankingData.length} vendedores puntuados.
@@ -689,30 +761,30 @@ function ReportesContent() {
                         <p className="text-sm font-semibold text-[var(--shelfy-text)]">{filas.length} registros detallados</p>
                       </div>
                       <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                          <thead>
-                            <tr className="text-[var(--shelfy-muted)] text-left border-b border-[var(--shelfy-border)]">
+                        <Table>
+                          <TableHeader>
+                            <TableRow className="text-[var(--shelfy-muted)] text-left border-b border-[var(--shelfy-border)]">
                               {["ID", "Vendedor", "Sucursal", "Cliente", "PDV", "Estado", "Fecha carga"].map((h) => (
-                                <th key={h} className="pb-3 pr-3 whitespace-nowrap font-semibold">{h}</th>
+                                <TableHead key={h} className="pb-3 pr-3 whitespace-nowrap font-semibold">{h}</TableHead>
                               ))}
-                            </tr>
-                          </thead>
-                          <tbody>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
                             {filas.map((f) => (
-                              <tr key={f.id_exhibicion} className="border-b border-[var(--shelfy-border)] last:border-0 hover:bg-[var(--shelfy-bg)] transition-colors">
-                                <td className="py-2.5 pr-3 text-[var(--shelfy-muted)] tabular-nums">{f.id_exhibicion}</td>
-                                <td className="py-2.5 pr-3 text-[var(--shelfy-text)] font-medium max-w-[150px] truncate">{f.vendedor}</td>
-                                <td className="py-2.5 pr-3 text-[var(--shelfy-muted)] text-xs truncate max-w-[120px]">{f.sucursal}</td>
-                                <td className="py-2.5 pr-3 text-[var(--shelfy-muted)] truncate max-w-[150px]">{f.cliente}</td>
-                                <td className="py-2.5 pr-3 text-[var(--shelfy-muted)] truncate max-w-[100px]">{f.tipo_pdv}</td>
-                                <td className="py-2.5 pr-3">
+                              <TableRow key={f.id_exhibicion} className="border-b border-[var(--shelfy-border)] last:border-0 hover:bg-[var(--shelfy-bg)] transition-colors">
+                                <TableCell className="py-2.5 pr-3 text-[var(--shelfy-muted)] tabular-nums">{f.id_exhibicion}</TableCell>
+                                <TableCell className="py-2.5 pr-3 text-[var(--shelfy-text)] font-medium max-w-[150px] truncate">{f.vendedor}</TableCell>
+                                <TableCell className="py-2.5 pr-3 text-[var(--shelfy-muted)] text-xs truncate max-w-[120px]">{f.sucursal}</TableCell>
+                                <TableCell className="py-2.5 pr-3 text-[var(--shelfy-muted)] truncate max-w-[150px]">{f.cliente}</TableCell>
+                                <TableCell className="py-2.5 pr-3 text-[var(--shelfy-muted)] truncate max-w-[100px]">{f.tipo_pdv}</TableCell>
+                                <TableCell className="py-2.5 pr-3">
                                   <EstadoBadge estado={f.estado} />
-                                </td>
-                                <td className="py-2.5 text-[var(--shelfy-muted)] whitespace-nowrap tabular-nums">{f.fecha_carga?.slice(0, 16)}</td>
-                              </tr>
+                                </TableCell>
+                                <TableCell className="py-2.5 text-[var(--shelfy-muted)] whitespace-nowrap tabular-nums">{f.fecha_carga?.slice(0, 16)}</TableCell>
+                              </TableRow>
                             ))}
-                          </tbody>
-                        </table>
+                          </TableBody>
+                        </Table>
                       </div>
                     </Card>
 

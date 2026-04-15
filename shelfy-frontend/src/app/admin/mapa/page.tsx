@@ -13,6 +13,7 @@ import { useQuery } from "@tanstack/react-query";
 import { adminMapaKeys } from "@/lib/query-keys";
 import dynamic from "next/dynamic";
 import { type MapRef } from "@/components/ui/map";
+import { DatePicker } from "@/components/ui/date-picker";
 import { formatDistanceToNow, format } from "date-fns";
 import { es } from "date-fns/locale";
 
@@ -198,12 +199,9 @@ export default function LiveMapPage() {
                         </Card>
 
                         <Card className="px-3 py-1.5 bg-white/10 backdrop-blur-xl border-white/10 flex items-center gap-2">
-                            <input
-                                type="date"
-                                value={selectedDate}
-                                onChange={(e) => setSelectedDate(e.target.value)}
-                                className="bg-transparent border-none text-xs font-bold text-white focus:ring-0 cursor-pointer p-0"
-                            />
+                            <div className="[&>div>button]:h-7 [&>div>button]:border-white/20 [&>div>button]:bg-white/5 [&>div>button]:text-white [&>div>button]:text-xs [&>div>button]:font-bold [&>button]:text-slate-300">
+                                <DatePicker value={selectedDate} onChange={setSelectedDate} />
+                            </div>
                         </Card>
                     </div>
 

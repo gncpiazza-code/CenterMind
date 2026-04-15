@@ -5,6 +5,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { PageSpinner } from "@/components/ui/Spinner";
+import { DatePicker } from "@/components/ui/date-picker";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
     BarChart3,
     Map as MapIcon,
@@ -98,9 +100,13 @@ export default function TabSeguimientoRecaudacion({ distId }: { distId: number }
 
                     <div className="flex items-center gap-2 px-3 py-2 bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-xl">
                         <Calendar size={14} className="text-[var(--shelfy-muted)]" />
-                        <input type="date" value={desde} onChange={e => setDesde(e.target.value)} className="bg-transparent border-none outline-none text-xs text-[var(--shelfy-text)]" />
+                        <div className="min-w-[155px] [&>div>button]:h-7 [&>div>button]:text-xs [&>div>button]:border-0 [&>div>button]:bg-transparent [&>div>button]:px-1.5">
+                            <DatePicker value={desde} onChange={setDesde} placeholder="Desde" />
+                        </div>
                         <span className="text-[var(--shelfy-muted)]">-</span>
-                        <input type="date" value={hasta} onChange={e => setHasta(e.target.value)} className="bg-transparent border-none outline-none text-xs text-[var(--shelfy-text)]" />
+                        <div className="min-w-[155px] [&>div>button]:h-7 [&>div>button]:text-xs [&>div>button]:border-0 [&>div>button]:bg-transparent [&>div>button]:px-1.5">
+                            <DatePicker value={hasta} onChange={setHasta} placeholder="Hasta" minDate={desde || undefined} />
+                        </div>
                     </div>
                 </div>
             </div>
@@ -155,32 +161,32 @@ export default function TabSeguimientoRecaudacion({ distId }: { distId: number }
                         <Button variant="ghost" size="sm"><Download size={14} /> Exportar</Button>
                     </div>
                     <div className="overflow-x-auto">
-                        <table className="w-full text-xs">
-                            <thead>
-                                <tr className="border-b border-[var(--shelfy-border)] text-[var(--shelfy-muted)]">
-                                    <th className="py-2 text-left">Cliente</th>
-                                    <th className="py-2 text-left">Comprobante</th>
-                                    <th className="py-2 text-left">Tipo</th>
-                                    <th className="py-2 text-left">Pago</th>
-                                    <th className="py-2 text-right">Monto</th>
-                                </tr>
-                            </thead>
-                            <tbody>
+                        <Table className="w-full text-xs">
+                            <TableHeader>
+                                <TableRow className="border-b border-[var(--shelfy-border)] text-[var(--shelfy-muted)]">
+                                    <TableHead className="py-2 text-left">Cliente</TableHead>
+                                    <TableHead className="py-2 text-left">Comprobante</TableHead>
+                                    <TableHead className="py-2 text-left">Tipo</TableHead>
+                                    <TableHead className="py-2 text-left">Pago</TableHead>
+                                    <TableHead className="py-2 text-right">Monto</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
                                 {detallada.map((row, i) => (
-                                    <tr key={i} className="border-b border-[var(--shelfy-border)] last:border-0 hover:bg-[var(--shelfy-bg)]">
-                                        <td className="py-2 font-medium">{row.cliente}</td>
-                                        <td className="py-2">{row.comprobante}</td>
-                                        <td className="py-2">{row.tipo}</td>
-                                        <td className="py-2">
+                                    <TableRow key={i} className="border-b border-[var(--shelfy-border)] last:border-0 hover:bg-[var(--shelfy-bg)]">
+                                        <TableCell className="py-2 font-medium">{row.cliente}</TableCell>
+                                        <TableCell className="py-2">{row.comprobante}</TableCell>
+                                        <TableCell className="py-2">{row.tipo}</TableCell>
+                                        <TableCell className="py-2">
                                             <span className={`px-2 py-0.5 rounded-full text-[10px] ${row.pago === 'CONTADO' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
                                                 {row.pago}
                                             </span>
-                                        </td>
-                                        <td className="py-2 text-right font-bold">{formatCurrency(row.monto)}</td>
-                                    </tr>
+                                        </TableCell>
+                                        <TableCell className="py-2 text-right font-bold">{formatCurrency(row.monto)}</TableCell>
+                                    </TableRow>
                                 ))}
-                            </tbody>
-                        </table>
+                            </TableBody>
+                        </Table>
                     </div>
                 </Card>
             )}

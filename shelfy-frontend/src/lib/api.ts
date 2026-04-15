@@ -322,11 +322,12 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
-    if (typeof window !== "undefined" && path.includes("/api/galeria/") && path.includes("/clientes")) {
-      console.group("[Galeria Debug] HTTP error cargando clientes");
+    if (typeof window !== "undefined" && path.includes("/api/galeria/")) {
+      console.group("[Galeria Debug] HTTP error");
       console.error("URL:", url);
       console.error("Method:", options?.method ?? "GET");
       console.error("Status:", res.status);
+      console.error("Path:", path);
       console.error("Request options:", options);
       console.error("Response body:", err);
       console.groupEnd();

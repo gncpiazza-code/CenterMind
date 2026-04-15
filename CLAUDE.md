@@ -643,6 +643,7 @@ Archivo `shelfy_mapa_arquitectonico.html` en la raíz del repo. Dashboard HTML e
 - Los services en `services/` son clases instanciadas una vez al inicio.
 - El cliente Supabase es `sb` (importado de `db.py`).
 - Logging con `logger = logging.getLogger("ShelfyAPI")`.
+- Bot Telegram: priorizar flujo "silent-first" para tipo PDV (usar perfil histórico + trust y preguntar solo en baja confianza/inconsistencia).
 
 ### TypeScript (frontend)
 - Comunicación vía `src/lib/api.ts` — NO fetch directo en componentes.

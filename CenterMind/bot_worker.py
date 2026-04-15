@@ -384,6 +384,127 @@ class Database:
             self.logger.error(f"Error en RPC registrar_exhibicion: {e}")
             return {"id_exhibicion": None, "estado_final": None, "error": str(e)}
 
+    # ── Perfil tipo PDV (silent mode) ──────────────────────────────
+    def _normalize_cliente_code(self, nro_cliente: str) -> str:
+        raw = (nro_cliente or "").strip()
+        if not raw:
+            return ""
+        return raw
+
+    def _is_missing_table_error(self, err: Exception) -> bool:
+        txt = str(err).lower()
+        return "does not exist" in txt or "42p01" in txt or "pdv_tipo_profiles" in txt
+
+    @retry_supabase()
+    def get_pdv_tipo_profile(self, distribuidor_id: int, nro_cliente: str) -> Optional[Dict]:
+        code = self._normalize_cliente_code(nro_cliente)
+        if not code:
+            return None
+        try:
+            res = (
+                self.sb.table("pdv_tipo_profiles")
+                .select(
+                    "id_distribuidor, id_cliente_erp, tipo_pdv_preferido, trust_level, "
+                    "confidence, total_observaciones, tipo_counts, updated_at"
+                )
+                .eq("id_distribuidor", distribuidor_id)
+                .eq("id_cliente_erp", code)
+                .limit(1)
+                .execute()
+            )
+            if res.data:
+                return res.data[0]
+            stripped = code.lstrip("0") or code
+            if stripped != code:
+                res2 = (
+                    self.sb.table("pdv_tipo_profiles")
+                    .select(
+                        "id_distribuidor, id_cliente_erp, tipo_pdv_preferido, trust_level, "
+                        "confidence, total_observaciones, tipo_counts, updated_at"
+                    )
+                    .eq("id_distribuidor", distribuidor_id)
+                    .eq("id_cliente_erp", stripped)
+                    .limit(1)
+                    .execute()
+                )
+                if res2.data:
+                    return res2.data[0]
+            return None
+        except Exception as e:
+            if self._is_missing_table_error(e):
+                self.logger.warning("⚠️ Tabla pdv_tipo_profiles no existe aún; fallback a flujo manual.")
+                return None
+            raise
+
+    def infer_tipo_pdv_for_cliente(self, distribuidor_id: int, nro_cliente: str) -> Dict[str, Any]:
+        profile = self.get_pdv_tipo_profile(distribuidor_id, nro_cliente)
+        if not profile:
+            return {"use_auto": False, "reason": "no_profile"}
+        tipo = profile.get("tipo_pdv_preferido")
+        trust = (profile.get("trust_level") or "").lower()
+        confidence = float(profile.get("confidence") or 0)
+        if tipo and trust == "high" and confidence >= 0.75:
+            return {"use_auto": True, "tipo_pdv": tipo, "trust_level": trust, "confidence": confidence}
+        return {
+            "use_auto": False,
+            "reason": "low_trust",
+            "tipo_pdv_sugerido": tipo,
+            "trust_level": trust or "low",
+            "confidence": confidence,
+        }
+
+    @retry_supabase()
+    def upsert_pdv_tipo_observation(
+        self,
+        distribuidor_id: int,
+        nro_cliente: str,
+        tipo_pdv: str,
+        source: str = "telegram_manual",
+    ) -> Optional[Dict]:
+        code = self._normalize_cliente_code(nro_cliente)
+        if not code or not tipo_pdv:
+            return None
+        try:
+            profile = self.get_pdv_tipo_profile(distribuidor_id, code)
+            counts: Dict[str, int] = {}
+            if profile and isinstance(profile.get("tipo_counts"), dict):
+                counts = {k: int(v or 0) for k, v in profile["tipo_counts"].items()}
+            counts[tipo_pdv] = counts.get(tipo_pdv, 0) + 1
+
+            total = sum(counts.values())
+            preferido = max(counts.items(), key=lambda kv: kv[1])[0]
+            top = counts[preferido]
+            confidence = round((top / total), 4) if total > 0 else 0.0
+            if total >= 3 and confidence >= 0.75:
+                trust_level = "high"
+            elif total >= 2 and confidence >= 0.6:
+                trust_level = "medium"
+            else:
+                trust_level = "low"
+
+            payload = {
+                "id_distribuidor": distribuidor_id,
+                "id_cliente_erp": code,
+                "tipo_pdv_preferido": preferido,
+                "trust_level": trust_level,
+                "confidence": confidence,
+                "total_observaciones": total,
+                "tipo_counts": counts,
+                "last_seen": datetime.now(AR_TZ).isoformat(),
+                "source": source,
+            }
+            res = (
+                self.sb.table("pdv_tipo_profiles")
+                .upsert(payload, on_conflict="id_distribuidor,id_cliente_erp")
+                .execute()
+            )
+            return (res.data or [None])[0]
+        except Exception as e:
+            if self._is_missing_table_error(e):
+                self.logger.warning("⚠️ Tabla pdv_tipo_profiles no existe; no se actualiza trust_level.")
+                return None
+            raise
+
     def update_telegram_refs(
         self, exhibicion_id: str, telegram_msg_id: int, telegram_chat_id: int
     ) -> None:
@@ -1295,6 +1416,29 @@ class BotWorker:
         session["nro_cliente"] = clean
         session["stage"] = self.STAGE_WAITING_TYPE
 
+        # Silent-first: si el perfil del PDV tiene trust_level alto,
+        # evitamos preguntar y registramos automáticamente.
+        inferred = await asyncio.to_thread(
+            self.db.infer_tipo_pdv_for_cliente,
+            self.distribuidor_id,
+            clean,
+        )
+        if inferred.get("use_auto") and inferred.get("tipo_pdv"):
+            tipo_pdv = inferred["tipo_pdv"]
+            clean_code = "".join(c for c in tipo_pdv if c.isalnum()).upper()
+            session["tipo_pdv"] = tipo_pdv
+            await self._process_upload_with_selected_type(
+                context=context,
+                uploader_id=user_id,
+                uploader_name=nombre,
+                tipo_pdv=tipo_pdv,
+                clean_code=clean_code,
+                source="telegram_auto_high_trust",
+                status_chat_id=chat_id,
+                status_reply_to=msg_id,
+            )
+            return
+
         # Botones de tipo PDV (de la lista editable)
         botones = [
             InlineKeyboardButton(t, callback_data=f"TYPE_{''.join(c for c in t if c.isalnum()).upper()}_{user_id}")
@@ -1316,6 +1460,201 @@ class BotWorker:
     # ─────────────────────────────────────────────────────────────
     # CALLBACK — TIPO PDV seleccionado
     # ─────────────────────────────────────────────────────────────
+
+    async def _process_upload_with_selected_type(
+        self,
+        context: ContextTypes.DEFAULT_TYPE,
+        uploader_id: int,
+        uploader_name: str,
+        tipo_pdv: str,
+        clean_code: str,
+        source: str = "telegram_manual",
+        status_chat_id: Optional[int] = None,
+        status_message_id: Optional[int] = None,
+        status_reply_to: Optional[int] = None,
+    ) -> None:
+        session = self.upload_sessions.get(uploader_id)
+        if not session:
+            return
+
+        session["tipo_pdv"] = tipo_pdv
+        nro_cliente = session["nro_cliente"]
+        photos = session["photos"]
+        chat_id = session["chat_id"]
+        chat_title = session.get("chat_title") or str(chat_id)
+
+        _n_pics = len(photos)
+        _pics_str = f"{_n_pics} fotos" if _n_pics > 1 else "1 foto"
+        try:
+            if status_chat_id and status_message_id:
+                await context.bot.edit_message_text(
+                    chat_id=status_chat_id,
+                    message_id=status_message_id,
+                    text=(
+                        f"✅ NRO CLIENTE: <code>{nro_cliente}</code>\n"
+                        f"📍 <b>{tipo_pdv}</b>\n\n"
+                        f"⏳ Registrando {_pics_str}..."
+                    ),
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=None,
+                )
+            else:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=(
+                        f"✅ NRO CLIENTE: <code>{nro_cliente}</code>\n"
+                        f"📍 <b>{tipo_pdv}</b>\n\n"
+                        f"⏳ Registrando {_pics_str}..."
+                    ),
+                    parse_mode=ParseMode.HTML,
+                    reply_to_message_id=status_reply_to or (photos[0]["message_id"] if photos else None),
+                )
+        except Exception:
+            pass
+
+        # ── Subida y registro ────────────────────────────────────
+        procesadas = 0
+        fallidas = 0
+        exhibicion_ids: List[str] = []
+
+        self.logger.info(f"🚀 Iniciando procesamiento de {len(photos)} foto(s)...")
+
+        for photo_data in photos:
+            file_id = photo_data["file_id"]
+            ph_msg_id = photo_data["message_id"]
+
+            try:
+                file = await context.bot.get_file(file_id)
+                file_bytes = await file.download_as_bytearray()
+                self.logger.info(f"✅ Foto descargada: {len(file_bytes)} bytes")
+
+                filename = f"{nro_cliente}_{clean_code}_{int(time.time())}.jpg"
+                self.logger.info(f"📤 Subiendo a Supabase: {filename}...")
+                drive_link = await asyncio.to_thread(
+                    self.storage.upload,
+                    bytes(file_bytes),
+                    filename,
+                    self.nombre_dist,
+                )
+
+                if drive_link:
+                    self.logger.info(f"✅ Foto en Supabase: {drive_link[:80]}...")
+                    try:
+                        effective_uploader_id = uploader_id
+                        intercept = await asyncio.to_thread(
+                            self.db.lookup_soto_intercept,
+                            self.distribuidor_id, uploader_id, nro_cliente
+                        )
+                        if intercept:
+                            real_tuid = intercept.get("telegram_user_id_real")
+                            real_nombre = intercept.get("nombre_vendedor_real", "")
+                            if real_tuid:
+                                self.logger.info(
+                                    f"🔀 Intercepción franquiciado: UID {uploader_id} → "
+                                    f"UID {real_tuid} ({real_nombre}) para cliente '{nro_cliente}'"
+                                )
+                                effective_uploader_id = real_tuid
+
+                        params = {
+                            "distribuidor_id": self.distribuidor_id,
+                            "chat_id": chat_id,
+                            "vendedor_id": effective_uploader_id,
+                            "nro_cliente": nro_cliente,
+                            "tipo_pdv": tipo_pdv,
+                            "drive_link": drive_link,
+                            "telegram_msg_id": ph_msg_id,
+                            "telegram_chat_id": chat_id
+                        }
+                        rpc_result = await asyncio.to_thread(self.db.registrar_exhibicion, **params)
+
+                        if rpc_result.get("error") == "VENDEDOR_NO_REGISTRADO":
+                            self.logger.warning(f"⚠️ Vendedor {uploader_id} no registrado en DB. Reintentando registro...")
+                            success = await asyncio.to_thread(
+                                self._register_user_and_group,
+                                self.distribuidor_id, chat_id, chat_title, uploader_id,
+                                "", uploader_name
+                            )
+                            if success:
+                                rpc_result = await asyncio.to_thread(self.db.registrar_exhibicion, **params)
+
+                        estado_final = rpc_result.get("estado_final")
+                        ex_id = rpc_result.get("id_exhibicion")
+                        if ex_id:
+                            self.logger.info(f"✅ Exhibición registrada: ID {ex_id} | Estado: {estado_final}")
+                            exhibicion_ids.append({"id": ex_id, "estado": estado_final})
+                            procesadas += 1
+                        else:
+                            self.logger.warning(f"❌ Falló registro RPC: {rpc_result.get('error')}")
+                            fallidas += 1
+                    except Exception as db_err:
+                        self.logger.error(f"❌ ERROR REGISTRANDO EN BD: {db_err}")
+                        fallidas += 1
+                else:
+                    self.logger.warning("❌ Falló la subida a Supabase (drive_link vacío)")
+                    fallidas += 1
+            except Exception as e:
+                self.logger.error(f"❌ ERROR PROCESANDO FOTO: {e}")
+                fallidas += 1
+
+        self.logger.info(f"📊 RESUMEN: {procesadas} exitosas, {fallidas} fallidas")
+
+        if procesadas > 0:
+            await asyncio.to_thread(
+                self.db.upsert_pdv_tipo_observation,
+                self.distribuidor_id,
+                nro_cliente,
+                tipo_pdv,
+                source,
+            )
+            primera_id = exhibicion_ids[0]["id"]
+            en_cuarentena_flag = any(e["estado"] == "PENDIENTE" for e in exhibicion_ids)
+            msg_text = (
+                f"✅ <b>Exhibición registrada</b>\n\n"
+                f"🏪 <b>Cliente:</b> {nro_cliente}\n"
+                f"📍 <b>Tipo:</b> {tipo_pdv}\n"
+                f"📸 <b>Fotos:</b> {procesadas}"
+            )
+            sent_msg = await context.bot.send_message(
+                chat_id=chat_id,
+                text=msg_text,
+                parse_mode=ParseMode.HTML,
+                reply_to_message_id=photos[0]["message_id"],
+            )
+
+            for ex_data in exhibicion_ids:
+                await asyncio.to_thread(
+                    self.db.update_telegram_refs,
+                    ex_data["id"], sent_msg.message_id, chat_id
+                )
+            if en_cuarentena_flag:
+                self.logger.info(
+                    f"[Cuarentena] exhibición en revisión silenciosa "
+                    f"dist={self.distribuidor_id} chat={chat_id} uploader={uploader_id}"
+                )
+            self.active_msgs[sent_msg.message_id] = {
+                "exhibicion_id": primera_id,
+                "uploader_id": uploader_id,
+                "ref_msg": photos[0]["message_id"],
+            }
+            if fallidas > 0:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=f"⚠️ {fallidas} foto(s) no pudieron registrarse. Si falta alguna, reenviala.",
+                )
+        else:
+            first_msg = photos[0]["message_id"] if photos else None
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=(
+                    "⚠️ <b>Error de conexión con el servidor.</b>\n\n"
+                    f"No se pudo registrar la exhibición, {uploader_name}.\n"
+                    "Por favor <b>reenviá la foto</b>."
+                ),
+                parse_mode=ParseMode.HTML,
+                reply_to_message_id=first_msg,
+            )
+
+        self.upload_sessions.pop(uploader_id, None)
 
     async def button_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not update.callback_query:

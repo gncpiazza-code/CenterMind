@@ -67,6 +67,11 @@ Este documento describe la infraestructura, tecnologías y flujos de datos que c
 15. **Supervisión/Objectivos — PDVs inactivos visibles (Abr 2026)**:
     - `GET /api/supervision/clientes/{id_ruta}` ya no descarta `estado='inactivo'`, permitiendo prender/apagar el universo completo de PDVs del vendedor en mapa/listado.
     - `GET /api/supervision/pdvs-catalog/{dist_id}` devuelve también `estado` y `fecha_ultima_compra`; objetivos usa estos campos para priorizar activación y exhibición sobre clientes inactivos/rezagados.
+16. **Bot Telegram — tipo PDV silent-first (Abr 2026)**:
+    - Nueva tabla `pdv_tipo_profiles` (por `id_distribuidor + id_cliente_erp`) con `tipo_pdv_preferido`, `trust_level`, `confidence`, `tipo_counts`, `total_observaciones`.
+    - `handle_text` intenta inferir tipo por perfil: si confianza alta, registra exhibición sin preguntar botones; si no, mantiene selección manual.
+    - Cada carga exitosa actualiza el perfil (`upsert_pdv_tipo_observation`) para reforzar aprendizaje incremental.
+    - Script `backfill_pdv_tipo_profiles.py` inicializa perfiles desde histórico de `exhibiciones` para reducir preguntas desde el día 1.
 
 ---
 

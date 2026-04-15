@@ -9,6 +9,7 @@ Rutas:
   GET  /api/fuerza-ventas/telegram/grupos/{dist_id}
   GET  /api/fuerza-ventas/telegram/usuarios/{dist_id}?group_id=...
   POST /api/fuerza-ventas/vendedor/{id_vendedor}/autocompletar
+  GET  /api/fuerza-ventas/locations/{dist_id}
 
   GET  /api/galeria/vendedores/{dist_id}
   GET  /api/galeria/vendedor/{id_vendedor}/clientes
@@ -625,6 +626,43 @@ def fuerza_ventas_autocompletar(id_vendedor: int, payload=Depends(verify_auth)):
         raise
     except Exception as e:
         logger.error(f"[fuerza_ventas] autocompletar vid={id_vendedor}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Catálogo de ubicaciones del tenant ───────────────────────────────────────
+
+@router.get("/api/fuerza-ventas/locations/{dist_id}", tags=["Fuerza de Ventas"])
+def fuerza_ventas_locations(dist_id: int, payload=Depends(verify_auth)):
+    """Pares únicos (ciudad, localidad) de los vendedores del distribuidor.
+    Alimenta los Select de ciudad/localidad en VendedorEditSheet."""
+    check_dist_permission(payload, dist_id)
+    try:
+        r = (
+            sb.table("vendedores_perfil")
+            .select("ciudad, localidad")
+            .eq("id_distribuidor", dist_id)
+            .execute()
+        )
+        seen: set[tuple] = set()
+        result = []
+        for row in (r.data or []):
+            ciudad = (row.get("ciudad") or "").strip()
+            localidad = (row.get("localidad") or "").strip()
+            if not ciudad:
+                continue
+            key = (ciudad, localidad)
+            if key not in seen:
+                seen.add(key)
+                result.append({
+                    "location_id": f"{ciudad}__{localidad}",
+                    "label": localidad or ciudad,
+                    "ciudad": ciudad,
+                    "localidad": localidad,
+                })
+        result.sort(key=lambda x: (x["ciudad"], x["label"]))
+        return result
+    except Exception as e:
+        logger.error(f"[fuerza_ventas] locations dist={dist_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -848,7 +848,7 @@ export interface Location {
 }
 
 export async function fetchLocations(distId: number): Promise<Location[]> {
-  const data = await apiFetch<any[]>(`/api/admin/locations/${distId}`);
+  const data = await apiFetch<any[]>(`/api/fuerza-ventas/locations/${distId}`);
   return data.map(loc => ({
     ...loc,
     lng: loc.lng ?? loc.lon,

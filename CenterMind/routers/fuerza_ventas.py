@@ -976,11 +976,19 @@ def galeria_list_clientes_por_vendedor(
                 break
             offset_e += batch
 
-        # Última exhibición por id_cliente (código ERP del PDV)
+        def _norm_erp(v) -> str:
+            """Normaliza código ERP: strip + quita leading zeros para comparar."""
+            s = _safe_text(v).strip()
+            if not s or s in ("0", "S/C", "—"):
+                return ""
+            stripped = s.lstrip("0")
+            return stripped if stripped else "0"
+
+        # Última exhibición por id_cliente (código ERP del PDV, normalizado)
         ultima_por_cliente: dict[str, dict] = {}
         total_por_cliente: dict[str, int] = {}
         for ex in exhibiciones:
-            nro = _safe_text(ex.get("id_cliente")).strip()
+            nro = _norm_erp(ex.get("id_cliente"))
             if not nro:
                 continue
             if nro not in ultima_por_cliente:
@@ -996,7 +1004,7 @@ def galeria_list_clientes_por_vendedor(
             if cid in seen_ids:
                 continue
             seen_ids.add(cid)
-            erp_key = _safe_text(c.get("id_cliente_erp")).strip()
+            erp_key = _norm_erp(c.get("id_cliente_erp"))
             ultima = ultima_por_cliente.get(erp_key)
             total = total_por_cliente.get(erp_key, 0)
 

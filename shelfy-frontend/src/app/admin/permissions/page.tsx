@@ -36,10 +36,14 @@ const PERMISSION_KEYS: { key: string; label: string; group: string }[] = [
   { key: "menu_admin",        label: "Administrar",          group: "Menú" },
   { key: "menu_bonos",        label: "Bonos",                group: "Menú" },
   { key: "menu_academy",      label: "Academy",              group: "Menú" },
-  { key: "action_edit_objetivos",       label: "Editar Objetivos",         group: "Acciones" },
-  { key: "action_toggle_vendedores",    label: "Activar/Desactivar Vend.", group: "Acciones" },
-  { key: "action_evaluar_exhibiciones", label: "Evaluar Exhibiciones",     group: "Acciones" },
-  { key: "action_switch_tenant",        label: "Cambiar de Entorno (Tenant)", group: "Acciones" },
+  { key: "menu_fuerza_ventas",           label: "Fuerza de Ventas",         group: "Menú" },
+  { key: "menu_galeria_exhibiciones",    label: "Galería de Exhibiciones",  group: "Menú" },
+  { key: "action_edit_objetivos",        label: "Editar Objetivos",         group: "Acciones" },
+  { key: "action_toggle_vendedores",     label: "Activar/Desactivar Vend.", group: "Acciones" },
+  { key: "action_evaluar_exhibiciones",  label: "Evaluar Exhibiciones",     group: "Acciones" },
+  { key: "action_switch_tenant",         label: "Cambiar de Entorno (Tenant)", group: "Acciones" },
+  { key: "action_edit_fuerza_ventas",    label: "Editar Fuerza de Ventas",  group: "Acciones" },
+  { key: "action_view_galeria_detalle",  label: "Ver Detalle Galería",      group: "Acciones" },
 ];
 
 const PERMISSION_GROUPS = Array.from(new Set(PERMISSION_KEYS.map(p => p.group)));

@@ -6,7 +6,8 @@ import React, { useState, useEffect, useMemo } from "react";
 import {
   LayoutDashboard, Eye, Users, BarChart2, Gift, LogOut,
   ChevronDown, ChevronRight, Activity, MapPin, Globe,
-  PanelLeftClose, PanelLeft, Briefcase, Route, Monitor, Target, ShieldCheck
+  PanelLeftClose, PanelLeft, Briefcase, Route, Monitor, Target, ShieldCheck,
+  UserCog, Images
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { fetchDistribuidores } from "@/lib/api";
@@ -45,6 +46,8 @@ const ALL_NAV: NavItem[] = [
   { href: "/admin/dashboard",   label: "Panel Global",  icon: Activity,       roles: ["superadmin"] },
   { href: "/admin/mapa",        label: "Mapa en Vivo",  icon: MapPin,         roles: ["superadmin"] },
   { href: "/modo-oficina",      label: "Modo Oficina",  icon: Monitor,        roles: ["superadmin", "admin", "supervisor", "directorio", "evaluador"], permisoKey: "menu_modo_oficina" },
+  { href: "/fuerza-ventas",     label: "Fuerza de Ventas", icon: UserCog,     roles: ["superadmin", "admin", "supervisor", "directorio"], permisoKey: "menu_fuerza_ventas" },
+  { href: "/galeria-exhibiciones", label: "Galería",      icon: Images,        roles: ["superadmin", "admin", "supervisor", "directorio", "evaluador"], permisoKey: "menu_galeria_exhibiciones" },
 ];
 
 const ROL_LABEL: Record<string, string> = {

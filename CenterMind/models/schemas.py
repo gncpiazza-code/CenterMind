@@ -199,3 +199,67 @@ class RolePermission(BaseModel):
 
 class RolePermissionUpdate(BaseModel):
     permissions: List[RolePermission]
+
+
+# ── Fuerza de Ventas ──────────────────────────────────────────────────────────
+
+class VendedorPerfilUpdateRequest(BaseModel):
+    foto_url: Optional[str] = None
+    ciudad: Optional[str] = None
+    localidad: Optional[str] = None
+    fecha_ingreso: Optional[str] = None
+    activo: Optional[bool] = None
+
+
+class VendedorTelegramBindingRequest(BaseModel):
+    telegram_group_id: Optional[int] = None
+    telegram_user_id: Optional[int] = None
+    autocompletado_origen: Optional[dict] = None
+
+
+class AutocompletarVendedorResponse(BaseModel):
+    id_vendedor_v2: int
+    sugerencia_telegram_group_id: Optional[int] = None
+    sugerencia_telegram_user_id: Optional[int] = None
+    nombre_grupo_sugerido: Optional[str] = None
+    nombre_usuario_sugerido: Optional[str] = None
+    score: float
+    confianza: str  # 'alta' | 'media' | 'baja'
+    campos_sugeridos: dict
+
+
+# ── Galería de Exhibiciones ───────────────────────────────────────────────────
+
+class GaleriaVendedorStats(BaseModel):
+    id_vendedor: int
+    nombre_erp: str
+    sucursal_nombre: Optional[str] = None
+    foto_url: Optional[str] = None
+    total_exhibiciones: int
+    aprobadas: int
+    rechazadas: int
+    destacadas: int
+    pendientes: int
+
+
+class GaleriaClienteCard(BaseModel):
+    id_cliente: int
+    id_cliente_erp: Optional[str] = None
+    nombre_cliente: str
+    nombre_fantasia: Optional[str] = None
+    ultima_exhibicion_url: Optional[str] = None
+    ultima_exhibicion_fecha: Optional[str] = None
+    ultimo_estado: Optional[str] = None
+    fecha_ultima_compra: Optional[str] = None
+    total_exhibiciones: int
+
+
+class GaleriaTimelineItem(BaseModel):
+    id_exhibicion: int
+    url_foto: str
+    estado: str
+    timestamp_subida: str
+    fecha_evaluacion: Optional[str] = None
+    supervisor: Optional[str] = None
+    comentario: Optional[str] = None
+    tipo_pdv: Optional[str] = None

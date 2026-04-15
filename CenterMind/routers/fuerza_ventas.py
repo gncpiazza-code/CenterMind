@@ -1,0 +1,679 @@
+# -*- coding: utf-8 -*-
+"""
+Fuerza de Ventas y Galería de Exhibiciones.
+
+Rutas:
+  GET  /api/fuerza-ventas/vendedores/{dist_id}
+  GET  /api/fuerza-ventas/vendedor/{id_vendedor}
+  PUT  /api/fuerza-ventas/vendedor/{id_vendedor}
+  GET  /api/fuerza-ventas/telegram/grupos/{dist_id}
+  GET  /api/fuerza-ventas/telegram/usuarios/{dist_id}?group_id=...
+  POST /api/fuerza-ventas/vendedor/{id_vendedor}/autocompletar
+
+  GET  /api/galeria/vendedores/{dist_id}
+  GET  /api/galeria/vendedor/{id_vendedor}/clientes
+  GET  /api/galeria/cliente/{id_cliente_pdv}/timeline
+"""
+import logging
+import unicodedata
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from core.security import verify_auth, check_dist_permission
+from db import sb
+from models.schemas import (
+    VendedorPerfilUpdateRequest,
+    VendedorTelegramBindingRequest,
+    AutocompletarVendedorResponse,
+    GaleriaVendedorStats,
+    GaleriaClienteCard,
+    GaleriaTimelineItem,
+)
+
+logger = logging.getLogger("ShelfyAPI")
+router = APIRouter()
+
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+def _normalize(s: str) -> str:
+    """Normaliza texto: minúsculas, sin acentos."""
+    return "".join(
+        c for c in unicodedata.normalize("NFD", s.lower())
+        if unicodedata.category(c) != "Mn"
+    )
+
+
+def _get_vendedor_dist(id_vendedor: int) -> Optional[int]:
+    """Devuelve id_distribuidor del vendedor o None si no existe."""
+    r = (
+        sb.table("vendedores_v2")
+        .select("id_distribuidor")
+        .eq("id_vendedor", id_vendedor)
+        .limit(1)
+        .execute()
+    )
+    return r.data[0]["id_distribuidor"] if r.data else None
+
+
+# ── Fuerza de Ventas — Catálogo ───────────────────────────────────────────────
+
+@router.get("/api/fuerza-ventas/vendedores/{dist_id}", tags=["Fuerza de Ventas"])
+def fuerza_ventas_list_vendedores(dist_id: int, payload=Depends(verify_auth)):
+    check_dist_permission(payload, dist_id)
+    try:
+        vend_r = (
+            sb.table("vendedores_v2")
+            .select("id_vendedor, nombre_erp, id_sucursal")
+            .eq("id_distribuidor", dist_id)
+            .order("nombre_erp")
+            .execute()
+        )
+        vendedores = vend_r.data or []
+        id_vendedor_list = [v["id_vendedor"] for v in vendedores]
+        if not id_vendedor_list:
+            return []
+
+        # Sucursales
+        suc_r = (
+            sb.table("sucursales_v2")
+            .select("id_sucursal, nombre_erp")
+            .eq("id_distribuidor", dist_id)
+            .execute()
+        )
+        suc_map = {s["id_sucursal"]: s["nombre_erp"] for s in (suc_r.data or [])}
+
+        # Perfiles
+        perfil_r = (
+            sb.table("vendedores_perfil")
+            .select("id_vendedor_v2, foto_url, ciudad, localidad, fecha_ingreso, activo")
+            .eq("id_distribuidor", dist_id)
+            .execute()
+        )
+        perfil_map = {p["id_vendedor_v2"]: p for p in (perfil_r.data or [])}
+
+        # Bindings Telegram
+        binding_r = (
+            sb.table("vendedores_telegram_binding")
+            .select("id_vendedor_v2, telegram_group_id, telegram_user_id")
+            .eq("id_distribuidor", dist_id)
+            .execute()
+        )
+        binding_map = {b["id_vendedor_v2"]: b for b in (binding_r.data or [])}
+
+        result = []
+        for v in vendedores:
+            vid = v["id_vendedor"]
+            perfil = perfil_map.get(vid, {})
+            binding = binding_map.get(vid, {})
+            result.append({
+                "id_vendedor": vid,
+                "nombre_erp": v["nombre_erp"],
+                "sucursal_nombre": suc_map.get(v["id_sucursal"]),
+                "foto_url": perfil.get("foto_url"),
+                "ciudad": perfil.get("ciudad"),
+                "localidad": perfil.get("localidad"),
+                "fecha_ingreso": perfil.get("fecha_ingreso"),
+                "activo": perfil.get("activo", True),
+                "telegram_group_id": binding.get("telegram_group_id"),
+                "telegram_user_id": binding.get("telegram_user_id"),
+                "tiene_binding": bool(binding.get("telegram_user_id")),
+            })
+        return result
+    except Exception as e:
+        logger.error(f"[fuerza_ventas] list_vendedores dist={dist_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/fuerza-ventas/vendedor/{id_vendedor}", tags=["Fuerza de Ventas"])
+def fuerza_ventas_get_vendedor(id_vendedor: int, payload=Depends(verify_auth)):
+    dist_id = _get_vendedor_dist(id_vendedor)
+    if dist_id is None:
+        raise HTTPException(status_code=404, detail="Vendedor no encontrado")
+    check_dist_permission(payload, dist_id)
+    try:
+        v_r = (
+            sb.table("vendedores_v2")
+            .select("id_vendedor, nombre_erp, id_sucursal, id_distribuidor")
+            .eq("id_vendedor", id_vendedor)
+            .limit(1)
+            .execute()
+        )
+        if not v_r.data:
+            raise HTTPException(status_code=404, detail="Vendedor no encontrado")
+        v = v_r.data[0]
+
+        suc_r = (
+            sb.table("sucursales_v2")
+            .select("nombre_erp")
+            .eq("id_sucursal", v["id_sucursal"])
+            .limit(1)
+            .execute()
+        )
+        sucursal_nombre = suc_r.data[0]["nombre_erp"] if suc_r.data else None
+
+        perfil_r = (
+            sb.table("vendedores_perfil")
+            .select("foto_url, ciudad, localidad, fecha_ingreso, activo")
+            .eq("id_vendedor_v2", id_vendedor)
+            .eq("id_distribuidor", dist_id)
+            .limit(1)
+            .execute()
+        )
+        perfil = perfil_r.data[0] if perfil_r.data else {}
+
+        binding_r = (
+            sb.table("vendedores_telegram_binding")
+            .select("telegram_group_id, telegram_user_id, updated_by, updated_at")
+            .eq("id_vendedor_v2", id_vendedor)
+            .eq("id_distribuidor", dist_id)
+            .limit(1)
+            .execute()
+        )
+        binding = binding_r.data[0] if binding_r.data else {}
+
+        return {
+            "id_vendedor": id_vendedor,
+            "nombre_erp": v["nombre_erp"],
+            "id_sucursal": v["id_sucursal"],
+            "sucursal_nombre": sucursal_nombre,
+            "id_distribuidor": dist_id,
+            "foto_url": perfil.get("foto_url"),
+            "ciudad": perfil.get("ciudad"),
+            "localidad": perfil.get("localidad"),
+            "fecha_ingreso": perfil.get("fecha_ingreso"),
+            "activo": perfil.get("activo", True),
+            "telegram_group_id": binding.get("telegram_group_id"),
+            "telegram_user_id": binding.get("telegram_user_id"),
+            "binding_updated_by": binding.get("updated_by"),
+            "binding_updated_at": binding.get("updated_at"),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[fuerza_ventas] get_vendedor vid={id_vendedor}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/api/fuerza-ventas/vendedor/{id_vendedor}", tags=["Fuerza de Ventas"])
+def fuerza_ventas_update_vendedor(
+    id_vendedor: int,
+    perfil_req: VendedorPerfilUpdateRequest,
+    binding_req: Optional[VendedorTelegramBindingRequest] = None,
+    payload=Depends(verify_auth),
+):
+    """Actualiza perfil y/o binding Telegram de un vendedor."""
+    dist_id = _get_vendedor_dist(id_vendedor)
+    if dist_id is None:
+        raise HTTPException(status_code=404, detail="Vendedor no encontrado")
+    check_dist_permission(payload, dist_id)
+
+    # Permiso de edición
+    permisos = payload.get("permisos", {})
+    is_superadmin = payload.get("is_superadmin", False)
+    if not is_superadmin and not permisos.get("action_edit_fuerza_ventas"):
+        raise HTTPException(status_code=403, detail="Sin permiso para editar fuerza de ventas")
+
+    try:
+        # Upsert perfil
+        perfil_data = perfil_req.model_dump(exclude_none=True)
+        if perfil_data:
+            sb.table("vendedores_perfil").upsert({
+                "id_distribuidor": dist_id,
+                "id_vendedor_v2": id_vendedor,
+                **perfil_data,
+            }, on_conflict="id_distribuidor,id_vendedor_v2").execute()
+
+        # Upsert binding
+        if binding_req is not None:
+            binding_data = binding_req.model_dump(exclude_none=True)
+            if binding_data:
+                sb.table("vendedores_telegram_binding").upsert({
+                    "id_distribuidor": dist_id,
+                    "id_vendedor_v2": id_vendedor,
+                    "updated_by": payload.get("usuario", "portal"),
+                    **binding_data,
+                }, on_conflict="id_distribuidor,id_vendedor_v2").execute()
+
+        return {"ok": True, "id_vendedor": id_vendedor}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[fuerza_ventas] update_vendedor vid={id_vendedor}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Telegram — grupos y usuarios ─────────────────────────────────────────────
+
+@router.get("/api/fuerza-ventas/telegram/grupos/{dist_id}", tags=["Fuerza de Ventas"])
+def fuerza_ventas_list_grupos_telegram(dist_id: int, payload=Depends(verify_auth)):
+    check_dist_permission(payload, dist_id)
+    try:
+        r = (
+            sb.table("grupos")
+            .select("id, nombre_grupo, telegram_group_id")
+            .eq("id_distribuidor", dist_id)
+            .order("nombre_grupo")
+            .execute()
+        )
+        return r.data or []
+    except Exception as e:
+        logger.error(f"[fuerza_ventas] list_grupos dist={dist_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/fuerza-ventas/telegram/usuarios/{dist_id}", tags=["Fuerza de Ventas"])
+def fuerza_ventas_list_usuarios_grupo(
+    dist_id: int,
+    group_id: Optional[int] = Query(None),
+    payload=Depends(verify_auth),
+):
+    check_dist_permission(payload, dist_id)
+    try:
+        q = (
+            sb.table("integrantes_grupo")
+            .select("id, nombre_integrante, telegram_user_id, rol_telegram, id_grupo")
+            .eq("id_distribuidor", dist_id)
+        )
+        if group_id is not None:
+            q = q.eq("id_grupo", group_id)
+        q = q.order("nombre_integrante")
+        r = q.execute()
+        return r.data or []
+    except Exception as e:
+        logger.error(f"[fuerza_ventas] list_usuarios_grupo dist={dist_id} group={group_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Autocompletar con heurística ─────────────────────────────────────────────
+
+@router.post("/api/fuerza-ventas/vendedor/{id_vendedor}/autocompletar", tags=["Fuerza de Ventas"])
+def fuerza_ventas_autocompletar(id_vendedor: int, payload=Depends(verify_auth)):
+    """
+    Heurística determinista para sugerir binding Telegram.
+    Estrategia:
+    1. Si ya existe binding en integrantes_grupo con mismo id_vendedor_erp → score 1.0
+    2. Match de nombre normalizado entre nombre_erp del vendedor e integrantes → score 0.6-0.9
+    3. Historial de exhibiciones (telegram_user_id del último upload) → score 0.5
+    """
+    dist_id = _get_vendedor_dist(id_vendedor)
+    if dist_id is None:
+        raise HTTPException(status_code=404, detail="Vendedor no encontrado")
+    check_dist_permission(payload, dist_id)
+
+    try:
+        # Obtener datos del vendedor
+        v_r = (
+            sb.table("vendedores_v2")
+            .select("nombre_erp, id_vendedor_erp")
+            .eq("id_vendedor", id_vendedor)
+            .limit(1)
+            .execute()
+        )
+        if not v_r.data:
+            raise HTTPException(status_code=404, detail="Vendedor no encontrado")
+        vendedor = v_r.data[0]
+        nombre_erp_norm = _normalize(vendedor["nombre_erp"] or "")
+        id_erp = str(vendedor.get("id_vendedor_erp") or "")
+
+        # Todos los integrantes del distribuidor
+        integrantes_r = (
+            sb.table("integrantes_grupo")
+            .select("id, nombre_integrante, telegram_user_id, id_grupo, id_vendedor_erp")
+            .eq("id_distribuidor", dist_id)
+            .execute()
+        )
+        integrantes = integrantes_r.data or []
+
+        best_score = 0.0
+        best_integrante = None
+
+        for ig in integrantes:
+            score = 0.0
+            # Estrategia 1: match por id_vendedor_erp exacto
+            if id_erp and str(ig.get("id_vendedor_erp") or "") == id_erp:
+                score = 1.0
+            else:
+                # Estrategia 2: match de nombre
+                nombre_ig_norm = _normalize(ig.get("nombre_integrante") or "")
+                if nombre_erp_norm and nombre_ig_norm:
+                    words_erp = set(nombre_erp_norm.split())
+                    words_ig = set(nombre_ig_norm.split())
+                    if words_erp and words_ig:
+                        overlap = len(words_erp & words_ig) / max(len(words_erp), len(words_ig))
+                        score = round(overlap * 0.9, 3)
+
+            if score > best_score:
+                best_score = score
+                best_integrante = ig
+
+        if best_score < 0.3 or best_integrante is None:
+            return AutocompletarVendedorResponse(
+                id_vendedor_v2=id_vendedor,
+                score=0.0,
+                confianza="baja",
+                campos_sugeridos={},
+            )
+
+        # Obtener grupo del integrante
+        grupo_id = best_integrante.get("id_grupo")
+        grupo_nombre = None
+        if grupo_id:
+            g_r = (
+                sb.table("grupos")
+                .select("nombre_grupo, telegram_group_id")
+                .eq("id", grupo_id)
+                .limit(1)
+                .execute()
+            )
+            if g_r.data:
+                grupo_nombre = g_r.data[0]["nombre_grupo"]
+                telegram_group_id = g_r.data[0].get("telegram_group_id")
+            else:
+                telegram_group_id = None
+        else:
+            telegram_group_id = None
+
+        confianza = "alta" if best_score >= 0.8 else "media" if best_score >= 0.5 else "baja"
+
+        return AutocompletarVendedorResponse(
+            id_vendedor_v2=id_vendedor,
+            sugerencia_telegram_group_id=telegram_group_id,
+            sugerencia_telegram_user_id=best_integrante.get("telegram_user_id"),
+            nombre_grupo_sugerido=grupo_nombre,
+            nombre_usuario_sugerido=best_integrante.get("nombre_integrante"),
+            score=best_score,
+            confianza=confianza,
+            campos_sugeridos={
+                "telegram_group_id": telegram_group_id,
+                "telegram_user_id": best_integrante.get("telegram_user_id"),
+                "nombre_integrante": best_integrante.get("nombre_integrante"),
+            },
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[fuerza_ventas] autocompletar vid={id_vendedor}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Galería de Exhibiciones ───────────────────────────────────────────────────
+
+@router.get("/api/galeria/vendedores/{dist_id}", tags=["Galería"])
+def galeria_list_vendedores(dist_id: int, payload=Depends(verify_auth)):
+    """Métricas de exhibiciones agrupadas por vendedor."""
+    check_dist_permission(payload, dist_id)
+    try:
+        # Vendedores
+        vend_r = (
+            sb.table("vendedores_v2")
+            .select("id_vendedor, nombre_erp, id_sucursal")
+            .eq("id_distribuidor", dist_id)
+            .order("nombre_erp")
+            .execute()
+        )
+        vendedores = vend_r.data or []
+        if not vendedores:
+            return []
+
+        # Sucursales
+        suc_r = (
+            sb.table("sucursales_v2")
+            .select("id_sucursal, nombre_erp")
+            .eq("id_distribuidor", dist_id)
+            .execute()
+        )
+        suc_map = {s["id_sucursal"]: s["nombre_erp"] for s in (suc_r.data or [])}
+
+        # Fotos de perfil
+        perfil_r = (
+            sb.table("vendedores_perfil")
+            .select("id_vendedor_v2, foto_url")
+            .eq("id_distribuidor", dist_id)
+            .execute()
+        )
+        foto_map = {p["id_vendedor_v2"]: p.get("foto_url") for p in (perfil_r.data or [])}
+
+        # Mapping integrante → vendedor para cruzar exhibiciones
+        integ_r = (
+            sb.table("integrantes_grupo")
+            .select("id, id_vendedor_v2")
+            .eq("id_distribuidor", dist_id)
+            .execute()
+        )
+        # integrante.id → id_vendedor_v2
+        integ_vend_map: dict[int, int] = {}
+        for ig in (integ_r.data or []):
+            if ig.get("id_vendedor_v2"):
+                integ_vend_map[ig["id"]] = ig["id_vendedor_v2"]
+
+        # Exhibiciones del distribuidor (paginado)
+        exhibiciones: list[dict] = []
+        batch, offset_e = 1000, 0
+        while True:
+            ex_r = (
+                sb.table("exhibiciones")
+                .select("id_exhibicion, id_integrante, estado")
+                .eq("id_distribuidor", dist_id)
+                .range(offset_e, offset_e + batch - 1)
+                .execute()
+            )
+            chunk = ex_r.data or []
+            exhibiciones.extend(chunk)
+            if len(chunk) < batch:
+                break
+            offset_e += batch
+
+        # Agregar por vendedor
+        stats: dict[int, dict] = {}
+        for v in vendedores:
+            vid = v["id_vendedor"]
+            stats[vid] = {
+                "id_vendedor": vid,
+                "nombre_erp": v["nombre_erp"],
+                "sucursal_nombre": suc_map.get(v["id_sucursal"]),
+                "foto_url": foto_map.get(vid),
+                "total_exhibiciones": 0,
+                "aprobadas": 0,
+                "rechazadas": 0,
+                "destacadas": 0,
+                "pendientes": 0,
+            }
+
+        for ex in exhibiciones:
+            ig_id = ex.get("id_integrante")
+            vid = integ_vend_map.get(ig_id)  # type: ignore
+            if vid is None or vid not in stats:
+                continue
+            estado = (ex.get("estado") or "").lower()
+            stats[vid]["total_exhibiciones"] += 1
+            if estado == "aprobada":
+                stats[vid]["aprobadas"] += 1
+            elif estado == "rechazada":
+                stats[vid]["rechazadas"] += 1
+            elif estado == "destacada":
+                stats[vid]["destacadas"] += 1
+            else:
+                stats[vid]["pendientes"] += 1
+
+        return list(stats.values())
+    except Exception as e:
+        logger.error(f"[galeria] list_vendedores dist={dist_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/galeria/vendedor/{id_vendedor}/clientes", tags=["Galería"])
+def galeria_list_clientes_por_vendedor(id_vendedor: int, payload=Depends(verify_auth)):
+    """Última exhibición por cliente para un vendedor."""
+    dist_id = _get_vendedor_dist(id_vendedor)
+    if dist_id is None:
+        raise HTTPException(status_code=404, detail="Vendedor no encontrado")
+    check_dist_permission(payload, dist_id)
+
+    try:
+        # Integrantes del vendedor
+        integ_r = (
+            sb.table("integrantes_grupo")
+            .select("id")
+            .eq("id_distribuidor", dist_id)
+            .eq("id_vendedor_v2", id_vendedor)
+            .execute()
+        )
+        integ_ids = [ig["id"] for ig in (integ_r.data or [])]
+        if not integ_ids:
+            return []
+
+        # Clientes de las rutas del vendedor
+        rutas_r = (
+            sb.table("rutas_v2")
+            .select("id_ruta")
+            .eq("id_vendedor", id_vendedor)
+            .execute()
+        )
+        ruta_ids = [r["id_ruta"] for r in (rutas_r.data or [])]
+
+        clientes_pdv: list[dict] = []
+        if ruta_ids:
+            for i in range(0, len(ruta_ids), 50):
+                chunk_ids = ruta_ids[i:i+50]
+                cpv_r = (
+                    sb.table("clientes_pdv_v2")
+                    .select("id_cliente, id_cliente_erp, nombre_cliente, nombre_fantasia, fecha_ultima_compra")
+                    .eq("id_distribuidor", dist_id)
+                    .in_("id_ruta", chunk_ids)
+                    .neq("estado", "inactivo")
+                    .execute()
+                )
+                clientes_pdv.extend(cpv_r.data or [])
+
+        if not clientes_pdv:
+            return []
+
+        cliente_ids = list({c["id_cliente"] for c in clientes_pdv})
+        cliente_info = {c["id_cliente"]: c for c in clientes_pdv}
+
+        # Última exhibición por cliente (paginado)
+        exhibiciones: list[dict] = []
+        for i in range(0, len(cliente_ids), 100):
+            chunk = cliente_ids[i:i+100]
+            ex_r = (
+                sb.table("exhibiciones")
+                .select("id_exhibicion, nro_cliente, url_foto_drive, estado, timestamp_subida, id_integrante")
+                .eq("id_distribuidor", dist_id)
+                .in_("id_integrante", integ_ids)
+                .order("timestamp_subida", desc=True)
+                .execute()
+            )
+            exhibiciones.extend(ex_r.data or [])
+
+        # Última exhibición por nro_cliente
+        ultima_por_cliente: dict[str, dict] = {}
+        for ex in exhibiciones:
+            nro = str(ex.get("nro_cliente") or "").strip()
+            if nro and nro not in ultima_por_cliente:
+                ultima_por_cliente[nro] = ex
+
+        result = []
+        seen_ids: set[int] = set()
+        for c in clientes_pdv:
+            cid = c["id_cliente"]
+            if cid in seen_ids:
+                continue
+            seen_ids.add(cid)
+            erp_key = str(c.get("id_cliente_erp") or "").strip()
+            ultima = ultima_por_cliente.get(erp_key)
+            conteo_r = (
+                sb.table("exhibiciones")
+                .select("id_exhibicion", count="exact")
+                .eq("id_distribuidor", dist_id)
+                .in_("id_integrante", integ_ids)
+                .eq("nro_cliente", erp_key)
+                .execute()
+            ) if erp_key else None
+            total = conteo_r.count if conteo_r else 0
+
+            result.append(GaleriaClienteCard(
+                id_cliente=cid,
+                id_cliente_erp=c.get("id_cliente_erp"),
+                nombre_cliente=c.get("nombre_cliente", ""),
+                nombre_fantasia=c.get("nombre_fantasia"),
+                ultima_exhibicion_url=ultima.get("url_foto_drive") if ultima else None,
+                ultima_exhibicion_fecha=ultima.get("timestamp_subida") if ultima else None,
+                ultimo_estado=ultima.get("estado") if ultima else None,
+                fecha_ultima_compra=c.get("fecha_ultima_compra"),
+                total_exhibiciones=total or 0,
+            ))
+
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[galeria] clientes_por_vendedor vid={id_vendedor}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/galeria/cliente/{id_cliente_pdv}/timeline", tags=["Galería"])
+def galeria_timeline_cliente(
+    id_cliente_pdv: int,
+    dist_id: int = Query(...),
+    payload=Depends(verify_auth),
+):
+    """Timeline completo de exhibiciones de un PDV."""
+    check_dist_permission(payload, dist_id)
+    try:
+        # Obtener id_cliente_erp del PDV
+        cpv_r = (
+            sb.table("clientes_pdv_v2")
+            .select("id_cliente_erp, nombre_cliente")
+            .eq("id_cliente", id_cliente_pdv)
+            .eq("id_distribuidor", dist_id)
+            .limit(1)
+            .execute()
+        )
+        if not cpv_r.data:
+            raise HTTPException(status_code=404, detail="Cliente no encontrado")
+        id_erp = str(cpv_r.data[0].get("id_cliente_erp") or "").strip()
+        if not id_erp:
+            return []
+
+        # Exhibiciones del cliente paginadas
+        exhibiciones: list[dict] = []
+        batch, offset_e = 200, 0
+        while True:
+            ex_r = (
+                sb.table("exhibiciones")
+                .select(
+                    "id_exhibicion, url_foto_drive, estado, timestamp_subida, "
+                    "fecha_evaluacion, supervisor, comentario, tipo_pdv"
+                )
+                .eq("id_distribuidor", dist_id)
+                .eq("nro_cliente", id_erp)
+                .order("timestamp_subida", desc=True)
+                .range(offset_e, offset_e + batch - 1)
+                .execute()
+            )
+            chunk = ex_r.data or []
+            exhibiciones.extend(chunk)
+            if len(chunk) < batch:
+                break
+            offset_e += batch
+
+        return [
+            GaleriaTimelineItem(
+                id_exhibicion=ex["id_exhibicion"],
+                url_foto=ex.get("url_foto_drive", ""),
+                estado=ex.get("estado", "Pendiente"),
+                timestamp_subida=ex.get("timestamp_subida", ""),
+                fecha_evaluacion=ex.get("fecha_evaluacion"),
+                supervisor=ex.get("supervisor"),
+                comentario=ex.get("comentario"),
+                tipo_pdv=ex.get("tipo_pdv"),
+            )
+            for ex in exhibiciones
+        ]
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[galeria] timeline cliente={id_cliente_pdv} dist={dist_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

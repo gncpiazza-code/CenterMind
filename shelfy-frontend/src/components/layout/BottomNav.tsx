@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Eye, Users, BarChart2, Gift, GraduationCap, Route, Target, Monitor } from "lucide-react";
+import { LayoutDashboard, Eye, Users, BarChart2, Gift, GraduationCap, Route, Target, Monitor, UserCog, Images } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 
 interface MobileNavItem {
@@ -22,7 +22,9 @@ const ALL_NAV: MobileNavItem[] = [
   { href: "/reportes",    label: "Reportes",     icon: BarChart2,       roles: ["superadmin", "admin", "supervisor"] },
   { href: "/bonos",       label: "Bonos",        icon: Gift,            roles: ["superadmin", "admin"] },
   { href: "/academy",     label: "Academy",      icon: GraduationCap,   roles: ["superadmin", "admin"] },
-  { href: "/admin",       label: "Admin",        icon: Users,           roles: ["superadmin", "admin"] },
+  { href: "/admin",              label: "Admin",     icon: Users,    roles: ["superadmin", "admin"] },
+  { href: "/fuerza-ventas",     label: "F.Ventas",  icon: UserCog,  roles: ["superadmin", "admin", "supervisor", "directorio"], permisoKey: "menu_fuerza_ventas" },
+  { href: "/galeria-exhibiciones", label: "Galería", icon: Images,  roles: ["superadmin", "admin", "supervisor", "directorio", "evaluador"], permisoKey: "menu_galeria_exhibiciones" },
 ];
 
 export function BottomNav() {

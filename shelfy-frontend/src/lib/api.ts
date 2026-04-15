@@ -557,6 +557,156 @@ export async function fetchUnifiedDashboard(): Promise<UnifiedDistributor[]> {
   return apiFetch<UnifiedDistributor[]>("/api/admin/unified-dashboard");
 }
 
+// ── Fuerza de Ventas ─────────────────────────────────────────────────────────
+
+export interface FuerzaVentasVendedor {
+  id_vendedor: number;
+  nombre_erp: string;
+  sucursal_nombre: string | null;
+  foto_url: string | null;
+  ciudad: string | null;
+  localidad: string | null;
+  fecha_ingreso: string | null;
+  activo: boolean;
+  telegram_group_id: number | null;
+  telegram_user_id: number | null;
+  tiene_binding: boolean;
+}
+
+export interface FuerzaVentasVendedorDetalle extends FuerzaVentasVendedor {
+  id_sucursal: number | null;
+  id_distribuidor: number;
+  binding_updated_by: string | null;
+  binding_updated_at: string | null;
+}
+
+export interface FuerzaVentasPerfilUpdate {
+  foto_url?: string;
+  ciudad?: string;
+  localidad?: string;
+  fecha_ingreso?: string;
+  activo?: boolean;
+}
+
+export interface FuerzaVentasTelegramBinding {
+  telegram_group_id?: number;
+  telegram_user_id?: number;
+}
+
+export interface AutocompletarResponse {
+  id_vendedor_v2: number;
+  sugerencia_telegram_group_id: number | null;
+  sugerencia_telegram_user_id: number | null;
+  nombre_grupo_sugerido: string | null;
+  nombre_usuario_sugerido: string | null;
+  score: number;
+  confianza: "alta" | "media" | "baja";
+  campos_sugeridos: Record<string, unknown>;
+}
+
+export interface TelegramGrupo {
+  id: number;
+  nombre_grupo: string;
+  telegram_group_id: number | null;
+}
+
+export interface TelegramIntegrante {
+  id: number;
+  nombre_integrante: string;
+  telegram_user_id: number | null;
+  rol_telegram: string | null;
+  id_grupo: number | null;
+}
+
+export async function fetchFuerzaVentasVendedores(distId: number): Promise<FuerzaVentasVendedor[]> {
+  return apiFetch<FuerzaVentasVendedor[]>(`/api/fuerza-ventas/vendedores/${distId}`);
+}
+
+export async function fetchFuerzaVentasVendedor(idVendedor: number): Promise<FuerzaVentasVendedorDetalle> {
+  return apiFetch<FuerzaVentasVendedorDetalle>(`/api/fuerza-ventas/vendedor/${idVendedor}`);
+}
+
+export async function updateFuerzaVentasVendedor(
+  idVendedor: number,
+  perfil: FuerzaVentasPerfilUpdate,
+  binding?: FuerzaVentasTelegramBinding,
+): Promise<{ ok: boolean; id_vendedor: number }> {
+  return apiFetch(`/api/fuerza-ventas/vendedor/${idVendedor}`, {
+    method: "PUT",
+    body: JSON.stringify({ perfil_req: perfil, binding_req: binding }),
+  });
+}
+
+export async function fetchTelegramGruposFuerzaVentas(distId: number): Promise<TelegramGrupo[]> {
+  return apiFetch<TelegramGrupo[]>(`/api/fuerza-ventas/telegram/grupos/${distId}`);
+}
+
+export async function fetchTelegramUsuariosGrupoFuerzaVentas(
+  distId: number,
+  groupId?: number,
+): Promise<TelegramIntegrante[]> {
+  const qs = groupId != null ? `?group_id=${groupId}` : "";
+  return apiFetch<TelegramIntegrante[]>(`/api/fuerza-ventas/telegram/usuarios/${distId}${qs}`);
+}
+
+export async function autocompletarFuerzaVentas(idVendedor: number): Promise<AutocompletarResponse> {
+  return apiFetch<AutocompletarResponse>(`/api/fuerza-ventas/vendedor/${idVendedor}/autocompletar`, {
+    method: "POST",
+  });
+}
+
+// ── Galería de Exhibiciones ───────────────────────────────────────────────────
+
+export interface GaleriaVendedorStats {
+  id_vendedor: number;
+  nombre_erp: string;
+  sucursal_nombre: string | null;
+  foto_url: string | null;
+  total_exhibiciones: number;
+  aprobadas: number;
+  rechazadas: number;
+  destacadas: number;
+  pendientes: number;
+}
+
+export interface GaleriaClienteCard {
+  id_cliente: number;
+  id_cliente_erp: string | null;
+  nombre_cliente: string;
+  nombre_fantasia: string | null;
+  ultima_exhibicion_url: string | null;
+  ultima_exhibicion_fecha: string | null;
+  ultimo_estado: string | null;
+  fecha_ultima_compra: string | null;
+  total_exhibiciones: number;
+}
+
+export interface GaleriaTimelineItem {
+  id_exhibicion: number;
+  url_foto: string;
+  estado: string;
+  timestamp_subida: string;
+  fecha_evaluacion: string | null;
+  supervisor: string | null;
+  comentario: string | null;
+  tipo_pdv: string | null;
+}
+
+export async function fetchGaleriaVendedores(distId: number): Promise<GaleriaVendedorStats[]> {
+  return apiFetch<GaleriaVendedorStats[]>(`/api/galeria/vendedores/${distId}`);
+}
+
+export async function fetchGaleriaClientesPorVendedor(idVendedor: number): Promise<GaleriaClienteCard[]> {
+  return apiFetch<GaleriaClienteCard[]>(`/api/galeria/vendedor/${idVendedor}/clientes`);
+}
+
+export async function fetchGaleriaTimelineCliente(
+  idClientePdv: number,
+  distId: number,
+): Promise<GaleriaTimelineItem[]> {
+  return apiFetch<GaleriaTimelineItem[]>(`/api/galeria/cliente/${idClientePdv}/timeline?dist_id=${distId}`);
+}
+
 // ── Admin: Distribuidoras (superadmin only) ──────────────────────────────────
 
 export interface Distribuidora {

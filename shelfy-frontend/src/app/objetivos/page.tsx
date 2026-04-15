@@ -8,6 +8,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
 } from "recharts";
 import { useAuth } from "@/hooks/useAuth";
+import { useRouter } from "next/navigation";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { BottomNav } from "@/components/layout/BottomNav";
 import { Topbar } from "@/components/layout/Topbar";
@@ -21,7 +22,6 @@ import {
   deleteObjetivo,
   fetchVendedoresSupervision,
   fetchRutasSupervision,
-  fetchClientesSupervision,
   fetchCuentasSupervision,
   fetchPDVCatalog,
   getWSUrl,
@@ -30,7 +30,6 @@ import {
   type ObjetivoTipo,
   type ResumenVendedorObjetivos,
   type RutaSupervision,
-  type ClienteSupervision,
   type CuentasSupervision,
   type ObjetivoTimeline,
   type PDVCatalogItem,
@@ -639,8 +638,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
   const [cobranzaMode, setCobranzaMode] = useState<"total" | "parcial">("total");
   const [cobranzaMonto, setCobranzaMonto] = useState<number | "">("");
 
-  const [inactivePdvCount, setInactivePdvCount] = useState<number>(0);
-  const [activacionPdvs, setActivacionPdvs] = useState<{ id: number; idErp: string; nombre: string; fechaCompra: string | null; diasSinCompra: number | null }[]>([]);
+  const [activacionPdvs, setActivacionPdvs] = useState<{ id: number; nombre: string; fechaCompra: string | null; diasSinCompra: number | null; estado: string | null }[]>([]);
   const [selectedPdvIds, setSelectedPdvIds] = useState<Set<number>>(new Set());
 
   // Sucursal filter inside modal
@@ -655,6 +653,8 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
   const vendedoresFiltrados = modalSucursal
     ? vendedores.filter(v => v.sucursal_nombre === modalSucursal)
     : vendedores;
+  const mustSelectSucursalFirst = modalSucursales.length > 1 && !modalSucursal;
+  const vendedoresCascada = mustSelectSucursalFirst ? [] : vendedoresFiltrados;
 
   // PDV Catalog for exhibición (paginated via API)
   const [pdvCatalogAll, setPdvCatalogAll] = useState<PDVCatalogItem[]>([]);
@@ -684,7 +684,6 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
     setSelectedDeudor(null);
     setCobranzaMode("total");
     setCobranzaMonto("");
-    setInactivePdvCount(0);
     setActivacionPdvs([]);
     setSelectedPdvIds(new Set());
     setPdvCatalogAll([]);
@@ -745,33 +744,33 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
         .catch(() => setPdvCatalogAll([]))
         .finally(() => setLoadingCtx(false));
     } else if (tipo === "conversion_estado") {
-      fetchRutasSupervision(Number(vendedorId))
-        .then(async (rutasData) => {
-          const allClients: { id: number; idErp: string; nombre: string; fechaCompra: string | null; diasSinCompra: number | null }[] = [];
+      fetchPDVCatalog(distId, { vendedorId: Number(vendedorId), limit: 35, offset: 0 })
+        .then(data => {
+          setPdvCatalogAll(data);
+          setPdvCatalogHasMore(data.length === 35);
+          setPdvCatalogPage(0);
           const now = Date.now();
-          for (const ruta of rutasData) {
-            const clientes = await fetchClientesSupervision(ruta.id_ruta).catch(() => [] as ClienteSupervision[]);
-            for (const c of clientes) {
-              const nombreCliente = c.nombre_fantasia || c.nombre_razon_social || "S/N";
-              const fechaCompra = c.fecha_ultima_compra ?? null;
+          const filtered = data
+            .map((pdv) => {
+              const fechaCompra = pdv.fecha_ultima_compra ?? null;
               const diasSinCompra = fechaCompra
                 ? Math.floor((now - new Date(fechaCompra).getTime()) / 86_400_000)
                 : null;
-              allClients.push({ id: c.id_cliente, idErp: c.id_cliente_erp, nombre: nombreCliente, fechaCompra, diasSinCompra });
-            }
-          }
-          const seen = new Set<number>();
-          const filtered = allClients.filter(c => {
-            if (seen.has(c.id)) return false;
-            seen.add(c.id);
-            return c.diasSinCompra === null || (c.diasSinCompra ?? 0) > 30;
-          });
-          filtered.sort((a, b) => {
-            if (a.diasSinCompra === null) return 1;
-            if (b.diasSinCompra === null) return -1;
-            return b.diasSinCompra - a.diasSinCompra;
-          });
-          setActivacionPdvs(filtered.map(c => ({ id: c.id, idErp: c.idErp, nombre: c.nombre, fechaCompra: c.fechaCompra, diasSinCompra: c.diasSinCompra })));
+              return {
+                id: pdv.id_cliente,
+                nombre: pdv.nombre_cliente ?? "S/N",
+                fechaCompra,
+                diasSinCompra,
+                estado: pdv.estado ?? null,
+              };
+            })
+            .filter((pdv) => (pdv.estado ?? "").toLowerCase() === "inactivo" || pdv.diasSinCompra === null || (pdv.diasSinCompra ?? 0) > 30)
+            .sort((a, b) => {
+              if (a.diasSinCompra === null) return -1;
+              if (b.diasSinCompra === null) return 1;
+              return b.diasSinCompra - a.diasSinCompra;
+            });
+          setActivacionPdvs(filtered);
         })
         .catch(() => setActivacionPdvs([]))
         .finally(() => setLoadingCtx(false));
@@ -810,7 +809,12 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
       const monto = cobranzaMode === "parcial" && cobranzaMonto ? cobranzaMonto : selectedDeudor.deuda_total;
       return `${vendedorNombre} deberá cobrarle $${Number(monto).toLocaleString("es-AR")} a ${selectedDeudor.cliente_nombre}${fechaLabel}.`;
     }
-    if (tipo === "conversion_estado") return `${vendedorNombre} debe activar clientes inactivos${fechaLabel}.`;
+    if (tipo === "conversion_estado") {
+      if (selectedPdvIds.size > 0) {
+        return `${vendedorNombre} debe activar ${selectedPdvIds.size} PDV${selectedPdvIds.size !== 1 ? "s" : ""}${fechaLabel}.${diasLabel}`;
+      }
+      return `${vendedorNombre} debe activar clientes inactivos${fechaLabel}.`;
+    }
     if (tipo === "exhibicion") {
       const qty = exhibicionMode === "general" && cantidadExhibicion ? cantidadExhibicion : selectedPdvIds.size || null;
       return qty
@@ -823,6 +827,22 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
         return `${vendedorNombre} debe reasignar ${total} PDV${total !== 1 ? "s" : ""}${fechaLabel}.`;
       }
       return `${vendedorNombre} debe reasignar PDVs${fechaLabel}.`;
+    }
+    if (tipo === "conversion_estado") {
+      if (selectedPdvIds.size > 0) {
+        const pdvItems = Array.from(selectedPdvIds).map((pdvId) => {
+          const pdv = pdvCatalogAll.find((p) => p.id_cliente === pdvId);
+          return { id_cliente_pdv: pdvId, nombre_pdv: pdv?.nombre_cliente };
+        });
+        base.pdv_items = pdvItems;
+        base.valor_objetivo = pdvItems.length;
+        base.descripcion = desc || buildPhrase();
+        onCreate([base]);
+        return;
+      }
+      base.descripcion = desc || buildPhrase();
+      onCreate([base]);
+      return;
     }
     return `${vendedorNombre} — objetivo ${TIPO_CONFIG[tipo]?.label ?? tipo}${fechaLabel}.`;
   }
@@ -972,10 +992,15 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
                 required
                 className="w-full appearance-none bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
                 value={vendedorId}
+                disabled={mustSelectSucursalFirst}
                 onChange={e => { setVendedorId(Number(e.target.value) || ""); resetCtx(); }}
               >
-                <option value="">{modalSucursal ? "Seleccionar vendedor..." : "Seleccionar sucursal primero..."}</option>
-                {vendedoresFiltrados.map(v => (
+                <option value="">
+                  {mustSelectSucursalFirst
+                    ? "Seleccionar sucursal primero..."
+                    : "Seleccionar vendedor..."}
+                </option>
+                {vendedoresCascada.map(v => (
                   <option key={v.id_vendedor} value={v.id_vendedor}>{v.nombre_erp}</option>
                 ))}
               </select>
@@ -1141,13 +1166,29 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
                 <p className="text-xs text-[var(--shelfy-muted)]">Sin PDVs en esa condición</p>
               ) : (
                 <div className="max-h-40 overflow-y-auto space-y-0.5">
-                  {activacionPdvs.slice(0, 25).map((pdv) => (
+                  {activacionPdvs.map((pdv) => (
                     <button
                       key={pdv.id}
                       type="button"
-                      onClick={() => setDesc(`Activar a ${pdv.nombre} (sin compra hace ${pdv.diasSinCompra ?? "N"} días)`)}
-                      className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs transition-colors border bg-black/[0.02] border-transparent hover:bg-[var(--shelfy-accent)]/10 hover:border-[var(--shelfy-accent)]/20"
+                      onClick={() =>
+                        setSelectedPdvIds((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(pdv.id)) next.delete(pdv.id);
+                          else next.add(pdv.id);
+                          return next;
+                        })
+                      }
+                      className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs transition-colors border ${
+                        selectedPdvIds.has(pdv.id)
+                          ? "bg-[var(--shelfy-accent)]/10 border-[var(--shelfy-accent)]/40"
+                          : "bg-black/[0.02] border-transparent hover:bg-[var(--shelfy-accent)]/10 hover:border-[var(--shelfy-accent)]/20"
+                      }`}
                     >
+                      <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 transition-colors ${
+                        selectedPdvIds.has(pdv.id) ? "bg-[var(--shelfy-accent)] border-[var(--shelfy-accent)]" : "border-[var(--shelfy-border)]"
+                      }`}>
+                        {selectedPdvIds.has(pdv.id) && <Check className="w-2.5 h-2.5 text-white" />}
+                      </div>
                       <span className="text-[var(--shelfy-text)] truncate flex-1 text-left">{pdv.nombre}</span>
                       {pdv.diasSinCompra !== null ? (
                         <span className={`font-medium tabular-nums shrink-0 ${pdv.diasSinCompra > 60 ? "text-red-500" : "text-orange-500"}`}>
@@ -1158,10 +1199,63 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
                       )}
                     </button>
                   ))}
-                  {activacionPdvs.length > 25 && (
-                    <p className="text-[10px] text-[var(--shelfy-muted)] text-center pt-1">+{activacionPdvs.length - 25} más</p>
-                  )}
                 </div>
+              )}
+              {selectedPdvIds.size > 0 && (
+                <p className="text-[10px] font-semibold text-[var(--shelfy-accent)]">
+                  {selectedPdvIds.size} seleccionado{selectedPdvIds.size > 1 ? "s" : ""} para objetivo de activación
+                </p>
+              )}
+              {pdvCatalogHasMore && (
+                <button
+                  type="button"
+                  disabled={loadingMorePdv}
+                  onClick={() => {
+                    const nextOffset = (pdvCatalogPage + 1) * 35;
+                    setLoadingMorePdv(true);
+                    fetchPDVCatalog(distId, { vendedorId: Number(vendedorId), limit: 35, offset: nextOffset })
+                      .then((more) => {
+                        setPdvCatalogAll((prev) => [...prev, ...more]);
+                        setPdvCatalogHasMore(more.length === 35);
+                        setPdvCatalogPage((p) => p + 1);
+                        const now = Date.now();
+                        setActivacionPdvs((prev) => {
+                          const next = [...prev];
+                          const seen = new Set(next.map((x) => x.id));
+                          for (const pdv of more) {
+                            const fechaCompra = pdv.fecha_ultima_compra ?? null;
+                            const diasSinCompra = fechaCompra
+                              ? Math.floor((now - new Date(fechaCompra).getTime()) / 86_400_000)
+                              : null;
+                            const isTarget =
+                              (pdv.estado ?? "").toLowerCase() === "inactivo" ||
+                              diasSinCompra === null ||
+                              (diasSinCompra ?? 0) > 30;
+                            if (!isTarget || seen.has(pdv.id_cliente)) continue;
+                            seen.add(pdv.id_cliente);
+                            next.push({
+                              id: pdv.id_cliente,
+                              nombre: pdv.nombre_cliente ?? "S/N",
+                              fechaCompra,
+                              diasSinCompra,
+                              estado: pdv.estado ?? null,
+                            });
+                          }
+                          next.sort((a, b) => {
+                            if (a.diasSinCompra === null) return -1;
+                            if (b.diasSinCompra === null) return 1;
+                            return b.diasSinCompra - a.diasSinCompra;
+                          });
+                          return next;
+                        });
+                      })
+                      .finally(() => setLoadingMorePdv(false));
+                  }}
+                  className="w-full py-1.5 text-xs text-[var(--shelfy-accent)] hover:text-[var(--shelfy-accent)]/80 border border-[var(--shelfy-border)] rounded-lg transition-colors flex items-center justify-center gap-1.5"
+                >
+                  {loadingMorePdv && <Loader2 className="w-3 h-3 animate-spin" />}
+                  Cargar más PDVs
+                </button>
               )}
             </div>
           )}
@@ -1978,6 +2072,7 @@ type PageTab = "objetivos";
 
 export default function ObjetivosPage() {
   const { user } = useAuth();
+  const router = useRouter();
   const qc = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
   const pageTab: PageTab = "objetivos"; // legacy — view routing now uses viewMode
@@ -1989,9 +2084,24 @@ export default function ObjetivosPage() {
   } = useObjetivosStore();
 
   const distId = user?.id_distribuidor ?? 0;
+  const canAccessObjetivos = user?.is_superadmin || !!(user && (user.permisos?.menu_objetivos ?? true));
 
   const [selectedSucursal, setSelectedSucursal] = useState<string>("");
   const [selectedVendedorId, setSelectedVendedorId] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!user) return;
+    if (canAccessObjetivos) return;
+    router.replace("/dashboard");
+  }, [user, canAccessObjetivos, router]);
+
+  if (user && !canAccessObjetivos) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[var(--shelfy-bg)] text-[var(--shelfy-text)]">
+        <p className="text-sm text-[var(--shelfy-muted)]">Sin acceso a Objetivos.</p>
+      </div>
+    );
+  }
 
   // ── Data ──────────────────────────────────────────────────────────────────
 

@@ -1442,6 +1442,8 @@ export interface PDVCatalogItem {
   nombre_cliente: string;
   id_cliente_erp: string | null;
   domicilio: string | null;
+  estado?: string | null;
+  fecha_ultima_compra?: string | null;
   fecha_ultima_exhibicion: string | null; // ISO datetime or null = never exhibited
 }
 

@@ -180,9 +180,10 @@ function hasValidCoords(lat: number | null, lng: number | null): boolean {
   return lat >= -55 && lat <= -21 && lng >= -74 && lng <= -53;
 }
 
-/** PDV dado de baja en padrón — no mapa ni toggles de visibilidad */
+/** Keep active + inactive PDVs visible in Supervisión toggles/map. */
 function isClientePadronActivo(c: ClienteSupervision): boolean {
-  return c.estado?.trim().toLowerCase() !== "inactivo";
+  void c;
+  return true;
 }
 
 interface VendorMapEligibleStats {
@@ -943,13 +944,22 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
   async function toggleRuta(rutaId: number, vendId: number) {
     const isOn = visibleRutas.has(rutaId);
     if (isOn) {
-      // Turn OFF: remove ruta and all its clients
+      // Turn OFF: remove ruta; only hide clients not present in another visible route
       const rutaClientes = queryClient.getQueryData<ClienteSupervision[]>(['supervision-clientes', selectedDist, rutaId]) ?? [];
       const clientIds = rutaClientes.map(c => c.id_cliente);
       
       toggleRutaStore(rutaId);
       const newVisibleClientes = new Set(visibleClientes);
-      clientIds.forEach(id => newVisibleClientes.delete(id));
+      const rutasRestantes = [...visibleRutas].filter((id) => id !== rutaId);
+      clientIds.forEach((id) => {
+        const stillVisibleInAnotherRoute = rutasRestantes.some((rid) => {
+          const clientsInRoute = queryClient.getQueryData<ClienteSupervision[]>(['supervision-clientes', selectedDist, rid]) ?? [];
+          return clientsInRoute.some((c) => c.id_cliente === id);
+        });
+        if (!stillVisibleInAnotherRoute) {
+          newVisibleClientes.delete(id);
+        }
+      });
       setVisibleClientes(newVisibleClientes);
     } else {
       // Turn ON: ensure vendor + ruta are on, load clients

@@ -63,9 +63,10 @@ function semaforo(pct: number) {
 
 // ── Page ───────────────────────────────────────────────────────────────────────
 export default function ModoOficinaPage() {
-  const { user } = useAuth();
+  const { user, hasPermiso } = useAuth();
   const router = useRouter();
   const distId = user?.id_distribuidor || 0;
+  const canAccessModoOficina = !!user && hasPermiso("menu_modo_oficina");
   const queryClient = useQueryClient();
 
   const [newEvent, setNewEvent] = useState<LiveMapEvent | null>(null);
@@ -82,6 +83,20 @@ export default function ModoOficinaPage() {
   const mapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mapRef = useRef<MapRef>(null);
   const prevRankingRef = useRef<VendedorRanking[]>([]);
+
+  useEffect(() => {
+    if (!user) return;
+    if (canAccessModoOficina) return;
+    router.replace("/dashboard");
+  }, [user, canAccessModoOficina, router]);
+
+  if (user && !canAccessModoOficina) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[var(--shelfy-bg)] text-[var(--shelfy-text)]">
+        <p className="text-sm text-[var(--shelfy-muted)]">Sin acceso a Modo Oficina.</p>
+      </div>
+    );
+  }
 
   const getCurrentPeriodo = () => {
     const now = new Date();

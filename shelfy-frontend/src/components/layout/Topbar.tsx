@@ -15,7 +15,7 @@ interface TopbarProps {
 }
 
 export function Topbar({ title, live = false }: TopbarProps) {
-  const { user, logout } = useAuth();
+  const { user, logout, hasPermiso } = useAuth();
   const { toggleSidebar } = useUI();
 
   return (
@@ -53,26 +53,28 @@ export function Topbar({ title, live = false }: TopbarProps) {
         {user && (
           <div className="flex items-center gap-2 md:gap-3">
             {/* Mejora #21: Modo Oficina visible en mobile también (solo ícono) */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    window.location.href = "/modo-oficina";
-                    document.documentElement.requestFullscreen?.().catch(() => {});
-                  }}
-                  className={cn(
-                    "flex items-center gap-2 text-[var(--shelfy-muted)] hover:text-[var(--shelfy-primary)] hover:bg-[var(--shelfy-primary)]/5 border border-transparent hover:border-[var(--shelfy-primary)]/20 transition-all"
-                  )}
-                >
-                  <Monitor size={17} />
-                  {/* texto solo visible en md+ */}
-                  <span className="hidden md:inline text-xs font-bold uppercase tracking-wider">Modo Oficina</span>
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">Abrir Modo Oficina (Pantalla Completa)</TooltipContent>
-            </Tooltip>
+            {hasPermiso("menu_modo_oficina") && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      window.location.href = "/modo-oficina";
+                      document.documentElement.requestFullscreen?.().catch(() => {});
+                    }}
+                    className={cn(
+                      "flex items-center gap-2 text-[var(--shelfy-muted)] hover:text-[var(--shelfy-primary)] hover:bg-[var(--shelfy-primary)]/5 border border-transparent hover:border-[var(--shelfy-primary)]/20 transition-all"
+                    )}
+                  >
+                    <Monitor size={17} />
+                    {/* texto solo visible en md+ */}
+                    <span className="hidden md:inline text-xs font-bold uppercase tracking-wider">Modo Oficina</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Abrir Modo Oficina (Pantalla Completa)</TooltipContent>
+              </Tooltip>
+            )}
 
             {/* User info */}
             <div className="hidden sm:block text-right">

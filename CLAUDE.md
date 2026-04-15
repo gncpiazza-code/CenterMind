@@ -651,6 +651,8 @@ Archivo `shelfy_mapa_arquitectonico.html` en la raíz del repo. Dashboard HTML e
 - Iconos de Lucide se tipan como `React.ElementType` en interfaces de navItems (no `any`).
 - Listas derivadas de constantes de módulo (ej. `PERMISSION_GROUPS`, `PERMISSIONS_BY_GROUP`) deben hoistarse a nivel de módulo, no computarse en render. Usar `useMemo` solo para derivaciones que dependen de props/state.
 - Fetches en `useEffect` con posibilidad de re-disparo deben incluir cleanup con flag `cancelled` o `AbortController`.
+- Para permisos de UI/rutas usar siempre `hasPermiso("clave")` del AuthContext (no leer `user.permisos` directo en páginas).
+- En objetivos con sucursales múltiples, mantener cascada estricta sucursal→vendedor y permitir multiselección de PDVs para activación/exhibición cuando el caso de uso lo requiera.
 
 ### Base de datos
 - Siempre filtrar por `id_distribuidor`.

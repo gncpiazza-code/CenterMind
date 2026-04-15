@@ -44,7 +44,7 @@ const ALL_NAV: NavItem[] = [
   { href: "/admin/permissions", label: "Permisos",       icon: ShieldCheck,    roles: ["superadmin", "admin"], permisoKey: "menu_admin" },
   { href: "/admin/dashboard",   label: "Panel Global",  icon: Activity,       roles: ["superadmin"] },
   { href: "/admin/mapa",        label: "Mapa en Vivo",  icon: MapPin,         roles: ["superadmin"] },
-  { href: "/modo-oficina",      label: "Modo Oficina",  icon: Monitor,        roles: ["superadmin", "admin", "supervisor"] },
+  { href: "/modo-oficina",      label: "Modo Oficina",  icon: Monitor,        roles: ["superadmin", "admin", "supervisor", "directorio", "evaluador"], permisoKey: "menu_modo_oficina" },
 ];
 
 const ROL_LABEL: Record<string, string> = {
@@ -63,10 +63,10 @@ export function Sidebar() {
   const navItems = useMemo(
     () => ALL_NAV.filter(i => {
       const roleAllowed = (i.roles as string[]).includes(rol);
-      // Narrow exception: only allow role override for visor evaluation access.
-      const allowRoleOverride = i.permisoKey === "action_evaluar_exhibiciones" && hasPermiso("action_evaluar_exhibiciones");
-      if (!roleAllowed && !allowRoleOverride) return false;
-      if (i.permisoKey && !hasPermiso(i.permisoKey)) return false;
+      const permisoAllowed = i.permisoKey ? hasPermiso(i.permisoKey) : false;
+      // Matriz de permisos puede habilitar acceso aunque el rol no esté listado.
+      if (!roleAllowed && !permisoAllowed) return false;
+      if (i.permisoKey && !permisoAllowed) return false;
       return true;
     }),
     [rol, hasPermiso]

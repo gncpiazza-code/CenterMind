@@ -127,6 +127,11 @@ Los paneles utilizan el estilo "Glass-Card" adaptado al tema claro:
   - `['supervision-clientes', distId, id_ruta]`
 - Al cambiar distribuidora limpia caches de rutas/clientes para evitar cruces de datos entre contextos y etiquetas de vendedor incorrectas en mapa.
 
+### 9. Objetivos — Cascada obligatoria y Activación multi-PDV (Abr 2026)
+- En `NuevoObjetivoModal`, si hay múltiples sucursales la selección de vendedor queda bloqueada hasta elegir sucursal (`mustSelectSucursalFirst` + `disabled` en select de vendedor).
+- Tipo `conversion_estado` ahora permite seleccionar múltiples PDVs (checkbox visual + contador), y al enviar persiste `pdv_items` + `valor_objetivo` con la cantidad seleccionada.
+- El contexto de activación consume `fetchPDVCatalog` (no sólo rutas/clientes cargados) y usa paginación “Cargar más PDVs” para incluir clientes inactivos o con compra/exhibición antigua.
+
 ## State Management & Ingesta
 
 Para garantizar el rendimiento y la mantenibilidad de Shelfy, se siguen estos patrones:

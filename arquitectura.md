@@ -64,6 +64,9 @@ Este documento describe la infraestructura, tecnologías y flujos de datos que c
 14. **Cuentas de prueba exhibiciones (Tabaco, Abr 2026)**:
     - `core/helpers.py` centraliza IDs QA (`id_vendedor_v2` 157 / 76) y resolución de `id_integrante` por nombre (Grimaldi).
     - `routers/reportes.py` y `routers/supervision.py` filtran ranking, pendientes y evaluación para usuarios no superadmin; el bot excluye esas filas del ranking en Telegram.
+15. **Supervisión/Objectivos — PDVs inactivos visibles (Abr 2026)**:
+    - `GET /api/supervision/clientes/{id_ruta}` ya no descarta `estado='inactivo'`, permitiendo prender/apagar el universo completo de PDVs del vendedor en mapa/listado.
+    - `GET /api/supervision/pdvs-catalog/{dist_id}` devuelve también `estado` y `fecha_ultima_compra`; objetivos usa estos campos para priorizar activación y exhibición sobre clientes inactivos/rezagados.
 
 ---
 

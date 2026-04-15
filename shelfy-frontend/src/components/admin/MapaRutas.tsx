@@ -80,14 +80,6 @@ const SHELFY_PIN_CSS = `
 .shelfy-pin:hover {
   box-shadow: 0 0 0 3px rgba(255,255,255,0.9), 0 0 12px rgba(0,0,0,0.35) !important;
 }
-.shelfy-pin-aura {
-  animation: shelfy-aura 2s ease-out infinite;
-}
-@keyframes shelfy-aura {
-  0%   { box-shadow: 0 1px 3px rgba(0,0,0,0.3), 0 0 0 1px var(--ac, #22c55e); }
-  70%  { box-shadow: 0 1px 3px rgba(0,0,0,0.3), 0 0 0 9px transparent; }
-  100% { box-shadow: 0 1px 3px rgba(0,0,0,0.3), 0 0 0 9px transparent; }
-}
 @keyframes slideIn {
   from { transform: translateX(-100%); opacity: 0; }
   to   { transform: translateX(0); opacity: 1; }
@@ -182,9 +174,7 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode, mode
         const size        = p.activo ? 18 : 14;
 
         const wrapper = document.createElement("div");
-        wrapper.className = status === "activo_exhibicion"
-          ? "shelfy-pin shelfy-pin-aura"
-          : "shelfy-pin";
+        wrapper.className = "shelfy-pin";
         wrapper.style.cssText = `
           --ac: ${statusColor};
           width:${size}px;
@@ -394,17 +384,17 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode, mode
               padding: "4px 9px", borderRadius: 7,
               border: `1px solid ${on ? color + "88" : "rgba(255,255,255,0.08)"}`,
               background: on ? color + "28" : "rgba(255,255,255,0.05)",
-              color: on ? color : "rgba(255,255,255,0.45)",
+              color: on ? color : "rgba(255,255,255,0.75)",
               cursor: "pointer", fontSize: 11, fontWeight: 600,
               transition: "all 0.15s", opacity: count === 0 ? 0.35 : 1,
             }}>
-            <span style={{ width: 8, height: 8, borderRadius: "50%", background: on ? color : "#cbd5e1", flexShrink: 0 }} />
+            <span style={{ width: 8, height: 8, borderRadius: "50%", background: on ? color : "rgba(255,255,255,0.5)", flexShrink: 0 }} />
             <span style={{ maxWidth: 110, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {STATUS_LABELS[s]}
             </span>
             <span style={{
-              background: on ? color + "33" : "rgba(255,255,255,0.08)",
-              color: on ? color : "rgba(255,255,255,0.4)",
+              background: on ? color + "33" : "rgba(255,255,255,0.12)",
+              color: on ? color : "rgba(255,255,255,0.7)",
               borderRadius: 4, padding: "0 5px", fontSize: 10, minWidth: 18, textAlign: "center", fontWeight: 700,
             }}>{count}</span>
           </button>

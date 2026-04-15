@@ -1046,10 +1046,10 @@ def galeria_timeline_cliente(
     """Timeline completo de exhibiciones de un PDV."""
     check_dist_permission(payload, dist_id)
     try:
-        # Obtener id_cliente_erp del PDV
+        # Verificar que el PDV pertenece al distribuidor
         cpv_r = (
             sb.table("clientes_pdv_v2")
-            .select("id_cliente_erp, nombre_fantasia")
+            .select("id_cliente")
             .eq("id_cliente", id_cliente_pdv)
             .eq("id_distribuidor", dist_id)
             .limit(1)
@@ -1057,11 +1057,8 @@ def galeria_timeline_cliente(
         )
         if not cpv_r.data:
             raise HTTPException(status_code=404, detail="Cliente no encontrado")
-        id_erp = str(cpv_r.data[0].get("id_cliente_erp") or "").strip()
-        if not id_erp:
-            return []
 
-        # Exhibiciones del cliente paginadas
+        # Exhibiciones del cliente por FK id_cliente_pdv (igual que galeria_list_clientes_por_vendedor)
         exhibiciones: list[dict] = []
         batch, offset_e = 200, 0
         while True:
@@ -1072,7 +1069,7 @@ def galeria_timeline_cliente(
                     "evaluated_at, supervisor_nombre, comentario_evaluacion, tipo_pdv"
                 )
                 .eq("id_distribuidor", dist_id)
-                .eq("id_cliente", id_erp)
+                .eq("id_cliente_pdv", id_cliente_pdv)
                 .order("timestamp_subida", desc=True)
                 .range(offset_e, offset_e + batch - 1)
                 .execute()

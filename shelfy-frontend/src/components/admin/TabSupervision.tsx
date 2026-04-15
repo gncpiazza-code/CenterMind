@@ -1325,7 +1325,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
             >
               <Icon className="w-4 h-4 mt-0.5 shrink-0" />
               <div>
-                <div className={`text-xs font-semibold ${isActive ? 'text-[var(--shelfy-accent)]' : 'text-white/80'}`}>
+                <div className={`text-xs font-semibold ${isActive ? 'text-[var(--shelfy-accent)]' : 'text-[var(--shelfy-text)]'}`}>
                   {mode.label}
                 </div>
                 <div className="text-[10px] text-[var(--shelfy-muted)] leading-tight mt-0.5">
@@ -1341,7 +1341,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
 
   // ── Vendor panel content for MapaRutas fullscreen overlay ────────────────
   const vendorPanelContent = (
-    <div className="flex flex-col h-full bg-[var(--shelfy-panel)] text-white">
+    <div className="flex flex-col h-full text-white" style={{ background: "rgba(10,14,24,0.97)" }}>
       {/* Header Sucursal selector (Compact) */}
       <div className="px-4 py-3 border-b border-white/10 shrink-0">
         <p className="text-[10px] font-bold uppercase tracking-widest text-white/40 mb-2">

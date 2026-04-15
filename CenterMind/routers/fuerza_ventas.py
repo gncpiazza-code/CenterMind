@@ -771,25 +771,27 @@ def galeria_list_clientes_por_vendedor(
         if ruta_ids:
             for i in range(0, len(ruta_ids), 50):
                 chunk_ids = ruta_ids[i:i+50]
-                try:
-                    cpv_r = (
-                        sb.table("clientes_pdv_v2")
-                        .select("id_cliente, id_cliente_erp, nombre_fantasia, fecha_ultima_compra")
-                        .eq("id_distribuidor", dist_id)
-                        .in_("id_ruta", chunk_ids)
-                        .execute()
-                    )
-                    clientes_pdv.extend(cpv_r.data or [])
-                except Exception:
-                    # Fallback para esquemas legacy sin nombre_fantasia o fecha_ultima_compra
-                    cpv_r = (
-                        sb.table("clientes_pdv_v2")
-                        .select("id_cliente, id_cliente_erp, nombre_cliente")
-                        .eq("id_distribuidor", dist_id)
-                        .in_("id_ruta", chunk_ids)
-                        .execute()
-                    )
-                    clientes_pdv.extend(cpv_r.data or [])
+                row_chunk: list[dict] = []
+                select_attempts = [
+                    "id_cliente, id_cliente_erp, nombre_fantasia, fecha_ultima_compra",
+                    "id_cliente, id_cliente_erp, nombre_cliente, fecha_ultima_compra",
+                    "id_cliente, id_cliente_erp, nombre_fantasia, nombre_cliente",
+                    "id_cliente, id_cliente_erp",
+                ]
+                for cols in select_attempts:
+                    try:
+                        cpv_r = (
+                            sb.table("clientes_pdv_v2")
+                            .select(cols)
+                            .eq("id_distribuidor", dist_id)
+                            .in_("id_ruta", chunk_ids)
+                            .execute()
+                        )
+                        row_chunk = cpv_r.data or []
+                        break
+                    except Exception:
+                        continue
+                clientes_pdv.extend(row_chunk)
 
         if not clientes_pdv:
             return []
@@ -863,11 +865,10 @@ def galeria_list_clientes_por_vendedor(
             ))
 
         return result
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"[galeria] clientes_por_vendedor vid={id_vendedor}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # No bloquear la vista si el esquema del tenant difiere.
+        return []
 
 
 @router.get("/api/galeria/cliente/{id_cliente_pdv}/timeline", tags=["Galería"])

@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { DatePicker } from "@/components/ui/date-picker";
 import {
   Select,
   SelectContent,
@@ -203,20 +204,23 @@ export default function GaleriaExhibicionesPage() {
                 ))}
               </SelectContent>
             </Select>
-            <Input
-              type="date"
-              value={fechaDesde}
-              onChange={(e) => setFechaDesde(e.target.value)}
-              className="h-8 w-[145px] text-xs"
-              placeholder="Desde"
-            />
-            <Input
-              type="date"
-              value={fechaHasta}
-              onChange={(e) => setFechaHasta(e.target.value)}
-              className="h-8 w-[145px] text-xs"
-              placeholder="Hasta"
-            />
+            <div className="w-[180px]">
+              <DatePicker value={fechaDesde} onChange={setFechaDesde} placeholder="Desde" />
+            </div>
+            <div className="w-[180px]">
+              <DatePicker value={fechaHasta} onChange={setFechaHasta} placeholder="Hasta" minDate={fechaDesde || undefined} />
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs font-semibold"
+              onClick={() => {
+                setFechaDesde("");
+                setFechaHasta("");
+              }}
+            >
+              Historico
+            </Button>
           </div>
 
           {errorVendedores ? (
@@ -258,20 +262,23 @@ export default function GaleriaExhibicionesPage() {
               placeholder="Buscar cliente por nombre o código..."
               className="border-0 shadow-none focus-visible:ring-0 h-8 text-sm p-0 bg-transparent min-w-[180px] flex-1"
             />
-            <Input
-              type="date"
-              value={fechaDesde}
-              onChange={(e) => setFechaDesde(e.target.value)}
-              className="h-8 w-[145px] text-xs"
-              placeholder="Desde"
-            />
-            <Input
-              type="date"
-              value={fechaHasta}
-              onChange={(e) => setFechaHasta(e.target.value)}
-              className="h-8 w-[145px] text-xs"
-              placeholder="Hasta"
-            />
+            <div className="w-[180px]">
+              <DatePicker value={fechaDesde} onChange={setFechaDesde} placeholder="Desde" />
+            </div>
+            <div className="w-[180px]">
+              <DatePicker value={fechaHasta} onChange={setFechaHasta} placeholder="Hasta" minDate={fechaDesde || undefined} />
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs font-semibold"
+              onClick={() => {
+                setFechaDesde("");
+                setFechaHasta("");
+              }}
+            >
+              Historico
+            </Button>
             {filteredClientes.length !== clientes.length && (
               <Badge variant="secondary" className="text-[10px] shrink-0">
                 {filteredClientes.length}/{clientes.length}

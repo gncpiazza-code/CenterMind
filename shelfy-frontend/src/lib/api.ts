@@ -315,12 +315,22 @@ class ApiError extends Error {
 }
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
+  const url = `${API_URL}${path}`;
+  const res = await fetch(url, {
     ...options,
     headers: { ...getHeaders(), ...(options?.headers ?? {}) },
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
+    if (typeof window !== "undefined" && path.includes("/api/galeria/") && path.includes("/clientes")) {
+      console.group("[Galeria Debug] HTTP error cargando clientes");
+      console.error("URL:", url);
+      console.error("Method:", options?.method ?? "GET");
+      console.error("Status:", res.status);
+      console.error("Request options:", options);
+      console.error("Response body:", err);
+      console.groupEnd();
+    }
     const detailMsg = typeof err.detail === "string" ? err.detail : (err.detail?.mensaje ?? `HTTP ${res.status}`);
     throw new ApiError(detailMsg, res.status, err.detail);
   }
@@ -740,7 +750,20 @@ export async function fetchGaleriaClientesPorVendedor(
   if (params?.desde) qs.set("desde", params.desde);
   if (params?.hasta) qs.set("hasta", params.hasta);
   const q = qs.toString();
-  return apiFetch<GaleriaClienteCard[]>(`/api/galeria/vendedor/${idVendedor}/clientes${q ? `?${q}` : ""}`);
+  const path = `/api/galeria/vendedor/${idVendedor}/clientes${q ? `?${q}` : ""}`;
+  try {
+    return await apiFetch<GaleriaClienteCard[]>(path);
+  } catch (e) {
+    if (typeof window !== "undefined") {
+      console.group("[Galeria Debug] fetchGaleriaClientesPorVendedor exception");
+      console.error("idVendedor:", idVendedor);
+      console.error("params:", params);
+      console.error("path:", path);
+      console.error("error:", e);
+      console.groupEnd();
+    }
+    throw e;
+  }
 }
 
 export async function fetchGaleriaTimelineCliente(

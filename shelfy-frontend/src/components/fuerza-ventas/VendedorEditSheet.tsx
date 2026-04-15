@@ -245,12 +245,9 @@ export function VendedorEditSheet({ idVendedor, distId, open, onClose }: Vendedo
                           size="sm"
                           disabled={uploadingFoto}
                           className="h-9 gap-1.5"
-                          asChild
                         >
-                          <span>
-                            {uploadingFoto ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
-                            Subir
-                          </span>
+                          {uploadingFoto ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
+                          Subir
                         </Button>
                       </label>
                     )}

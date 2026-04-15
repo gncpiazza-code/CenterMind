@@ -314,6 +314,23 @@ class ApiError extends Error {
   }
 }
 
+function toNonEmptyString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function resolveVendorERPName(
+  row: Record<string, unknown>,
+  preferredKeys: string[],
+): string | null {
+  for (const key of preferredKeys) {
+    const candidate = toNonEmptyString(row[key]);
+    if (candidate) return candidate;
+  }
+  return null;
+}
+
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const url = `${API_URL}${path}`;
   const res = await fetch(url, {
@@ -359,7 +376,13 @@ export async function fetchRanking(distribuidorId: number, periodo: string = "me
   const q = new URLSearchParams({ periodo });
   if (sucursalId) q.append("sucursal_id", sucursalId);
   if (top) q.append("top", top.toString());
-  return apiFetch<VendedorRanking[]>(`/api/dashboard/ranking/${distribuidorId}?${q.toString()}`);
+  const rows = await apiFetch<Record<string, unknown>[]>(`/api/dashboard/ranking/${distribuidorId}?${q.toString()}`);
+  return rows.map((row) => ({
+    ...(row as unknown as VendedorRanking),
+    vendedor:
+      resolveVendorERPName(row, ["nombre_erp", "vendedor_erp", "nombre_vendedor", "vendedor"]) ??
+      "Sin vendedor",
+  }));
 }
 
 export interface RankingHistoricoEntry {
@@ -373,7 +396,13 @@ export async function fetchRankingHistorico(distId: number, sucursalId?: number)
   const params = new URLSearchParams();
   if (sucursalId) params.set("sucursal_id", String(sucursalId));
   const qs = params.toString();
-  return apiFetch<RankingHistoricoEntry[]>(`/api/dashboard/ranking-historico/${distId}${qs ? "?" + qs : ""}`);
+  const rows = await apiFetch<Record<string, unknown>[]>(`/api/dashboard/ranking-historico/${distId}${qs ? "?" + qs : ""}`);
+  return rows.map((row) => ({
+    ...(row as unknown as RankingHistoricoEntry),
+    vendedor:
+      resolveVendorERPName(row, ["nombre_erp", "vendedor_erp", "nombre_vendedor", "vendedor"]) ??
+      "Sin vendedor",
+  }));
 }
 
 export async function fetchUltimasEvaluadas(distribuidorId: number, n: number = 8, sucursalId?: string): Promise<UltimaEvaluada[]> {
@@ -1265,7 +1294,13 @@ export interface ClienteSupervision {
 }
 
 export async function fetchVendedoresSupervision(distId: number): Promise<VendedorSupervision[]> {
-  return apiFetch<VendedorSupervision[]>(`/api/supervision/vendedores/${distId}`);
+  const rows = await apiFetch<Record<string, unknown>[]>(`/api/supervision/vendedores/${distId}`);
+  return rows.map((row) => ({
+    ...(row as unknown as VendedorSupervision),
+    nombre_vendedor:
+      resolveVendorERPName(row, ["nombre_erp", "vendedor_erp", "nombre_vendedor", "vendedor"]) ??
+      "Sin vendedor",
+  }));
 }
 
 export async function fetchRutasSupervision(idVendedor: number): Promise<RutaSupervision[]> {
@@ -1327,7 +1362,18 @@ export interface VentasSupervision {
 }
 
 export async function fetchVentasSupervision(distId: number, dias = 30): Promise<VentasSupervision> {
-  return apiFetch<VentasSupervision>(`/api/supervision/ventas/${distId}?dias=${dias}`);
+  const data = await apiFetch<VentasSupervision & { vendedores?: Record<string, unknown>[] }>(
+    `/api/supervision/ventas/${distId}?dias=${dias}`
+  );
+  return {
+    ...data,
+    vendedores: (data.vendedores ?? []).map((row) => ({
+      ...(row as unknown as VendedorVentas),
+      vendedor:
+        resolveVendorERPName(row, ["nombre_erp", "vendedor_erp", "nombre_vendedor", "vendedor"]) ??
+        "Sin vendedor",
+    })),
+  };
 }
 
 
@@ -1362,7 +1408,18 @@ export interface CuentasSupervision {
 
 export async function fetchCuentasSupervision(distId: number, sucursal?: string): Promise<CuentasSupervision> {
   const params = sucursal ? `?sucursal=${encodeURIComponent(sucursal)}` : "";
-  return apiFetch<CuentasSupervision>(`/api/supervision/cuentas/${distId}${params}`);
+  const data = await apiFetch<CuentasSupervision & { vendedores?: Record<string, unknown>[] }>(
+    `/api/supervision/cuentas/${distId}${params}`
+  );
+  return {
+    ...data,
+    vendedores: (data.vendedores ?? []).map((row) => ({
+      ...(row as unknown as VendedorCuentas),
+      vendedor:
+        resolveVendorERPName(row, ["nombre_erp", "vendedor_erp", "nombre_vendedor", "vendedor"]) ??
+        "Sin vendedor",
+    })),
+  };
 }
 
 
@@ -1518,7 +1575,13 @@ export async function fetchObjetivos(
   if (params?.vendedor_id) q.set('vendedor_id', String(params.vendedor_id));
   if (params?.sucursal_nombre) q.set('sucursal_nombre', params.sucursal_nombre);
   const qs = q.toString();
-  return apiFetch<Objetivo[]>(`/api/supervision/objetivos/${distId}${qs ? `?${qs}` : ''}`);
+  const rows = await apiFetch<Record<string, unknown>[]>(`/api/supervision/objetivos/${distId}${qs ? `?${qs}` : ''}`);
+  return rows.map((row) => ({
+    ...(row as unknown as Objetivo),
+    nombre_vendedor:
+      resolveVendorERPName(row, ["nombre_erp", "vendedor_erp", "nombre_vendedor", "vendedor"]) ??
+      null,
+  }));
 }
 
 export async function createObjetivo(data: ObjetivoCreate): Promise<Objetivo> {
@@ -1549,9 +1612,15 @@ export async function fetchObjetivosTimeline(
   if (sucursalNombre) params.set('sucursal_nombre', sucursalNombre);
   const qs = params.toString();
   try {
-    return await apiFetch<ObjetivoTimeline[]>(
+    const rows = await apiFetch<Record<string, unknown>[]>(
       `/api/supervision/objetivos/${distId}/timeline${qs ? `?${qs}` : ''}`
     );
+    return rows.map((row) => ({
+      ...(row as unknown as ObjetivoTimeline),
+      nombre_vendedor:
+        resolveVendorERPName(row, ["nombre_erp", "vendedor_erp", "nombre_vendedor", "vendedor"]) ??
+        null,
+    }));
   } catch {
     return [];
   }
@@ -1595,9 +1664,18 @@ export interface ResumenSupervisorObjetivos {
 export async function fetchResumenSupervisorObjetivos(
   distId: number
 ): Promise<ResumenSupervisorObjetivos> {
-  return apiFetch<ResumenSupervisorObjetivos>(
+  const data = await apiFetch<ResumenSupervisorObjetivos & { vendedores?: Record<string, unknown>[] }>(
     `/api/supervision/objetivos/${distId}/resumen-supervisor`
   );
+  return {
+    ...data,
+    vendedores: (data.vendedores ?? []).map((row) => ({
+      ...(row as unknown as ResumenVendedorObjetivos),
+      nombre_vendedor:
+        resolveVendorERPName(row, ["nombre_erp", "vendedor_erp", "nombre_vendedor", "vendedor"]) ??
+        "Sin vendedor",
+    })),
+  };
 }
 
 // ── Informe de Ventas (PDF) ───────────────────────────────────────────────────

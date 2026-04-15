@@ -948,7 +948,7 @@ def galeria_list_clientes_por_vendedor(
         while True:
             ex_q = (
                 sb.table("exhibiciones")
-                .select("id_exhibicion, nro_cliente, url_foto_drive, estado, timestamp_subida, id_integrante")
+                .select("id_exhibicion, id_cliente, url_foto_drive, estado, timestamp_subida, id_integrante")
                 .eq("id_distribuidor", dist_id)
                 .in_("id_integrante", integ_ids)
                 .order("timestamp_subida", desc=True)
@@ -976,11 +976,11 @@ def galeria_list_clientes_por_vendedor(
                 break
             offset_e += batch
 
-        # Última exhibición por nro_cliente
+        # Última exhibición por id_cliente (código ERP del PDV)
         ultima_por_cliente: dict[str, dict] = {}
         total_por_cliente: dict[str, int] = {}
         for ex in exhibiciones:
-            nro = _safe_text(ex.get("nro_cliente")).strip()
+            nro = _safe_text(ex.get("id_cliente")).strip()
             if not nro:
                 continue
             if nro not in ultima_por_cliente:
@@ -1064,7 +1064,7 @@ def galeria_timeline_cliente(
                     "evaluated_at, supervisor_nombre, comentario_evaluacion, tipo_pdv"
                 )
                 .eq("id_distribuidor", dist_id)
-                .eq("nro_cliente", id_erp)
+                .eq("id_cliente", id_erp)
                 .order("timestamp_subida", desc=True)
                 .range(offset_e, offset_e + batch - 1)
                 .execute()

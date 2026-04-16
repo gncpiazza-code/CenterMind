@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { CheckCircle2, XCircle, Flame, Clock, ExternalLink, Loader2, Images } from "lucide-react";
+import { CheckCircle2, XCircle, Flame, Clock, ExternalLink, Loader2, Images, X } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -70,10 +70,12 @@ function TimelineGroupCard({
   group,
   index,
   total,
+  onOpenImage,
 }: {
   group: TimelineGroup;
   index: number;
   total: number;
+  onOpenImage: (url: string, exhibicionId: number) => void;
 }) {
   const first = group.items[0];
   const cfg = ESTADO_CONFIG[first?.estado] ?? ESTADO_CONFIG.Pendiente;
@@ -101,19 +103,21 @@ function TimelineGroupCard({
                 <img
                   src={item.url_foto}
                   alt={`Exhibición #${item.id_exhibicion}`}
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-cover cursor-zoom-in"
                   loading="lazy"
+                  onClick={() => onOpenImage(item.url_foto, item.id_exhibicion)}
                 />
-                <a
-                  href={item.url_foto}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="absolute top-2 right-2 flex items-center gap-1 bg-black/60 backdrop-blur-sm text-white text-[10px] font-bold px-2 py-1 rounded-full hover:bg-black/80 transition-colors"
-                  onClick={(e) => e.stopPropagation()}
+                <button
+                  type="button"
+                  className="absolute top-1.5 right-1.5 flex items-center gap-1 bg-black/35 backdrop-blur-sm text-white/80 text-[9px] font-medium px-1.5 py-0.5 rounded-md hover:bg-black/55 transition-colors"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenImage(item.url_foto, item.id_exhibicion);
+                  }}
                 >
-                  <ExternalLink size={10} />
+                  <ExternalLink size={9} />
                   Ver original
-                </a>
+                </button>
               </div>
             ))}
           </div>
@@ -164,6 +168,8 @@ export function ExhibicionesTimelineDialog({
   open,
   onClose,
 }: Props) {
+  const [zoomedImage, setZoomedImage] = useState<{ url: string; id: number } | null>(null);
+
   const {
     data,
     isLoading,
@@ -263,6 +269,7 @@ export function ExhibicionesTimelineDialog({
                   group={group}
                   index={idx}
                   total={groupedTimeline.length}
+                  onOpenImage={(url, exhibicionId) => setZoomedImage({ url, id: exhibicionId })}
                 />
               ))}
               {hasNextPage && (
@@ -287,6 +294,29 @@ export function ExhibicionesTimelineDialog({
             </div>
           )}
         </ScrollArea>
+
+        {zoomedImage && (
+          <div
+            className="absolute inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+            onClick={() => setZoomedImage(null)}
+          >
+            <button
+              type="button"
+              onClick={() => setZoomedImage(null)}
+              className="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/60 text-white/80 hover:text-white hover:bg-black/80 flex items-center justify-center transition-colors"
+              title="Cerrar imagen"
+            >
+              <X size={16} />
+            </button>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={zoomedImage.url}
+              alt={`Exhibición ampliada #${zoomedImage.id}`}
+              className="max-w-full max-h-[82vh] object-contain rounded-xl shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );

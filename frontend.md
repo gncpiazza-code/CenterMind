@@ -178,6 +178,11 @@ Los paneles utilizan el estilo "Glass-Card" adaptado al tema claro:
 - `visor/page.tsx` agrega selector de sucursal (`Todas las sucursales` + opciones detectadas en pendientes) en el header de desktop.
 - El filtro se combina con vendedor y tab (`todas`/`objetivo`) para acotar el lote que evalúa el usuario sin perder la navegación por grupos.
 
+### 25. Visor — Stage adaptativo y Modo foco (16/04/2026)
+- `FotoViewer` usa fondo adaptativo (blur de la misma imagen + capa gradiente) para reducir el protagonismo del marco negro en fotos verticales/horizontales.
+- La imagen principal mantiene `object-contain` para garantizar visualización completa sin recortes.
+- Nuevo toggle `Modo foco` en el canvas: oculta overlays/paneles de contexto para priorizar lectura visual de la foto durante la evaluación.
+
 ### 8. Supervisión — Aislamiento de Cache por Tenant
 - `TabSupervision.tsx` scopea las query keys de rutas/clientes con `dist_id`:
   - `['supervision-rutas', distId, id_vendedor]`

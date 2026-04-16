@@ -1,6 +1,6 @@
 # Progress — Shelfy CenterMind
 
-**Última actualización: 16 de Abril, 2026 (hotfix visor: sucursal fallback por vendedor ERP)**
+**Última actualización: 16 de Abril, 2026 (visor: modo foco + fondo adaptativo para priorizar imagen)**
 
 Este archivo detalla el estado actual del proyecto, las funcionalidades operativas y los pendientes técnicos.
 
@@ -83,6 +83,7 @@ El proyecto se encuentra en una fase de expansión de funcionalidades de supervi
 ---
 
 ## 📅 Historial Reciente (Abril 2026)
+- **16/04 (62)**: **Visor UX — imagen protagonista sin borde negro dominante** — `visor/page.tsx` reemplaza frame negro sólido por stage adaptativo (blur suave de la propia foto + gradiente tenue), mantiene `object-contain` para ver imagen completa y agrega `Modo foco` para ocultar overlays superior/inferior y panel ERP, priorizando lectura visual de la foto durante evaluación.
 - **16/04 (61)**: **Hotfix visor — filtro de sucursal incompleto** — `supervision.py::get_pendientes` agrega mapa fallback `vendedores_v2.nombre_erp -> sucursales_v2.nombre_erp` (scoped por tenant). Si la sucursal por cliente no se puede resolver o llega como `Sin sucursal`, se asigna por vendedor ERP para evitar colapso del selector a una sola sucursal.
 - **16/04 (60)**: **Hotfix filtro por sucursal en Visor** — `supervision.py::get_pendientes` ajusta resolución de sucursal por exhibición priorizando match por `nro_cliente` (`id_cliente_erp` en `clientes_pdv_v2`) y dejando `id_cliente_pdv` como fallback. Esto corrige cruces de sucursal cuando `id_cliente_pdv` legacy no coincide con PK de tablas `_v2`.
 - **16/04 (59)**: **Hotfix visor multi-tenant — `/api/pendientes` scope estricto por distribuidora** — `supervision.py::get_pendientes` agrega filtro `id_distribuidor` en todos los enrich queries auxiliares (`exhibiciones`, `clientes_pdv_v2`, `vendedores_v2`, `sucursales_v2`) para evitar cruces cross-tenant al calcular sucursal, `nro_cliente` e `id_objetivo`.

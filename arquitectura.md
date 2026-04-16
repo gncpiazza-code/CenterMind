@@ -113,6 +113,9 @@ Este documento describe la infraestructura, tecnologías y flujos de datos que c
 31. **Visor — resolución de sucursal robusta (Abr 2026)**:
     - La sucursal del pendiente se resuelve primero por `nro_cliente` (`id_cliente_erp` en `clientes_pdv_v2`) y solo usa `id_cliente_pdv` como fallback.
     - Evita asignaciones erróneas de sucursal cuando existen referencias legacy de cliente que no corresponden al esquema `_v2`.
+32. **Visor — capa visual de imagen adaptativa (Abr 2026)**:
+    - El render de foto en evaluación usa un stage adaptativo (blur de la imagen + gradiente suave) para evitar letterbox negro dominante sin sacrificar performance.
+    - El modo foco permite ocultar overlays operativos y mantener la foto como elemento principal durante la validación.
 16. **Bot Telegram — tipo PDV silent-first (Abr 2026)**:
     - Nueva tabla `pdv_tipo_profiles` (por `id_distribuidor + id_cliente_erp`) con `tipo_pdv_preferido`, `trust_level`, `confidence`, `tipo_counts`, `total_observaciones`.
     - `handle_text` intenta inferir tipo por perfil: si confianza alta, registra exhibición sin preguntar botones; si no, mantiene selección manual.

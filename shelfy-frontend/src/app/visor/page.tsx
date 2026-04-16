@@ -67,12 +67,21 @@ function FotoViewer({ driveUrl, idExhibicion, priority = false }: { driveUrl: st
   }
 
   return (
-    <div className="relative w-full h-full bg-[#0d0d0d] rounded-3xl overflow-hidden shadow-md">
+    <div className="relative w-full h-full rounded-3xl overflow-hidden shadow-md bg-slate-900/30">
+      {/* Fondo adaptativo para evitar letterbox negro dominante */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={src}
+        alt=""
+        aria-hidden
+        className="absolute inset-0 w-full h-full object-cover scale-110 blur-2xl opacity-35"
+      />
+      <div className="absolute inset-0 bg-gradient-to-b from-slate-900/20 via-slate-900/10 to-slate-900/25" />
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={src}
         alt={`Exhibición ${idExhibicion}`}
-        className="w-full h-full object-contain object-center rounded-3xl"
+        className="relative z-[1] w-full h-full object-contain object-center rounded-3xl p-1 md:p-2"
         loading={priority ? "eager" : "lazy"}
         onError={() => setErr(true)}
       />
@@ -116,6 +125,7 @@ export default function VisorPage() {
   const [filtroVendedor, setFiltroVendedor] = useState("Todos");
   const [filtroSucursal, setFiltroSucursal] = useState("Todas");
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+  const [modoFoco, setModoFoco] = useState(false);
   const [visorTab, setVisorTab] = useState<"todas" | "objetivo">("todas");
   const [comentario, setComentario] = useState("");
   const [flash, setFlash] = useState<{ msg: string; type: "ok" | "err" } | null>(null);
@@ -471,7 +481,7 @@ export default function VisorPage() {
             /* ── VISOR LAYOUT: Image + overlays, fills entire remaining space ── */
             <div className="flex-1 flex flex-col min-h-0">
               {/* IMAGE CONTAINER — takes all remaining space */}
-              <div className="flex-1 min-h-0 rounded-none md:rounded-2xl overflow-hidden bg-[#0a0a0a] relative group">
+              <div className="flex-1 min-h-0 rounded-none md:rounded-2xl overflow-hidden bg-[radial-gradient(circle_at_top,_rgba(148,163,184,0.22),_rgba(15,23,42,0.28)_52%,_rgba(2,6,23,0.45)_100%)] relative group">
                 {/* Photo */}
                 <AnimatePresence mode="wait">
                   <motion.div
@@ -490,8 +500,17 @@ export default function VisorPage() {
                   </motion.div>
                 </AnimatePresence>
 
+                <button
+                  type="button"
+                  onClick={() => setModoFoco((v) => !v)}
+                  className="absolute top-3 left-3 z-30 rounded-full border border-white/20 bg-black/35 px-2.5 py-1 text-[10px] font-bold text-white/90 backdrop-blur-md hover:bg-black/50 transition-colors"
+                  title={modoFoco ? "Salir modo foco" : "Activar modo foco"}
+                >
+                  {modoFoco ? "Salir foco" : "Modo foco"}
+                </button>
+
                 {/* ── ERP PROFILE CARD (Desktop, top-right) ── */}
-                {erpContext?.encontrado && (
+                {!modoFoco && erpContext?.encontrado && (
                   <motion.div
                     initial={{ opacity: 0, x: 20 }}
                     animate={{ opacity: 1, x: 0 }}
@@ -557,7 +576,7 @@ export default function VisorPage() {
                 )}
 
                 {/* ── MOBILE TOP OVERLAY: compact info ── */}
-                <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/80 via-black/40 to-transparent pt-3 pb-6 px-3 text-white md:hidden z-10">
+                {!modoFoco && <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/70 via-black/30 to-transparent pt-3 pb-6 px-3 text-white md:hidden z-10">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 min-w-0 flex-1 flex-wrap">
                       <span className="text-[10px] font-black bg-violet-600/90 px-2 py-0.5 rounded-md">#{grupo.fotos[currentFotoIdx]?.id_exhibicion || "—"}</span>
@@ -633,7 +652,7 @@ export default function VisorPage() {
                       </div>
                     </div>
                   )}
-                </div>
+                </div>}
 
                 {/* ── VALIDATION LOCK ── */}
                 {isValidacion && (
@@ -676,7 +695,7 @@ export default function VisorPage() {
                 )}
 
                 {/* ── FROSTED BOTTOM BAR: izq info · centro botones · der comentarios (Desktop) ── */}
-                <div className="hidden md:flex absolute bottom-0 left-0 right-0 z-10 flex-col pointer-events-none">
+                {!modoFoco && <div className="hidden md:flex absolute bottom-0 left-0 right-0 z-10 flex-col pointer-events-none">
                   <div className="pointer-events-auto grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto_minmax(220px,300px)] gap-3 px-4 py-2.5 bg-black/55 backdrop-blur-xl border-t border-white/10 text-white items-end">
                     {/* IZQUIERDA: vendedor, código ERP, envío, ingreso, 30d */}
                     <div className="min-w-0 flex flex-col gap-1 text-left">
@@ -854,10 +873,10 @@ export default function VisorPage() {
                       />
                     </div>
                   </div>
-                </div>
+                </div>}
 
                 {/* ── MOBILE FROSTED BOTTOM BAR ── */}
-                <div className="flex md:hidden absolute bottom-0 left-0 right-0 z-10 flex-col pointer-events-none">
+                {!modoFoco && <div className="flex md:hidden absolute bottom-0 left-0 right-0 z-10 flex-col pointer-events-none">
                   <div
                     className="pointer-events-auto flex flex-col gap-2 px-3 py-2 bg-black/65 backdrop-blur-xl border-t border-white/10 text-white"
                     style={{ paddingBottom: "max(8px, env(safe-area-inset-bottom))" }}
@@ -962,7 +981,7 @@ export default function VisorPage() {
                       </button>
                     </div>
                   </div>
-                </div>
+                </div>}
               </div>
 
 

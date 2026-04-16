@@ -576,7 +576,11 @@ export default function VisorPage() {
                       initial={{ opacity: 0, x: 18, y: -4 }}
                       animate={{ opacity: 1, x: 0, y: 0 }}
                       exit={{ opacity: 0, x: 14, y: -4 }}
-                      transition={{ type: "spring", stiffness: 330, damping: 28, mass: 0.9 }}
+                      transition={{
+                        opacity: { duration: 0.34, ease: [0.16, 1, 0.3, 1] },
+                        x: { duration: 0.34, ease: [0.16, 1, 0.3, 1] },
+                        y: { duration: 0.34, ease: [0.16, 1, 0.3, 1] },
+                      }}
                       className="hidden md:block absolute top-4 right-4 w-72 bg-black/34 backdrop-blur-2xl border border-white/8 rounded-2xl p-4 text-white shadow-[0_14px_34px_rgba(2,6,23,0.35)] z-10"
                     >
                     <div className="flex items-start justify-between mb-3">
@@ -645,7 +649,10 @@ export default function VisorPage() {
                     initial={{ opacity: 0, y: -16 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -14 }}
-                    transition={{ type: "spring", stiffness: 340, damping: 30, mass: 0.85 }}
+                    transition={{
+                      opacity: { duration: 0.32, ease: [0.16, 1, 0.3, 1] },
+                      y: { duration: 0.34, ease: [0.16, 1, 0.3, 1] },
+                    }}
                     className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/42 via-black/12 to-transparent pt-3 pb-6 px-3 text-white md:hidden z-10"
                   >
                   <div className="flex items-center justify-between">
@@ -772,7 +779,10 @@ export default function VisorPage() {
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: 16 }}
-                    transition={{ type: "spring", stiffness: 310, damping: 30, mass: 0.9 }}
+                    transition={{
+                      opacity: { duration: 0.35, ease: [0.16, 1, 0.3, 1] },
+                      y: { duration: 0.38, ease: [0.16, 1, 0.3, 1] },
+                    }}
                     className="hidden md:flex absolute bottom-3 left-3 right-3 z-10 flex-col pointer-events-none"
                   >
                     <div className="pointer-events-auto rounded-2xl grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto_minmax(220px,300px)] gap-2 px-4 py-1.5 bg-black/28 backdrop-blur-2xl border border-white/8 text-white items-end shadow-[0_18px_38px_rgba(2,6,23,0.35)]">
@@ -961,7 +971,10 @@ export default function VisorPage() {
                     initial={{ opacity: 0, y: 16 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: 14 }}
-                    transition={{ type: "spring", stiffness: 340, damping: 32, mass: 0.82 }}
+                    transition={{
+                      opacity: { duration: 0.3, ease: [0.16, 1, 0.3, 1] },
+                      y: { duration: 0.34, ease: [0.16, 1, 0.3, 1] },
+                    }}
                     className="flex md:hidden absolute bottom-2 left-2 right-2 z-10 flex-col pointer-events-none"
                   >
                   <div

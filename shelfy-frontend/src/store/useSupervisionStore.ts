@@ -30,6 +30,11 @@ interface SupervisionStore {
   // Clear all
   clearAll: () => void;
 
+  // Vendor color overrides (keyed by `${distId}:${vendorId}`)
+  vendorColorOverrides: Record<string, string>;
+  setVendorColorOverride: (distId: number, vendorId: number, color: string) => void;
+  clearVendorColorOverride: (distId: number, vendorId: number) => void;
+
   // PDV selection for objective creation ("shopping cart")
   selectedPDVsForObjective: number[];
   togglePDVForObjective: (id: number) => void;
@@ -44,6 +49,7 @@ export const useSupervisionStore = create<SupervisionStore>()(
       visibleVends: new Set(),
       visibleRutas: new Set(),
       visibleClientes: new Set(),
+      vendorColorOverrides: {},
       selectedPDVsForObjective: [],
 
       setSelectedSucursal: (sucursal) => set({ selectedSucursal: sucursal }),
@@ -93,6 +99,25 @@ export const useSupervisionStore = create<SupervisionStore>()(
           visibleClientes: new Set(),
         }),
 
+      setVendorColorOverride: (distId, vendorId, color) =>
+        set((state) => {
+          const key = `${distId}:${vendorId}`;
+          return {
+            vendorColorOverrides: {
+              ...state.vendorColorOverrides,
+              [key]: color,
+            },
+          };
+        }),
+
+      clearVendorColorOverride: (distId, vendorId) =>
+        set((state) => {
+          const key = `${distId}:${vendorId}`;
+          const next = { ...state.vendorColorOverrides };
+          delete next[key];
+          return { vendorColorOverrides: next };
+        }),
+
       togglePDVForObjective: (id) =>
         set((state) => {
           const exists = state.selectedPDVsForObjective.includes(id);
@@ -112,11 +137,13 @@ export const useSupervisionStore = create<SupervisionStore>()(
       partialize: (state) => ({
         selectedSucursal: state.selectedSucursal,
         mapMode: state.mapMode,
+        vendorColorOverrides: state.vendorColorOverrides,
       }),
       merge: (persistedState: any, currentState) => ({
         ...currentState,
         mapMode: persistedState?.mapMode ?? currentState.mapMode,
         selectedSucursal: persistedState?.selectedSucursal ?? currentState.selectedSucursal,
+        vendorColorOverrides: persistedState?.vendorColorOverrides ?? currentState.vendorColorOverrides,
         visibleVends: new Set(),
         visibleRutas: new Set(),
         visibleClientes: new Set(),

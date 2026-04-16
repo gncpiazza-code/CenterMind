@@ -461,6 +461,14 @@ Props que recibe: `{ distId: number, isSuperadmin?: boolean }`
   - `['supervision-rutas', distId, id_vendedor]`
   - `['supervision-clientes', distId, id_ruta]`
 
+**Color por vendedor (personalizable)**:
+- `TabSupervision` permite override de color por vendedor (picker + reset), persistido en Zustand por clave `distId:vendorId`.
+- El color override debe aplicarse en ambos paneles (normal + fullscreen) y en pines de `MapaRutas`.
+
+**Galería inferior en Supervisión**:
+- “Exhibiciones del día” debe filtrar por `selectedSucursal` activa (vendedores de esa sucursal solamente).
+- El filtro por estado debe usar normalización semántica (`aprobad*`, `rechaz*`, `destacad*`, `pend*`) para soportar variantes (`Aprobado/Aprobada`, etc.).
+
 ---
 
 ## Componente MapaRutas (frontend)

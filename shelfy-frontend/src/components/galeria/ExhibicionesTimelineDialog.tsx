@@ -138,10 +138,6 @@ function TimelineGroupCard({
             </span>
           </div>
 
-          <p className="text-xs font-semibold" style={{ color: "var(--shelfy-text)" }}>
-            {group.items.length} carga{group.items.length === 1 ? "" : "s"} en la misma fecha
-          </p>
-
           {first?.fecha_evaluacion && (
             <p className="text-[11px]" style={{ color: "var(--shelfy-muted)" }}>
               Evaluado: {formatDateTime(first.fecha_evaluacion)}
@@ -227,7 +223,7 @@ export function ExhibicionesTimelineDialog({
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-xl max-h-[90vh] flex flex-col p-0">
+      <DialogContent className="max-w-xl max-h-[90vh] flex flex-col p-0 overflow-hidden">
         <DialogHeader className="px-6 pt-6 pb-4 border-b shrink-0" style={{ borderColor: "var(--shelfy-border)" }}>
           <DialogTitle className="font-black text-base" style={{ color: "var(--shelfy-text)" }}>
             {nombreCliente}
@@ -242,7 +238,7 @@ export function ExhibicionesTimelineDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <ScrollArea className="flex-1 px-6 py-4">
+        <ScrollArea className="flex-1 min-h-0 px-6 py-4">
           {isLoading ? (
             <div className="space-y-4">
               {Array.from({ length: 3 }).map((_, i) => (

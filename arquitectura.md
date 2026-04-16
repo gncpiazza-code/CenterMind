@@ -91,6 +91,13 @@ Este documento describe la infraestructura, tecnologías y flujos de datos que c
 24. **Supervisión — guardia visual de inactivos en mapa (Abr 2026)**:
     - `MapaRutas` re-habilita por defecto los 4 estados del legend (`activo`, `activo+exhibición`, `inactivo`, `inactivo+exhibición`) cuando cambia el set de pines.
     - Con esto, prender vendedor/ruta siempre muestra también PDVs inactivos (si tienen coordenadas válidas), evitando regressions por filtros locales persistidos en sesión.
+25. **Supervisión — identidad visual por vendedor (Abr 2026)**:
+    - `useSupervisionStore` persiste `vendorColorOverrides` por `distId:vendorId`.
+    - `TabSupervision` permite personalizar y resetear el color del vendedor desde panel normal y fullscreen.
+    - El color impacta avatares, acentos de lista y pines de mapa para continuidad visual entre vistas.
+26. **Supervisión — galería del día con scope de sucursal (Abr 2026)**:
+    - La galería de exhibiciones en `/supervision` aplica dos filtros en frontend: estado normalizado y pertenencia de vendedor a la sucursal activa.
+    - Evita mezclar exhibiciones cross-sucursal y corrige mismatches de estados por variantes de género/tildes.
 16. **Bot Telegram — tipo PDV silent-first (Abr 2026)**:
     - Nueva tabla `pdv_tipo_profiles` (por `id_distribuidor + id_cliente_erp`) con `tipo_pdv_preferido`, `trust_level`, `confidence`, `tipo_counts`, `total_observaciones`.
     - `handle_text` intenta inferir tipo por perfil: si confianza alta, registra exhibición sin preguntar botones; si no, mantiene selección manual.

@@ -156,6 +156,16 @@ Los paneles utilizan el estilo "Glass-Card" adaptado al tema claro:
 - `MapaRutas` reinicia filtros del legend de estados al cambiar el set de pines para prevenir sesiones donde solo queden visibles activos tras toggles previos.
 - Comportamiento esperado: al prender vendedor/ruta se visualizan activos e inactivos (siempre que tengan coordenadas válidas).
 
+### 20. Supervisión — color personalizado por vendedor (16/04/2026)
+- `TabSupervision` agrega picker (`input type=color`) + acción de reset por vendedor en ambos paneles (normal y fullscreen overlay de `ShelfyMaps`).
+- El color se persiste en Zustand (`useSupervisionStore.vendorColorOverrides`) con key `distId:vendorId`.
+- Los pines de mapa y acentos de filas/rutas consumen ese color override en tiempo real.
+
+### 21. Supervisión — galería del día filtrable y tenant-safe (16/04/2026)
+- Filtros de estado robustos por normalización (`Aprobado/Aprobada`, `Rechazado/Rechazada`, `Destacado/Destacada`, `Pendiente`).
+- La galería inferior “Exhibiciones del día” muestra solo registros de vendedores pertenecientes a la `selectedSucursal`.
+- El contador de cabecera muestra registros visibles (post-filtro), no el total bruto.
+
 ### 8. Supervisión — Aislamiento de Cache por Tenant
 - `TabSupervision.tsx` scopea las query keys de rutas/clientes con `dist_id`:
   - `['supervision-rutas', distId, id_vendedor]`

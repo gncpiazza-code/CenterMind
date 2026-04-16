@@ -116,7 +116,24 @@ const VENDOR_COLORS = [
   "#C026D3", // 19 — Fuchsia Deep
   "#4B5563", // 20 — Cool Grey
 ];
-const vendorColor = (i: number) => VENDOR_COLORS[i % VENDOR_COLORS.length];
+const defaultVendorColor = (i: number) => VENDOR_COLORS[i % VENDOR_COLORS.length];
+
+function normalizeText(value: string | null | undefined): string {
+  return (value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function normalizeExhibEstado(value: string | null | undefined): "pendiente" | "aprobada" | "rechazada" | "destacada" | "otros" {
+  const s = normalizeText(value);
+  if (s.includes("pend")) return "pendiente";
+  if (s.includes("destac")) return "destacada";
+  if (s.includes("rechaz")) return "rechazada";
+  if (s.includes("aprobad")) return "aprobada";
+  return "otros";
+}
 
 // ── Day badge ─────────────────────────────────────────────────────────────────
 const DIA_COLOR: Record<string, string> = {
@@ -338,6 +355,9 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
     setVisibleRutas,
     setVisibleClientes,
     clearAll,
+    vendorColorOverrides,
+    setVendorColorOverride,
+    clearVendorColorOverride,
     selectedPDVsForObjective,
     togglePDVForObjective,
     clearSelectedPDVs,
@@ -523,6 +543,11 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
     }
   }, [distId, selectedDist]);
 
+  const getVendorColor = useCallback((vendorId: number, idx: number) => {
+    const key = `${selectedDist}:${vendorId}`;
+    return vendorColorOverrides[key] ?? defaultVendorColor(idx);
+  }, [selectedDist, vendorColorOverrides]);
+
   // ── TanStack Query: Vendedores ────────────────────────────────────────────
   const {
     data: vendedores = [],
@@ -660,7 +685,14 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
 
   const exhibicionesFiltradas = useMemo(() => {
     let filtered = exhibiciones;
-    if (exhibFilter !== "Todos") filtered = filtered.filter(e => e.estado === exhibFilter);
+    if (selectedSucursal) {
+      const allowedVendors = new Set(vendedoresFiltrados.map(v => normalizeText(v.nombre_vendedor)));
+      filtered = filtered.filter((e: any) => allowedVendors.has(normalizeText(e.vendedor)));
+    }
+    if (exhibFilter !== "Todos") {
+      const target = normalizeExhibEstado(exhibFilter);
+      filtered = filtered.filter((e: any) => normalizeExhibEstado(e.estado) === target);
+    }
     if (exhibSearch.trim()) {
       const q = exhibSearch.trim().toLowerCase();
       filtered = filtered.filter(e =>
@@ -669,7 +701,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
       );
     }
     return filtered;
-  }, [exhibiciones, exhibFilter, exhibSearch]);
+  }, [exhibiciones, exhibFilter, exhibSearch, selectedSucursal, vendedoresFiltrados]);
 
   // ── Print cuentas corrientes ─────────────────────────────────────────────
   function handlePrintCuentas() {
@@ -1002,7 +1034,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
     const result: PinCliente[] = [];
     vendedores.forEach((v, idx) => {
       if (!visibleVends.has(v.id_vendedor)) return;
-      const color = vendorColor(idx);
+      const color = getVendorColor(v.id_vendedor, idx);
       
       // Get rutas from query cache
       const vendRutas = queryClient.getQueryData<RutaSupervision[]>(['supervision-rutas', selectedDist, v.id_vendedor]) ?? [];
@@ -1375,7 +1407,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
         )}
         {vendedoresFiltrados.map(v => {
           const idx       = vendedores.indexOf(v);
-          const color     = vendorColor(idx);
+          const color     = getVendorColor(v.id_vendedor, idx);
           const vOpen     = openVend === v.id_vendedor;
           const vRutasRaw = queryClient.getQueryData<RutaSupervision[]>(['supervision-rutas', selectedDist, v.id_vendedor]) ?? [];
           const vRutas    = [...vRutasRaw].sort(
@@ -1400,6 +1432,23 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                     <div className="flex-1 min-w-0">
                       <p className="text-[12px] font-bold text-white truncate leading-snug">{v.nombre_vendedor}</p>
                       <p className="text-[10px] text-white/40">{pdvTot} PDV · {pct}% activos</p>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <input
+                        type="color"
+                        value={color}
+                        onChange={(e) => setVendorColorOverride(selectedDist, v.id_vendedor, e.target.value)}
+                        title="Personalizar color del vendedor"
+                        className="w-5 h-5 p-0 border border-white/20 rounded bg-transparent cursor-pointer"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => clearVendorColorOverride(selectedDist, v.id_vendedor)}
+                        title="Restaurar color automático"
+                        className="w-5 h-5 rounded border border-white/15 text-[10px] text-white/50 hover:text-white/80 hover:border-white/30 transition-colors"
+                      >
+                        ↺
+                      </button>
                     </div>
                     <button
                       onClick={() => toggleVendor(v.id_vendedor)}
@@ -1696,7 +1745,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
             <div className="divide-y divide-[var(--shelfy-border)]/40">
               {vendedoresFiltrados.map(v => {
                 const idx       = vendedores.indexOf(v);
-                const color     = vendorColor(idx);
+                const color     = getVendorColor(v.id_vendedor, idx);
                 const vOpen     = openVend === v.id_vendedor;
                 const vRutasRaw = queryClient.getQueryData<RutaSupervision[]>(['supervision-rutas', selectedDist, v.id_vendedor]) ?? [];
                 const vRutas    = [...vRutasRaw].sort(
@@ -1731,6 +1780,23 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                             <p className="text-[11px] text-[var(--shelfy-muted)]">
                               {pdvTot.toLocaleString()} PDV · {v.total_rutas} rutas
                             </p>
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <input
+                              type="color"
+                              value={color}
+                              onChange={(e) => setVendorColorOverride(selectedDist, v.id_vendedor, e.target.value)}
+                              title="Personalizar color del vendedor"
+                              className="w-6 h-6 p-0 border border-[var(--shelfy-border)] rounded bg-transparent cursor-pointer"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => clearVendorColorOverride(selectedDist, v.id_vendedor)}
+                              title="Restaurar color automático"
+                              className="w-6 h-6 rounded border border-[var(--shelfy-border)] text-[11px] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] transition-colors"
+                            >
+                              ↺
+                            </button>
                           </div>
                           {/* Vendor eye: bigger, toggles everything — hidden on mobile (no map) */}
                           <button
@@ -2027,7 +2093,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
           {cuentasFiltradas && cuentasFiltradas.vendedores.length > 0 && (
             <div className="divide-y divide-[var(--shelfy-border)]/30 overflow-y-auto">
               {cuentasFiltradas.vendedores.map((v: any, idx: number) => {
-                const color = vendorColor(idx);
+                const color = defaultVendorColor(idx);
                 const isOpen = openCuentasVend === v.vendedor;
                 return (
                   <div key={v.vendedor}>
@@ -2154,7 +2220,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
             {ventasFiltradas && (ventasFiltradas?.vendedores?.length ?? 0) > 0 && (
               <div className="divide-y divide-[var(--shelfy-border)]/30">
                 {(ventasFiltradas?.vendedores ?? []).map((v, idx) => {
-                  const color = vendorColor(idx);
+                  const color = defaultVendorColor(idx);
                   const isOpen = openVentasVend === v.vendedor;
                   const pctRec = v.monto_total > 0 ? Math.round((v.monto_recaudado / v.monto_total) * 100) : 0;
                   return (
@@ -2340,7 +2406,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
             {cuentasFiltradas && cuentasFiltradas.vendedores.length > 0 && (
               <div className="divide-y divide-[var(--shelfy-border)]/30">
                 {cuentasFiltradas.vendedores.map((v: any, idx: number) => {
-                  const color = vendorColor(idx);
+                  const color = defaultVendorColor(idx);
                   const isOpen = openCuentasVend === v.vendedor;
 
                   // Distribución por rango para mostrar en el header de la tarjeta
@@ -2471,7 +2537,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
           <div className="flex items-center gap-2">
             <ImageIcon className="w-4 h-4 text-violet-400" />
             <h3 className="text-sm font-bold text-[var(--shelfy-text)]">Exhibiciones del día</h3>
-            <span className="text-[11px] text-[var(--shelfy-muted)]">· {exhibiciones.length} registros</span>
+            <span className="text-[11px] text-[var(--shelfy-muted)]">· {exhibicionesFiltradas.length} registros</span>
           </div>
           <div className="flex items-center gap-2">
             {loadingExhib && <Loader2 className="w-4 h-4 animate-spin text-[var(--shelfy-muted)]" />}
@@ -2480,16 +2546,16 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
 
         {/* Filters */}
         <div className="flex items-center gap-2 px-5 py-3 border-b border-[var(--shelfy-border)]/30 flex-wrap">
-          {["Todos", "Pendiente", "Aprobada", "Rechazada", "Destacada"].map(st => (
+          {["Todos", "Pendiente", "Aprobado", "Rechazado", "Destacado"].map(st => (
             <button
               key={st}
               onClick={() => setExhibFilter(st)}
               className={`text-xs px-3 py-1 rounded-lg border transition-all ${
                 exhibFilter === st
                   ? st === "Pendiente" ? "bg-amber-500/20 border-amber-500/40 text-amber-400 font-semibold"
-                  : st === "Aprobada" ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-400 font-semibold"
-                  : st === "Rechazada" ? "bg-red-500/20 border-red-500/40 text-red-400 font-semibold"
-                  : st === "Destacada" ? "bg-violet-500/20 border-violet-500/40 text-violet-400 font-semibold"
+                  : st === "Aprobado" ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-400 font-semibold"
+                  : st === "Rechazado" ? "bg-red-500/20 border-red-500/40 text-red-400 font-semibold"
+                  : st === "Destacado" ? "bg-violet-500/20 border-violet-500/40 text-violet-400 font-semibold"
                   : "bg-white/10 border-white/20 text-[var(--shelfy-text)] font-semibold"
                   : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
               }`}
@@ -2524,13 +2590,17 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 p-4 max-h-[600px] overflow-y-auto">
             {exhibicionesFiltradas.map((ex: any) => {
               const imgUrl = resolveImageUrl(ex.link_foto, ex.id_exhibicion);
-              const estadoBadge: Record<string, string> = {
-                Pendiente: "bg-amber-500/15 text-amber-400 border-amber-500/25",
-                Aprobada: "bg-emerald-500/15 text-emerald-400 border-emerald-500/25",
-                Rechazada: "bg-red-500/15 text-red-400 border-red-500/25",
-                Destacada: "bg-violet-500/15 text-violet-400 border-violet-500/25",
-              };
-              const badgeCls = estadoBadge[ex.estado] ?? "bg-slate-500/15 text-slate-400 border-slate-500/25";
+              const estadoNorm = normalizeExhibEstado(ex.estado);
+              const badgeCls =
+                estadoNorm === "pendiente"
+                  ? "bg-amber-500/15 text-amber-400 border-amber-500/25"
+                  : estadoNorm === "aprobada"
+                    ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/25"
+                    : estadoNorm === "rechazada"
+                      ? "bg-red-500/15 text-red-400 border-red-500/25"
+                      : estadoNorm === "destacada"
+                        ? "bg-violet-500/15 text-violet-400 border-violet-500/25"
+                        : "bg-slate-500/15 text-slate-400 border-slate-500/25";
               const fecha = ex.fecha_carga ? new Date(ex.fecha_carga) : null;
               return (
                 <div key={ex.id_exhibicion} className="rounded-xl border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] overflow-hidden hover:border-violet-500/30 transition-colors group">

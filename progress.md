@@ -1,6 +1,6 @@
 # Progress — Shelfy CenterMind
 
-**Última actualización: 16 de Abril, 2026 (visor refinado + badges de galería jerarquizados)**
+**Última actualización: 16 de Abril, 2026 (visor: foco momentáneo con barra espaciadora)**
 
 Este archivo detalla el estado actual del proyecto, las funcionalidades operativas y los pendientes técnicos.
 
@@ -83,6 +83,7 @@ El proyecto se encuentra en una fase de expansión de funcionalidades de supervi
 ---
 
 ## 📅 Historial Reciente (Abril 2026)
+- **16/04 (64)**: **Visor — foco momentáneo por teclado** — `visor/page.tsx` reemplaza activación persistente de “Modo foco” por un modo temporal: al mantener `Space` ~700ms se ocultan overlays; al soltar la tecla (o perder foco de ventana) reaparecen automáticamente. Se ignora en campos de escritura (`input/textarea/select/contentEditable`) para no interferir con comentarios.
 - **16/04 (63)**: **Refine final de Visor + Galería detalle cliente** — (1) `visor/page.tsx`: `Modo foco` se integra junto a botones de evaluación y en mobile la barra inferior se compacta con bloque de observaciones colapsable (`Obs`) para reducir cobertura de imagen. (2) `ExhibicionesTimelineDialog.tsx`: badges jerarquizados por color (estado, volumen de imágenes y tipo de comercio), con regla de negocio explícita para tipo: `COMERCIO CON INGRESO` (verde) / `COMERCIO SIN INGRESO` (rojo suave).
 - **16/04 (62)**: **Visor UX — imagen protagonista sin borde negro dominante** — `visor/page.tsx` reemplaza frame negro sólido por stage adaptativo (blur suave de la propia foto + gradiente tenue), mantiene `object-contain` para ver imagen completa y agrega `Modo foco` para ocultar overlays superior/inferior y panel ERP, priorizando lectura visual de la foto durante evaluación.
 - **16/04 (61)**: **Hotfix visor — filtro de sucursal incompleto** — `supervision.py::get_pendientes` agrega mapa fallback `vendedores_v2.nombre_erp -> sucursales_v2.nombre_erp` (scoped por tenant). Si la sucursal por cliente no se puede resolver o llega como `Sin sucursal`, se asigna por vendedor ERP para evitar colapso del selector a una sola sucursal.

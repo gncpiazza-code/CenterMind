@@ -126,7 +126,7 @@ export default function VisorPage() {
   const [filtroSucursal, setFiltroSucursal] = useState("Todas");
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [mobileToolsOpen, setMobileToolsOpen] = useState(false);
-  const [modoFoco, setModoFoco] = useState(false);
+  const [focusHoldActive, setFocusHoldActive] = useState(false);
   const [visorTab, setVisorTab] = useState<"todas" | "objetivo">("todas");
   const [comentario, setComentario] = useState("");
   const [flash, setFlash] = useState<{ msg: string; type: "ok" | "err" } | null>(null);
@@ -135,6 +135,7 @@ export default function VisorPage() {
 
   const distId = user?.id_distribuidor || 0;
   const isSubmittingRef = useRef(false);
+  const focusHoldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Queries con TanStack Query
   const { data: grupos = [], isLoading: loadingPendientes, error: errorPend } = useQuery({
@@ -301,6 +302,59 @@ export default function VisorPage() {
     setMobileFiltersOpen(false);
     setMobileToolsOpen(false);
   }, [currentIndex, filtroVendedor, filtroSucursal, visorTab]);
+
+  useEffect(() => {
+    const clearFocusTimer = () => {
+      if (focusHoldTimerRef.current) {
+        clearTimeout(focusHoldTimerRef.current);
+        focusHoldTimerRef.current = null;
+      }
+    };
+
+    const isTypingTarget = (target: EventTarget | null): boolean => {
+      if (!(target instanceof HTMLElement)) return false;
+      const tag = target.tagName.toLowerCase();
+      return (
+        tag === "input" ||
+        tag === "textarea" ||
+        tag === "select" ||
+        target.isContentEditable
+      );
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.code !== "Space") return;
+      if (isTypingTarget(e.target)) return;
+      if (e.repeat) return;
+      clearFocusTimer();
+      // Activación intencional: mantener apretado un momento.
+      focusHoldTimerRef.current = setTimeout(() => {
+        setFocusHoldActive(true);
+      }, 700);
+    };
+
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.code !== "Space") return;
+      clearFocusTimer();
+      setFocusHoldActive(false);
+    };
+
+    const onBlur = () => {
+      clearFocusTimer();
+      setFocusHoldActive(false);
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onBlur);
+
+    return () => {
+      clearFocusTimer();
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
+    };
+  }, []);
 
   useEffect(() => {
     // Evita estado "pantalla vacía" cuando cambia la lista filtrada mientras
@@ -503,7 +557,7 @@ export default function VisorPage() {
                 </AnimatePresence>
 
                 {/* ── ERP PROFILE CARD (Desktop, top-right) ── */}
-                {!modoFoco && erpContext?.encontrado && (
+                {!focusHoldActive && erpContext?.encontrado && (
                   <motion.div
                     initial={{ opacity: 0, x: 20 }}
                     animate={{ opacity: 1, x: 0 }}
@@ -569,7 +623,7 @@ export default function VisorPage() {
                 )}
 
                 {/* ── MOBILE TOP OVERLAY: compact info ── */}
-                {!modoFoco && <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/70 via-black/30 to-transparent pt-3 pb-6 px-3 text-white md:hidden z-10">
+                {!focusHoldActive && <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/70 via-black/30 to-transparent pt-3 pb-6 px-3 text-white md:hidden z-10">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 min-w-0 flex-1 flex-wrap">
                       <span className="text-[10px] font-black bg-violet-600/90 px-2 py-0.5 rounded-md">#{grupo.fotos[currentFotoIdx]?.id_exhibicion || "—"}</span>
@@ -688,7 +742,7 @@ export default function VisorPage() {
                 )}
 
                 {/* ── FROSTED BOTTOM BAR: izq info · centro botones · der comentarios (Desktop) ── */}
-                {!modoFoco && <div className="hidden md:flex absolute bottom-0 left-0 right-0 z-10 flex-col pointer-events-none">
+                {!focusHoldActive && <div className="hidden md:flex absolute bottom-0 left-0 right-0 z-10 flex-col pointer-events-none">
                   <div className="pointer-events-auto grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto_minmax(220px,300px)] gap-2 px-4 py-1.5 bg-black/42 backdrop-blur-xl border-t border-white/10 text-white items-end">
                     {/* IZQUIERDA: vendedor, código ERP, envío, ingreso, 30d */}
                     <div className="min-w-0 flex flex-col gap-1 text-left">
@@ -800,14 +854,6 @@ export default function VisorPage() {
                         >
                           <RefreshCw size={16} strokeWidth={2.5} />
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => setModoFoco(true)}
-                          title="Modo foco"
-                          className="h-9 px-3 rounded-full bg-white/10 text-white/85 hover:bg-white/20 transition-all active:scale-95 border border-white/15 text-[11px] font-bold"
-                        >
-                          Modo foco
-                        </button>
                       </div>
                       <span className="text-[9px] font-bold text-white/45">
                         {currentIndex + 1}<span className="text-white/25">/{totalGrupos}</span>
@@ -877,7 +923,7 @@ export default function VisorPage() {
                 </div>}
 
                 {/* ── MOBILE FROSTED BOTTOM BAR ── */}
-                {!modoFoco && <div className="flex md:hidden absolute bottom-0 left-0 right-0 z-10 flex-col pointer-events-none">
+                {!focusHoldActive && <div className="flex md:hidden absolute bottom-0 left-0 right-0 z-10 flex-col pointer-events-none">
                   <div
                     className="pointer-events-auto flex flex-col gap-1.5 px-3 py-1.5 bg-black/50 backdrop-blur-xl border-t border-white/10 text-white"
                     style={{ paddingBottom: "max(8px, env(safe-area-inset-bottom))" }}
@@ -983,12 +1029,6 @@ export default function VisorPage() {
                         className="w-9 h-9 flex items-center justify-center rounded-full bg-[#fbbf24]/80 text-white transition-all active:scale-90 border border-white/10"
                       >
                         <RefreshCw size={14} strokeWidth={2.5} />
-                      </button>
-                      <button
-                        onClick={() => setModoFoco(true)}
-                        className="h-9 px-2.5 flex items-center justify-center rounded-full bg-white/10 text-white/85 transition-all active:scale-90 border border-white/10 text-[10px] font-bold"
-                      >
-                        Foco
                       </button>
                       <button
                         onClick={() => setMobileToolsOpen((v) => !v)}

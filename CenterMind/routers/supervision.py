@@ -296,8 +296,34 @@ def get_pendientes(id_distribuidor: int, payload=Depends(verify_auth)):
         ex_sucursal_map: dict[int, str] = {}
 
         # Enriquecer sucursal por exhibición (id_exhibicion -> sucursal_erp)
+        # Prioriza match por nro_cliente ERP (más robusto que id_cliente_pdv legacy).
         if all_ex_ids:
             try:
+                ex_nro_map = {
+                    int(d.get("id_exhibicion")): str(d.get("nro_cliente") or "").strip()
+                    for d in rows
+                    if d.get("id_exhibicion")
+                }
+                nro_vals = list({
+                    nro for nro in ex_nro_map.values()
+                    if nro and nro not in {"0", "S/C"}
+                })
+
+                nro_to_ruta: dict[str, int | None] = {}
+                if nro_vals:
+                    cli_by_nro_res = (
+                        sb.table("clientes_pdv_v2")
+                        .select("id_cliente_erp, id_ruta")
+                        .eq("id_distribuidor", id_distribuidor)
+                        .in_("id_cliente_erp", nro_vals)
+                        .execute()
+                    )
+                    for r in (cli_by_nro_res.data or []):
+                        nro = str(r.get("id_cliente_erp") or "").strip()
+                        if not nro or nro in nro_to_ruta:
+                            continue
+                        nro_to_ruta[nro] = r.get("id_ruta")
+
                 ex_cli_res = (
                     sb.table("exhibiciones")
                     .select("id_exhibicion, id_cliente_pdv")
@@ -373,7 +399,11 @@ def get_pendientes(id_distribuidor: int, payload=Depends(verify_auth)):
                         }
 
                     for ex_id, cli_id in ex_to_cli.items():
-                        id_ruta = cli_to_ruta.get(cli_id)
+                        nro_cliente = ex_nro_map.get(ex_id)
+                        # 1) preferir ruta por id_cliente_erp; 2) fallback id_cliente_pdv
+                        id_ruta = nro_to_ruta.get(nro_cliente) if nro_cliente else None
+                        if id_ruta is None:
+                            id_ruta = cli_to_ruta.get(cli_id)
                         id_vendedor = ruta_to_vendedor.get(id_ruta) if id_ruta is not None else None
                         id_sucursal = vendedor_to_sucursal.get(id_vendedor) if id_vendedor is not None else None
                         ex_sucursal_map[ex_id] = suc_map.get(id_sucursal, "Sin sucursal")

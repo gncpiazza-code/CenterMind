@@ -110,6 +110,9 @@ Este documento describe la infraestructura, tecnologías y flujos de datos que c
 30. **Visor — hardening tenant-safe en enrich de pendientes (Abr 2026)**:
     - Las consultas de enriquecimiento de `/api/pendientes/{id_distribuidor}` aplican `eq("id_distribuidor", dist)` en tablas auxiliares para impedir mezcla de registros entre tenants.
     - Campos afectados por el hardening: `sucursal`, `nro_cliente` fallback e identificación de `id_objetivo`.
+31. **Visor — resolución de sucursal robusta (Abr 2026)**:
+    - La sucursal del pendiente se resuelve primero por `nro_cliente` (`id_cliente_erp` en `clientes_pdv_v2`) y solo usa `id_cliente_pdv` como fallback.
+    - Evita asignaciones erróneas de sucursal cuando existen referencias legacy de cliente que no corresponden al esquema `_v2`.
 16. **Bot Telegram — tipo PDV silent-first (Abr 2026)**:
     - Nueva tabla `pdv_tipo_profiles` (por `id_distribuidor + id_cliente_erp`) con `tipo_pdv_preferido`, `trust_level`, `confidence`, `tipo_counts`, `total_observaciones`.
     - `handle_text` intenta inferir tipo por perfil: si confianza alta, registra exhibición sin preguntar botones; si no, mantiene selección manual.

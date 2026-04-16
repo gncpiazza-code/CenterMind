@@ -1,6 +1,6 @@
 # Progress — Shelfy CenterMind
 
-**Última actualización: 16 de Abril, 2026 (visor: salida de pad sin zoom + transiciones pulidas)**
+**Última actualización: 16 de Abril, 2026 (visor: imagen estable + animación solo en barras)**
 
 Este archivo detalla el estado actual del proyecto, las funcionalidades operativas y los pendientes técnicos.
 
@@ -83,6 +83,7 @@ El proyecto se encuentra en una fase de expansión de funcionalidades de supervi
 ---
 
 ## 📅 Historial Reciente (Abril 2026)
+- **16/04 (67)**: **Visor — imagen estable sin movimiento + barras con animación dedicada** — se elimina por completo cualquier animación/transform de la imagen en foco (`Space`), dejando la foto fija y sin zoom/crop. El efecto visual se concentra exclusivamente en ocultar/mostrar overlays con `AnimatePresence` + transiciones spring (top mobile, barra desktop, barra mobile y panel ERP), y se suavizan bordes/paneles glass para una estética menos tosca.
 - **16/04 (66)**: **Visor — foco inmersivo sin zoom/crop (salida de pad)** — `visor/page.tsx` elimina el escalado de la foto durante hold de `Space` para evitar recortes indeseados y reemplaza el efecto por expansión de área visible (la imagen “sale del pad” manteniendo `object-contain`). Además, se refinan las animaciones de entrada/salida de overlays top/bottom (desktop/mobile) con transiciones tipo spring para una percepción más fluida y menos abrupta.
 - **16/04 (65)**: **Visor — foco inmersivo durante hold de Space** — al mantener `Space`, la imagen principal se agranda suavemente y sube saturación/contraste/brillo, mientras overlays bajan en protagonismo. Se rediseñan barras superior/inferior como paneles glass flotantes más livianos (menos opacidad, bordes redondeados, animaciones de entrada/salida), reduciendo la sensación de “inserción tosca” de la foto.
 - **16/04 (64)**: **Visor — foco momentáneo por teclado** — `visor/page.tsx` reemplaza activación persistente de “Modo foco” por un modo temporal: al mantener `Space` ~700ms se ocultan overlays; al soltar la tecla (o perder foco de ventana) reaparecen automáticamente. Se ignora en campos de escritura (`input/textarea/select/contentEditable`) para no interferir con comentarios.

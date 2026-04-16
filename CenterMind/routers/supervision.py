@@ -291,6 +291,41 @@ def get_pendientes(id_distribuidor: int, payload=Depends(verify_auth)):
                 logger.error(f"Error en enriquecimiento nro_cliente: {enrich_err}")
 
         erp_name_map = _get_erp_name_map(id_distribuidor)
+        vendedor_sucursal_map: dict[str, str] = {}
+        try:
+            vend_res = (
+                sb.table("vendedores_v2")
+                .select("nombre_erp, id_sucursal")
+                .eq("id_distribuidor", id_distribuidor)
+                .execute()
+            )
+            suc_ids = list({
+                r.get("id_sucursal")
+                for r in (vend_res.data or [])
+                if r.get("id_sucursal") is not None
+            })
+            suc_name_map: dict[int, str] = {}
+            if suc_ids:
+                suc_res = (
+                    sb.table("sucursales_v2")
+                    .select("id_sucursal, nombre_erp")
+                    .eq("id_distribuidor", id_distribuidor)
+                    .in_("id_sucursal", suc_ids)
+                    .execute()
+                )
+                suc_name_map = {
+                    r["id_sucursal"]: (r.get("nombre_erp") or "Sin sucursal")
+                    for r in (suc_res.data or [])
+                    if r.get("id_sucursal") is not None
+                }
+            for v in (vend_res.data or []):
+                n = (v.get("nombre_erp") or "").strip().lower()
+                if not n:
+                    continue
+                vendedor_sucursal_map[n] = suc_name_map.get(v.get("id_sucursal"), "Sin sucursal")
+        except Exception as e_vs:
+            logger.warning(f"[pendientes] vendedor->sucursal map fallback: {e_vs}")
+
         grupos: dict = {}
         all_ex_ids = [d.get("id_exhibicion") for d in rows if d.get("id_exhibicion")]
         ex_sucursal_map: dict[int, str] = {}
@@ -433,10 +468,15 @@ def get_pendientes(id_distribuidor: int, payload=Depends(verify_auth)):
             key = str(d.get("telegram_msg_id")) if d.get("telegram_msg_id") else f"solo_{ex_id}"
             tg_vendedor = (d.get("vendedor") or "S/V").strip()
             vendedor_display = erp_name_map.get(tg_vendedor.lower(), tg_vendedor)
+            sucursal_resuelta = ex_sucursal_map.get(ex_id)
+            if not sucursal_resuelta or sucursal_resuelta == "Sin sucursal":
+                sucursal_resuelta = vendedor_sucursal_map.get(vendedor_display.lower()) \
+                    or vendedor_sucursal_map.get(tg_vendedor.lower()) \
+                    or "Sin sucursal"
             if key not in grupos:
                 grupos[key] = {
                     "vendedor": vendedor_display,
-                    "sucursal": ex_sucursal_map.get(ex_id, "Sin sucursal"),
+                    "sucursal": sucursal_resuelta,
                     "nro_cliente": d.get("nro_cliente") or "S/C",
                     "tipo_pdv": d.get("tipo_pdv") or "S/D",
                     "fecha_hora": d.get("fecha_hora") or "",

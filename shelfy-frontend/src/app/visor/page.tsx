@@ -8,7 +8,6 @@ import { useAuth } from "@/hooks/useAuth";
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useViewerStore } from "../../store/useViewerStore";
-import NextImage from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   fetchPendientes, fetchStatsHoy, fetchVendedores,
@@ -69,15 +68,13 @@ function FotoViewer({ driveUrl, idExhibicion, priority = false }: { driveUrl: st
 
   return (
     <div className="relative w-full h-full bg-[#0d0d0d] rounded-3xl overflow-hidden shadow-md">
-      <NextImage
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
         src={src}
         alt={`Exhibición ${idExhibicion}`}
-        fill
-        className="object-contain rounded-3xl"
-        priority={priority}
-        quality={80}
+        className="w-full h-full object-contain object-center rounded-3xl"
+        loading={priority ? "eager" : "lazy"}
         onError={() => setErr(true)}
-        unoptimized // Evitar optimización Next.js si vienen de Supabase Storage/External
       />
     </div>
   );

@@ -53,7 +53,17 @@ function daysSinceIso(iso: string | null | undefined): number | null {
 
 // ── Componente foto con Precarga y Hypersonic ────────────────────────────────
 
-function FotoViewer({ driveUrl, idExhibicion, priority = false }: { driveUrl: string, idExhibicion?: number, priority?: boolean }) {
+function FotoViewer({
+  driveUrl,
+  idExhibicion,
+  priority = false,
+  focusHoldActive = false,
+}: {
+  driveUrl: string,
+  idExhibicion?: number,
+  priority?: boolean,
+  focusHoldActive?: boolean,
+}) {
   const [err, setErr] = useState(false);
   const src = resolveImageUrl(driveUrl, idExhibicion);
 
@@ -67,21 +77,33 @@ function FotoViewer({ driveUrl, idExhibicion, priority = false }: { driveUrl: st
   }
 
   return (
-    <div className="relative w-full h-full rounded-3xl overflow-hidden shadow-md bg-slate-900/30">
+    <div className="relative w-full h-full rounded-3xl overflow-hidden shadow-md bg-slate-900/20 transition-all duration-500 ease-out">
       {/* Fondo adaptativo para evitar letterbox negro dominante */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={src}
         alt=""
         aria-hidden
-        className="absolute inset-0 w-full h-full object-cover scale-110 blur-2xl opacity-35"
+        className={`absolute inset-0 w-full h-full object-cover blur-2xl transition-all duration-500 ease-out ${
+          focusHoldActive ? "scale-125 opacity-45 saturate-125" : "scale-110 opacity-30 saturate-100"
+        }`}
       />
-      <div className="absolute inset-0 bg-gradient-to-b from-slate-900/20 via-slate-900/10 to-slate-900/25" />
+      <div
+        className={`absolute inset-0 transition-all duration-500 ease-out ${
+          focusHoldActive
+            ? "bg-gradient-to-b from-slate-900/10 via-slate-900/0 to-slate-900/10"
+            : "bg-gradient-to-b from-slate-900/18 via-slate-900/8 to-slate-900/20"
+        }`}
+      />
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={src}
         alt={`Exhibición ${idExhibicion}`}
-        className="relative z-[1] w-full h-full object-contain object-center rounded-3xl p-1 md:p-2"
+        className={`relative z-[1] w-full h-full object-contain object-center rounded-3xl transition-all duration-500 ease-out ${
+          focusHoldActive
+            ? "p-0 md:p-0 scale-[1.05] saturate-[1.2] contrast-[1.1] brightness-[1.04]"
+            : "p-1 md:p-2 scale-100 saturate-100 contrast-100 brightness-100"
+        }`}
         loading={priority ? "eager" : "lazy"}
         onError={() => setErr(true)}
       />
@@ -537,21 +559,26 @@ export default function VisorPage() {
             /* ── VISOR LAYOUT: Image + overlays, fills entire remaining space ── */
             <div className="flex-1 flex flex-col min-h-0">
               {/* IMAGE CONTAINER — takes all remaining space */}
-              <div className="flex-1 min-h-0 rounded-none md:rounded-2xl overflow-hidden bg-[radial-gradient(circle_at_top,_rgba(148,163,184,0.22),_rgba(15,23,42,0.28)_52%,_rgba(2,6,23,0.45)_100%)] relative group">
+              <div className="flex-1 min-h-0 rounded-none md:rounded-2xl overflow-hidden bg-[radial-gradient(circle_at_top,_rgba(148,163,184,0.18),_rgba(15,23,42,0.2)_52%,_rgba(2,6,23,0.35)_100%)] relative group">
                 {/* Photo */}
                 <AnimatePresence mode="wait">
                   <motion.div
                     key={`${currentIndex}-${currentFotoIdx}`}
                     initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
+                    animate={{
+                      opacity: 1,
+                      x: 0,
+                      scale: focusHoldActive ? 1.02 : 1,
+                    }}
                     exit={{ opacity: 0, x: -20 }}
-                    transition={{ duration: 0.15, ease: "easeOut" }}
+                    transition={{ duration: 0.25, ease: "easeOut" }}
                     className="absolute inset-0"
                   >
                     <FotoViewer 
                       driveUrl={grupo.fotos[currentFotoIdx]?.drive_link ?? ""} 
                       idExhibicion={grupo.fotos[currentFotoIdx]?.id_exhibicion} 
                       priority={true}
+                      focusHoldActive={focusHoldActive}
                     />
                   </motion.div>
                 </AnimatePresence>
@@ -623,7 +650,13 @@ export default function VisorPage() {
                 )}
 
                 {/* ── MOBILE TOP OVERLAY: compact info ── */}
-                {!focusHoldActive && <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/70 via-black/30 to-transparent pt-3 pb-6 px-3 text-white md:hidden z-10">
+                {!focusHoldActive && <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.25 }}
+                  className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/45 via-black/15 to-transparent pt-3 pb-6 px-3 text-white md:hidden z-10"
+                >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 min-w-0 flex-1 flex-wrap">
                       <span className="text-[10px] font-black bg-violet-600/90 px-2 py-0.5 rounded-md">#{grupo.fotos[currentFotoIdx]?.id_exhibicion || "—"}</span>
@@ -699,7 +732,7 @@ export default function VisorPage() {
                       </div>
                     </div>
                   )}
-                </div>}
+                </motion.div>}
 
                 {/* ── VALIDATION LOCK ── */}
                 {isValidacion && (
@@ -742,8 +775,14 @@ export default function VisorPage() {
                 )}
 
                 {/* ── FROSTED BOTTOM BAR: izq info · centro botones · der comentarios (Desktop) ── */}
-                {!focusHoldActive && <div className="hidden md:flex absolute bottom-0 left-0 right-0 z-10 flex-col pointer-events-none">
-                  <div className="pointer-events-auto grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto_minmax(220px,300px)] gap-2 px-4 py-1.5 bg-black/42 backdrop-blur-xl border-t border-white/10 text-white items-end">
+                {!focusHoldActive && <motion.div
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 12 }}
+                  transition={{ duration: 0.25 }}
+                  className="hidden md:flex absolute bottom-3 left-3 right-3 z-10 flex-col pointer-events-none"
+                >
+                  <div className="pointer-events-auto rounded-2xl grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto_minmax(220px,300px)] gap-2 px-4 py-1.5 bg-black/30 backdrop-blur-xl border border-white/10 text-white items-end shadow-2xl">
                     {/* IZQUIERDA: vendedor, código ERP, envío, ingreso, 30d */}
                     <div className="min-w-0 flex flex-col gap-1 text-left">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -920,12 +959,18 @@ export default function VisorPage() {
                       />
                     </div>
                   </div>
-                </div>}
+                </motion.div>}
 
                 {/* ── MOBILE FROSTED BOTTOM BAR ── */}
-                {!focusHoldActive && <div className="flex md:hidden absolute bottom-0 left-0 right-0 z-10 flex-col pointer-events-none">
+                {!focusHoldActive && <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 10 }}
+                  transition={{ duration: 0.22 }}
+                  className="flex md:hidden absolute bottom-2 left-2 right-2 z-10 flex-col pointer-events-none"
+                >
                   <div
-                    className="pointer-events-auto flex flex-col gap-1.5 px-3 py-1.5 bg-black/50 backdrop-blur-xl border-t border-white/10 text-white"
+                    className="pointer-events-auto rounded-2xl flex flex-col gap-1.5 px-3 py-1.5 bg-black/32 backdrop-blur-xl border border-white/10 text-white shadow-xl"
                     style={{ paddingBottom: "max(8px, env(safe-area-inset-bottom))" }}
                   >
                     <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[9px] leading-tight">
@@ -1038,7 +1083,7 @@ export default function VisorPage() {
                       </button>
                     </div>
                   </div>
-                </div>}
+                </motion.div>}
               </div>
 
 

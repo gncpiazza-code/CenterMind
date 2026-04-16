@@ -887,21 +887,6 @@ def galeria_list_clientes_por_vendedor(
     check_dist_permission(payload, dist_id)
 
     try:
-        # Integrantes del vendedor
-        integ_r = (
-            sb.table("integrantes_grupo")
-            .select("id_integrante")
-            .eq("id_distribuidor", dist_id)
-            .eq("id_vendedor_v2", id_vendedor)
-            .execute()
-        )
-        integ_ids = [
-            iid for iid in (_safe_int(ig.get("id_integrante")) for ig in (integ_r.data or []))
-            if iid is not None
-        ]
-        if not integ_ids:
-            return []
-
         # Clientes de las rutas del vendedor
         rutas_r = (
             sb.table("rutas_v2")

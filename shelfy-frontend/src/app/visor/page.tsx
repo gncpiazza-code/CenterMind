@@ -117,6 +117,8 @@ export default function VisorPage() {
 
   // Local state para UI efímera
   const [filtroVendedor, setFiltroVendedor] = useState("Todos");
+  const [filtroSucursal, setFiltroSucursal] = useState("Todas");
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [visorTab, setVisorTab] = useState<"todas" | "objetivo">("todas");
   const [comentario, setComentario] = useState("");
   const [flash, setFlash] = useState<{ msg: string; type: "ok" | "err" } | null>(null);
@@ -147,8 +149,17 @@ export default function VisorPage() {
   });
 
   // Filtrado
+  const sucursalesDisponibles = Array.from(
+    new Set(
+      grupos
+        .map((g) => (g.sucursal || "Sin sucursal").trim())
+        .filter((s) => s.length > 0),
+    ),
+  ).sort((a, b) => a.localeCompare(b, "es"));
+
   const filtrados = (() => {
     let base = filtroVendedor === "Todos" ? grupos : grupos.filter((g) => g.vendedor === filtroVendedor);
+    base = filtroSucursal === "Todas" ? base : base.filter((g) => (g.sucursal || "Sin sucursal") === filtroSucursal);
     if (visorTab === "objetivo") base = base.filter(g => g.fotos.some(f => f.es_objetivo));
     return base;
   })();
@@ -276,7 +287,11 @@ export default function VisorPage() {
     resetGroupState();
     setComentario("");
     setNewTemplateText("");
-  }, [currentIndex, filtroVendedor, resetGroupState]);
+  }, [currentIndex, filtroVendedor, filtroSucursal, resetGroupState]);
+
+  useEffect(() => {
+    setMobileFiltersOpen(false);
+  }, [currentIndex, filtroVendedor, filtroSucursal, visorTab]);
 
   useEffect(() => {
     // Evita estado "pantalla vacía" cuando cambia la lista filtrada mientras
@@ -377,6 +392,32 @@ export default function VisorPage() {
               )}
             </button>
           </div>
+          <select
+            value={filtroSucursal}
+            onChange={(e) => {
+              setFiltroSucursal(e.target.value);
+              setCurrentIndex(0);
+            }}
+            className="h-8 px-2.5 rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-xs font-semibold text-[var(--shelfy-text)]"
+          >
+            <option value="Todas">Todas las sucursales</option>
+            {sucursalesDisponibles.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+          <select
+            value={filtroVendedor}
+            onChange={(e) => {
+              setFiltroVendedor(e.target.value);
+              setCurrentIndex(0);
+            }}
+            className="h-8 px-2.5 rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-xs font-semibold text-[var(--shelfy-text)]"
+          >
+            <option value="Todos">Todos los vendedores</option>
+            {vendedores.map((v) => (
+              <option key={v} value={v}>{v}</option>
+            ))}
+          </select>
         </div>
 
         {/* ── MAIN CONTENT: fills remaining viewport ── */}
@@ -537,6 +578,64 @@ export default function VisorPage() {
                     </div>
                     <span className="text-[9px] font-bold text-white/50 shrink-0 ml-2">{currentIndex + 1}/{totalGrupos}</span>
                   </div>
+
+                  <div className="mt-2 flex items-center justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setMobileFiltersOpen((v) => !v)}
+                      className="inline-flex items-center gap-1 rounded-md border border-white/20 bg-black/35 px-2 py-1 text-[10px] font-bold text-white/85 backdrop-blur-sm"
+                    >
+                      Filtros
+                      <ChevronUp
+                        size={12}
+                        className={`transition-transform ${mobileFiltersOpen ? "rotate-180" : ""}`}
+                      />
+                    </button>
+                  </div>
+
+                  {mobileFiltersOpen && (
+                    <div className="mt-2 rounded-xl border border-white/15 bg-black/45 p-2 backdrop-blur-md">
+                      <div className="grid grid-cols-1 gap-2">
+                        <label className="flex flex-col gap-1">
+                          <span className="text-[9px] font-semibold uppercase tracking-wider text-white/65">
+                            Sucursal
+                          </span>
+                          <select
+                            value={filtroSucursal}
+                            onChange={(e) => {
+                              setFiltroSucursal(e.target.value);
+                              setCurrentIndex(0);
+                            }}
+                            className="h-7 rounded-md border border-white/20 bg-black/30 px-2 text-[11px] font-semibold text-white"
+                          >
+                            <option value="Todas">Todas las sucursales</option>
+                            {sucursalesDisponibles.map((s) => (
+                              <option key={s} value={s}>{s}</option>
+                            ))}
+                          </select>
+                        </label>
+
+                        <label className="flex flex-col gap-1">
+                          <span className="text-[9px] font-semibold uppercase tracking-wider text-white/65">
+                            Vendedor
+                          </span>
+                          <select
+                            value={filtroVendedor}
+                            onChange={(e) => {
+                              setFiltroVendedor(e.target.value);
+                              setCurrentIndex(0);
+                            }}
+                            className="h-7 rounded-md border border-white/20 bg-black/30 px-2 text-[11px] font-semibold text-white"
+                          >
+                            <option value="Todos">Todos los vendedores</option>
+                            {vendedores.map((v) => (
+                              <option key={v} value={v}>{v}</option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* ── VALIDATION LOCK ── */}

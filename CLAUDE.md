@@ -289,7 +289,7 @@ GET  /api/supervision/rutas/{id_vendedor}        # Via RPC fn_supervision_rutas
 GET  /api/supervision/clientes/{id_ruta}         # PDVs con coords, fechas, url_ultima_exhibicion, id_ruta
 GET  /api/supervision/ventas/{dist_id}           # Ventas desde ventas_v2
 GET  /api/supervision/cuentas/{dist_id}          # Lee cc_detalle; acepta ?sucursal= para filtrar
-GET  /api/supervision/pendientes/{dist_id}       # Pendientes de evaluación
+GET  /api/pendientes/{dist_id}                   # Pendientes de evaluación (cada grupo incluye `sucursal`)
 ```
 
 ### ERP Ingesta
@@ -468,6 +468,11 @@ Props que recibe: `{ distId: number, isSuperadmin?: boolean }`
 **Galería inferior en Supervisión**:
 - “Exhibiciones del día” debe filtrar por `selectedSucursal` activa (vendedores de esa sucursal solamente).
 - El filtro por estado debe usar normalización semántica (`aprobad*`, `rechaz*`, `destacad*`, `pend*`) para soportar variantes (`Aprobado/Aprobada`, etc.).
+- Debe incluir selector temporal (`Hoy`, `7 días`, `Histórico`) para evitar discrepancias al compararla con el mapa.
+
+**Galería multi-tenant (pantalla dedicada)**:
+- Al cambiar de distribuidora activa, resetear estado persistido de navegación/filtros (`selectedVendedor`, búsqueda y sucursal) para no quedar en “Sin exhibiciones” por contexto heredado.
+- `GET /api/galeria/vendedor/{id_vendedor}/clientes` no debe depender de `integrantes_grupo`; resolver por rutas/PDVs del vendedor y cruce con `exhibiciones.id_cliente_pdv`.
 
 ---
 

@@ -280,6 +280,88 @@ def get_pendientes(id_distribuidor: int, payload=Depends(verify_auth)):
         erp_name_map = _get_erp_name_map(id_distribuidor)
         grupos: dict = {}
         all_ex_ids = [d.get("id_exhibicion") for d in rows if d.get("id_exhibicion")]
+        ex_sucursal_map: dict[int, str] = {}
+
+        # Enriquecer sucursal por exhibición (id_exhibicion -> sucursal_erp)
+        if all_ex_ids:
+            try:
+                ex_cli_res = (
+                    sb.table("exhibiciones")
+                    .select("id_exhibicion, id_cliente_pdv")
+                    .in_("id_exhibicion", all_ex_ids)
+                    .execute()
+                )
+                ex_to_cli = {
+                    r["id_exhibicion"]: r.get("id_cliente_pdv")
+                    for r in (ex_cli_res.data or [])
+                    if r.get("id_exhibicion") and r.get("id_cliente_pdv")
+                }
+                cli_ids = list({cid for cid in ex_to_cli.values() if cid is not None})
+                if cli_ids:
+                    cli_res = (
+                        sb.table("clientes_pdv_v2")
+                        .select("id_cliente, id_ruta")
+                        .in_("id_cliente", cli_ids)
+                        .execute()
+                    )
+                    cli_to_ruta = {
+                        r["id_cliente"]: r.get("id_ruta")
+                        for r in (cli_res.data or [])
+                        if r.get("id_cliente") is not None
+                    }
+                    ruta_ids = list({rid for rid in cli_to_ruta.values() if rid is not None})
+
+                    ruta_to_vendedor: dict[int, int] = {}
+                    if ruta_ids:
+                        rutas_res = (
+                            sb.table("rutas_v2")
+                            .select("id_ruta, id_vendedor")
+                            .in_("id_ruta", ruta_ids)
+                            .execute()
+                        )
+                        ruta_to_vendedor = {
+                            r["id_ruta"]: r.get("id_vendedor")
+                            for r in (rutas_res.data or [])
+                            if r.get("id_ruta") is not None
+                        }
+
+                    vendedor_ids = list({vid for vid in ruta_to_vendedor.values() if vid is not None})
+                    vendedor_to_sucursal: dict[int, int] = {}
+                    if vendedor_ids:
+                        vend_res = (
+                            sb.table("vendedores_v2")
+                            .select("id_vendedor, id_sucursal")
+                            .in_("id_vendedor", vendedor_ids)
+                            .execute()
+                        )
+                        vendedor_to_sucursal = {
+                            r["id_vendedor"]: r.get("id_sucursal")
+                            for r in (vend_res.data or [])
+                            if r.get("id_vendedor") is not None
+                        }
+
+                    suc_ids = list({sid for sid in vendedor_to_sucursal.values() if sid is not None})
+                    suc_map: dict[int, str] = {}
+                    if suc_ids:
+                        suc_res = (
+                            sb.table("sucursales_v2")
+                            .select("id_sucursal, nombre_erp")
+                            .in_("id_sucursal", suc_ids)
+                            .execute()
+                        )
+                        suc_map = {
+                            r["id_sucursal"]: (r.get("nombre_erp") or "Sin sucursal")
+                            for r in (suc_res.data or [])
+                            if r.get("id_sucursal") is not None
+                        }
+
+                    for ex_id, cli_id in ex_to_cli.items():
+                        id_ruta = cli_to_ruta.get(cli_id)
+                        id_vendedor = ruta_to_vendedor.get(id_ruta) if id_ruta is not None else None
+                        id_sucursal = vendedor_to_sucursal.get(id_vendedor) if id_vendedor is not None else None
+                        ex_sucursal_map[ex_id] = suc_map.get(id_sucursal, "Sin sucursal")
+            except Exception as e_suc:
+                logger.warning(f"[pendientes] enrich sucursal fallback: {e_suc}")
 
         # Batch-fetch id_objetivo para marcar exhibiciones de objetivo
         obj_id_map: dict[int, str | None] = {}
@@ -306,6 +388,7 @@ def get_pendientes(id_distribuidor: int, payload=Depends(verify_auth)):
             if key not in grupos:
                 grupos[key] = {
                     "vendedor": vendedor_display,
+                    "sucursal": ex_sucursal_map.get(ex_id, "Sin sucursal"),
                     "nro_cliente": d.get("nro_cliente") or "S/C",
                     "tipo_pdv": d.get("tipo_pdv") or "S/D",
                     "fecha_hora": d.get("fecha_hora") or "",

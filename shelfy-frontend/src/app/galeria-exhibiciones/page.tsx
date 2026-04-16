@@ -34,6 +34,7 @@ import { useGaleriaStore } from "@/store/useGaleriaStore";
 export default function GaleriaExhibicionesPage() {
   const { user } = useAuth();
   const distId = user?.id_distribuidor ?? 0;
+  const [lastDistId, setLastDistId] = useState<number>(distId);
 
   // Navegación: vendedor seleccionado
   const [selectedVendedor, setSelectedVendedor] = useState<GaleriaVendedorStats | null>(null);
@@ -63,6 +64,18 @@ export default function GaleriaExhibicionesPage() {
     clearClientSearch,
     timelinePageSize,
   } = useGaleriaStore();
+
+  useEffect(() => {
+    // Cuando cambia el tenant activo, limpiar navegación/filtros que podían dejar la vista vacía.
+    if (distId <= 0) return;
+    if (distId !== lastDistId) {
+      setLastDistId(distId);
+      setSelectedVendedor(null);
+      clearClientSearch();
+      setSearchVendedor("");
+      setFiltroSucursal("todas");
+    }
+  }, [distId, lastDistId, clearClientSearch, setSearchVendedor, setFiltroSucursal]);
 
   // Vista 1: vendedores
   const { data: vendedores = [], isLoading: loadingVendedores, error: errorVendedores } = useQuery<GaleriaVendedorStats[]>({

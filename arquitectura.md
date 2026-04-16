@@ -98,6 +98,15 @@ Este documento describe la infraestructura, tecnologías y flujos de datos que c
 26. **Supervisión — galería del día con scope de sucursal (Abr 2026)**:
     - La galería de exhibiciones en `/supervision` aplica dos filtros en frontend: estado normalizado y pertenencia de vendedor a la sucursal activa.
     - Evita mezclar exhibiciones cross-sucursal y corrige mismatches de estados por variantes de género/tildes.
+27. **Supervisión — rango temporal configurable en galería (Abr 2026)**:
+    - La galería embebida en `/supervision` soporta períodos `Hoy`, `7 días` y `Histórico` para alinear lectura operativa con el mapa.
+    - Reduce falsas discrepancias al comparar métricas por usar ventanas temporales distintas.
+28. **Galería — consulta por cliente desacoplada de integrantes (Abr 2026)**:
+    - `GET /api/galeria/vendedor/{id_vendedor}/clientes` ya no corta en vacío si faltan filas en `integrantes_grupo`.
+    - La fuente principal para clientes con exhibición es `rutas_v2` + `clientes_pdv_v2` + `exhibiciones.id_cliente_pdv`, consistente con supervisión.
+29. **Visor — pendientes enriquecidos con sucursal (Abr 2026)**:
+    - `GET /api/pendientes/{id_distribuidor}` agrega `sucursal` por grupo para habilitar filtros operativos en el visor.
+    - La sucursal se resuelve por cadena relacional `exhibiciones -> clientes_pdv_v2 -> rutas_v2 -> vendedores_v2 -> sucursales_v2` (sin hardcodeos).
 16. **Bot Telegram — tipo PDV silent-first (Abr 2026)**:
     - Nueva tabla `pdv_tipo_profiles` (por `id_distribuidor + id_cliente_erp`) con `tipo_pdv_preferido`, `trust_level`, `confidence`, `tipo_counts`, `total_observaciones`.
     - `handle_text` intenta inferir tipo por perfil: si confianza alta, registra exhibición sin preguntar botones; si no, mantiene selección manual.

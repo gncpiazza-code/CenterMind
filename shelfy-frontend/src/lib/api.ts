@@ -125,6 +125,7 @@ export interface FotoGrupo {
 
 export interface GrupoPendiente {
   vendedor: string;
+  sucursal?: string;
   nro_cliente: string;
   tipo_pdv: string;
   fecha_hora: string;

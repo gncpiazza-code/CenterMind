@@ -402,6 +402,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
   const [loadingExhib, setLoadingExhib] = useState(false);
   const [exhibFilter, setExhibFilter] = useState<string>("Todos");
   const [exhibSearch, setExhibSearch] = useState("");
+  const [exhibPeriodo, setExhibPeriodo] = useState<"hoy" | "7d" | "historico">("hoy");
 
   // ── Floating Objetivos Menu — state lives in Zustand store ───────────────
   // Fine-grained selectors: each subscription only triggers a re-render
@@ -604,15 +605,24 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
     if (!selectedDist) return;
     let cancelled = false;
     setLoadingExhib(true);
-    const today = new Date();
-    const offsetMs = today.getTimezoneOffset() * 60 * 1000;
-    const localToday = new Date(today.getTime() - offsetMs).toISOString().split("T")[0];
-    fetchReporteExhibiciones(selectedDist, { fecha_desde: localToday, fecha_hasta: localToday })
+    const now = new Date();
+    const offsetMs = now.getTimezoneOffset() * 60 * 1000;
+    const localToday = new Date(now.getTime() - offsetMs).toISOString().split("T")[0];
+
+    let fechaDesde = localToday;
+    if (exhibPeriodo === "7d") {
+      const sevenDaysAgo = new Date(now.getTime() - (6 * 86_400_000));
+      fechaDesde = new Date(sevenDaysAgo.getTime() - offsetMs).toISOString().split("T")[0];
+    } else if (exhibPeriodo === "historico") {
+      fechaDesde = "2000-01-01";
+    }
+
+    fetchReporteExhibiciones(selectedDist, { fecha_desde: fechaDesde, fecha_hasta: localToday })
       .then((res: any) => { if (!cancelled) setExhibiciones(Array.isArray(res) ? res : []); })
       .catch(() => { if (!cancelled) setExhibiciones([]); })
       .finally(() => { if (!cancelled) setLoadingExhib(false); });
     return () => { cancelled = true; };
-  }, [selectedDist]);
+  }, [selectedDist, exhibPeriodo]);
 
   // ── Derived & Filtered ────────────────────────────────────────────────────
   const sucursales = useMemo(() =>
@@ -2536,7 +2546,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
         <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-[var(--shelfy-border)]/50 flex-wrap">
           <div className="flex items-center gap-2">
             <ImageIcon className="w-4 h-4 text-violet-400" />
-            <h3 className="text-sm font-bold text-[var(--shelfy-text)]">Exhibiciones del día</h3>
+            <h3 className="text-sm font-bold text-[var(--shelfy-text)]">Exhibiciones</h3>
             <span className="text-[11px] text-[var(--shelfy-muted)]">· {exhibicionesFiltradas.length} registros</span>
           </div>
           <div className="flex items-center gap-2">
@@ -2546,6 +2556,24 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
 
         {/* Filters */}
         <div className="flex items-center gap-2 px-5 py-3 border-b border-[var(--shelfy-border)]/30 flex-wrap">
+          {[
+            { id: "hoy", label: "Hoy" },
+            { id: "7d", label: "7 días" },
+            { id: "historico", label: "Histórico" },
+          ].map((opt) => (
+            <button
+              key={opt.id}
+              onClick={() => setExhibPeriodo(opt.id as "hoy" | "7d" | "historico")}
+              className={`text-xs px-3 py-1 rounded-lg border transition-all ${
+                exhibPeriodo === opt.id
+                  ? "bg-violet-500/20 border-violet-500/40 text-violet-400 font-semibold"
+                  : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+          <span className="w-px h-5 bg-[var(--shelfy-border)] mx-1" />
           {["Todos", "Pendiente", "Aprobado", "Rechazado", "Destacado"].map(st => (
             <button
               key={st}

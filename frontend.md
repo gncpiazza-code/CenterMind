@@ -166,6 +166,18 @@ Los paneles utilizan el estilo "Glass-Card" adaptado al tema claro:
 - La galería inferior “Exhibiciones del día” muestra solo registros de vendedores pertenecientes a la `selectedSucursal`.
 - El contador de cabecera muestra registros visibles (post-filtro), no el total bruto.
 
+### 22. Supervisión — comparabilidad mapa/galería por rango temporal (16/04/2026)
+- La galería inferior agrega switch de período: `Hoy`, `7 días`, `Histórico`.
+- `Histórico` permite contrastar contra el mapa (que marca “con exhibición” por última evidencia histórica del PDV, no solo del día).
+
+### 23. Galería de Exhibiciones — cambio de tenant robusto (16/04/2026)
+- `galeria-exhibiciones/page.tsx` limpia contexto al cambiar distribuidora activa (`selectedVendedor`, búsqueda y filtro de sucursal).
+- Evita estados persistidos de un tenant anterior que dejaban la vista en “Sin exhibiciones” aunque existieran datos.
+
+### 24. Visor de evaluación — filtro por sucursal (16/04/2026)
+- `visor/page.tsx` agrega selector de sucursal (`Todas las sucursales` + opciones detectadas en pendientes) en el header de desktop.
+- El filtro se combina con vendedor y tab (`todas`/`objetivo`) para acotar el lote que evalúa el usuario sin perder la navegación por grupos.
+
 ### 8. Supervisión — Aislamiento de Cache por Tenant
 - `TabSupervision.tsx` scopea las query keys de rutas/clientes con `dist_id`:
   - `['supervision-rutas', distId, id_vendedor]`

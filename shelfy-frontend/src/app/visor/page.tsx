@@ -330,7 +330,7 @@ export default function VisorPage() {
       // Activación intencional: mantener apretado un momento.
       focusHoldTimerRef.current = setTimeout(() => {
         setFocusHoldActive(true);
-      }, 700);
+      }, 500);
     };
 
     const onKeyUp = (e: KeyboardEvent) => {

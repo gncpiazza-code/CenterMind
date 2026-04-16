@@ -116,6 +116,12 @@ Este documento describe la infraestructura, tecnologías y flujos de datos que c
 32. **Visor — capa visual de imagen adaptativa (Abr 2026)**:
     - El render de foto en evaluación usa un stage adaptativo (blur de la imagen + gradiente suave) para evitar letterbox negro dominante sin sacrificar performance.
     - El modo foco permite ocultar overlays operativos y mantener la foto como elemento principal durante la validación.
+33. **Visor — controles de evaluación y densidad de overlays (Abr 2026)**:
+    - `Modo foco` se ubica junto al bloque de acciones de evaluación para reducir fricción operativa.
+    - En mobile, el panel inferior mantiene acciones críticas visibles y colapsa inputs secundarios (observaciones/plantillas) para reducir oclusión de la foto.
+34. **Galería — semántica visual en detalle por cliente (Abr 2026)**:
+    - Los badges del timeline adoptan color semántico para priorizar lectura rápida.
+    - `tipo_pdv` queda normalizado de negocio a dos estados visuales: `CON INGRESO` vs `SIN INGRESO`.
 16. **Bot Telegram — tipo PDV silent-first (Abr 2026)**:
     - Nueva tabla `pdv_tipo_profiles` (por `id_distribuidor + id_cliente_erp`) con `tipo_pdv_preferido`, `trust_level`, `confidence`, `tipo_counts`, `total_observaciones`.
     - `handle_text` intenta inferir tipo por perfil: si confianza alta, registra exhibición sin preguntar botones; si no, mantiene selección manual.

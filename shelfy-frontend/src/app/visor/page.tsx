@@ -125,6 +125,7 @@ export default function VisorPage() {
   const [filtroVendedor, setFiltroVendedor] = useState("Todos");
   const [filtroSucursal, setFiltroSucursal] = useState("Todas");
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+  const [mobileToolsOpen, setMobileToolsOpen] = useState(false);
   const [modoFoco, setModoFoco] = useState(false);
   const [visorTab, setVisorTab] = useState<"todas" | "objetivo">("todas");
   const [comentario, setComentario] = useState("");
@@ -298,6 +299,7 @@ export default function VisorPage() {
 
   useEffect(() => {
     setMobileFiltersOpen(false);
+    setMobileToolsOpen(false);
   }, [currentIndex, filtroVendedor, filtroSucursal, visorTab]);
 
   useEffect(() => {
@@ -500,15 +502,6 @@ export default function VisorPage() {
                   </motion.div>
                 </AnimatePresence>
 
-                <button
-                  type="button"
-                  onClick={() => setModoFoco((v) => !v)}
-                  className="absolute top-3 left-3 z-30 rounded-full border border-white/20 bg-black/35 px-2.5 py-1 text-[10px] font-bold text-white/90 backdrop-blur-md hover:bg-black/50 transition-colors"
-                  title={modoFoco ? "Salir modo foco" : "Activar modo foco"}
-                >
-                  {modoFoco ? "Salir foco" : "Modo foco"}
-                </button>
-
                 {/* ── ERP PROFILE CARD (Desktop, top-right) ── */}
                 {!modoFoco && erpContext?.encontrado && (
                   <motion.div
@@ -696,7 +689,7 @@ export default function VisorPage() {
 
                 {/* ── FROSTED BOTTOM BAR: izq info · centro botones · der comentarios (Desktop) ── */}
                 {!modoFoco && <div className="hidden md:flex absolute bottom-0 left-0 right-0 z-10 flex-col pointer-events-none">
-                  <div className="pointer-events-auto grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto_minmax(220px,300px)] gap-3 px-4 py-2.5 bg-black/55 backdrop-blur-xl border-t border-white/10 text-white items-end">
+                  <div className="pointer-events-auto grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto_minmax(220px,300px)] gap-2 px-4 py-1.5 bg-black/42 backdrop-blur-xl border-t border-white/10 text-white items-end">
                     {/* IZQUIERDA: vendedor, código ERP, envío, ingreso, 30d */}
                     <div className="min-w-0 flex flex-col gap-1 text-left">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -807,6 +800,14 @@ export default function VisorPage() {
                         >
                           <RefreshCw size={16} strokeWidth={2.5} />
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => setModoFoco(true)}
+                          title="Modo foco"
+                          className="h-9 px-3 rounded-full bg-white/10 text-white/85 hover:bg-white/20 transition-all active:scale-95 border border-white/15 text-[11px] font-bold"
+                        >
+                          Modo foco
+                        </button>
                       </div>
                       <span className="text-[9px] font-bold text-white/45">
                         {currentIndex + 1}<span className="text-white/25">/{totalGrupos}</span>
@@ -878,7 +879,7 @@ export default function VisorPage() {
                 {/* ── MOBILE FROSTED BOTTOM BAR ── */}
                 {!modoFoco && <div className="flex md:hidden absolute bottom-0 left-0 right-0 z-10 flex-col pointer-events-none">
                   <div
-                    className="pointer-events-auto flex flex-col gap-2 px-3 py-2 bg-black/65 backdrop-blur-xl border-t border-white/10 text-white"
+                    className="pointer-events-auto flex flex-col gap-1.5 px-3 py-1.5 bg-black/50 backdrop-blur-xl border-t border-white/10 text-white"
                     style={{ paddingBottom: "max(8px, env(safe-area-inset-bottom))" }}
                   >
                     <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[9px] leading-tight">
@@ -896,52 +897,56 @@ export default function VisorPage() {
                         </>
                       )}
                     </div>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          size="sm"
-                          className="h-7 w-full justify-between text-[10px] bg-white/10 border-white/15 text-white"
-                        >
-                          Frases rápidas
-                          <ChevronUp className="size-3.5 opacity-70" />
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent side="top" className="w-[min(100vw-2rem,18rem)] max-h-64 overflow-y-auto border-white/10 bg-zinc-900 text-white p-3">
-                        <div className="flex flex-col gap-1 mb-2">
-                          {commentTemplates.map((t) => (
-                            <button
-                              key={t}
+                    {mobileToolsOpen && (
+                      <>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button
                               type="button"
-                              className="text-left text-xs py-1.5 px-2 rounded-md bg-white/5 hover:bg-violet-500/25"
-                              onClick={() => applyCommentTemplate(t)}
+                              variant="secondary"
+                              size="sm"
+                              className="h-7 w-full justify-between text-[10px] bg-white/10 border-white/15 text-white"
                             >
-                              {t}
-                            </button>
-                          ))}
-                        </div>
-                        <div className="flex gap-1">
-                          <input
-                            type="text"
-                            value={newTemplateText}
-                            onChange={(e) => setNewTemplateText(e.target.value)}
-                            placeholder="Nueva frase…"
-                            className="flex-1 rounded-md border border-white/15 bg-black/40 px-2 py-1 text-xs text-white"
-                          />
-                          <Button type="button" size="sm" className="h-7 text-xs shrink-0" onClick={addCommentTemplate}>
-                            +
-                          </Button>
-                        </div>
-                      </PopoverContent>
-                    </Popover>
-                    <Textarea
-                      placeholder="Observaciones…"
-                      rows={2}
-                      value={comentario}
-                      onChange={(e) => setComentario(e.target.value)}
-                      className="min-h-[44px] resize-none bg-white/10 border-white/15 text-xs text-white placeholder:text-white/35"
-                    />
+                              Frases rápidas
+                              <ChevronUp className="size-3.5 opacity-70" />
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent side="top" className="w-[min(100vw-2rem,18rem)] max-h-64 overflow-y-auto border-white/10 bg-zinc-900 text-white p-3">
+                            <div className="flex flex-col gap-1 mb-2">
+                              {commentTemplates.map((t) => (
+                                <button
+                                  key={t}
+                                  type="button"
+                                  className="text-left text-xs py-1.5 px-2 rounded-md bg-white/5 hover:bg-violet-500/25"
+                                  onClick={() => applyCommentTemplate(t)}
+                                >
+                                  {t}
+                                </button>
+                              ))}
+                            </div>
+                            <div className="flex gap-1">
+                              <input
+                                type="text"
+                                value={newTemplateText}
+                                onChange={(e) => setNewTemplateText(e.target.value)}
+                                placeholder="Nueva frase…"
+                                className="flex-1 rounded-md border border-white/15 bg-black/40 px-2 py-1 text-xs text-white"
+                              />
+                              <Button type="button" size="sm" className="h-7 text-xs shrink-0" onClick={addCommentTemplate}>
+                                +
+                              </Button>
+                            </div>
+                          </PopoverContent>
+                        </Popover>
+                        <Textarea
+                          placeholder="Observaciones…"
+                          rows={2}
+                          value={comentario}
+                          onChange={(e) => setComentario(e.target.value)}
+                          className="min-h-[44px] resize-none bg-white/10 border-white/15 text-xs text-white placeholder:text-white/35"
+                        />
+                      </>
+                    )}
 
                     {/* Evaluation buttons — compact for mobile */}
                     <div className="flex items-center gap-1.5 shrink-0 justify-center">
@@ -978,6 +983,18 @@ export default function VisorPage() {
                         className="w-9 h-9 flex items-center justify-center rounded-full bg-[#fbbf24]/80 text-white transition-all active:scale-90 border border-white/10"
                       >
                         <RefreshCw size={14} strokeWidth={2.5} />
+                      </button>
+                      <button
+                        onClick={() => setModoFoco(true)}
+                        className="h-9 px-2.5 flex items-center justify-center rounded-full bg-white/10 text-white/85 transition-all active:scale-90 border border-white/10 text-[10px] font-bold"
+                      >
+                        Foco
+                      </button>
+                      <button
+                        onClick={() => setMobileToolsOpen((v) => !v)}
+                        className="h-9 px-2.5 flex items-center justify-center rounded-full bg-white/10 text-white/85 transition-all active:scale-90 border border-white/10 text-[10px] font-bold"
+                      >
+                        {mobileToolsOpen ? "Ocultar" : "Obs"}
                       </button>
                     </div>
                   </div>

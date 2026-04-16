@@ -37,6 +37,19 @@ const ESTADO_CONFIG: Record<string, { icon: React.ElementType; color: string; bg
   Pendiente: { icon: Clock,        color: "text-slate-600", bg: "bg-slate-50",  border: "border-slate-200" },
 };
 
+function getTipoPdvTone(tipo: string | null | undefined): string {
+  const t = (tipo || "").toLowerCase();
+  if (t.includes("con ingreso")) return "bg-emerald-50 text-emerald-700 border-emerald-200";
+  if (t.includes("sin ingreso")) return "bg-rose-50 text-rose-700 border-rose-200";
+  return "bg-slate-50 text-slate-600 border-slate-200";
+}
+
+function getImagenesTone(count: number): string {
+  if (count >= 5) return "bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200";
+  if (count >= 3) return "bg-sky-50 text-sky-700 border-sky-200";
+  return "bg-slate-50 text-slate-600 border-slate-200";
+}
+
 function formatDateTime(iso: string): string {
   try {
     return new Date(iso).toLocaleString("es-AR", {
@@ -130,14 +143,22 @@ function TimelineGroupCard({
               {first?.estado ?? "Pendiente"}
             </Badge>
             {first?.tipo_pdv && (
-              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full" style={{ background: "var(--shelfy-border)", color: "var(--shelfy-muted)" }}>
+              <span
+                className={cn(
+                  "text-[10px] font-semibold px-2 py-0.5 rounded-full border",
+                  getTipoPdvTone(first.tipo_pdv),
+                )}
+              >
                 {first.tipo_pdv}
               </span>
             )}
-            <Badge variant="outline" className="text-[10px]">
+            <Badge
+              variant="outline"
+              className={cn("text-[10px] font-semibold", getImagenesTone(group.items.length))}
+            >
               {group.items.length} {group.items.length === 1 ? "imagen" : "imágenes"}
             </Badge>
-            <span className="text-xs ml-auto" style={{ color: "var(--shelfy-muted)" }}>
+            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border bg-slate-50 text-slate-600 border-slate-200 ml-auto">
               {formatDateHeader(group.dateKey)}
             </span>
           </div>

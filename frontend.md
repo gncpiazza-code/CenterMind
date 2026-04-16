@@ -183,6 +183,14 @@ Los paneles utilizan el estilo "Glass-Card" adaptado al tema claro:
 - La imagen principal mantiene `object-contain` para garantizar visualización completa sin recortes.
 - Nuevo toggle `Modo foco` en el canvas: oculta overlays/paneles de contexto para priorizar lectura visual de la foto durante la evaluación.
 
+### 26. Visor/Mobile — barra de evaluación menos intrusiva (16/04/2026)
+- El acceso a `Modo foco` se mueve al bloque de acciones de evaluación (desktop + mobile) para quedar en el mismo punto de decisión.
+- En mobile, la barra inferior reduce opacidad y padding; observaciones/frases quedan colapsadas por defecto y se despliegan con botón `Obs`.
+
+### 27. Galería Timeline — badges jerarquizados por color (16/04/2026)
+- En el detalle por cliente, badges de metadata usan color semántico para escaneo rápido (estado, cantidad de imágenes y fecha).
+- Regla de negocio del badge tipo: solo `COMERCIO CON INGRESO` (verde) y `COMERCIO SIN INGRESO` (rojo), con fallback neutro.
+
 ### 8. Supervisión — Aislamiento de Cache por Tenant
 - `TabSupervision.tsx` scopea las query keys de rutas/clientes con `dist_id`:
   - `['supervision-rutas', distId, id_vendedor]`

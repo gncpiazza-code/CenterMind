@@ -1,6 +1,6 @@
 # Progress — Shelfy CenterMind
 
-**Última actualización: 16 de Abril, 2026 (visor: filtro por sucursal + enriquecimiento backend en pendientes)**
+**Última actualización: 16 de Abril, 2026 (hotfix tenant-scope en pendientes del visor)**
 
 Este archivo detalla el estado actual del proyecto, las funcionalidades operativas y los pendientes técnicos.
 
@@ -83,6 +83,7 @@ El proyecto se encuentra en una fase de expansión de funcionalidades de supervi
 ---
 
 ## 📅 Historial Reciente (Abril 2026)
+- **16/04 (59)**: **Hotfix visor multi-tenant — `/api/pendientes` scope estricto por distribuidora** — `supervision.py::get_pendientes` agrega filtro `id_distribuidor` en todos los enrich queries auxiliares (`exhibiciones`, `clientes_pdv_v2`, `vendedores_v2`, `sucursales_v2`) para evitar cruces cross-tenant al calcular sucursal, `nro_cliente` e `id_objetivo`.
 - **16/04 (58)**: **Visor de evaluación — filtro por sucursal** — `supervision.py::GET /api/pendientes/{id_distribuidor}` ahora enriquece cada grupo con `sucursal` resolviendo la jerarquía real (`exhibiciones -> clientes_pdv_v2 -> rutas_v2 -> vendedores_v2 -> sucursales_v2`). En frontend (`visor/page.tsx`) se agrega selector “Todas las sucursales” y el filtrado se aplica junto al filtro por vendedor/tipo de exhibición.
 - **16/04 (57)**: **Alineación Supervisión vs Galería + rango temporal configurable** — (1) `fuerza_ventas.py::GET /api/galeria/vendedor/{id_vendedor}/clientes` deja de depender de `integrantes_grupo` para listar clientes con exhibición; ahora usa rutas/PDVs del vendedor como fuente única (evita “Sin exhibiciones” falso en tenants sin mapping completo). (2) `TabSupervision.tsx` agrega selector de período para la galería inferior (`Hoy`, `7 días`, `Histórico`) para comparar contra el mapa sin sesgo temporal. (3) `galeria-exhibiciones/page.tsx` resetea contexto local al cambiar de tenant (`selectedVendedor`, búsqueda y sucursal) para evitar vistas vacías heredadas por filtros persistidos.
 - **16/04 (56)**: **Supervisión UX — color por vendedor + galería consistente por sucursal/estado** — `TabSupervision.tsx` agrega personalización de color por vendedor (input color + reset) en panel normal y panel fullscreen de `ShelfyMaps`; los pines del mapa ahora consumen ese color override por `dist:vendedor`. `useSupervisionStore` persiste `vendorColorOverrides` en Zustand. En la galería “Exhibiciones del día” se corrige el filtrado por estado mediante normalización robusta (`Aprobado/Aprobada`, `Rechazado/Rechazada`, etc.) y se restringe la data a vendedores de la `selectedSucursal` activa; contador de cabecera alineado a registros realmente visibles.

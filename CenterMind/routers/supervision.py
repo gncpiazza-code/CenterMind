@@ -243,6 +243,7 @@ def get_pendientes(id_distribuidor: int, payload=Depends(verify_auth)):
                     ex_map_res = (
                         sb.table("exhibiciones")
                         .select("id_exhibicion, id_integrante")
+                        .eq("id_distribuidor", id_distribuidor)
                         .in_("id_exhibicion", ex_ids)
                         .execute()
                     )
@@ -262,11 +263,23 @@ def get_pendientes(id_distribuidor: int, payload=Depends(verify_auth)):
         pendientes_sin_nro = [r.get("id_exhibicion") for r in rows if r.get("id_exhibicion") and (not r.get("nro_cliente") or r.get("nro_cliente") == "0")]
         if pendientes_sin_nro:
             try:
-                extra_res = sb.table("exhibiciones").select("id_exhibicion, id_cliente_pdv").in_("id_exhibicion", pendientes_sin_nro).execute()
+                extra_res = (
+                    sb.table("exhibiciones")
+                    .select("id_exhibicion, id_cliente_pdv")
+                    .eq("id_distribuidor", id_distribuidor)
+                    .in_("id_exhibicion", pendientes_sin_nro)
+                    .execute()
+                )
                 exh_cliente = {r["id_exhibicion"]: r.get("id_cliente_pdv") for r in (extra_res.data or []) if r.get("id_cliente_pdv")}
                 nro_map = {}
                 if exh_cliente:
-                    pdv_res = sb.table("clientes_pdv_v2").select("id_cliente, id_cliente_erp").in_("id_cliente", list(set(exh_cliente.values()))).execute()
+                    pdv_res = (
+                        sb.table("clientes_pdv_v2")
+                        .select("id_cliente, id_cliente_erp")
+                        .eq("id_distribuidor", id_distribuidor)
+                        .in_("id_cliente", list(set(exh_cliente.values())))
+                        .execute()
+                    )
                     pdv_erp = {r["id_cliente"]: r["id_cliente_erp"] for r in (pdv_res.data or [])}
                     nro_map = {ex_id: pdv_erp[cid] for ex_id, cid in exh_cliente.items() if cid in pdv_erp}
                 for r in rows:
@@ -288,6 +301,7 @@ def get_pendientes(id_distribuidor: int, payload=Depends(verify_auth)):
                 ex_cli_res = (
                     sb.table("exhibiciones")
                     .select("id_exhibicion, id_cliente_pdv")
+                    .eq("id_distribuidor", id_distribuidor)
                     .in_("id_exhibicion", all_ex_ids)
                     .execute()
                 )
@@ -301,6 +315,7 @@ def get_pendientes(id_distribuidor: int, payload=Depends(verify_auth)):
                     cli_res = (
                         sb.table("clientes_pdv_v2")
                         .select("id_cliente, id_ruta")
+                        .eq("id_distribuidor", id_distribuidor)
                         .in_("id_cliente", cli_ids)
                         .execute()
                     )
@@ -331,6 +346,7 @@ def get_pendientes(id_distribuidor: int, payload=Depends(verify_auth)):
                         vend_res = (
                             sb.table("vendedores_v2")
                             .select("id_vendedor, id_sucursal")
+                            .eq("id_distribuidor", id_distribuidor)
                             .in_("id_vendedor", vendedor_ids)
                             .execute()
                         )
@@ -346,6 +362,7 @@ def get_pendientes(id_distribuidor: int, payload=Depends(verify_auth)):
                         suc_res = (
                             sb.table("sucursales_v2")
                             .select("id_sucursal, nombre_erp")
+                            .eq("id_distribuidor", id_distribuidor)
                             .in_("id_sucursal", suc_ids)
                             .execute()
                         )
@@ -369,6 +386,7 @@ def get_pendientes(id_distribuidor: int, payload=Depends(verify_auth)):
             try:
                 obj_res = sb.table("exhibiciones") \
                     .select("id_exhibicion, id_objetivo") \
+                    .eq("id_distribuidor", id_distribuidor) \
                     .in_("id_exhibicion", all_ex_ids) \
                     .execute()
                 obj_id_map = {

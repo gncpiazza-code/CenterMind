@@ -263,3 +263,10 @@ class GaleriaTimelineItem(BaseModel):
     supervisor: Optional[str] = None
     comentario: Optional[str] = None
     tipo_pdv: Optional[str] = None
+
+
+class GaleriaTimelineResponse(BaseModel):
+    items: List[GaleriaTimelineItem]
+    offset: int
+    limit: int
+    has_more: bool

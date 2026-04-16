@@ -120,6 +120,41 @@ Los paneles utilizan el estilo "Glass-Card" adaptado al tema claro:
 - **`apiFetch`**: lanza `ApiError` en lugar de `Error` genérico; extrae `detail.mensaje` para 409 duplicados.
 - **Uso en mutaciones**: `onError: (err) => { if (err instanceof ApiError && err.status === 409) toast.warning(...) }`.
 - **Wizard sequential blocking en Objetivos**: Secciones Tipo y Fecha límite con `opacity-40 pointer-events-none select-none` cuando `!vendedorId`.
+### 11. Galería — Debug Visible y Contextual (15/04/2026)
+- `apiFetch` imprime debug para cualquier error en `/api/galeria/*` (URL, status, options, response body).
+- `galeria-exhibiciones/page.tsx` agrega `console.group` con contexto de filtros y vendedor al fallar queries, y muestra `error.message` en `<Alert>` destructiva.
+
+### 12. Calendarios shadcn estandarizados (15/04/2026)
+- Todos los calendarios detectados en `src/` migrados a `DatePicker` (sin `input type="date"`).
+- `DatePicker` soporta `disabled` para formularios en modo lectura (ej. edición de vendedor sin permiso).
+
+### 13. Nombres ERP de vendedores unificados (15/04/2026)
+- `src/lib/api.ts` agrega normalización central `resolveVendorERPName` para resolver display name de vendedor priorizando `nombre_erp`.
+- Se aplica en respuestas de ranking, supervisión y objetivos para que la UI no mezcle nombres legacy o aliases de Telegram.
+
+### 14. Fuerza de Ventas — Selects largos de Telegram (15/04/2026)
+- En `VendedorEditSheet`, los `SelectContent` de “Grupo Telegram” y “Usuario Telegram” usan `max-h-72` para habilitar scroll interno cuando hay muchas opciones.
+
+### 15. Fuerza de Ventas — contexto de actividad por usuario Telegram (15/04/2026)
+- El select de “Usuario Telegram” muestra sublínea en gris por opción con `total_exhibiciones` y fecha de `ultima_exhibicion`.
+- Permite desambiguar homónimos (ej. dos “Jeronimo”) usando actividad real de exhibiciones.
+
+### 16. Modo Oficina — estabilidad visual KPI chart (15/04/2026)
+- `ResponsiveContainer` del bloque KPI usa `minWidth={0}` y `minHeight={80}` para evitar warnings de Recharts (`width(-1)/height(-1)`) durante transiciones/layout.
+
+### 17. Galería — Timeline Inteligente (16/04/2026)
+- `ExhibicionesTimelineDialog` usa `useInfiniteQuery` de TanStack con paginación `offset/limit` y botón "Cargar más" (sin cargar todo el histórico en mount).
+- La timeline se agrupa por fecha: **1 fecha = 1 exhibición lógica**; múltiples fotos del mismo día se muestran en grid dentro de la misma tarjeta.
+- Se deduplican URLs repetidas para evitar mostrar la misma imagen en fechas distintas por duplicados históricos.
+- El contador y badges del header de timeline cuentan exhibiciones agrupadas por fecha (no cantidad bruta de filas/fotos).
+
+### 18. Galería — Estado global con Zustand (16/04/2026)
+- Nuevo store `useGaleriaStore` para persistir filtros/sort/rango de fechas y `timelinePageSize`.
+- `galeria-exhibiciones/page.tsx` deja de dispersar estado local de filtros y consume el store como fuente única.
+
+### 19. Supervisión — visibilidad inactivos anti-regresión (16/04/2026)
+- `MapaRutas` reinicia filtros del legend de estados al cambiar el set de pines para prevenir sesiones donde solo queden visibles activos tras toggles previos.
+- Comportamiento esperado: al prender vendedor/ruta se visualizan activos e inactivos (siempre que tengan coordenadas válidas).
 
 ### 8. Supervisión — Aislamiento de Cache por Tenant
 - `TabSupervision.tsx` scopea las query keys de rutas/clientes con `dist_id`:

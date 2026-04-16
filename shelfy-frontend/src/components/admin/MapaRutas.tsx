@@ -122,6 +122,17 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode, mode
     inactivo:          true,
   });
 
+  // Al cambiar la selección de vendedor/rutas, volver a mostrar todos los estados.
+  // Evita la falsa percepción de "solo veo activos" por filtros previos del legend.
+  useEffect(() => {
+    setFilterEnabled({
+      activo_exhibicion: true,
+      activo: true,
+      inactivo_exhibicion: true,
+      inactivo: true,
+    });
+  }, [pines]);
+
   const toggleFilter = (status: PinStatus) =>
     setFilterEnabled(prev => ({ ...prev, [status]: !prev[status] }));
 

@@ -909,7 +909,6 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
       vendRutas.map(async r => {
         const cli = await queryClient.fetchQuery(getClientesQuery(r.id_ruta));
         cli.forEach((c) => {
-          if (!isClientePadronActivo(c)) return;
           if (seenCli.has(c.id_cliente)) return;
           seenCli.add(c.id_cliente);
           allClientIds.push(c.id_cliente);
@@ -969,7 +968,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
 
         setVisibleVends(new Set([...visibleVends, vendId]));
         setVisibleRutas(new Set([...visibleRutas, rutaId]));
-        const ids = cli.filter(isClientePadronActivo).map((c) => c.id_cliente);
+        const ids = cli.map((c) => c.id_cliente);
         setVisibleClientes(new Set([...visibleClientes, ...ids]));
       } finally {
         setLoadingMap(p => { const s = new Set(p); s.delete(vendId); return s; });
@@ -979,8 +978,6 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
 
   // ── PDV TOGGLE (uses Zustand store) ──────────────────────────────────────
   function toggleCliente(clienteId: number) {
-    const row = findClienteInDistCache(queryClient, selectedDist, clienteId);
-    if (row && !isClientePadronActivo(row)) return;
     toggleClienteStore(clienteId);
   }
 
@@ -1018,7 +1015,6 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
         
         rutaClientes.forEach(c => {
           if (!visibleClientes.has(c.id_cliente)) return;
-          if (!isClientePadronActivo(c)) return;
           if (!hasValidCoords(c.latitud, c.longitud)) return;
           
           // Cross-reference deuda

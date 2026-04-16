@@ -762,6 +762,13 @@ export interface GaleriaTimelineItem {
   tipo_pdv: string | null;
 }
 
+export interface GaleriaTimelineResponse {
+  items: GaleriaTimelineItem[];
+  offset: number;
+  limit: number;
+  has_more: boolean;
+}
+
 export async function fetchGaleriaVendedores(
   distId: number,
   params?: { sucursal?: string; desde?: string; hasta?: string },
@@ -801,8 +808,13 @@ export async function fetchGaleriaClientesPorVendedor(
 export async function fetchGaleriaTimelineCliente(
   idClientePdv: number,
   distId: number,
-): Promise<GaleriaTimelineItem[]> {
-  return apiFetch<GaleriaTimelineItem[]>(`/api/galeria/cliente/${idClientePdv}/timeline?dist_id=${distId}`);
+  params?: { offset?: number; limit?: number },
+): Promise<GaleriaTimelineResponse> {
+  const qs = new URLSearchParams();
+  qs.set("dist_id", String(distId));
+  if (typeof params?.offset === "number") qs.set("offset", String(params.offset));
+  if (typeof params?.limit === "number") qs.set("limit", String(params.limit));
+  return apiFetch<GaleriaTimelineResponse>(`/api/galeria/cliente/${idClientePdv}/timeline?${qs.toString()}`);
 }
 
 // ── Admin: Distribuidoras (superadmin only) ──────────────────────────────────

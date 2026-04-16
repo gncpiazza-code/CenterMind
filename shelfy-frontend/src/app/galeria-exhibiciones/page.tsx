@@ -29,6 +29,7 @@ import {
   type GaleriaVendedorStats,
   type GaleriaClienteCard as GaleriaClienteCardType,
 } from "@/lib/api";
+import { useGaleriaStore } from "@/store/useGaleriaStore";
 
 export default function GaleriaExhibicionesPage() {
   const { user } = useAuth();
@@ -41,18 +42,27 @@ export default function GaleriaExhibicionesPage() {
   const [timelineCliente, setTimelineCliente] = useState<GaleriaClienteCardType | null>(null);
   const [timelineOpen, setTimelineOpen] = useState(false);
 
-  // Búsqueda
-  const [searchVendedor, setSearchVendedor] = useState("");
-  const [searchCliente, setSearchCliente] = useState("");
-  const [filtroSucursal, setFiltroSucursal] = useState("todas");
-  const [fechaDesde, setFechaDesde] = useState("");
-  const [fechaHasta, setFechaHasta] = useState("");
-
-  // Sorting (vista 2)
+  // Búsqueda + orden (persistidos en Zustand)
   type SortField = "exhibicion" | "compra";
-  type SortDir = "desc" | "asc";
-  const [sortField, setSortField] = useState<SortField>("exhibicion");
-  const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const {
+    searchVendedor,
+    setSearchVendedor,
+    searchCliente,
+    setSearchCliente,
+    filtroSucursal,
+    setFiltroSucursal,
+    fechaDesde,
+    setFechaDesde,
+    fechaHasta,
+    setFechaHasta,
+    sortField,
+    setSortField,
+    sortDir,
+    setSortDir,
+    clearDateRange,
+    clearClientSearch,
+    timelinePageSize,
+  } = useGaleriaStore();
 
   // Vista 1: vendedores
   const { data: vendedores = [], isLoading: loadingVendedores, error: errorVendedores } = useQuery<GaleriaVendedorStats[]>({
@@ -169,7 +179,7 @@ export default function GaleriaExhibicionesPage() {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => { setSelectedVendedor(null); setSearchCliente(""); }}
+              onClick={() => { setSelectedVendedor(null); clearClientSearch(); }}
               className="gap-1.5 font-bold"
               style={{ color: "var(--shelfy-muted)" }}
             >
@@ -263,8 +273,7 @@ export default function GaleriaExhibicionesPage() {
               size="sm"
               className="h-8 text-xs font-semibold"
               onClick={() => {
-                setFechaDesde("");
-                setFechaHasta("");
+                clearDateRange();
               }}
             >
               Historico
@@ -324,8 +333,7 @@ export default function GaleriaExhibicionesPage() {
               size="sm"
               className="h-8 text-xs font-semibold"
               onClick={() => {
-                setFechaDesde("");
-                setFechaHasta("");
+                clearDateRange();
               }}
             >
               Historico
@@ -396,6 +404,7 @@ export default function GaleriaExhibicionesPage() {
         idClientePdv={timelineCliente?.id_cliente ?? null}
         distId={distId}
         nombreCliente={timelineCliente ? (timelineCliente.nombre_fantasia || timelineCliente.nombre_cliente) : ""}
+        pageSize={timelinePageSize}
         open={timelineOpen}
         onClose={() => { setTimelineOpen(false); setTimelineCliente(null); }}
       />

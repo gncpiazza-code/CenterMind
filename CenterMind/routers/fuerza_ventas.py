@@ -32,6 +32,7 @@ from models.schemas import (
     GaleriaVendedorStats,
     GaleriaClienteCard,
     GaleriaTimelineItem,
+    GaleriaTimelineResponse,
 )
 
 logger = logging.getLogger("ShelfyAPI")
@@ -1041,6 +1042,8 @@ def galeria_list_clientes_por_vendedor(
 def galeria_timeline_cliente(
     id_cliente_pdv: int,
     dist_id: int = Query(...),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(30, ge=1, le=120),
     payload=Depends(verify_auth),
 ):
     """Timeline completo de exhibiciones de un PDV."""
@@ -1059,40 +1062,40 @@ def galeria_timeline_cliente(
             raise HTTPException(status_code=404, detail="Cliente no encontrado")
 
         # Exhibiciones del cliente por FK id_cliente_pdv (igual que galeria_list_clientes_por_vendedor)
-        exhibiciones: list[dict] = []
-        batch, offset_e = 200, 0
-        while True:
-            ex_r = (
-                sb.table("exhibiciones")
-                .select(
-                    "id_exhibicion, url_foto_drive, estado, timestamp_subida, "
-                    "evaluated_at, supervisor_nombre, comentario_evaluacion, tipo_pdv"
-                )
-                .eq("id_distribuidor", dist_id)
-                .eq("id_cliente_pdv", id_cliente_pdv)
-                .order("timestamp_subida", desc=True)
-                .range(offset_e, offset_e + batch - 1)
-                .execute()
+        ex_r = (
+            sb.table("exhibiciones")
+            .select(
+                "id_exhibicion, url_foto_drive, estado, timestamp_subida, "
+                "evaluated_at, supervisor_nombre, comentario_evaluacion, tipo_pdv"
             )
-            chunk = ex_r.data or []
-            exhibiciones.extend(chunk)
-            if len(chunk) < batch:
-                break
-            offset_e += batch
+            .eq("id_distribuidor", dist_id)
+            .eq("id_cliente_pdv", id_cliente_pdv)
+            .order("timestamp_subida", desc=True)
+            .range(offset, offset + limit)
+            .execute()
+        )
+        rows = ex_r.data or []
+        has_more = len(rows) > limit
+        page_rows = rows[:limit]
 
-        return [
-            GaleriaTimelineItem(
-                id_exhibicion=ex["id_exhibicion"],
-                url_foto=ex.get("url_foto_drive", ""),
-                estado=ex.get("estado", "Pendiente"),
-                timestamp_subida=ex.get("timestamp_subida", ""),
-                fecha_evaluacion=ex.get("evaluated_at"),
-                supervisor=ex.get("supervisor_nombre"),
-                comentario=ex.get("comentario_evaluacion"),
-                tipo_pdv=ex.get("tipo_pdv"),
-            )
-            for ex in exhibiciones
-        ]
+        return GaleriaTimelineResponse(
+            items=[
+                GaleriaTimelineItem(
+                    id_exhibicion=ex["id_exhibicion"],
+                    url_foto=ex.get("url_foto_drive", ""),
+                    estado=ex.get("estado", "Pendiente"),
+                    timestamp_subida=ex.get("timestamp_subida", ""),
+                    fecha_evaluacion=ex.get("evaluated_at"),
+                    supervisor=ex.get("supervisor_nombre"),
+                    comentario=ex.get("comentario_evaluacion"),
+                    tipo_pdv=ex.get("tipo_pdv"),
+                )
+                for ex in page_rows
+            ],
+            offset=offset,
+            limit=limit,
+            has_more=has_more,
+        )
     except HTTPException:
         raise
     except Exception as e:

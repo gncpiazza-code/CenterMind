@@ -505,6 +505,16 @@ El popup HTML del marcador muestra:
 - Última compra: fecha + "hace N días" (rojo si inactivo)
 - Exhibición: fecha + días + miniatura `<img src={urlExhibicion}>` + link "Ver imagen original ↗"
 - Meta: Nº cliente ERP + Ruta (dia_semana)
+- Al cambiar el set de pines (prender/apagar vendedor o ruta), el legend re-activa por defecto los 4 estados para evitar sesiones donde queden ocultos los inactivos por un toggle previo.
+
+## Galería de Exhibiciones (frontend)
+
+Archivo principal: `shelfy-frontend/src/components/galeria/ExhibicionesTimelineDialog.tsx`
+
+- La timeline usa **TanStack Query v5** con `useInfiniteQuery` y paginación incremental (`offset/limit`).
+- `GET /api/galeria/cliente/{id_cliente_pdv}/timeline` responde `{items, has_more}` para no cargar miles de filas de una sola vez.
+- La UI agrupa por fecha: **1 fecha = 1 exhibición lógica**. Si hay 3 fotos el mismo día, se muestran las 3 imágenes pero cuentan como una sola exhibición en el timeline.
+- Se deduplican URLs repetidas para mitigar casos históricos donde aparece la misma imagen en fechas distintas.
 
 ---
 
@@ -520,8 +530,9 @@ El popup HTML del marcador muestra:
 ### TypeScript (frontend)
 - Toda la comunicación con la API pasa por `src/lib/api.ts` — NO fetch directo en componentes
 - Los tipos se definen en `api.ts` junto con la función fetch
-- No hay Redux ni Zustand — estado local con useState + contexto mínimo
+- Estado UI global con Zustand (ej. galería/supervisión/objetivos); estado servidor con TanStack Query
 - Tailwind con variables CSS (`var(--shelfy-bg)`, `var(--shelfy-panel)`, etc.)
+- Nombres de vendedores: normalizar en `api.ts` y priorizar siempre `nombre_erp` en el borde de datos antes de renderizar (ranking, supervisión, objetivos)
 
 ### Backend (mapeo nombres supervisión)
 - `_get_erp_name_map` debe preservar identidad si `nombre_integrante` ya coincide con `vendedores_v2.nombre_erp`. Nunca sobreescribir ese nombre con otro ERP por un mapping roto en `integrantes_grupo`.
@@ -654,6 +665,12 @@ Archivo `shelfy_mapa_arquitectonico.html` en la raíz del repo. Dashboard HTML e
 - Fetches en `useEffect` con posibilidad de re-disparo deben incluir cleanup con flag `cancelled` o `AbortController`.
 - Para permisos de UI/rutas usar siempre `hasPermiso("clave")` del AuthContext (no leer `user.permisos` directo en páginas).
 - En objetivos con sucursales múltiples, mantener cascada estricta sucursal→vendedor y permitir multiselección de PDVs para activación/exhibición cuando el caso de uso lo requiera.
+- En formularios con fecha usar `DatePicker` (`@/components/ui/date-picker`) como estándar visual; evitar `input type="date"` en UI final.
+- En Fuerza de Ventas, `ciudad/localidad` deben salir del catálogo del tenant (`fetchLocations`) mediante `Select`, no como texto libre.
+- En `Select` con listas potencialmente largas (ej. binding Telegram grupo/usuario), definir `max-h-*` en `SelectContent` para garantizar scroll interno y evitar recorte de opciones.
+- En selectores con homónimos de Telegram, mostrar metadata contextual en el item (`total_exhibiciones`, `ultima_exhibicion`) para facilitar mapeo correcto de usuario.
+- En endpoints de Modo Oficina no usar guard hardcodeado de superadmin; respetar permiso `menu_modo_oficina` y mantener scope por `id_distribuidor` para usuarios no-superadmin.
+- En `/api/admin/distribuidoras|distribuidores`, permitir lectura a usuarios con `action_switch_tenant` (además de superadmin) para evitar 403 del switcher de entorno.
 
 ### Base de datos
 - Siempre filtrar por `id_distribuidor`.

@@ -67,6 +67,30 @@ Este documento describe la infraestructura, tecnologías y flujos de datos que c
 15. **Supervisión/Objectivos — PDVs inactivos visibles (Abr 2026)**:
     - `GET /api/supervision/clientes/{id_ruta}` ya no descarta `estado='inactivo'`, permitiendo prender/apagar el universo completo de PDVs del vendedor en mapa/listado.
     - `GET /api/supervision/pdvs-catalog/{dist_id}` devuelve también `estado` y `fecha_ultima_compra`; objetivos usa estos campos para priorizar activación y exhibición sobre clientes inactivos/rezagados.
+16. **Fuerza de Ventas — ubicación guiada por tenant (Abr 2026)**:
+    - `VendedorEditSheet` consume `fetchLocations(distId)` y fuerza selección de `ciudad/localidad` mediante catálogo del tenant (sin texto libre), alineando la carga manual con la estructura ERP del distribuidor.
+17. **Calendario unificado shadcn (Abr 2026)**:
+    - Se eliminan `input type="date"` de módulos activos y se estandariza `DatePicker` (`Calendar` + `Popover`) en Fuerza de Ventas, Mapa Admin, Reportes y Academy.
+18. **Nombres de vendedor ERP consistentes en frontend (Abr 2026)**:
+    - `src/lib/api.ts` normaliza nombres de vendedor en el borde de datos (`resolveVendorERPName`) priorizando `nombre_erp` antes de aliases legacy.
+    - Endpoints frontend cubiertos: ranking (`fetchRanking`, `fetchRankingHistorico`), supervisión (`fetchVendedoresSupervision`, `fetchVentasSupervision`, `fetchCuentasSupervision`) y objetivos (`fetchObjetivos`, `fetchObjetivosTimeline`, `fetchResumenSupervisorObjetivos`).
+19. **Fuerza de Ventas — listas largas de Telegram con scroll (Abr 2026)**:
+    - `VendedorEditSheet` limita altura de los dropdowns de binding (`SelectContent` con `max-h-72`) para asegurar navegación de grupos/usuarios numerosos sin clipping visual.
+20. **Fuerza de Ventas — metadata de actividad en usuarios Telegram (Abr 2026)**:
+    - `GET /api/fuerza-ventas/telegram/usuarios/{dist_id}` enriquece cada integrante con `total_exhibiciones` y `ultima_exhibicion` (agregado por `id_integrante` sobre tabla `exhibiciones`).
+    - `VendedorEditSheet` renderiza esa metadata en el dropdown de usuarios para seleccionar correctamente entre homónimos.
+21. **Modo Oficina — autorización por permiso (Abr 2026)**:
+    - `GET /api/admin/live-map-events` habilita acceso para usuarios con permiso `menu_modo_oficina` (además de superadmin).
+    - Para no-superadmin, el endpoint scopea datos por `id_distribuidor` del JWT para mantener aislamiento tenant.
+22. **Distribuidoras API — acceso para switch de tenant (Abr 2026)**:
+    - `GET /api/admin/distribuidoras|distribuidores` ya no es exclusivo de superadmin; permite usuarios con `action_switch_tenant` (o rol `directorio`) para soportar el switcher sin 403.
+23. **Galería — timeline inteligente paginada (Abr 2026)**:
+    - `GET /api/galeria/cliente/{id_cliente_pdv}/timeline` soporta `offset` + `limit` y responde `{items, has_more}` para carga incremental en frontend.
+    - La UI agrupa por fecha (`1 fecha = 1 exhibición lógica`) y mantiene múltiples imágenes del día dentro del mismo bloque, evitando inflar conteos.
+    - Se aplica deduplicación por URL de imagen en el borde de datos para mitigar repeticiones históricas del mismo asset en fechas distintas.
+24. **Supervisión — guardia visual de inactivos en mapa (Abr 2026)**:
+    - `MapaRutas` re-habilita por defecto los 4 estados del legend (`activo`, `activo+exhibición`, `inactivo`, `inactivo+exhibición`) cuando cambia el set de pines.
+    - Con esto, prender vendedor/ruta siempre muestra también PDVs inactivos (si tienen coordenadas válidas), evitando regressions por filtros locales persistidos en sesión.
 16. **Bot Telegram — tipo PDV silent-first (Abr 2026)**:
     - Nueva tabla `pdv_tipo_profiles` (por `id_distribuidor + id_cliente_erp`) con `tipo_pdv_preferido`, `trust_level`, `confidence`, `tipo_counts`, `total_observaciones`.
     - `handle_text` intenta inferir tipo por perfil: si confianza alta, registra exhibición sin preguntar botones; si no, mantiene selección manual.

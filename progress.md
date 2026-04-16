@@ -1,6 +1,6 @@
 # Progress — Shelfy CenterMind
 
-**Última actualización: 16 de Abril, 2026 (visor: foco inmersivo con animaciones y overlays suaves)**
+**Última actualización: 16 de Abril, 2026 (visor: salida de pad sin zoom + transiciones pulidas)**
 
 Este archivo detalla el estado actual del proyecto, las funcionalidades operativas y los pendientes técnicos.
 
@@ -83,6 +83,7 @@ El proyecto se encuentra en una fase de expansión de funcionalidades de supervi
 ---
 
 ## 📅 Historial Reciente (Abril 2026)
+- **16/04 (66)**: **Visor — foco inmersivo sin zoom/crop (salida de pad)** — `visor/page.tsx` elimina el escalado de la foto durante hold de `Space` para evitar recortes indeseados y reemplaza el efecto por expansión de área visible (la imagen “sale del pad” manteniendo `object-contain`). Además, se refinan las animaciones de entrada/salida de overlays top/bottom (desktop/mobile) con transiciones tipo spring para una percepción más fluida y menos abrupta.
 - **16/04 (65)**: **Visor — foco inmersivo durante hold de Space** — al mantener `Space`, la imagen principal se agranda suavemente y sube saturación/contraste/brillo, mientras overlays bajan en protagonismo. Se rediseñan barras superior/inferior como paneles glass flotantes más livianos (menos opacidad, bordes redondeados, animaciones de entrada/salida), reduciendo la sensación de “inserción tosca” de la foto.
 - **16/04 (64)**: **Visor — foco momentáneo por teclado** — `visor/page.tsx` reemplaza activación persistente de “Modo foco” por un modo temporal: al mantener `Space` ~700ms se ocultan overlays; al soltar la tecla (o perder foco de ventana) reaparecen automáticamente. Se ignora en campos de escritura (`input/textarea/select/contentEditable`) para no interferir con comentarios.
 - **16/04 (63)**: **Refine final de Visor + Galería detalle cliente** — (1) `visor/page.tsx`: `Modo foco` se integra junto a botones de evaluación y en mobile la barra inferior se compacta con bloque de observaciones colapsable (`Obs`) para reducir cobertura de imagen. (2) `ExhibicionesTimelineDialog.tsx`: badges jerarquizados por color (estado, volumen de imágenes y tipo de comercio), con regla de negocio explícita para tipo: `COMERCIO CON INGRESO` (verde) / `COMERCIO SIN INGRESO` (rojo suave).

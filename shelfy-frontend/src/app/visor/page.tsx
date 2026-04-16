@@ -77,7 +77,11 @@ function FotoViewer({
   }
 
   return (
-    <div className="relative w-full h-full rounded-3xl overflow-hidden shadow-md bg-slate-900/20 transition-all duration-500 ease-out">
+    <div
+      className={`relative w-full h-full rounded-3xl shadow-md bg-slate-900/20 transition-all duration-500 ease-out ${
+        focusHoldActive ? "overflow-visible" : "overflow-hidden"
+      }`}
+    >
       {/* Fondo adaptativo para evitar letterbox negro dominante */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
@@ -99,10 +103,10 @@ function FotoViewer({
       <img
         src={src}
         alt={`Exhibición ${idExhibicion}`}
-        className={`relative z-[1] w-full h-full object-contain object-center rounded-3xl transition-all duration-500 ease-out ${
+        className={`relative z-[1] object-contain object-center rounded-3xl transition-all duration-500 ease-out ${
           focusHoldActive
-            ? "p-0 md:p-0 scale-[1.05] saturate-[1.2] contrast-[1.1] brightness-[1.04]"
-            : "p-1 md:p-2 scale-100 saturate-100 contrast-100 brightness-100"
+            ? "w-[112%] h-[112%] -ml-[6%] -mt-[6%] p-0 saturate-[1.2] contrast-[1.1] brightness-[1.04]"
+            : "w-full h-full p-1 md:p-2 saturate-100 contrast-100 brightness-100"
         }`}
         loading={priority ? "eager" : "lazy"}
         onError={() => setErr(true)}
@@ -559,7 +563,11 @@ export default function VisorPage() {
             /* ── VISOR LAYOUT: Image + overlays, fills entire remaining space ── */
             <div className="flex-1 flex flex-col min-h-0">
               {/* IMAGE CONTAINER — takes all remaining space */}
-              <div className="flex-1 min-h-0 rounded-none md:rounded-2xl overflow-hidden bg-[radial-gradient(circle_at_top,_rgba(148,163,184,0.18),_rgba(15,23,42,0.2)_52%,_rgba(2,6,23,0.35)_100%)] relative group">
+              <div
+                className={`flex-1 min-h-0 rounded-none md:rounded-2xl bg-[radial-gradient(circle_at_top,_rgba(148,163,184,0.18),_rgba(15,23,42,0.2)_52%,_rgba(2,6,23,0.35)_100%)] relative group ${
+                  focusHoldActive ? "overflow-visible" : "overflow-hidden"
+                }`}
+              >
                 {/* Photo */}
                 <AnimatePresence mode="wait">
                   <motion.div
@@ -568,7 +576,6 @@ export default function VisorPage() {
                     animate={{
                       opacity: 1,
                       x: 0,
-                      scale: focusHoldActive ? 1.02 : 1,
                     }}
                     exit={{ opacity: 0, x: -20 }}
                     transition={{ duration: 0.25, ease: "easeOut" }}
@@ -651,10 +658,10 @@ export default function VisorPage() {
 
                 {/* ── MOBILE TOP OVERLAY: compact info ── */}
                 {!focusHoldActive && <motion.div
-                  initial={{ opacity: 0, y: -10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
-                  transition={{ duration: 0.25 }}
+                  initial={{ opacity: 0, y: -14, scale: 0.985 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -12, scale: 0.99 }}
+                  transition={{ type: "spring", stiffness: 360, damping: 30, mass: 0.9 }}
                   className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/45 via-black/15 to-transparent pt-3 pb-6 px-3 text-white md:hidden z-10"
                 >
                   <div className="flex items-center justify-between">
@@ -776,10 +783,10 @@ export default function VisorPage() {
 
                 {/* ── FROSTED BOTTOM BAR: izq info · centro botones · der comentarios (Desktop) ── */}
                 {!focusHoldActive && <motion.div
-                  initial={{ opacity: 0, y: 12 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 12 }}
-                  transition={{ duration: 0.25 }}
+                  initial={{ opacity: 0, y: 18, scale: 0.985 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 14, scale: 0.99 }}
+                  transition={{ type: "spring", stiffness: 320, damping: 28, mass: 0.9 }}
                   className="hidden md:flex absolute bottom-3 left-3 right-3 z-10 flex-col pointer-events-none"
                 >
                   <div className="pointer-events-auto rounded-2xl grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto_minmax(220px,300px)] gap-2 px-4 py-1.5 bg-black/30 backdrop-blur-xl border border-white/10 text-white items-end shadow-2xl">
@@ -963,10 +970,10 @@ export default function VisorPage() {
 
                 {/* ── MOBILE FROSTED BOTTOM BAR ── */}
                 {!focusHoldActive && <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 10 }}
-                  transition={{ duration: 0.22 }}
+                  initial={{ opacity: 0, y: 14, scale: 0.985 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 12, scale: 0.99 }}
+                  transition={{ type: "spring", stiffness: 340, damping: 30, mass: 0.85 }}
                   className="flex md:hidden absolute bottom-2 left-2 right-2 z-10 flex-col pointer-events-none"
                 >
                   <div

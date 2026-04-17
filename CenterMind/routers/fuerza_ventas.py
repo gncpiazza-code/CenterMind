@@ -24,6 +24,11 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 
 from core.security import verify_auth, check_dist_permission
+from core.helpers import (
+    should_apply_exhibicion_qa_filter,
+    build_qa_exhibicion_integrante_ids,
+    is_exhibicion_qa_display_for_dist,
+)
 from db import sb
 from models.schemas import (
     VendedorPerfilUpdateRequest,
@@ -719,6 +724,8 @@ def galeria_list_vendedores(
 ):
     """Métricas de exhibiciones agrupadas por vendedor."""
     check_dist_permission(payload, dist_id)
+    qa_filter = should_apply_exhibicion_qa_filter(dist_id, payload)
+    qa_iids = build_qa_exhibicion_integrante_ids(dist_id) if qa_filter else frozenset()
     try:
         # Vendedores
         vend_r = (
@@ -729,6 +736,11 @@ def galeria_list_vendedores(
             .execute()
         )
         vendedores = vend_r.data or []
+        if qa_filter:
+            vendedores = [
+                v for v in vendedores
+                if not is_exhibicion_qa_display_for_dist(dist_id, _safe_text(v.get("nombre_erp")))
+            ]
         if not vendedores:
             return []
 
@@ -847,6 +859,8 @@ def galeria_list_vendedores(
             if _safe_int(ex.get("id_cliente_pdv")) is None:
                 continue
             ig_id = _safe_int(ex.get("id_integrante"))
+            if qa_filter and ig_id is not None and ig_id in qa_iids:
+                continue
             vid = integ_vend_map.get(ig_id) if ig_id is not None else None
             if vid is None or vid not in stats:
                 continue
@@ -888,8 +902,22 @@ def galeria_list_clientes_por_vendedor(
     if dist_id is None:
         raise HTTPException(status_code=404, detail="Vendedor no encontrado")
     check_dist_permission(payload, dist_id)
+    qa_filter = should_apply_exhibicion_qa_filter(dist_id, payload)
+    qa_iids = build_qa_exhibicion_integrante_ids(dist_id) if qa_filter else frozenset()
 
     try:
+        if qa_filter:
+            vend_meta = (
+                sb.table("vendedores_v2")
+                .select("nombre_erp")
+                .eq("id_vendedor", id_vendedor)
+                .limit(1)
+                .execute()
+            )
+            vend_name = _safe_text((vend_meta.data or [{}])[0].get("nombre_erp"))
+            if is_exhibicion_qa_display_for_dist(dist_id, vend_name):
+                return []
+
         # 1) Base de clientes del vendedor (rutas actuales).
         rutas_r = (
             sb.table("rutas_v2")
@@ -994,9 +1022,15 @@ def galeria_list_clientes_por_vendedor(
             if hasta:
                 ex_q = ex_q.lte("timestamp_subida", f"{hasta}T23:59:59")
             ex_r = ex_q.range(offset_e, offset_e + batch - 1).execute()
-            chunk = ex_r.data or []
+            raw_chunk = ex_r.data or []
+            chunk = raw_chunk
+            if qa_filter and qa_iids:
+                chunk = [
+                    r for r in chunk
+                    if _safe_int(r.get("id_integrante")) not in qa_iids
+                ]
             exhibiciones.extend(chunk)
-            if len(chunk) < batch:
+            if len(raw_chunk) < batch:
                 break
             offset_e += batch
 
@@ -1148,6 +1182,8 @@ def galeria_timeline_cliente(
 ):
     """Timeline completo de exhibiciones de un PDV."""
     check_dist_permission(payload, dist_id)
+    qa_filter = should_apply_exhibicion_qa_filter(dist_id, payload)
+    qa_iids = build_qa_exhibicion_integrante_ids(dist_id) if qa_filter else frozenset()
     try:
         # Verificar que el PDV pertenece al distribuidor
         cpv_r = (
@@ -1166,7 +1202,7 @@ def galeria_timeline_cliente(
             sb.table("exhibiciones")
             .select(
                 "id_exhibicion, url_foto_drive, estado, timestamp_subida, "
-                "evaluated_at, supervisor_nombre, comentario_evaluacion, tipo_pdv"
+                "evaluated_at, supervisor_nombre, comentario_evaluacion, tipo_pdv, id_integrante"
             )
             .eq("id_distribuidor", dist_id)
             .eq("id_cliente_pdv", id_cliente_pdv)
@@ -1175,6 +1211,11 @@ def galeria_timeline_cliente(
             .execute()
         )
         rows = ex_r.data or []
+        if qa_filter and qa_iids:
+            rows = [
+                r for r in rows
+                if _safe_int(r.get("id_integrante")) not in qa_iids
+            ]
         has_more = len(rows) > limit
         page_rows = rows[:limit]
 

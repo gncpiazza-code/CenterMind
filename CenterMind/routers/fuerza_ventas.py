@@ -887,59 +887,22 @@ def galeria_list_clientes_por_vendedor(
     check_dist_permission(payload, dist_id)
 
     try:
-        # Clientes de las rutas del vendedor
-        rutas_r = (
-            sb.table("rutas_v2")
-            .select("id_ruta")
-            .eq("id_vendedor", id_vendedor)
+        # Universo unificado con /api/galeria/vendedores:
+        # exhibiciones del vendedor por integrantes mapeados (mismo criterio del card).
+        integ_r = (
+            sb.table("integrantes_grupo")
+            .select("id_integrante")
+            .eq("id_distribuidor", dist_id)
+            .eq("id_vendedor_v2", id_vendedor)
             .execute()
         )
-        ruta_ids = [
-            rid for rid in (_safe_int(r.get("id_ruta")) for r in (rutas_r.data or []))
-            if rid is not None
+        integrante_ids = [
+            iid for iid in (_safe_int(r.get("id_integrante")) for r in (integ_r.data or []))
+            if iid is not None
         ]
-
-        clientes_pdv: list[dict] = []
-        if ruta_ids:
-            for i in range(0, len(ruta_ids), 50):
-                chunk_ids = ruta_ids[i:i+50]
-                row_chunk: list[dict] = []
-                select_attempts = [
-                    "id_cliente, id_cliente_erp, nombre_fantasia, fecha_ultima_compra",
-                    "id_cliente, id_cliente_erp, nombre_cliente, fecha_ultima_compra",
-                    "id_cliente, id_cliente_erp, nombre_fantasia, nombre_cliente",
-                    "id_cliente, id_cliente_erp",
-                ]
-                for cols in select_attempts:
-                    try:
-                        cpv_r = (
-                            sb.table("clientes_pdv_v2")
-                            .select(cols)
-                            .eq("id_distribuidor", dist_id)
-                            .in_("id_ruta", chunk_ids)
-                            .execute()
-                        )
-                        row_chunk = cpv_r.data or []
-                        break
-                    except Exception:
-                        continue
-                clientes_pdv.extend(row_chunk)
-
-        if not clientes_pdv:
+        if not integrante_ids:
             return []
 
-        # Colectar PKs de PDVs para filtrar exhibiciones directamente por id_cliente_pdv
-        # (más confiable que filtrar por id_integrante, que excluye fotos de franquiciados
-        # u otros integrantes que fotografiaron el mismo PDV)
-        pdv_pk_ids = [
-            _safe_int(c.get("id_cliente"))
-            for c in clientes_pdv
-            if _safe_int(c.get("id_cliente")) is not None
-        ]
-
-        # Última exhibición por cliente (paginado, filtrado por PDV)
-        # El filtro temporal se aplica solo en SQL para evitar doble filtrado con
-        # criterios inconsistentes (timezone mismatch entre timestamp y date string).
         exhibiciones: list[dict] = []
         batch, offset_e = 1000, 0
         while True:
@@ -947,7 +910,7 @@ def galeria_list_clientes_por_vendedor(
                 sb.table("exhibiciones")
                 .select("id_exhibicion, id_cliente_pdv, id_cliente, url_foto_drive, estado, timestamp_subida")
                 .eq("id_distribuidor", dist_id)
-                .in_("id_cliente_pdv", pdv_pk_ids)
+                .in_("id_integrante", integrante_ids)
                 .order("timestamp_subida", desc=True)
             )
             if desde:
@@ -961,55 +924,106 @@ def galeria_list_clientes_por_vendedor(
                 break
             offset_e += batch
 
-        # Indexar por id_cliente_pdv (PK integer — match exacto sin problemas de formato)
-        ultima_por_pdv: dict[int, dict] = {}
-        total_por_pdv: dict[int, int] = {}
+        if not exhibiciones:
+            return []
+
+        # Agrupar por cliente:
+        # 1) id_cliente_pdv (preferido)
+        # 2) id_cliente legacy
+        # 3) fallback a id_exhibicion para no perder fila sin cliente referenciable.
+        ultima_por_cliente: dict[str, dict] = {}
+        total_por_cliente: dict[str, int] = {}
+        id_pdv_por_key: dict[str, int] = {}
+
         for ex in exhibiciones:
-            pid = _safe_int(ex.get("id_cliente_pdv"))
-            if pid is None:
-                continue
-            if pid not in ultima_por_pdv:
-                ultima_por_pdv[pid] = ex
-            total_por_pdv[pid] = total_por_pdv.get(pid, 0) + 1
+            id_pdv = _safe_int(ex.get("id_cliente_pdv"))
+            id_legacy = _safe_text(ex.get("id_cliente")).strip()
+            if id_pdv is not None:
+                key = f"pdv:{id_pdv}"
+                id_pdv_por_key[key] = id_pdv
+            elif id_legacy:
+                key = f"legacy:{id_legacy}"
+            else:
+                key = f"exh:{_safe_int(ex.get('id_exhibicion')) or 0}"
 
-        result = []
-        seen_ids: set[int] = set()
-        for c in clientes_pdv:
-            cid = _safe_int(c.get("id_cliente"))
-            if cid is None:
-                continue
-            if cid in seen_ids:
-                continue
-            seen_ids.add(cid)
-            ultima = ultima_por_pdv.get(cid)
-            total = total_por_pdv.get(cid, 0)
+            if key not in ultima_por_cliente:
+                # Orden desc => primera fila es la más reciente.
+                ultima_por_cliente[key] = ex
+            total_por_cliente[key] = total_por_cliente.get(key, 0) + 1
 
-            nombre_fantasia = _safe_text(c.get("nombre_fantasia")).strip()
-            nombre_cliente = _safe_text(c.get("nombre_cliente")).strip()
-            erp_key = c.get("id_cliente_erp")
-            nombre_final = nombre_fantasia or nombre_cliente or f"Cliente {erp_key or cid}"
+        # Enriquecer metadata de clientes_pdv_v2 para keys con id_cliente_pdv.
+        pdv_ids = list(sorted(set(id_pdv_por_key.values())))
+        pdv_meta: dict[int, dict] = {}
+        if pdv_ids:
+            select_attempts = [
+                "id_cliente, id_cliente_erp, nombre_fantasia, fecha_ultima_compra",
+                "id_cliente, id_cliente_erp, nombre_cliente, fecha_ultima_compra",
+                "id_cliente, id_cliente_erp, nombre_fantasia, nombre_cliente",
+                "id_cliente, id_cliente_erp",
+            ]
+            for i in range(0, len(pdv_ids), 200):
+                chunk = pdv_ids[i:i+200]
+                rows: list[dict] = []
+                for cols in select_attempts:
+                    try:
+                        cpv_r = (
+                            sb.table("clientes_pdv_v2")
+                            .select(cols)
+                            .eq("id_distribuidor", dist_id)
+                            .in_("id_cliente", chunk)
+                            .execute()
+                        )
+                        rows = cpv_r.data or []
+                        break
+                    except Exception:
+                        continue
+                for row in rows:
+                    rid = _safe_int(row.get("id_cliente"))
+                    if rid is not None:
+                        pdv_meta[rid] = row
 
-            # En modo rango temporal, excluir clientes sin exhibiciones en ese rango.
-            if (desde or hasta) and total == 0:
+        result: list[GaleriaClienteCard] = []
+        for key, ultima in ultima_por_cliente.items():
+            total = total_por_cliente.get(key, 0)
+            if total <= 0:
                 continue
+
+            id_pdv = id_pdv_por_key.get(key)
+            meta = pdv_meta.get(id_pdv) if id_pdv is not None else None
+
+            nombre_fantasia = _safe_text(meta.get("nombre_fantasia")).strip() if meta else ""
+            nombre_cliente = _safe_text(meta.get("nombre_cliente")).strip() if meta else ""
+            id_cliente_erp = meta.get("id_cliente_erp") if meta else None
+
+            nombre_final = nombre_fantasia or nombre_cliente
+            if not nombre_final:
+                if id_cliente_erp:
+                    nombre_final = f"Cliente {id_cliente_erp}"
+                elif id_pdv is not None:
+                    nombre_final = f"Cliente {id_pdv}"
+                else:
+                    nombre_final = "Cliente sin identificar"
+
+            # Timeline usa id_cliente_pdv; para legacy sin FK se usa id_exhibicion como fallback estable.
+            card_id = id_pdv if id_pdv is not None else (_safe_int(ultima.get("id_exhibicion")) or 0)
 
             result.append(GaleriaClienteCard(
-                id_cliente=cid,
-                id_cliente_erp=c.get("id_cliente_erp"),
+                id_cliente=card_id,
+                id_cliente_erp=id_cliente_erp,
                 nombre_cliente=nombre_final,
                 nombre_fantasia=nombre_fantasia or None,
-                ultima_exhibicion_url=ultima.get("url_foto_drive") if ultima else None,
-                ultima_exhibicion_fecha=ultima.get("timestamp_subida") if ultima else None,
-                ultimo_estado=ultima.get("estado") if ultima else None,
-                fecha_ultima_compra=c.get("fecha_ultima_compra"),
-                total_exhibiciones=total or 0,
+                ultima_exhibicion_url=ultima.get("url_foto_drive"),
+                ultima_exhibicion_fecha=ultima.get("timestamp_subida"),
+                ultimo_estado=ultima.get("estado"),
+                fecha_ultima_compra=meta.get("fecha_ultima_compra") if meta else None,
+                total_exhibiciones=total,
             ))
 
         logger.info(
             "[galeria] clientes_por_vendedor vid=%s dist=%s desde=%s hasta=%s "
-            "rutas=%d pdvs=%d exhibiciones=%d clientes=%d",
+            "integrantes=%d exhibiciones=%d clientes=%d",
             id_vendedor, dist_id, desde, hasta,
-            len(ruta_ids), len(pdv_pk_ids), len(exhibiciones), len(result),
+            len(integrante_ids), len(exhibiciones), len(result),
         )
         return result
     except Exception as e:

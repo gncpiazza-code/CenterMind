@@ -783,18 +783,15 @@ export default function VisorPage() {
                       opacity: { duration: 0.35, ease: [0.16, 1, 0.3, 1] },
                       y: { duration: 0.38, ease: [0.16, 1, 0.3, 1] },
                     }}
-                    className="hidden md:flex absolute bottom-3 left-3 right-3 z-10 flex-col pointer-events-none"
+                    className="hidden md:grid absolute bottom-3 left-3 right-3 z-10 pointer-events-auto rounded-2xl grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto_minmax(220px,300px)] gap-2 px-4 py-1.5 text-white items-end relative overflow-hidden"
+                    style={{
+                      background: "linear-gradient(160deg, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0.04) 55%, rgba(120,80,255,0.07) 100%)",
+                      backdropFilter: "blur(40px) saturate(180%)",
+                      WebkitBackdropFilter: "blur(40px) saturate(180%)",
+                      border: "1px solid rgba(255,255,255,0.18)",
+                      boxShadow: "0 20px 44px rgba(2,6,23,0.55), inset 0 1px 0 rgba(255,255,255,0.28), inset 0 -1px 0 rgba(255,255,255,0.04)",
+                    }}
                   >
-                    <div
-                      className="pointer-events-auto rounded-2xl grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto_minmax(220px,300px)] gap-2 px-4 py-1.5 text-white items-end relative overflow-hidden"
-                      style={{
-                        background: "linear-gradient(160deg, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0.04) 55%, rgba(120,80,255,0.07) 100%)",
-                        backdropFilter: "blur(40px) saturate(180%)",
-                        WebkitBackdropFilter: "blur(40px) saturate(180%)",
-                        border: "1px solid rgba(255,255,255,0.18)",
-                        boxShadow: "0 20px 44px rgba(2,6,23,0.55), inset 0 1px 0 rgba(255,255,255,0.28), inset 0 -1px 0 rgba(255,255,255,0.04)",
-                      }}
-                    >
                     {/* IZQUIERDA: vendedor, código ERP, envío, ingreso, 30d */}
                     <div className="min-w-0 flex flex-col gap-1 text-left">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -970,7 +967,6 @@ export default function VisorPage() {
                         className="min-h-[52px] resize-none bg-white/10 border-white/15 text-[11px] text-white placeholder:text-white/35 focus-visible:ring-violet-400/50"
                       />
                     </div>
-                    </div>
                   </motion.div>}
                 </AnimatePresence>
 
@@ -984,10 +980,7 @@ export default function VisorPage() {
                       opacity: { duration: 0.3, ease: [0.16, 1, 0.3, 1] },
                       y: { duration: 0.34, ease: [0.16, 1, 0.3, 1] },
                     }}
-                    className="flex md:hidden absolute bottom-2 left-2 right-2 z-10 flex-col pointer-events-none"
-                  >
-                  <div
-                    className="pointer-events-auto rounded-2xl flex flex-col gap-1.5 px-3 py-1.5 text-white relative overflow-hidden"
+                    className="flex md:hidden absolute bottom-2 left-2 right-2 z-10 flex-col pointer-events-auto rounded-2xl gap-1.5 px-3 py-1.5 text-white relative overflow-hidden"
                     style={{
                       paddingBottom: "max(8px, env(safe-area-inset-bottom))",
                       background: "linear-gradient(160deg, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0.04) 55%, rgba(120,80,255,0.07) 100%)",
@@ -1106,7 +1099,6 @@ export default function VisorPage() {
                         {mobileToolsOpen ? "Ocultar" : "Obs"}
                       </button>
                     </div>
-                  </div>
                   </motion.div>}
                 </AnimatePresence>
               </div>

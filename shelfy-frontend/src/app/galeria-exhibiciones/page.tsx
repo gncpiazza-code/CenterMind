@@ -43,6 +43,7 @@ export default function GaleriaExhibicionesPage() {
   const [timelineCliente, setTimelineCliente] = useState<GaleriaClienteCardType | null>(null);
   const [timelineOpen, setTimelineOpen] = useState(false);
   const [coherenciaHelpOpen, setCoherenciaHelpOpen] = useState(false);
+  const [hideSinExhib, setHideSinExhib] = useState(false);
 
   // Búsqueda + orden (persistidos en Zustand)
   type SortField = "exhibicion" | "compra";
@@ -123,6 +124,9 @@ export default function GaleriaExhibicionesPage() {
   // Filtros clientes
   const filteredClientes = useMemo(() => {
     let list = clientes;
+    if (hideSinExhib) {
+      list = list.filter((c) => (c.total_exhibiciones ?? 0) > 0);
+    }
     if (searchCliente) {
       const q = searchCliente.toLowerCase();
       list = list.filter(
@@ -148,7 +152,7 @@ export default function GaleriaExhibicionesPage() {
         : dateA.localeCompare(dateB);
     });
     return list;
-  }, [clientes, searchCliente, sortField, sortDir]);
+  }, [clientes, hideSinExhib, searchCliente, sortField, sortDir]);
 
   const totalExhibClientes = useMemo(
     () => clientes.reduce((acc, c) => acc + (c.total_exhibiciones ?? 0), 0),
@@ -395,6 +399,15 @@ export default function GaleriaExhibicionesPage() {
               }}
             >
               Historico
+            </Button>
+            <Button
+              variant={hideSinExhib ? "default" : "outline"}
+              size="sm"
+              className="h-8 text-xs font-semibold"
+              onClick={() => setHideSinExhib((v) => !v)}
+              title="Ocultar/mostrar PDV sin exhibición"
+            >
+              {hideSinExhib ? "Mostrar PDV sin exhibición" : "Ocultar PDV sin exhibición"}
             </Button>
             {filteredClientes.length !== clientes.length && (
               <Badge variant="secondary" className="text-[10px] shrink-0">

@@ -887,8 +887,60 @@ def galeria_list_clientes_por_vendedor(
     check_dist_permission(payload, dist_id)
 
     try:
-        # Universo unificado con /api/galeria/vendedores:
-        # exhibiciones del vendedor por integrantes mapeados (mismo criterio del card).
+        # 1) Base de clientes del vendedor (rutas actuales).
+        rutas_r = (
+            sb.table("rutas_v2")
+            .select("id_ruta")
+            .eq("id_vendedor", id_vendedor)
+            .execute()
+        )
+        ruta_ids = [
+            rid for rid in (_safe_int(r.get("id_ruta")) for r in (rutas_r.data or []))
+            if rid is not None
+        ]
+
+        clientes_pdv: list[dict] = []
+        if ruta_ids:
+            for i in range(0, len(ruta_ids), 50):
+                chunk_ids = ruta_ids[i:i+50]
+                row_chunk: list[dict] = []
+                # Preferimos siempre traer fecha_ultima_compra + nombres.
+                select_attempts = [
+                    "id_cliente, id_cliente_erp, nombre_fantasia, nombre_cliente, fecha_ultima_compra",
+                    "id_cliente, id_cliente_erp, nombre_fantasia, fecha_ultima_compra",
+                    "id_cliente, id_cliente_erp, nombre_cliente, fecha_ultima_compra",
+                    "id_cliente, id_cliente_erp, nombre_fantasia, nombre_cliente",
+                    "id_cliente, id_cliente_erp",
+                ]
+                for cols in select_attempts:
+                    try:
+                        cpv_r = (
+                            sb.table("clientes_pdv_v2")
+                            .select(cols)
+                            .eq("id_distribuidor", dist_id)
+                            .in_("id_ruta", chunk_ids)
+                            .execute()
+                        )
+                        row_chunk = cpv_r.data or []
+                        break
+                    except Exception:
+                        continue
+                clientes_pdv.extend(row_chunk)
+
+        # Base map de clientes de ruta (incluye clientes sin exhibición).
+        base_clientes: dict[int, dict] = {}
+        erp_to_pdv: dict[str, int] = {}
+        for c in clientes_pdv:
+            cid = _safe_int(c.get("id_cliente"))
+            if cid is None:
+                continue
+            if cid not in base_clientes:
+                base_clientes[cid] = c
+            erp = _safe_text(c.get("id_cliente_erp")).strip()
+            if erp:
+                erp_to_pdv[erp] = cid
+
+        # 2) Universo de exhibiciones del vendedor (igual que card de vendedor).
         integ_r = (
             sb.table("integrantes_grupo")
             .select("id_integrante")
@@ -904,11 +956,36 @@ def galeria_list_clientes_por_vendedor(
             return []
 
         exhibiciones: list[dict] = []
+        ex_select_attempts = [
+            "id_exhibicion, id_cliente_pdv, id_cliente, nro_cliente, cliente_sombra_codigo, url_foto_drive, estado, timestamp_subida",
+            "id_exhibicion, id_cliente_pdv, id_cliente, cliente_sombra_codigo, url_foto_drive, estado, timestamp_subida",
+            "id_exhibicion, id_cliente_pdv, id_cliente, url_foto_drive, estado, timestamp_subida",
+        ]
+        ex_select = ex_select_attempts[-1]
+        for cols in ex_select_attempts:
+            try:
+                probe_q = (
+                    sb.table("exhibiciones")
+                    .select(cols)
+                    .eq("id_distribuidor", dist_id)
+                    .in_("id_integrante", integrante_ids)
+                    .limit(1)
+                )
+                if desde:
+                    probe_q = probe_q.gte("timestamp_subida", f"{desde}T00:00:00")
+                if hasta:
+                    probe_q = probe_q.lte("timestamp_subida", f"{hasta}T23:59:59")
+                probe_q.execute()
+                ex_select = cols
+                break
+            except Exception:
+                continue
+
         batch, offset_e = 1000, 0
         while True:
             ex_q = (
                 sb.table("exhibiciones")
-                .select("id_exhibicion, id_cliente_pdv, id_cliente, url_foto_drive, estado, timestamp_subida")
+                .select(ex_select)
                 .eq("id_distribuidor", dist_id)
                 .in_("id_integrante", integrante_ids)
                 .order("timestamp_subida", desc=True)
@@ -927,10 +1004,48 @@ def galeria_list_clientes_por_vendedor(
         if not exhibiciones:
             return []
 
-        # Agrupar por cliente:
-        # 1) id_cliente_pdv (preferido)
-        # 2) id_cliente legacy
-        # 3) fallback a id_exhibicion para no perder fila sin cliente referenciable.
+        # Resolver referencias ERP faltantes para minimizar "Cliente sin identificar".
+        erp_refs: set[str] = set()
+        for ex in exhibiciones:
+            if _safe_int(ex.get("id_cliente_pdv")) is not None:
+                continue
+            for raw in (
+                ex.get("nro_cliente"),
+                ex.get("cliente_sombra_codigo"),
+                ex.get("id_cliente"),
+            ):
+                code = _safe_text(raw).strip()
+                if code:
+                    erp_refs.add(code)
+
+        unresolved_erp_refs = [ref for ref in erp_refs if ref not in erp_to_pdv]
+        if unresolved_erp_refs:
+            for i in range(0, len(unresolved_erp_refs), 200):
+                chunk = unresolved_erp_refs[i:i+200]
+                try:
+                    rows = (
+                        sb.table("clientes_pdv_v2")
+                        .select("id_cliente, id_cliente_erp, nombre_fantasia, nombre_cliente, fecha_ultima_compra")
+                        .eq("id_distribuidor", dist_id)
+                        .in_("id_cliente_erp", chunk)
+                        .execute()
+                        .data or []
+                    )
+                except Exception:
+                    rows = []
+                for row in rows:
+                    rid = _safe_int(row.get("id_cliente"))
+                    erp = _safe_text(row.get("id_cliente_erp")).strip()
+                    if rid is None or not erp:
+                        continue
+                    erp_to_pdv[erp] = rid
+                    if rid not in base_clientes:
+                        base_clientes[rid] = row
+
+        # Agrupar exhibiciones por cliente lógico.
+        # 1) id_cliente_pdv
+        # 2) cruce por ERP (nro_cliente/cliente_sombra/id_cliente legacy)
+        # 3) fallback sin referencia
         ultima_por_cliente: dict[str, dict] = {}
         total_por_cliente: dict[str, int] = {}
         id_pdv_por_key: dict[str, int] = {}
@@ -938,6 +1053,19 @@ def galeria_list_clientes_por_vendedor(
 
         for ex in exhibiciones:
             id_pdv = _safe_int(ex.get("id_cliente_pdv"))
+            if id_pdv is None:
+                for raw in (
+                    ex.get("nro_cliente"),
+                    ex.get("cliente_sombra_codigo"),
+                    ex.get("id_cliente"),
+                ):
+                    code = _safe_text(raw).strip()
+                    if not code:
+                        continue
+                    mapped = erp_to_pdv.get(code)
+                    if mapped is not None:
+                        id_pdv = mapped
+                        break
             id_legacy = _safe_text(ex.get("id_cliente")).strip()
             if id_pdv is not None:
                 key = f"pdv:{id_pdv}"
@@ -984,6 +1112,29 @@ def galeria_list_clientes_por_vendedor(
                     if rid is not None:
                         pdv_meta[rid] = row
 
+        # Primero agregamos todos los clientes base (total=0 por defecto)
+        result_by_key: dict[str, GaleriaClienteCard] = {}
+        for cid, meta in base_clientes.items():
+            nombre_fantasia = _safe_text(meta.get("nombre_fantasia")).strip()
+            nombre_cliente = _safe_text(meta.get("nombre_cliente")).strip()
+            id_cliente_erp = meta.get("id_cliente_erp")
+            nombre_final = nombre_fantasia or nombre_cliente or f"Cliente {id_cliente_erp or cid}"
+            key = f"pdv:{cid}"
+            result_by_key[key] = GaleriaClienteCard(
+                id_cliente=cid,
+                id_cliente_erp=id_cliente_erp,
+                nombre_cliente=nombre_final,
+                nombre_fantasia=nombre_fantasia or None,
+                ultima_exhibicion_url=None,
+                ultima_exhibicion_fecha=None,
+                ultimo_estado=None,
+                fecha_ultima_compra=meta.get("fecha_ultima_compra"),
+                total_exhibiciones=0,
+                es_sin_referencia=False,
+                motivo_no_referencia=None,
+                exhibiciones_directas=[],
+            )
+
         result: list[GaleriaClienteCard] = []
         for key, ultima in ultima_por_cliente.items():
             total = total_por_cliente.get(key, 0)
@@ -1028,7 +1179,7 @@ def galeria_list_clientes_por_vendedor(
                         "tipo_pdv": None,
                     })
 
-            result.append(GaleriaClienteCard(
+            row = GaleriaClienteCard(
                 id_cliente=card_id,
                 id_cliente_erp=id_cliente_erp,
                 nombre_cliente=nombre_final,
@@ -1041,13 +1192,17 @@ def galeria_list_clientes_por_vendedor(
                 es_sin_referencia=es_sin_referencia,
                 motivo_no_referencia=motivo_no_referencia,
                 exhibiciones_directas=exhibiciones_directas,
-            ))
+            )
+            # Si logró resolverse a PDV, pisa/actualiza la fila base para conservar coherencia.
+            result_by_key[key] = row
+
+        result = list(result_by_key.values())
 
         logger.info(
             "[galeria] clientes_por_vendedor vid=%s dist=%s desde=%s hasta=%s "
-            "integrantes=%d exhibiciones=%d clientes=%d",
+            "integrantes=%d exhibiciones=%d clientes=%d base_clientes=%d",
             id_vendedor, dist_id, desde, hasta,
-            len(integrante_ids), len(exhibiciones), len(result),
+            len(integrante_ids), len(exhibiciones), len(result), len(base_clientes),
         )
         return result
     except Exception as e:

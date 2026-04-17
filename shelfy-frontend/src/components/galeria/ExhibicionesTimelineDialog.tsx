@@ -25,6 +25,8 @@ interface Props {
   idClientePdv: number | null;
   distId: number;
   nombreCliente: string;
+  motivoNoReferencia?: string | null;
+  directItems?: GaleriaTimelineItem[];
   pageSize?: number;
   open: boolean;
   onClose: () => void;
@@ -185,11 +187,14 @@ export function ExhibicionesTimelineDialog({
   idClientePdv,
   distId,
   nombreCliente,
+  motivoNoReferencia,
+  directItems,
   pageSize = 30,
   open,
   onClose,
 }: Props) {
   const [zoomedImage, setZoomedImage] = useState<{ url: string; id: number } | null>(null);
+  const isDirectMode = (directItems?.length ?? 0) > 0;
 
   const {
     data,
@@ -207,13 +212,13 @@ export function ExhibicionesTimelineDialog({
       }),
     getNextPageParam: (lastPage) =>
       lastPage.has_more ? lastPage.offset + lastPage.limit : undefined,
-    enabled: open && idClientePdv != null,
+    enabled: open && !isDirectMode && idClientePdv != null,
     staleTime: 30_000,
   });
 
   const timeline = useMemo(
-    () => data?.pages.flatMap((p) => p.items) ?? [],
-    [data]
+    () => (isDirectMode ? (directItems ?? []) : (data?.pages.flatMap((p) => p.items) ?? [])),
+    [data, directItems, isDirectMode]
   );
 
   const groupedTimeline = useMemo<TimelineGroup[]>(() => {
@@ -256,11 +261,19 @@ export function ExhibicionesTimelineDialog({
             {nombreCliente}
           </DialogTitle>
           <DialogDescription asChild>
-            <div className="flex flex-wrap gap-1.5 mt-1">
+            <div className="flex flex-wrap gap-1.5 mt-1 items-center">
               <Badge variant="outline" className="text-[10px]">{stats.total} exhibiciones</Badge>
               {stats.aprobadas > 0 && <Badge className="text-[10px] bg-green-100 text-green-700 border border-green-200">{stats.aprobadas} aprobadas</Badge>}
               {stats.destacadas > 0 && <Badge className="text-[10px] bg-amber-100 text-amber-700 border border-amber-200">{stats.destacadas} destacadas</Badge>}
               {stats.rechazadas > 0 && <Badge className="text-[10px] bg-red-100 text-red-700 border border-red-200">{stats.rechazadas} rechazadas</Badge>}
+              {isDirectMode && (
+                <Badge className="text-[10px] bg-amber-50 text-amber-800 border border-amber-200">
+                  Sin referencia de PDV
+                </Badge>
+              )}
+              {motivoNoReferencia && (
+                <span className="text-[10px] text-amber-700">{motivoNoReferencia}</span>
+              )}
             </div>
           </DialogDescription>
         </DialogHeader>

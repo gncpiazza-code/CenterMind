@@ -252,6 +252,9 @@ class GaleriaClienteCard(BaseModel):
     ultimo_estado: Optional[str] = None
     fecha_ultima_compra: Optional[str] = None
     total_exhibiciones: int
+    es_sin_referencia: bool = False
+    motivo_no_referencia: Optional[str] = None
+    exhibiciones_directas: List["GaleriaTimelineItem"] = []
 
 
 class GaleriaTimelineItem(BaseModel):

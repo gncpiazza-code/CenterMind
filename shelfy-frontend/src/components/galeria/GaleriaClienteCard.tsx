@@ -54,6 +54,7 @@ export function GaleriaClienteCard({ cliente, onClick }: Props) {
   const diasCompra = daysSince(cliente.fecha_ultima_compra);
   const nombre = cliente.nombre_fantasia || cliente.nombre_cliente;
   const hasExhib = cliente.total_exhibiciones > 0;
+  const isSinReferencia = !!cliente.es_sin_referencia;
 
   return (
     <button
@@ -93,6 +94,11 @@ export function GaleriaClienteCard({ cliente, onClick }: Props) {
           )}>
             <Icon size={10} />
             {cfg.label}
+          </div>
+        )}
+        {isSinReferencia && (
+          <div className="absolute top-2 left-2 bg-amber-100 text-amber-900 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-300">
+            Sin referencia
           </div>
         )}
 

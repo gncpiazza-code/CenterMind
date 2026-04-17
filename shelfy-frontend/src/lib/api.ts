@@ -750,6 +750,9 @@ export interface GaleriaClienteCard {
   ultimo_estado: string | null;
   fecha_ultima_compra: string | null;
   total_exhibiciones: number;
+  es_sin_referencia?: boolean;
+  motivo_no_referencia?: string | null;
+  exhibiciones_directas?: GaleriaTimelineItem[];
 }
 
 export interface GaleriaTimelineItem {

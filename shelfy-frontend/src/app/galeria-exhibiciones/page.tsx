@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Images, ChevronLeft, Search, Loader2, CheckCircle2, XCircle, Flame, Clock } from "lucide-react";
+import { Images, ChevronLeft, Search, Loader2, CheckCircle2, XCircle, Flame, Clock, CircleHelp } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/Button";
@@ -42,6 +42,7 @@ export default function GaleriaExhibicionesPage() {
   // Timeline dialog
   const [timelineCliente, setTimelineCliente] = useState<GaleriaClienteCardType | null>(null);
   const [timelineOpen, setTimelineOpen] = useState(false);
+  const [coherenciaHelpOpen, setCoherenciaHelpOpen] = useState(false);
 
   // Búsqueda + orden (persistidos en Zustand)
   type SortField = "exhibicion" | "compra";
@@ -148,6 +149,19 @@ export default function GaleriaExhibicionesPage() {
     });
     return list;
   }, [clientes, searchCliente, sortField, sortDir]);
+
+  const totalExhibClientes = useMemo(
+    () => clientes.reduce((acc, c) => acc + (c.total_exhibiciones ?? 0), 0),
+    [clientes]
+  );
+  const sinRefClientes = useMemo(
+    () => clientes.filter((c) => c.es_sin_referencia),
+    [clientes]
+  );
+  const sinRefExhibTotal = useMemo(
+    () => sinRefClientes.reduce((acc, c) => acc + (c.total_exhibiciones ?? 0), 0),
+    [sinRefClientes]
+  );
 
   // Stats globales
   const globalStats = useMemo(() => ({
@@ -325,6 +339,35 @@ export default function GaleriaExhibicionesPage() {
       {/* ── Vista 2: Clientes del vendedor ── */}
       {selectedVendedor && (
         <>
+          {sinRefExhibTotal > 0 && (
+            <Alert className="mb-4 border-amber-200 bg-amber-50">
+              <AlertTitle className="flex items-center justify-between gap-2">
+                <span>Coherencia de datos</span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2 text-xs border-amber-300 text-amber-900 bg-white hover:bg-amber-100"
+                  onClick={() => setCoherenciaHelpOpen((v) => !v)}
+                  title="¿Qué significa este aviso?"
+                >
+                  <CircleHelp size={13} className="mr-1" /> ?
+                </Button>
+              </AlertTitle>
+              <AlertDescription>
+                Se detectaron {sinRefExhibTotal} exhibiciones sin referencia a PDV en {sinRefClientes.length} agrupaciones.
+                Se muestran como tarjetas “Cliente sin identificar” y podés abrir sus imágenes directamente.
+                Total exhibiciones en detalle: {totalExhibClientes}.
+              </AlertDescription>
+              {coherenciaHelpOpen && (
+                <div className="mt-3 rounded-lg border border-amber-200 bg-white/80 p-3 text-xs text-amber-900 space-y-1.5">
+                  <p><strong>¿Qué significa “sin referencia”?</strong> Son exhibiciones válidas, pero llegaron sin `id_cliente_pdv` (cliente/PDV no referenciado).</p>
+                  <p><strong>¿Por qué igual se muestran?</strong> Para mantener coherencia con el total del vendedor y evitar “faltantes silenciosos”.</p>
+                  <p><strong>¿Cómo verlas?</strong> Abrí la tarjeta “Cliente sin identificar”; el detalle muestra las imágenes directas con su fecha/estado.</p>
+                </div>
+              )}
+            </Alert>
+          )}
           {/* Buscador clientes */}
           <div
             className="rounded-2xl border p-3 mb-5 flex flex-wrap items-center gap-2"
@@ -423,6 +466,8 @@ export default function GaleriaExhibicionesPage() {
         idClientePdv={timelineCliente?.id_cliente ?? null}
         distId={distId}
         nombreCliente={timelineCliente ? (timelineCliente.nombre_fantasia || timelineCliente.nombre_cliente) : ""}
+        motivoNoReferencia={timelineCliente?.motivo_no_referencia ?? null}
+        directItems={timelineCliente?.exhibiciones_directas ?? []}
         pageSize={timelinePageSize}
         open={timelineOpen}
         onClose={() => { setTimelineOpen(false); setTimelineCliente(null); }}

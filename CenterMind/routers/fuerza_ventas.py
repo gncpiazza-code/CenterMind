@@ -934,6 +934,7 @@ def galeria_list_clientes_por_vendedor(
         ultima_por_cliente: dict[str, dict] = {}
         total_por_cliente: dict[str, int] = {}
         id_pdv_por_key: dict[str, int] = {}
+        direct_items_por_key: dict[str, list[dict]] = {}
 
         for ex in exhibiciones:
             id_pdv = _safe_int(ex.get("id_cliente_pdv"))
@@ -950,6 +951,7 @@ def galeria_list_clientes_por_vendedor(
                 # Orden desc => primera fila es la más reciente.
                 ultima_por_cliente[key] = ex
             total_por_cliente[key] = total_por_cliente.get(key, 0) + 1
+            direct_items_por_key.setdefault(key, []).append(ex)
 
         # Enriquecer metadata de clientes_pdv_v2 para keys con id_cliente_pdv.
         pdv_ids = list(sorted(set(id_pdv_por_key.values())))
@@ -1006,6 +1008,25 @@ def galeria_list_clientes_por_vendedor(
 
             # Timeline usa id_cliente_pdv; para legacy sin FK se usa id_exhibicion como fallback estable.
             card_id = id_pdv if id_pdv is not None else (_safe_int(ultima.get("id_exhibicion")) or 0)
+            es_sin_referencia = id_pdv is None
+            motivo_no_referencia = (
+                "Cliente/exhibiciones sin referencia a PDV (id_cliente_pdv NULL)."
+                if es_sin_referencia
+                else None
+            )
+            exhibiciones_directas = []
+            if es_sin_referencia:
+                for ex in direct_items_por_key.get(key, []):
+                    exhibiciones_directas.append({
+                        "id_exhibicion": _safe_int(ex.get("id_exhibicion")) or 0,
+                        "url_foto": _safe_text(ex.get("url_foto_drive")),
+                        "estado": _safe_text(ex.get("estado")) or "Pendiente",
+                        "timestamp_subida": _safe_text(ex.get("timestamp_subida")),
+                        "fecha_evaluacion": None,
+                        "supervisor": None,
+                        "comentario": None,
+                        "tipo_pdv": None,
+                    })
 
             result.append(GaleriaClienteCard(
                 id_cliente=card_id,
@@ -1017,6 +1038,9 @@ def galeria_list_clientes_por_vendedor(
                 ultimo_estado=ultima.get("estado"),
                 fecha_ultima_compra=meta.get("fecha_ultima_compra") if meta else None,
                 total_exhibiciones=total,
+                es_sin_referencia=es_sin_referencia,
+                motivo_no_referencia=motivo_no_referencia,
+                exhibiciones_directas=exhibiciones_directas,
             ))
 
         logger.info(

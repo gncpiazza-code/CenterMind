@@ -794,7 +794,7 @@ def galeria_list_vendedores(
         while True:
             ex_q = (
                 sb.table("exhibiciones")
-                .select("id_exhibicion, id_integrante, estado, timestamp_subida")
+                .select("id_exhibicion, id_integrante, id_cliente_pdv, estado, timestamp_subida")
                 .eq("id_distribuidor", dist_id)
             )
             if desde:
@@ -842,6 +842,9 @@ def galeria_list_vendedores(
             if desde and fecha and fecha < desde:
                 continue
             if hasta and fecha and fecha > hasta:
+                continue
+            # Solo datos reales para galería/stats: exhibiciones vinculadas a PDV.
+            if _safe_int(ex.get("id_cliente_pdv")) is None:
                 continue
             ig_id = _safe_int(ex.get("id_integrante"))
             vid = integ_vend_map.get(ig_id) if ig_id is not None else None
@@ -929,16 +932,12 @@ def galeria_list_clientes_por_vendedor(
 
         # Base map de clientes de ruta (incluye clientes sin exhibición).
         base_clientes: dict[int, dict] = {}
-        erp_to_pdv: dict[str, int] = {}
         for c in clientes_pdv:
             cid = _safe_int(c.get("id_cliente"))
             if cid is None:
                 continue
             if cid not in base_clientes:
                 base_clientes[cid] = c
-            erp = _safe_text(c.get("id_cliente_erp")).strip()
-            if erp:
-                erp_to_pdv[erp] = cid
 
         # 2) Universo de exhibiciones del vendedor (igual que card de vendedor).
         integ_r = (
@@ -1004,82 +1003,24 @@ def galeria_list_clientes_por_vendedor(
         if not exhibiciones:
             return []
 
-        # Resolver referencias ERP faltantes para minimizar "Cliente sin identificar".
-        erp_refs: set[str] = set()
-        for ex in exhibiciones:
-            if _safe_int(ex.get("id_cliente_pdv")) is not None:
-                continue
-            for raw in (
-                ex.get("nro_cliente"),
-                ex.get("cliente_sombra_codigo"),
-                ex.get("id_cliente"),
-            ):
-                code = _safe_text(raw).strip()
-                if code:
-                    erp_refs.add(code)
-
-        unresolved_erp_refs = [ref for ref in erp_refs if ref not in erp_to_pdv]
-        if unresolved_erp_refs:
-            for i in range(0, len(unresolved_erp_refs), 200):
-                chunk = unresolved_erp_refs[i:i+200]
-                try:
-                    rows = (
-                        sb.table("clientes_pdv_v2")
-                        .select("id_cliente, id_cliente_erp, nombre_fantasia, nombre_cliente, fecha_ultima_compra")
-                        .eq("id_distribuidor", dist_id)
-                        .in_("id_cliente_erp", chunk)
-                        .execute()
-                        .data or []
-                    )
-                except Exception:
-                    rows = []
-                for row in rows:
-                    rid = _safe_int(row.get("id_cliente"))
-                    erp = _safe_text(row.get("id_cliente_erp")).strip()
-                    if rid is None or not erp:
-                        continue
-                    erp_to_pdv[erp] = rid
-                    if rid not in base_clientes:
-                        base_clientes[rid] = row
-
         # Agrupar exhibiciones por cliente lógico.
         # 1) id_cliente_pdv
-        # 2) cruce por ERP (nro_cliente/cliente_sombra/id_cliente legacy)
-        # 3) fallback sin referencia
+        # Solo se incluyen exhibiciones con referencia real a PDV.
         ultima_por_cliente: dict[str, dict] = {}
         total_por_cliente: dict[str, int] = {}
         id_pdv_por_key: dict[str, int] = {}
-        direct_items_por_key: dict[str, list[dict]] = {}
 
         for ex in exhibiciones:
             id_pdv = _safe_int(ex.get("id_cliente_pdv"))
             if id_pdv is None:
-                for raw in (
-                    ex.get("nro_cliente"),
-                    ex.get("cliente_sombra_codigo"),
-                    ex.get("id_cliente"),
-                ):
-                    code = _safe_text(raw).strip()
-                    if not code:
-                        continue
-                    mapped = erp_to_pdv.get(code)
-                    if mapped is not None:
-                        id_pdv = mapped
-                        break
-            id_legacy = _safe_text(ex.get("id_cliente")).strip()
-            if id_pdv is not None:
-                key = f"pdv:{id_pdv}"
-                id_pdv_por_key[key] = id_pdv
-            elif id_legacy:
-                key = f"legacy:{id_legacy}"
-            else:
-                key = f"exh:{_safe_int(ex.get('id_exhibicion')) or 0}"
+                continue
+            key = f"pdv:{id_pdv}"
+            id_pdv_por_key[key] = id_pdv
 
             if key not in ultima_por_cliente:
                 # Orden desc => primera fila es la más reciente.
                 ultima_por_cliente[key] = ex
             total_por_cliente[key] = total_por_cliente.get(key, 0) + 1
-            direct_items_por_key.setdefault(key, []).append(ex)
 
         # Enriquecer metadata de clientes_pdv_v2 para keys con id_cliente_pdv.
         pdv_ids = list(sorted(set(id_pdv_por_key.values())))
@@ -1159,26 +1100,6 @@ def galeria_list_clientes_por_vendedor(
 
             # Timeline usa id_cliente_pdv; para legacy sin FK se usa id_exhibicion como fallback estable.
             card_id = id_pdv if id_pdv is not None else (_safe_int(ultima.get("id_exhibicion")) or 0)
-            es_sin_referencia = id_pdv is None
-            motivo_no_referencia = (
-                "Cliente/exhibiciones sin referencia a PDV (id_cliente_pdv NULL)."
-                if es_sin_referencia
-                else None
-            )
-            exhibiciones_directas = []
-            if es_sin_referencia:
-                for ex in direct_items_por_key.get(key, []):
-                    exhibiciones_directas.append({
-                        "id_exhibicion": _safe_int(ex.get("id_exhibicion")) or 0,
-                        "url_foto": _safe_text(ex.get("url_foto_drive")),
-                        "estado": _safe_text(ex.get("estado")) or "Pendiente",
-                        "timestamp_subida": _safe_text(ex.get("timestamp_subida")),
-                        "fecha_evaluacion": None,
-                        "supervisor": None,
-                        "comentario": None,
-                        "tipo_pdv": None,
-                    })
-
             row = GaleriaClienteCard(
                 id_cliente=card_id,
                 id_cliente_erp=id_cliente_erp,
@@ -1189,9 +1110,9 @@ def galeria_list_clientes_por_vendedor(
                 ultimo_estado=ultima.get("estado"),
                 fecha_ultima_compra=meta.get("fecha_ultima_compra") if meta else None,
                 total_exhibiciones=total,
-                es_sin_referencia=es_sin_referencia,
-                motivo_no_referencia=motivo_no_referencia,
-                exhibiciones_directas=exhibiciones_directas,
+                es_sin_referencia=False,
+                motivo_no_referencia=None,
+                exhibiciones_directas=[],
             )
             # Si logró resolverse a PDV, pisa/actualiza la fila base para conservar coherencia.
             result_by_key[key] = row

@@ -938,6 +938,8 @@ def galeria_list_clientes_por_vendedor(
         ]
 
         # Última exhibición por cliente (paginado, filtrado por PDV)
+        # El filtro temporal se aplica solo en SQL para evitar doble filtrado con
+        # criterios inconsistentes (timezone mismatch entre timestamp y date string).
         exhibiciones: list[dict] = []
         batch, offset_e = 1000, 0
         while True:
@@ -954,19 +956,7 @@ def galeria_list_clientes_por_vendedor(
                 ex_q = ex_q.lte("timestamp_subida", f"{hasta}T23:59:59")
             ex_r = ex_q.range(offset_e, offset_e + batch - 1).execute()
             chunk = ex_r.data or []
-            if desde or hasta:
-                filtered_chunk = []
-                for ex in chunk:
-                    ts = _safe_text(ex.get("timestamp_subida")).strip()
-                    fecha = ts[:10] if ts else ""
-                    if desde and fecha and fecha < desde:
-                        continue
-                    if hasta and fecha and fecha > hasta:
-                        continue
-                    filtered_chunk.append(ex)
-                exhibiciones.extend(filtered_chunk)
-            else:
-                exhibiciones.extend(chunk)
+            exhibiciones.extend(chunk)
             if len(chunk) < batch:
                 break
             offset_e += batch
@@ -996,7 +986,12 @@ def galeria_list_clientes_por_vendedor(
 
             nombre_fantasia = _safe_text(c.get("nombre_fantasia")).strip()
             nombre_cliente = _safe_text(c.get("nombre_cliente")).strip()
+            erp_key = c.get("id_cliente_erp")
             nombre_final = nombre_fantasia or nombre_cliente or f"Cliente {erp_key or cid}"
+
+            # En modo rango temporal, excluir clientes sin exhibiciones en ese rango.
+            if (desde or hasta) and total == 0:
+                continue
 
             result.append(GaleriaClienteCard(
                 id_cliente=cid,
@@ -1010,6 +1005,12 @@ def galeria_list_clientes_por_vendedor(
                 total_exhibiciones=total or 0,
             ))
 
+        logger.info(
+            "[galeria] clientes_por_vendedor vid=%s dist=%s desde=%s hasta=%s "
+            "rutas=%d pdvs=%d exhibiciones=%d clientes=%d",
+            id_vendedor, dist_id, desde, hasta,
+            len(ruta_ids), len(pdv_pk_ids), len(exhibiciones), len(result),
+        )
         return result
     except Exception as e:
         logger.exception(

@@ -785,7 +785,16 @@ export default function VisorPage() {
                     }}
                     className="hidden md:flex absolute bottom-3 left-3 right-3 z-10 flex-col pointer-events-none"
                   >
-                    <div className="pointer-events-auto rounded-2xl grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto_minmax(220px,300px)] gap-2 px-4 py-1.5 bg-black/28 backdrop-blur-2xl border border-white/8 text-white items-end shadow-[0_18px_38px_rgba(2,6,23,0.35)]">
+                    <div
+                      className="pointer-events-auto rounded-2xl grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto_minmax(220px,300px)] gap-2 px-4 py-1.5 text-white items-end relative overflow-hidden"
+                      style={{
+                        background: "linear-gradient(160deg, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0.04) 55%, rgba(120,80,255,0.07) 100%)",
+                        backdropFilter: "blur(40px) saturate(180%)",
+                        WebkitBackdropFilter: "blur(40px) saturate(180%)",
+                        border: "1px solid rgba(255,255,255,0.18)",
+                        boxShadow: "0 20px 44px rgba(2,6,23,0.55), inset 0 1px 0 rgba(255,255,255,0.28), inset 0 -1px 0 rgba(255,255,255,0.04)",
+                      }}
+                    >
                     {/* IZQUIERDA: vendedor, código ERP, envío, ingreso, 30d */}
                     <div className="min-w-0 flex flex-col gap-1 text-left">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -978,8 +987,15 @@ export default function VisorPage() {
                     className="flex md:hidden absolute bottom-2 left-2 right-2 z-10 flex-col pointer-events-none"
                   >
                   <div
-                    className="pointer-events-auto rounded-2xl flex flex-col gap-1.5 px-3 py-1.5 bg-black/28 backdrop-blur-2xl border border-white/8 text-white shadow-[0_12px_28px_rgba(2,6,23,0.34)]"
-                    style={{ paddingBottom: "max(8px, env(safe-area-inset-bottom))" }}
+                    className="pointer-events-auto rounded-2xl flex flex-col gap-1.5 px-3 py-1.5 text-white relative overflow-hidden"
+                    style={{
+                      paddingBottom: "max(8px, env(safe-area-inset-bottom))",
+                      background: "linear-gradient(160deg, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0.04) 55%, rgba(120,80,255,0.07) 100%)",
+                      backdropFilter: "blur(40px) saturate(180%)",
+                      WebkitBackdropFilter: "blur(40px) saturate(180%)",
+                      border: "1px solid rgba(255,255,255,0.18)",
+                      boxShadow: "0 14px 32px rgba(2,6,23,0.5), inset 0 1px 0 rgba(255,255,255,0.26), inset 0 -1px 0 rgba(255,255,255,0.04)",
+                    }}
                   >
                     <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[9px] leading-tight">
                       <span className="font-bold truncate max-w-[45%]">{grupo.vendedor || "—"}</span>

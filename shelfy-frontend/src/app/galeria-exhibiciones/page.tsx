@@ -66,16 +66,18 @@ export default function GaleriaExhibicionesPage() {
   } = useGaleriaStore();
 
   useEffect(() => {
-    // Cuando cambia el tenant activo, limpiar navegación/filtros que podían dejar la vista vacía.
+    // Al cambiar de tenant, limpiar navegación y filtros para evitar quedar varado en
+    // una vista heredada del tenant anterior (sin exhibiciones ni resultados aparentes).
     if (distId <= 0) return;
     if (distId !== lastDistId) {
       setLastDistId(distId);
       setSelectedVendedor(null);
       clearClientSearch();
+      clearDateRange();
       setSearchVendedor("");
       setFiltroSucursal("todas");
     }
-  }, [distId, lastDistId, clearClientSearch, setSearchVendedor, setFiltroSucursal]);
+  }, [distId, lastDistId, clearClientSearch, clearDateRange, setSearchVendedor, setFiltroSucursal]);
 
   // Vista 1: vendedores
   const { data: vendedores = [], isLoading: loadingVendedores, error: errorVendedores } = useQuery<GaleriaVendedorStats[]>({
@@ -395,7 +397,11 @@ export default function GaleriaExhibicionesPage() {
             <div className="flex flex-col items-center justify-center py-24 gap-3">
               <Images size={48} style={{ color: "var(--shelfy-muted)" }} />
               <p className="text-lg font-bold" style={{ color: "var(--shelfy-muted)" }}>
-                {clientes.length === 0 ? "Sin exhibiciones para este vendedor" : "Sin resultados"}
+                {clientes.length === 0
+                  ? (fechaDesde || fechaHasta)
+                    ? "Sin exhibiciones en el rango seleccionado"
+                    : "Sin exhibiciones para este vendedor"
+                  : "Sin resultados"}
               </p>
             </div>
           ) : (

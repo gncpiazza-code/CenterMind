@@ -656,11 +656,16 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
   }, [vendedoresFiltrados, selectedDist, queryClient, mapStatsTick]);
 
   const { totalPdv, totalActivos, pctActivos } = useMemo(() => {
+    // Solo mezclar fuentes si TODOS los vendedores tienen datos de caché completos;
+    // en caso contrario usar siempre los números del backend para evitar saltos al
+    // ir cargando rutas/PDVs de forma incremental (toggle por vendedor).
+    const allComplete = vendedoresFiltrados.length > 0 &&
+      vendedoresFiltrados.every(v => vendorMapEligibleStats.get(v.id_vendedor)?.complete);
     let tp = 0;
     let ta = 0;
     for (const v of vendedoresFiltrados) {
-      const s = vendorMapEligibleStats.get(v.id_vendedor);
-      if (s?.complete) {
+      if (allComplete) {
+        const s = vendorMapEligibleStats.get(v.id_vendedor)!;
         tp += s.totalMap;
         ta += s.activosMap;
       } else {

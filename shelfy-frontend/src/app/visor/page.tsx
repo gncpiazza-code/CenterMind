@@ -783,7 +783,7 @@ export default function VisorPage() {
                       opacity: { duration: 0.35, ease: [0.16, 1, 0.3, 1] },
                       y: { duration: 0.38, ease: [0.16, 1, 0.3, 1] },
                     }}
-                    className="hidden md:grid absolute bottom-3 left-3 right-3 z-10 pointer-events-auto rounded-2xl grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto_minmax(220px,300px)] gap-2 px-4 py-1.5 text-white items-end relative overflow-hidden"
+                    className="hidden md:grid absolute bottom-3 left-3 right-3 z-10 pointer-events-auto rounded-2xl grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto_minmax(220px,300px)] gap-2 px-4 py-1.5 text-white items-end overflow-hidden"
                     style={{
                       background: "linear-gradient(160deg, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0.04) 55%, rgba(120,80,255,0.07) 100%)",
                       backdropFilter: "blur(40px) saturate(180%)",
@@ -980,7 +980,7 @@ export default function VisorPage() {
                       opacity: { duration: 0.3, ease: [0.16, 1, 0.3, 1] },
                       y: { duration: 0.34, ease: [0.16, 1, 0.3, 1] },
                     }}
-                    className="flex md:hidden absolute bottom-2 left-2 right-2 z-10 flex-col pointer-events-auto rounded-2xl gap-1.5 px-3 py-1.5 text-white relative overflow-hidden"
+                    className="flex md:hidden absolute bottom-2 left-2 right-2 z-10 flex-col pointer-events-auto rounded-2xl gap-1.5 px-3 py-1.5 text-white overflow-hidden"
                     style={{
                       paddingBottom: "max(8px, env(safe-area-inset-bottom))",
                       background: "linear-gradient(160deg, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0.04) 55%, rgba(120,80,255,0.07) 100%)",

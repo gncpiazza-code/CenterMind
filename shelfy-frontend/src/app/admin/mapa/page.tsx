@@ -27,6 +27,28 @@ const getTodayStr = () => {
 // Import new MapLibre component dynamically (CSR only)
 const MapaExhibiciones = dynamic(() => import("../components/MapaExhibiciones"), { ssr: false });
 
+// JS-based HSL hue rotation — avoids CSS relative color syntax (experimental)
+function hslRotate(hex: string, degrees: number): string {
+    const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    if (!m) return hex;
+    let r = parseInt(m[1], 16) / 255;
+    let g = parseInt(m[2], 16) / 255;
+    let b = parseInt(m[3], 16) / 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    let h = 0, s = 0;
+    const l = (max + min) / 2;
+    if (max !== min) {
+        const d = max - min;
+        s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+        if (max === r) h = (g - b) / d + (g < b ? 6 : 0);
+        else if (max === g) h = (b - r) / d + 2;
+        else h = (r - g) / d + 4;
+        h /= 6;
+    }
+    h = ((h * 360 + degrees) % 360 + 360) % 360;
+    return `hsl(${h.toFixed(0)}, ${(s * 100).toFixed(0)}%, ${(l * 100).toFixed(0)}%)`;
+}
+
 export default function LiveMapPage() {
     const { user, loading: authLoading } = useAuth();
     const router = useRouter();
@@ -127,7 +149,7 @@ export default function LiveMapPage() {
                 };
                 const hash = sKey.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
                 const rotate = (hash % 40) - 20;
-                sColorMap[`${ev.nombre_dist}-${sKey}`] = `hsl(from ${distGroup.color} calc(h + ${rotate}) s l)`;
+                sColorMap[`${ev.nombre_dist}-${sKey}`] = hslRotate(distGroup.color, rotate);
             }
 
             const sGroup = distGroup.vendedores[sKey];

@@ -9,6 +9,7 @@ export interface PinCliente {
   lat: number;
   lng: number;
   nombre: string;
+  razonSocial?: string | null;
   color: string;
   activo: boolean;
   vendedor: string;
@@ -230,6 +231,11 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode, mode
         const compraLabel = diasCompra === null
           ? `<span style="color:#475569">Sin compras registradas</span>`
           : `<span style="color:${compraColor}">🛒 Últ. compra: ${p.ultimaCompra} · <b>hace ${diasCompra}d</b></span>`;
+        const razonSocial = (p.razonSocial ?? "").trim();
+        const nombreFantasia = (p.nombre ?? "").trim();
+        const razonSocialLine = razonSocial && razonSocial.toLowerCase() !== nombreFantasia.toLowerCase()
+          ? `<div style="font-size:11px;color:#94a3b8;margin-top:-2px;margin-bottom:6px;line-height:1.25;padding-right:24px">${razonSocial}</div>`
+          : "";
 
         let exhibLine = "";
         if (p.fechaUltimaExhibicion) {
@@ -266,6 +272,7 @@ export default function MapaRutas({ pines, fullscreenPanel, shelfyMapsMode, mode
               title="Cerrar">✕</button>
             ${p.idClienteErp ? `<div style="font-size:9px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px">Cliente ${p.idClienteErp}</div>` : ""}
             <b style="display:block;font-size:14px;color:#f8fafc;margin-bottom:6px;padding-right:24px;line-height:1.3">${p.nombre}</b>
+            ${razonSocialLine}
 
             <div style="display:flex;align-items:center;gap:6px;margin:6px 0">
               <span style="width:9px;height:9px;border-radius:50%;background:${vendorColor};flex-shrink:0;border:1px solid rgba(255,255,255,0.2)"></span>

@@ -182,6 +182,46 @@ function isInactivo30(fecha: string | null): boolean {
   if (!fecha) return true;
   return Date.now() - new Date(fecha).getTime() > 30 * 86_400_000;
 }
+
+/** Mismo ERP puede existir en varias rutas (filas viejas); el mapa debe mostrar un solo pin. */
+interface PinDedupeRow {
+  pin: PinCliente;
+  estadoPdv: string | null | undefined;
+  fechaUc: string | null;
+  idCliente: number;
+}
+
+function pickBetterPinRow(a: PinDedupeRow, b: PinDedupeRow): PinDedupeRow {
+  const aAct = a.estadoPdv === "activo";
+  const bAct = b.estadoPdv === "activo";
+  if (aAct !== bAct) return aAct ? a : b;
+
+  const aRecent = !isInactivo30(a.fechaUc);
+  const bRecent = !isInactivo30(b.fechaUc);
+  if (aRecent !== bRecent) return aRecent ? a : b;
+
+  const fa = a.fechaUc ?? "";
+  const fb = b.fechaUc ?? "";
+  if (fa !== fb) return fa > fb ? a : b;
+
+  return a.idCliente > b.idCliente ? a : b;
+}
+
+function dedupePinsByClienteErp(rows: PinDedupeRow[]): PinCliente[] {
+  const m = new Map<string, PinDedupeRow>();
+  for (const row of rows) {
+    const erp = row.pin.idClienteErp?.trim();
+    const key = erp || `__pk_${row.idCliente}`;
+    const prev = m.get(key);
+    if (!prev) {
+      m.set(key, row);
+      continue;
+    }
+    m.set(key, pickBetterPinRow(prev, row));
+  }
+  return Array.from(m.values()).map((r) => r.pin);
+}
+
 /** Returns true if fecha is within `days` days from today */
 function isRecentDate(fecha: string | null | undefined, days: number): boolean {
   if (!fecha) return false;
@@ -1046,7 +1086,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
       });
     }
 
-    const result: PinCliente[] = [];
+    const result: PinDedupeRow[] = [];
     vendedores.forEach((v, idx) => {
       if (!visibleVends.has(v.id_vendedor)) return;
       const color = getVendorColor(v.id_vendedor, idx);
@@ -1072,36 +1112,36 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
             ?? null;
           
           result.push({
-            id:                    c.id_cliente,
-            lat:                   c.latitud!,
-            lng:                   c.longitud!,
-            nombre:                c.nombre_fantasia || c.nombre_razon_social || "Sin nombre",
-            color,
-            activo:                !isInactivo30(c.fecha_ultima_compra),
-            vendedor:              v.nombre_vendedor,
-            ultimaCompra:          fmt(c.fecha_ultima_compra),
-            conExhibicion:         c.fecha_ultima_exhibicion != null,
-            idClienteErp:          c.id_cliente_erp ?? null,
-            nroRuta:               r.dia_semana ?? null,
-            fechaUltimaCompra:     c.fecha_ultima_compra ?? null,
-            fechaUltimaExhibicion: c.fecha_ultima_exhibicion ?? null,
-            urlExhibicion:         c.url_ultima_exhibicion ?? null,
-            deuda:                 deudaInfo?.deuda ?? null,
-            antiguedadDias:        deudaInfo?.antiguedad ?? null,
-            totalExhibiciones:     c.total_exhibiciones ?? 0,
-            id_vendedor:           v.id_vendedor,
+            pin: {
+              id:                    c.id_cliente,
+              lat:                   c.latitud!,
+              lng:                   c.longitud!,
+              nombre:                c.nombre_fantasia || c.nombre_razon_social || "Sin nombre",
+              razonSocial:           c.nombre_razon_social ?? null,
+              color,
+              activo:                !isInactivo30(c.fecha_ultima_compra),
+              vendedor:              v.nombre_vendedor,
+              ultimaCompra:          fmt(c.fecha_ultima_compra),
+              conExhibicion:         c.fecha_ultima_exhibicion != null,
+              idClienteErp:          c.id_cliente_erp ?? null,
+              nroRuta:               r.dia_semana ?? null,
+              fechaUltimaCompra:     c.fecha_ultima_compra ?? null,
+              fechaUltimaExhibicion: c.fecha_ultima_exhibicion ?? null,
+              urlExhibicion:         c.url_ultima_exhibicion ?? null,
+              deuda:                 deudaInfo?.deuda ?? null,
+              antiguedadDias:        deudaInfo?.antiguedad ?? null,
+              totalExhibiciones:     c.total_exhibiciones ?? 0,
+              id_vendedor:           v.id_vendedor,
+            },
+            estadoPdv: c.estado,
+            fechaUc:   c.fecha_ultima_compra ?? null,
+            idCliente: c.id_cliente,
           });
         });
       });
     });
-    
-    // Deduplicar por id_cliente
-    const seen = new Set<number>();
-    return result.filter(p => {
-      if (seen.has(p.id)) return false;
-      seen.add(p.id);
-      return true;
-    });
+
+    return dedupePinsByClienteErp(result);
   }, [vendedores, visibleVends, visibleRutas, visibleClientes, cuentasData, queryClient, mapStatsTick]);
 
   // ── Floating Objetivos: contextual data loader ───────────────────────────

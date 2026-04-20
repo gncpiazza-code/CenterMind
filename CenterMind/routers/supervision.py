@@ -30,6 +30,34 @@ logger = logging.getLogger("ShelfyAPI")
 router = APIRouter()
 
 
+def _dedupe_pdvs_latest_by_erp(rows: list[dict]) -> list[dict]:
+    """
+    Mantiene una única fila por id_cliente_erp (la más reciente por updated_at)
+    para evitar mostrar duplicados stale cuando un PDV cambió de ruta.
+    """
+    if not rows:
+        return rows
+    chosen_by_erp: dict[str, dict] = {}
+    no_erp_rows: list[dict] = []
+    for row in rows:
+        erp = str(row.get("id_cliente_erp") or "").strip()
+        if not erp:
+            no_erp_rows.append(row)
+            continue
+        prev = chosen_by_erp.get(erp)
+        if prev is None:
+            chosen_by_erp[erp] = row
+            continue
+        prev_updated = str(prev.get("updated_at") or "")
+        curr_updated = str(row.get("updated_at") or "")
+        if curr_updated > prev_updated:
+            chosen_by_erp[erp] = row
+            continue
+        if curr_updated == prev_updated and int(row.get("id_cliente") or 0) > int(prev.get("id_cliente") or 0):
+            chosen_by_erp[erp] = row
+    return list(chosen_by_erp.values()) + no_erp_rows
+
+
 def _objetivo_belongs_to_dist(obj_id: str, dist_id: int) -> bool:
     """True si el objetivo existe y pertenece al distribuidor (tenant-safe)."""
     try:
@@ -814,14 +842,14 @@ def supervision_clientes(id_ruta: int, user_payload=Depends(verify_auth)):
             .select(
                 "id_cliente, id_cliente_erp, nombre_fantasia, nombre_razon_social, "
                 "domicilio, localidad, provincia, canal, latitud, longitud, "
-                "fecha_ultima_compra, fecha_alta, id_distribuidor, id_ruta, estado"
+                "fecha_ultima_compra, fecha_alta, id_distribuidor, id_ruta, estado, updated_at"
             )
             .eq("id_ruta", id_ruta)
             .order("nombre_fantasia")
             .execute()
         )
         # In supervisión we need to keep active + inactive PDVs visible.
-        rows = res.data or []
+        rows = _dedupe_pdvs_latest_by_erp(res.data or [])
 
         if rows:
             ids_pdv  = [r["id_cliente"] for r in rows]
@@ -1778,7 +1806,7 @@ def get_pdvs_catalog(
                 return []
             clients_res = (
                 sb.table("clientes_pdv_v2")
-                .select("id_cliente, nombre_fantasia, id_cliente_erp, domicilio, estado, fecha_ultima_compra")
+                .select("id_cliente, nombre_fantasia, id_cliente_erp, domicilio, estado, fecha_ultima_compra, updated_at")
                 .in_("id_ruta", route_ids)
                 .eq("id_distribuidor", dist_id)
                 .execute()
@@ -1786,12 +1814,12 @@ def get_pdvs_catalog(
         else:
             clients_res = (
                 sb.table("clientes_pdv_v2")
-                .select("id_cliente, nombre_fantasia, id_cliente_erp, domicilio, estado, fecha_ultima_compra")
+                .select("id_cliente, nombre_fantasia, id_cliente_erp, domicilio, estado, fecha_ultima_compra, updated_at")
                 .eq("id_distribuidor", dist_id)
                 .execute()
             )
         # Objetivos must be able to target active and inactive PDVs.
-        clients = clients_res.data or []
+        clients = _dedupe_pdvs_latest_by_erp(clients_res.data or [])
 
         # Obtener la exhibición más reciente por nro_cliente (id_cliente_erp)
         fecha_map: dict[str, str] = {}

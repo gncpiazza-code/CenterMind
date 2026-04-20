@@ -332,6 +332,16 @@ function resolveVendorERPName(
   return null;
 }
 
+/** JWT inválido/expirado: limpiar cliente y volver al login (no aplica a fallo de credenciales en /auth/login). */
+function handleSessionExpired401(requestPath: string, status: number): void {
+  if (typeof window === "undefined" || status !== 401) return;
+  if (requestPath.startsWith("/auth/login")) return;
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem("shelfy_active_dist");
+  document.cookie = `${TOKEN_KEY}=; path=/; max-age=0`;
+  window.location.assign("/login");
+}
+
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const url = `${API_URL}${path}`;
   const res = await fetch(url, {
@@ -339,6 +349,7 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
     headers: { ...getHeaders(), ...(options?.headers ?? {}) },
   });
   if (!res.ok) {
+    handleSessionExpired401(path, res.status);
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     if (typeof window !== "undefined" && path.includes("/api/galeria/")) {
       console.group("[Galeria Debug] HTTP error");
@@ -694,6 +705,7 @@ export async function uploadFotoFuerzaVentas(
     body: form,
   });
   if (!res.ok) {
+    handleSessionExpired401(`/api/fuerza-ventas/vendedor/${idVendedor}/foto`, res.status);
     const err = await res.json().catch(() => ({ detail: "Error subiendo foto" }));
     throw new Error(err.detail ?? "Error subiendo foto");
   }
@@ -996,6 +1008,7 @@ export async function uploadERPFile(tipo: "ventas" | "clientes", file: File): Pr
   });
 
   if (!res.ok) {
+    handleSessionExpired401(`/api/admin/erp/upload-global?tipo=${tipo}`, res.status);
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(err.detail ?? `HTTP ${res.status}`);
   }
@@ -1707,6 +1720,7 @@ export async function generateInformeExcel(distId: number, files: File[]): Promi
     body: form,
   });
   if (!res.ok) {
+    handleSessionExpired401(`/api/reports/generate/${distId}`, res.status);
     const err = await res.json().catch(() => ({ detail: "Error generando informe" }));
     throw new Error(err.detail ?? "Error generando informe");
   }
@@ -1727,6 +1741,7 @@ export async function uploadCCForDist(
     body: form,
   });
   if (!res.ok) {
+    handleSessionExpired401(`/api/supervision/upload-cc/${distId}`, res.status);
     const err = await res.json().catch(() => ({ detail: "Error subiendo CC" }));
     throw new Error(err.detail ?? "Error subiendo CC");
   }
@@ -1745,7 +1760,10 @@ export async function fetchCCStatus(distId: number): Promise<CCStatusResponse> {
   const res = await fetch(`${API_URL}/api/supervision/cc-status/${distId}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
-  if (!res.ok) throw new Error("Error consultando estado CC");
+  if (!res.ok) {
+    handleSessionExpired401(`/api/supervision/cc-status/${distId}`, res.status);
+    throw new Error("Error consultando estado CC");
+  }
   return res.json();
 }
 

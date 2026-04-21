@@ -42,7 +42,8 @@ logger = logging.getLogger("PadronIngestion")
 # Si un distribuidor NO aparece aquí, se toman TODAS sus sucursales.
 
 # Franquiciados de Real Tabacalera (CHESS suele traer un solo idempresa con varias dssucur).
-# La Mágica → sólo UEQUIN RODRIGO; Bolívar → sólo OSCAR ONDARRETA; filas con otros dssucur
+# La Mágica -> UEQUIN RODRIGO; Bolivar -> OSCAR ONDARRETA; Caramele -> JOSE IGNACIO BIAVA.
+# Filas con otros dssucur no se asignan automáticamente a franquicias.
 # no se asignan a esos tenants (ver lógica en ingest / _ingest_for_dist).
 MAGICA_UEQUIN_FILTER: dict = {
     "ids":     ["8"],  # idsucur ERP típico UEQUIN RODRIGO
@@ -50,7 +51,7 @@ MAGICA_UEQUIN_FILTER: dict = {
 }
 
 SUCURSAL_FILTER: dict[int, dict] = {
-    # Real matriz (legado): mismo criterio UEQUIN que La Mágica si no hay fila separada
+    # Real matriz (fallback legado): mantiene criterio UEQUIN si no hay split de franquicias.
     2: {**MAGICA_UEQUIN_FILTER},
 }
 
@@ -87,6 +88,25 @@ def _is_uequin_rodrigo_sucursal(val: Any) -> bool:
         return False
     tokens = set(n.split())
     return {"uequin", "rodrigo"}.issubset(tokens)
+
+
+def _is_jose_ignacio_biava_sucursal(val: Any) -> bool:
+    """Sucursal JOSE IGNACIO BIAVA (franquicia Caramele - San Luis en CHESS)."""
+    n = _norm(_safe_str(val, ""))
+    if not n:
+        return False
+    tokens = set(n.split())
+    # En exportes CHESS puede venir abreviado o con nombre comercial/sucursal destino.
+    # Cobertura:
+    # - "BIAVA JOSE I." / "JOSE IGNACIO BIAVA" / variantes de orden
+    # - "CARAMELE" / "SAN LUIS" (etiqueta comercial usada en algunos padrones)
+    if "biava" in tokens and ("jose" in tokens or "ignacio" in tokens):
+        return True
+    if "caramele" in tokens:
+        return True
+    if "san" in tokens and "luis" in tokens:
+        return True
+    return False
 
 
 def _flexible_col(df: pd.DataFrame, candidates: list[str]) -> str | None:
@@ -130,12 +150,13 @@ def _franchise_erp_keys_from_rows(
     real_id: int | None,
     magica_id: int | None,
     bolivar_id: int | None,
+    caramele_id: int | None,
 ) -> set[str]:
     """
-    Id(s) empresa ERP declarados en distribuidores para el grupo Real / La Mágica / Bolívar.
+    Id(s) empresa ERP declarados en distribuidores para el grupo Real / La Mágica / Bolívar / Caramele.
     Varios tenants pueden compartir el mismo código CHESS en Shelfy (p. ej. Magica id=2 y Bolívar id=7).
     """
-    allowed_ids = {i for i in (real_id, magica_id, bolivar_id) if i is not None}
+    allowed_ids = {i for i in (real_id, magica_id, bolivar_id, caramele_id) if i is not None}
     keys: set[str] = set()
     for r in dist_rows:
         if r.get("id_distribuidor") not in allowed_ids:
@@ -914,14 +935,15 @@ class PadronIngestionService:
 
     def _resolve_real_franchise_dists(
         self, dist_rows: list[dict[str, Any]]
-    ) -> tuple[int | None, int | None, int | None]:
+    ) -> tuple[int | None, int | None, int | None, int | None]:
         """
-        Resuelve por nombre_empresa: Real Tabacalera (matriz ERP), La Mágica (franquicia UEQUIN),
-        Bolívar (franquicia ONDARRETA). Tres id_distribuidor distintos en tabla distribuidores.
+        Resuelve por nombre_empresa: Real Tabacalera (matriz ERP), La Mágica (UEQUIN),
+        Bolívar (ONDARRETA), Caramele - San Luis (BIAVA).
         """
         real_dist_id: int | None = None
         magica_dist_id: int | None = None
         bolivar_dist_id: int | None = None
+        caramele_dist_id: int | None = None
         for r in dist_rows:
             nombre = _norm(_safe_str(r.get("nombre_empresa"), ""))
             if "real tabacalera" in nombre:
@@ -933,13 +955,15 @@ class PadronIngestionService:
                 magica_dist_id = r.get("id_distribuidor")
             if "bolivar distribuciones" in nombre or "bolivar distribuiciones" in nombre:
                 bolivar_dist_id = r.get("id_distribuidor")
-        return real_dist_id, magica_dist_id, bolivar_dist_id
+            if "caramele" in nombre and "san luis" in nombre:
+                caramele_dist_id = r.get("id_distribuidor")
+        return real_dist_id, magica_dist_id, bolivar_dist_id, caramele_dist_id
 
     def _resolve_dist_ids_for_real_bolivar(
         self, dist_rows: list[dict[str, Any]]
     ) -> tuple[int | None, int | None]:
         """Compat: Real + Bolívar (sin exponer La Mágica)."""
-        r, _, b = self._resolve_real_franchise_dists(dist_rows)
+        r, _, b, _ = self._resolve_real_franchise_dists(dist_rows)
         return r, b
 
     def _franchise_collision_guard(
@@ -947,11 +971,13 @@ class PadronIngestionService:
         real_id: int | None,
         magica_id: int | None,
         bolivar_id: int | None,
+        caramele_id: int | None,
     ) -> None:
         ids = [
             ("Real Tabacalera", real_id),
             ("La Mágica", magica_id),
             ("Bolívar Distribuciones", bolivar_id),
+            ("Caramele - San Luis", caramele_id),
         ]
         seen: dict[int, str] = {}
         for label, i in ids:
@@ -1002,12 +1028,12 @@ class PadronIngestionService:
                 "No hay distribuidores con id_empresa_erp configurado. "
                 "Ejecute: UPDATE distribuidores SET id_empresa_erp = id_erp WHERE id_erp IS NOT NULL;"
             )
-        real_dist_id, magica_dist_id, bolivar_dist_id = self._resolve_real_franchise_dists(
+        real_dist_id, magica_dist_id, bolivar_dist_id, caramele_dist_id = self._resolve_real_franchise_dists(
             dist_rows
         )
-        self._franchise_collision_guard(real_dist_id, magica_dist_id, bolivar_dist_id)
+        self._franchise_collision_guard(real_dist_id, magica_dist_id, bolivar_dist_id, caramele_dist_id)
         franchise_erp_keys = _franchise_erp_keys_from_rows(
-            dist_rows, real_dist_id, magica_dist_id, bolivar_dist_id
+            dist_rows, real_dist_id, magica_dist_id, bolivar_dist_id, caramele_dist_id
         )
 
         global_run_id: int | None = None
@@ -1055,6 +1081,25 @@ class PadronIngestionService:
                             )
                         )
 
+                    if not df_after_bol.empty and caramele_dist_id:
+                        mask_biava = df_after_bol[suc_col].apply(_is_jose_ignacio_biava_sucursal)
+                        df_caramele = df_after_bol[mask_biava].copy()
+                        df_after_biava = df_after_bol[~mask_biava].copy()
+                        if not df_caramele.empty:
+                            logger.info(
+                                f"[Padrón] Reenrutando {len(df_caramele)} filas JOSE IGNACIO BIAVA "
+                                f"hacia Caramele - San Luis (dist {caramele_dist_id})."
+                            )
+                            resultados.append(
+                                self._ingest_for_dist(
+                                    df_caramele,
+                                    cols,
+                                    caramele_dist_id,
+                                    f"{empresa_erp}->caramele",
+                                )
+                            )
+                        df_after_bol = df_after_biava
+
                     if magica_dist_id and not df_after_bol.empty:
                         mask_ueq = df_after_bol[suc_col].apply(_is_uequin_rodrigo_sucursal)
                         df_magica = df_after_bol[mask_ueq].copy()
@@ -1070,10 +1115,18 @@ class PadronIngestionService:
                                 )
                             )
                         if not df_tail.empty:
+                            tail_suc_sample = (
+                                df_tail[suc_col]
+                                .fillna("")
+                                .astype(str)
+                                .value_counts(dropna=False)
+                                .head(8)
+                                .to_dict()
+                            )
                             logger.info(
                                 f"[Padrón] {len(df_tail)} filas de idempresa {empresa_erp} "
-                                f"no son UEQUIN ni ONDARRETA — no se asignan a franquicias "
-                                f"(omitido)."
+                                f"no son UEQUIN, ONDARRETA ni BIAVA — no se asignan a franquicias "
+                                f"(omitido). Muestra sucursales: {tail_suc_sample}"
                             )
                     elif not df_after_bol.empty:
                         resultados.append(
@@ -1121,12 +1174,12 @@ class PadronIngestionService:
 
         dist_rows = self._load_distribuidores()
         dist_map = self._load_dist_map(dist_rows)
-        real_dist_id, magica_dist_id, bolivar_dist_id = self._resolve_real_franchise_dists(
+        real_dist_id, magica_dist_id, bolivar_dist_id, caramele_dist_id = self._resolve_real_franchise_dists(
             dist_rows
         )
-        self._franchise_collision_guard(real_dist_id, magica_dist_id, bolivar_dist_id)
+        self._franchise_collision_guard(real_dist_id, magica_dist_id, bolivar_dist_id, caramele_dist_id)
         franchise_erp_keys = _franchise_erp_keys_from_rows(
-            dist_rows, real_dist_id, magica_dist_id, bolivar_dist_id
+            dist_rows, real_dist_id, magica_dist_id, bolivar_dist_id, caramele_dist_id
         )
 
         empresa_keys_target = {
@@ -1138,6 +1191,7 @@ class PadronIngestionService:
         used_full_file_fallback = False
         bolivar_ondarreta_only = False
         magica_uequin_only = False
+        caramele_biava_only = False
         if not empresa_keys_target:
             n_emp = int(df["_empresa_key"].nunique())
             # Bolívar suele no tener id_empresa_erp propio (comparte idempresa CHESS con Real).
@@ -1179,7 +1233,27 @@ class PadronIngestionService:
                         f"[Padrón] La Mágica sin id_empresa_erp: {len(df_target)} filas "
                         f"UEQUIN RODRIGO (idempresa franquicia: {sorted(franchise_erp_keys)})."
                     )
-            if not bolivar_ondarreta_only and not magica_uequin_only:
+            # Caramele: mismo patrón — idempresa de Real + sólo JOSE IGNACIO BIAVA.
+            if (
+                not bolivar_ondarreta_only
+                and not magica_uequin_only
+                and n_emp > 1
+                and target_dist_id == caramele_dist_id
+                and caramele_dist_id is not None
+                and franchise_erp_keys
+                and cols.get("sucursal")
+            ):
+                suc_c = cols["sucursal"]
+                df_rpc = df[df["_empresa_key"].isin(franchise_erp_keys)].copy()
+                df_bv = df_rpc[df_rpc[suc_c].apply(_is_jose_ignacio_biava_sucursal)].copy()
+                if not df_bv.empty:
+                    df_target = df_bv
+                    caramele_biava_only = True
+                    logger.info(
+                        f"[Padrón] Caramele - San Luis sin id_empresa_erp: {len(df_target)} filas "
+                        f"JOSE IGNACIO BIAVA (idempresa franquicia: {sorted(franchise_erp_keys)})."
+                    )
+            if not bolivar_ondarreta_only and not magica_uequin_only and not caramele_biava_only:
                 if n_emp > 1:
                     uniq = sorted(
                         str(x) for x in df["_empresa_key"].dropna().unique().tolist()
@@ -1211,6 +1285,7 @@ class PadronIngestionService:
             and not used_full_file_fallback
             and not bolivar_ondarreta_only
             and not magica_uequin_only
+            and not caramele_biava_only
         ):
             df_fr = df[df["_empresa_key"].isin(franchise_erp_keys)].copy()
             if not df_fr.empty:
@@ -1219,22 +1294,29 @@ class PadronIngestionService:
                     df_target = pd.concat([df_target, df_ondarreta], ignore_index=True)
 
         # Upload elegido sobre Real matriz o La Mágica (quien tenga el id_empresa_erp CHESS):
-        # ONDARRETA → Bolívar; UEQUIN → La Mágica si hay fila; resto omitido o a holder map.
+        # ONDARRETA -> Bolívar; BIAVA -> Caramele; UEQUIN -> La Mágica si hay fila.
+        # Resto omitido o a holder map según configuración.
         franchise_upload_matriz = (
             bolivar_dist_id is not None
             and suc_col
             and (
                 (real_dist_id is not None and target_dist_id == real_dist_id)
                 or (magica_dist_id is not None and target_dist_id == magica_dist_id)
+                or (caramele_dist_id is not None and target_dist_id == caramele_dist_id)
             )
         )
         if franchise_upload_matriz:
             mask_ondarreta = df_target[suc_col].apply(_is_ondarreta_sucursal)
-            df_after_bol = df_target[~mask_ondarreta].copy()
             df_bolivar = df_target[mask_ondarreta].copy()
+            df_after_bol = df_target[~mask_ondarreta].copy()
+
+            mask_biava = df_after_bol[suc_col].apply(_is_jose_ignacio_biava_sucursal)
+            df_caramele = df_after_bol[mask_biava].copy()
+            df_after_caramele = df_after_bol[~mask_biava].copy()
 
             result_magica: dict | None = None
             result_real: dict | None = None
+            result_caramele: dict | None = None
 
             if not df_bolivar.empty:
                 logger.info(
@@ -1245,10 +1327,19 @@ class PadronIngestionService:
                     df_bolivar, cols, bolivar_dist_id, "manual:real->bolivar"
                 )
 
-            if magica_dist_id and not df_after_bol.empty:
-                mask_ueq = df_after_bol[suc_col].apply(_is_uequin_rodrigo_sucursal)
-                df_magica = df_after_bol[mask_ueq].copy()
-                df_tail = df_after_bol[~mask_ueq].copy()
+            if caramele_dist_id and not df_caramele.empty:
+                logger.info(
+                    f"[Padrón] Derivando {len(df_caramele)} filas JOSE IGNACIO BIAVA "
+                    f"a Caramele - San Luis (dist {caramele_dist_id}) en upload manual."
+                )
+                result_caramele = self._ingest_for_dist(
+                    df_caramele, cols, caramele_dist_id, "manual:real->caramele"
+                )
+
+            if magica_dist_id and not df_after_caramele.empty:
+                mask_ueq = df_after_caramele[suc_col].apply(_is_uequin_rodrigo_sucursal)
+                df_magica = df_after_caramele[mask_ueq].copy()
+                df_tail = df_after_caramele[~mask_ueq].copy()
                 empresa_hint = ",".join(sorted(empresa_keys_target)) or "derived"
                 if not df_magica.empty:
                     logger.info(
@@ -1259,19 +1350,28 @@ class PadronIngestionService:
                         df_magica, cols, magica_dist_id, f"manual:magica:{empresa_hint}"
                     )
                 if not df_tail.empty:
-                    logger.info(
-                        f"[Padrón] {len(df_tail)} filas (no UEQUIN/ONDARRETA) omitidas "
-                        f"(franquicias separadas activas)."
+                    tail_suc_sample = (
+                        df_tail[suc_col]
+                        .fillna("")
+                        .astype(str)
+                        .value_counts(dropna=False)
+                        .head(8)
+                        .to_dict()
                     )
-            elif not df_after_bol.empty:
+                    logger.info(
+                        f"[Padrón] {len(df_tail)} filas (no UEQUIN/ONDARRETA/BIAVA) omitidas "
+                        f"(franquicias separadas activas). Muestra sucursales: {tail_suc_sample}"
+                    )
+            elif not df_after_caramele.empty:
                 empresa_hint_real = ",".join(sorted(empresa_keys_target)) or "derived"
                 result_real = self._ingest_for_dist(
-                    df_after_bol, cols, target_dist_id, f"manual:{empresa_hint_real}"
+                    df_after_caramele, cols, target_dist_id, f"manual:{empresa_hint_real}"
                 )
 
-            merged = result_real or result_magica
+            merged = result_real or result_magica or result_caramele
             if merged is not None:
                 merged["derivadas_bolivar"] = int(len(df_bolivar))
+                merged["derivadas_caramele"] = int(len(df_caramele))
                 return merged
             if not df_bolivar.empty:
                 return {
@@ -1308,7 +1408,7 @@ class PadronIngestionService:
 
         try:
             dist_rows_fr = self._load_distribuidores()
-            _, magica_fr_id, bolivar_fr_id = self._resolve_real_franchise_dists(
+            _, magica_fr_id, bolivar_fr_id, caramele_fr_id = self._resolve_real_franchise_dists(
                 dist_rows_fr
             )
             # Defensa en profundidad: franquicias sólo reciben su sucursal CHESS.
@@ -1337,6 +1437,20 @@ class PadronIngestionService:
                 if df.empty:
                     raise ValueError(
                         "Tras filtrar por sucursal UEQUIN RODRIGO no quedaron filas para La Mágica."
+                    )
+            if caramele_fr_id is not None and dist_id == caramele_fr_id and cols.get(
+                "sucursal"
+            ):
+                sc_c = cols["sucursal"]
+                n_antes_c = len(df)
+                df = df[df[sc_c].apply(_is_jose_ignacio_biava_sucursal)].copy()
+                logger.info(
+                    f"[Padrón] Caramele - San Luis (unicidad JOSE IGNACIO BIAVA): "
+                    f"{n_antes_c} → {len(df)} filas"
+                )
+                if df.empty:
+                    raise ValueError(
+                        "Tras filtrar por sucursal JOSE IGNACIO BIAVA no quedaron filas para Caramele - San Luis."
                     )
 
             # ── Filtro de sucursales por distribuidor ─────────────────────────
@@ -1394,6 +1508,8 @@ class PadronIngestionService:
                 bolivar_fr_id is not None and dist_id == bolivar_fr_id
             ) or (
                 magica_fr_id is not None and dist_id == magica_fr_id
+            ) or (
+                caramele_fr_id is not None and dist_id == caramele_fr_id
             )
             cli_inactivos = self._tombstone_padron_absents(
                 dist_id, erp_map, rutas_archivo, partial_scope

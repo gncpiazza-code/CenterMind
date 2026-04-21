@@ -117,14 +117,16 @@ TENANTS = [
         "vault_user": "chess_real_usuario",
         "vault_pass": "chess_real_password",
         "id_dist":    2,
-        "sucursales": ["UEQUIN RODRIGO", "OSCAR ONDARRETA"],
+        "sucursales": ["UEQUIN RODRIGO", "OSCAR ONDARRETA", "JOSE IGNACIO BIAVA"],
         # Split operativo solicitado:
         # - UEQUIN RODRIGO  -> La Magica
         # - OSCAR ONDARRETA -> Bolivar Distribuiciones
+        # - JOSE IGNACIO BIAVA -> Caramele - San Luis
         # Los id_dist se resuelven dinámicamente por nombre de distribuidor.
         "split_por_sucursal": {
             "uequin rodrigo": "La Magica - Santiago del Estero",
             "oscar ondarreta": "Bolivar Distribuciones",
+            "jose ignacio biava": "CARAMELE - SAN LUIS",
         },
         "activo":     True,
     },
@@ -348,8 +350,25 @@ async def _navegar_y_procesar(page: Page, tenant: dict) -> None:
     # Puede aparecer el dialog de accesos al navegar
     await _cerrar_accesos_concurrentes(page)
     
-    btn_procesar = page.locator('button.btn.btn-primary:visible').first
-    await btn_procesar.wait_for(state="visible", timeout=TIMEOUT_MS)
+    # Algunas cuentas CHESS cambian clases/botones en runtime.
+    # Fallbacks por texto/estilo para no depender de un solo selector.
+    btn_candidates = [
+        page.locator('button.btn.btn-primary:has-text("Procesar"):visible').first,
+        page.locator('button.btn.btn-primary:visible').first,
+        page.locator('button:has-text("Procesar"):visible').first,
+    ]
+    btn_procesar = btn_candidates[0]
+    resolved = False
+    for cand in btn_candidates:
+        try:
+            await cand.wait_for(state="visible", timeout=15_000)
+            btn_procesar = cand
+            resolved = True
+            break
+        except Exception:
+            continue
+    if not resolved:
+        raise RuntimeError("No se encontró botón 'Procesar' visible (selector primario y fallbacks).")
 
     # ── Configurar Filtros (Sucursal / Vendedor) ────────
     sucursales = tenant.get("sucursales")

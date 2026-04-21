@@ -69,9 +69,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    setUser(parseStoredUser());
+  const forceRedirectToLogin = useCallback(() => {
+    clearToken();
+    localStorage.removeItem("shelfy_active_dist");
+    setUser(null);
+    if (window.location.pathname !== "/login") {
+      window.location.assign("/login");
+    }
   }, []);
+
+  const isPublicPath = useCallback((pathname: string) => {
+    return pathname === "/login" || pathname === "/";
+  }, []);
+
+  useEffect(() => {
+    const parsed = parseStoredUser();
+    setUser(parsed);
+    if (!parsed && !isPublicPath(window.location.pathname)) {
+      window.location.assign("/login");
+    }
+  }, [isPublicPath]);
 
   const login = useCallback(async (usuario: string, password: string) => {
     setLoading(true);
@@ -130,6 +147,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } catch { }
     }
   }, [user?.is_superadmin, user?.id_distribuidor, hasPermiso]);
+
+  useEffect(() => {
+    const validateSession = () => {
+      const parsed = parseStoredUser();
+      if (!parsed && !isPublicPath(window.location.pathname)) {
+        forceRedirectToLogin();
+      }
+    };
+
+    const onFocus = () => validateSession();
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") validateSession();
+    };
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === TOKEN_KEY) validateSession();
+    };
+
+    const interval = window.setInterval(validateSession, 30_000);
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("storage", onStorage);
+
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [forceRedirectToLogin, isPublicPath]);
 
   return (
     <AuthContext.Provider value={{

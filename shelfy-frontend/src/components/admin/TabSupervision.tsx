@@ -261,7 +261,7 @@ function getVendorMapEligibleStats(
   if (!vendRutas?.length) {
     return { totalMap: 0, activosMap: 0, complete: false };
   }
-  const seen = new Set<number>();
+  const seen = new Set<string>();
   let totalMap = 0;
   let activosMap = 0;
   let complete = true;
@@ -274,8 +274,10 @@ function getVendorMapEligibleStats(
     for (const c of rows) {
       if (!isClientePadronActivo(c)) continue;
       if (!hasValidCoords(c.latitud, c.longitud)) continue;
-      if (seen.has(c.id_cliente)) continue;
-      seen.add(c.id_cliente);
+      const erpKey = String(c.id_cliente_erp ?? "").trim();
+      const dedupeKey = erpKey ? `erp:${erpKey}` : `pk:${c.id_cliente}`;
+      if (seen.has(dedupeKey)) continue;
+      seen.add(dedupeKey);
       totalMap++;
       if (!isInactivo30(c.fecha_ultima_compra)) activosMap++;
     }

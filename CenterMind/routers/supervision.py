@@ -1552,18 +1552,20 @@ def crear_objetivo(body: ObjetivoCreate, user_payload=Depends(verify_auth)):
                 logger.warning(f"[Objetivo] PDF ruteo omitido: {e_pdf}")
 
         # Telegram Notification for NEW objective (enriched: supervisor + timestamps)
-        try:
-            from services.objetivos_notification_service import objetivos_notification
-            notify_payload = {
-                **payload,
-                "created_at": rows[0].get("created_at"),
-                "asignado_por_usuario": user_payload.get("sub"),
-            }
-            objetivos_notification.notify_new_objective_telegram(
-                body.id_distribuidor, notify_payload, obj_id=obj_id
-            )
-        except Exception as e_notif:
-            logger.warning(f"[Objetivo] Notificación inicial omitida: {e_notif}")
+        # Regla de negocio: objetivos de tipo ruteo NO se notifican por Telegram.
+        if body.tipo != "ruteo":
+            try:
+                from services.objetivos_notification_service import objetivos_notification
+                notify_payload = {
+                    **payload,
+                    "created_at": rows[0].get("created_at"),
+                    "asignado_por_usuario": user_payload.get("sub"),
+                }
+                objetivos_notification.notify_new_objective_telegram(
+                    body.id_distribuidor, notify_payload, obj_id=obj_id
+                )
+            except Exception as e_notif:
+                logger.warning(f"[Objetivo] Notificación inicial omitida: {e_notif}")
 
         # Watcher refresh: compute valor_actual immediately SÓLO para el nuevo
         # objetivo (no todos), para no pisar valor_actual de objetivos en progreso.

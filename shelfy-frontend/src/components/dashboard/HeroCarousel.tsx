@@ -38,8 +38,6 @@ export function HeroCarousel({ items }: HeroCarouselProps) {
   const [loaded, setLoaded] = useState(false);
   // Mejora #10: clave de progreso
   const [progressKey, setProgressKey] = useState(0);
-  // Mejora #11: errores de miniaturas indexados
-  const [thumbErrors, setThumbErrors] = useState<Record<number, boolean>>({});
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -196,41 +194,6 @@ export function HeroCarousel({ items }: HeroCarouselProps) {
         </button>
       </div>
 
-      {/* Mejora #11: Tira de miniaturas + Mejora #10: dots movidos aquí */}
-      {items.length > 1 && (
-        <div className="absolute bottom-[180px] md:bottom-[200px] left-0 right-0 px-6 z-20 flex items-center gap-2 overflow-x-auto scrollbar-none">
-          {items.map((thumb, i) => {
-            const thumbSrc = resolveImageUrl(thumb.drive_link, thumb.id_exhibicion);
-            return (
-              <button
-                key={i}
-                onClick={() => goTo(i)}
-                className={`relative shrink-0 rounded-xl overflow-hidden border-2 transition-all duration-300 ${
-                  i === ci
-                    ? 'w-14 h-14 border-white shadow-lg scale-110'
-                    : 'w-9 h-9 border-white/20 opacity-50 hover:opacity-80 hover:scale-105'
-                }`}
-              >
-                {!thumbErrors[i] && thumbSrc ? (
-                  <img
-                    src={thumbSrc}
-                    alt={`thumb-${i}`}
-                    className="w-full h-full object-cover"
-                    onError={() => setThumbErrors(prev => ({ ...prev, [i]: true }))}
-                  />
-                ) : (
-                  <div className="w-full h-full bg-slate-800 flex items-center justify-center">
-                    <span className="text-[8px] text-white/40 font-black">{i + 1}</span>
-                  </div>
-                )}
-                {i === ci && (
-                  <div className="absolute inset-0 bg-white/10 rounded-xl" />
-                )}
-              </button>
-            );
-          })}
-        </div>
-      )}
     </div>
   );
 }

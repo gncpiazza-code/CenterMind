@@ -61,7 +61,7 @@ def _route_nro(row: dict | None) -> str | None:
     """Normaliza el nro de ruta de diferentes esquemas posibles."""
     if not isinstance(row, dict):
         return None
-    for key in ("nro_ruta", "numero_ruta", "nro", "ruta_numero"):
+    for key in ("nro_ruta", "id_ruta_erp", "numero_ruta", "nro", "ruta_numero"):
         value = row.get(key)
         if value is not None and str(value).strip():
             return str(value).strip()
@@ -123,6 +123,8 @@ def _build_ruteo_context(dist_id: int, pdv_items: list[Any]) -> list[dict]:
         rows = []
         select_attempts = [
             "*",
+            "id_ruta, id_ruta_erp, nro_ruta, dia_semana, nombre_ruta",
+            "id_ruta, id_ruta_erp, dia_semana, nombre_ruta",
             "id_ruta, nro_ruta, dia_semana, nombre_ruta",
             "id_ruta, dia_semana, nombre_ruta",
             "id_ruta, dia_semana",

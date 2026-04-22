@@ -18,7 +18,7 @@ Rutas:
 import logging
 import unicodedata
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
@@ -118,9 +118,26 @@ def _build_integrante_vendedor_map(dist_id: int, vendedores: list[dict]) -> dict
         else:
             vend_name_to_id[name_norm] = vid
 
+    # Vínculo moderno (Fuerza de Ventas): id_vendedor_v2 <-> telegram_user_id
+    binding_by_tg_user: dict[int, int] = {}
+    try:
+        bind_r = (
+            sb.table("vendedores_telegram_binding")
+            .select("id_vendedor_v2, telegram_user_id")
+            .eq("id_distribuidor", dist_id)
+            .execute()
+        )
+        for b in (bind_r.data or []):
+            vid = _safe_int(b.get("id_vendedor_v2"))
+            tg_uid = _safe_int(b.get("telegram_user_id"))
+            if vid is not None and tg_uid is not None and vid in vend_ids:
+                binding_by_tg_user[tg_uid] = vid
+    except Exception:
+        binding_by_tg_user = {}
+
     integ_r = (
         sb.table("integrantes_grupo")
-        .select("id_integrante, id_vendedor_v2, id_vendedor_erp, nombre_integrante")
+        .select("id_integrante, telegram_user_id, id_vendedor_v2, id_vendedor_erp, nombre_integrante")
         .eq("id_distribuidor", dist_id)
         .execute()
     )
@@ -131,24 +148,75 @@ def _build_integrante_vendedor_map(dist_id: int, vendedores: list[dict]) -> dict
         if iid is None:
             continue
 
-        # 1) vínculo directo
+        # 1) vínculo moderno por telegram_user_id (fuerza_ventas binding)
+        tg_uid = _safe_int(ig.get("telegram_user_id"))
+        if tg_uid is not None and tg_uid in binding_by_tg_user:
+            integ_vend_map[iid] = binding_by_tg_user[tg_uid]
+            continue
+
+        # 2) vínculo directo
         direct_vid = _safe_int(ig.get("id_vendedor_v2"))
         if direct_vid is not None and direct_vid in vend_ids:
             integ_vend_map[iid] = direct_vid
             continue
 
-        # 2) fallback por ERP
+        # 3) fallback por ERP
         ig_erp = _safe_text(ig.get("id_vendedor_erp")).strip()
         if ig_erp and ig_erp in vend_erp_to_id:
             integ_vend_map[iid] = vend_erp_to_id[ig_erp]
             continue
 
-        # 3) fallback por nombre único
+        # 4) fallback por nombre único
         ig_name_norm = _normalize(_safe_text(ig.get("nombre_integrante")).strip())
         if ig_name_norm and ig_name_norm not in vend_name_ambiguous and ig_name_norm in vend_name_to_id:
             integ_vend_map[iid] = vend_name_to_id[ig_name_norm]
 
     return integ_vend_map
+
+
+def _normalize_erp_code(value: Any) -> str:
+    raw = _safe_text(value).strip()
+    if not raw:
+        return ""
+    return raw.lstrip("0") or "0"
+
+
+def _build_shadow_code_to_pdv_map(dist_id: int, exhibiciones: list[dict]) -> dict[str, int]:
+    """
+    Resuelve cliente_sombra_codigo -> id_cliente (clientes_pdv_v2) por dist.
+    Soporta variantes con/sin ceros a la izquierda.
+    """
+    codes = {
+        _safe_text(ex.get("cliente_sombra_codigo")).strip()
+        for ex in exhibiciones
+        if _safe_int(ex.get("id_cliente_pdv")) is None and _safe_text(ex.get("cliente_sombra_codigo")).strip()
+    }
+    if not codes:
+        return {}
+
+    out: dict[str, int] = {}
+    code_list = sorted(codes)
+    for i in range(0, len(code_list), 200):
+        chunk = code_list[i:i + 200]
+        try:
+            r = (
+                sb.table("clientes_pdv_v2")
+                .select("id_cliente, id_cliente_erp")
+                .eq("id_distribuidor", dist_id)
+                .in_("id_cliente_erp", chunk)
+                .execute()
+            )
+            rows = r.data or []
+        except Exception:
+            rows = []
+        for c in rows:
+            cid = _safe_int(c.get("id_cliente"))
+            erp = _safe_text(c.get("id_cliente_erp")).strip()
+            if cid is None or not erp:
+                continue
+            out.setdefault(erp, cid)
+            out.setdefault(_normalize_erp_code(erp), cid)
+    return out
 
 
 def _resolve_binding_progressive(dist_id: int, id_vendedor: int) -> dict:
@@ -860,7 +928,7 @@ def galeria_list_vendedores(
         while True:
             ex_q = (
                 sb.table("exhibiciones")
-                .select("id_exhibicion, id_integrante, id_cliente_pdv, estado, timestamp_subida")
+                .select("id_exhibicion, id_integrante, id_cliente_pdv, id_cliente, cliente_sombra_codigo, estado, timestamp_subida")
                 .eq("id_distribuidor", dist_id)
             )
             if desde:
@@ -873,6 +941,8 @@ def galeria_list_vendedores(
             if len(chunk) < batch:
                 break
             offset_e += batch
+
+        shadow_to_pdv = _build_shadow_code_to_pdv_map(dist_id, exhibiciones)
 
         # Filtro por sucursal (opcional)
         if sucursal:
@@ -909,8 +979,13 @@ def galeria_list_vendedores(
                 continue
             if hasta and fecha and fecha > hasta:
                 continue
-            # Solo datos reales para galería/stats: exhibiciones vinculadas a PDV.
-            if _safe_int(ex.get("id_cliente_pdv")) is None:
+            # Solo datos reales para galería/stats: PDV real o resoluble por código sombra.
+            id_pdv = _safe_int(ex.get("id_cliente_pdv")) or _safe_int(ex.get("id_cliente"))
+            if id_pdv is None:
+                sombra = _safe_text(ex.get("cliente_sombra_codigo")).strip()
+                if sombra:
+                    id_pdv = shadow_to_pdv.get(sombra) or shadow_to_pdv.get(_normalize_erp_code(sombra))
+            if id_pdv is None:
                 continue
             ig_id = _safe_int(ex.get("id_integrante"))
             if qa_filter and ig_id is not None and ig_id in qa_iids:
@@ -1089,6 +1164,8 @@ def galeria_list_clientes_por_vendedor(
                 break
             offset_e += batch
 
+        shadow_to_pdv = _build_shadow_code_to_pdv_map(dist_id, exhibiciones)
+
         if not exhibiciones:
             return []
 
@@ -1100,7 +1177,11 @@ def galeria_list_clientes_por_vendedor(
         id_pdv_por_key: dict[str, int] = {}
 
         for ex in exhibiciones:
-            id_pdv = _safe_int(ex.get("id_cliente_pdv"))
+            id_pdv = _safe_int(ex.get("id_cliente_pdv")) or _safe_int(ex.get("id_cliente"))
+            if id_pdv is None:
+                sombra = _safe_text(ex.get("cliente_sombra_codigo")).strip()
+                if sombra:
+                    id_pdv = shadow_to_pdv.get(sombra) or shadow_to_pdv.get(_normalize_erp_code(sombra))
             if id_pdv is None:
                 continue
             key = f"pdv:{id_pdv}"

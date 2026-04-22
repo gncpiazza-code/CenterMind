@@ -556,6 +556,27 @@ function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado, onOpenR
           </div>
         )}
 
+        {/* ERP quick IDs para reconocimiento rápido en Kanban */}
+        {obj.items && obj.items.length > 0 && (
+          <div className="flex items-center gap-1 flex-wrap text-[10px]">
+            {obj.items
+              .map((it) => getObjetivoItemClientCode(it))
+              .filter((v): v is string => Boolean(v))
+              .slice(0, 4)
+              .map((erp) => (
+                <span
+                  key={erp}
+                  className="px-1.5 py-0.5 rounded border border-[var(--shelfy-border)] text-[var(--shelfy-muted)] font-mono"
+                >
+                  ERP #{erp}
+                </span>
+              ))}
+            {obj.items.length > 4 && (
+              <span className="text-[var(--shelfy-muted)]/70">+{obj.items.length - 4}</span>
+            )}
+          </div>
+        )}
+
         {/* Expandable: descripcion + items list */}
         <AnimatePresence>
           {expanded && (

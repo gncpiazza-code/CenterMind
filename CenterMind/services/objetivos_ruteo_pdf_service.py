@@ -92,7 +92,8 @@ def _build_ruteo_context(dist_id: int, pdv_items: list[Any]) -> list[dict]:
         logger.warning(f"[RuteoPDF] Error fetching PDVs: {e}")
         pdv_map = {}
 
-    # Bulk-fetch rutas (robusto: algunos tenants no tienen nro_ruta)
+    # Bulk-fetch rutas (robusto: algunos tenants no tienen las mismas columnas
+    # y en ciertos esquemas rutas_v2 no expone id_distribuidor).
     ruta_ids_actuales = [pdv_map[pid]["id_ruta"] for pid in pdv_ids if pid in pdv_map and pdv_map[pid].get("id_ruta")]
     ruta_ids_destino  = [_item_get(item, "id_ruta_destino") for item in pdv_items if _item_get(item, "id_ruta_destino")]
     all_ruta_ids = list(set(ruta_ids_actuales + ruta_ids_destino))
@@ -106,13 +107,20 @@ def _build_ruteo_context(dist_id: int, pdv_items: list[Any]) -> list[dict]:
             "id_ruta, dia_semana",
         ]
         for cols in select_attempts:
+            # Intento A: rutas scopiadas por distribuidor (si la columna existe)
             try:
-                ruta_res = sb.table("rutas_v2") \
-                    .select(cols) \
-                    .eq("id_distribuidor", dist_id) \
-                    .execute()
+                ruta_res = sb.table("rutas_v2").select(cols).eq("id_distribuidor", dist_id).execute()
                 rows = ruta_res.data or []
-                break
+                if rows:
+                    break
+            except Exception:
+                pass
+            # Intento B: fallback sin id_distribuidor
+            try:
+                ruta_res = sb.table("rutas_v2").select(cols).execute()
+                rows = ruta_res.data or []
+                if rows:
+                    break
             except Exception:
                 continue
         if not rows:
@@ -148,6 +156,9 @@ def _build_ruteo_context(dist_id: int, pdv_items: list[Any]) -> list[dict]:
                 destino = f"Ruta {nro_dest} - {dia_dest}"
             elif dia_dest:
                 destino = f"Ruta {str(destino_raw).strip()} - {dia_dest}" if destino_raw is not None else dia_dest
+            elif destino_raw is not None and str(destino_raw).strip() in ruta_by_nro:
+                # Si el valor guardado era nro_ruta y no hay día, al menos mostrar formato de negocio.
+                destino = f"Ruta {str(destino_raw).strip()}"
             else:
                 destino = ruta_dest_obj.get("nombre_ruta") or str(destino_raw or "-")
         else:

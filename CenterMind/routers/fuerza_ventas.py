@@ -1317,7 +1317,7 @@ def galeria_timeline_cliente(
     limit: int = Query(30, ge=1, le=120),
     payload=Depends(verify_auth),
 ):
-    """Timeline completo de exhibiciones de un PDV."""
+    """Timeline completo de exhibiciones de un PDV (directo + limbo)."""
     check_dist_permission(payload, dist_id)
     qa_filter = should_apply_exhibicion_qa_filter(dist_id, payload)
     qa_iids = build_qa_exhibicion_integrante_ids(dist_id) if qa_filter else frozenset()

@@ -1312,6 +1312,7 @@ def galeria_list_clientes_por_vendedor(
 def galeria_timeline_cliente(
     id_cliente_pdv: int,
     dist_id: int = Query(...),
+    id_vendedor: Optional[int] = Query(None),
     offset: int = Query(0, ge=0),
     limit: int = Query(30, ge=1, le=120),
     payload=Depends(verify_auth),
@@ -1324,7 +1325,7 @@ def galeria_timeline_cliente(
         # Verificar que el PDV pertenece al distribuidor
         cpv_r = (
             sb.table("clientes_pdv_v2")
-            .select("id_cliente")
+            .select("id_cliente, id_cliente_erp")
             .eq("id_cliente", id_cliente_pdv)
             .eq("id_distribuidor", dist_id)
             .limit(1)
@@ -1333,27 +1334,88 @@ def galeria_timeline_cliente(
         if not cpv_r.data:
             raise HTTPException(status_code=404, detail="Cliente no encontrado")
 
-        # Exhibiciones del cliente por FK id_cliente_pdv (igual que galeria_list_clientes_por_vendedor)
-        ex_r = (
-            sb.table("exhibiciones")
-            .select(
-                "id_exhibicion, url_foto_drive, estado, timestamp_subida, "
-                "evaluated_at, supervisor_nombre, comentario_evaluacion, tipo_pdv, id_integrante"
+        integrante_ids: Optional[list[int]] = None
+        if id_vendedor is not None:
+            vend_r = (
+                sb.table("vendedores_v2")
+                .select("id_vendedor, nombre_erp, id_vendedor_erp")
+                .eq("id_distribuidor", dist_id)
+                .execute()
             )
-            .eq("id_distribuidor", dist_id)
-            .eq("id_cliente_pdv", id_cliente_pdv)
-            .order("timestamp_subida", desc=True)
-            .range(offset, offset + limit)
-            .execute()
+            vendedores = vend_r.data or []
+            integ_vend_map = _build_integrante_vendedor_map(dist_id, vendedores)
+            integrante_ids = [
+                iid for iid, vid in integ_vend_map.items()
+                if vid == id_vendedor
+            ]
+            if not integrante_ids:
+                return GaleriaTimelineResponse(items=[], offset=offset, limit=limit, has_more=False)
+
+        ex_select = (
+            "id_exhibicion, url_foto_drive, estado, timestamp_subida, "
+            "evaluated_at, supervisor_nombre, comentario_evaluacion, tipo_pdv, "
+            "id_integrante, id_cliente_pdv, id_cliente, cliente_sombra_codigo"
         )
-        rows = ex_r.data or []
+
+        rows: list[dict] = []
+
+        # 1) Exhibiciones con referencia directa al PDV (FK actual o legacy).
+        direct_q = (
+            sb.table("exhibiciones")
+            .select(ex_select)
+            .eq("id_distribuidor", dist_id)
+            .or_(f"id_cliente_pdv.eq.{id_cliente_pdv},id_cliente.eq.{id_cliente_pdv}")
+        )
+        if integrante_ids:
+            direct_q = direct_q.in_("id_integrante", integrante_ids)
+        direct_rows = direct_q.execute().data or []
+        rows.extend(direct_rows)
+
+        # 2) Exhibiciones limbo: mapear por cliente_sombra_codigo contra id_cliente_erp del PDV.
+        pdv_row = cpv_r.data[0] if cpv_r.data else {}
+        erp_code_raw = _safe_text(pdv_row.get("id_cliente_erp")).strip()
+        erp_variants = set()
+        if erp_code_raw:
+            erp_variants.add(erp_code_raw)
+            erp_variants.add(_normalize_erp_code(erp_code_raw))
+        erp_variants = {v for v in erp_variants if v}
+        if erp_variants:
+            for erp_code in erp_variants:
+                limbo_q = (
+                    sb.table("exhibiciones")
+                    .select(ex_select)
+                    .eq("id_distribuidor", dist_id)
+                    .is_("id_cliente_pdv", "null")
+                    .eq("cliente_sombra_codigo", erp_code)
+                )
+                if integrante_ids:
+                    limbo_q = limbo_q.in_("id_integrante", integrante_ids)
+                rows.extend(limbo_q.execute().data or [])
+
+        # Deduplicar y paginar en memoria para combinar direct + limbo sin cruces.
+        uniq: dict[int, dict] = {}
+        for r in rows:
+            ex_id = _safe_int(r.get("id_exhibicion"))
+            if ex_id is None:
+                continue
+            if ex_id not in uniq:
+                uniq[ex_id] = r
+        sorted_rows = sorted(
+            uniq.values(),
+            key=lambda r: _safe_text(r.get("timestamp_subida")),
+            reverse=True,
+        )
+
+        start = offset
+        end = offset + limit
+        page_rows = sorted_rows[start:end]
+        has_more = end < len(sorted_rows)
+
         if qa_filter and qa_iids:
-            rows = [
-                r for r in rows
+            page_rows = [
+                r for r in page_rows
                 if _safe_int(r.get("id_integrante")) not in qa_iids
             ]
-        has_more = len(rows) > limit
-        page_rows = rows[:limit]
 
         return GaleriaTimelineResponse(
             items=[

@@ -24,6 +24,7 @@ import {
 interface Props {
   idClientePdv: number | null;
   distId: number;
+  idVendedor?: number | null;
   nombreCliente: string;
   motivoNoReferencia?: string | null;
   directItems?: GaleriaTimelineItem[];
@@ -186,6 +187,7 @@ function TimelineGroupCard({
 export function ExhibicionesTimelineDialog({
   idClientePdv,
   distId,
+  idVendedor = null,
   nombreCliente,
   motivoNoReferencia,
   directItems,
@@ -209,6 +211,7 @@ export function ExhibicionesTimelineDialog({
       fetchGaleriaTimelineCliente(idClientePdv!, distId, {
         offset: pageParam,
         limit: pageSize,
+        idVendedor,
       }),
     getNextPageParam: (lastPage) =>
       lastPage.has_more ? lastPage.offset + lastPage.limit : undefined,

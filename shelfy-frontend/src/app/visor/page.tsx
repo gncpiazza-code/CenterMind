@@ -63,7 +63,86 @@ function FotoViewer({
   priority?: boolean,
 }) {
   const [err, setErr] = useState(false);
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [dragging, setDragging] = useState(false);
+  const dragStartRef = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
+  const frameRef = useRef<HTMLDivElement | null>(null);
   const src = resolveImageUrl(driveUrl, idExhibicion);
+
+  useEffect(() => {
+    // Reset zoom/pan when image changes.
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+    setDragging(false);
+  }, [src]);
+
+  const clampPan = useCallback((nextX: number, nextY: number, nextZoom: number) => {
+    const frame = frameRef.current;
+    if (!frame || nextZoom <= 1) return { x: 0, y: 0 };
+    const w = frame.clientWidth;
+    const h = frame.clientHeight;
+    const maxX = ((nextZoom - 1) * w) / 2;
+    const maxY = ((nextZoom - 1) * h) / 2;
+    return {
+      x: Math.max(-maxX, Math.min(maxX, nextX)),
+      y: Math.max(-maxY, Math.min(maxY, nextY)),
+    };
+  }, []);
+
+  const applyZoom = useCallback((nextZoomRaw: number) => {
+    const nextZoom = Math.max(1, Math.min(5, Number(nextZoomRaw.toFixed(2))));
+    setZoom(nextZoom);
+    setPan(prev => clampPan(prev.x, prev.y, nextZoom));
+  }, [clampPan]);
+
+  const onWheelZoom = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const delta = e.deltaY < 0 ? 0.2 : -0.2;
+    applyZoom(zoom + delta);
+  }, [applyZoom, zoom]);
+
+  const onDoubleClickZoom = useCallback(() => {
+    if (zoom <= 1) {
+      applyZoom(2);
+      return;
+    }
+    applyZoom(1);
+  }, [applyZoom, zoom]);
+
+  const onPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (zoom <= 1) return;
+    setDragging(true);
+    dragStartRef.current = { x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }, [pan.x, pan.y, zoom]);
+
+  const onPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragging || zoom <= 1) return;
+    const dx = e.clientX - dragStartRef.current.x;
+    const dy = e.clientY - dragStartRef.current.y;
+    setPan(clampPan(dragStartRef.current.panX + dx, dragStartRef.current.panY + dy, zoom));
+  }, [clampPan, dragging, zoom]);
+
+  const onPointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    setDragging(false);
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+  }, []);
+
+  const onKeyDownZoom = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === "+" || e.key === "=") {
+      e.preventDefault();
+      applyZoom(zoom + 0.2);
+    } else if (e.key === "-") {
+      e.preventDefault();
+      applyZoom(zoom - 0.2);
+    } else if (e.key === "0") {
+      e.preventDefault();
+      applyZoom(1);
+    }
+  }, [applyZoom, zoom]);
 
   if (!src || err) {
     return (
@@ -75,7 +154,20 @@ function FotoViewer({
   }
 
   return (
-    <div className="relative w-full h-full rounded-3xl overflow-hidden bg-slate-900/20 border border-white/5 shadow-[0_8px_26px_rgba(2,6,23,0.22)]">
+    <div
+      ref={frameRef}
+      className="relative w-full h-full rounded-3xl overflow-hidden bg-slate-900/20 border border-white/5 shadow-[0_8px_26px_rgba(2,6,23,0.22)] select-none"
+      onWheel={onWheelZoom}
+      onDoubleClick={onDoubleClickZoom}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+      onKeyDown={onKeyDownZoom}
+      tabIndex={0}
+      title="Doble click o rueda para zoom. Arrastrar para mover. + / - / 0 teclado."
+      style={{ cursor: zoom > 1 ? (dragging ? "grabbing" : "grab") : "zoom-in" }}
+    >
       {/* Fondo adaptativo para evitar letterbox negro dominante */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
@@ -94,7 +186,16 @@ function FotoViewer({
         className="relative z-[1] w-full h-full object-contain object-center rounded-3xl p-1 md:p-2 saturate-100 contrast-100 brightness-100"
         loading={priority ? "eager" : "lazy"}
         onError={() => setErr(true)}
+        draggable={false}
+        style={{
+          transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+          transformOrigin: "center center",
+          transition: dragging ? "none" : "transform 120ms ease-out",
+        }}
       />
+      <div className="absolute z-[2] left-2 bottom-2 text-[10px] px-1.5 py-0.5 rounded bg-black/35 text-white/85">
+        Zoom {zoom.toFixed(1)}x
+      </div>
     </div>
   );
 }

@@ -57,6 +57,26 @@ def _item_get(item: Any, key: str, default=None):
     return getattr(item, key, default)
 
 
+def _route_nro(row: dict | None) -> str | None:
+    """Normaliza el nro de ruta de diferentes esquemas posibles."""
+    if not isinstance(row, dict):
+        return None
+    for key in ("nro_ruta", "numero_ruta", "nro", "ruta_numero"):
+        value = row.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    # Fallback suave: si nombre_ruta viene tipo "Ruta 4 - Lunes"
+    nombre = row.get("nombre_ruta")
+    if nombre is not None:
+        text = str(nombre).strip()
+        if text.lower().startswith("ruta "):
+            tail = text[5:].strip()
+            maybe_nro = tail.split(" ", 1)[0].strip("- ").strip()
+            if maybe_nro:
+                return maybe_nro
+    return None
+
+
 def _build_ruteo_context(dist_id: int, pdv_items: list[Any]) -> list[dict]:
     """
     Enriquece cada ítem con datos de la base de datos:
@@ -102,6 +122,7 @@ def _build_ruteo_context(dist_id: int, pdv_items: list[Any]) -> list[dict]:
     if all_ruta_ids:
         rows = []
         select_attempts = [
+            "*",
             "id_ruta, nro_ruta, dia_semana, nombre_ruta",
             "id_ruta, dia_semana, nombre_ruta",
             "id_ruta, dia_semana",
@@ -127,7 +148,7 @@ def _build_ruteo_context(dist_id: int, pdv_items: list[Any]) -> list[dict]:
             logger.warning("[RuteoPDF] No se pudieron cargar rutas_v2 para el dist=%s", dist_id)
         ruta_map = {r["id_ruta"]: r for r in rows if r.get("id_ruta") is not None}
         for r in rows:
-            nro = r.get("nro_ruta")
+            nro = _route_nro(r)
             if nro is not None and str(nro).strip():
                 ruta_by_nro[str(nro).strip()] = r
 
@@ -137,9 +158,11 @@ def _build_ruteo_context(dist_id: int, pdv_items: list[Any]) -> list[dict]:
         pdv = pdv_map.get(id_cliente_pdv, {})
         ruta_actual_obj = ruta_map.get(pdv.get("id_ruta", 0), {})
         dia_actual = ruta_actual_obj.get("dia_semana")
-        nro_actual = ruta_actual_obj.get("nro_ruta")
+        nro_actual = _route_nro(ruta_actual_obj)
         if nro_actual and dia_actual:
             ruta_actual = f"Ruta {nro_actual} - {dia_actual}"
+        elif nro_actual:
+            ruta_actual = f"Ruta {nro_actual}"
         else:
             ruta_actual = dia_actual or ruta_actual_obj.get("nombre_ruta") or "-"
 
@@ -164,18 +187,20 @@ def _build_ruteo_context(dist_id: int, pdv_items: list[Any]) -> list[dict]:
             if not ruta_dest_obj and destino_raw is not None:
                 ruta_dest_obj = ruta_by_nro.get(str(destino_raw).strip(), {})
             dia_dest = ruta_dest_obj.get("dia_semana")
-            nro_dest = ruta_dest_obj.get("nro_ruta")
-            if nro_dest and dia_dest:
+            nro_dest = _route_nro(ruta_dest_obj)
+            if nro_meta_dest and dia_meta_dest:
+                destino = f"Ruta {nro_meta_dest} - {dia_meta_dest}"
+            elif nro_dest and dia_dest:
                 destino = f"Ruta {nro_dest} - {dia_dest}"
+            elif nro_meta_dest:
+                destino = f"Ruta {nro_meta_dest}"
+            elif nro_dest:
+                destino = f"Ruta {nro_dest}"
             elif dia_dest:
-                destino = f"Ruta {str(destino_raw).strip()} - {dia_dest}" if destino_raw is not None else dia_dest
+                destino = dia_dest
             elif destino_raw is not None and str(destino_raw).strip() in ruta_by_nro:
                 # Si el valor guardado era nro_ruta y no hay día, al menos mostrar formato de negocio.
                 destino = f"Ruta {str(destino_raw).strip()}"
-            elif nro_meta_dest and dia_meta_dest:
-                destino = f"Ruta {nro_meta_dest} - {dia_meta_dest}"
-            elif nro_meta_dest:
-                destino = f"Ruta {nro_meta_dest}"
             else:
                 destino = ruta_dest_obj.get("nombre_ruta") or str(destino_raw or "-")
         else:

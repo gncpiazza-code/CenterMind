@@ -85,6 +85,72 @@ def _safe_int(value) -> Optional[int]:
         return None
 
 
+def _build_integrante_vendedor_map(dist_id: int, vendedores: list[dict]) -> dict[int, int]:
+    """
+    Construye un map robusto id_integrante -> id_vendedor usando:
+    1) id_vendedor_v2 directo
+    2) id_vendedor_erp exacto
+    3) nombre normalizado (solo si el match es único)
+    """
+    vend_ids = {
+        _safe_int(v.get("id_vendedor"))
+        for v in vendedores
+        if _safe_int(v.get("id_vendedor")) is not None
+    }
+    vend_erp_to_id: dict[str, int] = {}
+    vend_name_to_id: dict[str, int] = {}
+    vend_name_ambiguous: set[str] = set()
+
+    for v in vendedores:
+        vid = _safe_int(v.get("id_vendedor"))
+        if vid is None:
+            continue
+
+        id_erp = _safe_text(v.get("id_vendedor_erp")).strip()
+        if id_erp and id_erp not in vend_erp_to_id:
+            vend_erp_to_id[id_erp] = vid
+
+        name_norm = _normalize(_safe_text(v.get("nombre_erp")).strip())
+        if not name_norm:
+            continue
+        if name_norm in vend_name_to_id and vend_name_to_id[name_norm] != vid:
+            vend_name_ambiguous.add(name_norm)
+        else:
+            vend_name_to_id[name_norm] = vid
+
+    integ_r = (
+        sb.table("integrantes_grupo")
+        .select("id_integrante, id_vendedor_v2, id_vendedor_erp, nombre_integrante")
+        .eq("id_distribuidor", dist_id)
+        .execute()
+    )
+
+    integ_vend_map: dict[int, int] = {}
+    for ig in (integ_r.data or []):
+        iid = _safe_int(ig.get("id_integrante"))
+        if iid is None:
+            continue
+
+        # 1) vínculo directo
+        direct_vid = _safe_int(ig.get("id_vendedor_v2"))
+        if direct_vid is not None and direct_vid in vend_ids:
+            integ_vend_map[iid] = direct_vid
+            continue
+
+        # 2) fallback por ERP
+        ig_erp = _safe_text(ig.get("id_vendedor_erp")).strip()
+        if ig_erp and ig_erp in vend_erp_to_id:
+            integ_vend_map[iid] = vend_erp_to_id[ig_erp]
+            continue
+
+        # 3) fallback por nombre único
+        ig_name_norm = _normalize(_safe_text(ig.get("nombre_integrante")).strip())
+        if ig_name_norm and ig_name_norm not in vend_name_ambiguous and ig_name_norm in vend_name_to_id:
+            integ_vend_map[iid] = vend_name_to_id[ig_name_norm]
+
+    return integ_vend_map
+
+
 def _resolve_binding_progressive(dist_id: int, id_vendedor: int) -> dict:
     """
     Prioriza vínculo nuevo (vendedores_telegram_binding).
@@ -153,7 +219,7 @@ def fuerza_ventas_list_vendedores(dist_id: int, payload=Depends(verify_auth)):
     try:
         vend_r = (
             sb.table("vendedores_v2")
-            .select("id_vendedor, nombre_erp, id_sucursal")
+            .select("id_vendedor, nombre_erp, id_sucursal, id_vendedor_erp")
             .eq("id_distribuidor", dist_id)
             .order("nombre_erp")
             .execute()
@@ -785,20 +851,8 @@ def galeria_list_vendedores(
                 if _safe_int(v.get("id_vendedor")) not in galeria_inactive_ids
             ]
 
-        # Mapping integrante → vendedor para cruzar exhibiciones
-        integ_r = (
-            sb.table("integrantes_grupo")
-            .select("id_integrante, id_vendedor_v2")
-            .eq("id_distribuidor", dist_id)
-            .execute()
-        )
-        # integrante.id → id_vendedor_v2
-        integ_vend_map: dict[int, int] = {}
-        for ig in (integ_r.data or []):
-            id_integrante = _safe_int(ig.get("id_integrante"))
-            id_vendedor_v2 = _safe_int(ig.get("id_vendedor_v2"))
-            if id_integrante is not None and id_vendedor_v2 is not None:
-                integ_vend_map[id_integrante] = id_vendedor_v2
+        # Mapping robusto integrante → vendedor para cruzar exhibiciones.
+        integ_vend_map = _build_integrante_vendedor_map(dist_id, vendedores)
 
         # Exhibiciones del distribuidor (paginado)
         exhibiciones: list[dict] = []
@@ -968,16 +1022,17 @@ def galeria_list_clientes_por_vendedor(
                 base_clientes[cid] = c
 
         # 2) Universo de exhibiciones del vendedor (igual que card de vendedor).
-        integ_r = (
-            sb.table("integrantes_grupo")
-            .select("id_integrante")
+        vend_r = (
+            sb.table("vendedores_v2")
+            .select("id_vendedor, nombre_erp, id_vendedor_erp")
             .eq("id_distribuidor", dist_id)
-            .eq("id_vendedor_v2", id_vendedor)
             .execute()
         )
+        vendedores = vend_r.data or []
+        integ_vend_map = _build_integrante_vendedor_map(dist_id, vendedores)
         integrante_ids = [
-            iid for iid in (_safe_int(r.get("id_integrante")) for r in (integ_r.data or []))
-            if iid is not None
+            iid for iid, vid in integ_vend_map.items()
+            if vid == id_vendedor
         ]
         if not integrante_ids:
             return []

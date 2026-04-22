@@ -252,6 +252,10 @@ interface VendorMapEligibleStats {
   complete: boolean;
 }
 
+// Evita que los KPIs de activos/inactivos "salten" al prender/apagar capas del mapa.
+// La referencia estable para UI operativa debe venir del backend (vendedores_v2 + RPC).
+const USE_MAP_ELIGIBLE_STATS_FOR_KPIS = false;
+
 function getVendorMapEligibleStats(
   qc: QueryClient,
   distId: number,
@@ -701,7 +705,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
     // Solo mezclar fuentes si TODOS los vendedores tienen datos de caché completos;
     // en caso contrario usar siempre los números del backend para evitar saltos al
     // ir cargando rutas/PDVs de forma incremental (toggle por vendedor).
-    const allComplete = vendedoresFiltrados.length > 0 &&
+    const allComplete = USE_MAP_ELIGIBLE_STATS_FOR_KPIS && vendedoresFiltrados.length > 0 &&
       vendedoresFiltrados.every(v => vendorMapEligibleStats.get(v.id_vendedor)?.complete);
     let tp = 0;
     let ta = 0;
@@ -1475,8 +1479,8 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
           const isVendOn  = visibleVends.has(v.id_vendedor);
           const isVendLoad = loadingMap.has(v.id_vendedor);
           const mapS      = vendorMapEligibleStats.get(v.id_vendedor);
-          const pdvTot    = mapS?.complete ? mapS.totalMap : v.total_pdv;
-          const pdvAct    = mapS?.complete ? mapS.activosMap : (v.pdv_activos ?? 0);
+          const pdvTot    = USE_MAP_ELIGIBLE_STATS_FOR_KPIS && mapS?.complete ? mapS.totalMap : v.total_pdv;
+          const pdvAct    = USE_MAP_ELIGIBLE_STATS_FOR_KPIS && mapS?.complete ? mapS.activosMap : (v.pdv_activos ?? 0);
           const pct       = pdvTot > 0 ? Math.round((pdvAct / pdvTot) * 100) : 0;
 
           return (
@@ -1813,8 +1817,8 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                 const isVendOn  = visibleVends.has(v.id_vendedor);
                 const isVendLoad = loadingMap.has(v.id_vendedor);
                 const mapS      = vendorMapEligibleStats.get(v.id_vendedor);
-                const pdvTot    = mapS?.complete ? mapS.totalMap : v.total_pdv;
-                const pdvAct    = mapS?.complete ? mapS.activosMap : (v.pdv_activos ?? 0);
+                const pdvTot    = USE_MAP_ELIGIBLE_STATS_FOR_KPIS && mapS?.complete ? mapS.totalMap : v.total_pdv;
+                const pdvAct    = USE_MAP_ELIGIBLE_STATS_FOR_KPIS && mapS?.complete ? mapS.activosMap : (v.pdv_activos ?? 0);
                 const pct       = pdvTot > 0 ? Math.round((pdvAct / pdvTot) * 100) : 0;
 
                 return (

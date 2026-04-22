@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ImageOff, Clock, MapPin, ChevronLeft, ChevronRight, Activity, ExternalLink } from 'lucide-react';
+import { ImageOff, Clock, MapPin, ChevronLeft, ChevronRight, Activity } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { resolveImageUrl, type UltimaEvaluada } from '@/lib/api';
@@ -171,14 +171,6 @@ export function HeroCarousel({ items }: HeroCarouselProps) {
                 </div>
               )}
 
-              {/* Mejora #26: CTA "Ver en Visor" por slide */}
-              <Link
-                href={`/visor?exhibicion=${item.id_exhibicion}`}
-                className="ml-auto flex items-center gap-1.5 bg-white/15 hover:bg-white/25 backdrop-blur-xl px-4 py-2 rounded-2xl border border-white/20 text-white text-[10px] font-black uppercase tracking-widest transition-all group/link"
-              >
-                Ver en Visor
-                <ExternalLink size={11} className="opacity-60 group-hover/link:opacity-100 transition-opacity" />
-              </Link>
             </div>
           </motion.div>
         </AnimatePresence>

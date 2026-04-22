@@ -51,7 +51,7 @@ def _build_ruteo_context(dist_id: int, pdv_items: list[Any]) -> list[dict]:
     Enriquece cada ítem con datos de la base de datos:
     - nombre_pdv (si no viene)
     - ruta_actual (dia_semana de rutas_v2)
-    - nombre_ruta_destino (si accion = cambio_ruta)
+    - nombre_ruta_destino (si accion = cambio_ruta) con formato "Ruta [nro] - [día]"
     - coordenadas del PDV
     """
     if not sb:
@@ -89,7 +89,7 @@ def _build_ruteo_context(dist_id: int, pdv_items: list[Any]) -> list[dict]:
     if all_ruta_ids:
         try:
             ruta_res = sb.table("rutas_v2") \
-                .select("id_ruta, dia_semana, nombre_ruta") \
+                .select("id_ruta, nro_ruta, dia_semana, nombre_ruta") \
                 .in_("id_ruta", all_ruta_ids) \
                 .execute()
             ruta_map = {r["id_ruta"]: r for r in (ruta_res.data or [])}
@@ -100,11 +100,21 @@ def _build_ruteo_context(dist_id: int, pdv_items: list[Any]) -> list[dict]:
     for i, item in enumerate(pdv_items):
         pdv = pdv_map.get(item.id_cliente_pdv, {})
         ruta_actual_obj = ruta_map.get(pdv.get("id_ruta", 0), {})
-        ruta_actual = ruta_actual_obj.get("dia_semana") or ruta_actual_obj.get("nombre_ruta") or "-"
+        dia_actual = ruta_actual_obj.get("dia_semana")
+        nro_actual = ruta_actual_obj.get("nro_ruta")
+        if nro_actual and dia_actual:
+            ruta_actual = f"Ruta {nro_actual} - {dia_actual}"
+        else:
+            ruta_actual = dia_actual or ruta_actual_obj.get("nombre_ruta") or "-"
 
         if item.accion_ruteo == "cambio_ruta":
             ruta_dest_obj = ruta_map.get(item.id_ruta_destino or 0, {})
-            destino = ruta_dest_obj.get("dia_semana") or ruta_dest_obj.get("nombre_ruta") or str(item.id_ruta_destino or "-")
+            dia_dest = ruta_dest_obj.get("dia_semana")
+            nro_dest = ruta_dest_obj.get("nro_ruta")
+            if nro_dest and dia_dest:
+                destino = f"Ruta {nro_dest} - {dia_dest}"
+            else:
+                destino = dia_dest or ruta_dest_obj.get("nombre_ruta") or str(item.id_ruta_destino or "-")
         else:
             destino = item.motivo_baja or "-"
 
@@ -197,7 +207,6 @@ def _render_pdf(objetivo_id: str, nombre_vendedor: str, rows: list[dict]) -> byt
         cliente_lines = []
         if r.get("id_cliente_erp"):
             cliente_lines.append(f"ERP: {r['id_cliente_erp']}")
-        cliente_lines.append(f"Shelfy: {r.get('id_cliente_pdv')}")
         cliente_lines.append(r["nombre_pdv"])
 
         detalle_lines = [

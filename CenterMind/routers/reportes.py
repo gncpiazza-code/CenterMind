@@ -4,7 +4,7 @@ Endpoints de reportes, dashboard, bonos y landing pública.
 """
 import logging
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -312,9 +312,31 @@ def reportes_sucursales(distribuidor_id: int, _=Depends(verify_auth)):
 
 @router.post("/api/reportes/exhibiciones/{distribuidor_id}")
 def reportes_exhibiciones(distribuidor_id: int, q_body: ReporteQuery, _=Depends(verify_auth)):
+    def _safe_text(value: Any) -> str:
+        if value is None:
+            return ""
+        return value if isinstance(value, str) else str(value)
+
+    def _safe_int(value: Any) -> Optional[int]:
+        try:
+            return int(value) if value is not None else None
+        except Exception:
+            return None
+
+    def _normalize(value: Any) -> str:
+        import unicodedata
+        txt = _safe_text(value).strip().lower()
+        return "".join(ch for ch in unicodedata.normalize("NFD", txt) if unicodedata.category(ch) != "Mn")
+
+    def _normalize_erp_code(value: Any) -> str:
+        raw = _safe_text(value).strip()
+        if not raw:
+            return ""
+        return raw.lstrip("0") or "0"
+
     query = sb.table("exhibiciones").select(
         "id_exhibicion, estado, tipo_pdv, supervisor_nombre, comentario_evaluacion, "
-        "timestamp_subida, evaluated_at, url_foto_drive, id_integrante, id_cliente"
+        "timestamp_subida, evaluated_at, url_foto_drive, id_integrante, id_cliente, id_cliente_pdv, cliente_sombra_codigo"
     )
     query = query.gte("timestamp_subida", f"{q_body.fecha_desde}T03:00:00Z").lte("timestamp_subida", f"{q_body.fecha_hasta}T23:59:59Z")
     if distribuidor_id > 0: query = query.eq("id_distribuidor", distribuidor_id)
@@ -323,23 +345,117 @@ def reportes_exhibiciones(distribuidor_id: int, q_body: ReporteQuery, _=Depends(
     result = query.order("timestamp_subida", desc=True).execute()
     rows   = result.data or []
 
+    # Resolver vendedor de forma robusta (binding moderno + legado).
+    vendedores_res = (
+        sb.table("vendedores_v2")
+        .select("id_vendedor, nombre_erp, id_vendedor_erp")
+        .eq("id_distribuidor", distribuidor_id)
+        .execute()
+    )
+    vendedores = vendedores_res.data or []
+    vend_ids = {
+        _safe_int(v.get("id_vendedor"))
+        for v in vendedores
+        if _safe_int(v.get("id_vendedor")) is not None
+    }
+    vend_erp_to_id: dict[str, int] = {}
+    vend_name_to_id: dict[str, int] = {}
+    vend_name_ambiguous: set[str] = set()
+    vend_id_to_name: dict[int, str] = {}
+    for v in vendedores:
+        vid = _safe_int(v.get("id_vendedor"))
+        if vid is None:
+            continue
+        vend_id_to_name[vid] = _safe_text(v.get("nombre_erp")).strip()
+        id_erp = _safe_text(v.get("id_vendedor_erp")).strip()
+        if id_erp and id_erp not in vend_erp_to_id:
+            vend_erp_to_id[id_erp] = vid
+        name_norm = _normalize(v.get("nombre_erp"))
+        if name_norm:
+            if name_norm in vend_name_to_id and vend_name_to_id[name_norm] != vid:
+                vend_name_ambiguous.add(name_norm)
+            else:
+                vend_name_to_id[name_norm] = vid
+
+    binding_by_tg_user: dict[int, int] = {}
+    try:
+        bind_r = (
+            sb.table("vendedores_telegram_binding")
+            .select("id_vendedor_v2, telegram_user_id")
+            .eq("id_distribuidor", distribuidor_id)
+            .execute()
+        )
+        for b in (bind_r.data or []):
+            vid = _safe_int(b.get("id_vendedor_v2"))
+            tg_uid = _safe_int(b.get("telegram_user_id"))
+            if vid is not None and tg_uid is not None and vid in vend_ids:
+                binding_by_tg_user[tg_uid] = vid
+    except Exception:
+        pass
+
+    integrantes_res = (
+        sb.table("integrantes_grupo")
+        .select("id_integrante, telegram_user_id, nombre_integrante, id_vendedor_v2, id_vendedor_erp")
+        .eq("id_distribuidor", distribuidor_id)
+        .execute()
+    )
+    integrantes = integrantes_res.data or []
+    integrante_to_vendor_name: dict[int, str] = {}
+    int_map = {r["id_integrante"]: r.get("nombre_integrante", "") for r in integrantes if r.get("id_integrante") is not None}
+    for ig in integrantes:
+        iid = _safe_int(ig.get("id_integrante"))
+        if iid is None:
+            continue
+        vid = None
+        tg_uid = _safe_int(ig.get("telegram_user_id"))
+        if tg_uid is not None and tg_uid in binding_by_tg_user:
+            vid = binding_by_tg_user[tg_uid]
+        if vid is None:
+            v2 = _safe_int(ig.get("id_vendedor_v2"))
+            if v2 is not None and v2 in vend_ids:
+                vid = v2
+        if vid is None:
+            erp = _safe_text(ig.get("id_vendedor_erp")).strip()
+            if erp and erp in vend_erp_to_id:
+                vid = vend_erp_to_id[erp]
+        if vid is None:
+            name_norm = _normalize(ig.get("nombre_integrante"))
+            if name_norm and name_norm not in vend_name_ambiguous and name_norm in vend_name_to_id:
+                vid = vend_name_to_id[name_norm]
+        if vid is not None and vid in vend_id_to_name:
+            integrante_to_vendor_name[iid] = vend_id_to_name[vid]
+
     erp_name_map = _get_erp_name_map(distribuidor_id)
-    integrantes_res = sb.table("integrantes_grupo").select("id_integrante, nombre_integrante").eq("id_distribuidor", distribuidor_id).execute()
-    int_map = {r["id_integrante"]: r["nombre_integrante"] for r in (integrantes_res.data or [])}
 
     filtered_rows = []
     for r in rows:
-        id_int  = r.get("id_integrante")
-        tg_name = int_map.get(id_int, "Desconocido")
+        id_int = _safe_int(r.get("id_integrante"))
+        tg_name = int_map.get(id_int, "Desconocido") if id_int is not None else "Desconocido"
         if distribuidor_id == 3 and tg_name.lower() == "nacho": continue
-        erp_name = erp_name_map.get(tg_name.lower(), tg_name)
+        erp_name = integrante_to_vendor_name.get(id_int) if id_int is not None else None
+        if not erp_name:
+            erp_name = erp_name_map.get(tg_name.lower(), tg_name)
         if distribuidor_id == 3 and erp_name.lower() == "nacho": continue
         r["vendedor"] = erp_name
         filtered_rows.append(r)
     rows = filtered_rows
 
     integrante_ids = list(set(r.get("id_integrante") for r in rows if r.get("id_integrante")))
-    cliente_ids    = list(set(r["id_cliente"] for r in rows if r.get("id_cliente")))
+    cliente_ids = list(
+        set(
+            cid for cid in (
+                _safe_int(r.get("id_cliente_pdv")) or _safe_int(r.get("id_cliente"))
+                for r in rows
+            ) if cid is not None
+        )
+    )
+    shadow_codes = list(
+        set(
+            _safe_text(r.get("cliente_sombra_codigo")).strip()
+            for r in rows
+            if _safe_text(r.get("cliente_sombra_codigo")).strip()
+        )
+    )
     vendedores_map: dict = {}
     clientes_map:   dict = {}
     if integrante_ids:
@@ -353,6 +469,21 @@ def reportes_exhibiciones(distribuidor_id: int, q_body: ReporteQuery, _=Depends(
     if cliente_ids:
         cl = sb.table("clientes_pdv_v2").select("id_cliente, id_cliente_erp").in_("id_cliente", cliente_ids).execute()
         clientes_map = {r["id_cliente"]: r["id_cliente_erp"] for r in (cl.data or [])}
+    shadow_map: dict[str, str] = {}
+    if shadow_codes:
+        cl_shadow = (
+            sb.table("clientes_pdv_v2")
+            .select("id_cliente_erp")
+            .eq("id_distribuidor", distribuidor_id)
+            .in_("id_cliente_erp", shadow_codes)
+            .execute()
+        )
+        for c in (cl_shadow.data or []):
+            erp = _safe_text(c.get("id_cliente_erp")).strip()
+            if not erp:
+                continue
+            shadow_map.setdefault(erp, erp)
+            shadow_map.setdefault(_normalize_erp_code(erp), erp)
 
     output = []
     for r in rows:
@@ -361,9 +492,14 @@ def reportes_exhibiciones(distribuidor_id: int, q_body: ReporteQuery, _=Depends(
             if vendedor_name not in q_body.vendedores: continue
         output.append({
             "id_exhibicion": r["id_exhibicion"],
-            "vendedor": vendedores_map.get(r.get("id_integrante"), "Sin nombre"),
+            "vendedor": r.get("vendedor") or vendedores_map.get(r.get("id_integrante"), "Sin nombre"),
             "sucursal": "",
-            "cliente": clientes_map.get(r.get("id_cliente"), str(r.get("id_cliente", ""))),
+            "cliente": (
+                clientes_map.get(_safe_int(r.get("id_cliente_pdv")) or _safe_int(r.get("id_cliente")))
+                or shadow_map.get(_safe_text(r.get("cliente_sombra_codigo")).strip())
+                or shadow_map.get(_normalize_erp_code(r.get("cliente_sombra_codigo")))
+                or str(r.get("id_cliente_pdv") or r.get("id_cliente") or r.get("cliente_sombra_codigo") or "")
+            ),
             "tipo_pdv": r.get("tipo_pdv", ""), "estado": r["estado"],
             "supervisor": r.get("supervisor_nombre", ""), "comentario": r.get("comentario_evaluacion", ""),
             "fecha_carga": r.get("timestamp_subida"), "fecha_evaluacion": r.get("evaluated_at"),

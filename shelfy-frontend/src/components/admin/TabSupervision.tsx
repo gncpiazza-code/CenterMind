@@ -1281,6 +1281,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
         const firstPin = pines.find(p => selectedPDVsForObjective.includes(p.id) && p.id_vendedor);
         if (firstPin?.id_vendedor) {
           const autoDesc = objDesc || buildObjectivePhrase(objTipo, firstPin.vendedor, null, objFecha);
+          const globalDestinoRuta = objVendedorRoutes.find(r => r.id_ruta === objRuteoGlobalDestinoId) ?? null;
           const pdvItems = selectedPDVsForObjective.map((pdvId, idx) => {
             const pin = pines.find(p => p.id === pdvId);
             if (objRuteoConfigMode === "global") {
@@ -1290,7 +1291,13 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                 nombre_pdv: pin?.nombre,
                 accion_ruteo: acc,
                 ...(acc === "cambio_ruta" && objRuteoGlobalDestinoId
-                  ? { id_ruta_destino: objRuteoGlobalDestinoId }
+                  ? {
+                      id_ruta_destino: objRuteoGlobalDestinoId,
+                      metadata_ruteo: {
+                        nro_ruta_destino: globalDestinoRuta?.nro_ruta ?? null,
+                        dia_semana_destino: globalDestinoRuta?.dia_semana ?? null,
+                      },
+                    }
                   : {}),
                 ...(acc === "baja" && objRuteoGlobalMotivo.trim()
                   ? { motivo_baja: objRuteoGlobalMotivo.trim() }
@@ -1299,11 +1306,20 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
               };
             }
             const item = objRuteoItemsMap[pdvId] ?? { accion: objRuteoAccionGlobal };
+            const destinoRuta = objVendedorRoutes.find(r => r.id_ruta === item.id_ruta_destino) ?? null;
             return {
               id_cliente_pdv: pdvId,
               nombre_pdv: pin?.nombre,
               accion_ruteo: item.accion,
-              ...(item.accion === 'cambio_ruta' && item.id_ruta_destino ? { id_ruta_destino: item.id_ruta_destino } : {}),
+              ...(item.accion === 'cambio_ruta' && item.id_ruta_destino
+                ? {
+                    id_ruta_destino: item.id_ruta_destino,
+                    metadata_ruteo: {
+                      nro_ruta_destino: destinoRuta?.nro_ruta ?? null,
+                      dia_semana_destino: destinoRuta?.dia_semana ?? null,
+                    },
+                  }
+                : {}),
               ...(item.accion === 'baja' && item.motivo_baja ? { motivo_baja: item.motivo_baja } : {}),
               orden_sugerido: idx + 1,
             };
@@ -3265,9 +3281,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                         <ul className="text-[11px] text-[var(--shelfy-text)] space-y-0.5">
                           {objVendedorRoutes.map(r => (
                             <li key={r.id_ruta}>
-                              <span className="font-mono text-[var(--shelfy-accent)]">id_ruta {r.id_ruta}</span>
-                              {" · "}
-                              <span className="text-[var(--shelfy-muted)]">{r.nro_ruta}</span>
+                              <span className="font-mono text-[var(--shelfy-accent)]">Ruta {r.nro_ruta ?? "—"}</span>
                               {" · "}
                               <span className="capitalize">{r.dia_semana || "—"}</span>
                               {r.total_pdv != null ? <span className="text-[var(--shelfy-muted)]"> · {r.total_pdv} PDV</span> : null}
@@ -3348,7 +3362,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                               <SelectContent className="max-h-60">
                                 {objVendedorRoutes.map(r => (
                                   <SelectItem key={r.id_ruta} value={String(r.id_ruta)}>
-                                    id {r.id_ruta} · {r.nro_ruta} · {r.dia_semana || "—"}
+                                    Ruta {r.nro_ruta ?? "—"} · {r.dia_semana || "—"}
                                   </SelectItem>
                                 ))}
                               </SelectContent>
@@ -3414,7 +3428,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                                   <SelectContent className="max-h-52">
                                     {objVendedorRoutes.map(r => (
                                       <SelectItem key={`${pdvId}-${r.id_ruta}`} value={String(r.id_ruta)}>
-                                        id {r.id_ruta} · {r.nro_ruta} · {r.dia_semana || "—"}
+                                        Ruta {r.nro_ruta ?? "—"} · {r.dia_semana || "—"}
                                       </SelectItem>
                                     ))}
                                   </SelectContent>

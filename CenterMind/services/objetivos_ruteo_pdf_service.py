@@ -143,10 +143,23 @@ def _build_ruteo_context(dist_id: int, pdv_items: list[Any]) -> list[dict]:
         else:
             ruta_actual = dia_actual or ruta_actual_obj.get("nombre_ruta") or "-"
 
+        metadata = _item_get(item, "metadata_ruteo") or {}
+        nro_meta_dest = None
+        dia_meta_dest = None
+        if isinstance(metadata, dict):
+            nro_meta_dest = metadata.get("nro_ruta_destino")
+            dia_meta_dest = metadata.get("dia_semana_destino")
+
         accion = _item_get(item, "accion_ruteo")
         if accion == "cambio_ruta":
             destino_raw = _item_get(item, "id_ruta_destino")
-            ruta_dest_obj = ruta_map.get(destino_raw or 0, {})
+            destino_id_int = None
+            if destino_raw is not None:
+                try:
+                    destino_id_int = int(str(destino_raw).strip())
+                except Exception:
+                    destino_id_int = None
+            ruta_dest_obj = ruta_map.get(destino_id_int or 0, {})
             # Fallback: si destino_raw es nro_ruta (valor de negocio), resolver por nro.
             if not ruta_dest_obj and destino_raw is not None:
                 ruta_dest_obj = ruta_by_nro.get(str(destino_raw).strip(), {})
@@ -159,12 +172,15 @@ def _build_ruteo_context(dist_id: int, pdv_items: list[Any]) -> list[dict]:
             elif destino_raw is not None and str(destino_raw).strip() in ruta_by_nro:
                 # Si el valor guardado era nro_ruta y no hay día, al menos mostrar formato de negocio.
                 destino = f"Ruta {str(destino_raw).strip()}"
+            elif nro_meta_dest and dia_meta_dest:
+                destino = f"Ruta {nro_meta_dest} - {dia_meta_dest}"
+            elif nro_meta_dest:
+                destino = f"Ruta {nro_meta_dest}"
             else:
                 destino = ruta_dest_obj.get("nombre_ruta") or str(destino_raw or "-")
         else:
             destino = _item_get(item, "motivo_baja") or "-"
 
-        metadata = _item_get(item, "metadata_ruteo") or {}
         if isinstance(metadata, dict):
             id_cliente_erp = _item_get(item, "id_cliente_erp") or metadata.get("id_cliente_erp") or pdv.get("id_cliente_erp")
         else:

@@ -56,7 +56,7 @@ async def health_check():
     from core.config import WEBHOOK_URL
     return {
         "status": "online",
-        "version": "2.1.2-dashboard-fix",
+        "version": "2.1.3-deploy-marker",
         "bots_active": list(bots.keys()),
         "webhook_url": WEBHOOK_URL,
     }

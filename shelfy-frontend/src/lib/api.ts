@@ -1670,6 +1670,13 @@ export async function fetchObjetivoDocumentos(objetivoId: string): Promise<Objet
   return apiFetch<ObjetivoDocumento[]>(`/api/supervision/objetivos/${objetivoId}/documentos`);
 }
 
+export async function regenerateObjetivoRuteoPDF(objetivoId: string): Promise<{ ok: boolean; url: string }> {
+  return apiFetch<{ ok: boolean; url: string }>(
+    `/api/supervision/objetivos/${objetivoId}/regenerar-pdf-ruteo`,
+    { method: "POST" }
+  );
+}
+
 // ── Objetivos — Supervisor aggregation ────────────────────────────────────────
 
 export interface ResumenVendedorObjetivos {

@@ -17,6 +17,7 @@ import {
   fetchObjetivos,
   fetchObjetivosTimeline,
   fetchResumenSupervisorObjetivos,
+  regenerateObjetivoRuteoPDF,
   createObjetivo,
   updateObjetivo,
   deleteObjetivo,
@@ -405,7 +406,7 @@ function downloadCertificado(obj: Objetivo, sucursalNombre?: string) {
       doc.setTextColor(30, 41, 59);
       doc.setFontSize(9);
       for (const item of obj.items.slice(0, 15)) {
-        const nombre = item.nombre_pdv ?? `PDV #${item.id_cliente_pdv}`;
+        const nombre = item.nombre_pdv ?? `Cliente ERP #${getObjetivoItemClientCode(item) ?? "S/D"}`;
         const estado = item.estado_item ?? "pendiente";
         const estadoIcon = estado === "cumplido" ? "✓" : estado === "falla" ? "✗" : "·";
         const lineas = doc.splitTextToSize(`${estadoIcon} ${nombre}`, textWidth - 8);
@@ -449,11 +450,12 @@ function downloadCertificado(obj: Objetivo, sucursalNombre?: string) {
 
 // ── Kanban card ───────────────────────────────────────────────────────────────
 
-function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado }: {
+function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado, onOpenRuteoPdf }: {
   obj: Objetivo;
   onDelete: () => void;
   onReagendar: (obj: Objetivo) => void;
   onDownloadCertificado: (obj: Objetivo) => void;
+  onOpenRuteoPdf: (obj: Objetivo) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -545,7 +547,7 @@ function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado }: {
                       it.estado_item === 'falla' ? 'bg-red-500' :
                       'bg-[var(--shelfy-border)]'
                     }`}
-                    title={`${getObjetivoItemClientCode(it) ? `ERP ${getObjetivoItemClientCode(it)} · ` : ""}${it.nombre_pdv ?? `PDV ${it.id_cliente_pdv}`}`}
+                    title={`${getObjetivoItemClientCode(it) ? `ERP ${getObjetivoItemClientCode(it)} · ` : ""}${it.nombre_pdv ?? "Cliente sin nombre"}`}
                   />
                 ))}
                 {obj.items.length > 6 && <span>+{obj.items.length - 6}</span>}
@@ -578,17 +580,12 @@ function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado }: {
                           it.estado_item === 'falla' ? 'bg-red-500' :
                           'bg-[var(--shelfy-muted)]/30'
                         }`} />
-                        <span className="text-[var(--shelfy-text)] truncate">
-                          {it.nombre_pdv ?? `PDV ${it.id_cliente_pdv}`}
-                        </span>
+                        <span className="text-[var(--shelfy-text)] truncate">{it.nombre_pdv ?? "Cliente sin nombre"}</span>
                         {getObjetivoItemClientCode(it) && (
                           <span className="text-[10px] text-[var(--shelfy-muted)]/70 font-mono shrink-0">
                             ERP #{getObjetivoItemClientCode(it)}
                           </span>
                         )}
-                        <span className="text-[10px] text-[var(--shelfy-muted)]/70 font-mono shrink-0">
-                          ID {it.id_cliente_pdv}
-                        </span>
                         <span className="text-[var(--shelfy-muted)] shrink-0 capitalize">{it.estado_item.replace('_', ' ')}</span>
                       </div>
                     ))}
@@ -603,16 +600,14 @@ function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado }: {
         <div className="flex items-center justify-between pt-1 gap-1.5 flex-wrap" onClick={(e) => e.stopPropagation()}>
           <DateChip date={obj.fecha_objetivo} />
           <div className="flex items-center gap-1 print-hidden">
-            {obj.url_pdf_ruteo && (
-              <a
-                href={obj.url_pdf_ruteo}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
+            {obj.tipo === "ruteo" && (
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onOpenRuteoPdf(obj); }}
                 className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border border-purple-500/30 text-purple-600 hover:bg-purple-500/10 transition-all"
               >
                 <FileDown className="w-3 h-3" /> PDF Ruteo
-              </a>
+              </button>
             )}
             {obj.cumplido && (
               <button
@@ -1550,12 +1545,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
                                 {sel && <Check className="w-2.5 h-2.5 text-white" />}
                               </div>
                               <span className="text-[var(--shelfy-text)] truncate flex-1 text-left">{pdv.nombre_cliente}</span>
-                              <span className="text-[10px] text-[var(--shelfy-muted)]/70 font-mono shrink-0">
-                                ERP #{pdv.id_cliente_erp ?? "—"}
-                              </span>
-                              <span className="text-[10px] text-[var(--shelfy-muted)]/70 font-mono shrink-0">
-                                ID {pdv.id_cliente}
-                              </span>
+                              <span className="text-[10px] text-[var(--shelfy-muted)]/70 font-mono shrink-0">ERP #{pdv.id_cliente_erp ?? "—"}</span>
                             </button>
 
                             {/* Per-item action (only when selected) */}
@@ -1941,10 +1931,10 @@ function ObjectivePrintOut({ objetivos }: { objetivos: Objetivo[] }) {
                   <div key={it.id_cliente_pdv} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
                     <div style={{ width: 14, height: 14, border: "1.5px solid #64748b", borderRadius: 3, flexShrink: 0 }} />
                     <span style={{ color: "#334155" }}>
-                      {it.nombre_pdv ?? `PDV ${it.id_cliente_pdv}`}
+                      {it.nombre_pdv ?? "Cliente sin nombre"}
                       {" · "}
                       <span style={{ fontFamily: "monospace", color: "#64748b" }}>
-                        ERP #{getObjetivoItemClientCode(it) ?? "—"} · ID {it.id_cliente_pdv}
+                        ERP #{getObjetivoItemClientCode(it) ?? "—"}
                       </span>
                     </span>
                   </div>
@@ -2399,6 +2389,21 @@ export default function ObjetivosPage() {
     downloadCertificado(obj, vend?.sucursal_nombre ?? undefined);
   }, [vendedores]);
 
+  const handleOpenRuteoPdf = useCallback(async (obj: Objetivo) => {
+    try {
+      const res = await regenerateObjetivoRuteoPDF(obj.id);
+      if (res?.url) {
+        qc.invalidateQueries({ queryKey: ["objetivos", distId] });
+        window.open(res.url, "_blank", "noopener,noreferrer");
+      } else {
+        throw new Error("No se recibió URL del PDF");
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "No se pudo regenerar el PDF de ruteo";
+      toast.error(msg);
+    }
+  }, [qc, distId]);
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -2608,6 +2613,7 @@ export default function ObjetivosPage() {
                   onDelete={(id) => deleteMut.mutate(id)}
                   onReagendar={(o) => { setReagendarObj(o); setFechaReagendar(""); setObservacionReagendar(""); }}
                   onDownloadCertificado={handleDownloadCertificado}
+                  onOpenRuteoPdf={handleOpenRuteoPdf}
                   filterKanbanPhase={filterKanbanPhase}
                   setFilterKanbanPhase={setFilterKanbanPhase}
                 />
@@ -2742,6 +2748,7 @@ function KanbanOrListaView({
   onDelete,
   onReagendar,
   onDownloadCertificado,
+  onOpenRuteoPdf,
   filterKanbanPhase,
   setFilterKanbanPhase,
 }: {
@@ -2749,6 +2756,7 @@ function KanbanOrListaView({
   onDelete: (id: string) => void;
   onReagendar: (obj: Objetivo) => void;
   onDownloadCertificado: (obj: Objetivo) => void;
+  onOpenRuteoPdf: (obj: Objetivo) => void;
   filterKanbanPhase: 'pendiente' | 'en_progreso' | 'terminado' | null;
   setFilterKanbanPhase: (phase: 'pendiente' | 'en_progreso' | 'terminado' | null) => void;
 }) {
@@ -2792,6 +2800,7 @@ function KanbanOrListaView({
                   onDelete={() => onDelete(obj.id)}
                   onReagendar={onReagendar}
                   onDownloadCertificado={onDownloadCertificado}
+                  onOpenRuteoPdf={onOpenRuteoPdf}
                 />
               ))}
             </AnimatePresence>

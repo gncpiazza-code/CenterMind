@@ -2090,6 +2090,67 @@ def listar_objetivo_documentos(objetivo_id: str, user_payload=Depends(verify_aut
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/api/supervision/objetivos/{objetivo_id}/regenerar-pdf-ruteo", tags=["Supervisión"])
+def regenerar_pdf_ruteo(objetivo_id: str, user_payload=Depends(verify_auth)):
+    """Regenera el PDF operativo de un objetivo de ruteo y devuelve la nueva URL."""
+    try:
+        existing = (
+            sb.table("objetivos")
+            .select("id, id_distribuidor, tipo, nombre_vendedor")
+            .eq("id", objetivo_id)
+            .limit(1)
+            .execute()
+        )
+        if not existing.data:
+            raise HTTPException(status_code=404, detail="Objetivo no encontrado")
+
+        obj = existing.data[0]
+        dist_id = obj["id_distribuidor"]
+        check_dist_permission(user_payload, dist_id)
+        if obj.get("tipo") != "ruteo":
+            raise HTTPException(status_code=400, detail="Solo aplica a objetivos tipo ruteo")
+
+        items_res = (
+            sb.table("objetivo_items")
+            .select(
+                "id_cliente_pdv, nombre_pdv, accion_ruteo, id_ruta_destino, "
+                "motivo_baja, orden_sugerido, metadata_ruteo"
+            )
+            .eq("id_objetivo", objetivo_id)
+            .order("orden_sugerido")
+            .execute()
+        )
+        items = items_res.data or []
+        if not items:
+            raise HTTPException(status_code=400, detail="El objetivo no tiene PDVs para generar PDF")
+
+        from services.objetivos_ruteo_pdf_service import objetivos_ruteo_pdf_service
+
+        pdf_result = objetivos_ruteo_pdf_service.generate_and_store(
+            dist_id=dist_id,
+            objetivo_id=objetivo_id,
+            nombre_vendedor=obj.get("nombre_vendedor") or "",
+            pdv_items=items,
+        )
+        url = pdf_result.get("url")
+        if not url:
+            raise HTTPException(status_code=500, detail="No se pudo generar el PDF de ruteo")
+
+        sb.table("objetivo_documentos").insert({
+            "id_objetivo": objetivo_id,
+            "id_distribuidor": dist_id,
+            "tipo_documento": "ruteo_pdf",
+            "url_documento": url,
+        }).execute()
+
+        return {"ok": True, "url": url}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error en regenerar_pdf_ruteo objetivo_id={objetivo_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.delete("/api/supervision/objetivos/{objetivo_id}", tags=["Supervisión"])
 def eliminar_objetivo(objetivo_id: str, user_payload=Depends(verify_auth)):
     try:

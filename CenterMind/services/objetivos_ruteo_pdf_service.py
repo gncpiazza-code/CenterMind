@@ -40,10 +40,21 @@ except ImportError:
 
 STORAGE_BUCKET = "objetivos-pdf"
 
-# Violet accent para encabezados (#7C3AED equivalente en RGB)
-_VIOLET = colors.HexColor("#7C3AED")
-_VIOLET_LIGHT = colors.HexColor("#EDE9FE")
-_SLATE = colors.HexColor("#64748B")
+if _REPORTLAB_AVAILABLE:
+    # Violet accent para encabezados (#7C3AED equivalente en RGB)
+    _VIOLET = colors.HexColor("#7C3AED")
+    _VIOLET_LIGHT = colors.HexColor("#EDE9FE")
+    _SLATE = colors.HexColor("#64748B")
+else:
+    _VIOLET = None
+    _VIOLET_LIGHT = None
+    _SLATE = None
+
+
+def _item_get(item: Any, key: str, default=None):
+    if isinstance(item, dict):
+        return item.get(key, default)
+    return getattr(item, key, default)
 
 
 def _build_ruteo_context(dist_id: int, pdv_items: list[Any]) -> list[dict]:
@@ -55,18 +66,18 @@ def _build_ruteo_context(dist_id: int, pdv_items: list[Any]) -> list[dict]:
     - coordenadas del PDV
     """
     if not sb:
-        return [{"id_cliente_pdv": item.id_cliente_pdv,
-                 "id_cliente_erp": getattr(item, "id_cliente_erp", None),
-                 "nombre_pdv": item.nombre_pdv or f"PDV {item.id_cliente_pdv}",
-                 "ruta_actual": "-", "accion_ruteo": item.accion_ruteo or "-",
-                 "destino_o_motivo": item.motivo_baja or "-",
+        return [{"id_cliente_pdv": _item_get(item, "id_cliente_pdv"),
+                 "id_cliente_erp": _item_get(item, "id_cliente_erp"),
+                 "nombre_pdv": _item_get(item, "nombre_pdv") or "Cliente sin nombre",
+                 "ruta_actual": "-", "accion_ruteo": _item_get(item, "accion_ruteo") or "-",
+                 "destino_o_motivo": _item_get(item, "motivo_baja") or "-",
                  "domicilio": "-",
                  "ultima_compra": "-",
                  "orden": i + 1}
                 for i, item in enumerate(pdv_items)]
 
     # Bulk-fetch PDV data
-    pdv_ids = [item.id_cliente_pdv for item in pdv_items]
+    pdv_ids = [_item_get(item, "id_cliente_pdv") for item in pdv_items if _item_get(item, "id_cliente_pdv")]
     try:
         pdv_res = sb.table("clientes_pdv_v2") \
             .select(
@@ -81,24 +92,41 @@ def _build_ruteo_context(dist_id: int, pdv_items: list[Any]) -> list[dict]:
         logger.warning(f"[RuteoPDF] Error fetching PDVs: {e}")
         pdv_map = {}
 
-    # Bulk-fetch rutas
+    # Bulk-fetch rutas (robusto: algunos tenants no tienen nro_ruta)
     ruta_ids_actuales = [pdv_map[pid]["id_ruta"] for pid in pdv_ids if pid in pdv_map and pdv_map[pid].get("id_ruta")]
-    ruta_ids_destino  = [item.id_ruta_destino for item in pdv_items if item.id_ruta_destino]
+    ruta_ids_destino  = [_item_get(item, "id_ruta_destino") for item in pdv_items if _item_get(item, "id_ruta_destino")]
     all_ruta_ids = list(set(ruta_ids_actuales + ruta_ids_destino))
     ruta_map: dict[int, dict] = {}
+    ruta_by_nro: dict[str, dict] = {}
     if all_ruta_ids:
-        try:
-            ruta_res = sb.table("rutas_v2") \
-                .select("id_ruta, nro_ruta, dia_semana, nombre_ruta") \
-                .in_("id_ruta", all_ruta_ids) \
-                .execute()
-            ruta_map = {r["id_ruta"]: r for r in (ruta_res.data or [])}
-        except Exception as e:
-            logger.warning(f"[RuteoPDF] Error fetching rutas: {e}")
+        rows = []
+        select_attempts = [
+            "id_ruta, nro_ruta, dia_semana, nombre_ruta",
+            "id_ruta, dia_semana, nombre_ruta",
+            "id_ruta, dia_semana",
+        ]
+        for cols in select_attempts:
+            try:
+                ruta_res = sb.table("rutas_v2") \
+                    .select(cols) \
+                    .eq("id_distribuidor", dist_id) \
+                    .execute()
+                rows = ruta_res.data or []
+                break
+            except Exception:
+                continue
+        if not rows:
+            logger.warning("[RuteoPDF] No se pudieron cargar rutas_v2 para el dist=%s", dist_id)
+        ruta_map = {r["id_ruta"]: r for r in rows if r.get("id_ruta") is not None}
+        for r in rows:
+            nro = r.get("nro_ruta")
+            if nro is not None and str(nro).strip():
+                ruta_by_nro[str(nro).strip()] = r
 
     rows = []
     for i, item in enumerate(pdv_items):
-        pdv = pdv_map.get(item.id_cliente_pdv, {})
+        id_cliente_pdv = _item_get(item, "id_cliente_pdv")
+        pdv = pdv_map.get(id_cliente_pdv, {})
         ruta_actual_obj = ruta_map.get(pdv.get("id_ruta", 0), {})
         dia_actual = ruta_actual_obj.get("dia_semana")
         nro_actual = ruta_actual_obj.get("nro_ruta")
@@ -107,24 +135,37 @@ def _build_ruteo_context(dist_id: int, pdv_items: list[Any]) -> list[dict]:
         else:
             ruta_actual = dia_actual or ruta_actual_obj.get("nombre_ruta") or "-"
 
-        if item.accion_ruteo == "cambio_ruta":
-            ruta_dest_obj = ruta_map.get(item.id_ruta_destino or 0, {})
+        accion = _item_get(item, "accion_ruteo")
+        if accion == "cambio_ruta":
+            destino_raw = _item_get(item, "id_ruta_destino")
+            ruta_dest_obj = ruta_map.get(destino_raw or 0, {})
+            # Fallback: si destino_raw es nro_ruta (valor de negocio), resolver por nro.
+            if not ruta_dest_obj and destino_raw is not None:
+                ruta_dest_obj = ruta_by_nro.get(str(destino_raw).strip(), {})
             dia_dest = ruta_dest_obj.get("dia_semana")
             nro_dest = ruta_dest_obj.get("nro_ruta")
             if nro_dest and dia_dest:
                 destino = f"Ruta {nro_dest} - {dia_dest}"
+            elif dia_dest:
+                destino = f"Ruta {str(destino_raw).strip()} - {dia_dest}" if destino_raw is not None else dia_dest
             else:
-                destino = dia_dest or ruta_dest_obj.get("nombre_ruta") or str(item.id_ruta_destino or "-")
+                destino = ruta_dest_obj.get("nombre_ruta") or str(destino_raw or "-")
         else:
-            destino = item.motivo_baja or "-"
+            destino = _item_get(item, "motivo_baja") or "-"
+
+        metadata = _item_get(item, "metadata_ruteo") or {}
+        if isinstance(metadata, dict):
+            id_cliente_erp = _item_get(item, "id_cliente_erp") or metadata.get("id_cliente_erp") or pdv.get("id_cliente_erp")
+        else:
+            id_cliente_erp = _item_get(item, "id_cliente_erp") or pdv.get("id_cliente_erp")
 
         rows.append({
-            "orden":             item.orden_sugerido or (i + 1),
-            "id_cliente_pdv":    item.id_cliente_pdv,
-            "id_cliente_erp":    getattr(item, "id_cliente_erp", None) or pdv.get("id_cliente_erp"),
-            "nombre_pdv":        item.nombre_pdv or pdv.get("nombre_fantasia") or f"PDV {item.id_cliente_pdv}",
+            "orden":             _item_get(item, "orden_sugerido") or (i + 1),
+            "id_cliente_pdv":    id_cliente_pdv,
+            "id_cliente_erp":    id_cliente_erp,
+            "nombre_pdv":        _item_get(item, "nombre_pdv") or pdv.get("nombre_fantasia") or "Cliente sin nombre",
             "ruta_actual":       ruta_actual,
-            "accion_ruteo":      "Cambio de ruta" if item.accion_ruteo == "cambio_ruta" else "Baja",
+            "accion_ruteo":      "Cambio de ruta" if accion == "cambio_ruta" else "Baja",
             "destino_o_motivo":  destino,
             "domicilio":         (
                 f"{pdv.get('domicilio') or '-'}"
@@ -205,8 +246,7 @@ def _render_pdf(objetivo_id: str, nombre_vendedor: str, rows: list[dict]) -> byt
 
     for r in rows:
         cliente_lines = []
-        if r.get("id_cliente_erp"):
-            cliente_lines.append(f"ERP: {r['id_cliente_erp']}")
+        cliente_lines.append(f"ERP: {r.get('id_cliente_erp') or 'S/D'}")
         cliente_lines.append(r["nombre_pdv"])
 
         detalle_lines = [

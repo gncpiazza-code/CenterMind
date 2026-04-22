@@ -2483,11 +2483,23 @@ class BotWorker:
                 chat_id = ex["telegram_chat_id"]
                 msg_id  = ex["telegram_msg_id"]
                 estado  = ex["estado"]
-                vendedor = ex["vendedor_nombre"]
-                cliente  = ex["nro_cliente"]
-                tipo     = ex["tipo_pdv"]
+                vendedor = ex.get("vendedor_nombre")
+                # El RPC puede exponer el cliente con distintos aliases según versión.
+                cliente = (
+                    ex.get("nro_cliente")
+                    or ex.get("cliente")
+                    or ex.get("id_cliente_erp")
+                    or ex.get("cliente_sombra_codigo")
+                    or ex.get("id_cliente_pdv")
+                )
+                tipo     = ex.get("tipo_pdv")
                 comentario = ex.get("comentarios") or ""
                 supervisor = ex.get("supervisor_nombre") or "Supervisor"
+
+                # Evita textos "None"/vacíos en mensajes de evaluación.
+                vendedor_txt = (str(vendedor).strip() if vendedor is not None else "") or "Sin vendedor"
+                cliente_txt = (str(cliente).strip() if cliente is not None else "") or "Sin cliente"
+                tipo_txt = (str(tipo).strip() if tipo is not None else "") or "Sin tipo"
 
                 icon = {"Aprobado": "✅", "Rechazado": "❌", "Destacado": "🔥"}.get(estado, "⏳")
 
@@ -2504,9 +2516,9 @@ class BotWorker:
 
                 msg_text = (
                     f"📋 <b>Exhibición evaluada</b>\n\n"
-                    f"👤 <b>Vendedor:</b> {vendedor}\n"
-                    f"🏪 <b>Cliente:</b> {cliente}\n"
-                    f"📍 <b>Tipo:</b> {tipo}\n\n"
+                    f"👤 <b>Vendedor:</b> {vendedor_txt}\n"
+                    f"🏪 <b>Cliente:</b> {cliente_txt}\n"
+                    f"📍 <b>Tipo:</b> {tipo_txt}\n\n"
                     f"{estado_text}"
                 )
 

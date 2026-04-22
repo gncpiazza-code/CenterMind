@@ -1531,6 +1531,7 @@ export interface ObjetivoItem {
   id_objetivo: string;
   id_distribuidor?: number;
   id_cliente_pdv: number;
+  id_cliente_erp?: string | null;
   nombre_pdv?: string | null;
   estado_item: 'pendiente' | 'foto_subida' | 'cumplido' | 'falla';
   accion_ruteo?: 'cambio_ruta' | 'baja' | null;
@@ -1578,6 +1579,7 @@ export interface ObjetivoCreate {
   id_objetivo_padre?: string;
   pdv_items?: {
     id_cliente_pdv: number;
+    id_cliente_erp?: string;
     nombre_pdv?: string;
     accion_ruteo?: 'cambio_ruta' | 'baja';
     id_ruta_destino?: number;

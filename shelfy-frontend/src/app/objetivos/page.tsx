@@ -165,6 +165,13 @@ function DateChip({ date }: { date: string | null | undefined }) {
   );
 }
 
+function getObjetivoItemClientCode(it: Objetivo["items"][number]): string | null {
+  if (it.id_cliente_erp) return it.id_cliente_erp;
+  const md = (it.metadata_ruteo ?? {}) as Record<string, unknown>;
+  const erp = md["id_cliente_erp"];
+  return typeof erp === "string" && erp.trim() ? erp : null;
+}
+
 // ── Phrase rendering ──────────────────────────────────────────────────────────
 
 function ObjetivoPhrase({ obj }: { obj: Objetivo }) {
@@ -538,7 +545,7 @@ function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado }: {
                       it.estado_item === 'falla' ? 'bg-red-500' :
                       'bg-[var(--shelfy-border)]'
                     }`}
-                    title={it.nombre_pdv ?? String(it.id_cliente_pdv)}
+                    title={`${getObjetivoItemClientCode(it) ? `ERP ${getObjetivoItemClientCode(it)} · ` : ""}${it.nombre_pdv ?? `PDV ${it.id_cliente_pdv}`}`}
                   />
                 ))}
                 {obj.items.length > 6 && <span>+{obj.items.length - 6}</span>}
@@ -571,7 +578,17 @@ function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado }: {
                           it.estado_item === 'falla' ? 'bg-red-500' :
                           'bg-[var(--shelfy-muted)]/30'
                         }`} />
-                        <span className="text-[var(--shelfy-text)] truncate">{it.nombre_pdv ?? `PDV ${it.id_cliente_pdv}`}</span>
+                        <span className="text-[var(--shelfy-text)] truncate">
+                          {it.nombre_pdv ?? `PDV ${it.id_cliente_pdv}`}
+                        </span>
+                        {getObjetivoItemClientCode(it) && (
+                          <span className="text-[10px] text-[var(--shelfy-muted)]/70 font-mono shrink-0">
+                            ERP #{getObjetivoItemClientCode(it)}
+                          </span>
+                        )}
+                        <span className="text-[10px] text-[var(--shelfy-muted)]/70 font-mono shrink-0">
+                          ID {it.id_cliente_pdv}
+                        </span>
                         <span className="text-[var(--shelfy-muted)] shrink-0 capitalize">{it.estado_item.replace('_', ' ')}</span>
                       </div>
                     ))}
@@ -937,7 +954,11 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
       if (selectedPdvIds.size > 0) {
         const pdvItems = Array.from(selectedPdvIds).map(pdvId => {
           const pdv = pdvCatalogAll.find(p => p.id_cliente === pdvId);
-          return { id_cliente_pdv: pdvId, nombre_pdv: pdv?.nombre_cliente };
+          return {
+            id_cliente_pdv: pdvId,
+            id_cliente_erp: pdv?.id_cliente_erp ?? undefined,
+            nombre_pdv: pdv?.nombre_cliente,
+          };
         });
         const count = pdvItems.length;
         base.pdv_items = pdvItems;
@@ -971,6 +992,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
         const item = ruteoItemsMap[pdvId] ?? { accion: ruteoAccionGlobal };
         return {
           id_cliente_pdv: pdvId,
+          id_cliente_erp: pdv?.id_cliente_erp ?? undefined,
           nombre_pdv: pdv?.nombre_cliente,
           accion_ruteo: item.accion,
           ...(item.accion === 'cambio_ruta' && item.id_ruta_destino ? { id_ruta_destino: item.id_ruta_destino } : {}),
@@ -1528,6 +1550,12 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
                                 {sel && <Check className="w-2.5 h-2.5 text-white" />}
                               </div>
                               <span className="text-[var(--shelfy-text)] truncate flex-1 text-left">{pdv.nombre_cliente}</span>
+                              <span className="text-[10px] text-[var(--shelfy-muted)]/70 font-mono shrink-0">
+                                ERP #{pdv.id_cliente_erp ?? "—"}
+                              </span>
+                              <span className="text-[10px] text-[var(--shelfy-muted)]/70 font-mono shrink-0">
+                                ID {pdv.id_cliente}
+                              </span>
                             </button>
 
                             {/* Per-item action (only when selected) */}
@@ -1912,7 +1940,13 @@ function ObjectivePrintOut({ objetivos }: { objetivos: Objetivo[] }) {
                 {obj.items.map(it => (
                   <div key={it.id_cliente_pdv} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
                     <div style={{ width: 14, height: 14, border: "1.5px solid #64748b", borderRadius: 3, flexShrink: 0 }} />
-                    <span style={{ color: "#334155" }}>{it.nombre_pdv ?? `PDV ${it.id_cliente_pdv}`}</span>
+                    <span style={{ color: "#334155" }}>
+                      {it.nombre_pdv ?? `PDV ${it.id_cliente_pdv}`}
+                      {" · "}
+                      <span style={{ fontFamily: "monospace", color: "#64748b" }}>
+                        ERP #{getObjetivoItemClientCode(it) ?? "—"} · ID {it.id_cliente_pdv}
+                      </span>
+                    </span>
                   </div>
                 ))}
               </div>

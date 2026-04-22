@@ -55,16 +55,25 @@ def _build_ruteo_context(dist_id: int, pdv_items: list[Any]) -> list[dict]:
     - coordenadas del PDV
     """
     if not sb:
-        return [{"nombre_pdv": item.nombre_pdv or f"PDV {item.id_cliente_pdv}",
+        return [{"id_cliente_pdv": item.id_cliente_pdv,
+                 "id_cliente_erp": getattr(item, "id_cliente_erp", None),
+                 "nombre_pdv": item.nombre_pdv or f"PDV {item.id_cliente_pdv}",
                  "ruta_actual": "-", "accion_ruteo": item.accion_ruteo or "-",
-                 "destino_o_motivo": item.motivo_baja or "-", "orden": i + 1}
+                 "destino_o_motivo": item.motivo_baja or "-",
+                 "domicilio": "-",
+                 "ultima_compra": "-",
+                 "orden": i + 1}
                 for i, item in enumerate(pdv_items)]
 
     # Bulk-fetch PDV data
     pdv_ids = [item.id_cliente_pdv for item in pdv_items]
     try:
         pdv_res = sb.table("clientes_pdv_v2") \
-            .select("id_cliente, nombre_fantasia, id_ruta, latitud, longitud") \
+            .select(
+                "id_cliente, id_cliente_erp, nombre_fantasia, nombre_razon_social, "
+                "domicilio, localidad, fecha_ultima_compra, id_ruta, latitud, longitud"
+            ) \
+            .eq("id_distribuidor", dist_id) \
             .in_("id_cliente", pdv_ids) \
             .execute()
         pdv_map = {p["id_cliente"]: p for p in (pdv_res.data or [])}
@@ -101,10 +110,17 @@ def _build_ruteo_context(dist_id: int, pdv_items: list[Any]) -> list[dict]:
 
         rows.append({
             "orden":             item.orden_sugerido or (i + 1),
+            "id_cliente_pdv":    item.id_cliente_pdv,
+            "id_cliente_erp":    getattr(item, "id_cliente_erp", None) or pdv.get("id_cliente_erp"),
             "nombre_pdv":        item.nombre_pdv or pdv.get("nombre_fantasia") or f"PDV {item.id_cliente_pdv}",
             "ruta_actual":       ruta_actual,
             "accion_ruteo":      "Cambio de ruta" if item.accion_ruteo == "cambio_ruta" else "Baja",
             "destino_o_motivo":  destino,
+            "domicilio":         (
+                f"{pdv.get('domicilio') or '-'}"
+                + (f" - {pdv.get('localidad')}" if pdv.get("localidad") else "")
+            ),
+            "ultima_compra":     pdv.get("fecha_ultima_compra") or "-",
         })
 
     rows.sort(key=lambda r: r["orden"])
@@ -147,23 +163,54 @@ def _render_pdf(objetivo_id: str, nombre_vendedor: str, rows: list[dict]) -> byt
     )
 
     fecha_str = datetime.utcnow().strftime("%d/%m/%Y %H:%M")
+    cambios_ruta = sum(1 for r in rows if r["accion_ruteo"] == "Cambio de ruta")
+    bajas = sum(1 for r in rows if r["accion_ruteo"] == "Baja")
     story = [
         Paragraph("Objetivo de Ruteo — Shelfy", title_style),
-        Paragraph(f"Vendedor: <b>{nombre_vendedor}</b> &nbsp;|&nbsp; Generado: {fecha_str}", sub_style),
+        Paragraph(
+            f"Objetivo ID: <b>{objetivo_id}</b> &nbsp;|&nbsp; Vendedor: <b>{nombre_vendedor}</b> "
+            f"&nbsp;|&nbsp; Generado: {fecha_str}",
+            sub_style,
+        ),
+        Paragraph(
+            f"PDVs totales: <b>{len(rows)}</b> &nbsp;|&nbsp; Cambios de ruta: <b>{cambios_ruta}</b> "
+            f"&nbsp;|&nbsp; Bajas: <b>{bajas}</b>",
+            sub_style,
+        ),
         HRFlowable(width="100%", thickness=0.5, color=_VIOLET_LIGHT, spaceAfter=10),
     ]
 
     # Table header + rows
-    col_widths = [1 * cm, 6.5 * cm, 3 * cm, 3 * cm, 4.5 * cm]
-    header = ["#", "PDV", "Ruta actual", "Acción", "Destino / Motivo"]
+    col_widths = [0.8 * cm, 4.9 * cm, 2.5 * cm, 2.3 * cm, 3.3 * cm, 5.2 * cm]
+    header = ["#", "Cliente", "Ruta actual", "Acción", "Destino / Motivo", "Detalle operativo"]
     table_data = [header]
+
+    def _fmt_fecha(v: str | None) -> str:
+        if not v or v == "-":
+            return "-"
+        try:
+            return datetime.fromisoformat(str(v).replace("Z", "+00:00")).strftime("%d/%m/%Y")
+        except Exception:
+            return str(v)[:10]
+
     for r in rows:
+        cliente_lines = []
+        if r.get("id_cliente_erp"):
+            cliente_lines.append(f"ERP: {r['id_cliente_erp']}")
+        cliente_lines.append(f"Shelfy: {r.get('id_cliente_pdv')}")
+        cliente_lines.append(r["nombre_pdv"])
+
+        detalle_lines = [
+            f"Domicilio: {r.get('domicilio') or '-'}",
+            f"Última compra: {_fmt_fecha(r.get('ultima_compra'))}",
+        ]
         table_data.append([
             str(r["orden"]),
-            Paragraph(r["nombre_pdv"], cell_style),
+            Paragraph("<br/>".join(cliente_lines), cell_style),
             Paragraph(r["ruta_actual"], cell_style),
             Paragraph(r["accion_ruteo"], cell_style),
             Paragraph(r["destino_o_motivo"], cell_style),
+            Paragraph("<br/>".join(detalle_lines), cell_style),
         ])
 
     t = Table(table_data, colWidths=col_widths, repeatRows=1)
@@ -190,9 +237,8 @@ def _render_pdf(objetivo_id: str, nombre_vendedor: str, rows: list[dict]) -> byt
     story.append(t)
     story.append(Spacer(1, 0.5 * cm))
     story.append(Paragraph(
-        f"Total de PDVs: <b>{len(rows)}</b>  |  "
-        f"Cambios de ruta: <b>{sum(1 for r in rows if r['accion_ruteo'] == 'Cambio de ruta')}</b>  |  "
-        f"Bajas: <b>{sum(1 for r in rows if r['accion_ruteo'] == 'Baja')}</b>",
+        "Checklist sugerido para supervisor: validar destino/motivo, confirmar contacto en PDV "
+        "y registrar resolución de cada caso.",
         sub_style,
     ))
 

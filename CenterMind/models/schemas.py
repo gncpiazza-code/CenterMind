@@ -134,6 +134,7 @@ class BonusConfigPayload(BaseModel):
 class ObjetivoItemCreate(BaseModel):
     """Un PDV dentro de un objetivo multi-PDV."""
     id_cliente_pdv: int
+    id_cliente_erp: Optional[str] = None
     nombre_pdv: Optional[str] = None
     # Campos de ruteo (solo para tipo='ruteo')
     accion_ruteo: Optional[str] = None       # 'cambio_ruta' | 'baja'

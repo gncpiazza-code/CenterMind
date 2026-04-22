@@ -1513,11 +1513,14 @@ def crear_objetivo(body: ObjetivoCreate, user_payload=Depends(verify_auth)):
                 }
                 # Campos de ruteo (solo para tipo='ruteo')
                 if body.tipo == "ruteo":
+                    md_ruteo = dict(item.metadata_ruteo or {})
+                    if item.id_cliente_erp:
+                        md_ruteo["id_cliente_erp"] = item.id_cliente_erp
                     row["accion_ruteo"]    = item.accion_ruteo
                     row["id_ruta_destino"] = item.id_ruta_destino
                     row["motivo_baja"]     = item.motivo_baja
                     row["orden_sugerido"]  = item.orden_sugerido if item.orden_sugerido is not None else idx + 1
-                    row["metadata_ruteo"]  = item.metadata_ruteo
+                    row["metadata_ruteo"]  = md_ruteo if md_ruteo else None
                 item_rows.append(row)
             try:
                 sb.table("objetivo_items").upsert(

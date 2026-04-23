@@ -13,7 +13,10 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Shelfy",
+  title: {
+    default: "Shelfy",
+    template: "%s | Shelfy",
+  },
   description: "Panel de gestión Shelfy",
 };
 

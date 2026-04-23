@@ -1376,7 +1376,11 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
               descripcion: autoDesc || undefined,
               fecha_objetivo: objFecha || undefined,
               valor_objetivo: pdvs.length,
-              pdv_items: pdvs.map(pin => ({ id_cliente_pdv: pin.id, nombre_pdv: pin.nombre })),
+              pdv_items: pdvs.map(pin => ({
+                id_cliente_pdv: pin.id,
+                id_cliente_erp: pin.idClienteErp ?? undefined,
+                nombre_pdv: pin.nombre,
+              })),
             } as ObjetivoCreate);
           }
         }

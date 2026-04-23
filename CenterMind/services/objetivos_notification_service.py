@@ -606,7 +606,7 @@ class ObjetivosNotificationService:
                                 or f"PDV #{cid}"
                             )
                             nombre = html.escape(nombre_raw, quote=False)
-                            erp = info.get("erp", "")
+                            erp = info.get("erp", "") or (it.get("id_cliente_erp") or "")
                             cod = f" · <b>NRO CLIENTE ERP:</b> {html.escape(str(erp), quote=False)}" if erp else ""
                             ruta_actual = self._ruta_label(info.get("id_ruta"))
                             ruta_part = f" · <b>Ruta:</b> {ruta_actual}" if ruta_actual else ""

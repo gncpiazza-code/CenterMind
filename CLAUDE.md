@@ -365,7 +365,7 @@ SUCURSAL_FILTER: dict[int, dict] = {
 }
 ```
 
-Además, `padron_ingestion_service.py` aplica una regla de enrutamiento previa al filtro: las filas del padrón que entran por Real Tabacalera (`idempresa` mapeado a Real) y traen sucursal `OSCAR ONDARRETA` se redirigen al `id_distribuidor` de **Bolivar Distribuiciones** (resuelto por `nombre_empresa` en tabla `distribuidores`).
+Además, `padron_ingestion_service.py` aplica reglas de enrutamiento previas al filtro para Real Tabacalera (`idempresa` mapeado a Real): `OSCAR ONDARRETA -> Bolivar Distribuciones`, `UEQUIN RODRIGO -> La Magica - Santiago del Estero` y `JOSE IGNACIO BIAVA -> CARAMELE - SAN LUIS` (resolviendo `id_distribuidor` por `nombre_empresa` en tabla `distribuidores`).
 
 Si el resultado post-filtro está vacío, lanza `ValueError`. Agregar aquí si alguna otra distribuidora necesita filtrar sucursales.
 
@@ -398,7 +398,7 @@ Frontend TabSupervision → carga CC solo al seleccionar sucursal (no en mount)
 
 **Importante — id_cliente_erp**: `cc_detalle` tiene columna `id_cliente_erp TEXT` (requiere `ALTER TABLE cc_detalle ADD COLUMN IF NOT EXISTS id_cliente_erp TEXT;`). Se llena desde `cod_cliente` del Excel parseado. El endpoint `/api/supervision/cuentas` incluye `id_cliente_erp` en la respuesta. El endpoint `/api/supervision/cliente-info/{dist_id}` lo usa como strategy 0 para buscar en `clientes_pdv_v2` sin depender de name matching.
 
-**Importante — split Real Tabacalera en RPA CC**: el motor `ShelfMind-RPA/motores/cuentas_corrientes.py` selecciona dos sucursales (`UEQUIN RODRIGO`, `OSCAR ONDARRETA`) en CHESS y luego divide `detalle_cuentas` por sucursal para subir a distintos distribuidores: `UEQUIN RODRIGO -> La Magica` y `OSCAR ONDARRETA -> Bolivar Distribuiciones` (resolviendo `id_distribuidor` por nombre vía API para evitar hardcodeo).
+**Importante — split Real Tabacalera en RPA CC**: el motor `ShelfMind-RPA/motores/cuentas_corrientes.py` selecciona tres sucursales (`UEQUIN RODRIGO`, `OSCAR ONDARRETA`, `JOSE IGNACIO BIAVA`) en CHESS y luego divide `detalle_cuentas` por sucursal para subir a distintos distribuidores: `UEQUIN RODRIGO -> La Magica - Santiago del Estero`, `OSCAR ONDARRETA -> Bolivar Distribuciones` y `JOSE IGNACIO BIAVA -> CARAMELE - SAN LUIS` (resolviendo `id_distribuidor` por nombre vía API para evitar hardcodeo).
 
 ### Endpoint `/api/supervision/cliente-info/{dist_id}`
 Busca datos de contacto de un PDV en `clientes_pdv_v2`. Estrategias en orden:
@@ -423,6 +423,11 @@ Webhook: `POST /api/telegram/webhook/{id_distribuidor}`
 3. Se registra en tabla `exhibiciones` con estado `Pendiente`
 4. Evaluador abre portal React → evalúa → `POST /api/evaluar`
 5. Job `sync_evaluaciones_job` (cada 30s) actualiza el mensaje en Telegram
+
+**Comando de objetivos por Telegram**:
+- `/objetivos` devuelve objetivos asignados al vendedor del grupo actual con progreso (`valor_actual/valor_objetivo`, porcentaje, fecha límite).
+- En mensajes de asignación de objetivos de `exhibicion`, `activacion` y `cobranza`, incluir siempre `NRO CLIENTE ERP` + `Ruta` (`id ruta + día`) cuando exista PDV asociado.
+- La regla vigente se mantiene: objetivos tipo `ruteo` no se envían por Telegram.
 
 **Compliance/bloqueo**: si `distribuidores.estado_operativo != 'Activo'`, el bot rechaza cargas.
 

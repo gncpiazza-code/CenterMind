@@ -611,9 +611,9 @@ class ObjetivosNotificationService:
                             )
                             nombre = html.escape(nombre_raw, quote=False)
                             erp = info.get("erp", "")
-                            cod = f" <b>#{erp}</b>" if erp else ""
+                            cod = f" · <b>NRO CLIENTE ERP:</b> {html.escape(str(erp), quote=False)}" if erp else ""
                             ruta_actual = self._ruta_label(info.get("id_ruta"))
-                            ruta_part = f" · <i>Ruta actual:</i> {ruta_actual}" if ruta_actual else ""
+                            ruta_part = f" · <b>Ruta:</b> {ruta_actual}" if ruta_actual else ""
 
                             extra = ""
                             ar = it.get("accion_ruteo")
@@ -701,9 +701,9 @@ class ObjetivosNotificationService:
                         )
                     pdv_nombre = html.escape(pdv_nombre, quote=False)
                     if erp:
-                        nro_cliente_str = f" <b>#{erp}</b>"
+                        nro_cliente_str = f" · <b>NRO CLIENTE ERP:</b> {html.escape(str(erp), quote=False)}"
                     ruta_p = self._ruta_label(id_ruta_pdv) if id_ruta_pdv else ""
-                    ruta_txt = f" · Ruta: {ruta_p}" if ruta_p else ""
+                    ruta_txt = f" · <b>Ruta:</b> {ruta_p}" if ruta_p else ""
                     pdv_lines = f"\n📍 <b>PDV objetivo:</b> {pdv_nombre}{nro_cliente_str}{ruta_txt}"
 
                     if tipo == "cobranza":

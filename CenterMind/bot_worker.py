@@ -40,6 +40,7 @@ from telegram.ext import (
 )
 # Google Drive imports eliminados — fotos van a Supabase Storage
 import json
+import html
 
 from core.helpers import build_qa_exhibicion_integrante_ids, is_exhibicion_qa_display_for_dist
 
@@ -1018,6 +1019,7 @@ class BotWorker:
             "📊 <b>Comandos:</b>\n"
             "• /stats — Tus estadísticas\n"
             "• /ranking — Ranking del mes\n"
+            "• /objetivos — Tus objetivos y progreso\n"
             "• /help — Esta ayuda"
         )
         await update.message.reply_text(text, parse_mode=ParseMode.HTML)
@@ -1221,6 +1223,189 @@ class BotWorker:
             parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(buttons)
         )
+
+    async def cmd_objetivos(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if not update.message:
+            return
+
+        if not await self._check_compliance(update):
+            return
+
+        m = update.message
+        uid = m.from_user.id
+        chat_id = m.chat.id
+        dist_id = self.distribuidor_id
+
+        try:
+            # Resolver vendedor en contexto del grupo para evitar cruces entre sucursales/tenants.
+            res_ig = await asyncio.to_thread(
+                self.db.sb.table("integrantes_grupo")
+                .select("id_vendedor_v2, nombre_integrante")
+                .eq("id_distribuidor", dist_id)
+                .eq("telegram_user_id", uid)
+                .eq("telegram_group_id", chat_id)
+                .limit(1)
+                .execute
+            )
+            row_ig = (res_ig.data or [{}])[0] if res_ig.data else {}
+            id_vendedor = row_ig.get("id_vendedor_v2")
+            vendedor_nombre = row_ig.get("nombre_integrante") or (m.from_user.first_name or "Vendedor")
+
+            if not id_vendedor:
+                await m.reply_text(
+                    "⚠️ No pude vincular tu usuario a un vendedor en este grupo.\n"
+                    "Pedile al admin que revise el mapeo en Fuerza de Ventas.",
+                    parse_mode=ParseMode.HTML,
+                )
+                return
+
+            objetivos_res = await asyncio.to_thread(
+                self.db.sb.table("objetivos")
+                .select(
+                    "id, tipo, descripcion, fecha_objetivo, valor_actual, valor_objetivo, "
+                    "cumplido, id_target_pdv, created_at"
+                )
+                .eq("id_distribuidor", dist_id)
+                .eq("id_vendedor", id_vendedor)
+                .order("cumplido")
+                .order("fecha_objetivo", desc=False)
+                .order("created_at", desc=True)
+                .limit(20)
+                .execute
+            )
+            objetivos = objetivos_res.data or []
+
+            if not objetivos:
+                await m.reply_text(
+                    "🎯 <b>No tenés objetivos asignados en este momento.</b>",
+                    parse_mode=ParseMode.HTML,
+                )
+                return
+
+            obj_ids = [str(o["id"]) for o in objetivos if o.get("id")]
+            items_map: dict[str, list[int]] = defaultdict(list)
+            if obj_ids:
+                items_res = await asyncio.to_thread(
+                    self.db.sb.table("objetivo_items")
+                    .select("id_objetivo, id_cliente_pdv")
+                    .in_("id_objetivo", obj_ids)
+                    .execute
+                )
+                for it in items_res.data or []:
+                    oid = str(it.get("id_objetivo") or "")
+                    cid = it.get("id_cliente_pdv")
+                    if oid and cid:
+                        items_map[oid].append(int(cid))
+
+            pdv_ids: set[int] = set()
+            for o in objetivos:
+                oid = str(o.get("id") or "")
+                if o.get("id_target_pdv"):
+                    pdv_ids.add(int(o["id_target_pdv"]))
+                for cid in items_map.get(oid, []):
+                    pdv_ids.add(int(cid))
+
+            pdv_map: dict[int, dict[str, Any]] = {}
+            if pdv_ids:
+                pdv_res = await asyncio.to_thread(
+                    self.db.sb.table("clientes_pdv_v2")
+                    .select("id_cliente, id_cliente_erp, id_ruta, nombre_fantasia, nombre_cliente, nombre_razon_social")
+                    .in_("id_cliente", list(pdv_ids))
+                    .eq("id_distribuidor", dist_id)
+                    .execute
+                )
+                for r in pdv_res.data or []:
+                    pdv_map[int(r["id_cliente"])] = r
+
+            ruta_ids = {
+                int(r.get("id_ruta"))
+                for r in pdv_map.values()
+                if r.get("id_ruta") is not None
+            }
+            rutas_map: dict[int, str] = {}
+            if ruta_ids:
+                rutas_res = await asyncio.to_thread(
+                    self.db.sb.table("rutas_v2")
+                    .select("id_ruta, id_ruta_erp, dia_semana")
+                    .in_("id_ruta", list(ruta_ids))
+                    .execute
+                )
+                for rr in rutas_res.data or []:
+                    rid = int(rr["id_ruta"])
+                    rid_erp = rr.get("id_ruta_erp")
+                    dia = (rr.get("dia_semana") or "").capitalize()
+                    if rid_erp and dia:
+                        rutas_map[rid] = f"id {rid} · Ruta ERP {rid_erp} — {dia}"
+                    elif rid_erp:
+                        rutas_map[rid] = f"id {rid} · Ruta ERP {rid_erp}"
+                    elif dia:
+                        rutas_map[rid] = f"id {rid} — {dia}"
+                    else:
+                        rutas_map[rid] = f"id {rid}"
+
+            tipo_label = {
+                "exhibicion": "Exhibición",
+                "conversion_estado": "Activación",
+                "activacion": "Activación",
+                "cobranza": "Cobranza",
+                "ruteo": "Ruteo",
+                "ruteo_alteo": "Alteo",
+            }
+
+            lines = [f"🎯 <b>Objetivos de {html.escape(str(vendedor_nombre), quote=False)}</b>"]
+            shown = 0
+            for obj in objetivos:
+                shown += 1
+                if shown > 8:
+                    break
+                oid = str(obj.get("id") or "")
+                tipo = str(obj.get("tipo") or "").strip().lower()
+                tipo_txt = tipo_label.get(tipo, tipo.replace("_", " ").title() or "Objetivo")
+                cumplido = bool(obj.get("cumplido"))
+                estado_icon = "✅" if cumplido else "⏳"
+                vo = float(obj.get("valor_objetivo") or 0)
+                va = float(obj.get("valor_actual") or 0)
+                pct = 0 if vo <= 0 else int(max(0, min(100, round((va / vo) * 100))))
+                fecha = str(obj.get("fecha_objetivo") or "")[:10]
+                fecha_fmt = ""
+                if fecha and len(fecha) == 10 and fecha.count("-") == 2:
+                    y, mo, d = fecha.split("-")
+                    fecha_fmt = f"{d}/{mo}/{y}"
+
+                pdv_candidates = []
+                if obj.get("id_target_pdv"):
+                    pdv_candidates.append(int(obj["id_target_pdv"]))
+                pdv_candidates.extend(items_map.get(oid, []))
+                pdv_candidates = list(dict.fromkeys(pdv_candidates))
+
+                pdv_line = ""
+                if pdv_candidates and tipo in {"exhibicion", "conversion_estado", "activacion", "cobranza"}:
+                    ref = pdv_map.get(pdv_candidates[0], {})
+                    erp = ref.get("id_cliente_erp")
+                    ruta_label = rutas_map.get(int(ref.get("id_ruta"))) if ref.get("id_ruta") else ""
+                    count_txt = f" (+{len(pdv_candidates)-1} PDV)" if len(pdv_candidates) > 1 else ""
+                    parts = []
+                    if erp:
+                        parts.append(f"NRO CLIENTE ERP: {html.escape(str(erp), quote=False)}")
+                    if ruta_label:
+                        parts.append(f"Ruta: {html.escape(str(ruta_label), quote=False)}")
+                    if parts:
+                        pdv_line = f"\n   • {' · '.join(parts)}{count_txt}"
+
+                lines.append(
+                    f"\n{estado_icon} <b>{tipo_txt}</b>"
+                    f"\n   • Progreso: <b>{int(va) if va.is_integer() else round(va, 2)}/{int(vo) if vo.is_integer() else round(vo, 2)}</b> ({pct}%)"
+                    f"{f' · Vence: {fecha_fmt}' if fecha_fmt else ''}"
+                    f"{pdv_line}"
+                )
+
+            if len(objetivos) > 8:
+                lines.append(f"\n<i>Mostrando 8 de {len(objetivos)} objetivos.</i>")
+
+            await m.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+        except Exception as e:
+            self.logger.error(f"[objetivos] Error uid={uid} dist={dist_id}: {e}", exc_info=True)
+            await m.reply_text("❌ No pude consultar tus objetivos en este momento.")
 
     async def cmd_reset(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not update.message:
@@ -2596,6 +2781,7 @@ class BotWorker:
                 BotCommand("help",    "Cómo usar el bot"),
                 BotCommand("stats",   "Mis estadísticas"),
                 BotCommand("ranking", "Ranking del mes"),
+                BotCommand("objetivos", "Mis objetivos y progreso"),
             ])
         except Exception as e:
             self.logger.warning(f"No se pudo configurar menú: {e}")
@@ -2622,6 +2808,7 @@ class BotWorker:
         app.add_handler(CommandHandler("status",     self.cmd_status))
         app.add_handler(CommandHandler("stats",      self.cmd_stats))
         app.add_handler(CommandHandler("ranking",    self.cmd_ranking))
+        app.add_handler(CommandHandler("objetivos",  self.cmd_objetivos))
         app.add_handler(CommandHandler("reset",      self.cmd_reset))
         app.add_handler(CommandHandler("hardreset",  self.cmd_hardreset))
 

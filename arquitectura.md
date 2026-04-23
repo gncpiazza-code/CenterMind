@@ -127,6 +127,10 @@ Este documento describe la infraestructura, tecnologías y flujos de datos que c
     - `handle_text` intenta inferir tipo por perfil: si confianza alta, registra exhibición sin preguntar botones; si no, mantiene selección manual.
     - Cada carga exitosa actualiza el perfil (`upsert_pdv_tipo_observation`) para reforzar aprendizaje incremental.
     - Script `backfill_pdv_tipo_profiles.py` inicializa perfiles desde histórico de `exhibiciones` para reducir preguntas desde el día 1.
+17. **Bot Telegram — comando `/objetivos` + contexto operativo (Abr 2026)**:
+    - Nuevo comando `/objetivos` en `bot_worker.py` para que el vendedor consulte sus objetivos asignados y progreso en tiempo real.
+    - La salida incluye `valor_actual/valor_objetivo`, porcentaje y fecha límite.
+    - Para tipos `exhibicion`, `activacion` y `cobranza`, se agrega metadata de ejecución: `NRO CLIENTE ERP` y `Ruta (id + día)` cuando hay PDV vinculado.
 
 ---
 
@@ -177,6 +181,6 @@ CenterMind/                     # Raíz del Repositorio
 ## Flujo de Datos Crítico
 
 1. **ERP → Supabase**: El RPA extrae datos del ERP local → `POST` a la API → `erp_ingestion_service` → Tablas `_v2`.
-   - Caso especial Cuentas Corrientes (Real Tabacalera): el motor selecciona `UEQUIN RODRIGO` + `OSCAR ONDARRETA` y luego divide server-payload por sucursal para enrutar cada bloque al distribuidor destino correcto (`La Magica` / `Bolivar Distribuiciones`).
+   - Caso especial Cuentas Corrientes (Real Tabacalera): el motor selecciona `UEQUIN RODRIGO` + `OSCAR ONDARRETA` + `JOSE IGNACIO BIAVA` y luego divide server-payload por sucursal para enrutar cada bloque al distribuidor destino correcto (`La Magica - Santiago del Estero` / `Bolivar Distribuciones` / `CARAMELE - SAN LUIS`).
 2. **Telegram → Supabase**: Vendedor sube foto → `bot_worker.py` → Supabase Storage → Tabla `exhibiciones`.
 3. **Supabase → Portal**: `api.py` consulta vistas/tablas → Frontend Renderiza dashboard y mapas.

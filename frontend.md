@@ -191,6 +191,10 @@ Los paneles utilizan el estilo "Glass-Card" adaptado al tema claro:
 - En el detalle por cliente, badges de metadata usan color semántico para escaneo rápido (estado, cantidad de imágenes y fecha).
 - Regla de negocio del badge tipo: solo `COMERCIO CON INGRESO` (verde) y `COMERCIO SIN INGRESO` (rojo), con fallback neutro.
 
+### 28. Objetivos Telegram — alineación de contenido (23/04/2026)
+- No requiere cambios de UI en frontend.
+- El backend/bot ahora muestra en Telegram `NRO CLIENTE ERP` y `Ruta (id + día)` para objetivos de exhibición/activación/cobranza, por lo que el contexto operativo de ejecución queda consistente con el módulo de objetivos del portal.
+
 ### 8. Supervisión — Aislamiento de Cache por Tenant
 - `TabSupervision.tsx` scopea las query keys de rutas/clientes con `dist_id`:
   - `['supervision-rutas', distId, id_vendedor]`
@@ -210,7 +214,7 @@ Para garantizar el rendimiento y la mantenibilidad de Shelfy, se siguen estos pa
    - *Ejemplo*: `useObjetivosStore` para coordinar el panel flotante y los pines del mapa.
 2. **TanStack Query v5**: Única herramienta para el **estado del servidor** (fetching de API, caching, mutaciones).
    - *Regla*: Todas las funciones fetch deben estar en `src/lib/api.ts` y usarse únicamente vía Query/Mutation hooks.
-   - *Nota operativa CC (08/04/2026)*: para Real Tabacalera, el RPA ahora separa automáticamente las filas de cuentas corrientes por sucursal (`UEQUIN RODRIGO` / `OSCAR ONDARRETA`) antes de subirlas al backend, por lo que el frontend recibe los datos ya segmentados por distribuidor destino.
+   - *Nota operativa CC (20/04/2026)*: para Real Tabacalera, el RPA separa automáticamente las filas de cuentas corrientes por sucursal (`UEQUIN RODRIGO` / `OSCAR ONDARRETA` / `JOSE IGNACIO BIAVA`) antes de subirlas al backend, por lo que el frontend recibe los datos ya segmentados por distribuidor destino.
 3. **Animations (Framer Motion)**: Se utilizan para mejorar la percepción de fluidez sin sacrificar la densidad.
    - *Performance*: Máximo `0.4s` de duración. Se evitan animaciones de entrada pesadas en tablas con gran volumen de datos para priorizar la productividad.
 

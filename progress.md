@@ -1,6 +1,6 @@
 # Progress — Shelfy CenterMind
 
-**Última actualización: 16 de Abril, 2026 (visor: imagen estable + animación solo en barras)**
+**Última actualización: 23 de Abril, 2026 (Telegram objetivos: NRO ERP+ruta+día + comando /objetivos)**
 
 Este archivo detalla el estado actual del proyecto, las funcionalidades operativas y los pendientes técnicos.
 
@@ -83,6 +83,8 @@ El proyecto se encuentra en una fase de expansión de funcionalidades de supervi
 ---
 
 ## 📅 Historial Reciente (Abril 2026)
+- **23/04 (69)**: **Bot Telegram — objetivos más claros + comando `/objetivos`** — (1) `services/objetivos_notification_service.py` ajusta el contenido del mensaje de asignación para objetivos de exhibición/activación/cobranza mostrando explícitamente `NRO CLIENTE ERP` y `Ruta` con formato `id ruta + día` cuando hay PDV asociado (single o multi-PDV). Se mantiene la regla vigente: el tipo `ruteo` no se envía por Telegram. (2) `bot_worker.py` incorpora comando `/objetivos` que lista metas del vendedor en ese grupo con progreso (`valor_actual/valor_objetivo`, %), fecha de vencimiento y, cuando corresponde, referencia de `NRO CLIENTE ERP + Ruta`.
+- **20/04 (68)**: **Franquicias Real — nuevo split BIAVA + corrida cuentas** — `padron_ingestion_service.py` amplía el enrutamiento de sucursales franquiciadas de Real para incluir `JOSE IGNACIO BIAVA -> CARAMELE - SAN LUIS`, manteniendo `UEQUIN -> La Magica` y `ONDARRETA -> Bolivar`. `ShelfMind-RPA/motores/cuentas_corrientes.py` agrega la tercera sucursal al `split_por_sucursal`. Corrida manual `python runner.py cuentas`: OK en Tabaco/Aloma/Liver y error en Real por timeout de descarga del archivo de BIAVA (`error_cuentas_real_descarga_jose_ignacio_biava_20260420_1516.png`).
 - **16/04 (67)**: **Visor — imagen estable sin movimiento + barras con animación dedicada** — se elimina por completo cualquier animación/transform de la imagen en foco (`Space`), dejando la foto fija y sin zoom/crop. El efecto visual se concentra exclusivamente en ocultar/mostrar overlays con `AnimatePresence` + transiciones spring (top mobile, barra desktop, barra mobile y panel ERP), y se suavizan bordes/paneles glass para una estética menos tosca.
 - **16/04 (66)**: **Visor — foco inmersivo sin zoom/crop (salida de pad)** — `visor/page.tsx` elimina el escalado de la foto durante hold de `Space` para evitar recortes indeseados y reemplaza el efecto por expansión de área visible (la imagen “sale del pad” manteniendo `object-contain`). Además, se refinan las animaciones de entrada/salida de overlays top/bottom (desktop/mobile) con transiciones tipo spring para una percepción más fluida y menos abrupta.
 - **16/04 (65)**: **Visor — foco inmersivo durante hold de Space** — al mantener `Space`, la imagen principal se agranda suavemente y sube saturación/contraste/brillo, mientras overlays bajan en protagonismo. Se rediseñan barras superior/inferior como paneles glass flotantes más livianos (menos opacidad, bordes redondeados, animaciones de entrada/salida), reduciendo la sensación de “inserción tosca” de la foto.

@@ -1562,9 +1562,25 @@ def crear_objetivo(body: ObjetivoCreate, user_payload=Depends(verify_auth)):
                     "asignado_por_usuario": user_payload.get("sub"),
                     "pdv_items": [item.model_dump() for item in (body.pdv_items or [])],
                 }
-                objetivos_notification.notify_new_objective_telegram(
+                notif_meta = objetivos_notification.notify_new_objective_telegram(
                     body.id_distribuidor, notify_payload, obj_id=obj_id
                 )
+                if notif_meta and notif_meta.get("chat_id") and notif_meta.get("message_id"):
+                    try:
+                        sb.table("objetivos_tracking").upsert(
+                            {
+                                "id_objetivo": obj_id,
+                                "id_referencia": str(notif_meta["message_id"]),
+                                "tipo_evento": "telegram_objetivo_asignado",
+                                "metadata": {
+                                    "chat_id": int(notif_meta["chat_id"]),
+                                    "message_id": int(notif_meta["message_id"]),
+                                },
+                            },
+                            on_conflict="id_objetivo,id_referencia,tipo_evento",
+                        ).execute()
+                    except Exception as e_track_tg:
+                        logger.warning(f"[Objetivo] No se pudo guardar ref Telegram objetivo {obj_id}: {e_track_tg}")
             except Exception as e_notif:
                 logger.warning(f"[Objetivo] Notificación inicial omitida: {e_notif}")
 
@@ -2160,6 +2176,32 @@ def eliminar_objetivo(objetivo_id: str, user_payload=Depends(verify_auth)):
             raise HTTPException(status_code=404, detail="Objetivo no encontrado")
         dist_id = existing.data[0]["id_distribuidor"]
         check_dist_permission(user_payload, dist_id)
+
+        # Best-effort: borrar el mensaje de Telegram asociado al alta del objetivo.
+        try:
+            tg_ref = (
+                sb.table("objetivos_tracking")
+                .select("metadata, id_referencia")
+                .eq("id_objetivo", objetivo_id)
+                .eq("tipo_evento", "telegram_objetivo_asignado")
+                .order("created_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+            ref_row = (tg_ref.data or [{}])[0] if tg_ref.data else {}
+            metadata = ref_row.get("metadata") or {}
+            chat_id = metadata.get("chat_id")
+            msg_id = metadata.get("message_id") or ref_row.get("id_referencia")
+            if chat_id and msg_id:
+                from services.objetivos_notification_service import objetivos_notification
+                objetivos_notification.delete_objective_telegram_message(
+                    dist_id=dist_id,
+                    chat_id=int(chat_id),
+                    message_id=int(msg_id),
+                )
+        except Exception as e_tg:
+            logger.warning(f"[Objetivo] No se pudo borrar mensaje Telegram para objetivo {objetivo_id}: {e_tg}")
+
         sb.table("objetivos").delete().eq("id", objetivo_id).execute()
         return {"ok": True, "id": objetivo_id}
     except HTTPException:

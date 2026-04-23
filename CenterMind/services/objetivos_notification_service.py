@@ -357,6 +357,7 @@ def resolve_integrante_for_objetivos(
         return None
 
 TELEGRAM_API = "https://api.telegram.org/bot{token}/sendMessage"
+TELEGRAM_DELETE_API = "https://api.telegram.org/bot{token}/deleteMessage"
 
 TIPO_EMOJI = {
     "alteo":             "📍",
@@ -419,7 +420,7 @@ class ObjetivosNotificationService:
         dist_id: int,
         obj_data: dict[str, Any],
         obj_id: str | None = None,
-    ) -> None:
+    ) -> dict[str, Any] | None:
         """
         Notifica al vendedor que se le ha asignado un NUEVO objetivo.
         Incluye inicio, supervisor, tipo/acción, PDVs (ERP + ruta cuando aplica),
@@ -431,12 +432,12 @@ class ObjetivosNotificationService:
                 logger.warning(
                     f"[Notif] nuevo objetivo: distribuidor {dist_id} sin token_bot — no se envía Telegram"
                 )
-                return
+                return None
 
             id_vendedor = obj_data.get("id_vendedor")
             if id_vendedor is None:
                 logger.warning("[Notif] nuevo objetivo: payload sin id_vendedor — no se envía Telegram")
-                return
+                return None
 
             chat_id = self._get_vendor_group_chat_id(dist_id, int(id_vendedor))
             if not chat_id:
@@ -444,7 +445,7 @@ class ObjetivosNotificationService:
                     f"[Notif] nuevo objetivo: sin telegram_group_id para vendedor_v2={id_vendedor} "
                     f"dist={dist_id} — revisá integrantes_grupo (id_vendedor_v2 o id_vendedor_erp)"
                 )
-                return
+                return None
 
             tipo = obj_data.get("tipo")
             emoji = TIPO_EMOJI.get(tipo, "🎯")
@@ -748,13 +749,59 @@ class ObjetivosNotificationService:
             )
             if resp.ok:
                 logger.info(f"[Notif] Nuevo objetivo enviado a chat={chat_id} dist={dist_id}")
+                try:
+                    payload = resp.json() or {}
+                    msg = payload.get("result") or {}
+                    message_id = msg.get("message_id")
+                    if message_id:
+                        return {
+                            "chat_id": int(chat_id),
+                            "message_id": int(message_id),
+                        }
+                except Exception:
+                    pass
+                return {"chat_id": int(chat_id), "message_id": None}
             else:
                 logger.warning(
                     f"[Notif] Error enviando nuevo objetivo: "
                     f"chat={chat_id} dist={dist_id} → {resp.status_code} {resp.text[:120]}"
                 )
+                return None
         except Exception as e:
             logger.error(f"[Notif] Error en notify_new_objective_telegram: {e}")
+            return None
+
+    def delete_objective_telegram_message(
+        self,
+        dist_id: int,
+        chat_id: int,
+        message_id: int,
+    ) -> bool:
+        """Borra el mensaje de objetivo en Telegram si sigue disponible."""
+        try:
+            token = self._get_bot_token(dist_id)
+            if not token:
+                return False
+            resp = requests.post(
+                TELEGRAM_DELETE_API.format(token=token),
+                json={"chat_id": int(chat_id), "message_id": int(message_id)},
+                timeout=8,
+            )
+            if resp.ok:
+                logger.info(
+                    f"[Notif] Mensaje Telegram borrado chat={chat_id} msg={message_id} dist={dist_id}"
+                )
+                return True
+            logger.warning(
+                f"[Notif] No se pudo borrar msg Telegram chat={chat_id} msg={message_id} dist={dist_id}: "
+                f"{resp.status_code} {resp.text[:120]}"
+            )
+            return False
+        except Exception as e:
+            logger.warning(
+                f"[Notif] Error borrando msg Telegram chat={chat_id} msg={message_id} dist={dist_id}: {e}"
+            )
+            return False
 
     def notify_vendor_telegram(
         self,

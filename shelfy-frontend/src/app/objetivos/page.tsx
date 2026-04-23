@@ -909,22 +909,6 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
       }
       return `${vendedorNombre} debe reasignar PDVs${fechaLabel}.`;
     }
-    if (tipo === "conversion_estado") {
-      if (selectedPdvIds.size > 0) {
-        const pdvItems = Array.from(selectedPdvIds).map((pdvId) => {
-          const pdv = pdvCatalogAll.find((p) => p.id_cliente === pdvId);
-          return { id_cliente_pdv: pdvId, nombre_pdv: pdv?.nombre_cliente };
-        });
-        base.pdv_items = pdvItems;
-        base.valor_objetivo = pdvItems.length;
-        base.descripcion = desc || buildPhrase();
-        onCreate([base]);
-        return;
-      }
-      base.descripcion = desc || buildPhrase();
-      onCreate([base]);
-      return;
-    }
     return `${vendedorNombre} — objetivo ${TIPO_CONFIG[tipo]?.label ?? tipo}${fechaLabel}.`;
   }
 
@@ -953,6 +937,27 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
         base.valor_objetivo = cobranzaMode === "parcial" && cobranzaMonto
           ? Number(cobranzaMonto)
           : selectedDeudor.deuda_total;
+      }
+      base.descripcion = desc || buildPhrase();
+      onCreate([base]);
+      return;
+    }
+
+    if (tipo === "conversion_estado") {
+      if (selectedPdvIds.size > 0) {
+        const pdvItems = Array.from(selectedPdvIds).map((pdvId) => {
+          const pdv = pdvCatalogAll.find((p) => p.id_cliente === pdvId);
+          return {
+            id_cliente_pdv: pdvId,
+            id_cliente_erp: pdv?.id_cliente_erp ?? undefined,
+            nombre_pdv: pdv?.nombre_cliente,
+          };
+        });
+        base.pdv_items = pdvItems;
+        base.valor_objetivo = pdvItems.length;
+        base.descripcion = desc || buildPhrase();
+        onCreate([base]);
+        return;
       }
       base.descripcion = desc || buildPhrase();
       onCreate([base]);

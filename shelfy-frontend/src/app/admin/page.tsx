@@ -14,7 +14,6 @@ import {
   Network,
   BookUser,
   Link2,
-  BarChart3,
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -28,7 +27,6 @@ import TabIntegrantes from "@/components/admin/TabIntegrantes";
 import TabERP from "@/components/admin/TabERP";
 import TabPadron from "@/components/admin/TabPadron";
 import TabMapeoVendedores from "@/components/admin/TabMapeoVendedores";
-import TabSupervision from "@/components/admin/TabSupervision";
 
 export default function AdminPage() {
   const { user } = useAuth();
@@ -37,7 +35,6 @@ export default function AdminPage() {
 
   const TABS = useMemo(() => {
     const head = [
-      { id: "supervision",      label: "Supervisión",        icon: BarChart3 },
       { id: "jerarquia_global", label: "Jerarquía Global",   icon: Network },
     ] as const;
     const mid = [
@@ -62,7 +59,7 @@ export default function AdminPage() {
     return [...head, ...mid];
   }, [isSuperadmin]);
 
-  const [tab, setTab] = useState("supervision");
+  const [tab, setTab] = useState("jerarquia_global");
 
   useEffect(() => {
     if (user && user.rol === "supervisor") {
@@ -71,7 +68,7 @@ export default function AdminPage() {
   }, [user, router]);
 
   useEffect(() => {
-    if (!isSuperadmin && tab === "padron") setTab("supervision");
+    if (!isSuperadmin && tab === "padron") setTab("jerarquia_global");
   }, [isSuperadmin, tab]);
 
   if (user?.rol === "supervisor") return null;
@@ -108,9 +105,6 @@ export default function AdminPage() {
               </TabsList>
 
               {/* Tab Content */}
-              <TabsContent value="supervision" className="min-h-[500px] mt-0">
-                <TabSupervision distId={user.id_distribuidor || 0} isSuperadmin={isSuperadmin} />
-              </TabsContent>
               <TabsContent value="jerarquia_global" className="min-h-[500px] mt-0">
                 <UnifiedDashboard isSuperadmin={isSuperadmin} currentDistId={user.id_distribuidor || 0} />
               </TabsContent>

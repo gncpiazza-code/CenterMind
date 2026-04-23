@@ -525,23 +525,16 @@ class ObjetivosNotificationService:
             try:
                 obj_id_s = str(obj_id).strip() if obj_id else ""
                 if obj_id_s and tipo in TIPOS_MULTI_PDV:
-                    obj_own = (
-                        sb.table("objetivos")
-                        .select("id")
-                        .eq("id", obj_id_s)
-                        .eq("id_distribuidor", dist_id)
-                        .limit(1)
-                        .execute()
-                    )
-                    if not (obj_own.data or []):
-                        logger.warning(
-                            f"[Notif] objetivo {obj_id_s} no pertenece a dist={dist_id} — skip ítems"
-                        )
-                        obj_id_s = ""
                     cols = "id_cliente_pdv, nombre_pdv"
                     if tipo == "ruteo":
                         cols += ", accion_ruteo, id_ruta_destino, motivo_baja"
                     items: list[dict[str, Any]] = []
+                    payload_items = obj_data.get("pdv_items")
+                    if isinstance(payload_items, list) and payload_items:
+                        items = [
+                            it for it in payload_items
+                            if isinstance(it, dict) and it.get("id_cliente_pdv")
+                        ]
                     if obj_id_s:
                         items_res = (
                             sb.table("objetivo_items")
@@ -549,7 +542,9 @@ class ObjetivosNotificationService:
                             .eq("id_objetivo", obj_id_s)
                             .execute()
                         )
-                        items = items_res.data or []
+                        db_items = items_res.data or []
+                        if db_items:
+                            items = db_items
                     if not items:
                         logger.warning(
                             f"[Notif] objetivo {obj_id or '?'} tipo={tipo}: sin filas en objetivo_items "
@@ -705,6 +700,13 @@ class ObjetivosNotificationService:
                     ruta_p = self._ruta_label(id_ruta_pdv) if id_ruta_pdv else ""
                     ruta_txt = f" · <b>Ruta:</b> {ruta_p}" if ruta_p else ""
                     pdv_lines = f"\n📍 <b>PDV objetivo:</b> {pdv_nombre}{nro_cliente_str}{ruta_txt}"
+                    if (
+                        "sin nombre en padrón" in pdv_nombre.lower()
+                        and tipo in {"exhibicion", "conversion_estado", "activacion", "cobranza"}
+                    ):
+                        cant = int(float(obj_data.get("valor_objetivo") or 0))
+                        if cant > 1:
+                            pdv_lines = f"\n📍 <b>PDVs objetivo:</b> {cant} (consultá el detalle en la app)"
 
                     if tipo == "cobranza":
                         accion_block = "\n⚙️ <b>Acción a realizar:</b> Cobranza"

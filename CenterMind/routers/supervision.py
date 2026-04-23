@@ -1560,6 +1560,7 @@ def crear_objetivo(body: ObjetivoCreate, user_payload=Depends(verify_auth)):
                     **payload,
                     "created_at": rows[0].get("created_at"),
                     "asignado_por_usuario": user_payload.get("sub"),
+                    "pdv_items": [item.model_dump() for item in (body.pdv_items or [])],
                 }
                 objetivos_notification.notify_new_objective_telegram(
                     body.id_distribuidor, notify_payload, obj_id=obj_id

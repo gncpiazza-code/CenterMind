@@ -1516,6 +1516,13 @@ def crear_objetivo(body: ObjetivoCreate, user_payload=Depends(verify_auth)):
                     md_ruteo = dict(item.metadata_ruteo or {})
                     if item.id_cliente_erp:
                         md_ruteo["id_cliente_erp"] = item.id_cliente_erp
+                    # Persistir metadata del modo "Armar Ruta" (selección por polígono)
+                    if item.group_id:
+                        md_ruteo["group_id"] = item.group_id
+                    if item.group_name:
+                        md_ruteo["group_name"] = item.group_name
+                    if item.polygon_geojson:
+                        md_ruteo["polygon_geojson"] = item.polygon_geojson
                     row["accion_ruteo"]    = item.accion_ruteo
                     row["id_ruta_destino"] = item.id_ruta_destino
                     row["motivo_baja"]     = item.motivo_baja

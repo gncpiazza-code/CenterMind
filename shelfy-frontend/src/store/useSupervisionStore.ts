@@ -3,6 +3,13 @@ import { persist } from 'zustand/middleware';
 
 export type MapMode = 'activos' | 'deudores' | 'ruteo';
 
+export interface DrawnPolygon {
+  id: string;
+  groupName: string;
+  pdvIds: number[];
+  geoJson: { type: 'Feature'; geometry: { type: 'Polygon'; coordinates: number[][][] }; properties: Record<string, unknown> };
+}
+
 interface SupervisionStore {
   // Selected filters
   selectedSucursal: string | null;
@@ -39,6 +46,17 @@ interface SupervisionStore {
   selectedPDVsForObjective: number[];
   togglePDVForObjective: (id: number) => void;
   clearSelectedPDVs: () => void;
+
+  // ── "Armar Ruta" polygon draw mode ─────────────────────────────────────────
+  routeBuildEnabled: boolean;
+  toggleRouteBuild: () => void;
+  drawnPolygons: DrawnPolygon[];
+  activePolygonPdvIds: number[];
+  activePolygonGeoJson: DrawnPolygon['geoJson'] | null;
+  setActivePolygon: (pdvIds: number[], geoJson: DrawnPolygon['geoJson']) => void;
+  addDrawnPolygon: (polygon: DrawnPolygon) => void;
+  removeDrawnPolygon: (id: string) => void;
+  clearRouteBuildState: () => void;
 }
 
 export const useSupervisionStore = create<SupervisionStore>()(
@@ -51,6 +69,12 @@ export const useSupervisionStore = create<SupervisionStore>()(
       visibleClientes: new Set(),
       vendorColorOverrides: {},
       selectedPDVsForObjective: [],
+
+      // Armar Ruta initial state
+      routeBuildEnabled: false,
+      drawnPolygons: [],
+      activePolygonPdvIds: [],
+      activePolygonGeoJson: null,
 
       setSelectedSucursal: (sucursal) => set({ selectedSucursal: sucursal }),
       setMapMode: (mode) => set({ mapMode: mode }),
@@ -129,6 +153,38 @@ export const useSupervisionStore = create<SupervisionStore>()(
         }),
 
       clearSelectedPDVs: () => set({ selectedPDVsForObjective: [] }),
+
+      // ── Armar Ruta actions ──────────────────────────────────────────────────
+      toggleRouteBuild: () =>
+        set((state) => ({
+          routeBuildEnabled: !state.routeBuildEnabled,
+          // Al desactivar, limpiar estado de polígonos activos
+          ...(!state.routeBuildEnabled ? {} : {
+            activePolygonPdvIds: [],
+            activePolygonGeoJson: null,
+          }),
+        })),
+
+      setActivePolygon: (pdvIds, geoJson) =>
+        set({ activePolygonPdvIds: pdvIds, activePolygonGeoJson: geoJson }),
+
+      addDrawnPolygon: (polygon) =>
+        set((state) => ({
+          drawnPolygons: [...state.drawnPolygons, polygon],
+        })),
+
+      removeDrawnPolygon: (id) =>
+        set((state) => ({
+          drawnPolygons: state.drawnPolygons.filter(p => p.id !== id),
+        })),
+
+      clearRouteBuildState: () =>
+        set({
+          routeBuildEnabled: false,
+          drawnPolygons: [],
+          activePolygonPdvIds: [],
+          activePolygonGeoJson: null,
+        }),
     }),
     {
       name: 'supervision-store',

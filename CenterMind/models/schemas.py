@@ -142,6 +142,10 @@ class ObjetivoItemCreate(BaseModel):
     motivo_baja: Optional[str] = None        # Requerido si baja
     orden_sugerido: Optional[int] = None
     metadata_ruteo: Optional[dict] = None
+    # Agrupación por polígono (mínimo viable — persistido en metadata_ruteo)
+    group_id: Optional[str] = None           # UUID del grupo dibujado
+    group_name: Optional[str] = None         # Nombre del grupo (opcional)
+    polygon_geojson: Optional[dict] = None   # GeoJSON Feature<Polygon> del polígono
 
 
 class ObjetivoCreate(BaseModel):
@@ -161,6 +165,8 @@ class ObjetivoCreate(BaseModel):
     pdv_items: Optional[List[ObjetivoItemCreate]] = None
     id_objetivo_padre: Optional[str] = None
     resultado_final: Optional[str] = None
+    # Modo "Armar Ruta": indica si los PDVs fueron seleccionados por polígono
+    ruteo_build_mode: Optional[str] = None   # 'manual' | 'polygon'
 
 
 class ObjetivoUpdate(BaseModel):

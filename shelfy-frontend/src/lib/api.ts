@@ -1587,7 +1587,13 @@ export interface ObjetivoCreate {
     motivo_baja?: string;
     orden_sugerido?: number;
     metadata_ruteo?: Record<string, unknown>;
+    // Agrupación por polígono ("Armar Ruta")
+    group_id?: string;
+    group_name?: string;
+    polygon_geojson?: Record<string, unknown>;
   }[];
+  /** Modo de selección de PDVs: 'manual' | 'polygon' */
+  ruteo_build_mode?: string;
 }
 
 export interface ObjetivoUpdate {

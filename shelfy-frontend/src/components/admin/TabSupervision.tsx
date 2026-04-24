@@ -407,6 +407,12 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
     selectedPDVsForObjective,
     togglePDVForObjective,
     clearSelectedPDVs,
+    routeBuildEnabled,
+    toggleRouteBuild,
+    setActivePolygon,
+    clearRouteBuildState,
+    activePolygonPdvIds,
+    activePolygonGeoJson,
   } = useSupervisionStore();
 
   // accordion state (local UI only)
@@ -1324,6 +1330,24 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
               orden_sugerido: idx + 1,
             };
           });
+          // Si "Armar Ruta" está activo, enriquecer items con metadata de polígono
+          const hasValidPolygon =
+            routeBuildEnabled &&
+            !!activePolygonGeoJson &&
+            Array.isArray(activePolygonGeoJson.geometry?.coordinates) &&
+            Array.isArray(activePolygonGeoJson.geometry.coordinates[0]) &&
+            activePolygonGeoJson.geometry.coordinates[0].length >= 4;
+          const groupId = hasValidPolygon
+            ? crypto.randomUUID()
+            : undefined;
+          const enrichedPdvItems = pdvItems.map(item => ({
+            ...item,
+            ...(groupId && activePolygonGeoJson ? {
+              group_id: groupId,
+              group_name: 'Polígono de ruteo',
+              polygon_geojson: activePolygonGeoJson as Record<string, unknown>,
+            } : {}),
+          }));
           await createObjetivo({
             id_distribuidor: selectedDist,
             id_vendedor: firstPin.id_vendedor,
@@ -1332,7 +1356,8 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
             descripcion: autoDesc || undefined,
             fecha_objetivo: objFecha || undefined,
             valor_objetivo: selectedPDVsForObjective.length,
-            pdv_items: pdvItems,
+            pdv_items: enrichedPdvItems,
+            ruteo_build_mode: hasValidPolygon ? 'polygon' : 'manual',
           } as ObjetivoCreate);
         }
       } else {
@@ -1388,6 +1413,8 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
       clearSelectedPDVs();
       resetObjForm();
       setObjMenuOpen(false);
+      // Limpiar estado de Armar Ruta tras submit exitoso
+      if (routeBuildEnabled) clearRouteBuildState();
     } finally {
       setObjSubmitting(false);
     }
@@ -1418,32 +1445,69 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
 
   function MapModeSelector() {
     return (
-      <div className="flex gap-2 p-3 border-b border-[var(--shelfy-border)]">
-        {MAP_MODES.map((mode) => {
-          const Icon = mode.icon;
-          const isActive = mapMode === mode.id;
-          return (
-            <button
-              key={mode.id}
-              onClick={() => setMapMode(mode.id)}
-              className={`flex-1 flex items-start gap-2.5 p-3 rounded-lg border text-left transition-all ${
-                isActive
-                  ? 'border-[var(--shelfy-accent)] bg-[var(--shelfy-accent)]/10 text-[var(--shelfy-accent)]'
-                  : 'border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-[var(--shelfy-muted)] hover:border-[var(--shelfy-accent)]/50 hover:text-white'
-              }`}
-            >
-              <Icon className="w-4 h-4 mt-0.5 shrink-0" />
-              <div>
-                <div className={`text-xs font-semibold ${isActive ? 'text-[var(--shelfy-accent)]' : 'text-[var(--shelfy-text)]'}`}>
-                  {mode.label}
+      <div className="flex flex-col gap-2 p-3 border-b border-[var(--shelfy-border)]">
+        <div className="flex gap-2">
+          {MAP_MODES.map((mode) => {
+            const Icon = mode.icon;
+            const isActive = mapMode === mode.id;
+            return (
+              <button
+                key={mode.id}
+                onClick={() => setMapMode(mode.id)}
+                className={`flex-1 flex items-start gap-2.5 p-3 rounded-lg border text-left transition-all ${
+                  isActive
+                    ? 'border-[var(--shelfy-accent)] bg-[var(--shelfy-accent)]/10 text-[var(--shelfy-accent)]'
+                    : 'border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-[var(--shelfy-muted)] hover:border-[var(--shelfy-accent)]/50 hover:text-white'
+                }`}
+              >
+                <Icon className="w-4 h-4 mt-0.5 shrink-0" />
+                <div>
+                  <div className={`text-xs font-semibold ${isActive ? 'text-[var(--shelfy-accent)]' : 'text-[var(--shelfy-text)]'}`}>
+                    {mode.label}
+                  </div>
+                  <div className="text-[10px] text-[var(--shelfy-muted)] leading-tight mt-0.5">
+                    {mode.description}
+                  </div>
                 </div>
-                <div className="text-[10px] text-[var(--shelfy-muted)] leading-tight mt-0.5">
-                  {mode.description}
-                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Armar Ruta toggle — solo visible si tiene permiso de objetivos */}
+        {hasPermiso("action_edit_objetivos") && (
+          <button
+            onClick={() => {
+              toggleRouteBuild();
+              if (routeBuildEnabled) {
+                // Al desactivar: limpiar polígonos
+                clearRouteBuildState();
+              } else {
+                // Al activar: asegurarse de que el modo sea ruteo para objetivos
+                toast.info('Dibujá un polígono en el mapa para seleccionar PDVs');
+              }
+            }}
+            className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg border text-left transition-all ${
+              routeBuildEnabled
+                ? 'border-violet-400/60 bg-violet-500/15 text-violet-400'
+                : 'border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-[var(--shelfy-muted)] hover:border-violet-400/40 hover:text-violet-400'
+            }`}
+          >
+            <RouteIcon className="w-4 h-4 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <div className={`text-xs font-semibold ${routeBuildEnabled ? 'text-violet-400' : 'text-[var(--shelfy-text)]'}`}>
+                Armar Ruta
               </div>
-            </button>
-          );
-        })}
+              <div className="text-[10px] text-[var(--shelfy-muted)] leading-tight mt-0.5">
+                {routeBuildEnabled
+                  ? `Modo activo · ${activePolygonPdvIds.length > 0 ? `${activePolygonPdvIds.length} PDVs seleccionados` : 'dibujá un polígono'}`
+                  : 'Seleccionar PDVs por polígono en el mapa'
+                }
+              </div>
+            </div>
+            <div className={`w-2 h-2 rounded-full shrink-0 ${routeBuildEnabled ? 'bg-violet-400 animate-pulse' : 'bg-[var(--shelfy-border)]'}`} />
+          </button>
+        )}
       </div>
     );
   }
@@ -1764,6 +1828,17 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                 }
                 selectedPDVs={hasPermiso("action_edit_objetivos") ? selectedPDVsForObjective : []}
                 onTogglePDV={hasPermiso("action_edit_objetivos") ? togglePDVForObjective : undefined}
+                routeBuildEnabled={routeBuildEnabled}
+                onPolygonSelectionChange={(pdvIds, geoJson) => {
+                  setActivePolygon(pdvIds, geoJson);
+                  // En modo polígono, la selección debe representar exactamente
+                  // el polígono actual (evita mezclar con selecciones previas).
+                  clearSelectedPDVs();
+                  pdvIds.forEach(id => togglePDVForObjective(id));
+                  if (pdvIds.length > 0) {
+                    toast.success(`${pdvIds.length} PDVs seleccionados por polígono`);
+                  }
+                }}
               />
             )}
           </div>

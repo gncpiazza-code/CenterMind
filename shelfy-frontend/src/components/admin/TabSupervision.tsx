@@ -3172,7 +3172,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
 
       {/* ── Floating Objetivos Menu ("Shopping Cart") ────────────────────── */}
       {selectedPDVsForObjective.length > 0 && hasPermiso("action_edit_objetivos") && (
-        <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-2">
+        <div className="fixed bottom-6 right-6 z-[10050] flex flex-col items-end gap-2">
           {objMenuOpen && (
             <div className="w-80 rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] shadow-2xl overflow-hidden">
               {/* Header */}

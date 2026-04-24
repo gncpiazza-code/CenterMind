@@ -130,26 +130,36 @@ async function loadGmaps() {
 // ── Street View Panel ─────────────────────────────────────────────────────────
 function StreetViewPanel({ lat, lng, onClose }: { lat: number; lng: number; onClose: () => void }) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const [svError, setSvError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!panelRef.current || !window.google) return;
-    const pano = new window.google.maps.StreetViewPanorama(panelRef.current, {
-      position: { lat, lng },
-      pov: { heading: 0, pitch: 0 },
-      zoom: 1,
-      addressControl: false,
-      fullscreenControl: false,
-      linksControl: true,
+    setSvError(null);
+    const svc = new window.google.maps.StreetViewService();
+    svc.getPanorama({ location: { lat, lng }, radius: 120 }, (data, status) => {
+      if (status !== window.google.maps.StreetViewStatus.OK || !data?.location?.latLng) {
+        setSvError("No hay cobertura de Street View cerca de este PDV.");
+        return;
+      }
+      if (!panelRef.current) return;
+      new window.google.maps.StreetViewPanorama(panelRef.current, {
+        position: data.location.latLng,
+        pov: { heading: 0, pitch: 0 },
+        zoom: 1,
+        addressControl: false,
+        fullscreenControl: false,
+        linksControl: true,
+        motionTracking: false,
+      });
     });
-    void pano;
   }, [lat, lng]);
 
   return (
     <div style={{
-      position: 'absolute', bottom: 0, left: 0, right: 0,
-      height: '45%', zIndex: 25,
+      position: 'absolute', top: 0, right: 0,
+      width: '45%', minWidth: 360, maxWidth: 700, height: '100%', zIndex: 35,
       background: '#000',
-      borderTop: '2px solid rgba(139,92,246,0.6)',
+      borderLeft: '2px solid rgba(139,92,246,0.6)',
       display: 'flex', flexDirection: 'column',
     }}>
       <div style={{
@@ -167,7 +177,13 @@ function StreetViewPanel({ lat, lng, onClose }: { lat: number; lng: number; onCl
           }}
         >✕</button>
       </div>
-      <div ref={panelRef} style={{ flex: 1 }} />
+      {svError ? (
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#cbd5e1', fontSize: 12, padding: 16, textAlign: 'center' }}>
+          {svError}
+        </div>
+      ) : (
+        <div ref={panelRef} style={{ flex: 1 }} />
+      )}
     </div>
   );
 }
@@ -194,6 +210,7 @@ export default function MapaRutas({
 
   const [mapLoaded,    setMapLoaded]    = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showSidePanel, setShowSidePanel] = useState(true);
   const [svPos,        setSvPos]        = useState<{ lat: number; lng: number } | null>(null);
   const [noKey,        setNoKey]        = useState(false);
   const [polygonCount, setPolygonCount] = useState(0);
@@ -269,6 +286,10 @@ export default function MapaRutas({
     window.google?.maps?.event?.trigger(mapRef.current, 'resize');
   }, [isFullscreen]);
 
+  useEffect(() => {
+    if (!isFullscreen) setShowSidePanel(true);
+  }, [isFullscreen]);
+
   // ── Markers ────────────────────────────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current;
@@ -312,7 +333,7 @@ export default function MapaRutas({
           scaledSize: new window.google.maps.Size(iconSize, iconSize),
           anchor: new window.google.maps.Point(iconSize / 2, iconSize / 2),
         },
-        title: p.nombre,
+        title: `#${p.idClienteErp ?? p.id} - ${p.nombre}`,
         optimized: false,
         zIndex: p.activo ? 10 : 5,
       });
@@ -382,28 +403,12 @@ export default function MapaRutas({
         if (infoWindowRef.current) infoWindowRef.current.close();
       };
 
-      let autoCloseTimer: ReturnType<typeof setTimeout>;
-
       marker.addListener('click', () => {
         if (onTogglePDV) onTogglePDV(p.id);
         if (infoWindowRef.current) {
           infoWindowRef.current.setContent(popupHTML);
           infoWindowRef.current.open(map, marker);
-          clearTimeout(autoCloseTimer);
-          autoCloseTimer = setTimeout(() => infoWindowRef.current?.close(), 2000);
         }
-      });
-
-      marker.addListener('mouseover', () => {
-        if (infoWindowRef.current) {
-          infoWindowRef.current.setContent(popupHTML);
-          infoWindowRef.current.open(map, marker);
-        }
-      });
-
-      marker.addListener('mouseout', () => {
-        clearTimeout(autoCloseTimer);
-        if (infoWindowRef.current) infoWindowRef.current.close();
       });
     });
 
@@ -543,7 +548,7 @@ export default function MapaRutas({
   };
 
   const STATUS_ORDER: PinStatus[] = ['activo_exhibicion', 'activo', 'inactivo_exhibicion', 'inactivo'];
-  const panelOffset = isFullscreen && fullscreenPanel ? 300 : 0;
+  const panelOffset = isFullscreen && fullscreenPanel && showSidePanel ? 300 : 0;
 
   // ── Filter Legend ─────────────────────────────────────────────────────────
   const FilterLegend = () => (
@@ -618,7 +623,7 @@ export default function MapaRutas({
       className="shelfy-print-mapa"
     >
       {/* Vendor panel overlay (fullscreen only) */}
-      {isFullscreen && fullscreenPanel && (
+      {isFullscreen && fullscreenPanel && showSidePanel && (
         <div style={{
           position: 'absolute', left: 0, top: 0, bottom: 0, width: 300,
           zIndex: 20, display: 'flex', flexDirection: 'column',
@@ -692,6 +697,21 @@ export default function MapaRutas({
             onMouseOver={e => (e.currentTarget.style.background = 'rgba(15,23,42,0.92)')}
             onMouseOut={e => (e.currentTarget.style.background = 'rgba(15,23,42,0.75)')}
           >{isFullscreen ? '✕ Salir' : '⛶'}</button>
+          {isFullscreen && fullscreenPanel && (
+            <button
+              onClick={() => setShowSidePanel(v => !v)}
+              title={showSidePanel ? 'Ocultar panel izquierdo' : 'Mostrar panel izquierdo'}
+              style={{
+                background: 'rgba(15,23,42,0.75)', backdropFilter: 'blur(8px)',
+                border: '1px solid rgba(255,255,255,0.12)',
+                borderRadius: 8, color: '#e2e8f0', padding: '7px 9px',
+                cursor: 'pointer', fontSize: 12, lineHeight: 1,
+                boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
+              }}
+            >
+              {showSidePanel ? '☰ Ocultar' : '☰ Mostrar'}
+            </button>
+          )}
           <button
             onClick={handlePrint}
             title="Imprimir lista de PDVs"

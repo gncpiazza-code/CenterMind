@@ -82,6 +82,17 @@ function buildPinSvg(vendorColor: string, statusColor: string, size: number, cou
   return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
 }
 
+function buildPinSvgWithLabel(vendorColor: string, statusColor: string, size: number, label: string): string {
+  const r = size / 2 - 1.5;
+  const cx = size / 2;
+  const safeLabel = label.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+    <circle cx="${cx}" cy="${cx}" r="${r}" fill="${vendorColor}" stroke="${statusColor}" stroke-width="2.5"/>
+    <text x="${cx}" y="${cx + 3}" text-anchor="middle" font-size="7" font-weight="900" fill="white" font-family="system-ui">${safeLabel}</text>
+  </svg>`;
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+}
+
 function buildSelectedPinSvg(vendorColor: string, statusColor: string, size: number): string {
   const r = size / 2 - 1.5;
   const cx = size / 2;
@@ -93,6 +104,20 @@ function buildSelectedPinSvg(vendorColor: string, statusColor: string, size: num
     <circle cx="${ocx}" cy="${ocx}" r="${r}" fill="${vendorColor}" stroke="${statusColor}" stroke-width="2.5"/>
   </svg>`;
   return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+}
+
+function normalizeKey(value: string | null | undefined): string {
+  return (value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function compactDebtAmount(amount: number): string {
+  if (amount >= 1_000_000) return `$${(amount / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+  if (amount >= 1_000) return `$${Math.round(amount / 1_000)}k`;
+  return `$${Math.round(amount)}`;
 }
 
 // ── Props ─────────────────────────────────────────────────────────────────────
@@ -310,18 +335,30 @@ export default function MapaRutas({
       const size        = p.activo ? 18 : 14;
       const isSelected  = selSet.has(p.id);
 
-      // Deuda outline color
-      let debtColor: string | null = null;
+      // Deuda: resolver deudor para borde + etiqueta interna en modo deudores
+      let matchedDeudor: DeudorInfo | null = null;
       if (mode === 'deudores' && deudoresData) {
-        const deudor = deudoresData.find(d =>
-          d.id_cliente_erp && p.idClienteErp && d.id_cliente_erp === p.idClienteErp
-        );
-        if (deudor) debtColor = debtBorderColor(deudor.antiguedad_dias);
+        matchedDeudor =
+          deudoresData.find(d =>
+            d.id_cliente_erp && p.idClienteErp && d.id_cliente_erp === p.idClienteErp
+          ) ??
+          deudoresData.find(d =>
+            normalizeKey(d.cliente_nombre) === normalizeKey(p.nombre) &&
+            normalizeKey(d.vendedor_nombre) === normalizeKey(p.vendedor)
+          ) ??
+          null;
       }
+      const debtColor = matchedDeudor ? debtBorderColor(matchedDeudor.antiguedad_dias) : null;
 
+      const pinLabel =
+        mode === "deudores" && matchedDeudor
+          ? compactDebtAmount(matchedDeudor.deuda_total)
+          : null;
       const iconUrl = isSelected
         ? buildSelectedPinSvg(debtColor ?? vendorColor, statusColor, size)
-        : buildPinSvg(debtColor ?? vendorColor, statusColor, size, p.totalExhibiciones);
+        : pinLabel
+          ? buildPinSvgWithLabel(debtColor ?? vendorColor, statusColor, size, pinLabel)
+          : buildPinSvg(debtColor ?? vendorColor, statusColor, size, p.totalExhibiciones);
 
       const iconSize = isSelected ? size + 8 : size;
 
@@ -677,6 +714,27 @@ export default function MapaRutas({
         )}
       </div>
 
+      {/* Left hamburger (fullscreen side panel toggle) */}
+      {isFullscreen && fullscreenPanel && (
+        <div style={{
+          position: 'absolute', top: 10, left: 10, zIndex: 31,
+        }}>
+          <button
+            onClick={() => setShowSidePanel(v => !v)}
+            title={showSidePanel ? 'Ocultar panel izquierdo' : 'Mostrar panel izquierdo'}
+            style={{
+              background: 'rgba(15,23,42,0.75)', backdropFilter: 'blur(8px)',
+              border: '1px solid rgba(255,255,255,0.12)',
+              borderRadius: 8, color: '#e2e8f0', padding: '7px 9px',
+              cursor: 'pointer', fontSize: 12, lineHeight: 1,
+              boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
+            }}
+          >
+            {showSidePanel ? '☰ Ocultar' : '☰ Mostrar'}
+          </button>
+        </div>
+      )}
+
       {/* Top-right controls */}
       {!shelfyMapsMode && (
         <div style={{
@@ -697,21 +755,6 @@ export default function MapaRutas({
             onMouseOver={e => (e.currentTarget.style.background = 'rgba(15,23,42,0.92)')}
             onMouseOut={e => (e.currentTarget.style.background = 'rgba(15,23,42,0.75)')}
           >{isFullscreen ? '✕ Salir' : '⛶'}</button>
-          {isFullscreen && fullscreenPanel && (
-            <button
-              onClick={() => setShowSidePanel(v => !v)}
-              title={showSidePanel ? 'Ocultar panel izquierdo' : 'Mostrar panel izquierdo'}
-              style={{
-                background: 'rgba(15,23,42,0.75)', backdropFilter: 'blur(8px)',
-                border: '1px solid rgba(255,255,255,0.12)',
-                borderRadius: 8, color: '#e2e8f0', padding: '7px 9px',
-                cursor: 'pointer', fontSize: 12, lineHeight: 1,
-                boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
-              }}
-            >
-              {showSidePanel ? '☰ Ocultar' : '☰ Mostrar'}
-            </button>
-          )}
           <button
             onClick={handlePrint}
             title="Imprimir lista de PDVs"

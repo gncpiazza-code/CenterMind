@@ -69,31 +69,31 @@ const diasDesdeIso = (iso: string | null | undefined): number | null => {
   return Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
 };
 
-function buildPinSvg(vendorColor: string, statusColor: string, size: number, count?: number): string {
+function buildPinSvg(fillColor: string, borderColor: string, size: number, count?: number): string {
   const r = size / 2 - 1.5;
   const cx = size / 2;
   const textContent = count && count > 0
     ? `<text x="${cx}" y="${cx + 3.5}" text-anchor="middle" font-size="9" font-weight="900" fill="white" font-family="system-ui">${count}</text>`
     : '';
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-    <circle cx="${cx}" cy="${cx}" r="${r}" fill="${vendorColor}" stroke="${statusColor}" stroke-width="2.5"/>
+    <circle cx="${cx}" cy="${cx}" r="${r}" fill="${fillColor}" stroke="${borderColor}" stroke-width="2.5"/>
     ${textContent}
   </svg>`;
   return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
 }
 
-function buildPinSvgWithLabel(vendorColor: string, statusColor: string, size: number, label: string): string {
+function buildPinSvgWithLabel(fillColor: string, borderColor: string, size: number, label: string): string {
   const r = size / 2 - 1.5;
   const cx = size / 2;
   const safeLabel = label.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-    <circle cx="${cx}" cy="${cx}" r="${r}" fill="${vendorColor}" stroke="${statusColor}" stroke-width="2.5"/>
+    <circle cx="${cx}" cy="${cx}" r="${r}" fill="${fillColor}" stroke="${borderColor}" stroke-width="2.5"/>
     <text x="${cx}" y="${cx + 3}" text-anchor="middle" font-size="7" font-weight="900" fill="white" font-family="system-ui">${safeLabel}</text>
   </svg>`;
   return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
 }
 
-function buildSelectedPinSvg(vendorColor: string, statusColor: string, size: number): string {
+function buildSelectedPinSvg(fillColor: string, borderColor: string, size: number): string {
   const r = size / 2 - 1.5;
   const cx = size / 2;
   const outerR = size / 2 + 4;
@@ -101,7 +101,7 @@ function buildSelectedPinSvg(vendorColor: string, statusColor: string, size: num
   const ocx = totalSize / 2;
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${totalSize}" height="${totalSize}" viewBox="0 0 ${totalSize} ${totalSize}">
     <circle cx="${ocx}" cy="${ocx}" r="${outerR - 1}" fill="white" opacity="0.9"/>
-    <circle cx="${ocx}" cy="${ocx}" r="${r}" fill="${vendorColor}" stroke="${statusColor}" stroke-width="2.5"/>
+    <circle cx="${ocx}" cy="${ocx}" r="${r}" fill="${fillColor}" stroke="${borderColor}" stroke-width="2.5"/>
   </svg>`;
   return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
 }
@@ -126,6 +126,7 @@ interface MapaRutasProps {
   fullscreenPanel?: React.ReactNode;
   shelfyMapsMode?: boolean;
   mode?: 'activos' | 'deudores';
+  onModeChange?: (mode: 'activos' | 'deudores') => void;
   deudoresData?: DeudorInfo[];
   selectedPDVs?: number[];
   onTogglePDV?: (id: number) => void;
@@ -219,6 +220,7 @@ export default function MapaRutas({
   fullscreenPanel,
   shelfyMapsMode,
   mode = 'activos',
+  onModeChange,
   deudoresData,
   selectedPDVs,
   onTogglePDV,
@@ -354,11 +356,13 @@ export default function MapaRutas({
         mode === "deudores" && matchedDeudor
           ? compactDebtAmount(matchedDeudor.deuda_total)
           : null;
+      const pinFillColor = vendorColor;
+      const pinBorderColor = mode === "deudores" && debtColor ? debtColor : statusColor;
       const iconUrl = isSelected
-        ? buildSelectedPinSvg(debtColor ?? vendorColor, statusColor, size)
+        ? buildSelectedPinSvg(pinFillColor, pinBorderColor, size)
         : pinLabel
-          ? buildPinSvgWithLabel(debtColor ?? vendorColor, statusColor, size, pinLabel)
-          : buildPinSvg(debtColor ?? vendorColor, statusColor, size, p.totalExhibiciones);
+          ? buildPinSvgWithLabel(pinFillColor, pinBorderColor, size, pinLabel)
+          : buildPinSvg(pinFillColor, pinBorderColor, size, p.totalExhibiciones);
 
       const iconSize = isSelected ? size + 8 : size;
 
@@ -411,6 +415,26 @@ export default function MapaRutas({
         🏘️ Street View
       </button>`;
 
+      const debtAgeLabel = matchedDeudor
+        ? matchedDeudor.antiguedad_dias <= 30
+          ? "Al día (<=30d)"
+          : matchedDeudor.antiguedad_dias <= 60
+            ? "Atención (31-60d)"
+            : "Crítico (>60d)"
+        : null;
+      const modeBadge = mode === "deudores"
+        ? `<div style="font-size:10px;padding:3px 8px;border-radius:20px;display:inline-flex;align-items:center;gap:4px;
+                    background:${(debtColor ?? "#64748b")}22;color:${debtColor ?? "#94a3b8"};
+                    border:1px solid ${(debtColor ?? "#64748b")}44;font-weight:700;margin-bottom:8px">
+             <span style="width:6px;height:6px;border-radius:50%;background:${debtColor ?? "#64748b"};flex-shrink:0"></span>
+             ${debtAgeLabel ?? "Sin deuda mapeada"}
+           </div>`
+        : `<div style="font-size:10px;padding:3px 8px;border-radius:20px;display:inline-flex;align-items:center;gap:4px;
+                    background:${statusColor}22;color:${statusColor};border:1px solid ${statusColor}44;font-weight:700;margin-bottom:8px">
+             <span style="width:6px;height:6px;border-radius:50%;background:${statusColor};flex-shrink:0"></span>
+             ${STATUS_LABELS[status]}
+           </div>`;
+
       const popupHTML = `
         <div style="min-width:200px;max-width:260px;font-size:12px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
                     background:#1e293b;color:#e2e8f0;padding:12px 14px;border-radius:10px;
@@ -422,11 +446,7 @@ export default function MapaRutas({
             <span style="width:9px;height:9px;border-radius:50%;background:${vendorColor};flex-shrink:0;border:1px solid rgba(255,255,255,0.2)"></span>
             <span style="font-size:11px;font-weight:600;color:#94a3b8">${p.vendedor}</span>
           </div>
-          <div style="font-size:10px;padding:3px 8px;border-radius:20px;display:inline-flex;align-items:center;gap:4px;
-                      background:${statusColor}22;color:${statusColor};border:1px solid ${statusColor}44;font-weight:700;margin-bottom:8px">
-            <span style="width:6px;height:6px;border-radius:50%;background:${statusColor};flex-shrink:0"></span>
-            ${STATUS_LABELS[status]}
-          </div>
+          ${modeBadge}
           <div style="font-size:11px">${compraLabel}</div>
           ${exhibLine}
           ${deudaLine}
@@ -717,7 +737,8 @@ export default function MapaRutas({
       {/* Left hamburger (fullscreen side panel toggle) */}
       {isFullscreen && fullscreenPanel && (
         <div style={{
-          position: 'absolute', top: 10, left: 10, zIndex: 31,
+          position: 'absolute', top: 10, left: showSidePanel ? 308 : 10, zIndex: 31,
+          transition: 'left 0.2s ease',
         }}>
           <button
             onClick={() => setShowSidePanel(v => !v)}
@@ -731,6 +752,48 @@ export default function MapaRutas({
             }}
           >
             {showSidePanel ? '☰ Ocultar' : '☰ Mostrar'}
+          </button>
+        </div>
+      )}
+
+      {/* Fullscreen mode switcher */}
+      {!shelfyMapsMode && isFullscreen && onModeChange && (
+        <div style={{
+          position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)',
+          zIndex: 31, display: 'flex', gap: 6,
+          background: 'rgba(15,23,42,0.78)', backdropFilter: 'blur(8px)',
+          border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10, padding: 4,
+          boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
+        }}>
+          <button
+            onClick={() => onModeChange('activos')}
+            style={{
+              border: 'none',
+              borderRadius: 8,
+              padding: '6px 10px',
+              fontSize: 11,
+              fontWeight: 700,
+              cursor: 'pointer',
+              color: mode === 'activos' ? '#0f172a' : '#cbd5e1',
+              background: mode === 'activos' ? '#a78bfa' : 'transparent',
+            }}
+          >
+            Activos
+          </button>
+          <button
+            onClick={() => onModeChange('deudores')}
+            style={{
+              border: 'none',
+              borderRadius: 8,
+              padding: '6px 10px',
+              fontSize: 11,
+              fontWeight: 700,
+              cursor: 'pointer',
+              color: mode === 'deudores' ? '#0f172a' : '#cbd5e1',
+              background: mode === 'deudores' ? '#f97316' : 'transparent',
+            }}
+          >
+            Deudores
           </button>
         </div>
       )}

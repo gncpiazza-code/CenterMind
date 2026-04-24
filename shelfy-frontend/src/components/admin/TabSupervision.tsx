@@ -1814,6 +1814,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                 pines={pines}
                 fullscreenPanel={vendorPanelContent}
                 mode={mapMode}
+                onModeChange={setMapMode}
                 deudoresData={mapMode === 'deudores'
                   ? cuentasData?.vendedores?.flatMap(v =>
                       (v.clientes ?? []).map(c => ({

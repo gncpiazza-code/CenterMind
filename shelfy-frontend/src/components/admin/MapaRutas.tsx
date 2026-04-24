@@ -127,11 +127,13 @@ interface MapaRutasProps {
   shelfyMapsMode?: boolean;
   mode?: 'activos' | 'deudores' | 'ruteo';
   onModeChange?: (mode: 'activos' | 'deudores' | 'ruteo') => void;
+  showRuteoMode?: boolean;
   deudoresData?: DeudorInfo[];
   selectedPDVs?: number[];
   onTogglePDV?: (id: number) => void;
   // Armar Ruta
   routeBuildEnabled?: boolean;
+  onToggleRouteBuild?: () => void;
   onPolygonSelectionChange?: (pdvIds: number[], geoJson: DrawnPolygon['geoJson']) => void;
 }
 
@@ -221,10 +223,12 @@ export default function MapaRutas({
   shelfyMapsMode,
   mode = 'activos',
   onModeChange,
+  showRuteoMode = true,
   deudoresData,
   selectedPDVs,
   onTogglePDV,
   routeBuildEnabled = false,
+  onToggleRouteBuild,
   onPolygonSelectionChange,
 }: MapaRutasProps) {
   const containerRef  = useRef<HTMLDivElement>(null);
@@ -805,21 +809,40 @@ export default function MapaRutas({
           >
             Deudores
           </button>
-          <button
-            onClick={() => onModeChange('ruteo')}
-            style={{
-              border: 'none',
-              borderRadius: 8,
-              padding: '6px 10px',
-              fontSize: 11,
-              fontWeight: 700,
-              cursor: 'pointer',
-              color: mode === 'ruteo' ? '#0f172a' : '#cbd5e1',
-              background: mode === 'ruteo' ? '#22c55e' : 'transparent',
-            }}
-          >
-            Ruteo
-          </button>
+          {showRuteoMode && (
+            <button
+              onClick={() => onModeChange('ruteo')}
+              style={{
+                border: 'none',
+                borderRadius: 8,
+                padding: '6px 10px',
+                fontSize: 11,
+                fontWeight: 700,
+                cursor: 'pointer',
+                color: mode === 'ruteo' ? '#0f172a' : '#cbd5e1',
+                background: mode === 'ruteo' ? '#22c55e' : 'transparent',
+              }}
+            >
+              Ruteo
+            </button>
+          )}
+          {onToggleRouteBuild && (
+            <button
+              onClick={onToggleRouteBuild}
+              style={{
+                border: 'none',
+                borderRadius: 8,
+                padding: '6px 10px',
+                fontSize: 11,
+                fontWeight: 700,
+                cursor: 'pointer',
+                color: routeBuildEnabled ? '#0f172a' : '#cbd5e1',
+                background: routeBuildEnabled ? '#8b5cf6' : 'transparent',
+              }}
+            >
+              Armar Ruta
+            </button>
+          )}
         </div>
       )}
 

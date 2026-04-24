@@ -1441,12 +1441,21 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
       icon: RouteIcon,
     },
   ] as const;
+  const visibleMapModes = isSuperadmin
+    ? MAP_MODES
+    : MAP_MODES.filter((m) => m.id !== "ruteo");
+
+  useEffect(() => {
+    if (!isSuperadmin && mapMode === "ruteo") {
+      setMapMode("activos");
+    }
+  }, [isSuperadmin, mapMode, setMapMode]);
 
   function MapModeSelector() {
     return (
       <div className="flex flex-col gap-2 p-3 border-b border-[var(--shelfy-border)]">
         <div className="flex gap-2">
-          {MAP_MODES.map((mode) => {
+          {visibleMapModes.map((mode) => {
             const Icon = mode.icon;
             const isActive = mapMode === mode.id;
             return (
@@ -1476,16 +1485,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
         {/* Armar Ruta toggle — solo visible si tiene permiso de objetivos */}
         {hasPermiso("action_edit_objetivos") && (
           <button
-            onClick={() => {
-              toggleRouteBuild();
-              if (routeBuildEnabled) {
-                // Al desactivar: limpiar polígonos
-                clearRouteBuildState();
-              } else {
-                // Al activar: asegurarse de que el modo sea ruteo para objetivos
-                toast.info('Dibujá un polígono en el mapa para seleccionar PDVs');
-              }
-            }}
+            onClick={handleToggleRouteBuild}
             className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg border text-left transition-all ${
               routeBuildEnabled
                 ? 'border-violet-400/60 bg-violet-500/15 text-violet-400'
@@ -1681,6 +1681,15 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
     </div>
   );
 
+  const handleToggleRouteBuild = () => {
+    toggleRouteBuild();
+    if (routeBuildEnabled) {
+      clearRouteBuildState();
+    } else {
+      toast.info('Dibujá un polígono en el mapa para seleccionar PDVs');
+    }
+  };
+
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="flex flex-col gap-4">
@@ -1814,6 +1823,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                 fullscreenPanel={vendorPanelContent}
                 mode={mapMode}
                 onModeChange={setMapMode}
+                showRuteoMode={!!isSuperadmin}
                 deudoresData={mapMode === 'deudores'
                   ? cuentasData?.vendedores?.flatMap(v =>
                       (v.clientes ?? []).map(c => ({
@@ -1829,6 +1839,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                 selectedPDVs={hasPermiso("action_edit_objetivos") ? selectedPDVsForObjective : []}
                 onTogglePDV={hasPermiso("action_edit_objetivos") ? togglePDVForObjective : undefined}
                 routeBuildEnabled={routeBuildEnabled}
+                onToggleRouteBuild={hasPermiso("action_edit_objetivos") ? handleToggleRouteBuild : undefined}
                 onPolygonSelectionChange={(pdvIds, geoJson) => {
                   setActivePolygon(pdvIds, geoJson);
                   // En modo polígono, la selección debe representar exactamente

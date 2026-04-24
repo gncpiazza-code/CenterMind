@@ -1419,6 +1419,7 @@ export interface ClienteCuenta {
   rango_antiguedad: string | null;
   cantidad_comprobantes: number | null;
   fecha_ultima_compra: string | null;
+  id_cliente_erp?: string | null;
 }
 
 export interface VendedorCuentas {

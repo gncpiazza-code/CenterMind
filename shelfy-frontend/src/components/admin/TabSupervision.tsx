@@ -1434,13 +1434,12 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
       description: 'Estado de deuda por vendedor',
       icon: CreditCard,
     },
-    // Modo ruteo oculto temporalmente
-    // {
-    //   id: 'ruteo' as const,
-    //   label: 'Ruteo',
-    //   description: 'Optimizar distribución de rutas',
-    //   icon: RouteIcon,
-    // },
+    {
+      id: 'ruteo' as const,
+      label: 'Ruteo',
+      description: 'Optimizar distribución de rutas',
+      icon: RouteIcon,
+    },
   ] as const;
 
   function MapModeSelector() {
@@ -1818,7 +1817,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                 deudoresData={mapMode === 'deudores'
                   ? cuentasData?.vendedores?.flatMap(v =>
                       (v.clientes ?? []).map(c => ({
-                        id_cliente_erp: null,
+                        id_cliente_erp: c.id_cliente_erp ?? null,
                         cliente_nombre: c.cliente ?? '',
                         deuda_total: c.deuda_total,
                         antiguedad_dias: c.antiguedad ?? 0,
@@ -3173,62 +3172,76 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
 
       {/* ── Floating Objetivos Menu ("Shopping Cart") ────────────────────── */}
       {selectedPDVsForObjective.length > 0 && hasPermiso("action_edit_objetivos") && (
-        <div className="fixed bottom-6 right-6 z-[10050] flex flex-col items-end gap-2">
+        <div className="fixed bottom-6 right-6 z-[10050] flex flex-col items-end gap-3">
           {objMenuOpen && (
-            <div className="w-80 rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] shadow-2xl overflow-hidden">
+            <div className="w-96 rounded-2xl border border-white/10 bg-white/90 dark:bg-[#1a1a2e]/95 backdrop-blur-xl shadow-[0_8px_32px_rgba(0,0,0,0.25)] overflow-hidden"
+              style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.22), 0 0 0 0.5px rgba(255,255,255,0.12)' }}>
               {/* Header */}
-              <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--shelfy-border)]">
-                <div className="flex items-center gap-2">
-                  <ShoppingCart className="w-4 h-4 text-[var(--shelfy-accent)]" />
-                  <span className="text-sm font-semibold text-[var(--shelfy-text)]">
-                    Crear objetivo ({selectedPDVsForObjective.length} PDV)
-                  </span>
+              <div className="flex items-center justify-between px-4 py-3 border-b border-black/8 dark:border-white/10 bg-gradient-to-r from-[var(--shelfy-accent)]/10 to-violet-500/5">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-7 h-7 rounded-lg bg-[var(--shelfy-accent)]/15 flex items-center justify-center">
+                    <Target className="w-3.5 h-3.5 text-[var(--shelfy-accent)]" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-[var(--shelfy-text)] leading-none">Nuevo Objetivo</p>
+                    <p className="text-[10px] text-[var(--shelfy-muted)] mt-0.5">{selectedPDVsForObjective.length} PDV{selectedPDVsForObjective.length !== 1 ? 's' : ''} seleccionado{selectedPDVsForObjective.length !== 1 ? 's' : ''}</p>
+                  </div>
                 </div>
-                <button onClick={() => setObjMenuOpen(false)} className="text-[var(--shelfy-muted)] hover:text-[var(--shelfy-accent)] transition-colors">
-                  <X className="w-4 h-4" />
+                <button onClick={() => setObjMenuOpen(false)} className="w-6 h-6 flex items-center justify-center rounded-lg text-[var(--shelfy-muted)] hover:bg-black/8 dark:hover:bg-white/10 transition-colors">
+                  <X className="w-3.5 h-3.5" />
                 </button>
               </div>
 
-              {/* Selected PDVs list */}
-              <div className="max-h-32 overflow-y-auto px-4 py-2 space-y-1">
-                {selectedPDVsForObjective.map(id => {
-                  const pin = pines.find(p => p.id === id);
-                  if (!pin) return null;
-                  return (
-                    <div key={id} className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <span className="w-2 h-2 rounded-full shrink-0" style={{ background: pin.color }} />
-                        <span className="text-xs text-[var(--shelfy-text)] truncate">{pin.nombre}</span>
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
+              {/* Selected PDVs chips */}
+              <div className="px-4 pt-3 pb-2">
+                <p className="text-[9px] font-bold uppercase tracking-widest text-[var(--shelfy-muted)] mb-2">PDVs</p>
+                <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+                  {selectedPDVsForObjective.map(id => {
+                    const pin = pines.find(p => p.id === id);
+                    if (!pin) return null;
+                    return (
+                      <span key={id}
+                        className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full text-[11px] font-medium border border-black/10 dark:border-white/10 bg-white/70 dark:bg-white/5 text-[var(--shelfy-text)]"
+                        style={{ borderLeftColor: pin.color, borderLeftWidth: 2 }}>
+                        {pin.nombre.length > 18 ? pin.nombre.slice(0, 18) + '…' : pin.nombre}
                         {objTipo === "cobranza" && pin.deuda != null && pin.deuda > 0 && (
-                          <span className="text-[10px] font-semibold text-orange-400 tabular-nums">${pin.deuda.toLocaleString("es-AR", { maximumFractionDigits: 0 })}</span>
+                          <span className="text-orange-500 font-semibold ml-0.5">${(pin.deuda / 1000).toFixed(0)}K</span>
                         )}
-                        <button onClick={() => togglePDVForObjective(id)} className="text-[var(--shelfy-muted)] hover:text-red-400 transition-colors shrink-0">
-                          <X className="w-3 h-3" />
+                        <button onClick={() => togglePDVForObjective(id)} className="w-3.5 h-3.5 flex items-center justify-center rounded-full hover:bg-red-100 dark:hover:bg-red-500/20 text-[var(--shelfy-muted)] hover:text-red-500 transition-colors ml-0.5">
+                          <X className="w-2.5 h-2.5" />
                         </button>
-                      </div>
-                    </div>
-                  );
-                })}
+                      </span>
+                    );
+                  })}
+                </div>
               </div>
 
               {/* Form */}
-              <div className="px-4 pb-4 space-y-3 border-t border-[var(--shelfy-border)] pt-3">
-                {/* Tipo */}
+              <div className="px-4 pb-4 space-y-3 border-t border-black/8 dark:border-white/8 pt-3 mt-1">
+                {/* Tipo — pill buttons */}
                 <div>
-                  <label className="text-[10px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1">Tipo</label>
-                  <select
-                    className="w-full appearance-none bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-1.5 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
-                    value={objTipo}
-                    onChange={e => setObjTipo(e.target.value as ObjetivoTipo)}
-                  >
-                    <option value="conversion_estado">Activación</option>
-                    <option value="cobranza">Cobranza</option>
-                    <option value="ruteo_alteo">Alteo</option>
-                    <option value="ruteo">Ruteo</option>
-                    <option value="exhibicion">Exhibición</option>
-                  </select>
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-[var(--shelfy-muted)] mb-2">Tipo de objetivo</p>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {([
+                      { id: 'conversion_estado', label: 'Activación', color: '#8b5cf6' },
+                      { id: 'cobranza',          label: 'Cobranza',   color: '#f97316' },
+                      { id: 'ruteo_alteo',       label: 'Alteo',      color: '#0ea5e9' },
+                      { id: 'ruteo',             label: 'Ruteo',      color: '#22c55e' },
+                      { id: 'exhibicion',        label: 'Exhibición', color: '#ec4899' },
+                    ] as { id: ObjetivoTipo; label: string; color: string }[]).map(t => (
+                      <button key={t.id}
+                        onClick={() => setObjTipo(t.id)}
+                        className={`py-1.5 rounded-lg text-[11px] font-semibold transition-all border ${
+                          objTipo === t.id
+                            ? 'text-white border-transparent shadow-sm'
+                            : 'border-black/10 dark:border-white/10 text-[var(--shelfy-muted)] bg-transparent hover:border-black/20 dark:hover:border-white/20'
+                        }`}
+                        style={objTipo === t.id ? { background: t.color } : {}}
+                      >
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 {/* Contextual section: Alteo — ruta selector */}
@@ -3560,33 +3573,36 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                 </div>
 
                 {/* Actions */}
-                <div className="flex gap-2">
+                <div className="flex gap-2 pt-1">
                   <button
                     onClick={() => { clearSelectedPDVs(); setObjMenuOpen(false); }}
-                    className="flex-1 py-1.5 rounded-lg border border-[var(--shelfy-border)] text-xs text-[var(--shelfy-muted)] hover:text-white transition-colors"
+                    className="flex-1 py-2 rounded-xl border border-black/10 dark:border-white/10 text-xs font-semibold text-[var(--shelfy-muted)] hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
                   >
                     Cancelar
                   </button>
                   <button
                     onClick={handleSubmitObjectives}
                     disabled={objSubmitting}
-                    className="flex-1 py-1.5 rounded-lg bg-[var(--shelfy-accent)] text-white text-xs font-medium hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-1.5"
+                    className="flex-1 py-2 rounded-xl text-white text-xs font-bold shadow-md hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-1.5"
+                    style={{ background: 'linear-gradient(135deg, var(--shelfy-accent) 0%, #7c3aed 100%)' }}
                   >
-                    {objSubmitting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Target className="w-3 h-3" />}
-                    Crear {selectedPDVsForObjective.length} obj.
+                    {objSubmitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Target className="w-3.5 h-3.5" />}
+                    Crear {selectedPDVsForObjective.length} objetivo{selectedPDVsForObjective.length !== 1 ? 's' : ''}
                   </button>
                 </div>
               </div>
             </div>
           )}
 
-          {/* Cart button */}
+          {/* Cart trigger button */}
           <button
             onClick={() => setObjMenuOpen(!objMenuOpen)}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[var(--shelfy-accent)] text-white text-sm font-semibold shadow-lg hover:opacity-90 transition-opacity"
+            className="flex items-center gap-2.5 px-5 py-3 rounded-2xl text-white text-sm font-bold shadow-xl hover:opacity-90 active:scale-95 transition-all"
+            style={{ background: 'linear-gradient(135deg, var(--shelfy-accent) 0%, #7c3aed 100%)', boxShadow: '0 4px 20px rgba(139,92,246,0.45)' }}
           >
-            <ShoppingCart className="w-4 h-4" />
-            <span>{selectedPDVsForObjective.length} PDV seleccionado{selectedPDVsForObjective.length !== 1 ? "s" : ""}</span>
+            <Target className="w-4 h-4" />
+            <span>{selectedPDVsForObjective.length} PDV{selectedPDVsForObjective.length !== 1 ? 's' : ''}</span>
+            <span className="opacity-70 text-xs font-normal">· Crear objetivo</span>
           </button>
         </div>
       )}

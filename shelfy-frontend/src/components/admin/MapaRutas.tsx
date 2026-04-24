@@ -125,8 +125,8 @@ interface MapaRutasProps {
   pines: PinCliente[];
   fullscreenPanel?: React.ReactNode;
   shelfyMapsMode?: boolean;
-  mode?: 'activos' | 'deudores';
-  onModeChange?: (mode: 'activos' | 'deudores') => void;
+  mode?: 'activos' | 'deudores' | 'ruteo';
+  onModeChange?: (mode: 'activos' | 'deudores' | 'ruteo') => void;
   deudoresData?: DeudorInfo[];
   selectedPDVs?: number[];
   onTogglePDV?: (id: number) => void;
@@ -349,6 +349,16 @@ export default function MapaRutas({
             normalizeKey(d.vendedor_nombre) === normalizeKey(p.vendedor)
           ) ??
           null;
+      }
+      // Fallback: pin carries pre-computed debt data from pines memo (ERP-ID matched in TabSupervision)
+      if (mode === 'deudores' && !matchedDeudor && p.deuda != null && p.deuda > 0) {
+        matchedDeudor = {
+          id_cliente_erp: p.idClienteErp ?? null,
+          cliente_nombre: p.nombre,
+          deuda_total: p.deuda,
+          antiguedad_dias: p.antiguedadDias ?? 0,
+          vendedor_nombre: p.vendedor,
+        };
       }
       const debtColor = matchedDeudor ? debtBorderColor(matchedDeudor.antiguedad_dias) : null;
 
@@ -708,7 +718,7 @@ export default function MapaRutas({
         {/* "Armar Ruta" overlay bar */}
         {routeBuildEnabled && (
           <div style={{
-            position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)',
+            position: 'absolute', top: isFullscreen ? 56 : 10, left: '50%', transform: 'translateX(-50%)',
             zIndex: 30, display: 'flex', alignItems: 'center', gap: 8,
             background: 'rgba(139,92,246,0.92)', backdropFilter: 'blur(10px)',
             border: '1px solid rgba(255,255,255,0.20)',
@@ -795,6 +805,21 @@ export default function MapaRutas({
           >
             Deudores
           </button>
+          <button
+            onClick={() => onModeChange('ruteo')}
+            style={{
+              border: 'none',
+              borderRadius: 8,
+              padding: '6px 10px',
+              fontSize: 11,
+              fontWeight: 700,
+              cursor: 'pointer',
+              color: mode === 'ruteo' ? '#0f172a' : '#cbd5e1',
+              background: mode === 'ruteo' ? '#22c55e' : 'transparent',
+            }}
+          >
+            Ruteo
+          </button>
         </div>
       )}
 
@@ -861,7 +886,10 @@ export default function MapaRutas({
       {/* PDV count badge */}
       {!shelfyMapsMode && (
         <div style={{
-          position: 'absolute', top: 10, left: panelOffset + 10,
+          position: 'absolute', top: 10,
+          left: (isFullscreen && fullscreenPanel)
+            ? (showSidePanel ? 403 : 105)
+            : (panelOffset + 10),
           zIndex: 30,
           background: 'rgba(15,23,42,0.75)', backdropFilter: 'blur(8px)',
           color: '#e2e8f0', fontSize: 11, fontWeight: 700,

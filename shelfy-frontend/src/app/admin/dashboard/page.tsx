@@ -2,323 +2,466 @@
 
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
-import { Card } from "@/components/ui/Card";
-import { PageSpinner } from "@/components/ui/Spinner";
+import { Badge } from "@/components/ui/badge";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useAuth } from "@/hooks/useAuth";
 import {
-  fetchMotorRuns,
+  fetchEmpresaMotorSnapshot,
+  fetchMotorRunsDetail,
   fetchRunCCMotor,
+  type EmpresaMotorSnapshot,
+  type EmpresaMotorSnapshotResponse,
   type MotorRun,
 } from "@/lib/api";
-import { useEffect, useState, useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   AlertCircle,
   CheckCircle2,
   Clock,
-  Play,
+  Copy,
   Loader2,
+  Play,
   RefreshCw,
-  FileText,
-  DollarSign,
-  Users,
+  Search,
   X,
+  ChevronDown,
+  ChevronRight,
+  Activity,
 } from "lucide-react";
-import { formatDistanceToNow, format } from "date-fns";
+import { format, formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 import { toast } from "sonner";
 
-// ── Types ──────────────────────────────────────────────────────────────────
+// ── Constants ──────────────────────────────────────────────────────────────
 
-type MotorConfig = {
-  tipo: string;
-  label: string;
-  description: string;
-  icon: React.ElementType;
-  color: string;
-  bgColor: string;
-  canRun: boolean;
+const MOTORS = ["padron", "ventas", "cuentas"] as const;
+type Motor = (typeof MOTORS)[number];
+
+const MOTOR_LABEL: Record<string, string> = {
+  padron: "Padrón",
+  ventas: "Ventas",
+  cuentas: "Cuentas CC",
+  padron_global: "Padrón Global",
+  sigo: "SIGO",
 };
 
-const MOTORS: MotorConfig[] = [
-  {
-    tipo: "cuentas",
-    label: "Cuentas Corrientes",
-    description: "Sincroniza deudas y comprobantes desde CHESS ERP.",
-    icon: DollarSign,
-    color: "text-blue-400",
-    bgColor: "bg-blue-500/10",
-    canRun: true,
-  },
-  {
-    tipo: "ventas",
-    label: "Informe de Ventas",
-    description: "Procesa ventas_v2 desde el Excel de informe CHESS.",
-    icon: FileText,
-    color: "text-violet-400",
-    bgColor: "bg-violet-500/10",
-    canRun: false,
-  },
-  {
-    tipo: "padron",
-    label: "Padrón de Clientes",
-    description: "Actualiza clientes_pdv_v2, rutas_v2 y vendedores_v2.",
-    icon: Users,
-    color: "text-emerald-400",
-    bgColor: "bg-emerald-500/10",
-    canRun: false,
-  },
-];
+const MOTOR_COLOR: Record<string, string> = {
+  padron: "emerald",
+  ventas: "violet",
+  cuentas: "blue",
+  padron_global: "amber",
+  sigo: "orange",
+};
 
-// ── Status helpers ─────────────────────────────────────────────────────────
+// ── Helpers ────────────────────────────────────────────────────────────────
 
-function getStatus(runs: MotorRun[]): "idle" | "running" | "error" | "ok" {
-  if (!runs.length) return "idle";
-  const latest = runs[0];
-  const estado = (latest.estado || "").toLowerCase();
-  if (estado.includes("ejecutando") || estado.includes("running")) return "running";
-  if (estado.includes("error") || estado.includes("fallo")) return "error";
-  if (estado.includes("ok") || estado.includes("completado") || estado.includes("success")) return "ok";
+type RunStatus = "idle" | "running" | "error" | "ok";
+
+function parseStatus(estado: string | null | undefined): RunStatus {
+  const s = (estado || "").toLowerCase();
+  if (s.includes("en_curso") || s.includes("ejecutando") || s.includes("running")) return "running";
+  if (s.includes("error") || s.includes("fallo") || s.includes("failed")) return "error";
+  if (s.includes("ok") || s.includes("completado") || s.includes("success") || s.includes("exitoso")) return "ok";
   return "idle";
 }
 
-function StatusBadge({ status }: { status: ReturnType<typeof getStatus> }) {
-  const map = {
-    idle:    { label: "Idle",       cls: "bg-slate-700 text-slate-300" },
-    running: { label: "Running",    cls: "bg-blue-500/20 text-blue-300 animate-pulse" },
-    error:   { label: "Error",      cls: "bg-red-500/20 text-red-400" },
-    ok:      { label: "Completado", cls: "bg-emerald-500/20 text-emerald-400" },
-  };
-  const { label, cls } = map[status];
-  return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest ${cls}`}>
-      {status === "running" && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-ping" />}
-      {status === "error" && <AlertCircle size={10} />}
-      {status === "ok" && <CheckCircle2 size={10} />}
-      {status === "idle" && <Clock size={10} />}
-      {label}
-    </span>
-  );
+function duration(run: MotorRun): string {
+  if (!run.iniciado_en || !run.finalizado_en) return "–";
+  const ms = new Date(run.finalizado_en).getTime() - new Date(run.iniciado_en).getTime();
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  return `${Math.floor(s / 60)}m ${s % 60}s`;
 }
 
-// ── Logs Modal ─────────────────────────────────────────────────────────────
+function timeAgo(ts: string | null): string {
+  if (!ts) return "–";
+  try {
+    return formatDistanceToNow(new Date(ts), { addSuffix: true, locale: es });
+  } catch {
+    return "–";
+  }
+}
 
-function LogsModal({
-  motor,
-  runs,
-  onClose,
+function copyToClipboard(text: string) {
+  navigator.clipboard.writeText(text).then(() => toast.success("Copiado"));
+}
+
+// ── StatusDot ──────────────────────────────────────────────────────────────
+
+function StatusDot({ status, size = 8 }: { status: RunStatus; size?: number }) {
+  const cls = {
+    idle: "bg-slate-500",
+    running: "bg-blue-400 animate-pulse",
+    error: "bg-red-500",
+    ok: "bg-emerald-500",
+  }[status];
+  return <span className={`inline-block rounded-full ${cls}`} style={{ width: size, height: size }} />;
+}
+
+// ── KPI Header ─────────────────────────────────────────────────────────────
+
+function KpiHeader({
+  data,
+  lastRefresh,
+  loading,
+  onRefresh,
 }: {
-  motor: MotorConfig;
-  runs: MotorRun[];
-  onClose: () => void;
+  data: EmpresaMotorSnapshotResponse | null;
+  lastRefresh: Date;
+  loading: boolean;
+  onRefresh: () => void;
 }) {
-  function duration(run: MotorRun) {
-    if (!run.iniciado_en || !run.finalizado_en) return "–";
-    const ms = new Date(run.finalizado_en).getTime() - new Date(run.iniciado_en).getTime();
-    const s = Math.round(ms / 1000);
-    if (s < 60) return `${s}s`;
-    return `${Math.floor(s / 60)}m ${s % 60}s`;
+  const today = new Date().toDateString();
+  let okHoy = 0;
+  let errorHoy = 0;
+  let running = 0;
+
+  if (data) {
+    const allRuns = [
+      ...data.distribuidores.flatMap((d) => Object.values(d.last_runs)),
+      ...Object.values(data.global),
+    ];
+    for (const r of allRuns) {
+      const st = parseStatus(r.estado);
+      if (st === "running") { running++; continue; }
+      if (!r.iniciado_en) continue;
+      const isToday = new Date(r.iniciado_en).toDateString() === today;
+      if (!isToday) continue;
+      if (st === "ok") okHoy++;
+      if (st === "error") errorHoy++;
+    }
   }
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-      <div className="w-full max-w-2xl bg-slate-900 border border-white/10 rounded-2xl shadow-2xl flex flex-col max-h-[80vh]">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
-          <div className="flex items-center gap-3">
-            <div className={`p-2 rounded-lg ${motor.bgColor} ${motor.color}`}>
-              <motor.icon size={18} />
-            </div>
-            <div>
-              <h2 className="font-black text-white text-sm">{motor.label}</h2>
-              <p className="text-[10px] text-white/40">Últimas {runs.length} ejecuciones</p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg text-white/40 hover:text-white hover:bg-white/10 transition-colors"
-          >
-            <X size={18} />
-          </button>
-        </div>
+  const kpis = [
+    { label: "OK hoy", value: okHoy, icon: CheckCircle2, color: "text-emerald-400" },
+    { label: "Error hoy", value: errorHoy, icon: AlertCircle, color: "text-red-400" },
+    { label: "En curso", value: running, icon: Activity, color: "text-blue-400" },
+  ];
 
-        {/* Table */}
-        <div className="overflow-y-auto flex-1">
-          {runs.length === 0 ? (
-            <div className="py-16 text-center text-white/30 text-sm">Sin registros disponibles</div>
-          ) : (
-            <table className="w-full text-left">
-              <thead className="sticky top-0 bg-slate-900/95 backdrop-blur">
-                <tr className="border-b border-white/5">
-                  {["Fecha", "Estado", "Distribuidor", "Duración", "Mensaje"].map((h) => (
-                    <th key={h} className="px-4 py-3 text-[10px] font-black text-white/30 uppercase tracking-widest">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {runs.map((r) => (
-                  <tr key={r.id} className="border-b border-white/5 hover:bg-white/3 transition-colors">
-                    <td className="px-4 py-3 text-[11px] text-white/60 whitespace-nowrap font-mono">
-                      {r.iniciado_en ? format(new Date(r.iniciado_en), "dd/MM HH:mm", { locale: es }) : "–"}
-                    </td>
-                    <td className="px-4 py-3">
-                      <StatusBadge status={getStatus([r])} />
-                    </td>
-                    <td className="px-4 py-3 text-[11px] text-white/60">{r.dist_id ?? "–"}</td>
-                    <td className="px-4 py-3 text-[11px] text-white/60 font-mono">{duration(r)}</td>
-                    <td className="px-4 py-3 text-[11px] text-white/60 text-white/50 max-w-[200px] truncate">{r.error_msg || "–"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
+  return (
+    <div className="flex items-center justify-between flex-wrap gap-4">
+      <div>
+        <h1 className="text-2xl font-black text-white">Corridas y Mapeo</h1>
+        <p className="text-xs text-white/40 mt-0.5">
+          Última actualización: {format(lastRefresh, "HH:mm:ss")}
+          <span className="ml-2 italic">· Auto cada 30s</span>
+        </p>
+      </div>
+
+      <div className="flex items-center gap-3">
+        {kpis.map(({ label, value, icon: Icon, color }) => (
+          <div key={label} className="flex items-center gap-2 bg-white/5 rounded-xl px-4 py-2">
+            <Icon size={14} className={color} />
+            <span className="text-white font-black text-base">{value}</span>
+            <span className="text-white/40 text-xs">{label}</span>
+          </div>
+        ))}
+        <button
+          onClick={onRefresh}
+          disabled={loading}
+          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-white/60 hover:text-white text-xs font-bold transition-all"
+        >
+          <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
+          Actualizar
+        </button>
       </div>
     </div>
   );
 }
 
-// ── Motor Card ─────────────────────────────────────────────────────────────
+// ── Motor Cell ─────────────────────────────────────────────────────────────
 
-function MotorCard({
+function MotorCell({
+  run,
   motor,
-  runs,
-  onRun,
-  onViewLogs,
-  running,
+  onClick,
 }: {
-  motor: MotorConfig;
-  runs: MotorRun[];
-  onRun: () => void;
-  onViewLogs: () => void;
-  running: boolean;
+  run: MotorRun | undefined;
+  motor: string;
+  onClick: () => void;
 }) {
-  const status = getStatus(runs);
-  const latest = runs[0];
+  if (!run) {
+    return (
+      <button
+        onClick={onClick}
+        className="w-full h-full flex items-center justify-center text-white/15 hover:bg-white/5 transition-colors rounded text-[10px]"
+      >
+        –
+      </button>
+    );
+  }
+
+  const st = parseStatus(run.estado);
+  const color = MOTOR_COLOR[motor] || "slate";
+
+  const stateCls = {
+    idle: "text-white/40",
+    running: "text-blue-300",
+    error: "text-red-400",
+    ok: "text-emerald-400",
+  }[st];
 
   return (
-    <Card className="p-5 border-none shadow-xl bg-slate-900 text-white flex flex-col gap-4">
-      {/* Header */}
-      <div className="flex items-start justify-between">
-        <div className="flex items-center gap-3">
-          <div className={`p-2.5 rounded-xl ${motor.bgColor}`}>
-            <motor.icon size={20} className={motor.color} />
-          </div>
-          <div>
-            <h3 className="font-black text-white text-sm leading-tight">{motor.label}</h3>
-            <p className="text-[10px] text-white/40 mt-0.5 leading-tight max-w-[180px]">{motor.description}</p>
-          </div>
-        </div>
-        <StatusBadge status={status} />
+    <button
+      onClick={onClick}
+      className="w-full text-left px-2 py-1.5 rounded hover:bg-white/8 transition-colors group"
+    >
+      <div className="flex items-center gap-1.5">
+        <StatusDot status={st} size={6} />
+        <span className={`text-[10px] font-bold uppercase tracking-wide ${stateCls}`}>
+          {st === "running" ? "Corriendo" : st === "error" ? "Error" : st === "ok" ? "OK" : "–"}
+        </span>
       </div>
-
-      {/* Last run info */}
-      <div className="flex items-center gap-2 text-[11px] text-white/40">
-        <Clock size={12} />
-        {latest ? (
-          <span>
-            Última ejecución:{" "}
-            <span className="text-white/60 font-semibold">
-              {latest.iniciado_en ? formatDistanceToNow(new Date(latest.iniciado_en), { addSuffix: true, locale: es }) : "–"}
-            </span>
-          </span>
-        ) : (
-          <span>Sin ejecuciones registradas</span>
-        )}
+      <div className="text-[9px] text-white/30 mt-0.5 truncate">
+        {run.iniciado_en ? format(new Date(run.iniciado_en), "dd/MM HH:mm") : "–"}
       </div>
-
-      {/* Run history dots */}
-      {runs.length > 0 && (
-        <div className="flex items-center gap-1">
-          {runs.slice(0, 10).reverse().map((r) => {
-            const s = getStatus([r]);
-            const dot = s === "ok" ? "bg-emerald-500" : s === "error" ? "bg-red-500" : s === "running" ? "bg-blue-400 animate-pulse" : "bg-slate-600";
-            return <span key={r.id} className={`w-2 h-2 rounded-full ${dot}`} title={r.estado || "?"} />;
-          })}
-          <span className="text-[9px] text-white/20 ml-1">últimas {Math.min(runs.length, 10)}</span>
+      {st === "ok" && (
+        <div className="text-[9px] text-white/20 truncate">{duration(run)}</div>
+      )}
+      {st === "error" && run.error_msg && (
+        <div className="text-[9px] text-red-400/60 truncate max-w-[100px]" title={run.error_msg}>
+          {run.error_msg.slice(0, 40)}…
         </div>
       )}
-
-      {/* Actions */}
-      <div className="flex gap-2 mt-auto pt-2 border-t border-white/5">
-        <button
-          onClick={onViewLogs}
-          className="flex-1 py-2 px-3 rounded-xl text-[11px] font-bold bg-white/5 hover:bg-white/10 text-white/60 hover:text-white transition-all flex items-center justify-center gap-1.5"
-        >
-          <FileText size={12} />
-          Ver Logs
-        </button>
-        {motor.canRun && (
-          <button
-            onClick={onRun}
-            disabled={running || status === "running"}
-            className={`flex-1 py-2 px-3 rounded-xl text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all ${
-              running || status === "running"
-                ? "bg-slate-700 text-slate-500 cursor-not-allowed"
-                : `${motor.bgColor} ${motor.color} hover:opacity-80 active:scale-95`
-            }`}
-          >
-            {running ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} fill="currentColor" />}
-            {running ? "Ejecutando..." : "Correr"}
-          </button>
-        )}
-      </div>
-    </Card>
+    </button>
   );
 }
 
-// ── Page ───────────────────────────────────────────────────────────────────
+// ── Detail Sheet ───────────────────────────────────────────────────────────
+
+function DetailSheet({
+  open,
+  onClose,
+  dist,
+  motor,
+}: {
+  open: boolean;
+  onClose: () => void;
+  dist: EmpresaMotorSnapshot | null;
+  motor: string | null;
+}) {
+  const [runs, setRuns] = useState<MotorRun[]>([]);
+  const [loadingDetail, setLoadingDetail] = useState(false);
+  const [expanded, setExpanded] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!open || !dist || !motor) return;
+    setLoadingDetail(true);
+    fetchMotorRunsDetail(dist.dist_id, motor, 50)
+      .then(setRuns)
+      .finally(() => setLoadingDetail(false));
+  }, [open, dist, motor]);
+
+  const motorLabel = motor ? (MOTOR_LABEL[motor] || motor) : "";
+
+  return (
+    <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
+      <SheetContent
+        side="right"
+        className="w-full max-w-[640px] bg-slate-900 border-white/10 text-white p-0 flex flex-col"
+      >
+        <SheetHeader className="px-6 py-4 border-b border-white/10 flex-shrink-0">
+          <SheetTitle className="text-white font-black text-base flex items-center gap-2">
+            <StatusDot
+              status={dist && motor ? parseStatus(dist.last_runs[motor]?.estado) : "idle"}
+              size={8}
+            />
+            {dist?.nombre_empresa || "–"}
+            <span className="text-white/30 font-normal">·</span>
+            <span className="text-white/60 font-normal">{motorLabel}</span>
+          </SheetTitle>
+          {dist && (
+            <div className="flex flex-wrap gap-1 mt-1">
+              {dist.mapping_erp.slice(0, 4).map((m) => (
+                <Badge key={m} variant="outline" className="text-[9px] border-white/20 text-white/40 py-0">
+                  {m}
+                </Badge>
+              ))}
+              {dist.mapping_erp.length > 4 && (
+                <Badge variant="outline" className="text-[9px] border-white/20 text-white/40 py-0">
+                  +{dist.mapping_erp.length - 4}
+                </Badge>
+              )}
+            </div>
+          )}
+        </SheetHeader>
+
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-2">
+          {loadingDetail ? (
+            <div className="py-16 flex justify-center">
+              <Loader2 size={20} className="animate-spin text-white/30" />
+            </div>
+          ) : runs.length === 0 ? (
+            <div className="py-16 text-center text-white/30 text-sm">Sin ejecuciones registradas</div>
+          ) : (
+            runs.map((r) => {
+              const st = parseStatus(r.estado);
+              const isExp = expanded === r.id;
+              const regStr = r.registros
+                ? typeof r.registros === "object"
+                  ? JSON.stringify(r.registros, null, 2)
+                  : String(r.registros)
+                : null;
+
+              return (
+                <div
+                  key={r.id}
+                  className="border border-white/8 rounded-xl overflow-hidden"
+                >
+                  <button
+                    onClick={() => setExpanded(isExp ? null : r.id)}
+                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/5 transition-colors text-left"
+                  >
+                    <StatusDot status={st} size={8} />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] font-bold text-white/80">
+                          {r.iniciado_en ? format(new Date(r.iniciado_en), "dd/MM/yyyy HH:mm:ss") : "–"}
+                        </span>
+                        <span className="text-[10px] text-white/30">{duration(r)}</span>
+                      </div>
+                      {st === "error" && r.error_msg && (
+                        <p className="text-[10px] text-red-400/70 truncate mt-0.5">{r.error_msg}</p>
+                      )}
+                      {st === "ok" && regStr && (
+                        <p className="text-[10px] text-white/30 truncate mt-0.5">{regStr}</p>
+                      )}
+                    </div>
+                    {isExp ? (
+                      <ChevronDown size={12} className="text-white/30 flex-shrink-0" />
+                    ) : (
+                      <ChevronRight size={12} className="text-white/30 flex-shrink-0" />
+                    )}
+                  </button>
+
+                  {isExp && (
+                    <div className="px-4 pb-4 border-t border-white/8 pt-3 space-y-3">
+                      {r.error_msg && (
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-bold text-white/30 uppercase tracking-widest">Error</span>
+                            <button
+                              onClick={() => copyToClipboard(r.error_msg!)}
+                              className="text-white/30 hover:text-white transition-colors"
+                            >
+                              <Copy size={11} />
+                            </button>
+                          </div>
+                          <pre className="text-[10px] text-red-400/80 bg-red-500/8 rounded p-3 whitespace-pre-wrap break-all font-mono max-h-48 overflow-y-auto">
+                            {r.error_msg}
+                          </pre>
+                        </div>
+                      )}
+                      {regStr && (
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-bold text-white/30 uppercase tracking-widest">Registros</span>
+                            <button
+                              onClick={() => copyToClipboard(regStr)}
+                              className="text-white/30 hover:text-white transition-colors"
+                            >
+                              <Copy size={11} />
+                            </button>
+                          </div>
+                          <pre className="text-[10px] text-emerald-400/80 bg-emerald-500/8 rounded p-3 whitespace-pre-wrap font-mono">
+                            {regStr}
+                          </pre>
+                        </div>
+                      )}
+                      <div className="grid grid-cols-2 gap-2 text-[10px]">
+                        <div className="bg-white/5 rounded p-2">
+                          <span className="text-white/30 block">Inicio</span>
+                          <span className="text-white/60 font-mono">
+                            {r.iniciado_en ? format(new Date(r.iniciado_en), "dd/MM/yyyy HH:mm:ss") : "–"}
+                          </span>
+                        </div>
+                        <div className="bg-white/5 rounded p-2">
+                          <span className="text-white/30 block">Fin</span>
+                          <span className="text-white/60 font-mono">
+                            {r.finalizado_en ? format(new Date(r.finalizado_en), "dd/MM/yyyy HH:mm:ss") : "–"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+// ── Main Page ──────────────────────────────────────────────────────────────
 
 export default function SuperAdminDashboard() {
   const { user } = useAuth();
-  const [runsByMotor, setRunsByMotor] = useState<Record<string, MotorRun[]>>({});
+  const [data, setData] = useState<EmpresaMotorSnapshotResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
-  const [runningMotor, setRunningMotor] = useState<string | null>(null);
-  const [logsModal, setLogsModal] = useState<MotorConfig | null>(null);
+  const [runningCC, setRunningCC] = useState(false);
+  const [search, setSearch] = useState("");
+  const [motorFilter, setMotorFilter] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<RunStatus | null>(null);
+  const [detail, setDetail] = useState<{ dist: EmpresaMotorSnapshot; motor: string } | null>(null);
 
-  const loadRuns = useCallback(async () => {
-    const results = await Promise.all(
-      MOTORS.map((m) => fetchMotorRuns(m.tipo, 20).then((runs) => ({ tipo: m.tipo, runs })))
-    );
-    const map: Record<string, MotorRun[]> = {};
-    for (const { tipo, runs } of results) map[tipo] = runs;
-    setRunsByMotor(map);
-    setLastRefresh(new Date());
-    setLoading(false);
+  const loadData = useCallback(async () => {
+    try {
+      const snap = await fetchEmpresaMotorSnapshot();
+      setData(snap);
+      setLastRefresh(new Date());
+    } catch (e: any) {
+      toast.error("Error cargando snapshot: " + e.message);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
     if (user?.rol !== "superadmin") return;
-    loadRuns();
-    const interval = setInterval(loadRuns, 30000);
-    return () => clearInterval(interval);
-  }, [user, loadRuns]);
+    loadData();
+    const iv = setInterval(loadData, 30_000);
+    return () => clearInterval(iv);
+  }, [user, loadData]);
 
   if (user?.rol !== "superadmin") {
     return (
       <div className="flex items-center justify-center h-screen bg-slate-950">
-        <Card className="max-w-md text-center p-8 bg-slate-900 border-none text-white">
+        <div className="max-w-md text-center p-8 bg-slate-900 border border-white/10 rounded-2xl text-white">
           <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-4" />
           <h1 className="text-xl font-bold mb-2">Acceso Denegado</h1>
-          <p className="text-slate-400">Esta sección es exclusiva para SuperAdmins.</p>
-        </Card>
+          <p className="text-slate-400 text-sm">Esta sección es exclusiva para SuperAdmins.</p>
+        </div>
       </div>
     );
   }
 
-  async function handleRun(motor: MotorConfig) {
-    if (!confirm(`¿Ejecutar motor "${motor.label}" para todos los distribuidores?`)) return;
-    setRunningMotor(motor.tipo);
+  // Apply filters
+  const filtered = (data?.distribuidores || []).filter((d) => {
+    if (search && !d.nombre_empresa.toLowerCase().includes(search.toLowerCase())) return false;
+    if (motorFilter && statusFilter) {
+      const run = d.last_runs[motorFilter];
+      if (!run) return statusFilter === "idle";
+      return parseStatus(run.estado) === statusFilter;
+    }
+    return true;
+  });
+
+  const visibleMotors = motorFilter ? [motorFilter] : [...MOTORS];
+
+  async function handleRunCC() {
+    if (!confirm("¿Ejecutar motor de Cuentas Corrientes para todos los distribuidores?")) return;
+    setRunningCC(true);
     try {
-      if (motor.tipo === "cuentas") {
-        const res = await fetchRunCCMotor();
-        if (res.ok) toast.success("Motor iniciado correctamente");
-      }
+      const res = await fetchRunCCMotor();
+      if (res.ok) toast.success("Motor CC iniciado correctamente");
     } catch (e: any) {
       toast.error("Error al iniciar motor: " + e.message);
     } finally {
-      setRunningMotor(null);
-      setTimeout(loadRuns, 3000);
+      setRunningCC(false);
+      setTimeout(loadData, 3000);
     }
   }
 
@@ -326,49 +469,215 @@ export default function SuperAdminDashboard() {
     <div className="flex min-h-screen bg-slate-950">
       <Sidebar />
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <Topbar title="Gestión de Motores" />
+        <Topbar title="Corridas y Mapeo" />
 
-        <main className="flex-1 overflow-y-auto p-4 md:p-8">
-          <div className="max-w-5xl mx-auto space-y-8">
+        <main className="flex-1 overflow-y-auto p-4 md:p-6">
+          <div className="max-w-7xl mx-auto space-y-6">
 
-            {/* Header */}
-            <div className="flex items-center justify-between">
-              <div>
-                <h1 className="text-2xl font-black text-white">Motores RPA</h1>
-                <p className="text-sm text-white/40 mt-1">
-                  Ejecución y monitoreo de los motores de sincronización de datos.
-                </p>
+            {/* KPIs + refresh */}
+            <KpiHeader
+              data={data}
+              lastRefresh={lastRefresh}
+              loading={loading}
+              onRefresh={() => { setLoading(true); loadData(); }}
+            />
+
+            {/* Filters */}
+            <div className="flex items-center gap-3 flex-wrap">
+              {/* Search */}
+              <div className="relative flex-1 min-w-[180px] max-w-xs">
+                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Buscar distribuidora…"
+                  className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-xs placeholder:text-white/30 outline-none focus:border-white/30 transition-colors"
+                />
+                {search && (
+                  <button onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-white/30 hover:text-white">
+                    <X size={11} />
+                  </button>
+                )}
               </div>
+
+              {/* Motor filter chips */}
+              <div className="flex items-center gap-1.5">
+                {[null, ...MOTORS].map((m) => (
+                  <button
+                    key={m ?? "all"}
+                    onClick={() => setMotorFilter(m)}
+                    className={`px-3 py-1 rounded-full text-[10px] font-bold transition-all ${
+                      motorFilter === m
+                        ? "bg-white/20 text-white"
+                        : "bg-white/5 text-white/40 hover:bg-white/10 hover:text-white/70"
+                    }`}
+                  >
+                    {m ? MOTOR_LABEL[m] : "Todos"}
+                  </button>
+                ))}
+              </div>
+
+              {/* Status filter */}
+              <div className="flex items-center gap-1.5">
+                {([null, "ok", "error", "running"] as const).map((s) => (
+                  <button
+                    key={s ?? "all"}
+                    onClick={() => setStatusFilter(s)}
+                    className={`px-3 py-1 rounded-full text-[10px] font-bold flex items-center gap-1 transition-all ${
+                      statusFilter === s
+                        ? "bg-white/20 text-white"
+                        : "bg-white/5 text-white/40 hover:bg-white/10 hover:text-white/70"
+                    }`}
+                  >
+                    {s && <StatusDot status={s} size={5} />}
+                    {s === null ? "Estado" : s === "ok" ? "OK" : s === "error" ? "Error" : "En curso"}
+                  </button>
+                ))}
+              </div>
+
+              {/* Run CC button */}
               <button
-                onClick={() => { setLoading(true); loadRuns(); }}
-                disabled={loading}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-white/60 hover:text-white text-xs font-bold transition-all"
+                onClick={handleRunCC}
+                disabled={runningCC}
+                className="ml-auto flex items-center gap-2 px-4 py-1.5 rounded-lg bg-blue-500/15 hover:bg-blue-500/25 text-blue-300 text-[11px] font-bold transition-all disabled:opacity-40"
               >
-                <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
-                Actualizar
+                {runningCC ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} fill="currentColor" />}
+                Correr CC
               </button>
             </div>
 
-            <div className="text-[11px] text-white/20 -mt-4">
-              Último refresh: {format(lastRefresh, "HH:mm:ss")}
-              <span className="ml-2 italic">· Auto cada 30s</span>
-            </div>
-
-            {/* Motor Cards */}
-            {loading ? (
-              <div className="py-20 flex justify-center"><PageSpinner /></div>
+            {/* Main table */}
+            {loading && !data ? (
+              <div className="py-24 flex justify-center">
+                <Loader2 size={24} className="animate-spin text-white/30" />
+              </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {MOTORS.map((motor) => (
-                  <MotorCard
-                    key={motor.tipo}
-                    motor={motor}
-                    runs={runsByMotor[motor.tipo] || []}
-                    onRun={() => handleRun(motor)}
-                    onViewLogs={() => setLogsModal(motor)}
-                    running={runningMotor === motor.tipo}
-                  />
-                ))}
+              <div className="rounded-2xl border border-white/8 overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left min-w-[640px]">
+                    <thead>
+                      <tr className="bg-slate-900/80 border-b border-white/8">
+                        <th className="px-4 py-3 text-[10px] font-black text-white/30 uppercase tracking-widest w-[240px]">
+                          Distribuidora
+                        </th>
+                        <th className="px-3 py-3 text-[10px] font-black text-white/30 uppercase tracking-widest w-[120px]">
+                          Mapeo ERP
+                        </th>
+                        {visibleMotors.map((m) => (
+                          <th
+                            key={m}
+                            className="px-2 py-3 text-[10px] font-black text-white/30 uppercase tracking-widest min-w-[120px]"
+                          >
+                            {MOTOR_LABEL[m] || m}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filtered.length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan={2 + visibleMotors.length}
+                            className="px-4 py-16 text-center text-white/30 text-sm"
+                          >
+                            Sin resultados con los filtros aplicados
+                          </td>
+                        </tr>
+                      ) : (
+                        filtered.map((dist) => (
+                          <tr
+                            key={dist.dist_id}
+                            className="border-b border-white/5 hover:bg-white/3 transition-colors"
+                          >
+                            {/* Empresa */}
+                            <td className="px-4 py-2.5">
+                              <div className="font-bold text-[11px] text-white leading-tight">
+                                {dist.nombre_empresa}
+                              </div>
+                              <div className="flex items-center gap-1.5 mt-0.5">
+                                {dist.id_erp && (
+                                  <span className="text-[9px] text-white/30 font-mono">ERP#{dist.id_erp}</span>
+                                )}
+                                <span
+                                  className={`text-[9px] font-bold ${
+                                    dist.estado === "activo" ? "text-emerald-400/60" : "text-red-400/60"
+                                  }`}
+                                >
+                                  {dist.estado || "–"}
+                                </span>
+                              </div>
+                            </td>
+
+                            {/* Mapeo ERP */}
+                            <td className="px-3 py-2.5">
+                              <div className="flex flex-col gap-0.5">
+                                {dist.mapping_erp.slice(0, 2).map((m) => (
+                                  <span key={m} className="text-[9px] text-white/40 truncate max-w-[110px]" title={m}>
+                                    {m}
+                                  </span>
+                                ))}
+                                {dist.mapping_erp.length > 2 && (
+                                  <span className="text-[9px] text-white/20">+{dist.mapping_erp.length - 2}</span>
+                                )}
+                                {dist.mapping_erp.length === 0 && (
+                                  <span className="text-[9px] text-white/15 italic">sin mapeo</span>
+                                )}
+                              </div>
+                            </td>
+
+                            {/* Motor cells */}
+                            {visibleMotors.map((motor) => (
+                              <td key={motor} className="px-1 py-1.5">
+                                <MotorCell
+                                  run={dist.last_runs[motor]}
+                                  motor={motor}
+                                  onClick={() => setDetail({ dist, motor })}
+                                />
+                              </td>
+                            ))}
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Global runs footer */}
+                {data?.global && Object.keys(data.global).length > 0 && (
+                  <div className="border-t border-white/8 bg-slate-900/60 px-4 py-3 flex items-center gap-4 flex-wrap">
+                    <span className="text-[10px] font-black text-white/30 uppercase tracking-widest">Global</span>
+                    {Object.entries(data.global).map(([motor, run]) => {
+                      const st = parseStatus(run.estado);
+                      return (
+                        <button
+                          key={motor}
+                          onClick={() =>
+                            setDetail({
+                              dist: {
+                                dist_id: 0,
+                                nombre_empresa: "Global",
+                                id_erp: null,
+                                estado: null,
+                                mapping_erp: [],
+                                last_runs: data.global,
+                              },
+                              motor,
+                            })
+                          }
+                          className="flex items-center gap-1.5 bg-white/5 hover:bg-white/10 rounded-lg px-3 py-1.5 transition-colors"
+                        >
+                          <StatusDot status={st} size={6} />
+                          <span className="text-[10px] font-bold text-white/50">{MOTOR_LABEL[motor] || motor}</span>
+                          {run.iniciado_en && (
+                            <span className="text-[9px] text-white/25">
+                              {format(new Date(run.iniciado_en), "dd/MM HH:mm")}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
 
@@ -376,14 +685,13 @@ export default function SuperAdminDashboard() {
         </main>
       </div>
 
-      {/* Logs Modal */}
-      {logsModal && (
-        <LogsModal
-          motor={logsModal}
-          runs={runsByMotor[logsModal.tipo] || []}
-          onClose={() => setLogsModal(null)}
-        />
-      )}
+      {/* Detail Sheet */}
+      <DetailSheet
+        open={!!detail}
+        onClose={() => setDetail(null)}
+        dist={detail?.dist ?? null}
+        motor={detail?.motor ?? null}
+      />
     </div>
   );
 }

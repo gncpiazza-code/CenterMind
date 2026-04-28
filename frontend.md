@@ -157,6 +157,19 @@ Los paneles utilizan el estilo "Glass-Card" adaptado al tema claro:
 - Nuevo store `useGaleriaStore` para persistir filtros/sort/rango de fechas y `timelinePageSize`.
 - `galeria-exhibiciones/page.tsx` deja de dispersar estado local de filtros y consume el store como fuente única.
 
+### 19. SuperAdmin Dashboard — Corridas y Mapeo ERP (27/04/2026)
+- **Ruta**: `/admin/dashboard` (superadmin-only). Label en Sidebar: `Corridas RPA`.
+- **Layout**: consola operativa multi-tenant; reemplaza la vista de "cards por motor".
+- **KPI header**: 3 chips (`OK hoy` / `Error hoy` / `En curso`) derivados del snapshot; cálculo por `toDateString()` de `iniciado_en`.
+- **Filtros**: búsqueda textual de empresa, chips de motor (`Padrón / Ventas / Cuentas CC`), chips de estado (`OK / Error / En curso`). Sin TanStack Query — estado local con `useState` + `loadData` callback.
+- **Tabla**: filas = distribuidoras, columnas = motores. Celda vacía si no hay run. Celda activa muestra: estado dot + label + timestamp + duración (OK) o error truncado (Error). Click en celda abre el Sheet de detalle.
+- **Global footer**: runs con `dist_id=0` (ej. `padron_global`) aparecen en una fila de chips fuera de la tabla principal.
+- **Sheet de detalle**: `side="right" max-w-[640px]`. Carga `fetchMotorRunsDetail(distId, motor, 50)` al abrir. Cada run es colapsable; expandido muestra: error en `<pre>` con copy, registros JSONB en `<pre>`, timestamps inicio/fin en grid 2col.
+- **Auto-refresh**: `setInterval(30_000)` con cleanup. Botón "Actualizar" manual.
+- **Acción rápida**: botón "Correr CC" (solo motor cuentas) llama a `fetchRunCCMotor()` con confirm previo.
+- **Estado de fondo del dashboard**: usa `bg-slate-950` / `bg-slate-900` (dark operativo) para diferenciar visualmente del resto del portal light-violet.
+- **Tipos TS nuevos**: `EmpresaMotorSnapshot`, `EmpresaMotorSnapshotResponse` en `api.ts`; `MotorRun.registros` ampliado a `Record<string, unknown> | number | null`.
+
 ### 19. Supervisión — visibilidad inactivos anti-regresión (16/04/2026)
 - `MapaRutas` reinicia filtros del legend de estados al cambiar el set de pines para prevenir sesiones donde solo queden visibles activos tras toggles previos.
 - Comportamiento esperado: al prender vendedor/ruta se visualizan activos e inactivos (siempre que tengan coordenadas válidas).

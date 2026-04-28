@@ -144,8 +144,12 @@ async def admin_toggle_distribuidora(dist_id: int, estado: str, payload=Depends(
 @router.get("/api/admin/distribuidoras", tags=["Admin"])
 @router.get("/api/admin/distribuidores", tags=["Admin"])
 def list_distribuidores(solo_activas: bool = False, user_payload=Depends(verify_auth)):
-    if not user_payload.get("is_superadmin"):
-        raise HTTPException(status_code=403, detail="SuperAdmin only")
+    is_superadmin = bool(user_payload.get("is_superadmin"))
+    permisos = user_payload.get("permisos", {}) or {}
+    rol = str(user_payload.get("rol") or "").lower()
+    can_switch_tenant = bool(permisos.get("action_switch_tenant")) or rol == "directorio"
+    if not is_superadmin and not can_switch_tenant:
+        raise HTTPException(status_code=403, detail="Acceso denegado")
     try:
         query = sb.table("distribuidores").select("*")
         if solo_activas:
@@ -424,7 +428,12 @@ def get_system_health(user_payload=Depends(verify_auth)):
 def get_live_map_events(minutos: int | None = None, fecha: str | None = None, user_payload=Depends(verify_auth)):
     is_superadmin = bool(user_payload.get("is_superadmin"))
     permisos = user_payload.get("permisos", {}) or {}
-    can_access_modo_oficina = is_superadmin or bool(permisos.get("menu_modo_oficina"))
+    rol = str(user_payload.get("rol") or "").lower()
+    can_access_modo_oficina = (
+        is_superadmin
+        or bool(permisos.get("menu_modo_oficina"))
+        or rol in {"directorio", "admin", "supervisor"}
+    )
     if not can_access_modo_oficina:
         raise HTTPException(status_code=403, detail="Acceso denegado a Modo Oficina")
     try:
@@ -542,11 +551,18 @@ async def admin_cc_logs(lines: int = 100, user_payload=Depends(verify_auth)):
 
 
 @router.get("/api/admin/motor-runs", tags=["Admin"])
-def admin_motor_runs(motor: Optional[str] = None, limit: int = 20, user_payload=Depends(verify_auth)):
+def admin_motor_runs(
+    motor: Optional[str] = None,
+    tipo: Optional[str] = None,  # backward compat alias for motor
+    limit: int = 20,
+    user_payload=Depends(verify_auth),
+):
     if not user_payload.get("is_superadmin"):
         raise HTTPException(status_code=403, detail="Exclusivo para SuperAdmins")
     q = sb.table("motor_runs").select("*").order("iniciado_en", desc=True).limit(limit)
-    if motor: q = q.eq("motor", motor)
+    effective_motor = motor or tipo
+    if effective_motor:
+        q = q.eq("motor", effective_motor)
     return q.execute().data or []
 
 
@@ -555,7 +571,77 @@ def motor_runs_by_dist(dist_id: int, motor: Optional[str] = None, limit: int = 2
     check_dist_permission(user_payload, dist_id)
     try:
         q = sb.table("motor_runs").select("*").eq("dist_id", dist_id).order("iniciado_en", desc=True).limit(limit)
-        if motor: q = q.eq("motor", motor)
+        if motor:
+            q = q.eq("motor", motor)
+        return q.execute().data or []
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/admin/ops/empresa-motor-snapshot", tags=["Admin"])
+def empresa_motor_snapshot(user_payload=Depends(verify_auth)):
+    """Snapshot operativo multi-tenant: mapeo ERP + última corrida por motor por distribuidor."""
+    if not user_payload.get("is_superadmin"):
+        raise HTTPException(status_code=403, detail="Exclusivo para SuperAdmins")
+    try:
+        dists = sb.table("distribuidores").select(
+            "id_distribuidor, nombre_empresa, id_erp, estado"
+        ).order("nombre_empresa").execute().data or []
+
+        mappings = sb.table("erp_empresa_mapping").select("nombre_erp, id_distribuidor").execute().data or []
+        mapping_by_dist: dict[int, list[str]] = {}
+        for m in mappings:
+            mapping_by_dist.setdefault(m["id_distribuidor"], []).append(m["nombre_erp"])
+
+        # Get last 600 runs — enough to cover all (dist_id, motor) combos
+        runs = sb.table("motor_runs").select("*").order("iniciado_en", desc=True).limit(600).execute().data or []
+
+        # Keep only the latest run per (dist_id, motor) key
+        latest: dict[tuple, dict] = {}
+        for r in runs:
+            key = (r["dist_id"], r["motor"])
+            if key not in latest:
+                latest[key] = r
+
+        result = []
+        for dist in dists:
+            did = dist["id_distribuidor"]
+            last_runs = {
+                motor: run
+                for (ddid, motor), run in latest.items()
+                if ddid == did
+            }
+            result.append({
+                "dist_id": did,
+                "nombre_empresa": dist["nombre_empresa"],
+                "id_erp": dist.get("id_erp"),
+                "estado": dist.get("estado"),
+                "mapping_erp": mapping_by_dist.get(did, []),
+                "last_runs": last_runs,
+            })
+
+        global_runs = {motor: run for (ddid, motor), run in latest.items() if ddid == 0}
+
+        return {"distribuidores": result, "global": global_runs}
+    except Exception as e:
+        logger.error(f"empresa_motor_snapshot error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/admin/ops/motor-runs-detail/{dist_id}", tags=["Admin"])
+def motor_runs_detail(
+    dist_id: int,
+    motor: Optional[str] = None,
+    limit: int = 50,
+    user_payload=Depends(verify_auth),
+):
+    """Histórico detallado de corridas para un distribuidor (panel lateral del dashboard)."""
+    if not user_payload.get("is_superadmin"):
+        raise HTTPException(status_code=403, detail="Exclusivo para SuperAdmins")
+    try:
+        q = sb.table("motor_runs").select("*").eq("dist_id", dist_id).order("iniciado_en", desc=True).limit(limit)
+        if motor:
+            q = q.eq("motor", motor)
         return q.execute().data or []
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -1146,16 +1146,44 @@ export interface MotorRun {
   estado: string;
   iniciado_en: string | null;
   finalizado_en: string | null;
-  registros?: number;
+  registros?: Record<string, unknown> | number | null;
   error_msg?: string | null;
   dist_id: number | null;
 }
 
-export async function fetchMotorRuns(tipo?: string, limit = 20): Promise<MotorRun[]> {
+export interface EmpresaMotorSnapshot {
+  dist_id: number;
+  nombre_empresa: string;
+  id_erp: string | null;
+  estado: string | null;
+  mapping_erp: string[];
+  last_runs: Record<string, MotorRun>;
+}
+
+export interface EmpresaMotorSnapshotResponse {
+  distribuidores: EmpresaMotorSnapshot[];
+  global: Record<string, MotorRun>;
+}
+
+export async function fetchMotorRuns(motor?: string, limit = 20): Promise<MotorRun[]> {
   const params = new URLSearchParams({ limit: String(limit) });
-  if (tipo) params.set("tipo", tipo);
+  if (motor) params.set("motor", motor);
   try {
     return await apiFetch<MotorRun[]>(`/api/admin/motor-runs?${params}`);
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchEmpresaMotorSnapshot(): Promise<EmpresaMotorSnapshotResponse> {
+  return apiFetch<EmpresaMotorSnapshotResponse>("/api/admin/ops/empresa-motor-snapshot");
+}
+
+export async function fetchMotorRunsDetail(distId: number, motor?: string, limit = 50): Promise<MotorRun[]> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (motor) params.set("motor", motor);
+  try {
+    return await apiFetch<MotorRun[]>(`/api/admin/ops/motor-runs-detail/${distId}?${params}`);
   } catch {
     return [];
   }

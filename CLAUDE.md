@@ -253,6 +253,13 @@ Vendedor sube foto → bot pide nro cliente → foto → Supabase Storage → ex
 
 El `scheduler.py` corre en el contenedor RPA (Railway o Mac) y dispara cada motor a su hora. En producción corre siempre con `python scheduler.py`.
 
+> **Latencia de datos por fuente:**
+> - **CHESS ERP** → tiempo real. CC y ventas se registran al instante.
+> - **Consolido** → se actualiza **1 vez por día** (proceso batch nocturno). El padrón que bajamos puede tener hasta ~24hs de delay respecto a CHESS.
+> - **`fecha_ultima_compra` en `clientes_pdv_v2`** viene del padrón de Consolido → puede estar 1 día detrás de la realidad. Es una limitación del sistema, no un bug.
+> - **`cc_detalle.antiguedad_dias`** viene de CHESS → refleja el día del snapshot (2x/día). Pero indica la antigüedad de la deuda más vieja, no la fecha de última compra exacta.
+> - Para `fecha_ultima_compra` en tiempo real se necesitaría el motor de Ventas (`runner.py ventas`) que descarga transacciones de CHESS. Actualmente NO está en el scheduler.
+
 ### Motor `cuentas_corrientes.py`
 
 **Qué hace:** Para cada tenant activo, abre Chrome headless, hace login en CHESS ERP (`https://{tenant}.chesserp.com/AR{id}`), navega a `/#/cuentas-por-cobrar/reportes/saldos-totales`, hace click en Procesar, descarga el Excel de Saldos Totales, lo parsea con `cuentas_parser.py`, compara hash MD5 con el día anterior (si es igual, no hace nada), y sube el JSON al backend.

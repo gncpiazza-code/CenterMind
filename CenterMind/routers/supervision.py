@@ -137,7 +137,7 @@ def _fetch_rutas_rows(
     """
     t_rutas = tenant_table_name("rutas_v2", dist_id)
     try:
-        q = sb.table(t_rutas).select(select_cols).eq("id_distribuidor", dist_id)
+        q = sb.table(t_rutas).select(select_cols)
         if id_vendedor is not None:
             q = q.eq("id_vendedor", id_vendedor)
         if ruta_ids:

@@ -191,7 +191,6 @@ def _enrich_and_store_cc(dist_id: int, fecha_snapshot: str, rows: list) -> int:
             rutas_res = (
                 sb.table(t_rutas)
                 .select("id_ruta")
-                .eq("id_distribuidor", int(dist_id))
                 .eq("id_vendedor", iv)
                 .execute()
             )

@@ -5,10 +5,12 @@ scheduler.py
 Proceso siempre activo que ejecuta los motores RPA en horario fijo.
 
 Horarios (hora Argentina — America/Argentina/Buenos_Aires):
+  La región del servidor (ej. us-west en Railway) no afecta: APScheduler dispara por reloj AR.
+
   04:00  Padrón (HTTP → API)
   07:00  Cuentas corrientes
-  16:00  Cuentas corrientes (2.ª pasada)
-  07:30  Ventas (dejado después de la 1.ª CC para no solapar Playwright)
+  14:30  Cuentas corrientes (2.ª pasada)
+  07:30  Ventas (después de la 1.ª CC)
   15:00  Ventas
   23:00  Ventas
 
@@ -121,13 +123,14 @@ def main():
     _k = "sí" if (get_shelfy_api_key() or "").strip() else "no"
     logger.info(f"  SHELFY base URL: {_b}  |  clave API: {_k}")
     logger.info(f"  RPA_HEADLESS   : {os.environ.get('RPA_HEADLESS', 'true')}")
+    logger.info(f"  Zona jobs AR   : {AR_TZ.key} (independiente de la región del host)")
     logger.info("=" * 60)
 
     scheduler = BackgroundScheduler(timezone=AR_TZ)
 
-    # Cuentas: 07:00 y 16:00 (evitar solapar otra instancia de Playwright con ventas)
-    scheduler.add_job(job_cuentas, CronTrigger(hour=7,  minute=0, timezone=AR_TZ), id="cuentas_0700")
-    scheduler.add_job(job_cuentas, CronTrigger(hour=16, minute=0, timezone=AR_TZ), id="cuentas_1600")
+    # Cuentas: 07:00 y 14:30 hora Argentina (CronTrigger con timezone=AR_TZ)
+    scheduler.add_job(job_cuentas, CronTrigger(hour=7,  minute=0,  timezone=AR_TZ), id="cuentas_0700")
+    scheduler.add_job(job_cuentas, CronTrigger(hour=14, minute=30, timezone=AR_TZ), id="cuentas_1430")
 
     # Ventas: 07:30, 15:00 y 23:00
     scheduler.add_job(job_ventas, CronTrigger(hour=7,  minute=30, timezone=AR_TZ), id="ventas_0730")

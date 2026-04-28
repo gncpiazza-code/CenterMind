@@ -34,7 +34,7 @@
 
 ## Horarios (scheduler)
 
-Definidos en `scheduler.py`: padrón 04:00, cuentas 07:00 y 16:00, ventas 07:30 / 15:00 / 23:00 (hora Argentina). Ajustar ahí si hace falta.
+Definidos en `scheduler.py`: padrón 04:00, cuentas **07:00 y 14:30**, ventas 07:30 / 15:00 / 23:00 (hora **Argentina**, `America/Argentina/Buenos_Aires`; indiferente a la región del host). Ajustar ahí si hace falta.
 
 ## Notas
 

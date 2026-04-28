@@ -504,9 +504,38 @@ export default function MapaRutas({
       const statusColor = STATUS_COLORS[status];
       const size        = pin.activo ? 18 : 14;
       const isSelected  = selSet.has(id);
+
+      // En modo deudores: mantener el borde/color de deuda para no pisar el estilo creado por el efecto de markers
+      let borderColor = statusColor;
+      let pinLabel: string | null = null;
+      if (mode === 'deudores') {
+        let matchedDeudor: DeudorInfo | null = null;
+        if (deudoresData) {
+          matchedDeudor =
+            deudoresData.find(d => d.id_cliente_erp && pin.idClienteErp && d.id_cliente_erp === pin.idClienteErp) ??
+            deudoresData.find(d => normalizeKey(d.cliente_nombre) === normalizeKey(pin.nombre) && normalizeKey(d.vendedor_nombre) === normalizeKey(pin.vendedor)) ??
+            null;
+        }
+        if (!matchedDeudor && pin.deuda != null && pin.deuda > 0) {
+          matchedDeudor = {
+            id_cliente_erp: pin.idClienteErp ?? null,
+            cliente_nombre: pin.nombre,
+            deuda_total: pin.deuda,
+            antiguedad_dias: pin.antiguedadDias ?? 0,
+            vendedor_nombre: pin.vendedor,
+          };
+        }
+        if (matchedDeudor) {
+          borderColor = debtBorderColor(matchedDeudor.antiguedad_dias);
+          pinLabel = compactDebtAmount(matchedDeudor.deuda_total);
+        }
+      }
+
       const iconUrl = isSelected
-        ? buildSelectedPinSvg(pin.color, statusColor, size)
-        : buildPinSvg(pin.color, statusColor, size, pin.totalExhibiciones);
+        ? buildSelectedPinSvg(pin.color, borderColor, size)
+        : pinLabel
+          ? buildPinSvgWithLabel(pin.color, borderColor, size, pinLabel)
+          : buildPinSvg(pin.color, borderColor, size, pin.totalExhibiciones);
       const iconSize = isSelected ? size + 8 : size;
       marker.setIcon({
         url: iconUrl,
@@ -515,7 +544,7 @@ export default function MapaRutas({
       });
       marker.setZIndex(isSelected ? 20 : (pin.activo ? 10 : 5));
     });
-  }, [selectedPDVs, filteredPines, mapLoaded]);
+  }, [selectedPDVs, filteredPines, mapLoaded, mode, deudoresData]);
 
   // ── Drawing Manager (Armar Ruta mode) ─────────────────────────────────────
   useEffect(() => {
@@ -921,7 +950,20 @@ export default function MapaRutas({
           boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
           pointerEvents: 'none', transition: 'left 0.3s ease',
         }}>
-          {filteredPines.length.toLocaleString()} <span style={{ color: 'rgba(255,255,255,0.5)', fontWeight: 400 }}>PDVs visibles</span>
+          {mode === 'deudores'
+            ? (() => {
+                const withDebt = filteredPines.filter(p => {
+                  if (p.deuda != null && p.deuda > 0) return true;
+                  if (!deudoresData) return false;
+                  return !!(
+                    deudoresData.find(d => d.id_cliente_erp && p.idClienteErp && d.id_cliente_erp === p.idClienteErp) ??
+                    deudoresData.find(d => normalizeKey(d.cliente_nombre) === normalizeKey(p.nombre) && normalizeKey(d.vendedor_nombre) === normalizeKey(p.vendedor))
+                  );
+                });
+                return <>{withDebt.length.toLocaleString()} <span style={{ color: 'rgba(255,255,255,0.5)', fontWeight: 400 }}>PDVs con deuda</span></>;
+              })()
+            : <>{filteredPines.length.toLocaleString()} <span style={{ color: 'rgba(255,255,255,0.5)', fontWeight: 400 }}>PDVs visibles</span></>
+          }
         </div>
       )}
     </div>

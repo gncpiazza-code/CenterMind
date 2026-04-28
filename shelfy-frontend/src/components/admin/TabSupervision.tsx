@@ -950,7 +950,8 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
   const getRutasQuery = (vendorId: number) => ({
     queryKey: ['supervision-rutas', selectedDist, vendorId],
     queryFn: () => fetchRutasSupervision(vendorId),
-    staleTime: 5 * 60 * 1000, // 5 minutes
+    staleTime: 5 * 60 * 1000,
+    gcTime: Infinity, // Mantener en caché mientras la sesión esté abierta — evita que el mapa quede en blanco
     enabled: false, // Lazy load
   });
 
@@ -958,7 +959,8 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
   const getClientesQuery = (rutaId: number) => ({
     queryKey: ['supervision-clientes', selectedDist, rutaId],
     queryFn: () => fetchClientesSupervision(rutaId),
-    staleTime: Infinity, // Clientes don't change often - cache forever until manual invalidation
+    staleTime: Infinity,
+    gcTime: Infinity, // Mantener en caché mientras la sesión esté abierta — evita que el mapa quede en blanco
     enabled: false, // Lazy load
   });
 
@@ -3598,7 +3600,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                     style={{ background: 'linear-gradient(135deg, var(--shelfy-accent) 0%, #7c3aed 100%)' }}
                   >
                     {objSubmitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Target className="w-3.5 h-3.5" />}
-                    Crear {selectedPDVsForObjective.length} objetivo{selectedPDVsForObjective.length !== 1 ? 's' : ''}
+                    Crear objetivo · {selectedPDVsForObjective.length} PDV{selectedPDVsForObjective.length !== 1 ? 's' : ''}
                   </button>
                 </div>
               </div>

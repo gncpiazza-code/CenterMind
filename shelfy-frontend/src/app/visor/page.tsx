@@ -1009,8 +1009,12 @@ export default function VisorPage() {
               {/* ═══ DESKTOP 3-PANEL LAYOUT ═══ */}
               <div className="hidden md:flex flex-1 min-h-0 relative">
 
-                {/* ── LEFT PANEL — Exhibición ─────────────────────────────── */}
-                <div className="w-[22rem] shrink-0 border-r border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] flex flex-col overflow-hidden overflow-x-hidden">
+                {/* ── CENTER CANVAS — imagen principal ────────────────────── */}
+                {/* (order-first so left side is the photo, right side is the info panel) */}
+
+                {/* ── RIGHT PANEL — Exhibición ────────────────────────────── */}
+                {/* Rendered after center canvas in DOM but visually on the right via flex order */}
+                <div className="order-last w-[22rem] shrink-0 border-l border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] flex flex-col overflow-hidden overflow-x-hidden">
                   {/* Panel header */}
                   <div className="px-4 pt-3 pb-2 border-b border-[var(--shelfy-border)] shrink-0">
                     <div className="flex items-center justify-between mb-1">

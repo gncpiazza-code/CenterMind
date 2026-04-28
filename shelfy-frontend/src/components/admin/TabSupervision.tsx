@@ -32,6 +32,8 @@ import {
   fetchClientesSupervision,
   fetchVentasSupervision,
   fetchCuentasSupervision,
+  fetchSyncStatus,
+  type SyncStatus,
   fetchPDVsCercanos,
   fetchClienteInfo,
   fetchReporteExhibiciones,
@@ -380,6 +382,46 @@ interface TabSupervisionProps {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+
+function formatSyncTime(iso: string | null): string {
+  if (!iso) return "nunca";
+  const d = new Date(iso);
+  const now = new Date();
+  const diffMs = now.getTime() - d.getTime();
+  const diffH = diffMs / 3_600_000;
+  const argTime = d.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Argentina/Buenos_Aires" });
+  const argDate = d.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", timeZone: "America/Argentina/Buenos_Aires" });
+  const nowDate = now.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", timeZone: "America/Argentina/Buenos_Aires" });
+  if (diffH < 24 && argDate === nowDate) return `hoy ${argTime}`;
+  if (diffH < 48) return `ayer ${argTime}`;
+  return `${argDate} ${argTime}`;
+}
+
+function SyncStatusBar({ syncStatus }: { syncStatus: SyncStatus }) {
+  const padronTime = formatSyncTime(syncStatus.padron.last_updated);
+  const ccTime = formatSyncTime(syncStatus.cuentas_corrientes.last_updated);
+  const padronCount = syncStatus.padron.count;
+  const ccCount = syncStatus.cuentas_corrientes.count;
+
+  const isStale = (iso: string | null) => {
+    if (!iso) return true;
+    return (Date.now() - new Date(iso).getTime()) > 12 * 3_600_000;
+  };
+
+  return (
+    <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+      <span className={`inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border ${isStale(syncStatus.padron.last_updated) ? "text-amber-400 border-amber-500/30 bg-amber-500/10" : "text-emerald-400 border-emerald-500/30 bg-emerald-500/10"}`}>
+        <span className={`w-1.5 h-1.5 rounded-full ${isStale(syncStatus.padron.last_updated) ? "bg-amber-400" : "bg-emerald-400"}`} />
+        Padrón: {padronTime}{padronCount > 0 ? ` · ${padronCount.toLocaleString()} PDV` : ""}
+      </span>
+      <span className={`inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border ${isStale(syncStatus.cuentas_corrientes.last_updated) ? "text-amber-400 border-amber-500/30 bg-amber-500/10" : "text-emerald-400 border-emerald-500/30 bg-emerald-500/10"}`}>
+        <span className={`w-1.5 h-1.5 rounded-full ${isStale(syncStatus.cuentas_corrientes.last_updated) ? "bg-amber-400" : "bg-emerald-400"}`} />
+        CC: {ccTime}{ccCount > 0 ? ` · ${ccCount.toLocaleString()} deudores` : ""}
+      </span>
+    </div>
+  );
+}
+
 export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionProps) {
   const queryClient = useQueryClient();
   const { hasPermiso } = useAuth();
@@ -650,6 +692,14 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
     enabled: !!selectedDist && !!selectedSucursal,
     placeholderData: keepPreviousData,
     staleTime: 60_000,
+  });
+
+  const { data: syncStatus = null } = useQuery<SyncStatus>({
+    queryKey: ['supervision-sync-status', selectedDist],
+    queryFn: () => fetchSyncStatus(selectedDist!),
+    enabled: !!selectedDist,
+    staleTime: 120_000,
+    refetchOnWindowFocus: false,
   });
 
   // ── Exhibiciones fetch ──────────────────────────────────────────────────
@@ -1741,6 +1791,9 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
               <span className="mx-1 opacity-40">·</span>
               <span className="text-red-400 font-semibold">{100 - pctActivos}% inactivos</span>
             </p>
+          )}
+          {syncStatus && (
+            <SyncStatusBar syncStatus={syncStatus} />
           )}
         </div>
         <div className="flex items-center gap-2">

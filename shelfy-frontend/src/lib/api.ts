@@ -1468,6 +1468,20 @@ export interface CuentasSupervision {
   vendedores: VendedorCuentas[];
 }
 
+export interface SyncStatusEntry {
+  last_updated: string | null;
+  count: number;
+}
+
+export interface SyncStatus {
+  padron: SyncStatusEntry;
+  cuentas_corrientes: SyncStatusEntry;
+}
+
+export async function fetchSyncStatus(distId: number): Promise<SyncStatus> {
+  return apiFetch<SyncStatus>(`/api/supervision/sync-status/${distId}`);
+}
+
 export async function fetchCuentasSupervision(distId: number, sucursal?: string): Promise<CuentasSupervision> {
   const params = sucursal ? `?sucursal=${encodeURIComponent(sucursal)}` : "";
   const data = await apiFetch<CuentasSupervision & { vendedores?: Record<string, unknown>[] }>(

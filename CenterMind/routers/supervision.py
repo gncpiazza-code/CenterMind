@@ -2558,3 +2558,53 @@ def supervision_cc_status(dist_id: int, user_payload=Depends(verify_auth)):
         return res.data[0]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── Sync status: última actualización de padrón y CC por distribuidor ────────
+
+@router.get("/api/supervision/sync-status/{dist_id}", tags=["Supervisión"])
+def supervision_sync_status(dist_id: int, user_payload=Depends(verify_auth)):
+    """
+    Devuelve el timestamp y conteo de la última ingesta de padrón y CC
+    para un distribuidor. Usado en el dashboard de supervisión para mostrar
+    cuándo fue la última actualización de datos.
+    """
+    check_dist_permission(user_payload, dist_id)
+    try:
+        t_clientes = tenant_table_name("clientes_pdv_v2", dist_id)
+
+        padron_data: dict = {"last_updated": None, "count": 0}
+        try:
+            res_p = sb.table(t_clientes).select("updated_at").order("updated_at", desc=True).limit(1).execute()
+            count_res = sb.table(t_clientes).select("id_cliente", count="exact").execute()
+            if res_p.data:
+                padron_data["last_updated"] = res_p.data[0]["updated_at"]
+            padron_data["count"] = count_res.count or 0
+        except Exception as e:
+            logger.warning(f"[sync-status] error leyendo padrón dist={dist_id}: {e}")
+
+        cc_data: dict = {"last_updated": None, "count": 0}
+        try:
+            res_cc = (
+                sb.table("cc_detalle")
+                .select("created_at")
+                .eq("id_distribuidor", dist_id)
+                .order("created_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+            count_cc = (
+                sb.table("cc_detalle")
+                .select("id", count="exact")
+                .eq("id_distribuidor", dist_id)
+                .execute()
+            )
+            if res_cc.data:
+                cc_data["last_updated"] = res_cc.data[0]["created_at"]
+            cc_data["count"] = count_cc.count or 0
+        except Exception as e:
+            logger.warning(f"[sync-status] error leyendo CC dist={dist_id}: {e}")
+
+        return {"padron": padron_data, "cuentas_corrientes": cc_data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

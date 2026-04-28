@@ -6,6 +6,7 @@ objetivos, PDVs cercanos, evaluación de exhibiciones.
 import io
 import logging
 import math
+import re
 import tempfile
 import unicodedata
 from datetime import datetime, timedelta
@@ -34,6 +35,20 @@ from models.schemas import EvaluarRequest, ObjetivoCreate, ObjetivoItemCreate, O
 
 logger = logging.getLogger("ShelfyAPI")
 router = APIRouter()
+
+
+def _norm_name(s) -> str:
+    """Normaliza nombres de clientes para matching robusto entre distintos ERPs.
+    Quita acentos, puntuación y colapsa espacios. Retorna MAYÚSCULAS.
+    Ejemplo: "Martínez S.R.L." → "MARTINEZ SRL"
+    """
+    if not s:
+        return ""
+    s = str(s).strip().upper()
+    s = "".join(c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn")
+    s = re.sub(r"[^A-Z0-9 ]", "", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
 
 
 def _dedupe_pdvs_latest_by_erp(rows: list[dict]) -> list[dict]:
@@ -1241,20 +1256,24 @@ def supervision_cuentas(dist_id: int, sucursal: Optional[str] = Query(None), use
                     erp_norm  = _norm_erp(erp_id)
                     for key in [p.get("nombre_fantasia"), p.get("nombre_razon_social")]:
                         if key:
-                            norm_key = key.strip().upper()
-                            if fuc and norm_key not in fecha_uc_map:
-                                fecha_uc_map[norm_key] = fuc
-                            if erp_id and norm_key not in erp_id_map:
-                                erp_id_map[norm_key] = str(erp_id).strip()
-                            if pk and norm_key not in id_cliente_map:
-                                id_cliente_map[norm_key] = pk
+                            # Index bajo clave raw-upper Y bajo clave normalizada (sin acentos ni puntuación)
+                            # para tolerar diferencias entre CHESS ERP (CC) y Consolido (padrón).
+                            for norm_key in {key.strip().upper(), _norm_name(key)}:
+                                if not norm_key:
+                                    continue
+                                if fuc and norm_key not in fecha_uc_map:
+                                    fecha_uc_map[norm_key] = fuc
+                                if erp_id and norm_key not in erp_id_map:
+                                    erp_id_map[norm_key] = str(erp_id).strip()
+                                if pk and norm_key not in id_cliente_map:
+                                    id_cliente_map[norm_key] = pk
                     if erp_norm and pk and erp_norm not in erp_to_id_cliente:
                         erp_to_id_cliente[erp_norm] = pk
                 if len(pdv_batch) < 1000:
                     break
                 pdv_offset += 1000
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"[supervision_cuentas] PDV metadata cache error dist={d_id}: {e}")
 
         vendors: dict = {}
         for item in rows:
@@ -1273,11 +1292,13 @@ def supervision_cuentas(dist_id: int, sucursal: Optional[str] = Query(None), use
             deuda = float(item.get("deuda_total") or 0)
             vd["deuda_total"]     += deuda
             vd["cantidad_clientes"] += 1
-            nombre_norm = (item.get("cliente_nombre") or "").strip().upper()
+            # Lookup usando clave normalizada (sin acentos ni puntuación) para tolerancia inter-ERP
+            nombre_norm = _norm_name(item.get("cliente_nombre"))
+            nombre_raw_upper = (item.get("cliente_nombre") or "").strip().upper()
             # Prefer ERP ID from clientes_pdv_v2 so format matches map pins
-            erp_id = erp_id_map.get(nombre_norm) or item.get("id_cliente_erp")
+            erp_id = erp_id_map.get(nombre_norm) or erp_id_map.get(nombre_raw_upper) or item.get("id_cliente_erp")
             # Resolve id_cliente (PK) for direct frontend matching
-            id_cliente_pk = id_cliente_map.get(nombre_norm)
+            id_cliente_pk = id_cliente_map.get(nombre_norm) or id_cliente_map.get(nombre_raw_upper)
             if not id_cliente_pk and erp_id:
                 id_cliente_pk = erp_to_id_cliente.get(_norm_erp(erp_id))
             vd["clientes"].append({
@@ -1286,7 +1307,7 @@ def supervision_cuentas(dist_id: int, sucursal: Optional[str] = Query(None), use
                 "sucursal": item.get("sucursal_nombre"), "deuda_total": deuda,
                 "antiguedad": item.get("antiguedad_dias"), "rango_antiguedad": item.get("rango_antiguedad"),
                 "cantidad_comprobantes": item.get("cantidad_comprobantes"),
-                "fecha_ultima_compra": fecha_uc_map.get(nombre_norm),
+                "fecha_ultima_compra": fecha_uc_map.get(nombre_norm) or fecha_uc_map.get(nombre_raw_upper),
             })
 
         for vd in vendors.values():

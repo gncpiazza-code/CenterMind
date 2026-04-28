@@ -254,7 +254,7 @@ interface VendorMapEligibleStats {
 
 // Evita que los KPIs de activos/inactivos "salten" al prender/apagar capas del mapa.
 // La referencia estable para UI operativa debe venir del backend (vendedores_v2 + RPC).
-const USE_MAP_ELIGIBLE_STATS_FOR_KPIS = false;
+const USE_MAP_ELIGIBLE_STATS_FOR_KPIS = true;
 
 function getVendorMapEligibleStats(
   qc: QueryClient,
@@ -1093,6 +1093,17 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
       return s.toLowerCase();
     };
 
+    // Normaliza nombres: quita acentos, puntuación y colapsa espacios.
+    // Tolera diferencias entre CHESS ERP (CC) y Consolido (padrón).
+    const normName = (s: string | null | undefined): string => {
+      if (!s) return '';
+      let n = s.trim().toUpperCase();
+      n = n.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      n = n.replace(/[^A-Z0-9 ]/g, '');
+      n = n.replace(/\s+/g, ' ').trim();
+      return n;
+    };
+
     // Build deuda lookup from cuentas corrientes
     const deudaByErpId = new Map<string, { deuda: number; antiguedad: number }>();
     const deudaByNombre = new Map<string, { deuda: number; antiguedad: number }>();
@@ -1109,7 +1120,10 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
             deudaById.set(Number(c.id_cliente), entry);
           }
           if (c.cliente) {
+            // Index both raw-lowercase AND normalized (accent+punct stripped) to match more names
             deudaByNombre.set(c.cliente.toLowerCase().trim(), entry);
+            const nn = normName(c.cliente);
+            if (nn) deudaByNombre.set(nn, entry);
           }
         });
       });
@@ -1135,10 +1149,14 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
           
           // Cross-reference deuda: PK (más confiable) > ERP ID normalizado > nombre
           const erpId = normErpId(c.id_cliente_erp);
-          const nombre = (c.nombre_fantasia || c.nombre_razon_social || "").toLowerCase().trim();
+          const nombreFantasia = (c.nombre_fantasia || "").toLowerCase().trim();
+          const nombreRazon = (c.nombre_razon_social || "").toLowerCase().trim();
           const deudaInfo = deudaById.get(c.id_cliente)
             ?? (erpId ? deudaByErpId.get(erpId) : null)
-            ?? (nombre ? deudaByNombre.get(nombre) : null)
+            ?? (nombreFantasia ? deudaByNombre.get(nombreFantasia) : null)
+            ?? (nombreFantasia ? deudaByNombre.get(normName(c.nombre_fantasia)) : null)
+            ?? (nombreRazon ? deudaByNombre.get(nombreRazon) : null)
+            ?? (nombreRazon ? deudaByNombre.get(normName(c.nombre_razon_social)) : null)
             ?? null;
           
           result.push({

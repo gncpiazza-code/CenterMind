@@ -1,0 +1,12 @@
+# Railway: crear servicio con Root Directory = ShelfMind-RPA (o este archivo en la raíz del deploy).
+# Docs: https://docs.railway.com/reference/config-as-code
+
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+# start: ver CMD en Dockerfile (docker-entrypoint.sh, modo scheduler por defecto)
+sleepApplication = false
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5

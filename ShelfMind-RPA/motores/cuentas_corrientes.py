@@ -6,7 +6,7 @@ Motor 3: Reporte de Saldos Totales (Cuentas Corrientes) — CHESS ERP
 
 ¿Qué hace?
 ----------
-Todos los días a las 07:00:
+En producción, el horario lo define `scheduler.py` (p. ej. 07:00 y 16:00 AR) o `runner.py cuentas` manual. Flujo:
   1. Para cada tenant de CHESS ERP:
      a. Login (cerrando popup de actualización si aparece)
      b. Navega directo a /#/cuentas-por-cobrar/reportes/saldos-totales
@@ -55,6 +55,7 @@ from playwright.async_api import (
 
 from lib.logger import get_logger
 from lib.hash_guard import es_duplicado, guardar_hash
+from lib.shelfy_config import get_shelfy_api_key, get_shelfy_base_url
 from lib.vault_client import get_secret
 
 logger = get_logger("CUENTAS")
@@ -658,10 +659,14 @@ async def _subir_a_api(tenant: dict, datos: dict, filename: str) -> bool:
     """
     try:
         import httpx
-        from lib.vault_client import get_secret as _gs
 
-        url = f"{_gs('shelfy_api_url').rstrip('/')}/api/v1/sync/cuentas-corrientes"
-        headers = {"x-api-key": _gs("shelfy_api_key"), "Content-Type": "application/json"}
+        base = get_shelfy_base_url()
+        skey = (get_shelfy_api_key() or "").strip()
+        if not skey:
+            logger.error("  ❌ Falta clave de API: SHELFY_API_KEY o secret vault shelfy_api_key")
+            return False
+        url = f"{base}/api/v1/sync/cuentas-corrientes"
+        headers = {"x-api-key": skey, "Content-Type": "application/json"}
         params  = {"id_distribuidor": tenant["id_dist"]}
         payload = {
             "tenant_id": tenant["id"],
@@ -707,10 +712,11 @@ def _resolver_id_dist_por_nombre(nombre_dist: str) -> Optional[int]:
     """
     try:
         import httpx
-        from lib.vault_client import get_secret as _gs
 
-        api_url = _gs("shelfy_api_url").rstrip("/")
-        api_key = _gs("shelfy_api_key")
+        api_url = get_shelfy_base_url()
+        api_key = (get_shelfy_api_key() or "").strip()
+        if not api_key:
+            return None
         target = _norm_txt(nombre_dist)
 
         with httpx.Client(timeout=30) as client:

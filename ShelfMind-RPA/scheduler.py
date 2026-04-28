@@ -5,10 +5,11 @@ scheduler.py
 Proceso siempre activo que ejecuta los motores RPA en horario fijo.
 
 Horarios (hora Argentina — America/Argentina/Buenos_Aires):
-  04:00  Padrón de Clientes
-  07:00  Cuentas Corrientes
-  13:30  Ventas
-  18:30  Ventas
+  04:00  Padrón (HTTP → API)
+  07:00  Cuentas corrientes
+  16:00  Cuentas corrientes (2.ª pasada)
+  07:30  Ventas (dejado después de la 1.ª CC para no solapar Playwright)
+  15:00  Ventas
   23:00  Ventas
 
 Inicio: python scheduler.py
@@ -91,10 +92,12 @@ async def _run_padron():
     Este job hace un simple HTTP call para que la API lo procese.
     """
     import httpx
-    api_url = os.environ.get("SHELFY_API_URL", "").rstrip("/")
-    api_key = os.environ.get("SHELFY_API_KEY", "")
-    if not api_url:
-        logger.warning("SHELFY_API_URL no configurado — saltando padrón")
+    from lib.shelfy_config import get_shelfy_api_key, get_shelfy_base_url
+
+    api_url = get_shelfy_base_url()
+    api_key = (get_shelfy_api_key() or "").strip()
+    if not api_key:
+        logger.warning("SHELFY_API_KEY no configurado — saltando padrón")
         return
     try:
         resp = httpx.post(
@@ -112,19 +115,24 @@ async def _run_padron():
 def main():
     logger.info("=" * 60)
     logger.info("  ShelfMind RPA Scheduler — iniciando")
-    logger.info(f"  SHELFY_API_URL : {os.environ.get('SHELFY_API_URL', '(no seteado)')}")
+    from lib.shelfy_config import get_shelfy_base_url, get_shelfy_api_key
+
+    _b = get_shelfy_base_url()
+    _k = "sí" if (get_shelfy_api_key() or "").strip() else "no"
+    logger.info(f"  SHELFY base URL: {_b}  |  clave API: {_k}")
     logger.info(f"  RPA_HEADLESS   : {os.environ.get('RPA_HEADLESS', 'true')}")
     logger.info("=" * 60)
 
     scheduler = BackgroundScheduler(timezone=AR_TZ)
 
-    # Ventas: 07:00, 15:00 y 23:00 todos los días
-    scheduler.add_job(job_ventas, CronTrigger(hour=7,  minute=0, timezone=AR_TZ), id="ventas_0700")
-    scheduler.add_job(job_ventas, CronTrigger(hour=15, minute=0, timezone=AR_TZ), id="ventas_1500")
-    scheduler.add_job(job_ventas, CronTrigger(hour=23, minute=0, timezone=AR_TZ), id="ventas_2300")
+    # Cuentas: 07:00 y 16:00 (evitar solapar otra instancia de Playwright con ventas)
+    scheduler.add_job(job_cuentas, CronTrigger(hour=7,  minute=0, timezone=AR_TZ), id="cuentas_0700")
+    scheduler.add_job(job_cuentas, CronTrigger(hour=16, minute=0, timezone=AR_TZ), id="cuentas_1600")
 
-    # Cuentas: 07:00
-    scheduler.add_job(job_cuentas, CronTrigger(hour=7, minute=0, timezone=AR_TZ), id="cuentas_0700")
+    # Ventas: 07:30, 15:00 y 23:00
+    scheduler.add_job(job_ventas, CronTrigger(hour=7,  minute=30, timezone=AR_TZ), id="ventas_0730")
+    scheduler.add_job(job_ventas, CronTrigger(hour=15, minute=0,  timezone=AR_TZ), id="ventas_1500")
+    scheduler.add_job(job_ventas, CronTrigger(hour=23, minute=0,  timezone=AR_TZ), id="ventas_2300")
 
     # Padrón: 04:00
     scheduler.add_job(job_padron, CronTrigger(hour=4, minute=0, timezone=AR_TZ), id="padron_0400")

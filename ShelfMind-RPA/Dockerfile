@@ -1,19 +1,18 @@
+# Imagen compatible con Playwright 1.51 (Chromium + dependencias del SO ya incluidas)
 FROM mcr.microsoft.com/playwright/python:v1.51.0-jammy
 
 WORKDIR /app
 
-# Dependencias Python
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Instalar Chromium via Playwright
-RUN playwright install chromium --with-deps
-
-# Copiar código
 COPY . .
+RUN chmod +x /app/docker-entrypoint.sh
 
-# Variables de entorno (se sobreescriben en Railway)
+# Runtime (Railway: sobreescribir vía variables del servicio, no commitear .env)
 ENV RPA_HEADLESS=true
+ENV RPA_START_MODE=scheduler
 ENV PYTHONUNBUFFERED=1
 
-CMD ["python", "scheduler.py"]
+# Proceso por defecto: APScheduler 24/7 (horarios en scheduler.py)
+CMD ["/app/docker-entrypoint.sh"]

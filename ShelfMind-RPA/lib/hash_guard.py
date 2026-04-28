@@ -1,8 +1,13 @@
 import hashlib
 import json
+import os
 from pathlib import Path
 
-HASHES_FILE = Path("C:/Users/cigar/OneDrive/Desktop/BOT-SQL/antigravity/CenterMind/ShelfMind-RPA/downloads/.hashes.json")
+# Directorio de datos del RPA: raíz del paquete ShelfMind-RPA/ o RPA_DATA_DIR en Docker
+_RPA_ROOT = Path(__file__).resolve().parent.parent
+_DATA = Path(os.environ.get("RPA_DATA_DIR", str(_RPA_ROOT / "downloads")))
+HASHES_FILE = _DATA / ".hashes.json"
+
 
 def _cargar_hashes() -> dict:
     if not HASHES_FILE.exists():
@@ -12,14 +17,17 @@ def _cargar_hashes() -> dict:
     except Exception:
         return {}
 
+
 def _guardar_hashes(data: dict) -> None:
     HASHES_FILE.parent.mkdir(parents=True, exist_ok=True)
     HASHES_FILE.write_text(json.dumps(data, indent=2))
+
 
 def es_duplicado(clave: str, content: bytes) -> bool:
     nuevo_hash = hashlib.md5(content).hexdigest()
     hm = _cargar_hashes()
     return hm.get(clave) == nuevo_hash
+
 
 def guardar_hash(clave: str, content: bytes) -> None:
     nuevo_hash = hashlib.md5(content).hexdigest()

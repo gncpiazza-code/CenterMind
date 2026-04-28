@@ -26,7 +26,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Frontend (`shelfy-frontend/`)
 - **Next.js 16** (App Router) + **React 19** + **TypeScript 5.9**
 - **Tailwind CSS 4** + **shadcn/ui**
-- **Recharts** para gráficos, **MapLibre GL** para mapas (Leaflet reemplazado)
+- **Recharts** para gráficos, **Google Maps JS API** (`@googlemaps/js-api-loader` v2) para mapas. Requiere `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`.
 - **@tanstack/react-query** para fetching
 - Todo el tipado de API en `src/lib/api.ts`
 - **Nota**: `next.config.ts` tiene `ignoreBuildErrors: true` para TypeScript y ESLint — los errores de tipo no bloquean el build
@@ -53,9 +53,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Las variables de entorno (`NEXT_PUBLIC_API_URL`, etc.) se configuran en el panel de Vercel
 - Build errors de TypeScript/ESLint no bloquean el deploy (`ignoreBuildErrors: true`)
 
-### RPA → Mac local (máquina del operador)
-- Corre manualmente o programado (cron local) desde la Mac de desarrollo
-- No está en ningún servidor cloud; se ejecuta con `python runner.py [motor]`
+### RPA → Mac local o Docker (p. ej. Railway)
+- En local: manual o `cron`/`launchd` con `python runner.py [motor]`
+- En la nube: contenedor con el mismo repo — ver `ShelfMind-RPA/RAILWAY.md` (Playwright + `scheduler.py`)
 - Requiere que las variables de entorno de Supabase estén definidas en el shell (`SUPABASE_URL`, `SUPABASE_KEY`)
 - **Logger**: el `lib/logger.py` intenta escribir en una ruta Windows (`C:/Users/cigar/...`) que no existe en Mac — los logs solo van a stdout. En producción Windows funcionaría el file handler.
 - **vault_client.py** resuelve credenciales con este orden: variables de entorno del shell → cache en memoria → Supabase Vault RPC. Lee el `.env` desde `CenterMind/CenterMind/.env` (no desde la raíz del RPA).

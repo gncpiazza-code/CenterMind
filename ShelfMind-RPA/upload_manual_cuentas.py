@@ -1,4 +1,3 @@
-import os
 import sys
 import asyncio
 import httpx
@@ -10,12 +9,10 @@ BASE_DIR = Path(__file__).resolve().parent
 sys.path.append(str(BASE_DIR))
 
 from lib.cuentas_parser import procesar_excel_cuentas
+from lib.shelfy_config import get_shelfy_api_key, get_shelfy_base_url
 
 # Cargar .env principal
 load_dotenv(dotenv_path=BASE_DIR.parent / "CenterMind" / ".env")
-
-API_URL = os.getenv("SHELFY_API_URL", "http://localhost:8000")
-API_KEY = os.getenv("SHELFY_API_KEY", "shelfy-clave-2025")
 
 async def upload_manual(file_path: str, tenant_id: str, id_dist: int):
     print(f"🚀 Iniciando carga manual...")
@@ -33,7 +30,8 @@ async def upload_manual(file_path: str, tenant_id: str, id_dist: int):
         print(f"   ✅ Parseado OK. Deudores: {len(datos['detalle_cuentas'])}")
 
         # 2. Subir a API
-        url = f"{API_URL.rstrip('/')}/api/v1/sync/cuentas-corrientes"
+        api_key = (get_shelfy_api_key() or "").strip() or "shelfy-clave-2025"
+        url = f"{get_shelfy_base_url()}/api/v1/sync/cuentas-corrientes"
         payload = {
             "tenant_id": tenant_id,
             "filename": Path(file_path).name,
@@ -45,7 +43,7 @@ async def upload_manual(file_path: str, tenant_id: str, id_dist: int):
                 url,
                 json=payload,
                 params={"id_distribuidor": id_dist},
-                headers={"X-API-KEY": API_KEY}
+                headers={"x-api-key": api_key}
             )
             
             if resp.status_code in (200, 202):

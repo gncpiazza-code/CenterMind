@@ -7,6 +7,8 @@ CenterMind/**/*.json
 .streamlit/secrets.toml
 .streamlit/
 .env
+# Locales: copia de .env.railway.example (secretos) — nunca al repo
+ShelfMind-RPA/.env.railway
 creds/
 CenterMind/creds/
 **/*.json
@@ -54,7 +56,7 @@ build/
 * - copia.py
 Thumbs.db
 Desktop.ini
-# 8. Scripts Temporales de Reconstrucción (Contienen Keys)
+# 8. Scripts Temporales de Reconstrucciï¿½n (Contienen Keys)
 CenterMind/deep_exhibition_parse.py
 CenterMind/finalize_march_restoration.py
 CenterMind/find_ranking_snapshot.py
@@ -70,3 +72,4 @@ CenterMind/inspect_db_columns.py
 CenterMind/reconstruct_ranking_telegram.py
 massive_restoration_data.json
 restoration_ready_data.json
+.vercel

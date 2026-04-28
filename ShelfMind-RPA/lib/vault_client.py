@@ -16,7 +16,7 @@ _SECRETS = {}
 _FAILED_SECRETS = set()
 
 def get_secret(name: str) -> str:
-    # 1. Chequeo de variables de entorno / .env (para entorno local)
+    # 1. Chequeo de variables de entorno / .env (p. ej. SUPABASE_KEY sin SERVICE_KEY)
     val = os.getenv(name.upper()) or os.getenv(name)
     if val:
         return val

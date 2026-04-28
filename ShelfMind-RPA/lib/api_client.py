@@ -8,22 +8,28 @@ Funciones:
     subir_ventas(tenant_id, tipo, filename, file_bytes)  -> bool
     subir_cuentas(tenant_id, filename, file_bytes)       -> bool
 
-Configuración (via env vars):
-    SHELFY_API_URL  : URL base de la API (default: http://localhost:8000)
-    SHELFY_API_KEY  : clave de autenticación (default: shelfy-clave-2025)
+Configuración: ver lib/shelfy_config.py
+  (SHELFY_API_URL, API_URL, claves de Supabase+Vault, default prod https://api.shelfycenter.com)
 """
 
-import os
 import httpx
 from lib.logger import get_logger
+from lib.shelfy_config import get_shelfy_api_key, get_shelfy_base_url
 
 logger = get_logger("API_CLIENT")
 
-API_URL = os.environ.get("SHELFY_API_URL", "http://localhost:8000").rstrip("/")
-API_KEY = os.environ.get("SHELFY_API_KEY", "shelfy-clave-2025")
-
-HEADERS = {"x-api-key": API_KEY}
+# Compat: lectura perezosa; dev local: export API_URL o SHELFY_API_URL
 TIMEOUT = 120  # segundos
+
+def _url() -> str:
+    return get_shelfy_base_url()
+
+def _key() -> str:
+    k = (get_shelfy_api_key() or "").strip()
+    return k if k else "shelfy-clave-2025"
+
+def _headers() -> dict:
+    return {"x-api-key": _key()}
 
 
 def subir_ventas(tenant_id: str, tipo: str, filename: str, file_bytes: bytes) -> bool:
@@ -39,11 +45,11 @@ def subir_ventas(tenant_id: str, tipo: str, filename: str, file_bytes: bytes) ->
     Returns:
         True si la API respondió 200/201, False en cualquier otro caso.
     """
-    url = f"{API_URL}/api/motor/ventas"
+    url = f"{_url()}/api/motor/ventas"
     try:
         resp = httpx.post(
             url,
-            headers=HEADERS,
+            headers=_headers(),
             data={"tenant_id": tenant_id, "tipo": tipo},
             files={"file": (filename, file_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
             timeout=TIMEOUT,
@@ -72,11 +78,11 @@ def subir_cuentas(tenant_id: str, filename: str, file_bytes: bytes) -> bool:
     Returns:
         True si la API respondió 200/201, False en cualquier otro caso.
     """
-    url = f"{API_URL}/api/motor/cuentas"
+    url = f"{_url()}/api/motor/cuentas"
     try:
         resp = httpx.post(
             url,
-            headers=HEADERS,
+            headers=_headers(),
             data={"tenant_id": tenant_id},
             files={"file": (filename, file_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
             timeout=TIMEOUT,

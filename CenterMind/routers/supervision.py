@@ -858,7 +858,7 @@ def supervision_vendedores(dist_id: int, user_payload=Depends(verify_auth)):
         rutas_data = _fetch_rutas_rows(dist_id, "id_ruta,id_vendedor")
         cli_res = (
             sb.table(t_clientes)
-            .select("id_cliente,id_ruta,estado")
+            .select("id_cliente,id_cliente_erp,id_ruta,fecha_ultima_compra")
             .eq("id_distribuidor", dist_id)
             .execute()
         )
@@ -875,8 +875,12 @@ def supervision_vendedores(dist_id: int, user_payload=Depends(verify_auth)):
             vend_por_ruta[rid] = vid
             rutas_por_vend.setdefault(vid, []).append(rid)
 
+        # Contar PDVs igual que el mapa: deduplicar por id_cliente_erp y
+        # usar regla de 30 días sin compra para clasificar activo/inactivo.
+        threshold_30d = (datetime.now() - timedelta(days=30)).isoformat()[:10]
         pdv_activos: dict[int, int] = {}
         pdv_inactivos: dict[int, int] = {}
+        seen_per_vend: dict[int, set] = {}
         for c in (cli_res.data or []):
             rid = c.get("id_ruta")
             if rid is None:
@@ -887,11 +891,18 @@ def supervision_vendedores(dist_id: int, user_payload=Depends(verify_auth)):
                 vid = None
             if not vid:
                 continue
-            estado = str(c.get("estado") or "").lower()
-            if estado == "inactivo":
-                pdv_inactivos[vid] = pdv_inactivos.get(vid, 0) + 1
-            else:
+            # Deduplicar por ERP ID (igual que _dedupe_pdvs_latest_by_erp en el mapa)
+            erp = str(c.get("id_cliente_erp") or "").strip()
+            dedup_key = f"erp:{erp}" if erp else f"pk:{c.get('id_cliente')}"
+            if dedup_key in seen_per_vend.setdefault(vid, set()):
+                continue
+            seen_per_vend[vid].add(dedup_key)
+            # Activo = compra en los últimos 30 días (misma regla que isInactivo30 en el frontend)
+            fecha_uc = (c.get("fecha_ultima_compra") or "")[:10]
+            if fecha_uc and fecha_uc >= threshold_30d:
                 pdv_activos[vid] = pdv_activos.get(vid, 0) + 1
+            else:
+                pdv_inactivos[vid] = pdv_inactivos.get(vid, 0) + 1
 
         rows = []
         for v in (vend_res.data or []):

@@ -3,7 +3,7 @@
 runner.py
 =========
 Motores disponibles:
-    python runner.py padron          <- Motor 1: Padron de Clientes (Consolido)
+    python runner.py padron          <- Motor 1: Padrón de Clientes (Consolido/Nextbyn)
     python runner.py ventas          <- Motor 2: Comprobantes de Ventas (CHESS)
     python runner.py cuentas         <- Motor 3: Cuentas Corrientes (CHESS)
     python runner.py sigo            <- Motor 4: Reporte Sigo (Nextbyn)
@@ -56,8 +56,8 @@ def _log_resumen(resumen: dict, nombre: str) -> None:
 
 
 async def correr_padron() -> None:
-    """Motor 1: Padron de Clientes (Consolido). Cron: 04:00 y 14:00."""
-    _banner("PADRON -- Consolido")
+    """Motor 1: Padrón de Clientes (Consolido/Nextbyn). Cron: 04:00 y 14:00."""
+    _banner("PADRON -- Consolido Reporteador")
     _verificar_vault_o_salir()
     from motores.padron import run as _run
     resumen = await _run()

@@ -43,16 +43,21 @@ Los paneles utilizan el estilo "Glass-Card" adaptado al tema claro:
 
 ## Componentes UI Clave
 
-### 1. Marcadores de Mapa (Pins)
-- **Animación Aura**: Se utiliza `box-shadow` en lugar de `transform` para evitar conflictos con WebGL/GPU:
-  ```css
-  @keyframes shelfy-aura {
-    0%   { box-shadow: 0 0 0 1px var(--ac); }
-    70%  { box-shadow: 0 0 0 9px transparent; }
-    100% { box-shadow: 0 0 0 9px transparent; }
-  }
-  ```
-- **Popups**: Estilo minimalista sin bordes/sombras nativas de MapLibre, integrados con el `glass-card`.
+### 1. Marcadores de Mapa — Google Maps (24/04/2026)
+- **Motor**: Google Maps JS API (`@googlemaps/js-api-loader` v2). Reemplaza MapLibre GL. Requiere `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`.
+- **Pines**: `google.maps.Marker` con icono SVG dinámico (color vendedor + borde por estado + número de exhibiciones). Selección agrega ring blanco exterior.
+- **Popups**: `google.maps.InfoWindow` (instancia única reutilizada por hover/click). HTML oscuro idéntico al anterior.
+- **Street View**: Botón "Street View" en popup abre `StreetViewPanorama` en panel inferior dentro del componente (opt-in, no monta por defecto).
+- **Armar Ruta**: `google.maps.drawing.DrawingManager` en modo `POLYGON` cuando `routeBuildEnabled=true`. Al completar el polígono, `google.maps.geometry.poly.containsLocation` detecta PDVs dentro y los selecciona automáticamente.
+- **Fallback**: Si `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` no está definida, el mapa muestra un mensaje de configuración pendiente.
+
+### 1b. Armar Ruta — Selección por Polígono (24/04/2026)
+- Toggle "Armar Ruta" en el `MapModeSelector` de `TabSupervision` (solo visible con `action_edit_objetivos`).
+- `routeBuildEnabled` activa `google.maps.drawing.DrawingManager` en modo polígono.
+- Al cerrar el polígono → `containsLocation` sobre todos los pines → auto-selección en carrito de objetivos.
+- Barra contextual superior indica estado: "Dibujá un polígono…" / botón "Limpiar (N)".
+- Al hacer submit del objetivo ruteo, cada `pdv_item` lleva `group_id` (UUID), `group_name` y `polygon_geojson` (GeoJSON Feature<Polygon>), y el objetivo recibe `ruteo_build_mode: 'polygon'`.
+- Estado persistido en `useSupervisionStore`: `routeBuildEnabled`, `activePolygonPdvIds`, `activePolygonGeoJson`. Se limpia al hacer submit o desactivar el toggle.
 
 ### 2. TabSupervision
 - **Layout**: Sidebar de selección de distribuidor/sucursal + Tabs centrales (Mapa, Ventas, Cuentas).
@@ -215,6 +220,7 @@ Para garantizar el rendimiento y la mantenibilidad de Shelfy, se siguen estos pa
 2. **TanStack Query v5**: Única herramienta para el **estado del servidor** (fetching de API, caching, mutaciones).
    - *Regla*: Todas las funciones fetch deben estar en `src/lib/api.ts` y usarse únicamente vía Query/Mutation hooks.
    - *Nota operativa CC (20/04/2026)*: para Real Tabacalera, el RPA separa automáticamente las filas de cuentas corrientes por sucursal (`UEQUIN RODRIGO` / `OSCAR ONDARRETA` / `JOSE IGNACIO BIAVA`) antes de subirlas al backend, por lo que el frontend recibe los datos ya segmentados por distribuidor destino.
+   - *Nota operativa Padrón Consolido (27/04/2026)*: la extracción RPA se parametriza desde tabla backend `rpa_consolido_tenants` y usa credencial única de Consolido; no requiere cambios de UI, pero sí garantiza que cada archivo se procese por distribuidor objetivo.
 3. **Animations (Framer Motion)**: Se utilizan para mejorar la percepción de fluidez sin sacrificar la densidad.
    - *Performance*: Máximo `0.4s` de duración. Se evitan animaciones de entrada pesadas en tablas con gran volumen de datos para priorizar la productividad.
 

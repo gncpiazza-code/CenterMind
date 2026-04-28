@@ -36,6 +36,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Motores en `motores/`: `ventas.py`, `cuentas_corrientes.py`, `sigo.py`
 - Se conecta al backend vía API Key con endpoints `/api/v1/sync/*`
 - Las credenciales de cada tenant (usuario/password de CHESS ERP) se leen desde **Supabase Vault** via `lib/vault_client.py`
+- **Padrón Consolido (27/04/2026):** usa credencial única Vault/env (`consolido_usuario`, `consolido_password`) y carga configuración por distribuidor desde tabla Supabase `rpa_consolido_tenants` (con fallback a configuración legacy en código).
 
 ---
 

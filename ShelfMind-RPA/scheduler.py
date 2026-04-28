@@ -2,16 +2,15 @@
 """
 scheduler.py
 ============
-Proceso siempre activo: solo **cuentas corrientes** en horario Argentina.
+Proceso siempre activo para ejecutar motores RPA en horario Argentina.
 
 Zona: America/Argentina/Buenos_Aires (independiente de la región del host, ej. us-west).
 
-Horarios:
+Horarios activos:
+  06:00  Padrón
+  15:00  Padrón
   07:00  Cuentas corrientes
   14:30  Cuentas corrientes (2.ª pasada)
-
-Padrón / ventas: no están programados acá. Para padrón vía HTTP ver `_run_padron` abajo
-(reactivar `scheduler.add_job(job_padron, ...)` cuando corresponda). Ventas: `python runner.py ventas`.
 
 Inicio: python scheduler.py
 """
@@ -46,7 +45,7 @@ def job_cuentas():
 
 
 def job_padron():
-    """Reservado: trigger HTTP al API (no programado por defecto)."""
+    """Ejecuta el motor local de padrón."""
     logger.info("⏰ Trigger PADRÓN")
     try:
         asyncio.run(_run_padron())
@@ -67,27 +66,13 @@ async def _run_cuentas():
 
 
 async def _run_padron():
-    """
-    POST /api/motor/padron-trigger (sin Playwright en el RPA).
-    Descomentá en main() el add_job de padron cuando lo quieras a las 04:00 AR.
-    """
-    import httpx
-    from lib.shelfy_config import get_shelfy_api_key, get_shelfy_base_url
-
-    api_url = get_shelfy_base_url()
-    api_key = (get_shelfy_api_key() or "").strip()
-    if not api_key:
-        logger.warning("SHELFY_API_KEY no configurado — saltando padrón")
-        return
-    try:
-        resp = httpx.post(
-            f"{api_url}/api/motor/padron-trigger",
-            headers={"x-api-key": api_key},
-            timeout=30,
-        )
-        logger.info(f"Padrón trigger → HTTP {resp.status_code}")
-    except Exception as e:
-        logger.error(f"Error disparando padrón: {e}")
+    from motores.padron import run
+    resumen = await run()
+    logger.info(
+        f"PADRÓN completo — ok={resumen.get('ok', '?')}, "
+        f"errores={resumen.get('errores', '?')}, "
+        f"sin_cambios={resumen.get('sin_cambios', '?')}"
+    )
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -95,7 +80,7 @@ async def _run_padron():
 
 def main():
     logger.info("=" * 60)
-    logger.info("  ShelfMind RPA Scheduler — solo CUENTAS CORRIENTES")
+    logger.info("  ShelfMind RPA Scheduler — PADRÓN + CUENTAS")
     from lib.shelfy_config import get_shelfy_base_url, get_shelfy_api_key
 
     _b = get_shelfy_base_url()
@@ -107,11 +92,10 @@ def main():
 
     scheduler = BackgroundScheduler(timezone=AR_TZ)
 
+    scheduler.add_job(job_padron, CronTrigger(hour=6, minute=0, timezone=AR_TZ), id="padron_0600")
+    scheduler.add_job(job_padron, CronTrigger(hour=15, minute=0, timezone=AR_TZ), id="padron_1500")
     scheduler.add_job(job_cuentas, CronTrigger(hour=7, minute=0, timezone=AR_TZ), id="cuentas_0700")
     scheduler.add_job(job_cuentas, CronTrigger(hour=14, minute=30, timezone=AR_TZ), id="cuentas_1430")
-
-    # Padrón (04:00 AR): desactivado hasta que lo configures; descomentá:
-    # scheduler.add_job(job_padron, CronTrigger(hour=4, minute=0, timezone=AR_TZ), id="padron_0400")
 
     scheduler.start()
 

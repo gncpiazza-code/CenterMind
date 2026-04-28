@@ -9,7 +9,7 @@ Este documento describe la infraestructura, tecnologías y flujos de datos que c
 - **Lógica**: React 19 + TypeScript 5.9.
 - **Estilos**: Tailwind CSS 4 + shadcn/ui (radix-ui, lucide-react).
 - **Gráficos**: Recharts.
-- **Mapas**: MapLibre GL (reemplazo de Leaflet para estabilidad WebGL).
+- **Mapas**: **Google Maps JS API** (`@googlemaps/js-api-loader` v2) con `google.maps.Marker`, `InfoWindow`, `DrawingManager` y `StreetViewPanorama`. Requiere `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` en variables de entorno Vercel.
 - **Fetching**: @tanstack/react-query (caching y re-fetching).
 - **Deploy**: Vercel.
 
@@ -27,6 +27,7 @@ Este documento describe la infraestructura, tecnologías y flujos de datos que c
 - **Motor**: Python + Playwright.
 - **Credenciales**: Supabase Vault (lectura segura vía RPC).
 - **Ejecución**: Local (Mac del operador/servidor físico con acceso a ERP local).
+- **Padrón Consolido**: credencial única (`consolido_usuario` / `consolido_password`) y catálogo de empresas por distribuidor en tabla `rpa_consolido_tenants` (fallback legacy para compatibilidad).
 
 ---
 

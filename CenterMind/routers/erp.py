@@ -132,6 +132,34 @@ async def erp_sync_ventas(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/api/v1/sync/erp-padrón", tags=["ERP Push"], summary="Ingesta automática de Padrón via Push (RPA)")
+async def erp_sync_padron(
+    id_distribuidor: int = Query(...),
+    file: UploadFile = File(...),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+    _=Depends(verify_key),
+):
+    """
+    Ingesta automática del Padrón de Clientes descargado desde Consolido/Nextbyn.
+
+    Llamado por ShelfMind-RPA motores/padron.py después de descargar el Excel.
+    Procesa la jerarquía: sucursales_v2 → vendedores_v2 → rutas_v2 → clientes_pdv_v2.
+    """
+    if not (file.filename.endswith(".xlsx") or file.filename.endswith(".xls")):
+        raise HTTPException(status_code=400, detail="Se requiere un archivo .xlsx o .xls")
+    try:
+        content = await file.read()
+        background_tasks.add_task(padron_service.ingest_for_dist, io.BytesIO(content), id_distribuidor)
+        return {
+            "status": "accepted",
+            "message": f"Padrón recibido para dist {id_distribuidor}. Procesando en segundo plano.",
+            "timestamp": datetime.now().isoformat(),
+        }
+    except Exception as e:
+        logger.error(f"Error en endpoint sync padrón: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ─── ERP: contexto cliente y ROI ──────────────────────────────────────────────
 
 @router.get("/api/erp/contexto-cliente/{id_distribuidor}/{nro_cliente}", summary="Datos ERP del cliente al evaluar")

@@ -97,3 +97,40 @@ def subir_cuentas(tenant_id: str, filename: str, file_bytes: bytes) -> bool:
     except Exception as e:
         logger.error(f"  ❌ Error subiendo cuentas para {tenant_id}: {e}")
         return False
+
+
+async def subir_padron(archivo_path, id_distribuidor: int) -> bool:
+    """
+    Sube un Excel de Padrón de Clientes a POST /api/v1/sync/erp-padrón.
+
+    Args:
+        archivo_path   : ruta Path del archivo Excel descargado desde Consolido
+        id_distribuidor: id_distribuidor en Shelfy (mapeo desde tenant_id)
+
+    Returns:
+        True si la API respondió 200/201, False en cualquier otro caso.
+    """
+    url = f"{_url()}/api/v1/sync/erp-padrón"
+    try:
+        # Leer archivo del disco
+        with open(archivo_path, "rb") as f:
+            file_bytes = f.read()
+
+        # Usar httpx.AsyncClient para llamadas async
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            resp = await client.post(
+                url,
+                headers=_headers(),
+                data={"id_distribuidor": str(id_distribuidor)},
+                files={"file": (archivo_path.name, file_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+            )
+            if resp.status_code in (200, 201):
+                data = resp.json()
+                logger.info(f"  ✅ Padrón subido — {data.get('registros', '?')} registros, dist={id_distribuidor}")
+                return True
+            else:
+                logger.error(f"  ❌ API padrón respondió {resp.status_code}: {resp.text[:200]}")
+                return False
+    except Exception as e:
+        logger.error(f"  ❌ Error subiendo padrón para dist={id_distribuidor}: {e}")
+        return False

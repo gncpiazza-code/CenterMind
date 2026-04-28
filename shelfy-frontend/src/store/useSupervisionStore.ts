@@ -121,6 +121,7 @@ export const useSupervisionStore = create<SupervisionStore>()(
           visibleVends: new Set(),
           visibleRutas: new Set(),
           visibleClientes: new Set(),
+          selectedSucursal: null, // resetear al cambiar de tenant para que el auto-select funcione correctamente
         }),
 
       setVendorColorOverride: (distId, vendorId, color) =>

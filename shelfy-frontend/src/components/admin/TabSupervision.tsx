@@ -1526,7 +1526,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
             <button
               key={suc}
               onClick={() => {
-                setSelectedSucursal(suc === selectedSucursal ? null : suc);
+                  setSelectedSucursal(suc === selectedSucursal && sucursales.length > 1 ? null : suc);
                 setVisibleVends(new Set());
                 setVisibleRutas(new Set());
                 setVisibleClientes(new Set());
@@ -1877,7 +1877,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                   <button
                     key={suc}
                     onClick={() => {
-                      setSelectedSucursal(suc === selectedSucursal ? null : suc);
+                      setSelectedSucursal(suc === selectedSucursal && sucursales.length > 1 ? null : suc);
                       setVisibleVends(new Set());
                       setVisibleRutas(new Set());
                       setVisibleClientes(new Set());

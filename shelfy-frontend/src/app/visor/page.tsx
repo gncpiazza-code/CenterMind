@@ -174,6 +174,7 @@ function FotoViewer({
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (isTypingTarget(e.target)) return;
+      if (!(e.ctrlKey || e.metaKey)) return;
       if (e.key === "+" || e.key === "=") {
         e.preventDefault();
         applyZoom(zoom + 0.2);
@@ -272,8 +273,8 @@ function InfoRow({
   valueClass?: string;
 }) {
   return (
-    <div className="flex items-start gap-2.5 py-2">
-      <div className="w-7 h-7 rounded-lg bg-[var(--shelfy-glow)] flex items-center justify-center shrink-0 mt-0.5">
+    <div className="flex items-start gap-2.5 py-2.5">
+      <div className="w-7 h-7 rounded-xl bg-[var(--shelfy-glow)]/80 ring-1 ring-[var(--shelfy-border)] flex items-center justify-center shrink-0 mt-0.5">
         <Icon size={13} className="text-[var(--shelfy-primary)]" />
       </div>
       <div className="flex-1 min-w-0">
@@ -284,6 +285,21 @@ function InfoRow({
           {value}
         </p>
       </div>
+    </div>
+  );
+}
+
+function ShortcutItem({
+  keys,
+  label,
+}: {
+  keys: React.ReactNode;
+  label: string;
+}) {
+  return (
+    <div className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)]/60 px-2 py-1">
+      {keys}
+      <span className="text-[10px] font-semibold text-[var(--shelfy-muted)]">{label}</span>
     </div>
   );
 }
@@ -519,7 +535,7 @@ export default function VisorPage() {
         case "7":
         case "8":
         case "9":
-          if (!e.altKey) return;
+          if (!withMod) return;
           {
             const idx = Number(e.key) - 1;
             const tpl = commentTemplates[idx];
@@ -860,49 +876,33 @@ export default function VisorPage() {
   // ── Kbd shortcuts legend ──────────────────────────────────────────────────────
 
   const kbdLegend = (
-    <div className="flex items-center gap-3 text-[var(--shelfy-muted)]">
-      <span className="flex items-center gap-1 text-[10px]">
-        <Kbd className="bg-[var(--shelfy-bg)] border-[var(--shelfy-border)] text-[var(--shelfy-muted)]">Ctrl/Cmd+R</Kbd>
-        <span>Rechazar</span>
-      </span>
-      <span className="flex items-center gap-1 text-[10px]">
-        <Kbd className="bg-[var(--shelfy-bg)] border-[var(--shelfy-border)] text-[var(--shelfy-muted)]">Ctrl/Cmd+D</Kbd>
-        <span>Destacar</span>
-      </span>
-      <span className="flex items-center gap-1 text-[10px]">
-        <Kbd className="bg-[var(--shelfy-bg)] border-[var(--shelfy-border)] text-[var(--shelfy-muted)]">Ctrl/Cmd+A</Kbd>
-        <span>Aprobar</span>
-      </span>
-      <span className="flex items-center gap-1 text-[10px]">
-        <Kbd className="bg-[var(--shelfy-bg)] border-[var(--shelfy-border)] text-[var(--shelfy-muted)]">Ctrl/Cmd+Z</Kbd>
-        <span>Revertir</span>
-      </span>
-      <span className="flex items-center gap-1 text-[10px]">
-        <KbdGroup>
-          <Kbd className="bg-[var(--shelfy-bg)] border-[var(--shelfy-border)] text-[var(--shelfy-muted)]">+</Kbd>
-          <Kbd className="bg-[var(--shelfy-bg)] border-[var(--shelfy-border)] text-[var(--shelfy-muted)]">-</Kbd>
-          <Kbd className="bg-[var(--shelfy-bg)] border-[var(--shelfy-border)] text-[var(--shelfy-muted)]">0</Kbd>
-        </KbdGroup>
-        <span>Zoom</span>
-      </span>
-      <span className="flex items-center gap-1 text-[10px]">
-        <Kbd className="bg-[var(--shelfy-bg)] border-[var(--shelfy-border)] text-[var(--shelfy-muted)]">Alt+1..9</Kbd>
-        <span>Frases</span>
-      </span>
-      <span className="flex items-center gap-1 text-[10px]">
-        <KbdGroup>
-          <Kbd className="bg-[var(--shelfy-bg)] border-[var(--shelfy-border)] text-[var(--shelfy-muted)]">←</Kbd>
-          <Kbd className="bg-[var(--shelfy-bg)] border-[var(--shelfy-border)] text-[var(--shelfy-muted)]">→</Kbd>
-        </KbdGroup>
-        <span>Fotos</span>
-      </span>
-      <span className="flex items-center gap-1 text-[10px]">
-        <KbdGroup>
-          <Kbd className="bg-[var(--shelfy-bg)] border-[var(--shelfy-border)] text-[var(--shelfy-muted)]">↑</Kbd>
-          <Kbd className="bg-[var(--shelfy-bg)] border-[var(--shelfy-border)] text-[var(--shelfy-muted)]">↓</Kbd>
-        </KbdGroup>
-        <span>Grupos</span>
-      </span>
+    <div className="flex items-center flex-wrap justify-center gap-1.5">
+      <ShortcutItem
+        keys={<KbdGroup><Kbd>⌘/Ctrl</Kbd><span>+</span><Kbd>R</Kbd></KbdGroup>}
+        label="Rechazar"
+      />
+      <ShortcutItem
+        keys={<KbdGroup><Kbd>⌘/Ctrl</Kbd><span>+</span><Kbd>D</Kbd></KbdGroup>}
+        label="Destacar"
+      />
+      <ShortcutItem
+        keys={<KbdGroup><Kbd>⌘/Ctrl</Kbd><span>+</span><Kbd>A</Kbd></KbdGroup>}
+        label="Aprobar"
+      />
+      <ShortcutItem
+        keys={<KbdGroup><Kbd>⌘/Ctrl</Kbd><span>+</span><Kbd>Z</Kbd></KbdGroup>}
+        label="Revertir"
+      />
+      <ShortcutItem
+        keys={<KbdGroup><Kbd>⌘/Ctrl</Kbd><span>+</span><Kbd>+</Kbd><Kbd>-</Kbd><Kbd>0</Kbd></KbdGroup>}
+        label="Zoom"
+      />
+      <ShortcutItem
+        keys={<KbdGroup><Kbd>⌘/Ctrl</Kbd><span>+</span><Kbd>1..9</Kbd></KbdGroup>}
+        label="Frases"
+      />
+      <ShortcutItem keys={<KbdGroup><Kbd>←</Kbd><Kbd>→</Kbd></KbdGroup>} label="Fotos" />
+      <ShortcutItem keys={<KbdGroup><Kbd>↑</Kbd><Kbd>↓</Kbd></KbdGroup>} label="Grupos" />
     </div>
   );
 
@@ -1010,7 +1010,7 @@ export default function VisorPage() {
               <div className="hidden md:flex flex-1 min-h-0 relative">
 
                 {/* ── LEFT PANEL — Exhibición ─────────────────────────────── */}
-                <div className="w-64 shrink-0 border-r border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] flex flex-col overflow-hidden">
+                <div className="w-[22rem] shrink-0 border-r border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] flex flex-col overflow-hidden overflow-x-hidden">
                   {/* Panel header */}
                   <div className="px-4 pt-3 pb-2 border-b border-[var(--shelfy-border)] shrink-0">
                     <div className="flex items-center justify-between mb-1">
@@ -1042,7 +1042,7 @@ export default function VisorPage() {
                   </div>
 
                   {/* Panel body */}
-                  <div className="flex-1 overflow-y-auto px-3 py-1">
+                  <div className="flex-1 overflow-y-auto overflow-x-hidden px-3 py-1">
                     {/* Objetivo badge */}
                     {grupo.fotos.some((f) => f.es_objetivo) && (
                       <div className="mt-2 mb-1">
@@ -1130,6 +1130,93 @@ export default function VisorPage() {
                       <code className="text-[11px] font-mono font-bold text-[var(--shelfy-text-soft)]">
                         #{grupo.fotos[currentFotoIdx]?.id_exhibicion ?? "—"}
                       </code>
+                    </div>
+
+                    <Separator className="my-2" />
+                    <div className="pb-1 rounded-xl border border-[var(--shelfy-border)]/70 bg-[var(--shelfy-bg)]/40 px-2.5 pt-2">
+                      <p className="text-[10px] font-black text-[var(--shelfy-muted)] uppercase tracking-widest mb-1.5">
+                        Info del PDV
+                      </p>
+                      <p className="text-xs font-mono font-bold text-[var(--shelfy-text-soft)] mb-1.5">
+                        {nroForErp ? `Cód. ${nroForErp}` : grupo.nro_cliente || "Sin código ERP"}
+                      </p>
+                    </div>
+
+                    {user?.usa_contexto_erp && !skipErpFetch && loadingERP ? (
+                      <div className="flex flex-col gap-2 py-2">
+                        <Skeleton className="h-8 w-full rounded-lg" />
+                        <Skeleton className="h-8 w-4/5 rounded-lg" />
+                        <Skeleton className="h-8 w-full rounded-lg" />
+                        <Skeleton className="h-8 w-3/4 rounded-lg" />
+                      </div>
+                    ) : erpContext?.encontrado ? (
+                      <>
+                        {erpContext.nombre_fantasia && (
+                          <InfoRow icon={Store} label="Nombre / Fantasía" value={erpContext.nombre_fantasia} />
+                        )}
+                        {erpContext.razon_social && erpContext.razon_social !== erpContext.nombre_fantasia && (
+                          <InfoRow icon={CreditCard} label="Razón Social" value={erpContext.razon_social} valueClass="text-[var(--shelfy-text-soft)]" />
+                        )}
+                        {erpContext.localidad && (
+                          <InfoRow icon={MapPin} label="Localidad" value={erpContext.localidad} />
+                        )}
+                        {erpContext.domicilio && (
+                          <InfoRow icon={MapPin} label="Dirección" value={erpContext.domicilio} valueClass="text-[var(--shelfy-text-soft)]" />
+                        )}
+                        {erpContext.ultima_compra && (
+                          <InfoRow
+                            icon={ShoppingCart}
+                            label="Última Compra"
+                            value={
+                              <span className={cn(
+                                diasUltCompra !== null && diasUltCompra > 60
+                                  ? "text-red-500"
+                                  : diasUltCompra !== null && diasUltCompra > 30
+                                  ? "text-amber-500"
+                                  : "text-emerald-600"
+                              )}>
+                                {erpContext.ultima_compra.slice(0, 10)}
+                                {diasUltCompra !== null && (
+                                  <span className="text-[var(--shelfy-muted)] font-normal ml-1">
+                                    (hace {diasUltCompra}d)
+                                  </span>
+                                )}
+                              </span>
+                            }
+                          />
+                        )}
+                        {(erpContext.nro_ruta || erpContext.dia_visita) && (
+                          <InfoRow
+                            icon={Calendar}
+                            label="Ruta / Visita"
+                            value={[erpContext.nro_ruta && `R${erpContext.nro_ruta}`, erpContext.dia_visita].filter(Boolean).join(" · ")}
+                          />
+                        )}
+                      </>
+                    ) : !skipErpFetch && !loadingERP ? (
+                      <div className="py-2">
+                        <p className="text-xs text-amber-600 font-semibold">No encontrado en ERP</p>
+                        <p className="text-[10px] text-[var(--shelfy-muted)] mt-0.5">Cód. {nroForErp || "—"}</p>
+                      </div>
+                    ) : (
+                      <div className="py-2">
+                        <p className="text-[10px] text-[var(--shelfy-muted)]">Sin contexto ERP disponible</p>
+                      </div>
+                    )}
+
+                    <Separator className="my-2" />
+                    <div className="pb-2 flex flex-col gap-2 rounded-xl border border-[var(--shelfy-border)]/70 bg-[var(--shelfy-bg)]/40 p-2.5">
+                      <p className="text-[10px] font-black text-[var(--shelfy-muted)] uppercase tracking-widest">
+                        Observaciones
+                      </p>
+                      <Textarea
+                        placeholder="Escribe una observación…"
+                        rows={3}
+                        value={comentario}
+                        onChange={(e) => setComentario(e.target.value)}
+                        className="resize-none text-xs min-h-[72px] bg-[var(--shelfy-bg)] border-[var(--shelfy-border)] text-[var(--shelfy-text)] placeholder:text-[var(--shelfy-muted)] focus-visible:ring-[var(--shelfy-primary)]/30"
+                      />
+                      {frasesPopover(false)}
                     </div>
                   </div>
                 </div>
@@ -1219,132 +1306,18 @@ export default function VisorPage() {
                   </div>
 
                   {/* Action bar below image */}
-                  <div className="shrink-0 flex flex-col items-center gap-1.5 py-1">
+                  <div className="shrink-0 flex flex-col items-center gap-2 py-1">
                     {/* Buttons row */}
                     <div className="flex items-center gap-3">
                       {evalButtons}
                     </div>
                     {/* Kbd hints row */}
-                    <div className="opacity-60 hover:opacity-100 transition-opacity">
+                    <div className="opacity-80 hover:opacity-100 transition-opacity">
                       {kbdLegend}
                     </div>
                   </div>
                 </div>
 
-                {/* ── RIGHT PANEL — Info del PDV + Observaciones ───────────── */}
-                <div className="w-72 shrink-0 border-l border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] flex flex-col overflow-hidden overflow-x-hidden">
-                  {/* Panel header */}
-                  <div className="px-4 pt-3 pb-2.5 border-b border-[var(--shelfy-border)] shrink-0">
-                    <h2 className="text-[11px] font-black text-[var(--shelfy-muted)] uppercase tracking-widest">
-                      Info del PDV
-                    </h2>
-                    <p className="text-xs font-mono font-bold text-[var(--shelfy-text-soft)] mt-0.5">
-                      {nroForErp ? `Cód. ${nroForErp}` : grupo.nro_cliente || "Sin código ERP"}
-                    </p>
-                  </div>
-
-                  {/* PDV data */}
-                  <div className="flex-1 overflow-y-auto overflow-x-hidden">
-                    <div className="px-3 py-1">
-                      {user?.usa_contexto_erp && !skipErpFetch && loadingERP ? (
-                        <div className="flex flex-col gap-2 py-3">
-                          <Skeleton className="h-8 w-full rounded-lg" />
-                          <Skeleton className="h-8 w-4/5 rounded-lg" />
-                          <Skeleton className="h-8 w-full rounded-lg" />
-                          <Skeleton className="h-8 w-3/4 rounded-lg" />
-                        </div>
-                      ) : erpContext?.encontrado ? (
-                        <>
-                          {erpContext.nombre_fantasia && (
-                            <InfoRow
-                              icon={Store}
-                              label="Nombre / Fantasía"
-                              value={erpContext.nombre_fantasia}
-                            />
-                          )}
-                          {erpContext.razon_social && erpContext.razon_social !== erpContext.nombre_fantasia && (
-                            <InfoRow
-                              icon={CreditCard}
-                              label="Razón Social"
-                              value={erpContext.razon_social}
-                              valueClass="text-[var(--shelfy-text-soft)]"
-                            />
-                          )}
-                          {erpContext.localidad && (
-                            <InfoRow
-                              icon={MapPin}
-                              label="Localidad"
-                              value={erpContext.localidad}
-                            />
-                          )}
-                          {erpContext.domicilio && (
-                            <InfoRow
-                              icon={MapPin}
-                              label="Dirección"
-                              value={erpContext.domicilio}
-                              valueClass="text-[var(--shelfy-text-soft)]"
-                            />
-                          )}
-                          {erpContext.ultima_compra && (
-                            <InfoRow
-                              icon={ShoppingCart}
-                              label="Última Compra"
-                              value={
-                                <span className={cn(
-                                  diasUltCompra !== null && diasUltCompra > 60
-                                    ? "text-red-500"
-                                    : diasUltCompra !== null && diasUltCompra > 30
-                                    ? "text-amber-500"
-                                    : "text-emerald-600"
-                                )}>
-                                  {erpContext.ultima_compra.slice(0, 10)}
-                                  {diasUltCompra !== null && (
-                                    <span className="text-[var(--shelfy-muted)] font-normal ml-1">
-                                      (hace {diasUltCompra}d)
-                                    </span>
-                                  )}
-                                </span>
-                              }
-                            />
-                          )}
-                          {(erpContext.nro_ruta || erpContext.dia_visita) && (
-                            <InfoRow
-                              icon={Calendar}
-                              label="Ruta / Visita"
-                              value={[erpContext.nro_ruta && `R${erpContext.nro_ruta}`, erpContext.dia_visita].filter(Boolean).join(" · ")}
-                            />
-                          )}
-                        </>
-                      ) : !skipErpFetch && !loadingERP ? (
-                        <div className="py-4 text-center">
-                          <p className="text-xs text-amber-600 font-semibold">No encontrado en ERP</p>
-                          <p className="text-[10px] text-[var(--shelfy-muted)] mt-1">Cód. {nroForErp || "—"}</p>
-                        </div>
-                      ) : (
-                        <div className="py-4 text-center">
-                          <p className="text-[10px] text-[var(--shelfy-muted)]">Sin contexto ERP disponible</p>
-                        </div>
-                      )}
-                    </div>
-
-                    <Separator className="mx-3" />
-
-                    {/* Observaciones */}
-                    <div className="px-3 py-3 flex flex-col gap-2">
-                      <p className="text-[10px] font-black text-[var(--shelfy-muted)] uppercase tracking-widest">
-                        Observaciones
-                      </p>
-                      <Textarea
-                        placeholder="Escribe una observación…"
-                        rows={3}
-                        value={comentario}
-                        onChange={(e) => setComentario(e.target.value)}
-                        className="resize-none text-xs min-h-[72px] bg-[var(--shelfy-bg)] border-[var(--shelfy-border)] text-[var(--shelfy-text)] placeholder:text-[var(--shelfy-muted)] focus-visible:ring-[var(--shelfy-primary)]/30"
-                      />
-                      {frasesPopover(false)}
-                    </div>
-                  </div>
-                </div>
               </div>
 
               {/* ═══ MOBILE LAYOUT ════════════════════════════════════════════ */}

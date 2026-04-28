@@ -43,6 +43,7 @@ import json
 import html
 
 from core.helpers import build_qa_exhibicion_integrante_ids, is_exhibicion_qa_display_for_dist
+from core.tenant_tables import tenant_table_name
 
 # PARCHE SSL (fix PostgreSQL sobreescribe SSL_CERT_FILE)
 # ─────────────────────────────────────────────
@@ -662,7 +663,7 @@ class Database:
             nombre_erp_map = {}
             if vendedor_ids:
                 try:
-                    res_vend = self.sb.table("vendedores_v2")\
+                    res_vend = self.sb.table(tenant_table_name("vendedores_v2", distribuidor_id))\
                         .select("id_vendedor, nombre_erp")\
                         .in_("id_vendedor", vendedor_ids).execute()
                     nombre_erp_map = {v["id_vendedor"]: v["nombre_erp"] for v in res_vend.data or []}
@@ -1308,7 +1309,7 @@ class BotWorker:
             pdv_map: dict[int, dict[str, Any]] = {}
             if pdv_ids:
                 pdv_res = await asyncio.to_thread(
-                    self.db.sb.table("clientes_pdv_v2")
+                    self.db.sb.table(tenant_table_name("clientes_pdv_v2", dist_id))
                     .select("id_cliente, id_cliente_erp, id_ruta, nombre_fantasia, nombre_cliente, nombre_razon_social")
                     .in_("id_cliente", list(pdv_ids))
                     .eq("id_distribuidor", dist_id)
@@ -1325,7 +1326,7 @@ class BotWorker:
             rutas_map: dict[int, str] = {}
             if ruta_ids:
                 rutas_res = await asyncio.to_thread(
-                    self.db.sb.table("rutas_v2")
+                    self.db.sb.table(tenant_table_name("rutas_v2", dist_id))
                     .select("id_ruta, id_ruta_erp, dia_semana")
                     .in_("id_ruta", list(ruta_ids))
                     .execute
@@ -2060,8 +2061,9 @@ class BotWorker:
                             if nro_cliente and nro_cliente != "0":
                                 try:
                                     self.logger.info(f"🔍 Lookup PDV clientes_pdv_v2: id_cliente_erp='{nro_cliente}' dist={self.distribuidor_id}")
+                                    _t_pdv_bot = tenant_table_name("clientes_pdv_v2", self.distribuidor_id)
                                     pdv_res = await asyncio.to_thread(
-                                        self.db.sb.table("clientes_pdv_v2")
+                                        self.db.sb.table(_t_pdv_bot)
                                         .select("nombre_fantasia, latitud, longitud, domicilio, localidad, fecha_alta")
                                         .eq("id_distribuidor", self.distribuidor_id)
                                         .eq("id_cliente_erp", nro_cliente)
@@ -2076,7 +2078,7 @@ class BotWorker:
                                         if nro_stripped != nro_cliente:
                                             self.logger.info(f"🔍 Reintento sin ceros iniciales: id_cliente_erp='{nro_stripped}'")
                                             pdv_res = await asyncio.to_thread(
-                                                self.db.sb.table("clientes_pdv_v2")
+                                                self.db.sb.table(_t_pdv_bot)
                                                 .select("nombre_fantasia, latitud, longitud, domicilio, localidad, fecha_alta")
                                                 .eq("id_distribuidor", self.distribuidor_id)
                                                 .eq("id_cliente_erp", nro_stripped)
@@ -2252,7 +2254,8 @@ class BotWorker:
                     f"uid={effective_uploader_id}"
                 )
                 # Proceed even without id_vendedor_v2 — PDV match is enough
-                pdv_obj_res = self.db.sb.table("clientes_pdv_v2") \
+                _t_pdv_obj = tenant_table_name("clientes_pdv_v2", self.distribuidor_id)
+                pdv_obj_res = self.db.sb.table(_t_pdv_obj) \
                     .select("id_cliente, nombre_fantasia") \
                     .eq("id_distribuidor", self.distribuidor_id) \
                     .eq("id_cliente_erp", nro_cliente) \
@@ -2260,7 +2263,7 @@ class BotWorker:
                 if not pdv_obj_res.data and nro_cliente:
                     nro_strip = nro_cliente.lstrip("0") or nro_cliente
                     if nro_strip != nro_cliente:
-                        pdv_obj_res = self.db.sb.table("clientes_pdv_v2") \
+                        pdv_obj_res = self.db.sb.table(_t_pdv_obj) \
                             .select("id_cliente, nombre_fantasia") \
                             .eq("id_distribuidor", self.distribuidor_id) \
                             .eq("id_cliente_erp", nro_strip) \

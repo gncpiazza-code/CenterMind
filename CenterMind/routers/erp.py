@@ -18,6 +18,7 @@ from fastapi.responses import JSONResponse
 
 from core.helpers import _enrich_and_store_cc
 from core.security import verify_auth, verify_key, check_dist_permission
+from core.tenant_tables import tenant_table_name
 from db import sb
 from models.schemas import ERPConfigAlertas
 from services.cuentas_corrientes_service import procesar_cuentas_corrientes_service
@@ -169,8 +170,9 @@ def get_erp_contexto(id_distribuidor: int, nro_cliente: str, user_payload=Depend
         res_rpc = sb.rpc("fn_erp_contexto_cliente", {"p_distribuidor_id": id_distribuidor, "p_nro_cliente": nro_cliente}).execute()
         ctx = res_rpc.data[0] if res_rpc.data else {"encontrado": False}
 
-        res_pdv = sb.table("clientes_pdv_v2").select(
-            "nombre_fantasia, nombre_razon_social, domicilio, localidad, canal, fecha_alta, rutas_v2(id_ruta_erp, dia_semana)"
+        t_clientes = tenant_table_name("clientes_pdv_v2", id_distribuidor)
+        res_pdv = sb.table(t_clientes).select(
+            "nombre_fantasia, nombre_razon_social, domicilio, localidad, canal, fecha_alta, id_ruta"
         ).eq("id_distribuidor", id_distribuidor).eq("id_cliente_erp", nro_cliente).limit(1).execute()
 
         if res_pdv.data:
@@ -182,11 +184,20 @@ def get_erp_contexto(id_distribuidor: int, nro_cliente: str, user_payload=Depend
             ctx["localidad"]       = pdv.get("localidad")
             ctx["canal"]           = pdv.get("canal")
             ctx["fecha_alta"]      = pdv.get("fecha_alta")
-            rutas_raw = pdv.get("rutas_v2")
-            if rutas_raw:
-                ruta_obj = rutas_raw[0] if isinstance(rutas_raw, list) else rutas_raw
-                ctx["nro_ruta"]   = ruta_obj.get("id_ruta_erp")
-                ctx["dia_visita"] = ruta_obj.get("dia_semana")
+            id_ruta = pdv.get("id_ruta")
+            if id_ruta:
+                t_rutas = tenant_table_name("rutas_v2", id_distribuidor)
+                ruta_res = (
+                    sb.table(t_rutas)
+                    .select("id_ruta_erp,dia_semana")
+                    .eq("id_ruta", id_ruta)
+                    .limit(1)
+                    .execute()
+                )
+                if ruta_res.data:
+                    ruta_obj = ruta_res.data[0]
+                    ctx["nro_ruta"] = ruta_obj.get("id_ruta_erp")
+                    ctx["dia_visita"] = ruta_obj.get("dia_semana")
         return ctx
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -237,7 +248,7 @@ def save_erp_config(dist_id: int, req: ERPConfigAlertas, _=Depends(verify_auth))
 
 @router.get("/api/admin/erp/vendedores/{dist_id}", summary="Vendedores activos en ERP")
 def get_erp_vendedores(dist_id: int, _=Depends(verify_auth)):
-    res = sb.table("vendedores").select("nombre_erp").eq("id_distribuidor", dist_id).order("nombre_erp").execute()
+    res = sb.table(tenant_table_name("vendedores_v2", dist_id)).select("nombre_erp").eq("id_distribuidor", dist_id).order("nombre_erp").execute()
     return [r["nombre_erp"] for r in (res.data or [])]
 
 
@@ -441,8 +452,10 @@ async def procesar_cuentas_corrientes(
             f.write(await file.read())
 
         mapa_sucursales = {}
+        _dist_id_for_suc = config_data.get("id_distribuidor")
         try:
-            result = sb.table("sucursales_v2").select("id_sucursal_erp, nombre_erp").execute()
+            t_suc = tenant_table_name("sucursales_v2", _dist_id_for_suc)
+            result = sb.table(t_suc).select("id_sucursal_erp, nombre_erp").execute()
             for row in result.data or []:
                 mapa_sucursales[str(row["id_sucursal_erp"])] = row["nombre_erp"]
         except Exception as db_e:

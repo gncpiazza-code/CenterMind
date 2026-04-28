@@ -20,8 +20,11 @@ logger = logging.getLogger("ShelfyAPI")
 # ─── Supabase client ──────────────────────────────────────────────────────────
 try:
     from db import sb
+    from core.tenant_tables import tenant_table_name
 except ImportError:
     sb = None  # type: ignore
+    def tenant_table_name(base: str, dist_id: int) -> str:  # type: ignore[misc]
+        return f"{base}_d{int(dist_id)}"
 
 # ─── PDF libs ─────────────────────────────────────────────────────────────────
 try:
@@ -99,7 +102,7 @@ def _build_ruteo_context(dist_id: int, pdv_items: list[Any]) -> list[dict]:
     # Bulk-fetch PDV data
     pdv_ids = [_item_get(item, "id_cliente_pdv") for item in pdv_items if _item_get(item, "id_cliente_pdv")]
     try:
-        pdv_res = sb.table("clientes_pdv_v2") \
+        pdv_res = sb.table(tenant_table_name("clientes_pdv_v2", dist_id)) \
             .select(
                 "id_cliente, id_cliente_erp, nombre_fantasia, nombre_razon_social, "
                 "domicilio, localidad, fecha_ultima_compra, id_ruta, latitud, longitud"
@@ -129,18 +132,19 @@ def _build_ruteo_context(dist_id: int, pdv_items: list[Any]) -> list[dict]:
             "id_ruta, dia_semana, nombre_ruta",
             "id_ruta, dia_semana",
         ]
+        _t_rutas_pdf = tenant_table_name("rutas_v2", dist_id)
         for cols in select_attempts:
             # Intento A: rutas scopiadas por distribuidor (si la columna existe)
             try:
-                ruta_res = sb.table("rutas_v2").select(cols).eq("id_distribuidor", dist_id).execute()
+                ruta_res = sb.table(_t_rutas_pdf).select(cols).eq("id_distribuidor", dist_id).execute()
                 rows = ruta_res.data or []
                 if rows:
                     break
             except Exception:
                 pass
-            # Intento B: fallback sin id_distribuidor
+            # Intento B: fallback sin id_distribuidor (tenant table, sin filtro adicional)
             try:
-                ruta_res = sb.table("rutas_v2").select(cols).execute()
+                ruta_res = sb.table(_t_rutas_pdf).select(cols).execute()
                 rows = ruta_res.data or []
                 if rows:
                     break

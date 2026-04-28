@@ -30,6 +30,7 @@ from typing import Any
 import pandas as pd
 
 from db import sb
+from core.tenant_tables import tenant_table_name
 
 logger = logging.getLogger("PadronIngestion")
 
@@ -401,7 +402,8 @@ class PadronIngestionService:
             return 0, {}
 
         # Fetch existentes
-        existing_res = sb.table("sucursales_v2").select("id_sucursal, id_sucursal_erp, nombre_erp") \
+        suc_table = tenant_table_name("sucursales_v2", dist_id)
+        existing_res = sb.table(suc_table).select("id_sucursal, id_sucursal_erp, nombre_erp") \
             .eq("id_distribuidor", dist_id).execute()
         existing: dict[str, dict] = {
             r["id_sucursal_erp"]: r for r in (existing_res.data or [])
@@ -423,15 +425,15 @@ class PadronIngestionService:
 
         # Insert nuevas
         if to_insert:
-            sb.table("sucursales_v2").insert(to_insert).execute()
+            sb.table(suc_table).insert(to_insert).execute()
 
         # Update nombres cambiados
         for upd in to_update:
-            sb.table("sucursales_v2").update({"nombre_erp": upd["nombre_erp"]}) \
+            sb.table(suc_table).update({"nombre_erp": upd["nombre_erp"]}) \
                 .eq("id_sucursal", upd["id_sucursal"]).execute()
 
         # Fetch final para construir mapping
-        final_res = sb.table("sucursales_v2").select("id_sucursal, id_sucursal_erp") \
+        final_res = sb.table(suc_table).select("id_sucursal, id_sucursal_erp") \
             .eq("id_distribuidor", dist_id).execute()
         mapping = {
             r["id_sucursal_erp"]: r["id_sucursal"]
@@ -484,7 +486,8 @@ class PadronIngestionService:
             return 0, {}
 
         # Fetch existentes por id_vendedor_erp (código)
-        existing_res = sb.table("vendedores_v2") \
+        vend_table = tenant_table_name("vendedores_v2", dist_id)
+        existing_res = sb.table(vend_table) \
             .select("id_vendedor, id_vendedor_erp, nombre_erp, id_sucursal") \
             .eq("id_distribuidor", dist_id).execute()
         # key: (id_vendedor_erp, id_sucursal)
@@ -517,11 +520,11 @@ class PadronIngestionService:
             # Insertar en lotes para evitar límites de URL/body
             BATCH = 200
             for i in range(0, len(to_insert), BATCH):
-                sb.table("vendedores_v2").insert(to_insert[i:i + BATCH]).execute()
+                sb.table(vend_table).insert(to_insert[i:i + BATCH]).execute()
             logger.info(f"[Padrón] Vendedores insertados: {len(to_insert)}")
 
         # Fetch final para construir el mapping
-        final_res = sb.table("vendedores_v2") \
+        final_res = sb.table(vend_table) \
             .select("id_vendedor, id_vendedor_erp, nombre_erp, id_sucursal") \
             .eq("id_distribuidor", dist_id).execute()
         suc_map_inv = {v: k for k, v in suc_map.items()}
@@ -595,11 +598,12 @@ class PadronIngestionService:
         if skipped_vend:
             logger.warning(f"[Padrón] Rutas saltadas por vendedor no mapeado: {skipped_vend}/{len(unique)}")
 
+        rutas_table = tenant_table_name("rutas_v2", dist_id)
         nuevas = 0
         if to_upsert:
             BATCH = 200
             for i in range(0, len(to_upsert), BATCH):
-                sb.table("rutas_v2").upsert(
+                sb.table(rutas_table).upsert(
                     to_upsert[i:i + BATCH], on_conflict="id_vendedor,id_ruta_erp"
                 ).execute()
             nuevas = len(to_upsert)
@@ -612,7 +616,7 @@ class PadronIngestionService:
             vend_map_inv = {v: k for k, v in vend_map.items()}
             for i in range(0, len(vend_ids), 500):
                 chunk = vend_ids[i:i+500]
-                final_res = sb.table("rutas_v2").select("id_ruta, id_vendedor, id_ruta_erp") \
+                final_res = sb.table(rutas_table).select("id_ruta, id_vendedor, id_ruta_erp") \
                     .in_("id_vendedor", chunk).execute()
                 for r in (final_res.data or []):
                     vid = r["id_vendedor"]
@@ -755,7 +759,8 @@ class PadronIngestionService:
         if erp_ids_en_padron:
             # Filtramos por dist + limbo en DB, luego cruzamos en Python
             # (evita URL too long con miles de ids en .in_())
-            limbo_res = sb.table("clientes_pdv_v2") \
+            cli_table = tenant_table_name("clientes_pdv_v2", dist_id)
+            limbo_res = sb.table(cli_table) \
                 .select("id_cliente, id_cliente_erp") \
                 .eq("id_distribuidor", dist_id) \
                 .eq("es_limbo", True) \
@@ -766,7 +771,7 @@ class PadronIngestionService:
                 erp_id = limbo["id_cliente_erp"]
                 # update directo por PK con todos los campos reales
                 update_data = {**erp_ids_en_padron[erp_id]}
-                sb.table("clientes_pdv_v2").update(update_data) \
+                sb.table(cli_table).update(update_data) \
                     .eq("id_cliente", limbo["id_cliente"]) \
                     .execute()
                 adopted += 1
@@ -781,14 +786,14 @@ class PadronIngestionService:
         for i in range(0, len(records), BATCH):
             batch = records[i:i + BATCH]
             try:
-                sb.table("clientes_pdv_v2").upsert(
+                sb.table(cli_table).upsert(
                     batch, on_conflict="id_ruta,id_cliente_erp"
                 ).execute()
             except Exception as e_upsert:
                 # Fallback: intentar insert ignorando duplicados
                 logger.warning(f"[Padrón] Upsert falló en batch {i//BATCH} ({e_upsert}), intentando insert...")
                 try:
-                    sb.table("clientes_pdv_v2").insert(batch, count="exact").execute()
+                    sb.table(cli_table).insert(batch, count="exact").execute()
                 except Exception as e_insert:
                     logger.error(f"[Padrón] Insert batch {i//BATCH} también falló: {e_insert}")
                     continue
@@ -832,7 +837,7 @@ class PadronIngestionService:
         page = 1000
         while True:
             res = (
-                sb.table("clientes_pdv_v2")
+                sb.table(tenant_table_name("clientes_pdv_v2", dist_id))
                 .select("id_cliente,id_cliente_erp,id_ruta,estado,es_limbo")
                 .eq("id_distribuidor", dist_id)
                 .eq("es_limbo", False)
@@ -872,7 +877,7 @@ class PadronIngestionService:
         for i in range(0, len(ids), 200):
             batch = ids[i : i + 200]
             try:
-                sb.table("clientes_pdv_v2").update({
+                sb.table(tenant_table_name("clientes_pdv_v2", dist_id)).update({
                     "estado": "inactivo",
                     "motivo_inactivo": "padron_absent",
                     "fecha_inactivacion": ts,

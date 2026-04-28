@@ -23,6 +23,12 @@ from core.helpers import (
 )
 from core.lifespan import broadcast_sync
 from core.security import verify_auth, check_dist_permission
+from core.tenant_tables import (
+    tenant_table_name,
+    load_dist_ids,
+    find_dist_by_vendedor,
+    find_dist_by_ruta,
+)
 from db import sb
 from models.schemas import EvaluarRequest, ObjetivoCreate, ObjetivoItemCreate, ObjetivoUpdate, ObjetivoTimeline, ObjetivoTimelineEvent, RevertirRequest
 
@@ -82,8 +88,9 @@ def _resolve_pdv_id_from_nro_cliente(dist_id: int, nro: str | None) -> int | Non
     raw = str(nro).strip()
     for cand in (raw, raw.lstrip("0") or raw):
         try:
+            t_clientes = tenant_table_name("clientes_pdv_v2", dist_id)
             r = (
-                sb.table("clientes_pdv_v2")
+                sb.table(t_clientes)
                 .select("id_cliente")
                 .eq("id_distribuidor", dist_id)
                 .eq("id_cliente_erp", cand)
@@ -258,6 +265,10 @@ def _enrich_exhibicion_objetivo_vinculos(dist_id: int, ids_exhibicion: list[int]
 def get_pendientes(id_distribuidor: int, payload=Depends(verify_auth)):
     check_dist_permission(payload, id_distribuidor)
     try:
+        t_clientes = tenant_table_name("clientes_pdv_v2", id_distribuidor)
+        t_vendedores = tenant_table_name("vendedores_v2", id_distribuidor)
+        t_sucursales = tenant_table_name("sucursales_v2", id_distribuidor)
+        t_rutas = tenant_table_name("rutas_v2", id_distribuidor)
         result = sb.rpc("fn_pendientes", {"p_dist_id": id_distribuidor}).execute()
         rows = result.data or []
 
@@ -302,7 +313,7 @@ def get_pendientes(id_distribuidor: int, payload=Depends(verify_auth)):
                 nro_map = {}
                 if exh_cliente:
                     pdv_res = (
-                        sb.table("clientes_pdv_v2")
+                        sb.table(t_clientes)
                         .select("id_cliente, id_cliente_erp")
                         .eq("id_distribuidor", id_distribuidor)
                         .in_("id_cliente", list(set(exh_cliente.values())))
@@ -322,7 +333,7 @@ def get_pendientes(id_distribuidor: int, payload=Depends(verify_auth)):
         vendedor_sucursal_map: dict[str, str] = {}
         try:
             vend_res = (
-                sb.table("vendedores_v2")
+                sb.table(t_vendedores)
                 .select("nombre_erp, id_sucursal")
                 .eq("id_distribuidor", id_distribuidor)
                 .execute()
@@ -335,7 +346,7 @@ def get_pendientes(id_distribuidor: int, payload=Depends(verify_auth)):
             suc_name_map: dict[int, str] = {}
             if suc_ids:
                 suc_res = (
-                    sb.table("sucursales_v2")
+                    sb.table(t_sucursales)
                     .select("id_sucursal, nombre_erp")
                     .eq("id_distribuidor", id_distribuidor)
                     .in_("id_sucursal", suc_ids)
@@ -375,7 +386,7 @@ def get_pendientes(id_distribuidor: int, payload=Depends(verify_auth)):
                 nro_to_ruta: dict[str, int | None] = {}
                 if nro_vals:
                     cli_by_nro_res = (
-                        sb.table("clientes_pdv_v2")
+                        sb.table(t_clientes)
                         .select("id_cliente_erp, id_ruta")
                         .eq("id_distribuidor", id_distribuidor)
                         .in_("id_cliente_erp", nro_vals)
@@ -402,7 +413,7 @@ def get_pendientes(id_distribuidor: int, payload=Depends(verify_auth)):
                 cli_ids = list({cid for cid in ex_to_cli.values() if cid is not None})
                 if cli_ids:
                     cli_res = (
-                        sb.table("clientes_pdv_v2")
+                        sb.table(t_clientes)
                         .select("id_cliente, id_ruta")
                         .eq("id_distribuidor", id_distribuidor)
                         .in_("id_cliente", cli_ids)
@@ -418,7 +429,7 @@ def get_pendientes(id_distribuidor: int, payload=Depends(verify_auth)):
                     ruta_to_vendedor: dict[int, int] = {}
                     if ruta_ids:
                         rutas_res = (
-                            sb.table("rutas_v2")
+                            sb.table(t_rutas)
                             .select("id_ruta, id_vendedor")
                             .in_("id_ruta", ruta_ids)
                             .execute()
@@ -433,7 +444,7 @@ def get_pendientes(id_distribuidor: int, payload=Depends(verify_auth)):
                     vendedor_to_sucursal: dict[int, int] = {}
                     if vendedor_ids:
                         vend_res = (
-                            sb.table("vendedores_v2")
+                            sb.table(t_vendedores)
                             .select("id_vendedor, id_sucursal")
                             .eq("id_distribuidor", id_distribuidor)
                             .in_("id_vendedor", vendedor_ids)
@@ -449,7 +460,7 @@ def get_pendientes(id_distribuidor: int, payload=Depends(verify_auth)):
                     suc_map: dict[int, str] = {}
                     if suc_ids:
                         suc_res = (
-                            sb.table("sucursales_v2")
+                            sb.table(t_sucursales)
                             .select("id_sucursal, nombre_erp")
                             .eq("id_distribuidor", id_distribuidor)
                             .in_("id_sucursal", suc_ids)
@@ -780,8 +791,79 @@ def revertir(req: RevertirRequest, user_payload=Depends(verify_auth)):
 def supervision_vendedores(dist_id: int, user_payload=Depends(verify_auth)):
     check_dist_permission(user_payload, dist_id)
     try:
-        res = sb.rpc("fn_supervision_vendedores", {"p_dist_id": dist_id}).execute()
-        rows = res.data or []
+        t_vendedores = tenant_table_name("vendedores_v2", dist_id)
+        t_sucursales = tenant_table_name("sucursales_v2", dist_id)
+        t_rutas = tenant_table_name("rutas_v2", dist_id)
+        t_clientes = tenant_table_name("clientes_pdv_v2", dist_id)
+
+        vend_res = (
+            sb.table(t_vendedores)
+            .select("id_vendedor,nombre_erp,id_sucursal")
+            .eq("id_distribuidor", dist_id)
+            .execute()
+        )
+        suc_res = (
+            sb.table(t_sucursales)
+            .select("id_sucursal,nombre_erp")
+            .eq("id_distribuidor", dist_id)
+            .execute()
+        )
+        rutas_res = sb.table(t_rutas).select("id_ruta,id_vendedor").execute()
+        cli_res = sb.table(t_clientes).select("id_cliente,id_ruta,estado").execute()
+
+        suc_map = {int(r["id_sucursal"]): (r.get("nombre_erp") or "Sin sucursal") for r in (suc_res.data or [])}
+        rutas_por_vend: dict[int, list[int]] = {}
+        vend_por_ruta: dict[int, int] = {}
+        for r in (rutas_res.data or []):
+            try:
+                rid = int(r["id_ruta"])
+                vid = int(r["id_vendedor"])
+            except Exception:
+                continue
+            vend_por_ruta[rid] = vid
+            rutas_por_vend.setdefault(vid, []).append(rid)
+
+        pdv_activos: dict[int, int] = {}
+        pdv_inactivos: dict[int, int] = {}
+        for c in (cli_res.data or []):
+            rid = c.get("id_ruta")
+            if rid is None:
+                continue
+            try:
+                vid = vend_por_ruta.get(int(rid))
+            except Exception:
+                vid = None
+            if not vid:
+                continue
+            estado = str(c.get("estado") or "").lower()
+            if estado == "inactivo":
+                pdv_inactivos[vid] = pdv_inactivos.get(vid, 0) + 1
+            else:
+                pdv_activos[vid] = pdv_activos.get(vid, 0) + 1
+
+        rows = []
+        for v in (vend_res.data or []):
+            try:
+                vid = int(v["id_vendedor"])
+            except Exception:
+                continue
+            sid = v.get("id_sucursal")
+            sid_int = int(sid) if sid is not None else None
+            rutas_ids = rutas_por_vend.get(vid, [])
+            total_act = pdv_activos.get(vid, 0)
+            total_inact = pdv_inactivos.get(vid, 0)
+            rows.append(
+                {
+                    "id_vendedor": vid,
+                    "nombre_vendedor": v.get("nombre_erp") or "Sin vendedor",
+                    "sucursal_nombre": suc_map.get(sid_int, "Sin sucursal"),
+                    "total_rutas": len(rutas_ids),
+                    "total_pdv": total_act + total_inact,
+                    "pdv_activos": total_act,
+                    "pdv_inactivos": total_inact,
+                }
+            )
+
         erp_name_map = _get_erp_name_map(dist_id)
         active_ids = load_active_vendedor_ids(dist_id)
         filtered = []
@@ -809,8 +891,41 @@ def supervision_vendedores(dist_id: int, user_payload=Depends(verify_auth)):
 @router.get("/api/supervision/rutas/{id_vendedor}", tags=["Supervisión"])
 def supervision_rutas(id_vendedor: int, user_payload=Depends(verify_auth)):
     try:
-        res = sb.rpc("fn_supervision_rutas", {"p_id_vendedor": id_vendedor}).execute()
-        return res.data or []
+        dist_ids = load_dist_ids(sb)
+        dist_id = find_dist_by_vendedor(sb, id_vendedor, dist_ids)
+        if dist_id is None:
+            return []
+        check_dist_permission(user_payload, dist_id)
+
+        t_rutas = tenant_table_name("rutas_v2", dist_id)
+        t_clientes = tenant_table_name("clientes_pdv_v2", dist_id)
+        rutas_res = sb.table(t_rutas).select("id_ruta,id_ruta_erp,dia_semana").eq("id_vendedor", id_vendedor).execute()
+        rutas = rutas_res.data or []
+        if not rutas:
+            return []
+
+        rutas_ids = [r["id_ruta"] for r in rutas]
+        cli_res = sb.table(t_clientes).select("id_ruta").in_("id_ruta", rutas_ids).execute()
+        cnt: dict[int, int] = {}
+        for c in (cli_res.data or []):
+            rid = c.get("id_ruta")
+            if rid is None:
+                continue
+            cnt[int(rid)] = cnt.get(int(rid), 0) + 1
+
+        out = []
+        for r in rutas:
+            rid = int(r["id_ruta"])
+            ruta_erp = str(r.get("id_ruta_erp") or "").strip()
+            out.append(
+                {
+                    "id_ruta": rid,
+                    "nombre_ruta": ruta_erp or f"Ruta {rid}",
+                    "dia_semana": r.get("dia_semana") or "Variable",
+                    "total_pdv": cnt.get(rid, 0),
+                }
+            )
+        return out
     except Exception as e:
         logger.error(f"Error en supervision_rutas: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -819,26 +934,14 @@ def supervision_rutas(id_vendedor: int, user_payload=Depends(verify_auth)):
 @router.get("/api/supervision/clientes/{id_ruta}", tags=["Supervisión"])
 def supervision_clientes(id_ruta: int, user_payload=Depends(verify_auth)):
     try:
-        # Tenant-guard: resolve distribuidor from ruta before fetching PDV data
-        try:
-            ruta_res = sb.table("rutas_v2").select("id_vendedor").eq("id_ruta", id_ruta).limit(1).execute()
-            if ruta_res.data:
-                vend_res = (
-                    sb.table("vendedores_v2")
-                    .select("id_distribuidor")
-                    .eq("id_vendedor", ruta_res.data[0]["id_vendedor"])
-                    .limit(1)
-                    .execute()
-                )
-                if vend_res.data:
-                    check_dist_permission(user_payload, vend_res.data[0]["id_distribuidor"])
-        except HTTPException:
-            raise
-        except Exception as e_guard:
-            logger.warning(f"[supervision_clientes] tenant guard fallback: {e_guard}")
-
+        dist_ids = load_dist_ids(sb)
+        dist_id = find_dist_by_ruta(sb, id_ruta, dist_ids)
+        if dist_id is None:
+            return []
+        check_dist_permission(user_payload, dist_id)
+        t_clientes = tenant_table_name("clientes_pdv_v2", dist_id)
         res = (
-            sb.table("clientes_pdv_v2")
+            sb.table(t_clientes)
             .select(
                 "id_cliente, id_cliente_erp, nombre_fantasia, nombre_razon_social, "
                 "domicilio, localidad, provincia, canal, latitud, longitud, "
@@ -1014,8 +1117,11 @@ def supervision_cuentas(dist_id: int, sucursal: Optional[str] = Query(None), use
 
         # Python-level sucursal filter: match by sucursal_nombre OR by id_vendedor membership
         if sucursal_norm:
+            t_sucursales = tenant_table_name("sucursales_v2", d_id)
+            t_vendedores = tenant_table_name("vendedores_v2", d_id)
+            t_clientes = tenant_table_name("clientes_pdv_v2", d_id)
             suc_q = (
-                sb.table("sucursales_v2")
+                sb.table(t_sucursales)
                 .select("id_sucursal")
                 .eq("id_distribuidor", d_id)
                 .ilike("nombre_erp", f"%{sucursal_norm.strip()}%")
@@ -1025,7 +1131,7 @@ def supervision_cuentas(dist_id: int, sucursal: Optional[str] = Query(None), use
             valid_vend_ids: set = set()
             if valid_suc_ids:
                 vend_q = (
-                    sb.table("vendedores_v2")
+                    sb.table(t_vendedores)
                     .select("id_vendedor")
                     .eq("id_distribuidor", d_id)
                     .in_("id_sucursal", list(valid_suc_ids))
@@ -1041,13 +1147,14 @@ def supervision_cuentas(dist_id: int, sucursal: Optional[str] = Query(None), use
             ]
 
         # Cache PDV info for extra metadata (last purchase date)
+        _t_clientes_meta = tenant_table_name("clientes_pdv_v2", d_id)
         fecha_uc_map: dict = {}
         erp_id_map:   dict = {}
         try:
             pdv_offset = 0
             while True:
                 pdv_res = (
-                    sb.table("clientes_pdv_v2")
+                    sb.table(_t_clientes_meta)
                     .select("nombre_fantasia, nombre_razon_social, id_cliente_erp, fecha_ultima_compra")
                     .eq("id_distribuidor", d_id)
                     .range(pdv_offset, pdv_offset + 999)
@@ -1119,24 +1226,6 @@ def supervision_cuentas(dist_id: int, sucursal: Optional[str] = Query(None), use
         logger.error(f"Error en supervision_cuentas: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-        all_clientes = [c for v in result for c in v["clientes"]]
-        total_deuda  = sum(v["deuda_total"] for v in result)
-        total_cli    = sum(v["cantidad_clientes"] for v in result)
-        avg_dias     = (sum(c["antiguedad"] or 0 for c in all_clientes) / len(all_clientes) if all_clientes else 0)
-
-        return {
-            "fecha": fecha_snapshot,
-            "metadatos": {
-                "total_deuda": round(total_deuda, 2),
-                "clientes_deudores": total_cli,
-                "promedio_dias_retraso": round(avg_dias, 1),
-            },
-            "vendedores": result,
-        }
-    except Exception as e:
-        logger.error(f"Error en supervision_cuentas: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
 
 @router.get("/api/supervision/cliente-info/{dist_id}", tags=["Supervisión"])
 def supervision_cliente_info(
@@ -1154,13 +1243,15 @@ def supervision_cliente_info(
         nombre_plain = _strip_accents(nombre_s)
 
         if id_cliente_erp:
-            r = sb.table("clientes_pdv_v2").select(fields).eq("id_distribuidor", dist_id).eq("id_cliente_erp", id_cliente_erp.strip()).limit(3).execute()
+            t_clientes = tenant_table_name("clientes_pdv_v2", dist_id)
+            r = sb.table(t_clientes).select(fields).eq("id_distribuidor", dist_id).eq("id_cliente_erp", id_cliente_erp.strip()).limit(3).execute()
             if r.data:
                 return r.data
 
         def _search(col: str, val: str, substring: bool = False) -> list:
             pattern = f"%{val}%" if substring else val
-            r = sb.table("clientes_pdv_v2").select(fields).eq("id_distribuidor", dist_id).ilike(col, pattern).limit(3).execute()
+            t_clientes = tenant_table_name("clientes_pdv_v2", dist_id)
+            r = sb.table(t_clientes).select(fields).eq("id_distribuidor", dist_id).ilike(col, pattern).limit(3).execute()
             return r.data or []
 
         for col in ("nombre_razon_social", "nombre_fantasia"):
@@ -1180,7 +1271,8 @@ def supervision_cliente_info(
         if words:
             for col in ("nombre_razon_social", "nombre_fantasia"):
                 try:
-                    q = sb.table("clientes_pdv_v2").select(fields).eq("id_distribuidor", dist_id)
+                    t_clientes = tenant_table_name("clientes_pdv_v2", dist_id)
+                    q = sb.table(t_clientes).select(fields).eq("id_distribuidor", dist_id)
                     for w in words:
                         q = q.ilike(col, f"%{w}%")
                     r = q.limit(3).execute()
@@ -1223,8 +1315,9 @@ def pdvs_cercanos(
         todos = []
         PAGE, offset = 1000, 0
         while True:
+            t_clientes = tenant_table_name("clientes_pdv_v2", int(dist_id))
             page_res = (
-                sb.table("clientes_pdv_v2")
+                sb.table(t_clientes)
                 .select("id_cliente, id_cliente_erp, nombre_fantasia, nombre_razon_social, domicilio, localidad, provincia, canal, latitud, longitud, fecha_alta, fecha_ultima_compra, id_ruta")
                 .eq("id_distribuidor", int(dist_id))
                 .neq("es_limbo", True)
@@ -1263,12 +1356,14 @@ def pdvs_cercanos(
         ruta_map: dict = {}
         vendedor_map: dict = {}
         if ids_ruta:
-            rutas_res = sb.table("rutas_v2").select("id_ruta, id_ruta_erp, id_vendedor").in_("id_ruta", ids_ruta).execute()
+            t_rutas = tenant_table_name("rutas_v2", int(dist_id))
+            t_vendedores = tenant_table_name("vendedores_v2", int(dist_id))
+            rutas_res = sb.table(t_rutas).select("id_ruta, id_ruta_erp, id_vendedor").in_("id_ruta", ids_ruta).execute()
             for r in rutas_res.data or []:
                 ruta_map[r["id_ruta"]] = r
             ids_vend = list({r["id_vendedor"] for r in (rutas_res.data or []) if r.get("id_vendedor")})
             if ids_vend:
-                vend_res = sb.table("vendedores_v2").select("id_vendedor, nombre_erp").in_("id_vendedor", ids_vend).execute()
+                vend_res = sb.table(t_vendedores).select("id_vendedor, nombre_erp").in_("id_vendedor", ids_vend).execute()
                 for v in vend_res.data or []:
                     vendedor_map[v["id_vendedor"]] = v["nombre_erp"]
 
@@ -1394,14 +1489,16 @@ def crear_objetivo(body: ObjetivoCreate, user_payload=Depends(verify_auth)):
 
     # Validar que el vendedor pertenece a la distribuidora
     if not user_payload.get("is_superadmin"):
-        vend_check = sb.table("vendedores_v2").select("id_vendedor").eq("id_vendedor", body.id_vendedor).eq("id_distribuidor", body.id_distribuidor).limit(1).execute()
+        t_vendedores = tenant_table_name("vendedores_v2", body.id_distribuidor)
+        vend_check = sb.table(t_vendedores).select("id_vendedor").eq("id_vendedor", body.id_vendedor).eq("id_distribuidor", body.id_distribuidor).limit(1).execute()
         if not vend_check.data:
             raise HTTPException(status_code=400, detail="El vendedor no pertenece a la distribuidora indicada")
 
     # Validar que todos los PDV ítems pertenecen a la distribuidora
     if not user_payload.get("is_superadmin") and body.pdv_items:
         pdv_ids = [item.id_cliente_pdv for item in body.pdv_items]
-        pdv_check = sb.table("clientes_pdv_v2").select("id_cliente").in_("id_cliente", pdv_ids).eq("id_distribuidor", body.id_distribuidor).execute()
+        t_clientes = tenant_table_name("clientes_pdv_v2", body.id_distribuidor)
+        pdv_check = sb.table(t_clientes).select("id_cliente").in_("id_cliente", pdv_ids).eq("id_distribuidor", body.id_distribuidor).execute()
         found_ids = {r["id_cliente"] for r in (pdv_check.data or [])}
         invalid = set(pdv_ids) - found_ids
         if invalid:
@@ -1715,14 +1812,16 @@ def objetivos_timeline(
         # Resolver sucursal → lista de id_vendedor
         vendedor_ids_filtro: list[int] | None = None
         if sucursal_nombre:
-            suc_res = sb.table("sucursales_v2") \
+            t_sucursales = tenant_table_name("sucursales_v2", dist_id)
+            t_vendedores = tenant_table_name("vendedores_v2", dist_id)
+            suc_res = sb.table(t_sucursales) \
                 .select("id_sucursal") \
                 .eq("id_distribuidor", dist_id) \
                 .ilike("nombre_erp", f"%{sucursal_nombre}%") \
                 .execute()
             suc_ids = [r["id_sucursal"] for r in (suc_res.data or [])]
             if suc_ids:
-                vend_res = sb.table("vendedores_v2") \
+                vend_res = sb.table(t_vendedores) \
                     .select("id_vendedor") \
                     .in_("id_sucursal", suc_ids) \
                     .execute()
@@ -1822,10 +1921,26 @@ def get_pdvs_catalog(
 ):
     check_dist_permission(user_payload, dist_id)
     try:
+        def _fetch_clients_paginated(base_query, page_size: int = 1000) -> list[dict]:
+            out: list[dict] = []
+            offset_i = 0
+            while True:
+                res = base_query.range(offset_i, offset_i + page_size - 1).execute()
+                chunk = res.data or []
+                if not chunk:
+                    break
+                out.extend(chunk)
+                if len(chunk) < page_size:
+                    break
+                offset_i += page_size
+            return out
+
         # Obtener clientes filtrados por vendedor (vía rutas_v2) o todos
         if vendedor_id is not None:
+            t_rutas = tenant_table_name("rutas_v2", dist_id)
+            t_clientes = tenant_table_name("clientes_pdv_v2", dist_id)
             rutas_res = (
-                sb.table("rutas_v2")
+                sb.table(t_rutas)
                 .select("id_ruta")
                 .eq("id_vendedor", vendedor_id)
                 .execute()
@@ -1834,21 +1949,22 @@ def get_pdvs_catalog(
             if not route_ids:
                 return []
             clients_res = (
-                sb.table("clientes_pdv_v2")
+                sb.table(t_clientes)
                 .select("id_cliente, nombre_fantasia, id_cliente_erp, domicilio, estado, fecha_ultima_compra, updated_at")
                 .in_("id_ruta", route_ids)
                 .eq("id_distribuidor", dist_id)
-                .execute()
             )
+            clients_data = _fetch_clients_paginated(clients_res)
         else:
+            t_clientes = tenant_table_name("clientes_pdv_v2", dist_id)
             clients_res = (
-                sb.table("clientes_pdv_v2")
+                sb.table(t_clientes)
                 .select("id_cliente, nombre_fantasia, id_cliente_erp, domicilio, estado, fecha_ultima_compra, updated_at")
                 .eq("id_distribuidor", dist_id)
-                .execute()
             )
+            clients_data = _fetch_clients_paginated(clients_res)
         # Objetivos must be able to target active and inactive PDVs.
-        clients = _dedupe_pdvs_latest_by_erp(clients_res.data or [])
+        clients = _dedupe_pdvs_latest_by_erp(clients_data or [])
 
         # Obtener la exhibición más reciente por nro_cliente (id_cliente_erp)
         fecha_map: dict[str, str] = {}
@@ -1906,14 +2022,16 @@ def listar_objetivos(
         # Si se filtra por sucursal, resolver los id_vendedor de esa sucursal primero
         vendedor_ids_filtro: list[int] | None = None
         if sucursal_nombre:
-            suc_res = sb.table("sucursales_v2") \
+            t_sucursales = tenant_table_name("sucursales_v2", dist_id)
+            t_vendedores = tenant_table_name("vendedores_v2", dist_id)
+            suc_res = sb.table(t_sucursales) \
                 .select("id_sucursal") \
                 .eq("id_distribuidor", dist_id) \
                 .ilike("nombre_erp", f"%{sucursal_nombre}%") \
                 .execute()
             suc_ids = [r["id_sucursal"] for r in (suc_res.data or [])]
             if suc_ids:
-                vend_res = sb.table("vendedores_v2") \
+                vend_res = sb.table(t_vendedores) \
                     .select("id_vendedor") \
                     .in_("id_sucursal", suc_ids) \
                     .execute()
@@ -1935,7 +2053,8 @@ def listar_objetivos(
         # Enrich with id_cliente_erp from clientes_pdv_v2
         pdv_ids = list({o["id_target_pdv"] for o in items if o.get("id_target_pdv")})
         if pdv_ids:
-            pdv_res = sb.table("clientes_pdv_v2") \
+            t_clientes = tenant_table_name("clientes_pdv_v2", dist_id)
+            pdv_res = sb.table(t_clientes) \
                 .select("id_cliente, id_cliente_erp") \
                 .in_("id_cliente", pdv_ids) \
                 .execute()

@@ -20,6 +20,7 @@ from datetime import datetime
 from typing import Any
 
 from db import sb
+from core.tenant_tables import tenant_table_name
 
 logger = logging.getLogger("ObjetivosNotification")
 
@@ -240,7 +241,7 @@ def resolve_integrante_for_objetivos(
             return picked
 
         vres = (
-            sb.table("vendedores_v2")
+            sb.table(tenant_table_name("vendedores_v2", dist_id))
             .select("id_vendedor_erp, nombre_erp")
             .eq("id_distribuidor", dist_id)
             .eq("id_vendedor", id_vendedor)
@@ -393,12 +394,12 @@ class ObjetivosNotificationService:
         except Exception:
             return s[:10]
 
-    def _ruta_label(self, id_ruta: int | None) -> str:
+    def _ruta_label(self, id_ruta: int | None, dist_id: int = 0) -> str:
         if not id_ruta:
             return ""
         try:
             ruta_res = (
-                sb.table("rutas_v2")
+                sb.table(tenant_table_name("rutas_v2", dist_id))
                 .select("dia_semana, id_ruta_erp")
                 .eq("id_ruta", id_ruta)
                 .limit(1)
@@ -556,7 +557,7 @@ class ObjetivosNotificationService:
                         erp_map: dict[int, dict] = {}
                         if pdv_ids:
                             erp_res = (
-                                sb.table("clientes_pdv_v2")
+                                sb.table(tenant_table_name("clientes_pdv_v2", dist_id))
                                 .select(
                                     "id_cliente, id_cliente_erp, nombre_fantasia, nombre_cliente, "
                                     "nombre_razon_social, domicilio, telefono, id_ruta"
@@ -588,7 +589,7 @@ class ObjetivosNotificationService:
                                 }
                             )
                             for rid in dest_ids:
-                                dest_rutas[rid] = self._ruta_label(rid)
+                                dest_rutas[rid] = self._ruta_label(rid, dist_id)
 
                         MAX_PDV_DISPLAY = 8
                         lineas: list[str] = []
@@ -608,7 +609,7 @@ class ObjetivosNotificationService:
                             nombre = html.escape(nombre_raw, quote=False)
                             erp = info.get("erp", "") or (it.get("id_cliente_erp") or "")
                             cod = f" · <b>NRO CLIENTE ERP:</b> {html.escape(str(erp), quote=False)}" if erp else ""
-                            ruta_actual = self._ruta_label(info.get("id_ruta"))
+                            ruta_actual = self._ruta_label(info.get("id_ruta"), dist_id)
                             ruta_part = f" · <b>Ruta:</b> {ruta_actual}" if ruta_actual else ""
 
                             extra = ""
@@ -616,7 +617,7 @@ class ObjetivosNotificationService:
                             if tipo == "ruteo" and ar:
                                 if ar == "cambio_ruta":
                                     dest = it.get("id_ruta_destino")
-                                    dl = dest_rutas.get(int(dest), self._ruta_label(dest)) if dest else ""
+                                    dl = dest_rutas.get(int(dest), self._ruta_label(dest, dist_id)) if dest else ""
                                     extra = f"\n    → <b>Cambio de ruta</b> → {dl or '—'}"
                                     accion_resumen.append("Cambio de ruta")
                                 elif ar == "baja":
@@ -672,7 +673,7 @@ class ObjetivosNotificationService:
                     id_ruta_pdv = None
                     if id_target_pdv:
                         pdv_res = (
-                            sb.table("clientes_pdv_v2")
+                            sb.table(tenant_table_name("clientes_pdv_v2", dist_id))
                             .select(
                                 "id_cliente_erp, id_ruta, nombre_fantasia, nombre_cliente, nombre_razon_social"
                             )
@@ -698,7 +699,7 @@ class ObjetivosNotificationService:
                     pdv_nombre = html.escape(pdv_nombre, quote=False)
                     if erp:
                         nro_cliente_str = f" · <b>NRO CLIENTE ERP:</b> {html.escape(str(erp), quote=False)}"
-                    ruta_p = self._ruta_label(id_ruta_pdv) if id_ruta_pdv else ""
+                    ruta_p = self._ruta_label(id_ruta_pdv, dist_id) if id_ruta_pdv else ""
                     ruta_txt = f" · <b>Ruta:</b> {ruta_p}" if ruta_p else ""
                     pdv_lines = f"\n📍 <b>PDV objetivo:</b> {pdv_nombre}{nro_cliente_str}{ruta_txt}"
                     if (
@@ -719,7 +720,7 @@ class ObjetivosNotificationService:
                         accion_block = "\n⚙️ <b>Acción a realizar:</b> Activación"
 
                 if id_target_ruta:
-                    rl = self._ruta_label(int(id_target_ruta))
+                    rl = self._ruta_label(int(id_target_ruta), dist_id)
                     if rl:
                         ruta_str = f"\n🗺️ <b>Ruta referencia:</b> {rl}"
 

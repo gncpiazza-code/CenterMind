@@ -24,6 +24,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 
 from core.security import verify_auth, check_dist_permission
+from core.tenant_tables import tenant_table_name, load_dist_ids, find_dist_by_vendedor
 from core.helpers import (
     should_apply_exhibicion_qa_filter,
     build_qa_exhibicion_integrante_ids,
@@ -55,15 +56,8 @@ def _normalize(s: str) -> str:
 
 
 def _get_vendedor_dist(id_vendedor: int) -> Optional[int]:
-    """Devuelve id_distribuidor del vendedor o None si no existe."""
-    r = (
-        sb.table("vendedores_v2")
-        .select("id_distribuidor")
-        .eq("id_vendedor", id_vendedor)
-        .limit(1)
-        .execute()
-    )
-    return r.data[0]["id_distribuidor"] if r.data else None
+    """Devuelve id_distribuidor del vendedor buscando en tablas tenant."""
+    return find_dist_by_vendedor(sb, id_vendedor, load_dist_ids(sb))
 
 
 def _safe_text(value) -> str:
@@ -200,7 +194,7 @@ def _build_shadow_code_to_pdv_map(dist_id: int, exhibiciones: list[dict]) -> dic
         chunk = code_list[i:i + 200]
         try:
             r = (
-                sb.table("clientes_pdv_v2")
+                sb.table(tenant_table_name("clientes_pdv_v2", dist_id))
                 .select("id_cliente, id_cliente_erp")
                 .eq("id_distribuidor", dist_id)
                 .in_("id_cliente_erp", chunk)
@@ -286,7 +280,7 @@ def fuerza_ventas_list_vendedores(dist_id: int, payload=Depends(verify_auth)):
     check_dist_permission(payload, dist_id)
     try:
         vend_r = (
-            sb.table("vendedores_v2")
+            sb.table(tenant_table_name("vendedores_v2", dist_id))
             .select("id_vendedor, nombre_erp, id_sucursal, id_vendedor_erp")
             .eq("id_distribuidor", dist_id)
             .order("nombre_erp")
@@ -299,7 +293,7 @@ def fuerza_ventas_list_vendedores(dist_id: int, payload=Depends(verify_auth)):
 
         # Sucursales
         suc_r = (
-            sb.table("sucursales_v2")
+            sb.table(tenant_table_name("sucursales_v2", dist_id))
             .select("id_sucursal, nombre_erp")
             .eq("id_distribuidor", dist_id)
             .execute()
@@ -351,8 +345,9 @@ def fuerza_ventas_get_vendedor(id_vendedor: int, payload=Depends(verify_auth)):
         raise HTTPException(status_code=404, detail="Vendedor no encontrado")
     check_dist_permission(payload, dist_id)
     try:
+        _t_vend = tenant_table_name("vendedores_v2", dist_id)
         v_r = (
-            sb.table("vendedores_v2")
+            sb.table(_t_vend)
             .select("id_vendedor, nombre_erp, id_sucursal, id_distribuidor")
             .eq("id_vendedor", id_vendedor)
             .limit(1)
@@ -362,8 +357,9 @@ def fuerza_ventas_get_vendedor(id_vendedor: int, payload=Depends(verify_auth)):
             raise HTTPException(status_code=404, detail="Vendedor no encontrado")
         v = v_r.data[0]
 
+        _t_suc = tenant_table_name("sucursales_v2", dist_id)
         suc_r = (
-            sb.table("sucursales_v2")
+            sb.table(_t_suc)
             .select("nombre_erp")
             .eq("id_sucursal", v["id_sucursal"])
             .limit(1)
@@ -714,7 +710,7 @@ def fuerza_ventas_autocompletar(id_vendedor: int, payload=Depends(verify_auth)):
     try:
         # Obtener datos del vendedor
         v_r = (
-            sb.table("vendedores_v2")
+            sb.table(tenant_table_name("vendedores_v2", dist_id))
             .select("nombre_erp, id_vendedor_erp")
             .eq("id_vendedor", id_vendedor)
             .limit(1)
@@ -863,7 +859,7 @@ def galeria_list_vendedores(
     try:
         # Vendedores
         vend_r = (
-            sb.table("vendedores_v2")
+            sb.table(tenant_table_name("vendedores_v2", dist_id))
             .select("id_vendedor, nombre_erp, id_sucursal")
             .eq("id_distribuidor", dist_id)
             .order("nombre_erp")
@@ -880,7 +876,7 @@ def galeria_list_vendedores(
 
         # Sucursales
         suc_r = (
-            sb.table("sucursales_v2")
+            sb.table(tenant_table_name("sucursales_v2", dist_id))
             .select("id_sucursal, nombre_erp")
             .eq("id_distribuidor", dist_id)
             .execute()
@@ -1035,9 +1031,12 @@ def galeria_list_clientes_por_vendedor(
     qa_iids = build_qa_exhibicion_integrante_ids(dist_id) if qa_filter else frozenset()
 
     try:
+        _t_vend_gal = tenant_table_name("vendedores_v2", dist_id)
+        _t_rutas_gal = tenant_table_name("rutas_v2", dist_id)
+        _t_pdv_gal = tenant_table_name("clientes_pdv_v2", dist_id)
         if qa_filter:
             vend_meta = (
-                sb.table("vendedores_v2")
+                sb.table(_t_vend_gal)
                 .select("nombre_erp")
                 .eq("id_vendedor", id_vendedor)
                 .limit(1)
@@ -1049,7 +1048,7 @@ def galeria_list_clientes_por_vendedor(
 
         # 1) Base de clientes del vendedor (rutas actuales).
         rutas_r = (
-            sb.table("rutas_v2")
+            sb.table(_t_rutas_gal)
             .select("id_ruta")
             .eq("id_vendedor", id_vendedor)
             .execute()
@@ -1075,7 +1074,7 @@ def galeria_list_clientes_por_vendedor(
                 for cols in select_attempts:
                     try:
                         cpv_r = (
-                            sb.table("clientes_pdv_v2")
+                            sb.table(_t_pdv_gal)
                             .select(cols)
                             .eq("id_distribuidor", dist_id)
                             .in_("id_ruta", chunk_ids)
@@ -1098,7 +1097,7 @@ def galeria_list_clientes_por_vendedor(
 
         # 2) Universo de exhibiciones del vendedor (igual que card de vendedor).
         vend_r = (
-            sb.table("vendedores_v2")
+            sb.table(_t_vend_gal)
             .select("id_vendedor, nombre_erp, id_vendedor_erp")
             .eq("id_distribuidor", dist_id)
             .execute()
@@ -1208,7 +1207,7 @@ def galeria_list_clientes_por_vendedor(
                 for cols in select_attempts:
                     try:
                         cpv_r = (
-                            sb.table("clientes_pdv_v2")
+                            sb.table(_t_pdv_gal)
                             .select(cols)
                             .eq("id_distribuidor", dist_id)
                             .in_("id_cliente", chunk)
@@ -1324,7 +1323,7 @@ def galeria_timeline_cliente(
     try:
         # Verificar que el PDV pertenece al distribuidor
         cpv_r = (
-            sb.table("clientes_pdv_v2")
+            sb.table(tenant_table_name("clientes_pdv_v2", dist_id))
             .select("id_cliente, id_cliente_erp")
             .eq("id_cliente", id_cliente_pdv)
             .eq("id_distribuidor", dist_id)
@@ -1337,7 +1336,7 @@ def galeria_timeline_cliente(
         integrante_ids: Optional[list[int]] = None
         if id_vendedor is not None:
             vend_r = (
-                sb.table("vendedores_v2")
+                sb.table(tenant_table_name("vendedores_v2", dist_id))
                 .select("id_vendedor, nombre_erp, id_vendedor_erp")
                 .eq("id_distribuidor", dist_id)
                 .execute()

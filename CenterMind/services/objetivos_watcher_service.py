@@ -20,6 +20,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from db import sb
+from core.tenant_tables import tenant_table_name
 
 logger = logging.getLogger("ObjetivosWatcher")
 
@@ -288,7 +289,7 @@ class ObjetivosWatcherService:
             if item_pdv_ids:
                 # Verificar qué ítems ya están en la ruta del vendedor
                 clientes_res = (
-                    sb.table("clientes_pdv_v2")
+                    sb.table(tenant_table_name("clientes_pdv_v2", dist_id))
                     .select("id_cliente, id_cliente_erp, nombre_fantasia, fecha_alta, id_ruta")
                     .eq("id_distribuidor", dist_id)
                     .in_("id_cliente", item_pdv_ids)
@@ -297,7 +298,7 @@ class ObjetivosWatcherService:
                 all_clients = clientes_res.data or []
 
                 # Filtrar los que tienen una ruta asignada al vendedor
-                rutas_res = sb.table("rutas_v2").select("id_ruta").eq("id_vendedor", id_vendedor).execute()
+                rutas_res = sb.table(tenant_table_name("rutas_v2", dist_id)).select("id_ruta").eq("id_vendedor", id_vendedor).execute()
                 ruta_ids = {r["id_ruta"] for r in (rutas_res.data or [])}
 
                 ya_trackeados = self._get_tracked_refs(obj_id, "alteo")
@@ -320,7 +321,7 @@ class ObjetivosWatcherService:
 
             # Sin ítems: comportamiento original — contar PDVs nuevos en ruta
             rutas_res = (
-                sb.table("rutas_v2")
+                sb.table(tenant_table_name("rutas_v2", dist_id))
                 .select("id_ruta")
                 .eq("id_vendedor", id_vendedor)
                 .execute()
@@ -330,7 +331,7 @@ class ObjetivosWatcherService:
                 return (float(obj.get("valor_actual") or 0), 0)
 
             clientes_res = (
-                sb.table("clientes_pdv_v2")
+                sb.table(tenant_table_name("clientes_pdv_v2", dist_id))
                 .select("id_cliente, id_cliente_erp, nombre_fantasia, fecha_alta")
                 .eq("id_distribuidor", dist_id)
                 .in_("id_ruta", ruta_ids)
@@ -371,7 +372,7 @@ class ObjetivosWatcherService:
 
             if item_pdv_ids:
                 clientes_res = (
-                    sb.table("clientes_pdv_v2")
+                    sb.table(tenant_table_name("clientes_pdv_v2", dist_id))
                     .select("id_cliente, id_cliente_erp, nombre_fantasia, fecha_ultima_compra")
                     .eq("id_distribuidor", dist_id)
                     .in_("id_cliente", item_pdv_ids)
@@ -400,7 +401,7 @@ class ObjetivosWatcherService:
 
             # Sin ítems: comportamiento original
             rutas_res = (
-                sb.table("rutas_v2")
+                sb.table(tenant_table_name("rutas_v2", dist_id))
                 .select("id_ruta")
                 .eq("id_vendedor", id_vendedor)
                 .execute()
@@ -410,7 +411,7 @@ class ObjetivosWatcherService:
                 return (float(obj.get("valor_actual") or 0), 0)
 
             clientes_res = (
-                sb.table("clientes_pdv_v2")
+                sb.table(tenant_table_name("clientes_pdv_v2", dist_id))
                 .select("id_cliente, id_cliente_erp, nombre_fantasia, fecha_ultima_compra")
                 .eq("id_distribuidor", dist_id)
                 .in_("id_ruta", ruta_ids)

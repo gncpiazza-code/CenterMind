@@ -254,7 +254,7 @@ interface VendorMapEligibleStats {
 
 // Evita que los KPIs de activos/inactivos "salten" al prender/apagar capas del mapa.
 // La referencia estable para UI operativa debe venir del backend (vendedores_v2 + RPC).
-const USE_MAP_ELIGIBLE_STATS_FOR_KPIS = true;
+const USE_MAP_ELIGIBLE_STATS_FOR_KPIS = false;
 
 function getVendorMapEligibleStats(
   qc: QueryClient,

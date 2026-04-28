@@ -875,6 +875,10 @@ def supervision_vendedores(dist_id: int, user_payload=Depends(verify_auth)):
             sb.table(t_clientes)
             .select("id_cliente,id_cliente_erp,id_ruta,fecha_ultima_compra")
             .eq("id_distribuidor", dist_id)
+            .not_.is_("latitud", "null")
+            .not_.is_("longitud", "null")
+            .gte("latitud", -55).lte("latitud", -21)
+            .gte("longitud", -74).lte("longitud", -53)
             .execute()
         )
 
@@ -1177,7 +1181,7 @@ def supervision_cuentas(dist_id: int, sucursal: Optional[str] = Query(None), use
         def build_query():
             return (
                 sb.table("cc_detalle")
-                .select("id_vendedor, vendedor_nombre, sucursal_nombre, cliente_nombre, id_cliente_erp, deuda_total, antiguedad_dias, rango_antiguedad, cantidad_comprobantes, alerta_credito")
+                .select("id_vendedor, vendedor_nombre, sucursal_nombre, cliente_nombre, id_cliente_erp, id_cliente, deuda_total, antiguedad_dias, rango_antiguedad, cantidad_comprobantes, alerta_credito")
                 .eq("id_distribuidor", d_id)
                 .eq("fecha_snapshot", fecha_snapshot)
             )
@@ -1297,10 +1301,12 @@ def supervision_cuentas(dist_id: int, sucursal: Optional[str] = Query(None), use
             nombre_raw_upper = (item.get("cliente_nombre") or "").strip().upper()
             # Prefer ERP ID from clientes_pdv_v2 so format matches map pins
             erp_id = erp_id_map.get(nombre_norm) or erp_id_map.get(nombre_raw_upper) or item.get("id_cliente_erp")
-            # Resolve id_cliente (PK) for direct frontend matching
-            id_cliente_pk = id_cliente_map.get(nombre_norm) or id_cliente_map.get(nombre_raw_upper)
-            if not id_cliente_pk and erp_id:
-                id_cliente_pk = erp_to_id_cliente.get(_norm_erp(erp_id))
+            # Prefer id_cliente already resolved at ingestion time; fall back to runtime lookup
+            id_cliente_pk = item.get("id_cliente")
+            if not id_cliente_pk:
+                id_cliente_pk = id_cliente_map.get(nombre_norm) or id_cliente_map.get(nombre_raw_upper)
+                if not id_cliente_pk and erp_id:
+                    id_cliente_pk = erp_to_id_cliente.get(_norm_erp(erp_id))
             vd["clientes"].append({
                 "cliente": item.get("cliente_nombre"), "id_cliente_erp": erp_id,
                 "id_cliente": id_cliente_pk,

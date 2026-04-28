@@ -9,38 +9,52 @@ import logging
 import re
 import unicodedata
 
+from core.tenant_tables import tenant_table_name
 from db import sb
 
 logger = logging.getLogger("ShelfyAPI")
 
 
+def _norm_name(s) -> str:
+    """Normaliza nombres de clientes para matching robusto entre ERPs distintos."""
+    if not s:
+        return ""
+    s = str(s).strip().upper()
+    s = "".join(c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn")
+    s = re.sub(r"[^A-Z0-9 ]", "", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
 def _get_erp_name_map(dist_id: int) -> dict:
     """
     Devuelve dict { nombre_integrante_lower → nombre_erp } para un distribuidor.
-    Resuelve: integrantes_grupo.id_vendedor_v2 → vendedores_v2.nombre_erp
+    Resuelve: integrantes_grupo.id_vendedor_v2 → vendedores_v2_d{dist_id}.nombre_erp
     Fallback: si el integrante no tiene id_vendedor_v2, mantiene su nombre Telegram.
 
     EXCEPCIONAL: Para Distribuidora 3 (Tabaco) y id_vendedor_v2=30 (Ivan Soto),
     NO aplicamos el mapeo ERP para que Monchi y Jorge aparezcan con su propio nombre.
     """
     try:
-        # Defensive baseline: if Telegram name already matches an ERP vendor name,
-        # keep identity mapping and do not override it from integrantes_grupo.
+        t_vendedores = tenant_table_name("vendedores_v2", dist_id)
         vend_res = (
-            sb.table("vendedores_v2")
-            .select("nombre_erp")
+            sb.table(t_vendedores)
+            .select("id_vendedor, nombre_erp")
             .eq("id_distribuidor", dist_id)
             .execute()
         )
         erp_identity_map: dict[str, str] = {}
+        vend_id_to_name: dict[int, str] = {}
         for v in vend_res.data or []:
             nombre_erp = (v.get("nombre_erp") or "").strip()
             if nombre_erp:
                 erp_identity_map[nombre_erp.lower()] = nombre_erp
+                if v.get("id_vendedor") is not None:
+                    vend_id_to_name[int(v["id_vendedor"])] = nombre_erp
 
         ig_res = (
             sb.table("integrantes_grupo")
-            .select("nombre_integrante, id_vendedor_v2, vendedores_v2(nombre_erp)")
+            .select("nombre_integrante, id_vendedor_v2")
             .eq("id_distribuidor", dist_id)
             .execute()
         )
@@ -54,12 +68,7 @@ def _get_erp_name_map(dist_id: int) -> dict:
             id_v_erp = ig.get("id_vendedor_v2")
             if dist_id == 3 and id_v_erp == 30:
                 continue
-            vend = ig.get("vendedores_v2")
-            nombre_erp = None
-            if isinstance(vend, dict):
-                nombre_erp = vend.get("nombre_erp")
-            elif isinstance(vend, list) and vend:
-                nombre_erp = vend[0].get("nombre_erp")
+            nombre_erp = vend_id_to_name.get(id_v_erp) if id_v_erp is not None else None
             if nombre_erp:
                 tg_key = tg_name.lower()
                 existing = erp_identity_map.get(tg_key)
@@ -84,14 +93,16 @@ def _enrich_and_store_cc(dist_id: int, fecha_snapshot: str, rows: list) -> int:
     mismo día para garantizar idempotencia).
     Devuelve la cantidad de registros guardados.
     """
+    t_vendedores = tenant_table_name("vendedores_v2", int(dist_id))
+    t_sucursales = tenant_table_name("sucursales_v2", int(dist_id))
     vend_res = (
-        sb.table("vendedores_v2")
+        sb.table(t_vendedores)
         .select("id_vendedor, nombre_erp, id_sucursal")
         .eq("id_distribuidor", int(dist_id))
         .execute()
     )
     suc_res = (
-        sb.table("sucursales_v2")
+        sb.table(t_sucursales)
         .select("id_sucursal, id_sucursal_erp, nombre_erp")
         .eq("id_distribuidor", int(dist_id))
         .execute()
@@ -166,6 +177,56 @@ def _enrich_and_store_cc(dist_id: int, fecha_snapshot: str, rows: list) -> int:
                 existing["antiguedad_dias"] = r["antiguedad_dias"]
                 existing["rango_antiguedad"] = r["rango_antiguedad"]
     records = list(dedup.values())
+
+    # Resolve id_cliente vendor-scoped (ingesta-time matching evita el runtime name-mismatch)
+    t_rutas = tenant_table_name("rutas_v2", int(dist_id))
+    t_clientes = tenant_table_name("clientes_pdv_v2", int(dist_id))
+    vendor_clients_cache: dict[int, list[dict]] = {}
+    for record in records:
+        iv = record.get("id_vendedor")
+        if not iv:
+            record["id_cliente"] = None
+            continue
+        if iv not in vendor_clients_cache:
+            rutas_res = (
+                sb.table(t_rutas)
+                .select("id_ruta")
+                .eq("id_distribuidor", int(dist_id))
+                .eq("id_vendedor", iv)
+                .execute()
+            )
+            ruta_ids = [r["id_ruta"] for r in (rutas_res.data or [])]
+            if ruta_ids:
+                cli_res = (
+                    sb.table(t_clientes)
+                    .select("id_cliente, id_cliente_erp, nombre_fantasia, nombre_razon_social")
+                    .eq("id_distribuidor", int(dist_id))
+                    .in_("id_ruta", ruta_ids)
+                    .execute()
+                )
+                vendor_clients_cache[iv] = cli_res.data or []
+            else:
+                vendor_clients_cache[iv] = []
+        clientes = vendor_clients_cache[iv]
+        cliente_norm = _norm_name(record["cliente_nombre"])
+        erp_id = record.get("id_cliente_erp")
+        matched_id = None
+        if erp_id and not matched_id:
+            for c in clientes:
+                if str(c.get("id_cliente_erp") or "").strip() == str(erp_id).strip():
+                    matched_id = c["id_cliente"]
+                    break
+        if not matched_id:
+            for c in clientes:
+                if _norm_name(c.get("nombre_fantasia")) == cliente_norm:
+                    matched_id = c["id_cliente"]
+                    break
+        if not matched_id:
+            for c in clientes:
+                if _norm_name(c.get("nombre_razon_social")) == cliente_norm:
+                    matched_id = c["id_cliente"]
+                    break
+        record["id_cliente"] = matched_id
 
     if records:
         sb.table("cc_detalle").delete().eq("id_distribuidor", int(dist_id)).eq("fecha_snapshot", fecha_snapshot).execute()
@@ -254,8 +315,9 @@ def load_active_vendedor_ids(dist_id: int) -> set[int]:
     Un vendedor con vendedores_perfil.activo = False se excluye.
     """
     try:
+        t_vendedores = tenant_table_name("vendedores_v2", dist_id)
         vend_res = (
-            sb.table("vendedores_v2")
+            sb.table(t_vendedores)
             .select("id_vendedor")
             .eq("id_distribuidor", dist_id)
             .execute()

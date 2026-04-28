@@ -121,7 +121,7 @@ async def subir_padron(archivo_path, id_distribuidor: int) -> bool:
             resp = await client.post(
                 url,
                 headers=_headers(),
-                data={"id_distribuidor": str(id_distribuidor)},
+                params={"id_distribuidor": str(id_distribuidor)},
                 files={"file": (archivo_path.name, file_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
             )
             if resp.status_code in (200, 201):

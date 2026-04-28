@@ -90,7 +90,8 @@ ERRORS_DIR = RPA_BASE_DIR / "logs" / "errors"
 HEADLESS = os.environ.get("RPA_HEADLESS", "true").lower() != "false"
 
 # Timeout general (ms)
-TIMEOUT_MS = 60_000  # Consolido puede ser lento
+TIMEOUT_MS = 120_000  # Consolido puede ser lento (aumentado a 2 min porque reportes grandes tardan >1 min)
+ADMIN_PROCESOS_URL = "https://consolido.nextbyn.com/#/parametrizaciones/reportes/administrador-de-procesos"
 
 # ─────────────────────────────────────────────────────────────────
 # DEFINICIÓN DE TENANTS (LEGACY / FALLBACK)
@@ -223,6 +224,22 @@ def _cargar_tenants_desde_supabase() -> list[dict]:
         return TENANTS_LEGACY
 
 
+def _filtrar_tenants_para_debug(tenants: list[dict]) -> list[dict]:
+    """
+    Permite ejecutar sólo un tenant para debug rápido:
+      PADRON_DEBUG_TENANT=tabaco python runner.py padron
+    """
+    target = (os.environ.get("PADRON_DEBUG_TENANT") or "").strip().lower()
+    if not target:
+        return tenants
+    filtered = [t for t in tenants if str(t.get("id", "")).strip().lower() == target]
+    if filtered:
+        logger.warning(f"⚙️ PADRON_DEBUG_TENANT activo: ejecutando sólo tenant '{target}'")
+        return filtered
+    logger.warning(f"PADRON_DEBUG_TENANT='{target}' no coincide con tenants disponibles; se ejecutan todos.")
+    return tenants
+
+
 # ─────────────────────────────────────────────────────────────────
 # PASO 1: NAVEGACIÓN Y LOGIN EN CONSOLIDO
 # ─────────────────────────────────────────────────────────────────
@@ -239,16 +256,10 @@ async def _navegar_y_login(page: Page, tenant: dict, usuario: str, password: str
     await page.goto(url_base, wait_until="networkidle", timeout=TIMEOUT_MS)
 
     # Esperar formulario de login
-    await page.locator('input[type="text"]').first.wait_for(
-        state="visible", timeout=TIMEOUT_MS
-    )
+    await page.locator('input[type="text"]').first.wait_for(state="visible", timeout=TIMEOUT_MS)
 
-    # Llenar formulario — selectores TBD (ajustar según HTML real)
-    inputs = page.locator('input[type="text"]')
-    await inputs.nth(0).fill(usuario)
-
-    pwd_input = page.locator('input[type="password"]')
-    await pwd_input.fill(password)
+    user_input = page.locator('input[type="text"]').nth(0)
+    pwd_input = page.locator('input[type="password"]').first
 
     async def _resolver_popup_actualizar() -> None:
         # Si aparece popup de actualización, tocar explícitamente "Actualizar".
@@ -276,16 +287,42 @@ async def _navegar_y_login(page: Page, tenant: dict, usuario: str, password: str
         'button:has-text("INICIAR SESIÓN"), '
         'button[type="submit"]'
     )
-    await login_btn.first.click(force=True)
 
-    # Algunos tenants vuelven a mostrar overlay al iniciar sesión.
-    # Si reaparece, se toca "Actualizar" y se reintenta login una vez.
-    await _resolver_popup_actualizar()
-    if "/login" in page.url:
+    async def _intento_login(num_intento: int) -> bool:
+        await user_input.fill("")
+        await user_input.fill(usuario)
+        await pwd_input.fill("")
+        await pwd_input.fill(password)
+        await _resolver_popup_actualizar()
         await login_btn.first.click(force=True)
+        await page.wait_for_timeout(1200)
+        await _resolver_popup_actualizar()
+        try:
+            # Éxito si salió de /login (ej: /dashboard), aunque todavía no haya /reporteador.
+            await page.wait_for_function(
+                "() => !window.location.href.includes('/login')",
+                timeout=45_000,
+            )
+            await page.wait_for_load_state("networkidle", timeout=20_000)
+            logger.info(f"  Login intento {num_intento} OK. URL actual: {page.url}")
+            return True
+        except Exception:
+            logger.warning(f"  Login intento {num_intento} no salió de /login. URL actual: {page.url}")
+            return False
 
-    # Esperar redirección al dashboard/home
-    await page.wait_for_url("**/reporteador**", timeout=TIMEOUT_MS)
+    ok_login = await _intento_login(1)
+    # Si la URL ya es dashboard/reporteador, considerar login exitoso sin reintento.
+    if not ok_login and ("/dashboard" in page.url or "/reporteador" in page.url):
+        ok_login = True
+        logger.info(f"  Login confirmado por URL final: {page.url}")
+
+    if not ok_login:
+        ok_login = await _intento_login(2)
+    if not ok_login:
+        raise RuntimeError(f"No se pudo completar login. URL final: {page.url}")
+
+    # No esperar redirección específica — forzar navegación si es necesario
+    await page.wait_for_timeout(1500)  # Espera mínima para que la página se estabilice
     logger.info(f"  ✅ Login exitoso — {tenant['nombre']}")
 
 
@@ -306,44 +343,85 @@ async def _seleccionar_reporte_padron(page: Page) -> None:
     """
     logger.info("  Seleccionando reporte: Padrón de clientes")
 
-    # Buscar tab "Informes" o similar
-    informes_tab = page.locator(
-        'button:has-text("Informes"), '
-        'a:has-text("Informes"), '
-        '[role="tab"]:has-text("Informes")'
-    )
-    try:
-        await informes_tab.first.click(timeout=5_000)
-        await page.wait_for_timeout(500)
-    except Exception:
-        logger.warning("  No se encontró tab Informes, intentando directamente...")
+    async def _esperar_ui_reporteador(timeout_ms: int = 12_000) -> bool:
+        try:
+            await page.locator(
+                'button#button-procesar, [role="combobox"], select'
+            ).first.wait_for(state="visible", timeout=timeout_ms)
+            return True
+        except Exception:
+            return False
 
-    # Buscar dropdown "Proceso"
-    proceso_dropdown = page.locator(
-        'select[name="proceso"], '
-        '[role="combobox"]:has-text("Proceso"), '
-        'mat-select:has-text("Proceso")'
-    )
-    try:
-        await proceso_dropdown.first.click(timeout=TIMEOUT_MS)
-        await page.wait_for_timeout(300)
-    except Exception:
-        logger.warning("  Dropdown Proceso no encontrado con selectores estándar")
+    # Si quedó en dashboard/login tras login, forzar navegación client-side más rápida.
+    if "/dashboard" in page.url or "/login" in page.url:
+        logger.info("  Navegando directo a administrador de procesos ...")
+        try:
+            # En SPA de Consolido, cambiar hash es más rápido que page.goto().
+            await page.evaluate(
+                """
+                () => {
+                  if (!window.location.href.includes('/parametrizaciones/reportes/administrador-de-procesos')) {
+                    window.location.hash = '#/parametrizaciones/reportes/administrador-de-procesos';
+                  }
+                }
+                """
+            )
+            await page.wait_for_function(
+                "() => window.location.href.includes('/parametrizaciones/reportes/administrador-de-procesos')",
+                timeout=8_000,
+            )
+        except Exception:
+            # Fallback si el hash-change no alcanza.
+            await page.goto(ADMIN_PROCESOS_URL, wait_until="domcontentloaded", timeout=20_000)
+        await page.wait_for_timeout(700)
 
-    # Seleccionar opción "Padrón de clientes"
-    padron_opcion = page.locator(
-        'option:has-text("Padrón"), '
-        'option:has-text("Padron"), '
-        'mat-option:has-text("Padrón"), '
-        '[role="option"]:has-text("Padrón")'
-    )
+    # Espera rápida de UI real del reporteador.
+    if not await _esperar_ui_reporteador(8_000):
+        logger.warning("  ⚠️ UI de Reporteador no lista en fast-path; reintentando carga controlada...")
+        await page.goto(ADMIN_PROCESOS_URL, wait_until="domcontentloaded", timeout=20_000)
+        await page.wait_for_timeout(1800)
+        if not await _esperar_ui_reporteador(15_000):
+            raise RuntimeError(
+                f"No cargó administrador de procesos. URL actual: {page.url}. "
+                "No se encontró button#button-procesar / combobox / select."
+            )
+
+    # Esperar a que la página esté lista (cualquier elemento visible indica carga)
+    # Estrategia: esperar al heading "REPORTEADOR GENÉRICO" o al botón Ejecutar o cualquier elemento
     try:
-        await padron_opcion.first.click(timeout=TIMEOUT_MS)
-        await page.wait_for_timeout(500)
-        logger.info("  ✅ Reporte Padrón de clientes seleccionado")
+        await page.locator("text=/REPORTEADOR|Proceso|Parámetros/i").first.wait_for(state="visible", timeout=8_000)
+        logger.info("  ✅ Página de Reporteador cargada")
     except Exception as e:
-        logger.error(f"  ❌ Error seleccionando Padrón: {e}")
-        raise
+        logger.warning(f"  ⚠️ Timeout esperando elementos, continuando: {e}")
+        # Continuar de todas formas — la página probablemente está lista aunque los selectores específicos no aparezcan
+
+    # Intentar seleccionar proceso "Padrón de clientes" usando JavaScript
+    # No insistir en esperar selectores específicos
+    selected = await page.evaluate(
+        """
+        () => {
+          const selects = Array.from(document.querySelectorAll('select'));
+          const norm = (s) => (s || '').toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g, '');
+
+          for (const s of selects) {
+            const opts = Array.from(s.options || []);
+            const target = opts.find(o => norm(o.textContent).includes('padron'));
+            if (target) {
+              s.value = target.value;
+              s.dispatchEvent(new Event('input', { bubbles: true }));
+              s.dispatchEvent(new Event('change', { bubbles: true }));
+              return { ok: true, selected: target.textContent?.trim() || target.value };
+            }
+          }
+          return { ok: false };
+        }
+        """
+    )
+
+    if selected and selected.get("ok"):
+        logger.info(f"  ✅ Reporte Padrón seleccionado: {selected.get('selected')}")
+    else:
+        logger.warning("  ⚠️ No se encontró select de proceso con opción Padrón; se continúa con valor actual.")
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -353,52 +431,137 @@ async def _seleccionar_reporte_padron(page: Page) -> None:
 async def _configurar_parametros(page: Page, tenant: dict) -> None:
     """
     Configura los parámetros del reporte:
-      1. "Incluyí Anulados" = NO (selector <select>)
-      2. "Empresas" = seleccionar solo IDEMPRESA del tenant (selector <select>)
+      1. "Incluyí Anulados" = NO (mat-select Angular Material)
+      2. "Empresas" = seleccionar solo IDEMPRESA del tenant (mat-select Angular Material)
 
-    Basado en selectores CSS exactos capturados en vivo el 27/04/2026:
-    - select.ng-valid (para ambos parámetros)
-    - button#button-procesar (botón Ejecutar)
+    Ambos son dropdowns Angular Material con [role="option"].
     """
     logger.info(f"  Configurando parámetros para {tenant['nombre']}")
 
-    # ─────────────────────────────────────────────────────────────
-    # Parámetro 1: "Incluyí Anulados" = NO
-    # ─────────────────────────────────────────────────────────────
-    logger.info("    - Incluyí Anulados: NO")
-
-    # SELECT nativo HTML: primer <select>
-    anulados_select = page.locator('select').first
-    try:
-        await anulados_select.select_option('NO')
-        logger.info("      ✅ Parámetro 'Incluyí Anulados' = NO")
-    except Exception as e:
-        logger.warning(f"      Error configurando 'Incluyí Anulados': {e}")
-
-    # ─────────────────────────────────────────────────────────────
-    # Parámetro 2: "Empresas" = seleccionar solo este tenant
-    # ─────────────────────────────────────────────────────────────
-    logger.info(f"    - Empresas: ({tenant['id_empresa']}) {tenant['nombre']}")
-
-    # SELECT nativo HTML: segundo <select>
-    empresas_select = page.locator('select').nth(1)
-
-    # El valor en el <option> incluye el IDEMPRESA entre paréntesis
-    # Ej: "(3154) TABACO & HNOS S.R.L."
-    opcion_empresa = f"({tenant['id_empresa']}) {tenant['nombre']}"
+    # ─────────────────────────────────────────────────────────────────
+    # PASO 0: SELECCIONAR "INCLUIR ANULADOS" = NO
+    # ─────────────────────────────────────────────────────────────────
+    logger.info("    - Incluí Anulados: NO")
 
     try:
-        await empresas_select.select_option(opcion_empresa)
-        logger.info(f"      ✅ Empresa ({tenant['id_empresa']}) seleccionada")
+        # Abrir el dropdown de "Incluir Anulados"
+        incluir_anulados_combobox = page.locator('[role="combobox"]').first
+        await incluir_anulados_combobox.click(timeout=5000)
+        await page.wait_for_timeout(1000)
+        logger.info("      ✅ Dropdown de Incluir Anulados abierto")
+
+        # Buscar y clickear la opción "NO"
+        options = page.locator('[role="option"]')
+        count = await options.count()
+        logger.info(f"      📊 Opciones encontradas: {count}")
+
+        for i in range(count):
+            option = options.nth(i)
+            try:
+                option_text = await option.text_content()
+                option_text = (option_text.strip() if option_text else "").upper()
+                logger.info(f"      [{i}] {option_text}")
+
+                if option_text == "NO":
+                    logger.info(f"      ✨ ¡Opción NO encontrada!")
+                    await option.click(timeout=5000, force=True)
+                    await page.wait_for_timeout(500)
+                    logger.info(f"      ✅ Opción NO seleccionada")
+                    break
+            except Exception as e:
+                logger.warning(f"      [{i}] Error: {e}")
+                continue
+
+        # Cerrar el overlay presionando Escape
+        await page.keyboard.press("Escape")
+        await page.wait_for_timeout(500)
+        logger.info("      ✅ Overlay cerrado")
+
     except Exception as e:
-        logger.error(f"      ❌ Error seleccionando empresa {tenant['id_empresa']}: {e}")
-        # Intentar una variante sin los paréntesis
-        try:
-            await empresas_select.select_option(tenant['nombre'])
-            logger.info(f"      ✅ Empresa seleccionada (fallback con nombre)")
-        except Exception as e2:
-            logger.error(f"      ❌ Fallback también falló: {e2}")
-            raise
+        logger.warning(f"      ⚠️ Error en Incluir Anulados: {type(e).__name__}: {str(e)[:100]}")
+        # Continuar de todas formas
+
+    logger.info(f"    - Empresa objetivo: ({tenant['id_empresa']}) {tenant['nombre']}")
+
+    # PASO 1: Abrir el dropdown de Empresas (combobox Angular Material)
+    try:
+        # Hacer clic en el combobox de Empresas para abrirlo
+        empresas_combobox = page.locator('[role="combobox"]')
+        await empresas_combobox.last.click(timeout=5000)
+        await page.wait_for_timeout(1000)
+        logger.info("      ✅ Dropdown de Empresas abierto")
+    except Exception as e:
+        logger.warning(f"      Error abriendo dropdown de Empresas: {e}")
+
+    # PASO 2: Seleccionar la empresa correcta
+    # IMPORTANTE: Los items del dropdown son <option role="option">, NO <input type="checkbox">
+    try:
+        id_empresa_str = str(tenant["id_empresa"])
+        logger.info(f"      🔍 Buscando opción para empresa: ({id_empresa_str})")
+
+        # Los items del dropdown son [role="option"]
+        options = page.locator('[role="option"]')
+        count = await options.count()
+        logger.info(f"      📊 Total de opciones encontradas: {count}")
+
+        empresa_encontrada = False
+        for i in range(count):
+            option = options.nth(i)
+            try:
+                # Obtener el texto de la opción
+                option_text = await option.text_content()
+                option_text = option_text.strip() if option_text else ""
+
+                # Verificar si está seleccionada (tiene aria-selected="true")
+                is_selected = await option.get_attribute("aria-selected")
+                is_selected = is_selected == "true" if is_selected else False
+
+                logger.info(f"      [{i}] {option_text} [selected={is_selected}]")
+
+                # Buscar la opción que contiene el ID de empresa
+                if f"({id_empresa_str})" in option_text:
+                    logger.info(f"      ✨ ¡Opción encontrada! ({id_empresa_str})")
+                    empresa_encontrada = True
+
+                    # Si no está seleccionada, clickearla
+                    if not is_selected:
+                        logger.info(f"      🔲 Clickeando opción para {id_empresa_str}...")
+                        await option.click(timeout=5000, force=True)
+                        await page.wait_for_timeout(500)
+
+                        # Verificar que se seleccionó correctamente
+                        is_selected_after = await option.get_attribute("aria-selected")
+                        is_selected_after = is_selected_after == "true" if is_selected_after else False
+                        logger.info(f"      ✅ Post-click: aria-selected = {is_selected_after}")
+
+                        if is_selected_after:
+                            logger.info(f"      ✅ Empresa {id_empresa_str} seleccionada correctamente")
+                        else:
+                            logger.error(f"      ❌ Opción no se seleccionó después del click")
+                    else:
+                        logger.info(f"      ✅ Empresa {id_empresa_str} ya estaba seleccionada")
+                    break
+            except Exception as e:
+                logger.warning(f"      [{i}] Error procesando opción: {type(e).__name__}: {e}")
+                continue
+
+        if not empresa_encontrada:
+            logger.error(f"      ❌ Empresa ({id_empresa_str}) NO ENCONTRADA en las opciones disponibles")
+
+        await page.wait_for_timeout(500)
+
+    except Exception as e:
+        logger.warning(f"      Error seleccionando empresa: {type(e).__name__}: {e}")
+
+    # PASO 3: CRÍTICO — Cerrar el overlay del combobox
+    # El overlay Angular bloquea clicks posteriores si queda abierto
+    try:
+        logger.info("      Cerrando overlay del combobox...")
+        await page.keyboard.press("Escape")
+        await page.wait_for_timeout(500)
+        logger.info("      ✅ Overlay cerrado")
+    except Exception as e:
+        logger.warning(f"      Error cerrando overlay: {e}")
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -410,29 +573,67 @@ async def _ejecutar_reporte(page: Page) -> None:
     Hace clic en el botón "Ejecutar" para correr el reporte.
 
     Selector exacto capturado: button#button-procesar.botonProcesar
-    Espera que la tabla de resultados se cargue (puede tardar 30-60s).
+    Espera que la tabla de resultados se cargue (puede tardar >1 min en reportes grandes).
     """
     logger.info("  Ejecutando reporte...")
 
     # Botón Ejecutar — selector exacto capturado en vivo
     ejecutar_btn = page.locator('button#button-procesar')
 
+    # ESTRATEGIA: Clickear Ejecutar y esperar a que aparezcan los resultados
     try:
-        await ejecutar_btn.click(timeout=TIMEOUT_MS)
-        logger.info("  Botón Ejecutar clickeado, esperando resultados...")
+        logger.info("  🔲 Clickeando botón Ejecutar...")
+        await ejecutar_btn.click(timeout=10_000)
+        logger.info("  ✅ Botón clickeado. Esperando procesamiento del servidor (max 120s)...")
     except Exception as e:
-        logger.error(f"  ❌ Error clickeando Ejecutar: {e}")
+        logger.error(f"  ❌ Error clickeando Ejecutar: {type(e).__name__}: {e}")
         raise
 
-    # Esperar que la tabla de resultados esté visible (ag-grid)
-    resultado_tabla = page.locator('.ag-root')
+    # ESTRATEGIA: Esperar con polling — cada 5s verificar estado
+    logger.info("  ⏳ Iniciando polling cada 5 segundos...")
+    max_tiempo = 120
+    tiempo_inicial = datetime.now(AR_TZ)
+    tiempo_transcurrido = 0
 
-    try:
-        await resultado_tabla.first.wait_for(state="visible", timeout=TIMEOUT_MS)
-        logger.info("  ✅ Tabla de resultados cargada")
-    except Exception as e:
-        logger.warning(f"  Tabla no se cargó en el timeout esperado: {e}")
-        # No es necesariamente error fatal — intentar descargar de todos modos
+    while tiempo_transcurrido < max_tiempo:
+        await page.wait_for_timeout(5000)
+        tiempo_transcurrido = int((datetime.now(AR_TZ) - tiempo_inicial).total_seconds())
+
+        try:
+            # Verificar si la tabla existe (sea visible o no)
+            ag_root_count = await page.locator('.ag-root').count()
+            logger.info(f"    [{tiempo_transcurrido}s] .ag-root encontrado: {ag_root_count > 0}")
+
+            # Verificar si hay heading "Resultados (XXXX):"
+            try:
+                # Buscar texto que contenga "Resultados" seguido de paréntesis con número
+                resultados_heading = await page.locator("text=/Resultados\\s*\\(\\d+\\)/i").first.text_content(timeout=2000)
+                if resultados_heading:
+                    logger.info(f"    [{tiempo_transcurrido}s] ✅ {resultados_heading.strip()}")
+                    await page.wait_for_timeout(3000)  # Esperar extra a que se renderice completamente
+                    logger.info(f"  ✅ Reporte completado exitosamente")
+                    return
+            except Exception:
+                pass  # Heading no encontrado aún
+
+            # Verificar si hay mensaje de éxito visible
+            try:
+                success_msg = await page.locator("text=/ejecutado con éxito|success|completado/i").first.text_content(timeout=2000)
+                if success_msg:
+                    logger.info(f"    [{tiempo_transcurrido}s] ✅ Mensaje de éxito: {success_msg.strip()[:80]}")
+                    await page.wait_for_timeout(3000)  # Esperar a que se renderize la tabla
+                    logger.info(f"  ✅ Reporte completado (por mensaje de éxito)")
+                    return
+            except Exception:
+                pass  # Sin mensaje de éxito aún
+
+        except Exception as e:
+            logger.warning(f"    [{tiempo_transcurrido}s] Error en polling: {type(e).__name__}")
+            pass
+
+    logger.warning(f"  ⚠️ Timeout de 120s alcanzado sin detectar resultados.")
+    logger.info(f"  Continuando de todas formas para intentar exportar...")
+    # El reporte puede haberse ejecutado igual, intentaremos descargar
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -443,46 +644,166 @@ async def _descargar_excel(page: Page, tenant: dict) -> Optional[Path]:
     """
     Descarga el Excel del reporte Padrón clickeando el botón de exportación.
 
-    Selector del botón: TBD (icono 📄 en barra superior derecha)
-    El archivo se descarga automáticamente en DOWNLOADS_DIR.
-    Nombre esperado: resultados_Reporte.PadronDeClientes-XX.xlsx
+    ESTRATEGIA VERIFICADA EN VIVO (28/04/2026):
+    El botón está en la barra de herramientas como el SEGUNDO de 3 botones pequeños,
+    junto al campo "Buscar". Lo buscamos en esa región específica, no globalmente.
     """
-    logger.info("  Buscando botón de exportación...")
+    logger.info("  🔍 Buscando botón de exportación en barra de herramientas...")
 
     # Preparar carpeta de descargas
     DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
-    # TODO: Capturar selector exacto del botón descarga (icono 📄)
-    # Opciones a probar:
-    # - button[aria-label*="Descargar"], button[aria-label*="Export"]
-    # - button svg[class*="download"]
-    # - nth-child específico en la barra de herramientas
+    # PASO 0: Cerrar cualquier diálogo modal que esté bloqueando
+    logger.info("  Paso 0: Cerrando diálogos modales si hay...")
+    try:
+        continuar_btn = page.locator("#button-continuar-superior, #button-continuar-inferior").first
+        count = await continuar_btn.count()
+        if count > 0:
+            logger.info("    ⚠️ Diálogo modal detectado, cerrando...")
+            await continuar_btn.click(timeout=3000, force=True)
+            await page.wait_for_timeout(1000)
+            logger.info("    ✅ Diálogo cerrado")
+    except Exception as e:
+        logger.info(f"    No hay diálogo: {type(e).__name__}")
 
-    # Por ahora, intentar variantes comunes:
-    exportar_btn = page.locator(
-        'button[aria-label*="Descargar"], '
-        'button[aria-label*="Export"], '
-        'button svg[class*="download"], '
-        'button.btn-download'
-    )
+    # PASO 1: Buscar los 3 botones de la BARRA DE HERRAMIENTAS (después del Buscar)
+    # Estrategia: Buscar específicamente en la región de la barra, no en toda la página
+    exportar_btn = None
 
+    try:
+        logger.info("  Paso 1: Buscando región de herramientas...")
+
+        # Estrategia A (prioritaria): botón con ícono Excel (el correcto según evidencia en vivo).
+        excel_icon_btn = page.locator("button:has(i.fa-file-excel), button:has(i.fas.fa-file-excel)").first
+        if await excel_icon_btn.count() > 0:
+            try:
+                await excel_icon_btn.wait_for(state="visible", timeout=8_000)
+                logger.info("  ✅ Botón localizado por ícono Excel (fa-file-excel)")
+                exportar_btn = excel_icon_btn
+            except Exception as e:
+                logger.warning(f"  ⚠️ Encontrado por ícono pero no visible aún: {type(e).__name__}")
+
+        # ESTRATEGIA: Usar JavaScript para encontrar el botón de exportar específicamente.
+        # Regla pedida: segundo botón de la barra de resultados (no autoajustar columnas).
+        export_via_js = await page.evaluate(
+            """
+            () => {
+              const isVisible = (el) => {
+                if (!el) return false;
+                const st = window.getComputedStyle(el);
+                if (st.display === 'none' || st.visibility === 'hidden' || st.opacity === '0') return false;
+                const r = el.getBoundingClientRect();
+                return r.width > 0 && r.height > 0;
+              };
+
+              // Buscar elemento con tooltip "Exportar resultados"
+              const allBtns = Array.from(document.querySelectorAll('button'));
+
+              // Estrategia 0: icono excel explícito.
+              let btn = allBtns.find(b => b.querySelector('i.fa-file-excel, i.fas.fa-file-excel') && isVisible(b));
+              if (btn) {
+                return { found: true, method: 'excel-icon', idx: allBtns.indexOf(btn) };
+              }
+
+              // Estrategia 1: Buscar por title o aria-label que contenga "Exportar"
+              btn = allBtns.find(b => {
+                const title = b.getAttribute('title') || '';
+                const aria = b.getAttribute('aria-label') || '';
+                return (title.includes('Exportar') || aria.includes('Exportar')) && isVisible(b);
+              });
+
+              if (btn) {
+                return { found: true, method: 'title/aria-label', idx: allBtns.indexOf(btn) };
+              }
+
+              // Estrategia 2: Buscar toolbar cercana al input "Buscar" y tomar el 2do botón visible.
+              const searchInput = document.querySelector('input[placeholder*="Buscar"]');
+              if (searchInput) {
+                const candidates = [
+                  searchInput.closest('.box-botones-grilla'),
+                  searchInput.closest('mat-toolbar'),
+                  searchInput.closest('[class*="toolbar"]'),
+                  searchInput.parentElement,
+                ].filter(Boolean);
+
+                for (const parent of candidates) {
+                  const toolbarBtns = Array.from(parent.querySelectorAll('button')).filter(isVisible);
+                  if (toolbarBtns.length >= 2) {
+                    const secondBtn = toolbarBtns[1];
+                    const txt = (secondBtn.textContent || '').trim();
+                    const title = secondBtn.getAttribute('title') || '';
+                    const aria = secondBtn.getAttribute('aria-label') || '';
+                    // Evitar autoajuste explícitamente si lo detectamos.
+                    const marker = `${txt} ${title} ${aria}`.toLowerCase();
+                    if (!marker.includes('autoaj') && !marker.includes('configurar columnas')) {
+                      return {
+                        found: true,
+                        method: 'toolbar-second-button',
+                        idx: allBtns.indexOf(secondBtn),
+                      };
+                    }
+                  }
+                }
+              }
+
+              return { found: false, method: 'none' };
+            }
+            """
+        )
+
+        logger.info(f"    JS búsqueda: {export_via_js}")
+
+        if exportar_btn is None and export_via_js and export_via_js.get("found"):
+            logger.info(f"  ✅ Botón encontrado por: {export_via_js['method']}")
+            idx = export_via_js.get("idx", -1)
+
+            try:
+                all_buttons = page.locator("button")
+                export_candidate = all_buttons.nth(idx)
+                title = await export_candidate.get_attribute("title")
+                aria_label = await export_candidate.get_attribute("aria-label")
+                logger.info(f"    Button [{idx}]: title='{title}', aria-label='{aria_label}'")
+
+                await export_candidate.wait_for(state="visible", timeout=3000)
+                logger.info("    ✅ Botón encontrado y visible")
+                exportar_btn = export_candidate
+            except Exception as e:
+                logger.warning(f"    ⚠️ Intento por índice falló: {e}")
+
+        if exportar_btn is None:
+            logger.error("  ❌ No se pudo encontrar el botón de exportación")
+            return None
+
+        logger.info("  ✅ Botón de exportación localizado")
+
+    except Exception as e:
+        logger.error(f"  ❌ Error buscando botón: {type(e).__name__}: {str(e)[:150]}")
+        return None
+
+    # PASO 2: Interceptar descarga y clickear botón
+    logger.info("  Clickeando botón e interceptando descarga...")
     try:
         # Interceptar descarga con expect_download()
         async with page.expect_download() as download_info:
-            await exportar_btn.first.click(timeout=TIMEOUT_MS)
+            logger.info("    🔲 Clickeando botón de exportación...")
+            await exportar_btn.click(timeout=5_000, force=True)
+            logger.info("    ✅ Botón clickeado, esperando descarga...")
 
+        logger.info("    ⏳ Esperando a que se complete la descarga...")
         download: Download = await download_info.value
         fecha = datetime.now(AR_TZ).strftime("%Y%m%d_%H%M%S")
         nuevo_nombre = f"padron_{tenant['id']}_{fecha}.xlsx"
         ruta_final = DOWNLOADS_DIR / nuevo_nombre
 
+        logger.info(f"    💾 Guardando archivo como: {nuevo_nombre}")
         await download.save_as(str(ruta_final))
-        logger.info(f"  ✅ Excel descargado: {nuevo_nombre}")
+        logger.info(f"  ✅ Excel descargado exitosamente: {nuevo_nombre}")
         return ruta_final
 
     except Exception as e:
-        logger.error(f"  ❌ Error descargando Excel: {e}")
-        logger.warning(f"  NOTA: Selector del botón descarga requiere verificación en DevTools")
+        logger.error(f"  ❌ Error en descarga: {type(e).__name__}: {str(e)[:150]}")
+        import traceback
+        logger.error(f"    Traceback: {traceback.format_exc()[:200]}")
         return None
 
 
@@ -511,7 +832,7 @@ async def _procesar_tenant(browser: Browser, tenant: dict, usuario: str, passwor
         logger.info(f"\n  ┌─ Procesando tenant: {tenant['nombre']}")
 
         # Crear contexto de navegador
-        context = await browser.new_context()
+        context = await browser.new_context(accept_downloads=True)
         page = await context.new_page()
 
         # PASO 1: Login
@@ -582,7 +903,9 @@ async def _procesar_tenant(browser: Browser, tenant: dict, usuario: str, passwor
         # PASO 7: Subir a API
         logger.info(f"  Subiendo a API...")
         try:
-            await subir_padron(archivo, tenant["id_dist"])
+            subido_ok = await subir_padron(archivo, tenant["id_dist"])
+            if not subido_ok:
+                raise RuntimeError("Upload padrón rechazado por API")
             guardar_hash(hash_key, str(archivo))
             logger.info(f"  ✅ Padrón procesado exitosamente")
             resumen["ok"] += 1
@@ -611,6 +934,7 @@ async def run() -> dict:
     """
     resumen_total = {"ok": 0, "errores": 0, "sin_cambios": 0}
     tenants = _cargar_tenants_desde_supabase()
+    tenants = _filtrar_tenants_para_debug(tenants)
     usuario, password = _resolver_credenciales_consolido()
 
     async with async_playwright() as p:

@@ -23,14 +23,23 @@ def _guardar_hashes(data: dict) -> None:
     HASHES_FILE.write_text(json.dumps(data, indent=2))
 
 
-def es_duplicado(clave: str, content: bytes) -> bool:
-    nuevo_hash = hashlib.md5(content).hexdigest()
+def _coerce_to_bytes(content: bytes | str) -> bytes:
+    if isinstance(content, bytes):
+        return content
+    p = Path(content)
+    if p.exists():
+        return p.read_bytes()
+    return content.encode("utf-8")
+
+
+def es_duplicado(clave: str, content: bytes | str) -> bool:
+    nuevo_hash = hashlib.md5(_coerce_to_bytes(content)).hexdigest()
     hm = _cargar_hashes()
     return hm.get(clave) == nuevo_hash
 
 
-def guardar_hash(clave: str, content: bytes) -> None:
-    nuevo_hash = hashlib.md5(content).hexdigest()
+def guardar_hash(clave: str, content: bytes | str) -> None:
+    nuevo_hash = hashlib.md5(_coerce_to_bytes(content)).hexdigest()
     hm = _cargar_hashes()
     hm[clave] = nuevo_hash
     _guardar_hashes(hm)

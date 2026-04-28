@@ -871,12 +871,25 @@ def supervision_vendedores(dist_id: int, user_payload=Depends(verify_auth)):
             .execute()
         )
         rutas_data = _fetch_rutas_rows(dist_id, "id_ruta,id_vendedor")
-        cli_res = (
-            sb.table(t_clientes)
-            .select("id_cliente,id_cliente_erp,id_ruta,fecha_ultima_compra")
-            .eq("id_distribuidor", dist_id)
-            .execute()
-        )
+
+        # Fetch ALL clients with pagination — Supabase defaults to 1000 rows which
+        # would truncate large distributors (Tabaco has 13k+ PDVs).
+        PAGE = 1000
+        all_clients: list[dict] = []
+        offset = 0
+        while True:
+            page_res = (
+                sb.table(t_clientes)
+                .select("id_cliente,id_cliente_erp,id_ruta,fecha_ultima_compra")
+                .eq("id_distribuidor", dist_id)
+                .range(offset, offset + PAGE - 1)
+                .execute()
+            )
+            batch = page_res.data or []
+            all_clients.extend(batch)
+            if len(batch) < PAGE:
+                break
+            offset += PAGE
 
         suc_map = {int(r["id_sucursal"]): (r.get("nombre_erp") or "Sin sucursal") for r in (suc_res.data or [])}
         rutas_por_vend: dict[int, list[int]] = {}
@@ -896,7 +909,7 @@ def supervision_vendedores(dist_id: int, user_payload=Depends(verify_auth)):
         pdv_activos: dict[int, int] = {}
         pdv_inactivos: dict[int, int] = {}
         seen_per_vend: dict[int, set] = {}
-        for c in (cli_res.data or []):
+        for c in all_clients:
             rid = c.get("id_ruta")
             if rid is None:
                 continue

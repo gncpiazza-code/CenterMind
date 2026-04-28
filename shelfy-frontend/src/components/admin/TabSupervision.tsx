@@ -1084,6 +1084,15 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
 
   // ── Map pins — 3-level visibility check (uses query cache + server flag) ─
   const pines = useMemo<PinCliente[]>(() => {
+    // Normaliza IDs ERP: elimina sufijo .0 (float→string de Excel), ceros a la izquierda y mayúsculas
+    const normErpId = (id: string | null | undefined): string | null => {
+      if (!id) return null;
+      let s = String(id).trim();
+      if (s.endsWith('.0')) s = s.slice(0, -2);
+      s = s.replace(/^0+/, '') || '0';
+      return s.toLowerCase();
+    };
+
     // Build deuda lookup from cuentas corrientes
     const deudaByErpId = new Map<string, { deuda: number; antiguedad: number }>();
     const deudaByNombre = new Map<string, { deuda: number; antiguedad: number }>();
@@ -1092,8 +1101,9 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
       cuentasData.vendedores.forEach((v: any) => {
         v.clientes.forEach((c: any) => {
           const entry = { deuda: c.deuda_total ?? 0, antiguedad: c.antiguedad ?? 0 };
-          if (c.id_cliente_erp) {
-            deudaByErpId.set(String(c.id_cliente_erp), entry);
+          const normErp = normErpId(c.id_cliente_erp);
+          if (normErp) {
+            deudaByErpId.set(normErp, entry);
           }
           if (c.id_cliente) {
             deudaById.set(Number(c.id_cliente), entry);
@@ -1123,8 +1133,8 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
           if (!visibleClientes.has(c.id_cliente)) return;
           if (!hasValidCoords(c.latitud, c.longitud)) return;
           
-          // Cross-reference deuda: PK (más confiable) > ERP ID > nombre
-          const erpId = c.id_cliente_erp ? String(c.id_cliente_erp) : null;
+          // Cross-reference deuda: PK (más confiable) > ERP ID normalizado > nombre
+          const erpId = normErpId(c.id_cliente_erp);
           const nombre = (c.nombre_fantasia || c.nombre_razon_social || "").toLowerCase().trim();
           const deudaInfo = deudaById.get(c.id_cliente)
             ?? (erpId ? deudaByErpId.get(erpId) : null)

@@ -1213,6 +1213,16 @@ def supervision_cuentas(dist_id: int, sucursal: Optional[str] = Query(None), use
         erp_id_map:   dict = {}
         id_cliente_map: dict = {}   # nombre_norm → id_cliente (PK)
         erp_to_id_cliente: dict = {} # normalized erp_id → id_cliente (PK)
+
+        def _norm_erp(erp_id) -> str | None:
+            """Normaliza ERP IDs para matching robusto: elimina .0 de float, ceros a la izquierda."""
+            if not erp_id:
+                return None
+            s = str(erp_id).strip()
+            if s.endswith(".0"):
+                s = s[:-2]
+            s = s.lstrip("0") or "0"
+            return s.upper()
         try:
             pdv_offset = 0
             while True:
@@ -1228,7 +1238,7 @@ def supervision_cuentas(dist_id: int, sucursal: Optional[str] = Query(None), use
                     erp_id    = p.get("id_cliente_erp")
                     fuc       = p.get("fecha_ultima_compra")
                     pk        = p.get("id_cliente")
-                    erp_norm  = str(erp_id).strip().lstrip("0").upper() if erp_id else None
+                    erp_norm  = _norm_erp(erp_id)
                     for key in [p.get("nombre_fantasia"), p.get("nombre_razon_social")]:
                         if key:
                             norm_key = key.strip().upper()
@@ -1269,8 +1279,7 @@ def supervision_cuentas(dist_id: int, sucursal: Optional[str] = Query(None), use
             # Resolve id_cliente (PK) for direct frontend matching
             id_cliente_pk = id_cliente_map.get(nombre_norm)
             if not id_cliente_pk and erp_id:
-                erp_norm = str(erp_id).strip().lstrip("0").upper()
-                id_cliente_pk = erp_to_id_cliente.get(erp_norm)
+                id_cliente_pk = erp_to_id_cliente.get(_norm_erp(erp_id))
             vd["clientes"].append({
                 "cliente": item.get("cliente_nombre"), "id_cliente_erp": erp_id,
                 "id_cliente": id_cliente_pk,

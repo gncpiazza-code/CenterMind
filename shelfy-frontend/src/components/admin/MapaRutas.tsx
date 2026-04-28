@@ -115,6 +115,14 @@ function normalizeKey(value: string | null | undefined): string {
     .toLowerCase();
 }
 
+function normErpId(id: string | null | undefined): string | null {
+  if (!id) return null;
+  let s = String(id).trim();
+  if (s.endsWith('.0')) s = s.slice(0, -2);
+  s = s.replace(/^0+/, '') || '0';
+  return s.toLowerCase();
+}
+
 function compactDebtAmount(amount: number): string {
   if (amount >= 1_000_000) return `$${(amount / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
   if (amount >= 1_000) return `$${Math.round(amount / 1_000)}k`;
@@ -348,9 +356,9 @@ export default function MapaRutas({
         matchedDeudor =
           // 1. Match por id_cliente (PK) — más confiable, bypasa problemas de formato ERP
           deudoresData.find(d => d.id_cliente != null && d.id_cliente === p.id) ??
-          // 2. Match por ERP ID
+          // 2. Match por ERP ID normalizado (elimina .0, ceros a la izquierda)
           deudoresData.find(d =>
-            d.id_cliente_erp && p.idClienteErp && d.id_cliente_erp === p.idClienteErp
+            normErpId(d.id_cliente_erp) != null && normErpId(d.id_cliente_erp) === normErpId(p.idClienteErp)
           ) ??
           // 3. Match por nombre + vendedor (fallback fuzzy)
           deudoresData.find(d =>
@@ -519,7 +527,7 @@ export default function MapaRutas({
         if (deudoresData) {
           matchedDeudor =
             deudoresData.find(d => d.id_cliente != null && d.id_cliente === pin.id) ??
-            deudoresData.find(d => d.id_cliente_erp && pin.idClienteErp && d.id_cliente_erp === pin.idClienteErp) ??
+            deudoresData.find(d => normErpId(d.id_cliente_erp) != null && normErpId(d.id_cliente_erp) === normErpId(pin.idClienteErp)) ??
             deudoresData.find(d => normalizeKey(d.cliente_nombre) === normalizeKey(pin.nombre) && normalizeKey(d.vendedor_nombre) === normalizeKey(pin.vendedor)) ??
             null;
         }
@@ -965,7 +973,7 @@ export default function MapaRutas({
                   if (!deudoresData) return false;
                   return !!(
                     deudoresData.find(d => d.id_cliente != null && d.id_cliente === p.id) ??
-                    deudoresData.find(d => d.id_cliente_erp && p.idClienteErp && d.id_cliente_erp === p.idClienteErp) ??
+                    deudoresData.find(d => normErpId(d.id_cliente_erp) != null && normErpId(d.id_cliente_erp) === normErpId(p.idClienteErp)) ??
                     deudoresData.find(d => normalizeKey(d.cliente_nombre) === normalizeKey(p.nombre) && normalizeKey(d.vendedor_nombre) === normalizeKey(p.vendedor))
                   );
                 });

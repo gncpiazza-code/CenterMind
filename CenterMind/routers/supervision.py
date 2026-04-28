@@ -125,6 +125,36 @@ def _resolve_vendedor_v2_from_integrante(dist_id: int, id_integrante: int | None
         return None
 
 
+def _fetch_rutas_rows(
+    dist_id: int,
+    select_cols: str,
+    id_vendedor: int | None = None,
+    ruta_ids: list[int] | None = None,
+) -> list[dict]:
+    """
+    Lee rutas priorizando tabla tenant. Si falla (p.ej. schema/policy legacy),
+    cae a tabla legacy `rutas` filtrada por distribuidor.
+    """
+    t_rutas = tenant_table_name("rutas_v2", dist_id)
+    try:
+        q = sb.table(t_rutas).select(select_cols)
+        if id_vendedor is not None:
+            q = q.eq("id_vendedor", id_vendedor)
+        if ruta_ids:
+            q = q.in_("id_ruta", ruta_ids)
+        res = q.execute()
+        return res.data or []
+    except Exception as e_tenant:
+        logger.warning(f"[supervision] rutas tenant fallback dist={dist_id}: {e_tenant}")
+        q = sb.table("rutas").select(select_cols).eq("id_distribuidor", dist_id)
+        if id_vendedor is not None:
+            q = q.eq("id_vendedor", id_vendedor)
+        if ruta_ids:
+            q = q.in_("id_ruta", ruta_ids)
+        res = q.execute()
+        return res.data or []
+
+
 def _resolve_objetivo_exhibicion_id(
     dist_id: int, id_vendedor_v2: int, id_cliente_pdv: int
 ) -> str | None:
@@ -807,7 +837,6 @@ def supervision_vendedores(dist_id: int, user_payload=Depends(verify_auth)):
     try:
         t_vendedores = tenant_table_name("vendedores_v2", dist_id)
         t_sucursales = tenant_table_name("sucursales_v2", dist_id)
-        t_rutas = tenant_table_name("rutas_v2", dist_id)
         t_clientes = tenant_table_name("clientes_pdv_v2", dist_id)
 
         vend_res = (
@@ -822,11 +851,7 @@ def supervision_vendedores(dist_id: int, user_payload=Depends(verify_auth)):
             .eq("id_distribuidor", dist_id)
             .execute()
         )
-        rutas_res = (
-            sb.table(t_rutas)
-            .select("id_ruta,id_vendedor")
-            .execute()
-        )
+        rutas_data = _fetch_rutas_rows(dist_id, "id_ruta,id_vendedor")
         cli_res = (
             sb.table(t_clientes)
             .select("id_cliente,id_ruta,estado")
@@ -837,7 +862,7 @@ def supervision_vendedores(dist_id: int, user_payload=Depends(verify_auth)):
         suc_map = {int(r["id_sucursal"]): (r.get("nombre_erp") or "Sin sucursal") for r in (suc_res.data or [])}
         rutas_por_vend: dict[int, list[int]] = {}
         vend_por_ruta: dict[int, int] = {}
-        for r in (rutas_res.data or []):
+        for r in rutas_data:
             try:
                 rid = int(r["id_ruta"])
                 vid = int(r["id_vendedor"])
@@ -920,10 +945,8 @@ def supervision_rutas(id_vendedor: int, user_payload=Depends(verify_auth)):
             return []
         check_dist_permission(user_payload, dist_id)
 
-        t_rutas = tenant_table_name("rutas_v2", dist_id)
         t_clientes = tenant_table_name("clientes_pdv_v2", dist_id)
-        rutas_res = sb.table(t_rutas).select("id_ruta,id_ruta_erp,dia_semana").eq("id_vendedor", id_vendedor).execute()
-        rutas = rutas_res.data or []
+        rutas = _fetch_rutas_rows(dist_id, "id_ruta,id_ruta_erp,dia_semana", id_vendedor=id_vendedor)
         if not rutas:
             return []
 
@@ -1960,15 +1983,9 @@ def get_pdvs_catalog(
 
         # Obtener clientes filtrados por vendedor (vía rutas_v2) o todos
         if vendedor_id is not None:
-            t_rutas = tenant_table_name("rutas_v2", dist_id)
             t_clientes = tenant_table_name("clientes_pdv_v2", dist_id)
-            rutas_res = (
-                sb.table(t_rutas)
-                .select("id_ruta")
-                .eq("id_vendedor", vendedor_id)
-                .execute()
-            )
-            route_ids = [r["id_ruta"] for r in (rutas_res.data or [])]
+            rutas_data = _fetch_rutas_rows(dist_id, "id_ruta", id_vendedor=vendedor_id)
+            route_ids = [r["id_ruta"] for r in rutas_data]
             if not route_ids:
                 return []
             clients_res = (

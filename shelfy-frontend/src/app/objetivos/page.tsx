@@ -734,7 +734,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
   const vendedoresFiltrados = modalSucursal
     ? vendedores.filter(v => v.sucursal_nombre === modalSucursal)
     : vendedores;
-  const mustSelectSucursalFirst = modalSucursales.length > 1 && !modalSucursal;
+  const mustSelectSucursalFirst = modalSucursales.length > 0 && !modalSucursal;
   const vendedoresCascada = mustSelectSucursalFirst ? [] : vendedoresFiltrados;
 
   // PDV Catalog for exhibición (paginated via API)
@@ -1065,7 +1065,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
                   value={modalSucursal}
                   onChange={e => { setModalSucursal(e.target.value); setVendedorId(""); resetCtx(); }}
                 >
-                  <option value="">Todas las sucursales</option>
+                  <option value="">Seleccionar sucursal...</option>
                   {modalSucursales.map(s => (
                     <option key={s} value={s}>{s}</option>
                   ))}

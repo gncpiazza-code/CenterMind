@@ -146,13 +146,17 @@ def _fetch_rutas_rows(
         return res.data or []
     except Exception as e_tenant:
         logger.warning(f"[supervision] rutas tenant fallback dist={dist_id}: {e_tenant}")
-        q = sb.table("rutas").select(select_cols).eq("id_distribuidor", dist_id)
-        if id_vendedor is not None:
-            q = q.eq("id_vendedor", id_vendedor)
-        if ruta_ids:
-            q = q.in_("id_ruta", ruta_ids)
-        res = q.execute()
-        return res.data or []
+        try:
+            q = sb.table("rutas").select(select_cols).eq("id_distribuidor", dist_id)
+            if id_vendedor is not None:
+                q = q.eq("id_vendedor", id_vendedor)
+            if ruta_ids:
+                q = q.in_("id_ruta", ruta_ids)
+            res = q.execute()
+            return res.data or []
+        except Exception as e_legacy:
+            logger.warning(f"[supervision] rutas legacy fallback también falló dist={dist_id}: {e_legacy}")
+            return []
 
 
 def _resolve_objetivo_exhibicion_id(

@@ -3472,7 +3472,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                               <SelectTrigger className="h-9 w-full bg-[var(--shelfy-bg)] border-[var(--shelfy-border)] text-sm text-[var(--shelfy-text)]">
                                 <SelectValue placeholder="Elegir ruta destino..." />
                               </SelectTrigger>
-                              <SelectContent className="max-h-60">
+                              <SelectContent className="max-h-60 z-[10060]">
                                 {objVendedorRoutes.map(r => (
                                   <SelectItem key={r.id_ruta} value={String(r.id_ruta)}>
                                     Ruta {r.nro_ruta ?? "—"} · {r.dia_semana || "—"}
@@ -3538,7 +3538,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                                   <SelectTrigger className="h-8 w-full bg-[var(--shelfy-panel)] border-[var(--shelfy-border)] text-xs">
                                     <SelectValue placeholder="Ruta destino..." />
                                   </SelectTrigger>
-                                  <SelectContent className="max-h-52">
+                                  <SelectContent className="max-h-52 z-[10060]">
                                     {objVendedorRoutes.map(r => (
                                       <SelectItem key={`${pdvId}-${r.id_ruta}`} value={String(r.id_ruta)}>
                                         Ruta {r.nro_ruta ?? "—"} · {r.dia_semana || "—"}

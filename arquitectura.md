@@ -112,6 +112,10 @@ Este documento describe la infraestructura, tecnologías y flujos de datos que c
 30. **Galería — consulta por cliente desacoplada de integrantes (Abr 2026)**:
     - `GET /api/galeria/vendedor/{id_vendedor}/clientes` ya no corta en vacío si faltan filas en `integrantes_grupo`.
     - La fuente principal para clientes con exhibición es `rutas_v2` + `clientes_pdv_v2` + `exhibiciones.id_cliente_pdv`, consistente con supervisión.
+31. **Fuerza de Ventas — mapeo explícito vendedor↔Telegram sincronizado (Abr 2026)**:
+    - Guardar un vendedor en `PUT /api/fuerza-ventas/vendedor/{id_vendedor}` actualiza **dos capas**: `vendedores_telegram_binding` (modelo nuevo) e `integrantes_grupo.id_vendedor_v2` (legacy operativo todavía consumido por reportes/helpers).
+    - El backend propaga también `id_vendedor_erp` al integrante cuando está disponible y limpia asignaciones paralelas del mismo `id_vendedor_v2` para evitar doble atribución de exhibiciones.
+    - Resultado: el tenant corrige cruces de vendedor desde UI sin hotfix backend manual.
 31. **Visor — pendientes enriquecidos con sucursal (Abr 2026)**:
     - `GET /api/pendientes/{id_distribuidor}` agrega `sucursal` por grupo para habilitar filtros operativos en el visor.
     - La sucursal se resuelve por cadena relacional `exhibiciones -> clientes_pdv_v2 -> rutas_v2 -> vendedores_v2 -> sucursales_v2` (sin hardcodeos).

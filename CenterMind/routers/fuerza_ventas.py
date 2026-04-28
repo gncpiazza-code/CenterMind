@@ -423,6 +423,19 @@ def fuerza_ventas_update_vendedor(
     binding_req = VendedorTelegramBindingRequest(**binding_payload) if binding_payload else None
 
     try:
+        vend_row = (
+            sb.table(tenant_table_name("vendedores_v2", dist_id))
+            .select("id_vendedor,id_vendedor_erp")
+            .eq("id_distribuidor", dist_id)
+            .eq("id_vendedor", id_vendedor)
+            .limit(1)
+            .execute()
+        )
+        if not vend_row.data:
+            raise HTTPException(status_code=404, detail="Vendedor no encontrado")
+        vendedor = vend_row.data[0]
+        vendedor_erp = _safe_text(vendedor.get("id_vendedor_erp")).strip() or None
+
         # Upsert perfil
         perfil_data = perfil_req.model_dump(exclude_none=True)
         if perfil_data:
@@ -442,6 +455,20 @@ def fuerza_ventas_update_vendedor(
                     "updated_by": payload.get("usuario", "portal"),
                     **binding_data,
                 }, on_conflict="id_distribuidor,id_vendedor_v2").execute()
+
+                tg_uid = _safe_int(binding_data.get("telegram_user_id"))
+                tg_gid = _safe_int(binding_data.get("telegram_group_id"))
+                if tg_uid is not None:
+                    # 1) El user Telegram elegido queda explícitamente vinculado al vendedor.
+                    integ_update = {"id_vendedor_v2": id_vendedor}
+                    if vendedor_erp:
+                        integ_update["id_vendedor_erp"] = vendedor_erp
+                    if tg_gid is not None:
+                        integ_update["telegram_group_id"] = tg_gid
+                    sb.table("integrantes_grupo").update(integ_update).eq("id_distribuidor", dist_id).eq("telegram_user_id", tg_uid).execute()
+
+                    # 2) Evita dobles asignaciones del mismo vendedor a otros users.
+                    sb.table("integrantes_grupo").update({"id_vendedor_v2": None}).eq("id_distribuidor", dist_id).eq("id_vendedor_v2", id_vendedor).neq("telegram_user_id", tg_uid).execute()
 
         return {"ok": True, "id_vendedor": id_vendedor}
     except HTTPException:

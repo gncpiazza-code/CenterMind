@@ -705,6 +705,7 @@ Archivo `shelfy_mapa_arquitectonico.html` en la raíz del repo. Dashboard HTML e
 - En Fuerza de Ventas, `ciudad/localidad` deben salir del catálogo del tenant (`fetchLocations`) mediante `Select`, no como texto libre.
 - En `Select` con listas potencialmente largas (ej. binding Telegram grupo/usuario), definir `max-h-*` en `SelectContent` para garantizar scroll interno y evitar recorte de opciones.
 - En selectores con homónimos de Telegram, mostrar metadata contextual en el item (`total_exhibiciones`, `ultima_exhibicion`) para facilitar mapeo correcto de usuario.
+- En Fuerza de Ventas, tratar el binding guardado por tenant como fuente de verdad: sincronizar `vendedores_telegram_binding` **y** `integrantes_grupo.id_vendedor_v2` para evitar cruces por automatch de nombre.
 - En endpoints de Modo Oficina no usar guard hardcodeado de superadmin; respetar permiso `menu_modo_oficina` y mantener scope por `id_distribuidor` para usuarios no-superadmin.
 - En `/api/admin/distribuidoras|distribuidores`, permitir lectura a usuarios con `action_switch_tenant` (además de superadmin) para evitar 403 del switcher de entorno.
 

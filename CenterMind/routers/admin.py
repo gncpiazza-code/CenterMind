@@ -16,6 +16,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from core.config import WEBHOOK_URL
 from core.lifespan import bots, manager
 from core.security import verify_auth, check_dist_permission
+from core.tenant_tables import tenant_table_name, load_dist_ids, find_dist_by_ruta
 from db import sb
 from models.schemas import (
     AsignarVendedorRequest,
@@ -349,8 +350,8 @@ def get_mapeo_integrantes(dist_id: int, user_payload=Depends(verify_auth)):
             .eq("id_distribuidor", dist_id).neq("rol_telegram", "supervisor").order("nombre_integrante")
             .execute()
         )
-        vend_res = sb.table("vendedores_v2").select("id_vendedor, nombre_erp, id_sucursal").eq("id_distribuidor", dist_id).order("nombre_erp").execute()
-        suc_res  = sb.table("sucursales_v2").select("id_sucursal, nombre_erp").eq("id_distribuidor", dist_id).execute()
+        vend_res = sb.table(tenant_table_name("vendedores_v2", dist_id)).select("id_vendedor, nombre_erp, id_sucursal").eq("id_distribuidor", dist_id).order("nombre_erp").execute()
+        suc_res  = sb.table(tenant_table_name("sucursales_v2", dist_id)).select("id_sucursal, nombre_erp").eq("id_distribuidor", dist_id).execute()
         suc_map  = {s["id_sucursal"]: s["nombre_erp"] for s in (suc_res.data or [])}
         vendedores  = [{**v, "sucursales": {"nombre_erp": suc_map.get(v["id_sucursal"], f"Sucursal {v['id_sucursal']}")}} for v in (vend_res.data or [])]
         integrantes = [{**ig, "id_vendedor": ig.get("id_vendedor_v2")} for ig in (ig_res.data or [])]
@@ -369,7 +370,33 @@ def set_mapeo_vendedor(id_integrante: int, req: MapeoVendedorRequest, user_paylo
         if not ig.data:
             raise HTTPException(status_code=404, detail="Integrante no encontrado")
         check_dist_permission(user_payload, ig.data["id_distribuidor"])
+        current = (
+            sb.table("integrantes_grupo")
+            .select("id_distribuidor, telegram_user_id, telegram_group_id")
+            .eq("id_integrante", id_integrante)
+            .limit(1)
+            .execute()
+        )
+        row = (current.data or [{}])[0]
+        dist_id = row.get("id_distribuidor")
+        tg_uid = row.get("telegram_user_id")
+        tg_gid = row.get("telegram_group_id")
+
         sb.table("integrantes_grupo").update({"id_vendedor_v2": req.id_vendedor}).eq("id_integrante", id_integrante).execute()
+
+        # Sincroniza al binding moderno para que Fuerza de Ventas y métricas queden alineadas.
+        if req.id_vendedor is not None and dist_id and tg_uid is not None:
+            sb.table("vendedores_telegram_binding").upsert(
+                {
+                    "id_distribuidor": dist_id,
+                    "id_vendedor_v2": req.id_vendedor,
+                    "telegram_user_id": tg_uid,
+                    "telegram_group_id": tg_gid,
+                    "updated_by": user_payload.get("usuario", "portal"),
+                },
+                on_conflict="id_distribuidor,id_vendedor_v2",
+            ).execute()
+
         return {"ok": True}
     except HTTPException:
         raise
@@ -462,14 +489,51 @@ def get_live_map_events(minutos: int | None = None, fecha: str | None = None, us
         pdv_ids  = list(set(e["id_cliente_pdv"] for e in raw_events if e.get("id_cliente_pdv")))
         dists    = {d["id_distribuidor"]: d["nombre_display"] or d["nombre_empresa"]
                     for d in sb.table("distribuidores").select("id_distribuidor, nombre_empresa, nombre_display").in_("id_distribuidor", dist_ids).execute().data or []}
+        # Agrupar pdv_ids por distribuidor para usar tablas tenant
+        dist_to_pdv_ids: dict[int, list] = {}
+        for e in raw_events:
+            did = e["id_distribuidor"]
+            cid = e.get("id_cliente_pdv")
+            if cid:
+                dist_to_pdv_ids.setdefault(did, []).append(cid)
+
         pdv_map: dict = {}
-        if pdv_ids:
-            pdv_res = sb.table("clientes_pdv_v2").select(
-                "id_cliente, id_cliente_erp, nombre_fantasia, latitud, longitud, "
-                "rutas_v2(id_ruta, id_ruta_erp, vendedores_v2(id_vendedor, nombre_erp, sucursales_v2(id_sucursal, nombre_erp)))"
-            ).in_("id_cliente", pdv_ids).execute()
-            for row in pdv_res.data or []:
-                pdv_map[row["id_cliente"]] = row
+        for did, pids in dist_to_pdv_ids.items():
+            pids_uniq = list(set(pids))
+            t_cli  = tenant_table_name("clientes_pdv_v2", did)
+            t_rut  = tenant_table_name("rutas_v2", did)
+            t_vend = tenant_table_name("vendedores_v2", did)
+            t_suc  = tenant_table_name("sucursales_v2", did)
+            try:
+                cli_res = sb.table(t_cli).select(
+                    "id_cliente, id_cliente_erp, nombre_fantasia, latitud, longitud, id_ruta"
+                ).in_("id_cliente", pids_uniq).execute()
+                cli_rows = cli_res.data or []
+                ruta_ids = list({r["id_ruta"] for r in cli_rows if r.get("id_ruta")})
+                ruta_to_vend: dict = {}
+                if ruta_ids:
+                    rut_res = sb.table(t_rut).select("id_ruta, id_vendedor").in_("id_ruta", ruta_ids).execute()
+                    ruta_to_vend = {r["id_ruta"]: r["id_vendedor"] for r in (rut_res.data or [])}
+                vend_ids = list({v for v in ruta_to_vend.values() if v is not None})
+                vend_info: dict = {}
+                suc_info: dict = {}
+                if vend_ids:
+                    vr = sb.table(t_vend).select("id_vendedor, nombre_erp, id_sucursal").in_("id_vendedor", vend_ids).execute()
+                    vend_info = {v["id_vendedor"]: v for v in (vr.data or [])}
+                    suc_ids = list({v["id_sucursal"] for v in vend_info.values() if v.get("id_sucursal")})
+                    if suc_ids:
+                        sr = sb.table(t_suc).select("id_sucursal, nombre_erp").in_("id_sucursal", suc_ids).execute()
+                        suc_info = {s["id_sucursal"]: s["nombre_erp"] for s in (sr.data or [])}
+                for row in cli_rows:
+                    id_ruta   = row.get("id_ruta")
+                    id_vend   = ruta_to_vend.get(id_ruta)
+                    vd        = vend_info.get(id_vend, {})
+                    row["_nombre_vendedor"] = vd.get("nombre_erp")
+                    row["_id_vendedor"]     = id_vend
+                    row["_nombre_sucursal"] = suc_info.get(vd.get("id_sucursal"))
+                    pdv_map[row["id_cliente"]] = row
+            except Exception as _e_dist:
+                logger.warning(f"[live_map_events] Error cargando PDVs dist={did}: {_e_dist}")
 
         final_data = []
         for e in raw_events:
@@ -478,22 +542,10 @@ def get_live_map_events(minutos: int | None = None, fecha: str | None = None, us
             lon = pdv.get("longitud") if pdv else e.get("longitud_gps")
             if not lat or lat == 0:
                 continue
-            nombre_sucursal = "Sin Sucursal"
-            nombre_vendedor = "Sin Vendedor"
-            dist_name       = dists.get(e["id_distribuidor"], f"Dist {e['id_distribuidor']}")
-            id_vendedor_found = None
-            if pdv and pdv.get("rutas_v2"):
-                rutas_raw = pdv["rutas_v2"]
-                if not isinstance(rutas_raw, list): rutas_raw = [rutas_raw]
-                for ruta in rutas_raw:
-                    if not ruta: continue
-                    vendedor = ruta.get("vendedores_v2")
-                    if vendedor:
-                        nombre_vendedor   = vendedor.get("nombre_erp", "Vendedor S/N")
-                        id_vendedor_found = vendedor.get("id_vendedor")
-                        suc = vendedor.get("sucursales_v2")
-                        if suc: nombre_sucursal = suc.get("nombre_erp", "Sucursal S/N")
-                        break
+            nombre_sucursal   = pdv.get("_nombre_sucursal") or "Sin Sucursal" if pdv else "Sin Sucursal"
+            nombre_vendedor   = pdv.get("_nombre_vendedor") or "Sin Vendedor" if pdv else "Sin Vendedor"
+            id_vendedor_found = pdv.get("_id_vendedor") if pdv else None
+            dist_name         = dists.get(e["id_distribuidor"], f"Dist {e['id_distribuidor']}")
             final_data.append({
                 "id_ex": e["id_exhibicion"], "id_dist": e["id_distribuidor"],
                 "nombre_dist": dist_name, "sucursal_nombre": nombre_sucursal,
@@ -782,7 +834,9 @@ def get_hierarchy_rutas(vendedor_id: int, _=Depends(verify_auth)):
 
 @router.get("/api/admin/hierarchy/clientes-pdv/{ruta_id}", tags=["Hierarchy"])
 def get_hierarchy_clientes_pdv(ruta_id: int, _=Depends(verify_auth)):
-    res = sb.table("clientes_pdv_v2").select("id_cliente, id_cliente_erp, nombre_fantasia, domicilio").eq("id_ruta", ruta_id).order("nombre_fantasia").execute()
+    dist_id = find_dist_by_ruta(sb, ruta_id, load_dist_ids(sb))
+    t_clientes = tenant_table_name("clientes_pdv_v2", dist_id)
+    res = sb.table(t_clientes).select("id_cliente, id_cliente_erp, nombre_fantasia, domicilio").eq("id_ruta", ruta_id).order("nombre_fantasia").execute()
     return res.data or []
 
 
@@ -823,13 +877,13 @@ def map_integrante_sucursal(data: dict, user_payload=Depends(verify_auth)):
 def sync_hierarchy_from_erp(dist_id: int, user_payload=Depends(verify_auth)):
     check_dist_permission(user_payload, dist_id)
     try:
-        res_vend = sb.table("vendedores_v2").select("nombre_erp, id_vendedor_erp, id_sucursal").eq("id_distribuidor", dist_id).execute()
+        res_vend = sb.table(tenant_table_name("vendedores_v2", dist_id)).select("nombre_erp, id_vendedor_erp, id_sucursal").eq("id_distribuidor", dist_id).execute()
         if not res_vend.data:
             return {"message": "No hay vendedores en vendedores_v2 para sincronizar.", "count": 0}
         suc_ids = list(set(r["id_sucursal"] for r in res_vend.data if r.get("id_sucursal")))
         suc_erp_map: dict = {}
         if suc_ids:
-            suc_res = sb.table("sucursales_v2").select("id_sucursal, id_sucursal_erp").in_("id_sucursal", suc_ids).execute()
+            suc_res = sb.table(tenant_table_name("sucursales_v2", dist_id)).select("id_sucursal, id_sucursal_erp").in_("id_sucursal", suc_ids).execute()
             suc_erp_map = {r["id_sucursal"]: r["id_sucursal_erp"] for r in (suc_res.data or [])}
 
         def normalize_str(text: str) -> str:
@@ -882,7 +936,20 @@ def admin_get_clientes(dist_id: int, location_id: str | None = None, id_vendedor
 
 @router.put("/api/admin/clientes/{id_cliente}/vendedor", summary="Asignar vendedor a cliente")
 def admin_asignar_vendedor(id_cliente: int, req: AsignarVendedorRequest, _=Depends(verify_auth)):
-    r = sb.table("clientes_pdv_v2").update({"id_vendedor": req.id_integrante}).eq("id_cliente", id_cliente).execute()
+    dist_id = None
+    for did in load_dist_ids(sb):
+        t = tenant_table_name("clientes_pdv_v2", did)
+        try:
+            chk = sb.table(t).select("id_cliente").eq("id_cliente", id_cliente).limit(1).execute()
+            if chk.data:
+                dist_id = did
+                break
+        except Exception:
+            continue
+    if dist_id is None:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+    t_clientes = tenant_table_name("clientes_pdv_v2", dist_id)
+    r = sb.table(t_clientes).update({"id_vendedor": req.id_integrante}).eq("id_cliente", id_cliente).execute()
     if not r.data:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
     return {"ok": True, "id_cliente": id_cliente, "id_integrante": req.id_integrante}

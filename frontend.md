@@ -184,6 +184,10 @@ Layout conservado (overlay-based): barra superior semitransparente + barra infer
 ### 15. Fuerza de Ventas — contexto de actividad por usuario Telegram (15/04/2026)
 - El select de “Usuario Telegram” muestra sublínea en gris por opción con `total_exhibiciones` y fecha de `ultima_exhibicion`.
 - Permite desambiguar homónimos (ej. dos “Jeronimo”) usando actividad real de exhibiciones.
+### 15b. Fuerza de Ventas — mapeo tenant-first sincronizado (28/04/2026)
+- En `VendedorEditSheet`, al guardar binding Telegram ya no se persiste solo el vínculo “nuevo”; el backend sincroniza también la asignación operativa usada por métricas/reportes.
+- La UI deja explícito que `Nombre en panel = nombre_erp` y que ese guardado define la fuente principal de atribución del vendedor.
+- Atajo operativo recomendado para tenant: corregir desde esta pantalla la dupla `Grupo + Usuario Telegram` cuando un vendedor sume exhibiciones ajenas.
 
 ### 16. Modo Oficina — estabilidad visual KPI chart (15/04/2026)
 - `ResponsiveContainer` del bloque KPI usa `minWidth={0}` y `minHeight={80}` para evitar warnings de Recharts (`width(-1)/height(-1)`) durante transiciones/layout.

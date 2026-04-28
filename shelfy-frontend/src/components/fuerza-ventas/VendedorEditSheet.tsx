@@ -413,6 +413,11 @@ export function VendedorEditSheet({ idVendedor, distId, open, onClose }: Vendedo
                 )}
               </div>
 
+              <div className="rounded-xl border px-3 py-2 mb-3 text-xs" style={{ borderColor: "var(--shelfy-border)", color: "var(--shelfy-muted)" }}>
+                Nombre en panel: <span className="font-bold" style={{ color: "var(--shelfy-text)" }}>{vendedor?.nombre_erp ?? "—"}</span>
+                <span className="ml-1">· al guardar, este binding se sincroniza como fuente principal de asignación.</span>
+              </div>
+
               {/* Estado actual */}
               <div className="rounded-xl border px-3 py-2 mb-3 flex items-center gap-2" style={{ borderColor: "var(--shelfy-border)" }}>
                 <span className="text-xs font-semibold" style={{ color: "var(--shelfy-muted)" }}>Estado actual:</span>

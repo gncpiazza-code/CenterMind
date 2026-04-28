@@ -825,7 +825,6 @@ def supervision_vendedores(dist_id: int, user_payload=Depends(verify_auth)):
         rutas_res = (
             sb.table(t_rutas)
             .select("id_ruta,id_vendedor")
-            .eq("id_distribuidor", dist_id)
             .execute()
         )
         cli_res = (

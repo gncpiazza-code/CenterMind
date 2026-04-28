@@ -171,9 +171,22 @@ def get_erp_contexto(id_distribuidor: int, nro_cliente: str, user_payload=Depend
         candidates: list[str] = []
         if raw_nro:
             candidates.append(raw_nro)
+            # Normaliza variantes frecuentes: "0010517", "10517.0", "10.517"
+            normalized = raw_nro.replace(".", "").replace(",", "")
+            if normalized.endswith("0") and "." in raw_nro:
+                normalized = normalized.rstrip("0")
+            normalized = normalized.strip()
+            if normalized and normalized not in candidates:
+                candidates.append(normalized)
+            digits_only = "".join(ch for ch in raw_nro if ch.isdigit())
+            if digits_only and digits_only not in candidates:
+                candidates.append(digits_only)
             nozeros = raw_nro.lstrip("0")
             if nozeros and nozeros not in candidates:
                 candidates.append(nozeros)
+            nozeros_digits = digits_only.lstrip("0") if digits_only else ""
+            if nozeros_digits and nozeros_digits not in candidates:
+                candidates.append(nozeros_digits)
         if not candidates:
             candidates = [raw_nro]
 

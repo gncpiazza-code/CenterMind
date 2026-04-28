@@ -25,7 +25,7 @@ import {
   ChevronLeft, ChevronRight, ImageOff,
   User, Lock, ChevronUp, Store,
   MapPin, Calendar, ShoppingCart,
-  CreditCard, Tag,
+  CreditCard, Tag, CircleHelp,
 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/Button";
@@ -535,7 +535,7 @@ export default function VisorPage() {
         case "7":
         case "8":
         case "9":
-          if (!withMod) return;
+          if (!(withMod && e.altKey)) return;
           {
             const idx = Number(e.key) - 1;
             const tpl = commentTemplates[idx];
@@ -898,7 +898,7 @@ export default function VisorPage() {
         label="Zoom"
       />
       <ShortcutItem
-        keys={<KbdGroup><Kbd>⌘/Ctrl</Kbd><span>+</span><Kbd>1..9</Kbd></KbdGroup>}
+        keys={<KbdGroup><Kbd>⌘/Ctrl</Kbd><span>+</span><Kbd>Alt</Kbd><span>+</span><Kbd>1..9</Kbd></KbdGroup>}
         label="Frases"
       />
       <ShortcutItem keys={<KbdGroup><Kbd>←</Kbd><Kbd>→</Kbd></KbdGroup>} label="Fotos" />
@@ -1310,10 +1310,27 @@ export default function VisorPage() {
                     {/* Buttons row */}
                     <div className="flex items-center gap-3">
                       {evalButtons}
-                    </div>
-                    {/* Kbd hints row */}
-                    <div className="opacity-80 hover:opacity-100 transition-opacity">
-                      {kbdLegend}
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <button
+                            type="button"
+                            title="Ver atajos"
+                            className="size-8 flex items-center justify-center rounded-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] hover:bg-[var(--shelfy-panel)] transition-colors"
+                          >
+                            <CircleHelp size={15} />
+                          </button>
+                        </PopoverTrigger>
+                        <PopoverContent
+                          side="top"
+                          align="center"
+                          className="w-[min(920px,86vw)] border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] p-3"
+                        >
+                          <p className="text-[10px] font-black text-[var(--shelfy-muted)] uppercase tracking-wider mb-2">
+                            Atajos de teclado
+                          </p>
+                          {kbdLegend}
+                        </PopoverContent>
+                      </Popover>
                     </div>
                   </div>
                 </div>

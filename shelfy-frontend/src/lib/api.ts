@@ -476,7 +476,7 @@ export async function revertir(ids: number[]) {
 }
 
 export async function fetchERPContexto(distribuidorId: number, nroCliente: string): Promise<ERPContexto> {
-  return apiFetch<ERPContexto>(`/api/erp/contexto-cliente/${distribuidorId}/${nroCliente}`);
+  return apiFetch<ERPContexto>(`/api/erp/contexto-cliente/${distribuidorId}/${encodeURIComponent(nroCliente)}`);
 }
 
 export async function fetchROI(distribuidorId: number): Promise<ROIAnalitico> {

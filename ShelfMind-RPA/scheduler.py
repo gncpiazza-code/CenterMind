@@ -2,17 +2,16 @@
 """
 scheduler.py
 ============
-Proceso siempre activo que ejecuta los motores RPA en horario fijo.
+Proceso siempre activo: solo **cuentas corrientes** en horario Argentina.
 
-Horarios (hora Argentina — America/Argentina/Buenos_Aires):
-  La región del servidor (ej. us-west en Railway) no afecta: APScheduler dispara por reloj AR.
+Zona: America/Argentina/Buenos_Aires (independiente de la región del host, ej. us-west).
 
-  04:00  Padrón (HTTP → API)
+Horarios:
   07:00  Cuentas corrientes
   14:30  Cuentas corrientes (2.ª pasada)
-  07:30  Ventas (después de la 1.ª CC)
-  15:00  Ventas
-  23:00  Ventas
+
+Padrón / ventas: no están programados acá. Para padrón vía HTTP ver `_run_padron` abajo
+(reactivar `scheduler.add_job(job_padron, ...)` cuando corresponda). Ventas: `python runner.py ventas`.
 
 Inicio: python scheduler.py
 """
@@ -20,8 +19,6 @@ Inicio: python scheduler.py
 import asyncio
 import logging
 import os
-import sys
-from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -40,16 +37,6 @@ logger = logging.getLogger("SCHEDULER")
 AR_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
 
 
-# ── Wrappers síncronos para APScheduler ──────────────────────────────────────
-
-def job_ventas():
-    logger.info("⏰ Trigger VENTAS")
-    try:
-        asyncio.run(_run_ventas())
-    except Exception as e:
-        logger.error(f"Error en job_ventas: {e}")
-
-
 def job_cuentas():
     logger.info("⏰ Trigger CUENTAS")
     try:
@@ -59,6 +46,7 @@ def job_cuentas():
 
 
 def job_padron():
+    """Reservado: trigger HTTP al API (no programado por defecto)."""
     logger.info("⏰ Trigger PADRÓN")
     try:
         asyncio.run(_run_padron())
@@ -67,16 +55,6 @@ def job_padron():
 
 
 # ── Runners async ─────────────────────────────────────────────────────────────
-
-async def _run_ventas():
-    from motores.ventas import run
-    resumen = await run()
-    logger.info(
-        f"VENTAS completo — ok={resumen['ok']}, "
-        f"sin_cambios={resumen['sin_cambios']}, "
-        f"errores={resumen['errores']}, "
-        f"duración={resumen['duracion_min']}min"
-    )
 
 
 async def _run_cuentas():
@@ -90,8 +68,8 @@ async def _run_cuentas():
 
 async def _run_padron():
     """
-    El padrón se dispara via API (POST /api/motor/padron-trigger).
-    Este job hace un simple HTTP call para que la API lo procese.
+    POST /api/motor/padron-trigger (sin Playwright en el RPA).
+    Descomentá en main() el add_job de padron cuando lo quieras a las 04:00 AR.
     """
     import httpx
     from lib.shelfy_config import get_shelfy_api_key, get_shelfy_base_url
@@ -114,9 +92,10 @@ async def _run_padron():
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
+
 def main():
     logger.info("=" * 60)
-    logger.info("  ShelfMind RPA Scheduler — iniciando")
+    logger.info("  ShelfMind RPA Scheduler — solo CUENTAS CORRIENTES")
     from lib.shelfy_config import get_shelfy_base_url, get_shelfy_api_key
 
     _b = get_shelfy_base_url()
@@ -128,22 +107,20 @@ def main():
 
     scheduler = BackgroundScheduler(timezone=AR_TZ)
 
-    # Cuentas: 07:00 y 14:30 hora Argentina (CronTrigger con timezone=AR_TZ)
-    scheduler.add_job(job_cuentas, CronTrigger(hour=7,  minute=0,  timezone=AR_TZ), id="cuentas_0700")
+    scheduler.add_job(job_cuentas, CronTrigger(hour=7, minute=0, timezone=AR_TZ), id="cuentas_0700")
     scheduler.add_job(job_cuentas, CronTrigger(hour=14, minute=30, timezone=AR_TZ), id="cuentas_1430")
 
-    # Ventas: 07:30, 15:00 y 23:00
-    scheduler.add_job(job_ventas, CronTrigger(hour=7,  minute=30, timezone=AR_TZ), id="ventas_0730")
-    scheduler.add_job(job_ventas, CronTrigger(hour=15, minute=0,  timezone=AR_TZ), id="ventas_1500")
-    scheduler.add_job(job_ventas, CronTrigger(hour=23, minute=0,  timezone=AR_TZ), id="ventas_2300")
-
-    # Padrón: 04:00
-    scheduler.add_job(job_padron, CronTrigger(hour=4, minute=0, timezone=AR_TZ), id="padron_0400")
+    # Padrón (04:00 AR): desactivado hasta que lo configures; descomentá:
+    # scheduler.add_job(job_padron, CronTrigger(hour=4, minute=0, timezone=AR_TZ), id="padron_0400")
 
     scheduler.start()
 
-    logger.info("Scheduler activo. Jobs programados:")
-    for job in scheduler.get_jobs():
+    logger.info("Scheduler activo. Jobs programados (orden por próxima ejecución):")
+    jobs = sorted(
+        scheduler.get_jobs(),
+        key=lambda j: (j.next_run_time is None, j.next_run_time or ""),
+    )
+    for job in jobs:
         logger.info(f"  [{job.id}] próxima ejecución: {job.next_run_time}")
 
     logger.info("Esperando... (Ctrl+C para detener)")

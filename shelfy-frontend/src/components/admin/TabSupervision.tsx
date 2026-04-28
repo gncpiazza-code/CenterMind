@@ -3677,6 +3677,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                     value={objFecha}
                     onChange={setObjFecha}
                     placeholder="Fecha límite"
+                    contentClassName="z-[10070]"
                   />
                 </div>
 

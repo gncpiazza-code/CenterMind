@@ -14,6 +14,7 @@ type DatePickerProps = {
   onChange: (value: string) => void
   placeholder?: string
   className?: string
+  contentClassName?: string
   minDate?: string
   disabled?: boolean
 }
@@ -30,16 +31,28 @@ export function DatePicker({
   onChange,
   placeholder = "Seleccionar fecha",
   className,
+  contentClassName,
   minDate,
   disabled = false,
 }: DatePickerProps) {
   const selectedDate = parseIsoDate(value)
   const min = parseIsoDate(minDate)
-  const [timeZone, setTimeZone] = React.useState<string | undefined>(undefined)
 
+  // Resolve once synchronously — avoids Calendar resetting its internal month
+  // state when the timezone updates asynchronously via useEffect.
+  const timeZone = React.useMemo(
+    () => Intl.DateTimeFormat().resolvedOptions().timeZone,
+    []
+  )
+
+  // Controlled month: ensures navigation persists across renders and parent
+  // state changes that would otherwise cause DayPicker to reset to today.
+  const [month, setMonth] = React.useState<Date>(() => selectedDate ?? new Date())
+
+  // Sync displayed month when a date is selected or cleared from outside
   React.useEffect(() => {
-    setTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone)
-  }, [])
+    if (selectedDate) setMonth(selectedDate)
+  }, [value]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className={cn("flex items-center gap-2", className)}>
@@ -58,10 +71,12 @@ export function DatePicker({
             {selectedDate ? format(selectedDate, "yyyy-MM-dd") : placeholder}
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-auto p-0" align="start">
+        <PopoverContent className={cn("w-auto p-0", contentClassName)} align="start">
           <Calendar
             mode="single"
             selected={selectedDate}
+            month={month}
+            onMonthChange={setMonth}
             disabled={disabled ? true : min ? { before: min } : undefined}
             onSelect={(date) => {
               if (!date) return

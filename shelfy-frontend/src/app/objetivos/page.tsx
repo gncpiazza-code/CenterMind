@@ -2707,6 +2707,7 @@ export default function ObjetivosPage() {
                   onChange={setFechaReagendar}
                   minDate={new Date().toISOString().split("T")[0]}
                   placeholder="Nueva fecha límite"
+                  contentClassName="z-[200]"
                 />
               </div>
 

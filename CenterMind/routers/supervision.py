@@ -875,10 +875,6 @@ def supervision_vendedores(dist_id: int, user_payload=Depends(verify_auth)):
             sb.table(t_clientes)
             .select("id_cliente,id_cliente_erp,id_ruta,fecha_ultima_compra")
             .eq("id_distribuidor", dist_id)
-            .not_.is_("latitud", "null")
-            .not_.is_("longitud", "null")
-            .gte("latitud", -55).lte("latitud", -21)
-            .gte("longitud", -74).lte("longitud", -53)
             .execute()
         )
 

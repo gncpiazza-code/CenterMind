@@ -311,6 +311,22 @@ python -c "import asyncio; from motores.cuentas_corrientes import run; asyncio.r
 - ❌ Omitir filtro `id_distribuidor` en queries — regla de tenant estricta
 - ❌ `.select()` sin paginación en tablas grandes — usar `.range()` en loop
 
+> **🚨 BUG REAL (2026-04-28):** `supervision_vendedores` consultaba `clientes_pdv_v2_d{id}` sin paginar. Tabaco tiene 13k+ PDVs; Supabase devolvía solo los primeros 1000. Resultado: un vendedor mostraba "16 PDV" en el panel cuando tenía 200+ reales. Los números en el detalle de rutas eran correctos porque esas queries son por ruta individual (pocas filas). **Patrón obligatorio para tablas con >1k filas:**
+
+```python
+PAGE = 1000
+all_rows: list[dict] = []
+offset = 0
+while True:
+    batch = sb.table(t).select("...").eq(...).range(offset, offset + PAGE - 1).execute().data or []
+    all_rows.extend(batch)
+    if len(batch) < PAGE:
+        break
+    offset += PAGE
+```
+
+> Tablas que YA superan 1k filas por dist: `clientes_pdv_v2_d{id}` (Tabaco ~13k), `cc_detalle` (por dist), `ventas_v2`.
+
 ---
 
 > **Sincronización Obligatoria:** Al finalizar cada implementación, seguir el protocolo del Skill: [`.claude/skills/shelfy-protocol/SKILL.md`](.claude/skills/shelfy-protocol/SKILL.md)

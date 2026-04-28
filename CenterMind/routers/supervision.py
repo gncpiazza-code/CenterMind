@@ -2587,21 +2587,23 @@ def supervision_sync_status(dist_id: int, user_payload=Depends(verify_auth)):
         try:
             res_cc = (
                 sb.table("cc_detalle")
-                .select("created_at")
+                .select("created_at, fecha_snapshot")
                 .eq("id_distribuidor", dist_id)
                 .order("created_at", desc=True)
                 .limit(1)
                 .execute()
             )
-            count_cc = (
-                sb.table("cc_detalle")
-                .select("id", count="exact")
-                .eq("id_distribuidor", dist_id)
-                .execute()
-            )
             if res_cc.data:
                 cc_data["last_updated"] = res_cc.data[0]["created_at"]
-            cc_data["count"] = count_cc.count or 0
+                latest_snapshot = res_cc.data[0]["fecha_snapshot"]
+                count_cc = (
+                    sb.table("cc_detalle")
+                    .select("id", count="exact")
+                    .eq("id_distribuidor", dist_id)
+                    .eq("fecha_snapshot", latest_snapshot)
+                    .execute()
+                )
+                cc_data["count"] = count_cc.count or 0
         except Exception as e:
             logger.warning(f"[sync-status] error leyendo CC dist={dist_id}: {e}")
 

@@ -1382,6 +1382,8 @@ export interface ClienteContacto {
   canal: string | null;
   latitud: number | null;
   longitud: number | null;
+  fecha_ultima_compra: string | null;
+  estado: string | null;
 }
 
 export async function fetchClienteInfo(distId: number, nombre: string, idClienteErp?: string | null): Promise<ClienteContacto[]> {

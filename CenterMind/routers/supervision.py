@@ -1359,7 +1359,7 @@ def supervision_cliente_info(
 
     try:
         check_dist_permission(user_payload, dist_id)
-        fields       = "id_cliente, id_cliente_erp, nombre_fantasia, nombre_razon_social, domicilio, localidad, provincia, canal, latitud, longitud"
+        fields       = "id_cliente, id_cliente_erp, nombre_fantasia, nombre_razon_social, domicilio, localidad, provincia, canal, latitud, longitud, fecha_ultima_compra, estado"
         nombre_s     = nombre.strip()
         nombre_plain = _strip_accents(nombre_s)
 

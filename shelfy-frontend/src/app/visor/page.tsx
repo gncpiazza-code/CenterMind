@@ -14,7 +14,8 @@ import {
   evaluar, revertir,
   resolveImageUrl,
   fetchERPContexto,
-  type GrupoPendiente, type StatsHoy, type ERPContexto,
+  fetchClienteInfo,
+  type GrupoPendiente, type StatsHoy, type ERPContexto, type ClienteContacto,
 } from "@/lib/api";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { Separator } from "@/components/ui/separator";
@@ -375,6 +376,15 @@ export default function VisorPage() {
     enabled: !!user?.usa_contexto_erp && distId > 0 && !skipErpFetch,
     staleTime: 60_000,
   });
+
+  // PDV data from tenant table — always fetched regardless of usa_contexto_erp
+  const { data: pdvRows } = useQuery<ClienteContacto[]>({
+    queryKey: ["visor", "pdv-contacto", distId, nroForErp],
+    queryFn: () => fetchClienteInfo(distId, grupo?.vendedor ?? "", nroForErp),
+    enabled: distId > 0 && !skipErpFetch,
+    staleTime: 120_000,
+  });
+  const pdvInfo: ClienteContacto | null = pdvRows?.[0] ?? null;
 
   const erpContext: ERPContexto | null = erpRaw
     ? {
@@ -1136,6 +1146,44 @@ export default function VisorPage() {
                       <p className="text-xs font-mono font-bold text-[var(--shelfy-text-soft)] mb-1.5">
                         {nroForErp ? `Cód. ${nroForErp}` : grupo.nro_cliente || "Sin código ERP"}
                       </p>
+                      {pdvInfo ? (
+                        <div className="flex flex-col gap-1 pb-1.5">
+                          {(pdvInfo.nombre_fantasia || pdvInfo.nombre_razon_social) && (
+                            <p className="text-xs font-semibold text-[var(--shelfy-text)] leading-tight">
+                              {pdvInfo.nombre_fantasia || pdvInfo.nombre_razon_social}
+                            </p>
+                          )}
+                          {pdvInfo.nombre_razon_social && pdvInfo.nombre_razon_social !== pdvInfo.nombre_fantasia && (
+                            <p className="text-[10px] text-[var(--shelfy-muted)]">{pdvInfo.nombre_razon_social}</p>
+                          )}
+                          {pdvInfo.domicilio && (
+                            <p className="text-[10px] text-[var(--shelfy-muted)] flex items-start gap-1">
+                              <MapPin className="w-3 h-3 shrink-0 mt-0.5" />
+                              {pdvInfo.domicilio}{pdvInfo.localidad ? `, ${pdvInfo.localidad}` : ""}{pdvInfo.provincia ? ` (${pdvInfo.provincia})` : ""}
+                            </p>
+                          )}
+                          {pdvInfo.canal && (
+                            <p className="text-[10px] text-[var(--shelfy-muted)] flex items-center gap-1">
+                              <Tag className="w-3 h-3" />{pdvInfo.canal}
+                            </p>
+                          )}
+                          {pdvInfo.fecha_ultima_compra && (
+                            <p className={`text-[10px] flex items-center gap-1 font-medium ${
+                              new Date(pdvInfo.fecha_ultima_compra) >= new Date(Date.now() - 30 * 86_400_000)
+                                ? "text-emerald-500"
+                                : "text-amber-500"
+                            }`}>
+                              <ShoppingCart className="w-3 h-3" />
+                              Últ. compra: {new Date(pdvInfo.fecha_ultima_compra).toLocaleDateString("es-AR")}
+                            </p>
+                          )}
+                          {pdvInfo.estado && pdvInfo.estado !== "activo" && (
+                            <p className="text-[10px] text-red-400 font-medium capitalize">{pdvInfo.estado}</p>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-[10px] text-[var(--shelfy-muted)] pb-1.5 italic">Sin datos en padrón</p>
+                      )}
                     </div>
 
                     {user?.usa_contexto_erp && !skipErpFetch && loadingERP ? (

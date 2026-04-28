@@ -296,16 +296,60 @@ async def _hacer_login(page: Page, tenant: dict) -> None:
     
     usuario  = get_secret(tenant["vault_user"])
     password = get_secret(tenant["vault_pass"])
+    if not usuario or not password:
+        raise RuntimeError(
+            f"Credenciales faltantes en Vault/env para tenant '{tenant['id']}' "
+            f"({tenant['vault_user']}/{tenant['vault_pass']})."
+        )
 
-    # Usar type con delay para simular usuario real y disparar eventos de Angular
-    await u_field.click()
-    await u_field.type(usuario, delay=100)
-    await p_field.click()
-    await p_field.type(password, delay=100)
-    
-    # Esperar a que el botón habilite (visibilidad y clickabilidad por Playwright)
     btn = page.locator('button:has-text("INICIAR SESIÓN")')
     await btn.wait_for(state="visible", timeout=TIMEOUT_MS)
+
+    async def _cargar_campos_login() -> None:
+        # Limpiar y tippear para disparar validaciones de Angular.
+        await u_field.click()
+        await page.keyboard.press("ControlOrMeta+a")
+        await page.keyboard.press("Backspace")
+        await u_field.type(usuario, delay=90)
+
+        await p_field.click()
+        await page.keyboard.press("ControlOrMeta+a")
+        await page.keyboard.press("Backspace")
+        await p_field.type(password, delay=90)
+
+        # Forzar blur para que Angular marque touched/dirty.
+        await page.keyboard.press("Tab")
+        await page.wait_for_timeout(250)
+
+    async def _esperar_boton_habilitado(timeout_ms: int = 8_000) -> bool:
+        try:
+            await page.wait_for_function(
+                """
+                () => {
+                  const btn = Array.from(document.querySelectorAll('button'))
+                    .find(b => (b.textContent || '').toUpperCase().includes('INICIAR SESIÓN'));
+                  return !!btn && !btn.disabled;
+                }
+                """,
+                timeout=timeout_ms,
+            )
+            return True
+        except Exception:
+            return False
+
+    enabled = False
+    for intento in range(1, 4):
+        await _cargar_campos_login()
+        enabled = await _esperar_boton_habilitado()
+        if enabled:
+            break
+        logger.warning(f"  Login: botón INICIAR SESIÓN sigue deshabilitado (intento {intento}/3).")
+        await _cerrar_popup_actualizacion(page)
+        await page.wait_for_timeout(500)
+
+    if not enabled:
+        raise RuntimeError("Botón 'INICIAR SESIÓN' deshabilitado luego de cargar credenciales (3 intentos).")
+
     await btn.click()
     await page.wait_for_url("**/dashboard**", timeout=20_000)
     logger.info(f"  ✅ Login OK — {tenant['nombre']}")

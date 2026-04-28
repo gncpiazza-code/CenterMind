@@ -228,7 +228,9 @@ def _enrich_and_store_cc(dist_id: int, fecha_snapshot: str, rows: list) -> int:
         record["id_cliente"] = matched_id
 
     if records:
-        sb.table("cc_detalle").delete().eq("id_distribuidor", int(dist_id)).eq("fecha_snapshot", fecha_snapshot).execute()
+        # Delete ALL previous snapshots for this distribuidor before inserting the new one.
+        # cc_detalle is a current-state table, not a history log — only the latest snapshot is kept.
+        sb.table("cc_detalle").delete().eq("id_distribuidor", int(dist_id)).execute()
         sb.table("cc_detalle").insert(records).execute()
 
     logger.info(

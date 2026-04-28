@@ -1710,26 +1710,33 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
           )}
         </div>
         <div className="flex items-center gap-2">
-          {sucursales.length > 0 && (
-            <div className="flex items-center gap-2 bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-xl px-3 py-1.5 shadow-sm">
+          <div className="flex items-center gap-2 bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-xl px-3 py-1.5 shadow-sm">
               <Building2 className="w-4 h-4 text-amber-400" />
-              <select
-                value={selectedSucursal || ""}
-                onChange={e => {
-                  setSelectedSucursal(e.target.value || null);
-                  setVisibleVends(new Set());
-                  setVisibleRutas(new Set());
-                  setVisibleClientes(new Set());
-                }}
-                className="bg-transparent text-[var(--shelfy-text)] text-sm font-semibold focus:outline-none min-w-[140px]"
-              >
-                <option value="">Seleccionar Sucursal...</option>
-                {sucursales.map(s => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
+              {loading && sucursales.length === 0 ? (
+                <div className="h-5 w-36 rounded bg-[var(--shelfy-border)] animate-pulse" />
+              ) : (
+                <select
+                  value={selectedSucursal || ""}
+                  onChange={e => {
+                    setSelectedSucursal(e.target.value || null);
+                    setVisibleVends(new Set());
+                    setVisibleRutas(new Set());
+                    setVisibleClientes(new Set());
+                  }}
+                  className="bg-transparent text-[var(--shelfy-text)] text-sm font-semibold focus:outline-none min-w-[140px]"
+                >
+                  {sucursales.length === 0
+                    ? <option value="">Sin sucursales</option>
+                    : <>
+                        {sucursales.length > 1 && <option value="">Seleccionar Sucursal...</option>}
+                        {sucursales.map(s => (
+                          <option key={s} value={s}>{s}</option>
+                        ))}
+                      </>
+                  }
+                </select>
+              )}
             </div>
-          )}
           <button
             onClick={handleScanner}
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 text-xs font-medium transition-colors"

@@ -1,87 +1,81 @@
-# Prompt para Claude Cowork — documentar flujo ERP y especificar motor Padrón
+# Prompt Claude Cowork — Motor Padrón (ERP CHESS → Excel → ingest Shelfy)
 
-Copiá el bloque de **Prompt para pegar en Cowork** en una conversión nueva del proyecto ShelfMind-RPA / CenterMind. El objetivo es que el asistente **registre** el recorrido en la web (CHESS ERP / Consolido) y devuelva una **especificación** para implementar `motores/padron.py` con Playwright, alineado a `motores/cuentas_corrientes.py` y `motores/ventas.py`.
-
----
-
-## Contexto rápido (no lo repitas todo en Cowork si ya indexó el repo)
-
-- ShelfMind-RPA está en **`ShelfMind-RPA/`**: Playwright, Python asyncio, Vault Supabase (`get_secret`), subida Excel a la API con `lib/api_client.py` o HTTP directo como en cuentas.
-- **`python runner.py padron`** hoy está previsto pero **no hay archivo `motores/padron.py` en el repo** — falta crearlo desde la especificación.
-- **`POST /api/motor/padron-trigger`** (usado antes en borradores del scheduler) **no existe en el backend**; la ingesta de padrón en API es principalmente **`POST /api/admin/padron/upload-global`** con Excel (actualmente JWT superadmin — para RPA seguramente haga falta un endpoint tipo **`/api/motor/padron`** con **`x-api-key`**, parecido a `/api/motor/cuentas`).
+Abrís el proyecto **CenterMind** (raíz repo) así Cowork tiene acceso al código citado.
 
 ---
 
-## Cómo “registrar” clics vos mismo (rápido, sin IA)
+## Contexto de backend (léelo antes del prompt — no repetir verbatim)
 
-Si Cowork tiene acceso al navegador, podeís pedirle que capture el flujo. Si no, herramientas útiles:
+### Qué ya existe
 
-1. **Playwright Codegen** (genera código con selectores probando en vivo):
+- **`CenterMind/services/padron_ingestion_service.py`** — `PadronIngestionService`:
+  - Recibe **`bytes`** de un archivo **.xlsx / .xls / .csv**.
+  - Parsea Excel, detecta columnas con **`_detect_columns`** (nombres flexibles tipo CHESS: `idcliente`, `idempresa`, `dssucur`, `d_vendedor`, coordenadas, días de ruta, etc.).
+  - **Ingest global** (`ingest`): agrupa por **`idempresa`** y mapea cada código a **`id_distribuidor`** vía tabla **`distribuidores`** (`id_empresa_erp` / mapping). Caso **Real + franquicias**: re-rutea filas por **nombre de sucursal** (UEQUIN, ONDARRETA, BIAVA/CARAMELE) igual que está documentado en el mismo archivo.
+  - Escribe **`sucursales_v2`, `vendedores_v2`, rutas, `clientes_pdv_v2`**; marca PDV ausentes como **`estado=inactivo`** donde aplica el alcance del Excel.
+  - Registra runs en **`motor_runs`** (`padron_global` para global, `padron` por dist).
 
-   ```bash
-   playwright codegen "URL_DE_LOGIN_DEL_ERP"
-   ```
+### Puntos HTTP actuales (importante para RPA)
 
-   Ejecutarlo en una laptop con usuario de prueba. Copiás el archivo generado o los pasos al doc.
+- `POST /api/admin/padron/upload-global` y `upload/{dist_id}` usan **`verify_auth`** (JWT) y en global **solo superadmin**.
+- **No existe** hoy **`POST /api/motor/padron`** con **`x-api-key`** como `/api/motor/cuentas` o `/api/motor/ventas`.
 
-2. Grabar **video** / **screenshots** por paso (URL en barra de dirección + caption “acá clic en X”).
-
-3. En CHESS típicamente hay: login → menú Informes/Padrón/etc. → exportar Excel. Anotá **nombre exacto** de cada menú y si hay **filtros** (fecha, empresa, sucursal).
+Conclusión: el RPA debería **o bien** obtener un archivo idéntico al que hoy exporta Consolido/CHESS y **subirlo** con un **nuevo endpoint** que internamente llame `padron_service.ingest(file_bytes)`, **o** seguir usando carga manual superadmin (no ideal para headless).
 
 ---
 
-## Prompt para pegar en Cowork
+## Prompt para pegar en Cowork (copiar todo el bloque de abajo)
 
-```text
-Sos responsable de documentar la automatización Playwright para el “Motor Padrón de clientes” (ERP CHESS / Consolido) dentro del proyecto ShelfMind-RPA.
+```
+Trabajás en el monorepo CenterMind. Objetivo: especificar el futuro "Motor Padrón" en ShelfMind-RPA (Playwright + Python) y, si hace falta, el contrato mínimo en el backend FastAPI.
 
-Tu entrega debe ser usable por un desarrollador que implemente `motores/padron.py` (Python asyncio + Playwright, igual familia que `motores/cuentas_corrientes.py` y `motores/ventas.py`).
+## A) Inventario rápido (leé estos archivos antes de responder)
+- `CenterMind/services/padron_ingestion_service.py` — qué columnas exige (mínimo id de cliente; global también idempresa), groupby por empresa, split Real/franquicias.
+- `CenterMind/routers/erp.py` — rutas `padron/upload-global` y diferencia con motores RPA `motor_ventas` / `motor_cuentas`.
+- `ShelfMind-RPA/motores/cuentas_corrientes.py` y `ventas.py` — patrón: login CHESS, popups, descarga Excel, llamada HTTP con SHELFY_API_KEY.
+- `ShelfMind-RPA/runner.py` — prevé `motores.padron` pero puede no existir `motores/padron.py` aún.
 
-### Qué producir (ordenado)
+## B) Qué producir (ordenado)
 
-1) **Lista de TENANTS**: mismos distribuidores que ventas/cuentas (tabaco, aloma, liver, real) si aplica igual; si cada uno tiene URL distinta, detallarlas.
+1) **[OBSERVADO] Flujo usuario en CHESS / Consolido** (un tenant ejemplo, después generalizá lista de tenants igual que ventas/cuentas si aplica):
+   - URLs de login; popups conocidos (“actualización”, “sesiones concurrentes”, etc.).
+   - Ruta de menús hasta el **export de Padrón de clientes** (nombres exactos en la UI).
+   - Cómo se dispara la **descarga** (botón export, Excel, nombre de archivo aproximado).
 
-2) **Flujo usuario por tenant** — para UN tenant primero:
-   - URL de login absoluta y si hay subdomain por empresa.
-   - Paso a paso numerado (1…N): texto del botón o link, XPath/CSS si podés inferirlo, tiempo de espera razonable, popups conocidos (“actualización CHESS”, “accesos concurrentes”, etc.) y cómo cerrarlos.
-   - Pantalla donde se llega al **reporte de Padrón de clientes / maestro / export** (nombre exacto en el ERP).
+2) **[OBSERVADO o INFERIDO]** El Excel exportado:
+   - ¿Trae columna **idempresa** (o equivalente) tal como espera `_detect_columns` / `ingest`?
+   - Confirmá al menos: columna de **ID de cliente** y **empresa**; y que el archivo sea **.xlsx** (o lo que el servicio ya parsea).
+   - Si el export del ERP no trae `idempresa`, indicá qué alternativa propone el ERP (otro reporte) — el backend **global** lo necesita para agrupar tenants.
 
-3) **Export**:
-   - ¿Es descarga tipo Excel desde grid? ¿Un botón “exportar”?
-   - Formato esperado del archivo (.xlsx, nombre sugerido, columnas esperadas si las ves).
+3) **Especificación Playwright** (sin inventar selectores no vistos):
+   - Pasos numerados y, si podés, **playwright codegen** o selectores probados.
+   - Manejo de descargas (`Download`, path temporal) alineado a `cuentas_corrientes.py`.
 
-4) **Dedup / detección sin cambios** (opcional pero deseable): cómo saber si el día no cambió vs `lib/hash_guard.py` igual que otros motores.
+4) **Integración API** (propuesta técnica, marcá [PROPUESTA]):
+   - El backend hoy **no** expone padrón con `x-api-key`. Proponé un diseño mínimo: `POST /api/motor/padron` con `UploadFile` + header `x-api-key`, internamente `padron_service.ingest(file_bytes)` (misma semántica que upload-global sin JWT), o `ingest_for_dist` si el Excel es mono-tenant.
+   - Indicá si conviene **un Excel global** (un solo POST) o **un archivo por tenant** repetido desde el RPA — justificá contra `ingest()` vs `ingest_for_dist()`.
 
-5) **Backend**: qué POST usar para subir el Excel a Shelf Mind (hoy existe ingesta padron pero puede requerir endpoint `/api/motor/padron` con X-Api-Key en lugar de JWT). Sugerí cuerpo/headers multipart exactos.
+5) **`motores/padron.py`** (outline):
+   - Estructura async `run() -> dict` con resumen `ok` / `errores` / `sin_cambios` como otros motores.
+   - Lista de TENANTS desde el mismo lugar que otros motores (vault / constante).
+   - Subida multipart al endpoint elegido usando `httpx` o cliente existente.
 
-### No inventes pantallas que no navegastes
+6) Todo lo que no hayas reproducido en el ERP marcá **[INFERIDO]** y explicitá la suposición.
 
-Marcá cada sección como [OBSERVADO] o [INFERIDO/PROPUESTA].
-
-### Referencia de código a leer en el mismo repo antes de responder
-
-`ShelfMind-RPA/motores/cuentas_corrientes.py` (patrón launch browser, tenants, errores screenshots), `ShelfMind-RPA/motores/ventas.py`, `ShelfMind-RPA/runner.py`, `ShelfMind-RPA/lib/api_client.py`, `CenterMind/routers/erp.py` (padron ingest).
+## C) prohibido
+Inventar columnas CHESS sin verlas en un export real o sin citar fuente documental del proyecto.
 ```
 
 ---
 
-## Probar que el motor (cuentas) corre **ahora**
-
-El scheduler solo tiene **cuentas** 07:00 y 14:30 AR.
-
-### En Railway
-
-1. Servicio RPA → **Variables** → `RPA_START_MODE` = `cuentas` (valor literal `cuentas`).
-2. **Redeploy** (o esperá el deploy nuevo).
-3. **Logs**: buscar “Motor CUENTAS”, tenants, subidas OK.
-4. Volver a **`scheduler`** o borrar la variable y redeploy (para recuperar cron).
-
-### En tu Mac (sin tocar Railway)
+## Cómo “registrar” clics rápido (vos o Cowork)
 
 ```bash
-cd /Users/…/CenterMind/ShelfMind-RPA
-# con las mismas env que Railway (SUPABASE_URL, SUPABASE_KEY, SHELFY_API_KEY, …)
-python runner.py cuentas
+playwright codegen "URL_LOGIN_CHESS"
 ```
 
-Deberías ver líneas tipo `🏢 Cuentas Corrientes`, `✅ Subida OK`, etc.
+---
+
+## Probar ingest sin RPA (validar formato Excel)
+
+Manual superadmin → `POST /api/admin/padron/upload-global` con el mismo Excel que exportó el ERP; revisar logs del backend y `motor_runs` / `motor_runs.padron_global`.

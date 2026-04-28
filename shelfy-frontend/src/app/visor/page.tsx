@@ -50,6 +50,7 @@ function formatFechaAR(iso: string | null | undefined): string {
       year: "numeric",
       hour: "2-digit",
       minute: "2-digit",
+      hour12: false,
     });
   } catch {
     return iso.slice(0, 16).replace("T", " ");
@@ -170,6 +171,28 @@ function FotoViewer({
     }
   }, []);
 
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (isTypingTarget(e.target)) return;
+      if (e.key === "+" || e.key === "=") {
+        e.preventDefault();
+        applyZoom(zoom + 0.2);
+        return;
+      }
+      if (e.key === "-") {
+        e.preventDefault();
+        applyZoom(zoom - 0.2);
+        return;
+      }
+      if (e.key === "0") {
+        e.preventDefault();
+        applyZoom(1);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [applyZoom, zoom]);
+
   if (!src || err) {
     return (
       <div className="flex flex-col items-center justify-center w-full h-full bg-slate-100 text-slate-400 gap-2 rounded-2xl">
@@ -257,7 +280,7 @@ function InfoRow({
         <p className="text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider leading-none mb-0.5">
           {label}
         </p>
-        <p className={cn("text-xs font-semibold text-[var(--shelfy-text)] leading-snug", valueClass)}>
+        <p className={cn("text-xs font-semibold text-[var(--shelfy-text)] leading-snug break-words [overflow-wrap:anywhere]", valueClass)}>
           {value}
         </p>
       </div>
@@ -442,6 +465,10 @@ export default function VisorPage() {
   }, [currentIndex, filtroVendedor, filtroSucursal, resetGroupState]);
 
   useEffect(() => {
+    setComentario("");
+  }, [currentFotoIdx]);
+
+  useEffect(() => {
     setMobileFiltersOpen(false);
     setMobileToolsOpen(false);
   }, [currentIndex, filtroVendedor, filtroSucursal, visorTab]);
@@ -480,10 +507,32 @@ export default function VisorPage() {
 
       const canEval =
         grupo && todasVistas && !isValidacion && !mutationEvaluar.isPending && !isSubmittingRef.current;
+      const withMod = e.ctrlKey || e.metaKey;
 
       switch (e.key) {
+        case "1":
+        case "2":
+        case "3":
+        case "4":
+        case "5":
+        case "6":
+        case "7":
+        case "8":
+        case "9":
+          if (!e.altKey) return;
+          {
+            const idx = Number(e.key) - 1;
+            const tpl = commentTemplates[idx];
+            if (!tpl) return;
+            e.preventDefault();
+            applyCommentTemplate(tpl);
+          }
+          break;
+
         case "a":
         case "A":
+          if (!withMod) return;
+          e.preventDefault();
           if (!canEval) return;
           isSubmittingRef.current = true;
           {
@@ -495,6 +544,8 @@ export default function VisorPage() {
 
         case "r":
         case "R":
+          if (!withMod) return;
+          e.preventDefault();
           if (!canEval) return;
           isSubmittingRef.current = true;
           {
@@ -506,6 +557,8 @@ export default function VisorPage() {
 
         case "d":
         case "D":
+          if (!withMod) return;
+          e.preventDefault();
           if (!canEval) return;
           isSubmittingRef.current = true;
           {
@@ -517,6 +570,8 @@ export default function VisorPage() {
 
         case "z":
         case "Z":
+          if (!withMod) return;
+          e.preventDefault();
           if (!lastEvalIds.current.length || mutationRevertir.isPending) return;
           mutationRevertir.mutate(lastEvalIds.current);
           lastEvalIds.current = [];
@@ -578,6 +633,7 @@ export default function VisorPage() {
     mutationEvaluar, mutationRevertir,
     currentIndex, currentFotoIdx, totalFotos, totalGrupos,
     setCurrentIndex, setCurrentFotoIdx, resetGroupState,
+    commentTemplates,
   ]);
 
   // ── Handlers ─────────────────────────────────────────────────────────────────
@@ -758,7 +814,7 @@ export default function VisorPage() {
         type="button"
         onClick={handleRevertir}
         disabled={!lastEvalIds.current.length || mutationRevertir.isPending}
-        title="Revertir (Z)"
+        title="Revertir (Ctrl/Cmd + Z)"
         className="size-9 flex items-center justify-center rounded-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:bg-slate-100 disabled:opacity-30 transition-all active:scale-95"
       >
         <RotateCcw size={15} strokeWidth={2.5} />
@@ -767,7 +823,7 @@ export default function VisorPage() {
         type="button"
         onClick={() => handleEvaluar("Rechazado")}
         disabled={mutationEvaluar.isPending || !todasVistas || isValidacion}
-        title="Rechazar (R)"
+        title="Rechazar (Ctrl/Cmd + R)"
         className="size-10 flex items-center justify-center rounded-full bg-[#fa5252] text-white shadow-[0_4px_14px_rgba(250,82,82,0.4)] hover:scale-110 disabled:opacity-20 transition-all active:scale-95"
       >
         <X size={20} strokeWidth={3.5} />
@@ -776,7 +832,7 @@ export default function VisorPage() {
         type="button"
         onClick={() => handleEvaluar("Destacado")}
         disabled={mutationEvaluar.isPending || !todasVistas || isValidacion}
-        title="Destacar (D)"
+        title="Destacar (Ctrl/Cmd + D)"
         className="size-12 flex items-center justify-center rounded-full bg-[#f97316] text-white shadow-[0_4px_16px_rgba(249,115,22,0.45)] hover:scale-110 disabled:opacity-20 transition-all active:scale-95"
       >
         <Flame size={22} strokeWidth={3} className="fill-white/20" />
@@ -785,7 +841,7 @@ export default function VisorPage() {
         type="button"
         onClick={() => handleEvaluar("Aprobado")}
         disabled={mutationEvaluar.isPending || !todasVistas || isValidacion}
-        title="Aprobar (A)"
+        title="Aprobar (Ctrl/Cmd + A)"
         className="size-10 flex items-center justify-center rounded-full bg-[#10b981] text-white shadow-[0_4px_14px_rgba(16,185,129,0.4)] hover:scale-110 disabled:opacity-20 transition-all active:scale-95"
       >
         <Check size={20} strokeWidth={3.5} />
@@ -806,20 +862,32 @@ export default function VisorPage() {
   const kbdLegend = (
     <div className="flex items-center gap-3 text-[var(--shelfy-muted)]">
       <span className="flex items-center gap-1 text-[10px]">
-        <Kbd className="bg-[var(--shelfy-bg)] border-[var(--shelfy-border)] text-[var(--shelfy-muted)]">R</Kbd>
+        <Kbd className="bg-[var(--shelfy-bg)] border-[var(--shelfy-border)] text-[var(--shelfy-muted)]">Ctrl/Cmd+R</Kbd>
         <span>Rechazar</span>
       </span>
       <span className="flex items-center gap-1 text-[10px]">
-        <Kbd className="bg-[var(--shelfy-bg)] border-[var(--shelfy-border)] text-[var(--shelfy-muted)]">D</Kbd>
+        <Kbd className="bg-[var(--shelfy-bg)] border-[var(--shelfy-border)] text-[var(--shelfy-muted)]">Ctrl/Cmd+D</Kbd>
         <span>Destacar</span>
       </span>
       <span className="flex items-center gap-1 text-[10px]">
-        <Kbd className="bg-[var(--shelfy-bg)] border-[var(--shelfy-border)] text-[var(--shelfy-muted)]">A</Kbd>
+        <Kbd className="bg-[var(--shelfy-bg)] border-[var(--shelfy-border)] text-[var(--shelfy-muted)]">Ctrl/Cmd+A</Kbd>
         <span>Aprobar</span>
       </span>
       <span className="flex items-center gap-1 text-[10px]">
-        <Kbd className="bg-[var(--shelfy-bg)] border-[var(--shelfy-border)] text-[var(--shelfy-muted)]">Z</Kbd>
+        <Kbd className="bg-[var(--shelfy-bg)] border-[var(--shelfy-border)] text-[var(--shelfy-muted)]">Ctrl/Cmd+Z</Kbd>
         <span>Revertir</span>
+      </span>
+      <span className="flex items-center gap-1 text-[10px]">
+        <KbdGroup>
+          <Kbd className="bg-[var(--shelfy-bg)] border-[var(--shelfy-border)] text-[var(--shelfy-muted)]">+</Kbd>
+          <Kbd className="bg-[var(--shelfy-bg)] border-[var(--shelfy-border)] text-[var(--shelfy-muted)]">-</Kbd>
+          <Kbd className="bg-[var(--shelfy-bg)] border-[var(--shelfy-border)] text-[var(--shelfy-muted)]">0</Kbd>
+        </KbdGroup>
+        <span>Zoom</span>
+      </span>
+      <span className="flex items-center gap-1 text-[10px]">
+        <Kbd className="bg-[var(--shelfy-bg)] border-[var(--shelfy-border)] text-[var(--shelfy-muted)]">Alt+1..9</Kbd>
+        <span>Frases</span>
       </span>
       <span className="flex items-center gap-1 text-[10px]">
         <KbdGroup>
@@ -1164,7 +1232,7 @@ export default function VisorPage() {
                 </div>
 
                 {/* ── RIGHT PANEL — Info del PDV + Observaciones ───────────── */}
-                <div className="w-72 shrink-0 border-l border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] flex flex-col overflow-hidden">
+                <div className="w-72 shrink-0 border-l border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] flex flex-col overflow-hidden overflow-x-hidden">
                   {/* Panel header */}
                   <div className="px-4 pt-3 pb-2.5 border-b border-[var(--shelfy-border)] shrink-0">
                     <h2 className="text-[11px] font-black text-[var(--shelfy-muted)] uppercase tracking-widest">
@@ -1176,7 +1244,7 @@ export default function VisorPage() {
                   </div>
 
                   {/* PDV data */}
-                  <div className="flex-1 overflow-y-auto">
+                  <div className="flex-1 overflow-y-auto overflow-x-hidden">
                     <div className="px-3 py-1">
                       {user?.usa_contexto_erp && !skipErpFetch && loadingERP ? (
                         <div className="flex flex-col gap-2 py-3">
@@ -1435,7 +1503,7 @@ export default function VisorPage() {
                         <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[9px] leading-tight">
                           <span className="font-bold truncate max-w-[45%]">{grupo.vendedor || "—"}</span>
                           <span className="text-white/50 font-mono">#{nroForErp || grupo.nro_cliente || "—"}</span>
-                          <span className="text-white/45">{grupo.fecha_hora?.slice(0, 16).replace("T", " ") || ""}</span>
+                          <span className="text-white/45">{formatFechaAR(grupo.fecha_hora)}</span>
                           {erpContext?.encontrado && !loadingERP && (
                             <>
                               <span className={conIngresoComercio ? "text-emerald-400" : "text-red-400"}>

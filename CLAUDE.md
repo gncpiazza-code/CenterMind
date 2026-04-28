@@ -37,6 +37,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Se conecta al backend vía API Key con endpoints `/api/v1/sync/*`
 - Las credenciales de cada tenant (usuario/password de CHESS ERP) se leen desde **Supabase Vault** via `lib/vault_client.py`
 - **Padrón Consolido (27/04/2026):** usa credencial única Vault/env (`consolido_usuario`, `consolido_password`) y carga configuración por distribuidor desde tabla Supabase `rpa_consolido_tenants` (con fallback a configuración legacy en código).
+- **Padrón Consolido (28/04/2026):** navegación rápida `dashboard -> administrador-de-procesos` vía hash SPA con fallback de carga; para exportar priorizar botón con ícono Excel (`fa-file-excel`) para evitar click en "autoajustar/configurar columnas". Upload a backend en `/api/v1/sync/erp-padrón` debe enviar `id_distribuidor` como query param.
 
 ---
 
@@ -192,6 +193,22 @@ CenterMind/                     # Root del repo
 ## Base de datos (Supabase PostgreSQL)
 
 ### Regla principal: cada tabla tiene `id_distribuidor` como tenant key
+
+### Importante: tablas físicas por tenant (`_<id_distribuidor>`)
+
+En el código, los nombres lógicos `*_v2` se resuelven con `tenant_table_name(...)` a una tabla física por tenant:
+
+- `clientes_pdv_v2` -> `clientes_pdv_v2_<id_distribuidor>`
+- `rutas_v2` -> `rutas_v2_<id_distribuidor>`
+- `vendedores_v2` -> `vendedores_v2_<id_distribuidor>`
+- `sucursales_v2` -> `sucursales_v2_<id_distribuidor>`
+
+Ejemplo real: para `id_distribuidor=3`, `clientes_pdv_v2` se consulta como `clientes_pdv_v2_3`.
+
+Regla operativa:
+- **Nunca** hardcodear el sufijo.
+- Usar siempre `tenant_table_name("<tabla_base>", dist_id)` para resolver la tabla correcta del tenant.
+- Aun con tabla física por tenant, mantener filtro explícito por `id_distribuidor` en queries.
 
 ### Límite de filas: Supabase PostgREST devuelve máximo 1000 filas por query por defecto. Para tablas con volumen alto (ej. `cc_detalle` de Tabaco tiene ~4578 filas) se debe usar paginación con `.range(offset, offset+BATCH-1)` en un loop hasta que el resultado devuelva menos filas que el batch.
 

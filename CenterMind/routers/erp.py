@@ -167,16 +167,45 @@ async def erp_sync_padron(
 def get_erp_contexto(id_distribuidor: int, nro_cliente: str, user_payload=Depends(verify_auth)):
     check_dist_permission(user_payload, id_distribuidor)
     try:
-        res_rpc = sb.rpc("fn_erp_contexto_cliente", {"p_distribuidor_id": id_distribuidor, "p_nro_cliente": nro_cliente}).execute()
-        ctx = res_rpc.data[0] if res_rpc.data else {"encontrado": False}
+        raw_nro = str(nro_cliente or "").strip()
+        candidates: list[str] = []
+        if raw_nro:
+            candidates.append(raw_nro)
+            nozeros = raw_nro.lstrip("0")
+            if nozeros and nozeros not in candidates:
+                candidates.append(nozeros)
+        if not candidates:
+            candidates = [raw_nro]
+
+        ctx = {"encontrado": False}
+        for cand in candidates:
+            res_rpc = sb.rpc(
+                "fn_erp_contexto_cliente",
+                {"p_distribuidor_id": id_distribuidor, "p_nro_cliente": cand},
+            ).execute()
+            rpc_ctx = res_rpc.data[0] if res_rpc.data else None
+            if not rpc_ctx:
+                continue
+            ctx = rpc_ctx
+            if rpc_ctx.get("encontrado"):
+                break
 
         t_clientes = tenant_table_name("clientes_pdv_v2", id_distribuidor)
-        res_pdv = sb.table(t_clientes).select(
-            "nombre_fantasia, nombre_razon_social, domicilio, localidad, canal, fecha_alta, id_ruta"
-        ).eq("id_distribuidor", id_distribuidor).eq("id_cliente_erp", nro_cliente).limit(1).execute()
+        pdv = None
+        for cand in candidates:
+            res_pdv = (
+                sb.table(t_clientes)
+                .select("nombre_fantasia, nombre_razon_social, domicilio, localidad, canal, fecha_alta, id_ruta")
+                .eq("id_distribuidor", id_distribuidor)
+                .eq("id_cliente_erp", cand)
+                .limit(1)
+                .execute()
+            )
+            if res_pdv.data:
+                pdv = res_pdv.data[0]
+                break
 
-        if res_pdv.data:
-            pdv = res_pdv.data[0]
+        if pdv:
             ctx["encontrado"] = True
             ctx["nombre_fantasia"] = pdv.get("nombre_fantasia")
             ctx["razon_social"]    = pdv.get("nombre_razon_social")
@@ -190,6 +219,7 @@ def get_erp_contexto(id_distribuidor: int, nro_cliente: str, user_payload=Depend
                 ruta_res = (
                     sb.table(t_rutas)
                     .select("id_ruta_erp,dia_semana")
+                    .eq("id_distribuidor", id_distribuidor)
                     .eq("id_ruta", id_ruta)
                     .limit(1)
                     .execute()

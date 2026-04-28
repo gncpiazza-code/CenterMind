@@ -331,13 +331,15 @@ def get_pendientes(id_distribuidor: int, payload=Depends(verify_auth)):
 
         erp_name_map = _get_erp_name_map(id_distribuidor)
         vendedor_sucursal_map: dict[str, str] = {}
+        inactive_vendor_names: set[str] = set()
         try:
             vend_res = (
                 sb.table(t_vendedores)
-                .select("nombre_erp, id_sucursal")
+                .select("id_vendedor, nombre_erp, id_sucursal")
                 .eq("id_distribuidor", id_distribuidor)
                 .execute()
             )
+            active_ids = load_active_vendedor_ids(id_distribuidor)
             suc_ids = list({
                 r.get("id_sucursal")
                 for r in (vend_res.data or [])
@@ -362,6 +364,13 @@ def get_pendientes(id_distribuidor: int, payload=Depends(verify_auth)):
                 if not n:
                     continue
                 vendedor_sucursal_map[n] = suc_name_map.get(v.get("id_sucursal"), "Sin sucursal")
+                vid = v.get("id_vendedor")
+                if active_ids and vid is not None:
+                    try:
+                        if int(vid) not in active_ids:
+                            inactive_vendor_names.add(n)
+                    except Exception:
+                        continue
         except Exception as e_vs:
             logger.warning(f"[pendientes] vendedor->sucursal map fallback: {e_vs}")
 
@@ -507,6 +516,11 @@ def get_pendientes(id_distribuidor: int, payload=Depends(verify_auth)):
             key = str(d.get("telegram_msg_id")) if d.get("telegram_msg_id") else f"solo_{ex_id}"
             tg_vendedor = (d.get("vendedor") or "S/V").strip()
             vendedor_display = erp_name_map.get(tg_vendedor.lower(), tg_vendedor)
+            if inactive_vendor_names:
+                tg_norm = tg_vendedor.lower()
+                disp_norm = vendedor_display.lower()
+                if tg_norm in inactive_vendor_names or disp_norm in inactive_vendor_names:
+                    continue
             sucursal_resuelta = ex_sucursal_map.get(ex_id)
             if not sucursal_resuelta or sucursal_resuelta == "Sin sucursal":
                 sucursal_resuelta = vendedor_sucursal_map.get(vendedor_display.lower()) \
@@ -808,8 +822,18 @@ def supervision_vendedores(dist_id: int, user_payload=Depends(verify_auth)):
             .eq("id_distribuidor", dist_id)
             .execute()
         )
-        rutas_res = sb.table(t_rutas).select("id_ruta,id_vendedor").execute()
-        cli_res = sb.table(t_clientes).select("id_cliente,id_ruta,estado").execute()
+        rutas_res = (
+            sb.table(t_rutas)
+            .select("id_ruta,id_vendedor")
+            .eq("id_distribuidor", dist_id)
+            .execute()
+        )
+        cli_res = (
+            sb.table(t_clientes)
+            .select("id_cliente,id_ruta,estado")
+            .eq("id_distribuidor", dist_id)
+            .execute()
+        )
 
         suc_map = {int(r["id_sucursal"]): (r.get("nombre_erp") or "Sin sucursal") for r in (suc_res.data or [])}
         rutas_por_vend: dict[int, list[int]] = {}

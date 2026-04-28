@@ -731,10 +731,18 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
       .filter(s => s && !seen.has(s) && seen.add(s) !== undefined)
       .sort((a, b) => a.localeCompare(b, "es"));
   }, [vendedores]);
+
+  // Auto-seleccionar si hay una sola sucursal (mono-tenant) para no bloquear el vendedor
+  useEffect(() => {
+    if (modalSucursales.length === 1 && !modalSucursal) {
+      setModalSucursal(modalSucursales[0]);
+    }
+  }, [modalSucursales, modalSucursal]);
+
   const vendedoresFiltrados = modalSucursal
     ? vendedores.filter(v => v.sucursal_nombre === modalSucursal)
     : vendedores;
-  const mustSelectSucursalFirst = modalSucursales.length > 0 && !modalSucursal;
+  const mustSelectSucursalFirst = modalSucursales.length > 1 && !modalSucursal;
   const vendedoresCascada = mustSelectSucursalFirst ? [] : vendedoresFiltrados;
 
   // PDV Catalog for exhibición (paginated via API)

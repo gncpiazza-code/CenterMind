@@ -1242,11 +1242,7 @@ export default function VisorPage() {
                         <p className="text-xs text-amber-600 font-semibold">No encontrado en ERP</p>
                         <p className="text-[10px] text-[var(--shelfy-muted)] mt-0.5">Cód. {nroForErp || "—"}</p>
                       </div>
-                    ) : (
-                      <div className="py-2">
-                        <p className="text-[10px] text-[var(--shelfy-muted)]">Sin contexto ERP disponible</p>
-                      </div>
-                    )}
+                    ) : null}
 
                     <Separator className="my-2" />
                     <div className="pb-2 flex flex-col gap-2 rounded-xl border border-[var(--shelfy-border)]/70 bg-[var(--shelfy-bg)]/40 p-2.5">

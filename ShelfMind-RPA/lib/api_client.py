@@ -13,6 +13,7 @@ Configuración: ver lib/shelfy_config.py
 """
 
 import httpx
+import asyncio
 from lib.logger import get_logger
 from lib.shelfy_config import get_shelfy_api_key, get_shelfy_base_url
 
@@ -116,21 +117,47 @@ async def subir_padron(archivo_path, id_distribuidor: int) -> bool:
         with open(archivo_path, "rb") as f:
             file_bytes = f.read()
 
-        # Usar httpx.AsyncClient para llamadas async
-        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-            resp = await client.post(
-                url,
-                headers=_headers(),
-                params={"id_distribuidor": str(id_distribuidor)},
-                files={"file": (archivo_path.name, file_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
-            )
-            if resp.status_code in (200, 201):
-                data = resp.json()
-                logger.info(f"  ✅ Padrón subido — {data.get('registros', '?')} registros, dist={id_distribuidor}")
-                return True
-            else:
-                logger.error(f"  ❌ API padrón respondió {resp.status_code}: {resp.text[:200]}")
-                return False
+        # Padrón puede tardar bastante en backend (ingesta+normalización), usar timeout más amplio y reintentos.
+        timeout = httpx.Timeout(connect=20.0, read=240.0, write=120.0, pool=20.0)
+        for intento in range(1, 4):
+            try:
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    resp = await client.post(
+                        url,
+                        headers=_headers(),
+                        params={"id_distribuidor": str(id_distribuidor)},
+                        files={"file": (archivo_path.name, file_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+                    )
+
+                if resp.status_code in (200, 201, 202):
+                    registros = "?"
+                    try:
+                        data = resp.json()
+                        if isinstance(data, dict):
+                            registros = data.get("registros", "?")
+                    except Exception:
+                        pass
+                    logger.info(
+                        f"  ✅ Padrón subido — {registros} registros, dist={id_distribuidor} "
+                        f"(HTTP {resp.status_code}, intento {intento}/3)"
+                    )
+                    return True
+
+                body = (resp.text or "").strip().replace("\n", " ")
+                logger.warning(
+                    f"  ⚠️ API padrón HTTP {resp.status_code} intento {intento}/3: {body[:260]}"
+                )
+            except Exception as e:
+                logger.warning(
+                    f"  ⚠️ Error subiendo padrón intento {intento}/3 dist={id_distribuidor}: "
+                    f"{type(e).__name__}: {repr(e)}"
+                )
+
+            if intento < 3:
+                await asyncio.sleep(4)
+
+        logger.error(f"  ❌ Upload padrón agotó reintentos (dist={id_distribuidor}).")
+        return False
     except Exception as e:
-        logger.error(f"  ❌ Error subiendo padrón para dist={id_distribuidor}: {e}")
+        logger.error(f"  ❌ Error preparando upload de padrón dist={id_distribuidor}: {type(e).__name__}: {repr(e)}")
         return False

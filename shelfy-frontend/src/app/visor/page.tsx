@@ -1127,15 +1127,7 @@ export default function VisorPage() {
                       </>
                     )}
 
-                    {/* Foto ID badge */}
-                    <Separator className="my-2" />
-                    <div className="pb-2">
-                      <p className="text-[10px] text-[var(--shelfy-muted)] mb-1">ID Foto</p>
-                      <code className="text-[11px] font-mono font-bold text-[var(--shelfy-text-soft)]">
-                        #{grupo.fotos[currentFotoIdx]?.id_exhibicion ?? "—"}
-                      </code>
-                    </div>
-
+                    {/* Foto ID badge — internal id, not shown to user */}
                     <Separator className="my-2" />
                     <div className="pb-1 rounded-xl border border-[var(--shelfy-border)]/70 bg-[var(--shelfy-bg)]/40 px-2.5 pt-2">
                       <p className="text-[10px] font-black text-[var(--shelfy-muted)] uppercase tracking-widest mb-1.5">
@@ -1197,7 +1189,7 @@ export default function VisorPage() {
                           />
                         )}
                       </>
-                    ) : !skipErpFetch && !loadingERP ? (
+                    ) : !skipErpFetch && !loadingERP && user?.usa_contexto_erp ? (
                       <div className="py-2">
                         <p className="text-xs text-amber-600 font-semibold">No encontrado en ERP</p>
                         <p className="text-[10px] text-[var(--shelfy-muted)] mt-0.5">Cód. {nroForErp || "—"}</p>

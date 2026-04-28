@@ -1211,20 +1211,24 @@ def supervision_cuentas(dist_id: int, sucursal: Optional[str] = Query(None), use
         _t_clientes_meta = tenant_table_name("clientes_pdv_v2", d_id)
         fecha_uc_map: dict = {}
         erp_id_map:   dict = {}
+        id_cliente_map: dict = {}   # nombre_norm → id_cliente (PK)
+        erp_to_id_cliente: dict = {} # normalized erp_id → id_cliente (PK)
         try:
             pdv_offset = 0
             while True:
                 pdv_res = (
                     sb.table(_t_clientes_meta)
-                    .select("nombre_fantasia, nombre_razon_social, id_cliente_erp, fecha_ultima_compra")
+                    .select("id_cliente, nombre_fantasia, nombre_razon_social, id_cliente_erp, fecha_ultima_compra")
                     .eq("id_distribuidor", d_id)
                     .range(pdv_offset, pdv_offset + 999)
                     .execute()
                 )
                 pdv_batch = pdv_res.data or []
                 for p in pdv_batch:
-                    erp_id = p.get("id_cliente_erp")
-                    fuc    = p.get("fecha_ultima_compra")
+                    erp_id    = p.get("id_cliente_erp")
+                    fuc       = p.get("fecha_ultima_compra")
+                    pk        = p.get("id_cliente")
+                    erp_norm  = str(erp_id).strip().lstrip("0").upper() if erp_id else None
                     for key in [p.get("nombre_fantasia"), p.get("nombre_razon_social")]:
                         if key:
                             norm_key = key.strip().upper()
@@ -1232,6 +1236,10 @@ def supervision_cuentas(dist_id: int, sucursal: Optional[str] = Query(None), use
                                 fecha_uc_map[norm_key] = fuc
                             if erp_id and norm_key not in erp_id_map:
                                 erp_id_map[norm_key] = str(erp_id).strip()
+                            if pk and norm_key not in id_cliente_map:
+                                id_cliente_map[norm_key] = pk
+                    if erp_norm and pk and erp_norm not in erp_to_id_cliente:
+                        erp_to_id_cliente[erp_norm] = pk
                 if len(pdv_batch) < 1000:
                     break
                 pdv_offset += 1000
@@ -1256,9 +1264,16 @@ def supervision_cuentas(dist_id: int, sucursal: Optional[str] = Query(None), use
             vd["deuda_total"]     += deuda
             vd["cantidad_clientes"] += 1
             nombre_norm = (item.get("cliente_nombre") or "").strip().upper()
-            erp_id = item.get("id_cliente_erp") or erp_id_map.get(nombre_norm)
+            # Prefer ERP ID from clientes_pdv_v2 so format matches map pins
+            erp_id = erp_id_map.get(nombre_norm) or item.get("id_cliente_erp")
+            # Resolve id_cliente (PK) for direct frontend matching
+            id_cliente_pk = id_cliente_map.get(nombre_norm)
+            if not id_cliente_pk and erp_id:
+                erp_norm = str(erp_id).strip().lstrip("0").upper()
+                id_cliente_pk = erp_to_id_cliente.get(erp_norm)
             vd["clientes"].append({
                 "cliente": item.get("cliente_nombre"), "id_cliente_erp": erp_id,
+                "id_cliente": id_cliente_pk,
                 "sucursal": item.get("sucursal_nombre"), "deuda_total": deuda,
                 "antiguedad": item.get("antiguedad_dias"), "rango_antiguedad": item.get("rango_antiguedad"),
                 "cantidad_comprobantes": item.get("cantidad_comprobantes"),

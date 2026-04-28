@@ -28,6 +28,7 @@ export interface PinCliente {
 
 export interface DeudorInfo {
   id_cliente_erp: string | null;
+  id_cliente?: number | null;
   cliente_nombre: string;
   deuda_total: number;
   antiguedad_dias: number;
@@ -345,19 +346,24 @@ export default function MapaRutas({
       let matchedDeudor: DeudorInfo | null = null;
       if (mode === 'deudores' && deudoresData) {
         matchedDeudor =
+          // 1. Match por id_cliente (PK) — más confiable, bypasa problemas de formato ERP
+          deudoresData.find(d => d.id_cliente != null && d.id_cliente === p.id) ??
+          // 2. Match por ERP ID
           deudoresData.find(d =>
             d.id_cliente_erp && p.idClienteErp && d.id_cliente_erp === p.idClienteErp
           ) ??
+          // 3. Match por nombre + vendedor (fallback fuzzy)
           deudoresData.find(d =>
             normalizeKey(d.cliente_nombre) === normalizeKey(p.nombre) &&
             normalizeKey(d.vendedor_nombre) === normalizeKey(p.vendedor)
           ) ??
           null;
       }
-      // Fallback: pin carries pre-computed debt data from pines memo (ERP-ID matched in TabSupervision)
+      // Fallback: pin carries pre-computed debt data from pines memo (matched in TabSupervision)
       if (mode === 'deudores' && !matchedDeudor && p.deuda != null && p.deuda > 0) {
         matchedDeudor = {
           id_cliente_erp: p.idClienteErp ?? null,
+          id_cliente: p.id,
           cliente_nombre: p.nombre,
           deuda_total: p.deuda,
           antiguedad_dias: p.antiguedadDias ?? 0,
@@ -512,6 +518,7 @@ export default function MapaRutas({
         let matchedDeudor: DeudorInfo | null = null;
         if (deudoresData) {
           matchedDeudor =
+            deudoresData.find(d => d.id_cliente != null && d.id_cliente === pin.id) ??
             deudoresData.find(d => d.id_cliente_erp && pin.idClienteErp && d.id_cliente_erp === pin.idClienteErp) ??
             deudoresData.find(d => normalizeKey(d.cliente_nombre) === normalizeKey(pin.nombre) && normalizeKey(d.vendedor_nombre) === normalizeKey(pin.vendedor)) ??
             null;
@@ -519,6 +526,7 @@ export default function MapaRutas({
         if (!matchedDeudor && pin.deuda != null && pin.deuda > 0) {
           matchedDeudor = {
             id_cliente_erp: pin.idClienteErp ?? null,
+            id_cliente: pin.id,
             cliente_nombre: pin.nombre,
             deuda_total: pin.deuda,
             antiguedad_dias: pin.antiguedadDias ?? 0,
@@ -956,6 +964,7 @@ export default function MapaRutas({
                   if (p.deuda != null && p.deuda > 0) return true;
                   if (!deudoresData) return false;
                   return !!(
+                    deudoresData.find(d => d.id_cliente != null && d.id_cliente === p.id) ??
                     deudoresData.find(d => d.id_cliente_erp && p.idClienteErp && d.id_cliente_erp === p.idClienteErp) ??
                     deudoresData.find(d => normalizeKey(d.cliente_nombre) === normalizeKey(p.nombre) && normalizeKey(d.vendedor_nombre) === normalizeKey(p.vendedor))
                   );

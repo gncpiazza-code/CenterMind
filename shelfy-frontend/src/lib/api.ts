@@ -1448,6 +1448,7 @@ export interface ClienteCuenta {
   cantidad_comprobantes: number | null;
   fecha_ultima_compra: string | null;
   id_cliente_erp?: string | null;
+  id_cliente?: number | null;
 }
 
 export interface VendedorCuentas {

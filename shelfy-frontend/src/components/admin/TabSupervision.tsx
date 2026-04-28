@@ -1087,14 +1087,19 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
     // Build deuda lookup from cuentas corrientes
     const deudaByErpId = new Map<string, { deuda: number; antiguedad: number }>();
     const deudaByNombre = new Map<string, { deuda: number; antiguedad: number }>();
+    const deudaById = new Map<number, { deuda: number; antiguedad: number }>();
     if (cuentasData) {
       cuentasData.vendedores.forEach((v: any) => {
         v.clientes.forEach((c: any) => {
+          const entry = { deuda: c.deuda_total ?? 0, antiguedad: c.antiguedad ?? 0 };
           if (c.id_cliente_erp) {
-            deudaByErpId.set(String(c.id_cliente_erp), { deuda: c.deuda_total ?? 0, antiguedad: c.antiguedad ?? 0 });
+            deudaByErpId.set(String(c.id_cliente_erp), entry);
+          }
+          if (c.id_cliente) {
+            deudaById.set(Number(c.id_cliente), entry);
           }
           if (c.cliente) {
-            deudaByNombre.set(c.cliente.toLowerCase().trim(), { deuda: c.deuda_total ?? 0, antiguedad: c.antiguedad ?? 0 });
+            deudaByNombre.set(c.cliente.toLowerCase().trim(), entry);
           }
         });
       });
@@ -1118,10 +1123,11 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
           if (!visibleClientes.has(c.id_cliente)) return;
           if (!hasValidCoords(c.latitud, c.longitud)) return;
           
-          // Cross-reference deuda
+          // Cross-reference deuda: PK (más confiable) > ERP ID > nombre
           const erpId = c.id_cliente_erp ? String(c.id_cliente_erp) : null;
           const nombre = (c.nombre_fantasia || c.nombre_razon_social || "").toLowerCase().trim();
-          const deudaInfo = (erpId ? deudaByErpId.get(erpId) : null)
+          const deudaInfo = deudaById.get(c.id_cliente)
+            ?? (erpId ? deudaByErpId.get(erpId) : null)
             ?? (nombre ? deudaByNombre.get(nombre) : null)
             ?? null;
           
@@ -1837,6 +1843,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                   ? cuentasData?.vendedores?.flatMap(v =>
                       (v.clientes ?? []).map(c => ({
                         id_cliente_erp: c.id_cliente_erp ?? null,
+                        id_cliente: c.id_cliente ?? null,
                         cliente_nombre: c.cliente ?? '',
                         deuda_total: c.deuda_total,
                         antiguedad_dias: c.antiguedad ?? 0,

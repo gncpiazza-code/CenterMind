@@ -43,6 +43,47 @@ Los paneles utilizan el estilo "Glass-Card" adaptado al tema claro:
 
 ## Componentes UI Clave
 
+### 0. Visor de Exhibiciones `/visor` — Layout 3-Paneles (28/04/2026)
+
+**Archivo**: `shelfy-frontend/src/app/visor/page.tsx`
+
+#### Layout Desktop (≥md)
+Tres columnas fijas sin solapamiento, reemplaza la barra inferior full-width anterior:
+
+| Zona | Ancho | Contenido |
+|---|---|---|
+| Panel IZQ — "Exhibición" | `w-64` | Vendedor, sucursal, tipo PDV, fecha/hora AR, ERP rápido (tipo comercio, compró 30d), ID foto |
+| Canvas Central | `flex-1` | FotoViewer + flechas nav foto + action bar (botones evaluación + kbd hints) |
+| Panel DER — "Info del PDV" | `w-72` | Nombre/fantasía, razón social, localidad, dirección, última compra, ruta/visita (de `erpContext`) + textarea observaciones + frases rápidas |
+
+#### Atajos de teclado (handler global unificado)
+Un solo `useEffect` maneja todos los shortcuts. Se ignoran cuando el foco está en `input/textarea/select/contentEditable`.
+
+| Tecla | Acción |
+|---|---|
+| `A` | Aprobar |
+| `R` | Rechazar |
+| `D` | Destacar |
+| `Z` | Revertir último |
+| `←` / `→` | Foto anterior / siguiente |
+| `↑` / `↓` | Grupo anterior / siguiente |
+
+#### Componentes / helpers clave
+- **`Kbd` + `KbdGroup`** (shadcn, `src/components/ui/kbd.tsx`): Hints visuales de shortcuts debajo de los botones de evaluación, con `opacity-60 hover:opacity-100`.
+- **`InfoRow`**: Subcomponente `{ icon, label, value, valueClass }` para filas icono+etiqueta+valor reutilizables en ambos paneles.
+- **`formatFechaAR(iso)`**: Helper a nivel módulo que formatea fechas con `Intl` en timezone `America/Argentina/Buenos_Aires`.
+- **`isTypingTarget(target)`**: Helper a nivel módulo que detecta si el foco está en un campo de texto.
+- **`FotoViewer`**: Sin cambios — zoom/pan por rueda, doble click, arrastrar.
+
+#### Estado (Zustand + TanStack Query)
+- **Zustand** (`useViewerStore`): `currentIndex`, `currentFotoIdx`, `vistas`, `resetGroupState`.
+- **TanStack Query**: `['pendientes', distId]`, `['stats', distId]`, `['vendedores', distId]`, `['visor', 'erp-contexto', distId, nroForErp]`.
+
+#### Mobile
+Layout conservado (overlay-based): barra superior semitransparente + barra inferior glassmorphism con botones de evaluación + "Obs" toggle para textarea.
+
+---
+
 ### 1. Marcadores de Mapa — Google Maps (24/04/2026)
 - **Motor**: Google Maps JS API (`@googlemaps/js-api-loader` v2). Reemplaza MapLibre GL. Requiere `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`.
 - **Pines**: `google.maps.Marker` con icono SVG dinámico (color vendedor + borde por estado + número de exhibiciones). Selección agrega ring blanco exterior.
@@ -169,6 +210,9 @@ Los paneles utilizan el estilo "Glass-Card" adaptado al tema claro:
 - **Acción rápida**: botón "Correr CC" (solo motor cuentas) llama a `fetchRunCCMotor()` con confirm previo.
 - **Estado de fondo del dashboard**: usa `bg-slate-950` / `bg-slate-900` (dark operativo) para diferenciar visualmente del resto del portal light-violet.
 - **Tipos TS nuevos**: `EmpresaMotorSnapshot`, `EmpresaMotorSnapshotResponse` en `api.ts`; `MotorRun.registros` ampliado a `Record<string, unknown> | number | null`.
+
+### 29. RPA Padrón (28/04/2026) — sin cambios de UI requeridos
+- El hardening reciente del motor Padrón ocurrió en `ShelfMind-RPA/` (navegación Consolido, selector de exportación y upload), sin impactos de contrato ni cambios visuales en pantallas del frontend.
 
 ### 19. Supervisión — visibilidad inactivos anti-regresión (16/04/2026)
 - `MapaRutas` reinicia filtros del legend de estados al cambiar el set de pines para prevenir sesiones donde solo queden visibles activos tras toggles previos.

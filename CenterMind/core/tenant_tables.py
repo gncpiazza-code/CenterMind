@@ -26,18 +26,25 @@ def load_dist_ids(sb) -> list[int]:
     """
     Devuelve IDs de distribuidores existentes (activos e inactivos).
     """
-    try:
-        res = sb.table("distribuidores").select("id").order("id").execute()
-        rows = res.data or []
-        out: list[int] = []
-        for r in rows:
-            try:
-                out.append(int(r.get("id")))
-            except Exception:
-                continue
-        return out
-    except Exception:
-        return []
+    out: list[int] = []
+    # Compat: algunos ambientes usan distribuidores.id y otros id_distribuidor
+    for col in ("id", "id_distribuidor"):
+        try:
+            res = sb.table("distribuidores").select(col).order(col).execute()
+            rows = res.data or []
+            out = []
+            for r in rows:
+                try:
+                    value = r.get(col)
+                    if value is not None:
+                        out.append(int(value))
+                except Exception:
+                    continue
+            if out:
+                return out
+        except Exception:
+            continue
+    return out
 
 
 def find_dist_by_vendedor(sb, id_vendedor: int, dist_ids: Iterable[int]) -> int | None:

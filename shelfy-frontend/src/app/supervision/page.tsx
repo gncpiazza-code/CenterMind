@@ -105,18 +105,13 @@ export default function SupervisionPage() {
         <Topbar title="Panel de Supervisión" />
 
         <main className="flex-1 p-4 md:p-8 pb-24 md:pb-12 overflow-auto">
-          <div className="max-w-[1600px] mx-auto space-y-10">
+          <div className="max-w-[1600px] mx-auto space-y-6">
 
-            {/* Header */}
-            <div className="flex items-start justify-between gap-4 flex-wrap">
-              <div>
-                <h1 className="text-2xl font-black text-[var(--shelfy-text)] tracking-tight">
-                  Panel de Supervisión
-                </h1>
-                <p className="text-sm text-[var(--shelfy-muted)] mt-1">
-                  Visualizá rutas, vendedores y puntos de venta en tiempo real.
-                </p>
-              </div>
+            {/* Header — subtitle + action only, Topbar already carries the title */}
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <p className="text-sm text-[var(--shelfy-muted)]">
+                Visualizá rutas, vendedores y puntos de venta en tiempo real.
+              </p>
 
               {isSuperadmin && (
                 <Button

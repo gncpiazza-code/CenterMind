@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-export type MapMode = 'activos' | 'deudores' | 'ruteo';
+export type MapMode = 'activos' | 'deudores';
 
 export interface DrawnPolygon {
   id: string;
@@ -196,15 +196,22 @@ export const useSupervisionStore = create<SupervisionStore>()(
         mapMode: state.mapMode,
         vendorColorOverrides: state.vendorColorOverrides,
       }),
-      merge: (persistedState: any, currentState) => ({
-        ...currentState,
-        mapMode: persistedState?.mapMode ?? currentState.mapMode,
-        selectedSucursal: persistedState?.selectedSucursal ?? currentState.selectedSucursal,
-        vendorColorOverrides: persistedState?.vendorColorOverrides ?? currentState.vendorColorOverrides,
-        visibleVends: new Set(),
-        visibleRutas: new Set(),
-        visibleClientes: new Set(),
-      }),
+      merge: (persistedState: any, currentState) => {
+        // Guard against legacy persisted 'ruteo' mode (no longer valid)
+        const persistedMode: MapMode = persistedState?.mapMode;
+        const safeMode: MapMode = (persistedMode === 'activos' || persistedMode === 'deudores')
+          ? persistedMode
+          : 'activos';
+        return {
+          ...currentState,
+          mapMode: safeMode,
+          selectedSucursal: persistedState?.selectedSucursal ?? currentState.selectedSucursal,
+          vendorColorOverrides: persistedState?.vendorColorOverrides ?? currentState.vendorColorOverrides,
+          visibleVends: new Set(),
+          visibleRutas: new Set(),
+          visibleClientes: new Set(),
+        };
+      },
     }
   )
 );

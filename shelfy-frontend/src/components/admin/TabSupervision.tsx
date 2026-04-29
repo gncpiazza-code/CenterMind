@@ -23,7 +23,6 @@ import {
   X,
   Image as ImageIcon,
   Search,
-  Navigation,
   Target,
 } from "lucide-react";
 import {
@@ -74,15 +73,6 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import { uploadCCForDist, fetchCCStatus } from "@/lib/api";
-
-const ModoRuteo = dynamic(() => import("./ModoRuteo"), {
-  ssr: false,
-  loading: () => (
-    <div className="w-full h-full flex items-center justify-center bg-[var(--shelfy-panel)]">
-      <Loader2 className="w-5 h-5 animate-spin text-[var(--shelfy-muted)]" />
-    </div>
-  ),
-});
 
 // ── Map: SSR off ──────────────────────────────────────────────────────────────
 const MapaRutas = dynamic(() => import("./MapaRutas"), {
@@ -1510,91 +1500,61 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
     }
   };
 
-  // ── Map mode selector ─────────────────────────────────────────────────────
-  const MAP_MODES = [
-    {
-      id: 'activos' as const,
-      label: 'Activos / Exhibidos',
-      description: 'Actividad y cobertura de PDVs',
-      icon: MapPin,
-    },
-    {
-      id: 'deudores' as const,
-      label: 'Deudores',
-      description: 'Estado de deuda por vendedor',
-      icon: CreditCard,
-    },
-    {
-      id: 'ruteo' as const,
-      label: 'Ruteo',
-      description: 'Optimizar distribución de rutas',
-      icon: RouteIcon,
-    },
-  ] as const;
-  const visibleMapModes = isSuperadmin
-    ? MAP_MODES
-    : MAP_MODES.filter((m) => m.id !== "ruteo");
-
-  useEffect(() => {
-    if (!isSuperadmin && mapMode === "ruteo") {
-      setMapMode("activos");
-    }
-  }, [isSuperadmin, mapMode, setMapMode]);
-
-  function MapModeSelector() {
+  // ── Map layer controls (inline pill bar above the map) ────────────────────
+  // Replaces the old MAP_MODES selector — only 'activos' and 'deudores' remain.
+  // "Armar Ruta" is now a layer tool in this same control bar.
+  function MapLayerControls() {
     return (
-      <div className="flex flex-col gap-2 p-3 border-b border-[var(--shelfy-border)]">
-        <div className="flex gap-2">
-          {visibleMapModes.map((mode) => {
-            const Icon = mode.icon;
-            const isActive = mapMode === mode.id;
-            return (
-              <button
-                key={mode.id}
-                onClick={() => setMapMode(mode.id)}
-                className={`flex-1 flex items-start gap-2.5 p-3 rounded-lg border text-left transition-all ${
-                  isActive
-                    ? 'border-[var(--shelfy-accent)] bg-[var(--shelfy-accent)]/10 text-[var(--shelfy-accent)]'
-                    : 'border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-[var(--shelfy-muted)] hover:border-[var(--shelfy-accent)]/50 hover:text-white'
-                }`}
-              >
-                <Icon className="w-4 h-4 mt-0.5 shrink-0" />
-                <div>
-                  <div className={`text-xs font-semibold ${isActive ? 'text-[var(--shelfy-accent)]' : 'text-[var(--shelfy-text)]'}`}>
-                    {mode.label}
-                  </div>
-                  <div className="text-[10px] text-[var(--shelfy-muted)] leading-tight mt-0.5">
-                    {mode.description}
-                  </div>
-                </div>
-              </button>
-            );
-          })}
-        </div>
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-[var(--shelfy-border)] bg-[var(--shelfy-panel)]/80 shrink-0 flex-wrap">
+        {/* Capa Activos */}
+        <button
+          onClick={() => setMapMode('activos')}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all ${
+            mapMode === 'activos'
+              ? 'border-[var(--shelfy-accent)] bg-[var(--shelfy-accent)]/15 text-[var(--shelfy-accent)]'
+              : 'border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:border-[var(--shelfy-accent)]/40 hover:text-[var(--shelfy-text)]'
+          }`}
+        >
+          <MapPin className="w-3.5 h-3.5" />
+          Activos
+        </button>
 
-        {/* Armar Ruta toggle — solo visible si tiene permiso de objetivos */}
+        {/* Capa Deudores */}
+        <button
+          onClick={() => setMapMode('deudores')}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all ${
+            mapMode === 'deudores'
+              ? 'border-amber-400/60 bg-amber-500/15 text-amber-400'
+              : 'border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:border-amber-400/40 hover:text-amber-400'
+          }`}
+        >
+          <CreditCard className="w-3.5 h-3.5" />
+          Deudores
+        </button>
+
+        {/* Separador */}
+        {hasPermiso("action_edit_objetivos") && (
+          <span className="w-px h-5 bg-[var(--shelfy-border)] mx-0.5" />
+        )}
+
+        {/* Armar Ruta — herramienta de polígono */}
         {hasPermiso("action_edit_objetivos") && (
           <button
             onClick={handleToggleRouteBuild}
-            className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg border text-left transition-all ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all ${
               routeBuildEnabled
                 ? 'border-violet-400/60 bg-violet-500/15 text-violet-400'
-                : 'border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-[var(--shelfy-muted)] hover:border-violet-400/40 hover:text-violet-400'
+                : 'border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:border-violet-400/40 hover:text-violet-400'
             }`}
           >
-            <RouteIcon className="w-4 h-4 shrink-0" />
-            <div className="flex-1 min-w-0">
-              <div className={`text-xs font-semibold ${routeBuildEnabled ? 'text-violet-400' : 'text-[var(--shelfy-text)]'}`}>
-                Armar Ruta
-              </div>
-              <div className="text-[10px] text-[var(--shelfy-muted)] leading-tight mt-0.5">
-                {routeBuildEnabled
-                  ? `Modo activo · ${activePolygonPdvIds.length > 0 ? `${activePolygonPdvIds.length} PDVs seleccionados` : 'dibujá un polígono'}`
-                  : 'Seleccionar PDVs por polígono en el mapa'
-                }
-              </div>
-            </div>
-            <div className={`w-2 h-2 rounded-full shrink-0 ${routeBuildEnabled ? 'bg-violet-400 animate-pulse' : 'bg-[var(--shelfy-border)]'}`} />
+            <RouteIcon className="w-3.5 h-3.5" />
+            {routeBuildEnabled
+              ? `Dibujar Zona · ${activePolygonPdvIds.length > 0 ? `${activePolygonPdvIds.length} PDVs` : 'dibujá'}`
+              : 'Dibujar Zona'
+            }
+            {routeBuildEnabled && (
+              <span className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse ml-0.5" />
+            )}
           </button>
         )}
       </div>
@@ -1879,34 +1839,13 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
 
         {/* ── MAP — oculto en mobile ──────────────────────────────────────── */}
         <div className="hidden xl:flex xl:col-span-3 flex-col rounded-2xl overflow-hidden border border-[var(--shelfy-border)] relative bg-[var(--shelfy-panel)]">
-          <MapModeSelector />
+          <MapLayerControls />
           <div className="flex-1 relative">
             {loading ? (
               <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-[var(--shelfy-muted)]">
                 <Loader2 className="w-6 h-6 animate-spin" />
                 <p className="text-sm">Cargando...</p>
               </div>
-            ) : mapMode === 'ruteo' ? (
-              <ModoRuteo
-                vendedores={vendedoresFiltrados}
-                distId={selectedDist}
-                rutas={Object.fromEntries(
-                  vendedoresFiltrados.map(v => [
-                    v.id_vendedor,
-                    queryClient.getQueryData<RutaSupervision[]>(['supervision-rutas', selectedDist, v.id_vendedor]) ?? []
-                  ])
-                )}
-                clientes={Object.fromEntries(
-                  vendedoresFiltrados.flatMap(v => {
-                    const vRutas = queryClient.getQueryData<RutaSupervision[]>(['supervision-rutas', selectedDist, v.id_vendedor]) ?? [];
-                    return vRutas.map(r => [
-                      r.id_ruta,
-                      queryClient.getQueryData<ClienteSupervision[]>(['supervision-clientes', selectedDist, r.id_ruta]) ?? []
-                    ]);
-                  })
-                )}
-                onClose={() => setMapMode('activos')}
-              />
             ) : pines.length === 0 ? (
               <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-[var(--shelfy-muted)]">
                 <MapIcon className="w-12 h-12 opacity-15" />
@@ -1923,7 +1862,6 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                 fullscreenPanel={vendorPanelContent}
                 mode={mapMode}
                 onModeChange={setMapMode}
-                showRuteoMode={!!isSuperadmin}
                 deudoresData={mapMode === 'deudores'
                   ? cuentasData?.vendedores?.flatMap(v =>
                       (v.clientes ?? []).map(c => ({
@@ -1959,38 +1897,16 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
         {/* ── RIGHT PANEL — lista vendedores/rutas ────────────────────────── */}
         <div className="xl:col-span-2 flex flex-col rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden min-h-[400px] xl:min-h-0">
 
-          {/* Sucursal selector */}
-          <div className="px-4 py-3 border-b border-[var(--shelfy-border)]/60 shrink-0">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--shelfy-muted)] mb-2">
-              Sucursal
-            </p>
-            {loading ? (
-              <div className="flex gap-2">
-                {[1, 2].map(i => <div key={`skeleton-nav-${i}`} className="h-7 w-24 rounded-lg bg-white/5 animate-pulse" />)}
-              </div>
-            ) : sucursales.length === 0 ? (
-              <p className="text-xs text-[var(--shelfy-muted)] italic">Sin datos cargados</p>
-            ) : (
-              <div className="flex flex-wrap gap-1.5">
-                {sucursales.map(suc => (
-                  <button
-                    key={suc}
-                    onClick={() => {
-                      setSelectedSucursal(suc === selectedSucursal && sucursales.length > 1 ? null : suc);
-                      setVisibleVends(new Set());
-                      setVisibleRutas(new Set());
-                      setVisibleClientes(new Set());
-                    }}
-                    className={`px-3 py-1 rounded-lg text-xs font-semibold border transition-all duration-200 ${
-                      selectedSucursal === suc
-                        ? "bg-[var(--shelfy-primary)] text-white border-transparent shadow-sm shadow-blue-500/20"
-                        : "bg-[var(--shelfy-bg)] text-[var(--shelfy-muted)] border-[var(--shelfy-border)] hover:border-[var(--shelfy-primary)]/50 hover:text-[var(--shelfy-text)]"
-                    }`}
-                  >
-                    {suc}
-                  </button>
-                ))}
-              </div>
+          {/* Panel header */}
+          <div className="px-4 py-2.5 border-b border-[var(--shelfy-border)]/60 shrink-0 flex items-center gap-2">
+            <Building2 className="w-3.5 h-3.5 text-amber-400" />
+            <span className="text-xs font-bold text-[var(--shelfy-text)]">
+              {selectedSucursal ? selectedSucursal : "Vendedores"}
+            </span>
+            {selectedSucursal && vendedoresFiltrados.length > 0 && (
+              <span className="text-[10px] text-[var(--shelfy-muted)] ml-auto">
+                {vendedoresFiltrados.length} vendedor{vendedoresFiltrados.length !== 1 ? "es" : ""}
+              </span>
             )}
           </div>
 

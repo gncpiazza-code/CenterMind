@@ -136,9 +136,8 @@ interface MapaRutasProps {
   pines: PinCliente[];
   fullscreenPanel?: React.ReactNode;
   shelfyMapsMode?: boolean;
-  mode?: 'activos' | 'deudores' | 'ruteo';
-  onModeChange?: (mode: 'activos' | 'deudores' | 'ruteo') => void;
-  showRuteoMode?: boolean;
+  mode?: 'activos' | 'deudores';
+  onModeChange?: (mode: 'activos' | 'deudores') => void;
   deudoresData?: DeudorInfo[];
   selectedPDVs?: number[];
   onTogglePDV?: (id: number) => void;
@@ -234,7 +233,6 @@ export default function MapaRutas({
   shelfyMapsMode,
   mode = 'activos',
   onModeChange,
-  showRuteoMode = true,
   deudoresData,
   selectedPDVs,
   onTogglePDV,
@@ -817,7 +815,7 @@ export default function MapaRutas({
         </div>
       )}
 
-      {/* Fullscreen mode switcher */}
+      {/* Fullscreen mode switcher (capas: Activos / Deudores + Armar Ruta) */}
       {!shelfyMapsMode && isFullscreen && onModeChange && (
         <div style={{
           position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)',
@@ -856,23 +854,6 @@ export default function MapaRutas({
           >
             Deudores
           </button>
-          {showRuteoMode && (
-            <button
-              onClick={() => onModeChange('ruteo')}
-              style={{
-                border: 'none',
-                borderRadius: 8,
-                padding: '6px 10px',
-                fontSize: 11,
-                fontWeight: 700,
-                cursor: 'pointer',
-                color: mode === 'ruteo' ? '#0f172a' : '#cbd5e1',
-                background: mode === 'ruteo' ? '#22c55e' : 'transparent',
-              }}
-            >
-              Ruteo
-            </button>
-          )}
           {onToggleRouteBuild && (
             <button
               onClick={onToggleRouteBuild}
@@ -887,7 +868,7 @@ export default function MapaRutas({
                 background: routeBuildEnabled ? '#8b5cf6' : 'transparent',
               }}
             >
-              Armar Ruta
+              Dibujar Zona
             </button>
           )}
         </div>

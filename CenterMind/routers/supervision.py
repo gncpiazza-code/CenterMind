@@ -1635,11 +1635,12 @@ def crear_objetivo(body: ObjetivoCreate, user_payload=Depends(verify_auth)):
 
     # ── Guard de duplicados ───────────────────────────────────────────────────
     # Previene crear dos objetivos activos del mismo tipo/vendedor que colisionen.
-    # Excepción de negocio: tipo='ruteo' funciona como ayuda operativa y se
-    # permite crear múltiples objetivos simultáneos para el mismo vendedor.
+    # Excepción de negocio: tipos de ruteo ('ruteo' y 'ruteo_alteo') funcionan
+    # como ayuda operativa y se permite crear múltiples objetivos simultáneos
+    # para el mismo vendedor.
     # Para exhibición, adicionalmente verifica solapamiento de PDV ítems.
     try:
-        if body.tipo != "ruteo":
+        if body.tipo not in {"ruteo", "ruteo_alteo"}:
             existing_q = (
                 sb.table("objetivos")
                 .select("id, tipo, descripcion")

@@ -1455,6 +1455,7 @@ export interface ClienteCuenta {
 
 export interface VendedorCuentas {
   vendedor: string;
+  id_vendedor?: number | null;
   deuda_total: number;
   cantidad_clientes: number;
   clientes: ClienteCuenta[];

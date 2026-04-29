@@ -29,6 +29,7 @@ export interface PinCliente {
 export interface DeudorInfo {
   id_cliente_erp: string | null;
   id_cliente?: number | null;
+  id_vendedor?: number | null;
   cliente_nombre: string;
   deuda_total: number;
   antiguedad_dias: number;
@@ -354,16 +355,21 @@ export default function MapaRutas({
       let matchedDeudor: DeudorInfo | null = null;
       if (mode === 'deudores' && deudoresData) {
         matchedDeudor =
-          // 1. Match por id_cliente (PK) — más confiable, bypasa problemas de formato ERP
+          // 1. Match por id_cliente (PK) — más confiable cuando está resuelto
           deudoresData.find(d => d.id_cliente != null && d.id_cliente === p.id) ??
-          // 2. Match por ERP ID normalizado (elimina .0, ceros a la izquierda)
+          // 2. Match por id_vendedor + nombre cliente normalizado (CHESS vs Consolido tienen ERP IDs distintos)
+          deudoresData.find(d =>
+            d.id_vendedor != null && d.id_vendedor === p.id_vendedor &&
+            normalizeKey(d.cliente_nombre) === normalizeKey(p.nombre)
+          ) ??
+          // 3. Match por id_vendedor + razon social normalizada
+          deudoresData.find(d =>
+            d.id_vendedor != null && d.id_vendedor === p.id_vendedor &&
+            p.razonSocial != null && normalizeKey(d.cliente_nombre) === normalizeKey(p.razonSocial)
+          ) ??
+          // 4. Match por ERP ID normalizado (solo si mismo sistema)
           deudoresData.find(d =>
             normErpId(d.id_cliente_erp) != null && normErpId(d.id_cliente_erp) === normErpId(p.idClienteErp)
-          ) ??
-          // 3. Match por nombre + vendedor (fallback fuzzy)
-          deudoresData.find(d =>
-            normalizeKey(d.cliente_nombre) === normalizeKey(p.nombre) &&
-            normalizeKey(d.vendedor_nombre) === normalizeKey(p.vendedor)
           ) ??
           null;
       }
@@ -527,8 +533,9 @@ export default function MapaRutas({
         if (deudoresData) {
           matchedDeudor =
             deudoresData.find(d => d.id_cliente != null && d.id_cliente === pin.id) ??
+            deudoresData.find(d => d.id_vendedor != null && d.id_vendedor === pin.id_vendedor && normalizeKey(d.cliente_nombre) === normalizeKey(pin.nombre)) ??
+            deudoresData.find(d => d.id_vendedor != null && d.id_vendedor === pin.id_vendedor && pin.razonSocial != null && normalizeKey(d.cliente_nombre) === normalizeKey(pin.razonSocial)) ??
             deudoresData.find(d => normErpId(d.id_cliente_erp) != null && normErpId(d.id_cliente_erp) === normErpId(pin.idClienteErp)) ??
-            deudoresData.find(d => normalizeKey(d.cliente_nombre) === normalizeKey(pin.nombre) && normalizeKey(d.vendedor_nombre) === normalizeKey(pin.vendedor)) ??
             null;
         }
         if (!matchedDeudor && pin.deuda != null && pin.deuda > 0) {
@@ -956,8 +963,9 @@ export default function MapaRutas({
                   if (!deudoresData) return false;
                   return !!(
                     deudoresData.find(d => d.id_cliente != null && d.id_cliente === p.id) ??
-                    deudoresData.find(d => normErpId(d.id_cliente_erp) != null && normErpId(d.id_cliente_erp) === normErpId(p.idClienteErp)) ??
-                    deudoresData.find(d => normalizeKey(d.cliente_nombre) === normalizeKey(p.nombre) && normalizeKey(d.vendedor_nombre) === normalizeKey(p.vendedor))
+                    deudoresData.find(d => d.id_vendedor != null && d.id_vendedor === p.id_vendedor && normalizeKey(d.cliente_nombre) === normalizeKey(p.nombre)) ??
+                    deudoresData.find(d => d.id_vendedor != null && d.id_vendedor === p.id_vendedor && p.razonSocial != null && normalizeKey(d.cliente_nombre) === normalizeKey(p.razonSocial)) ??
+                    deudoresData.find(d => normErpId(d.id_cliente_erp) != null && normErpId(d.id_cliente_erp) === normErpId(p.idClienteErp))
                   );
                 });
                 return <>{withDebt.length.toLocaleString()} <span style={{ color: 'rgba(255,255,255,0.5)', fontWeight: 400 }}>PDVs con deuda</span></>;

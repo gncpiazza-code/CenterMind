@@ -1152,8 +1152,12 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
     const deudaByErpId = new Map<string, { deuda: number; antiguedad: number }>();
     const deudaByNombre = new Map<string, { deuda: number; antiguedad: number }>();
     const deudaById = new Map<number, { deuda: number; antiguedad: number }>();
+    // Vendor-scoped name lookup: `${id_vendedor}:${normName}` → deuda
+    // Más confiable que nombre global porque CHESS y Consolido tienen ERP IDs distintos
+    const deudaByVendorClient = new Map<string, { deuda: number; antiguedad: number }>();
     if (cuentasData) {
       cuentasData.vendedores.forEach((v: any) => {
+        const vId: number | null = v.id_vendedor ?? null;
         v.clientes.forEach((c: any) => {
           const entry = { deuda: c.deuda_total ?? 0, antiguedad: c.antiguedad ?? 0 };
           const normErp = normErpId(c.id_cliente_erp);
@@ -1168,6 +1172,8 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
             deudaByNombre.set(c.cliente.toLowerCase().trim(), entry);
             const nn = normName(c.cliente);
             if (nn) deudaByNombre.set(nn, entry);
+            // Vendor-scoped: más fiable porque id_vendedor es mismo PK en ambos ERPs
+            if (vId && nn) deudaByVendorClient.set(`${vId}:${nn}`, entry);
           }
         });
       });
@@ -1191,16 +1197,21 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
           if (!visibleClientes.has(c.id_cliente)) return;
           if (!hasValidCoords(c.latitud, c.longitud)) return;
           
-          // Cross-reference deuda: PK (más confiable) > ERP ID normalizado > nombre
+          // Cross-reference deuda: PK > vendor-scoped nombre > ERP ID > nombre global
           const erpId = normErpId(c.id_cliente_erp);
           const nombreFantasia = (c.nombre_fantasia || "").toLowerCase().trim();
           const nombreRazon = (c.nombre_razon_social || "").toLowerCase().trim();
+          const normFantasia = normName(c.nombre_fantasia);
+          const normRazon = normName(c.nombre_razon_social);
           const deudaInfo = deudaById.get(c.id_cliente)
+            // Vendor-scoped: id_vendedor es el mismo PK en ambos sistemas (resuelto en ingesta)
+            ?? (v.id_vendedor && normFantasia ? deudaByVendorClient.get(`${v.id_vendedor}:${normFantasia}`) : null)
+            ?? (v.id_vendedor && normRazon ? deudaByVendorClient.get(`${v.id_vendedor}:${normRazon}`) : null)
             ?? (erpId ? deudaByErpId.get(erpId) : null)
             ?? (nombreFantasia ? deudaByNombre.get(nombreFantasia) : null)
-            ?? (nombreFantasia ? deudaByNombre.get(normName(c.nombre_fantasia)) : null)
+            ?? (normFantasia ? deudaByNombre.get(normFantasia) : null)
             ?? (nombreRazon ? deudaByNombre.get(nombreRazon) : null)
-            ?? (nombreRazon ? deudaByNombre.get(normName(c.nombre_razon_social)) : null)
+            ?? (normRazon ? deudaByNombre.get(normRazon) : null)
             ?? null;
           
           result.push({
@@ -1867,6 +1878,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
                       (v.clientes ?? []).map(c => ({
                         id_cliente_erp: c.id_cliente_erp ?? null,
                         id_cliente: c.id_cliente ?? null,
+                        id_vendedor: v.id_vendedor ?? null,
                         cliente_nombre: c.cliente ?? '',
                         deuda_total: c.deuda_total,
                         antiguedad_dias: c.antiguedad ?? 0,

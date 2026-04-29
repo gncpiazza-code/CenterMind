@@ -88,6 +88,8 @@ ERRORS_DIR = RPA_BASE_DIR / "logs" / "errors"
 
 # Modo headless
 HEADLESS = os.environ.get("RPA_HEADLESS", "true").lower() != "false"
+TENANT_RETRY_MAX = int(os.environ.get("PADRON_TENANT_RETRY_MAX", "2"))
+TENANT_RETRY_BACKOFF_SEC = int(os.environ.get("PADRON_TENANT_RETRY_BACKOFF_SEC", "8"))
 
 # Timeout general (ms)
 TIMEOUT_MS = 120_000  # Consolido puede ser lento (aumentado a 2 min porque reportes grandes tardan >1 min)
@@ -951,8 +953,25 @@ async def run() -> dict:
 
         for tenant in tenants:
             try:
-                # Credenciales únicas de Consolido para todos los tenants.
-                resumen_tenant = await _procesar_tenant(browser, tenant, usuario, password)
+                # Reintento por tenant fallido: no repite tenants que ya salieron OK/sin cambios.
+                resumen_tenant = {"ok": 0, "errores": 1, "sin_cambios": 0}
+                for intento in range(1, TENANT_RETRY_MAX + 2):
+                    if intento > 1:
+                        logger.warning(
+                            f"🔁 Reintentando tenant {tenant['id']} "
+                            f"({intento - 1}/{TENANT_RETRY_MAX})..."
+                        )
+                    # Credenciales únicas de Consolido para todos los tenants.
+                    resumen_tenant = await _procesar_tenant(browser, tenant, usuario, password)
+
+                    tenant_ok = resumen_tenant.get("ok", 0) > 0
+                    tenant_sin_cambios = resumen_tenant.get("sin_cambios", 0) > 0
+                    if tenant_ok or tenant_sin_cambios:
+                        break
+
+                    if intento < (TENANT_RETRY_MAX + 1):
+                        await asyncio.sleep(TENANT_RETRY_BACKOFF_SEC)
+
                 resumen_total["ok"] += resumen_tenant.get("ok", 0)
                 resumen_total["errores"] += resumen_tenant.get("errores", 0)
                 resumen_total["sin_cambios"] += resumen_tenant.get("sin_cambios", 0)

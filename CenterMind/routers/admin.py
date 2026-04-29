@@ -81,16 +81,30 @@ def _build_match_center_rows(dist_id: int) -> dict:
         .eq("id_distribuidor", dist_id)
         .execute()
     )
-    ig_res = (
-        sb.table("integrantes_grupo")
-        .select(
-            "id_integrante,id_distribuidor,nombre_integrante,telegram_user_id,"
-            "telegram_group_id,nombre_grupo,rol_telegram,id_vendedor_v2,id_vendedor_erp"
+    try:
+        ig_res = (
+            sb.table("integrantes_grupo")
+            .select(
+                "id_integrante,id_distribuidor,nombre_integrante,telegram_user_id,"
+                "telegram_group_id,nombre_grupo,rol_telegram,id_vendedor_v2,id_vendedor_erp"
+            )
+            .eq("id_distribuidor", dist_id)
+            .order("nombre_integrante")
+            .execute()
         )
-        .eq("id_distribuidor", dist_id)
-        .order("nombre_integrante")
-        .execute()
-    )
+        ig_rows = ig_res.data or []
+    except Exception:
+        ig_res = (
+            sb.table("integrantes_grupo")
+            .select(
+                "id_integrante,id_distribuidor,nombre_integrante,telegram_user_id,"
+                "telegram_group_id,rol_telegram,id_vendedor_v2,id_vendedor_erp"
+            )
+            .eq("id_distribuidor", dist_id)
+            .order("nombre_integrante")
+            .execute()
+        )
+        ig_rows = ig_res.data or []
     bind_res = (
         sb.table("vendedores_telegram_binding")
         .select("telegram_user_id,id_vendedor_v2,telegram_group_id")
@@ -134,27 +148,83 @@ def _build_match_center_rows(dist_id: int) -> dict:
         if b.get("telegram_group_id") is not None:
             binding_group_by_tg[tg_i] = int(b.get("telegram_group_id"))
 
-    tg_ids = list({int(r["telegram_user_id"]) for r in (ig_res.data or []) if r.get("telegram_user_id") is not None})
+    tg_ids = list({int(r["telegram_user_id"]) for r in ig_rows if r.get("telegram_user_id") is not None})
+    ig_by_id = {
+        int(r["id_integrante"]): int(r["telegram_user_id"])
+        for r in ig_rows
+        if r.get("id_integrante") is not None and r.get("telegram_user_id") is not None
+    }
+    group_name_by_id: dict[int, str] = {}
+    try:
+        g_res = (
+            sb.table("grupos")
+            .select("telegram_chat_id,nombre_grupo")
+            .eq("id_distribuidor", dist_id)
+            .execute()
+        )
+        for g in (g_res.data or []):
+            gid = g.get("telegram_chat_id")
+            if gid is None:
+                continue
+            group_name_by_id[int(gid)] = g.get("nombre_grupo") or f"Grupo {gid}"
+    except Exception:
+        pass
     loc_hint_by_tg: dict[int, int] = {}
-    if tg_ids:
+    if tg_ids or ig_by_id:
         offset = 0
         batch = 1000
         exhib_rows: list[dict] = []
-        while True:
-            ex = (
-                sb.table("exhibiciones")
-                .select("telegram_user_id,location_id,timestamp_subida")
-                .eq("id_distribuidor", dist_id)
-                .in_("telegram_user_id", tg_ids)
-                .order("timestamp_subida", desc=True)
-                .range(offset, offset + batch - 1)
-                .execute()
-            )
-            chunk = ex.data or []
-            exhib_rows.extend(chunk)
-            if len(chunk) < batch:
-                break
-            offset += batch
+        try:
+            while True:
+                ex = (
+                    sb.table("exhibiciones")
+                    .select("telegram_user_id,location_id,timestamp_subida")
+                    .eq("id_distribuidor", dist_id)
+                    .in_("telegram_user_id", tg_ids)
+                    .order("timestamp_subida", desc=True)
+                    .range(offset, offset + batch - 1)
+                    .execute()
+                )
+                chunk = ex.data or []
+                exhib_rows.extend(chunk)
+                if len(chunk) < batch:
+                    break
+                offset += batch
+        except Exception:
+            offset = 0
+            exhib_rows = []
+            int_ids = list(ig_by_id.keys())
+            try:
+                while True:
+                    ex = (
+                        sb.table("exhibiciones")
+                        .select("id_integrante,location_id,timestamp_subida")
+                        .eq("id_distribuidor", dist_id)
+                        .in_("id_integrante", int_ids)
+                        .order("timestamp_subida", desc=True)
+                        .range(offset, offset + batch - 1)
+                        .execute()
+                    )
+                    chunk = ex.data or []
+                    for row in chunk:
+                        iid = row.get("id_integrante")
+                        if iid is None:
+                            continue
+                        tg = ig_by_id.get(int(iid))
+                        if tg is None:
+                            continue
+                        exhib_rows.append(
+                            {
+                                "telegram_user_id": tg,
+                                "location_id": row.get("location_id"),
+                                "timestamp_subida": row.get("timestamp_subida"),
+                            }
+                        )
+                    if len(chunk) < batch:
+                        break
+                    offset += batch
+            except Exception:
+                exhib_rows = []
         counts: dict[int, Counter] = defaultdict(Counter)
         for row in exhib_rows:
             tg = row.get("telegram_user_id")
@@ -170,9 +240,14 @@ def _build_match_center_rows(dist_id: int) -> dict:
                 loc_hint_by_tg[tg] = ctr.most_common(1)[0][0]
 
     rows = []
-    for ig in (ig_res.data or []):
+    for ig in ig_rows:
         tg_uid = ig.get("telegram_user_id")
         tg_int = int(tg_uid) if tg_uid is not None else None
+        gid_raw = ig.get("telegram_group_id")
+        gid_int = int(gid_raw) if gid_raw is not None else None
+        group_name = ig.get("nombre_grupo")
+        if not group_name and gid_int is not None:
+            group_name = group_name_by_id.get(gid_int, f"Grupo {gid_int}")
         cur_v2 = int(ig["id_vendedor_v2"]) if ig.get("id_vendedor_v2") is not None else None
         cur_vendor = vendors_by_id.get(cur_v2) if cur_v2 is not None else None
         binding_v2 = binding_by_tg.get(tg_int) if tg_int is not None else None
@@ -219,8 +294,8 @@ def _build_match_center_rows(dist_id: int) -> dict:
                 "id_distribuidor": ig.get("id_distribuidor"),
                 "nombre_integrante": ig.get("nombre_integrante"),
                 "telegram_user_id": tg_int,
-                "telegram_group_id": ig.get("telegram_group_id"),
-                "nombre_grupo": ig.get("nombre_grupo"),
+                "telegram_group_id": gid_int,
+                "nombre_grupo": group_name,
                 "rol_telegram": ig.get("rol_telegram"),
                 "id_vendedor_erp_legacy": ig.get("id_vendedor_erp"),
                 "location_hint_id": loc_hint_by_tg.get(tg_int) if tg_int is not None else None,

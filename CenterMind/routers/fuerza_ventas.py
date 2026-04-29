@@ -664,10 +664,6 @@ def fuerza_ventas_list_usuarios_grupo(
         q = q.order("nombre_integrante")
         r = q.execute()
         integrantes = r.data or []
-        id_integrantes = [
-            iid for iid in (_safe_int(row.get("id_integrante")) for row in integrantes)
-            if iid is not None
-        ]
 
         # Normalización por usuario Telegram:
         # un mismo telegram_user_id puede tener múltiples filas id_integrante históricas.
@@ -684,8 +680,41 @@ def fuerza_ventas_list_usuarios_grupo(
             if key not in normalized_rows:
                 normalized_rows[key] = row
 
+        # Resolver universo completo de integrantes por usuario (mismo telegram_user_id)
+        # para consolidar stats a nivel usuario tenant, no sólo por fila/grupo visible.
+        all_integ_r = (
+            sb.table("integrantes_grupo")
+            .select("id_integrante, telegram_user_id")
+            .eq("id_distribuidor", dist_id)
+            .execute()
+        )
+        tg_user_to_all_iids: dict[int, set[int]] = {}
+        for row in (all_integ_r.data or []):
+            iid = _safe_int(row.get("id_integrante"))
+            tg_uid = _safe_int(row.get("telegram_user_id"))
+            if iid is None or tg_uid is None:
+                continue
+            tg_user_to_all_iids.setdefault(tg_uid, set()).add(iid)
+
+        id_to_key: dict[int, tuple[str, int]] = {}
+        id_integrantes_for_stats: set[int] = set()
+        for key, row in normalized_rows.items():
+            iid = _safe_int(row.get("id_integrante"))
+            if iid is None:
+                continue
+            key_type, key_value = key
+            if key_type == "tg":
+                all_iids = tg_user_to_all_iids.get(key_value, set())
+                if all_iids:
+                    for all_iid in all_iids:
+                        id_to_key[all_iid] = key
+                    id_integrantes_for_stats.update(all_iids)
+                    continue
+            id_to_key[iid] = key
+            id_integrantes_for_stats.add(iid)
+
         exhib_stats: dict[tuple[str, int], dict] = {}
-        if id_integrantes:
+        if id_integrantes_for_stats:
             exhibiciones: list[dict] = []
             batch, offset_e = 1000, 0
             while True:
@@ -693,7 +722,7 @@ def fuerza_ventas_list_usuarios_grupo(
                     sb.table("exhibiciones")
                     .select("id_integrante, timestamp_subida")
                     .eq("id_distribuidor", dist_id)
-                    .in_("id_integrante", id_integrantes)
+                    .in_("id_integrante", list(id_integrantes_for_stats))
                     .order("timestamp_subida", desc=True)
                     .range(offset_e, offset_e + batch - 1)
                     .execute()
@@ -708,7 +737,7 @@ def fuerza_ventas_list_usuarios_grupo(
                 iid = _safe_int(ex.get("id_integrante"))
                 if iid is None:
                     continue
-                key = row_to_user_key.get(iid)
+                key = id_to_key.get(iid)
                 if key is None:
                     continue
                 timestamp = _safe_text(ex.get("timestamp_subida")) or None

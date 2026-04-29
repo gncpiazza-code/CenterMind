@@ -2607,9 +2607,35 @@ def supervision_sync_status(dist_id: int, user_payload=Depends(verify_auth)):
 
         padron_data: dict = {"last_updated": None, "count": 0}
         try:
-            res_p = sb.table(t_clientes).select("updated_at").order("updated_at", desc=True).limit(1).execute()
+            # Fuente principal: última corrida exitosa del motor padrón para este distribuidor.
+            # Esto evita mostrar fechas viejas cuando la corrida fue "sin cambios" en filas.
+            run_ok = (
+                sb.table("motor_runs")
+                .select("finalizado_en,iniciado_en")
+                .eq("motor", "padron")
+                .eq("dist_id", dist_id)
+                .eq("estado", "ok")
+                .order("finalizado_en", desc=True)
+                .limit(1)
+                .execute()
+            )
+
+            if run_ok.data:
+                padron_data["last_updated"] = (
+                    run_ok.data[0].get("finalizado_en")
+                    or run_ok.data[0].get("iniciado_en")
+                )
+
+            # Fallback legacy: última modificación real en tabla de padrón.
+            res_p = (
+                sb.table(t_clientes)
+                .select("updated_at")
+                .order("updated_at", desc=True)
+                .limit(1)
+                .execute()
+            )
             count_res = sb.table(t_clientes).select("id_cliente", count="exact").execute()
-            if res_p.data:
+            if (not padron_data["last_updated"]) and res_p.data:
                 padron_data["last_updated"] = res_p.data[0]["updated_at"]
             padron_data["count"] = count_res.count or 0
         except Exception as e:

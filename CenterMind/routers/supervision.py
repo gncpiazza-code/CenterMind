@@ -884,7 +884,7 @@ def supervision_vendedores(dist_id: int, user_payload=Depends(verify_auth)):
                 sb.table(t_clientes)
                 .select("id_cliente,id_cliente_erp,id_ruta,fecha_ultima_compra")
                 .eq("id_distribuidor", dist_id)
-                .neq("motivo_inactivo", "padron_absent")
+                .or_("motivo_inactivo.is.null,motivo_inactivo.neq.padron_absent")
                 .range(offset, offset + PAGE - 1)
                 .execute()
             )
@@ -1043,7 +1043,9 @@ def supervision_clientes(id_ruta: int, user_payload=Depends(verify_auth)):
             # Exclude ghost records: PDVs reassigned to a different route by the padrón.
             # These are marked estado='inactivo', motivo_inactivo='padron_absent' and should
             # no longer appear under the old vendor's route in the map or sidebar.
-            .neq("motivo_inactivo", "padron_absent")
+            # NOTE: must use OR to include rows where motivo_inactivo IS NULL (active PDVs),
+            # since NULL != 'padron_absent' evaluates to NULL (falsy) in SQL.
+            .or_("motivo_inactivo.is.null,motivo_inactivo.neq.padron_absent")
             .order("nombre_fantasia")
             .execute()
         )

@@ -669,7 +669,22 @@ def fuerza_ventas_list_usuarios_grupo(
             if iid is not None
         ]
 
-        exhib_stats: dict[int, dict] = {}
+        # Normalización por usuario Telegram:
+        # un mismo telegram_user_id puede tener múltiples filas id_integrante históricas.
+        # El selector de Fuerza de Ventas debe mostrar stats consolidadas por usuario real.
+        row_to_user_key: dict[int, tuple[str, int]] = {}
+        normalized_rows: dict[tuple[str, int], dict] = {}
+        for row in integrantes:
+            iid = _safe_int(row.get("id_integrante"))
+            if iid is None:
+                continue
+            tg_uid = _safe_int(row.get("telegram_user_id"))
+            key = ("tg", tg_uid) if tg_uid is not None else ("iid", iid)
+            row_to_user_key[iid] = key
+            if key not in normalized_rows:
+                normalized_rows[key] = row
+
+        exhib_stats: dict[tuple[str, int], dict] = {}
         if id_integrantes:
             exhibiciones: list[dict] = []
             batch, offset_e = 1000, 0
@@ -693,26 +708,37 @@ def fuerza_ventas_list_usuarios_grupo(
                 iid = _safe_int(ex.get("id_integrante"))
                 if iid is None:
                     continue
+                key = row_to_user_key.get(iid)
+                if key is None:
+                    continue
                 timestamp = _safe_text(ex.get("timestamp_subida")) or None
-                if iid not in exhib_stats:
-                    exhib_stats[iid] = {
+                if key not in exhib_stats:
+                    exhib_stats[key] = {
                         "total_exhibiciones": 0,
                         "ultima_exhibicion": timestamp,
                     }
-                exhib_stats[iid]["total_exhibiciones"] += 1
+                exhib_stats[key]["total_exhibiciones"] += 1
+                prev_ts = exhib_stats[key].get("ultima_exhibicion")
+                if timestamp and (not prev_ts or timestamp > prev_ts):
+                    exhib_stats[key]["ultima_exhibicion"] = timestamp
 
-        return [
-            {
-                "id": row.get("id_integrante"),
-                "nombre_integrante": row.get("nombre_integrante"),
-                "telegram_user_id": row.get("telegram_user_id"),
-                "rol_telegram": row.get("rol_telegram"),
-                "id_grupo": row.get("telegram_group_id"),
-                "total_exhibiciones": exhib_stats.get(_safe_int(row.get("id_integrante")) or -1, {}).get("total_exhibiciones", 0),
-                "ultima_exhibicion": exhib_stats.get(_safe_int(row.get("id_integrante")) or -1, {}).get("ultima_exhibicion"),
-            }
-            for row in integrantes
-        ]
+        out = []
+        for key, row in normalized_rows.items():
+            stats = exhib_stats.get(key, {})
+            out.append(
+                {
+                    "id": row.get("id_integrante"),
+                    "nombre_integrante": row.get("nombre_integrante"),
+                    "telegram_user_id": row.get("telegram_user_id"),
+                    "rol_telegram": row.get("rol_telegram"),
+                    "id_grupo": row.get("telegram_group_id"),
+                    "total_exhibiciones": stats.get("total_exhibiciones", 0),
+                    "ultima_exhibicion": stats.get("ultima_exhibicion"),
+                }
+            )
+
+        out.sort(key=lambda x: (_safe_text(x.get("nombre_integrante")).lower(), _safe_int(x.get("id")) or 0))
+        return out
     except Exception as e:
         logger.error(f"[fuerza_ventas] list_usuarios_grupo dist={dist_id} group={group_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))

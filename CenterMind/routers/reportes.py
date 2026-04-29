@@ -9,6 +9,7 @@ from typing import Any, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from core.config import AR_OFFSET
+from core.tenant_tables import tenant_table_name
 from core.helpers import (
     _get_erp_name_map,
     build_qa_exhibicion_integrante_ids,
@@ -127,10 +128,7 @@ def dashboard_ranking(distribuidor_id: int, periodo: str = "mes", top: int = 999
     for row in rows:
         tg_name = (row.get("vendedor") or "").strip()
         erp_name = erp_name_map.get(tg_name.lower(), tg_name)
-        if hide_qa and (
-            is_exhibicion_qa_display_for_dist(distribuidor_id, erp_name)
-            or is_exhibicion_qa_display_for_dist(distribuidor_id, tg_name)
-        ):
+        if hide_qa and is_exhibicion_qa_display_for_dist(distribuidor_id, erp_name):
             continue
         if erp_name not in aggregated:
             aggregated[erp_name] = {**row, "vendedor": erp_name}
@@ -177,10 +175,7 @@ def dashboard_ranking_historico(distribuidor_id: int, sucursal_id: int = Query(N
         id_int = r.get("id_integrante")
         tg_name = int_map.get(id_int, "Desconocido")
         erp_name = erp_name_map.get(tg_name.lower(), tg_name)
-        if hide_qa and (
-            is_exhibicion_qa_display_for_dist(distribuidor_id, erp_name)
-            or is_exhibicion_qa_display_for_dist(distribuidor_id, tg_name)
-        ):
+        if hide_qa and is_exhibicion_qa_display_for_dist(distribuidor_id, erp_name):
             continue
         est = (r.get("estado") or "").lower()
         pts = 2 if "destacad" in est else (1 if "aprobad" in est else 0)
@@ -251,7 +246,7 @@ def dashboard_ultimas(distribuidor_id: int, n: int = 8, payload=Depends(verify_a
                 erp = erp_name_map.get(tg.lower(), tg) if tg else ""
                 if iid in qa_ids:
                     continue
-                if is_exhibicion_qa_display_for_dist(distribuidor_id, erp) or is_exhibicion_qa_display_for_dist(distribuidor_id, tg):
+                if is_exhibicion_qa_display_for_dist(distribuidor_id, erp):
                     continue
                 out.append(row)
             if out:
@@ -285,10 +280,7 @@ def reportes_vendedores(distribuidor_id: int, user_payload=Depends(verify_auth))
         tg_name = r["nombre_integrante"]
         if not tg_name: continue
         erp_name = erp_name_map.get(tg_name.lower(), tg_name)
-        if hide_qa and (
-            is_exhibicion_qa_display_for_dist(distribuidor_id, erp_name)
-            or is_exhibicion_qa_display_for_dist(distribuidor_id, tg_name)
-        ):
+        if hide_qa and is_exhibicion_qa_display_for_dist(distribuidor_id, erp_name):
             continue
         vendedores_unicos.add(erp_name)
     return sorted(list(vendedores_unicos))
@@ -347,7 +339,7 @@ def reportes_exhibiciones(distribuidor_id: int, q_body: ReporteQuery, _=Depends(
 
     # Resolver vendedor de forma robusta (binding moderno + legado).
     vendedores_res = (
-        sb.table("vendedores_v2")
+        sb.table(tenant_table_name("vendedores_v2", distribuidor_id))
         .select("id_vendedor, nombre_erp, id_vendedor_erp")
         .eq("id_distribuidor", distribuidor_id)
         .execute()
@@ -459,20 +451,22 @@ def reportes_exhibiciones(distribuidor_id: int, q_body: ReporteQuery, _=Depends(
     vendedores_map: dict = {}
     clientes_map:   dict = {}
     if integrante_ids:
-        ig = sb.table("integrantes_grupo").select("id_integrante, nombre_integrante, vendedores_v2(nombre_erp)").in_("id_integrante", integrante_ids).execute()
+        ig = sb.table("integrantes_grupo").select("id_integrante, nombre_integrante, id_vendedor_v2").in_("id_integrante", integrante_ids).execute()
+        vend_v2_ids = list({r["id_vendedor_v2"] for r in (ig.data or []) if r.get("id_vendedor_v2")})
+        vend_v2_name: dict[int, str] = {}
+        if vend_v2_ids:
+            vr2 = sb.table(tenant_table_name("vendedores_v2", distribuidor_id)).select("id_vendedor, nombre_erp").in_("id_vendedor", vend_v2_ids).execute()
+            vend_v2_name = {v["id_vendedor"]: v["nombre_erp"] for v in (vr2.data or [])}
         for r in ig.data or []:
-            vend = r.get("vendedores_v2")
-            nombre_erp = None
-            if isinstance(vend, dict): nombre_erp = vend.get("nombre_erp")
-            elif isinstance(vend, list) and vend: nombre_erp = vend[0].get("nombre_erp")
+            nombre_erp = vend_v2_name.get(r.get("id_vendedor_v2"))
             vendedores_map[r["id_integrante"]] = nombre_erp or r["nombre_integrante"]
     if cliente_ids:
-        cl = sb.table("clientes_pdv_v2").select("id_cliente, id_cliente_erp").in_("id_cliente", cliente_ids).execute()
+        cl = sb.table(tenant_table_name("clientes_pdv_v2", distribuidor_id)).select("id_cliente, id_cliente_erp").in_("id_cliente", cliente_ids).execute()
         clientes_map = {r["id_cliente"]: r["id_cliente_erp"] for r in (cl.data or [])}
     shadow_map: dict[str, str] = {}
     if shadow_codes:
         cl_shadow = (
-            sb.table("clientes_pdv_v2")
+            sb.table(tenant_table_name("clientes_pdv_v2", distribuidor_id))
             .select("id_cliente_erp")
             .eq("id_distribuidor", distribuidor_id)
             .in_("id_cliente_erp", shadow_codes)

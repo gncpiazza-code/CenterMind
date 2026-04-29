@@ -43,6 +43,7 @@ const ALL_NAV: NavItem[] = [
   { href: "/bonos",       label: "Bonos",                icon: Gift,           roles: ["superadmin", "admin", "directorio"], permisoKey: "menu_bonos" },
   { href: "/admin",       label: "Administrar",          icon: Users,          roles: ["superadmin", "admin"], permisoKey: "menu_admin" },
   { href: "/admin/permissions", label: "Permisos",       icon: ShieldCheck,    roles: ["superadmin", "admin"], permisoKey: "menu_admin" },
+  { href: "/admin/match-center", label: "Match Center",  icon: Briefcase,      roles: ["superadmin"] },
   { href: "/admin/dashboard",   label: "Corridas RPA",  icon: Activity,       roles: ["superadmin"] },
   { href: "/admin/mapa",        label: "Mapa en Vivo",  icon: MapPin,         roles: ["superadmin"] },
   { href: "/modo-oficina",      label: "Modo Oficina",  icon: Monitor,        roles: ["superadmin", "admin", "supervisor", "directorio", "evaluador"], permisoKey: "menu_modo_oficina" },

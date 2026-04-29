@@ -215,6 +215,18 @@ Layout conservado (overlay-based): barra superior semitransparente + barra infer
 - **Estado de fondo del dashboard**: usa `bg-slate-950` / `bg-slate-900` (dark operativo) para diferenciar visualmente del resto del portal light-violet.
 - **Tipos TS nuevos**: `EmpresaMotorSnapshot`, `EmpresaMotorSnapshotResponse` en `api.ts`; `MotorRun.registros` ampliado a `Record<string, unknown> | number | null`.
 
+### 20. Match Center (29/04/2026)
+- **Ruta**: `/admin/match-center` (superadmin-only) + acceso en `Sidebar`.
+- **Objetivo**: saneo manual-asistido de mapeo `integrantes_grupo` ↔ `vendedores_v2` sin tocar a ciegas datos productivos.
+- **Tabla operativa**: muestra texto legible + IDs (`telegram_user_id`, grupo, nombre integrante, vendedor actual/binding/sugerido, motivo).
+- **Acciones**:
+  - Aplicar por fila (`applyMatchCenterRow`)
+  - Aplicar lote seguro (`applyMatchCenterSafe`) sobre filas con criterio confiable.
+- **Contratos API en `api.ts`**:
+  - `fetchMatchCenterCandidates(distId)`
+  - `applyMatchCenterRow(distId, idIntegrante, idVendedorV2)`
+  - `applyMatchCenterSafe(distId)`
+
 ### 29. RPA Padrón (28/04/2026) — sin cambios de UI requeridos
 - El hardening reciente del motor Padrón ocurrió en `ShelfMind-RPA/` (navegación Consolido, selector de exportación y upload), sin impactos de contrato ni cambios visuales en pantallas del frontend.
 

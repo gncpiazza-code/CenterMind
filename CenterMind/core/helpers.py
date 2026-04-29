@@ -26,6 +26,17 @@ def _norm_name(s) -> str:
     return s
 
 
+def _looks_like_full_name(s: str | None) -> bool:
+    """
+    True cuando el label parece 'nombre + apellido' (>=2 tokens).
+    Evita matcheos inseguros con alias cortos tipo 'Nacho' o 'Ricardo'.
+    """
+    n = _norm_name(s)
+    if not n:
+        return False
+    return len([p for p in n.split(" ") if p]) >= 2
+
+
 def _get_erp_name_map(dist_id: int) -> dict:
     """
     Devuelve dict { nombre_integrante_lower → nombre_erp } para un distribuidor.
@@ -52,9 +63,26 @@ def _get_erp_name_map(dist_id: int) -> dict:
                 if v.get("id_vendedor") is not None:
                     vend_id_to_name[int(v["id_vendedor"])] = nombre_erp
 
+        bindings_res = (
+            sb.table("vendedores_telegram_binding")
+            .select("telegram_user_id, id_vendedor_v2")
+            .eq("id_distribuidor", dist_id)
+            .execute()
+        )
+        binding_map: dict[int, int] = {}
+        for b in bindings_res.data or []:
+            tg_uid = b.get("telegram_user_id")
+            id_v2 = b.get("id_vendedor_v2")
+            if tg_uid is None or id_v2 is None:
+                continue
+            try:
+                binding_map[int(tg_uid)] = int(id_v2)
+            except Exception:
+                continue
+
         ig_res = (
             sb.table("integrantes_grupo")
-            .select("nombre_integrante, id_vendedor_v2")
+            .select("nombre_integrante, id_vendedor_v2, id_vendedor_erp, telegram_user_id")
             .eq("id_distribuidor", dist_id)
             .execute()
         )
@@ -63,9 +91,13 @@ def _get_erp_name_map(dist_id: int) -> dict:
             tg_name = (ig.get("nombre_integrante") or "").strip()
             if not tg_name:
                 continue
-            if dist_id == 3 and tg_name.lower() == "nacho":
-                continue
+            tg_uid = ig.get("telegram_user_id")
             id_v_erp = ig.get("id_vendedor_v2")
+            try:
+                if tg_uid is not None and int(tg_uid) in binding_map:
+                    id_v_erp = binding_map[int(tg_uid)]
+            except Exception:
+                pass
             if dist_id == 3 and id_v_erp == 30:
                 continue
             nombre_erp = vend_id_to_name.get(id_v_erp) if id_v_erp is not None else None
@@ -79,7 +111,32 @@ def _get_erp_name_map(dist_id: int) -> dict:
                         f"(se preserva identidad ERP '{existing}')"
                     )
                     continue
+                current = name_map.get(tg_key)
+                has_binding_override = False
+                try:
+                    has_binding_override = tg_uid is not None and int(tg_uid) in binding_map
+                except Exception:
+                    has_binding_override = False
+                # Regla de seguridad: solo mapear por nombre cuando hay nombre+apellido.
+                # Si no, exigir binding explícito para evitar cruces por alias ambiguos.
+                if not has_binding_override and not _looks_like_full_name(tg_name):
+                    continue
+                if current and current != nombre_erp and not has_binding_override:
+                    # Evita que nombres ambiguos (ej: "Nacho") pisen un mapping ya resuelto
+                    # por una fila más confiable.
+                    continue
                 name_map[tg_key] = nombre_erp
+                legacy_erp_name = (ig.get("id_vendedor_erp") or "").strip()
+                if legacy_erp_name and legacy_erp_name.lower() != nombre_erp.lower():
+                    legacy_key = legacy_erp_name.lower()
+                    legacy_current = name_map.get(legacy_key)
+                    if legacy_current and legacy_current != nombre_erp and not has_binding_override:
+                        continue
+                    name_map[legacy_key] = nombre_erp
+        # Tabaco: durante la transición de padrón algunos eventos siguen llegando con
+        # etiqueta legacy "RICARDO LAURO." aunque el vendedor activo es ALVAREZ.
+        if dist_id == 3 and "ricardo alvarez" in erp_identity_map:
+            name_map["ricardo lauro."] = erp_identity_map["ricardo alvarez"]
         return name_map
     except Exception as e:
         logger.warning(f"_get_erp_name_map dist={dist_id} falló: {e}")

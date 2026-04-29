@@ -1271,6 +1271,69 @@ export async function setMapeoVendedor(idIntegrante: number, idVendedor: number 
   });
 }
 
+export interface MatchCenterVendor {
+  id_vendedor_v2: number;
+  nombre_erp: string;
+  id_sucursal: number | null;
+  sucursal_nombre: string;
+}
+
+export interface MatchCenterRow {
+  id_integrante: number;
+  id_distribuidor: number;
+  nombre_integrante: string;
+  telegram_user_id: number | null;
+  telegram_group_id: number | null;
+  nombre_grupo: string | null;
+  rol_telegram: string | null;
+  id_vendedor_erp_legacy: string | null;
+  location_hint_id: number | null;
+  current_vendor: MatchCenterVendor | null;
+  binding_vendor: MatchCenterVendor | null;
+  suggested_vendor: MatchCenterVendor | null;
+  reason: string;
+  status: "safe" | "review" | "blocked";
+  can_apply: boolean;
+  is_test_user: boolean;
+}
+
+export interface MatchCenterCandidatesResponse {
+  dist_id: number;
+  stats: {
+    total: number;
+    safe: number;
+    blocked: number;
+    review: number;
+  };
+  rows: MatchCenterRow[];
+  test_telegram_user_ids: number[];
+}
+
+export async function fetchMatchCenterCandidates(distId: number): Promise<MatchCenterCandidatesResponse> {
+  return apiFetch<MatchCenterCandidatesResponse>(`/api/admin/match-center/candidates/${distId}`);
+}
+
+export async function applyMatchCenterRow(
+  distId: number,
+  idIntegrante: number,
+  idVendedorV2: number,
+): Promise<{ ok: boolean }> {
+  return apiFetch<{ ok: boolean }>("/api/admin/match-center/apply", {
+    method: "POST",
+    body: JSON.stringify({
+      dist_id: distId,
+      id_integrante: idIntegrante,
+      id_vendedor_v2: idVendedorV2,
+    }),
+  });
+}
+
+export async function applyMatchCenterSafe(distId: number): Promise<{ ok: boolean; applied: number }> {
+  return apiFetch<{ ok: boolean; applied: number }>(`/api/admin/match-center/apply-safe/${distId}`, {
+    method: "POST",
+  });
+}
+
 // ── Step 3-5: SuperAdmin & Identity Wall ────────────────────────────────────
 
 export async function fetchUnknownCompanies(): Promise<UnknownCompany[]> {

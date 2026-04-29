@@ -150,6 +150,11 @@ POST /auth/switch-context/{dist_id}
 GET  /api/dashboard/{kpis,ranking}/{dist_id}
 GET  /api/reports/{performance,ventas-resumen,auditoria-sigo}/{dist_id}
 GET  /api/erp/roi/{dist_id}
+
+# Match Center (superadmin)
+GET  /api/admin/match-center/candidates/{dist_id}   # Candidatos de mapeo Telegram↔ERP con contexto textual
+POST /api/admin/match-center/apply                  # Aplica una fila puntual (integrante -> id_vendedor_v2)
+POST /api/admin/match-center/apply-safe/{dist_id}   # Aplica lote de filas seguras (binding/exacto)
 ```
 
 ---

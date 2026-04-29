@@ -623,10 +623,7 @@ def get_vendedores(id_distribuidor: int, payload=Depends(verify_auth)):
         for r in result.data or []:
             tg_name = (r.get("nombre_integrante") or "").strip()
             display = erp_name_map.get(tg_name.lower(), tg_name)
-            if hide_qa and (
-                is_exhibicion_qa_display_for_dist(id_distribuidor, display)
-                or is_exhibicion_qa_display_for_dist(id_distribuidor, tg_name)
-            ):
+            if hide_qa and is_exhibicion_qa_display_for_dist(id_distribuidor, display):
                 continue
             if display and display not in seen:
                 nombres.append(display)
@@ -969,10 +966,7 @@ def supervision_vendedores(dist_id: int, user_payload=Depends(verify_auth)):
                 continue
             tg_name = (r.get("nombre_vendedor") or "").strip()
             erp_name = erp_name_map.get(tg_name.lower(), tg_name)
-            if hide_qa and (
-                is_exhibicion_qa_display_for_dist(dist_id, erp_name)
-                or is_exhibicion_qa_display_for_dist(dist_id, tg_name)
-            ):
+            if hide_qa and is_exhibicion_qa_display_for_dist(dist_id, erp_name):
                 continue
             r["nombre_vendedor"] = erp_name
             filtered.append(r)

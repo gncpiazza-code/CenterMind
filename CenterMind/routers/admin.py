@@ -5,9 +5,11 @@ mapeo vendedor↔integrante, jerarquía, monitoring, RPA admin.
 """
 import logging
 import os
+import re
 import subprocess
 import sys
 import unicodedata
+from collections import Counter, defaultdict
 from datetime import datetime
 from typing import Optional
 
@@ -38,6 +40,207 @@ logger = logging.getLogger("ShelfyAPI")
 router = APIRouter()
 
 CC_LOG_PATH = os.path.join(os.path.dirname(__file__), "../../ShelfMind-RPA/logs/cuentas_corrientes_admin.log")
+
+MATCH_CENTER_TEST_TELEGRAM_IDS = {2037005531}
+
+
+def _norm_match_text(value: str | None) -> str:
+    if not value:
+        return ""
+    txt = str(value).strip().lower()
+    txt = "".join(c for c in unicodedata.normalize("NFD", txt) if unicodedata.category(c) != "Mn")
+    txt = re.sub(r"[^a-z0-9 ]", " ", txt)
+    return re.sub(r"\s+", " ", txt).strip()
+
+
+def _first_last(value: str | None) -> tuple[str, str] | None:
+    parts = [p for p in _norm_match_text(value).split(" ") if p]
+    if len(parts) < 2:
+        return None
+    return parts[0], parts[-1]
+
+
+def _full_name(value: str | None) -> bool:
+    parts = [p for p in _norm_match_text(value).split(" ") if p]
+    return len(parts) >= 2
+
+
+def _build_match_center_rows(dist_id: int) -> dict:
+    t_v = tenant_table_name("vendedores_v2", dist_id)
+    t_s = tenant_table_name("sucursales_v2", dist_id)
+
+    vendedores_res = (
+        sb.table(t_v)
+        .select("id_vendedor,nombre_erp,id_sucursal")
+        .eq("id_distribuidor", dist_id)
+        .execute()
+    )
+    suc_res = (
+        sb.table(t_s)
+        .select("id_sucursal,nombre_erp")
+        .eq("id_distribuidor", dist_id)
+        .execute()
+    )
+    ig_res = (
+        sb.table("integrantes_grupo")
+        .select(
+            "id_integrante,id_distribuidor,nombre_integrante,telegram_user_id,"
+            "telegram_group_id,nombre_grupo,rol_telegram,id_vendedor_v2,id_vendedor_erp"
+        )
+        .eq("id_distribuidor", dist_id)
+        .order("nombre_integrante")
+        .execute()
+    )
+    bind_res = (
+        sb.table("vendedores_telegram_binding")
+        .select("telegram_user_id,id_vendedor_v2,telegram_group_id")
+        .eq("id_distribuidor", dist_id)
+        .execute()
+    )
+
+    suc_by_id = {
+        int(s["id_sucursal"]): (s.get("nombre_erp") or "Sin sucursal")
+        for s in (suc_res.data or [])
+        if s.get("id_sucursal") is not None
+    }
+    vendors_by_id = {}
+    vendors_by_first_last_suc = defaultdict(list)
+    for v in (vendedores_res.data or []):
+        vid = v.get("id_vendedor")
+        if vid is None:
+            continue
+        vid = int(vid)
+        sid = int(v["id_sucursal"]) if v.get("id_sucursal") is not None else None
+        vendor = {
+            "id_vendedor_v2": vid,
+            "nombre_erp": (v.get("nombre_erp") or "").strip(),
+            "id_sucursal": sid,
+            "sucursal_nombre": suc_by_id.get(sid, "Sin sucursal"),
+        }
+        vendors_by_id[vid] = vendor
+        fl = _first_last(vendor["nombre_erp"])
+        if fl and sid is not None:
+            vendors_by_first_last_suc[(fl[0], fl[1], sid)].append(vendor)
+
+    binding_by_tg: dict[int, int] = {}
+    binding_group_by_tg: dict[int, int] = {}
+    for b in (bind_res.data or []):
+        tg = b.get("telegram_user_id")
+        vid = b.get("id_vendedor_v2")
+        if tg is None or vid is None:
+            continue
+        tg_i = int(tg)
+        binding_by_tg[tg_i] = int(vid)
+        if b.get("telegram_group_id") is not None:
+            binding_group_by_tg[tg_i] = int(b.get("telegram_group_id"))
+
+    tg_ids = list({int(r["telegram_user_id"]) for r in (ig_res.data or []) if r.get("telegram_user_id") is not None})
+    loc_hint_by_tg: dict[int, int] = {}
+    if tg_ids:
+        offset = 0
+        batch = 1000
+        exhib_rows: list[dict] = []
+        while True:
+            ex = (
+                sb.table("exhibiciones")
+                .select("telegram_user_id,location_id,timestamp_subida")
+                .eq("id_distribuidor", dist_id)
+                .in_("telegram_user_id", tg_ids)
+                .order("timestamp_subida", desc=True)
+                .range(offset, offset + batch - 1)
+                .execute()
+            )
+            chunk = ex.data or []
+            exhib_rows.extend(chunk)
+            if len(chunk) < batch:
+                break
+            offset += batch
+        counts: dict[int, Counter] = defaultdict(Counter)
+        for row in exhib_rows:
+            tg = row.get("telegram_user_id")
+            loc = row.get("location_id")
+            if tg is None or loc is None:
+                continue
+            try:
+                counts[int(tg)][int(loc)] += 1
+            except Exception:
+                continue
+        for tg, ctr in counts.items():
+            if ctr:
+                loc_hint_by_tg[tg] = ctr.most_common(1)[0][0]
+
+    rows = []
+    for ig in (ig_res.data or []):
+        tg_uid = ig.get("telegram_user_id")
+        tg_int = int(tg_uid) if tg_uid is not None else None
+        cur_v2 = int(ig["id_vendedor_v2"]) if ig.get("id_vendedor_v2") is not None else None
+        cur_vendor = vendors_by_id.get(cur_v2) if cur_v2 is not None else None
+        binding_v2 = binding_by_tg.get(tg_int) if tg_int is not None else None
+        binding_vendor = vendors_by_id.get(binding_v2) if binding_v2 is not None else None
+
+        suggested_vendor = None
+        reason = "review_manual"
+        status = "review"
+
+        if tg_int in MATCH_CENTER_TEST_TELEGRAM_IDS:
+            reason = "test_user_blocked"
+            status = "blocked"
+        elif binding_vendor:
+            suggested_vendor = binding_vendor
+            reason = "binding_match"
+            status = "safe"
+        else:
+            name = ig.get("nombre_integrante") or ""
+            if not _full_name(name):
+                reason = "short_name"
+            else:
+                fl = _first_last(name)
+                suc_hint = None
+                if cur_vendor and cur_vendor.get("id_sucursal") is not None:
+                    suc_hint = int(cur_vendor["id_sucursal"])
+                elif tg_int is not None and tg_int in loc_hint_by_tg:
+                    suc_hint = int(loc_hint_by_tg[tg_int])
+                if fl and suc_hint is not None:
+                    candidates = vendors_by_first_last_suc.get((fl[0], fl[1], suc_hint), [])
+                    if len(candidates) == 1:
+                        suggested_vendor = candidates[0]
+                        reason = "exact_name_branch"
+                        status = "safe"
+                    elif len(candidates) > 1:
+                        reason = "multiple_exact_candidates"
+                    else:
+                        reason = "no_exact_candidate"
+                else:
+                    reason = "missing_branch_hint"
+
+        rows.append(
+            {
+                "id_integrante": ig.get("id_integrante"),
+                "id_distribuidor": ig.get("id_distribuidor"),
+                "nombre_integrante": ig.get("nombre_integrante"),
+                "telegram_user_id": tg_int,
+                "telegram_group_id": ig.get("telegram_group_id"),
+                "nombre_grupo": ig.get("nombre_grupo"),
+                "rol_telegram": ig.get("rol_telegram"),
+                "id_vendedor_erp_legacy": ig.get("id_vendedor_erp"),
+                "location_hint_id": loc_hint_by_tg.get(tg_int) if tg_int is not None else None,
+                "current_vendor": cur_vendor,
+                "binding_vendor": binding_vendor,
+                "suggested_vendor": suggested_vendor,
+                "reason": reason,
+                "status": status,
+                "can_apply": status == "safe" and suggested_vendor is not None,
+                "is_test_user": tg_int in MATCH_CENTER_TEST_TELEGRAM_IDS if tg_int is not None else False,
+            }
+        )
+
+    stats = {
+        "total": len(rows),
+        "safe": sum(1 for r in rows if r["status"] == "safe"),
+        "blocked": sum(1 for r in rows if r["status"] == "blocked"),
+        "review": sum(1 for r in rows if r["status"] == "review"),
+    }
+    return {"rows": rows, "stats": stats}
 
 
 # ─── Distribuidoras (rutas legacy /admin/distribuidoras) ──────────────────────
@@ -402,6 +605,121 @@ def set_mapeo_vendedor(id_integrante: int, req: MapeoVendedorRequest, user_paylo
         raise
     except Exception as e:
         logger.error(f"Error en set_mapeo_vendedor: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── Match Center (SuperAdmin) ───────────────────────────────────────────────
+
+@router.get("/api/admin/match-center/candidates/{dist_id}", tags=["Admin"])
+def match_center_candidates(dist_id: int, user_payload=Depends(verify_auth)):
+    if not user_payload.get("is_superadmin"):
+        raise HTTPException(status_code=403, detail="Solo accesible para SuperAdmin")
+    try:
+        payload = _build_match_center_rows(dist_id)
+        return {
+            "dist_id": dist_id,
+            "stats": payload["stats"],
+            "rows": payload["rows"],
+            "test_telegram_user_ids": sorted(list(MATCH_CENTER_TEST_TELEGRAM_IDS)),
+        }
+    except Exception as e:
+        logger.error(f"[match-center] candidates dist={dist_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/admin/match-center/apply", tags=["Admin"])
+def match_center_apply(data: dict, user_payload=Depends(verify_auth)):
+    if not user_payload.get("is_superadmin"):
+        raise HTTPException(status_code=403, detail="Solo accesible para SuperAdmin")
+    try:
+        dist_id = int(data.get("dist_id"))
+        id_integrante = int(data.get("id_integrante"))
+        target_v2 = int(data.get("id_vendedor_v2"))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Payload inválido: dist_id/id_integrante/id_vendedor_v2 requeridos")
+
+    try:
+        vend = (
+            sb.table(tenant_table_name("vendedores_v2", dist_id))
+            .select("id_vendedor")
+            .eq("id_distribuidor", dist_id)
+            .eq("id_vendedor", target_v2)
+            .limit(1)
+            .execute()
+        )
+        if not (vend.data or []):
+            raise HTTPException(status_code=404, detail="Vendedor destino no existe en el tenant")
+
+        current = (
+            sb.table("integrantes_grupo")
+            .select("id_integrante,id_distribuidor,telegram_user_id,telegram_group_id,id_vendedor_v2")
+            .eq("id_integrante", id_integrante)
+            .eq("id_distribuidor", dist_id)
+            .limit(1)
+            .execute()
+        )
+        if not (current.data or []):
+            raise HTTPException(status_code=404, detail="Integrante no encontrado en tenant")
+
+        row = current.data[0]
+        tg_uid = row.get("telegram_user_id")
+        if tg_uid is not None and int(tg_uid) in MATCH_CENTER_TEST_TELEGRAM_IDS:
+            raise HTTPException(status_code=409, detail="Usuario TEST bloqueado para aplicar mapping")
+
+        sb.table("integrantes_grupo").update({"id_vendedor_v2": target_v2}).eq(
+            "id_integrante", id_integrante
+        ).eq("id_distribuidor", dist_id).execute()
+
+        if tg_uid is not None:
+            sb.table("vendedores_telegram_binding").upsert(
+                {
+                    "id_distribuidor": dist_id,
+                    "id_vendedor_v2": target_v2,
+                    "telegram_user_id": int(tg_uid),
+                    "telegram_group_id": row.get("telegram_group_id"),
+                    "updated_by": user_payload.get("usuario", "match-center"),
+                },
+                on_conflict="id_distribuidor,id_vendedor_v2",
+            ).execute()
+
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[match-center] apply dist={dist_id} int={id_integrante}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/admin/match-center/apply-safe/{dist_id}", tags=["Admin"])
+def match_center_apply_safe(dist_id: int, user_payload=Depends(verify_auth)):
+    if not user_payload.get("is_superadmin"):
+        raise HTTPException(status_code=403, detail="Solo accesible para SuperAdmin")
+    try:
+        payload = _build_match_center_rows(dist_id)
+        safe_rows = [r for r in payload["rows"] if r.get("can_apply") and r.get("suggested_vendor")]
+        applied = 0
+        for row in safe_rows:
+            id_integrante = int(row["id_integrante"])
+            target_v2 = int(row["suggested_vendor"]["id_vendedor_v2"])
+            tg_uid = row.get("telegram_user_id")
+            sb.table("integrantes_grupo").update({"id_vendedor_v2": target_v2}).eq(
+                "id_integrante", id_integrante
+            ).eq("id_distribuidor", dist_id).execute()
+            if tg_uid is not None:
+                sb.table("vendedores_telegram_binding").upsert(
+                    {
+                        "id_distribuidor": dist_id,
+                        "id_vendedor_v2": target_v2,
+                        "telegram_user_id": int(tg_uid),
+                        "telegram_group_id": row.get("telegram_group_id"),
+                        "updated_by": user_payload.get("usuario", "match-center-bulk"),
+                    },
+                    on_conflict="id_distribuidor,id_vendedor_v2",
+                ).execute()
+            applied += 1
+        return {"ok": True, "applied": applied}
+    except Exception as e:
+        logger.error(f"[match-center] apply-safe dist={dist_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

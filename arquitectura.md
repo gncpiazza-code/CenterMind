@@ -134,6 +134,11 @@ Este documento describe la infraestructura, tecnologías y flujos de datos que c
 36. **Galería — semántica visual en detalle por cliente (Abr 2026)**:
     - Los badges del timeline adoptan color semántico para priorizar lectura rápida.
     - `tipo_pdv` queda normalizado de negocio a dos estados visuales: `CON INGRESO` vs `SIN INGRESO`.
+37. **Match Center (SuperAdmin) — Saneo Telegram↔ERP (Abr 2026)**:
+    - Nuevo módulo administrativo con endpoints: `GET /api/admin/match-center/candidates/{dist_id}`, `POST /api/admin/match-center/apply`, `POST /api/admin/match-center/apply-safe/{dist_id}`.
+    - Estrategia de resolución: `binding` como fuente primaria; fallback por `nombre+apellido+sucursal` solo cuando el candidato es único.
+    - Cuentas de test quedan bloqueadas del auto-match (`MATCH_CENTER_TEST_TELEGRAM_IDS`), evitando contaminación de ranking y supervision.
+    - Cada fila de candidato incluye contexto textual operativo (integrante, grupo, vendedor actual, binding y sugerido) para decisión humana trazable.
 16. **Bot Telegram — tipo PDV silent-first (Abr 2026)**:
     - Nueva tabla `pdv_tipo_profiles` (por `id_distribuidor + id_cliente_erp`) con `tipo_pdv_preferido`, `trust_level`, `confidence`, `tipo_counts`, `total_observaciones`.
     - `handle_text` intenta inferir tipo por perfil: si confianza alta, registra exhibición sin preguntar botones; si no, mantiene selección manual.

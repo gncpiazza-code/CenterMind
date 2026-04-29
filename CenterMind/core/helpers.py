@@ -366,6 +366,98 @@ def build_qa_exhibicion_integrante_ids(dist_id: int) -> frozenset[int]:
     return frozenset(ids)
 
 
+def build_integrante_to_erp_name(dist_id: int) -> dict[int, str]:
+    """
+    Fuente de verdad absoluta: {id_integrante → nombre_erp} para un distribuidor.
+
+    Orden de prioridad:
+    1. vendedores_telegram_binding (telegram_user_id → id_vendedor_v2 → nombre_erp)
+    2. integrantes_grupo.id_vendedor_v2 → nombre_erp
+    3. nombre_integrante (nombre Telegram crudo, último recurso)
+
+    Excepción Tabaco (dist=3, id_vendedor_v2=30 = Ivan Soto): los helpers de Ivan
+    (Monchi, Jorge) conservan su nombre Telegram para no atribuirle exhibiciones ajenas.
+    """
+    try:
+        t_vendedores = tenant_table_name("vendedores_v2", dist_id)
+        vend_res = (
+            sb.table(t_vendedores)
+            .select("id_vendedor, nombre_erp")
+            .eq("id_distribuidor", dist_id)
+            .execute()
+        )
+        vend_id_to_name: dict[int, str] = {
+            int(v["id_vendedor"]): (v.get("nombre_erp") or "").strip()
+            for v in (vend_res.data or [])
+            if v.get("id_vendedor") is not None and (v.get("nombre_erp") or "").strip()
+        }
+
+        bind_res = (
+            sb.table("vendedores_telegram_binding")
+            .select("telegram_user_id, id_vendedor_v2")
+            .eq("id_distribuidor", dist_id)
+            .execute()
+        )
+        binding_by_tg: dict[int, int] = {}
+        for b in (bind_res.data or []):
+            tg_uid = b.get("telegram_user_id")
+            v2 = b.get("id_vendedor_v2")
+            if tg_uid is not None and v2 is not None:
+                try:
+                    binding_by_tg[int(tg_uid)] = int(v2)
+                except Exception:
+                    pass
+
+        ig_res = (
+            sb.table("integrantes_grupo")
+            .select("id_integrante, telegram_user_id, nombre_integrante, id_vendedor_v2")
+            .eq("id_distribuidor", dist_id)
+            .execute()
+        )
+        result: dict[int, str] = {}
+        for ig in (ig_res.data or []):
+            iid = ig.get("id_integrante")
+            if iid is None:
+                continue
+            iid = int(iid)
+            tg_name = (ig.get("nombre_integrante") or "").strip()
+
+            vid: int | None = None
+            tg_uid = ig.get("telegram_user_id")
+            if tg_uid is not None:
+                try:
+                    vid = binding_by_tg.get(int(tg_uid))
+                except Exception:
+                    pass
+
+            if vid is None:
+                v2 = ig.get("id_vendedor_v2")
+                if v2 is not None:
+                    try:
+                        vid = int(v2)
+                    except Exception:
+                        pass
+
+            if vid is not None:
+                # Tabaco: helpers de Ivan Soto conservan nombre Telegram propio
+                if dist_id == 3 and vid == 30:
+                    if tg_name:
+                        result[iid] = tg_name
+                    continue
+                nombre_erp = vend_id_to_name.get(vid)
+                if nombre_erp:
+                    result[iid] = nombre_erp
+                    continue
+
+            if tg_name:
+                result[iid] = tg_name
+
+        return result
+    except Exception as e:
+        logger.warning(f"build_integrante_to_erp_name dist={dist_id}: {e}")
+        return {}
+
+
 def load_active_vendedor_ids(dist_id: int) -> set[int]:
     """
     Devuelve el set de id_vendedor_v2 ACTIVOS para un distribuidor.

@@ -1635,52 +1635,55 @@ def crear_objetivo(body: ObjetivoCreate, user_payload=Depends(verify_auth)):
 
     # ── Guard de duplicados ───────────────────────────────────────────────────
     # Previene crear dos objetivos activos del mismo tipo/vendedor que colisionen.
+    # Excepción de negocio: tipo='ruteo' funciona como ayuda operativa y se
+    # permite crear múltiples objetivos simultáneos para el mismo vendedor.
     # Para exhibición, adicionalmente verifica solapamiento de PDV ítems.
     try:
-        existing_q = (
-            sb.table("objetivos")
-            .select("id, tipo, descripcion")
-            .eq("id_distribuidor", body.id_distribuidor)
-            .eq("id_vendedor", body.id_vendedor)
-            .eq("tipo", body.tipo)
-            .eq("cumplido", False)
-            .limit(1)
-            .execute()
-        )
-        existing = (existing_q.data or [])
-        if existing:
-            existing_id = existing[0]["id"]
-            # Para exhibición con ítems PDV: solo es duplicado si hay solapamiento
-            if body.tipo == "exhibicion" and body.pdv_items:
-                pdv_ids_new = {item.id_cliente_pdv for item in body.pdv_items}
-                items_existing = (
-                    sb.table("objetivo_items")
-                    .select("id_cliente_pdv")
-                    .eq("id_objetivo", existing_id)
-                    .execute()
-                )
-                pdv_ids_existing = {r["id_cliente_pdv"] for r in (items_existing.data or [])}
-                overlap = pdv_ids_new & pdv_ids_existing
-                if not overlap:
-                    pass  # Sin solapamiento: permitir crear nuevo objetivo
+        if body.tipo != "ruteo":
+            existing_q = (
+                sb.table("objetivos")
+                .select("id, tipo, descripcion")
+                .eq("id_distribuidor", body.id_distribuidor)
+                .eq("id_vendedor", body.id_vendedor)
+                .eq("tipo", body.tipo)
+                .eq("cumplido", False)
+                .limit(1)
+                .execute()
+            )
+            existing = (existing_q.data or [])
+            if existing:
+                existing_id = existing[0]["id"]
+                # Para exhibición con ítems PDV: solo es duplicado si hay solapamiento
+                if body.tipo == "exhibicion" and body.pdv_items:
+                    pdv_ids_new = {item.id_cliente_pdv for item in body.pdv_items}
+                    items_existing = (
+                        sb.table("objetivo_items")
+                        .select("id_cliente_pdv")
+                        .eq("id_objetivo", existing_id)
+                        .execute()
+                    )
+                    pdv_ids_existing = {r["id_cliente_pdv"] for r in (items_existing.data or [])}
+                    overlap = pdv_ids_new & pdv_ids_existing
+                    if not overlap:
+                        pass  # Sin solapamiento: permitir crear nuevo objetivo
+                    else:
+                        raise HTTPException(
+                            status_code=409,
+                            detail={
+                                "code": "OBJETIVO_DUPLICADO",
+                                "id_existente": str(existing_id),
+                                "mensaje": f"Ya existe un objetivo de tipo '{body.tipo}' activo para este vendedor con PDVs en común. Editá el existente.",
+                            },
+                        )
                 else:
                     raise HTTPException(
                         status_code=409,
                         detail={
                             "code": "OBJETIVO_DUPLICADO",
                             "id_existente": str(existing_id),
-                            "mensaje": f"Ya existe un objetivo de tipo '{body.tipo}' activo para este vendedor con PDVs en común. Editá el existente.",
+                            "mensaje": f"Ya existe un objetivo de tipo '{body.tipo}' activo para este vendedor. Editá el existente o esperá a que se cierre.",
                         },
                     )
-            else:
-                raise HTTPException(
-                    status_code=409,
-                    detail={
-                        "code": "OBJETIVO_DUPLICADO",
-                        "id_existente": str(existing_id),
-                        "mensaje": f"Ya existe un objetivo de tipo '{body.tipo}' activo para este vendedor. Editá el existente o esperá a que se cierre.",
-                    },
-                )
     except HTTPException:
         raise
     except Exception as e_dup:

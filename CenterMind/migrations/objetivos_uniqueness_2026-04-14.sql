@@ -5,10 +5,14 @@
 --          is the primary protection; this index is a DB-level safety net.
 
 -- Index 1: Prevent duplicate active objectives per (distribuidor, vendedor, tipo)
--- "Active" means cumplido = FALSE. Covers exhibicion, ruteo, and future types.
+-- "Active" means cumplido = FALSE.
+-- Business exception: ruteo / ruteo_alteo are operational planning aids and
+-- allow multiple active goals per vendor.
+DROP INDEX IF EXISTS uq_objetivos_activo_dist_vend_tipo;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_objetivos_activo_dist_vend_tipo
     ON objetivos (id_distribuidor, id_vendedor, tipo)
-    WHERE cumplido = FALSE;
+    WHERE cumplido = FALSE
+      AND tipo NOT IN ('ruteo', 'ruteo_alteo');
 
 -- Note for exhibicion type: the app-level guard also checks for PDV overlap
 -- before creating a new exhibicion objetivo, even if the index above would allow

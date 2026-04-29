@@ -1840,6 +1840,23 @@ def crear_objetivo(body: ObjetivoCreate, user_payload=Depends(verify_auth)):
     except HTTPException:
         raise
     except Exception as e:
+        msg = str(e)
+        if "uq_objetivos_activo_dist_vend_tipo" in msg and body.tipo in {"ruteo", "ruteo_alteo"}:
+            # DB-level safety net still blocks duplicates for this tipo.
+            # Business rule allows multiple active ruteo objectives; migrate the
+            # partial unique index predicate to exclude ruteo/ruteo_alteo.
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "RUTEO_INDEX_BLOCK",
+                    "mensaje": (
+                        "La base aún tiene un índice único que bloquea objetivos "
+                        "ruteo/ruteo_alteo activos duplicados por vendedor. "
+                        "Aplicá la migración de objetivos_uniqueness para excluir "
+                        "estos tipos y reintentá."
+                    ),
+                },
+            )
         logger.error(f"Error en crear_objetivo: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 

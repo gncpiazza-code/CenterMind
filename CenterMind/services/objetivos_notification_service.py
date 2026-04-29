@@ -532,11 +532,17 @@ class ObjetivosNotificationService:
                         cols += ", accion_ruteo, id_ruta_destino, motivo_baja"
                     items: list[dict[str, Any]] = []
                     payload_items = obj_data.get("pdv_items")
+                    payload_by_pdv: dict[int, dict[str, Any]] = {}
                     if isinstance(payload_items, list) and payload_items:
                         items = [
                             it for it in payload_items
                             if isinstance(it, dict) and it.get("id_cliente_pdv")
                         ]
+                        payload_by_pdv = {
+                            int(it["id_cliente_pdv"]): it
+                            for it in items
+                            if it.get("id_cliente_pdv") is not None
+                        }
                     if obj_id_s:
                         items_res = (
                             sb.table("objetivo_items")
@@ -546,7 +552,17 @@ class ObjetivosNotificationService:
                         )
                         db_items = items_res.data or []
                         if db_items:
-                            items = db_items
+                            # Priorizar DB (source of truth), pero conservar campos útiles
+                            # del payload (ej. id_cliente_erp) para enriquecer el mensaje.
+                            merged: list[dict[str, Any]] = []
+                            for db_it in db_items:
+                                cid = db_it.get("id_cliente_pdv")
+                                if cid is None:
+                                    merged.append(db_it)
+                                    continue
+                                payload_it = payload_by_pdv.get(int(cid), {})
+                                merged.append({**payload_it, **db_it})
+                            items = merged
                     if not items:
                         logger.warning(
                             f"[Notif] objetivo {obj_id or '?'} tipo={tipo}: sin filas en objetivo_items "
@@ -591,7 +607,6 @@ class ObjetivosNotificationService:
                             for rid in dest_ids:
                                 dest_rutas[rid] = self._ruta_label(rid, dist_id)
 
-                        MAX_PDV_DISPLAY = 8
                         lineas: list[str] = []
                         accion_resumen: list[str] = []
 
@@ -607,10 +622,10 @@ class ObjetivosNotificationService:
                                 or f"PDV #{cid}"
                             )
                             nombre = html.escape(nombre_raw, quote=False)
-                            erp = info.get("erp", "") or (it.get("id_cliente_erp") or "")
-                            cod = f" · <b>NRO CLIENTE ERP:</b> {html.escape(str(erp), quote=False)}" if erp else ""
+                            erp = (it.get("id_cliente_erp") or info.get("erp", "") or "")
+                            nro_txt = html.escape(str(erp), quote=False) if erp else "S/N"
                             ruta_actual = self._ruta_label(info.get("id_ruta"), dist_id)
-                            ruta_part = f" · <b>Ruta:</b> {ruta_actual}" if ruta_actual else ""
+                            ruta_part = f" · <b>Ruta:</b> {ruta_actual}" if ruta_actual else " · <b>Ruta:</b> S/N"
 
                             extra = ""
                             ar = it.get("accion_ruteo")
@@ -627,22 +642,15 @@ class ObjetivosNotificationService:
                                     extra = f"\n    → <b>Baja de ruta</b>{(': ' + mot) if mot else ''}"
                                     accion_resumen.append("Baja de ruta")
 
-                            lineas.append(f"  • <b>{nombre}</b>{cod}{ruta_part}{extra}")
+                            lineas.append(
+                                f"  • <b>Nro:</b> {nro_txt} · <b>PDV:</b> {nombre}{ruta_part}{extra}"
+                            )
 
                         n_items = len(items)
                         pdv_word = "PDV objetivo" if n_items == 1 else "PDVs objetivo"
-                        if len(items) > MAX_PDV_DISPLAY:
-                            shown = lineas[:MAX_PDV_DISPLAY]
-                            remaining = len(items) - MAX_PDV_DISPLAY
-                            resto = "PDV" if remaining == 1 else "PDVs"
-                            shown.append(f"  <i>...y {remaining} {resto} más</i>")
-                            pdv_lines = (
-                                f"\n📍 <b>{pdv_word} ({n_items}):</b>\n" + "\n".join(shown)
-                            )
-                        else:
-                            pdv_lines = (
-                                f"\n📍 <b>{pdv_word} ({n_items}):</b>\n" + "\n".join(lineas)
-                            )
+                        pdv_lines = (
+                            f"\n📍 <b>{pdv_word} ({n_items}):</b>\n" + "\n".join(lineas)
+                        )
 
                         if tipo == "ruteo" and accion_resumen:
                             uniq = sorted(set(accion_resumen))

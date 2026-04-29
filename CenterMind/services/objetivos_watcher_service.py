@@ -704,8 +704,38 @@ class ObjetivosWatcherService:
             return
 
         # Notificar por cada evento nuevo
+        # Para exhibición, evitar spam por múltiples fotos del mismo PDV:
+        # se notifica una sola vez por PDV y por tipo de evento.
+        notif_tipo_evento = None
+        notificados_pdv: set[str] = set()
+        if tipo_evento in {"exhibicion", "exhibicion_pendiente"}:
+            notif_tipo_evento = f"{tipo_evento}_notif_pdv"
+            notificados_pdv = self._get_tracked_refs(obj_id, notif_tipo_evento)
+
         for item in items:
             try:
+                if notif_tipo_evento:
+                    pdv_ref = str(item.get("id_cliente_pdv") or "").strip()
+                    if pdv_ref:
+                        if pdv_ref in notificados_pdv:
+                            continue
+                        try:
+                            sb.table("objetivos_tracking").upsert(
+                                {
+                                    "id_objetivo": obj_id,
+                                    "id_referencia": pdv_ref,
+                                    "tipo_evento": notif_tipo_evento,
+                                    "metadata": {"source_event": tipo_evento},
+                                },
+                                on_conflict="id_objetivo,id_referencia,tipo_evento",
+                            ).execute()
+                            notificados_pdv.add(pdv_ref)
+                        except Exception as e_notif_track:
+                            logger.warning(
+                                f"[Watcher] tracking notif dedupe obj={obj_id} pdv={pdv_ref}: {e_notif_track}"
+                            )
+                            continue
+
                 # Telegram al grupo del vendedor
                 objetivos_notification.notify_vendor_telegram(
                     dist_id=dist_id,

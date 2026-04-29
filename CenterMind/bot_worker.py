@@ -2672,15 +2672,31 @@ class BotWorker:
                 msg_id  = ex["telegram_msg_id"]
                 estado  = ex["estado"]
                 vendedor = ex.get("vendedor_nombre")
-                # El RPC puede exponer el cliente con distintos aliases según versión.
+
+                def _clean_text(val: object) -> str:
+                    if val is None:
+                        return ""
+                    txt = str(val).strip()
+                    if not txt:
+                        return ""
+                    # Normalizar placeholders comunes que no sirven para mostrar.
+                    if txt.lower() in {"none", "null", "nan", "sin cliente", "s/c", "0"}:
+                        return ""
+                    return txt
+
+                # El campo "Cliente" debe priorizar SIEMPRE nro de cliente / código ERP.
                 cliente = (
-                    ex.get("nro_cliente")
-                    or ex.get("cliente")
-                    or ex.get("id_cliente_erp")
-                    or ex.get("cliente_sombra_codigo")
-                    or ex.get("id_cliente_pdv")
+                    _clean_text(ex.get("nro_cliente"))
+                    or _clean_text(ex.get("id_cliente_erp"))
+                    or _clean_text(ex.get("cliente_sombra_codigo"))
+                    or _clean_text(ex.get("id_cliente_pdv"))
+                    or _clean_text(ex.get("cliente"))
                 )
-                tipo     = ex.get("tipo_pdv")
+                tipo = (
+                    _clean_text(ex.get("tipo_pdv"))
+                    or _clean_text(ex.get("tipo"))
+                    or _clean_text(ex.get("canal"))
+                )
                 comentario = ex.get("comentarios") or ""
                 supervisor = ex.get("supervisor_nombre") or "Supervisor"
 

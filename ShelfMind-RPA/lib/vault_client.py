@@ -13,40 +13,72 @@ for _p in _ENV_CANDIDATES:
         break
 
 _SECRETS = {}
-_FAILED_SECRETS = set()
+
+
+def _get_supabase_url() -> str:
+    return (
+        os.getenv("SUPABASE_URL")
+        or os.getenv("supabase_url")
+        or ""
+    ).strip()
+
+
+def _get_supabase_key() -> str:
+    return (
+        os.getenv("SUPABASE_SERVICE_KEY")
+        or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+        or os.getenv("SUPABASE_KEY")
+        or os.getenv("supabase_key")
+        or ""
+    ).strip()
+
+
+def _coerce_secret_value(raw):
+    """Soporta RPCs que retornan string, dict o lista."""
+    if isinstance(raw, str):
+        return raw.strip()
+    if isinstance(raw, dict):
+        for k in ("leer_secreto_vault", "secret", "value", "secret_value"):
+            v = raw.get(k)
+            if isinstance(v, str) and v.strip():
+                return v.strip()
+        return ""
+    if isinstance(raw, list) and raw:
+        # Formato común: [{"leer_secreto_vault": "..."}]
+        return _coerce_secret_value(raw[0])
+    return ""
 
 def get_secret(name: str) -> str:
     # 1. Chequeo de variables de entorno / .env (p. ej. SUPABASE_KEY sin SERVICE_KEY)
     val = os.getenv(name.upper()) or os.getenv(name)
     if val:
-        return val
+        return val.strip()
         
-    # 2. Caché en memoria de los secrets traídos de Vault (solo intentamos 1 vez)
+    # 2. Caché en memoria de los secrets traídos de Vault
     if name in _SECRETS:
         return _SECRETS[name]
-        
-    if name in _FAILED_SECRETS:
-        return ""
     
     # 3. Intentar buscar desde Supabase Vault
     try:
         from supabase import create_client, Client
-        url = os.environ.get("SUPABASE_URL")
-        key = os.environ.get("SUPABASE_SERVICE_KEY") or os.environ.get("SUPABASE_KEY")
+        url = _get_supabase_url()
+        key = _get_supabase_key()
         if url and key:
             supabase: Client = create_client(url, key)
-            # Llamamos al RPC nativo 'leer_secreto_vault' si necesitamos, o asumimos el .env manda en pruebas
+            # Llamamos al RPC nativo de vault.
             res = supabase.rpc("leer_secreto_vault", {"secret_name": name}).execute()
-            if res.data:
-                _SECRETS[name] = res.data
-                return res.data
+            secret = _coerce_secret_value(getattr(res, "data", None))
+            if secret:
+                _SECRETS[name] = secret
+                return secret
     except Exception as e:
         print(f"Error vault {name}: {e}")
-        
-    _FAILED_SECRETS.add(name)
+
     return ""
     
 def verificar_vault() -> bool:
-    """Retorna True si hay acceso a credenciales (env vars o .env cargado)."""
-    # Basta con que SUPABASE_URL esté disponible
-    return bool(os.getenv("SUPABASE_URL") or os.getenv("supabase_url"))
+    """Retorna True si hay acceso potencial a credenciales por env/vault."""
+    # Al menos URL+KEY para vault, o credenciales CHESS directas en env.
+    if _get_supabase_url() and _get_supabase_key():
+        return True
+    return any(k.startswith("CHESS_") for k in os.environ.keys())

@@ -177,10 +177,19 @@ def _cargar_tenants_desde_supabase() -> list[dict]:
     try:
         from supabase import create_client
 
-        url = os.environ.get("SUPABASE_URL")
-        key = os.environ.get("SUPABASE_SERVICE_KEY") or os.environ.get("SUPABASE_KEY")
+        url = os.environ.get("SUPABASE_URL") or os.environ.get("supabase_url")
+        key = (
+            os.environ.get("SUPABASE_SERVICE_KEY")
+            or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+            or os.environ.get("SUPABASE_KEY")
+            or os.environ.get("supabase_key")
+        )
         if not url or not key:
-            logger.warning("SUPABASE_URL/SUPABASE_KEY ausentes, usando TENANTS_LEGACY")
+            logger.warning(
+                "SUPABASE_URL o service key ausentes "
+                "(SUPABASE_SERVICE_KEY/SUPABASE_SERVICE_ROLE_KEY/SUPABASE_KEY), "
+                "usando TENANTS_LEGACY"
+            )
             return TENANTS_LEGACY
 
         sb = create_client(url, key)

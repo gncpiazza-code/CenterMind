@@ -82,10 +82,31 @@ def main():
     logger.info("=" * 60)
     logger.info("  ShelfMind RPA Scheduler — PADRÓN + CUENTAS")
     from lib.shelfy_config import get_shelfy_base_url, get_shelfy_api_key
+    from lib.vault_client import get_secret
 
     _b = get_shelfy_base_url()
     _k = "sí" if (get_shelfy_api_key() or "").strip() else "no"
+    sb_url = (
+        os.environ.get("SUPABASE_URL")
+        or os.environ.get("supabase_url")
+        or ""
+    ).strip()
+    sb_key = (
+        os.environ.get("SUPABASE_SERVICE_KEY")
+        or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+        or os.environ.get("SUPABASE_KEY")
+        or os.environ.get("supabase_key")
+        or ""
+    ).strip()
+    consolido_user = get_secret("consolido_usuario") or get_secret("consolido_tabaco_usuario")
+    consolido_pass = get_secret("consolido_password") or get_secret("consolido_tabaco_password")
     logger.info(f"  SHELFY base URL: {_b}  |  clave API: {_k}")
+    logger.info(f"  Supabase Vault  : {'sí' if (sb_url and sb_key) else 'no'}")
+    logger.info(
+        "  Consolido creds: "
+        f"user={'sí' if bool(consolido_user) else 'no'} "
+        f"pass={'sí' if bool(consolido_pass) else 'no'}"
+    )
     logger.info(f"  RPA_HEADLESS   : {os.environ.get('RPA_HEADLESS', 'true')}")
     logger.info(f"  Zona jobs AR   : {AR_TZ.key} (independiente de la región del host)")
     logger.info("=" * 60)

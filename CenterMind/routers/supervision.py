@@ -874,6 +874,8 @@ def supervision_vendedores(dist_id: int, user_payload=Depends(verify_auth)):
 
         # Fetch ALL clients with pagination — Supabase defaults to 1000 rows which
         # would truncate large distributors (Tabaco has 13k+ PDVs).
+        # Exclude padron_absent: PDVs that have been reassigned to a different route
+        # should not appear in this vendor's count.
         PAGE = 1000
         all_clients: list[dict] = []
         offset = 0
@@ -882,6 +884,7 @@ def supervision_vendedores(dist_id: int, user_payload=Depends(verify_auth)):
                 sb.table(t_clientes)
                 .select("id_cliente,id_cliente_erp,id_ruta,fecha_ultima_compra")
                 .eq("id_distribuidor", dist_id)
+                .neq("motivo_inactivo", "padron_absent")
                 .range(offset, offset + PAGE - 1)
                 .execute()
             )
@@ -1037,10 +1040,14 @@ def supervision_clientes(id_ruta: int, user_payload=Depends(verify_auth)):
                 "fecha_ultima_compra, fecha_alta, id_distribuidor, id_ruta, estado, updated_at"
             )
             .eq("id_ruta", id_ruta)
+            # Exclude ghost records: PDVs reassigned to a different route by the padrón.
+            # These are marked estado='inactivo', motivo_inactivo='padron_absent' and should
+            # no longer appear under the old vendor's route in the map or sidebar.
+            .neq("motivo_inactivo", "padron_absent")
             .order("nombre_fantasia")
             .execute()
         )
-        # In supervisión we need to keep active + inactive PDVs visible.
+        # In supervisión we need to keep active + inactive PDVs visible (sin_compra_30d etc.)
         rows = _dedupe_pdvs_latest_by_erp(res.data or [])
 
         if rows:

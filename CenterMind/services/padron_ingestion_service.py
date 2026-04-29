@@ -838,7 +838,7 @@ class PadronIngestionService:
         while True:
             res = (
                 sb.table(tenant_table_name("clientes_pdv_v2", dist_id))
-                .select("id_cliente,id_cliente_erp,id_ruta,estado,es_limbo")
+                .select("id_cliente,id_cliente_erp,id_ruta,estado,motivo_inactivo,es_limbo")
                 .eq("id_distribuidor", dist_id)
                 .eq("es_limbo", False)
                 .range(offset, offset + page - 1)
@@ -848,12 +848,19 @@ class PadronIngestionService:
             if not chunk:
                 break
             for r in chunk:
-                if r.get("estado") == "inactivo":
-                    continue
                 erp = str(r.get("id_cliente_erp") or "").strip()
                 rid = r.get("id_ruta")
                 if not erp or rid is None:
                     continue
+                already_absent = r.get("motivo_inactivo") == "padron_absent"
+                if r.get("estado") == "inactivo":
+                    # Still check for route mismatches on already-inactive records.
+                    # If the record was inactive for another reason (sin_compra_30d) but the
+                    # client has since moved routes, we must tag it padron_absent so the
+                    # new filter hides it from the old vendor's route list.
+                    if already_absent:
+                        continue  # Already correctly tagged — skip
+                    # Fall through to route-mismatch check below
                 if partial_scope:
                     if rid not in rutas_en_archivo:
                         continue

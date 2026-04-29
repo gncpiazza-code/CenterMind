@@ -1190,10 +1190,8 @@ def supervision_cuentas(dist_id: int, sucursal: Optional[str] = Query(None), use
 
         fecha_snapshot = snap_res.data[0]["fecha_snapshot"]
 
+        # sucursal viene del frontend como sucursales_v2.nombre_erp — usar directamente
         sucursal_norm = sucursal
-        if d_id == 3 and sucursal:
-            mapping = {"1": "RECONQUISTA", "2": "RESISTENCIA", "3": "SAENZ PEÑA", "4": "CORRIENTES", "5": "CORDOBA"}
-            sucursal_norm = mapping.get(str(sucursal).strip(), sucursal)
 
         # Load all rows without sucursal filter (filter in Python to handle unmatched enrichments)
         def build_query():
@@ -1213,16 +1211,17 @@ def supervision_cuentas(dist_id: int, sucursal: Optional[str] = Query(None), use
                 break
             page_offset += page_size
 
-        # Python-level sucursal filter: match by sucursal_nombre OR by id_vendedor membership
+        # Filtrar por sucursal: primero por id_vendedor (más confiable), luego por sucursal_nombre exacto.
+        # selectedSucursal = sucursales_v2.nombre_erp; cc_detalle.sucursal_nombre también viene de nombre_erp.
         if sucursal_norm:
             t_sucursales = tenant_table_name("sucursales_v2", d_id)
             t_vendedores = tenant_table_name("vendedores_v2", d_id)
-            t_clientes = tenant_table_name("clientes_pdv_v2", d_id)
+            sucursal_exact = sucursal_norm.strip()
             suc_q = (
                 sb.table(t_sucursales)
                 .select("id_sucursal")
                 .eq("id_distribuidor", d_id)
-                .ilike("nombre_erp", f"%{sucursal_norm.strip()}%")
+                .ilike("nombre_erp", sucursal_exact)  # exact case-insensitive, sin wildcards
                 .execute()
             )
             valid_suc_ids = {s["id_sucursal"] for s in (suc_q.data or [])}
@@ -1237,11 +1236,11 @@ def supervision_cuentas(dist_id: int, sucursal: Optional[str] = Query(None), use
                 )
                 valid_vend_ids = {v["id_vendedor"] for v in (vend_q.data or [])}
 
-            norm_filter = sucursal_norm.strip().upper()
+            norm_filter = sucursal_exact.upper()
             rows = [
                 r for r in rows
                 if (r.get("id_vendedor") and r["id_vendedor"] in valid_vend_ids)
-                or norm_filter in (r.get("sucursal_nombre") or "").upper()
+                or (r.get("sucursal_nombre") or "").strip().upper() == norm_filter
             ]
 
         # Cache PDV info for extra metadata (last purchase date)

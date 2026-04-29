@@ -251,8 +251,7 @@ Vendedor sube foto → bot pide nro cliente → foto → Supabase Storage → ex
 
 | Hora | Motor | Acción |
 |---|---|---|
-| 06:00 | `padron.py` | Descarga padrón de Consolido para todos los tenants activos |
-| 15:00 | `padron.py` | Segunda pasada diaria del padrón |
+| 07:00 | `padron.py` | Descarga padrón de Consolido para todos los tenants activos (única corrida diaria) |
 | 07:00 | `cuentas_corrientes.py` | Descarga CC de CHESS ERP para todos los tenants activos |
 | 14:30 | `cuentas_corrientes.py` | Segunda pasada diaria de CC |
 
@@ -260,7 +259,7 @@ El `scheduler.py` corre en el contenedor RPA (Railway o Mac) y dispara cada moto
 
 > **Latencia de datos por fuente:**
 > - **CHESS ERP** → tiempo real. CC y ventas se registran al instante.
-> - **Consolido** → se actualiza **1 vez por día** (proceso batch nocturno). El padrón que bajamos puede tener hasta ~24hs de delay respecto a CHESS.
+> - **Consolido** → se actualiza **1 vez por día** (proceso batch nocturno, ~05:00). Por eso el padrón queda programado una sola vez a las **07:00 AR**.
 > - **`fecha_ultima_compra` en `clientes_pdv_v2`** viene del padrón de Consolido → puede estar 1 día detrás de la realidad. Es una limitación del sistema, no un bug.
 > - **`cc_detalle.antiguedad_dias`** viene de CHESS → refleja el día del snapshot (2x/día). Pero indica la antigüedad de la deuda más vieja, no la fecha de última compra exacta.
 > - Para `fecha_ultima_compra` en tiempo real se necesitaría el motor de Ventas (`runner.py ventas`) que descarga transacciones de CHESS. Actualmente NO está en el scheduler.

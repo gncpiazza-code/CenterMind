@@ -12,8 +12,12 @@ Configuración: ver lib/shelfy_config.py
   (SHELFY_API_URL, API_URL, claves de Supabase+Vault, default prod https://api.shelfycenter.com)
 """
 
-import httpx
 import asyncio
+import io
+from pathlib import Path
+
+import httpx
+import pandas as pd
 from lib.logger import get_logger
 from lib.shelfy_config import get_shelfy_api_key, get_shelfy_base_url
 
@@ -21,6 +25,7 @@ logger = get_logger("API_CLIENT")
 
 # Compat: lectura perezosa; dev local: export API_URL o SHELFY_API_URL
 TIMEOUT = 120  # segundos
+PADRON_MAX_DIRECT_UPLOAD_BYTES = 18 * 1024 * 1024  # 18MB (margen conservador ante límites/proxies)
 
 def _url() -> str:
     return get_shelfy_base_url()
@@ -113,9 +118,34 @@ async def subir_padron(archivo_path, id_distribuidor: int) -> bool:
     """
     url = f"{_url()}/api/v1/sync/erp-padrón"
     try:
+        archivo_path = Path(archivo_path)
+
         # Leer archivo del disco
         with open(archivo_path, "rb") as f:
             file_bytes = f.read()
+
+        payload_name = archivo_path.name
+        payload_bytes = file_bytes
+        original_size = len(file_bytes)
+
+        # Si el archivo es muy grande, compactar (sin estilos/formato) para evitar cortes de conexión.
+        if original_size > PADRON_MAX_DIRECT_UPLOAD_BYTES:
+            logger.info(
+                f"  ℹ️ Padrón grande ({original_size / (1024 * 1024):.1f} MB). "
+                "Intentando compactar antes de upload..."
+            )
+            compacted = _compactar_excel_para_upload(file_bytes)
+            if compacted and len(compacted) < original_size:
+                payload_bytes = compacted
+                payload_name = f"{archivo_path.stem}_compacto.xlsx"
+                logger.info(
+                    f"  ✅ Compactado OK: {original_size / (1024 * 1024):.1f} MB -> "
+                    f"{len(payload_bytes) / (1024 * 1024):.1f} MB"
+                )
+            else:
+                logger.warning(
+                    "  ⚠️ No se pudo reducir tamaño del padrón; se sube archivo original."
+                )
 
         # Padrón puede tardar bastante en backend (ingesta+normalización), usar timeout más amplio y reintentos.
         timeout = httpx.Timeout(connect=20.0, read=240.0, write=120.0, pool=20.0)
@@ -126,7 +156,7 @@ async def subir_padron(archivo_path, id_distribuidor: int) -> bool:
                         url,
                         headers=_headers(),
                         params={"id_distribuidor": str(id_distribuidor)},
-                        files={"file": (archivo_path.name, file_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+                        files={"file": (payload_name, payload_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
                     )
 
                 if resp.status_code in (200, 201, 202):
@@ -161,3 +191,24 @@ async def subir_padron(archivo_path, id_distribuidor: int) -> bool:
     except Exception as e:
         logger.error(f"  ❌ Error preparando upload de padrón dist={id_distribuidor}: {type(e).__name__}: {repr(e)}")
         return False
+
+
+def _compactar_excel_para_upload(file_bytes: bytes) -> bytes | None:
+    """
+    Reescribe el Excel sin estilos para bajar peso, preservando contenido.
+    Se fuerza dtype=str para evitar pérdidas de precisión en IDs numéricos largos.
+    """
+    try:
+        df = pd.read_excel(
+            io.BytesIO(file_bytes),
+            dtype=str,
+            engine="openpyxl",
+            keep_default_na=False,
+        )
+
+        out = io.BytesIO()
+        df.to_excel(out, index=False, engine="openpyxl")
+        return out.getvalue()
+    except Exception as e:
+        logger.warning(f"  ⚠️ Falló compactación de Excel: {type(e).__name__}: {e}")
+        return None

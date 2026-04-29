@@ -7,8 +7,7 @@ Proceso siempre activo para ejecutar motores RPA en horario Argentina.
 Zona: America/Argentina/Buenos_Aires (independiente de la región del host, ej. us-west).
 
 Horarios activos:
-  06:00  Padrón
-  15:00  Padrón
+  07:00  Padrón (única corrida diaria)
   07:00  Cuentas corrientes
   14:30  Cuentas corrientes (2.ª pasada)
 
@@ -113,8 +112,7 @@ def main():
 
     scheduler = BackgroundScheduler(timezone=AR_TZ)
 
-    scheduler.add_job(job_padron, CronTrigger(hour=6, minute=0, timezone=AR_TZ), id="padron_0600")
-    scheduler.add_job(job_padron, CronTrigger(hour=15, minute=0, timezone=AR_TZ), id="padron_1500")
+    scheduler.add_job(job_padron, CronTrigger(hour=7, minute=0, timezone=AR_TZ), id="padron_0700")
     scheduler.add_job(job_cuentas, CronTrigger(hour=7, minute=0, timezone=AR_TZ), id="cuentas_0700")
     scheduler.add_job(job_cuentas, CronTrigger(hour=14, minute=30, timezone=AR_TZ), id="cuentas_1430")
 

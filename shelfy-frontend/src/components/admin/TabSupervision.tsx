@@ -732,10 +732,14 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
     [vendedores]
   );
 
-  const vendedoresFiltrados = useMemo(() =>
-    selectedSucursal ? vendedores.filter(v => v.sucursal_nombre === selectedSucursal) : [],
-    [vendedores, selectedSucursal]
-  );
+  const vendedoresFiltrados = useMemo(() => {
+    const filtered = selectedSucursal ? vendedores.filter(v => v.sucursal_nombre === selectedSucursal) : [];
+    return [...filtered].sort((a, b) => {
+      const pctA = a.total_pdv > 0 ? a.pdv_activos / a.total_pdv : 0;
+      const pctB = b.total_pdv > 0 ? b.pdv_activos / b.total_pdv : 0;
+      return pctB - pctA;
+    });
+  }, [vendedores, selectedSucursal]);
 
   useEffect(() => {
     const unsub = queryClient.getQueryCache().subscribe((e) => {

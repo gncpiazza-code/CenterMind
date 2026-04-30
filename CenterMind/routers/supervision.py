@@ -1162,6 +1162,7 @@ def supervision_ventas(
     dias: int = 30,
     fecha_hasta: Optional[str] = Query(None),
     sucursal: Optional[str] = Query(None),
+    vendedor: Optional[str] = Query(None),
     user_payload=Depends(verify_auth),
 ):
     check_dist_permission(user_payload, dist_id)
@@ -1201,7 +1202,10 @@ def supervision_ventas(
             if fk and fecha_desde <= fk <= fecha_hasta:
                 rows.append(r)
         erp_name_map = _get_erp_name_map(dist_id)
-        if (sucursal or "").strip():
+        sucursal_norm = (sucursal or "").strip().lower()
+        vendedor_norm = (vendedor or "").strip().lower()
+
+        if sucursal_norm:
             needle = str(sucursal).strip().lower()
             vend_branch = _vendor_display_names_for_sucursal_erp(dist_id, sucursal) or set()
             kept = []
@@ -1209,15 +1213,35 @@ def supervision_ventas(
                 v_raw = row.get("vendedor") or "Sin Vendedor"
                 v_disp = erp_name_map.get(v_raw.lower(), v_raw)
                 row_suc = (row.get("sucursal") or "").strip().lower()
-                if vend_branch:
-                    ok = v_disp in vend_branch
-                else:
-                    ok = False
-                if row_suc and row_suc == needle:
-                    ok = True
+                # Regla estricta: si la fila trae sucursal, debe coincidir.
+                if row_suc and row_suc != needle:
+                    continue
+                # Fallback para filas sin sucursal: usar padrón vendedores de la sucursal.
+                if not row_suc and vend_branch and v_disp not in vend_branch:
+                    continue
+                ok = True
                 if ok:
                     kept.append(row)
             rows = kept
+
+        if vendedor_norm:
+            kept_v = []
+            for row in rows:
+                v_raw = (row.get("vendedor") or "Sin Vendedor").strip()
+                v_disp = erp_name_map.get(v_raw.lower(), v_raw)
+                if v_raw.lower() == vendedor_norm or v_disp.lower() == vendedor_norm:
+                    kept_v.append(row)
+            rows = kept_v
+
+        # Universo permitido vendedor-cliente según comprobantes filtrados.
+        # Se usa para evitar mezclar detallado de otra sucursal/vendedor.
+        allowed_vendor_client: set[tuple[str, str]] = set()
+        for row in rows:
+            v_raw = (row.get("vendedor") or "Sin Vendedor").strip()
+            v_disp = erp_name_map.get(v_raw.lower(), v_raw)
+            cli = (row.get("cliente") or "").strip()
+            if cli:
+                allowed_vendor_client.add((v_disp, _norm_name(cli)))
         # Enriquecimiento desde detallado CHESS (bultos/articulos por cliente-vendedor).
         detalles_by_vendor_client: dict[tuple[str, str], dict] = {}
         top_articulos_by_vendor: dict[str, dict[str, float]] = {}
@@ -1236,6 +1260,8 @@ def supervision_ventas(
                 v_det = erp_name_map.get(v_raw_det.lower(), v_raw_det)
                 cli = (drow.get("cliente_nombre") or "").strip()
                 if not cli:
+                    continue
+                if allowed_vendor_client and (v_det, _norm_name(cli)) not in allowed_vendor_client:
                     continue
                 bult = float(drow.get("total_bultos") or 0)
                 art = (drow.get("articulo_codigo_desc") or "").strip()

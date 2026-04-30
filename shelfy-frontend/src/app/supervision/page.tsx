@@ -256,6 +256,10 @@ export default function SupervisionPage() {
     return cuentasData?.vendedores ?? [];
   }, [cuentasData]);
 
+  const padronLastUpdated = syncStatus?.padron?.last_updated ?? null;
+  const ccLastUpdated = syncStatus?.cuentas_corrientes?.last_updated ?? null;
+  const ventasLastUpdated = syncStatus?.ventas?.last_updated ?? null;
+
   const ventasVentanaLabel = useMemo(() => {
     const d = new Date(`${fechaCorte}T12:00:00`);
     const fechaStr = d.toLocaleDateString("es-AR");
@@ -287,30 +291,30 @@ export default function SupervisionPage() {
                     <>
                       <Badge
                         variant="outline"
-                        className={`text-[10px] gap-1 ${isStale(syncStatus.padron.last_updated) ? "border-amber-300 text-amber-600 bg-amber-50" : "border-emerald-300 text-emerald-700 bg-emerald-50"}`}
+                        className={`text-[10px] gap-1 ${isStale(padronLastUpdated) ? "border-amber-300 text-amber-600 bg-amber-50" : "border-emerald-300 text-emerald-700 bg-emerald-50"}`}
                       >
-                        {isStale(syncStatus.padron.last_updated)
+                        {isStale(padronLastUpdated)
                           ? <AlertTriangle size={10} />
                           : <CheckCircle2 size={10} />}
-                        Padrón: {fmtShort(syncStatus.padron.last_updated)}
+                        Padrón: {fmtShort(padronLastUpdated)}
                       </Badge>
                       <Badge
                         variant="outline"
-                        className={`text-[10px] gap-1 ${isStale(syncStatus.cuentas_corrientes.last_updated) ? "border-amber-300 text-amber-600 bg-amber-50" : "border-emerald-300 text-emerald-700 bg-emerald-50"}`}
+                        className={`text-[10px] gap-1 ${isStale(ccLastUpdated) ? "border-amber-300 text-amber-600 bg-amber-50" : "border-emerald-300 text-emerald-700 bg-emerald-50"}`}
                       >
-                        {isStale(syncStatus.cuentas_corrientes.last_updated)
+                        {isStale(ccLastUpdated)
                           ? <AlertTriangle size={10} />
                           : <CheckCircle2 size={10} />}
-                        CC: {fmtShort(syncStatus.cuentas_corrientes.last_updated)}
+                        CC: {fmtShort(ccLastUpdated)}
                       </Badge>
                       <Badge
                         variant="outline"
-                        className={`text-[10px] gap-1 ${isStale(syncStatus.ventas.last_updated) ? "border-amber-300 text-amber-600 bg-amber-50" : "border-emerald-300 text-emerald-700 bg-emerald-50"}`}
+                        className={`text-[10px] gap-1 ${isStale(ventasLastUpdated) ? "border-amber-300 text-amber-600 bg-amber-50" : "border-emerald-300 text-emerald-700 bg-emerald-50"}`}
                       >
-                        {isStale(syncStatus.ventas.last_updated)
+                        {isStale(ventasLastUpdated)
                           ? <AlertTriangle size={10} />
                           : <CheckCircle2 size={10} />}
-                        Ventas: {fmtShort(syncStatus.ventas.last_updated)}
+                        Ventas: {fmtShort(ventasLastUpdated)}
                       </Badge>
                     </>
                   )}

@@ -147,7 +147,34 @@ def ingest_detallado(tenant_id: str, file_bytes: bytes) -> dict:
     if not filas:
         return {"registros": 0, "errores": 0, "id_distribuidor": dist_id}
 
-    registros = [{"id_distribuidor": dist_id, **f} for f in filas]
+    # Colapsar posibles duplicados por clave única dentro del mismo archivo/lote.
+    # Si una misma (fecha, comprobante, numero, codigo_articulo) aparece varias veces,
+    # sumamos métricas numéricas para evitar error 21000 en ON CONFLICT DO UPDATE.
+    merged: dict[tuple[str, str, str, str], dict] = {}
+    for f in filas:
+        key = (
+            str(f.get("fecha") or ""),
+            str(f.get("comprobante") or ""),
+            str(f.get("numero") or ""),
+            str(f.get("codigo_articulo") or ""),
+        )
+        cur = merged.get(key)
+        if cur is None:
+            merged[key] = dict(f)
+            continue
+
+        cur["bultos"] = float(cur.get("bultos") or 0.0) + float(f.get("bultos") or 0.0)
+        cur["monto_linea"] = float(cur.get("monto_linea") or 0.0) + float(f.get("monto_linea") or 0.0)
+        if not cur.get("descripcion_articulo") and f.get("descripcion_articulo"):
+            cur["descripcion_articulo"] = f.get("descripcion_articulo")
+        if not cur.get("vendedor") and f.get("vendedor"):
+            cur["vendedor"] = f.get("vendedor")
+
+    registros = [{"id_distribuidor": dist_id, **f} for f in merged.values()]
+    logger.info(
+        f"[VentasDetalle] Filas normalizadas para upsert: {len(registros)} "
+        f"(original={len(filas)}, colapsadas={len(filas)-len(registros)})"
+    )
 
     BATCH = 500
     upserted = 0

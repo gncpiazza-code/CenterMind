@@ -26,17 +26,16 @@ export default function ModoMapaPage() {
   const distId = user.id_distribuidor || 0;
 
   return (
-    <div className="flex min-h-screen bg-[var(--shelfy-bg)]">
+    <div className="flex h-screen overflow-hidden bg-[var(--shelfy-bg)]">
       <Sidebar />
       <BottomNav />
 
-      <div className="flex flex-col flex-1 min-w-0">
+      <div className="flex flex-col flex-1 min-w-0 min-h-0">
         <Topbar title="Modo Mapa" />
 
-        <main className="flex-1 p-4 md:p-6 pb-24 md:pb-8 overflow-auto">
-          <div className="max-w-[1600px] mx-auto">
-            <TabSupervision distId={distId} isSuperadmin={isSuperadmin} />
-          </div>
+        {/* No padding — TabSupervision fills all remaining height */}
+        <main className="flex-1 flex flex-col min-h-0 overflow-auto">
+          <TabSupervision distId={distId} isSuperadmin={isSuperadmin} fullscreen />
         </main>
       </div>
     </div>

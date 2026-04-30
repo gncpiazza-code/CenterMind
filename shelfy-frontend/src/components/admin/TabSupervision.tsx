@@ -369,6 +369,7 @@ function EyeBtn({
 interface TabSupervisionProps {
   distId: number;
   isSuperadmin?: boolean;
+  fullscreen?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -412,7 +413,7 @@ function SyncStatusBar({ syncStatus }: { syncStatus: SyncStatus }) {
   );
 }
 
-export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionProps) {
+export default function TabSupervision({ distId, isSuperadmin, fullscreen = false }: TabSupervisionProps) {
   const queryClient = useQueryClient();
   const { hasPermiso } = useAuth();
   const [selectedDist, setSelectedDist]         = useState(distId);
@@ -1753,7 +1754,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col gap-4">
+    <div className={fullscreen ? "flex flex-col h-full gap-0" : "flex flex-col gap-4"}>
 
       {/* Top bar */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -1846,7 +1847,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
       </button>
 
       {/* Main split */}
-      <div className="flex flex-col xl:grid xl:grid-cols-5 gap-3 xl:h-[680px]">
+      <div className={`flex flex-col xl:grid xl:grid-cols-5 gap-3 ${fullscreen ? "flex-1 min-h-0 xl:h-auto" : "xl:h-[680px]"}`}>
 
         {/* ── MAP — oculto en mobile ──────────────────────────────────────── */}
         <div className="hidden xl:flex xl:col-span-3 flex-col rounded-2xl overflow-hidden border border-[var(--shelfy-border)] relative bg-[var(--shelfy-panel)]">

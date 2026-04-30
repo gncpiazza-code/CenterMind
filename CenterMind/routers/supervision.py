@@ -1240,7 +1240,7 @@ def supervision_ventas(
                 bult = float(drow.get("total_bultos") or 0)
                 art = (drow.get("articulo_codigo_desc") or "").strip()
                 key = (v_det, cli)
-                bucket = details_by_vendor_client.setdefault(
+                bucket = detalles_by_vendor_client.setdefault(
                     key,
                     {"cliente": cli, "total_bultos": 0.0, "articulos": {}},
                 )
@@ -1289,7 +1289,7 @@ def supervision_ventas(
         # Acoplar agregados de bultos y top artículos al resultado de cada vendedor.
         for vend_name, vend_payload in vendors.items():
             clientes_rows = []
-            for (vv, _cli), data in details_by_vendor_client.items():
+            for (vv, _cli), data in detalles_by_vendor_client.items():
                 if vv != vend_name:
                     continue
                 top_cli_art = sorted(

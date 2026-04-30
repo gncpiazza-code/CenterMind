@@ -22,6 +22,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, date
 from typing import Optional
+from core.tenant_tables import tenant_table_name
 from db import sb
 
 logger = logging.getLogger("VentasIngestion")
@@ -32,6 +33,7 @@ TENANT_DIST_MAP = {
     "aloma":  4,
     "liver":  5,
     "real":   2,
+    "extra":  6,
 }
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
@@ -147,7 +149,7 @@ def _build_cliente_map(dist_id: int) -> dict[str, int]:
     Carga nombre_fantasia y nombre_razon_social de clientes_pdv_v2 para el dist.
     Devuelve {nombre_normalizado: id_cliente}.
     """
-    res = sb.table("clientes_pdv_v2") \
+    res = sb.table(tenant_table_name("clientes_pdv_v2", dist_id)) \
         .select("id_cliente, nombre_fantasia, nombre_razon_social") \
         .eq("id_distribuidor", dist_id) \
         .execute()
@@ -252,7 +254,7 @@ def ingest(tenant_id: str, tipo: str, file_bytes: bytes) -> dict:
     actualizados = 0
     for id_cliente, fecha_str in ids_cliente_actualizados.items():
         try:
-            sb.table("clientes_pdv_v2") \
+            sb.table(tenant_table_name("clientes_pdv_v2", dist_id)) \
                 .update({"fecha_ultima_compra": fecha_str}) \
                 .eq("id_cliente", id_cliente) \
                 .lt("fecha_ultima_compra", fecha_str) \

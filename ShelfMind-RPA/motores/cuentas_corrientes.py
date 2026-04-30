@@ -6,7 +6,7 @@ Motor 3: Reporte de Saldos Totales (Cuentas Corrientes) — CHESS ERP
 
 ¿Qué hace?
 ----------
-En producción, el horario lo define `scheduler.py` (07:00 y 14:30 AR) o `runner.py cuentas` manual. Flujo:
+En producción, el horario lo define `scheduler.py` (07:30 y 17:30 AR) o `runner.py cuentas` manual. Flujo:
   1. Para cada tenant de CHESS ERP:
      a. Login (cerrando popup de actualización si aparece)
      b. Navega directo a /#/cuentas-por-cobrar/reportes/saldos-totales

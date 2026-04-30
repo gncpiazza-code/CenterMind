@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Modelos Pydantic compartidos por todos los routers."""
-from typing import List, Optional
+from typing import Any, List, Optional
 from pydantic import BaseModel
 
 
@@ -280,3 +280,12 @@ class GaleriaTimelineResponse(BaseModel):
     offset: int
     limit: int
     has_more: bool
+
+
+class VentasComprobantesAnalyticsIn(BaseModel):
+    """Cuerpo JSON para persistir resultado de scripts/analizar_ventas_comprobantes."""
+
+    tenant_id: str
+    fecha_desde: Optional[str] = None
+    fecha_hasta: Optional[str] = None
+    payload: dict[str, Any]

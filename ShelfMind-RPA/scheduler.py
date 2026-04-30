@@ -6,10 +6,15 @@ Proceso siempre activo para ejecutar motores RPA en horario Argentina.
 
 Zona: America/Argentina/Buenos_Aires (independiente de la región del host, ej. us-west).
 
-Horarios activos:
+Horarios:
   07:00  Padrón (única corrida diaria)
-  07:00  Cuentas corrientes
-  14:30  Cuentas corrientes (2.ª pasada)
+  07:30  17:30  Cuentas corrientes (CHESS saldos) — solo 2/día; +30min respecto a ventas/padrón
+  03:00  07:00  12:00  15:00  17:00  21:00  Ventas / comprobantes CHESS — 6 corridas/día
+
+Cuentas se corre **media hora después** del bloque donde coincidía antes con ventas (07 y 17)
+para no abrir otro PLAYWRIGHT/CHESS mientras siguen otros motores.
+
+Monitorear CPU/RAM y “Accesos concurrentes” en CHESS según uso real.
 
 Inicio: python scheduler.py
 """
@@ -33,6 +38,19 @@ logging.basicConfig(
 logger = logging.getLogger("SCHEDULER")
 
 AR_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
+
+# 6 corridas AR ventas: 3am 7am 12pm 3pm 5pm 9pm
+_SLOTS_VENTAS = [
+    (3, 0),
+    (7, 0),
+    (12, 0),
+    (15, 0),
+    (17, 0),
+    (21, 0),
+]
+
+# Cuentas corrientes: 30 min después de las ventanas 07 y 17 (evitar solapes)
+_SLOTS_CUENTAS = [(7, 30), (17, 30)]
 
 
 def job_cuentas():
@@ -74,12 +92,30 @@ async def _run_padron():
     )
 
 
+async def _run_ventas():
+    from motores.ventas import run
+    resumen = await run()
+    logger.info(
+        f"VENTAS completo — ok={resumen.get('ok', '?')}, "
+        f"errores={resumen.get('errores', '?')}, "
+        f"sin_cambios={resumen.get('sin_cambios', '?')}"
+    )
+
+
+def job_ventas():
+    logger.info("⏰ Trigger VENTAS")
+    try:
+        asyncio.run(_run_ventas())
+    except Exception as e:
+        logger.error(f"Error en job_ventas: {e}")
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 
 def main():
     logger.info("=" * 60)
-    logger.info("  ShelfMind RPA Scheduler — PADRÓN + CUENTAS")
+    logger.info("  ShelfMind RPA Scheduler — PADRÓN + CUENTAS + VENTAS")
     from lib.shelfy_config import get_shelfy_base_url, get_shelfy_api_key
     from lib.vault_client import get_secret
 
@@ -94,7 +130,6 @@ def main():
         os.environ.get("SUPABASE_SERVICE_KEY")
         or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
         or os.environ.get("SUPABASE_KEY")
-        or os.environ.get("supabase_key")
         or ""
     ).strip()
     consolido_user = get_secret("consolido_usuario") or get_secret("consolido_tabaco_usuario")
@@ -113,8 +148,20 @@ def main():
     scheduler = BackgroundScheduler(timezone=AR_TZ)
 
     scheduler.add_job(job_padron, CronTrigger(hour=7, minute=0, timezone=AR_TZ), id="padron_0700")
-    scheduler.add_job(job_cuentas, CronTrigger(hour=7, minute=0, timezone=AR_TZ), id="cuentas_0700")
-    scheduler.add_job(job_cuentas, CronTrigger(hour=14, minute=30, timezone=AR_TZ), id="cuentas_1430")
+
+    for hi, mi in _SLOTS_VENTAS:
+        scheduler.add_job(
+            job_ventas,
+            CronTrigger(hour=hi, minute=mi, timezone=AR_TZ),
+            id=f"ventas_{hi:02d}{mi:02d}",
+        )
+
+    for hi, mi in _SLOTS_CUENTAS:
+        scheduler.add_job(
+            job_cuentas,
+            CronTrigger(hour=hi, minute=mi, timezone=AR_TZ),
+            id=f"cuentas_{hi:02d}{mi:02d}",
+        )
 
     scheduler.start()
 

@@ -72,6 +72,38 @@ def subir_ventas(tenant_id: str, tipo: str, filename: str, file_bytes: bytes) ->
         return False
 
 
+def subir_ventas_analytics(
+    tenant_id: str,
+    payload: dict,
+    fecha_desde: str | None = None,
+    fecha_hasta: str | None = None,
+) -> bool:
+    """
+    Sube el JSON de análisis de comprobantes a POST /api/motor/ventas-analytics.
+    """
+    url = f"{_url()}/api/motor/ventas-analytics"
+    body = {
+        "tenant_id": tenant_id,
+        "fecha_desde": fecha_desde,
+        "fecha_hasta": fecha_hasta,
+        "payload": payload,
+    }
+    try:
+        resp = httpx.post(url, headers=_headers(), json=body, timeout=TIMEOUT)
+        if resp.status_code in (200, 201):
+            data = resp.json()
+            logger.info(
+                "  ✅ Ventas analytics subido — "
+                f"run_id={data.get('run_id', '?')} dist={data.get('id_distribuidor', '?')}"
+            )
+            return True
+        logger.error(f"  ❌ API ventas-analytics respondió {resp.status_code}: {resp.text[:300]}")
+        return False
+    except Exception as e:
+        logger.error(f"  ❌ Error subiendo ventas analytics para {tenant_id}: {e}")
+        return False
+
+
 def subir_cuentas(tenant_id: str, filename: str, file_bytes: bytes) -> bool:
     """
     Sube un Excel de cuentas corrientes a POST /api/motor/cuentas.

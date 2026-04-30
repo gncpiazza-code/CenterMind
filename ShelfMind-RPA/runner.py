@@ -65,7 +65,7 @@ async def correr_padron() -> None:
 
 
 async def correr_ventas(fecha_desde: str = None, fecha_hasta: str = None) -> None:
-    """Motor 2: Comprobantes de Ventas (CHESS). Cron: 13:30, 18:30, 23:00."""
+    """Motor 2: Comprobantes de Ventas (CHESS). Ver horarios en scheduler.py (6 ventanas AR / día)."""
     _banner("VENTAS -- CHESS ERP")
     _verificar_vault_o_salir()
     from motores.ventas import run as _run
@@ -74,7 +74,7 @@ async def correr_ventas(fecha_desde: str = None, fecha_hasta: str = None) -> Non
 
 
 async def correr_cuentas() -> None:
-    """Motor 3: Cuentas Corrientes / Saldos Totales (CHESS). Cron: 07:00."""
+    """Motor 3: Cuentas Corrientes / Saldos Totales (CHESS). Scheduler: 07:30 y 17:30 AR."""
     _banner("CUENTAS CORRIENTES -- CHESS ERP")
     _verificar_vault_o_salir()
     from motores.cuentas_corrientes import run as _run

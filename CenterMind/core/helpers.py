@@ -133,10 +133,17 @@ def _get_erp_name_map(dist_id: int) -> dict:
                     if legacy_current and legacy_current != nombre_erp and not has_binding_override:
                         continue
                     name_map[legacy_key] = nombre_erp
-        # Tabaco: durante la transición de padrón algunos eventos siguen llegando con
-        # etiqueta legacy "RICARDO LAURO." aunque el vendedor activo es ALVAREZ.
-        if dist_id == 3 and "ricardo alvarez" in erp_identity_map:
-            name_map["ricardo lauro."] = erp_identity_map["ricardo alvarez"]
+        # Unificación operativa: eventos/motores pueden llegar con "Matias Wutrich"
+        # pero tablero/ranking deben consolidar bajo "Ivan Wutrich".
+        # Se aplica solo cuando Ivan exista en el mapa ERP del tenant.
+        ivan_canon = None
+        for k, v in erp_identity_map.items():
+            if "ivan" in k and "wutrich" in k:
+                ivan_canon = v
+                break
+        if ivan_canon:
+            name_map["matias wutrich"] = ivan_canon
+            name_map["matias wutrich."] = ivan_canon
         return name_map
     except Exception as e:
         logger.warning(f"_get_erp_name_map dist={dist_id} falló: {e}")

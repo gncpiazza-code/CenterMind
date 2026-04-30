@@ -1493,10 +1493,17 @@ export interface VentasSupervision {
   vendedores: VendedorVentas[];
 }
 
-export async function fetchVentasSupervision(distId: number, dias = 30, fechaHasta?: string, sucursal?: string): Promise<VentasSupervision> {
+export async function fetchVentasSupervision(
+  distId: number,
+  dias = 30,
+  fechaHasta?: string,
+  sucursal?: string,
+  vendedor?: string,
+): Promise<VentasSupervision> {
   const params = new URLSearchParams({ dias: String(dias) });
   if (fechaHasta) params.set("fecha_hasta", fechaHasta);
   if (sucursal) params.set("sucursal", sucursal);
+  if (vendedor) params.set("vendedor", vendedor);
   const data = await apiFetch<VentasSupervision & { vendedores?: Record<string, unknown>[] }>(
     `/api/supervision/ventas/${distId}?${params.toString()}`
   );

@@ -1255,6 +1255,13 @@ def supervision_ventas(
                     "p_proveedor_busqueda": None,
                 },
             ).execute()
+
+            def _to_float(v) -> float:
+                try:
+                    return float(v or 0)
+                except Exception:
+                    return 0.0
+
             for drow in (det.data or []):
                 v_raw_det = (drow.get("vendedor") or "Sin Vendedor").strip()
                 v_det = erp_name_map.get(v_raw_det.lower(), v_raw_det)
@@ -1263,7 +1270,23 @@ def supervision_ventas(
                     continue
                 if allowed_vendor_client and (v_det, _norm_name(cli)) not in allowed_vendor_client:
                     continue
-                bult = float(drow.get("total_bultos") or 0)
+                bult = _to_float(drow.get("total_bultos"))
+                # Regla operativa: 1 bulto = 250 unidades, 1 tira = 10 unidades.
+                # Si el origen trae bultos en 0 para ventas menores a 1 bulto, inferimos.
+                if bult <= 0:
+                    unidades = (
+                        _to_float(drow.get("total_unidades"))
+                        or _to_float(drow.get("cantidad_unidades"))
+                        or _to_float(drow.get("unidades"))
+                    )
+                    tiras = (
+                        _to_float(drow.get("total_tiras"))
+                        or _to_float(drow.get("cantidad_tiras"))
+                        or _to_float(drow.get("tiras"))
+                    )
+                    unidades_totales = unidades + (tiras * 10.0)
+                    if unidades_totales > 0:
+                        bult = unidades_totales / 250.0
                 art = (drow.get("articulo_codigo_desc") or "").strip()
                 key = (v_det, cli)
                 bucket = detalles_by_vendor_client.setdefault(

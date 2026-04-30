@@ -48,7 +48,7 @@ import { DatePicker } from "@/components/ui/date-picker";
 const ALLOWED_ROLES = ["superadmin", "admin", "supervisor", "directorio"];
 
 /** Ventana fija para el panel (sin selector de rango): N días que terminan en la fecha elegida por calendario. */
-const PANEL_VENTAS_DIAS = 30;
+const PANEL_VENTAS_DIAS = 1;
 
 function fmt$$(n: number): string {
   return new Intl.NumberFormat("es-AR", {
@@ -169,9 +169,9 @@ export default function SupervisionPage() {
   const sucursalParam = selectedSucursal === "__all__" ? undefined : selectedSucursal;
 
   const { data: ventasData, isLoading: loadingVentas } = useQuery({
-    queryKey: [...supervisionPanelKeys.ventas(distId, PANEL_VENTAS_DIAS), fechaCorte || "", sucursalParam ?? "__all__"] as const,
+    queryKey: [...supervisionPanelKeys.ventas(distId, PANEL_VENTAS_DIAS), fechaCorte || "", sucursalParam ?? "__all__", selectedVendedor ?? "__all__"] as const,
     queryFn: () =>
-      fetchVentasSupervision(distId, PANEL_VENTAS_DIAS, fechaCorte || undefined, sucursalParam),
+      fetchVentasSupervision(distId, PANEL_VENTAS_DIAS, fechaCorte || undefined, sucursalParam, selectedVendedor ?? undefined),
     enabled: !!distId,
     staleTime: 5 * 60_000,
   });
@@ -261,11 +261,6 @@ export default function SupervisionPage() {
     const fechaStr = d.toLocaleDateString("es-AR");
     return `Últimos ${PANEL_VENTAS_DIAS} d hasta ${fechaStr}`;
   }, [fechaCorte]);
-
-  const vendedorResaltado = useMemo(() => {
-    if (selectedVendedor !== null) return selectedVendedor;
-    return ventasFiltradas[0]?.vendedor ?? null;
-  }, [selectedVendedor, ventasFiltradas]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
   if (!isAllowed) return null;
@@ -461,24 +456,6 @@ export default function SupervisionPage() {
                     <p className="text-center text-xs text-muted-foreground py-8">Sin datos de ventas para el período</p>
                   ) : (
                     <div className="max-h-[460px] overflow-auto">
-                      <div className="px-4 py-2 border-b border-[var(--shelfy-border)]/40 flex flex-wrap gap-1.5">
-                        {ventasFiltradas.map((v) => (
-                          <button
-                            key={v.vendedor}
-                            onClick={() => {
-                              setSelectedVendedor(v.vendedor);
-                              setOpenVentasCliente(null);
-                            }}
-                            className={`text-[10px] px-2 py-1 rounded-md border transition-colors ${
-                              vendedorResaltado === v.vendedor
-                                ? "border-violet-300 bg-violet-50 text-violet-700"
-                                : "border-[var(--shelfy-border)] text-muted-foreground hover:text-foreground"
-                            }`}
-                          >
-                            {v.vendedor}
-                          </button>
-                        ))}
-                      </div>
                       <div className="divide-y divide-[var(--shelfy-border)]/40">
                         {ventasByCliente.map((c) => {
                           const isOpen = openVentasCliente === c.cliente;

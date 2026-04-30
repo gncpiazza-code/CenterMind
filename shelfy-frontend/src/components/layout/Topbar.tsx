@@ -1,13 +1,22 @@
 "use client";
 
 import { useAuth } from "@/hooks/useAuth";
-import { LogOut, Menu } from "lucide-react";
+import { Crown, LogOut, Menu } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useUI } from "@/contexts/UIContext";
 import { cn } from "@/lib/utils";
 import { TopModeTabs } from "./TopModeTabs";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import Link from "next/link";
 
 interface TopbarProps {
   title?: string;
@@ -72,6 +81,40 @@ export function Topbar({ title, live = false }: TopbarProps) {
         {/* Right: user info + logout */}
         {user && (
           <div className="flex items-center gap-2 shrink-0">
+            {isSuperadmin && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="text-[var(--shelfy-muted)] hover:text-violet-600 hover:bg-violet-50"
+                    title="Herramientas superadmin"
+                  >
+                    <Crown size={17} />
+                    <span className="sr-only">Herramientas superadmin</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuLabel>Superadmin</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem asChild>
+                    <Link href="/admin/dashboard">Corridas RPA</Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/admin/match-center">Match Center</Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/admin/permissions">Permisos</Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/admin">Administrar</Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/admin/mapa">Mapa en Vivo</Link>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
             <div className="hidden sm:block text-right">
               <p className="text-xs font-medium text-[var(--shelfy-text)]">{user.usuario}</p>
               <p className="text-[10px] text-[var(--shelfy-muted)]">{user.nombre_empresa}</p>

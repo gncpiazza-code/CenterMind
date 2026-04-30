@@ -12,6 +12,8 @@ import {
   fetchCuentasSupervision,
   fetchSyncStatus,
   fetchVendedoresSupervision,
+  type TransaccionVenta,
+  type VendedorSupervision,
   type VendedorVentas,
   type VendedorCuentas,
 } from "@/lib/api";
@@ -36,7 +38,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
-  TrendingUp, CreditCard, Users, Receipt, BarChart3,
+  TrendingUp, CreditCard, Users, Receipt, BarChart3, ChevronDown,
   Clock, AlertTriangle, CheckCircle2, Map,
 } from "lucide-react";
 import Link from "next/link";
@@ -127,21 +129,23 @@ export default function SupervisionPage() {
   const { user } = useAuth();
   const router = useRouter();
 
-  const [ventasDias, setVentasDias] = useState<7 | 30 | 90>(30);
+  const [ventasPeriodo, setVentasPeriodo] = useState<"hoy" | 7 | 15 | 90>(7);
   const [selectedSucursal, setSelectedSucursal] = useState<string>("__all__");
+  const [selectedVendedor, setSelectedVendedor] = useState<string | null>(null);
+  const [openVentasCliente, setOpenVentasCliente] = useState<string | null>(null);
+  const ventasDias = ventasPeriodo === "hoy" ? 1 : ventasPeriodo;
+
+  const isAllowed = !!user && ALLOWED_ROLES.includes(user.rol);
+  const distId = user?.id_distribuidor || 0;
 
   useEffect(() => {
-    if (user && !ALLOWED_ROLES.includes(user.rol)) {
+    if (user && !isAllowed) {
       router.replace("/dashboard");
     }
-  }, [user, router]);
-
-  if (!user || !ALLOWED_ROLES.includes(user.rol)) return null;
-
-  const distId = user.id_distribuidor || 0;
+  }, [user, isAllowed, router]);
 
   // ── Queries ────────────────────────────────────────────────────────────────
-  const { data: vendedores = [] } = useQuery({
+  const { data: vendedores = [] } = useQuery<VendedorSupervision[]>({
     queryKey: ['supervision-vendedores-panel', distId],
     queryFn: () => fetchVendedoresSupervision(distId),
     enabled: !!distId,
@@ -151,8 +155,8 @@ export default function SupervisionPage() {
   const sucursales = useMemo(() => {
     const seen = new Set<string>();
     const list: string[] = [];
-    for (const v of vendedores as any[]) {
-      const s = (v as any).sucursal_nombre || (v as any).nombre_sucursal;
+    for (const v of vendedores) {
+      const s = v.sucursal_nombre;
       if (s && !seen.has(s)) { seen.add(s); list.push(s); }
     }
     return list.sort();
@@ -190,12 +194,52 @@ export default function SupervisionPage() {
     if (!sucursalParam) return rows;
     // Backend returns nombre_vendedor (= ERP name). Match against VendedorVentas.vendedor (also ERP name).
     const vidsEnSucursal = new Set(
-      (vendedores as any[])
-        .filter((v: any) => v.sucursal_nombre === sucursalParam)
-        .map((v: any) => v.nombre_vendedor as string),
+      vendedores
+        .filter((v) => v.sucursal_nombre === sucursalParam)
+        .map((v) => v.nombre_vendedor),
     );
     return rows.filter((r) => vidsEnSucursal.has(r.vendedor));
   }, [ventasData, vendedores, sucursalParam]);
+
+  const effectiveVendedor = useMemo(() => {
+    if (!ventasFiltradas.length) return null;
+    if (selectedVendedor && ventasFiltradas.some((v) => v.vendedor === selectedVendedor)) {
+      return selectedVendedor;
+    }
+    return ventasFiltradas[0].vendedor;
+  }, [ventasFiltradas, selectedVendedor]);
+
+  const ventasByCliente = useMemo(() => {
+    const vendedor = ventasFiltradas.find((v) => v.vendedor === effectiveVendedor);
+    if (!vendedor) return [];
+    const bultosByCliente = new Map(
+      (vendedor.clientes_bultos ?? []).map((c) => [c.cliente.toLowerCase(), c]),
+    );
+    const grouped = new Map<string, { cliente: string; totalVenta: number; reciboMismoDia: number; transacciones: TransaccionVenta[] }>();
+    for (const t of vendedor.transacciones ?? []) {
+      const cliente = (t.cliente ?? "Cliente sin nombre").trim() || "Cliente sin nombre";
+      const key = cliente.toLowerCase();
+      if (!grouped.has(key)) grouped.set(key, { cliente, totalVenta: 0, reciboMismoDia: 0, transacciones: [] });
+      const bucket = grouped.get(key)!;
+      bucket.transacciones.push(t);
+      const marker = `${t.tipo_operacion ?? ""} ${t.comprobante ?? ""}`.toLowerCase();
+      if (marker.includes("recib")) {
+        bucket.reciboMismoDia += t.monto_recaudado || t.monto_total || 0;
+      } else {
+        bucket.totalVenta += t.monto_total || 0;
+      }
+    }
+    return [...grouped.values()]
+      .map((g) => {
+        const extra = bultosByCliente.get(g.cliente.toLowerCase());
+        return {
+          ...g,
+          totalBultos: extra?.total_bultos ?? 0,
+          topArticulos: extra?.top_articulos ?? [],
+        };
+      })
+      .sort((a, b) => b.totalVenta - a.totalVenta);
+  }, [ventasFiltradas, effectiveVendedor]);
 
   // Ventas KPIs from filtered rows so they react to sucursal selection
   const kpiFacturado   = ventasFiltradas.reduce((acc, v) => acc + v.monto_total, 0);
@@ -208,6 +252,8 @@ export default function SupervisionPage() {
   }, [cuentasData]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
+  if (!isAllowed) return null;
+
   return (
     <div className="flex min-h-screen bg-[var(--shelfy-bg)]">
       <Sidebar />
@@ -246,6 +292,15 @@ export default function SupervisionPage() {
                           : <CheckCircle2 size={10} />}
                         CC: {fmtShort(syncStatus.cuentas_corrientes.last_updated)}
                       </Badge>
+                      <Badge
+                        variant="outline"
+                        className={`text-[10px] gap-1 ${isStale(syncStatus.ventas.last_updated) ? "border-amber-300 text-amber-600 bg-amber-50" : "border-emerald-300 text-emerald-700 bg-emerald-50"}`}
+                      >
+                        {isStale(syncStatus.ventas.last_updated)
+                          ? <AlertTriangle size={10} />
+                          : <CheckCircle2 size={10} />}
+                        Ventas: {fmtShort(syncStatus.ventas.last_updated)}
+                      </Badge>
                     </>
                   )}
                 </div>
@@ -269,17 +324,17 @@ export default function SupervisionPage() {
 
                 {/* Days filter */}
                 <div className="flex rounded-lg border border-[var(--shelfy-border)] overflow-hidden text-xs">
-                  {([7, 30, 90] as const).map((d) => (
+                  {(["hoy", 7, 15, 90] as const).map((d) => (
                     <button
-                      key={d}
-                      onClick={() => setVentasDias(d)}
+                      key={String(d)}
+                      onClick={() => setVentasPeriodo(d)}
                       className={`px-3 py-1.5 font-semibold transition-colors ${
-                        ventasDias === d
+                        ventasPeriodo === d
                           ? "bg-[var(--shelfy-primary)] text-white"
                           : "bg-white text-[var(--shelfy-muted)] hover:bg-violet-50"
                       }`}
                     >
-                      {d}d
+                      {d === "hoy" ? "Hoy" : `${d}d`}
                     </button>
                   ))}
                 </div>
@@ -293,12 +348,16 @@ export default function SupervisionPage() {
               </div>
             </div>
 
+            <p className="text-[10px] text-muted-foreground -mt-2">
+              Fuentes: Padrón (`clientes_pdv_v2_*` vía motor padron), Ventas (`ventas_v2` + detallado `fn_reporte_comprobantes_detallado` vía motor ventas), CC (`cc_detalle` vía motor cuentas).
+            </p>
+
             {/* ── KPI cards ─────────────────────────────────────────────── */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
               <KpiCard
                 label="Facturado"
                 value={fmt$$(kpiFacturado)}
-                subtext={`últimos ${ventasDias} días`}
+                subtext={ventasPeriodo === "hoy" ? "hoy" : `últimos ${ventasDias} días`}
                 icon={TrendingUp}
                 color="violet"
                 loading={loadingVentas}
@@ -346,7 +405,7 @@ export default function SupervisionPage() {
                       Ranking Ventas
                     </CardTitle>
                     <Badge variant="secondary" className="text-[10px]">
-                      {ventasDias}d · {ventasFiltradas.length} vendedores
+                      {ventasPeriodo === "hoy" ? "Hoy" : `${ventasPeriodo}d`} · {ventasFiltradas.length} vendedores
                     </Badge>
                   </div>
                 </CardHeader>
@@ -361,27 +420,82 @@ export default function SupervisionPage() {
                   ) : ventasFiltradas.length === 0 ? (
                     <p className="text-center text-xs text-muted-foreground py-8">Sin datos de ventas para el período</p>
                   ) : (
-                    <div className="overflow-auto max-h-[340px]">
-                      <Table>
-                        <TableHeader>
-                          <TableRow className="text-[10px]">
-                            <TableHead className="pl-5 w-[40%]">Vendedor</TableHead>
-                            <TableHead className="text-right">Facturado</TableHead>
-                            <TableHead className="text-right pr-5">Facturas</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {ventasFiltradas.map((v) => (
-                            <TableRow key={v.vendedor} className="text-xs">
-                              <TableCell className="pl-5 font-medium truncate max-w-[140px]">{v.vendedor}</TableCell>
-                              <TableCell className="text-right font-mono text-[11px]">
-                                {fmt$$(v.monto_total)}
-                              </TableCell>
-                              <TableCell className="text-right pr-5 text-muted-foreground">{v.total_facturas}</TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
+                    <div className="max-h-[460px] overflow-auto">
+                      <div className="px-4 py-2 border-b border-[var(--shelfy-border)]/40 flex flex-wrap gap-1.5">
+                        {ventasFiltradas.map((v) => (
+                          <button
+                            key={v.vendedor}
+                            onClick={() => {
+                              setSelectedVendedor(v.vendedor);
+                              setOpenVentasCliente(null);
+                            }}
+                            className={`text-[10px] px-2 py-1 rounded-md border transition-colors ${
+                              effectiveVendedor === v.vendedor
+                                ? "border-violet-300 bg-violet-50 text-violet-700"
+                                : "border-[var(--shelfy-border)] text-muted-foreground hover:text-foreground"
+                            }`}
+                          >
+                            {v.vendedor}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="divide-y divide-[var(--shelfy-border)]/40">
+                        {ventasByCliente.map((c) => {
+                          const isOpen = openVentasCliente === c.cliente;
+                          return (
+                            <div key={c.cliente}>
+                              <button
+                                onClick={() => setOpenVentasCliente(isOpen ? null : c.cliente)}
+                                className="w-full flex items-center gap-2 px-4 py-2.5 text-left hover:bg-muted/30 transition-colors"
+                              >
+                                <ChevronDown size={14} className={`transition-transform ${isOpen ? "rotate-180" : ""}`} />
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-xs font-semibold truncate">{c.cliente}</p>
+                                  <p className="text-[10px] text-muted-foreground">
+                                    Venta {fmt$$(c.totalVenta)} · {c.totalBultos.toLocaleString("es-AR", { maximumFractionDigits: 2 })} bultos · {c.transacciones.length} comprobantes
+                                  </p>
+                                </div>
+                                {c.reciboMismoDia > 0 && (
+                                  <Badge variant="outline" className="text-[10px] border-orange-300 text-orange-700 bg-orange-50">
+                                    RECIBO {fmt$$(c.reciboMismoDia)}
+                                  </Badge>
+                                )}
+                              </button>
+                              {isOpen && (
+                                <div className="px-4 pb-3">
+                                  {c.topArticulos.length > 0 && (
+                                    <div className="mb-2 flex flex-wrap gap-1.5">
+                                      {c.topArticulos.slice(0, 4).map((a) => (
+                                        <Badge key={a.articulo} variant="outline" className="text-[10px]">
+                                          {a.articulo} · {a.bultos.toLocaleString("es-AR", { maximumFractionDigits: 2 })} b
+                                        </Badge>
+                                      ))}
+                                    </div>
+                                  )}
+                                  <Table>
+                                    <TableHeader>
+                                      <TableRow className="text-[10px]">
+                                        <TableHead>Comprobante</TableHead>
+                                        <TableHead>Tipo</TableHead>
+                                        <TableHead className="text-right">Monto</TableHead>
+                                      </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                      {c.transacciones.map((t, idx) => (
+                                        <TableRow key={`${t.numero ?? "na"}-${idx}`} className="text-[11px]">
+                                          <TableCell>{t.comprobante ?? "—"} {t.numero ?? ""}</TableCell>
+                                          <TableCell>{t.tipo_operacion ?? "—"}</TableCell>
+                                          <TableCell className="text-right font-mono">{fmt$$(t.monto_total || 0)}</TableCell>
+                                        </TableRow>
+                                      ))}
+                                    </TableBody>
+                                  </Table>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
                 </CardContent>
@@ -419,7 +533,7 @@ export default function SupervisionPage() {
                   ) : cuentasFiltradas.length === 0 ? (
                     <p className="text-center text-xs text-muted-foreground py-8">Sin datos de CC disponibles</p>
                   ) : (
-                    <div className="overflow-auto max-h-[340px]">
+                    <div className="overflow-auto max-h-[460px]">
                       <Table>
                         <TableHeader>
                           <TableRow className="text-[10px]">
@@ -430,6 +544,7 @@ export default function SupervisionPage() {
                         </TableHeader>
                         <TableBody>
                           {cuentasFiltradas
+                            .filter((v) => !effectiveVendedor || v.vendedor === effectiveVendedor)
                             .slice()
                             .sort((a, b) => b.deuda_total - a.deuda_total)
                             .map((v) => (

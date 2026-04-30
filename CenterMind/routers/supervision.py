@@ -1109,6 +1109,7 @@ def supervision_clientes(id_ruta: int, user_payload=Depends(verify_auth)):
 def supervision_ventas(dist_id: int, dias: int = 30, user_payload=Depends(verify_auth)):
     check_dist_permission(user_payload, dist_id)
     try:
+        fecha_hasta = datetime.now().strftime("%Y-%m-%d")
         fecha_desde = (datetime.now() - timedelta(days=dias)).strftime("%Y-%m-%d")
 
         res = (
@@ -1123,6 +1124,40 @@ def supervision_ventas(dist_id: int, dias: int = 30, user_payload=Depends(verify
 
         rows = res.data or []
         erp_name_map = _get_erp_name_map(dist_id)
+        # Enriquecimiento desde detallado CHESS (bultos/articulos por cliente-vendedor).
+        detalles_by_vendor_client: dict[tuple[str, str], dict] = {}
+        top_articulos_by_vendor: dict[str, dict[str, float]] = {}
+        try:
+            det = sb.rpc(
+                "fn_reporte_comprobantes_detallado",
+                {
+                    "p_dist_id": int(dist_id),
+                    "p_desde": fecha_desde,
+                    "p_hasta": fecha_hasta,
+                    "p_proveedor_busqueda": None,
+                },
+            ).execute()
+            for drow in (det.data or []):
+                v_raw_det = (drow.get("vendedor") or "Sin Vendedor").strip()
+                v_det = erp_name_map.get(v_raw_det.lower(), v_raw_det)
+                cli = (drow.get("cliente_nombre") or "").strip()
+                if not cli:
+                    continue
+                bult = float(drow.get("total_bultos") or 0)
+                art = (drow.get("articulo_codigo_desc") or "").strip()
+                key = (v_det, cli)
+                bucket = details_by_vendor_client.setdefault(
+                    key,
+                    {"cliente": cli, "total_bultos": 0.0, "articulos": {}},
+                )
+                bucket["total_bultos"] += bult
+                if art:
+                    bucket["articulos"][art] = float(bucket["articulos"].get(art, 0.0)) + bult
+                    va = top_articulos_by_vendor.setdefault(v_det, {})
+                    va[art] = float(va.get(art, 0.0)) + bult
+        except Exception as det_e:
+            logger.warning(f"[supervision_ventas] detalle bultos no disponible: {det_e}")
+
         vendors: dict = {}
         is_sa = user_payload.get("is_superadmin")
         for row in rows:
@@ -1133,7 +1168,16 @@ def supervision_ventas(dist_id: int, dias: int = 30, user_payload=Depends(verify
             if not is_sa and dist_id == 3 and v.lower() == "nacho":
                 continue
             if v not in vendors:
-                vendors[v] = {"vendedor": v, "total_facturas": 0, "monto_total": 0.0, "monto_recaudado": 0.0, "transacciones": []}
+                vendors[v] = {
+                    "vendedor": v,
+                    "total_facturas": 0,
+                    "monto_total": 0.0,
+                    "monto_recaudado": 0.0,
+                    "total_bultos": 0.0,
+                    "clientes_bultos": [],
+                    "top_articulos": [],
+                    "transacciones": [],
+                }
             vd = vendors[v]
             vd["total_facturas"] += 1
             vd["monto_total"]    += float(row.get("monto_total") or 0)
@@ -1148,12 +1192,51 @@ def supervision_ventas(dist_id: int, dias: int = 30, user_payload=Depends(verify
                     "monto_recaudado": float(row.get("monto_recaudado") or 0),
                 })
 
+        # Acoplar agregados de bultos y top artículos al resultado de cada vendedor.
+        for vend_name, vend_payload in vendors.items():
+            clientes_rows = []
+            for (vv, _cli), data in details_by_vendor_client.items():
+                if vv != vend_name:
+                    continue
+                top_cli_art = sorted(
+                    [
+                        {"articulo": a, "bultos": round(float(b), 2)}
+                        for a, b in (data.get("articulos") or {}).items()
+                    ],
+                    key=lambda x: x["bultos"],
+                    reverse=True,
+                )[:5]
+                clientes_rows.append(
+                    {
+                        "cliente": data["cliente"],
+                        "total_bultos": round(float(data.get("total_bultos") or 0), 2),
+                        "top_articulos": top_cli_art,
+                    }
+                )
+            clientes_rows.sort(key=lambda x: x["total_bultos"], reverse=True)
+            vend_payload["clientes_bultos"] = clientes_rows
+            vend_payload["total_bultos"] = round(sum(x["total_bultos"] for x in clientes_rows), 2)
+
+            vend_top = sorted(
+                [
+                    {"articulo": a, "bultos": round(float(b), 2)}
+                    for a, b in (top_articulos_by_vendor.get(vend_name) or {}).items()
+                ],
+                key=lambda x: x["bultos"],
+                reverse=True,
+            )[:10]
+            vend_payload["top_articulos"] = vend_top
+
         result = sorted(vendors.values(), key=lambda x: x["monto_total"], reverse=True)
         return {
             "dias": dias, "fecha_desde": fecha_desde,
             "total_facturado": round(sum(v["monto_total"] for v in result), 2),
             "total_recaudado": round(sum(v["monto_recaudado"] for v in result), 2),
             "total_facturas": sum(v["total_facturas"] for v in result),
+            "fuente": {
+                "ventas": "ventas_v2",
+                "detalle_bultos": "fn_reporte_comprobantes_detallado",
+            },
             "vendedores": result,
         }
     except Exception as e:
@@ -2666,6 +2749,39 @@ def supervision_sync_status(dist_id: int, user_payload=Depends(verify_auth)):
         except Exception as e:
             logger.warning(f"[sync-status] error leyendo CC dist={dist_id}: {e}")
 
-        return {"padron": padron_data, "cuentas_corrientes": cc_data}
+        ventas_data: dict = {"last_updated": None, "count": 0}
+        try:
+            run_ventas = (
+                sb.table("motor_runs")
+                .select("finalizado_en,iniciado_en,registros")
+                .eq("motor", "ventas")
+                .eq("dist_id", dist_id)
+                .eq("estado", "ok")
+                .order("finalizado_en", desc=True)
+                .limit(1)
+                .execute()
+            )
+            if run_ventas.data:
+                row = run_ventas.data[0]
+                ventas_data["last_updated"] = row.get("finalizado_en") or row.get("iniciado_en")
+                try:
+                    ventas_data["count"] = int(row.get("registros") or 0)
+                except Exception:
+                    ventas_data["count"] = 0
+            if not ventas_data["last_updated"]:
+                res_v = (
+                    sb.table("ventas_v2")
+                    .select("created_at")
+                    .eq("id_distribuidor", dist_id)
+                    .order("created_at", desc=True)
+                    .limit(1)
+                    .execute()
+                )
+                if res_v.data:
+                    ventas_data["last_updated"] = res_v.data[0]["created_at"]
+        except Exception as e:
+            logger.warning(f"[sync-status] error leyendo ventas dist={dist_id}: {e}")
+
+        return {"padron": padron_data, "cuentas_corrientes": cc_data, "ventas": ventas_data}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

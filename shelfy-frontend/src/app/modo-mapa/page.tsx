@@ -34,8 +34,8 @@ export default function ModoMapaPage() {
         <Topbar title="Modo Mapa" />
 
         {/* No padding — TabSupervision fills all remaining height */}
-        <main className="flex-1 flex flex-col min-h-0 overflow-auto">
-          <TabSupervision distId={distId} isSuperadmin={isSuperadmin} fullscreen />
+        <main className="flex-1 flex flex-col min-h-0 overflow-hidden p-3 md:p-4">
+          <TabSupervision distId={distId} isSuperadmin={isSuperadmin} fullscreen mapOnly />
         </main>
       </div>
     </div>

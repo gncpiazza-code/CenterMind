@@ -183,8 +183,8 @@ Reemplaza el modelo sidebar-para-todos por navegación top-center para usuarios 
 | Componente | Cambio |
 |---|---|
 | `TopModeTabs.tsx` | Nuevo. 8 tabs icono+label filtrados por rol+permisoKey; active state con borde bottom violeta; visible solo ≥md. |
-| `Topbar.tsx` | Hamburger/toggle solo para `is_superadmin`. Centro: TopModeTabs (desktop) o title page (mobile). |
-| `Sidebar.tsx` | Renderiza **solo** para `is_superadmin`. Solo ítems extra-admin (Bonos, Administrar, Permisos, Match Center, Corridas RPA, Mapa en Vivo). Hooks movidos antes del early return (fix RoH). |
+| `Topbar.tsx` | Centro: TopModeTabs (desktop) o title page (mobile). Derecha: avatar + logout y menú flotante superadmin con ícono `Crown` para herramientas ocultas. |
+| `Sidebar.tsx` | Desactivado (retorna `null`) para eliminar panel izquierdo y priorizar layout limpio de mapa/paneles. |
 | `BottomNav.tsx` | Sincronizado con los mismos 8 tabs de TopModeTabs (agrega `/modo-mapa`, elimina Academy/Reportes/Admin). |
 
 **Tabs de navegación (`TABS`):**
@@ -204,9 +204,14 @@ Reemplaza el modelo sidebar-para-todos por navegación top-center para usuarios 
 
 **Archivo**: `shelfy-frontend/src/app/modo-mapa/page.tsx`
 
-- Renderiza `TabSupervision` completo (mapa + tabs Ventas + CC).
+- Renderiza `TabSupervision` en modo `mapOnly` (sin secciones de Cuentas Corrientes/Exhibiciones embebidas).
 - Roles: `superadmin`, `admin`, `supervisor`, `directorio`.
 - Guard: redirect a `/dashboard` si el rol no tiene acceso.
+
+### 14b. Panel Analítico — Filtro temporal “Hoy” (30/04/2026)
+- `supervision/page.tsx` agrega selector rápido `Hoy / 7d / 15d / 90d` para ventas.
+- `Hoy` mapea a `dias=1` contra `/api/supervision/ventas/{dist}`.
+- La tabla izquierda permite seleccionar vendedor y desplegar clientes con detalle por comprobante, mostrando badge de recibos detectados (`RECIBO $...`) cuando aparece operación de recibo en la misma fecha operativa.
 
 ### 15. Panel Analítico de Supervisión `/supervision` (29/04/2026)
 

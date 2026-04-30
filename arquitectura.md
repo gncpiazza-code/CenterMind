@@ -40,11 +40,10 @@ Este documento describe la infraestructura, tecnologías y flujos de datos que c
 3. **RPC (Remote Procedure Calls)**: Se utilizan funciones PL/pgSQL en Supabase para operaciones complejas como `fn_supervision_vendedores` o `fn_login`.
 4. **WebSocket (Realtime)**: Supabase Realtime se utiliza para sincronización de estado en el mapa (navegación coordinada).
 5. **Storage**: Las imágenes subidas por el bot se guardan en Supabase Storage. El frontend usa las URLs públicas para renderizar fotos de exhibiciones.
-6. **Sidebar — Switcher de Distribuidora**:
-    - **Componente**: `shadcn/ui` `DropdownMenu` (reemplaza el dropdown custom anterior).
-    - **Visibilidad**: Disponible para Superadmin y usuarios con el permiso `action_switch_tenant`.
-    - **Posición**: `side="top"`, aparece sobre el trigger, alineado al ancho del botón trigger.
-    - **Optimización**: `navItems` se memoiza con `useMemo([rol, hasPermiso])` para evitar re-cómputos.
+6. **Navegación Admin Oculta (Abr 2026)**:
+    - El `Sidebar` fue retirado del layout operativo (retorna `null`) para mantener la pantalla limpia en todos los módulos.
+    - Las herramientas de superadmin se exponen desde `Topbar` mediante menú flotante (ícono `Crown`) con links a Corridas RPA, Match Center, Permisos y módulos admin.
+    - Logout/avatar se mantienen en la esquina superior derecha como punto único de sesión.
 7. **RBAC (Role Based Access Control)**: La tabla `roles_permisos` define llaves de acceso por rol. El frontend usa `hasPermiso(key)` via `AuthContext`.
 8. **Multi-tenant Switcher**: El backend permite el cambio de contexto operativo a usuarios no-superadmin si cuentan con el permiso `action_switch_tenant`, validado en `check_dist_permission`.
 9. **Resolución de tablas físicas por tenant (runtime)**:
@@ -135,6 +134,10 @@ Este documento describe la infraestructura, tecnologías y flujos de datos que c
     - Los badges del timeline adoptan color semántico para priorizar lectura rápida.
     - `tipo_pdv` queda normalizado de negocio a dos estados visuales: `CON INGRESO` vs `SIN INGRESO`.
 37. **Match Center (SuperAdmin) — Saneo Telegram↔ERP (Abr 2026)**:
+38. **Modo Mapa Full-Layout (30/04/2026)**:
+    - `app/modo-mapa/page.tsx` utiliza `TabSupervision` en modo `mapOnly`.
+    - En `mapOnly`, se ocultan bloques de Cuentas Corrientes y Exhibiciones embebidas; la vista prioriza interacción cartográfica y filtros operativos.
+    - El mapa ocupa toda el área de contenido disponible sin `fullscreen` nativo del navegador.
     - Nuevo módulo administrativo con endpoints: `GET /api/admin/match-center/candidates/{dist_id}`, `POST /api/admin/match-center/apply`, `POST /api/admin/match-center/apply-safe/{dist_id}`.
     - Estrategia de resolución: `binding` como fuente primaria; fallback por `nombre+apellido+sucursal` solo cuando el candidato es único.
     - Cuentas de test quedan bloqueadas del auto-match (`MATCH_CENTER_TEST_TELEGRAM_IDS`), evitando contaminación de ranking y supervision.

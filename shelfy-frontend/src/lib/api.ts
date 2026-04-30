@@ -1474,6 +1474,13 @@ export interface VendedorVentas {
   total_facturas: number;
   monto_total: number;
   monto_recaudado: number;
+  total_bultos?: number;
+  clientes_bultos?: Array<{
+    cliente: string;
+    total_bultos: number;
+    top_articulos: Array<{ articulo: string; bultos: number }>;
+  }>;
+  top_articulos?: Array<{ articulo: string; bultos: number }>;
   transacciones: TransaccionVenta[];
 }
 
@@ -1542,6 +1549,7 @@ export interface SyncStatusEntry {
 export interface SyncStatus {
   padron: SyncStatusEntry;
   cuentas_corrientes: SyncStatusEntry;
+  ventas: SyncStatusEntry;
 }
 
 export async function fetchSyncStatus(distId: number): Promise<SyncStatus> {

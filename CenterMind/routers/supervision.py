@@ -1392,6 +1392,7 @@ def supervision_cuentas(
     dist_id: int,
     sucursal: Optional[str] = Query(None),
     fecha: Optional[str] = Query(None),
+    vendedor: Optional[str] = Query(None),
     user_payload=Depends(verify_auth),
 ):
     check_dist_permission(user_payload, dist_id)
@@ -1466,6 +1467,14 @@ def supervision_cuentas(
                 r for r in rows
                 if (r.get("id_vendedor") and r["id_vendedor"] in valid_vend_ids)
                 or (r.get("sucursal_nombre") or "").strip().upper() == norm_filter
+            ]
+
+        # Filtrar por vendedor (server-side): nombre exacto case-insensitive.
+        if vendedor:
+            vendedor_filter = vendedor.strip().upper()
+            rows = [
+                r for r in rows
+                if (r.get("vendedor_nombre") or "").strip().upper() == vendedor_filter
             ]
 
         # Cache PDV info for extra metadata (last purchase date)

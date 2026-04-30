@@ -39,7 +39,7 @@ import {
 } from "@/components/ui/table";
 import {
   TrendingUp, CreditCard, Users, Receipt, BarChart3, ChevronDown,
-  Clock, AlertTriangle, CheckCircle2, Map as MapIcon,
+  Clock, AlertTriangle, CheckCircle2, Map as MapIcon, Printer, ArrowUpDown,
 } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
@@ -137,8 +137,8 @@ export default function SupervisionPage() {
   const [selectedVendedor, setSelectedVendedor] = useState<string | null>(null);
   const [openVentasCliente, setOpenVentasCliente] = useState<string | null>(null);
   const [fechaCorte, setFechaCorte] = useState<string>(new Date().toISOString().slice(0, 10));
-  const [draggingVendedor, setDraggingVendedor] = useState<string | null>(null);
-  const [leftPanelDropActive, setLeftPanelDropActive] = useState(false);
+  const [ccSort, setCCSort] = useState<"deuda" | "antiguedad">("deuda");
+  const [ccSortDir, setCCSortDir] = useState<"desc" | "asc">("desc");
   const isAllowed = !!user && ALLOWED_ROLES.includes(user.rol);
   const distId = effectiveDistribuidorId ?? 0;
 
@@ -169,17 +169,17 @@ export default function SupervisionPage() {
   const sucursalParam = selectedSucursal === "__all__" ? undefined : selectedSucursal;
 
   const { data: ventasData, isLoading: loadingVentas } = useQuery({
-    queryKey: [...supervisionPanelKeys.ventas(distId, PANEL_VENTAS_DIAS), fechaCorte || "", sucursalParam ?? "__all__", selectedVendedor ?? "__all__"] as const,
+    queryKey: [...supervisionPanelKeys.ventas(distId, PANEL_VENTAS_DIAS), fechaCorte || "", sucursalParam ?? "__all__", selectedVendedor ?? "__none__"] as const,
     queryFn: () =>
       fetchVentasSupervision(distId, PANEL_VENTAS_DIAS, fechaCorte || undefined, sucursalParam, selectedVendedor ?? undefined),
-    enabled: !!distId,
+    enabled: !!distId && !!selectedVendedor,
     staleTime: 5 * 60_000,
   });
 
   const { data: cuentasData, isLoading: loadingCuentas } = useQuery({
-    queryKey: supervisionPanelKeys.cuentas(distId, sucursalParam).concat(fechaCorte) as unknown as readonly unknown[],
-    queryFn: () => fetchCuentasSupervision(distId, sucursalParam, fechaCorte || undefined),
-    enabled: !!distId,
+    queryKey: [...supervisionPanelKeys.cuentas(distId, sucursalParam), fechaCorte, selectedVendedor ?? "__none__"] as const,
+    queryFn: () => fetchCuentasSupervision(distId, sucursalParam, fechaCorte || undefined, selectedVendedor ?? undefined),
+    enabled: !!distId && !!selectedVendedor,
     staleTime: 5 * 60_000,
   });
 
@@ -200,19 +200,16 @@ export default function SupervisionPage() {
   );
 
   const vendedorOptions = useMemo(() => {
-    const s = new Set<string>();
-    for (const v of ventasFiltradas) s.add(v.vendedor);
-    for (const c of cuentasData?.vendedores ?? []) s.add(c.vendedor);
-    return [...s].sort((a, b) => a.localeCompare(b, "es"));
-  }, [ventasFiltradas, cuentasData]);
-
-  const vendedorVistaClientes =
-    selectedVendedor ??
-    ventasFiltradas[0]?.vendedor ??
-    null;
+    return vendedores
+      .filter((v) => !sucursalParam || v.sucursal_nombre === sucursalParam)
+      .map((v) => v.nombre_vendedor)
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b, "es"));
+  }, [vendedores, sucursalParam]);
 
   const ventasByCliente = useMemo(() => {
-    const vendedor = ventasFiltradas.find((v) => v.vendedor === vendedorVistaClientes);
+    if (!selectedVendedor) return [];
+    const vendedor = ventasFiltradas.find((v) => v.vendedor === selectedVendedor);
     if (!vendedor) return [];
     const bultosByCliente = new globalThis.Map(
       (vendedor.clientes_bultos ?? []).map((c) => [c.cliente.toLowerCase(), c]),
@@ -241,7 +238,7 @@ export default function SupervisionPage() {
         };
       })
       .sort((a, b) => b.totalVenta - a.totalVenta);
-  }, [ventasFiltradas, vendedorVistaClientes]);
+  }, [ventasFiltradas, selectedVendedor]);
 
   const ventasParaKpi = useMemo(() => {
     if (!selectedVendedor) return ventasFiltradas;
@@ -255,6 +252,16 @@ export default function SupervisionPage() {
     // CC filtering is server-side (sucursal param passed to endpoint). metadatos also reflects filtered totals.
     return cuentasData?.vendedores ?? [];
   }, [cuentasData]);
+
+  const cuentasOrdenadas = useMemo(() => {
+    return [...cuentasFiltradas].sort((a, b) => {
+      const dir = ccSortDir === "desc" ? -1 : 1;
+      if (ccSort === "deuda") return dir * (b.deuda_total - a.deuda_total);
+      const maxA = Math.max(...(a.clientes.map((c) => c.antiguedad ?? 0)));
+      const maxB = Math.max(...(b.clientes.map((c) => c.antiguedad ?? 0)));
+      return dir * (maxB - maxA);
+    });
+  }, [cuentasFiltradas, ccSort, ccSortDir]);
 
   const padronLastUpdated = syncStatus?.padron?.last_updated ?? null;
   const ccLastUpdated = syncStatus?.cuentas_corrientes?.last_updated ?? null;
@@ -411,52 +418,37 @@ export default function SupervisionPage() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
               {/* Ventas por vendedor */}
-              <Card
-                onDragOver={(e) => {
-                  if (!draggingVendedor) return;
-                  e.preventDefault();
-                  setLeftPanelDropActive(true);
-                }}
-                onDragLeave={() => setLeftPanelDropActive(false)}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  const vend = e.dataTransfer.getData("text/plain") || draggingVendedor;
-                  if (vend) {
-                    setSelectedVendedor(vend);
-                    setOpenVentasCliente(null);
-                  }
-                  setLeftPanelDropActive(false);
-                  setDraggingVendedor(null);
-                }}
-                className={leftPanelDropActive ? "ring-2 ring-violet-300 bg-violet-50/40 transition-colors" : "transition-colors"}
-              >
+              <Card>
                 <CardHeader className="pb-3 pt-4 px-5">
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-sm font-bold flex items-center gap-2">
                       <BarChart3 size={15} className="text-[var(--shelfy-primary)]" />
-                      Ranking Ventas
+                      {selectedVendedor ? `Ventas — ${selectedVendedor}` : "Ventas"}
                     </CardTitle>
-                    <div className="flex items-center gap-1.5">
-                      <Badge variant="secondary" className="text-[10px]">
-                        {ventasFiltradas.length} vendedores
-                      </Badge>
-                      {leftPanelDropActive && (
-                        <Badge variant="outline" className="text-[10px] border-violet-300 text-violet-700 bg-violet-50">
-                          Soltá acá para cargar vendedor
-                        </Badge>
-                      )}
-                    </div>
+                    <Badge variant="secondary" className="text-[10px]">
+                      {ventasFiltradas.length} vendedores
+                    </Badge>
                   </div>
                 </CardHeader>
                 <Separator />
                 <CardContent className="p-0">
-                  {loadingVentas ? (
+                  {!selectedVendedor ? (
+                    <div className="flex flex-col items-center justify-center py-14 gap-3 text-center px-6">
+                      <div className="size-12 rounded-2xl bg-violet-500/8 flex items-center justify-center">
+                        <Users size={22} className="text-violet-500" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">Seleccioná un vendedor</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">Elegí vendedor para ver sus ventas y cuentas</p>
+                      </div>
+                    </div>
+                  ) : loadingVentas ? (
                     <div className="p-4 flex flex-col gap-2">
                       {Array.from({ length: 5 }).map((_, i) => (
                         <Skeleton key={i} className="h-9 w-full rounded" />
                       ))}
                     </div>
-                  ) : ventasFiltradas.length === 0 ? (
+                  ) : ventasByCliente.length === 0 ? (
                     <p className="text-center text-xs text-muted-foreground py-8">Sin datos de ventas para el período</p>
                   ) : (
                     <div className="max-h-[460px] overflow-auto">
@@ -525,84 +517,108 @@ export default function SupervisionPage() {
               {/* Cuentas corrientes */}
               <Card>
                 <CardHeader className="pb-3 pt-4 px-5">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
                     <CardTitle className="text-sm font-bold flex items-center gap-2">
                       <CreditCard size={15} className="text-rose-500" />
                       Cuentas Corrientes
                     </CardTitle>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       {cuentasData?.fecha && (
                         <Badge variant="outline" className="text-[10px] gap-1 border-[var(--shelfy-border)]">
                           <Clock size={9} />
                           {new Date(cuentasData.fecha).toLocaleDateString("es-AR")}
                         </Badge>
                       )}
-                      <Badge variant="secondary" className="text-[10px]">
-                        {cuentasFiltradas.length} vendedores
-                      </Badge>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-[10px] px-2 gap-1"
+                        onClick={() => {
+                          const nextDir = ccSort === "deuda" && ccSortDir === "desc" ? "asc" : "desc";
+                          setCCSort("deuda");
+                          setCCSortDir(ccSort === "deuda" ? nextDir : "desc");
+                        }}
+                      >
+                        <ArrowUpDown size={10} />
+                        Deuda
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-[10px] px-2 gap-1"
+                        onClick={() => {
+                          const nextDir = ccSort === "antiguedad" && ccSortDir === "desc" ? "asc" : "desc";
+                          setCCSort("antiguedad");
+                          setCCSortDir(ccSort === "antiguedad" ? nextDir : "desc");
+                        }}
+                      >
+                        <ArrowUpDown size={10} />
+                        Antigüedad
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-[10px] px-2 gap-1"
+                        onClick={() => window.print()}
+                      >
+                        <Printer size={10} />
+                        Imprimir
+                      </Button>
                     </div>
                   </div>
                 </CardHeader>
                 <Separator />
                 <CardContent className="p-0">
-                  {loadingCuentas ? (
+                  {!selectedVendedor ? (
+                    <div className="flex flex-col items-center justify-center py-14 gap-3 text-center px-6">
+                      <div className="size-12 rounded-2xl bg-rose-500/8 flex items-center justify-center">
+                        <CreditCard size={22} className="text-rose-500" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">Seleccioná un vendedor</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">Elegí vendedor para ver sus ventas y cuentas</p>
+                      </div>
+                    </div>
+                  ) : loadingCuentas ? (
                     <div className="p-4 flex flex-col gap-2">
                       {Array.from({ length: 5 }).map((_, i) => (
                         <Skeleton key={i} className="h-9 w-full rounded" />
                       ))}
                     </div>
-                  ) : cuentasFiltradas.length === 0 ? (
+                  ) : (cuentasOrdenadas[0]?.clientes ?? []).length === 0 ? (
                     <p className="text-center text-xs text-muted-foreground py-8">Sin datos de CC disponibles</p>
                   ) : (
                     <div className="overflow-auto max-h-[460px]">
                       <Table>
                         <TableHeader>
                           <TableRow className="text-[10px]">
-                            <TableHead className="pl-5 w-[40%]">Vendedor</TableHead>
+                            <TableHead className="pl-5 w-[40%]">Cliente</TableHead>
                             <TableHead className="text-right">Deuda</TableHead>
-                            <TableHead className="text-right pr-5">Clientes</TableHead>
+                            <TableHead className="text-right">Antig.</TableHead>
+                            <TableHead className="text-right pr-5">Rango</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {cuentasFiltradas
-                            .filter((v) => selectedVendedor === null || v.vendedor === selectedVendedor)
-                            .slice()
-                            .sort((a, b) => b.deuda_total - a.deuda_total)
-                            .map((v) => (
-                              <TableRow key={v.vendedor} className="text-xs">
-                                <TableCell className="pl-5 font-medium truncate max-w-[140px]">
-                                  <button
-                                    type="button"
-                                    draggable
-                                    onDragStart={(e) => {
-                                      e.dataTransfer.setData("text/plain", v.vendedor);
-                                      e.dataTransfer.effectAllowed = "copyMove";
-                                      setDraggingVendedor(v.vendedor);
-                                    }}
-                                    onDragEnd={() => {
-                                      setDraggingVendedor(null);
-                                      setLeftPanelDropActive(false);
-                                    }}
-                                    onClick={() => {
-                                      setSelectedVendedor(v.vendedor);
-                                      setOpenVentasCliente(null);
-                                    }}
-                                    className={`text-left px-1 py-0.5 rounded transition-colors ${
-                                      selectedVendedor !== null && selectedVendedor === v.vendedor
-                                        ? "bg-violet-50 text-violet-700"
-                                        : "hover:bg-muted/40"
-                                    }`}
-                                    title="Click para aplicar o arrastrá al panel de ventas"
-                                  >
-                                    {v.vendedor}
-                                  </button>
-                                </TableCell>
-                                <TableCell className="text-right font-mono text-[11px] text-rose-600 font-semibold">
-                                  {fmt$$(v.deuda_total)}
-                                </TableCell>
-                                <TableCell className="text-right pr-5 text-muted-foreground">{v.cantidad_clientes}</TableCell>
-                              </TableRow>
-                            ))}
+                          {(cuentasOrdenadas[0]?.clientes ?? []).map((c, idx) => (
+                            <TableRow key={`${c.cliente ?? "x"}-${idx}`} className="text-xs">
+                              <TableCell className="pl-5 font-medium truncate max-w-[140px]">
+                                {c.cliente ?? "—"}
+                              </TableCell>
+                              <TableCell className="text-right font-mono text-[11px] text-rose-600 font-semibold">
+                                {fmt$$(c.deuda_total)}
+                              </TableCell>
+                              <TableCell className="text-right text-muted-foreground">
+                                {c.antiguedad != null ? `${c.antiguedad}d` : "—"}
+                              </TableCell>
+                              <TableCell className="text-right pr-5">
+                                {c.rango_antiguedad ? (
+                                  <Badge variant="outline" className="text-[10px]">
+                                    {c.rango_antiguedad}
+                                  </Badge>
+                                ) : "—"}
+                              </TableCell>
+                            </TableRow>
+                          ))}
                         </TableBody>
                       </Table>
                     </div>

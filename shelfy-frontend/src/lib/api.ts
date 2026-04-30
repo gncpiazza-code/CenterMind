@@ -1566,10 +1566,11 @@ export async function fetchSyncStatus(distId: number): Promise<SyncStatus> {
   return apiFetch<SyncStatus>(`/api/supervision/sync-status/${distId}`);
 }
 
-export async function fetchCuentasSupervision(distId: number, sucursal?: string, fecha?: string): Promise<CuentasSupervision> {
+export async function fetchCuentasSupervision(distId: number, sucursal?: string, fecha?: string, vendedor?: string): Promise<CuentasSupervision> {
   const qp = new URLSearchParams();
   if (sucursal) qp.set("sucursal", sucursal);
   if (fecha) qp.set("fecha", fecha);
+  if (vendedor) qp.set("vendedor", vendedor);
   const params = qp.toString() ? `?${qp.toString()}` : "";
   const data = await apiFetch<CuentasSupervision & { vendedores?: Record<string, unknown>[] }>(
     `/api/supervision/cuentas/${distId}${params}`

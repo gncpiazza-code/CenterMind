@@ -208,6 +208,13 @@ Reemplaza el modelo sidebar-para-todos por navegación top-center para usuarios 
 - Roles: `superadmin`, `admin`, `supervisor`, `directorio`.
 - Guard: redirect a `/dashboard` si el rol no tiene acceso.
 
+### 14c. Panel Analítico — Flujo Sucursal→Vendedor obligatorio (30/04/2026)
+- `supervision/page.tsx`: ambas queries gateadas en `!!selectedVendedor` — nada carga hasta elegir vendedor.
+- Estado guiado (placeholder icon + texto) en ambos paneles cuando no hay vendedor seleccionado.
+- `vendedorOptions` derivados de `fetchVendedoresSupervision` (filtrado por sucursal), sin dependencia circular con datos de ventas/CC.
+- CC panel: lista plana de clientes del vendedor seleccionado con sort Deuda/Antigüedad (toggle asc/desc) y botón Imprimir.
+- Backend `supervision_cuentas` acepta `?vendedor=` (filtro server-side, match exacto case-insensitive en `vendedor_nombre`).
+
 ### 14b. Panel Analítico — Filtro temporal “Hoy” (30/04/2026)
 - `supervision/page.tsx` agrega selector rápido `Hoy / 7d / 15d / 90d` para ventas.
 - `Hoy` mapea a `dias=1` contra `/api/supervision/ventas/{dist}`.

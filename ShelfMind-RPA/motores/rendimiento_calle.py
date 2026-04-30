@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -17,8 +18,10 @@ AR_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
 BASE_DIR = Path(__file__).resolve().parent.parent
 DOWNLOADS_DIR = BASE_DIR / "downloads"
 ERRORS_DIR = BASE_DIR / "logs" / "errors"
+DEBUG_DIR = BASE_DIR / "logs" / "rendcalle_debug"
 HEADLESS = os.environ.get("RPA_HEADLESS", "true").lower() != "false"
 FAIL_FAST = os.environ.get("RENDCALLE_FAIL_FAST", "true").lower() != "false"
+DEBUG_ARTIFACTS = os.environ.get("RENDCALLE_DEBUG_ARTIFACTS", "true").lower() in {"1", "true", "yes"}
 TIMEOUT_MS = 30_000
 URL_LOGIN = "https://portal.nextbyn.com/"
 URL_SIGO = "https://portal.nextbyn.com/modulos/mapas/sigo.aspx"
@@ -47,14 +50,33 @@ def _ts() -> str:
     return datetime.now(AR_TZ).strftime("%Y%m%d_%H%M%S")
 
 
-def _fecha_ayer() -> str:
-    d = datetime.now(AR_TZ) - timedelta(days=1)
-    # Formato usado por Nextbyn (sin padding)
+def _fecha_objetivo_dt() -> datetime:
+    """
+    Produccion: fecha del dia.
+    Testing nocturno: RENDCALLE_TEST_DATE=DD/MM/YYYY
+    """
+    raw = (os.environ.get("RENDCALLE_TEST_DATE") or "").strip()
+    if raw:
+        try:
+            d, m, y = [int(x) for x in raw.split("/")]
+            return datetime(y, m, d, tzinfo=AR_TZ)
+        except Exception:
+            pass
+    return datetime.now(AR_TZ)
+
+
+def _fecha_objetivo() -> str:
+    d = _fecha_objetivo_dt()
     return f"{d.day}/{d.month}/{d.year}"
 
 
-def _dia_ayer_str() -> str:
-    return str((datetime.now(AR_TZ) - timedelta(days=1)).day)
+def _fecha_operativa_iso() -> str:
+    d = _fecha_objetivo_dt()
+    return d.date().isoformat()
+
+
+def _dia_objetivo_str() -> str:
+    return str(_fecha_objetivo_dt().day)
 
 
 def _norm(s: str) -> str:
@@ -87,7 +109,41 @@ async def _shot(page: Page, name: str) -> None:
         pass
 
 
-async def _download(page: Page, click_locator: str, fallback_name: str) -> bytes | None:
+async def _debug_dump(page: Page, stage: str, tenant_id: str, sucursal: str) -> None:
+    """
+    Guarda evidencia visual/DOM para revisar si la UI estaba lista antes de exportar.
+    """
+    if not DEBUG_ARTIFACTS:
+        return
+    try:
+        DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+        ts = _ts()
+        base = f"{tenant_id}_{_norm(sucursal).replace(' ', '_')}_{stage}_{ts}"
+        png = DEBUG_DIR / f"{base}.png"
+        html = DEBUG_DIR / f"{base}.html"
+        await page.screenshot(path=str(png), full_page=True)
+        html.write_text(await page.content(), encoding="utf-8")
+        logger.info(f"    🧪 Debug guardado: {png.name} / {html.name}")
+    except Exception as e:
+        logger.warning(f"    ⚠️ No se pudo guardar debug ({stage}): {e}")
+
+
+async def _finalize_download(dl: Download, fallback_name: str) -> tuple[bytes, Path] | None:
+    """Guarda archivo en DOWNLOADS_DIR y devuelve bytes + Path."""
+    try:
+        DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
+        fname = dl.suggested_filename or fallback_name
+        path = DOWNLOADS_DIR / fname
+        await dl.save_as(str(path))
+        data = path.read_bytes()
+        logger.info(f"    ✅ Descargado {path.name} ({len(data)/1024:.1f} KB)")
+        return data, path
+    except Exception as e:
+        logger.error(f"    ❌ Error guardando descarga ({fallback_name}): {e}")
+        return None
+
+
+async def _download(page: Page, click_locator: str, fallback_name: str) -> tuple[bytes, Path] | None:
     try:
         await _esperar_ui_lista(page)
         btn = page.locator(click_locator).first
@@ -106,20 +162,15 @@ async def _download(page: Page, click_locator: str, fallback_name: str) -> bytes
                 continue
         if dl is None:
             raise RuntimeError("No se disparo download")
-        DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
-        p = DOWNLOADS_DIR / (dl.suggested_filename or fallback_name)
-        await dl.save_as(str(p))
-        b = p.read_bytes()
-        logger.info(f"    ✅ Descargado {p.name} ({len(b)/1024:.1f} KB)")
-        return b
+        return await _finalize_download(dl, fallback_name)
     except Exception as e:
         logger.error(f"    ❌ Error descarga {fallback_name}: {e}")
         return None
 
 
-async def _download_grilla_alertas(page: Page, fallback_name: str) -> bytes | None:
+async def _download_grilla_alertas(page: Page, fallback_name: str) -> tuple[bytes, Path] | None:
     try:
-        await _forzar_fecha_ayer_popup(page)
+        await _forzar_fecha_objetivo_popup(page)
         await _esperar_ui_lista(page)
         async with page.expect_download(timeout=120_000) as info:
             btn = page.get_by_role("cell", name="Exportar a XLSX Exportar a").locator("span").first
@@ -128,25 +179,20 @@ async def _download_grilla_alertas(page: Page, fallback_name: str) -> bytes | No
             except Exception:
                 await btn.click(timeout=10_000, force=True, no_wait_after=True)
         dl: Download = await info.value
-        DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
-        p = DOWNLOADS_DIR / (dl.suggested_filename or fallback_name)
-        await dl.save_as(str(p))
-        b = p.read_bytes()
-        logger.info(f"    ✅ Descargado {p.name} ({len(b)/1024:.1f} KB)")
-        return b
+        return await _finalize_download(dl, fallback_name)
     except Exception as e:
         logger.error(f"    ❌ Error descarga {fallback_name}: {e}")
         return None
 
 
-async def _download_pdv(page: Page, fallback_name: str) -> bytes | None:
+async def _download_pdv(page: Page, fallback_name: str) -> tuple[bytes, Path] | None:
     """
     En PDV, en algunos tenants el export no dispara hasta aplicar cambios.
     """
     try:
         # Flujo literal del codegen para PDV.
-        dia = _dia_ayer_str()
-        await _forzar_fecha_ayer_popup(page)
+        dia = _dia_objetivo_str()
+        await _forzar_fecha_objetivo_popup(page)
         await _esperar_ui_lista(page)
         try:
             await page.locator("#ContentPlaceHolder2_popupClientes_deFechaDesdeC_B-1").first.click(timeout=6_000)
@@ -167,61 +213,53 @@ async def _download_pdv(page: Page, fallback_name: str) -> bytes | None:
             async with page.expect_download(timeout=60_000) as info:
                 await page.get_by_role("cell", name="Exportar a XLS Exportar a XLS").locator("span").first.click()
             dl: Download = await info.value
-            DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
-            p = DOWNLOADS_DIR / (dl.suggested_filename or fallback_name)
-            await dl.save_as(str(p))
-            b = p.read_bytes()
-            logger.info(f"    ✅ Descargado {p.name} ({len(b)/1024:.1f} KB)")
-            return b
+            tup = await _finalize_download(dl, fallback_name)
+            if tup:
+                return tup
         except Exception:
-            return await _download(page, "#ContentPlaceHolder2_popupClientes_btnXlsExportC_CD", fallback_name)
+            pass
+        return await _download(page, "#ContentPlaceHolder2_popupClientes_btnXlsExportC_CD", fallback_name)
     except Exception as e:
         logger.error(f"    ❌ Error descarga {fallback_name}: {e}")
         return None
 
 
-async def _download_rutas(page: Page, fallback_name: str) -> bytes | None:
+async def _download_rutas(page: Page, fallback_name: str) -> tuple[bytes, Path] | None:
     # Intento 1: id conocido XLSX
-    b = await _download(page, "#ContentPlaceHolder2_popupRuta_btnXlsxExportR_CD", fallback_name)
-    if b:
-        return b
+    tup = await _download(page, "#ContentPlaceHolder2_popupRuta_btnXlsxExportR_CD", fallback_name)
+    if tup:
+        return tup
     # Intento 2: selector de celda por texto (codegen-like)
     try:
         await _esperar_ui_lista(page)
         async with page.expect_download(timeout=60_000) as info:
             await page.get_by_role("cell", name="Exportar a XLSX Exportar a").locator("span").first.click()
         dl: Download = await info.value
-        DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
-        p = DOWNLOADS_DIR / (dl.suggested_filename or fallback_name)
-        await dl.save_as(str(p))
-        b = p.read_bytes()
-        logger.info(f"    ✅ Descargado {p.name} ({len(b)/1024:.1f} KB)")
-        return b
+        tup2 = await _finalize_download(dl, fallback_name)
+        if tup2:
+            return tup2
     except Exception:
         pass
     # Intento 3: XLS
     return await _download(page, "#ContentPlaceHolder2_popupRuta_btnXlsExportR_CD", fallback_name.replace(".xlsx", ".xls"))
 
 
-async def _download_dispositivos(page: Page, fallback_name: str) -> bytes | None:
+async def _download_dispositivos(page: Page, fallback_name: str) -> tuple[bytes, Path] | None:
     # Flujo literal del codegen para este popup en Real.
     try:
         await _esperar_ui_lista(page)
         async with page.expect_download(timeout=60_000) as info:
             await page.get_by_role("cell", name="Exportar a XLSX Exportar a").locator("span").first.click()
         dl: Download = await info.value
-        DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
-        p = DOWNLOADS_DIR / (dl.suggested_filename or fallback_name)
-        await dl.save_as(str(p))
-        b = p.read_bytes()
-        logger.info(f"    ✅ Descargado {p.name} ({len(b)/1024:.1f} KB)")
-        return b
+        tup = await _finalize_download(dl, fallback_name)
+        if tup:
+            return tup
     except Exception:
         pass
     # Fallback por IDs conocidos
-    b = await _download(page, "#ContentPlaceHolder2_popupGrilla_btnXlsxExport_CD", fallback_name)
-    if b:
-        return b
+    tup_x = await _download(page, "#ContentPlaceHolder2_popupGrilla_btnXlsxExport_CD", fallback_name)
+    if tup_x:
+        return tup_x
     return await _download(page, "#ContentPlaceHolder2_popupGrilla_btnXlsExport_CD", fallback_name.replace(".xlsx", ".xls"))
 
 
@@ -359,12 +397,11 @@ async def _esperar_ui_lista(page: Page) -> None:
         await page.wait_for_timeout(500)
 
 
-async def _forzar_fecha_ayer_popup(page: Page) -> None:
+async def _forzar_fecha_objetivo_popup(page: Page) -> None:
     """
-    Evita que a las 00:00 quede fecha de hoy por defecto:
-    fuerza Desde/Hasta a ayer en el popup activo.
+    Fuerza Desde/Hasta a la fecha objetivo en el popup activo.
     """
-    fecha = _fecha_ayer()
+    fecha = _fecha_objetivo()
     selectors = [
         "input[id*='deFechaDesde']:visible",
         "input[id*='deFechaHasta']:visible",
@@ -407,7 +444,7 @@ async def _set_fecha_entorno_ayer(page: Page) -> None:
     Flujo literal del codegen del usuario en popup Entorno:
     click Fecha -> abrir calendario -> elegir dia (ayer) -> Aplicar.
     """
-    d = datetime.now(AR_TZ) - timedelta(days=1)
+    d = _fecha_objetivo_dt()
     dia = str(d.day)
 
     fecha_txt = f"{d.day:02d}/{d.month:02d}/{d.year}"
@@ -475,7 +512,16 @@ async def _close_popup(page: Page) -> None:
 async def _procesar_sucursal(page: Page, tenant: dict, sucursal: str) -> dict:
     dest = _dist_destino(tenant, sucursal)
     logger.info(f"  ── Sucursal '{sucursal}' (dist destino={dest})")
-    out = {"sucursal": sucursal, "dist_destino": dest, "dispositivos": False, "pdv": False, "rutas": False, "grilla": False, "error": None}
+    out: dict = {
+        "sucursal": sucursal,
+        "dist_destino": dest,
+        "dispositivos": False,
+        "pdv": False,
+        "rutas": False,
+        "grilla": False,
+        "analytics_ok": None,
+        "error": None,
+    }
     try:
         await _set_sucursal(page, sucursal)
         await page.keyboard.press("Escape")
@@ -492,38 +538,127 @@ async def _procesar_sucursal(page: Page, tenant: dict, sucursal: str) -> dict:
             pass
         await _esperar_ui_lista(page)
 
-        await _click_menu(page, "#ContentPlaceHolder2_btnDatos")
-        out["dispositivos"] = bool(await _download_dispositivos(page, f"rendcalle_{tenant['id']}_{_ts()}_dispositivos.xlsx"))
-        if not out["dispositivos"]:
-            raise RuntimeError("Fallo descarga Dispositivos")
-        await _close_popup(page)
+        async def _download_with_retry(
+            *,
+            menu_selector: str,
+            stage: str,
+            downloader,
+            fallback_name: str,
+            err_msg: str,
+            max_attempts: int = 3,
+        ) -> tuple[bytes, Path]:
+            last = None
+            for attempt in range(1, max_attempts + 1):
+                logger.info(f"    ↻ {stage}: intento {attempt}/{max_attempts}")
+                try:
+                    # Reabrir menu/popup en cada intento para evitar estado sucio de Nextbyn
+                    await _click_menu(page, menu_selector)
+                    await _esperar_ui_lista(page)
+                    await page.wait_for_timeout(1200 * attempt)
+                    await _debug_dump(page, f"antes_{stage}_export_try{attempt}", tenant["id"], sucursal)
+                    tup = await downloader(page, fallback_name)
+                    if tup:
+                        return tup
+                    await _debug_dump(page, f"falla_{stage}_export_try{attempt}", tenant["id"], sucursal)
+                except Exception as ex:
+                    last = ex
+                    await _debug_dump(page, f"error_{stage}_export_try{attempt}", tenant["id"], sucursal)
+                finally:
+                    await _close_popup(page)
+                    await _esperar_ui_lista(page)
+            if last:
+                raise RuntimeError(f"{err_msg} ({last})")
+            raise RuntimeError(err_msg)
 
-        await _click_menu(page, "#ContentPlaceHolder2_btnClientes")
-        out["pdv"] = bool(await _download_pdv(page, f"rendcalle_{tenant['id']}_{_ts()}_pdv.xls"))
-        if not out["pdv"]:
-            raise RuntimeError("Fallo descarga Puntos de venta")
-        await _close_popup(page)
+        _, p_disp = await _download_with_retry(
+            menu_selector="#ContentPlaceHolder2_btnDatos",
+            stage="dispositivos",
+            downloader=_download_dispositivos,
+            fallback_name=f"rendcalle_{tenant['id']}_{_ts()}_dispositivos.xlsx",
+            err_msg="Fallo descarga Dispositivos",
+            max_attempts=4,
+        )
+        out["dispositivos"] = True
 
-        await _click_menu(page, "#ContentPlaceHolder2_btnRutas")
-        out["rutas"] = bool(await _download_rutas(page, f"rendcalle_{tenant['id']}_{_ts()}_rutas.xlsx"))
-        if not out["rutas"]:
-            raise RuntimeError("Fallo descarga Rutas de venta")
-        await _close_popup(page)
+        _, p_cli = await _download_with_retry(
+            menu_selector="#ContentPlaceHolder2_btnClientes",
+            stage="pdv",
+            downloader=_download_pdv,
+            fallback_name=f"rendcalle_{tenant['id']}_{_ts()}_pdv.xls",
+            err_msg="Fallo descarga Puntos de venta",
+            max_attempts=4,
+        )
+        out["pdv"] = True
+
+        _, p_rt = await _download_with_retry(
+            menu_selector="#ContentPlaceHolder2_btnRutas",
+            stage="rutas",
+            downloader=_download_rutas,
+            fallback_name=f"rendcalle_{tenant['id']}_{_ts()}_rutas.xlsx",
+            err_msg="Fallo descarga Rutas de venta",
+            max_attempts=3,
+        )
+        out["rutas"] = True
 
         try:
             await page.get_by_text("Alertas ?", exact=False).first.click(timeout=12_000)
         except Exception:
             await _click_menu(page, "div.categoria-menu-sigo:has-text('Alertas')")
-        await _esperar_ui_lista(page)
-        await page.get_by_role("link", name="Grilla de ventas a clientes").first.click(timeout=12_000)
-        await _esperar_ui_lista(page)
-        out["grilla"] = bool(await _download_grilla_alertas(page, f"rendcalle_{tenant['id']}_{_ts()}_grilla.xlsx"))
-        if not out["grilla"]:
+        async def _open_grilla() -> None:
+            try:
+                await page.get_by_text("Alertas ?", exact=False).first.click(timeout=12_000)
+            except Exception:
+                await _click_menu(page, "div.categoria-menu-sigo:has-text('Alertas')")
+            await _esperar_ui_lista(page)
+            await page.get_by_role("link", name="Grilla de ventas a clientes").first.click(timeout=12_000)
+            await _esperar_ui_lista(page)
+
+        p_fuera = None
+        for attempt in range(1, 4):
+            await _open_grilla()
+            await page.wait_for_timeout(1000 * attempt)
+            await _debug_dump(page, f"antes_grilla_export_try{attempt}", tenant["id"], sucursal)
+            tup_gr = await _download_grilla_alertas(page, f"rendcalle_{tenant['id']}_{_ts()}_grilla.xlsx")
+            if tup_gr:
+                _, p_fuera = tup_gr
+                break
+            await _debug_dump(page, f"falla_grilla_export_try{attempt}", tenant["id"], sucursal)
+            await _close_popup(page)
+            await _esperar_ui_lista(page)
+        if not p_fuera:
             raise RuntimeError("Fallo descarga Grilla de ventas a clientes")
+        out["grilla"] = True
         await _close_popup(page)
+
+        sk = (os.environ.get("RENDCALLE_SKIP_ANALYTICS") or "").strip().lower()
+        if sk not in {"1", "true", "yes"}:
+            try:
+                if str(BASE_DIR) not in sys.path:
+                    sys.path.insert(0, str(BASE_DIR))
+                from scripts.analizar_rendimiento_calle import PathsIn, construir_payload
+
+                from lib.api_client import subir_rendimiento_calle_analytics
+
+                payload = construir_payload(
+                    PathsIn(
+                        clientes=p_cli,
+                        dispositivos=p_disp,
+                        rutas=p_rt,
+                        fuera_ruta=p_fuera,
+                    ),
+                    tenant_id=tenant["id"],
+                    fecha_operativa=_fecha_operativa_iso(),
+                    id_distribuidor=dest,
+                    sucursal_nombre=sucursal,
+                )
+                out["analytics_ok"] = subir_rendimiento_calle_analytics(tenant["id"], payload)
+            except Exception as ex:
+                out["analytics_ok"] = False
+                logger.warning("    Rendimiento calle analytics no enviado: %s", ex)
     except Exception as e:
         out["error"] = str(e)[:300]
         logger.error(f"    ❌ Error sucursal '{sucursal}': {out['error']}")
+        await _debug_dump(page, "error_sucursal", tenant["id"], sucursal)
         await _shot(page, f"{tenant['id']}_{_norm(sucursal).replace(' ', '_')}")
     return out
 
@@ -531,8 +666,14 @@ async def _procesar_sucursal(page: Page, tenant: dict, sucursal: str) -> dict:
 async def _procesar_tenant(tenant: dict) -> dict:
     res = {"tenant": tenant["id"], "nombre": tenant["nombre"], "sucursales": [], "error": None}
     async with async_playwright() as pw:
-        browser: Browser = await pw.chromium.launch(headless=HEADLESS, args=["--no-sandbox", "--disable-dev-shm-usage"])
-        context: BrowserContext = await browser.new_context(locale="es-AR", timezone_id="America/Argentina/Buenos_Aires", viewport={"width": 1366, "height": 768}, accept_downloads=True)
+        browser_args = ["--no-sandbox", "--disable-dev-shm-usage", "--window-size=980,720"]
+        browser: Browser = await pw.chromium.launch(headless=HEADLESS, args=browser_args)
+        context: BrowserContext = await browser.new_context(
+            locale="es-AR",
+            timezone_id="America/Argentina/Buenos_Aires",
+            viewport={"width": 980, "height": 720},
+            accept_downloads=True,
+        )
         page = await context.new_page()
         page.set_default_timeout(TIMEOUT_MS)
         try:

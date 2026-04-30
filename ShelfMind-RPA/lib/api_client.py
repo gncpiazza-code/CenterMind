@@ -7,6 +7,7 @@ Cliente HTTP para subir archivos descargados por los motores RPA a la API de She
 Funciones:
     subir_ventas(tenant_id, tipo, filename, file_bytes)  -> bool
     subir_cuentas(tenant_id, filename, file_bytes)       -> bool
+    subir_rendimiento_calle_analytics(tenant_id, payload) -> bool
 
 Configuración: ver lib/shelfy_config.py
   (SHELFY_API_URL, API_URL, claves de Supabase+Vault, default prod https://api.shelfycenter.com)
@@ -69,6 +70,26 @@ def subir_ventas(tenant_id: str, tipo: str, filename: str, file_bytes: bytes) ->
             return False
     except Exception as e:
         logger.error(f"  ❌ Error subiendo ventas {tipo} para {tenant_id}: {e}")
+        return False
+
+
+def subir_rendimiento_calle_analytics(tenant_id: str, payload: dict) -> bool:
+    """POST /api/motor/rendimiento-calle-analytics (JSON del script analizar_rendimiento_calle)."""
+    url = f"{_url()}/api/motor/rendimiento-calle-analytics"
+    body = {"tenant_id": tenant_id, "payload": payload}
+    try:
+        resp = httpx.post(url, headers=_headers(), json=body, timeout=TIMEOUT)
+        if resp.status_code in (200, 201):
+            data = resp.json()
+            logger.info(
+                "  ✅ Rendimiento calle analytics — "
+                f"run_id={data.get('run_id', '?')} dist={data.get('id_distribuidor', '?')}"
+            )
+            return True
+        logger.error(f"  ❌ API rendimiento-calle-analytics {resp.status_code}: {resp.text[:300]}")
+        return False
+    except Exception as e:
+        logger.error(f"  ❌ Error subiendo rendimiento calle analytics para {tenant_id}: {e}")
         return False
 
 

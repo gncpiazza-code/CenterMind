@@ -20,11 +20,12 @@ from core.helpers import _enrich_and_store_cc
 from core.security import verify_auth, verify_key, check_dist_permission
 from core.tenant_tables import tenant_table_name
 from db import sb
-from models.schemas import ERPConfigAlertas, VentasComprobantesAnalyticsIn
+from models.schemas import ERPConfigAlertas, RendimientoCalleAnalyticsIn, VentasComprobantesAnalyticsIn
 from services.cuentas_corrientes_service import procesar_cuentas_corrientes_service
 from services.erp_ingestion_service import erp_service
 from services.padron_ingestion_service import padron_service
 from services.ventas_ingestion_service import ingest as ventas_ingest, TENANT_DIST_MAP
+from services.rendimiento_calle_analytics_service import persistir_analisis_rendimiento_calle
 from services.ventas_analytics_service import persistir_analisis_comprobantes
 
 logger = logging.getLogger("ShelfyAPI")
@@ -429,6 +430,22 @@ async def motor_ventas(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Error en motor_ventas ({tenant_id}/{tipo}): {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/motor/rendimiento-calle-analytics", tags=["Motores RPA"])
+async def motor_rendimiento_calle_analytics(body: RendimientoCalleAnalyticsIn):
+    """
+    Persiste KPI JSON de Rendimiento en calle (SIGO) en `rendimiento_calle_analytics_runs`.
+    Para tenants con split por sucursal (`real`/franquiciados), el payload debe traer en
+    `meta.id_distribuidor` el distrito destino.
+    """
+    try:
+        return persistir_analisis_rendimiento_calle(body.tenant_id, body.payload)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"motor_rendimiento_calle_analytics: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -289,3 +289,10 @@ class VentasComprobantesAnalyticsIn(BaseModel):
     fecha_desde: Optional[str] = None
     fecha_hasta: Optional[str] = None
     payload: dict[str, Any]
+
+
+class RendimientoCalleAnalyticsIn(BaseModel):
+    """Cuerpo para persistir `scripts/analizar_rendimiento_calle.py` (`payload` íntegro)."""
+
+    tenant_id: str
+    payload: dict[str, Any]

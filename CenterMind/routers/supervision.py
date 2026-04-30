@@ -10,7 +10,7 @@ import re
 import tempfile
 import unicodedata
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, Set
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
 
@@ -847,6 +847,57 @@ def revertir(req: RevertirRequest, user_payload=Depends(verify_auth)):
 
 # ─── Supervisión: vendedores, rutas, clientes ─────────────────────────────────
 
+def _vendor_display_names_for_sucursal_erp(dist_id: int, sucursal_param: Optional[str]) -> Optional[Set[str]]:
+    """
+    Conjunto de nombres de vendedor tal como llegan/consolidan desde ventas (post _get_erp_name_map),
+    filtrados por nombre ERP de sucursal (mismo valor que usa el frontend al elegir sucursal).
+    None = sin filtro de sucursal.
+    """
+    if sucursal_param is None:
+        return None
+    needle = str(sucursal_param).strip().lower()
+    if not needle:
+        return None
+    t_vendedores = tenant_table_name("vendedores_v2", dist_id)
+    t_sucursales = tenant_table_name("sucursales_v2", dist_id)
+    suc_res = (
+        sb.table(t_sucursales)
+        .select("id_sucursal,nombre_erp")
+        .eq("id_distribuidor", dist_id)
+        .execute()
+    )
+    matching_ids = set()
+    for r in suc_res.data or []:
+        name = ((r.get("nombre_erp") or "").strip().lower())
+        if name == needle:
+            try:
+                matching_ids.add(int(r["id_sucursal"]))
+            except Exception:
+                continue
+    if not matching_ids:
+        return set()
+
+    vend_res = (
+        sb.table(t_vendedores)
+        .select("nombre_erp,id_sucursal")
+        .eq("id_distribuidor", dist_id)
+        .execute()
+    )
+    erp_map = _get_erp_name_map(dist_id)
+    names: Set[str] = set()
+    for v in vend_res.data or []:
+        try:
+            sid = v.get("id_sucursal")
+            sid_int = int(sid) if sid is not None else None
+        except Exception:
+            sid_int = None
+        if sid_int is None or sid_int not in matching_ids:
+            continue
+        tg = (v.get("nombre_erp") or "").strip()
+        names.add(erp_map.get(tg.lower(), tg))
+    return names
+
+
 @router.get("/api/supervision/vendedores/{dist_id}", tags=["Supervisión"])
 def supervision_vendedores(dist_id: int, user_payload=Depends(verify_auth)):
     check_dist_permission(user_payload, dist_id)
@@ -1110,6 +1161,7 @@ def supervision_ventas(
     dist_id: int,
     dias: int = 30,
     fecha_hasta: Optional[str] = Query(None),
+    sucursal: Optional[str] = Query(None),
     user_payload=Depends(verify_auth),
 ):
     check_dist_permission(user_payload, dist_id)
@@ -1120,6 +1172,7 @@ def supervision_ventas(
             base_hasta = datetime.now()
         fecha_hasta = base_hasta.strftime("%Y-%m-%d")
         fecha_desde = (base_hasta - timedelta(days=max(1, dias) - 1)).strftime("%Y-%m-%d")
+        fecha_hasta_excl = (base_hasta + timedelta(days=1)).strftime("%Y-%m-%d")
 
         res = (
             sb.table("ventas_v2")
@@ -1127,12 +1180,30 @@ def supervision_ventas(
             .eq("id_distribuidor", int(dist_id))
             .eq("es_anulado", False)
             .gte("fecha", fecha_desde)
+            .lt("fecha", fecha_hasta_excl)
             .order("fecha", desc=True)
             .execute()
         )
 
         rows = res.data or []
         erp_name_map = _get_erp_name_map(dist_id)
+        if (sucursal or "").strip():
+            needle = str(sucursal).strip().lower()
+            vend_branch = _vendor_display_names_for_sucursal_erp(dist_id, sucursal) or set()
+            kept = []
+            for row in rows:
+                v_raw = row.get("vendedor") or "Sin Vendedor"
+                v_disp = erp_name_map.get(v_raw.lower(), v_raw)
+                row_suc = (row.get("sucursal") or "").strip().lower()
+                if vend_branch:
+                    ok = v_disp in vend_branch
+                else:
+                    ok = False
+                if row_suc and row_suc == needle:
+                    ok = True
+                if ok:
+                    kept.append(row)
+            rows = kept
         # Enriquecimiento desde detallado CHESS (bultos/articulos por cliente-vendedor).
         detalles_by_vendor_client: dict[tuple[str, str], dict] = {}
         top_articulos_by_vendor: dict[str, dict[str, float]] = {}

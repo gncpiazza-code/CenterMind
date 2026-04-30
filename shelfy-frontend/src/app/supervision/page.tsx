@@ -47,6 +47,9 @@ import { DatePicker } from "@/components/ui/date-picker";
 
 const ALLOWED_ROLES = ["superadmin", "admin", "supervisor", "directorio"];
 
+/** Ventana fija para el panel (sin selector de rango): N días que terminan en la fecha elegida por calendario. */
+const PANEL_VENTAS_DIAS = 30;
+
 function fmt$$(n: number): string {
   return new Intl.NumberFormat("es-AR", {
     style: "currency",
@@ -77,31 +80,6 @@ function fmtShort(iso: string | null): string {
 function isStale(iso: string | null): boolean {
   if (!iso) return true;
   return (Date.now() - new Date(iso).getTime()) > 12 * 3_600_000;
-}
-
-function formatEta(ms: number): string {
-  const totalMin = Math.max(0, Math.floor(ms / 60_000));
-  const hh = String(Math.floor(totalMin / 60)).padStart(2, "0");
-  const mm = String(totalMin % 60).padStart(2, "0");
-  return `${hh}:${mm}`;
-}
-
-function nextRunForMotor(motor: "padron" | "ventas" | "cuentas"): { at: Date; etaMs: number } {
-  const now = new Date();
-  const slots = motor === "padron"
-    ? [[7, 0]]
-    : motor === "ventas"
-      ? [[8, 0], [12, 0], [17, 0], [23, 0]]
-      : [[8, 20], [12, 20], [17, 20], [23, 20]];
-
-  const candidates = slots.map(([h, m]) => {
-    const d = new Date(now);
-    d.setHours(h, m, 0, 0);
-    if (d.getTime() <= now.getTime()) d.setDate(d.getDate() + 1);
-    return d;
-  });
-  const at = candidates.sort((a, b) => a.getTime() - b.getTime())[0];
-  return { at, etaMs: at.getTime() - now.getTime() };
 }
 
 // ── KPI card ──────────────────────────────────────────────────────────────────
@@ -155,15 +133,12 @@ export default function SupervisionPage() {
   const { user } = useAuth();
   const router = useRouter();
 
-  const [ventasPeriodo, setVentasPeriodo] = useState<"hoy" | 7 | 15 | 90>(7);
   const [selectedSucursal, setSelectedSucursal] = useState<string>("__all__");
   const [selectedVendedor, setSelectedVendedor] = useState<string | null>(null);
   const [openVentasCliente, setOpenVentasCliente] = useState<string | null>(null);
   const [fechaCorte, setFechaCorte] = useState<string>(new Date().toISOString().slice(0, 10));
   const [draggingVendedor, setDraggingVendedor] = useState<string | null>(null);
   const [leftPanelDropActive, setLeftPanelDropActive] = useState(false);
-  const ventasDias = ventasPeriodo === "hoy" ? 1 : ventasPeriodo;
-
   const isAllowed = !!user && ALLOWED_ROLES.includes(user.rol);
   const distId = user?.id_distribuidor || 0;
 
@@ -194,8 +169,9 @@ export default function SupervisionPage() {
   const sucursalParam = selectedSucursal === "__all__" ? undefined : selectedSucursal;
 
   const { data: ventasData, isLoading: loadingVentas } = useQuery({
-    queryKey: supervisionPanelKeys.ventas(distId, ventasDias).concat(fechaCorte) as unknown as readonly unknown[],
-    queryFn: () => fetchVentasSupervision(distId, ventasDias, fechaCorte || undefined),
+    queryKey: [...supervisionPanelKeys.ventas(distId, PANEL_VENTAS_DIAS), fechaCorte || "", sucursalParam ?? "__all__"] as const,
+    queryFn: () =>
+      fetchVentasSupervision(distId, PANEL_VENTAS_DIAS, fechaCorte || undefined, sucursalParam),
     enabled: !!distId,
     staleTime: 5 * 60_000,
   });
@@ -218,28 +194,25 @@ export default function SupervisionPage() {
   const deudaTotal       = cuentasData?.metadatos?.total_deuda ?? 0;
   const clientesDeudores = cuentasData?.metadatos?.clientes_deudores ?? 0;
 
-  const ventasFiltradas = useMemo((): VendedorVentas[] => {
-    const rows = ventasData?.vendedores ?? [];
-    if (!sucursalParam) return rows;
-    // Backend returns nombre_vendedor (= ERP name). Match against VendedorVentas.vendedor (also ERP name).
-    const vidsEnSucursal = new Set(
-      vendedores
-        .filter((v) => v.sucursal_nombre === sucursalParam)
-        .map((v) => v.nombre_vendedor),
-    );
-    return rows.filter((r) => vidsEnSucursal.has(r.vendedor));
-  }, [ventasData, vendedores, sucursalParam]);
+  const ventasFiltradas = useMemo(
+    (): VendedorVentas[] => ventasData?.vendedores ?? [],
+    [ventasData],
+  );
 
-  const effectiveVendedor = useMemo(() => {
-    if (!ventasFiltradas.length) return null;
-    if (selectedVendedor && ventasFiltradas.some((v) => v.vendedor === selectedVendedor)) {
-      return selectedVendedor;
-    }
-    return ventasFiltradas[0].vendedor;
-  }, [ventasFiltradas, selectedVendedor]);
+  const vendedorOptions = useMemo(() => {
+    const s = new Set<string>();
+    for (const v of ventasFiltradas) s.add(v.vendedor);
+    for (const c of cuentasData?.vendedores ?? []) s.add(c.vendedor);
+    return [...s].sort((a, b) => a.localeCompare(b, "es"));
+  }, [ventasFiltradas, cuentasData]);
+
+  const vendedorVistaClientes =
+    selectedVendedor ??
+    ventasFiltradas[0]?.vendedor ??
+    null;
 
   const ventasByCliente = useMemo(() => {
-    const vendedor = ventasFiltradas.find((v) => v.vendedor === effectiveVendedor);
+    const vendedor = ventasFiltradas.find((v) => v.vendedor === vendedorVistaClientes);
     if (!vendedor) return [];
     const bultosByCliente = new Map(
       (vendedor.clientes_bultos ?? []).map((c) => [c.cliente.toLowerCase(), c]),
@@ -268,23 +241,31 @@ export default function SupervisionPage() {
         };
       })
       .sort((a, b) => b.totalVenta - a.totalVenta);
-  }, [ventasFiltradas, effectiveVendedor]);
+  }, [ventasFiltradas, vendedorVistaClientes]);
 
-  // Ventas KPIs from filtered rows so they react to sucursal selection
   const ventasParaKpi = useMemo(() => {
-    if (!effectiveVendedor) return ventasFiltradas;
-    return ventasFiltradas.filter((v) => v.vendedor === effectiveVendedor);
-  }, [ventasFiltradas, effectiveVendedor]);
+    if (!selectedVendedor) return ventasFiltradas;
+    return ventasFiltradas.filter((v) => v.vendedor === selectedVendedor);
+  }, [ventasFiltradas, selectedVendedor]);
   const kpiFacturado   = ventasParaKpi.reduce((acc, v) => acc + v.monto_total, 0);
   const kpiRecaudado   = ventasParaKpi.reduce((acc, v) => acc + v.monto_recaudado, 0);
   const kpiFacturas    = ventasParaKpi.reduce((acc, v) => acc + v.total_facturas, 0);
-  const nextVentasRun  = nextRunForMotor("ventas");
-  const nextCuentasRun = nextRunForMotor("cuentas");
 
   const cuentasFiltradas = useMemo((): VendedorCuentas[] => {
     // CC filtering is server-side (sucursal param passed to endpoint). metadatos also reflects filtered totals.
     return cuentasData?.vendedores ?? [];
   }, [cuentasData]);
+
+  const ventasVentanaLabel = useMemo(() => {
+    const d = new Date(`${fechaCorte}T12:00:00`);
+    const fechaStr = d.toLocaleDateString("es-AR");
+    return `Últimos ${PANEL_VENTAS_DIAS} d hasta ${fechaStr}`;
+  }, [fechaCorte]);
+
+  const vendedorResaltado = useMemo(() => {
+    if (selectedVendedor !== null) return selectedVendedor;
+    return ventasFiltradas[0]?.vendedor ?? null;
+  }, [selectedVendedor, ventasFiltradas]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
   if (!isAllowed) return null;
@@ -358,14 +339,14 @@ export default function SupervisionPage() {
                 )}
 
                 {/* Vendedor filter */}
-                <Select value={effectiveVendedor ?? "__all__"} onValueChange={(v) => setSelectedVendedor(v === "__all__" ? null : v)}>
+                <Select value={selectedVendedor ?? "__all__"} onValueChange={(v) => setSelectedVendedor(v === "__all__" ? null : v)}>
                   <SelectTrigger className="h-8 text-xs w-44">
                     <SelectValue placeholder="Vendedor" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__all__">Todos los vendedores</SelectItem>
-                    {ventasFiltradas.map((v) => (
-                      <SelectItem key={v.vendedor} value={v.vendedor}>{v.vendedor}</SelectItem>
+                    {vendedorOptions.map((nombre) => (
+                      <SelectItem key={nombre} value={nombre}>{nombre}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -377,23 +358,6 @@ export default function SupervisionPage() {
                   placeholder="Fecha de corte"
                 />
 
-                {/* Days filter */}
-                <div className="flex rounded-lg border border-[var(--shelfy-border)] overflow-hidden text-xs">
-                  {(["hoy", 7, 15, 90] as const).map((d) => (
-                    <button
-                      key={String(d)}
-                      onClick={() => setVentasPeriodo(d)}
-                      className={`px-3 py-1.5 font-semibold transition-colors ${
-                        ventasPeriodo === d
-                          ? "bg-[var(--shelfy-primary)] text-white"
-                          : "bg-white text-[var(--shelfy-muted)] hover:bg-violet-50"
-                      }`}
-                    >
-                      {d === "hoy" ? "Hoy" : `${d}d`}
-                    </button>
-                  ))}
-                </div>
-
                 <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5" asChild>
                   <Link href="/modo-mapa">
                     <Map size={13} />
@@ -403,16 +367,12 @@ export default function SupervisionPage() {
               </div>
             </div>
 
-            <p className="text-[10px] text-muted-foreground -mt-2">
-              Fuentes: Padrón (`clientes_pdv_v2_*` vía motor padron), Ventas (`ventas_v2` + detallado `fn_reporte_comprobantes_detallado` vía motor ventas), CC (`cc_detalle` vía motor cuentas).
-            </p>
-
             {/* ── KPI cards ─────────────────────────────────────────────── */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
               <KpiCard
                 label="Facturado"
                 value={fmt$$(kpiFacturado)}
-                subtext={effectiveVendedor ? `${effectiveVendedor} · ${ventasPeriodo === "hoy" ? "hoy" : `${ventasDias}d`}` : (ventasPeriodo === "hoy" ? "hoy" : `últimos ${ventasDias} días`)}
+                subtext={selectedVendedor ? `${selectedVendedor} · ${ventasVentanaLabel}` : ventasVentanaLabel}
                 icon={TrendingUp}
                 color="violet"
                 loading={loadingVentas}
@@ -478,16 +438,8 @@ export default function SupervisionPage() {
                       Ranking Ventas
                     </CardTitle>
                     <div className="flex items-center gap-1.5">
-                      {syncStatus?.ventas && (
-                        <Badge variant="outline" className="text-[10px]">
-                          Act. {fmtShort(syncStatus.ventas.last_updated)}
-                        </Badge>
-                      )}
-                      <Badge variant="outline" className="text-[10px] border-blue-200 text-blue-700 bg-blue-50">
-                        Próx. {formatEta(nextVentasRun.etaMs)} ({nextVentasRun.at.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })})
-                      </Badge>
                       <Badge variant="secondary" className="text-[10px]">
-                        {ventasPeriodo === "hoy" ? "Hoy" : `${ventasPeriodo}d`} · {ventasFiltradas.length} vendedores
+                        {ventasFiltradas.length} vendedores
                       </Badge>
                       {leftPanelDropActive && (
                         <Badge variant="outline" className="text-[10px] border-violet-300 text-violet-700 bg-violet-50">
@@ -518,7 +470,7 @@ export default function SupervisionPage() {
                               setOpenVentasCliente(null);
                             }}
                             className={`text-[10px] px-2 py-1 rounded-md border transition-colors ${
-                              effectiveVendedor === v.vendedor
+                              vendedorResaltado === v.vendedor
                                 ? "border-violet-300 bg-violet-50 text-violet-700"
                                 : "border-[var(--shelfy-border)] text-muted-foreground hover:text-foreground"
                             }`}
@@ -604,9 +556,6 @@ export default function SupervisionPage() {
                           {new Date(cuentasData.fecha).toLocaleDateString("es-AR")}
                         </Badge>
                       )}
-                      <Badge variant="outline" className="text-[10px] border-blue-200 text-blue-700 bg-blue-50">
-                        Próx. {formatEta(nextCuentasRun.etaMs)} ({nextCuentasRun.at.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })})
-                      </Badge>
                       <Badge variant="secondary" className="text-[10px]">
                         {cuentasFiltradas.length} vendedores
                       </Badge>
@@ -635,7 +584,7 @@ export default function SupervisionPage() {
                         </TableHeader>
                         <TableBody>
                           {cuentasFiltradas
-                            .filter((v) => !effectiveVendedor || v.vendedor === effectiveVendedor)
+                            .filter((v) => selectedVendedor === null || v.vendedor === selectedVendedor)
                             .slice()
                             .sort((a, b) => b.deuda_total - a.deuda_total)
                             .map((v) => (
@@ -658,7 +607,7 @@ export default function SupervisionPage() {
                                       setOpenVentasCliente(null);
                                     }}
                                     className={`text-left px-1 py-0.5 rounded transition-colors ${
-                                      effectiveVendedor === v.vendedor
+                                      selectedVendedor !== null && selectedVendedor === v.vendedor
                                         ? "bg-violet-50 text-violet-700"
                                         : "hover:bg-muted/40"
                                     }`}

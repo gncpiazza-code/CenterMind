@@ -78,6 +78,31 @@ function isStale(iso: string | null): boolean {
   return (Date.now() - new Date(iso).getTime()) > 12 * 3_600_000;
 }
 
+function formatEta(ms: number): string {
+  const totalMin = Math.max(0, Math.floor(ms / 60_000));
+  const hh = String(Math.floor(totalMin / 60)).padStart(2, "0");
+  const mm = String(totalMin % 60).padStart(2, "0");
+  return `${hh}:${mm}`;
+}
+
+function nextRunForMotor(motor: "padron" | "ventas" | "cuentas"): { at: Date; etaMs: number } {
+  const now = new Date();
+  const slots = motor === "padron"
+    ? [[7, 0]]
+    : motor === "ventas"
+      ? [[8, 0], [12, 0], [17, 0], [23, 0]]
+      : [[8, 20], [12, 20], [17, 20], [23, 20]];
+
+  const candidates = slots.map(([h, m]) => {
+    const d = new Date(now);
+    d.setHours(h, m, 0, 0);
+    if (d.getTime() <= now.getTime()) d.setDate(d.getDate() + 1);
+    return d;
+  });
+  const at = candidates.sort((a, b) => a.getTime() - b.getTime())[0];
+  return { at, etaMs: at.getTime() - now.getTime() };
+}
+
 // ── KPI card ──────────────────────────────────────────────────────────────────
 interface KpiCardProps {
   label: string;
@@ -245,6 +270,8 @@ export default function SupervisionPage() {
   const kpiFacturado   = ventasFiltradas.reduce((acc, v) => acc + v.monto_total, 0);
   const kpiRecaudado   = ventasFiltradas.reduce((acc, v) => acc + v.monto_recaudado, 0);
   const kpiFacturas    = ventasFiltradas.reduce((acc, v) => acc + v.total_facturas, 0);
+  const nextVentasRun  = nextRunForMotor("ventas");
+  const nextCuentasRun = nextRunForMotor("cuentas");
 
   const cuentasFiltradas = useMemo((): VendedorCuentas[] => {
     // CC filtering is server-side (sucursal param passed to endpoint). metadatos also reflects filtered totals.
@@ -404,9 +431,19 @@ export default function SupervisionPage() {
                       <BarChart3 size={15} className="text-[var(--shelfy-primary)]" />
                       Ranking Ventas
                     </CardTitle>
-                    <Badge variant="secondary" className="text-[10px]">
-                      {ventasPeriodo === "hoy" ? "Hoy" : `${ventasPeriodo}d`} · {ventasFiltradas.length} vendedores
-                    </Badge>
+                    <div className="flex items-center gap-1.5">
+                      {syncStatus?.ventas && (
+                        <Badge variant="outline" className="text-[10px]">
+                          Act. {fmtShort(syncStatus.ventas.last_updated)}
+                        </Badge>
+                      )}
+                      <Badge variant="outline" className="text-[10px] border-blue-200 text-blue-700 bg-blue-50">
+                        Próx. {formatEta(nextVentasRun.etaMs)} ({nextVentasRun.at.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })})
+                      </Badge>
+                      <Badge variant="secondary" className="text-[10px]">
+                        {ventasPeriodo === "hoy" ? "Hoy" : `${ventasPeriodo}d`} · {ventasFiltradas.length} vendedores
+                      </Badge>
+                    </div>
                   </div>
                 </CardHeader>
                 <Separator />
@@ -516,6 +553,9 @@ export default function SupervisionPage() {
                           {new Date(cuentasData.fecha).toLocaleDateString("es-AR")}
                         </Badge>
                       )}
+                      <Badge variant="outline" className="text-[10px] border-blue-200 text-blue-700 bg-blue-50">
+                        Próx. {formatEta(nextCuentasRun.etaMs)} ({nextCuentasRun.at.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })})
+                      </Badge>
                       <Badge variant="secondary" className="text-[10px]">
                         {cuentasFiltradas.length} vendedores
                       </Badge>

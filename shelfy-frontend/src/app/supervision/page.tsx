@@ -136,6 +136,7 @@ export default function SupervisionPage() {
   const [selectedSucursal, setSelectedSucursal] = useState<string>("__all__");
   const [selectedVendedor, setSelectedVendedor] = useState<string | null>(null);
   const [openVentasCliente, setOpenVentasCliente] = useState<string | null>(null);
+  const [openComprobante, setOpenComprobante] = useState<string | null>(null);
   const [fechaCorte, setFechaCorte] = useState<string>(new Date().toISOString().slice(0, 10));
   const [ccSort, setCCSort] = useState<"deuda" | "antiguedad">("deuda");
   const [ccSortDir, setCCSortDir] = useState<"desc" | "asc">("desc");
@@ -253,15 +254,24 @@ export default function SupervisionPage() {
     return cuentasData?.vendedores ?? [];
   }, [cuentasData]);
 
-  const cuentasOrdenadas = useMemo(() => {
-    return [...cuentasFiltradas].sort((a, b) => {
+  // cc_detalle.vendedor_nombre viene de CHESS con formato "CODE CODE2 - NOMBRE".
+  // selectedVendedor viene de vendedores_v2.nombre_erp (solo el nombre sin prefijo).
+  const clientesOrdenados = useMemo(() => {
+    const extractCCName = (nombre: string) => {
+      const idx = nombre.indexOf(" - ");
+      return idx >= 0 ? nombre.slice(idx + 3).trim().toUpperCase() : nombre.trim().toUpperCase();
+    };
+    const vendedorUpper = (selectedVendedor || "").trim().toUpperCase();
+    const vendor =
+      cuentasFiltradas.find((v) => extractCCName(v.vendedor) === vendedorUpper) ??
+      cuentasFiltradas[0];
+    const clientes = vendor?.clientes ?? [];
+    return [...clientes].sort((a, b) => {
       const dir = ccSortDir === "desc" ? -1 : 1;
       if (ccSort === "deuda") return dir * (b.deuda_total - a.deuda_total);
-      const maxA = Math.max(...(a.clientes.map((c) => c.antiguedad ?? 0)));
-      const maxB = Math.max(...(b.clientes.map((c) => c.antiguedad ?? 0)));
-      return dir * (maxB - maxA);
+      return dir * ((b.antiguedad ?? 0) - (a.antiguedad ?? 0));
     });
-  }, [cuentasFiltradas, ccSort, ccSortDir]);
+  }, [cuentasFiltradas, selectedVendedor, ccSort, ccSortDir]);
 
   const padronLastUpdated = syncStatus?.padron?.last_updated ?? null;
   const ccLastUpdated = syncStatus?.cuentas_corrientes?.last_updated ?? null;
@@ -494,13 +504,51 @@ export default function SupervisionPage() {
                                       </TableRow>
                                     </TableHeader>
                                     <TableBody>
-                                      {c.transacciones.map((t, idx) => (
-                                        <TableRow key={`${t.numero ?? "na"}-${idx}`} className="text-[11px]">
-                                          <TableCell>{t.comprobante ?? "—"} {t.numero ?? ""}</TableCell>
-                                          <TableCell>{t.tipo_operacion ?? "—"}</TableCell>
-                                          <TableCell className="text-right font-mono">{fmt$$(t.monto_total || 0)}</TableCell>
-                                        </TableRow>
-                                      ))}
+                                      {c.transacciones.map((t, idx) => {
+                                        const compKey = `${c.cliente}-${t.comprobante ?? "na"}-${t.numero ?? "na"}-${idx}`;
+                                        const isCompOpen = openComprobante === compKey;
+                                        const isRecibo = `${t.tipo_operacion ?? ""} ${t.comprobante ?? ""}`.toLowerCase().includes("recib");
+                                        return (
+                                          <>
+                                            <TableRow
+                                              key={compKey}
+                                              className={`text-[11px] cursor-pointer hover:bg-muted/30 transition-colors ${isCompOpen ? "bg-muted/20" : ""}`}
+                                              onClick={() => setOpenComprobante(isCompOpen ? null : compKey)}
+                                            >
+                                              <TableCell>
+                                                <span className="flex items-center gap-1">
+                                                  <ChevronDown size={9} className={`shrink-0 transition-transform ${isCompOpen ? "rotate-180" : ""} text-muted-foreground`} />
+                                                  <span className={isRecibo ? "text-orange-600 font-medium" : ""}>{t.comprobante ?? "—"} {t.numero ?? ""}</span>
+                                                </span>
+                                              </TableCell>
+                                              <TableCell className={isRecibo ? "text-orange-600" : ""}>{t.tipo_operacion ?? "—"}</TableCell>
+                                              <TableCell className="text-right font-mono">{fmt$$(t.monto_total || 0)}</TableCell>
+                                            </TableRow>
+                                            {isCompOpen && (
+                                              <TableRow key={`${compKey}-detail`}>
+                                                <TableCell colSpan={3} className="p-0 border-b border-[var(--shelfy-border)]/30">
+                                                  <div className="px-5 py-2.5 bg-violet-50/40">
+                                                    {c.topArticulos.length > 0 ? (
+                                                      <>
+                                                        <p className="text-[10px] font-semibold text-muted-foreground mb-1.5">Artículos del cliente:</p>
+                                                        <div className="flex flex-wrap gap-1.5">
+                                                          {c.topArticulos.map((a) => (
+                                                            <Badge key={a.articulo} variant="outline" className="text-[10px] bg-white">
+                                                              {a.articulo} · <span className="font-mono font-bold">{a.bultos.toLocaleString("es-AR", { maximumFractionDigits: 2 })} b</span>
+                                                            </Badge>
+                                                          ))}
+                                                        </div>
+                                                      </>
+                                                    ) : (
+                                                      <p className="text-[10px] text-muted-foreground">Sin detalle de artículos disponible</p>
+                                                    )}
+                                                  </div>
+                                                </TableCell>
+                                              </TableRow>
+                                            )}
+                                          </>
+                                        );
+                                      })}
                                     </TableBody>
                                   </Table>
                                 </div>
@@ -585,7 +633,7 @@ export default function SupervisionPage() {
                         <Skeleton key={i} className="h-9 w-full rounded" />
                       ))}
                     </div>
-                  ) : (cuentasOrdenadas[0]?.clientes ?? []).length === 0 ? (
+                  ) : clientesOrdenados.length === 0 ? (
                     <p className="text-center text-xs text-muted-foreground py-8">Sin datos de CC disponibles</p>
                   ) : (
                     <div className="overflow-auto max-h-[460px]">
@@ -599,7 +647,7 @@ export default function SupervisionPage() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {(cuentasOrdenadas[0]?.clientes ?? []).map((c, idx) => (
+                          {clientesOrdenados.map((c, idx) => (
                             <TableRow key={`${c.cliente ?? "x"}-${idx}`} className="text-xs">
                               <TableCell className="pl-5 font-medium truncate max-w-[140px]">
                                 {c.cliente ?? "—"}

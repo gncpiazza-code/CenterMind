@@ -1469,12 +1469,20 @@ def supervision_cuentas(
                 or (r.get("sucursal_nombre") or "").strip().upper() == norm_filter
             ]
 
-        # Filtrar por vendedor (server-side): nombre exacto case-insensitive.
+        # Filtrar por vendedor (server-side).
+        # cc_detalle.vendedor_nombre viene de CHESS con formato "CODE CODE2 - NOMBRE".
+        # selectedVendedor viene de vendedores_v2.nombre_erp (solo el nombre).
         if vendedor:
-            vendedor_filter = vendedor.strip().upper()
+            def _extract_cc_name(vn: str) -> str:
+                """Extrae nombre de 'CODE CODE2 - NOMBRE' → 'NOMBRE'."""
+                if " - " in vn:
+                    return vn.split(" - ", 1)[1].strip().upper()
+                return vn.strip().upper()
+
+            vendedor_filter = _norm_name(vendedor)
             rows = [
                 r for r in rows
-                if (r.get("vendedor_nombre") or "").strip().upper() == vendedor_filter
+                if _norm_name(_extract_cc_name(r.get("vendedor_nombre") or "")) == vendedor_filter
             ]
 
         # Cache PDV info for extra metadata (last purchase date)

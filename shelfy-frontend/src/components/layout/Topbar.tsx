@@ -1,7 +1,10 @@
 "use client";
 
+import { useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
-import { Crown, LogOut } from "lucide-react";
+import { Crown, LogOut, Building2 } from "lucide-react";
+import { fetchDistribuidoras } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -15,6 +18,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import Link from "next/link";
 
 interface TopbarProps {
@@ -23,8 +33,28 @@ interface TopbarProps {
 }
 
 export function Topbar({ title, live = false }: TopbarProps) {
-  const { user, logout } = useAuth();
+  const {
+    user,
+    logout,
+    effectiveDistribuidorId,
+    switchDistributor,
+    canSwitchDistribuidor,
+  } = useAuth();
   const isSuperadmin = user?.is_superadmin;
+
+  const { data: distribuidoras = [] } = useQuery({
+    queryKey: ["tenant-distribuidoras"],
+    queryFn: () => fetchDistribuidoras(true),
+    staleTime: 5 * 60_000,
+    enabled: !!user && canSwitchDistribuidor,
+  });
+
+  useEffect(() => {
+    if (!canSwitchDistribuidor || !distribuidoras.length) return;
+    if (effectiveDistribuidorId != null) return;
+    const d = distribuidoras[0];
+    switchDistributor(d.id, d.nombre);
+  }, [canSwitchDistribuidor, distribuidoras, effectiveDistribuidorId, switchDistributor]);
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -63,6 +93,28 @@ export function Topbar({ title, live = false }: TopbarProps) {
         {/* Right: user info + logout */}
         {user && (
           <div className="flex items-center gap-3 shrink-0">
+            {canSwitchDistribuidor && distribuidoras.length > 0 && (
+              <Select
+                value={effectiveDistribuidorId != null ? String(effectiveDistribuidorId) : String(distribuidoras[0].id)}
+                onValueChange={(v) => {
+                  const id = Number(v);
+                  const d = distribuidoras.find((x) => x.id === id);
+                  if (d) switchDistributor(d.id, d.nombre);
+                }}
+              >
+                <SelectTrigger className="h-8 gap-2 text-xs shrink-0 w-[min(220px,44vw)] sm:w-[220px]" aria-label="Cambiar distribuidora">
+                  <Building2 className="size-3.5 text-amber-500 shrink-0" />
+                  <SelectValue placeholder="Empresa" />
+                </SelectTrigger>
+                <SelectContent align="end" className="max-h-[min(320px,50vh)]">
+                  {distribuidoras.map((d) => (
+                    <SelectItem key={d.id} value={String(d.id)}>
+                      <span className="truncate">{d.nombre}</span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
             {isSuperadmin && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>

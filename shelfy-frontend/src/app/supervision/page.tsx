@@ -130,7 +130,7 @@ function KpiCard({ label, value, subtext, icon: Icon, color, loading }: KpiCardP
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function SupervisionPage() {
-  const { user } = useAuth();
+  const { user, effectiveDistribuidorId } = useAuth();
   const router = useRouter();
 
   const [selectedSucursal, setSelectedSucursal] = useState<string>("__all__");
@@ -140,7 +140,7 @@ export default function SupervisionPage() {
   const [draggingVendedor, setDraggingVendedor] = useState<string | null>(null);
   const [leftPanelDropActive, setLeftPanelDropActive] = useState(false);
   const isAllowed = !!user && ALLOWED_ROLES.includes(user.rol);
-  const distId = user?.id_distribuidor || 0;
+  const distId = effectiveDistribuidorId ?? 0;
 
   useEffect(() => {
     if (user && !isAllowed) {

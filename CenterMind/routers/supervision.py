@@ -1172,7 +1172,6 @@ def supervision_ventas(
             base_hasta = datetime.now()
         fecha_hasta = base_hasta.strftime("%Y-%m-%d")
         fecha_desde = (base_hasta - timedelta(days=max(1, dias) - 1)).strftime("%Y-%m-%d")
-        fecha_hasta_excl = (base_hasta + timedelta(days=1)).strftime("%Y-%m-%d")
 
         res = (
             sb.table("ventas_v2")
@@ -1180,12 +1179,27 @@ def supervision_ventas(
             .eq("id_distribuidor", int(dist_id))
             .eq("es_anulado", False)
             .gte("fecha", fecha_desde)
-            .lt("fecha", fecha_hasta_excl)
             .order("fecha", desc=True)
             .execute()
         )
 
-        rows = res.data or []
+        def _row_fecha_iso(val) -> str:
+            """Normaliza fecha de fila (date / timestamps / texto) a YYYY-MM-DD para comparar."""
+            if val is None:
+                return ""
+            s = str(val).strip()
+            if len(s) >= 10 and s[4] == "-" and s[7] == "-":
+                return s[:10]
+            try:
+                return datetime.fromisoformat(s.replace("Z", "+00:00")).date().isoformat()
+            except Exception:
+                return s[:10] if len(s) >= 10 else ""
+
+        rows = []
+        for r in res.data or []:
+            fk = _row_fecha_iso(r.get("fecha"))
+            if fk and fecha_desde <= fk <= fecha_hasta:
+                rows.append(r)
         erp_name_map = _get_erp_name_map(dist_id)
         if (sucursal or "").strip():
             needle = str(sucursal).strip().lower()

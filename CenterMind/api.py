@@ -17,7 +17,7 @@ from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from telegram import Update
 
-from core.config import CORS_ORIGINS
+from core.config import CORS_ORIGINS, CORS_ALLOW_ORIGIN_REGEX
 from core.lifespan import bots, manager, lifespan
 from routers import auth, erp, supervision, admin, reportes, informes_excel, fuerza_ventas
 
@@ -35,6 +35,7 @@ app = FastAPI(title="Shelfy API", version="2.0.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
+    allow_origin_regex=CORS_ALLOW_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

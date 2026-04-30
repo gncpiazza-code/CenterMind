@@ -33,7 +33,13 @@ CORS_ORIGINS = [
     "http://localhost:3001",
     "https://shelfycenter.vercel.app",
     "https://shelfy.vercel.app",
+    # Alias estable de preview para branch development.
+    "https://center-mind-git-development-gncpiazza-codes-projects.vercel.app",
 ]
+
+# Regex para previews efímeros de Vercel de este proyecto.
+# Ejemplo: https://center-mind-ptzdp1k6s-gncpiazza-codes-projects.vercel.app
+CORS_ALLOW_ORIGIN_REGEX = r"^https://center-mind-[a-z0-9-]+-gncpiazza-codes-projects\.vercel\.app$"
 
 # JWT library — opcional; si no está instalada /auth/login no estará disponible
 try:

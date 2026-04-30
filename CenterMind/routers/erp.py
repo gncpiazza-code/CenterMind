@@ -24,6 +24,7 @@ from models.schemas import ERPConfigAlertas
 from services.cuentas_corrientes_service import procesar_cuentas_corrientes_service
 from services.erp_ingestion_service import erp_service
 from services.padron_ingestion_service import padron_service
+from services.ventas_detalle_ingestion_service import ingest_detallado as ventas_detalle_ingest
 from services.ventas_ingestion_service import ingest as ventas_ingest, TENANT_DIST_MAP
 
 logger = logging.getLogger("ShelfyAPI")

@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Eye, Users, BarChart2, Gift, GraduationCap, Route, Target, Monitor, UserCog, Images } from "lucide-react";
+import {
+  Eye, LayoutDashboard, BarChart2, Map, Target, UserCog, Monitor, Images,
+} from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 
 interface MobileNavItem {
@@ -14,24 +16,22 @@ interface MobileNavItem {
 }
 
 const ALL_NAV: MobileNavItem[] = [
-  { href: "/visor",       label: "Evaluar",      icon: Eye,             roles: ["superadmin", "admin", "supervisor", "evaluador", "directorio"], permisoKey: "action_evaluar_exhibiciones" },
-  { href: "/dashboard",   label: "Dashboard",    icon: LayoutDashboard, roles: ["superadmin", "admin", "supervisor"] },
-  { href: "/supervision", label: "Supervisión",  icon: Route,           roles: ["superadmin", "admin", "supervisor", "directorio"], permisoKey: "menu_supervision" },
-  { href: "/objetivos",   label: "Objetivos",    icon: Target,          roles: ["superadmin", "admin", "supervisor", "directorio"], permisoKey: "menu_objetivos" },
-  { href: "/modo-oficina",label: "Oficina",      icon: Monitor,         roles: ["superadmin", "admin", "supervisor", "directorio", "evaluador"], permisoKey: "menu_modo_oficina" },
-  { href: "/reportes",    label: "Reportes",     icon: BarChart2,       roles: ["superadmin", "admin", "supervisor"] },
-  { href: "/bonos",       label: "Bonos",        icon: Gift,            roles: ["superadmin", "admin"] },
-  { href: "/academy",     label: "Academy",      icon: GraduationCap,   roles: ["superadmin", "admin"] },
-  { href: "/admin",              label: "Admin",     icon: Users,    roles: ["superadmin", "admin"] },
-  { href: "/fuerza-ventas",     label: "F.Ventas",  icon: UserCog,  roles: ["superadmin", "admin", "supervisor", "directorio"], permisoKey: "menu_fuerza_ventas" },
-  { href: "/galeria-exhibiciones", label: "Galería", icon: Images,  roles: ["superadmin", "admin", "supervisor", "directorio", "evaluador"], permisoKey: "menu_galeria_exhibiciones" },
+  { href: "/visor",                label: "Evaluar",      icon: Eye,             roles: ["superadmin", "admin", "supervisor", "evaluador", "directorio"], permisoKey: "action_evaluar_exhibiciones" },
+  { href: "/dashboard",            label: "Dashboard",    icon: LayoutDashboard, roles: ["superadmin", "admin", "supervisor", "directorio"],               permisoKey: "menu_dashboard" },
+  { href: "/supervision",          label: "Supervisión",  icon: BarChart2,        roles: ["superadmin", "admin", "supervisor", "directorio"],               permisoKey: "menu_supervision" },
+  { href: "/modo-mapa",            label: "Mapa",         icon: Map,              roles: ["superadmin", "admin", "supervisor", "directorio"],               permisoKey: "menu_supervision" },
+  { href: "/objetivos",            label: "Objetivos",    icon: Target,           roles: ["superadmin", "admin", "supervisor", "directorio"],               permisoKey: "menu_objetivos" },
+  { href: "/fuerza-ventas",        label: "F.Ventas",     icon: UserCog,          roles: ["superadmin", "admin", "supervisor", "directorio"],               permisoKey: "menu_fuerza_ventas" },
+  { href: "/modo-oficina",         label: "Oficina",      icon: Monitor,          roles: ["superadmin", "admin", "supervisor", "directorio", "evaluador"],  permisoKey: "menu_modo_oficina" },
+  { href: "/galeria-exhibiciones", label: "Galería",      icon: Images,           roles: ["superadmin", "admin", "supervisor", "directorio", "evaluador"],  permisoKey: "menu_galeria_exhibiciones" },
 ];
 
 export function BottomNav() {
   const pathname = usePathname();
   const { user, hasPermiso } = useAuth();
   const rol = user?.rol ?? "";
-  const navItems = ALL_NAV.filter(i => {
+
+  const navItems = ALL_NAV.filter((i) => {
     const roleAllowed = i.roles.includes(rol);
     const permisoAllowed = i.permisoKey ? hasPermiso(i.permisoKey) : false;
     if (!roleAllowed && !permisoAllowed) return false;
@@ -42,17 +42,17 @@ export function BottomNav() {
   if (!user) return null;
 
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-[var(--shelfy-panel)] border-t border-[var(--shelfy-border)] flex shadow-lg">
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-[var(--shelfy-panel)] border-t border-[var(--shelfy-border)] flex shadow-lg overflow-x-auto">
       {navItems.map(({ href, label, icon: Icon }) => {
-        const active = pathname.startsWith(href);
+        const active = pathname === href || (href !== "/" && pathname.startsWith(href + "/"));
         return (
           <Link
             key={href}
             href={href}
-            className={`flex-1 flex flex-col items-center gap-0.5 py-3 text-[10px] font-medium transition-colors
+            className={`flex-1 min-w-[56px] flex flex-col items-center gap-0.5 py-2.5 text-[9px] font-semibold transition-colors
               ${active ? "text-[var(--shelfy-primary)]" : "text-[var(--shelfy-muted)]"}`}
           >
-            <Icon size={22} strokeWidth={active ? 2.5 : 1.8} />
+            <Icon size={20} strokeWidth={active ? 2.5 : 1.8} />
             {label}
           </Link>
         );

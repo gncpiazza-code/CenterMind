@@ -174,6 +174,54 @@ Layout conservado (overlay-based): barra superior semitransparente + barra infer
 - Todos los calendarios detectados en `src/` migrados a `DatePicker` (sin `input type="date"`).
 - `DatePicker` soporta `disabled` para formularios en modo lectura (ej. edición de vendedor sin permiso).
 
+### 13. Rediseño de Navegación Global — TopModeTabs (29/04/2026)
+
+**Archivo**: `shelfy-frontend/src/components/layout/TopModeTabs.tsx`
+
+Reemplaza el modelo sidebar-para-todos por navegación top-center para usuarios no-superadmin.
+
+| Componente | Cambio |
+|---|---|
+| `TopModeTabs.tsx` | Nuevo. 8 tabs icono+label filtrados por rol+permisoKey; active state con borde bottom violeta; visible solo ≥md. |
+| `Topbar.tsx` | Hamburger/toggle solo para `is_superadmin`. Centro: TopModeTabs (desktop) o title page (mobile). |
+| `Sidebar.tsx` | Renderiza **solo** para `is_superadmin`. Solo ítems extra-admin (Bonos, Administrar, Permisos, Match Center, Corridas RPA, Mapa en Vivo). Hooks movidos antes del early return (fix RoH). |
+| `BottomNav.tsx` | Sincronizado con los mismos 8 tabs de TopModeTabs (agrega `/modo-mapa`, elimina Academy/Reportes/Admin). |
+
+**Tabs de navegación (`TABS`):**
+
+| href | label | permisoKey |
+|---|---|---|
+| `/visor` | Evaluar | `action_evaluar_exhibiciones` |
+| `/dashboard` | Dashboard | `menu_dashboard` |
+| `/supervision` | Supervisión | `menu_supervision` |
+| `/modo-mapa` | Mapa | `menu_supervision` |
+| `/objetivos` | Objetivos | `menu_objetivos` |
+| `/fuerza-ventas` | F. Ventas | `menu_fuerza_ventas` |
+| `/modo-oficina` | Oficina | `menu_modo_oficina` |
+| `/galeria-exhibiciones` | Galería | `menu_galeria_exhibiciones` |
+
+### 14. Nueva Ruta `/modo-mapa` (29/04/2026)
+
+**Archivo**: `shelfy-frontend/src/app/modo-mapa/page.tsx`
+
+- Renderiza `TabSupervision` completo (mapa + tabs Ventas + CC).
+- Roles: `superadmin`, `admin`, `supervisor`, `directorio`.
+- Guard: redirect a `/dashboard` si el rol no tiene acceso.
+
+### 15. Panel Analítico de Supervisión `/supervision` (29/04/2026)
+
+**Archivo**: `shelfy-frontend/src/app/supervision/page.tsx` (reescrito)
+
+- **KPI cards** (6): Facturación total, Recaudación, Facturas, Deuda CC total, Clientes deudores, Última sincronización CC.
+- **Tabla Ventas**: `VendedorVentas[]` ordenable por monto/facturas/recaudación, con badge de tipo y deuda inline.
+- **Tabla CC**: `CuentasSupervisionVendedor[]` por sucursal, con deuda total y clientes deudores.
+- **Filtro sucursal**: `Select` alimentado desde `vendedores` (valores únicos de `sucursal_nombre`). El filtro de ventas es **client-side** (cross-join con `nombre_vendedor`); el de CC es **server-side** (param `?sucursal=` enviado al endpoint).
+- **Query keys**: `supervisionPanelKeys.ventas(distId, dias)`, `supervisionPanelKeys.cuentas(distId, sucursalParam)` — ambas incluyen parámetros relevantes para invalidación correcta.
+
+**Bugs críticos corregidos en la misma sesión:**
+- `ventasFiltradas`: usaba `v.nombre_erp || v.vendedor` para cruzar con el resultado de ventas; backend devuelve `nombre_vendedor`. Siempre retornaba Set vacío → 0 vendedores visibles con filtro activo. Fix: `v.nombre_vendedor`.
+- KPIs globales ignoraban el filtro de sucursal (usaban `ventasData.total_*`). Fix: calculados con `.reduce()` sobre `ventasFiltradas`.
+
 ### 13. Nombres ERP de vendedores unificados (15/04/2026)
 - `src/lib/api.ts` agrega normalización central `resolveVendorERPName` para resolver display name de vendedor priorizando `nombre_erp`.
 - Se aplica en respuestas de ranking, supervisión y objetivos para que la UI no mezcle nombres legacy o aliases de Telegram.

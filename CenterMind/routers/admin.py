@@ -266,7 +266,26 @@ def _build_match_center_rows(dist_id: int) -> dict:
             status = "safe"
         else:
             name = ig.get("nombre_integrante") or ""
-            if not _full_name(name):
+            group_norm = _norm_match_text(group_name)
+            # Alias operativos conocidos (ruido histórico en nombre de grupo)
+            if dist_id == 3 and ("matias w" in group_norm):
+                for v in vendors_by_id.values():
+                    if _norm_match_text(v.get("nombre_erp")) == "matias wuthrich":
+                        suggested_vendor = v
+                        reason = "group_alias_match"
+                        status = "safe"
+                        break
+            elif dist_id == 3 and ("ligornia" in group_norm):
+                for v in vendors_by_id.values():
+                    if _norm_match_text(v.get("nombre_erp")) == "luciano ligorria":
+                        suggested_vendor = v
+                        reason = "group_alias_match"
+                        status = "safe"
+                        break
+
+            if suggested_vendor is not None:
+                pass
+            elif not _full_name(name):
                 reason = "short_name"
             else:
                 fl = _first_last(name)
@@ -590,7 +609,9 @@ def toggle_integrante_activo(integrante_id: int, body: dict, payload=Depends(ver
 
 
 @router.put("/api/admin/integrantes/{id_integrante}", summary="Editar nombre/rol de integrante")
-def admin_update_integrante(id_integrante: int, req: IntegranteUpdateRequest, _=Depends(verify_auth)):
+def admin_update_integrante(id_integrante: int, req: IntegranteUpdateRequest, user_payload=Depends(verify_auth)):
+    if not user_payload.get("is_superadmin"):
+        raise HTTPException(status_code=403, detail="Solo superadmin puede editar integrantes directamente")
     update_data = req.model_dump(exclude_unset=True)
     if not update_data:
         return {"ok": True}
@@ -599,7 +620,8 @@ def admin_update_integrante(id_integrante: int, req: IntegranteUpdateRequest, _=
 
 
 @router.post("/api/admin/integrantes/{dist_id}", summary="Crear integrante manualmente")
-def admin_create_integrante(dist_id: int, req: IntegranteRequest, _=Depends(verify_auth)):
+def admin_create_integrante(dist_id: int, req: IntegranteRequest, user_payload=Depends(verify_auth)):
+    check_dist_permission(user_payload, dist_id)
     result = sb.table("integrantes_grupo").insert({
         "id_distribuidor": dist_id, "telegram_user_id": req.telegram_user_id or 0,
         "nombre_integrante": req.nombre_integrante, "rol_telegram": req.rol_telegram,
@@ -611,7 +633,8 @@ def admin_create_integrante(dist_id: int, req: IntegranteRequest, _=Depends(veri
 
 
 @router.get("/api/admin/usuarios/{dist_id}", summary="Listar todos los integrantes Telegram")
-def admin_get_usuarios_telegram(dist_id: int, _=Depends(verify_auth)):
+def admin_get_usuarios_telegram(dist_id: int, user_payload=Depends(verify_auth)):
+    check_dist_permission(user_payload, dist_id)
     result = sb.rpc("fn_usuarios_telegram", {"p_dist_id": dist_id}).execute()
     return result.data or []
 

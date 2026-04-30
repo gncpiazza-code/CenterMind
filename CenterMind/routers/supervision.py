@@ -1861,10 +1861,13 @@ def objetivos_por_vendedor(vendedor_id: int, user_payload=Depends(verify_auth)):
         q = sb.table("objetivos").select("*").eq("id_vendedor", vendedor_id)
         if not user_payload.get("is_superadmin"):
             dist_id = user_payload.get("id_distribuidor")
-            if dist_id:
-                q = q.eq("id_distribuidor", dist_id)
+            if not dist_id:
+                raise HTTPException(status_code=403, detail="Sin distribuidora asignada")
+            q = q.eq("id_distribuidor", dist_id)
         res = q.order("created_at", desc=True).execute()
         return res.data or []
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error en objetivos_por_vendedor vendedor_id={vendedor_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))

@@ -113,6 +113,17 @@ export const adminMapaKeys = {
     ['admin-mapa', 'sucursales-cruce', distId ?? null, periodo] as const,
 };
 
+// ── Supervisión Panel Analítico ───────────────────────────────────────────────
+export const supervisionPanelKeys = {
+  all: ['supervision-panel'] as const,
+  ventas: (distId: number, dias: number) =>
+    ['supervision-panel', 'ventas', distId, dias] as const,
+  cuentas: (distId: number, sucursal?: string | null) =>
+    ['supervision-panel', 'cuentas', distId, sucursal ?? null] as const,
+  syncStatus: (distId: number) =>
+    ['supervision-panel', 'sync-status', distId] as const,
+};
+
 // ── Admin Dashboard (motor runs) ──────────────────────────────────────────────
 export const adminDashboardKeys = {
   motorRuns: (tipo?: string) => ['admin-dashboard', 'motor-runs', tipo ?? 'all'] as const,

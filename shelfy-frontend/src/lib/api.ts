@@ -1493,9 +1493,11 @@ export interface VentasSupervision {
   vendedores: VendedorVentas[];
 }
 
-export async function fetchVentasSupervision(distId: number, dias = 30): Promise<VentasSupervision> {
+export async function fetchVentasSupervision(distId: number, dias = 30, fechaHasta?: string): Promise<VentasSupervision> {
+  const params = new URLSearchParams({ dias: String(dias) });
+  if (fechaHasta) params.set("fecha_hasta", fechaHasta);
   const data = await apiFetch<VentasSupervision & { vendedores?: Record<string, unknown>[] }>(
-    `/api/supervision/ventas/${distId}?dias=${dias}`
+    `/api/supervision/ventas/${distId}?${params.toString()}`
   );
   return {
     ...data,
@@ -1556,8 +1558,11 @@ export async function fetchSyncStatus(distId: number): Promise<SyncStatus> {
   return apiFetch<SyncStatus>(`/api/supervision/sync-status/${distId}`);
 }
 
-export async function fetchCuentasSupervision(distId: number, sucursal?: string): Promise<CuentasSupervision> {
-  const params = sucursal ? `?sucursal=${encodeURIComponent(sucursal)}` : "";
+export async function fetchCuentasSupervision(distId: number, sucursal?: string, fecha?: string): Promise<CuentasSupervision> {
+  const qp = new URLSearchParams();
+  if (sucursal) qp.set("sucursal", sucursal);
+  if (fecha) qp.set("fecha", fecha);
+  const params = qp.toString() ? `?${qp.toString()}` : "";
   const data = await apiFetch<CuentasSupervision & { vendedores?: Record<string, unknown>[] }>(
     `/api/supervision/cuentas/${distId}${params}`
   );

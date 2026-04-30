@@ -1,11 +1,10 @@
 "use client";
 
 import { useAuth } from "@/hooks/useAuth";
-import { Crown, LogOut, Menu } from "lucide-react";
+import { Crown, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { useUI } from "@/contexts/UIContext";
 import { cn } from "@/lib/utils";
 import { TopModeTabs } from "./TopModeTabs";
 import {
@@ -25,31 +24,14 @@ interface TopbarProps {
 
 export function Topbar({ title, live = false }: TopbarProps) {
   const { user, logout } = useAuth();
-  const { toggleSidebar } = useUI();
   const isSuperadmin = user?.is_superadmin;
 
   return (
     <TooltipProvider delayDuration={300}>
       <header className="h-14 flex items-center px-3 md:px-5 border-b border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] shrink-0 z-50 gap-2">
 
-        {/* Left: logo + hamburger (superadmin only) */}
+        {/* Left: logo */}
         <div className="flex items-center gap-1.5 shrink-0">
-          {isSuperadmin && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={toggleSidebar}
-                  className="text-[var(--shelfy-muted)] hover:text-[var(--shelfy-primary)] hover:bg-[var(--shelfy-primary)]/5"
-                >
-                  <Menu size={20} strokeWidth={2.5} />
-                  <span className="sr-only">Toggle Sidebar</span>
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">Toggle Sidebar</TooltipContent>
-            </Tooltip>
-          )}
           {/* Logo icon — desktop only */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
@@ -80,7 +62,7 @@ export function Topbar({ title, live = false }: TopbarProps) {
 
         {/* Right: user info + logout */}
         {user && (
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-3 shrink-0">
             {isSuperadmin && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>

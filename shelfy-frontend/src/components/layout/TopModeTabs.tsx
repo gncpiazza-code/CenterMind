@@ -98,7 +98,7 @@ export function TopModeTabs() {
 
   return (
     <nav
-      className="hidden md:flex items-center gap-0.5 overflow-x-auto"
+      className="hidden md:flex items-center gap-2 overflow-x-auto px-1"
       style={{ scrollbarWidth: "none" }}
     >
       {visibleTabs.map(({ href, label, icon: Icon }) => {
@@ -110,7 +110,7 @@ export function TopModeTabs() {
             key={href}
             href={href}
             className={cn(
-              "flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl transition-all duration-200 min-w-[58px] shrink-0 group",
+              "flex flex-col items-center gap-1 px-3.5 py-2 rounded-xl transition-all duration-200 min-w-[64px] shrink-0 group",
               active
                 ? "bg-[var(--shelfy-primary)]/10 text-[var(--shelfy-primary)]"
                 : "text-[var(--shelfy-muted)] hover:bg-[var(--shelfy-primary)]/6 hover:text-[var(--shelfy-primary)]",

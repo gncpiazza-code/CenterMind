@@ -10,7 +10,6 @@ _ENV_CANDIDATES = [
 for _p in _ENV_CANDIDATES:
     if _p.exists():
         load_dotenv(dotenv_path=str(_p))
-        break
 
 _SECRETS = {}
 

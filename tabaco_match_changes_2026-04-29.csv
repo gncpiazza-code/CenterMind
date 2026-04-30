@@ -1,0 +1,44 @@
+id_integrante,telegram_user_id,antes_v2,antes_nombre,despues_v2,despues_nombre,bloque,motivo
+335,5902152313,87,SIN VENDEDOR,31,IGNACIO LERF RECONQUISTA,wizard_safe,align_with_binding
+347,8122890749,85,RICARDO ALVAREZ,66,RICARDO LAURO.,wizard_safe,align_with_binding
+412,2015463724,NULL,SIN MAPEO,76,JESUS GRIMALDI,wizard_safe,align_with_binding
+481,2015463724,NULL,SIN MAPEO,76,JESUS GRIMALDI,wizard_safe,align_with_binding
+484,2015463724,NULL,SIN MAPEO,76,JESUS GRIMALDI,wizard_safe,align_with_binding
+485,2015463724,NULL,SIN MAPEO,76,JESUS GRIMALDI,wizard_safe,align_with_binding
+482,2015463724,NULL,SIN MAPEO,76,JESUS GRIMALDI,wizard_safe,align_with_binding
+486,2015463724,NULL,SIN MAPEO,76,JESUS GRIMALDI,wizard_safe,align_with_binding
+510,2015463724,NULL,SIN MAPEO,76,JESUS GRIMALDI,wizard_safe,align_with_binding
+480,2015463724,NULL,SIN MAPEO,76,JESUS GRIMALDI,wizard_safe,align_with_binding
+483,2015463724,NULL,SIN MAPEO,76,JESUS GRIMALDI,wizard_safe,align_with_binding
+487,2015463724,NULL,SIN MAPEO,76,JESUS GRIMALDI,wizard_safe,align_with_binding
+488,2015463724,NULL,SIN MAPEO,76,JESUS GRIMALDI,wizard_safe,align_with_binding
+504,2015463724,NULL,SIN MAPEO,76,JESUS GRIMALDI,wizard_safe,align_with_binding
+276,N/D,N/D,N/D,58,MATIAS WUTHRICH,alias_fix,group_alias_match
+228,9000202,NULL,SIN MAPEO,75,LUCIANO ITURRIA,manual_block2,grupo_exhibiciones_match
+214,9000038,NULL,SIN MAPEO,71,OSVALDO LOPEZ,manual_block2,grupo_exhibiciones_match
+270,9003076,NULL,SIN MAPEO,79,ADRIAN AZULA,manual_block2,grupo_exhibiciones_match
+205,9000001,NULL,SIN MAPEO,32,DARIO BIANCHINI,manual_block2,grupo_exhibiciones_match
+271,9003177,NULL,SIN MAPEO,62,ROMINA PEREZ,manual_block2,grupo_exhibiciones_match
+229,9000219,NULL,SIN MAPEO,66,RICARDO LAURO.,manual_block2,grupo_exhibiciones_match
+239,9000979,NULL,SIN MAPEO,85,RICARDO ALVAREZ,manual_block2,grupo_exhibiciones_match
+342,9001758,NULL,SIN MAPEO,30,IVAN SOTO,manual_block3,grupo_exhibiciones_match
+236,9000541,NULL,SIN MAPEO,30,IVAN SOTO,manual_block3,grupo_exhibiciones_match
+211,9000019,75,LUCIANO ITURRIA,81,ROMINA SORU,manual_block3,grupo_exhibiciones_match
+257,9001374,NULL,SIN MAPEO,75,LUCIANO ITURRIA,manual_block3,grupo_exhibiciones_match
+267,9002356,NULL,SIN MAPEO,71,OSVALDO LOPEZ,manual_block3,grupo_exhibiciones_match
+390,8122890749,58,MATIAS WUTHRICH,57,SERGIO MAREK,manual_block3,grupo_exhibiciones_match
+208,9000006,36,GONZALO GARCIA,57,SERGIO MAREK,manual_block3,grupo_exhibiciones_match
+233,9000548,32,DARIO BIANCHINI,80,ARTURO OJEDA,manual_block3,grupo_exhibiciones_match
+235,9000553,NULL,SIN MAPEO,72,ALEJANDRO TOROSSI,manual_block3,grupo_exhibiciones_match
+414,9003076,NULL,SIN MAPEO,85,RICARDO ALVAREZ,manual_block3,grupo_exhibiciones_match
+262,9001758,NULL,SIN MAPEO,51,MILAGROS PEGORARO,manual_block4,grupo_exhibiciones_match
+234,9000555,NULL,SIN MAPEO,51,MILAGROS PEGORARO,manual_block4,grupo_exhibiciones_match
+256,9001367,NULL,SIN MAPEO,43,BRIAN LUNA,manual_block4,grupo_exhibiciones_match
+255,9001366,NULL,SIN MAPEO,68,MARIA EUGENIA,manual_block4,grupo_exhibiciones_match
+221,9000103,NULL,SIN MAPEO,68,MARIA EUGENIA,manual_block4,grupo_exhibiciones_match
+261,9001745,NULL,SIN MAPEO,41,LEONARDO BEJARANO,manual_block4,grupo_exhibiciones_match
+500,5514091458,NULL,SIN MAPEO,162,PATRICIA DEL CASTILLO,manual_block4,grupo_exhibiciones_match
+501,1508761390,NULL,SIN MAPEO,162,PATRICIA DEL CASTILLO,manual_block4,grupo_exhibiciones_match
+219,9000090,NULL,SIN MAPEO,65,JERONIMO CABRERA,manual_block4,grupo_exhibiciones_match
+258,9001456,NULL,SIN MAPEO,73,ANDRES LAMAS,manual_block4,grupo_exhibiciones_match
+222,9000124,75,LUCIANO ITURRIA,67,MIGUEL MARUAN,manual_block4,grupo_exhibiciones_match

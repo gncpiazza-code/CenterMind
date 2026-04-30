@@ -8,11 +8,10 @@ Zona: America/Argentina/Buenos_Aires (independiente de la región del host, ej. 
 
 Horarios:
   07:00  Padrón (única corrida diaria)
-  07:30  17:30  Cuentas corrientes (CHESS saldos) — solo 2/día; +30min respecto a ventas/padrón
-  06:00  12:00  15:00  17:00  21:00  Ventas / comprobantes CHESS — 5 corridas/día
+  08:00  12:00  17:00  23:00  Ventas / comprobantes CHESS
+  08:20  12:20  17:20  23:20  Cuentas corrientes (CHESS saldos) — delay 20 min
 
-Cuentas se corre **media hora después** del bloque donde coincidía antes con ventas (06/07 y 17)
-para no abrir otro PLAYWRIGHT/CHESS mientras siguen otros motores.
+Cuentas se corre **20 min después** de cada corrida de ventas para no sobrecargar.
 
 Monitorear CPU/RAM y “Accesos concurrentes” en CHESS según uso real.
 
@@ -39,17 +38,16 @@ logger = logging.getLogger("SCHEDULER")
 
 AR_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
 
-# 5 corridas AR ventas: 6am 12pm 3pm 5pm 9pm
+# Ventas: 08:00, 12:00, 17:00, 23:00 (AR)
 _SLOTS_VENTAS = [
-    (6, 0),
+    (8, 0),
     (12, 0),
-    (15, 0),
     (17, 0),
-    (21, 0),
+    (23, 0),
 ]
 
-# Cuentas corrientes: 30 min después de las ventanas 07 y 17 (evitar solapes)
-_SLOTS_CUENTAS = [(7, 30), (17, 30)]
+# Cuentas corrientes: +20 minutos respecto de ventas
+_SLOTS_CUENTAS = [(8, 20), (12, 20), (17, 20), (23, 20)]
 
 
 def job_cuentas():

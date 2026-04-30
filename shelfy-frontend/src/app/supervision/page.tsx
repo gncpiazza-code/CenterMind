@@ -43,6 +43,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
+import { DatePicker } from "@/components/ui/date-picker";
 
 const ALLOWED_ROLES = ["superadmin", "admin", "supervisor", "directorio"];
 
@@ -158,6 +159,7 @@ export default function SupervisionPage() {
   const [selectedSucursal, setSelectedSucursal] = useState<string>("__all__");
   const [selectedVendedor, setSelectedVendedor] = useState<string | null>(null);
   const [openVentasCliente, setOpenVentasCliente] = useState<string | null>(null);
+  const [fechaCorte, setFechaCorte] = useState<string>(new Date().toISOString().slice(0, 10));
   const ventasDias = ventasPeriodo === "hoy" ? 1 : ventasPeriodo;
 
   const isAllowed = !!user && ALLOWED_ROLES.includes(user.rol);
@@ -190,15 +192,15 @@ export default function SupervisionPage() {
   const sucursalParam = selectedSucursal === "__all__" ? undefined : selectedSucursal;
 
   const { data: ventasData, isLoading: loadingVentas } = useQuery({
-    queryKey: supervisionPanelKeys.ventas(distId, ventasDias),
-    queryFn: () => fetchVentasSupervision(distId, ventasDias),
+    queryKey: supervisionPanelKeys.ventas(distId, ventasDias).concat(fechaCorte) as unknown as readonly unknown[],
+    queryFn: () => fetchVentasSupervision(distId, ventasDias, fechaCorte || undefined),
     enabled: !!distId,
     staleTime: 5 * 60_000,
   });
 
   const { data: cuentasData, isLoading: loadingCuentas } = useQuery({
-    queryKey: supervisionPanelKeys.cuentas(distId, sucursalParam),
-    queryFn: () => fetchCuentasSupervision(distId, sucursalParam),
+    queryKey: supervisionPanelKeys.cuentas(distId, sucursalParam).concat(fechaCorte) as unknown as readonly unknown[],
+    queryFn: () => fetchCuentasSupervision(distId, sucursalParam, fechaCorte || undefined),
     enabled: !!distId,
     staleTime: 5 * 60_000,
   });
@@ -348,6 +350,26 @@ export default function SupervisionPage() {
                     </SelectContent>
                   </Select>
                 )}
+
+                {/* Vendedor filter */}
+                <Select value={selectedVendedor ?? "__all__"} onValueChange={(v) => setSelectedVendedor(v === "__all__" ? null : v)}>
+                  <SelectTrigger className="h-8 text-xs w-44">
+                    <SelectValue placeholder="Vendedor" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all__">Todos los vendedores</SelectItem>
+                    {ventasFiltradas.map((v) => (
+                      <SelectItem key={v.vendedor} value={v.vendedor}>{v.vendedor}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                <DatePicker
+                  value={fechaCorte}
+                  onChange={(v) => setFechaCorte(v || new Date().toISOString().slice(0, 10))}
+                  className="w-[190px]"
+                  placeholder="Fecha de corte"
+                />
 
                 {/* Days filter */}
                 <div className="flex rounded-lg border border-[var(--shelfy-border)] overflow-hidden text-xs">

@@ -7,6 +7,7 @@ Motores disponibles:
     python runner.py ventas          <- Motor 2: Comprobantes de Ventas (CHESS)
     python runner.py cuentas         <- Motor 3: Cuentas Corrientes (CHESS)
     python runner.py sigo            <- Motor 4: Reporte Sigo (Nextbyn)
+    python runner.py rendcalle       <- Motor 5: Rendimiento en calle (Nextbyn)
     python runner.py todos           <- Todos los motores en secuencia
 
 Ventas con fechas custom:
@@ -91,11 +92,20 @@ async def correr_sigo() -> None:
     _log_resumen(resumen, "SIGO")
 
 
+async def correr_rendcalle() -> None:
+    """Motor 5: Rendimiento en calle (Nextbyn)."""
+    _banner("RENDIMIENTO EN CALLE -- Nextbyn")
+    _verificar_vault_o_salir()
+    from motores.rendimiento_calle import run as _run
+    resumen = await _run(os.environ.get("RENDCALLE_TENANT") or None)
+    _log_resumen(resumen, "RENDCALLE")
+
+
 async def main() -> None:
     if len(sys.argv) < 2:
         logger.error(
             "Falta el argumento del motor.\n"
-            "Uso: python runner.py padron|ventas|cuentas|sigo|todos\n"
+            "Uso: python runner.py padron|ventas|cuentas|sigo|rendcalle|todos\n"
             "Ventas con fechas: python runner.py ventas DD/MM/YYYY DD/MM/YYYY"
         )
         sys.exit(1)
@@ -112,6 +122,8 @@ async def main() -> None:
         await correr_cuentas()
     elif motor == "sigo":
         await correr_sigo()
+    elif motor == "rendcalle":
+        await correr_rendcalle()
     elif motor == "todos":
         logger.info("Corriendo todos los motores en secuencia...")
         await correr_padron()
@@ -121,8 +133,10 @@ async def main() -> None:
         await correr_cuentas()
         await asyncio.sleep(30)
         await correr_sigo()
+        await asyncio.sleep(30)
+        await correr_rendcalle()
     else:
-        logger.error(f"Motor desconocido: '{motor}'. Validos: padron, ventas, cuentas, sigo, todos")
+        logger.error(f"Motor desconocido: '{motor}'. Validos: padron, ventas, cuentas, sigo, rendcalle, todos")
         sys.exit(1)
 
 

@@ -1106,11 +1106,20 @@ def supervision_clientes(id_ruta: int, user_payload=Depends(verify_auth)):
 
 
 @router.get("/api/supervision/ventas/{dist_id}", tags=["Supervisión"])
-def supervision_ventas(dist_id: int, dias: int = 30, user_payload=Depends(verify_auth)):
+def supervision_ventas(
+    dist_id: int,
+    dias: int = 30,
+    fecha_hasta: Optional[str] = Query(None),
+    user_payload=Depends(verify_auth),
+):
     check_dist_permission(user_payload, dist_id)
     try:
-        fecha_hasta = datetime.now().strftime("%Y-%m-%d")
-        fecha_desde = (datetime.now() - timedelta(days=dias)).strftime("%Y-%m-%d")
+        if fecha_hasta:
+            base_hasta = datetime.strptime(fecha_hasta, "%Y-%m-%d")
+        else:
+            base_hasta = datetime.now()
+        fecha_hasta = base_hasta.strftime("%Y-%m-%d")
+        fecha_desde = (base_hasta - timedelta(days=max(1, dias) - 1)).strftime("%Y-%m-%d")
 
         res = (
             sb.table("ventas_v2")
@@ -1245,7 +1254,12 @@ def supervision_ventas(dist_id: int, dias: int = 30, user_payload=Depends(verify
 
 
 @router.get("/api/supervision/cuentas/{dist_id}", tags=["Supervisión"])
-def supervision_cuentas(dist_id: int, sucursal: Optional[str] = Query(None), user_payload=Depends(verify_auth)):
+def supervision_cuentas(
+    dist_id: int,
+    sucursal: Optional[str] = Query(None),
+    fecha: Optional[str] = Query(None),
+    user_payload=Depends(verify_auth),
+):
     check_dist_permission(user_payload, dist_id)
     try:
         try:
@@ -1253,14 +1267,14 @@ def supervision_cuentas(dist_id: int, sucursal: Optional[str] = Query(None), use
         except ValueError:
             raise HTTPException(status_code=400, detail="ID de distribuidor inválido")
 
-        snap_res = (
+        q_snap = (
             sb.table("cc_detalle")
             .select("fecha_snapshot")
             .eq("id_distribuidor", d_id)
-            .order("fecha_snapshot", desc=True)
-            .limit(1)
-            .execute()
         )
+        if fecha:
+            q_snap = q_snap.lte("fecha_snapshot", fecha)
+        snap_res = q_snap.order("fecha_snapshot", desc=True).limit(1).execute()
         if not snap_res.data:
             logger.warning(f"No se encontró fecha_snapshot en cc_detalle para dist_id={d_id}")
             return {"fecha": None, "metadatos": {}, "vendedores": []}

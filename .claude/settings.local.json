@@ -36,7 +36,13 @@
       "Bash(wc -l /Users/ignaciopiazza/Desktop/CenterMind/CenterMind/api.py /Users/ignaciopiazza/Desktop/CenterMind/CenterMind/core/*.py /Users/ignaciopiazza/Desktop/CenterMind/CenterMind/models/*.py /Users/ignaciopiazza/Desktop/CenterMind/CenterMind/routers/*.py)",
       "Read(//Users/ignaciopiazza/.claude/**)",
       "Bash(node node_modules/aidesigner/dist/mcp/mcp/server.js)",
-      "Skill(shadcn)"
+      "Skill(shadcn)",
+      "Bash(npm list:*)",
+      "Bash(npx shadcn@latest add switch --yes)",
+      "Bash(npx playwright *)",
+      "Bash(npm install *)",
+      "Bash(node *)",
+      "Bash(git *)"
     ]
   }
 }

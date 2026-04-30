@@ -1848,7 +1848,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
       </button>
 
       {/* Main split */}
-      <div className={`${mapOnly ? "flex flex-col flex-1 min-h-0" : `flex flex-col xl:grid xl:grid-cols-5 gap-3 ${fullscreen ? "flex-1 min-h-0 xl:h-auto" : "xl:h-[680px]"}`}`}>
+      <div className={`${mapOnly ? "flex flex-col xl:grid xl:grid-cols-5 gap-3 flex-1 min-h-0" : `flex flex-col xl:grid xl:grid-cols-5 gap-3 ${fullscreen ? "flex-1 min-h-0 xl:h-auto" : "xl:h-[680px]"}`}`}>
 
         {/* ── MAP — oculto en mobile ──────────────────────────────────────── */}
         <div className={`${mapOnly ? "flex flex-1 min-h-0" : "hidden xl:flex xl:col-span-3"} flex-col rounded-2xl overflow-hidden border border-[var(--shelfy-border)] relative bg-[var(--shelfy-panel)]`}>
@@ -1909,7 +1909,6 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
         </div>
 
         {/* ── RIGHT PANEL — lista vendedores/rutas ────────────────────────── */}
-        {!mapOnly && (
         <div className="xl:col-span-2 flex flex-col rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden min-h-[400px] xl:min-h-0">
 
           {/* Panel header */}
@@ -2256,7 +2255,6 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
           </div>
 
         </div>
-        )}
 
         {/* ── MOBILE CC — debajo de rutas en mobile (xl:hidden) ──────────── */}
         {!mapOnly && <div className="xl:hidden flex flex-col rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-y-auto min-h-[300px]">

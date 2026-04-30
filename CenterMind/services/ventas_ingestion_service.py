@@ -230,7 +230,43 @@ def ingest(tenant_id: str, tipo: str, file_bytes: bytes) -> dict:
             "monto_recaudado":  float(f.get("monto_recaudado") or 0),
         })
 
-    # 4. Upsert en ventas_v2 (en lotes de 500)
+    # 4. Colapsar posibles duplicados por clave de conflicto de ventas_v2.
+    # Evita error 21000 "ON CONFLICT ... cannot affect row a second time" cuando
+    # el archivo trae varias filas con misma (id_distribuidor, fecha, numero, comprobante).
+    merged: dict[tuple[int, str, str, str], dict] = {}
+    for r in registros:
+        key = (
+            int(r.get("id_distribuidor") or 0),
+            str(r.get("fecha") or ""),
+            str(r.get("numero") or ""),
+            str(r.get("comprobante") or ""),
+        )
+        cur = merged.get(key)
+        if cur is None:
+            merged[key] = dict(r)
+            continue
+
+        # Sumar métricas monetarias para no perder volumen de operación.
+        cur["monto_total"] = float(cur.get("monto_total") or 0.0) + float(r.get("monto_total") or 0.0)
+        cur["monto_contado"] = float(cur.get("monto_contado") or 0.0) + float(r.get("monto_contado") or 0.0)
+        cur["monto_ctacte"] = float(cur.get("monto_ctacte") or 0.0) + float(r.get("monto_ctacte") or 0.0)
+        cur["monto_recibo"] = float(cur.get("monto_recibo") or 0.0) + float(r.get("monto_recibo") or 0.0)
+        cur["monto_recaudado"] = float(cur.get("monto_recaudado") or 0.0) + float(r.get("monto_recaudado") or 0.0)
+
+        # Mantener campos descriptivos útiles si estaban vacíos en la fila base.
+        for f in ("sucursal", "vendedor", "cliente", "canal", "subcanal", "tipo_operacion"):
+            if not cur.get(f) and r.get(f):
+                cur[f] = r.get(f)
+        if not cur.get("id_cliente") and r.get("id_cliente"):
+            cur["id_cliente"] = r.get("id_cliente")
+
+    registros = list(merged.values())
+    logger.info(
+        f"[Ventas] Filas normalizadas para upsert: {len(registros)} "
+        f"(original={len(filas)}, colapsadas={len(filas)-len(registros)})"
+    )
+
+    # 5. Upsert en ventas_v2 (en lotes de 500)
     upserted = 0
     errores = 0
     BATCH = 500

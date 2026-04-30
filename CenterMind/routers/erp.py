@@ -428,14 +428,14 @@ async def motor_ventas(
     if tipo not in ("resumido", "detallado"):
         raise HTTPException(status_code=400, detail="tipo debe ser 'resumido' o 'detallado'")
     try:
-        result = ventas_ingest(tenant_id, tipo, file_bytes)
-        if tipo == "detallado":
-            try:
-                det_result = ventas_detalle_ingest(tenant_id, file_bytes)
-                result["detalle_articulos"] = det_result.get("registros", 0)
-            except Exception as det_e:
-                logger.warning(f"ventas_detalle_ingest no bloqueante ({tenant_id}): {det_e}")
-        return result
+        # Resumido: persiste cabecera en ventas_v2 (incluye actualización de fecha_ultima_compra).
+        if tipo == "resumido":
+            return ventas_ingest(tenant_id, tipo, file_bytes)
+
+        # Detallado: persiste líneas por artículo en ventas_detalle_v2.
+        # Evita mezclar detallado en ventas_v2 (cabecera), donde la clave de conflicto
+        # es por comprobante y puede colapsar/rechazar múltiples líneas.
+        return ventas_detalle_ingest(tenant_id, file_bytes)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

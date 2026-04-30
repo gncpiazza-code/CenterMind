@@ -9,9 +9,9 @@ Zona: America/Argentina/Buenos_Aires (independiente de la región del host, ej. 
 Horarios:
   07:00  Padrón (única corrida diaria)
   07:30  17:30  Cuentas corrientes (CHESS saldos) — solo 2/día; +30min respecto a ventas/padrón
-  03:00  07:00  12:00  15:00  17:00  21:00  Ventas / comprobantes CHESS — 6 corridas/día
+  06:00  12:00  15:00  17:00  21:00  Ventas / comprobantes CHESS — 5 corridas/día
 
-Cuentas se corre **media hora después** del bloque donde coincidía antes con ventas (07 y 17)
+Cuentas se corre **media hora después** del bloque donde coincidía antes con ventas (06/07 y 17)
 para no abrir otro PLAYWRIGHT/CHESS mientras siguen otros motores.
 
 Monitorear CPU/RAM y “Accesos concurrentes” en CHESS según uso real.
@@ -39,10 +39,9 @@ logger = logging.getLogger("SCHEDULER")
 
 AR_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
 
-# 6 corridas AR ventas: 3am 7am 12pm 3pm 5pm 9pm
+# 5 corridas AR ventas: 6am 12pm 3pm 5pm 9pm
 _SLOTS_VENTAS = [
-    (3, 0),
-    (7, 0),
+    (6, 0),
     (12, 0),
     (15, 0),
     (17, 0),

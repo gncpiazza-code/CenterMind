@@ -454,9 +454,22 @@ def _analizar_y_subir_analytics(
         return subir_ventas_analytics(
             tenant_id=tenant_id,
             payload=payload,
-            fecha_desde=fecha_desde,
-            fecha_hasta=fecha_hasta,
+            fecha_desde=_to_iso_date(fecha_desde),
+            fecha_hasta=_to_iso_date(fecha_hasta),
         )
+
+
+def _to_iso_date(fecha: str | None) -> str | None:
+    """
+    Convierte DD/MM/YYYY -> YYYY-MM-DD para persistencia en Postgres.
+    Si no puede parsear, devuelve el valor original.
+    """
+    if not fecha:
+        return fecha
+    try:
+        return datetime.strptime(fecha, "%d/%m/%Y").strftime("%Y-%m-%d")
+    except Exception:
+        return fecha
 
 
 # ─────────────────────────────────────────────────────────────────

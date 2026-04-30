@@ -528,12 +528,12 @@ export default function SupervisionPage() {
                                               <TableRow key={`${compKey}-detail`}>
                                                 <TableCell colSpan={3} className="p-0 border-b border-[var(--shelfy-border)]/30">
                                                   <div className="px-5 py-2.5 bg-violet-50/40">
-                                                    {c.topArticulos.length > 0 ? (
+                                                    {(t.articulos && t.articulos.length > 0) ? (
                                                       <>
-                                                        <p className="text-[10px] font-semibold text-muted-foreground mb-1.5">Artículos del cliente:</p>
+                                                        <p className="text-[10px] font-semibold text-muted-foreground mb-1.5">Artículos de este comprobante:</p>
                                                         <div className="flex flex-wrap gap-1.5">
-                                                          {c.topArticulos.map((a) => (
-                                                            <Badge key={a.articulo} variant="outline" className="text-[10px] bg-white">
+                                                          {t.articulos.map((a, ai) => (
+                                                            <Badge key={`${a.codigo ?? a.articulo}-${ai}`} variant="outline" className="text-[10px] bg-white">
                                                               {a.articulo} · <span className="font-mono font-bold">{a.bultos.toLocaleString("es-AR", { maximumFractionDigits: 2 })} b</span>
                                                             </Badge>
                                                           ))}

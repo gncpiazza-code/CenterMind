@@ -25,7 +25,11 @@ from services.cuentas_corrientes_service import procesar_cuentas_corrientes_serv
 from services.erp_ingestion_service import erp_service
 from services.padron_ingestion_service import padron_service
 from services.ventas_ingestion_service import ingest as ventas_ingest, TENANT_DIST_MAP
-from services.rendimiento_calle_analytics_service import persistir_analisis_rendimiento_calle
+from services.ventas_detalle_ingestion_service import ingest_detallado as ventas_detalle_ingest
+from services.rendimiento_calle_analytics_service import (
+    obtener_analytics_rendimiento_calle,
+    persistir_analisis_rendimiento_calle,
+)
 from services.ventas_analytics_service import persistir_analisis_comprobantes
 
 logger = logging.getLogger("ShelfyAPI")
@@ -425,6 +429,12 @@ async def motor_ventas(
         raise HTTPException(status_code=400, detail="tipo debe ser 'resumido' o 'detallado'")
     try:
         result = ventas_ingest(tenant_id, tipo, file_bytes)
+        if tipo == "detallado":
+            try:
+                det_result = ventas_detalle_ingest(tenant_id, file_bytes)
+                result["detalle_articulos"] = det_result.get("registros", 0)
+            except Exception as det_e:
+                logger.warning(f"ventas_detalle_ingest no bloqueante ({tenant_id}): {det_e}")
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -446,6 +456,30 @@ async def motor_rendimiento_calle_analytics(body: RendimientoCalleAnalyticsIn):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"motor_rendimiento_calle_analytics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/motor/rendimiento-calle-analytics", tags=["Motores RPA"])
+async def motor_rendimiento_calle_analytics_list(
+    tenant_id: str = Query(..., description="Tenant RPA (tabaco/aloma/liver/real/extra/gyg)"),
+    fecha_operativa: Optional[str] = Query(None, description="Filtro YYYY-MM-DD"),
+    sucursal_nombre: Optional[str] = Query(None),
+    limit: int = Query(20, ge=1, le=500),
+):
+    """
+    Lista runs persistidos de rendimiento calle con KPIs principales y payload.
+    """
+    try:
+        return obtener_analytics_rendimiento_calle(
+            tenant_id,
+            fecha_operativa=fecha_operativa,
+            sucursal_nombre=sucursal_nombre,
+            limit=limit,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"motor_rendimiento_calle_analytics_list: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

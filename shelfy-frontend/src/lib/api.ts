@@ -1458,6 +1458,13 @@ export async function fetchClienteInfo(distId: number, nombre: string, idCliente
 
 // ── Supervisión Ventas ────────────────────────────────────────────────────────
 
+export interface ArticuloVenta {
+  codigo?: string | null;
+  articulo: string;
+  bultos: number;
+  monto?: number;
+}
+
 export interface TransaccionVenta {
   fecha: string;
   cliente: string | null;
@@ -1467,6 +1474,7 @@ export interface TransaccionVenta {
   es_devolucion: boolean;
   monto_total: number;
   monto_recaudado: number;
+  articulos?: ArticuloVenta[];
 }
 
 export interface VendedorVentas {

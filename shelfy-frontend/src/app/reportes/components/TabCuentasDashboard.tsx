@@ -260,7 +260,7 @@ export default function TabCuentasDashboard({ distId }: CuentasDashboardProps) {
             <h3 className="text-sm font-bold text-slate-800 px-3 py-1 mb-2 text-center w-full">Distribución de Deuda por Antigüedad</h3>
             <p className="text-xs text-slate-500 mb-6 text-center">{selectedVendedor}</p>
             <div className="w-full h-[220px]">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={200}>
                 <PieChart>
                   <Pie
                     data={analytics}

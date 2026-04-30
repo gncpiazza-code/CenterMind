@@ -235,7 +235,7 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
                             </h3>
                         </div>
                         <div className="h-72">
-                            <ResponsiveContainer width="100%" height="100%">
+                            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={200}>
                                 <BarChart data={temporal}>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} strokeOpacity={0.1} />
                                     <XAxis dataKey="mes" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
@@ -256,7 +256,7 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
                             Estado de Cartera
                         </h3>
                         <div className="h-72">
-                            <ResponsiveContainer width="100%" height="100%">
+                            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={200}>
                                 <PieChart>
                                     <Pie
                                         data={[
@@ -295,7 +295,7 @@ export default function TabPadronClientes({ distId }: { distId: number }) {
                         </Button>
                     </div>
                     <div className="h-[500px]">
-                        <ResponsiveContainer width="100%" height="100%">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={200}>
                             <BarChart data={desgloseVendedores} layout="vertical" margin={{ left: 50 }}>
                                 <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} strokeOpacity={0.1} />
                                 <XAxis type="number" hide />

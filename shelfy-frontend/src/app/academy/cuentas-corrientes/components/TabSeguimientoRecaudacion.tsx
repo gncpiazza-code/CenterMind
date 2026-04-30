@@ -123,7 +123,7 @@ export default function TabSeguimientoRecaudacion({ distId }: { distId: number }
                             <TrendingUp size={16} className="text-green-500" /> Top 10 Artículos más vendidos
                         </h3>
                         <div className="h-64">
-                            <ResponsiveContainer width="100%" height="100%">
+                            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={200}>
                                 <BarChart data={summary.top_articulos ?? []} layout="vertical">
                                     <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} strokeOpacity={0.1} />
                                     <XAxis type="number" hide />
@@ -140,7 +140,7 @@ export default function TabSeguimientoRecaudacion({ distId }: { distId: number }
                             <TrendingDown size={16} className="text-red-500" /> Artículos con baja rotación
                         </h3>
                         <div className="h-64">
-                            <ResponsiveContainer width="100%" height="100%">
+                            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={200}>
                                 <BarChart data={summary.bottom_articulos ?? []} layout="vertical">
                                     <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} strokeOpacity={0.1} />
                                     <XAxis type="number" hide />

@@ -212,7 +212,7 @@ export default function TabVentasResumen({ distId, desde, hasta }: { distId: num
         <Card className="p-6">
           <h3 className="text-sm font-bold text-[var(--shelfy-muted)] uppercase mb-6">Comparativa por Sucursal</h3>
           <div className="h-[300px]">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={200}>
               <BarChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="sucursal" fontSize={12} tickLine={false} axisLine={false} />

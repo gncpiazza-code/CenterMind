@@ -39,7 +39,7 @@ import {
 } from "@/components/ui/table";
 import {
   TrendingUp, CreditCard, Users, Receipt, BarChart3, ChevronDown,
-  Clock, AlertTriangle, CheckCircle2, Map,
+  Clock, AlertTriangle, CheckCircle2, Map as MapIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
@@ -214,7 +214,7 @@ export default function SupervisionPage() {
   const ventasByCliente = useMemo(() => {
     const vendedor = ventasFiltradas.find((v) => v.vendedor === vendedorVistaClientes);
     if (!vendedor) return [];
-    const bultosByCliente = new Map(
+    const bultosByCliente = new globalThis.Map(
       (vendedor.clientes_bultos ?? []).map((c) => [c.cliente.toLowerCase(), c]),
     );
     const grouped = new Map<string, { cliente: string; totalVenta: number; reciboMismoDia: number; transacciones: TransaccionVenta[] }>();
@@ -360,7 +360,7 @@ export default function SupervisionPage() {
 
                 <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5" asChild>
                   <Link href="/modo-mapa">
-                    <Map size={13} />
+                    <MapIcon size={13} />
                     Ver Mapa
                   </Link>
                 </Button>

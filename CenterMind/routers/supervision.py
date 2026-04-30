@@ -1240,11 +1240,31 @@ def supervision_ventas(
         detalles_by_vendor_client: dict[tuple[str, str], dict] = {}
         top_articulos_by_vendor: dict[str, dict[str, float]] = {}
 
+        def _norm_comp(v: str | None) -> str:
+            """
+            Normaliza tipos de comprobante para poder matchear ventas_v2 (texto)
+            con ventas_detalle_v2 (código ERP).
+            """
+            s = (v or "").strip().upper()
+            if not s:
+                return ""
+            if s in {"PRVTA", "RECCC", "FCVTA", "DVVTA", "NCVTA", "NDVTA"}:
+                return s
+            if "PRESUPUESTO" in s:
+                return "PRVTA"
+            if "RECIB" in s:
+                return "RECCC"
+            if "FACTURA" in s and "VENTA" in s:
+                return "FCVTA"
+            if "DEVOL" in s:
+                return "DVVTA"
+            return s
+
         # Universo de comprobantes permitidos según las filas filtradas de ventas_v2.
         allowed_comps: set[tuple[str, str, str]] = set()
         for row in rows:
             f = str(row.get("fecha") or "")[:10]
-            c = (row.get("comprobante") or "").strip().upper()
+            c = _norm_comp(row.get("comprobante"))
             n = (row.get("numero") or "").strip()
             if c and n:
                 allowed_comps.add((f, c, n))
@@ -1271,7 +1291,7 @@ def supervision_ventas(
 
             for drow in det_all:
                 f = str(drow.get("fecha") or "")[:10]
-                comp = (drow.get("comprobante") or "").strip().upper()
+                comp = _norm_comp(drow.get("comprobante"))
                 num = (drow.get("numero") or "").strip()
                 comp_key = (f, comp, num)
 
@@ -1309,7 +1329,7 @@ def supervision_ventas(
         # Construir mapa vendedor+cliente para clientes_bultos usando articulos_by_comp y rows
         for row in rows:
             f = str(row.get("fecha") or "")[:10]
-            comp = (row.get("comprobante") or "").strip().upper()
+            comp = _norm_comp(row.get("comprobante"))
             num = (row.get("numero") or "").strip()
             comp_key = (f, comp, num)
             cli = (row.get("cliente") or "").strip()
@@ -1353,7 +1373,7 @@ def supervision_ventas(
             vd["monto_recaudado"] += float(row.get("monto_recaudado") or 0)
             if len(vd["transacciones"]) < 100:
                 f = str(row.get("fecha") or "")[:10]
-                comp = (row.get("comprobante") or "").strip().upper()
+                comp = _norm_comp(row.get("comprobante"))
                 num = (row.get("numero") or "").strip()
                 comp_key = (f, comp, num)
                 vd["transacciones"].append({

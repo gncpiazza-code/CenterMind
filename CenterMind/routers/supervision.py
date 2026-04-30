@@ -1123,6 +1123,151 @@ def supervision_ventas(dist_id: int, dias: int = 30, user_payload=Depends(verify
 
         rows = res.data or []
         erp_name_map = _get_erp_name_map(dist_id)
+        sucursal_norm = (sucursal or "").strip().lower()
+        vendedor_norm = (vendedor or "").strip().lower()
+
+        if sucursal_norm:
+            needle = str(sucursal).strip().lower()
+            vend_branch = _vendor_display_names_for_sucursal_erp(dist_id, sucursal) or set()
+            kept = []
+            for row in rows:
+                v_raw = row.get("vendedor") or "Sin Vendedor"
+                v_disp = erp_name_map.get(v_raw.lower(), v_raw)
+                row_suc = (row.get("sucursal") or "").strip().lower()
+                # Regla estricta: si la fila trae sucursal, debe coincidir.
+                if row_suc and row_suc != needle:
+                    continue
+                # Fallback para filas sin sucursal: usar padrón vendedores de la sucursal.
+                if not row_suc and vend_branch and v_disp not in vend_branch:
+                    continue
+                ok = True
+                if ok:
+                    kept.append(row)
+            rows = kept
+
+        if vendedor_norm:
+            kept_v = []
+            for row in rows:
+                v_raw = (row.get("vendedor") or "Sin Vendedor").strip()
+                v_disp = erp_name_map.get(v_raw.lower(), v_raw)
+                if v_raw.lower() == vendedor_norm or v_disp.lower() == vendedor_norm:
+                    kept_v.append(row)
+            rows = kept_v
+
+        # ── Enriquecimiento desde ventas_detalle_v2 ──────────────────────────────
+        # Clave por comprobante para artículos por comprobante (detalle exacto).
+        # Clave vendedor+cliente para clientes_bultos/top_articulos (agregados).
+        articulos_by_comp: dict[tuple[str, str, str], list[dict]] = {}
+        detalles_by_vendor_client: dict[tuple[str, str], dict] = {}
+        top_articulos_by_vendor: dict[str, dict[str, float]] = {}
+
+        def _norm_comp(v: str | None) -> str:
+            """
+            Normaliza tipos de comprobante para poder matchear ventas_v2 (texto)
+            con ventas_detalle_v2 (código ERP).
+            """
+            s = (v or "").strip().upper()
+            if not s:
+                return ""
+            if s in {"PRVTA", "RECCC", "FCVTA", "DVVTA", "NCVTA", "NDVTA"}:
+                return s
+            if "PRESUPUESTO" in s:
+                return "PRVTA"
+            if "RECIB" in s:
+                return "RECCC"
+            if "FACTURA" in s and "VENTA" in s:
+                return "FCVTA"
+            if "DEVOL" in s:
+                return "DVVTA"
+            return s
+
+        # Universo de comprobantes permitidos según las filas filtradas de ventas_v2.
+        allowed_comps: set[tuple[str, str, str]] = set()
+        for row in rows:
+            f = str(row.get("fecha") or "")[:10]
+            c = _norm_comp(row.get("comprobante"))
+            n = (row.get("numero") or "").strip()
+            if c and n:
+                allowed_comps.add((f, c, n))
+
+        try:
+            PAGE = 1000
+            det_all: list[dict] = []
+            offset = 0
+            while True:
+                batch = (
+                    sb.table("ventas_detalle_v2")
+                    .select("fecha,vendedor,comprobante,numero,codigo_articulo,descripcion_articulo,bultos,monto_linea")
+                    .eq("id_distribuidor", int(dist_id))
+                    .gte("fecha", fecha_desde)
+                    .lte("fecha", fecha_hasta)
+                    .range(offset, offset + PAGE - 1)
+                    .execute()
+                    .data or []
+                )
+                det_all.extend(batch)
+                if len(batch) < PAGE:
+                    break
+                offset += PAGE
+
+            for drow in det_all:
+                f = str(drow.get("fecha") or "")[:10]
+                comp = _norm_comp(drow.get("comprobante"))
+                num = (drow.get("numero") or "").strip()
+                comp_key = (f, comp, num)
+
+                # Saltar filas que no corresponden a los comprobantes filtrados
+                if allowed_comps and comp_key not in allowed_comps:
+                    continue
+
+                bultos = float(drow.get("bultos") or 0)
+                monto = float(drow.get("monto_linea") or 0)
+                cod = (drow.get("codigo_articulo") or "").strip()
+                desc = (drow.get("descripcion_articulo") or "").strip()
+                art_label = desc or cod or "Artículo sin descripción"
+
+                # Map por comprobante — para artículos por comprobante individual
+                articulos_by_comp.setdefault(comp_key, []).append({
+                    "codigo": cod or None,
+                    "articulo": art_label,
+                    "bultos": round(bultos, 4),
+                    "monto": round(monto, 2),
+                })
+
+                # Map por vendedor+cliente — para clientes_bultos y top_articulos
+                v_raw_det = (drow.get("vendedor") or "Sin Vendedor").strip()
+                v_det = erp_name_map.get(v_raw_det.lower(), v_raw_det)
+
+                # El cliente se infiere desde la clave de comprobante: buscar en rows
+                # (se construye más adelante al iterar rows)
+                if art_label:
+                    va = top_articulos_by_vendor.setdefault(v_det, {})
+                    va[art_label] = float(va.get(art_label, 0.0)) + bultos
+
+        except Exception as det_e:
+            logger.warning(f"[supervision_ventas] ventas_detalle_v2 no disponible: {det_e}")
+
+        # Construir mapa vendedor+cliente para clientes_bultos usando articulos_by_comp y rows
+        for row in rows:
+            f = str(row.get("fecha") or "")[:10]
+            comp = _norm_comp(row.get("comprobante"))
+            num = (row.get("numero") or "").strip()
+            comp_key = (f, comp, num)
+            cli = (row.get("cliente") or "").strip()
+            if not cli:
+                continue
+            v_raw = (row.get("vendedor") or "Sin Vendedor").strip()
+            v_disp = erp_name_map.get(v_raw.lower(), v_raw)
+            vc_key = (v_disp, cli)
+            bucket = detalles_by_vendor_client.setdefault(
+                vc_key, {"cliente": cli, "total_bultos": 0.0, "articulos": {}}
+            )
+            for art in articulos_by_comp.get(comp_key, []):
+                bucket["total_bultos"] += art["bultos"]
+                label = art["articulo"]
+                if label:
+                    bucket["articulos"][label] = float(bucket["articulos"].get(label, 0.0)) + art["bultos"]
+
         vendors: dict = {}
         is_sa = user_payload.get("is_superadmin")
         for row in rows:
@@ -1139,6 +1284,10 @@ def supervision_ventas(dist_id: int, dias: int = 30, user_payload=Depends(verify
             vd["monto_total"]    += float(row.get("monto_total") or 0)
             vd["monto_recaudado"] += float(row.get("monto_recaudado") or 0)
             if len(vd["transacciones"]) < 100:
+                f = str(row.get("fecha") or "")[:10]
+                comp = _norm_comp(row.get("comprobante"))
+                num = (row.get("numero") or "").strip()
+                comp_key = (f, comp, num)
                 vd["transacciones"].append({
                     "fecha": row["fecha"], "cliente": row.get("cliente"),
                     "comprobante": row.get("comprobante"), "numero": row.get("numero"),
@@ -1146,6 +1295,7 @@ def supervision_ventas(dist_id: int, dias: int = 30, user_payload=Depends(verify
                     "es_devolucion": row.get("es_devolucion", False),
                     "monto_total": float(row.get("monto_total") or 0),
                     "monto_recaudado": float(row.get("monto_recaudado") or 0),
+                    "articulos": articulos_by_comp.get(comp_key, []),
                 })
 
         result = sorted(vendors.values(), key=lambda x: x["monto_total"], reverse=True)

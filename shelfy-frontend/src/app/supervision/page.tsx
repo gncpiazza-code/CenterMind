@@ -160,6 +160,8 @@ export default function SupervisionPage() {
   const [selectedVendedor, setSelectedVendedor] = useState<string | null>(null);
   const [openVentasCliente, setOpenVentasCliente] = useState<string | null>(null);
   const [fechaCorte, setFechaCorte] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [draggingVendedor, setDraggingVendedor] = useState<string | null>(null);
+  const [leftPanelDropActive, setLeftPanelDropActive] = useState(false);
   const ventasDias = ventasPeriodo === "hoy" ? 1 : ventasPeriodo;
 
   const isAllowed = !!user && ALLOWED_ROLES.includes(user.rol);
@@ -269,9 +271,13 @@ export default function SupervisionPage() {
   }, [ventasFiltradas, effectiveVendedor]);
 
   // Ventas KPIs from filtered rows so they react to sucursal selection
-  const kpiFacturado   = ventasFiltradas.reduce((acc, v) => acc + v.monto_total, 0);
-  const kpiRecaudado   = ventasFiltradas.reduce((acc, v) => acc + v.monto_recaudado, 0);
-  const kpiFacturas    = ventasFiltradas.reduce((acc, v) => acc + v.total_facturas, 0);
+  const ventasParaKpi = useMemo(() => {
+    if (!effectiveVendedor) return ventasFiltradas;
+    return ventasFiltradas.filter((v) => v.vendedor === effectiveVendedor);
+  }, [ventasFiltradas, effectiveVendedor]);
+  const kpiFacturado   = ventasParaKpi.reduce((acc, v) => acc + v.monto_total, 0);
+  const kpiRecaudado   = ventasParaKpi.reduce((acc, v) => acc + v.monto_recaudado, 0);
+  const kpiFacturas    = ventasParaKpi.reduce((acc, v) => acc + v.total_facturas, 0);
   const nextVentasRun  = nextRunForMotor("ventas");
   const nextCuentasRun = nextRunForMotor("cuentas");
 
@@ -352,7 +358,7 @@ export default function SupervisionPage() {
                 )}
 
                 {/* Vendedor filter */}
-                <Select value={selectedVendedor ?? "__all__"} onValueChange={(v) => setSelectedVendedor(v === "__all__" ? null : v)}>
+                <Select value={effectiveVendedor ?? "__all__"} onValueChange={(v) => setSelectedVendedor(v === "__all__" ? null : v)}>
                   <SelectTrigger className="h-8 text-xs w-44">
                     <SelectValue placeholder="Vendedor" />
                   </SelectTrigger>
@@ -406,7 +412,7 @@ export default function SupervisionPage() {
               <KpiCard
                 label="Facturado"
                 value={fmt$$(kpiFacturado)}
-                subtext={ventasPeriodo === "hoy" ? "hoy" : `últimos ${ventasDias} días`}
+                subtext={effectiveVendedor ? `${effectiveVendedor} · ${ventasPeriodo === "hoy" ? "hoy" : `${ventasDias}d`}` : (ventasPeriodo === "hoy" ? "hoy" : `últimos ${ventasDias} días`)}
                 icon={TrendingUp}
                 color="violet"
                 loading={loadingVentas}
@@ -446,7 +452,25 @@ export default function SupervisionPage() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
               {/* Ventas por vendedor */}
-              <Card>
+              <Card
+                onDragOver={(e) => {
+                  if (!draggingVendedor) return;
+                  e.preventDefault();
+                  setLeftPanelDropActive(true);
+                }}
+                onDragLeave={() => setLeftPanelDropActive(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const vend = e.dataTransfer.getData("text/plain") || draggingVendedor;
+                  if (vend) {
+                    setSelectedVendedor(vend);
+                    setOpenVentasCliente(null);
+                  }
+                  setLeftPanelDropActive(false);
+                  setDraggingVendedor(null);
+                }}
+                className={leftPanelDropActive ? "ring-2 ring-violet-300 bg-violet-50/40 transition-colors" : "transition-colors"}
+              >
                 <CardHeader className="pb-3 pt-4 px-5">
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-sm font-bold flex items-center gap-2">
@@ -465,6 +489,11 @@ export default function SupervisionPage() {
                       <Badge variant="secondary" className="text-[10px]">
                         {ventasPeriodo === "hoy" ? "Hoy" : `${ventasPeriodo}d`} · {ventasFiltradas.length} vendedores
                       </Badge>
+                      {leftPanelDropActive && (
+                        <Badge variant="outline" className="text-[10px] border-violet-300 text-violet-700 bg-violet-50">
+                          Soltá acá para cargar vendedor
+                        </Badge>
+                      )}
                     </div>
                   </div>
                 </CardHeader>
@@ -611,7 +640,33 @@ export default function SupervisionPage() {
                             .sort((a, b) => b.deuda_total - a.deuda_total)
                             .map((v) => (
                               <TableRow key={v.vendedor} className="text-xs">
-                                <TableCell className="pl-5 font-medium truncate max-w-[140px]">{v.vendedor}</TableCell>
+                                <TableCell className="pl-5 font-medium truncate max-w-[140px]">
+                                  <button
+                                    type="button"
+                                    draggable
+                                    onDragStart={(e) => {
+                                      e.dataTransfer.setData("text/plain", v.vendedor);
+                                      e.dataTransfer.effectAllowed = "copyMove";
+                                      setDraggingVendedor(v.vendedor);
+                                    }}
+                                    onDragEnd={() => {
+                                      setDraggingVendedor(null);
+                                      setLeftPanelDropActive(false);
+                                    }}
+                                    onClick={() => {
+                                      setSelectedVendedor(v.vendedor);
+                                      setOpenVentasCliente(null);
+                                    }}
+                                    className={`text-left px-1 py-0.5 rounded transition-colors ${
+                                      effectiveVendedor === v.vendedor
+                                        ? "bg-violet-50 text-violet-700"
+                                        : "hover:bg-muted/40"
+                                    }`}
+                                    title="Click para aplicar o arrastrá al panel de ventas"
+                                  >
+                                    {v.vendedor}
+                                  </button>
+                                </TableCell>
                                 <TableCell className="text-right font-mono text-[11px] text-rose-600 font-semibold">
                                   {fmt$$(v.deuda_total)}
                                 </TableCell>

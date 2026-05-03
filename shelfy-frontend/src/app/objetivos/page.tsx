@@ -2102,7 +2102,7 @@ function VistaEstadisticas({ objetivos }: { objetivos: Objetivo[] }) {
               <p className="text-xs font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider">Distribución por tipo</p>
             </div>
             <div className="p-4" style={{ height: 200 }}>
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={200}>
                 <PieChart>
                   <Pie
                     data={pieData}
@@ -2143,7 +2143,7 @@ function VistaEstadisticas({ objetivos }: { objetivos: Objetivo[] }) {
               <p className="text-xs font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider">Cantidad por tipo</p>
             </div>
             <div className="p-4" style={{ height: 160 }}>
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={200}>
                 <BarChart data={barData} margin={{ top: 0, right: 0, bottom: 0, left: -20 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--shelfy-border)" />
                   <XAxis dataKey="name" tick={{ fontSize: 10, fill: "var(--shelfy-muted)" }} />

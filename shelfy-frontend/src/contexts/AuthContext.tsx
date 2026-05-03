@@ -5,8 +5,25 @@ import { useRouter } from "next/navigation";
 import { loginApi, type AuthResponse } from "@/lib/api";
 import { TOKEN_KEY, JWT_EXPIRE_HOURS } from "@/lib/constants";
 
+function readShelfActiveDistId(): number | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem("shelfy_active_dist");
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { id?: unknown };
+    const id = Number(parsed?.id);
+    return Number.isFinite(id) && id > 0 ? id : null;
+  } catch {
+    return null;
+  }
+}
+
 interface AuthContextType {
   user: AuthResponse | null;
+  /** id_distribuidor del JWT o override en localStorage (superadmin / multi-tenant). */
+  effectiveDistribuidorId: number | null;
+  /** Puede listar distribuidoras y ejecutar cambio de tenant (superadmin / directorio / permiso). */
+  canSwitchDistribuidor: boolean;
   login: (usuario: string, password: string) => Promise<void>;
   logout: () => void;
   switchDistributor: (id: number, nombre: string) => void;
@@ -122,12 +139,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return permisos[key] ?? true;
   }, [user]);
 
+  const effectiveDistribuidorId = React.useMemo((): number | null => {
+    if (!user) return null;
+    const jid = user.id_distribuidor;
+    if (jid != null && !Number.isNaN(Number(jid)) && Number(jid) > 0) {
+      return Number(jid);
+    }
+    return readShelfActiveDistId();
+  }, [user]);
+
+  const canSwitchDistribuidor = React.useMemo(() => {
+    if (!user) return false;
+    if (user.is_superadmin) return true;
+    if (String(user.rol || "").toLowerCase() === "directorio") return true;
+    return !!(user.permisos?.action_switch_tenant);
+  }, [user]);
+
   const switchDistributor = useCallback((id: number, nombre: string) => {
-    if (!user?.is_superadmin && !hasPermiso("action_switch_tenant")) return;
+    if (!canSwitchDistribuidor) return;
     setUser(prev => prev ? { ...prev, id_distribuidor: id, nombre_empresa: nombre } : null);
     localStorage.setItem("shelfy_active_dist", JSON.stringify({ id, nombre }));
     window.location.reload();
-  }, [user?.is_superadmin, hasPermiso]);
+  }, [canSwitchDistribuidor]);
 
   const setTutorialSeen = useCallback(() => {
     localStorage.setItem("shelfy_tutorial_v2_seen", "true");
@@ -136,9 +169,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const stored = localStorage.getItem("shelfy_active_dist");
-    const canSwitch = user?.is_superadmin || hasPermiso("action_switch_tenant");
-    
-    if (stored && canSwitch) {
+    if (stored && canSwitchDistribuidor) {
       try {
         const { id, nombre } = JSON.parse(stored);
         if (user && user.id_distribuidor !== id) {
@@ -146,7 +177,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       } catch { }
     }
-  }, [user?.is_superadmin, user?.id_distribuidor, hasPermiso]);
+  }, [user, canSwitchDistribuidor]);
 
   useEffect(() => {
     const validateSession = () => {
@@ -180,6 +211,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return (
     <AuthContext.Provider value={{
       user,
+      effectiveDistribuidorId,
+      canSwitchDistribuidor,
       login,
       logout,
       switchDistributor,

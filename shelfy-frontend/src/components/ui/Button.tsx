@@ -46,13 +46,18 @@ export interface ButtonProps
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size, asChild = false, loading = false, disabled, children, ...props }, ref) => {
     const Comp = asChild ? Slot : "button"
+    const sharedProps = {
+      className: cn(buttonVariants({ variant, size, className })),
+      ref,
+      disabled: loading || disabled,
+      ...props,
+    }
+    // Slot (asChild) requires exactly one React element child — no loader wrapper
+    if (asChild) {
+      return <Comp {...sharedProps}>{children}</Comp>
+    }
     return (
-      <Comp
-        className={cn(buttonVariants({ variant, size, className }))}
-        ref={ref}
-        disabled={loading || disabled}
-        {...props}
-      >
+      <Comp {...sharedProps}>
         {loading && <Loader2 className="size-4 animate-spin shrink-0" />}
         {children}
       </Comp>

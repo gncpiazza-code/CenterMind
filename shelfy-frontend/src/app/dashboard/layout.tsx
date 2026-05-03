@@ -13,7 +13,7 @@ export default function DashboardLayout({
 }: {
     children: React.ReactNode;
 }) {
-    const { user } = useAuth();
+    const { user, effectiveDistribuidorId } = useAuth();
     const pathname = usePathname();
     const router = useRouter();
 
@@ -34,7 +34,7 @@ export default function DashboardLayout({
     }
 
     return (
-        <IdentityWall distId={user.id_distribuidor || 0}>
+        <IdentityWall distId={effectiveDistribuidorId ?? 0}>
             {children}
         </IdentityWall>
     );

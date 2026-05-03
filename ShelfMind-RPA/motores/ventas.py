@@ -6,8 +6,8 @@ Motor 2: Comprobantes de Ventas — CHESS ERP (Multi-tenant)
 
 ¿Qué hace este archivo?
 -----------------------
-Todos los días a las 13:30, 18:30 y 23:00:
-  1. Para cada uno de los 4 tenants de CHESS ERP:
+Programación vía scheduler.py (varias ventanas AR/día; ver scheduler.py) o runner manual:
+  1. Para cada tenant CHESS activo (misma lista que cuentas corrientes; p. ej. extra si activo=False se omite):
      a. Abre un navegador invisible
      b. Cierra el popup de "Nueva versión de ChessERP" si aparece
      c. Hace login con las credenciales del tenant
@@ -24,11 +24,9 @@ Todos los días a las 13:30, 18:30 y 23:00:
   2. Si un tenant falla, guarda screenshot y continúa con el siguiente
   3. Al final escribe el resumen completo en el log
 
-TENANTS (verificados en vivo el 24/03/2026):
-  - tabaco    : Tabaco & Hnos S.R.L.         → tabacohermanos.chesserp.com/AR1149
-  - aloma     : Aloma Distribuidores Ofic.   → alomasrl.chesserp.com/AR1252
-  - liver     : Liver SRL                    → liversrl.chesserp.com/AR1274
-  - real      : Real Tabacalera de Santiago  → realtabacalera.chesserp.com/AR1272
+Tenants: misma definición que motores/cuentas_corrientes (vault, activo, url_base, id_dist),
+  más el campo ventas `sucursal` (None o texto exacto en CHESS). Inactivos (p. ej. extra) se omiten.
+  tabaco / aloma / liver / real / extra — ver cuentas_corrientes.TENANTS.
 
 PARTICULARIDADES VERIFICADAS EN VIVO:
   - Popup "Nueva versión ChessERP" (k-overlay naranja): aparece en login,
@@ -46,7 +44,11 @@ PARTICULARIDADES VERIFICADAS EN VIVO:
 """
 
 import asyncio
+import json
 import os
+import subprocess
+import sys
+import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
@@ -58,8 +60,14 @@ from playwright.async_api import (
 
 from lib.logger import get_logger
 from lib.hash_guard import es_duplicado, guardar_hash
-from lib.api_client import subir_ventas
-from lib.vault_client import get_secret
+from lib.api_client import subir_ventas, subir_ventas_analytics
+
+from motores.cuentas_corrientes import (
+    TENANTS as _CC_TENANTS,
+    _cerrar_accesos_concurrentes,
+    _cerrar_popup_nexty,
+    _hacer_login,
+)
 
 # ─────────────────────────────────────────────────────────────────
 # CONFIGURACIÓN
@@ -68,9 +76,10 @@ from lib.vault_client import get_secret
 logger = get_logger("VENTAS")
 AR_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
 
-# Carpetas
-DOWNLOADS_DIR = Path("/opt/shelfmind/rpa/downloads")
-ERRORS_DIR    = Path("/opt/shelfmind/rpa/logs/errors")
+# Carpetas (misma convención que motores/cuentas_corrientes.py)
+BASE_DIR = Path(__file__).resolve().parent.parent
+DOWNLOADS_DIR = BASE_DIR / "downloads"
+ERRORS_DIR = BASE_DIR / "logs" / "errors"
 
 # Modo de visualización del browser
 HEADLESS = os.environ.get("RPA_HEADLESS", "true").lower() != "false"
@@ -82,61 +91,45 @@ TIMEOUT_MS = 30_000
 # CHESS_DIAS_ATRAS=1 → ayer
 DIAS_ATRAS = int(os.environ.get("CHESS_DIAS_ATRAS", "1"))
 
+# Solo un tenant (pruebas / análisis): RPA_VENTAS_SOLO_TENANT=aloma
+_SOLO_TENANT = os.environ.get("RPA_VENTAS_SOLO_TENANT", "").strip()
+
+# Conservar los .xlsx en downloads/ tras leerlos (por defecto se borran tras subir/hash)
+_KEEP_LOCAL_XLSX = os.environ.get("RPA_VENTAS_KEEP_LOCAL_XLSX", "").lower() in (
+    "1",
+    "true",
+    "yes",
+)
+
 # ─────────────────────────────────────────────────────────────────
 # DEFINICIÓN DE TENANTS
 # Verificados en vivo el 24/03/2026
 # Las credenciales se leen de Supabase Vault en runtime
 # ─────────────────────────────────────────────────────────────────
 
-# Cada tenant tiene:
-#   id          : clave interna usada en logs, hashes y API
-#   nombre      : nombre legible para logs
-#   url_base    : URL raíz del tenant (sin /#/)
-#   vault_user  : nombre del secreto en Vault para el usuario
-#   vault_pass  : nombre del secreto en Vault para la contraseña
-#   sucursal    : texto exacto de la sucursal a filtrar, o None = todas
-#   id_dist     : id_distribuidor en Supabase (completar con el valor real)
+# Misma definición base que motores/cuentas_corrientes (vault, url_base, activo, id_dist, …).
+# Campo extra solo de ventas: sucursal (filtro mat-select; None = todas).
+_VENTAS_SUCURSAL = {
+    "tabaco": None,
+    "aloma": None,
+    "liver": None,
+    # ⚠️ Texto EXACTO verificado en vivo — "UEQUIN RODRIGO", no "8 RODRIGO UEQUIN"
+    "real": "UEQUIN RODRIGO",
+    "extra": None,
+}
 
-TENANTS = [
-    {
-        "id":         "tabaco",
-        "nombre":     "Tabaco & Hnos S.R.L.",
-        "url_base":   "https://tabacohermanos.chesserp.com/AR1149",
-        "vault_user": "chess_tabaco_usuario",
-        "vault_pass": "chess_tabaco_password",
-        "sucursal":   None,   # Todas las sucursales (RECONQUISTA, RESISTENCIA, etc.)
-        "id_dist":    3,
-    },
-    {
-        "id":         "aloma",
-        "nombre":     "Aloma Distribuidores Oficiales",
-        "url_base":   "https://alomasrl.chesserp.com/AR1252",
-        "vault_user": "chess_aloma_usuario",
-        "vault_pass": "chess_aloma_password",
-        "sucursal":   None,   # Una sola sucursal (CASA CENTRAL) ya preseleccionada
-        "id_dist":    4,
-    },
-    {
-        "id":         "liver",
-        "nombre":     "Liver SRL",
-        "url_base":   "https://liversrl.chesserp.com/AR1274",
-        "vault_user": "chess_liver_usuario",
-        "vault_pass": "chess_liver_password",
-        "sucursal":   None,   # Una sola sucursal (CASA CENTRAL) ya preseleccionada
-        "id_dist":    5,
-    },
-    {
-        "id":         "real",
-        "nombre":     "Real Tabacalera de Santiago S.A.",
-        "url_base":   "https://realtabacalera.chesserp.com/AR1272",
-        "vault_user": "chess_real_usuario",
-        "vault_pass": "chess_real_password",
-        # ⚠️ Texto EXACTO verificado en vivo el 24/03/2026
-        # En el dropdown aparece como "UEQUIN RODRIGO" — NO "8 RODRIGO UEQUIN"
-        "sucursal":   "UEQUIN RODRIGO",
-        "id_dist":    2,
-    },
-]
+
+def _build_tenants_ventas() -> list[dict]:
+    out: list[dict] = []
+    for t in _CC_TENANTS:
+        tid = t["id"]
+        if tid not in _VENTAS_SUCURSAL:
+            continue
+        out.append({**t, "sucursal": _VENTAS_SUCURSAL[tid]})
+    return out
+
+
+TENANTS = _build_tenants_ventas()
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -174,90 +167,8 @@ async def _screenshot_error(page: Page, tenant_id: str, paso: str) -> None:
         logger.warning(f"  No se pudo guardar screenshot: {e}")
 
 
-# ─────────────────────────────────────────────────────────────────
-# PASO 1: CERRAR POPUP DE ACTUALIZACIÓN
-# ─────────────────────────────────────────────────────────────────
-
-async def _cerrar_popup_actualizacion(page: Page) -> None:
-    """
-    Cierra el popup naranja de "Nueva versión de ChessERP".
-
-    ⚠️ CRÍTICO: Este popup pone un overlay (k-overlay) que bloquea
-    TODOS los clicks de la página. Playwright no puede hacer click
-    en INICIAR SESIÓN hasta que este overlay desaparezca.
-    Verificado en vivo: aparece en todos los tenants.
-
-    Al hacer click en "Actualizar", la página se recarga y el
-    overlay desaparece. Recién entonces se puede interactuar.
-    """
-    try:
-        btn = page.locator('button:has-text("Actualizar")')
-        await btn.wait_for(state="visible", timeout=5_000)
-        logger.info("  ⚠️  Popup de actualización detectado — cerrando...")
-        await btn.click()
-        await page.wait_for_load_state("networkidle", timeout=15_000)
-        logger.info("  Popup de actualización cerrado ✅")
-    except Exception:
-        pass  # No había popup, es normal
-
-
-# ─────────────────────────────────────────────────────────────────
-# PASO 2: LOGIN
-# ─────────────────────────────────────────────────────────────────
-
-async def _hacer_login(page: Page, tenant: dict) -> None:
-    """
-    Login en CHESS ERP.
-
-    Lee las credenciales de Supabase Vault. Cierra el popup de
-    actualización antes de intentar el login.
-
-    Lanza excepción si el login falla (para que el caller lo capture
-    y lo registre como error del tenant).
-    """
-    url_login = f"{tenant['url_base']}/#/login"
-    logger.info(f"  Navegando a login: {url_login}")
-    await page.goto(url_login, wait_until="networkidle")
-
-    # Cerrar popup de actualización ANTES de tocar el formulario
-    await _cerrar_popup_actualizacion(page)
-
-    # Esperar que el formulario esté listo
-    await page.locator('input').first.wait_for(state="visible", timeout=TIMEOUT_MS)
-
-    # Leer credenciales del Vault
-    usuario  = get_secret(tenant["vault_user"])
-    password = get_secret(tenant["vault_pass"])
-
-    # Llenar formulario
-    await page.locator('input').first.fill(usuario)
-    await page.locator('input[type="password"]').fill(password)
-    await page.locator('button:has-text("INICIAR SESIÓN")').click()
-
-    # Esperar redirección al dashboard
-    await page.wait_for_url("**/dashboard**", timeout=20_000)
-    logger.info(f"  ✅ Login exitoso — {tenant['nombre']}")
-
-
-# ─────────────────────────────────────────────────────────────────
-# PASO 3: CERRAR POPUP DE NEXTY
-# ─────────────────────────────────────────────────────────────────
-
-async def _cerrar_popup_nexty(page: Page) -> None:
-    """
-    Cierra el popup post-login de "Sacale Mayor Provecho a Nexty".
-    Timeout corto — si no aparece en 4 segundos, no es problema.
-    """
-    try:
-        btn = page.locator(
-            'button:has-text("No volver a mostrar"), '
-            'button:has-text("Ver más tarde")'
-        )
-        await btn.first.wait_for(state="visible", timeout=4_000)
-        await btn.first.click()
-        logger.info("  Popup de Nexty cerrado")
-    except Exception:
-        pass
+# Login, popup actualización y Nexty: mismos pasos que motores/cuentas_corrientes
+# (_hacer_login, _cerrar_popup_nexty importados).
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -424,10 +335,13 @@ async def _descargar_de_grilla(page: Page, tenant_id: str) -> Optional[bytes]:
         size_kb = len(file_bytes) / 1024
         logger.info(f"  Grilla descargada: {nombre} ({size_kb:.1f} KB)")
 
-        try:
-            ruta_temp.unlink()
-        except Exception:
-            pass
+        if not _KEEP_LOCAL_XLSX:
+            try:
+                ruta_temp.unlink()
+            except Exception:
+                pass
+        else:
+            logger.info(f"  📁 XLSX grilla conservado: {ruta_temp}")
 
         return file_bytes
 
@@ -484,17 +398,78 @@ async def _descargar_del_modal(page: Page, tipo: str, tenant_id: str) -> Optiona
         size_kb = len(file_bytes) / 1024
         logger.info(f"  ✅ {tipo.upper()}: {nombre} ({size_kb:.1f} KB)")
 
-        # Limpiar archivo temporal
-        try:
-            ruta_temp.unlink()
-        except Exception:
-            pass
+        if not _KEEP_LOCAL_XLSX:
+            try:
+                ruta_temp.unlink()
+            except Exception:
+                pass
+        else:
+            logger.info(f"  📁 XLSX conservado en disco: {ruta_temp}")
 
         return file_bytes
 
     except Exception as e:
         logger.error(f"  ❌ Error descargando {tipo}: {e}")
         return None
+
+
+def _analizar_y_subir_analytics(
+    tenant_id: str,
+    bytes_resumido: bytes,
+    bytes_detallado: bytes,
+    fecha_desde: str,
+    fecha_hasta: str,
+) -> bool:
+    """
+    Reusa scripts/analizar_ventas_comprobantes.py y sube su JSON a /api/motor/ventas-analytics.
+    """
+    script = BASE_DIR / "scripts" / "analizar_ventas_comprobantes.py"
+    if not script.exists():
+        logger.warning(f"  ⚠️ Script de análisis no encontrado: {script}")
+        return False
+
+    with tempfile.TemporaryDirectory(prefix=f"ventas_{tenant_id}_") as td:
+        tmp = Path(td)
+        p_res = tmp / f"{tenant_id}_resumido.xlsx"
+        p_det = tmp / f"{tenant_id}_detallado.xlsx"
+        p_out = tmp / f"{tenant_id}_analytics.json"
+        p_res.write_bytes(bytes_resumido)
+        p_det.write_bytes(bytes_detallado)
+
+        cmd = [sys.executable, str(script), str(p_res), str(p_det), "--json", str(p_out)]
+        run = subprocess.run(cmd, capture_output=True, text=True)
+        if run.returncode != 0:
+            logger.error(f"  ❌ Falló análisis de ventas ({tenant_id}): {run.stderr[:300]}")
+            return False
+        if not p_out.exists():
+            logger.error("  ❌ Análisis no generó archivo JSON de salida")
+            return False
+
+        try:
+            payload = json.loads(p_out.read_text(encoding="utf-8"))
+        except Exception as e:
+            logger.error(f"  ❌ JSON de análisis inválido: {e}")
+            return False
+
+        return subir_ventas_analytics(
+            tenant_id=tenant_id,
+            payload=payload,
+            fecha_desde=_to_iso_date(fecha_desde),
+            fecha_hasta=_to_iso_date(fecha_hasta),
+        )
+
+
+def _to_iso_date(fecha: str | None) -> str | None:
+    """
+    Convierte DD/MM/YYYY -> YYYY-MM-DD para persistencia en Postgres.
+    Si no puede parsear, devuelve el valor original.
+    """
+    if not fecha:
+        return fecha
+    try:
+        return datetime.strptime(fecha, "%d/%m/%Y").strftime("%Y-%m-%d")
+    except Exception:
+        return fecha
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -558,6 +533,7 @@ async def _procesar_tenant(
             url_reporte = f"{tenant['url_base']}/#/ventas/reportes/comprobantes"
             logger.info(f"  Navegando al reporte...")
             await page.goto(url_reporte, wait_until="networkidle")
+            await _cerrar_accesos_concurrentes(page)
             await page.locator('#mat-input-5').wait_for(state="visible", timeout=TIMEOUT_MS)
             logger.info("  ✅ Reporte cargado")
 
@@ -613,6 +589,20 @@ async def _procesar_tenant(
                     else:
                         resultado["detallado"] = "error"
 
+            # ── Análisis JSON + persistencia analytics ───────────────
+            if bytes_resumido and bytes_detallado:
+                ok_analytics = _analizar_y_subir_analytics(
+                    tenant_id=tenant_id,
+                    bytes_resumido=bytes_resumido,
+                    bytes_detallado=bytes_detallado,
+                    fecha_desde=fecha_desde,
+                    fecha_hasta=fecha_hasta,
+                )
+                if ok_analytics:
+                    logger.info("  ✅ Analytics de ventas persistido")
+                else:
+                    logger.warning("  ⚠️ No se pudo persistir analytics de ventas (no bloquea el motor)")
+
         except Exception as e:
             msg = str(e)[:300]
             logger.error(f"  ❌ Error en tenant {tenant_id}: {msg}")
@@ -660,14 +650,35 @@ async def run(
 
     logger.info("=" * 60)
     logger.info(f"🚀 Motor VENTAS iniciado — {inicio.strftime('%Y-%m-%d %H:%M:%S')}")
-    logger.info(f"   Tenants a procesar: {len(TENANTS)}")
+    tenants_activos = [t for t in TENANTS if t.get("activo", True)]
+    if _SOLO_TENANT:
+        tenants_activos = [t for t in tenants_activos if t["id"] == _SOLO_TENANT]
+        logger.info(f"   Filtro RPA_VENTAS_SOLO_TENANT={_SOLO_TENANT}")
+    logger.info(f"   Tenants a procesar: {len(tenants_activos)} (activos)")
     logger.info(f"   Rango de fechas: {fecha_desde} → {fecha_hasta}")
     logger.info(f"   Headless: {HEADLESS}")
+    if _KEEP_LOCAL_XLSX:
+        logger.info("   RPA_VENTAS_KEEP_LOCAL_XLSX: conservando .xlsx en downloads/")
     logger.info("=" * 60)
+
+    if not tenants_activos:
+        logger.error("No hay tenants para procesar (revisar activo y RPA_VENTAS_SOLO_TENANT).")
+        return {
+            "motor":        "VENTAS",
+            "inicio":       inicio.strftime("%Y-%m-%d %H:%M:%S"),
+            "fin":          datetime.now(AR_TZ).strftime("%Y-%m-%d %H:%M:%S"),
+            "duracion_min": 0.0,
+            "fecha_desde":  fecha_desde,
+            "fecha_hasta":  fecha_hasta,
+            "ok":           0,
+            "sin_cambios":  0,
+            "errores":      0,
+            "detalle":      [],
+        }
 
     resultados = []
 
-    for tenant in TENANTS:
+    for tenant in tenants_activos:
         # Cada tenant corre en su propio browser independiente.
         # Si uno falla, el siguiente arranca desde cero sin estado contaminado.
         resultado = await _procesar_tenant(tenant, fecha_desde, fecha_hasta)
@@ -694,9 +705,10 @@ async def run(
     logger.info("\n" + "=" * 60)
     logger.info("📊 RESUMEN MOTOR VENTAS")
     logger.info(f"   Duración:        {duracion:.1f} minutos")
-    logger.info(f"   ✅ Tenants OK:   {ok_total}/{len(TENANTS)}")
-    logger.info(f"   ℹ️  Sin cambios: {sin_cambios_total}/{len(TENANTS)}")
-    logger.info(f"   ❌ Con errores:  {errores_total}/{len(TENANTS)}")
+    n = len(tenants_activos)
+    logger.info(f"   ✅ Tenants OK:   {ok_total}/{n}")
+    logger.info(f"   ℹ️  Sin cambios: {sin_cambios_total}/{n}")
+    logger.info(f"   ❌ Con errores:  {errores_total}/{n}")
     logger.info("=" * 60 + "\n")
 
     return {

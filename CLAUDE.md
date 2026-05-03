@@ -237,6 +237,8 @@ Vendedor sube foto → bot pide nro cliente → foto → Supabase Storage → ex
 - `DatePicker` (`@/components/ui/date-picker`) para campos de fecha — no `<input type="date">`.
 - shadcn instalados: Button, Card, Input, Label, Avatar, Badge, Skeleton, Select, Alert, Dialog, Sheet, Tabs, Progress, Tooltip, Separator, ScrollArea, Form, Popover, Checkbox, Table, DropdownMenu, Sonner. Agregar: `npx shadcn@latest add <component>`.
 - Toasts: `toast()` de `sonner`. Loading: `<Skeleton>`. Errores: `<Alert variant="destructive">`.
+- `Sidebar` quedó desactivado para layout limpio; herramientas superadmin deben exponerse en `Topbar` vía menú flotante.
+- Para `TabSupervision` en `/modo-mapa`, usar prop `mapOnly` cuando se necesite vista cartográfica pura sin bloques de CC/Exhibiciones.
 
 ### shadcn crítico
 `cn()` para clases condicionales. `size-*` para dimensiones iguales. Colores semánticos (`text-muted-foreground`, `bg-primary`) — nunca hex hardcodeado. `Avatar` siempre con `AvatarFallback`. `Dialog`/`Sheet` siempre con `Title`.

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Helpers compartidos entre routers:
+  - resolve_vendedor_v2_for_integrante : binding + grupo Telegram + fila
   - _get_erp_name_map : resuelve nombre Telegram → nombre ERP
   - _enrich_and_store_cc : enriquece y persiste filas de cc_detalle
   - Exhibiciones QA (Tabaco): ocultar ranking / visor salvo superadmin
@@ -8,6 +9,7 @@ Helpers compartidos entre routers:
 import logging
 import re
 import unicodedata
+from typing import Any
 
 from core.tenant_tables import tenant_table_name
 from db import sb
@@ -37,6 +39,83 @@ def _looks_like_full_name(s: str | None) -> bool:
     return len([p for p in n.split(" ") if p]) >= 2
 
 
+def resolve_vendedor_v2_for_integrante(
+    ig: dict[str, Any],
+    binding_rows: list[dict[str, Any]] | None,
+    *,
+    ignore_direct: bool = False,
+) -> int | None:
+    """
+    id_vendedor_v2 efectivo para una fila integrantes_grupo + bindings Supabase.
+
+    Precedencia (ignore_direct=False):
+      1) id_vendedor_v2 propio en la fila (incluye supervisores por grupo Telegram)
+      2) Binding con mismo telegram_user_id Y telegram_group_id (cuando ambos existen)
+      3) Un solo id_vendedor entre todos los bindings de ese usuario Telegram
+
+    Con ignore_direct=True se omite sólo la fila (paso 1), útil en diagnósticos de binding.
+    """
+    if not ignore_direct:
+        v_own = ig.get("id_vendedor_v2")
+        if v_own is not None:
+            try:
+                return int(v_own)
+            except (TypeError, ValueError):
+                pass
+
+    rows = binding_rows or []
+    tg_raw = ig.get("telegram_user_id")
+    if tg_raw is None:
+        return None
+    try:
+        tg_i = int(tg_raw)
+    except (TypeError, ValueError):
+        return None
+
+    rel: list[dict[str, Any]] = []
+    for r in rows:
+        if r.get("telegram_user_id") is None:
+            continue
+        try:
+            if int(r["telegram_user_id"]) != tg_i:
+                continue
+        except (TypeError, ValueError):
+            continue
+        if r.get("id_vendedor_v2") is None:
+            continue
+        rel.append(r)
+    if not rel:
+        return None
+
+    gid_raw = ig.get("telegram_group_id")
+    gid: int | None
+    try:
+        gid = int(gid_raw) if gid_raw is not None else None
+    except (TypeError, ValueError):
+        gid = None
+
+    if gid is not None:
+        for r in rel:
+            bg = r.get("telegram_group_id")
+            if bg is None:
+                continue
+            try:
+                if int(bg) == gid:
+                    return int(r["id_vendedor_v2"])
+            except (TypeError, ValueError):
+                continue
+
+    vids = set()
+    for r in rel:
+        try:
+            vids.add(int(r["id_vendedor_v2"]))
+        except (TypeError, ValueError):
+            continue
+    if len(vids) == 1:
+        return next(iter(vids))
+    return None
+
+
 def _get_erp_name_map(dist_id: int) -> dict:
     """
     Devuelve dict { nombre_integrante_lower → nombre_erp } para un distribuidor.
@@ -63,26 +142,20 @@ def _get_erp_name_map(dist_id: int) -> dict:
                 if v.get("id_vendedor") is not None:
                     vend_id_to_name[int(v["id_vendedor"])] = nombre_erp
 
-        bindings_res = (
+        bindings_rows: list = (
             sb.table("vendedores_telegram_binding")
-            .select("telegram_user_id, id_vendedor_v2")
+            .select("telegram_user_id, id_vendedor_v2, telegram_group_id")
             .eq("id_distribuidor", dist_id)
             .execute()
+            .data
+            or []
         )
-        binding_map: dict[int, int] = {}
-        for b in bindings_res.data or []:
-            tg_uid = b.get("telegram_user_id")
-            id_v2 = b.get("id_vendedor_v2")
-            if tg_uid is None or id_v2 is None:
-                continue
-            try:
-                binding_map[int(tg_uid)] = int(id_v2)
-            except Exception:
-                continue
 
         ig_res = (
             sb.table("integrantes_grupo")
-            .select("nombre_integrante, id_vendedor_v2, id_vendedor_erp, telegram_user_id")
+            .select(
+                "nombre_integrante, id_vendedor_v2, id_vendedor_erp, telegram_user_id, telegram_group_id"
+            )
             .eq("id_distribuidor", dist_id)
             .execute()
         )
@@ -92,12 +165,20 @@ def _get_erp_name_map(dist_id: int) -> dict:
             if not tg_name:
                 continue
             tg_uid = ig.get("telegram_user_id")
-            id_v_erp = ig.get("id_vendedor_v2")
-            try:
-                if tg_uid is not None and int(tg_uid) in binding_map:
-                    id_v_erp = binding_map[int(tg_uid)]
-            except Exception:
-                pass
+            id_v_erp = resolve_vendedor_v2_for_integrante(ig, bindings_rows)
+            has_binding_override = False
+            if tg_uid is not None:
+                has_binding_override = (
+                    resolve_vendedor_v2_for_integrante(
+                        {
+                            "telegram_user_id": tg_uid,
+                            "telegram_group_id": ig.get("telegram_group_id"),
+                            "id_vendedor_v2": None,
+                        },
+                        bindings_rows,
+                    )
+                    is not None
+                )
             if dist_id == 3 and id_v_erp == 30:
                 continue
             nombre_erp = vend_id_to_name.get(id_v_erp) if id_v_erp is not None else None
@@ -112,16 +193,13 @@ def _get_erp_name_map(dist_id: int) -> dict:
                     )
                     continue
                 current = name_map.get(tg_key)
-                has_binding_override = False
-                try:
-                    has_binding_override = tg_uid is not None and int(tg_uid) in binding_map
-                except Exception:
-                    has_binding_override = False
-                # Regla de seguridad: solo mapear por nombre cuando hay nombre+apellido.
-                # Si no, exigir binding explícito para evitar cruces por alias ambiguos.
-                if not has_binding_override and not _looks_like_full_name(tg_name):
+                # Regla de seguridad: solo mapear por nombre cuando hay nombre+apellido
+                # o id_vendedor_v2 explícito. Sin binding ni v2 directo, exigir nombre completo
+                # para evitar cruces por alias ambiguos ("Romina", "Ricardo", "Luciano").
+                has_direct_v2 = ig.get("id_vendedor_v2") is not None
+                if not has_binding_override and not has_direct_v2 and not _looks_like_full_name(tg_name):
                     continue
-                if current and current != nombre_erp and not has_binding_override:
+                if current and current != nombre_erp and not has_binding_override and not has_direct_v2:
                     # Evita que nombres ambiguos (ej: "Nacho") pisen un mapping ya resuelto
                     # por una fila más confiable.
                     continue
@@ -133,10 +211,17 @@ def _get_erp_name_map(dist_id: int) -> dict:
                     if legacy_current and legacy_current != nombre_erp and not has_binding_override:
                         continue
                     name_map[legacy_key] = nombre_erp
-        # Tabaco: durante la transición de padrón algunos eventos siguen llegando con
-        # etiqueta legacy "RICARDO LAURO." aunque el vendedor activo es ALVAREZ.
-        if dist_id == 3 and "ricardo alvarez" in erp_identity_map:
-            name_map["ricardo lauro."] = erp_identity_map["ricardo alvarez"]
+        # Unificación operativa: eventos/motores pueden llegar con "Matias Wutrich"
+        # pero tablero/ranking deben consolidar bajo "Ivan Wutrich".
+        # Se aplica solo cuando Ivan exista en el mapa ERP del tenant.
+        ivan_canon = None
+        for k, v in erp_identity_map.items():
+            if "ivan" in k and "wutrich" in k:
+                ivan_canon = v
+                break
+        if ivan_canon:
+            name_map["matias wutrich"] = ivan_canon
+            name_map["matias wutrich."] = ivan_canon
         return name_map
     except Exception as e:
         logger.warning(f"_get_erp_name_map dist={dist_id} falló: {e}")
@@ -371,12 +456,18 @@ def build_integrante_to_erp_name(dist_id: int) -> dict[int, str]:
     Fuente de verdad absoluta: {id_integrante → nombre_erp} para un distribuidor.
 
     Orden de prioridad:
-    1. vendedores_telegram_binding (telegram_user_id → id_vendedor_v2 → nombre_erp)
-    2. integrantes_grupo.id_vendedor_v2 → nombre_erp
+    1. integrantes_grupo.id_vendedor_v2 cuando está definido (incluye supervisores por grupo)
+    2. vendedores_telegram_binding acotado por telegram_group_id o único vendor por tg uid
     3. nombre_integrante (nombre Telegram crudo, último recurso)
 
     Excepción Tabaco (dist=3, id_vendedor_v2=30 = Ivan Soto): los helpers de Ivan
     (Monchi, Jorge) conservan su nombre Telegram para no atribuirle exhibiciones ajenas.
+
+    Safety net para usuarios de 1 solo grupo: si nombre_integrante coincide exactamente
+    con un vendedor ERP distinto al resuelto por id_vendedor_v2, el dato en BD está
+    cruzado — se usa el vendedor que corresponde al nombre para evitar mezclas.
+    Este check NO aplica a usuarios multi-grupo (supervisores) porque su id_vendedor_v2
+    intencional puede diferir de su propio nombre.
     """
     try:
         t_vendedores = tenant_table_name("vendedores_v2", dist_id)
@@ -391,29 +482,39 @@ def build_integrante_to_erp_name(dist_id: int) -> dict[int, str]:
             for v in (vend_res.data or [])
             if v.get("id_vendedor") is not None and (v.get("nombre_erp") or "").strip()
         }
+        # Reverse map: nombre_erp normalizado → id_vendedor (para el safety net)
+        erp_name_to_vid: dict[str, int] = {
+            name.lower(): vid for vid, name in vend_id_to_name.items()
+        }
 
-        bind_res = (
+        bindings_rows_b: list = (
             sb.table("vendedores_telegram_binding")
-            .select("telegram_user_id, id_vendedor_v2")
+            .select("telegram_user_id, id_vendedor_v2, telegram_group_id")
             .eq("id_distribuidor", dist_id)
             .execute()
+            .data
+            or []
         )
-        binding_by_tg: dict[int, int] = {}
-        for b in (bind_res.data or []):
-            tg_uid = b.get("telegram_user_id")
-            v2 = b.get("id_vendedor_v2")
-            if tg_uid is not None and v2 is not None:
-                try:
-                    binding_by_tg[int(tg_uid)] = int(v2)
-                except Exception:
-                    pass
 
         ig_res = (
             sb.table("integrantes_grupo")
-            .select("id_integrante, telegram_user_id, nombre_integrante, id_vendedor_v2")
+            .select(
+                "id_integrante, telegram_user_id, telegram_group_id, nombre_integrante, id_vendedor_v2"
+            )
             .eq("id_distribuidor", dist_id)
             .execute()
         )
+
+        # UIDs que aparecen en más de 1 fila = posibles supervisores/multi-grupo.
+        # Para ellos NO aplicamos el safety net: su id_vendedor_v2 cruzado es intencional.
+        from collections import Counter as _Counter
+        tg_uid_row_count: _Counter[int] = _Counter(
+            int(ig["telegram_user_id"])
+            for ig in (ig_res.data or [])
+            if ig.get("telegram_user_id") is not None
+        )
+        multi_group_uids: set[int] = {uid for uid, cnt in tg_uid_row_count.items() if cnt > 1}
+
         result: dict[int, str] = {}
         for ig in (ig_res.data or []):
             iid = ig.get("id_integrante")
@@ -422,21 +523,7 @@ def build_integrante_to_erp_name(dist_id: int) -> dict[int, str]:
             iid = int(iid)
             tg_name = (ig.get("nombre_integrante") or "").strip()
 
-            vid: int | None = None
-            tg_uid = ig.get("telegram_user_id")
-            if tg_uid is not None:
-                try:
-                    vid = binding_by_tg.get(int(tg_uid))
-                except Exception:
-                    pass
-
-            if vid is None:
-                v2 = ig.get("id_vendedor_v2")
-                if v2 is not None:
-                    try:
-                        vid = int(v2)
-                    except Exception:
-                        pass
+            vid = resolve_vendedor_v2_for_integrante(ig, bindings_rows_b)
 
             if vid is not None:
                 # Tabaco: helpers de Ivan Soto conservan nombre Telegram propio
@@ -446,6 +533,26 @@ def build_integrante_to_erp_name(dist_id: int) -> dict[int, str]:
                     continue
                 nombre_erp = vend_id_to_name.get(vid)
                 if nombre_erp:
+                    # Safety net: usuarios de 1 solo grupo con nombre completo que
+                    # coincide exactamente con otro vendedor ERP → el id_vendedor_v2
+                    # está cruzado en BD. Usamos el vendedor del nombre.
+                    tg_uid_raw = ig.get("telegram_user_id")
+                    is_single_group = (
+                        tg_uid_raw is None
+                        or int(tg_uid_raw) not in multi_group_uids
+                    )
+                    if is_single_group and tg_name and _looks_like_full_name(tg_name):
+                        matched_vid = erp_name_to_vid.get(tg_name.lower())
+                        if matched_vid is not None and matched_vid != vid:
+                            corrected = vend_id_to_name.get(matched_vid)
+                            if corrected:
+                                logger.warning(
+                                    f"build_integrante_to_erp_name dist={dist_id}: "
+                                    f"id_integrante={iid} nombre='{tg_name}' → id_vendedor_v2={vid} "
+                                    f"({nombre_erp}) CRUZADO, corrigiendo a {matched_vid} ({corrected})"
+                                )
+                                result[iid] = corrected
+                                continue
                     result[iid] = nombre_erp
                     continue
 

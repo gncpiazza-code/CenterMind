@@ -74,7 +74,7 @@ const sectionVariants = {
 // ── Página principal ──────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
-  const { user }       = useAuth();
+  const { user, effectiveDistribuidorId } = useAuth();
   const queryClient    = useQueryClient();
   const initVars       = getCurrentYearMonth();
 
@@ -88,9 +88,9 @@ export default function DashboardPage() {
   const prevKpisRef = useRef<KPIs | undefined>(undefined);
 
   const periodo = periodoString(year, month, day);
-  const distId  = user?.id_distribuidor || 0;
+  const distId = effectiveDistribuidorId ?? 0;
   const isSuper = user?.is_superadmin;
-  const enabled = !!user;
+  const enabled = !!user && distId > 0;
 
   // Mejora #17: estado de refresh manual
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
@@ -365,7 +365,7 @@ export default function DashboardPage() {
                   sucursales={sucursales}
                   kpis={kpis ?? null}
                   evolucion={evolucion}
-                  distId={user?.id_distribuidor || 0}
+                  distId={distId}
                   nombreEmpresa={user?.nombre_empresa || "Distribuidora"}
                 />
               </div>

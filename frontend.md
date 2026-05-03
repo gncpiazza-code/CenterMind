@@ -174,6 +174,66 @@ Layout conservado (overlay-based): barra superior semitransparente + barra infer
 - Todos los calendarios detectados en `src/` migrados a `DatePicker` (sin `input type="date"`).
 - `DatePicker` soporta `disabled` para formularios en modo lectura (ej. edición de vendedor sin permiso).
 
+### 13. Rediseño de Navegación Global — TopModeTabs (29/04/2026)
+
+**Archivo**: `shelfy-frontend/src/components/layout/TopModeTabs.tsx`
+
+Reemplaza el modelo sidebar-para-todos por navegación top-center para usuarios no-superadmin.
+
+| Componente | Cambio |
+|---|---|
+| `TopModeTabs.tsx` | Nuevo. 8 tabs icono+label filtrados por rol+permisoKey; active state con borde bottom violeta; visible solo ≥md. |
+| `Topbar.tsx` | Centro: TopModeTabs (desktop) o title page (mobile). Derecha: avatar + logout y menú flotante superadmin con ícono `Crown` para herramientas ocultas. |
+| `Sidebar.tsx` | Desactivado (retorna `null`) para eliminar panel izquierdo y priorizar layout limpio de mapa/paneles. |
+| `BottomNav.tsx` | Sincronizado con los mismos 8 tabs de TopModeTabs (agrega `/modo-mapa`, elimina Academy/Reportes/Admin). |
+
+**Tabs de navegación (`TABS`):**
+
+| href | label | permisoKey |
+|---|---|---|
+| `/visor` | Evaluar | `action_evaluar_exhibiciones` |
+| `/dashboard` | Dashboard | `menu_dashboard` |
+| `/supervision` | Supervisión | `menu_supervision` |
+| `/modo-mapa` | Mapa | `menu_supervision` |
+| `/objetivos` | Objetivos | `menu_objetivos` |
+| `/fuerza-ventas` | F. Ventas | `menu_fuerza_ventas` |
+| `/modo-oficina` | Oficina | `menu_modo_oficina` |
+| `/galeria-exhibiciones` | Galería | `menu_galeria_exhibiciones` |
+
+### 14. Nueva Ruta `/modo-mapa` (29/04/2026)
+
+**Archivo**: `shelfy-frontend/src/app/modo-mapa/page.tsx`
+
+- Renderiza `TabSupervision` en modo `mapOnly` (sin secciones de Cuentas Corrientes/Exhibiciones embebidas).
+- Roles: `superadmin`, `admin`, `supervisor`, `directorio`.
+- Guard: redirect a `/dashboard` si el rol no tiene acceso.
+
+### 14c. Panel Analítico — Flujo Sucursal→Vendedor obligatorio (30/04/2026)
+- `supervision/page.tsx`: ambas queries gateadas en `!!selectedVendedor` — nada carga hasta elegir vendedor.
+- Estado guiado (placeholder icon + texto) en ambos paneles cuando no hay vendedor seleccionado.
+- `vendedorOptions` derivados de `fetchVendedoresSupervision` (filtrado por sucursal), sin dependencia circular con datos de ventas/CC.
+- CC panel: lista plana de clientes del vendedor seleccionado con sort Deuda/Antigüedad (toggle asc/desc) y botón Imprimir.
+- Backend `supervision_cuentas` acepta `?vendedor=` (filtro server-side, match exacto case-insensitive en `vendedor_nombre`).
+
+### 14b. Panel Analítico — Filtro temporal “Hoy” (30/04/2026)
+- `supervision/page.tsx` agrega selector rápido `Hoy / 7d / 15d / 90d` para ventas.
+- `Hoy` mapea a `dias=1` contra `/api/supervision/ventas/{dist}`.
+- La tabla izquierda permite seleccionar vendedor y desplegar clientes con detalle por comprobante, mostrando badge de recibos detectados (`RECIBO $...`) cuando aparece operación de recibo en la misma fecha operativa.
+
+### 15. Panel Analítico de Supervisión `/supervision` (29/04/2026)
+
+**Archivo**: `shelfy-frontend/src/app/supervision/page.tsx` (reescrito)
+
+- **KPI cards** (6): Facturación total, Recaudación, Facturas, Deuda CC total, Clientes deudores, Última sincronización CC.
+- **Tabla Ventas**: `VendedorVentas[]` ordenable por monto/facturas/recaudación, con badge de tipo y deuda inline.
+- **Tabla CC**: `CuentasSupervisionVendedor[]` por sucursal, con deuda total y clientes deudores.
+- **Filtro sucursal**: `Select` alimentado desde `vendedores` (valores únicos de `sucursal_nombre`). El filtro de ventas es **client-side** (cross-join con `nombre_vendedor`); el de CC es **server-side** (param `?sucursal=` enviado al endpoint).
+- **Query keys**: `supervisionPanelKeys.ventas(distId, dias)`, `supervisionPanelKeys.cuentas(distId, sucursalParam)` — ambas incluyen parámetros relevantes para invalidación correcta.
+
+**Bugs críticos corregidos en la misma sesión:**
+- `ventasFiltradas`: usaba `v.nombre_erp || v.vendedor` para cruzar con el resultado de ventas; backend devuelve `nombre_vendedor`. Siempre retornaba Set vacío → 0 vendedores visibles con filtro activo. Fix: `v.nombre_vendedor`.
+- KPIs globales ignoraban el filtro de sucursal (usaban `ventasData.total_*`). Fix: calculados con `.reduce()` sobre `ventasFiltradas`.
+
 ### 13. Nombres ERP de vendedores unificados (15/04/2026)
 - `src/lib/api.ts` agrega normalización central `resolveVendorERPName` para resolver display name de vendedor priorizando `nombre_erp`.
 - Se aplica en respuestas de ranking, supervisión y objetivos para que la UI no mezcle nombres legacy o aliases de Telegram.

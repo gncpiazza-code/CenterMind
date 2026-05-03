@@ -696,7 +696,7 @@ function ReportesContent() {
                           Evolución de Cargas
                         </div>
                         <div className="h-64 w-full">
-                          <ResponsiveContainer width="100%" height="100%">
+                          <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={200}>
                             <BarChart data={timelineData}>
                               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
                               <XAxis dataKey="fecha" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />

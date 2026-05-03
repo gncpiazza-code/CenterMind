@@ -10,7 +10,7 @@ import re
 import tempfile
 import unicodedata
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, Set
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
 
@@ -847,6 +847,57 @@ def revertir(req: RevertirRequest, user_payload=Depends(verify_auth)):
 
 # ─── Supervisión: vendedores, rutas, clientes ─────────────────────────────────
 
+def _vendor_display_names_for_sucursal_erp(dist_id: int, sucursal_param: Optional[str]) -> Optional[Set[str]]:
+    """
+    Conjunto de nombres de vendedor tal como llegan/consolidan desde ventas (post _get_erp_name_map),
+    filtrados por nombre ERP de sucursal (mismo valor que usa el frontend al elegir sucursal).
+    None = sin filtro de sucursal.
+    """
+    if sucursal_param is None:
+        return None
+    needle = str(sucursal_param).strip().lower()
+    if not needle:
+        return None
+    t_vendedores = tenant_table_name("vendedores_v2", dist_id)
+    t_sucursales = tenant_table_name("sucursales_v2", dist_id)
+    suc_res = (
+        sb.table(t_sucursales)
+        .select("id_sucursal,nombre_erp")
+        .eq("id_distribuidor", dist_id)
+        .execute()
+    )
+    matching_ids = set()
+    for r in suc_res.data or []:
+        name = ((r.get("nombre_erp") or "").strip().lower())
+        if name == needle:
+            try:
+                matching_ids.add(int(r["id_sucursal"]))
+            except Exception:
+                continue
+    if not matching_ids:
+        return set()
+
+    vend_res = (
+        sb.table(t_vendedores)
+        .select("nombre_erp,id_sucursal")
+        .eq("id_distribuidor", dist_id)
+        .execute()
+    )
+    erp_map = _get_erp_name_map(dist_id)
+    names: Set[str] = set()
+    for v in vend_res.data or []:
+        try:
+            sid = v.get("id_sucursal")
+            sid_int = int(sid) if sid is not None else None
+        except Exception:
+            sid_int = None
+        if sid_int is None or sid_int not in matching_ids:
+            continue
+        tg = (v.get("nombre_erp") or "").strip()
+        names.add(erp_map.get(tg.lower(), tg))
+    return names
+
+
 @router.get("/api/supervision/vendedores/{dist_id}", tags=["Supervisión"])
 def supervision_vendedores(dist_id: int, user_payload=Depends(verify_auth)):
     check_dist_permission(user_payload, dist_id)
@@ -1106,10 +1157,22 @@ def supervision_clientes(id_ruta: int, user_payload=Depends(verify_auth)):
 
 
 @router.get("/api/supervision/ventas/{dist_id}", tags=["Supervisión"])
-def supervision_ventas(dist_id: int, dias: int = 30, user_payload=Depends(verify_auth)):
+def supervision_ventas(
+    dist_id: int,
+    dias: int = 30,
+    fecha_hasta: Optional[str] = Query(None),
+    sucursal: Optional[str] = Query(None),
+    vendedor: Optional[str] = Query(None),
+    user_payload=Depends(verify_auth),
+):
     check_dist_permission(user_payload, dist_id)
     try:
-        fecha_desde = (datetime.now() - timedelta(days=dias)).strftime("%Y-%m-%d")
+        if fecha_hasta:
+            base_hasta = datetime.strptime(fecha_hasta, "%Y-%m-%d")
+        else:
+            base_hasta = datetime.now()
+        fecha_hasta = base_hasta.strftime("%Y-%m-%d")
+        fecha_desde = (base_hasta - timedelta(days=max(1, dias) - 1)).strftime("%Y-%m-%d")
 
         res = (
             sb.table("ventas_v2")
@@ -1121,7 +1184,23 @@ def supervision_ventas(dist_id: int, dias: int = 30, user_payload=Depends(verify
             .execute()
         )
 
-        rows = res.data or []
+        def _row_fecha_iso(val) -> str:
+            """Normaliza fecha de fila (date / timestamps / texto) a YYYY-MM-DD para comparar."""
+            if val is None:
+                return ""
+            s = str(val).strip()
+            if len(s) >= 10 and s[4] == "-" and s[7] == "-":
+                return s[:10]
+            try:
+                return datetime.fromisoformat(s.replace("Z", "+00:00")).date().isoformat()
+            except Exception:
+                return s[:10] if len(s) >= 10 else ""
+
+        rows = []
+        for r in res.data or []:
+            fk = _row_fecha_iso(r.get("fecha"))
+            if fk and fecha_desde <= fk <= fecha_hasta:
+                rows.append(r)
         erp_name_map = _get_erp_name_map(dist_id)
         sucursal_norm = (sucursal or "").strip().lower()
         vendedor_norm = (vendedor or "").strip().lower()
@@ -1278,7 +1357,16 @@ def supervision_ventas(dist_id: int, dias: int = 30, user_payload=Depends(verify
             if not is_sa and dist_id == 3 and v.lower() == "nacho":
                 continue
             if v not in vendors:
-                vendors[v] = {"vendedor": v, "total_facturas": 0, "monto_total": 0.0, "monto_recaudado": 0.0, "transacciones": []}
+                vendors[v] = {
+                    "vendedor": v,
+                    "total_facturas": 0,
+                    "monto_total": 0.0,
+                    "monto_recaudado": 0.0,
+                    "total_bultos": 0.0,
+                    "clientes_bultos": [],
+                    "top_articulos": [],
+                    "transacciones": [],
+                }
             vd = vendors[v]
             vd["total_facturas"] += 1
             vd["monto_total"]    += float(row.get("monto_total") or 0)
@@ -1298,12 +1386,51 @@ def supervision_ventas(dist_id: int, dias: int = 30, user_payload=Depends(verify
                     "articulos": articulos_by_comp.get(comp_key, []),
                 })
 
+        # Acoplar agregados de bultos y top artículos al resultado de cada vendedor.
+        for vend_name, vend_payload in vendors.items():
+            clientes_rows = []
+            for (vv, _cli), data in detalles_by_vendor_client.items():
+                if vv != vend_name:
+                    continue
+                top_cli_art = sorted(
+                    [
+                        {"articulo": a, "bultos": round(float(b), 2)}
+                        for a, b in (data.get("articulos") or {}).items()
+                    ],
+                    key=lambda x: x["bultos"],
+                    reverse=True,
+                )[:5]
+                clientes_rows.append(
+                    {
+                        "cliente": data["cliente"],
+                        "total_bultos": round(float(data.get("total_bultos") or 0), 2),
+                        "top_articulos": top_cli_art,
+                    }
+                )
+            clientes_rows.sort(key=lambda x: x["total_bultos"], reverse=True)
+            vend_payload["clientes_bultos"] = clientes_rows
+            vend_payload["total_bultos"] = round(sum(x["total_bultos"] for x in clientes_rows), 2)
+
+            vend_top = sorted(
+                [
+                    {"articulo": a, "bultos": round(float(b), 2)}
+                    for a, b in (top_articulos_by_vendor.get(vend_name) or {}).items()
+                ],
+                key=lambda x: x["bultos"],
+                reverse=True,
+            )[:10]
+            vend_payload["top_articulos"] = vend_top
+
         result = sorted(vendors.values(), key=lambda x: x["monto_total"], reverse=True)
         return {
             "dias": dias, "fecha_desde": fecha_desde,
             "total_facturado": round(sum(v["monto_total"] for v in result), 2),
             "total_recaudado": round(sum(v["monto_recaudado"] for v in result), 2),
             "total_facturas": sum(v["total_facturas"] for v in result),
+            "fuente": {
+                "ventas": "ventas_v2",
+                "detalle_articulos": "ventas_detalle_v2",
+            },
             "vendedores": result,
         }
     except Exception as e:
@@ -1312,7 +1439,13 @@ def supervision_ventas(dist_id: int, dias: int = 30, user_payload=Depends(verify
 
 
 @router.get("/api/supervision/cuentas/{dist_id}", tags=["Supervisión"])
-def supervision_cuentas(dist_id: int, sucursal: Optional[str] = Query(None), user_payload=Depends(verify_auth)):
+def supervision_cuentas(
+    dist_id: int,
+    sucursal: Optional[str] = Query(None),
+    fecha: Optional[str] = Query(None),
+    vendedor: Optional[str] = Query(None),
+    user_payload=Depends(verify_auth),
+):
     check_dist_permission(user_payload, dist_id)
     try:
         try:
@@ -1320,14 +1453,14 @@ def supervision_cuentas(dist_id: int, sucursal: Optional[str] = Query(None), use
         except ValueError:
             raise HTTPException(status_code=400, detail="ID de distribuidor inválido")
 
-        snap_res = (
+        q_snap = (
             sb.table("cc_detalle")
             .select("fecha_snapshot")
             .eq("id_distribuidor", d_id)
-            .order("fecha_snapshot", desc=True)
-            .limit(1)
-            .execute()
         )
+        if fecha:
+            q_snap = q_snap.lte("fecha_snapshot", fecha)
+        snap_res = q_snap.order("fecha_snapshot", desc=True).limit(1).execute()
         if not snap_res.data:
             logger.warning(f"No se encontró fecha_snapshot en cc_detalle para dist_id={d_id}")
             return {"fecha": None, "metadatos": {}, "vendedores": []}
@@ -1385,6 +1518,22 @@ def supervision_cuentas(dist_id: int, sucursal: Optional[str] = Query(None), use
                 r for r in rows
                 if (r.get("id_vendedor") and r["id_vendedor"] in valid_vend_ids)
                 or (r.get("sucursal_nombre") or "").strip().upper() == norm_filter
+            ]
+
+        # Filtrar por vendedor (server-side).
+        # cc_detalle.vendedor_nombre viene de CHESS con formato "CODE CODE2 - NOMBRE".
+        # selectedVendedor viene de vendedores_v2.nombre_erp (solo el nombre).
+        if vendedor:
+            def _extract_cc_name(vn: str) -> str:
+                """Extrae nombre de 'CODE CODE2 - NOMBRE' → 'NOMBRE'."""
+                if " - " in vn:
+                    return vn.split(" - ", 1)[1].strip().upper()
+                return vn.strip().upper()
+
+            vendedor_filter = _norm_name(vendedor)
+            rows = [
+                r for r in rows
+                if _norm_name(_extract_cc_name(r.get("vendedor_nombre") or "")) == vendedor_filter
             ]
 
         # Cache PDV info for extra metadata (last purchase date)
@@ -2011,10 +2160,13 @@ def objetivos_por_vendedor(vendedor_id: int, user_payload=Depends(verify_auth)):
         q = sb.table("objetivos").select("*").eq("id_vendedor", vendedor_id)
         if not user_payload.get("is_superadmin"):
             dist_id = user_payload.get("id_distribuidor")
-            if dist_id:
-                q = q.eq("id_distribuidor", dist_id)
+            if not dist_id:
+                raise HTTPException(status_code=403, detail="Sin distribuidora asignada")
+            q = q.eq("id_distribuidor", dist_id)
         res = q.order("created_at", desc=True).execute()
         return res.data or []
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error en objetivos_por_vendedor vendedor_id={vendedor_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -2813,6 +2965,39 @@ def supervision_sync_status(dist_id: int, user_payload=Depends(verify_auth)):
         except Exception as e:
             logger.warning(f"[sync-status] error leyendo CC dist={dist_id}: {e}")
 
-        return {"padron": padron_data, "cuentas_corrientes": cc_data}
+        ventas_data: dict = {"last_updated": None, "count": 0}
+        try:
+            run_ventas = (
+                sb.table("motor_runs")
+                .select("finalizado_en,iniciado_en,registros")
+                .eq("motor", "ventas")
+                .eq("dist_id", dist_id)
+                .eq("estado", "ok")
+                .order("finalizado_en", desc=True)
+                .limit(1)
+                .execute()
+            )
+            if run_ventas.data:
+                row = run_ventas.data[0]
+                ventas_data["last_updated"] = row.get("finalizado_en") or row.get("iniciado_en")
+                try:
+                    ventas_data["count"] = int(row.get("registros") or 0)
+                except Exception:
+                    ventas_data["count"] = 0
+            if not ventas_data["last_updated"]:
+                res_v = (
+                    sb.table("ventas_v2")
+                    .select("created_at")
+                    .eq("id_distribuidor", dist_id)
+                    .order("created_at", desc=True)
+                    .limit(1)
+                    .execute()
+                )
+                if res_v.data:
+                    ventas_data["last_updated"] = res_v.data[0]["created_at"]
+        except Exception as e:
+            logger.warning(f"[sync-status] error leyendo ventas dist={dist_id}: {e}")
+
+        return {"padron": padron_data, "cuentas_corrientes": cc_data, "ventas": ventas_data}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

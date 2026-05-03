@@ -20,12 +20,18 @@ from core.helpers import _enrich_and_store_cc
 from core.security import verify_auth, verify_key, check_dist_permission
 from core.tenant_tables import tenant_table_name
 from db import sb
-from models.schemas import ERPConfigAlertas
+from models.schemas import ERPConfigAlertas, RendimientoCalleAnalyticsIn, VentasComprobantesAnalyticsIn
 from services.cuentas_corrientes_service import procesar_cuentas_corrientes_service
 from services.erp_ingestion_service import erp_service
 from services.padron_ingestion_service import padron_service
 from services.ventas_detalle_ingestion_service import ingest_detallado as ventas_detalle_ingest
 from services.ventas_ingestion_service import ingest as ventas_ingest, TENANT_DIST_MAP
+from services.ventas_detalle_ingestion_service import ingest_detallado as ventas_detalle_ingest
+from services.rendimiento_calle_analytics_service import (
+    obtener_analytics_rendimiento_calle,
+    persistir_analisis_rendimiento_calle,
+)
+from services.ventas_analytics_service import persistir_analisis_comprobantes
 
 logger = logging.getLogger("ShelfyAPI")
 router = APIRouter()
@@ -435,6 +441,69 @@ async def motor_ventas(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Error en motor_ventas ({tenant_id}/{tipo}): {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/motor/rendimiento-calle-analytics", tags=["Motores RPA"])
+async def motor_rendimiento_calle_analytics(body: RendimientoCalleAnalyticsIn):
+    """
+    Persiste KPI JSON de Rendimiento en calle (SIGO) en `rendimiento_calle_analytics_runs`.
+    Para tenants con split por sucursal (`real`/franquiciados), el payload debe traer en
+    `meta.id_distribuidor` el distrito destino.
+    """
+    try:
+        return persistir_analisis_rendimiento_calle(body.tenant_id, body.payload)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"motor_rendimiento_calle_analytics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/motor/rendimiento-calle-analytics", tags=["Motores RPA"])
+async def motor_rendimiento_calle_analytics_list(
+    tenant_id: str = Query(..., description="Tenant RPA (tabaco/aloma/liver/real/extra/gyg)"),
+    fecha_operativa: Optional[str] = Query(None, description="Filtro YYYY-MM-DD"),
+    sucursal_nombre: Optional[str] = Query(None),
+    limit: int = Query(20, ge=1, le=500),
+):
+    """
+    Lista runs persistidos de rendimiento calle con KPIs principales y payload.
+    """
+    try:
+        return obtener_analytics_rendimiento_calle(
+            tenant_id,
+            fecha_operativa=fecha_operativa,
+            sucursal_nombre=sucursal_nombre,
+            limit=limit,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"motor_rendimiento_calle_analytics_list: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/motor/ventas-analytics", tags=["Motores RPA"])
+async def motor_ventas_analytics(body: VentasComprobantesAnalyticsIn):
+    """
+    Persiste KPIs + agregados del análisis resumen/detallado CHESS en tablas
+    ventas_comprobantes_analytics_runs / ventas_comprobantes_agg_*.
+    El campo `payload` debe coincidir con el JSON emitido por
+    ShelfMind-RPA/scripts/analizar_ventas_comprobantes.py (clave `payload` envuelve
+    financiero_resumen, lineas_detallado, validacion_fcvtas y opcionalmente archivos).
+    """
+    try:
+        return persistir_analisis_comprobantes(
+            body.tenant_id,
+            body.payload,
+            fecha_desde=body.fecha_desde,
+            fecha_hasta=body.fecha_hasta,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"motor_ventas_analytics: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -1,102 +1,179 @@
 "use client";
 
+import { useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
-import { LogOut, Menu, Monitor } from "lucide-react";
+import { Crown, LogOut, Building2 } from "lucide-react";
+import { fetchDistribuidoras } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { useUI } from "@/contexts/UIContext";
 import { cn } from "@/lib/utils";
+import { TopModeTabs } from "./TopModeTabs";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import Link from "next/link";
 
 interface TopbarProps {
-  title: string;
-  /** Mejora #4: muestra badge "LIVE" pulsante junto al título */
+  title?: string;
   live?: boolean;
 }
 
 export function Topbar({ title, live = false }: TopbarProps) {
-  const { user, logout, hasPermiso } = useAuth();
-  const { toggleSidebar } = useUI();
+  const {
+    user,
+    logout,
+    effectiveDistribuidorId,
+    switchDistributor,
+    canSwitchDistribuidor,
+  } = useAuth();
+  const isSuperadmin = user?.is_superadmin;
+
+  const { data: distribuidoras = [] } = useQuery({
+    queryKey: ["tenant-distribuidoras"],
+    queryFn: () => fetchDistribuidoras(true),
+    staleTime: 5 * 60_000,
+    enabled: !!user && canSwitchDistribuidor,
+  });
+
+  useEffect(() => {
+    if (!canSwitchDistribuidor || !distribuidoras.length) return;
+    if (effectiveDistribuidorId != null) return;
+    const d = distribuidoras[0];
+    switchDistributor(d.id, d.nombre);
+  }, [canSwitchDistribuidor, distribuidoras, effectiveDistribuidorId, switchDistributor]);
 
   return (
     <TooltipProvider delayDuration={300}>
-      <header className="h-14 flex items-center justify-between px-4 md:px-6 border-b border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] shrink-0 z-50">
-        <div className="flex items-center gap-3">
-          {/* Toggle sidebar */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={toggleSidebar}
-                className="text-[var(--shelfy-muted)] hover:text-[var(--shelfy-primary)] hover:bg-[var(--shelfy-primary)]/5"
-              >
-                <Menu size={20} strokeWidth={2.5} />
-                <span className="sr-only">Toggle Sidebar</span>
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">Toggle Sidebar</TooltipContent>
-          </Tooltip>
+      <header className="h-14 flex items-center px-3 md:px-5 border-b border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] shrink-0 z-50 gap-2">
 
-          {/* Mejora #4: título con badge LIVE opcional */}
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-[var(--shelfy-text)] font-semibold text-base">{title}</h1>
-            {live && (
-              <span className="relative flex size-1.5" title="Datos en tiempo real">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                <span className="relative inline-flex size-1.5 rounded-full bg-emerald-500" />
-              </span>
-            )}
-          </div>
+        {/* Left: logo */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {/* Logo icon — desktop only */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/WEBICON.svg"
+            alt="Shelfy"
+            className="hidden md:block h-7 w-auto"
+          />
         </div>
 
+        {/* Center: TopModeTabs (desktop) / title (mobile) */}
+        <div className="flex-1 flex items-center justify-center overflow-hidden">
+          {/* Desktop: navigation tabs */}
+          <TopModeTabs />
+
+          {/* Mobile: page title */}
+          {title && (
+            <div className="flex md:hidden items-center gap-2">
+              <h1 className="text-[var(--shelfy-text)] font-semibold text-base truncate">{title}</h1>
+              {live && (
+                <span className="relative flex size-1.5 shrink-0" title="Datos en tiempo real">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex size-1.5 rounded-full bg-emerald-500" />
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Right: user info + logout */}
         {user && (
-          <div className="flex items-center gap-2 md:gap-3">
-            {/* Mejora #21: Modo Oficina visible en mobile también (solo ícono) */}
-            {hasPermiso("menu_modo_oficina") && (
-              <Tooltip>
-                <TooltipTrigger asChild>
+          <div className="flex items-center gap-3 shrink-0">
+            {canSwitchDistribuidor && distribuidoras.length > 0 && (
+              <Select
+                value={effectiveDistribuidorId != null ? String(effectiveDistribuidorId) : String(distribuidoras[0].id)}
+                onValueChange={(v) => {
+                  const id = Number(v);
+                  const d = distribuidoras.find((x) => x.id === id);
+                  if (d) switchDistributor(d.id, d.nombre);
+                }}
+              >
+                <SelectTrigger className="h-8 gap-2 text-xs shrink-0 w-[min(220px,44vw)] sm:w-[220px]" aria-label="Cambiar distribuidora">
+                  <Building2 className="size-3.5 text-amber-500 shrink-0" />
+                  <SelectValue placeholder="Empresa" />
+                </SelectTrigger>
+                <SelectContent align="end" className="max-h-[min(320px,50vh)]">
+                  {distribuidoras.map((d) => (
+                    <SelectItem key={d.id} value={String(d.id)}>
+                      <span className="truncate">{d.nombre}</span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            {isSuperadmin && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
                   <Button
                     variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      window.location.href = "/modo-oficina";
-                      document.documentElement.requestFullscreen?.().catch(() => {});
-                    }}
-                    className={cn(
-                      "flex items-center gap-2 text-[var(--shelfy-muted)] hover:text-[var(--shelfy-primary)] hover:bg-[var(--shelfy-primary)]/5 border border-transparent hover:border-[var(--shelfy-primary)]/20 transition-all"
-                    )}
+                    size="icon"
+                    className="text-[var(--shelfy-muted)] hover:text-violet-600 hover:bg-violet-50"
+                    title="Herramientas superadmin"
                   >
-                    <Monitor size={17} />
-                    {/* texto solo visible en md+ */}
-                    <span className="hidden md:inline text-xs font-bold uppercase tracking-wider">Modo Oficina</span>
+                    <Crown size={17} />
+                    <span className="sr-only">Herramientas superadmin</span>
                   </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">Abrir Modo Oficina (Pantalla Completa)</TooltipContent>
-              </Tooltip>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuLabel>Superadmin</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem asChild>
+                    <Link href="/admin/dashboard">Corridas RPA</Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/admin/match-center">Match Center</Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/admin/permissions">Permisos</Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/admin">Administrar</Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/admin/mapa">Mapa en Vivo</Link>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             )}
-
-            {/* User info */}
             <div className="hidden sm:block text-right">
               <p className="text-xs font-medium text-[var(--shelfy-text)]">{user.usuario}</p>
               <p className="text-[10px] text-[var(--shelfy-muted)]">{user.nombre_empresa}</p>
             </div>
 
-            {/* Avatar */}
             <Avatar className="size-8 shrink-0">
-              <AvatarFallback className="bg-[var(--shelfy-primary)] text-white text-xs font-bold">
+              <AvatarFallback
+                className={cn(
+                  "text-white text-xs font-bold",
+                  isSuperadmin
+                    ? "bg-gradient-to-br from-violet-500 to-indigo-600"
+                    : "bg-[var(--shelfy-primary)]",
+                )}
+              >
                 {user.usuario.charAt(0).toUpperCase()}
               </AvatarFallback>
             </Avatar>
 
-            {/* Logout — mobile only */}
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   variant="ghost"
                   size="icon"
                   onClick={logout}
-                  className="md:hidden text-[var(--shelfy-muted)] hover:text-destructive hover:bg-red-50"
+                  className="text-[var(--shelfy-muted)] hover:text-destructive hover:bg-red-50"
                 >
                   <LogOut size={18} />
                   <span className="sr-only">Cerrar sesión</span>

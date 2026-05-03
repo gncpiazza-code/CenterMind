@@ -1458,6 +1458,13 @@ export async function fetchClienteInfo(distId: number, nombre: string, idCliente
 
 // ── Supervisión Ventas ────────────────────────────────────────────────────────
 
+export interface ArticuloVenta {
+  codigo?: string | null;
+  articulo: string;
+  bultos: number;
+  monto?: number;
+}
+
 export interface TransaccionVenta {
   fecha: string;
   cliente: string | null;
@@ -1467,6 +1474,7 @@ export interface TransaccionVenta {
   es_devolucion: boolean;
   monto_total: number;
   monto_recaudado: number;
+  articulos?: ArticuloVenta[];
 }
 
 export interface VendedorVentas {
@@ -1474,6 +1482,13 @@ export interface VendedorVentas {
   total_facturas: number;
   monto_total: number;
   monto_recaudado: number;
+  total_bultos?: number;
+  clientes_bultos?: Array<{
+    cliente: string;
+    total_bultos: number;
+    top_articulos: Array<{ articulo: string; bultos: number }>;
+  }>;
+  top_articulos?: Array<{ articulo: string; bultos: number }>;
   transacciones: TransaccionVenta[];
 }
 
@@ -1486,9 +1501,19 @@ export interface VentasSupervision {
   vendedores: VendedorVentas[];
 }
 
-export async function fetchVentasSupervision(distId: number, dias = 30): Promise<VentasSupervision> {
+export async function fetchVentasSupervision(
+  distId: number,
+  dias = 30,
+  fechaHasta?: string,
+  sucursal?: string,
+  vendedor?: string,
+): Promise<VentasSupervision> {
+  const params = new URLSearchParams({ dias: String(dias) });
+  if (fechaHasta) params.set("fecha_hasta", fechaHasta);
+  if (sucursal) params.set("sucursal", sucursal);
+  if (vendedor) params.set("vendedor", vendedor);
   const data = await apiFetch<VentasSupervision & { vendedores?: Record<string, unknown>[] }>(
-    `/api/supervision/ventas/${distId}?dias=${dias}`
+    `/api/supervision/ventas/${distId}?${params.toString()}`
   );
   return {
     ...data,
@@ -1542,14 +1567,19 @@ export interface SyncStatusEntry {
 export interface SyncStatus {
   padron: SyncStatusEntry;
   cuentas_corrientes: SyncStatusEntry;
+  ventas: SyncStatusEntry;
 }
 
 export async function fetchSyncStatus(distId: number): Promise<SyncStatus> {
   return apiFetch<SyncStatus>(`/api/supervision/sync-status/${distId}`);
 }
 
-export async function fetchCuentasSupervision(distId: number, sucursal?: string): Promise<CuentasSupervision> {
-  const params = sucursal ? `?sucursal=${encodeURIComponent(sucursal)}` : "";
+export async function fetchCuentasSupervision(distId: number, sucursal?: string, fecha?: string, vendedor?: string): Promise<CuentasSupervision> {
+  const qp = new URLSearchParams();
+  if (sucursal) qp.set("sucursal", sucursal);
+  if (fecha) qp.set("fecha", fecha);
+  if (vendedor) qp.set("vendedor", vendedor);
+  const params = qp.toString() ? `?${qp.toString()}` : "";
   const data = await apiFetch<CuentasSupervision & { vendedores?: Record<string, unknown>[] }>(
     `/api/supervision/cuentas/${distId}${params}`
   );

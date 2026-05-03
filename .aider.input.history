@@ -135,3 +135,20 @@
 
 # 2026-03-31 01:36:42.338898
 +y
+
+# 2026-04-06 17:42:05.622159
++/add repomix-context.xml
+
+# 2026-04-06 17:44:55.280210
++Actúa como un arquitecto de software experto. Analiza el código de repomix-context.xml y crea un archivo nuevo llamado "plan_solucion.md" con un PLAN DE IMPLEMENTACIÓN paso a paso para solucionar un problema con la lógica de 'Objetivos' y 'Puntos de Venta (PDV)'.
++
++Problemas actuales a solucionar:
++1. Bug de estado: Al crear objetivos nuevos, los que estaban 'En progreso' se resetean erróneamente a 'Pendiente'.
++2. Lógica de Base de Datos: Actualmente se crean N objetivos por cada PDV. Quiero cambiar esto para que 1 solo Objetivo pueda contener múltiples PDVs asociados.
++3. Lógica del Bot (Telegram): Si un objetivo tiene 5 PDVs y el vendedor envía una imagen para UNO solo, el bot mueve TODO el objetivo a 'En progreso' y envía el mensaje 5 veces. La nueva lógica debe identificar a qué PDV específico corresponde la imagen, actualizar solo el estado de ese PDV (o marcar el progreso parcial del objetivo) y enviar un solo mensaje de confirmación.
++
++Reglas estrictas para tu respuesta en el archivo markdown:
++1. Explica los cambios necesarios en los Modelos de Base de Datos (Relación 1 a N entre Objetivo y PDV).
++2. Genera un diagrama MERMAID de Entidad-Relación (ER) ilustrando la nueva base de datos.
++3. Genera un diagrama MERMAID de Flujo (Flowchart) ilustrando el proceso de cuando el vendedor envía la foto al bot.
++4. Explica paso a paso qué archivos y funciones se deben modificar en el código actual.

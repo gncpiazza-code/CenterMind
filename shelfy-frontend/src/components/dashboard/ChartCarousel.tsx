@@ -138,9 +138,9 @@ export function ChartCarousel({ evolucion, sucursales, ciudades, empresas = [] }
           <AnimatePresence mode="wait">
 
             <TabsContent value="evolucion" className="absolute inset-0 mt-0 data-[state=active]:flex data-[state=active]:flex-col">
-              <motion.div key="evolucion" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.22 }} className="flex-1 h-full w-full">
+              <motion.div key="evolucion" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.22 }} className="flex-1 h-full w-full min-h-[200px] min-w-0">
                 {evolucion.length === 0 ? <EmptyChart message="Sin datos de evolución" /> : (
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height="100%" minHeight={200} minWidth={0}>
                     <LineChart data={evolucion} {...chartProps}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                       <XAxis dataKey="fecha" tick={{ fill: "#94a3b8", fontSize: 10, fontWeight: 800 }} tickLine={false} axisLine={false} />
@@ -156,9 +156,9 @@ export function ChartCarousel({ evolucion, sucursales, ciudades, empresas = [] }
             </TabsContent>
 
             <TabsContent value="sucursales" className="absolute inset-0 mt-0 data-[state=active]:flex data-[state=active]:flex-col">
-              <motion.div key="sucursales" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.22 }} className="flex-1 h-full w-full">
+              <motion.div key="sucursales" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.22 }} className="flex-1 h-full w-full min-h-[200px] min-w-0">
                 {sucursalesData.length === 0 ? <EmptyChart message="Sin datos de sucursales" /> : (
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height="100%" minHeight={200} minWidth={0}>
                     <BarChart data={sucursalesData} {...chartProps}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                       <XAxis dataKey="nombre" tick={{ fill: "#94a3b8", fontSize: 9, fontWeight: 800 }} tickLine={false} axisLine={false} />
@@ -173,9 +173,9 @@ export function ChartCarousel({ evolucion, sucursales, ciudades, empresas = [] }
             </TabsContent>
 
             <TabsContent value="ciudades" className="absolute inset-0 mt-0 data-[state=active]:flex data-[state=active]:flex-col">
-              <motion.div key="ciudades" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.22 }} className="flex-1 h-full w-full">
+              <motion.div key="ciudades" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.22 }} className="flex-1 h-full w-full min-h-[200px] min-w-0">
                 {ciudadesData.length === 0 ? <EmptyChart message="Sin datos de ciudades" /> : (
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height="100%" minHeight={200} minWidth={0}>
                     <BarChart data={ciudadesData} {...chartProps}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                       <XAxis dataKey="nombre" tick={{ fill: "#94a3b8", fontSize: 9, fontWeight: 800 }} tickLine={false} axisLine={false} />
@@ -191,9 +191,9 @@ export function ChartCarousel({ evolucion, sucursales, ciudades, empresas = [] }
 
             {empresas.length > 0 && (
               <TabsContent value="empresas" className="absolute inset-0 mt-0 data-[state=active]:flex data-[state=active]:flex-col">
-                <motion.div key="empresas" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.22 }} className="flex-1 h-full w-full">
+                <motion.div key="empresas" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.22 }} className="flex-1 h-full w-full min-h-[200px] min-w-0">
                   {empresasData.length === 0 ? <EmptyChart message="Sin datos de empresas" /> : (
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ResponsiveContainer width="100%" height="100%" minHeight={200} minWidth={0}>
                       <BarChart data={empresasData} {...chartProps}>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                         <XAxis dataKey="nombre" tick={{ fill: "#94a3b8", fontSize: 9, fontWeight: 800 }} tickLine={false} axisLine={false} />

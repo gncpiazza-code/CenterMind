@@ -369,6 +369,8 @@ function EyeBtn({
 interface TabSupervisionProps {
   distId: number;
   isSuperadmin?: boolean;
+  fullscreen?: boolean;
+  mapOnly?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -412,7 +414,7 @@ function SyncStatusBar({ syncStatus }: { syncStatus: SyncStatus }) {
   );
 }
 
-export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionProps) {
+export default function TabSupervision({ distId, isSuperadmin, fullscreen = false, mapOnly = false }: TabSupervisionProps) {
   const queryClient = useQueryClient();
   const { hasPermiso } = useAuth();
   const [selectedDist, setSelectedDist]         = useState(distId);
@@ -1753,7 +1755,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col gap-4">
+    <div className={fullscreen ? "flex flex-col h-full gap-0" : "flex flex-col gap-4"}>
 
       {/* Top bar */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -1846,10 +1848,10 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
       </button>
 
       {/* Main split */}
-      <div className="flex flex-col xl:grid xl:grid-cols-5 gap-3 xl:h-[680px]">
+      <div className={`${mapOnly ? "flex flex-col xl:grid xl:grid-cols-5 gap-3 flex-1 min-h-0" : `flex flex-col xl:grid xl:grid-cols-5 gap-3 ${fullscreen ? "flex-1 min-h-0 xl:h-auto" : "xl:h-[680px]"}`}`}>
 
         {/* ── MAP — oculto en mobile ──────────────────────────────────────── */}
-        <div className="hidden xl:flex xl:col-span-3 flex-col rounded-2xl overflow-hidden border border-[var(--shelfy-border)] relative bg-[var(--shelfy-panel)]">
+        <div className={`${mapOnly ? "flex flex-1 min-h-0" : "hidden xl:flex xl:col-span-3"} flex-col rounded-2xl overflow-hidden border border-[var(--shelfy-border)] relative bg-[var(--shelfy-panel)]`}>
           <MapLayerControls />
           <div className="flex-1 relative">
             {loading ? (
@@ -2255,7 +2257,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
         </div>
 
         {/* ── MOBILE CC — debajo de rutas en mobile (xl:hidden) ──────────── */}
-        <div className="xl:hidden flex flex-col rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-y-auto min-h-[300px]">
+        {!mapOnly && <div className="xl:hidden flex flex-col rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-y-auto min-h-[300px]">
           <div className="flex items-center gap-2 px-3 py-2.5 border-b border-[var(--shelfy-border)]/50 shrink-0">
             <CreditCard className="w-3.5 h-3.5 text-amber-400" />
             <span className="text-xs font-bold text-[var(--shelfy-text)]">Cuentas</span>
@@ -2333,7 +2335,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
               })}
             </div>
           )}
-        </div>
+        </div>}
 
       </div>
 
@@ -2480,7 +2482,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
       </div>}
 
       {/* ── SECCIÓN CUENTAS CORRIENTES — solo desktop (xl+) ─────────────────── */}
-      <div className="hidden xl:block rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden shadow-sm">
+      {!mapOnly && <div className="hidden xl:block rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden shadow-sm">
 
         {/* Header */}
         <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-[var(--shelfy-border)]/50">
@@ -2724,10 +2726,10 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
             )}
           </>
         )}
-      </div>
+      </div>}
 
       {/* ── SECCIÓN EXHIBICIONES ────────────────────────────────────────────── */}
-      <div className="rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden shadow-sm">
+      {!mapOnly && <div className="rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden shadow-sm">
         {/* Header */}
         <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-[var(--shelfy-border)]/50 flex-wrap">
           <div className="flex items-center gap-2">
@@ -2852,7 +2854,7 @@ export default function TabSupervision({ distId, isSuperadmin }: TabSupervisionP
             })}
           </div>
         )}
-      </div>
+      </div>}
 
       {/* Cliente Contacto Popup */}
       {clientePopup && (

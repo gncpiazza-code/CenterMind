@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useMemo } from "react";
 import {
-  Eye, LayoutDashboard, BarChart2, Map, Target, UserCog, Monitor, Images, Radio,
+  Eye, LayoutDashboard, BarChart2, Map, Target, Monitor, Images, Radio,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
@@ -53,12 +53,6 @@ const TABS: TabItem[] = [
     icon: Target,
     permisoKey: "menu_objetivos",
     roles: ["superadmin", "admin", "supervisor", "directorio"],
-  },
-  {
-    href: "/fuerza-ventas",
-    label: "F. Ventas",
-    icon: UserCog,
-    roles: ["superadmin"],
   },
   {
     href: "/modo-oficina",

@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
-import { Crown, LogOut, Building2 } from "lucide-react";
+import { Crown, LogOut, Building2, UserCog } from "lucide-react";
 import { fetchDistribuidoras } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -130,6 +130,13 @@ export function Topbar({ title, live = false }: TopbarProps) {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-56">
                   <DropdownMenuLabel>Superadmin</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem asChild>
+                    <Link href="/fuerza-ventas" className="flex items-center gap-2">
+                      <UserCog size={14} className="shrink-0" />
+                      Fuerza de Ventas
+                    </Link>
+                  </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem asChild>
                     <Link href="/admin/dashboard">Corridas RPA</Link>

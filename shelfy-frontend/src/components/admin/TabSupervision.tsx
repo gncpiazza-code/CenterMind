@@ -1698,7 +1698,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
 
       {/* Mobile map / lista tab switcher */}
       {!mapOnly && (
-        <div className="xl:hidden flex rounded-xl overflow-hidden border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] shrink-0">
+        <div className="lg:hidden flex rounded-xl overflow-hidden border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] shrink-0">
           <button
             className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold transition-colors ${
               mobileView === 'mapa' ? "bg-[var(--shelfy-primary)]/20 text-[var(--shelfy-primary)]" : "text-[var(--shelfy-muted)]"
@@ -1722,10 +1722,10 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
       )}
 
       {/* Main split */}
-      <div className={`${mapOnly ? "flex flex-col xl:grid xl:grid-cols-5 gap-3 flex-1 min-h-0" : `flex flex-col xl:grid xl:grid-cols-5 gap-3 ${fullscreen ? "flex-1 min-h-0 xl:h-auto" : "xl:h-[680px]"}`}`}>
+      <div className={`${mapOnly ? "flex flex-col lg:grid lg:grid-cols-5 gap-3 flex-1 min-h-0" : `flex flex-col lg:grid lg:grid-cols-5 gap-3 ${fullscreen ? "flex-1 min-h-0 lg:h-auto" : "lg:h-[680px]"}`}`}>
 
-        {/* ── MAP — responsive: tabs en mobile, siempre visible en xl+ ──── */}
-        <div className={`${mapOnly ? "flex flex-1 min-h-0 xl:col-span-3" : `${mobileView === 'mapa' ? "flex min-h-[350px]" : "hidden"} xl:flex xl:col-span-3`} flex-col rounded-2xl overflow-hidden border border-[var(--shelfy-border)] relative bg-[var(--shelfy-panel)]`}>
+        {/* ── MAP — responsive: tabs en mobile, siempre visible en lg+ ──── */}
+        <div className={`${mapOnly ? "flex flex-1 min-h-0 lg:col-span-3" : `${mobileView === 'mapa' ? "flex min-h-[350px]" : "hidden"} lg:flex lg:col-span-3`} flex-col rounded-2xl overflow-hidden border border-[var(--shelfy-border)] relative bg-[var(--shelfy-panel)]`}>
           <MapLayerControls />
           <div className="flex-1 relative">
             {loading ? (
@@ -1783,7 +1783,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
         </div>
 
         {/* ── RIGHT PANEL — lista vendedores/rutas ────────────────────────── */}
-        <div className={`xl:col-span-2 ${!mapOnly && mobileView === 'mapa' ? "hidden" : "flex"} xl:flex flex-col rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden min-h-[400px] xl:min-h-0`}>
+        <div className={`lg:col-span-2 ${!mapOnly && mobileView === 'mapa' ? "hidden" : "flex"} lg:flex flex-col rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden min-h-[400px] lg:min-h-0`}>
 
           {/* Panel header */}
           <div className="px-4 py-2.5 border-b border-[var(--shelfy-border)]/60 shrink-0 flex items-center gap-2">

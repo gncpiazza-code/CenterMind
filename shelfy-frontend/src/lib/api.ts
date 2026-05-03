@@ -1621,6 +1621,30 @@ export async function fetchDifusionVendedores(distId: number, sucursal?: string)
   return apiFetch<DifusionVendedor[]>(`/api/difusion/vendedores/${distId}${params}`);
 }
 
+export interface DifusionVendedorResumen {
+  cc: {
+    fecha_snapshot: string | null;
+    deuda_total: number;
+    cantidad_clientes: number;
+    antiguedad_max: number | null;
+    antiguedad_min: number | null;
+  };
+  objetivos: {
+    total_abiertos: number;
+    por_tipo: Record<string, number>;
+  };
+  exhibiciones: {
+    mes_actual: string;
+    aprobadas: number;
+    pendientes: number;
+    total: number;
+  };
+}
+
+export async function fetchDifusionVendedorResumen(distId: number, idVendedor: number): Promise<DifusionVendedorResumen> {
+  return apiFetch<DifusionVendedorResumen>(`/api/difusion/vendedor/${distId}/${idVendedor}/resumen`);
+}
+
 export async function postDifusionCCTelegram(body: {
   dist_id: number;
   modo: "uno" | "todos";

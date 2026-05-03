@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   Send, CreditCard, Users, AlertCircle, CheckCircle2,
-  Loader2, Radio, Building2, ChevronDown,
+  Loader2, Radio, Building2, ChevronDown, Target, Image, TrendingUp,
+  Clock, CalendarDays,
 } from "lucide-react";
 
 import { Sidebar } from "@/components/layout/Sidebar";
@@ -21,8 +22,8 @@ import {
 } from "@/components/ui/select";
 import {
   fetchDifusionVendedores, postDifusionCCTelegram,
-  fetchVendedoresSupervision,
-  type DifusionVendedor, type DifusionCCResult,
+  fetchVendedoresSupervision, fetchDifusionVendedorResumen,
+  type DifusionVendedor, type DifusionCCResult, type DifusionVendedorResumen,
 } from "@/lib/api";
 import { toast } from "sonner";
 
@@ -100,6 +101,14 @@ export default function DifusionPage() {
     () => vendedoresDifusion.find((v) => v.id_vendedor === idVendedor) ?? null,
     [vendedoresDifusion, idVendedor]
   );
+
+  // Resumen del vendedor seleccionado (CC + objetivos + exhibiciones)
+  const { data: resumen, isLoading: loadingResumen } = useQuery<DifusionVendedorResumen>({
+    queryKey: ["difusion-resumen", distId, idVendedor],
+    queryFn: () => fetchDifusionVendedorResumen(distId, idVendedor!),
+    enabled: !!distId && !!idVendedor && modo === "uno",
+    staleTime: 2 * 60_000,
+  });
 
   const mutation = useMutation({
     mutationFn: () =>
@@ -242,6 +251,91 @@ export default function DifusionPage() {
                 </div>
               )}
             </div>
+
+            {/* Card resumen vendedor seleccionado */}
+            {modo === "uno" && idVendedor && (
+              <div className="rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden">
+                <div className="px-4 py-2.5 border-b border-[var(--shelfy-border)]/50 flex items-center gap-2">
+                  <TrendingUp className="w-3.5 h-3.5 text-violet-400" />
+                  <span className="text-xs font-bold text-[var(--shelfy-text)] uppercase tracking-wide">
+                    Seguimiento — {selectedVend?.nombre_erp ?? "…"}
+                  </span>
+                  {!selectedVend?.tiene_telegram && (
+                    <Badge variant="outline" className="ml-auto text-[10px] border-amber-500/40 text-amber-400">Sin Telegram</Badge>
+                  )}
+                </div>
+
+                {loadingResumen ? (
+                  <div className="p-4 grid grid-cols-3 gap-3">
+                    {[0,1,2].map(i => <Skeleton key={i} className="h-16 rounded-xl" />)}
+                  </div>
+                ) : resumen ? (
+                  <div className="p-4 flex flex-col gap-3">
+                    {/* CC */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      <div className="rounded-xl bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] px-3 py-2.5 flex flex-col gap-0.5">
+                        <span className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide flex items-center gap-1">
+                          <CreditCard className="w-3 h-3" />Deuda CC
+                        </span>
+                        <span className="text-sm font-black text-amber-400 tabular-nums">
+                          {resumen.cc.cantidad_clientes > 0
+                            ? `$${resumen.cc.deuda_total.toLocaleString("es-AR", { maximumFractionDigits: 0 })}`
+                            : "Sin deuda"}
+                        </span>
+                        {resumen.cc.cantidad_clientes > 0 && (
+                          <span className="text-[10px] text-[var(--shelfy-muted)]">{resumen.cc.cantidad_clientes} cliente{resumen.cc.cantidad_clientes !== 1 ? "s" : ""}</span>
+                        )}
+                      </div>
+                      <div className="rounded-xl bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] px-3 py-2.5 flex flex-col gap-0.5">
+                        <span className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide flex items-center gap-1">
+                          <Clock className="w-3 h-3" />Antigüedad
+                        </span>
+                        {resumen.cc.antiguedad_max != null ? (
+                          <>
+                            <span className={`text-sm font-black tabular-nums ${resumen.cc.antiguedad_max >= 60 ? "text-rose-400" : resumen.cc.antiguedad_max >= 30 ? "text-amber-400" : "text-emerald-400"}`}>
+                              {resumen.cc.antiguedad_max}d máx
+                            </span>
+                            <span className="text-[10px] text-[var(--shelfy-muted)]">{resumen.cc.antiguedad_min}d mín</span>
+                          </>
+                        ) : (
+                          <span className="text-sm font-black text-[var(--shelfy-muted)]">—</span>
+                        )}
+                      </div>
+                      <div className="rounded-xl bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] px-3 py-2.5 flex flex-col gap-0.5">
+                        <span className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide flex items-center gap-1">
+                          <Target className="w-3 h-3" />Objetivos
+                        </span>
+                        <span className={`text-sm font-black tabular-nums ${resumen.objetivos.total_abiertos > 0 ? "text-violet-400" : "text-[var(--shelfy-muted)]"}`}>
+                          {resumen.objetivos.total_abiertos} abierto{resumen.objetivos.total_abiertos !== 1 ? "s" : ""}
+                        </span>
+                        {Object.entries(resumen.objetivos.por_tipo).length > 0 && (
+                          <span className="text-[10px] text-[var(--shelfy-muted)] truncate">
+                            {Object.entries(resumen.objetivos.por_tipo).map(([t, n]) => `${n} ${t}`).join(" · ")}
+                          </span>
+                        )}
+                      </div>
+                      <div className="rounded-xl bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] px-3 py-2.5 flex flex-col gap-0.5">
+                        <span className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide flex items-center gap-1">
+                          <Image className="w-3 h-3" />Exhibiciones
+                        </span>
+                        <span className="text-sm font-black tabular-nums text-emerald-400">
+                          {resumen.exhibiciones.aprobadas} aprob.
+                        </span>
+                        <span className="text-[10px] text-[var(--shelfy-muted)]">
+                          {resumen.exhibiciones.pendientes} pend. · mes {resumen.exhibiciones.mes_actual.replace("-", "/")}
+                        </span>
+                      </div>
+                    </div>
+                    {resumen.cc.fecha_snapshot && (
+                      <div className="flex items-center gap-1.5 text-[10px] text-[var(--shelfy-muted)]">
+                        <CalendarDays className="w-3 h-3" />
+                        Snapshot CC: {resumen.cc.fecha_snapshot.slice(0, 10).split("-").reverse().join("/")}
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            )}
 
             {/* Mensaje */}
             <div className="rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] p-4 flex flex-col gap-3">

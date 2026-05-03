@@ -151,6 +151,13 @@ Este documento describe la infraestructura, tecnologías y flujos de datos que c
     - Nuevo comando `/objetivos` en `bot_worker.py` para que el vendedor consulte sus objetivos asignados y progreso en tiempo real.
     - La salida incluye `valor_actual/valor_objetivo`, porcentaje y fecha límite.
     - Para tipos `exhibicion`, `activacion` y `cobranza`, se agrega metadata de ejecución: `NRO CLIENTE ERP` y `Ruta (id + día)` cuando hay PDV vinculado.
+38. **Fix CC backend — filtro sucursal estricto por id_vendedor (May 2026)**:
+    - `supervision_cuentas` en `routers/supervision.py` corrigió lógica de filtro: cuando `valid_vend_ids` no está vacío, solo pasan filas con `id_vendedor ∈ valid_vend_ids`. Fallback a `sucursal_nombre` solo para filas con `id_vendedor` NULL. Elimina el bug de clientes de vendedores de otras sucursales apareciendo en el panel.
+39. **Difusión CC vía Telegram (May 2026)**:
+    - Nuevo servicio `services/cc_difusion_service.py`: genera PDF (reportlab) con tabla de clientes deudores por vendedor y lo envía vía `sendDocument` al grupo Telegram. Fallback a texto plano si reportlab no disponible.
+    - Nuevo router `routers/difusion.py`: `POST /api/difusion/cc-telegram` (modo uno/todos), `GET /api/difusion/vendedores/{dist_id}`. Requiere rol `admin|directorio|superadmin`.
+    - Frontend `app/difusion/page.tsx` con selector de sucursal/vendedor, plantillas de mensaje y resultado inline.
+    - Entrada "Difusión" en `TopModeTabs` y `BottomNav`.
 
 ---
 

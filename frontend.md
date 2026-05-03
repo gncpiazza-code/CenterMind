@@ -104,6 +104,7 @@ Layout conservado (overlay-based): barra superior semitransparente + barra infer
 - **Layout**: Sidebar de selección de distribuidor/sucursal + Tabs centrales (Mapa, Ventas, Cuentas).
 - **Sticky Headers**: Los selectores se mantienen visibles durante el scroll en móviles.
 - **Actualizar CC**: Botón "Actualizar CC" (`RefreshCw`) en el header de la sección Cuentas Corrientes (visible cuando `selectedDist > 0`). Abre un `<Dialog>` con file picker `.xlsx` y flujo: `idle` → `uploading` (Progress 60) → `polling` cada 3s contra `GET /api/supervision/cc-status/{distId}` (Progress 80) → cierre automático al recibir `estado: "completado"` + `invalidateQueries({queryKey:["supervision-cuentas"]})`. Timeout de seguridad de 120s. Toda la lógica de polling usa refs (`ccPollingRef`, `ccTimeoutRef`) limpiados en `useEffect(() => () => stopCCPolling(), [])`.
+- **Responsive map + ojitos (May 2026)**: En viewports < `xl`, un tab switcher "Mapa / Vendedores" controla qué panel se muestra (estado local `mobileView`). El mapa toma `min-h-[350px]` cuando activo en mobile. `EyeBtn` y el ojo a nivel vendedor ya no tienen `hidden xl:flex`; son siempre visibles y permiten activar PDVs en mapa también desde mobile. En `xl+` el layout sigue siendo grid de 5 columnas.
 
 ### 2b. Supervision Page — Generar Informe
 - **Botón "Generar Informe"** (`FileBarChart2`) en el header de `/supervision/page.tsx`, alineado a la derecha del título.
@@ -123,6 +124,13 @@ Layout conservado (overlay-based): barra superior semitransparente + barra infer
   - `general` → "General"
 - **Alteo flow**: Al seleccionar tipo Alteo, carga rutas del vendedor. Al elegir ruta, aparece campo numérico de cantidad (con máximo = `total_pdv` de la ruta). Frase generada: `[vendedor] debe Altear [N] PDVs en [ruta] de los días [dia]. Tenés [N] días.`
 - **Cobranza flow**: Carga lista de deudores del vendedor (seleccionable). Toggle Total/Parcial: "Total" usa toda la deuda; "Parcial" muestra input de monto. Persiste `valor_objetivo` en Supabase. Frase: `[vendedor] deberá cobrarle $[monto] a [cliente] para la fecha [fecha].`
+
+### 3b. Difusión — CC vía Telegram (May 2026)
+- **Ruta**: `/difusion` — página nueva en `app/difusion/page.tsx`.
+- **Acceso**: roles `superadmin`, `admin`, `directorio`. Entrada en `TopModeTabs` y `BottomNav` (icono `Radio`).
+- **Flujo UI**: selector de sucursal → modo (un vendedor / todos) → selector de vendedor (con indicador de tiene/no tiene Telegram) → textarea de mensaje con 3 plantillas → botón Enviar (con confirmación doble en modo "todos") → resultado inline (filas OK/error por vendedor).
+- **API frontend**: `fetchDifusionVendedores(distId, sucursal?)` → `DifusionVendedor[]`; `postDifusionCCTelegram(body)` → `DifusionCCResult`.
+- **Backend**: `POST /api/difusion/cc-telegram` llama `difundir_cc_telegram()` en `services/cc_difusion_service.py`. Genera PDF (reportlab tabla clientes+deuda) y envía via `sendDocument`. Fallback: texto plano si reportlab no disponible.
 
 ### 4. Matriz de Permisos (RBAC)
 - **UI**: Tabla de doble entrada (Rol vs Permiso) ubicada en `/admin/permissions`.

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useMemo } from "react";
 import {
-  Eye, LayoutDashboard, BarChart2, Map, Target, UserCog, Monitor, Images,
+  Eye, LayoutDashboard, BarChart2, Map, Target, UserCog, Monitor, Images, Radio,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
@@ -74,6 +74,13 @@ const TABS: TabItem[] = [
     icon: Images,
     permisoKey: "menu_galeria_exhibiciones",
     roles: ["superadmin", "admin", "supervisor", "directorio", "evaluador"],
+  },
+  {
+    href: "/difusion",
+    label: "Difusión",
+    icon: Radio,
+    permisoKey: "menu_supervision",
+    roles: ["superadmin", "admin", "directorio"],
   },
 ];
 

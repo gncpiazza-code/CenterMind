@@ -1514,11 +1514,21 @@ def supervision_cuentas(
                 valid_vend_ids = {v["id_vendedor"] for v in (vend_q.data or [])}
 
             norm_filter = sucursal_exact.upper()
-            rows = [
-                r for r in rows
-                if (r.get("id_vendedor") and r["id_vendedor"] in valid_vend_ids)
-                or (r.get("sucursal_nombre") or "").strip().upper() == norm_filter
-            ]
+            if valid_vend_ids:
+                # Strict: keep rows whose vendor is in the resolved set.
+                # Rows with NULL id_vendedor are kept only if sucursal_nombre also matches
+                # (they're enrichment-incomplete but belong to this branch).
+                rows = [
+                    r for r in rows
+                    if r.get("id_vendedor") in valid_vend_ids
+                    or (not r.get("id_vendedor") and (r.get("sucursal_nombre") or "").strip().upper() == norm_filter)
+                ]
+            else:
+                # No vendors resolved for this sucursal (edge case): fall back to name-only.
+                rows = [
+                    r for r in rows
+                    if (r.get("sucursal_nombre") or "").strip().upper() == norm_filter
+                ]
 
         # Filtrar por vendedor (server-side).
         # cc_detalle.vendedor_nombre viene de CHESS con formato "CODE CODE2 - NOMBRE".

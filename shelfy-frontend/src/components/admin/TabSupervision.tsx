@@ -339,7 +339,7 @@ function EyeBtn({
         onClick();
       }}
       title={title ?? (on ? "Ocultar del mapa" : "Mostrar en mapa")}
-      className={`hidden xl:flex rounded-md items-center justify-center border transition-all duration-200 shrink-0 ${
+      className={`flex rounded-md items-center justify-center border transition-all duration-200 shrink-0 ${
         disabled
           ? "border-transparent opacity-35 cursor-not-allowed text-[var(--shelfy-muted)]"
           : on
@@ -451,6 +451,10 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
   const [loadingMap, setLoadingMap]             = useState<Set<number>>(new Set());
   /** Re-render conteos alineados al mapa cuando cambia caché de rutas/clientes */
   const [mapStatsTick, setMapStatsTick]         = useState(0);
+
+  // ── Ventas & Cuentas ──────────────────────────────────────────────────────
+  // Mobile tab: toggle between map and vendor list on small screens
+  const [mobileView, setMobileView] = useState<'mapa' | 'lista'>('lista');
 
   // ── Ventas & Cuentas ──────────────────────────────────────────────────────
   const [openVentasVend, setOpenVentasVend]     = useState<string | null>(null);
@@ -1692,11 +1696,36 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
         </div>
       )}
 
+      {/* Mobile map / lista tab switcher */}
+      {!mapOnly && (
+        <div className="xl:hidden flex rounded-xl overflow-hidden border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] shrink-0">
+          <button
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold transition-colors ${
+              mobileView === 'mapa' ? "bg-[var(--shelfy-primary)]/20 text-[var(--shelfy-primary)]" : "text-[var(--shelfy-muted)]"
+            }`}
+            onClick={() => setMobileView('mapa')}
+          >
+            <MapIcon className="w-3.5 h-3.5" />
+            Mapa
+          </button>
+          <div className="w-px bg-[var(--shelfy-border)]" />
+          <button
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold transition-colors ${
+              mobileView === 'lista' ? "bg-[var(--shelfy-primary)]/20 text-[var(--shelfy-primary)]" : "text-[var(--shelfy-muted)]"
+            }`}
+            onClick={() => setMobileView('lista')}
+          >
+            <Building2 className="w-3.5 h-3.5" />
+            Vendedores
+          </button>
+        </div>
+      )}
+
       {/* Main split */}
       <div className={`${mapOnly ? "flex flex-col xl:grid xl:grid-cols-5 gap-3 flex-1 min-h-0" : `flex flex-col xl:grid xl:grid-cols-5 gap-3 ${fullscreen ? "flex-1 min-h-0 xl:h-auto" : "xl:h-[680px]"}`}`}>
 
-        {/* ── MAP — oculto en mobile (salvo mapOnly) ──────────────────────── */}
-        <div className={`${mapOnly ? "flex flex-1 min-h-0 xl:col-span-3" : "hidden xl:flex xl:col-span-3"} flex-col rounded-2xl overflow-hidden border border-[var(--shelfy-border)] relative bg-[var(--shelfy-panel)]`}>
+        {/* ── MAP — responsive: tabs en mobile, siempre visible en xl+ ──── */}
+        <div className={`${mapOnly ? "flex flex-1 min-h-0 xl:col-span-3" : `${mobileView === 'mapa' ? "flex min-h-[350px]" : "hidden"} xl:flex xl:col-span-3`} flex-col rounded-2xl overflow-hidden border border-[var(--shelfy-border)] relative bg-[var(--shelfy-panel)]`}>
           <MapLayerControls />
           <div className="flex-1 relative">
             {loading ? (
@@ -1754,7 +1783,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
         </div>
 
         {/* ── RIGHT PANEL — lista vendedores/rutas ────────────────────────── */}
-        <div className="xl:col-span-2 flex flex-col rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden min-h-[400px] xl:min-h-0">
+        <div className={`xl:col-span-2 ${!mapOnly && mobileView === 'mapa' ? "hidden" : "flex"} xl:flex flex-col rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden min-h-[400px] xl:min-h-0`}>
 
           {/* Panel header */}
           <div className="px-4 py-2.5 border-b border-[var(--shelfy-border)]/60 shrink-0 flex items-center gap-2">
@@ -1841,11 +1870,11 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                               ↺
                             </button>
                           </div>
-                          {/* Vendor eye: bigger, toggles everything — hidden on mobile (no map) */}
+                          {/* Vendor eye: bigger, toggles everything */}
                           <button
                             onClick={() => toggleVendor(v.id_vendedor)}
                             title={isVendOn ? "Ocultar vendedor del mapa" : "Mostrar todos los PDV en mapa"}
-                            className={`hidden xl:flex w-7 h-7 rounded-lg items-center justify-center border transition-all duration-200 shrink-0 ${
+                            className={`flex w-7 h-7 rounded-lg items-center justify-center border transition-all duration-200 shrink-0 ${
                               isVendOn
                                 ? "border-transparent text-white"
                                 : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] hover:border-current"

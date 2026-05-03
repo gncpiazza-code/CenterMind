@@ -1595,6 +1595,47 @@ export async function fetchCuentasSupervision(distId: number, sucursal?: string,
 }
 
 
+// ── Difusión ───────────────────────────────────────────────────────────────
+
+export interface DifusionVendedor {
+  id_vendedor: number;
+  nombre_erp: string;
+  sucursal_nombre: string | null;
+  tiene_telegram: boolean;
+}
+
+export interface DifusionResultItem {
+  ok: boolean;
+  vendedor: string;
+  error: string | null;
+}
+
+export interface DifusionCCResult {
+  enviados: DifusionResultItem[];
+  errores: DifusionResultItem[];
+  fecha_snapshot: string | null;
+}
+
+export async function fetchDifusionVendedores(distId: number, sucursal?: string): Promise<DifusionVendedor[]> {
+  const params = sucursal ? `?sucursal=${encodeURIComponent(sucursal)}` : "";
+  return apiFetch<DifusionVendedor[]>(`/api/difusion/vendedores/${distId}${params}`);
+}
+
+export async function postDifusionCCTelegram(body: {
+  dist_id: number;
+  modo: "uno" | "todos";
+  id_vendedor?: number | null;
+  sucursal?: string | null;
+  mensaje_template: string;
+  fecha?: string | null;
+}): Promise<DifusionCCResult> {
+  return apiFetch<DifusionCCResult>("/api/difusion/cc-telegram", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
 // ── Objetivos ──────────────────────────────────────────────────────────────
 
 export type ObjetivoTipo = 'conversion_estado' | 'cobranza' | 'ruteo_alteo' | 'exhibicion' | 'ruteo';

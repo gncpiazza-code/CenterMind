@@ -449,6 +449,8 @@ export default function VisorPage() {
         const next = old.filter((g) => !g.fotos.some((f) => f.id_exhibicion === firstEvalId));
         setCurrentIndex(Math.min(currentIndex, Math.max(0, next.length - 1)));
         resetGroupState();
+        // Misma posición numérica puede mostrar otra exhibición al compactar la lista — limpiar siempre.
+        setComentario("");
         return next;
       });
 

@@ -105,3 +105,29 @@ def persistir_analisis_rendimiento_calle(tenant_id: str, payload: dict[str, Any]
     rid = rows[0].get("id")
     logger.info("[RendCalleAnalytics] id=%s dist=%s fecha=%s sucursal=\"%s\" (upsert)", rid, dist_id, fecha_op, row["sucursal_nombre"])
     return {"run_id": rid, "id_distribuidor": dist_id, "fecha_operativa": fecha_str}
+
+
+def obtener_analytics_rendimiento_calle(
+    tenant_id: str,
+    *,
+    fecha_operativa: Optional[str] = None,
+    sucursal_nombre: Optional[str] = None,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    dist_id = TENANT_DIST_MAP.get(tenant_id)
+    if not dist_id:
+        raise ValueError(f"tenant_id desconocido: {tenant_id}")
+
+    q = (
+        sb.table("rendimiento_calle_analytics_runs")
+        .select("*")
+        .eq("id_distribuidor", dist_id)
+        .order("fecha_operativa", desc=True)
+        .limit(limit)
+    )
+    if fecha_operativa:
+        q = q.eq("fecha_operativa", fecha_operativa)
+    if sucursal_nombre:
+        q = q.eq("sucursal_nombre", sucursal_nombre)
+
+    return q.execute().data or []

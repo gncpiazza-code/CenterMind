@@ -1637,7 +1637,7 @@ def supervision_cuentas(
             })
 
         for vd in vendors.values():
-            vd["clientes"].sort(key=lambda x: x["deuda_total"], reverse=True)
+            vd["clientes"].sort(key=lambda x: x["antiguedad"] or 0, reverse=True)
         result = sorted(vendors.values(), key=lambda x: x["deuda_total"], reverse=True)
 
         all_clientes = [c for v in result for c in v["clientes"]]

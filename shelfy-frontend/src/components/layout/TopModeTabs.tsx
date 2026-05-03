@@ -58,8 +58,7 @@ const TABS: TabItem[] = [
     href: "/fuerza-ventas",
     label: "F. Ventas",
     icon: UserCog,
-    permisoKey: "menu_fuerza_ventas",
-    roles: ["superadmin", "admin", "supervisor", "directorio"],
+    roles: ["superadmin"],
   },
   {
     href: "/modo-oficina",
@@ -93,9 +92,10 @@ export function TopModeTabs() {
     () =>
       TABS.filter((tab) => {
         const roleOk = tab.roles.includes(rol);
-        const permisoOk = tab.permisoKey ? hasPermiso(tab.permisoKey) : true;
+        if (!tab.permisoKey) return roleOk;
+        const permisoOk = hasPermiso(tab.permisoKey);
         if (!roleOk && !permisoOk) return false;
-        if (tab.permisoKey && !permisoOk) return false;
+        if (!permisoOk) return false;
         return true;
       }),
     [rol, hasPermiso],

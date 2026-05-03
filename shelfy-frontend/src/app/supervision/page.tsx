@@ -130,7 +130,7 @@ export default function SupervisionPage() {
   const [selectedSucursal, setSelectedSucursal] = useState<string>("__all__");
   const [selectedVendedor, setSelectedVendedor] = useState<string | null>(null);
   const [fechaCorte, setFechaCorte] = useState<string>(new Date().toISOString().slice(0, 10));
-  const [ccSort, setCCSort] = useState<"deuda" | "antiguedad">("deuda");
+  const [ccSort, setCCSort] = useState<"deuda" | "antiguedad">("antiguedad");
   const [ccSortDir, setCCSortDir] = useState<"desc" | "asc">("desc");
   const isAllowed = !!user && ALLOWED_ROLES.includes(user.rol);
   const distId = effectiveDistribuidorId ?? 0;

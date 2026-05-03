@@ -240,7 +240,7 @@ def _group_by_vendor(rows: list[dict]) -> dict[int | str, dict]:
         })
         vendors[vid]["deuda_total"] += float(r.get("deuda_total") or 0)
     for vd in vendors.values():
-        vd["clientes"].sort(key=lambda c: c["deuda_total"], reverse=True)
+        vd["clientes"].sort(key=lambda c: c["antiguedad"] or 0, reverse=True)
     return vendors
 
 

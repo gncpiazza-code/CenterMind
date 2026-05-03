@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { UserCog, Search, Filter, Wifi, WifiOff, Loader2 } from "lucide-react";
 
@@ -23,7 +24,14 @@ import { fetchFuerzaVentasVendedores, type FuerzaVentasVendedor } from "@/lib/ap
 
 export default function FuerzaVentasPage() {
   const { user } = useAuth();
+  const router = useRouter();
   const distId = user?.id_distribuidor ?? 0;
+
+  useEffect(() => {
+    if (user && user.rol !== "superadmin") {
+      router.replace("/dashboard");
+    }
+  }, [user, router]);
 
   const [search, setSearch] = useState("");
   const [filtroSucursal, setFiltroSucursal] = useState("todas");

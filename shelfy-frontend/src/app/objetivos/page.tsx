@@ -815,7 +815,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
             setDeudores(
               (vend.clientes ?? [])
                 .filter(c => (c.deuda_total ?? 0) > 0)
-                .sort((a, b) => (b.deuda_total ?? 0) - (a.deuda_total ?? 0))
+                .sort((a, b) => (b.antiguedad ?? 0) - (a.antiguedad ?? 0))
                 .slice(0, 10)
                 .map(c => ({ cliente_nombre: c.cliente ?? "–", deuda_total: c.deuda_total ?? 0 }))
             );

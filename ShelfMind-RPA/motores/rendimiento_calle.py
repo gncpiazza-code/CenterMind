@@ -169,17 +169,33 @@ async def _download(page: Page, click_locator: str, fallback_name: str) -> tuple
 
 
 async def _download_grilla_alertas(page: Page, fallback_name: str) -> tuple[bytes, Path] | None:
+    """
+    Export desde popup de grilla / ventas fuera de ruta.
+    Nextbyn 2026: popup ventas fuera de ruta usa botones XLS (popupVentaFueraRuta_*), no siempre la celda XLSX genérica.
+    """
     try:
         await _forzar_fecha_objetivo_popup(page)
         await _esperar_ui_lista(page)
-        async with page.expect_download(timeout=120_000) as info:
-            btn = page.get_by_role("cell", name="Exportar a XLSX Exportar a").locator("span").first
-            try:
-                await btn.click(timeout=10_000, no_wait_after=True)
-            except Exception:
-                await btn.click(timeout=10_000, force=True, no_wait_after=True)
-        dl: Download = await info.value
-        return await _finalize_download(dl, fallback_name)
+        try:
+            async with page.expect_download(timeout=120_000) as info:
+                btn = page.get_by_role("cell", name="Exportar a XLSX Exportar a").locator("span").first
+                try:
+                    await btn.click(timeout=10_000, no_wait_after=True)
+                except Exception:
+                    await btn.click(timeout=10_000, force=True, no_wait_after=True)
+            dl: Download = await info.value
+            return await _finalize_download(dl, fallback_name)
+        except Exception:
+            pass
+        try:
+            async with page.expect_download(timeout=120_000) as info:
+                btn2 = page.get_by_role("cell", name="Exportar a XLS Exportar a XLS").locator("span").first
+                await btn2.click(timeout=10_000, no_wait_after=True)
+            dl2: Download = await info.value
+            return await _finalize_download(dl2, fallback_name)
+        except Exception:
+            pass
+        return await _download(page, "#ContentPlaceHolder2_popupVentaFueraRuta_btnXlsExportVentasFueraRuta_CD", fallback_name)
     except Exception as e:
         logger.error(f"    ❌ Error descarga {fallback_name}: {e}")
         return None
@@ -377,11 +393,82 @@ async def _abrir_popup_entorno(page: Page) -> None:
         except Exception:
             continue
     # ultimo intento: volver a inicio y reabrir
-    await page.get_by_text("Inicio", exact=False).first.click(timeout=8_000)
+    await _click_menu_inicio(page)
     await _esperar_ui_lista(page)
     await page.locator("#ContentPlaceHolder2_btnEntorno").first.click(timeout=8_000)
     await _esperar_ui_lista(page)
     await suc_textbox.wait_for(state="visible", timeout=8_000)
+
+
+async def _click_menu_alertas(page: Page) -> None:
+    """Expande la sección Alertas (#sec-alertas); los botones de grilla están dentro (display:none si está colapsada)."""
+    sec = page.locator("#sec-alertas").first
+
+    async def _visible() -> bool:
+        try:
+            return bool(
+                await sec.evaluate(
+                    "el => !!(el.offsetParent && getComputedStyle(el).display !== 'none')"
+                )
+            )
+        except Exception:
+            return False
+
+    if await _visible():
+        await _esperar_ui_lista(page)
+        return
+    loc = page.locator("div.categoria-menu-sigo[onclick*='sec-alertas']").first
+    try:
+        await loc.wait_for(state="visible", timeout=8_000)
+        await loc.click(timeout=8_000)
+        await _esperar_ui_lista(page)
+    except Exception:
+        try:
+            await page.get_by_text("Alertas ?", exact=False).first.click(timeout=8_000)
+            await _esperar_ui_lista(page)
+        except Exception:
+            await _click_menu(page, "div.categoria-menu-sigo:has-text('Alertas')")
+            await _esperar_ui_lista(page)
+
+
+async def _click_menu_inicio(page: Page) -> None:
+    """
+    Asegura la sección Inicio (#sec-inicio) visible para acceder a Dispositivos/PDV/Rutas.
+    El header es un toggle: si ya está abierto, NO volver a clickear (cerraría la sección).
+    """
+    sec = page.locator("#sec-inicio").first
+
+    async def _sec_inicio_visible() -> bool:
+        try:
+            return bool(
+                await sec.evaluate(
+                    "el => !!(el.offsetParent && getComputedStyle(el).display !== 'none')"
+                )
+            )
+        except Exception:
+            return False
+
+    if await _sec_inicio_visible():
+        await _esperar_ui_lista(page)
+        return
+
+    loc = page.locator("div.categoria-menu-sigo[onclick*='sec-inicio']").first
+    try:
+        await loc.wait_for(state="visible", timeout=8_000)
+        await loc.click(timeout=8_000)
+        await _esperar_ui_lista(page)
+        if await _sec_inicio_visible():
+            return
+    except Exception:
+        pass
+    for label in ("Inicio ▶", "Inicio ?"):
+        try:
+            await page.get_by_text(label, exact=False).first.click(timeout=6_000)
+            await _esperar_ui_lista(page)
+            if await _sec_inicio_visible():
+                return
+        except Exception:
+            continue
 
 
 async def _esperar_ui_lista(page: Page) -> None:
@@ -528,15 +615,7 @@ async def _procesar_sucursal(page: Page, tenant: dict, sucursal: str) -> dict:
         await _esperar_ui_lista(page)
 
         # Codegen real: volver a Inicio antes de Dispositivos.
-        try:
-            await page.get_by_text("Inicio ?", exact=False).first.click(timeout=6_000)
-        except Exception:
-            pass
-        try:
-            await page.get_by_text("Inicio ▶", exact=False).first.click(timeout=6_000)
-        except Exception:
-            pass
-        await _esperar_ui_lista(page)
+        await _click_menu_inicio(page)
 
         async def _download_with_retry(
             *,
@@ -605,12 +684,22 @@ async def _procesar_sucursal(page: Page, tenant: dict, sucursal: str) -> dict:
         except Exception:
             await _click_menu(page, "div.categoria-menu-sigo:has-text('Alertas')")
         async def _open_grilla() -> None:
-            try:
-                await page.get_by_text("Alertas ?", exact=False).first.click(timeout=12_000)
-            except Exception:
-                await _click_menu(page, "div.categoria-menu-sigo:has-text('Alertas')")
-            await _esperar_ui_lista(page)
-            await page.get_by_role("link", name="Grilla de ventas a clientes").first.click(timeout=12_000)
+            await _click_menu_alertas(page)
+            # Nextbyn 2026: ya no hay <link "Grilla de ventas a clientes">; es botón con id fijo / title "… fuera de ruta".
+            opened = False
+            for loc in (
+                page.locator("#ContentPlaceHolder2_btnVentasFueraRuta"),
+                page.get_by_title("Grilla de ventas a clientes fuera de ruta"),
+                page.get_by_role("link", name="Grilla de ventas a clientes"),
+            ):
+                try:
+                    await loc.first.click(timeout=12_000)
+                    opened = True
+                    break
+                except Exception:
+                    continue
+            if not opened:
+                raise RuntimeError("No se pudo abrir grilla ventas fuera de ruta (selector Nextbyn)")
             await _esperar_ui_lista(page)
 
         p_fuera = None

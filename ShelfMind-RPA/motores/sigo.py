@@ -86,8 +86,10 @@ from lib.vault_client import get_secret
 logger = get_logger("SIGO")
 AR_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
 
-DOWNLOADS_DIR = Path("/opt/shelfmind/rpa/downloads")
-ERRORS_DIR    = Path("/opt/shelfmind/rpa/logs/errors")
+_BASE = Path(__file__).resolve().parent.parent
+# Misma convención que rendimiento_calle.py (Mac local / Docker pueden montar /opt/shelfmind)
+DOWNLOADS_DIR = Path(os.environ.get("RPA_DOWNLOADS_DIR", str(_BASE / "downloads")))
+ERRORS_DIR = Path(os.environ.get("RPA_ERRORS_DIR", str(_BASE / "logs" / "errors")))
 
 HEADLESS  = os.environ.get("RPA_HEADLESS", "true").lower() != "false"
 TIMEOUT_MS = 30_000

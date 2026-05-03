@@ -8,6 +8,7 @@ import io
 import json
 import logging
 import os
+import re
 import tempfile
 import threading
 from datetime import datetime
@@ -504,6 +505,67 @@ async def motor_ventas_analytics(body: VentasComprobantesAnalyticsIn):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"motor_ventas_analytics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Mapa empresa RPA SIGO (Nextbyn) → id_distribuidor Shelfy (gyg = GyG / dist 6)
+_SIGO_EMPRESA_DIST = {
+    "tabaco": 3,
+    "aloma": 4,
+    "liver": 5,
+    "real": 2,
+    "gyg": 6,
+}
+
+
+@router.post("/api/motor/sigo", tags=["Motores RPA"])
+async def motor_sigo(
+    empresa_id: str = Form(...),
+    sucursal: str = Form(...),
+    tipo: str = Form(...),
+    file: UploadFile = File(...),
+):
+    """
+    Recibe exports del portal SIGO (Puntos de venta .xls o Ventas fuera de ruta .xlsx).
+    Persiste en Supabase Storage bajo `sigo-rpa/{dist}/...` para auditoría y futura ingesta.
+    """
+    eid = (empresa_id or "").strip().lower()
+    dist_id = _SIGO_EMPRESA_DIST.get(eid)
+    if not dist_id:
+        raise HTTPException(status_code=400, detail=f"empresa_id SIGO desconocido: {empresa_id}")
+    if tipo not in ("pdv", "vfr"):
+        raise HTTPException(status_code=400, detail="tipo debe ser 'pdv' o 'vfr'")
+    file_bytes = await file.read()
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="Archivo vacío")
+    fname = (file.filename or "export").strip()
+    suc_slug = re.sub(r"[^\w\-]+", "_", (sucursal or "sucursal").strip())[:80]
+    stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    path = f"sigo-rpa/{dist_id}/{eid}/{suc_slug}/{tipo}/{stamp}_{fname}"
+    bucket = "Exhibiciones-PDV"
+    ctype = (
+        "application/vnd.ms-excel"
+        if fname.lower().endswith(".xls")
+        else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    try:
+        sb.storage.from_(bucket).upload(
+            path,
+            file_bytes,
+            file_options={"content-type": ctype, "upsert": "true"},
+        )
+        logger.info(f"[motor_sigo] guardado dist={dist_id} empresa={eid} tipo={tipo} path={path} bytes={len(file_bytes)}")
+        return {
+            "ok": True,
+            "id_distribuidor": dist_id,
+            "empresa_id": eid,
+            "tipo": tipo,
+            "bytes": len(file_bytes),
+            "storage_bucket": bucket,
+            "storage_path": path,
+        }
+    except Exception as e:
+        logger.error(f"motor_sigo: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

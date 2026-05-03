@@ -7,6 +7,7 @@ Cliente HTTP para subir archivos descargados por los motores RPA a la API de She
 Funciones:
     subir_ventas(tenant_id, tipo, filename, file_bytes)  -> bool
     subir_cuentas(tenant_id, filename, file_bytes)       -> bool
+    subir_sigo(empresa_id, sucursal, tipo, filename, file_bytes) -> bool
     subir_rendimiento_calle_analytics(tenant_id, payload) -> bool
 
 Configuración: ver lib/shelfy_config.py
@@ -122,6 +123,53 @@ def subir_ventas_analytics(
         return False
     except Exception as e:
         logger.error(f"  ❌ Error subiendo ventas analytics para {tenant_id}: {e}")
+        return False
+
+
+def subir_sigo(
+    empresa_id: str,
+    sucursal: str,
+    tipo: str,
+    filename: str,
+    file_bytes: bytes,
+) -> bool:
+    """
+    Sube export SIGO (Puntos de venta XLS o ventas fuera de ruta XLSX).
+    POST /api/motor/sigo — Form: empresa_id, sucursal, tipo (pdv|vfr), file.
+
+    empresa_id: tabaco | aloma | liver | real | gyg (GyG → dist 6).
+    """
+    url = f"{_url()}/api/motor/sigo"
+    if tipo not in ("pdv", "vfr"):
+        logger.error(f"  ❌ subir_sigo tipo inválido: {tipo}")
+        return False
+    try:
+        resp = httpx.post(
+            url,
+            headers=_headers(),
+            data={"empresa_id": empresa_id, "sucursal": sucursal, "tipo": tipo},
+            files={
+                "file": (
+                    filename,
+                    file_bytes,
+                    "application/vnd.ms-excel"
+                    if filename.lower().endswith(".xls")
+                    else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+            timeout=TIMEOUT,
+        )
+        if resp.status_code in (200, 201):
+            data = resp.json() if resp.content else {}
+            logger.info(
+                f"  ✅ SIGO {tipo} subido — dist={data.get('id_distribuidor', '?')} "
+                f"bytes={data.get('bytes', len(file_bytes))}"
+            )
+            return True
+        logger.error(f"  ❌ API motor/sigo {resp.status_code}: {resp.text[:300]}")
+        return False
+    except Exception as e:
+        logger.error(f"  ❌ Error subiendo SIGO ({empresa_id}/{tipo}): {e}")
         return False
 
 

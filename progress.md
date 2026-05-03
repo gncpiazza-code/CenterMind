@@ -1,6 +1,14 @@
 # Progress — Shelfy CenterMind
 
-**Última actualización: 30 de Abril, 2026 (Mapa full layout + mejoras Panel Supervisión)**
+**Última actualización: 2 de Mayo, 2026 (RPA SIGO — cliente API + endpoint motor)**
+
+- **Historial reciente:** RPA `lib.api_client.subir_sigo` + backend `POST /api/motor/sigo` (archivos a Storage `Exhibiciones-PDV/sigo-rpa/...`). `motores/sigo.py`: rutas de descarga/errores por defecto bajo `ShelfMind-RPA/` (env `RPA_DOWNLOADS_DIR` / `RPA_ERRORS_DIR` para Docker). Corrida local `runner.py todos`: Padrón y CC OK; VENTAS falló solo Real (timeout UI); la secuencia se cortaba antes por `ImportError` de `subir_sigo`.
+
+**Última actualización (anterior bloque): 2 de Mayo, 2026 (EnginesV2 — CC CHESS por red)**
+
+- **Historial reciente (anterior):** `EnginesV2/chess_cuentas` — motor Cuentas Corrientes V2: Playwright reutiliza login/filtros del RPA; captura JSON del endpoint `ObtenerSaldoTotalDeudores`; fallback a Excel V1; Real con split delega al motor clásico. Sniff: `python -m EnginesV2.chess_cuentas.sniff`.
+
+**Última actualización (anterior): 30 de Abril, 2026 (Mapa full layout + mejoras Panel Supervisión)**
 
 Este archivo detalla el estado actual del proyecto, las funcionalidades operativas y los pendientes técnicos.
 

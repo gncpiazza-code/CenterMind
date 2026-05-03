@@ -1,8 +1,20 @@
 # Progress — Shelfy CenterMind
 
-**Última actualización: 2 de Mayo, 2026 (RPA SIGO — cliente API + endpoint motor)**
+**Última actualización: 3 de Mayo, 2026 (Plan ocultamiento CC/Mapa refactor — Fases A–D completas)**
 
-- **Historial reciente:** RPA `lib.api_client.subir_sigo` + backend `POST /api/motor/sigo` (archivos a Storage `Exhibiciones-PDV/sigo-rpa/...`). `motores/sigo.py`: rutas de descarga/errores por defecto bajo `ShelfMind-RPA/` (env `RPA_DOWNLOADS_DIR` / `RPA_ERRORS_DIR` para Docker). Corrida local `runner.py todos`: Padrón y CC OK; VENTAS falló solo Real (timeout UI); la secuencia se cortaba antes por `ImportError` de `subir_sigo`.
+- **Historial reciente:** Implementación completa del plan `ocultamiento-cc-mapa-refactor-2026-05-03`. **A1** `SupervisionDashboard.tsx`: solo CC + `SupervisionOverview`. **A2** `reportes/page.tsx`: reescritura slim (sin tabs, sin exhibiciones, sin academy imports). **A3** `supervision/page.tsx`: solo KPIs CC + tabla CC; queries ventas eliminadas. **B1** `TabSupervision.tsx`: eliminados ShelfyMaps modal fullscreen, Scanner GPS modal, GPS permission dialog, botones mobile Scanner/ShelfyMaps, `ventasData` useQuery, handlers `handleScanner`/`handleShelfyMaps`/`handleGpsActivar`, memo `ventasFiltradas`. **B2** `MapaRutas.tsx`: prop `shelfyMapsMode` eliminada. **B3** `TutorialModal.tsx`: slides alineados a Modo Mapa sin referencias a ShelfyMaps/GPS. **B4** `api.ts`: `fetchPDVsCercanos`, `PDVCercano`, `PDVsCercanosResponse` eliminados. **C1** `supervision.py`: `/pdvs-cercanos` marcado `deprecated=True`. **D1** `MapaRutas.tsx`: `ResizeObserver` agregado en `containerRef` para trigger automático de resize al cambiar tamaño del contenedor. **D3** `TabSupervision.tsx`: corregido bug layout `mapOnly` (faltaba `xl:col-span-3` en mapa container). TutorialModal: `Callout color="violet"` corregido a `"purple"`.
+
+**Última actualización (anterior): 3 de Mayo, 2026 (Ventas motor CHESS — Real UEQUIN pendiente)**
+
+- **Historial reciente:** `motores/ventas.py`: espera post-Procesar hasta `CHESS_VENTAS_POST_PROCESAR_SEC` (default 240s), detección `.ag-row` + modal, selector Procesar explícito, modal de export con regex `exportaci` y timeout mayor. **Empresa** solo tenant `real` (combo placeholder bloqueaba Procesar). **Tipos documento** solo `real`, orden debug `empresa → tipos → sucursal → fechas`. E2E local: **Tabaco y Liver** dry-run OK; **Real** sigue sin Redefinir/modal/grilla tras Procesar (CHESS o filtros — investigación manual). Prototipo `~/Desktop/ShelfyVentasV2/` alineado (`sniff`).
+
+**Última actualización (anterior bloque): 2 de Mayo, 2026 (Ventas V2 prototipo Escritorio — paridad + suc UI)**
+
+- **Historial reciente (anterior):** `~/Desktop/ShelfyVentasV2/shelfy_ventas_v2`: `motor` (wrapper `run_tenant_v2` + dry-run mocks), `compare_versions` (dos corridas dry-run + `sucursal_config`/`motor_ventas` + opcional `verify_sucursal_ui` para tenants con sucursal), `compare_sucursal` (dict vs mat-select), `sniff` (captura XLSX en red + descargas resumido/detallado, manifest en `out/`). Integración en `ShelfMind-RPA/motores/chess_ventas_v2/` pendiente hasta validación E2E con vault.
+
+**Última actualización (anterior bloque): 2 de Mayo, 2026 (RPA SIGO — cliente API + endpoint motor)**
+
+- **Historial reciente (anterior):** RPA `lib.api_client.subir_sigo` + backend `POST /api/motor/sigo` (archivos a Storage `Exhibiciones-PDV/sigo-rpa/...`). `motores/sigo.py`: rutas de descarga/errores por defecto bajo `ShelfMind-RPA/` (env `RPA_DOWNLOADS_DIR` / `RPA_ERRORS_DIR` para Docker). Corrida local `runner.py todos`: Padrón y CC OK; VENTAS falló solo Real (timeout UI); la secuencia se cortaba antes por `ImportError` de `subir_sigo`.
 
 **Última actualización (anterior bloque): 2 de Mayo, 2026 (EnginesV2 — CC CHESS por red)**
 

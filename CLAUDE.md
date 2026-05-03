@@ -266,9 +266,15 @@ El `scheduler.py` corre en el contenedor RPA (Railway o Mac) y dispara cada moto
 > - **`cc_detalle.antiguedad_dias`** viene de CHESS → refleja el día del snapshot (2x/día). Pero indica la antigüedad de la deuda más vieja, no la fecha de última compra exacta.
 > - Para `fecha_ultima_compra` en tiempo real se necesitaría el motor de Ventas (`runner.py ventas`) que descarga transacciones de CHESS. Actualmente NO está en el scheduler.
 
-### Motor `cuentas_corrientes.py`
+### Motor `cuentas_corrientes.py` (+ `motores/chess_cuentas_v2/`)
 
-**Qué hace:** Para cada tenant activo, abre Chrome headless, hace login en CHESS ERP (`https://{tenant}.chesserp.com/AR{id}`), navega a `/#/cuentas-por-cobrar/reportes/saldos-totales`, hace click en Procesar, descarga el Excel de Saldos Totales, lo parsea con `cuentas_parser.py`, compara hash MD5 con el día anterior (si es igual, no hace nada), y sube el JSON al backend.
+**Por defecto (v2):** Mismo login CHESS y pantalla Saldos Totales; tras Procesar captura el JSON del endpoint `…/saldoTotalDeudores/ObtenerSaldoTotalDeudores` y arma el mismo payload que antes vía `cuentas_parser` (sin descargar Excel). Si no hay JSON usable, **fallback** idéntico al flujo clásico: export Excel + parse. **Real** con `split_por_sucursal` sigue usando solo el flujo v1 (multi-dist).
+
+**Variables:** `RPA_CUENTAS_ENGINE=v1` fuerza el motor legado solo-Excel. `RPA_CUENTAS_FORCE_EXCEL=1` fuerza Excel en v2. `RPA_CUENTAS_SNIFF_DUMP=1` vuelca JSON de red en `ShelfMind-RPA/logs/cuentas_v2_capture/`.
+
+**Benchmark local:** `cd ShelfMind-RPA && python -m motores.chess_cuentas_v2.compare_bench --tenant tabaco`
+
+**Qué hace (resumen ingestión):** Compara hash MD5 del día anterior; si cambió, sube JSON a `POST /api/v1/sync/cuentas-corrientes` (API Key).
 
 **Endpoint al que llama:** `POST /api/v1/sync/cuentas-corrientes?id_distribuidor={id}` (API Key)
 

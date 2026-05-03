@@ -16,10 +16,8 @@ import {
   Eye,
   EyeOff,
   Building2,
-  TrendingUp,
   CreditCard,
   Printer,
-  Radar,
   X,
   Image as ImageIcon,
   Search,
@@ -29,23 +27,18 @@ import {
   fetchVendedoresSupervision,
   fetchRutasSupervision,
   fetchClientesSupervision,
-  fetchVentasSupervision,
   fetchCuentasSupervision,
   fetchSyncStatus,
   type SyncStatus,
-  fetchPDVsCercanos,
   fetchClienteInfo,
   fetchReporteExhibiciones,
   resolveImageUrl,
   createObjetivo,
-  type PDVsCercanosResponse,
   type VendedorSupervision,
   type RutaSupervision,
   type ClienteSupervision,
   type Distribuidora,
-  type VentasSupervision,
   type CuentasSupervision,
-  type PDVCercano,
   type ClienteContacto,
   type ObjetivoCreate,
   type ObjetivoTipo,
@@ -459,21 +452,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
   /** Re-render conteos alineados al mapa cuando cambia caché de rutas/clientes */
   const [mapStatsTick, setMapStatsTick]         = useState(0);
 
-  // ── Scanner GPS ───────────────────────────────────────────────────────────
-  const [scannerOpen, setScannerOpen]           = useState(false);
-  const [scannerLoading, setScannerLoading]     = useState(false);
-  const [pdvsCercanos, setPdvsCercanos]         = useState<PDVCercano[]>([]);
-  const [scannerFallback, setScannerFallback]   = useState(false);
-  const [gpsError, setGpsError]                 = useState<string | null>(null);
-
-  // ── ShelfyMaps ────────────────────────────────────────────────────────────
-  const [shelfyMapsOpen, setShelfyMapsOpen]     = useState(false);
-  const [showGpsDialog, setShowGpsDialog]       = useState(false);
-  const [shelfyGpsGranted, setShelfyGpsGranted] = useState(false);
-  const [shelfyFilterOpen, setShelfyFilterOpen] = useState(false);
-
   // ── Ventas & Cuentas ──────────────────────────────────────────────────────
-  const [ventasDias, setVentasDias]             = useState<7 | 30 | 90>(30);
   const [openVentasVend, setOpenVentasVend]     = useState<string | null>(null);
   const [openCuentasVend, setOpenCuentasVend]   = useState<string | null>(null);
   const [clientePopup, setClientePopup]         = useState<{
@@ -670,14 +649,6 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
     queryClient.removeQueries({ queryKey: ['supervision-clientes'] });
   }, [selectedDist, clearAll, queryClient]);
 
-  const { data: ventasData = null, isLoading: loadingVentas } = useQuery({
-    queryKey: ['supervision-ventas', selectedDist, ventasDias],
-    queryFn: () => fetchVentasSupervision(selectedDist, ventasDias),
-    enabled: !!selectedDist,
-    placeholderData: keepPreviousData,
-    staleTime: 60_000,
-  });
-
   const { data: cuentasData = null, isLoading: loadingCuentas } = useQuery({
     queryKey: ['supervision-cuentas', selectedDist, selectedSucursal],
     queryFn: () => fetchCuentasSupervision(selectedDist!, selectedSucursal!),
@@ -777,21 +748,6 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
       pctActivos: tp > 0 ? Math.round((ta / tp) * 100) : 0,
     };
   }, [vendedoresFiltrados, vendorMapEligibleStats]);
-
-  const ventasFiltradas = useMemo(() => {
-    if (!ventasData || !selectedSucursal) return null;
-    // Buscamos vendedores que pertenecen a esta sucursal en el listado base
-    const vendsInSuc = new Set(vendedoresFiltrados.map(v => v.nombre_vendedor.toLowerCase()));
-    const filteredVends = ventasData.vendedores.filter(v => vendsInSuc.has(v.vendedor.toLowerCase()));
-    
-    return {
-      ...ventasData,
-      total_facturado: filteredVends.reduce((s, v) => s + v.monto_total, 0),
-      total_recaudado: filteredVends.reduce((s, v) => s + v.monto_recaudado, 0),
-      total_facturas: filteredVends.reduce((s, v) => s + v.total_facturas, 0),
-      vendedores: filteredVends
-    };
-  }, [ventasData, selectedSucursal, vendedoresFiltrados]);
 
   // Backend ya filtra por sucursal — cuentasData llega pre-filtrado
   const cuentasFiltradas = cuentasData ?? null;
@@ -907,89 +863,6 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
     } catch {
       setClientePopup({ nombre, data: [], loading: false });
     }
-  };
-
-  // ── Scanner GPS handler ───────────────────────────────────────────────────
-  const handleScanner = () => {
-    setGpsError(null);
-    setScannerLoading(true);
-    setScannerOpen(true);
-    setPdvsCercanos([]);
-    setScannerFallback(false);
-
-    if (!navigator.geolocation) {
-      setGpsError("Tu dispositivo no soporta geolocalización");
-      setScannerLoading(false);
-      return;
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        try {
-          const res: PDVsCercanosResponse = await fetchPDVsCercanos(
-            selectedDist,
-            pos.coords.latitude,
-            pos.coords.longitude,
-            5000
-          );
-          setPdvsCercanos(res.pdvs);
-          setScannerFallback(res.fallback);
-        } catch (err) {
-          setGpsError(`Error al buscar PDVs: ${err instanceof Error ? err.message : String(err)}`);
-        } finally {
-          setScannerLoading(false);
-        }
-      },
-      (err) => {
-        setGpsError(
-          err.code === 1
-            ? "Permiso de ubicación denegado. Habilitalo en la configuración del navegador."
-            : "No se pudo obtener tu ubicación"
-        );
-        setScannerLoading(false);
-      },
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
-  };
-
-  // ── ShelfyMaps: open with optional GPS dialog ────────────────────────────
-  const handleShelfyMaps = async () => {
-    // Check if permission API is available and already granted
-    if (typeof navigator !== "undefined" && navigator.permissions) {
-      try {
-        const result = await navigator.permissions.query({ name: "geolocation" as PermissionName });
-        if (result.state === "granted") {
-          setShelfyGpsGranted(true);
-          setShelfyMapsOpen(true);
-          return;
-        }
-      } catch {
-        // permissions API not supported, fall through to dialog
-      }
-    }
-    // Show GPS dialog
-    setShowGpsDialog(true);
-  };
-
-  const handleGpsActivar = () => {
-    if (!navigator.geolocation) {
-      setShowGpsDialog(false);
-      setShelfyMapsOpen(true);
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      () => {
-        setShelfyGpsGranted(true);
-        setShowGpsDialog(false);
-        setShelfyMapsOpen(true);
-      },
-      () => {
-        setShelfyGpsGranted(false);
-        setShowGpsDialog(false);
-        setShelfyMapsOpen(true);
-      },
-      { enableHighAccuracy: true, timeout: 8000 }
-    );
   };
 
   // ── TanStack Query: Rutas (lazy-loaded per vendor) ───────────────────────
@@ -1802,14 +1675,6 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
               )}
             </div>
           <button
-            onClick={handleScanner}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 text-xs font-medium transition-colors"
-            title="Escanear PDVs cercanos (GPS)"
-          >
-            <Radar size={14} />
-            <span>Scanner</span>
-          </button>
-          <button
             onClick={() => refetchVendedores()}
             disabled={loading}
             title="Actualizar todo"
@@ -1827,31 +1692,11 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
         </div>
       )}
 
-      {/* Mobile primary CTA: ShelfyMaps — superadmin only */}
-      {isSuperadmin && (
-        <button
-          onClick={handleShelfyMaps}
-          className="xl:hidden flex items-center justify-center gap-2 w-full px-4 py-3 rounded-xl font-semibold text-sm text-white transition-all active:scale-[0.98]"
-          style={{ background: "linear-gradient(135deg, #7C3AED 0%, #4F46E5 100%)", boxShadow: "0 4px 16px rgba(124,58,237,0.35)" }}
-        >
-          🗺️ Entrar a ShelfyMaps
-        </button>
-      )}
-
-      {/* Mobile Scanner button — secondary */}
-      <button
-        onClick={handleScanner}
-        className="xl:hidden flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 font-medium text-sm transition-colors hover:bg-amber-500/20"
-      >
-        <Radar size={14} />
-        Scanner GPS — PDVs cercanos
-      </button>
-
       {/* Main split */}
       <div className={`${mapOnly ? "flex flex-col xl:grid xl:grid-cols-5 gap-3 flex-1 min-h-0" : `flex flex-col xl:grid xl:grid-cols-5 gap-3 ${fullscreen ? "flex-1 min-h-0 xl:h-auto" : "xl:h-[680px]"}`}`}>
 
-        {/* ── MAP — oculto en mobile ──────────────────────────────────────── */}
-        <div className={`${mapOnly ? "flex flex-1 min-h-0" : "hidden xl:flex xl:col-span-3"} flex-col rounded-2xl overflow-hidden border border-[var(--shelfy-border)] relative bg-[var(--shelfy-panel)]`}>
+        {/* ── MAP — oculto en mobile (salvo mapOnly) ──────────────────────── */}
+        <div className={`${mapOnly ? "flex flex-1 min-h-0 xl:col-span-3" : "hidden xl:flex xl:col-span-3"} flex-col rounded-2xl overflow-hidden border border-[var(--shelfy-border)] relative bg-[var(--shelfy-panel)]`}>
           <MapLayerControls />
           <div className="flex-1 relative">
             {loading ? (
@@ -2339,148 +2184,6 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
 
       </div>
 
-      {/* ── SECCIÓN VENTAS (oculta temporalmente, pendiente de pulir) ────────── */}
-      {false && <div className="rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden shadow-sm">
-        <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-[var(--shelfy-border)]/50">
-          <div className="flex items-center gap-2">
-            <TrendingUp className="w-4 h-4 text-emerald-400" />
-            <h3 className="text-sm font-bold text-[var(--shelfy-text)]">Ventas</h3>
-            {ventasFiltradas && (
-              <span className="text-[11px] text-[var(--shelfy-muted)]">últimos {ventasDias} días</span>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            {([7, 30, 90] as const).map(d => (
-              <button
-                key={d}
-                onClick={() => setVentasDias(d)}
-                className={`text-xs px-2.5 py-1 rounded-lg border transition-all ${
-                  ventasDias === d
-                    ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-400 font-semibold"
-                    : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
-                }`}
-              >
-                {d}d
-              </button>
-            ))}
-            {ventasFiltradas && (ventasFiltradas?.vendedores?.length ?? 0) > 0 && (
-              <button
-                onClick={() => {
-                  const rows = [["Vendedor","Fecha","Cliente","Comprobante","Número","Tipo","Devolución","Facturado","Recaudado"]];
-                  ventasFiltradas?.vendedores?.forEach(v => v.transacciones.forEach(t => rows.push([v.vendedor, t.fecha, t.cliente??'', t.comprobante??'', t.numero??'', t.tipo_operacion??'', t.es_devolucion?'SI':'NO', String(t.monto_total), String(t.monto_recaudado)])));
-                  const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
-                  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8;"})); a.download = `ventas_${selectedSucursal}_${ventasDias}d.csv`; a.click();
-                }}
-                className="text-xs px-2.5 py-1 rounded-lg border border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] transition-colors"
-              >↓ CSV</button>
-            )}
-            {loadingVentas && <Loader2 className="w-4 h-4 animate-spin text-[var(--shelfy-muted)]" />}
-          </div>
-        </div>
-
-        {!selectedSucursal ? (
-          <div className="py-12 flex flex-col items-center justify-center text-center px-6">
-            <div className="w-12 h-12 rounded-full bg-emerald-500/10 flex items-center justify-center mb-3">
-              <TrendingUp className="w-6 h-6 text-emerald-500/50" />
-            </div>
-            <p className="text-sm text-[var(--shelfy-muted)] max-w-[240px]">
-              Seleccioná una sucursal para ver el desglose de ventas.
-            </p>
-          </div>
-        ) : (
-          <>
-            {ventasFiltradas && (
-              <div className="grid grid-cols-3 divide-x divide-[var(--shelfy-border)]/40 border-b border-[var(--shelfy-border)]/30">
-                <div className="px-5 py-3">
-                  <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-0.5">Facturado</p>
-                  <p className="text-base font-bold text-[var(--shelfy-text)]">${(ventasFiltradas?.total_facturado ?? 0).toLocaleString("es-AR",{maximumFractionDigits:0})}</p>
-                </div>
-                <div className="px-5 py-3">
-                  <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-0.5">Recaudado</p>
-                  <p className="text-base font-bold text-emerald-400">${(ventasFiltradas?.total_recaudado ?? 0).toLocaleString("es-AR",{maximumFractionDigits:0})}</p>
-                </div>
-                <div className="px-5 py-3">
-                  <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-0.5">Comprobantes</p>
-                  <p className="text-base font-bold text-[var(--shelfy-text)]">{(ventasFiltradas?.total_facturas ?? 0).toLocaleString()}</p>
-                </div>
-              </div>
-            )}
-
-            {loadingVentas && !ventasFiltradas && (
-              <div className="flex items-center gap-2 justify-center py-8 text-[var(--shelfy-muted)]">
-                <Loader2 className="w-4 h-4 animate-spin" /><span className="text-sm">Cargando ventas...</span>
-              </div>
-            )}
-            {ventasFiltradas && (ventasFiltradas?.vendedores?.length ?? 0) === 0 && !loadingVentas && (
-              <p className="text-sm text-[var(--shelfy-muted)] text-center py-8 italic">Sin datos de ventas para esta sucursal.</p>
-            )}
-
-            {ventasFiltradas && (ventasFiltradas?.vendedores?.length ?? 0) > 0 && (
-              <div className="divide-y divide-[var(--shelfy-border)]/30">
-                {(ventasFiltradas?.vendedores ?? []).map((v, idx) => {
-                  const color = defaultVendorColor(idx);
-                  const isOpen = openVentasVend === v.vendedor;
-                  const pctRec = v.monto_total > 0 ? Math.round((v.monto_recaudado / v.monto_total) * 100) : 0;
-                  return (
-                    <div key={v.vendedor}>
-                      <button
-                        className="w-full flex items-center gap-3 px-5 py-3 hover:bg-white/5 transition-colors text-left"
-                        onClick={() => setOpenVentasVend(isOpen ? null : v.vendedor)}
-                      >
-                        <VendorAvatar nombre={v.vendedor} color={color} />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold text-[var(--shelfy-text)] truncate">{v.vendedor}</p>
-                          <div className="flex items-center gap-3 mt-0.5 flex-wrap">
-                            <span className="text-xs text-[var(--shelfy-muted)]">Fact: <span className="text-[var(--shelfy-text)] font-medium">${v.monto_total.toLocaleString("es-AR",{maximumFractionDigits:0})}</span></span>
-                            <span className="text-xs text-[var(--shelfy-muted)]">Rec: <span className="text-emerald-400 font-medium">${v.monto_recaudado.toLocaleString("es-AR",{maximumFractionDigits:0})}</span><span className="text-[10px] opacity-60 ml-0.5">({pctRec}%)</span></span>
-                            <span className="text-xs text-[var(--shelfy-muted)]">{v.total_facturas} comprob.</span>
-                          </div>
-                        </div>
-                        <ChevronRight className={`w-4 h-4 text-[var(--shelfy-muted)] transition-transform duration-200 ${isOpen?"rotate-90":""}`} />
-                      </button>
-                      <Accordion open={isOpen}>
-                        <div className="px-5 pb-3">
-                          <div className="rounded-xl border border-[var(--shelfy-border)]/50 overflow-auto max-h-64">
-                            <table className="w-full text-[11px]">
-                              <thead className="sticky top-0">
-                                <tr className="bg-[var(--shelfy-panel)] text-[var(--shelfy-muted)] uppercase tracking-wide text-[10px]">
-                                  <th className="text-left px-3 py-2">Fecha</th>
-                                  <th className="text-left px-3 py-2">Cliente</th>
-                                  <th className="text-left px-3 py-2">Comprobante</th>
-                                  <th className="text-right px-3 py-2">Facturado</th>
-                                  <th className="text-right px-3 py-2">Recaudado</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-[var(--shelfy-border)]/20">
-                                {v.transacciones.map((t: any, ti: number) => (
-                                  <tr key={ti} className={`hover:bg-white/5 ${t.es_devolucion?"text-orange-400/80":"text-[var(--shelfy-text)]"}`}>
-                                    <td className="px-3 py-1.5 whitespace-nowrap">{fmt(t.fecha)}</td>
-                                    <td className="px-3 py-1.5 max-w-[160px] truncate">{t.cliente??"-"}</td>
-                                    <td className="px-3 py-1.5 text-[var(--shelfy-muted)]">
-                                      {t.comprobante??""} {t.numero??""}
-                                      {t.es_devolucion && <span className="ml-1 text-[9px] bg-orange-500/20 text-orange-400 px-1 rounded">DEV</span>}
-                                    </td>
-                                    <td className="px-3 py-1.5 text-right font-medium">${t.monto_total.toLocaleString("es-AR",{maximumFractionDigits:0})}</td>
-                                    <td className="px-3 py-1.5 text-right text-emerald-400">${t.monto_recaudado.toLocaleString("es-AR",{maximumFractionDigits:0})}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                            {v.transacciones.length >= 100 && (
-                              <p className="text-center text-[10px] text-[var(--shelfy-muted)] py-1.5 italic">Mostrando primeros 100 comprobantes</p>
-                            )}
-                          </div>
-                        </div>
-                      </Accordion>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </>
-        )}
-      </div>}
-
       {/* ── SECCIÓN CUENTAS CORRIENTES — solo desktop (xl+) ─────────────────── */}
       {!mapOnly && <div className="hidden xl:block rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden shadow-sm">
 
@@ -2934,279 +2637,6 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                   </div>
                 );
               })()}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* GPS Permission Dialog — superadmin only */}
-      {isSuperadmin && showGpsDialog && (
-        <div
-          className="fixed inset-0 z-[10000] flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm p-4"
-          onClick={() => setShowGpsDialog(false)}
-        >
-          <div
-            className="w-full max-w-sm rounded-2xl border shadow-2xl overflow-hidden"
-            style={{ background: "rgba(10,14,24,0.98)", borderColor: "rgba(124,58,237,0.35)" }}
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="px-5 pt-5 pb-3 text-center">
-              <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3 text-2xl"
-                style={{ background: "rgba(124,58,237,0.15)", border: "1px solid rgba(124,58,237,0.3)" }}>
-                📍
-              </div>
-              <p className="text-sm font-bold text-white mb-1">Activar ubicación</p>
-              <p className="text-xs text-white/50 leading-relaxed">
-                ShelfyMaps necesita tu ubicación para mostrarte los PDVs cercanos
-              </p>
-            </div>
-            <div className="px-4 pb-5 flex flex-col gap-2 mt-1">
-              <button
-                onClick={handleGpsActivar}
-                className="w-full py-2.5 rounded-xl font-semibold text-sm text-white transition-all active:scale-[0.98]"
-                style={{ background: "linear-gradient(135deg, #7C3AED 0%, #4F46E5 100%)" }}
-              >
-                Activar GPS
-              </button>
-              <button
-                onClick={() => { setShowGpsDialog(false); setShelfyMapsOpen(true); }}
-                className="w-full py-2.5 rounded-xl text-sm font-medium transition-colors"
-                style={{ background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.5)", border: "1px solid rgba(255,255,255,0.1)" }}
-              >
-                Continuar sin GPS
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ShelfyMaps Fullscreen Modal — superadmin only */}
-      {isSuperadmin && shelfyMapsOpen && (
-        <div
-          style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", flexDirection: "column", background: "#0a0e1a" }}
-        >
-          {/* Top bar */}
-          <div style={{
-            height: 48, flexShrink: 0, display: "flex", alignItems: "center",
-            padding: "0 12px", gap: 8,
-            background: "rgba(10,14,24,0.98)",
-            borderBottom: "1px solid rgba(124,58,237,0.2)",
-          }}>
-            {/* Back button */}
-            <button
-              onClick={() => { setShelfyMapsOpen(false); setShelfyFilterOpen(false); }}
-              style={{
-                width: 36, height: 36, borderRadius: 10, border: "1px solid rgba(255,255,255,0.1)",
-                background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.7)",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 16, cursor: "pointer", flexShrink: 0,
-              }}
-            >
-              ←
-            </button>
-            {/* Title */}
-            <span style={{
-              flex: 1, textAlign: "center", fontWeight: 700, fontSize: 15,
-              color: "white", letterSpacing: "0.01em",
-            }}>
-              🗺️ ShelfyMaps
-            </span>
-            {/* GPS indicator */}
-            {shelfyGpsGranted && (
-              <span style={{ fontSize: 10, color: "#10B981", fontWeight: 600, flexShrink: 0, marginRight: 4 }}>
-                GPS ●
-              </span>
-            )}
-            {/* Filter toggle button */}
-            <button
-              onClick={() => setShelfyFilterOpen(f => !f)}
-              style={{
-                width: 36, height: 36, borderRadius: 10,
-                border: shelfyFilterOpen ? "1px solid rgba(124,58,237,0.5)" : "1px solid rgba(255,255,255,0.1)",
-                background: shelfyFilterOpen ? "rgba(124,58,237,0.2)" : "rgba(255,255,255,0.06)",
-                color: shelfyFilterOpen ? "#a78bfa" : "rgba(255,255,255,0.7)",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 16, cursor: "pointer", flexShrink: 0,
-              }}
-            >
-              ☰
-            </button>
-          </div>
-
-          {/* Map area with optional filter panel overlay */}
-          <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
-            {/* Vendor filter panel — slides in from right */}
-            {shelfyFilterOpen && (
-              <div style={{
-                position: "absolute", top: 0, right: 0, bottom: 0, width: 300,
-                zIndex: 20, display: "flex", flexDirection: "column",
-                background: "rgba(10,14,24,0.96)",
-                backdropFilter: "blur(12px)",
-                borderLeft: "1px solid rgba(255,255,255,0.08)",
-                overflowY: "auto",
-              }}>
-                <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
-                  <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest">Filtros</span>
-                  <button onClick={() => setShelfyFilterOpen(false)} className="text-white/30 hover:text-white/60">×</button>
-                </div>
-                <div className="flex-1 overflow-hidden">
-                  {vendorPanelContent}
-                </div>
-              </div>
-            )}
-
-            {/* The map — fills the entire area */}
-            {pines.length === 0 ? (
-              <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, color: "rgba(255,255,255,0.3)" }}>
-                <span style={{ fontSize: 40 }}>🗺️</span>
-                <p style={{ fontSize: 14, textAlign: "center", padding: "0 32px", lineHeight: 1.5 }}>
-                  {!selectedSucursal
-                    ? "Abrí el menú ☰ y seleccioná una sucursal"
-                    : "Activá un vendedor en el menú ☰ para ver sus PDVs"
-                  }
-                </p>
-              </div>
-            ) : (
-              <MapaRutas pines={pines} shelfyMapsMode={true} />
-            )}
-
-            {/* PDV count pill — top-left over map */}
-            {pines.length > 0 && (
-              <div style={{
-                position: "absolute", top: 10, left: 10, zIndex: 10,
-                background: "rgba(10,14,24,0.85)", backdropFilter: "blur(8px)",
-                color: "rgba(255,255,255,0.7)", fontSize: 11, fontWeight: 700,
-                padding: "4px 10px", borderRadius: 8,
-                border: "1px solid rgba(255,255,255,0.1)",
-                pointerEvents: "none",
-              }}>
-                {pines.length.toLocaleString()} PDV
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Scanner GPS Modal */}
-      {scannerOpen && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="bg-[#0a0f1a] border border-green-500/20 rounded-2xl w-full max-w-lg max-h-[85vh] flex flex-col shadow-[0_0_40px_rgba(34,197,94,0.08)]">
-
-            {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-green-500/15">
-              <div className="flex items-center gap-3">
-                <div className="relative w-8 h-8 flex items-center justify-center">
-                  {/* Radar rings */}
-                  <span className="absolute inset-0 rounded-full border border-green-400/60 animate-ping" style={{ animationDuration: "1.4s" }} />
-                  <span className="absolute inset-1 rounded-full border border-green-400/40 animate-ping" style={{ animationDuration: "1.4s", animationDelay: "0.3s" }} />
-                  <span className="absolute inset-2 rounded-full border border-green-400/20 animate-ping" style={{ animationDuration: "1.4s", animationDelay: "0.6s" }} />
-                  <div className="w-2 h-2 rounded-full bg-green-400 shadow-[0_0_8px_rgba(74,222,128,0.8)] z-10" />
-                </div>
-                <div>
-                  <p className="text-sm font-bold text-green-400 tracking-wide">SCANNER GPS</p>
-                  <p className="text-[10px] text-white/40 font-mono">
-                    {scannerLoading
-                      ? "Escaneando..."
-                      : pdvsCercanos.length > 0
-                        ? scannerFallback
-                          ? `${pdvsCercanos.length} PDV${pdvsCercanos.length !== 1 ? "s" : ""} más cercano${pdvsCercanos.length !== 1 ? "s" : ""} (fuera de radio)`
-                          : `${pdvsCercanos.length} PDV${pdvsCercanos.length !== 1 ? "s" : ""} detectado${pdvsCercanos.length !== 1 ? "s" : ""}`
-                        : "Sin señal"}
-                  </p>
-                </div>
-              </div>
-              <button onClick={() => setScannerOpen(false)} className="text-white/30 hover:text-white/80 transition-colors p-1">
-                <X size={16} />
-              </button>
-            </div>
-
-            {/* Radar animation or results */}
-            <div className="flex-1 overflow-y-auto">
-              {scannerLoading && (
-                <div className="flex flex-col items-center justify-center py-12 gap-6">
-                  {/* Big radar */}
-                  <div className="relative w-32 h-32 flex items-center justify-center">
-                    <span className="absolute inset-0 rounded-full border-2 border-green-400/50 animate-ping" style={{ animationDuration: "1.2s" }} />
-                    <span className="absolute inset-3 rounded-full border border-green-400/35 animate-ping" style={{ animationDuration: "1.2s", animationDelay: "0.25s" }} />
-                    <span className="absolute inset-6 rounded-full border border-green-400/20 animate-ping" style={{ animationDuration: "1.2s", animationDelay: "0.5s" }} />
-                    <span className="absolute inset-9 rounded-full border border-green-400/15 animate-ping" style={{ animationDuration: "1.2s", animationDelay: "0.75s" }} />
-                    <div className="w-5 h-5 rounded-full bg-green-400 shadow-[0_0_16px_rgba(74,222,128,0.9)]" />
-                  </div>
-                  <p className="text-green-400/70 text-sm font-mono tracking-widest animate-pulse">ESCANEANDO ZONA...</p>
-                </div>
-              )}
-
-              {gpsError && (
-                <div className="flex flex-col items-center justify-center py-10 px-6 gap-3">
-                  <div className="w-10 h-10 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center">
-                    <X size={18} className="text-red-400" />
-                  </div>
-                  <p className="text-red-400 text-sm text-center">{gpsError}</p>
-                </div>
-              )}
-
-              {!scannerLoading && !gpsError && pdvsCercanos.length === 0 && (
-                <div className="flex flex-col items-center justify-center py-10 gap-2">
-                  <p className="text-white/30 text-sm font-mono">SIN RESULTADOS</p>
-                </div>
-              )}
-
-              {pdvsCercanos.length > 0 && !scannerLoading && (
-                <div className="divide-y divide-green-500/10">
-                  {pdvsCercanos.map((pdv, idx) => {
-                    const diasUltimaCompra = pdv.fecha_ultima_compra
-                      ? Math.floor((Date.now() - new Date(pdv.fecha_ultima_compra).getTime()) / 86400000)
-                      : null;
-                    const compraActiva = diasUltimaCompra !== null && diasUltimaCompra < 90;
-                    const distLabel = pdv.distancia_metros < 1000
-                      ? `${pdv.distancia_metros}m`
-                      : `${(pdv.distancia_metros / 1000).toFixed(1)}km`;
-                    return (
-                      <div key={pdv.id_cliente} className="px-5 py-3.5 hover:bg-green-500/5 transition-colors">
-                        <div className="flex items-start justify-between gap-3 mb-2">
-                          <div className="flex items-center gap-2 min-w-0">
-                            {/* Index dot */}
-                            <span className="shrink-0 w-5 h-5 rounded-full bg-green-500/15 border border-green-500/30 flex items-center justify-center text-[9px] font-bold text-green-400 font-mono">{idx + 1}</span>
-                            <div className="min-w-0">
-                              <p className="text-sm font-semibold text-white leading-tight truncate">
-                                {pdv.nombre_fantasia || pdv.nombre_razon_social}
-                              </p>
-                              {pdv.nombre_fantasia && pdv.nombre_razon_social && (
-                                <p className="text-[10px] text-white/35 truncate">{pdv.nombre_razon_social}</p>
-                              )}
-                            </div>
-                          </div>
-                          <span className="shrink-0 text-xs bg-green-500/15 text-green-400 border border-green-500/25 px-2 py-0.5 rounded-full font-mono font-semibold">
-                            {distLabel}
-                          </span>
-                        </div>
-
-                        {pdv.domicilio && (
-                          <p className="text-[11px] text-white/40 mb-2 pl-7">
-                            {pdv.domicilio}{pdv.localidad ? `, ${pdv.localidad}` : ""}
-                          </p>
-                        )}
-
-                        <div className="pl-7 grid grid-cols-2 gap-x-4 gap-y-1 text-[11px]">
-                          {pdv.canal && <span className="text-white/35">Canal: <span className="text-white/60">{pdv.canal}</span></span>}
-                          {pdv.vendedor_nombre && <span className="text-white/35">Vendedor: <span className="text-white/60">{pdv.vendedor_nombre}</span></span>}
-                          {pdv.fecha_alta && <span className="text-white/35">Alta: <span className="text-white/60">{new Date(pdv.fecha_alta).toLocaleDateString("es-AR")}</span></span>}
-                          {pdv.fecha_ultima_exhibicion && <span className="text-white/35">Últ. exhibición: <span className="text-white/60">{new Date(pdv.fecha_ultima_exhibicion).toLocaleDateString("es-AR")}</span></span>}
-                        </div>
-
-                        <div className="pl-7 mt-1.5 flex items-center gap-1.5">
-                          <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${compraActiva ? "bg-green-400 shadow-[0_0_4px_rgba(74,222,128,0.8)]" : "bg-white/20"}`} />
-                          <span className={`text-[11px] ${compraActiva ? "text-green-400" : "text-white/30"}`}>
-                            {pdv.fecha_ultima_compra
-                              ? `Últ. compra: ${new Date(pdv.fecha_ultima_compra).toLocaleDateString("es-AR")} · ${diasUltimaCompra}d`
-                              : "Sin compras registradas"}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
             </div>
           </div>
         </div>

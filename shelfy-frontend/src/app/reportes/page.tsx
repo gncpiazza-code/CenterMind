@@ -4,193 +4,15 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { BottomNav } from "@/components/layout/BottomNav";
 import { Topbar } from "@/components/layout/Topbar";
 import { PageSpinner } from "@/components/ui/Spinner";
-import { Card } from "@/components/ui/Card";
-import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/hooks/useAuth";
-import { useEffect, useState, useRef, useMemo, Suspense } from "react";
-import {
-  fetchReporteExhibiciones, fetchReporteVendedores, fetchReporteTiposPdv, fetchReporteSucursales,
-  fetchROI, fetchDistribuidoras, type ROIAnalitico, type Distribuidora
-} from "@/lib/api";
-import * as XLSX from "xlsx";
-import { useSearchParams } from "next/navigation";
-import { Printer, Download, Search, X, ChevronDown, Check, BarChart3, Trophy, Briefcase, SwitchCamera, PieChart, AlertTriangle, Users, MapPin, Flame, RefreshCw, DollarSign, Package, CloudUpload, Activity } from "lucide-react";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Skeleton } from "@/components/ui/skeleton";
-import { DatePicker } from "@/components/ui/date-picker";
-import {
-  Drawer,
-  DrawerContent,
-  DrawerDescription,
-  DrawerFooter,
-  DrawerHeader,
-  DrawerTitle,
-  DrawerTrigger,
-} from "@/components/ui/drawer";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { useEffect, useState, Suspense } from "react";
+import { fetchDistribuidoras, type Distribuidora } from "@/lib/api";
+import { SwitchCamera, AlertTriangle, Activity } from "lucide-react";
 
-import TabGenerarInforme from "@/app/academy/cuentas-corrientes/components/TabGenerarInforme";
-import TabAlertasCredito from "@/app/academy/cuentas-corrientes/components/TabAlertasCredito";
-import TabSeguimientoRecaudacion from "@/app/academy/cuentas-corrientes/components/TabSeguimientoRecaudacion";
-import TabPadronClientes from "@/app/academy/cuentas-corrientes/components/TabPadronClientes";
-
-// Nuevos Reportes Avanzados
-import TabVentasResumen from "./components/TabVentasResumen";
-import TabVentasBultos from "./components/TabVentasBultos";
-import TabAuditoriaSigo from "./components/TabAuditoriaSigo";
-import SupervisionOverview from "./components/SupervisionOverview";
 import SupervisionDashboard from "./components/SupervisionDashboard";
-
-// Nota: Para saldos se usa el TabSeguimientoRecaudacion que ya integra el VisorMultitablas
-
-// Hook para clicks fuera del elemento
-function useOnClickOutside(ref: React.RefObject<HTMLElement | null>, handler: () => void) {
-  useEffect(() => {
-    const listener = (event: MouseEvent | TouchEvent) => {
-      if (!ref.current || ref.current.contains(event.target as Node)) {
-        return;
-      }
-      handler();
-    };
-    document.addEventListener("mousedown", listener);
-    document.addEventListener("touchstart", listener);
-    return () => {
-      document.removeEventListener("mousedown", listener);
-      document.removeEventListener("touchstart", listener);
-    };
-  }, [ref, handler]);
-}
-
-interface Fila {
-  id_exhibicion: number;
-  vendedor: string;
-  cliente: string;
-  sucursal: string;
-  tipo_pdv: string;
-  estado: string;
-  supervisor: string;
-  comentario: string;
-  fecha_carga: string;
-  fecha_evaluacion: string;
-  link_foto: string;
-}
-
-const ESTADOS = ["Aprobado", "Destacado", "Rechazado", "Pendiente"];
-
-function hoy() {
-  return new Date().toISOString().slice(0, 10);
-}
-function inicioMes() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
-}
-
-// ── Multi-select chip component ───────────────────────────────────────────────
-
-function DropdownMultiSelect({
-  label, options, selected, onChange, placeholder = "Seleccionar..."
-}: {
-  label: string;
-  options: string[];
-  selected: string[];
-  onChange: (v: string[]) => void;
-  placeholder?: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState("");
-  const ref = useRef<HTMLDivElement>(null);
-  useOnClickOutside(ref, () => setOpen(false));
-
-  const filtered = options.filter(o => o.toLowerCase().includes(search.toLowerCase()));
-
-  const toggle = (v: string) => {
-    onChange(selected.includes(v) ? selected.filter(x => x !== v) : [...selected, v]);
-  };
-
-  const selectAll = () => onChange(filtered);
-  const clear = () => onChange([]);
-
-  return (
-    <div className="relative flex-1 min-w-[150px]" ref={ref}>
-      <label className="block text-xs text-[var(--shelfy-muted)] mb-1.5 font-medium">{label}</label>
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between gap-2 rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] px-3 py-2 text-sm text-[var(--shelfy-text)] hover:border-[var(--shelfy-primary)] focus:outline-none transition-colors"
-      >
-        <span className="truncate">
-          {selected.length === 0 ? placeholder : `${selected.length} seleccionados`}
-        </span>
-        <ChevronDown size={14} className="text-[var(--shelfy-muted)]" />
-      </button>
-
-      {open && (
-        <div className="absolute z-50 top-full mt-1 left-0 min-w-full w-64 bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] shadow-xl rounded-xl overflow-hidden flex flex-col">
-          <div className="p-2 border-b border-[var(--shelfy-border)] relative">
-            <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--shelfy-muted)]" />
-            <input
-              type="text"
-              placeholder="Buscar..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              className="w-full pl-8 pr-3 py-1.5 bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-md text-xs text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-primary)]"
-            />
-          </div>
-          <div className="flex px-2 py-1.5 gap-2 border-b border-[var(--shelfy-border)] bg-[var(--shelfy-bg)]">
-            <button type="button" onClick={selectAll} className="text-[11px] font-medium text-[var(--shelfy-primary)] hover:underline">Select visibles</button>
-            <span className="text-[var(--shelfy-muted)]">•</span>
-            <button type="button" onClick={clear} className="text-[11px] font-medium text-[var(--shelfy-muted)] hover:text-red-600 hover:underline">Limpiar</button>
-          </div>
-          <div className="max-h-56 overflow-y-auto p-1 custom-scrollbar">
-            {filtered.length === 0 ? (
-              <div className="px-3 py-4 text-center text-xs text-[var(--shelfy-muted)]">Sin resultados</div>
-            ) : (
-              filtered.map(o => {
-                const isSel = selected.includes(o);
-                return (
-                  <button
-                    key={o}
-                    type="button"
-                    onClick={() => toggle(o)}
-                    className="w-full flex items-center justify-between px-3 py-2 text-left text-sm hover:bg-[var(--shelfy-bg)] rounded-md transition-colors"
-                  >
-                    <span className="truncate pr-2">{o}</span>
-                    {isSel && <Check size={14} className="text-[var(--shelfy-primary)] shrink-0" />}
-                  </button>
-                );
-              })
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
 
 function ReportesContent() {
   const { user } = useAuth();
-  const searchParams = useSearchParams();
-  const [activeMainTab, setActiveMainTab] = useState<"overview" | "exhibiciones" | "recaudacion" | "padron" | "cuentas_corrientes" | "roi" | "ventas_resumen" | "ventas_bultos" | "sigo_audit">("overview");
-
-  useEffect(() => {
-    const tab = searchParams.get("tab");
-    if (tab === "cuentas_corrientes") setActiveMainTab("cuentas_corrientes");
-    else if (tab === "padron") setActiveMainTab("padron");
-    else if (tab === "recaudacion") setActiveMainTab("recaudacion");
-  }, [searchParams]);
-
-  const [ccpTab, setCcpTab] = useState<"alertas" | "informe">("informe");
-  const [ccTab, setCcTab] = useState<"generar" | "alertas">("generar");
-  const [erpRoi, setErpRoi] = useState<ROIAnalitico | null>(null);
-  const [loadingRoi, setLoadingRoi] = useState(false);
 
   const [selectedDistId, setSelectedDistId] = useState<number>(user?.id_distribuidor || 0);
   const [distribuidoras, setDistribuidoras] = useState<Distribuidora[]>([]);
@@ -204,612 +26,79 @@ function ReportesContent() {
     }
   }, [user]);
 
-  // Filtros
-  const [desde, setDesde] = useState(inicioMes());
-  const [hasta, setHasta] = useState(hoy());
-  const [vendedoresList, setVendedoresList] = useState<string[]>([]);
-  const [tiposPdvList, setTiposPdvList] = useState<string[]>([]);
-  const [sucursalesList, setSucursalesList] = useState<string[]>([]);
-  const [selectedVendedores, setSelectedVendedores] = useState<string[]>([]);
-  const [selectedEstados, setSelectedEstados] = useState<string[]>([]);
-  const [selectedTipos, setSelectedTipos] = useState<string[]>([]);
-  const [selectedSucursales, setSelectedSucursales] = useState<string[]>([]);
-  const [nroCliente, setNroCliente] = useState("");
-
-  // Resultados
-  const [filas, setFilas] = useState<Fila[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [loadingOpts, setLoadingOpts] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [searched, setSearched] = useState(false);
-  const [filtersDrawerOpen, setFiltersDrawerOpen] = useState(false);
-
-  // Cargar listas de filtros al cambiar distribuidor
-  useEffect(() => {
-    if (!selectedDistId) return;
-    setLoadingOpts(true);
-    handleLimpiar(); // Limpiar filtros al cambiar contexto
-    Promise.all([
-      fetchReporteVendedores(selectedDistId),
-      fetchReporteTiposPdv(selectedDistId),
-      fetchReporteSucursales(selectedDistId),
-    ])
-      .then(([v, t, s]) => { setVendedoresList(v); setTiposPdvList(t); setSucursalesList(s); })
-      .catch(() => { })
-      .finally(() => setLoadingOpts(false));
-  }, [selectedDistId]);
-
-  async function handleBuscar() {
-    if (!selectedDistId) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await fetchReporteExhibiciones(selectedDistId, {
-        fecha_desde: desde,
-        fecha_hasta: hasta,
-        vendedores: selectedVendedores.length > 0 ? selectedVendedores : undefined,
-        estados: selectedEstados.length > 0 ? selectedEstados : undefined,
-        tipos_pdv: selectedTipos.length > 0 ? selectedTipos : undefined,
-        sucursales: selectedSucursales.length > 0 ? selectedSucursales : undefined,
-        nro_cliente: nroCliente.trim() || undefined,
-      });
-      setFilas(data as Fila[]);
-      setSearched(true);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Error");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    if (activeMainTab === "roi" && selectedDistId && !erpRoi) {
-      setLoadingRoi(true);
-      fetchROI(selectedDistId)
-        .then(setErpRoi)
-        .catch(console.error)
-        .finally(() => setLoadingRoi(false));
-    }
-  }, [activeMainTab, selectedDistId, erpRoi]);
-
-  function handleLimpiar() {
-    setSelectedVendedores([]);
-    setSelectedEstados([]);
-    setSelectedTipos([]);
-    setSelectedSucursales([]);
-    setNroCliente("");
-    setDesde(inicioMes());
-    setHasta(hoy());
-  }
-
-  // Cálculos para Gráficos
-  const timelineData = useMemo(() => {
-    if (filas.length === 0) return [];
-    const counts: Record<string, number> = {};
-    filas.forEach(f => {
-      if (!f.fecha_carga) return;
-      const dateStr = f.fecha_carga.substring(0, 10);
-      counts[dateStr] = (counts[dateStr] || 0) + 1;
-    });
-
-    return Object.keys(counts).sort().map(dateStr => {
-      const [y, m, d] = dateStr.split("-").map(Number);
-      const dateObj = new Date(y, m - 1, d);
-      const dayStr = dateObj.toLocaleDateString("es-ES", { weekday: "short" });
-      return {
-        fechaOriginal: dateStr,
-        fecha: `${d}/${m} (${dayStr})`,
-        cantidad: counts[dateStr]
-      };
-    });
-  }, [filas]);
-
-  // Cálculos para Ranking
-  const rankingData = useMemo(() => {
-    if (filas.length === 0) return [];
-    const map: Record<string, { vendedor: string; puntos: number; aprobados: number; destacados: number; rechazados: number; totales: number }> = {};
-
-    filas.forEach(f => {
-      if (!f.vendedor) return;
-      if (!map[f.vendedor]) {
-        map[f.vendedor] = { vendedor: f.vendedor, puntos: 0, aprobados: 0, destacados: 0, rechazados: 0, totales: 0 };
-      }
-      map[f.vendedor].totales += 1;
-      if (f.estado === "Destacado") {
-        map[f.vendedor].puntos += 2;
-        map[f.vendedor].destacados += 1;
-      } else if (f.estado === "Aprobado") {
-        map[f.vendedor].puntos += 1;
-        map[f.vendedor].aprobados += 1;
-      } else if (f.estado === "Rechazado") {
-        map[f.vendedor].rechazados += 1;
-      }
-    });
-
-    return Object.values(map)
-      .filter(r => r.totales > 0)
-      .sort((a, b) => b.puntos - a.puntos);
-  }, [filas]);
-
-  // Cálculos para Anomalías
-  const anomaliasData = useMemo(() => {
-    if (filas.length === 0) return [];
-    const map: Record<string, { total: number, clientes: Record<string, number> }> = {};
-    filas.forEach(f => {
-      if (!f.vendedor || !f.cliente) return;
-      if (!map[f.vendedor]) map[f.vendedor] = { total: 0, clientes: {} };
-      map[f.vendedor].total++;
-      map[f.vendedor].clientes[f.cliente] = (map[f.vendedor].clientes[f.cliente] || 0) + 1;
-    });
-
-    const result = [];
-    for (const [vendedor, data] of Object.entries(map)) {
-      if (data.total < 5) continue;
-      let maxClient = "";
-      let maxCount = 0;
-      for (const [client, count] of Object.entries(data.clientes)) {
-        if (count > maxCount) {
-          maxCount = count;
-          maxClient = client;
-        }
-      }
-      const pct = (maxCount / data.total) * 100;
-      if (pct >= 50) {
-        result.push({ vendedor, total: data.total, maxClient, maxCount, pct });
-      }
-    }
-    return result.sort((a, b) => b.pct - a.pct).slice(0, 20);
-  }, [filas]);
-
-  function handleExportExcel() {
-    if (filas.length === 0) return;
-
-    // Hoja 1: Detalle
-    const wsDetalle = XLSX.utils.json_to_sheet(filas.map(f => ({
-      ID: f.id_exhibicion,
-      Vendedor: f.vendedor,
-      Sucursal: f.sucursal,
-      Cliente: f.cliente,
-      "Tipo PDV": f.tipo_pdv,
-      Estado: f.estado,
-      Supervisor: f.supervisor,
-      Comentario: f.comentario,
-      "Fecha Carga": f.fecha_carga,
-      "Fecha Evaluación": f.fecha_evaluacion
-    })));
-
-    // Hoja 2: Ranking y Estadísticas
-    const wsRanking = XLSX.utils.json_to_sheet(rankingData.map((r, i) => ({
-      Ranking: i + 1,
-      Vendedor: r.vendedor,
-      "Pts Totales": r.puntos,
-      "Total Enviadas": r.totales,
-      "Aprobadas": r.aprobados,
-      "Destacadas": r.destacados,
-      "Rechazadas": r.rechazados
-    })));
-
-    // Hoja 3: Evolución Diaria
-    const wsEvolucion = XLSX.utils.json_to_sheet(timelineData.map(t => ({
-      Fecha: t.fechaOriginal,
-      "Día": t.fecha,
-      "Exhibiciones Cargadas": t.cantidad
-    })));
-
-    // Hoja 4: Anomalías
-    const wsAnomalias = XLSX.utils.json_to_sheet(anomaliasData.map(a => ({
-      Vendedor: a.vendedor,
-      "Total Exhibiciones del Vendedor": a.total,
-      "Cliente Frecuente (Sospechoso)": a.maxClient,
-      "Exhibiciones en ese Cliente": a.maxCount,
-      "Porcentaje de Concentración": `${a.pct.toFixed(1)}%`
-    })));
-
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, wsDetalle, "Detalle Exhibiciones");
-    XLSX.utils.book_append_sheet(wb, wsRanking, "Ranking y Estad.");
-    XLSX.utils.book_append_sheet(wb, wsEvolucion, "Evolución Diaria");
-    XLSX.utils.book_append_sheet(wb, wsAnomalias, "Anomalías");
-
-    XLSX.writeFile(wb, `Reporte_Exhibiciones_${desde}_${hasta}.xlsx`);
-  }
-
-  const hayFiltrosActivos = selectedVendedores.length > 0 || selectedEstados.length > 0 || selectedTipos.length > 0 || selectedSucursales.length > 0 || nroCliente.trim();
-
   return (
-    <>
-      <Alert className="mb-4 bg-yellow-50 border-yellow-300 text-yellow-800">
-        <AlertDescription className="text-sm">
-          Esta sección está en proceso de retiro. Los reportes están disponibles directamente en el{" "}
-          <a href="/dashboard" className="underline font-medium">Dashboard</a>.
-        </AlertDescription>
-      </Alert>
-      <style>{`
-        @media print {
-          body { background: white !important; }
-          .no-print { display: none !important; }
-          .print-only { display: block !important; }
-          .dashboard-container { padding: 0 !important; width: 100% !important; margin: 0 !important; }
-          .print-card { box-shadow: none !important; border: 1px solid #ddd !important; break-inside: avoid; margin-bottom: 20px; }
-        }
-        .print-only { display: none; }
-      `}</style>
+    <div className="flex min-h-screen bg-[var(--shelfy-bg)]">
+      <Sidebar />
+      <BottomNav />
+      <div className="flex flex-col flex-1 min-w-0">
+        <Topbar title="Panel de Supervisión" />
 
-      <div className="flex min-h-screen bg-[var(--shelfy-bg)] dashboard-container">
-        <div className="no-print"><Sidebar /></div>
-        <div className="no-print"><BottomNav /></div>
-        <div className="flex flex-col flex-1 min-w-0">
-          <div className="no-print"><Topbar title="Panel de Supervisión" /></div>
+        <main className="flex-1 p-4 md:p-6 pb-20 md:pb-6 overflow-auto w-full max-w-7xl mx-auto">
 
-          <main className="flex-1 p-4 md:p-6 pb-20 md:pb-6 overflow-auto w-full max-w-7xl mx-auto">
-
-            {/* Cabecera Principal */}
-            <div className="mb-6 no-print flex flex-col md:flex-row md:items-start justify-between gap-4">
-              <div>
-                <h1 className="text-2xl font-black text-[var(--shelfy-text)] tracking-tight">
-                  Panel de Supervisión
-                </h1>
-                <p className="text-sm text-[var(--shelfy-muted)] mt-1">
-                  Supervisa el rendimiento de ventas, clientes y exhibiciones corporativas en tiempo real.
-                </p>
-              </div>
-              <Drawer open={filtersDrawerOpen} onOpenChange={setFiltersDrawerOpen}>
-                <DrawerTrigger asChild>
-                  <Button variant="secondary" className="md:hidden self-start">
-                    <Filter data-icon="inline-start" />
-                    Filtros
-                  </Button>
-                </DrawerTrigger>
-                <DrawerContent>
-                  <DrawerHeader>
-                    <DrawerTitle>Filtros rápidos</DrawerTitle>
-                    <DrawerDescription>Aplica rango de fechas y búsqueda por cliente.</DrawerDescription>
-                  </DrawerHeader>
-                  <div className="px-4 flex flex-col gap-3">
-                    <div className="flex flex-col gap-1">
-                      <label className="text-xs text-[var(--shelfy-muted)] font-medium">Desde</label>
-                      <DatePicker value={desde} onChange={setDesde} placeholder="Desde" />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <label className="text-xs text-[var(--shelfy-muted)] font-medium">Hasta</label>
-                      <DatePicker value={hasta} onChange={setHasta} placeholder="Hasta" minDate={desde || undefined} />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <label className="text-xs text-[var(--shelfy-muted)] font-medium">N° Cliente / Local</label>
-                      <input
-                        type="text"
-                        value={nroCliente}
-                        onChange={(e) => setNroCliente(e.target.value)}
-                        placeholder="Buscar..."
-                        className="rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-[var(--shelfy-text)] px-3 py-2 text-sm focus:outline-none focus:border-[var(--shelfy-primary)]"
-                      />
-                    </div>
-                  </div>
-                  <DrawerFooter>
-                    <Button
-                      onClick={() => {
-                        handleBuscar();
-                        setFiltersDrawerOpen(false);
-                      }}
-                      loading={loading}
-                    >
-                      <Search data-icon="inline-start" />
-                      Buscar
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        handleLimpiar();
-                        setFiltersDrawerOpen(false);
-                      }}
-                    >
-                      Limpiar
-                    </Button>
-                  </DrawerFooter>
-                </DrawerContent>
-              </Drawer>
-
-              {/* Context Switcher SuperAdmin */}
-              {user?.rol === "superadmin" && distribuidoras.length > 0 && (
-                <div className="bg-[var(--shelfy-panel)] p-2 rounded-xl border border-[var(--shelfy-border)] shadow-sm flex items-center gap-3">
-                  <SwitchCamera size={16} className="text-[var(--shelfy-muted)] ml-2" />
-                  <div>
-                    <label className="block text-[10px] text-[var(--shelfy-muted)] font-medium mb-0.5 uppercase tracking-wider">Contexto Global</label>
-                    <select
-                      value={selectedDistId}
-                      onChange={(e) => setSelectedDistId(Number(e.target.value))}
-                      className="bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] text-sm font-semibold text-[var(--shelfy-text)] rounded-lg px-2 py-1 focus:outline-none focus:border-[var(--shelfy-primary)] cursor-pointer"
-                    >
-                      <option value={0} disabled>Seleccione distribuidor...</option>
-                      {distribuidoras.map(d => (
-                        <option key={d.id} value={d.id}>
-                          {d.nombre} (ID: {d.id})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              )}
+          {/* Header */}
+          <div className="mb-6 flex flex-col md:flex-row md:items-start justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-black text-[var(--shelfy-text)] tracking-tight">
+                Panel de Supervisión
+              </h1>
+              <p className="text-sm text-[var(--shelfy-muted)] mt-1">
+                Supervisa el rendimiento de ventas, clientes y exhibiciones corporativas en tiempo real.
+              </p>
             </div>
 
-            {/* UNIFIED DASHBOARD: replaces all previous tabs */}
-            {user?.rol === 'superadmin' ? (
-              selectedDistId ? (
-                <SupervisionDashboard distId={selectedDistId} desde={desde} hasta={hasta} />
-              ) : (
-                 <div className="flex items-center justify-center p-12 bg-white rounded-3xl border border-slate-100 shadow-sm text-center">
-                   <div>
-                     <Activity size={48} className="text-slate-200 mx-auto mb-4" />
-                     <h3 className="text-lg font-black text-slate-900 mb-1">Seleccione un contexto</h3>
-                     <p className="text-sm font-medium text-slate-500">
-                       Por favor elija una sucursal o centro de distribución arriba para cargar el panel.
-                     </p>
-                   </div>
-                 </div>
-              )
-            ) : (
-               <div className="flex items-center justify-center p-12 bg-white rounded-3xl border border-slate-100 shadow-sm text-center">
-                 <div>
-                   <AlertTriangle size={48} className="text-amber-400 mx-auto mb-4" />
-                   <h3 className="text-lg font-black text-slate-900 mb-1">Acceso Restringido</h3>
-                   <p className="text-sm font-medium text-slate-500">
-                     El Panel de Supervisión está en fase de implementación y pruebas exclusivas. Pronto estará disponible.
-                   </p>
-                 </div>
-               </div>
-            )}
-
-            {/* Contenido Dinámico: Exhibiciones */}
-            {activeMainTab === "exhibiciones" && (
-              <div className="fade-in animate-in slide-in-from-bottom-2 duration-300">
-                {/* Cabecera Impresión */}
-                <div className="print-only mb-6 pb-4 border-b border-gray-300">
-                  <div className="flex items-center justify-between">
-                    <img src="/LOGO_NUEVO.svg" alt="Shelfy" className="h-8 grayscale" />
-                    <div className="text-right">
-                      <h1 className="text-xl font-bold text-gray-800">Reporte de Exhibiciones</h1>
-                      <p className="text-xs text-gray-500">Generado el {new Date().toLocaleString("es-ES")}</p>
-                    </div>
-                  </div>
-                  {hayFiltrosActivos && (
-                    <div className="mt-4 text-xs text-gray-600">
-                      <strong>Filtros aplicados:</strong> Desde {desde} Hasta {hasta}
-                      {nroCliente && ` | Cliente: ${nroCliente}`}
-                      {selectedEstados.length > 0 && ` | Estados: ${selectedEstados.join(", ")}`}
-                    </div>
-                  )}
+            {/* Context Switcher SuperAdmin */}
+            {user?.rol === "superadmin" && distribuidoras.length > 0 && (
+              <div className="bg-[var(--shelfy-panel)] p-2 rounded-xl border border-[var(--shelfy-border)] shadow-sm flex items-center gap-3">
+                <SwitchCamera size={16} className="text-[var(--shelfy-muted)] ml-2" />
+                <div>
+                  <label className="block text-[10px] text-[var(--shelfy-muted)] font-medium mb-0.5 uppercase tracking-wider">Contexto Global</label>
+                  <select
+                    value={selectedDistId}
+                    onChange={(e) => setSelectedDistId(Number(e.target.value))}
+                    className="bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] text-sm font-semibold text-[var(--shelfy-text)] rounded-lg px-2 py-1 focus:outline-none focus:border-[var(--shelfy-primary)] cursor-pointer"
+                  >
+                    <option value={0} disabled>Seleccione distribuidor...</option>
+                    {distribuidoras.map(d => (
+                      <option key={d.id} value={d.id}>
+                        {d.nombre} (ID: {d.id})
+                      </option>
+                    ))}
+                  </select>
                 </div>
-
-                {/* Filtros */}
-                <Card className="mb-5 no-print">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-[var(--shelfy-text)] font-semibold text-sm">Filtros de búsqueda</h3>
-                    {hayFiltrosActivos && (
-                      <button onClick={handleLimpiar}
-                        className="flex items-center gap-1 text-xs text-[var(--shelfy-muted)] hover:text-[var(--shelfy-error)] transition-colors">
-                        <X size={12} /> Limpiar filtros
-                      </button>
-                    )}
-                  </div>
-
-                  <div className="flex flex-col gap-4">
-                    <div className="flex flex-wrap items-end gap-3 z-20 relative">
-                      {/* Fecha */}
-                      <div>
-                        <label className="block text-xs text-[var(--shelfy-muted)] mb-1.5 font-medium">Desde</label>
-                        <div className="w-[180px]">
-                          <DatePicker value={desde} onChange={setDesde} placeholder="Desde" />
-                        </div>
-                      </div>
-                      <div>
-                        <label className="block text-xs text-[var(--shelfy-muted)] mb-1.5 font-medium">Hasta</label>
-                        <div className="w-[180px]">
-                          <DatePicker value={hasta} onChange={setHasta} placeholder="Hasta" minDate={desde || undefined} />
-                        </div>
-                      </div>
-                      <div>
-                        <label className="block text-xs text-[var(--shelfy-muted)] mb-1.5 font-medium">N° Cliente / Local</label>
-                        <input
-                          type="text" value={nroCliente} onChange={(e) => setNroCliente(e.target.value)}
-                          placeholder="Buscar..."
-                          className="rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-[var(--shelfy-text)] px-3 py-2 text-sm focus:outline-none focus:border-[var(--shelfy-primary)] w-36"
-                        />
-                      </div>
-
-                      {/* Estado */}
-                      <DropdownMultiSelect
-                        label="Estado"
-                        options={ESTADOS}
-                        selected={selectedEstados}
-                        onChange={setSelectedEstados}
-                      />
-
-                      {/* Tipo PDV */}
-                      {!loadingOpts && tiposPdvList.length > 0 && (
-                        <DropdownMultiSelect
-                          label="Tipo PDV"
-                          options={tiposPdvList}
-                          selected={selectedTipos}
-                          onChange={setSelectedTipos}
-                        />
-                      )}
-
-                      {/* Sucursales */}
-                      {!loadingOpts && sucursalesList.length > 0 && (
-                        <DropdownMultiSelect
-                          label="Sucursales"
-                          options={sucursalesList}
-                          selected={selectedSucursales}
-                          onChange={setSelectedSucursales}
-                        />
-                      )}
-
-                      {/* Vendedores */}
-                      {!loadingOpts && vendedoresList.length > 0 && (
-                        <DropdownMultiSelect
-                          label="Supervisor"
-                          options={vendedoresList}
-                          selected={selectedVendedores}
-                          onChange={setSelectedVendedores}
-                        />
-                      )}
-                    </div>
-
-                    {/* Acciones */}
-                    <div className="flex gap-2 pt-1">
-                      <Button onClick={handleBuscar} loading={loading}>
-                        <Search size={14} /> Buscar
-                      </Button>
-                      {filas.length > 0 && (
-                        <Button variant="secondary" onClick={handleExportExcel}>
-                          <Download size={14} /> Exportar (Excel)
-                        </Button>
-                      )}
-                      {filas.length > 0 && (
-                        <Button variant="secondary" onClick={() => window.print()}>
-                          <Printer size={14} /> Imprimir (PDF)
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                </Card>
-
-                {error && (
-                  <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm mb-4">
-                    {error}
-                  </div>
-                )}
-                {loading && <PageSpinner />}
-
-                {!loading && searched && filas.length === 0 && (
-                  <p className="text-[var(--shelfy-muted)] text-sm no-print">Sin resultados para los filtros seleccionados.</p>
-                )}
-
-                {!loading && filas.length > 0 && (
-                  <div className="flex flex-col gap-6">
-
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                      {/* Timeline Gráfico */}
-                      <Card className="print-card">
-                        <div className="flex items-center gap-2 mb-4 text-[var(--shelfy-text)] font-semibold text-sm">
-                          <BarChart3 size={16} className="text-[var(--shelfy-primary)]" />
-                          Evolución de Cargas
-                        </div>
-                        <div className="h-64 w-full">
-                          <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={200}>
-                            <BarChart data={timelineData}>
-                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-                              <XAxis dataKey="fecha" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-                              <YAxis allowDecimals={false} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-                              <Tooltip
-                                cursor={{ fill: "rgba(124, 58, 237, 0.05)" }}
-                                contentStyle={{ borderRadius: "8px", border: "none", boxShadow: "0 4px 12px rgba(0,0,0,0.1)" }}
-                              />
-                              <Bar dataKey="cantidad" fill="url(#colorPrimary)" radius={[4, 4, 0, 0]} name="Exhibiciones" />
-                              <defs>
-                                <linearGradient id="colorPrimary" x1="0" y1="0" x2="0" y2="1">
-                                  <stop offset="0%" stopColor="#7c3aed" stopOpacity={0.9} />
-                                  <stop offset="100%" stopColor="#4f46e5" stopOpacity={0.6} />
-                                </linearGradient>
-                              </defs>
-                            </BarChart>
-                          </ResponsiveContainer>
-                        </div>
-                      </Card>
-
-                      {/* Ranking de Puntajes */}
-                      <Card className="print-card">
-                        <div className="flex items-center gap-2 mb-4 text-[var(--shelfy-text)] font-semibold text-sm">
-                          <Trophy size={16} className="text-yellow-500" />
-                          Puntuación y Ranking
-                        </div>
-                        <div className="overflow-x-auto">
-                          <Table>
-                            <TableHeader>
-                              <TableRow className="text-[var(--shelfy-muted)] border-b border-[var(--shelfy-border)]">
-                                <TableHead className="pb-2 pr-3 w-8">#</TableHead>
-                                <TableHead className="pb-2 pr-3">Vendedor</TableHead>
-                                <TableHead className="pb-2 pr-3 text-center">Aprob</TableHead>
-                                <TableHead className="pb-2 pr-3 text-center">Dest</TableHead>
-                                <TableHead className="pb-2 text-right">Pts Totales</TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {rankingData.slice(0, 10).map((r, i) => (
-                                <TableRow key={r.vendedor} className="border-b border-[var(--shelfy-border)] last:border-0 hover:bg-[var(--shelfy-bg)] transition-colors">
-                                  <TableCell className="py-2.5 pr-3 text-[var(--shelfy-muted)] tabular-nums">{i + 1}</TableCell>
-                                  <TableCell className="py-2.5 pr-3 font-medium text-[var(--shelfy-text)] truncate max-w-[120px]">{r.vendedor}</TableCell>
-                                  <TableCell className="py-2.5 pr-3 text-center text-green-600">{r.aprobados}</TableCell>
-                                  <TableCell className="py-2.5 pr-3 text-center text-purple-600">{r.destacados}</TableCell>
-                                  <TableCell className="py-2.5 text-right font-bold tabular-nums text-[var(--shelfy-primary)]">{r.puntos}</TableCell>
-                                </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
-                          {rankingData.length > 10 && (
-                            <p className="text-xs text-[var(--shelfy-muted)] mt-3 text-center no-print">
-                              Mostrando el top 10 de {rankingData.length} vendedores puntuados.
-                            </p>
-                          )}
-                        </div>
-                      </Card>
-                    </div>
-
-                    {/* Data Table */}
-                    <Card className="print-card">
-                      <div className="flex items-center justify-between mb-3">
-                        <p className="text-sm font-semibold text-[var(--shelfy-text)]">{filas.length} registros detallados</p>
-                      </div>
-                      <div className="overflow-x-auto">
-                        <Table>
-                          <TableHeader>
-                            <TableRow className="text-[var(--shelfy-muted)] text-left border-b border-[var(--shelfy-border)]">
-                              {["ID", "Vendedor", "Sucursal", "Cliente", "PDV", "Estado", "Fecha carga"].map((h) => (
-                                <TableHead key={h} className="pb-3 pr-3 whitespace-nowrap font-semibold">{h}</TableHead>
-                              ))}
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {filas.map((f) => (
-                              <TableRow key={f.id_exhibicion} className="border-b border-[var(--shelfy-border)] last:border-0 hover:bg-[var(--shelfy-bg)] transition-colors">
-                                <TableCell className="py-2.5 pr-3 text-[var(--shelfy-muted)] tabular-nums">{f.id_exhibicion}</TableCell>
-                                <TableCell className="py-2.5 pr-3 text-[var(--shelfy-text)] font-medium max-w-[150px] truncate">{f.vendedor}</TableCell>
-                                <TableCell className="py-2.5 pr-3 text-[var(--shelfy-muted)] text-xs truncate max-w-[120px]">{f.sucursal}</TableCell>
-                                <TableCell className="py-2.5 pr-3 text-[var(--shelfy-muted)] truncate max-w-[150px]">{f.cliente}</TableCell>
-                                <TableCell className="py-2.5 pr-3 text-[var(--shelfy-muted)] truncate max-w-[100px]">{f.tipo_pdv}</TableCell>
-                                <TableCell className="py-2.5 pr-3">
-                                  <EstadoBadge estado={f.estado} />
-                                </TableCell>
-                                <TableCell className="py-2.5 text-[var(--shelfy-muted)] whitespace-nowrap tabular-nums">{f.fecha_carga?.slice(0, 16)}</TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </div>
-                    </Card>
-
-                  </div>
-                )}
               </div>
             )}
-          </main>
-        </div>
-      </div>
-    </>
-  );
-}
+          </div>
 
-function EstadoBadge({ estado }: { estado: string }) {
-  const colors: Record<string, string> = {
-    Aprobado: "bg-green-100 text-green-700",
-    Destacado: "bg-purple-100 text-purple-700",
-    Rechazado: "bg-red-100 text-red-700",
-    Pendiente: "bg-yellow-100 text-yellow-700",
-  };
-  return (
-    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${colors[estado] ?? "bg-gray-100 text-gray-700"}`}>
-      {estado}
-    </span>
+          {/* Dashboard */}
+          {user?.rol === 'superadmin' ? (
+            selectedDistId ? (
+              <SupervisionDashboard distId={selectedDistId} />
+            ) : (
+              <div className="flex items-center justify-center p-12 bg-white rounded-3xl border border-slate-100 shadow-sm text-center">
+                <div>
+                  <Activity size={48} className="text-slate-200 mx-auto mb-4" />
+                  <h3 className="text-lg font-black text-slate-900 mb-1">Seleccione un contexto</h3>
+                  <p className="text-sm font-medium text-slate-500">
+                    Por favor elija una sucursal o centro de distribución arriba para cargar el panel.
+                  </p>
+                </div>
+              </div>
+            )
+          ) : (
+            <div className="flex items-center justify-center p-12 bg-white rounded-3xl border border-slate-100 shadow-sm text-center">
+              <div>
+                <AlertTriangle size={48} className="text-amber-400 mx-auto mb-4" />
+                <h3 className="text-lg font-black text-slate-900 mb-1">Acceso Restringido</h3>
+                <p className="text-sm font-medium text-slate-500">
+                  El Panel de Supervisión está en fase de implementación y pruebas exclusivas. Pronto estará disponible.
+                </p>
+              </div>
+            </div>
+          )}
+
+        </main>
+      </div>
+    </div>
   );
 }
 

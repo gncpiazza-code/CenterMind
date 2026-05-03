@@ -1720,7 +1720,7 @@ def haversine_metros(lat1: float, lon1: float, lat2: float, lon2: float) -> floa
     return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
-@router.get("/api/supervision/pdvs-cercanos", tags=["Supervisión"])
+@router.get("/api/supervision/pdvs-cercanos", tags=["Supervisión"], deprecated=True)
 def pdvs_cercanos(
     lat: float, lng: float, radio: int = 500, dist_id: int = 0,
     user_payload=Depends(verify_auth),

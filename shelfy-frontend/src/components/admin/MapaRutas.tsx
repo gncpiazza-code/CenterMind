@@ -136,7 +136,6 @@ function compactDebtAmount(amount: number): string {
 interface MapaRutasProps {
   pines: PinCliente[];
   fullscreenPanel?: React.ReactNode;
-  shelfyMapsMode?: boolean;
   mode?: 'activos' | 'deudores';
   onModeChange?: (mode: 'activos' | 'deudores') => void;
   deudoresData?: DeudorInfo[];
@@ -231,7 +230,6 @@ function StreetViewPanel({ lat, lng, onClose }: { lat: number; lng: number; onCl
 export default function MapaRutas({
   pines,
   fullscreenPanel,
-  shelfyMapsMode,
   mode = 'activos',
   onModeChange,
   deudoresData,
@@ -326,6 +324,20 @@ export default function MapaRutas({
     if (!mapRef.current) return;
     window.google?.maps?.event?.trigger(mapRef.current, 'resize');
   }, [isFullscreen]);
+
+  // ── ResizeObserver: re-trigger resize when container dimensions change ─────
+  // Handles tab switches, mapOnly mount, and window resizes that alter the container.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const observer = new ResizeObserver(() => {
+      if (mapRef.current) {
+        window.google?.maps?.event?.trigger(mapRef.current, 'resize');
+      }
+    });
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     if (!isFullscreen) setShowSidePanel(true);
@@ -823,7 +835,7 @@ export default function MapaRutas({
       )}
 
       {/* Fullscreen mode switcher (capas: Activos / Deudores + Armar Ruta) */}
-      {!shelfyMapsMode && isFullscreen && onModeChange && (
+      {isFullscreen && onModeChange && (
         <div style={{
           position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)',
           zIndex: 31, display: 'flex', gap: 6,
@@ -882,44 +894,42 @@ export default function MapaRutas({
       )}
 
       {/* Top-right controls */}
-      {!shelfyMapsMode && (
-        <div style={{
-          position: 'absolute', top: 10, right: 10,
-          display: 'flex', gap: 5, zIndex: 30,
-        }}>
-          <button
-            onClick={() => setIsFullscreen(f => !f)}
-            title={isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}
-            style={{
-              background: 'rgba(15,23,42,0.75)', backdropFilter: 'blur(8px)',
-              border: '1px solid rgba(255,255,255,0.12)',
-              borderRadius: 8, color: '#e2e8f0', padding: '7px 9px',
-              cursor: 'pointer', fontSize: 14, lineHeight: 1,
-              boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
-              transition: 'background 0.15s',
-            }}
-            onMouseOver={e => (e.currentTarget.style.background = 'rgba(15,23,42,0.92)')}
-            onMouseOut={e => (e.currentTarget.style.background = 'rgba(15,23,42,0.75)')}
-          >{isFullscreen ? '✕ Salir' : '⛶'}</button>
-          <button
-            onClick={handlePrint}
-            title="Imprimir lista de PDVs"
-            style={{
-              background: 'rgba(15,23,42,0.75)', backdropFilter: 'blur(8px)',
-              border: '1px solid rgba(255,255,255,0.12)',
-              borderRadius: 8, color: '#e2e8f0', padding: '7px 9px',
-              cursor: 'pointer', fontSize: 14, lineHeight: 1,
-              boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
-              transition: 'background 0.15s',
-            }}
-            onMouseOver={e => (e.currentTarget.style.background = 'rgba(15,23,42,0.92)')}
-            onMouseOut={e => (e.currentTarget.style.background = 'rgba(15,23,42,0.75)')}
-          >🖨️</button>
-        </div>
-      )}
+      <div style={{
+        position: 'absolute', top: 10, right: 10,
+        display: 'flex', gap: 5, zIndex: 30,
+      }}>
+        <button
+          onClick={() => setIsFullscreen(f => !f)}
+          title={isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}
+          style={{
+            background: 'rgba(15,23,42,0.75)', backdropFilter: 'blur(8px)',
+            border: '1px solid rgba(255,255,255,0.12)',
+            borderRadius: 8, color: '#e2e8f0', padding: '7px 9px',
+            cursor: 'pointer', fontSize: 14, lineHeight: 1,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
+            transition: 'background 0.15s',
+          }}
+          onMouseOver={e => (e.currentTarget.style.background = 'rgba(15,23,42,0.92)')}
+          onMouseOut={e => (e.currentTarget.style.background = 'rgba(15,23,42,0.75)')}
+        >{isFullscreen ? '✕ Salir' : '⛶'}</button>
+        <button
+          onClick={handlePrint}
+          title="Imprimir lista de PDVs"
+          style={{
+            background: 'rgba(15,23,42,0.75)', backdropFilter: 'blur(8px)',
+            border: '1px solid rgba(255,255,255,0.12)',
+            borderRadius: 8, color: '#e2e8f0', padding: '7px 9px',
+            cursor: 'pointer', fontSize: 14, lineHeight: 1,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
+            transition: 'background 0.15s',
+          }}
+          onMouseOver={e => (e.currentTarget.style.background = 'rgba(15,23,42,0.92)')}
+          onMouseOut={e => (e.currentTarget.style.background = 'rgba(15,23,42,0.75)')}
+        >🖨️</button>
+      </div>
 
       {/* Filter legend (modo activos) */}
-      {!shelfyMapsMode && mode !== 'deudores' && (
+      {mode !== 'deudores' && (
         <div style={{
           position: 'absolute', bottom: 40, left: panelOffset + 12,
           zIndex: 30, transition: 'left 0.2s ease',
@@ -942,38 +952,36 @@ export default function MapaRutas({
       )}
 
       {/* PDV count badge */}
-      {!shelfyMapsMode && (
-        <div style={{
-          position: 'absolute', top: 10,
-          left: (isFullscreen && fullscreenPanel)
-            ? (showSidePanel ? 403 : 105)
-            : (panelOffset + 10),
-          zIndex: 30,
-          background: 'rgba(15,23,42,0.75)', backdropFilter: 'blur(8px)',
-          color: '#e2e8f0', fontSize: 11, fontWeight: 700,
-          padding: '5px 11px', borderRadius: 8,
-          border: '1px solid rgba(255,255,255,0.10)',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
-          pointerEvents: 'none', transition: 'left 0.3s ease',
-        }}>
-          {mode === 'deudores'
-            ? (() => {
-                const withDebt = filteredPines.filter(p => {
-                  if (p.deuda != null && p.deuda > 0) return true;
-                  if (!deudoresData) return false;
-                  return !!(
-                    deudoresData.find(d => d.id_cliente != null && d.id_cliente === p.id) ??
-                    deudoresData.find(d => d.id_vendedor != null && d.id_vendedor === p.id_vendedor && normalizeKey(d.cliente_nombre) === normalizeKey(p.nombre)) ??
-                    deudoresData.find(d => d.id_vendedor != null && d.id_vendedor === p.id_vendedor && p.razonSocial != null && normalizeKey(d.cliente_nombre) === normalizeKey(p.razonSocial)) ??
-                    deudoresData.find(d => normErpId(d.id_cliente_erp) != null && normErpId(d.id_cliente_erp) === normErpId(p.idClienteErp))
-                  );
-                });
-                return <>{withDebt.length.toLocaleString()} <span style={{ color: 'rgba(255,255,255,0.5)', fontWeight: 400 }}>PDVs con deuda</span></>;
-              })()
-            : <>{filteredPines.length.toLocaleString()} <span style={{ color: 'rgba(255,255,255,0.5)', fontWeight: 400 }}>PDVs visibles</span></>
-          }
-        </div>
-      )}
+      <div style={{
+        position: 'absolute', top: 10,
+        left: (isFullscreen && fullscreenPanel)
+          ? (showSidePanel ? 403 : 105)
+          : (panelOffset + 10),
+        zIndex: 30,
+        background: 'rgba(15,23,42,0.75)', backdropFilter: 'blur(8px)',
+        color: '#e2e8f0', fontSize: 11, fontWeight: 700,
+        padding: '5px 11px', borderRadius: 8,
+        border: '1px solid rgba(255,255,255,0.10)',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
+        pointerEvents: 'none', transition: 'left 0.3s ease',
+      }}>
+        {mode === 'deudores'
+          ? (() => {
+              const withDebt = filteredPines.filter(p => {
+                if (p.deuda != null && p.deuda > 0) return true;
+                if (!deudoresData) return false;
+                return !!(
+                  deudoresData.find(d => d.id_cliente != null && d.id_cliente === p.id) ??
+                  deudoresData.find(d => d.id_vendedor != null && d.id_vendedor === p.id_vendedor && normalizeKey(d.cliente_nombre) === normalizeKey(p.nombre)) ??
+                  deudoresData.find(d => d.id_vendedor != null && d.id_vendedor === p.id_vendedor && p.razonSocial != null && normalizeKey(d.cliente_nombre) === normalizeKey(p.razonSocial)) ??
+                  deudoresData.find(d => normErpId(d.id_cliente_erp) != null && normErpId(d.id_cliente_erp) === normErpId(p.idClienteErp))
+                );
+              });
+              return <>{withDebt.length.toLocaleString()} <span style={{ color: 'rgba(255,255,255,0.5)', fontWeight: 400 }}>PDVs con deuda</span></>;
+            })()
+          : <>{filteredPines.length.toLocaleString()} <span style={{ color: 'rgba(255,255,255,0.5)', fontWeight: 400 }}>PDVs visibles</span></>
+        }
+      </div>
     </div>
   );
 }

@@ -15,8 +15,8 @@ const SLIDES = [
     subtitle: "Navegá la jerarquía de sucursales, vendedores y rutas.",
   },
   {
-    title: "ShelfyMaps ★ Nuevo",
-    subtitle: "Mapa de pantalla completa pensado para el celular.",
+    title: "Modo Mapa",
+    subtitle: "Mapa de pantalla completa con rutas y deudores.",
   },
   {
     title: "Cuentas corrientes",
@@ -605,7 +605,7 @@ function NumberDot({ children }: { children: React.ReactNode }) {
   return <span style={{ width: 18, height: 18, borderRadius: "50%", background: "rgba(124,58,237,0.1)", color: "#7C3AED", fontSize: 10, fontWeight: 700, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1 }}>{children}</span>;
 }
 
-/* ── Slide 4: ShelfyMaps ── */
+/* ── Slide 4: Modo Mapa ── */
 function Slide4() {
   const [panelOpen, setPanelOpen] = useState(false);
   const [vendor3off, setVendor3off] = useState(false);
@@ -638,20 +638,20 @@ function Slide4() {
     <TwoCol
       left={
         <SlideText
-          title="ShelfyMaps"
+          title="Modo Mapa"
           body={
             <>
               <p style={{ fontSize: 13, color: "#4B5563", lineHeight: 1.6 }}>
-                Mapa de pantalla completa pensado para el celular. Filtrá vendedores con el menú ☰ y tocá cualquier PDV para ver deuda, compras y exhibiciones.
+                Mapa de pantalla completa con todos los PDVs. Filtrá por vendedor con el menú ☰ y tocá cualquier pin para ver deuda, última compra y exhibiciones.
               </p>
               <BulletList items={[
                 { dot: <span style={{ fontSize: 14, flexShrink: 0 }}>📍</span>, text: "El mapa ocupa toda la pantalla con los pins de cada vendedor." },
                 { dot: <span style={{ fontSize: 14, flexShrink: 0 }}>☰</span>,  text: <>Menú desplegable para <strong style={{ color: "#111" }}>prender/apagar vendedores</strong> individualmente.</> },
                 { dot: <span style={{ fontSize: 14, flexShrink: 0 }}>💳</span>, text: <>Cada pin muestra <strong style={{ color: "#111" }}>deuda, última compra y exhibición</strong> al tocarlo.</> },
               ]} />
-              <Callout color="green">
-                <span>📡</span>
-                <div>ShelfyMaps solicita tu <strong>GPS</strong> para mostrarte los PDVs cercanos a tu posición actual.</div>
+              <Callout color="purple">
+                <span>🗺️</span>
+                <div>Accedé al Modo Mapa desde el menú lateral o la navegación inferior de la app.</div>
               </Callout>
             </>
           }
@@ -895,9 +895,9 @@ function Slide6() {
                     <div key={i} style={{ position: "absolute", width: 7, height: 7, borderRadius: "50%", background: p.c, border: "1.5px solid #fff", left: p.x, top: p.y, transform: "translate(-50%,-50%)" }} />
                   ))}
                 </div>
-                {/* ShelfyMaps button */}
+                {/* Modo Mapa button */}
                 <div style={{ margin: 5 }}>
-                  <div style={{ background: "linear-gradient(135deg,#7C3AED,#4F46E5)", color: "#fff", borderRadius: 8, padding: "5px 0", textAlign: "center", fontSize: 7.5, fontWeight: 700 }}>🗺️ Entrar a ShelfyMaps</div>
+                  <div style={{ background: "linear-gradient(135deg,#7C3AED,#4F46E5)", color: "#fff", borderRadius: 8, padding: "5px 0", textAlign: "center", fontSize: 7.5, fontWeight: 700 }}>🗺️ Modo Mapa</div>
                 </div>
                 {/* CC card */}
                 <div style={{ margin: "0 5px 5px", background: "#fff", border: "1px solid #e5e7eb", borderRadius: 6, padding: "5px 6px" }}>
@@ -934,7 +934,7 @@ function Slide6() {
             El Panel de Supervisión tiene una interfaz adaptada para celular. El supervisor puede consultar rutas, ver deudores y revisar el mapa desde su teléfono mientras recorre la zona.
           </p>
           <BulletList items={[
-            { dot: <span style={{ fontSize: 14, flexShrink: 0 }}>🗺️</span>, text: <>Botón <strong style={{ color: "#111" }}>"Entrar a ShelfyMaps"</strong> para el mapa fullscreen con GPS.</> },
+            { dot: <span style={{ fontSize: 14, flexShrink: 0 }}>🗺️</span>, text: <>Botón <strong style={{ color: "#111" }}>"Modo Mapa"</strong> para el mapa de pantalla completa con rutas y deudores.</> },
             { dot: <span style={{ fontSize: 14, flexShrink: 0 }}>💳</span>, text: "Las cuentas corrientes se muestran como tarjetas debajo del mapa." },
             { dot: <span style={{ fontSize: 14, flexShrink: 0 }}>📱</span>, text: "Navegación inferior para acceder rápido a todas las secciones." },
           ]} />

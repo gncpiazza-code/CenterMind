@@ -8,13 +8,10 @@ import { BottomNav } from "@/components/layout/BottomNav";
 import { Topbar } from "@/components/layout/Topbar";
 import { useAuth } from "@/hooks/useAuth";
 import {
-  fetchVentasSupervision,
   fetchCuentasSupervision,
   fetchSyncStatus,
   fetchVendedoresSupervision,
-  type TransaccionVenta,
   type VendedorSupervision,
-  type VendedorVentas,
   type VendedorCuentas,
 } from "@/lib/api";
 import { supervisionPanelKeys } from "@/lib/query-keys";
@@ -38,7 +35,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
-  TrendingUp, CreditCard, Users, Receipt, BarChart3, ChevronDown,
+  CreditCard, Users,
   Clock, AlertTriangle, CheckCircle2, Map as MapIcon, Printer, ArrowUpDown,
 } from "lucide-react";
 import Link from "next/link";
@@ -46,9 +43,6 @@ import { Button } from "@/components/ui/Button";
 import { DatePicker } from "@/components/ui/date-picker";
 
 const ALLOWED_ROLES = ["superadmin", "admin", "supervisor", "directorio"];
-
-/** Ventana fija para el panel (sin selector de rango): N días que terminan en la fecha elegida por calendario. */
-const PANEL_VENTAS_DIAS = 1;
 
 function fmt$$(n: number): string {
   return new Intl.NumberFormat("es-AR", {
@@ -135,8 +129,6 @@ export default function SupervisionPage() {
 
   const [selectedSucursal, setSelectedSucursal] = useState<string>("__all__");
   const [selectedVendedor, setSelectedVendedor] = useState<string | null>(null);
-  const [openVentasCliente, setOpenVentasCliente] = useState<string | null>(null);
-  const [openComprobante, setOpenComprobante] = useState<string | null>(null);
   const [fechaCorte, setFechaCorte] = useState<string>(new Date().toISOString().slice(0, 10));
   const [ccSort, setCCSort] = useState<"deuda" | "antiguedad">("deuda");
   const [ccSortDir, setCCSortDir] = useState<"desc" | "asc">("desc");
@@ -169,14 +161,6 @@ export default function SupervisionPage() {
 
   const sucursalParam = selectedSucursal === "__all__" ? undefined : selectedSucursal;
 
-  const { data: ventasData, isLoading: loadingVentas } = useQuery({
-    queryKey: [...supervisionPanelKeys.ventas(distId, PANEL_VENTAS_DIAS), fechaCorte || "", sucursalParam ?? "__all__", selectedVendedor ?? "__none__"] as const,
-    queryFn: () =>
-      fetchVentasSupervision(distId, PANEL_VENTAS_DIAS, fechaCorte || undefined, sucursalParam, selectedVendedor ?? undefined),
-    enabled: !!distId && !!selectedVendedor,
-    staleTime: 5 * 60_000,
-  });
-
   const { data: cuentasData, isLoading: loadingCuentas } = useQuery({
     queryKey: [...supervisionPanelKeys.cuentas(distId, sucursalParam), fechaCorte, selectedVendedor ?? "__none__"] as const,
     queryFn: () => fetchCuentasSupervision(distId, sucursalParam, fechaCorte || undefined, selectedVendedor ?? undefined),
@@ -191,14 +175,9 @@ export default function SupervisionPage() {
     staleTime: 2 * 60_000,
   });
 
-  // ── Derived metrics (CC from server-filtered metadatos; ventas computed after client filter) ──
+  // ── Derived metrics ────────────────────────────────────────────────────────
   const deudaTotal       = cuentasData?.metadatos?.total_deuda ?? 0;
   const clientesDeudores = cuentasData?.metadatos?.clientes_deudores ?? 0;
-
-  const ventasFiltradas = useMemo(
-    (): VendedorVentas[] => ventasData?.vendedores ?? [],
-    [ventasData],
-  );
 
   const vendedorOptions = useMemo(() => {
     return vendedores
@@ -207,47 +186,6 @@ export default function SupervisionPage() {
       .filter(Boolean)
       .sort((a, b) => a.localeCompare(b, "es"));
   }, [vendedores, sucursalParam]);
-
-  const ventasByCliente = useMemo(() => {
-    if (!selectedVendedor) return [];
-    const vendedor = ventasFiltradas.find((v) => v.vendedor === selectedVendedor);
-    if (!vendedor) return [];
-    const bultosByCliente = new globalThis.Map(
-      (vendedor.clientes_bultos ?? []).map((c) => [c.cliente.toLowerCase(), c]),
-    );
-    const grouped = new Map<string, { cliente: string; totalVenta: number; reciboMismoDia: number; transacciones: TransaccionVenta[] }>();
-    for (const t of vendedor.transacciones ?? []) {
-      const cliente = (t.cliente ?? "Cliente sin nombre").trim() || "Cliente sin nombre";
-      const key = cliente.toLowerCase();
-      if (!grouped.has(key)) grouped.set(key, { cliente, totalVenta: 0, reciboMismoDia: 0, transacciones: [] });
-      const bucket = grouped.get(key)!;
-      bucket.transacciones.push(t);
-      const marker = `${t.tipo_operacion ?? ""} ${t.comprobante ?? ""}`.toLowerCase();
-      if (marker.includes("recib")) {
-        bucket.reciboMismoDia += t.monto_recaudado || t.monto_total || 0;
-      } else {
-        bucket.totalVenta += t.monto_total || 0;
-      }
-    }
-    return [...grouped.values()]
-      .map((g) => {
-        const extra = bultosByCliente.get(g.cliente.toLowerCase());
-        return {
-          ...g,
-          totalBultos: extra?.total_bultos ?? 0,
-          topArticulos: extra?.top_articulos ?? [],
-        };
-      })
-      .sort((a, b) => b.totalVenta - a.totalVenta);
-  }, [ventasFiltradas, selectedVendedor]);
-
-  const ventasParaKpi = useMemo(() => {
-    if (!selectedVendedor) return ventasFiltradas;
-    return ventasFiltradas.filter((v) => v.vendedor === selectedVendedor);
-  }, [ventasFiltradas, selectedVendedor]);
-  const kpiFacturado   = ventasParaKpi.reduce((acc, v) => acc + v.monto_total, 0);
-  const kpiRecaudado   = ventasParaKpi.reduce((acc, v) => acc + v.monto_recaudado, 0);
-  const kpiFacturas    = ventasParaKpi.reduce((acc, v) => acc + v.total_facturas, 0);
 
   const cuentasFiltradas = useMemo((): VendedorCuentas[] => {
     // CC filtering is server-side (sucursal param passed to endpoint). metadatos also reflects filtered totals.
@@ -275,13 +213,6 @@ export default function SupervisionPage() {
 
   const padronLastUpdated = syncStatus?.padron?.last_updated ?? null;
   const ccLastUpdated = syncStatus?.cuentas_corrientes?.last_updated ?? null;
-  const ventasLastUpdated = syncStatus?.ventas?.last_updated ?? null;
-
-  const ventasVentanaLabel = useMemo(() => {
-    const d = new Date(`${fechaCorte}T12:00:00`);
-    const fechaStr = d.toLocaleDateString("es-AR");
-    return `Últimos ${PANEL_VENTAS_DIAS} d hasta ${fechaStr}`;
-  }, [fechaCorte]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
   if (!isAllowed) return null;
@@ -323,15 +254,6 @@ export default function SupervisionPage() {
                           ? <AlertTriangle size={10} />
                           : <CheckCircle2 size={10} />}
                         CC: {fmtShort(ccLastUpdated)}
-                      </Badge>
-                      <Badge
-                        variant="outline"
-                        className={`text-[10px] gap-1 ${isStale(ventasLastUpdated) ? "border-amber-300 text-amber-600 bg-amber-50" : "border-emerald-300 text-emerald-700 bg-emerald-50"}`}
-                      >
-                        {isStale(ventasLastUpdated)
-                          ? <AlertTriangle size={10} />
-                          : <CheckCircle2 size={10} />}
-                        Ventas: {fmtShort(ventasLastUpdated)}
                       </Badge>
                     </>
                   )}
@@ -384,30 +306,7 @@ export default function SupervisionPage() {
             </div>
 
             {/* ── KPI cards ─────────────────────────────────────────────── */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-              <KpiCard
-                label="Facturado"
-                value={fmt$$(kpiFacturado)}
-                subtext={selectedVendedor ? `${selectedVendedor} · ${ventasVentanaLabel}` : ventasVentanaLabel}
-                icon={TrendingUp}
-                color="violet"
-                loading={loadingVentas}
-              />
-              <KpiCard
-                label="Recaudado"
-                value={fmt$$(kpiRecaudado)}
-                subtext={`${kpiFacturado > 0 ? Math.round((kpiRecaudado / kpiFacturado) * 100) : 0}% de facturado`}
-                icon={CheckCircle2}
-                color="emerald"
-                loading={loadingVentas}
-              />
-              <KpiCard
-                label="Facturas"
-                value={kpiFacturas.toLocaleString("es-AR")}
-                icon={Receipt}
-                color="blue"
-                loading={loadingVentas}
-              />
+            <div className="grid grid-cols-2 gap-3">
               <KpiCard
                 label="Deuda Total"
                 value={fmt$$(deudaTotal)}
@@ -424,145 +323,8 @@ export default function SupervisionPage() {
               />
             </div>
 
-            {/* ── Ventas + Cuentas tables ──────────────────────────────── */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-
-              {/* Ventas por vendedor */}
-              <Card>
-                <CardHeader className="pb-3 pt-4 px-5">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-sm font-bold flex items-center gap-2">
-                      <BarChart3 size={15} className="text-[var(--shelfy-primary)]" />
-                      {selectedVendedor ? `Ventas — ${selectedVendedor}` : "Ventas"}
-                    </CardTitle>
-                    <Badge variant="secondary" className="text-[10px]">
-                      {ventasFiltradas.length} vendedores
-                    </Badge>
-                  </div>
-                </CardHeader>
-                <Separator />
-                <CardContent className="p-0">
-                  {!selectedVendedor ? (
-                    <div className="flex flex-col items-center justify-center py-14 gap-3 text-center px-6">
-                      <div className="size-12 rounded-2xl bg-violet-500/8 flex items-center justify-center">
-                        <Users size={22} className="text-violet-500" />
-                      </div>
-                      <div>
-                        <p className="text-sm font-semibold text-foreground">Seleccioná un vendedor</p>
-                        <p className="text-xs text-muted-foreground mt-0.5">Elegí vendedor para ver sus ventas y cuentas</p>
-                      </div>
-                    </div>
-                  ) : loadingVentas ? (
-                    <div className="p-4 flex flex-col gap-2">
-                      {Array.from({ length: 5 }).map((_, i) => (
-                        <Skeleton key={i} className="h-9 w-full rounded" />
-                      ))}
-                    </div>
-                  ) : ventasByCliente.length === 0 ? (
-                    <p className="text-center text-xs text-muted-foreground py-8">Sin datos de ventas para el período</p>
-                  ) : (
-                    <div className="max-h-[460px] overflow-auto">
-                      <div className="divide-y divide-[var(--shelfy-border)]/40">
-                        {ventasByCliente.map((c) => {
-                          const isOpen = openVentasCliente === c.cliente;
-                          return (
-                            <div key={c.cliente}>
-                              <button
-                                onClick={() => setOpenVentasCliente(isOpen ? null : c.cliente)}
-                                className="w-full flex items-center gap-2 px-4 py-2.5 text-left hover:bg-muted/30 transition-colors"
-                              >
-                                <ChevronDown size={14} className={`transition-transform ${isOpen ? "rotate-180" : ""}`} />
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-xs font-semibold truncate">{c.cliente}</p>
-                                  <p className="text-[10px] text-muted-foreground">
-                                    Venta {fmt$$(c.totalVenta)} · {c.totalBultos.toLocaleString("es-AR", { maximumFractionDigits: 2 })} bultos · {c.transacciones.length} comprobantes
-                                  </p>
-                                </div>
-                                {c.reciboMismoDia > 0 && (
-                                  <Badge variant="outline" className="text-[10px] border-orange-300 text-orange-700 bg-orange-50">
-                                    RECIBO {fmt$$(c.reciboMismoDia)}
-                                  </Badge>
-                                )}
-                              </button>
-                              {isOpen && (
-                                <div className="px-4 pb-3">
-                                  {c.topArticulos.length > 0 && (
-                                    <div className="mb-2 flex flex-wrap gap-1.5">
-                                      {c.topArticulos.slice(0, 4).map((a) => (
-                                        <Badge key={a.articulo} variant="outline" className="text-[10px]">
-                                          {a.articulo} · {a.bultos.toLocaleString("es-AR", { maximumFractionDigits: 2 })} b
-                                        </Badge>
-                                      ))}
-                                    </div>
-                                  )}
-                                  <Table>
-                                    <TableHeader>
-                                      <TableRow className="text-[10px]">
-                                        <TableHead>Comprobante</TableHead>
-                                        <TableHead>Tipo</TableHead>
-                                        <TableHead className="text-right">Monto</TableHead>
-                                      </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                      {c.transacciones.map((t, idx) => {
-                                        const compKey = `${c.cliente}-${t.comprobante ?? "na"}-${t.numero ?? "na"}-${idx}`;
-                                        const isCompOpen = openComprobante === compKey;
-                                        const isRecibo = `${t.tipo_operacion ?? ""} ${t.comprobante ?? ""}`.toLowerCase().includes("recib");
-                                        return (
-                                          <>
-                                            <TableRow
-                                              key={compKey}
-                                              className={`text-[11px] cursor-pointer hover:bg-muted/30 transition-colors ${isCompOpen ? "bg-muted/20" : ""}`}
-                                              onClick={() => setOpenComprobante(isCompOpen ? null : compKey)}
-                                            >
-                                              <TableCell>
-                                                <span className="flex items-center gap-1">
-                                                  <ChevronDown size={9} className={`shrink-0 transition-transform ${isCompOpen ? "rotate-180" : ""} text-muted-foreground`} />
-                                                  <span className={isRecibo ? "text-orange-600 font-medium" : ""}>{t.comprobante ?? "—"} {t.numero ?? ""}</span>
-                                                </span>
-                                              </TableCell>
-                                              <TableCell className={isRecibo ? "text-orange-600" : ""}>{t.tipo_operacion ?? "—"}</TableCell>
-                                              <TableCell className="text-right font-mono">{fmt$$(t.monto_total || 0)}</TableCell>
-                                            </TableRow>
-                                            {isCompOpen && (
-                                              <TableRow key={`${compKey}-detail`}>
-                                                <TableCell colSpan={3} className="p-0 border-b border-[var(--shelfy-border)]/30">
-                                                  <div className="px-5 py-2.5 bg-violet-50/40">
-                                                    {(t.articulos && t.articulos.length > 0) ? (
-                                                      <>
-                                                        <p className="text-[10px] font-semibold text-muted-foreground mb-1.5">Artículos de este comprobante:</p>
-                                                        <div className="flex flex-wrap gap-1.5">
-                                                          {t.articulos.map((a, ai) => (
-                                                            <Badge key={`${a.codigo ?? a.articulo}-${ai}`} variant="outline" className="text-[10px] bg-white">
-                                                              {a.articulo} · <span className="font-mono font-bold">{a.bultos.toLocaleString("es-AR", { maximumFractionDigits: 2 })} b</span>
-                                                            </Badge>
-                                                          ))}
-                                                        </div>
-                                                      </>
-                                                    ) : (
-                                                      <p className="text-[10px] text-muted-foreground">Sin detalle de artículos disponible</p>
-                                                    )}
-                                                  </div>
-                                                </TableCell>
-                                              </TableRow>
-                                            )}
-                                          </>
-                                        );
-                                      })}
-                                    </TableBody>
-                                  </Table>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Cuentas corrientes */}
+            {/* ── Cuentas Corrientes ───────────────────────────────────── */}
+            <div>
               <Card>
                 <CardHeader className="pb-3 pt-4 px-5">
                   <div className="flex items-center justify-between gap-2 flex-wrap">

@@ -27,6 +27,17 @@ def _snap_key(dist_id: int, source: str, date_from: str, date_to: str) -> str:
     return f"{dist_id}:{source}:{date_from}:{date_to}"
 
 
+def _infer_dates(result: dict, date_from: str, date_to: str):
+    """Fill date_from/date_to from serie_temporal when not provided."""
+    if date_from and date_to:
+        return date_from, date_to
+    serie = result.get("serie_temporal") or []
+    fechas = [s["fecha"] for s in serie if s.get("fecha")]
+    if fechas:
+        return min(fechas), max(fechas)
+    return date_from or "", date_to or ""
+
+
 def ingest_file(
     dist_id: int,
     source: str,
@@ -52,6 +63,8 @@ def ingest_file(
         "finished_at":    None,
         "error_msg":      None,
         "result_version": None,
+        "parsed_date_from": None,
+        "parsed_date_to":   None,
     }
     with _lock:
         _jobs[job_id] = job
@@ -60,15 +73,22 @@ def ingest_file(
         df = read_excel_robust(file_bytes, filename)
         parser = _PARSERS[source]
         result = parser(df, date_from, date_to)
+
+        # Infer dates from data when not provided
+        inferred_from, inferred_to = _infer_dates(result, date_from, date_to)
+        result["date_from"] = inferred_from
+        result["date_to"]   = inferred_to
         result["snapshot_version"]    = job_id
         result["snapshot_created_at"] = dt.datetime.now().isoformat()
 
-        key = _snap_key(dist_id, source, date_from, date_to)
+        # Store by job_id for direct lookup
         with _lock:
-            _snapshots[key] = result
-            job["status"]         = "completed"
-            job["finished_at"]    = dt.datetime.now().isoformat()
-            job["result_version"] = key
+            _snapshots[job_id] = result
+            job["status"]           = "completed"
+            job["finished_at"]      = dt.datetime.now().isoformat()
+            job["result_version"]   = job_id
+            job["parsed_date_from"] = inferred_from
+            job["parsed_date_to"]   = inferred_to
 
     except Exception as exc:
         with _lock:
@@ -81,6 +101,10 @@ def ingest_file(
 
 def get_job(job_id: str) -> Optional[dict]:
     return _jobs.get(job_id)
+
+
+def get_snapshot_by_job(job_id: str) -> Optional[dict]:
+    return _snapshots.get(job_id)
 
 
 def get_snapshot(dist_id: int, source: str, date_from: str, date_to: str) -> Optional[dict]:

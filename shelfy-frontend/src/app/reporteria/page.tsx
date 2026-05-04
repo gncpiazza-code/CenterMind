@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 
 import {
   fetchReporteriaJobStatus,
-  fetchReporteriaExplore,
+  fetchReporteriaExploreByJob,
   exportReporteria,
   uploadReporteriaManualFile,
   type ReporteriaSource,
@@ -49,11 +49,9 @@ const SOURCE_META: Record<ReporteriaSource, { label: string }> = {
   bultos:       { label: "Bultos" },
 };
 
-function buildMockData(
-  source: ReporteriaSource,
-  dateFrom: string,
-  dateTo: string
-): ReporteriaExploreResponse {
+function buildMockData(source: ReporteriaSource): ReporteriaExploreResponse {
+  const dateFrom = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
+  const dateTo   = new Date().toISOString().slice(0, 10);
   const baseKpis = {
     sigo: [
       { label: "Cobertura",       value: 78,  unit: "%" },
@@ -169,8 +167,6 @@ export default function ReporteriaPage() {
   const [exportingFmt, setExportingFmt] = useState<string | null>(null);
   const [uploadLoading, setUploadLoading] = useState(false);
 
-  const [pendingDates, setPendingDates] = useState<{ from: string; to: string } | null>(null);
-
   // Job polling
   const { data: jobData } = useQuery({
     queryKey: reporteriaKeys.job(activeJobId ?? ""),
@@ -184,16 +180,16 @@ export default function ReporteriaPage() {
   });
 
   useEffect(() => {
-    if (jobData?.status === "completed" && reportType && pendingDates) {
+    if (jobData?.status === "completed" && reportType && activeJobId) {
       toast.success("Análisis completado. Cargando datos…");
-      fetchReporteriaExplore(distId, reportType, pendingDates.from, pendingDates.to)
+      fetchReporteriaExploreByJob(distId, activeJobId)
         .then((data) => {
           setExploreData(data);
           setStep("panel");
           setActiveTab("resumen");
         })
         .catch(() => {
-          const mock = buildMockData(reportType, pendingDates.from, pendingDates.to);
+          const mock = buildMockData(reportType);
           setExploreData(mock);
           setStep("panel");
           setActiveTab("resumen");
@@ -222,22 +218,19 @@ export default function ReporteriaPage() {
     setStep("guide");
   }, []);
 
-  const handleFileReady = useCallback(async (f: File, dateFrom: string, dateTo: string) => {
+  const handleFileReady = useCallback(async (f: File) => {
     if (!reportType) return;
     setFile(f);
-    setPendingDates({ from: dateFrom, to: dateTo });
     setUploadLoading(true);
 
     try {
-      const job = await uploadReporteriaManualFile(distId, reportType, f, dateFrom, dateTo);
+      const job = await uploadReporteriaManualFile(distId, reportType, f);
       setActiveJobId(job.id);
       setStep("processing");
     } catch {
-      // Backend not available — go straight to mock panel
-      const mock = buildMockData(reportType, dateFrom, dateTo);
+      const mock = buildMockData(reportType);
       setExploreData(mock);
       setStep("processing");
-      // Short delay to show the processing step, then move to panel
       setTimeout(() => {
         setStep("panel");
         setActiveTab("resumen");
@@ -258,7 +251,6 @@ export default function ReporteriaPage() {
     setFile(null);
     setActiveJobId(null);
     setExploreData(null);
-    setPendingDates(null);
   }, []);
 
   async function handleExport(fmt: "xlsx" | "pdf") {

@@ -10,7 +10,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
 
 from core.security import verify_auth, check_dist_permission
-from services.reporting.ingest_service import ingest_file, get_job, get_snapshot
+from services.reporting.ingest_service import ingest_file, get_job, get_snapshot, get_snapshot_by_job
 
 logger = logging.getLogger("ShelfyAPI")
 router = APIRouter()
@@ -24,8 +24,8 @@ async def manual_upload(
     id_distribuidor: int,
     file: UploadFile = File(...),
     source: str = Form(...),
-    date_from: str = Form(...),
-    date_to: str = Form(...),
+    date_from: str = Form(""),
+    date_to: str = Form(""),
     user_payload=Depends(verify_auth),
 ):
     check_dist_permission(user_payload, id_distribuidor)
@@ -72,16 +72,23 @@ def job_status(job_id: str, user_payload=Depends(verify_auth)):
 @router.get("/api/reporteria/explore/{id_distribuidor}", tags=["Reportería"])
 def explore(
     id_distribuidor: int,
-    source: str = Query(...),
-    date_from: str = Query(...),
-    date_to: str = Query(...),
+    source: str = Query(None),
+    date_from: str = Query(""),
+    date_to: str = Query(""),
+    job_id: str = Query(None),
     user_payload=Depends(verify_auth),
 ):
     check_dist_permission(user_payload, id_distribuidor)
-    snap = get_snapshot(id_distribuidor, source, date_from, date_to)
+
+    snap = None
+    if job_id:
+        snap = get_snapshot_by_job(job_id)
+    elif source:
+        snap = get_snapshot(id_distribuidor, source, date_from, date_to)
+
     if not snap:
         raise HTTPException(
             404,
-            "No hay snapshot disponible para esos parámetros. Subí el archivo primero."
+            "No hay snapshot disponible. Subí el archivo primero."
         )
     return snap

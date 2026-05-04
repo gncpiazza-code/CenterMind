@@ -2123,19 +2123,24 @@ export async function fetchReporteriaExplore(
   return apiFetch<ReporteriaExploreResponse>(`/api/reporteria/explore/${distId}?${qs}`);
 }
 
+export async function fetchReporteriaExploreByJob(
+  distId: number,
+  jobId: string,
+): Promise<ReporteriaExploreResponse> {
+  return apiFetch<ReporteriaExploreResponse>(
+    `/api/reporteria/explore/${distId}?job_id=${encodeURIComponent(jobId)}`
+  );
+}
+
 export async function uploadReporteriaManualFile(
   distId: number,
   source: ReporteriaSource,
   file: File,
-  dateFrom: string,
-  dateTo: string
 ): Promise<ReporteriaJob> {
   const token = localStorage.getItem(TOKEN_KEY);
   const form = new FormData();
   form.append("file", file);
   form.append("source", source);
-  form.append("date_from", dateFrom);
-  form.append("date_to", dateTo);
   const res = await fetch(`${API_URL}/api/reporteria/manual-upload/${distId}`, {
     method: "POST",
     headers: token ? { Authorization: `Bearer ${token}` } : {},

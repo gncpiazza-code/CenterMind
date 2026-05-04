@@ -2,19 +2,13 @@
 
 import { useState, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Upload, FileSpreadsheet, X, AlertCircle, ArrowRight, Calendar } from "lucide-react";
+import { Upload, FileSpreadsheet, X, AlertCircle, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
 import type { ReporteriaSource } from "@/lib/api";
 
 const MAX_SIZE_BYTES = 50 * 1024 * 1024;
 const ACCEPTED = /\.(xlsx|xls|csv)$/i;
-
-function todayStr() { return new Date().toISOString().slice(0, 10); }
-function firstOfMonthStr() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
-}
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -24,19 +18,22 @@ function formatFileSize(bytes: number): string {
 
 interface Props {
   source: ReporteriaSource;
-  onFileReady: (file: File, dateFrom: string, dateTo: string) => void;
+  onFileReady: (file: File) => void;
   onBack: () => void;
   isLoading?: boolean;
 }
+
+const SOURCE_LABELS: Record<ReporteriaSource, string> = {
+  sigo: "SIGO",
+  comprobantes: "Comprobantes",
+  bultos: "Bultos",
+};
 
 export function ReporteriaDropzone({ source, onFileReady, onBack, isLoading }: Props) {
   const [file, setFile] = useState<File | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [shake, setShake] = useState(false);
-  const [dateFrom, setDateFrom] = useState(firstOfMonthStr());
-  const [dateTo, setDateTo] = useState(todayStr());
-
   const inputRef = useRef<HTMLInputElement>(null);
 
   function validateFile(f: File): string | null {
@@ -74,9 +71,7 @@ export function ReporteriaDropzone({ source, onFileReady, onBack, isLoading }: P
   }
 
   function handleDragLeave(e: React.DragEvent) {
-    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-      setDragOver(false);
-    }
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOver(false);
   }
 
   function removeFile(e: React.MouseEvent) {
@@ -86,17 +81,6 @@ export function ReporteriaDropzone({ source, onFileReady, onBack, isLoading }: P
     if (inputRef.current) inputRef.current.value = "";
   }
 
-  function handleSubmit() {
-    if (!file || !dateFrom || !dateTo) return;
-    onFileReady(file, dateFrom, dateTo);
-  }
-
-  const SOURCE_LABELS: Record<ReporteriaSource, string> = {
-    sigo: "SIGO",
-    comprobantes: "Comprobantes",
-    bultos: "Bultos",
-  };
-
   return (
     <div className="flex flex-col gap-5 max-w-2xl mx-auto">
       <div className="text-center">
@@ -104,7 +88,7 @@ export function ReporteriaDropzone({ source, onFileReady, onBack, isLoading }: P
           Subí el archivo de {SOURCE_LABELS[source]}
         </h2>
         <p className="text-sm text-[var(--shelfy-muted)]">
-          Arrastrá tu Excel o hacé clic para seleccionarlo desde tu equipo
+          El período se detecta automáticamente desde las fechas del archivo
         </p>
       </div>
 
@@ -152,7 +136,7 @@ export function ReporteriaDropzone({ source, onFileReady, onBack, isLoading }: P
                 <div className="flex-1 min-w-0">
                   <p className="text-[14px] font-bold text-[var(--shelfy-text)] truncate">{file.name}</p>
                   <p className="text-[11px] text-[var(--shelfy-muted)] mt-0.5 font-medium">
-                    {formatFileSize(file.size)}
+                    {formatFileSize(file.size)} · El período se detectará del archivo
                   </p>
                 </div>
                 <button
@@ -210,57 +194,12 @@ export function ReporteriaDropzone({ source, onFileReady, onBack, isLoading }: P
           </AnimatePresence>
         </div>
 
-        {/* Animated dashed border when idle/no-file */}
         {!file && !dragOver && !error && (
-          <div className="absolute inset-0 rounded-2xl pointer-events-none overflow-hidden">
+          <div className="absolute inset-0 rounded-2xl pointer-events-none">
             <div className="absolute inset-0 rounded-2xl border-2 border-dashed border-[var(--shelfy-primary)]/20 animate-pulse" />
           </div>
         )}
       </motion.div>
-
-      {/* Date range — shown when file is selected */}
-      <AnimatePresence>
-        {file && (
-          <motion.div
-            initial={{ opacity: 0, y: -8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-            className="bg-white border border-[var(--shelfy-border)] rounded-2xl p-5 shadow-sm"
-          >
-            <p className="text-[11px] font-black text-[var(--shelfy-muted)] uppercase tracking-wider mb-3 flex items-center gap-1.5">
-              <Calendar size={11} />
-              Período del reporte
-            </p>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider mb-1.5">
-                  Desde
-                </label>
-                <input
-                  type="date"
-                  value={dateFrom}
-                  max={dateTo}
-                  onChange={(e) => setDateFrom(e.target.value)}
-                  className="w-full text-sm font-medium text-[var(--shelfy-text)] bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-xl px-3 py-2.5 focus:outline-none focus:border-[var(--shelfy-primary)] transition-colors"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider mb-1.5">
-                  Hasta
-                </label>
-                <input
-                  type="date"
-                  value={dateTo}
-                  min={dateFrom}
-                  onChange={(e) => setDateTo(e.target.value)}
-                  className="w-full text-sm font-medium text-[var(--shelfy-text)] bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-xl px-3 py-2.5 focus:outline-none focus:border-[var(--shelfy-primary)] transition-colors"
-                />
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* Actions */}
       <div className="flex gap-3">
@@ -273,11 +212,11 @@ export function ReporteriaDropzone({ source, onFileReady, onBack, isLoading }: P
           ← Atrás
         </Button>
         <Button
-          onClick={handleSubmit}
-          disabled={!file || !dateFrom || !dateTo || isLoading}
+          onClick={() => file && onFileReady(file)}
+          disabled={!file || isLoading}
           className={cn(
             "flex-1 h-11 rounded-xl font-bold text-[15px] transition-all duration-200",
-            file && dateFrom && dateTo && !isLoading
+            file && !isLoading
               ? "bg-[var(--shelfy-primary)] hover:bg-[var(--shelfy-accent)] text-white shadow-md hover:shadow-lg shadow-[var(--shelfy-primary)]/20"
               : "bg-[var(--shelfy-border)] text-[var(--shelfy-muted)] cursor-not-allowed"
           )}

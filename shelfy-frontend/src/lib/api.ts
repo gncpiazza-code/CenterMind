@@ -2030,3 +2030,133 @@ export async function setSupervisorVendedores(distId: number, idSupervisor: numb
     body: JSON.stringify({ id_vendedores: idVendedores }),
   });
 }
+
+// ── Reportería ────────────────────────────────────────────────────────────────
+
+export type ReporteriaSource = "sigo" | "comprobantes" | "bultos";
+export type ReporteriaJobStatus = "queued" | "running" | "completed" | "failed";
+
+export interface ReporteriaJob {
+  id: string;
+  id_distribuidor: number;
+  source: ReporteriaSource;
+  status: ReporteriaJobStatus;
+  requested_by: number;
+  params_json: Record<string, unknown>;
+  requested_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  error_msg: string | null;
+  result_version: string | null;
+}
+
+export interface ReporteriaKpi {
+  label: string;
+  value: number;
+  unit?: string;
+  delta?: number;
+  delta_label?: string;
+}
+
+export interface ReporteriaSerie {
+  fecha: string;
+  valor: number;
+  etiqueta?: string;
+}
+
+export interface ReporteriaClienteRow {
+  nombre_cliente: string;
+  vendedor_nombre: string;
+  sucursal_nombre: string;
+  importe_total: number;
+  cantidad_facturas: number;
+  ultimo_comprobante: string | null;
+}
+
+export interface ReporteriaExploreResponse {
+  source: ReporteriaSource;
+  date_from: string;
+  date_to: string;
+  snapshot_version: string | null;
+  snapshot_created_at: string | null;
+  kpis: ReporteriaKpi[];
+  serie_temporal: ReporteriaSerie[];
+  top_clientes: ReporteriaClienteRow[];
+  top_vendedores: { nombre: string; valor: number }[];
+  origen_datos: {
+    fuente: string;
+    menu_referencia: string;
+    filtros_aplicados: string[];
+    snapshot_at: string | null;
+  };
+}
+
+export async function createReporteriaJob(
+  distId: number,
+  body: { source: ReporteriaSource; date_from: string; date_to: string; sucursal?: string; vendedor?: string }
+): Promise<ReporteriaJob> {
+  return apiFetch<ReporteriaJob>(`/api/reporteria/jobs?id_distribuidor=${distId}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function fetchReporteriaJobStatus(jobId: string): Promise<ReporteriaJob> {
+  return apiFetch<ReporteriaJob>(`/api/reporteria/jobs/${jobId}`);
+}
+
+export async function fetchReporteriaExplore(
+  distId: number,
+  source: ReporteriaSource,
+  dateFrom: string,
+  dateTo: string,
+  params: { sucursal?: string; vendedor?: string } = {}
+): Promise<ReporteriaExploreResponse> {
+  const qs = new URLSearchParams({
+    source,
+    date_from: dateFrom,
+    date_to: dateTo,
+    ...(params.sucursal ? { sucursal: params.sucursal } : {}),
+    ...(params.vendedor ? { vendedor: params.vendedor } : {}),
+  });
+  return apiFetch<ReporteriaExploreResponse>(`/api/reporteria/explore/${distId}?${qs}`);
+}
+
+export async function uploadReporteriaManualFile(
+  distId: number,
+  source: ReporteriaSource,
+  file: File,
+  dateFrom: string,
+  dateTo: string
+): Promise<ReporteriaJob> {
+  const token = localStorage.getItem(TOKEN_KEY);
+  const form = new FormData();
+  form.append("file", file);
+  form.append("source", source);
+  form.append("date_from", dateFrom);
+  form.append("date_to", dateTo);
+  const res = await fetch(`${API_URL}/api/reporteria/manual-upload/${distId}`, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  });
+  if (!res.ok) {
+    handleSessionExpired401(`/api/reporteria/manual-upload/${distId}`, res.status);
+    const err = await res.json().catch(() => ({ detail: "Error subiendo archivo" }));
+    throw new Error(err.detail ?? "Error subiendo archivo");
+  }
+  return res.json();
+}
+
+export async function exportReporteria(jobId: string, formato: "xlsx" | "pdf" | "zip"): Promise<Blob> {
+  const token = localStorage.getItem(TOKEN_KEY);
+  const res = await fetch(`${API_URL}/api/reporteria/export/${jobId}?formato=${formato}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    handleSessionExpired401(`/api/reporteria/export/${jobId}`, res.status);
+    throw new Error("Error exportando reporte");
+  }
+  return res.blob();
+}

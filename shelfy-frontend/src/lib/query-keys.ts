@@ -128,3 +128,14 @@ export const supervisionPanelKeys = {
 export const adminDashboardKeys = {
   motorRuns: (tipo?: string) => ['admin-dashboard', 'motor-runs', tipo ?? 'all'] as const,
 };
+
+// ── Reportería ─────────────────────────────────────────────────────────────────
+export const reporteriaKeys = {
+  all: ['reporteria'] as const,
+  jobs: (distId: number) => ['reporteria', 'jobs', distId] as const,
+  job: (jobId: string) => ['reporteria', 'job', jobId] as const,
+  snapshot: (distId: number, source: string, from: string, to: string) =>
+    ['reporteria', 'snapshot', distId, source, from, to] as const,
+  explore: (distId: number, source: string, from: string, to: string, sucursal?: string, vendedor?: string) =>
+    ['reporteria', 'explore', distId, source, from, to, sucursal ?? '', vendedor ?? ''] as const,
+};

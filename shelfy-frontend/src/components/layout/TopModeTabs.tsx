@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useMemo } from "react";
 import {
-  Eye, LayoutDashboard, BarChart2, Map, Target, Monitor, Images, Radio,
+  Eye, LayoutDashboard, BarChart2, Map, Target, Images, Radio, FileBarChart2,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
@@ -55,13 +55,6 @@ const TABS: TabItem[] = [
     roles: ["superadmin", "admin", "supervisor", "directorio"],
   },
   {
-    href: "/modo-oficina",
-    label: "Oficina",
-    icon: Monitor,
-    permisoKey: "menu_modo_oficina",
-    roles: ["superadmin", "admin", "supervisor", "directorio", "evaluador"],
-  },
-  {
     href: "/galeria-exhibiciones",
     label: "Galería",
     icon: Images,
@@ -73,6 +66,12 @@ const TABS: TabItem[] = [
     label: "Difusión",
     icon: Radio,
     roles: ["superadmin", "admin", "supervisor", "directorio", "evaluador"],
+  },
+  {
+    href: "/reporteria",
+    label: "Reportería",
+    icon: FileBarChart2,
+    roles: ["superadmin"],
   },
 ];
 

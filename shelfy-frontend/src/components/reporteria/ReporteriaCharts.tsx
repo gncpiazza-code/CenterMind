@@ -18,6 +18,33 @@ function formatARS(v: number) {
   return `$${v}`;
 }
 
+function formatCount(v: number) {
+  if (v >= 1_000) return `${(v / 1_000).toFixed(1)}k`;
+  return String(Math.round(v));
+}
+
+function makeFormatter(source: string) {
+  return source === "comprobantes" ? formatARS : formatCount;
+}
+
+function serieLabel(source: string) {
+  if (source === "sigo")         return "Visitados";
+  if (source === "comprobantes") return "Importe";
+  return "Bultos";
+}
+
+function rankingLabel(source: string) {
+  if (source === "sigo")         return "% Cobertura";
+  if (source === "comprobantes") return "Importe";
+  return "Bultos";
+}
+
+function rankingTitle(source: string) {
+  if (source === "sigo")   return "Cobertura por vendedor";
+  if (source === "bultos") return "Top artículos por bultos";
+  return "Ranking vendedores";
+}
+
 function formatDate(str: string) {
   if (!str) return "";
   const d = new Date(str + "T00:00:00");
@@ -53,6 +80,8 @@ interface Props {
 }
 
 export function ReporteriaCharts({ data }: Props) {
+  const fmt = makeFormatter(data.source);
+
   const serieFormatted = (data.serie_temporal ?? []).map((s) => ({
     ...s,
     fecha_label: formatDate(s.fecha),
@@ -62,13 +91,16 @@ export function ReporteriaCharts({ data }: Props) {
 
   const topClientes = (data.top_clientes ?? [])
     .slice(0, 5)
-    .map((c) => ({ name: c.nombre_cliente, value: c.importe_total }));
+    .map((c) => ({ name: c.nombre_cliente.split(" ").slice(0, 2).join(" "), value: c.importe_total }));
+
+  const sLabel = serieLabel(data.source);
+  const rLabel = rankingLabel(data.source);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
       {/* Serie temporal */}
       <ChartCard
-        title="Evolución temporal"
+        title={data.source === "sigo" ? "Visitados por día" : data.source === "bultos" ? "Bultos por día" : "Evolución temporal"}
         subtitle={`${data.date_from} → ${data.date_to}`}
         className="lg:col-span-2"
       >
@@ -89,14 +121,14 @@ export function ReporteriaCharts({ data }: Props) {
               interval="preserveStartEnd"
             />
             <YAxis
-              tickFormatter={formatARS}
+              tickFormatter={fmt}
               tick={{ fontSize: 10, fill: "#64748b" }}
               axisLine={false}
               tickLine={false}
               width={52}
             />
             <Tooltip
-              formatter={(v) => [formatARS(Number(v)), "Importe"]}
+              formatter={(v) => [fmt(Number(v)), sLabel]}
               labelFormatter={(l) => `Fecha: ${l}`}
               contentStyle={{
                 borderRadius: "12px",
@@ -120,9 +152,9 @@ export function ReporteriaCharts({ data }: Props) {
         </ResponsiveContainer>
       </ChartCard>
 
-      {/* Top vendedores */}
+      {/* Top vendedores / artículos */}
       {topVendedores.length > 0 && (
-        <ChartCard title="Ranking vendedores" subtitle="Por importe acumulado">
+        <ChartCard title={rankingTitle(data.source)} subtitle={`Por ${rLabel.toLowerCase()}`}>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart
               layout="vertical"
@@ -132,7 +164,7 @@ export function ReporteriaCharts({ data }: Props) {
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" horizontal={false} />
               <XAxis
                 type="number"
-                tickFormatter={formatARS}
+                tickFormatter={fmt}
                 tick={{ fontSize: 10, fill: "#64748b" }}
                 axisLine={false}
                 tickLine={false}
@@ -143,10 +175,10 @@ export function ReporteriaCharts({ data }: Props) {
                 tick={{ fontSize: 10, fill: "#0f172a", fontWeight: 600 }}
                 axisLine={false}
                 tickLine={false}
-                width={90}
+                width={data.source === "bultos" ? 110 : 90}
               />
               <Tooltip
-                formatter={(v) => [formatARS(Number(v)), "Importe"]}
+                formatter={(v) => [fmt(Number(v)), rLabel]}
                 contentStyle={{
                   borderRadius: "12px",
                   border: "1px solid rgba(0,0,0,0.08)",
@@ -163,9 +195,12 @@ export function ReporteriaCharts({ data }: Props) {
         </ChartCard>
       )}
 
-      {/* Top clientes pie */}
+      {/* Pie top clientes/PDV */}
       {topClientes.length > 0 && (
-        <ChartCard title="Top 5 clientes" subtitle="Distribución por importe">
+        <ChartCard
+          title={data.source === "sigo" ? "Top vendedores — cobertura" : data.source === "bultos" ? "Top PDVs por bultos" : "Top 5 clientes"}
+          subtitle={data.source === "sigo" ? "% cobertura" : data.source === "bultos" ? "Promedio semanal" : "Por importe"}
+        >
           <ResponsiveContainer width="100%" height={220}>
             <PieChart>
               <Pie
@@ -179,7 +214,7 @@ export function ReporteriaCharts({ data }: Props) {
                 animationBegin={200}
                 animationDuration={900}
                 label={({ name, percent }) =>
-                  `${(name as string).split(" ")[0]} ${((percent ?? 0) * 100).toFixed(0)}%`
+                  `${name} ${((percent ?? 0) * 100).toFixed(0)}%`
                 }
                 labelLine={false}
               >
@@ -188,7 +223,7 @@ export function ReporteriaCharts({ data }: Props) {
                 ))}
               </Pie>
               <Tooltip
-                formatter={(v) => [formatARS(Number(v)), "Importe"]}
+                formatter={(v) => [fmt(Number(v)), rLabel]}
                 contentStyle={{
                   borderRadius: "12px",
                   border: "1px solid rgba(0,0,0,0.08)",

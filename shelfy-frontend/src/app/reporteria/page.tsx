@@ -56,28 +56,28 @@ function buildMockData(
 ): ReporteriaExploreResponse {
   const baseKpis = {
     sigo: [
-      { label: "PDV Visitados",   value: 312,       delta: 8,    delta_label: "+8% vs período ant." },
-      { label: "Efectividad",     value: 74,  unit: "%", delta: 3,  delta_label: "+3 pp" },
-      { label: "Sin Venta",       value: 81,        delta: -12,  delta_label: "-12 PDV" },
-      { label: "Cobertura",       value: 89,  unit: "%", delta: 2,  delta_label: "+2 pp" },
-      { label: "Visitas / Día",   value: 18,        delta: 1,   delta_label: "+1 promedio" },
-      { label: "Clientes nuevos", value: 7 },
+      { label: "Cobertura",       value: 78,  unit: "%" },
+      { label: "Efectividad",     value: 62,  unit: "%" },
+      { label: "Visitados",       value: 187 },
+      { label: "Sin venta",       value: 71 },
+      { label: "Visitas <14hs",   value: 143 },
+      { label: "% Visitas <14hs", value: 76,  unit: "%" },
     ],
     comprobantes: [
-      { label: "Total Facturado", value: 4_820_000, unit: "", delta: 15, delta_label: "+15%" },
-      { label: "Facturas",        value: 1_283 },
-      { label: "Cuentas Ctes.",   value: 2_940_000 },
-      { label: "Contado",         value: 1_880_000 },
-      { label: "Recibos",         value: 640_000 },
-      { label: "Ticket Prom.",    value: 3_757 },
+      { label: "Facturación",   value: 4_820_000, unit: "" },
+      { label: "Contado",       value: 1_880_000, unit: "" },
+      { label: "Cta. Cte.",     value: 2_940_000, unit: "" },
+      { label: "Recibos",       value: 640_000,   unit: "" },
+      { label: "Operaciones",   value: 1_283 },
+      { label: "Ticket Prom.",  value: 3_757,     unit: "" },
     ],
     bultos: [
-      { label: "Bultos Totales",    value: 8_412 },
-      { label: "Artículos únicos",  value: 94 },
-      { label: "Bultos / Día",      value: 284 },
-      { label: "Vendedores activos",value: 18 },
-      { label: "Top artículo",      value: 312,  unit: " unds." },
-      { label: "Cobertura SKU",     value: 67,  unit: "%" },
+      { label: "Bultos Totales",   value: 8_412 },
+      { label: "Artículos únicos", value: 94 },
+      { label: "Semanas",          value: 4 },
+      { label: "Prom. Semanal",    value: 2_103, unit: " blts/sem" },
+      { label: "PDVs >2.5/sem",    value: 38 },
+      { label: "Vendedores",       value: 12 },
     ],
   };
 
@@ -95,6 +95,25 @@ function buildMockData(
     };
   });
 
+  const sigoClientes = [
+    { nombre_cliente: "GARCIA ROBERTO",   vendedor_nombre: "187/240 visitados", sucursal_nombre: "Efectividad: 71%", importe_total: 78, cantidad_facturas: 133, ultimo_comprobante: null },
+    { nombre_cliente: "LOPEZ MARIA",      vendedor_nombre: "162/210 visitados", sucursal_nombre: "Efectividad: 58%", importe_total: 77, cantidad_facturas: 94,  ultimo_comprobante: null },
+    { nombre_cliente: "FERNANDEZ CARLOS", vendedor_nombre: "140/190 visitados", sucursal_nombre: "Efectividad: 65%", importe_total: 74, cantidad_facturas: 91,  ultimo_comprobante: null },
+    { nombre_cliente: "TORRES ANA",       vendedor_nombre: "115/160 visitados", sucursal_nombre: "Efectividad: 48%", importe_total: 72, cantidad_facturas: 55,  ultimo_comprobante: null },
+  ];
+  const compClientes = [
+    { nombre_cliente: "SUPERMERCADO EL PROGRESO",  vendedor_nombre: "GARCIA ROBERTO",  sucursal_nombre: "CENTRAL", importe_total: 420_000, cantidad_facturas: 12, ultimo_comprobante: "2026-05-01" },
+    { nombre_cliente: "ALMACEN DEL SOL",           vendedor_nombre: "LOPEZ MARIA",     sucursal_nombre: "NORTE",   importe_total: 310_000, cantidad_facturas: 9,  ultimo_comprobante: "2026-04-29" },
+    { nombre_cliente: "DISTRIBUIDORA HNOS. PEREZ", vendedor_nombre: "FERNANDEZ CARLOS",sucursal_nombre: "SUR",     importe_total: 284_000, cantidad_facturas: 8,  ultimo_comprobante: "2026-04-30" },
+    { nombre_cliente: "KIOSCO LA ESQUINA",         vendedor_nombre: "GARCIA ROBERTO",  sucursal_nombre: "CENTRAL", importe_total: 198_000, cantidad_facturas: 15, ultimo_comprobante: "2026-05-02" },
+  ];
+  const bultosClientes = [
+    { nombre_cliente: "[1042] ALMACEN SAN PEDRO",  vendedor_nombre: "GARCIA ROBERTO",  sucursal_nombre: "NORTE",   importe_total: 18.5, cantidad_facturas: 74,  ultimo_comprobante: null },
+    { nombre_cliente: "[0831] SUPER LA ESTRELLA",  vendedor_nombre: "LOPEZ MARIA",     sucursal_nombre: "CENTRAL", importe_total: 12.3, cantidad_facturas: 49,  ultimo_comprobante: null },
+    { nombre_cliente: "[1198] KIOSCO CENTRAL",     vendedor_nombre: "TORRES ANA",      sucursal_nombre: "ESTE",    importe_total: 9.8,  cantidad_facturas: 39,  ultimo_comprobante: null },
+    { nombre_cliente: "[0722] FERRETERIA MARTIN",  vendedor_nombre: "FERNANDEZ CARLOS",sucursal_nombre: "SUR",     importe_total: 7.2,  cantidad_facturas: 29,  ultimo_comprobante: null },
+  ];
+
   return {
     source,
     date_from: dateFrom,
@@ -103,32 +122,35 @@ function buildMockData(
     snapshot_created_at: new Date().toISOString(),
     kpis: baseKpis[source],
     serie_temporal: serie,
-    top_clientes: [
-      { nombre_cliente: "SUPERMERCADO EL PROGRESO",   vendedor_nombre: "GARCIA ROBERTO",   sucursal_nombre: "CENTRAL", importe_total: 420_000, cantidad_facturas: 12, ultimo_comprobante: "2026-05-01" },
-      { nombre_cliente: "ALMACEN DEL SOL",            vendedor_nombre: "LOPEZ MARIA",       sucursal_nombre: "NORTE",   importe_total: 310_000, cantidad_facturas: 9,  ultimo_comprobante: "2026-04-29" },
-      { nombre_cliente: "DISTRIBUIDORA HNOS. PEREZ",  vendedor_nombre: "FERNANDEZ CARLOS",  sucursal_nombre: "SUR",     importe_total: 284_000, cantidad_facturas: 8,  ultimo_comprobante: "2026-04-30" },
-      { nombre_cliente: "KIOSCO LA ESQUINA",          vendedor_nombre: "GARCIA ROBERTO",    sucursal_nombre: "CENTRAL", importe_total: 198_000, cantidad_facturas: 15, ultimo_comprobante: "2026-05-02" },
-      { nombre_cliente: "FERRETERIA MARTIN",          vendedor_nombre: "TORRES ANA",        sucursal_nombre: "ESTE",    importe_total: 175_000, cantidad_facturas: 6,  ultimo_comprobante: "2026-04-28" },
-      { nombre_cliente: "CARNICERIA DON JUAN",        vendedor_nombre: "LOPEZ MARIA",       sucursal_nombre: "NORTE",   importe_total: 142_000, cantidad_facturas: 11, ultimo_comprobante: "2026-05-01" },
-      { nombre_cliente: "VERDULERIA EL CAMPO",        vendedor_nombre: "DIAZ PEDRO",        sucursal_nombre: "OESTE",   importe_total: 128_000, cantidad_facturas: 7,  ultimo_comprobante: "2026-04-27" },
-      { nombre_cliente: "BODEGA Y VINOTECA LUNA",     vendedor_nombre: "FERNANDEZ CARLOS",  sucursal_nombre: "SUR",     importe_total: 119_000, cantidad_facturas: 5,  ultimo_comprobante: "2026-04-30" },
-    ],
-    top_vendedores: [
-      { nombre: "GARCIA ROBERTO",    valor: 820_000 },
-      { nombre: "LOPEZ MARIA",       valor: 740_000 },
-      { nombre: "FERNANDEZ CARLOS",  valor: 680_000 },
-      { nombre: "TORRES ANA",        valor: 590_000 },
-      { nombre: "DIAZ PEDRO",        valor: 520_000 },
-      { nombre: "ROMERO LUCIA",      valor: 480_000 },
-    ],
+    top_clientes: source === "sigo" ? sigoClientes : source === "comprobantes" ? compClientes : bultosClientes,
+    top_vendedores: source === "sigo"
+      ? [
+          { nombre: "GARCIA ROBERTO",    valor: 78 },
+          { nombre: "LOPEZ MARIA",       valor: 77 },
+          { nombre: "FERNANDEZ CARLOS",  valor: 74 },
+          { nombre: "TORRES ANA",        valor: 72 },
+        ]
+      : source === "comprobantes"
+        ? [
+            { nombre: "GARCIA ROBERTO",    valor: 820_000 },
+            { nombre: "LOPEZ MARIA",       valor: 740_000 },
+            { nombre: "FERNANDEZ CARLOS",  valor: 680_000 },
+            { nombre: "TORRES ANA",        valor: 590_000 },
+          ]
+        : [
+            { nombre: "[MADRUGON] TABACO RUBIO",   valor: 1_240 },
+            { nombre: "[MADRUGON] MENTOLADO",       valor: 980 },
+            { nombre: "[PREMIER] LARGO",            valor: 860 },
+            { nombre: "[DERBY] CLASICO",            valor: 720 },
+          ],
     origen_datos: {
       fuente: SOURCE_META[source].label,
       menu_referencia: source === "sigo"
-        ? "SIGO → Gestión → Visitas / Ventas por rango"
+        ? "SIGO → Módulo de Gestión → Visitas por rango"
         : source === "comprobantes"
           ? "CHESS → Comprobantes → Resumen por período"
-          : "CHESS → Comprobantes → Detalle artículo",
-      filtros_aplicados: [`Desde: ${dateFrom}`, `Hasta: ${dateTo}`, "Todos los vendedores"],
+          : "CHESS → Comprobantes → Detalle por artículo",
+      filtros_aplicados: [`Desde: ${dateFrom}`, `Hasta: ${dateTo}`, "Datos de demostración"],
       snapshot_at: new Date().toISOString(),
     },
   };
@@ -447,7 +469,7 @@ function PanelView({ data, activeTab, onTabChange }: PanelViewProps) {
           )}
           {activeTab === "clientes" && (
             <>
-              <ReporteriaTable rows={data.top_clientes} />
+              <ReporteriaTable rows={data.top_clientes} source={data.source} />
               <ReporteriaOrigen data={data} />
             </>
           )}

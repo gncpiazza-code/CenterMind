@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { Search, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
-import type { ReporteriaClienteRow } from "@/lib/api";
+import type { ReporteriaClienteRow, ReporteriaSource } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 function formatARS(v: number) {
@@ -15,9 +15,10 @@ type SortDir = "asc" | "desc";
 
 interface Props {
   rows: ReporteriaClienteRow[];
+  source?: ReporteriaSource;
 }
 
-export function ReporteriaTable({ rows }: Props) {
+export function ReporteriaTable({ rows, source = "comprobantes" }: Props) {
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("importe_total");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -65,13 +66,30 @@ export function ReporteriaTable({ rows }: Props) {
       : <ArrowDown size={11} className="text-[var(--shelfy-primary)]" />;
   }
 
-  const COLS: { key: SortKey; label: string; align?: "right" }[] = [
-    { key: "nombre_cliente",     label: "Cliente" },
-    { key: "vendedor_nombre",    label: "Vendedor" },
-    { key: "sucursal_nombre",    label: "Sucursal" },
-    { key: "cantidad_facturas",  label: "Fact.", align: "right" },
-    { key: "importe_total",      label: "Importe", align: "right" },
-  ];
+  const COLS: { key: SortKey; label: string; align?: "right" }[] =
+    source === "sigo"
+      ? [
+          { key: "nombre_cliente",    label: "Vendedor" },
+          { key: "vendedor_nombre",   label: "Visitados / Total" },
+          { key: "sucursal_nombre",   label: "Efectividad" },
+          { key: "cantidad_facturas", label: "Ventas conc.", align: "right" },
+          { key: "importe_total",     label: "Cobertura %",  align: "right" },
+        ]
+      : source === "bultos"
+        ? [
+            { key: "nombre_cliente",    label: "PDV / Cliente" },
+            { key: "vendedor_nombre",   label: "Vendedor" },
+            { key: "sucursal_nombre",   label: "Sucursal" },
+            { key: "cantidad_facturas", label: "Total bultos", align: "right" },
+            { key: "importe_total",     label: "Prom/sem",     align: "right" },
+          ]
+        : [
+            { key: "nombre_cliente",    label: "Cliente" },
+            { key: "vendedor_nombre",   label: "Vendedor" },
+            { key: "sucursal_nombre",   label: "Sucursal" },
+            { key: "cantidad_facturas", label: "Fact.", align: "right" },
+            { key: "importe_total",     label: "Importe", align: "right" },
+          ];
 
   return (
     <div className="bg-white border border-[var(--shelfy-border)] rounded-2xl overflow-hidden shadow-sm">
@@ -138,7 +156,11 @@ export function ReporteriaTable({ rows }: Props) {
                     {row.cantidad_facturas}
                   </td>
                   <td className="px-4 py-3 text-right font-black text-[var(--shelfy-primary)] tabular-nums">
-                    {formatARS(row.importe_total)}
+                    {source === "comprobantes"
+                      ? formatARS(row.importe_total)
+                      : source === "sigo"
+                        ? `${row.importe_total.toFixed(1)}%`
+                        : row.importe_total.toFixed(1)}
                   </td>
                 </motion.tr>
               ))

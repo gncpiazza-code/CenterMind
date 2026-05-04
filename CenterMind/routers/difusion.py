@@ -10,6 +10,7 @@ Endpoints:
 import logging
 from datetime import datetime, timezone
 from typing import Optional
+import unicodedata
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -22,7 +23,32 @@ from services.cc_difusion_service import difundir_cc_telegram
 logger = logging.getLogger("ShelfyAPI")
 router = APIRouter()
 
-ROLES_DIFUSION = {"superadmin", "admin", "directorio"}
+
+def _norm_text(value: str | None) -> str:
+    if not value:
+        return ""
+    txt = str(value).strip().lower()
+    txt = "".join(
+        c for c in unicodedata.normalize("NFD", txt)
+        if unicodedata.category(c) != "Mn"
+    )
+    return " ".join(txt.split())
+
+
+def _fetch_all_rows(table_name: str, select_cols: str, dist_id: int, order_col: str | None = None) -> list[dict]:
+    rows: list[dict] = []
+    offset = 0
+    page = 1000
+    while True:
+        q = sb.table(table_name).select(select_cols).eq("id_distribuidor", dist_id)
+        if order_col:
+            q = q.order(order_col)
+        batch = q.range(offset, offset + page - 1).execute().data or []
+        rows.extend(batch)
+        if len(batch) < page:
+            break
+        offset += page
+    return rows
 
 
 class DifusionCCTelegramRequest(BaseModel):
@@ -40,8 +66,6 @@ def difusion_cc_telegram(
     user_payload=Depends(verify_auth),
 ):
     """Envía CC como PDF al grupo Telegram del vendedor (o de todos en la sucursal)."""
-    if user_payload.get("rol") not in ROLES_DIFUSION and not user_payload.get("is_superadmin"):
-        raise HTTPException(status_code=403, detail="Permiso insuficiente para Difusión")
     check_dist_permission(user_payload, body.dist_id)
 
     if body.modo not in ("uno", "todos"):
@@ -69,32 +93,49 @@ def difusion_cc_telegram(
 @router.get("/api/difusion/vendedores/{dist_id}", tags=["Difusión"])
 def difusion_list_vendedores(dist_id: int, sucursal: Optional[str] = None, user_payload=Depends(verify_auth)):
     """Lista vendedores del distribuidor con binding Telegram para el selector UI."""
-    if user_payload.get("rol") not in ROLES_DIFUSION and not user_payload.get("is_superadmin"):
-        raise HTTPException(status_code=403, detail="Permiso insuficiente para Difusión")
     check_dist_permission(user_payload, dist_id)
 
     try:
         t_vend = tenant_table_name("vendedores_v2", dist_id)
         t_suc  = tenant_table_name("sucursales_v2", dist_id)
 
-        vend_q = sb.table(t_vend).select("id_vendedor, nombre_erp, id_sucursal").eq("id_distribuidor", dist_id).order("nombre_erp")
-        vend_rows = vend_q.execute().data or []
-
-        suc_rows = sb.table(t_suc).select("id_sucursal, nombre_erp").eq("id_distribuidor", dist_id).execute().data or []
+        vend_rows = _fetch_all_rows(t_vend, "id_vendedor, nombre_erp, id_sucursal", dist_id, order_col="nombre_erp")
+        suc_rows = _fetch_all_rows(t_suc, "id_sucursal, nombre_erp", dist_id)
         suc_map = {s["id_sucursal"]: s["nombre_erp"] for s in suc_rows}
 
         # Filtrar por sucursal si se pide
         if sucursal:
-            suc_ids = {s["id_sucursal"] for s in suc_rows if (s.get("nombre_erp") or "").strip().upper() == sucursal.strip().upper()}
+            target = _norm_text(sucursal)
+            suc_ids = {
+                s["id_sucursal"]
+                for s in suc_rows
+                if _norm_text(s.get("nombre_erp")) == target
+            }
             vend_rows = [v for v in vend_rows if v.get("id_sucursal") in suc_ids]
+
+        binding_rows = (
+            sb.table("vendedores_telegram_binding")
+            .select("id_vendedor_v2, telegram_group_id, telegram_user_id")
+            .eq("id_distribuidor", dist_id)
+            .execute()
+            .data or []
+        )
+        binding_map = {b.get("id_vendedor_v2"): b for b in binding_rows if b.get("id_vendedor_v2") is not None}
 
         from services.objetivos_notification_service import resolve_integrante_for_objetivos
         result = []
         for v in vend_rows:
             vid = v["id_vendedor"]
-            row = resolve_integrante_for_objetivos(dist_id, vid)
-            gid = row.get("telegram_group_id") if row else None
-            tiene_telegram = gid is not None and str(gid).strip() not in ("", "0", "None")
+            b = binding_map.get(vid) or {}
+            has_binding = (
+                (b.get("telegram_group_id") is not None and str(b.get("telegram_group_id")).strip() not in ("", "0", "None"))
+                or (b.get("telegram_user_id") is not None and str(b.get("telegram_user_id")).strip() not in ("", "0", "None"))
+            )
+            tiene_telegram = has_binding
+            if not tiene_telegram:
+                row = resolve_integrante_for_objetivos(dist_id, vid)
+                gid = row.get("telegram_group_id") if row else None
+                tiene_telegram = gid is not None and str(gid).strip() not in ("", "0", "None")
             result.append({
                 "id_vendedor": vid,
                 "nombre_erp": v["nombre_erp"],
@@ -110,8 +151,6 @@ def difusion_list_vendedores(dist_id: int, sucursal: Optional[str] = None, user_
 @router.get("/api/difusion/vendedor/{dist_id}/{id_vendedor}/resumen", tags=["Difusión"])
 def difusion_vendedor_resumen(dist_id: int, id_vendedor: int, user_payload=Depends(verify_auth)):
     """Resumen CC + objetivos abiertos + exhibiciones del mes para el selector de vendedor."""
-    if user_payload.get("rol") not in ROLES_DIFUSION and not user_payload.get("is_superadmin"):
-        raise HTTPException(status_code=403, detail="Permiso insuficiente para Difusión")
     check_dist_permission(user_payload, dist_id)
 
     try:

@@ -23,7 +23,7 @@ const ALL_NAV: MobileNavItem[] = [
   { href: "/objetivos",            label: "Objetivos",    icon: Target,           roles: ["superadmin", "admin", "supervisor", "directorio"],               permisoKey: "menu_objetivos" },
   { href: "/modo-oficina",         label: "Oficina",      icon: Monitor,          roles: ["superadmin", "admin", "supervisor", "directorio", "evaluador"],  permisoKey: "menu_modo_oficina" },
   { href: "/galeria-exhibiciones", label: "Galería",      icon: Images,           roles: ["superadmin", "admin", "supervisor", "directorio", "evaluador"],  permisoKey: "menu_galeria_exhibiciones" },
-  { href: "/difusion",             label: "Difusión",     icon: Radio,            roles: ["superadmin", "admin", "directorio"],                               permisoKey: "menu_supervision" },
+  { href: "/difusion",             label: "Difusión",     icon: Radio,            roles: ["superadmin", "admin", "supervisor", "directorio", "evaluador"] },
 ];
 
 export function BottomNav() {

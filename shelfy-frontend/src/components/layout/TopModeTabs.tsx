@@ -72,8 +72,7 @@ const TABS: TabItem[] = [
     href: "/difusion",
     label: "Difusión",
     icon: Radio,
-    permisoKey: "menu_supervision",
-    roles: ["superadmin", "admin", "directorio"],
+    roles: ["superadmin", "admin", "supervisor", "directorio", "evaluador"],
   },
 ];
 

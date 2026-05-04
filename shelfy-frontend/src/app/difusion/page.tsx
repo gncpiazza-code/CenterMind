@@ -27,8 +27,6 @@ import {
 } from "@/lib/api";
 import { toast } from "sonner";
 
-const ALLOWED_ROLES = ["superadmin", "admin", "directorio"];
-
 const PLANTILLAS = [
   {
     label: "Recordatorio de deuda",
@@ -45,12 +43,9 @@ const PLANTILLAS = [
 ];
 
 export default function DifusionPage() {
-  const { user, effectiveDistribuidorId, hasPermiso } = useAuth();
+  const { user, effectiveDistribuidorId } = useAuth();
   const router = useRouter();
   const distId = effectiveDistribuidorId ?? 0;
-  const roleAllowed = !!user && ALLOWED_ROLES.includes(user.rol);
-  const permisoAllowed = !!user && hasPermiso("menu_supervision");
-  const canAccessDifusion = !!user && permisoAllowed && (roleAllowed || permisoAllowed);
 
   const [modo, setModo]               = useState<"uno" | "todos">("uno");
   const [sucursal, setSucursal]       = useState<string>("");
@@ -60,10 +55,10 @@ export default function DifusionPage() {
   const [confirmando, setConfirmando] = useState(false);
 
   useEffect(() => {
-    if (user && !canAccessDifusion) {
+    if (!user) {
       router.replace("/dashboard");
     }
-  }, [user, canAccessDifusion, router]);
+  }, [user, router]);
 
   // Vendedores base (para sucursales)
   const { data: vendedoresBase = [], isLoading: loadingBase } = useQuery({
@@ -141,7 +136,7 @@ export default function DifusionPage() {
     !!distId &&
     (modo === "todos" ? vendedoresConTelegram.length > 0 : !!idVendedor);
 
-  if (!user || !canAccessDifusion) return null;
+  if (!user) return null;
 
   return (
     <div className="flex min-h-screen bg-[var(--shelfy-bg)]">

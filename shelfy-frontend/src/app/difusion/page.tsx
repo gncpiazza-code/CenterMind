@@ -45,10 +45,12 @@ const PLANTILLAS = [
 ];
 
 export default function DifusionPage() {
-  const { user, effectiveDistribuidorId } = useAuth();
+  const { user, effectiveDistribuidorId, hasPermiso } = useAuth();
   const router = useRouter();
-  const isSuperadmin = user?.rol === "superadmin";
   const distId = effectiveDistribuidorId ?? 0;
+  const roleAllowed = !!user && ALLOWED_ROLES.includes(user.rol);
+  const permisoAllowed = !!user && hasPermiso("menu_supervision");
+  const canAccessDifusion = !!user && permisoAllowed && (roleAllowed || permisoAllowed);
 
   const [modo, setModo]               = useState<"uno" | "todos">("uno");
   const [sucursal, setSucursal]       = useState<string>("");
@@ -58,10 +60,10 @@ export default function DifusionPage() {
   const [confirmando, setConfirmando] = useState(false);
 
   useEffect(() => {
-    if (user && !ALLOWED_ROLES.includes(user.rol)) {
+    if (user && !canAccessDifusion) {
       router.replace("/dashboard");
     }
-  }, [user, router]);
+  }, [user, canAccessDifusion, router]);
 
   // Vendedores base (para sucursales)
   const { data: vendedoresBase = [], isLoading: loadingBase } = useQuery({
@@ -139,7 +141,7 @@ export default function DifusionPage() {
     !!distId &&
     (modo === "todos" ? vendedoresConTelegram.length > 0 : !!idVendedor);
 
-  if (!user || !ALLOWED_ROLES.includes(user.rol)) return null;
+  if (!user || !canAccessDifusion) return null;
 
   return (
     <div className="flex min-h-screen bg-[var(--shelfy-bg)]">

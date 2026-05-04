@@ -29,6 +29,7 @@ import {
   fetchClientesSupervision,
   fetchCuentasSupervision,
   fetchSyncStatus,
+  type CuentasSupervision,
   type SyncStatus,
   fetchClienteInfo,
   fetchReporteExhibiciones,
@@ -38,11 +39,11 @@ import {
   type RutaSupervision,
   type ClienteSupervision,
   type Distribuidora,
-  type CuentasSupervision,
   type ClienteContacto,
   type ObjetivoCreate,
   type ObjetivoTipo,
 } from "@/lib/api";
+import { openCuentasCorrientesPrintWindow } from "@/lib/printCuentasCorrientes";
 import type { PinCliente } from "./MapaRutas";
 import { useSupervisionStore } from "@/store/useSupervisionStore";
 import { useObjetivosMenuStore } from "@/store/useObjetivosMenuStore";
@@ -775,88 +776,6 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
     }
     return filtered;
   }, [exhibiciones, exhibFilter, exhibSearch, selectedSucursal, vendedoresFiltrados]);
-
-  // ── Print cuentas corrientes ─────────────────────────────────────────────
-  function handlePrintCuentas() {
-    if (!cuentasFiltradas) return;
-    const data = cuentasFiltradas;
-    const fmtN = (n: number) => n.toLocaleString("es-AR", { maximumFractionDigits: 0 });
-    const coloresDia: Record<string, string> = {
-      "1-7 Días": "#16a34a", "8-15 Días": "#ca8a04",
-      "16-21 Días": "#ea580c", "22-30 Días": "#dc2626", "+30 Días": "#9f1239",
-    };
-    const vendedoresHTML = data.vendedores.map((v: any, vIdx: number) => {
-      const filas = v.clientes.map((c: any) => {
-        const dias = c.antiguedad ?? 0;
-        const colorDias = dias > 30 ? "#dc2626" : dias > 21 ? "#ea580c" : dias > 15 ? "#ca8a04" : dias > 7 ? "#16a34a" : "#6b7280";
-        return `<tr>
-          <td style="padding:4px 8px;border:1px solid #e5e7eb;font-size:9px">${c.cliente ?? "-"}</td>
-          <td style="padding:4px 8px;border:1px solid #e5e7eb;font-size:9px;color:#6b7280">${c.sucursal ?? "-"}</td>
-          <td style="padding:4px 8px;border:1px solid #e5e7eb;font-size:9px;text-align:center;color:${colorDias};font-weight:bold">${dias}</td>
-          <td style="padding:4px 8px;border:1px solid #e5e7eb;font-size:9px;text-align:center">${c.cantidad_comprobantes ?? "-"}</td>
-          <td style="padding:4px 8px;border:1px solid #e5e7eb;font-size:9px;text-align:right;font-weight:600">$${fmtN(c.deuda_total)}</td>
-        </tr>`;
-      }).join("");
-      return `<div style="${vIdx > 0 ? "page-break-before:always;" : ""}margin-bottom:20px">
-        <div style="background:#1f2937;color:white;padding:8px 12px;border-radius:6px 6px 0 0;display:flex;align-items:center;gap:16px">
-          <span style="font-weight:700;font-size:11px;flex:1">${v.vendedor}</span>
-          <span style="font-size:10px;color:#fbbf24">Deuda: $${fmtN(v.deuda_total)}</span>
-          <span style="font-size:9px;color:#9ca3af">${v.cantidad_clientes} clientes</span>
-        </div>
-        <table style="width:100%;border-collapse:collapse">
-          <thead><tr style="background:#f3f4f6">
-            <th style="padding:5px 8px;border:1px solid #d1d5db;font-size:8px;text-align:left;text-transform:uppercase;letter-spacing:.4px">Cliente</th>
-            <th style="padding:5px 8px;border:1px solid #d1d5db;font-size:8px;text-align:left;text-transform:uppercase;letter-spacing:.4px">Sucursal</th>
-            <th style="padding:5px 8px;border:1px solid #d1d5db;font-size:8px;text-align:center;text-transform:uppercase;letter-spacing:.4px">Días</th>
-            <th style="padding:5px 8px;border:1px solid #d1d5db;font-size:8px;text-align:center;text-transform:uppercase;letter-spacing:.4px">Comprobantes</th>
-            <th style="padding:5px 8px;border:1px solid #d1d5db;font-size:8px;text-align:right;text-transform:uppercase;letter-spacing:.4px">Deuda</th>
-          </tr></thead>
-          <tbody>${filas}</tbody>
-          <tfoot><tr style="background:#f9fafb;border-top:2px solid #d1d5db">
-            <td colspan="4" style="padding:5px 8px;font-size:9px;text-align:right;font-weight:700">Total</td>
-            <td style="padding:5px 8px;font-size:9px;text-align:right;font-weight:700">$${fmtN(v.deuda_total)}</td>
-          </tr></tfoot>
-        </table>
-      </div>`;
-    }).join("");
-
-    const rangoBadges = Object.entries(coloresDia).map(([label, color]) => {
-      const count = data.vendedores.flatMap((v: any) => v.clientes)
-        .filter((c: any) => c.rango_antiguedad === label).length;
-      if (!count) return "";
-      return `<span style="display:inline-block;margin:2px 4px;padding:3px 8px;border-radius:4px;font-size:9px;background:${color}22;color:${color};border:1px solid ${color}55;font-weight:600">${label}: ${count}</span>`;
-    }).join("");
-
-    const html = `<!DOCTYPE html><html lang="es"><head>
-      <meta charset="UTF-8">
-      <title>Cuentas Corrientes</title>
-      <style>
-        @page { size: A4 portrait; margin: 1.5cm 1.2cm; }
-        body { font-family: Arial, sans-serif; color: #1a1a1a; margin: 0; }
-        @media print { * { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
-      </style>
-    </head><body>
-      <div style="border-bottom:3px solid #1f2937;padding-bottom:12px;margin-bottom:16px">
-        <h1 style="margin:0;font-size:18px;font-weight:900">Cuentas Corrientes</h1>
-        <p style="margin:4px 0 0;font-size:11px;color:#6b7280">Al ${data.fecha ?? "—"} · Impreso el ${new Date().toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" })}</p>
-      </div>
-      <div style="display:flex;gap:20px;margin-bottom:16px;padding:10px 14px;background:#f9fafb;border-radius:6px;border:1px solid #e5e7eb">
-        <div><div style="font-size:8px;color:#9ca3af;text-transform:uppercase;letter-spacing:.5px">Deuda Total</div><div style="font-size:16px;font-weight:900;color:#d97706">$${fmtN(data.metadatos?.total_deuda ?? 0)}</div></div>
-        <div><div style="font-size:8px;color:#9ca3af;text-transform:uppercase;letter-spacing:.5px">Clientes Deudores</div><div style="font-size:16px;font-weight:900">${(data.metadatos?.clientes_deudores ?? 0).toLocaleString()}</div></div>
-        <div><div style="font-size:8px;color:#9ca3af;text-transform:uppercase;letter-spacing:.5px">Vendedores</div><div style="font-size:16px;font-weight:900">${data.vendedores.length}</div></div>
-        <div><div style="font-size:8px;color:#9ca3af;text-transform:uppercase;letter-spacing:.5px">Prom. Días Atraso</div><div style="font-size:16px;font-weight:900">${Math.round(data.metadatos?.promedio_dias_retraso ?? 0)} días</div></div>
-      </div>
-      ${rangoBadges ? `<div style="margin-bottom:16px">${rangoBadges}</div>` : ""}
-      ${vendedoresHTML}
-    </body></html>`;
-
-    const win = window.open("", "_blank", "width=900,height=950");
-    if (!win) return;
-    win.document.write(html);
-    win.document.close();
-    win.focus();
-    setTimeout(() => win.print(), 400);
-  }
 
   // ── CC Cliente info popup ────────────────────────────────────────────────
   const handleClienteClick = async (nombre: string, idClienteErp?: string | null) => {
@@ -2229,12 +2148,12 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
             {cuentasFiltradas && cuentasFiltradas.vendedores.length > 0 && (
               <>
                 <button
-                  onClick={handlePrintCuentas}
-                  title="Imprimir en A4"
+                  onClick={() => cuentasFiltradas && openCuentasCorrientesPrintWindow(cuentasFiltradas)}
+                  title="Hoja A4 para imprimir y entregar al vendedor"
                   className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] hover:border-amber-500/40 transition-colors"
                 >
                   <Printer className="w-3 h-3" />
-                  Imprimir
+                  Hoja vendedor
                 </button>
                 <button
                   onClick={() => {

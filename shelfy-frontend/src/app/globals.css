@@ -204,11 +204,20 @@ body {
   }
 }
 
+/* Impresión: no ocultar `body > *` buscando .shelfy-print-mapa — esa clase vive anidada bajo el
+   root de React, nunca como hijo directo de body, y dejaba en blanco window.print() (ej. CC en /supervision).
+   El mapa “solo mapa” se imprime desde ventana aparte en MapaRutas o el usuario oculta chrome en el diálogo del navegador. */
 @media print {
-  @page { size: A4 landscape; margin: 10mm; }
-  body > *:not(.shelfy-print-mapa) { display: none !important; }
-  .maplibregl-canvas { max-width: 100% !important; }
-  .shelfy-map-controls { display: none !important; }
+  @page {
+    size: auto;
+    margin: 10mm;
+  }
+  .maplibregl-canvas {
+    max-width: 100% !important;
+  }
+  .shelfy-map-controls {
+    display: none !important;
+  }
 }
 
 /* Print tokens for objetivos */

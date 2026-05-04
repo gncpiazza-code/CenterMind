@@ -66,10 +66,16 @@ CenterMind/
 │   ├── components/admin/       # TabSupervision.tsx, MapaRutas.tsx
 │   ├── components/ui/          # shadcn/ui
 │   └── lib/api.ts              # TODOS los tipos TS y funciones fetch — no fetch directo en componentes
-└── ShelfMind-RPA/
-    ├── motores/                # cuentas_corrientes.py, ventas.py, sigo.py, padron.py
-    └── lib/                    # vault_client.py, cuentas_parser.py, logger.py
+├── ShelfMind-RPA/
+│   ├── motores/                # cuentas_corrientes.py, ventas.py, sigo.py, padron.py
+│   └── lib/                    # vault_client.py, cuentas_parser.py, logger.py
+└── Anuncios/                   # Planes para HTML informativo (supervisores); ver README ahí
+    ├── README.md               # Precedente: nuevos planes → plan-YYYY-MM-DD-<slug>-html-claude-code.md
+    ├── PLANTILLA-plan-anuncio-html-claude-code.md
+    └── generados/              # Salidas: Anuncios/generados/<slug>/ (index.html + assets)
 ```
+
+**Anuncios:** si el usuario pide un “plan para Claude que arme un HTML de novedades”, seguir `Anuncios/README.md` y la plantilla; el HTML generado va en `Anuncios/generados/<slug>/`.
 
 ---
 

@@ -14,6 +14,7 @@ import {
   type VendedorSupervision,
   type VendedorCuentas,
 } from "@/lib/api";
+import { openCuentasCorrientesPrintWindow } from "@/lib/printCuentasCorrientes";
 import { supervisionPanelKeys } from "@/lib/query-keys";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/badge";
@@ -369,10 +370,16 @@ export default function SupervisionPage() {
                         variant="outline"
                         size="sm"
                         className="h-7 text-[10px] px-2 gap-1"
-                        onClick={() => window.print()}
+                        disabled={
+                          !selectedVendedor ||
+                          loadingCuentas ||
+                          !cuentasData?.vendedores?.length
+                        }
+                        title="Abre una hoja A4 con el detalle de deudores para imprimir y entregar al vendedor"
+                        onClick={() => cuentasData && openCuentasCorrientesPrintWindow(cuentasData)}
                       >
                         <Printer size={10} />
-                        Imprimir
+                        Hoja vendedor
                       </Button>
                     </div>
                   </div>

@@ -1974,3 +1974,59 @@ export async function fetchPDVCatalog(
   });
   return apiFetch<PDVCatalogItem[]>(`/api/supervision/pdvs-catalog/${distId}?${qs}`);
 }
+
+// ── Supervisores ───────────────────────────────────────────────────────────────
+
+export interface Supervisor {
+  id: number;
+  id_distribuidor: number;
+  nombre_display: string;
+  id_usuario_portal: number | null;
+  usuario_portal: string | null;
+  activo: boolean;
+  cantidad_vendedores: number;
+  created_at: string;
+}
+
+export interface SupervisorVendedor {
+  id_vendedor: number;
+  nombre_erp: string;
+  sucursal_nombre: string | null;
+  asignado: boolean;
+}
+
+export async function fetchSupervisores(distId: number, includeInactive = false): Promise<Supervisor[]> {
+  return apiFetch<Supervisor[]>(`/api/supervisores/${distId}${includeInactive ? "?include_inactive=true" : ""}`);
+}
+
+export async function createSupervisor(distId: number, body: { nombre_display: string; id_usuario_portal?: number | null }): Promise<Supervisor> {
+  return apiFetch<Supervisor>(`/api/supervisores/${distId}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function updateSupervisor(distId: number, idSupervisor: number, body: { nombre_display?: string; id_usuario_portal?: number | null; activo?: boolean }): Promise<Supervisor> {
+  return apiFetch<Supervisor>(`/api/supervisores/${distId}/${idSupervisor}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function deleteSupervisor(distId: number, idSupervisor: number): Promise<{ ok: boolean }> {
+  return apiFetch<{ ok: boolean }>(`/api/supervisores/${distId}/${idSupervisor}`, { method: "DELETE" });
+}
+
+export async function fetchSupervisorVendedores(distId: number, idSupervisor: number): Promise<SupervisorVendedor[]> {
+  return apiFetch<SupervisorVendedor[]>(`/api/supervisores/${distId}/${idSupervisor}/vendedores`);
+}
+
+export async function setSupervisorVendedores(distId: number, idSupervisor: number, idVendedores: number[]): Promise<{ ok: boolean; asignados: number }> {
+  return apiFetch<{ ok: boolean; asignados: number }>(`/api/supervisores/${distId}/${idSupervisor}/vendedores`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id_vendedores: idVendedores }),
+  });
+}

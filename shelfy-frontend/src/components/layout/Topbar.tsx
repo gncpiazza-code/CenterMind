@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
-import { Crown, LogOut, Building2, UserCog } from "lucide-react";
+import { Crown, LogOut, Building2, UserCog, Users } from "lucide-react";
 import { fetchDistribuidoras } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -135,6 +135,12 @@ export function Topbar({ title, live = false }: TopbarProps) {
                     <Link href="/fuerza-ventas" className="flex items-center gap-2">
                       <UserCog size={14} className="shrink-0" />
                       Fuerza de Ventas
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/admin/supervisores" className="flex items-center gap-2">
+                      <Users size={14} className="shrink-0" />
+                      Supervisores
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />

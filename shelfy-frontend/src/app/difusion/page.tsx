@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Send, CreditCard, Users, AlertCircle, CheckCircle2,
   Loader2, Radio, Building2, ChevronDown, Target, Image, TrendingUp,
-  Clock, CalendarDays, BarChart2,
+  Clock, CalendarDays, BarChart2, BookOpen,
 } from "lucide-react";
 
 import { Sidebar } from "@/components/layout/Sidebar";
@@ -31,6 +31,7 @@ import {
 } from "@/lib/api";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { CCDifusionGuiaDialog } from "@/components/onboarding/CCDifusionGuiaDialog";
 
 const PLANTILLAS = [
   {
@@ -66,6 +67,9 @@ export default function DifusionPage() {
   const [sigoVendedor, setSigoVendedor] = useState<number | null>(null);
   const [sigoMensaje, setSigoMensaje] = useState("");
   const [sigoResult, setSigoResult]   = useState<DifusionSIGOResult | null>(null);
+
+  /** Reabrir el comunicado (el auto-open está en dashboard tras login). */
+  const [guiaOpen, setGuiaOpen] = useState(false);
 
   useEffect(() => {
     if (!user) router.replace("/dashboard");
@@ -205,6 +209,18 @@ export default function DifusionPage() {
 
         <main className="flex-1 p-4 md:p-6 pb-28 md:pb-8 overflow-auto">
           <div className="max-w-2xl mx-auto flex flex-col gap-5">
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs rounded-full gap-1.5 border-[var(--shelfy-border)] text-[var(--shelfy-text)] bg-[var(--shelfy-panel)]"
+                onClick={() => setGuiaOpen(true)}
+              >
+                <BookOpen className="size-3.5 text-[var(--shelfy-primary)] shrink-0" />
+                Guía CC y Telegram
+              </Button>
+            </div>
 
             <Tabs defaultValue="cc">
               <TabsList className="w-full">
@@ -714,6 +730,8 @@ export default function DifusionPage() {
           </div>
         </main>
       </div>
+
+      <CCDifusionGuiaDialog open={guiaOpen} onOpenChange={setGuiaOpen} />
     </div>
   );
 }

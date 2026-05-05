@@ -24,6 +24,7 @@ import { HeroCarousel } from "@/components/dashboard/HeroCarousel";
 import { ChartCarousel } from "@/components/dashboard/ChartCarousel";
 import { RankingTable } from "@/components/dashboard/RankingTable";
 import { FiltrosBar } from "@/components/dashboard/FiltrosBar";
+import { CCDifusionGuiaDialog } from "@/components/onboarding/CCDifusionGuiaDialog";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -375,6 +376,9 @@ export default function DashboardPage() {
 
         </main>
       </div>
+
+      {/* Comunicado CC + Difusión: primera entrada tras login (localStorage → no repetir hasta bump de versión) */}
+      <CCDifusionGuiaDialog autoOpenIfUnseen sessionReady={!!user} />
     </div>
   );
 }

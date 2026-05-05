@@ -160,7 +160,7 @@ function ChessMockup({ highlight, isResumido }: { highlight: string; isResumido:
             <div className="space-y-1.5 mb-2">
               <div>
                 <p className="text-[9px] text-slate-500 mb-0.5">Usuario</p>
-                <div className="border border-slate-300 rounded px-1.5 py-1 text-slate-700 text-[9px]">cristian.cena</div>
+                <div className="border border-slate-300 rounded px-1.5 py-1 text-slate-700 text-[9px]">usuarioChess</div>
               </div>
               <div>
                 <p className="text-[9px] text-slate-500 mb-0.5">Password</p>
@@ -209,9 +209,9 @@ function ChessMockup({ highlight, isResumido }: { highlight: string; isResumido:
               <span className="text-[8px] text-slate-400 ml-0.5">6.0.58</span>
             </div>
             <span className="text-[9px] font-bold text-slate-600 ml-1">REPORTE DE COMPROBANTES</span>
-            <span className="ml-auto text-[8px] text-slate-400">TABACO & HNOS S.R.L - AR</span>
+            <span className="ml-auto text-[8px] text-slate-400">Distribuidora SRL - AR</span>
             <div className="flex items-center gap-1 ml-1">
-              <div className="size-4 rounded-full bg-slate-200 flex items-center justify-center text-[7px] font-bold text-slate-600">CC</div>
+              <div className="size-4 rounded-full bg-slate-200 flex items-center justify-center text-[7px] font-bold text-slate-600">US</div>
               <div className="flex gap-0.5">
                 {["🔔","👤","🎧","⬇"].map(icon => (
                   <span key={icon} className="text-[8px] text-[#1976d2]">{icon}</span>

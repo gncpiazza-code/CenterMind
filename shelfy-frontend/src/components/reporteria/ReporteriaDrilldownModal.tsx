@@ -6,6 +6,10 @@ import {
   X, User, Calendar, TrendingUp, CheckCircle2, XCircle,
   Clock, BarChart2, ShoppingBag, Target,
 } from "lucide-react";
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, Cell,
+} from "recharts";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type {
   ReporteriaSource,
@@ -47,6 +51,12 @@ function SigoDrilldown({
     ? ((totals.con_venta / totals.ejecutadas) * 100).toFixed(1)
     : "0.0";
 
+  const chartData = filtered.map((r) => ({
+    fecha: r.fecha.slice(5).replace("-", "/"),
+    ejecutadas: r.ejecutadas,
+    con_venta: r.con_venta,
+  }));
+
   return (
     <div className="space-y-4">
       {/* Summary chips */}
@@ -63,6 +73,46 @@ function SigoDrilldown({
           </div>
         ))}
       </div>
+
+      {/* Mini bar chart */}
+      {chartData.length > 0 && (
+        <div className="rounded-xl border border-slate-100 bg-slate-50/60 px-3 pt-3 pb-1">
+          <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-2">
+            Visitas vs ventas — diario
+          </p>
+          <ResponsiveContainer width="100%" height={110}>
+            <BarChart data={chartData} margin={{ top: 0, right: 4, bottom: 0, left: -20 }} barGap={1}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.05)" vertical={false} />
+              <XAxis
+                dataKey="fecha"
+                tick={{ fontSize: 9, fill: "#94a3b8" }}
+                axisLine={false}
+                tickLine={false}
+                interval="preserveStartEnd"
+              />
+              <YAxis tick={{ fontSize: 9, fill: "#cbd5e1" }} axisLine={false} tickLine={false} width={20} />
+              <Tooltip
+                contentStyle={{ borderRadius: "8px", border: "1px solid rgba(0,0,0,0.08)", fontSize: 11 }}
+                formatter={(val, name) =>
+                  [val, name === "ejecutadas" ? "Ejecutadas" : "Con Venta"]
+                }
+              />
+              <Bar dataKey="ejecutadas" fill="#a855f7" fillOpacity={0.5} radius={[2, 2, 0, 0]} animationDuration={700} />
+              <Bar dataKey="con_venta" fill="#10b981" fillOpacity={0.85} radius={[2, 2, 0, 0]} animationDuration={800} />
+            </BarChart>
+          </ResponsiveContainer>
+          <div className="flex items-center gap-4 mt-1 mb-2">
+            <div className="flex items-center gap-1">
+              <span className="size-2 rounded-sm bg-violet-400/50" />
+              <span className="text-[8px] text-slate-400 font-semibold">Ejecutadas</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="size-2 rounded-sm bg-emerald-500/80" />
+              <span className="text-[8px] text-slate-400 font-semibold">Con Venta</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Days table */}
       <div className="rounded-xl border border-slate-100 overflow-hidden">
@@ -84,26 +134,37 @@ function SigoDrilldown({
               </tr>
             </thead>
             <tbody>
-              {filtered.map((r, i) => (
-                <tr
-                  key={`${r.fecha}-${i}`}
-                  className="border-t border-slate-50 hover:bg-violet-50/40 transition-colors"
-                >
-                  <td className="px-3 py-2 font-medium text-slate-700 whitespace-nowrap">
-                    {r.fecha.slice(5).replace("-", "/")}
-                  </td>
-                  <td className="px-3 py-2 text-right text-slate-500">{r.planeadas}</td>
-                  <td className="px-3 py-2 text-right font-semibold text-slate-700">{r.ejecutadas}</td>
-                  <td className="px-3 py-2 text-right font-bold text-emerald-600">{r.con_venta}</td>
-                  <td className="px-3 py-2 text-right text-amber-500">{r.motivo_no_venta}</td>
-                  <td className="px-3 py-2 text-right text-rose-400">{r.sin_info}</td>
-                  <td className="px-3 py-2 text-right text-slate-400">{r.hora_primera_visita ?? "—"}</td>
-                  <td className="px-3 py-2 text-right text-slate-400">{r.hora_primera_venta ?? "—"}</td>
-                  <td className="px-3 py-2 text-right text-slate-400">
-                    {r.tiempo_promedio_venta_min != null ? `${r.tiempo_promedio_venta_min}m` : "—"}
-                  </td>
-                </tr>
-              ))}
+              {filtered.map((r, i) => {
+                const efe = r.ejecutadas > 0 ? r.con_venta / r.ejecutadas : 0;
+                const rowBg =
+                  r.ejecutadas === 0
+                    ? "bg-slate-50/80"
+                    : r.con_venta > 0 && efe >= 0.6
+                    ? "bg-emerald-50/50"
+                    : r.sin_info > 0
+                    ? "bg-amber-50/40"
+                    : "";
+                return (
+                  <tr
+                    key={`${r.fecha}-${i}`}
+                    className={cn("border-t border-slate-50 hover:bg-violet-50/40 transition-colors", rowBg)}
+                  >
+                    <td className="px-3 py-2 font-medium text-slate-700 whitespace-nowrap">
+                      {r.fecha.slice(5).replace("-", "/")}
+                    </td>
+                    <td className="px-3 py-2 text-right text-slate-500">{r.planeadas}</td>
+                    <td className="px-3 py-2 text-right font-semibold text-slate-700">{r.ejecutadas}</td>
+                    <td className="px-3 py-2 text-right font-bold text-emerald-600">{r.con_venta}</td>
+                    <td className="px-3 py-2 text-right text-amber-500">{r.motivo_no_venta}</td>
+                    <td className="px-3 py-2 text-right text-rose-400">{r.sin_info}</td>
+                    <td className="px-3 py-2 text-right text-slate-400">{r.hora_primera_visita ?? "—"}</td>
+                    <td className="px-3 py-2 text-right text-slate-400">{r.hora_primera_venta ?? "—"}</td>
+                    <td className="px-3 py-2 text-right text-slate-400">
+                      {r.tiempo_promedio_venta_min != null ? `${r.tiempo_promedio_venta_min}m` : "—"}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

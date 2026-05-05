@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  BarChart2, Download, FileText, TrendingUp, Users, Loader2, Plus, Package,
+  BarChart2, Download, FileText, TrendingUp, Users, Loader2, Plus, Package, User,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Sidebar } from "@/components/layout/Sidebar";
@@ -33,25 +33,30 @@ import { ReporteriaKpis } from "@/components/reporteria/ReporteriaKpis";
 import { ReporteriaCharts } from "@/components/reporteria/ReporteriaCharts";
 import { ReporteriaTable } from "@/components/reporteria/ReporteriaTable";
 import { ReporteriaOrigen } from "@/components/reporteria/ReporteriaOrigen";
+import { ReporteriaVendorSelector, type VendorSummary } from "@/components/reporteria/ReporteriaVendorSelector";
+import { ReporteriaVendorDetail } from "@/components/reporteria/ReporteriaVendorDetail";
 
 type WizardStep = "pick" | "guide" | "upload" | "processing" | "panel";
-type TabId = "resumen" | "tendencias" | "clientes";
+type TabId = "resumen" | "tendencias" | "clientes" | "detalle";
 
 const SOURCE_TABS: Record<ReporteriaSource, { id: TabId; label: string; icon: React.ElementType }[]> = {
   sigo: [
     { id: "resumen",    label: "Resumen",    icon: BarChart2 },
     { id: "tendencias", label: "Evolución",  icon: TrendingUp },
     { id: "clientes",   label: "Vendedores", icon: Users },
+    { id: "detalle",    label: "Detalle",    icon: User },
   ],
   comprobantes: [
     { id: "resumen",    label: "Resumen",     icon: BarChart2 },
     { id: "tendencias", label: "Evolución",   icon: TrendingUp },
     { id: "clientes",   label: "Top Clientes",icon: Users },
+    { id: "detalle",    label: "Detalle",     icon: User },
   ],
   bultos: [
     { id: "resumen",    label: "Resumen",   icon: Package },
     { id: "tendencias", label: "Evolución", icon: TrendingUp },
     { id: "clientes",   label: "PDVs",      icon: Users },
+    { id: "detalle",    label: "Detalle",   icon: User },
   ],
 };
 
@@ -177,6 +182,7 @@ export default function ReporteriaPage() {
   const [completedJobId, setCompletedJobId] = useState<string | null>(null);
   const [exploreData, setExploreData] = useState<ReporteriaExploreResponse | null>(null);
   const [activeTab, setActiveTab]     = useState<TabId>("resumen");
+  const [selectedVendor, setSelectedVendor] = useState<string | null>(null);
   const [exportingFmt, setExportingFmt] = useState<string | null>(null);
   const [uploadLoading, setUploadLoading] = useState(false);
 
@@ -267,6 +273,8 @@ export default function ReporteriaPage() {
     setActiveJobId(null);
     setCompletedJobId(null);
     setExploreData(null);
+    setSelectedVendor(null);
+    setActiveTab("resumen");
   }, []);
 
   async function handleExport(fmt: "xlsx" | "pdf") {
@@ -390,6 +398,8 @@ export default function ReporteriaPage() {
                 data={exploreData}
                 activeTab={activeTab}
                 onTabChange={setActiveTab}
+                selectedVendor={selectedVendor}
+                onVendorSelect={setSelectedVendor}
               />
             )}
           </ReporteriaWizardLayout>
@@ -399,19 +409,81 @@ export default function ReporteriaPage() {
   );
 }
 
+// ── Empty vendor prompt ───────────────────────────────────────────────────────
+
+function EmptyVendorPrompt() {
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.97 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={{ type: "spring", stiffness: 300, damping: 28 }}
+      className="flex flex-col items-center justify-center h-64 rounded-2xl border-2 border-dashed border-[var(--shelfy-border)] bg-white gap-3"
+    >
+      <span className="inline-flex items-center justify-center size-12 rounded-xl bg-[var(--shelfy-primary)]/10">
+        <User size={22} className="text-[var(--shelfy-primary)]/50" />
+      </span>
+      <div className="text-center">
+        <p className="text-sm font-bold text-[var(--shelfy-muted)]">Seleccioná un vendedor</p>
+        <p className="text-xs text-[var(--shelfy-muted)] mt-0.5 opacity-70">para ver su detalle completo</p>
+      </div>
+    </motion.div>
+  );
+}
+
+// ── Build vendor summaries from data ─────────────────────────────────────────
+
+function buildVendorSummaries(data: ReporteriaExploreResponse): VendorSummary[] {
+  if (data.source === "sigo") {
+    const byVendor: Record<string, { planeadas: number; ejecutadas: number; con_venta: number; dias: number }> = {};
+    for (const r of data.por_vendedor_y_dia ?? []) {
+      if (!byVendor[r.vendedor]) byVendor[r.vendedor] = { planeadas: 0, ejecutadas: 0, con_venta: 0, dias: 0 };
+      byVendor[r.vendedor].planeadas += r.planeadas;
+      byVendor[r.vendedor].ejecutadas += r.ejecutadas;
+      byVendor[r.vendedor].con_venta += r.con_venta;
+      byVendor[r.vendedor].dias += 1;
+    }
+    return Object.entries(byVendor).map(([name, t]) => ({
+      name,
+      isActive: t.ejecutadas > 0,
+      metric: t.planeadas > 0 ? (t.ejecutadas / t.planeadas) * 100 : 0,
+      metricUnit: "%",
+      diasConDatos: t.dias,
+    })).sort((a, b) => b.metric - a.metric);
+  }
+
+  // comprobantes / bultos — derive from top_clientes grouped by vendor
+  const byVendor: Record<string, { importe: number; facturas: number; sucursal?: string }> = {};
+  for (const r of data.top_clientes ?? []) {
+    const k = r.vendedor_nombre;
+    if (!byVendor[k]) byVendor[k] = { importe: 0, facturas: 0, sucursal: r.sucursal_nombre };
+    byVendor[k].importe += r.importe_total;
+    byVendor[k].facturas += r.cantidad_facturas;
+  }
+  return Object.entries(byVendor).map(([name, t]) => ({
+    name,
+    isActive: t.facturas > 0 || t.importe > 0,
+    metric: data.source === "bultos" ? t.facturas : t.importe,
+    metricUnit: "",
+    sucursal: t.sucursal,
+  })).sort((a, b) => b.metric - a.metric);
+}
+
 // ── Panel view (step 5) ───────────────────────────────────────────────────────
 
 interface PanelViewProps {
   data: ReporteriaExploreResponse;
   activeTab: TabId;
   onTabChange: (tab: TabId) => void;
+  selectedVendor: string | null;
+  onVendorSelect: (name: string | null) => void;
 }
 
-function PanelView({ data, activeTab, onTabChange }: PanelViewProps) {
+function PanelView({ data, activeTab, onTabChange, selectedVendor, onVendorSelect }: PanelViewProps) {
   const sourceMeta = SOURCE_META[data.source];
   const SourceIcon = sourceMeta?.icon ?? BarChart2;
   const tabs = SOURCE_TABS[data.source] ?? SOURCE_TABS.comprobantes;
   const recordCount = data.top_clientes?.length ?? 0;
+  const vendorSummaries = buildVendorSummaries(data);
 
   return (
     <motion.div
@@ -506,7 +578,14 @@ function PanelView({ data, activeTab, onTabChange }: PanelViewProps) {
         >
           {(activeTab === "resumen" || activeTab === "tendencias") && (
             <>
-              <ReporteriaCharts data={data} viewMode={activeTab === "tendencias" ? "tendencias" : "resumen"} />
+              <ReporteriaCharts
+                data={data}
+                viewMode={activeTab === "tendencias" ? "tendencias" : "resumen"}
+                onVendorClick={(nombre) => {
+                  onVendorSelect(nombre);
+                  onTabChange("detalle");
+                }}
+              />
               <ReporteriaOrigen data={data} />
             </>
           )}
@@ -519,6 +598,28 @@ function PanelView({ data, activeTab, onTabChange }: PanelViewProps) {
               />
               <ReporteriaOrigen data={data} />
             </>
+          )}
+          {activeTab === "detalle" && (
+            <div className="grid grid-cols-1 md:grid-cols-[280px_1fr] gap-4 items-start">
+              <ReporteriaVendorSelector
+                vendors={vendorSummaries}
+                selected={selectedVendor}
+                onSelect={onVendorSelect}
+                source={data.source}
+              />
+              {selectedVendor ? (
+                <ReporteriaVendorDetail
+                  vendorName={selectedVendor}
+                  source={data.source}
+                  sigoRows={data.por_vendedor_y_dia ?? []}
+                  clienteRows={data.top_clientes}
+                  dateFrom={data.date_from}
+                  dateTo={data.date_to}
+                />
+              ) : (
+                <EmptyVendorPrompt />
+              )}
+            </div>
           )}
         </motion.div>
       </AnimatePresence>

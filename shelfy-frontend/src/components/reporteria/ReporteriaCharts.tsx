@@ -78,9 +78,10 @@ function ChartCard({ title, subtitle, children, className }: ChartCardProps) {
 interface Props {
   data: ReporteriaExploreResponse;
   viewMode?: "resumen" | "tendencias";
+  onVendorClick?: (nombre: string) => void;
 }
 
-export function ReporteriaCharts({ data, viewMode = "resumen" }: Props) {
+export function ReporteriaCharts({ data, viewMode = "resumen", onVendorClick }: Props) {
   const fmt = makeFormatter(data.source);
 
   const serieFormatted = (data.serie_temporal ?? []).map((s) => ({
@@ -215,12 +216,13 @@ export function ReporteriaCharts({ data, viewMode = "resumen" }: Props) {
 
       {/* Top vendedores / artículos */}
       {topVendedores.length > 0 && (
-        <ChartCard title={rankingTitle(data.source)} subtitle={`Por ${rLabel.toLowerCase()}`}>
+        <ChartCard title={rankingTitle(data.source)} subtitle={`Por ${rLabel.toLowerCase()}${onVendorClick ? " · clic para ver detalle" : ""}`}>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart
               layout="vertical"
               data={topVendedores}
               margin={{ top: 0, right: 16, bottom: 0, left: 0 }}
+              className={onVendorClick ? "cursor-pointer" : ""}
             >
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" horizontal={false} />
               <XAxis
@@ -246,7 +248,19 @@ export function ReporteriaCharts({ data, viewMode = "resumen" }: Props) {
                   fontSize: 12,
                 }}
               />
-              <Bar dataKey="valor" radius={[0, 6, 6, 0]} animationDuration={1000}>
+              <Bar
+                dataKey="valor"
+                radius={[0, 6, 6, 0]}
+                animationDuration={1000}
+                cursor={onVendorClick ? "pointer" : "default"}
+                onClick={(entry) => {
+                  if (!onVendorClick) return;
+                  // recharts passes original data point; payload holds the source object
+                  const p = (entry as unknown as { payload?: { nombre?: string }; nombre?: string });
+                  const nombre = p.payload?.nombre ?? p.nombre;
+                  if (nombre) onVendorClick(nombre);
+                }}
+              >
                 {topVendedores.map((_, i) => (
                   <Cell key={i} fill={COLORS[i % COLORS.length]} />
                 ))}

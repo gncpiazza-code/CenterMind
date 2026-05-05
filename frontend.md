@@ -403,3 +403,16 @@ Los siguientes componentes están instalados en `src/components/ui/` (completo d
 ## Gráficos y Visualización
 - **Recharts**: Se utilizan paletas de colores basadas en `--shelfy-primary` para consistencia.
 - **MapLibre GL**: El tema del mapa puede actualizarse a un estilo claro para alinear con el nuevo light theme.
+
+## Reportería — Componentes nuevos (2026-05-05)
+
+| Componente | Archivo | Descripción |
+|---|---|---|
+| `ReporteriaVendorSelector` | `components/reporteria/ReporteriaVendorSelector.tsx` | Lista scrolleable de vendedores con avatar initials, badge activo/inactivo, búsqueda, métrica chip por fuente. Animación stagger spring delay i*0.025. |
+| `ReporteriaVendorDetail` | `components/reporteria/ReporteriaVendorDetail.tsx` | Panel deep-dive por vendedor: SIGO→ 6-KPI grid + ComposedChart (bars+line) + timeline color-coded; comprobantes/bultos→ KPI chips + tabla filtrada. Re-anima con `key={vendorName}`. |
+
+### Tab "Detalle" (4º tab en Reportería)
+- Layout: `grid grid-cols-1 md:grid-cols-[280px_1fr]` — selector izquierda, detalle derecha.
+- Click en barra de ranking (ReporteriaCharts) → `onVendorClick` → navega al tab Detalle con vendor preseleccionado.
+- `buildVendorSummaries(data)`: deriva `VendorSummary[]` desde `por_vendedor_y_dia` (SIGO) o `top_clientes` agrupado por vendedor_nombre (comprobantes/bultos).
+- Vendor `isActive`: SIGO = tiene ejecutadas > 0; comprobantes/bultos = tiene facturas > 0 o importe > 0.

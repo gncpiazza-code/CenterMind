@@ -633,6 +633,10 @@ def difundir_sigo_resumen_telegram(
     if modo == "uno":
         if id_vendedor is None:
             return {"enviados": [], "errores": [{"vendedor": "—", "error": "modo=uno requiere id_vendedor"}]}
+        active_ids_sigo = load_active_vendedor_ids(dist_id)
+        if active_ids_sigo and id_vendedor not in active_ids_sigo:
+            logger.warning(f"[SIGODifusion] modo=uno dist={dist_id}: vendedor {id_vendedor} inactivo — envío bloqueado")
+            return {"enviados": [], "errores": [{"vendedor": str(id_vendedor), "error": "Vendedor inactivo — envío bloqueado"}]}
         erp_name = _resolve_erp_name_for_id(id_vendedor)
         if not erp_name:
             return {"enviados": [], "errores": [{"vendedor": str(id_vendedor), "error": "Vendedor no encontrado en vendedores_v2"}]}
@@ -662,7 +666,16 @@ def difundir_sigo_resumen_telegram(
             logger.error(f"[SIGODifusion] fetch vendedores dist={dist_id}: {e}")
             return {"enviados": [], "errores": [{"vendedor": "—", "error": f"Error al obtener vendedores: {e}"}]}
 
+        active_ids_sigo_all = load_active_vendedor_ids(dist_id)
+        n_before_sigo = len(vendor_rows_map)
+        active_names_sigo = {name for name, vid in name_to_id.items() if vid in active_ids_sigo_all} if active_ids_sigo_all else set(name_to_id.keys())
+        if n_before_sigo != len(active_names_sigo):
+            logger.info(f"[SIGODifusion] difundir dist={dist_id}: excludió {n_before_sigo - len(active_names_sigo)} vendedores inactivos")
+
         for erp_name in vendor_rows_map:
+            if active_ids_sigo_all and erp_name not in active_names_sigo:
+                logger.debug(f"[SIGODifusion] dist={dist_id}: skip inactivo '{erp_name}'")
+                continue
             real_id = name_to_id.get(erp_name)
             if not real_id:
                 errores.append({"vendedor": erp_name, "error": "id_vendedor no encontrado en vendedores_v2"})
@@ -840,6 +853,10 @@ def difundir_cc_telegram(
     if modo == "uno":
         if id_vendedor is None:
             return {"enviados": [], "errores": [{"vendedor": "—", "error": "modo=uno requiere id_vendedor"}], "fecha_snapshot": fecha_snapshot}
+        active_ids = load_active_vendedor_ids(dist_id)
+        if active_ids and id_vendedor not in active_ids:
+            logger.warning(f"[CCDifusion] modo=uno dist={dist_id}: vendedor {id_vendedor} inactivo — envío bloqueado")
+            return {"enviados": [], "errores": [{"vendedor": str(id_vendedor), "error": "Vendedor inactivo — envío bloqueado"}], "fecha_snapshot": fecha_snapshot}
         vd = vendors.get(id_vendedor)
         if not vd:
             return {"enviados": [], "errores": [{"vendedor": str(id_vendedor), "error": "Sin datos CC para este vendedor"}], "fecha_snapshot": fecha_snapshot}

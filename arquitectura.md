@@ -158,6 +158,11 @@ Este documento describe la infraestructura, tecnologías y flujos de datos que c
     - Nuevo router `routers/difusion.py`: `POST /api/difusion/cc-telegram` (modo uno/todos), `GET /api/difusion/vendedores/{dist_id}`. Requiere rol `admin|directorio|superadmin`.
     - Frontend `app/difusion/page.tsx` con selector de sucursal/vendedor, plantillas de mensaje y resultado inline.
     - Entrada "Difusión" en `TopModeTabs` y `BottomNav`.
+40. **Portal feedback + WebSocket superadmin (May 2026)**:
+    - Router `routers/portal_feedback.py`: JWT `POST /guia-tracking`, `POST /messages`, `GET /messages` + `PATCH /messages/{id}` (solo superadmin), `GET /pending-count` (tickets sin `respuesta`).
+    - Tablas Supabase `portal_guia_cc_events`, `portal_feedback_messages` (fuera de código; SQL en repo si existe).
+    - Tras insertar mensaje o guardar respuesta, `broadcast_sync(SUPERADMIN_WS_DIST_ID, …)` donde `SUPERADMIN_WS_DIST_ID = 0` en `lifespan.ConnectionManager` (canal paralelo a `/api/ws/exhibiciones/{dist_id}`, que usa `id_distribuidor` real).
+    - Frontend: `GET /api/ws/superadmin?token=<JWT>` desde `Topbar` (solo superadmin) + invalidación TanStack Query; PDF Telegram difusión: nombre corto y texto largo fuera del caption cuando aplica (`cc_difusion_service`).
 
 ---
 

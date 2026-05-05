@@ -157,6 +157,17 @@ GET  /api/dashboard/{kpis,ranking}/{dist_id}
 GET  /api/reports/{performance,ventas-resumen,auditoria-sigo}/{dist_id}
 GET  /api/erp/roi/{dist_id}
 
+# Portal — guía CC / feedback (JWT; superadmin donde aplica)
+POST /api/portal-feedback/guia-tracking
+POST /api/portal-feedback/messages                  # texto al equipo desarrollo
+GET  /api/portal-feedback/messages                  # lista (superadmin)
+GET  /api/portal-feedback/pending-count           # tickets sin respuesta (superadmin)
+PATCH /api/portal-feedback/messages/{id}           # respuesta superadmin
+
+# WebSocket (ConnectionManager por dist_id numérico; excepción canal 0 = superadmin)
+WS   /api/ws/exhibiciones/{dist_id}                # tiempo real supervisor/mapa bot
+WS   /api/ws/superadmin?token=<JWT>               # JWT superadmin; eventos portal_feedback_* + pending count
+
 # Match Center (superadmin)
 GET  /api/admin/match-center/candidates/{dist_id}   # Candidatos de mapeo Telegram↔ERP con contexto textual
 POST /api/admin/match-center/apply                  # Aplica una fila puntual (integrante -> id_vendedor_v2)

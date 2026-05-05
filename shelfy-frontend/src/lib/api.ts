@@ -304,6 +304,27 @@ export function getWSUrl(distId: number): string {
   return `ws://localhost:8000/api/ws/exhibiciones/${distId}`;
 }
 
+/** WebSocket notificaciones superadmin (`?token=JWT`). */
+export function getSuperadminWSUrl(): string | null {
+  const token = typeof window !== "undefined" ? localStorage.getItem(TOKEN_KEY) : null;
+  if (!token) return null;
+
+  const protocol = typeof window !== "undefined" && window.location.protocol === "https:" ? "wss" : "ws";
+  const q = `token=${encodeURIComponent(token)}`;
+
+  if (API_URL.startsWith("http")) {
+    const baseUrl = API_URL.replace(/^http/, "ws");
+    return `${baseUrl}/api/ws/superadmin?${q}`;
+  }
+
+  if (typeof window !== "undefined") {
+    const host = window.location.host;
+    return `${protocol}://${host}/api/ws/superadmin?${q}`;
+  }
+
+  return `ws://localhost:8000/api/ws/superadmin?${q}`;
+}
+
 class ApiError extends Error {
   status: number;
   detail: unknown;
@@ -2283,4 +2304,8 @@ export async function patchPortalFeedbackReply(id: string, respuesta: string): P
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ respuesta }),
   });
+}
+
+export async function fetchPortalFeedbackPendingCount(): Promise<{ pending: number }> {
+  return apiFetch<{ pending: number }>("/api/portal-feedback/pending-count");
 }

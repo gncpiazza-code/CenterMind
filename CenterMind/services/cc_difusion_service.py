@@ -24,6 +24,8 @@ logger = logging.getLogger("ShelfyAPI")
 
 TELEGRAM_SEND_DOC = "https://api.telegram.org/bot{token}/sendDocument"
 TELEGRAM_SEND_MSG = "https://api.telegram.org/bot{token}/sendMessage"
+# Límite caption Telegram ~1024; dejamos margen HTML
+TELEGRAM_CAPTION_SAFE_MAX = 900
 
 # ─── PDF ──────────────────────────────────────────────────────────────────────
 try:
@@ -242,12 +244,30 @@ def _get_telegram_chat_id(dist_id: int, id_vendedor: int) -> int | None:
         return None
 
 
+def _escape_telegram_html_text(s: str) -> str:
+    """Texto plano para parse_mode HTML (evita que un '<' literal rompa Telegram)."""
+    return (
+        str(s).replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+
+def _trim_telegram_caption(html: str) -> str:
+    """Evita errores Telegram por caption demasiado largo (tags HTML incluidos)."""
+    if len(html) <= TELEGRAM_CAPTION_SAFE_MAX:
+        return html
+    cut = TELEGRAM_CAPTION_SAFE_MAX - 60
+    return html[:cut] + "\n<b>…(texto cortado — ver mensaje siguiente)</b>"
+
+
 def _send_document(token: str, chat_id: int, pdf_bytes: bytes, filename: str, caption: str) -> bool:
+    caption_eff = _trim_telegram_caption(caption)
     try:
         resp = requests.post(
             TELEGRAM_SEND_DOC.format(token=token),
             files={"document": (filename, pdf_bytes, "application/pdf")},
-            data={"chat_id": str(chat_id), "caption": caption, "parse_mode": "HTML"},
+            data={"chat_id": str(chat_id), "caption": caption_eff, "parse_mode": "HTML"},
             timeout=20,
         )
         if resp.ok:
@@ -376,9 +396,8 @@ def enviar_cc_vendedor(
         f"💰 Total deuda: <b>${deuda_total:,.0f}</b>".replace(",", "."),
         f"👥 {len(clientes)} clientes deudores",
     ]
-    if mensaje_extra.strip():
-        caption_lines.append(f"\n{mensaje_extra.strip()}")
     caption = "\n".join(caption_lines)
+    extra_plain = mensaje_extra.strip()
 
     try:
         pdf_bytes = _build_cc_pdf(
@@ -388,13 +407,19 @@ def enviar_cc_vendedor(
             clientes=clientes,
             deuda_total=deuda_total,
         )
-        filename = f"CC_{_norm(nombre_display)}_{fecha_snapshot[:10].replace('-', '')}.pdf"
+        # Nombre corto: Telegram trunca nombres largos en la UI del chat
+        ftag = fecha_snapshot[:10].replace("-", "")
+        filename = f"CC_{ftag}_{id_vendedor}.pdf"
         ok = _send_document(token, chat_id, pdf_bytes, filename, caption)
+        if ok and extra_plain:
+            ok = ok and _send_text(token, chat_id, f"💬 {_escape_telegram_html_text(extra_plain)}")
         return {"ok": ok, "vendedor": vend_data["vendedor_nombre"], "error": None if ok else "Error al enviar"}
     except RuntimeError as e:
         # PDF no disponible — enviar solo texto
         logger.warning(f"[CCDifusion] PDF no disponible, enviando texto: {e}")
         ok = _send_text(token, chat_id, caption)
+        if ok and extra_plain:
+            ok = ok and _send_text(token, chat_id, f"💬 {_escape_telegram_html_text(extra_plain)}")
         return {"ok": ok, "vendedor": vend_data["vendedor_nombre"], "error": None if ok else "Error al enviar texto"}
     except Exception as e:
         logger.error(f"[CCDifusion] exc vend={id_vendedor}: {e}")

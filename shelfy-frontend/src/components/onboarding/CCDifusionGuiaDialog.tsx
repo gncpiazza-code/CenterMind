@@ -214,10 +214,13 @@ export function CCDifusionGuiaDialog({
 
       <Dialog open={composerOpen} onOpenChange={setComposerOpen}>
         <DialogContent className="max-w-lg border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] rounded-2xl">
-          <DialogHeader>
+          <DialogHeader className="space-y-2 text-left">
+            <p className="text-xs text-[var(--shelfy-muted)] leading-snug">
+              Toda idea es bienvenida: el equipo de desarrollo la tendrá en cuenta.
+            </p>
             <DialogTitle>Mensaje al desarrollador</DialogTitle>
-            <DialogDescription className="text-xs">
-              Tus tickets aparecen para el superadmin en «Mensajes» (menú Corona).
+            <DialogDescription className="sr-only">
+              Escribí un mensaje opcional sobre la guía o el producto. Podés usar varias líneas.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleComposerSubmit} className="space-y-3">
@@ -230,7 +233,7 @@ export function CCDifusionGuiaDialog({
                 value={composerBody}
                 onChange={(e) => setComposerBody(e.target.value)}
                 rows={6}
-                className="text-sm resize-y min-h-[120px]"
+                className="text-sm min-h-[120px]"
                 placeholder="Contá problema, idea o consulta..."
                 disabled={sendingNote}
               />

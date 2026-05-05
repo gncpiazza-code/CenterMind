@@ -1,10 +1,15 @@
 "use client";
 
 import { useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { Crown, LogOut, Building2, UserCog, Users, MessageSquareText } from "lucide-react";
-import { fetchDistribuidoras } from "@/lib/api";
+import {
+  fetchDistribuidoras,
+  fetchPortalFeedbackPendingCount,
+  getSuperadminWSUrl,
+} from "@/lib/api";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/Button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -41,6 +46,65 @@ export function Topbar({ title, live = false }: TopbarProps) {
     canSwitchDistribuidor,
   } = useAuth();
   const isSuperadmin = user?.is_superadmin;
+  const qc = useQueryClient();
+
+  const { data: pendingTicketsData } = useQuery({
+    queryKey: ["portal-feedback-pending-count"],
+    queryFn: fetchPortalFeedbackPendingCount,
+    enabled: !!isSuperadmin && !!user,
+    staleTime: 60_000,
+    refetchInterval: 120_000,
+  });
+  const pendingTickets = pendingTicketsData?.pending ?? 0;
+
+  useEffect(() => {
+    if (!isSuperadmin) return;
+    const wsUrl = getSuperadminWSUrl();
+    if (!wsUrl) return;
+    const ws = new WebSocket(wsUrl);
+    ws.onmessage = (ev) => {
+      try {
+        const msg = JSON.parse(ev.data as string) as {
+          type?: string;
+          pending?: number | null;
+        };
+
+        if (typeof msg.pending === "number" && Number.isFinite(msg.pending)) {
+          qc.setQueryData(["portal-feedback-pending-count"], { pending: msg.pending });
+        }
+
+        if (msg.type === "portal_feedback_new") {
+          toast.info("Nuevo mensaje desde el portal", {
+            description: "Abrí «Mensajes» en el menú Corona cuando quieras revisarlo.",
+          });
+          if (!(typeof msg.pending === "number" && Number.isFinite(msg.pending))) {
+            void qc.invalidateQueries({ queryKey: ["portal-feedback-pending-count"] });
+          }
+          void qc.invalidateQueries({ queryKey: ["portal-feedback-messages"] });
+        }
+
+        if (msg.type === "portal_feedback_updated") {
+          void qc.invalidateQueries({ queryKey: ["portal-feedback-messages"] });
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+    ws.onerror = () => {
+      try {
+        ws.close();
+      } catch {
+        /* ignore */
+      }
+    };
+    return () => {
+      try {
+        ws.close();
+      } catch {
+        /* ignore */
+      }
+    };
+  }, [isSuperadmin, qc]);
 
   const { data: distribuidoras = [] } = useQuery({
     queryKey: ["tenant-distribuidoras"],
@@ -160,9 +224,22 @@ export function Topbar({ title, live = false }: TopbarProps) {
                     <Link href="/admin/mapa">Mapa en Vivo</Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild>
-                    <Link href="/admin/mensajes" className="flex items-center gap-2">
-                      <MessageSquareText size={14} className="shrink-0" />
-                      Mensajes
+                    <Link
+                      href="/admin/mensajes"
+                      className="flex items-center justify-between gap-2 w-full"
+                    >
+                      <span className="flex items-center gap-2">
+                        <MessageSquareText size={14} className="shrink-0" />
+                        Mensajes
+                      </span>
+                      {pendingTickets > 0 ? (
+                        <span
+                          title={`${pendingTickets} sin respuesta`}
+                          className="min-w-[1.25rem] h-5 px-1.5 rounded-full bg-violet-600 text-[10px] font-bold text-white inline-flex items-center justify-center shrink-0"
+                        >
+                          {pendingTickets > 99 ? "99+" : pendingTickets}
+                        </span>
+                      ) : null}
                     </Link>
                   </DropdownMenuItem>
                 </DropdownMenuContent>

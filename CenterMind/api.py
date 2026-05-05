@@ -13,12 +13,12 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, Query
 from fastapi.middleware.cors import CORSMiddleware
 from telegram import Update
 
-from core.config import CORS_ORIGINS, CORS_ALLOW_ORIGIN_REGEX
-from core.lifespan import bots, manager, lifespan
+from core.config import CORS_ORIGINS, CORS_ALLOW_ORIGIN_REGEX, JWT_SECRET, JWT_ALGORITHM, JWT_AVAILABLE, JWTError, _jwt
+from core.lifespan import bots, manager, lifespan, SUPERADMIN_WS_DIST_ID
 from routers import auth, erp, supervision, admin, reportes, informes_excel, fuerza_ventas, difusion, supervisores, reporteria, portal_feedback
 
 # ── Logging ────────────────────────────────────────────────────────────────────
@@ -97,6 +97,33 @@ async def websocket_endpoint(websocket: WebSocket, dist_id: int):
     except Exception as e:
         logger.error(f"❌ Error en WebSocket {dist_id}: {e}")
         manager.disconnect(websocket, dist_id)
+
+
+@app.websocket("/api/ws/superadmin")
+async def websocket_superadmin(websocket: WebSocket, token: str | None = Query(None)):
+    """Notificaciones en tiempo real solo para JWT superadmin (`?token=`)."""
+    if not JWT_AVAILABLE or not token:
+        await websocket.close(code=4401)
+        return
+    try:
+        payload = _jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        is_sa = payload.get("is_superadmin", False) or payload.get("rol") == "superadmin"
+        if not is_sa:
+            await websocket.close(code=4403)
+            return
+    except JWTError:
+        await websocket.close(code=4401)
+        return
+
+    await manager.connect(websocket, SUPERADMIN_WS_DIST_ID)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect(websocket, SUPERADMIN_WS_DIST_ID)
+    except Exception as e:
+        logger.error(f"❌ Error en WebSocket superadmin: {e}")
+        manager.disconnect(websocket, SUPERADMIN_WS_DIST_ID)
 
 
 # ── Entry point (desarrollo local) ────────────────────────────────────────────

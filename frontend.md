@@ -191,7 +191,7 @@ Reemplaza el modelo sidebar-para-todos por navegación top-center para usuarios 
 | Componente | Cambio |
 |---|---|
 | `TopModeTabs.tsx` | Nuevo. 8 tabs icono+label filtrados por rol+permisoKey; active state con borde bottom violeta; visible solo ≥md. |
-| `Topbar.tsx` | Centro: TopModeTabs (desktop) o title page (mobile). Derecha: avatar + logout y menú flotante superadmin con ícono `Crown` para herramientas ocultas. |
+| `Topbar.tsx` | Centro: TopModeTabs (desktop) o title page (mobile). Derecha: avatar + logout y menú flotante superadmin con ícono `Crown`; entrada «Mensajes» muestra badge con pendientes (`/api/portal-feedback/pending-count`) y toast vía WebSocket `/api/ws/superadmin` (`getSuperadminWSUrl` en `api.ts`). |
 | `Sidebar.tsx` | Desactivado (retorna `null`) para eliminar panel izquierdo y priorizar layout limpio de mapa/paneles. |
 | `BottomNav.tsx` | Sincronizado con los mismos 8 tabs de TopModeTabs (agrega `/modo-mapa`, elimina Academy/Reportes/Admin). |
 
@@ -207,6 +207,10 @@ Reemplaza el modelo sidebar-para-todos por navegación top-center para usuarios 
 | `/fuerza-ventas` | F. Ventas | `menu_fuerza_ventas` |
 | `/modo-oficina` | Oficina | `menu_modo_oficina` |
 | `/galeria-exhibiciones` | Galería | `menu_galeria_exhibiciones` |
+
+### 13b. Guía CC/Difusión + mensaje desarrollador (04/05/2026)
+
+- **`CCDifusionGuiaDialog.tsx`**: iframe a `public/anuncios/comunicacion-shelfy-cc-difusion/index.html`; segundo diálogo con copy de bienvenida arriba, título «Mensaje al desarrollador», `Textarea` shadcn (`@/components/ui/textarea`); POST `POST /api/portal-feedback/messages`.
 
 ### 14. Nueva Ruta `/modo-mapa` (29/04/2026)
 

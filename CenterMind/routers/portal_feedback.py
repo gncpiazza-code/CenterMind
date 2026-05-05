@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 
 from core.security import verify_auth
+from core.lifespan import broadcast_sync, SUPERADMIN_WS_DIST_ID
 from db import sb
 from models.schemas import (
     PortalFeedbackMessageCreate,
@@ -66,12 +67,34 @@ async def post_feedback_message(
         "rol_snapshot": str(pl.get("rol") or ""),
         "contenido": body.contenido.strip(),
     }
+    pending_safe = 0
     try:
         res = sb.table("portal_feedback_messages").insert(row).execute()
         cid = ((res.data or [{}])[0] or {}).get("id") if getattr(res, "data", None) else None
+        try:
+            cr = (
+                sb.table("portal_feedback_messages")
+                .select("id", count="exact")
+                .is_("respuesta", "null")
+                .execute()
+            )
+            pending_safe = int(cr.count or 0)
+        except Exception as cnt_e:
+            logger.debug(f"[portal-feedback] pending count after insert: {cnt_e}")
+            pending_safe = 0
     except Exception as e:
         logger.error(f"[portal-feedback] insert message: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+    broadcast_sync(
+        SUPERADMIN_WS_DIST_ID,
+        {
+            "type": "portal_feedback_new",
+            "id": str(cid) if cid else None,
+            "usuario": pl.get("sub"),
+            "pending": pending_safe,
+        },
+    )
     return {"ok": True, "id": cid}
 
 
@@ -109,6 +132,24 @@ async def list_feedback_messages(
     return {"items": rows}
 
 
+@router.get("/pending-count")
+async def pending_feedback_count(user_payload: dict = Depends(verify_auth)):
+    """Solo superadmin — tickets sin respuesta."""
+    _require_superadmin(user_payload)
+    try:
+        cr = (
+            sb.table("portal_feedback_messages")
+            .select("id", count="exact")
+            .is_("respuesta", "null")
+            .execute()
+        )
+        pending = int(cr.count or 0)
+    except Exception as e:
+        logger.error(f"[portal-feedback] pending-count: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    return {"pending": pending}
+
+
 @router.patch("/messages/{message_id}")
 async def reply_feedback_message(
     message_id: str,
@@ -123,9 +164,29 @@ async def reply_feedback_message(
         "id_usuario_respuesta": responder,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
+    pending_safe = 0
     try:
         sb.table("portal_feedback_messages").update(patch).eq("id", message_id).execute()
+        try:
+            cr = (
+                sb.table("portal_feedback_messages")
+                .select("id", count="exact")
+                .is_("respuesta", "null")
+                .execute()
+            )
+            pending_safe = int(cr.count or 0)
+        except Exception as cnt_e:
+            logger.debug(f"[portal-feedback] pending count after reply: {cnt_e}")
+            pending_safe = 0
     except Exception as e:
         logger.error(f"[portal-feedback] reply {message_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+    broadcast_sync(
+        SUPERADMIN_WS_DIST_ID,
+        {
+            "type": "portal_feedback_updated",
+            "pending": pending_safe,
+        },
+    )
     return {"ok": True}

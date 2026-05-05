@@ -946,6 +946,11 @@
       pointer-events: none;
       user-select: none;
     }
+    .scroll-cue-strip--top {
+      padding: 14px 0 10px;
+      background: linear-gradient(180deg, rgba(237,233,254,0.85) 0%, var(--bg) 72%);
+      border-bottom: 1px solid rgba(168,85,247,0.06);
+    }
     .scroll-cue-inner {
       display: flex;
       align-items: center;
@@ -1006,6 +1011,15 @@
 
 <body>
 
+<!-- Franja scroll (arriba de todo dentro del contenido HTML) -->
+<div class="scroll-cue-strip scroll-cue-strip--top" aria-hidden="true">
+  <div class="scroll-cue-inner">
+    <span class="scroll-cue-arrow">⌄</span>
+    <span class="scroll-cue-text">Hay más contenido debajo · desplazá hacia abajo</span>
+    <span class="scroll-cue-arrow">⌄</span>
+  </div>
+</div>
+
 <!-- ── Topbar ──────────────────────────────────────────────────────────── -->
 <header class="topbar">
   <div class="topbar-inner">
@@ -1044,14 +1058,6 @@
     </div>
   </div>
 </section>
-
-<div class="scroll-cue-strip" aria-hidden="true">
-  <div class="scroll-cue-inner">
-    <span class="scroll-cue-arrow">⌄</span>
-    <span class="scroll-cue-text">Hay más contenido debajo · desplazá hacia abajo</span>
-    <span class="scroll-cue-arrow">⌄</span>
-  </div>
-</div>
 
 <!-- ─────────────────────────────────────────────────────────────────────── -->
 <!-- SECCIÓN A — Cuentas Corrientes en Supervisión                          -->

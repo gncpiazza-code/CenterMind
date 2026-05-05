@@ -47,6 +47,7 @@ export default function AdminMensajesPage() {
     onSuccess: () => {
       toast.success("Respuesta guardada.");
       qc.invalidateQueries({ queryKey: ["portal-feedback-messages"] });
+      qc.invalidateQueries({ queryKey: ["portal-feedback-pending-count"] });
       setReplyRow(null);
       setReplyDraft("");
     },

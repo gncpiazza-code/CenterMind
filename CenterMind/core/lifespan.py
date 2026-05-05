@@ -62,6 +62,9 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
+# Canal WebSocket dedicado superadmin (`/api/ws/superadmin`), no debe colisionar con id_distribuidor real.
+SUPERADMIN_WS_DIST_ID = 0
+
 
 def broadcast_sync(dist_id: int, message: dict) -> None:
     """

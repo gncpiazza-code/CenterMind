@@ -12,7 +12,7 @@ import json
 import logging
 import os
 import time
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -335,7 +335,7 @@ async def run_tenant(
     dump_path = None
     if sniff_dump:
         CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
-        dump_path = CAPTURE_DIR / f"sniff_cuentas_{tenant_id}_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.jsonl"
+        dump_path = CAPTURE_DIR / f"sniff_cuentas_{tenant_id}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.jsonl"
 
     return await _run_hybrid_single_tenant(
         tenant_eff,

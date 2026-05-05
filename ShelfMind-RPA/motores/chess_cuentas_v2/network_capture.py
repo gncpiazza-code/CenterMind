@@ -4,7 +4,7 @@ import asyncio
 import json
 import logging
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
@@ -48,7 +48,7 @@ class ChessNetworkCapture:
                     except json.JSONDecodeError:
                         j = None
                 rec = CapturedResponse(
-                    ts=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+                    ts=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                     url=url,
                     status=status,
                     content_type=ct,

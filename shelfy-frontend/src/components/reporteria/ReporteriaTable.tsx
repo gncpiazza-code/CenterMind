@@ -2,8 +2,13 @@
 
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Search, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
-import type { ReporteriaClienteRow, ReporteriaSource } from "@/lib/api";
+import { Search, ArrowUpDown, ArrowUp, ArrowDown, ChevronRight } from "lucide-react";
+import type {
+  ReporteriaClienteRow,
+  ReporteriaSource,
+  SigoVendorDia,
+} from "@/lib/api";
+import { ReporteriaDrilldownModal } from "./ReporteriaDrilldownModal";
 import { cn } from "@/lib/utils";
 
 function formatARS(v: number) {
@@ -16,13 +21,15 @@ type SortDir = "asc" | "desc";
 interface Props {
   rows: ReporteriaClienteRow[];
   source?: ReporteriaSource;
+  sigoRows?: SigoVendorDia[];
 }
 
-export function ReporteriaTable({ rows, source = "comprobantes" }: Props) {
+export function ReporteriaTable({ rows, source = "comprobantes", sigoRows = [] }: Props) {
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("importe_total");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [page, setPage] = useState(0);
+  const [selectedRow, setSelectedRow] = useState<ReporteriaClienteRow | null>(null);
 
   const PAGE_SIZE = 12;
 
@@ -92,105 +99,127 @@ export function ReporteriaTable({ rows, source = "comprobantes" }: Props) {
           ];
 
   return (
-    <div className="bg-white border border-[var(--shelfy-border)] rounded-2xl overflow-hidden shadow-sm">
-      {/* Search */}
-      <div className="flex items-center gap-3 p-4 border-b border-[var(--shelfy-border)]">
-        <div className="relative flex-1 max-w-sm">
-          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--shelfy-muted)]" />
-          <input
-            value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(0); }}
-            placeholder="Buscar cliente, vendedor, sucursal…"
-            className="w-full text-sm pl-9 pr-4 py-2 bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-xl focus:outline-none focus:border-[var(--shelfy-primary)] transition-colors"
-          />
-        </div>
-        <span className="text-[11px] text-[var(--shelfy-muted)] font-medium whitespace-nowrap">
-          {filtered.length.toLocaleString("es-AR")} filas
-        </span>
-      </div>
-
-      {/* Table */}
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="bg-[var(--shelfy-bg)]">
-              {COLS.map((col) => (
-                <th
-                  key={col.key}
-                  onClick={() => toggleSort(col.key)}
-                  className={cn(
-                    "px-4 py-3 text-[10px] font-black uppercase tracking-wider text-[var(--shelfy-muted)] cursor-pointer select-none hover:text-[var(--shelfy-primary)] transition-colors",
-                    col.align === "right" ? "text-right" : "text-left"
-                  )}
-                >
-                  <span className="inline-flex items-center gap-1">
-                    {col.label}
-                    <SortIcon k={col.key} />
-                  </span>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {visible.length === 0 ? (
-              <tr>
-                <td colSpan={5} className="px-4 py-12 text-center text-[var(--shelfy-muted)] text-sm">
-                  Sin resultados
-                </td>
-              </tr>
-            ) : (
-              visible.map((row, i) => (
-                <motion.tr
-                  key={`${row.nombre_cliente}-${i}`}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ delay: i * 0.02 }}
-                  className="border-t border-[var(--shelfy-border)] hover:bg-[var(--shelfy-primary)]/[0.03] transition-colors"
-                >
-                  <td className="px-4 py-3 font-semibold text-[var(--shelfy-text)] max-w-[180px] truncate">
-                    {row.nombre_cliente}
-                  </td>
-                  <td className="px-4 py-3 text-[var(--shelfy-text-soft)] text-xs">{row.vendedor_nombre}</td>
-                  <td className="px-4 py-3 text-[var(--shelfy-muted)] text-xs">{row.sucursal_nombre}</td>
-                  <td className="px-4 py-3 text-right font-medium text-[var(--shelfy-text)]">
-                    {row.cantidad_facturas}
-                  </td>
-                  <td className="px-4 py-3 text-right font-black text-[var(--shelfy-primary)] tabular-nums">
-                    {source === "comprobantes"
-                      ? formatARS(row.importe_total)
-                      : source === "sigo"
-                        ? `${row.importe_total.toFixed(1)}%`
-                        : row.importe_total.toFixed(1)}
-                  </td>
-                </motion.tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Pagination */}
-      {pages > 1 && (
-        <div className="flex items-center justify-between px-4 py-3 border-t border-[var(--shelfy-border)]">
-          <button
-            onClick={() => setPage((p) => Math.max(0, p - 1))}
-            disabled={page === 0}
-            className="text-xs font-semibold text-[var(--shelfy-primary)] disabled:opacity-30 hover:underline transition"
-          >
-            ← Anterior
-          </button>
-          <span className="text-[11px] text-[var(--shelfy-muted)]">
-            Pág. {page + 1} de {pages}
+    <>
+      <div className="bg-white border border-[var(--shelfy-border)] rounded-2xl overflow-hidden shadow-sm">
+        {/* Search */}
+        <div className="flex items-center gap-3 p-4 border-b border-[var(--shelfy-border)]">
+          <div className="relative flex-1 max-w-sm">
+            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--shelfy-muted)]" />
+            <input
+              value={search}
+              onChange={(e) => { setSearch(e.target.value); setPage(0); }}
+              placeholder="Buscar cliente, vendedor, sucursal…"
+              className="w-full text-sm pl-9 pr-4 py-2 bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-xl focus:outline-none focus:border-[var(--shelfy-primary)] transition-colors"
+            />
+          </div>
+          <span className="text-[11px] text-[var(--shelfy-muted)] font-medium whitespace-nowrap">
+            {filtered.length.toLocaleString("es-AR")} filas
           </span>
-          <button
-            onClick={() => setPage((p) => Math.min(pages - 1, p + 1))}
-            disabled={page === pages - 1}
-            className="text-xs font-semibold text-[var(--shelfy-primary)] disabled:opacity-30 hover:underline transition"
-          >
-            Siguiente →
-          </button>
+          <span className="text-[10px] text-[var(--shelfy-muted)] hidden sm:block">
+            Clic en fila para detalle
+          </span>
         </div>
-      )}
-    </div>
+
+        {/* Table */}
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-[var(--shelfy-bg)]">
+                {COLS.map((col) => (
+                  <th
+                    key={col.key}
+                    onClick={() => toggleSort(col.key)}
+                    className={cn(
+                      "px-4 py-3 text-[10px] font-black uppercase tracking-wider text-[var(--shelfy-muted)] cursor-pointer select-none hover:text-[var(--shelfy-primary)] transition-colors",
+                      col.align === "right" ? "text-right" : "text-left"
+                    )}
+                  >
+                    <span className="inline-flex items-center gap-1">
+                      {col.label}
+                      <SortIcon k={col.key} />
+                    </span>
+                  </th>
+                ))}
+                <th className="w-8" />
+              </tr>
+            </thead>
+            <tbody>
+              {visible.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-4 py-12 text-center text-[var(--shelfy-muted)] text-sm">
+                    Sin resultados
+                  </td>
+                </tr>
+              ) : (
+                visible.map((row, i) => (
+                  <motion.tr
+                    key={`${row.nombre_cliente}-${i}`}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ delay: i * 0.02 }}
+                    onClick={() => setSelectedRow(row)}
+                    className="border-t border-[var(--shelfy-border)] hover:bg-[var(--shelfy-primary)]/[0.04] cursor-pointer transition-colors group"
+                  >
+                    <td className="px-4 py-3 font-semibold text-[var(--shelfy-text)] max-w-[180px] truncate">
+                      {row.nombre_cliente}
+                    </td>
+                    <td className="px-4 py-3 text-[var(--shelfy-text-soft)] text-xs">{row.vendedor_nombre}</td>
+                    <td className="px-4 py-3 text-[var(--shelfy-muted)] text-xs">{row.sucursal_nombre}</td>
+                    <td className="px-4 py-3 text-right font-medium text-[var(--shelfy-text)]">
+                      {row.cantidad_facturas}
+                    </td>
+                    <td className="px-4 py-3 text-right font-black text-[var(--shelfy-primary)] tabular-nums">
+                      {source === "comprobantes"
+                        ? formatARS(row.importe_total)
+                        : source === "sigo"
+                          ? `${row.importe_total.toFixed(1)}%`
+                          : row.importe_total.toFixed(1)}
+                    </td>
+                    <td className="px-2 py-3 text-right">
+                      <ChevronRight
+                        size={14}
+                        className="text-[var(--shelfy-muted)] opacity-0 group-hover:opacity-100 transition-opacity"
+                      />
+                    </td>
+                  </motion.tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Pagination */}
+        {pages > 1 && (
+          <div className="flex items-center justify-between px-4 py-3 border-t border-[var(--shelfy-border)]">
+            <button
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              disabled={page === 0}
+              className="text-xs font-semibold text-[var(--shelfy-primary)] disabled:opacity-30 hover:underline transition"
+            >
+              ← Anterior
+            </button>
+            <span className="text-[11px] text-[var(--shelfy-muted)]">
+              Pág. {page + 1} de {pages}
+            </span>
+            <button
+              onClick={() => setPage((p) => Math.min(pages - 1, p + 1))}
+              disabled={page === pages - 1}
+              className="text-xs font-semibold text-[var(--shelfy-primary)] disabled:opacity-30 hover:underline transition"
+            >
+              Siguiente →
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Drill-down modal */}
+      <ReporteriaDrilldownModal
+        open={!!selectedRow}
+        onClose={() => setSelectedRow(null)}
+        source={source}
+        row={selectedRow}
+        sigoRows={sigoRows}
+      />
+    </>
   );
 }

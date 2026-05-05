@@ -2140,6 +2140,7 @@ export interface ReporteriaExploreResponse {
   serie_temporal: ReporteriaSerie[];
   top_clientes: ReporteriaClienteRow[];
   top_vendedores: { nombre: string; valor: number }[];
+  por_vendedor_y_dia?: SigoVendorDia[];
   origen_datos: {
     fuente: string;
     menu_referencia: string;

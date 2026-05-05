@@ -1,16 +1,19 @@
 # -*- coding: utf-8 -*-
 """
 Reportería — upload de XLSX + panel interactivo.
-Fase 1: solo ingesta manual por upload.
+Fase 1: ingesta manual por upload + export XLSX.
 """
 from __future__ import annotations
 
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
+from fastapi.responses import StreamingResponse
+import io
 
 from core.security import verify_auth, check_dist_permission
 from services.reporting.ingest_service import ingest_file, get_job, get_snapshot, get_snapshot_by_job
+from services.reporting.export_service import export_xlsx
 
 logger = logging.getLogger("ShelfyAPI")
 router = APIRouter()
@@ -92,3 +95,35 @@ def explore(
             "No hay snapshot disponible. Subí el archivo primero."
         )
     return snap
+
+
+@router.get("/api/reporteria/export/{job_id}", tags=["Reportería"])
+def export_report(
+    job_id: str,
+    formato: str = Query("xlsx", description="xlsx | pdf"),
+    user_payload=Depends(verify_auth),
+):
+    """Exporta el snapshot de un job como XLSX (o PDF en el futuro)."""
+    snap = get_snapshot_by_job(job_id)
+    if not snap:
+        raise HTTPException(404, "Snapshot no encontrado. El job puede haber expirado — volvé a subir el archivo.")
+
+    source = snap.get("source", "reporte")
+    date_from = snap.get("date_from", "")
+    date_to = snap.get("date_to", "")
+    date_tag = f"{date_from}_{date_to}".replace("-", "") if date_from else job_id[:8]
+    filename = f"shelfy_{source}_{date_tag}.xlsx"
+
+    try:
+        xlsx_bytes = export_xlsx(snap)
+    except RuntimeError as e:
+        raise HTTPException(500, f"Error generando XLSX: {e}")
+    except Exception as e:
+        logger.error(f"Export error job={job_id}: {e}")
+        raise HTTPException(500, "Error inesperado al exportar.")
+
+    return StreamingResponse(
+        io.BytesIO(xlsx_bytes),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

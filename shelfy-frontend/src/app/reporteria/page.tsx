@@ -465,7 +465,11 @@ function PanelView({ data, activeTab, onTabChange }: PanelViewProps) {
           )}
           {activeTab === "clientes" && (
             <>
-              <ReporteriaTable rows={data.top_clientes} source={data.source} />
+              <ReporteriaTable
+                rows={data.top_clientes}
+                source={data.source}
+                sigoRows={data.por_vendedor_y_dia}
+              />
               <ReporteriaOrigen data={data} />
             </>
           )}

@@ -30,7 +30,7 @@ import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { Button } from "@/components/ui/Button";
 import {
-  uploadERPFile, fetchAuditoriaSigo, fetchSigoDetail, exportSigoDetail,
+  uploadReporteriaManualFile, fetchAuditoriaSigo, fetchSigoDetail, exportSigoDetail,
   postDifusionSIGOTelegram, fetchDifusionVendedores,
   type SigoDetailResponse, type SigoVendorDia,
 } from "@/lib/api";
@@ -136,9 +136,10 @@ export default function TabAuditoriaSigo({ distId, desde, hasta }: { distId: num
 
   // ── Upload mutation ──
   const uploadMutation = useMutation({
-    mutationFn: (file: File) => uploadERPFile("ventas", file),
+    mutationFn: (file: File) => uploadReporteriaManualFile(distId, "sigo", file),
     onSuccess: (res) => {
-      setUploadResult({ msg: `Éxito: ${res.count} registros.`, type: "ok" });
+      setUploadResult({ msg: `Archivo procesado correctamente (job ${res.id}).`, type: "ok" });
+      queryClient.invalidateQueries({ queryKey: reportesKeys.sigoDetail(distId) });
       queryClient.invalidateQueries({ queryKey: reportesKeys.auditoriaSigo(distId, desde, hasta) });
     },
     onError: (err: Error) => {

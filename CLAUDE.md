@@ -159,8 +159,9 @@ GET  /api/erp/roi/{dist_id}
 
 # Portal — guía CC / feedback (JWT; superadmin donde aplica)
 POST /api/portal-feedback/guia-tracking
-POST /api/portal-feedback/messages                  # texto al equipo desarrollo
-GET  /api/portal-feedback/messages                  # lista (superadmin)
+POST /api/portal-feedback/messages                  # ticket equipo desarrollo (+ `clasificacion_agent`)
+POST /api/portal-feedback/attachments               # multipart; Storage `portal-tickets/`
+GET  /api/portal-feedback/messages                  # lista (superadmin); ítems con `clasificacion_agent`
 GET  /api/portal-feedback/pending-count           # tickets sin respuesta (superadmin)
 PATCH /api/portal-feedback/messages/{id}           # respuesta superadmin
 

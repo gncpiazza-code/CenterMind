@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException
+from uuid import uuid4
+
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from core.security import verify_auth
 from core.lifespan import broadcast_sync, SUPERADMIN_WS_DIST_ID
 from db import sb
+from services.portal_ticket_classifier import clasificar_portal_ticket
 from models.schemas import (
     PortalFeedbackMessageCreate,
     PortalFeedbackReplyIn,
@@ -17,6 +21,39 @@ from models.schemas import (
 
 logger = logging.getLogger("ShelfyAPI")
 router = APIRouter(prefix="/api/portal-feedback", tags=["Portal feedback"])
+
+_TICKET_BUCKET = "Exhibiciones-PDV"
+_MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
+
+_ALLOWED_CT_PREFIXES = (
+    "image/",
+    "application/pdf",
+    "text/plain",
+    "text/csv",
+    "application/zip",
+)
+_ALLOWED_CT_FULL = frozenset(
+    {
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.ms-excel",
+    }
+)
+
+
+def _safe_orig_name(raw: str) -> str:
+    base = (raw or "").replace("\\", "/").split("/")[-1] or "archivo"
+    cleaned = re.sub(r"[^a-zA-Z0-9._\- ]+", "", base).strip()
+    return (cleaned[:160] if cleaned else "archivo")
+
+
+def _ext_from_name(name: str) -> str:
+    if "." not in name:
+        return ""
+    tail = name.rsplit(".", 1)[-1].lower()
+    if re.fullmatch(r"[a-z0-9]{1,12}", tail or ""):
+        return f".{tail}"
+    return ""
+
 
 
 def _require_jwt_user(payload: dict) -> dict:
@@ -33,6 +70,16 @@ def _require_superadmin(payload: dict) -> dict:
     if not p.get("is_superadmin"):
         raise HTTPException(status_code=403, detail="Solo superadmin.")
     return p
+
+
+def _fila_feedback_con_agente(row: dict) -> dict:
+    r = dict(row)
+    try:
+        r["clasificacion_agent"] = clasificar_portal_ticket(str(r.get("contenido") or ""))
+    except Exception as e:
+        logger.warning("[portal-feedback] clasificacion omitida: %s", e)
+        r["clasificacion_agent"] = None
+    return r
 
 
 @router.post("/guia-tracking")
@@ -53,6 +100,77 @@ async def post_guia_tracking(body: PortalGuiaTrackingIn, user_payload: dict = De
         logger.error(f"[portal-feedback] insert guia_tracking: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     return {"ok": True}
+
+
+@router.post("/attachments")
+async def post_portal_feedback_attachment(
+    file: UploadFile = File(...),
+    user_payload: dict = Depends(verify_auth),
+):
+    """Sube un adjunto para tickets del portal (JWT). Bucket público, path por distribuidor."""
+    pl = _require_jwt_user(user_payload)
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Archivo inválido")
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Archivo vacío")
+    if len(data) > _MAX_ATTACHMENT_BYTES:
+        raise HTTPException(status_code=400, detail="El archivo supera los 10 MB")
+
+    ctype = (file.content_type or "").strip().lower() or "application/octet-stream"
+    if ctype != "application/octet-stream":
+        prefix_ok = any(ctype.startswith(p) for p in _ALLOWED_CT_PREFIXES)
+        full_ok = ctype in _ALLOWED_CT_FULL
+        if not (prefix_ok or full_ok):
+            raise HTTPException(status_code=400, detail=f"Tipo de archivo no permitido: {ctype}")
+    elif _ext_from_name(file.filename) not in {
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".gif",
+        ".webp",
+        ".pdf",
+        ".txt",
+        ".csv",
+        ".zip",
+        ".xlsx",
+        ".xls",
+    }:
+        raise HTTPException(
+            status_code=400,
+            detail="Tipo de archivo no permitido — usá imagen, PDF, TXT/CSV o Excel",
+        )
+
+    dist_id = pl.get("id_distribuidor")
+    try:
+        dist_part = int(dist_id) if dist_id is not None else 0
+    except (TypeError, ValueError):
+        dist_part = 0
+    uid = int(pl.get("id_usuario") or 0)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    orig = _safe_orig_name(file.filename)
+    short = uuid4().hex[:10]
+    ext = _ext_from_name(orig) or ""
+    fname_core = orig[: -len(ext)] if ext and orig.endswith(ext) else orig
+    if not fname_core:
+        fname_core = "archivo"
+    storage_name = f"u{uid}_{stamp}_{short}_{fname_core}{ext}"
+    storage_path = f"portal-tickets/{dist_part}/{storage_name}"
+
+    upload_opts = {"content-type": ctype, "upsert": "true"}
+
+    try:
+        sb.storage.from_(_TICKET_BUCKET).upload(
+            storage_path,
+            data,
+            file_options=upload_opts,
+        )
+        url = sb.storage.from_(_TICKET_BUCKET).get_public_url(storage_path)
+    except Exception as e:
+        logger.error(f"[portal-feedback] upload attachment path={storage_path}: {e}")
+        raise HTTPException(status_code=500, detail="No se pudo guardar el adjunto") from e
+
+    return {"ok": True, "url": url, "filename": orig}
 
 
 @router.post("/messages")
@@ -95,7 +213,8 @@ async def post_feedback_message(
             "pending": pending_safe,
         },
     )
-    return {"ok": True, "id": cid}
+    cl = clasificar_portal_ticket(body.contenido.strip())
+    return {"ok": True, "id": cid, "clasificacion_agent": cl}
 
 
 @router.get("/messages")
@@ -129,7 +248,8 @@ async def list_feedback_messages(
                 r.get("created_at") or "",
             ),
         )
-    return {"items": rows}
+    enriched = [_fila_feedback_con_agente(r) for r in rows]
+    return {"items": enriched}
 
 
 @router.get("/pending-count")

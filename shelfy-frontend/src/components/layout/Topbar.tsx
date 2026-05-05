@@ -74,8 +74,8 @@ export function Topbar({ title, live = false }: TopbarProps) {
         }
 
         if (msg.type === "portal_feedback_new") {
-          toast.info("Nuevo mensaje desde el portal", {
-            description: "Abrí «Mensajes» en el menú Corona cuando quieras revisarlo.",
+          toast.info("Nuevo ticket desde el portal", {
+            description: "Abrí «Tickets» en el menú Corona para ver la clasificación del agente.",
           });
           if (!(typeof msg.pending === "number" && Number.isFinite(msg.pending))) {
             void qc.invalidateQueries({ queryKey: ["portal-feedback-pending-count"] });
@@ -228,12 +228,12 @@ export function Topbar({ title, live = false }: TopbarProps) {
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild>
                     <Link
-                      href="/admin/mensajes"
+                      href="/admin/tickets"
                       className="flex items-center justify-between gap-2 w-full"
                     >
                       <span className="flex items-center gap-2">
                         <MessageSquareText size={14} className="shrink-0" />
-                        Mensajes
+                        Tickets
                       </span>
                       {pendingTickets > 0 ? (
                         <span

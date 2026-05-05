@@ -306,7 +306,8 @@ class PortalGuiaTrackingIn(BaseModel):
 
 
 class PortalFeedbackMessageCreate(BaseModel):
-    contenido: str = Field(..., min_length=2, max_length=16_000)
+    # Tickets con varios adjuntos (URLs públicas Storage) pueden alargarse.
+    contenido: str = Field(..., min_length=2, max_length=48_000)
 
 
 class PortalFeedbackReplyIn(BaseModel):

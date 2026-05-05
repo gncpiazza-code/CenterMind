@@ -44,6 +44,7 @@ import {
   GUIA_CC_DIFUSION_VERSION,
   postPortalGuiaTracking,
   postPortalFeedbackMessage,
+  uploadPortalFeedbackAttachment,
 } from "@/lib/api";
 import { toast } from "sonner";
 
@@ -100,13 +101,13 @@ function draftStorageKey(uid: number) {
   return `shelfy_portal_ticket_v1_${uid}`;
 }
 
-/** Legible para `Mensajes` en admin; formato estable con separadores ASCII. */
+/** Legible para la página Tickets (superadmin); formato estable con separadores ASCII. */
 function buildPortalTicketBlob(
   dest: TicketDestination,
   prio: TicketPriority,
   subject: string,
   body: string,
-  fileHints: string[],
+  attachments: { url: string; filename: string }[],
 ): string {
   const head = [
     `▸ TICKET PORTAL SHELFY`,
@@ -118,11 +119,18 @@ function buildPortalTicketBlob(
     ``,
     body.trim(),
   ];
-  if (fileHints.length) {
-    head.push("", `📎 Referencias de archivos (sin subida todavía): ${fileHints.join(", ")}`);
+  if (attachments.length) {
+    head.push(
+      "",
+      "📎 Archivos adjuntos:",
+      ...attachments.map((a) => `- ${a.url} (${a.filename})`),
+    );
   }
   return head.join("\n");
 }
+
+const ATTACH_MAX_FILES = 6;
+const ATTACH_MAX_BYTES = 10 * 1024 * 1024;
 
 /** Inserta marcadores Markdown alrededor de la selección (o punto de inserción). */
 function wrapSelection(
@@ -168,7 +176,6 @@ type DraftShape = {
   prio: TicketPriority;
   subject: string;
   body: string;
-  hints: string[];
 };
 
 function ToolbarIcon({
@@ -223,7 +230,7 @@ export function CCDifusionGuiaDialog({
   const [ticketDest, setTicketDest] = React.useState<TicketDestination>("soporte");
   const [ticketPrio, setTicketPrio] = React.useState<TicketPriority>("media");
   const [ticketSubject, setTicketSubject] = React.useState("");
-  const [fileHints, setFileHints] = React.useState<string[]>([]);
+  const [attachedFiles, setAttachedFiles] = React.useState<{ id: string; file: File }[]>([]);
   const [autosaveLabel, setAutosaveLabel] = React.useState<string | null>(null);
   const [sendingNote, setSendingNote] = React.useState(false);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
@@ -250,7 +257,6 @@ export function CCDifusionGuiaDialog({
         prio: ticketPrio,
         subject: ticketSubject,
         body: composerBody,
-        hints: fileHints,
       };
       localStorage.setItem(draftStorageKey(uid), JSON.stringify(blob));
       setAutosaveLabel(
@@ -259,12 +265,12 @@ export function CCDifusionGuiaDialog({
     } catch {
       /* ignore */
     }
-  }, [user?.id_usuario, ticketDest, ticketPrio, ticketSubject, composerBody, fileHints]);
+  }, [user?.id_usuario, ticketDest, ticketPrio, ticketSubject, composerBody]);
 
   const resetComposerForm = useCallback(() => {
     setTicketSubject("");
     setComposerBody("");
-    setFileHints([]);
+    setAttachedFiles([]);
     setTicketDest("soporte");
     setTicketPrio("media");
     setAutosaveLabel(null);
@@ -286,7 +292,6 @@ export function CCDifusionGuiaDialog({
           }
           if (typeof d.subject === "string") setTicketSubject(d.subject);
           if (typeof d.body === "string") setComposerBody(d.body);
-          if (Array.isArray(d.hints)) setFileHints(d.hints.filter((x) => typeof x === "string"));
         }
       } catch {
         /* ignore */
@@ -310,7 +315,6 @@ export function CCDifusionGuiaDialog({
     ticketPrio,
     ticketSubject,
     composerBody,
-    fileHints,
     persistDraft,
   ]);
 
@@ -416,9 +420,14 @@ export function CCDifusionGuiaDialog({
       toast.error("Contá un poco más de detalle en el mensaje (al menos 16 caracteres).");
       return;
     }
-    const payload = buildPortalTicketBlob(ticketDest, ticketPrio, sub, bod, fileHints);
     setSendingNote(true);
     try {
+      const uploaded: { url: string; filename: string }[] = [];
+      for (const row of attachedFiles) {
+        const r = await uploadPortalFeedbackAttachment(row.file);
+        uploaded.push({ url: r.url, filename: r.filename });
+      }
+      const payload = buildPortalTicketBlob(ticketDest, ticketPrio, sub, bod, uploaded);
       await postPortalFeedbackMessage(payload);
       toast.success("Ticket enviado. Gracias por el feedback.");
       try {
@@ -445,15 +454,28 @@ export function CCDifusionGuiaDialog({
   const handleAttachChange = (ev: ChangeEvent<HTMLInputElement>) => {
     const list = ev.target.files;
     if (!list?.length) return;
-    const names: string[] = [];
-    for (let i = 0; i < list.length && names.length < 6; i++) {
-      const n = list[i]?.name;
-      if (n) names.push(n);
+    const remainingSlots = ATTACH_MAX_FILES - attachedFiles.length;
+    if (remainingSlots <= 0) {
+      toast.warning(`Como máximo ${ATTACH_MAX_FILES} archivos por ticket.`);
+      ev.target.value = "";
+      return;
     }
-    setFileHints((prev) => {
-      const merged = [...prev, ...names];
-      return merged.slice(0, 8);
-    });
+    const batch: { id: string; file: File }[] = [];
+    for (let i = 0; i < list.length && batch.length < remainingSlots; i++) {
+      const f = list[i];
+      if (!f) continue;
+      if (f.size > ATTACH_MAX_BYTES) {
+        toast.error(`${f.name} supera los 10 MB`);
+        continue;
+      }
+      batch.push({ id: crypto.randomUUID(), file: f });
+    }
+    if (list.length > batch.length && batch.length >= remainingSlots) {
+      toast.warning(`Solo se agregaron ${batch.length} archivo(s) (máximo ${ATTACH_MAX_FILES} por ticket).`);
+    }
+    if (batch.length) {
+      setAttachedFiles((prev) => [...prev, ...batch]);
+    }
     ev.target.value = "";
   };
 
@@ -528,7 +550,7 @@ export function CCDifusionGuiaDialog({
               </DialogTitle>
               <p className="text-[13px] leading-relaxed text-[var(--shelfy-muted)]">
                 Toda idea cuenta: lo leemos con calma y respondemos desde{" "}
-                <span className="text-[var(--shelfy-accent)] font-medium">Mensajes</span> (superadmin).
+                <span className="text-[var(--shelfy-accent)] font-medium">Tickets</span> (superadmin).
               </p>
               <DialogDescription className="sr-only">
                 Formulario tipo ticket: destinatario, prioridad, asunto y detalle. Borrador local opcional.
@@ -645,7 +667,7 @@ export function CCDifusionGuiaDialog({
                 <Separator orientation="vertical" className="mx-1 hidden h-7 sm:block bg-border" />
                 <div className="flex flex-1 flex-wrap items-center gap-0.5">
                   <ToolbarIcon
-                    title="Adjuntar (nombre de archivo)"
+                    title="Adjuntar archivo (captura, PDF, Excel…)"
                     onPress={() => fileInputRef.current?.click()}
                     disabled={sendingNote}
                   >
@@ -690,20 +712,26 @@ export function CCDifusionGuiaDialog({
                 onChange={handleAttachChange}
               />
 
-              {fileHints.length > 0 && (
+              {attachedFiles.length > 0 && (
                 <div className="flex flex-wrap gap-2 border-t border-dashed border-[var(--shelfy-border)] bg-violet-50/30 px-3 py-3">
-                  {fileHints.map((name, idx) => (
+                  {attachedFiles.map((row) => (
                     <span
-                      key={`${idx}-${name}`}
+                      key={row.id}
                       className="group inline-flex max-w-full items-center gap-1.5 rounded-full border border-violet-200 bg-white pl-2.5 pr-1 text-[11px] font-medium text-violet-950"
                     >
-                      <span className="truncate">{name}</span>
+                      <span className="truncate" title={row.file.name}>
+                        {row.file.name}
+                        <span className="text-violet-600/90 font-normal">
+                          {" "}
+                          ({Math.ceil(row.file.size / 1024)} KB)
+                        </span>
+                      </span>
                       <button
                         type="button"
-                        aria-label={`Quitar ${name}`}
+                        aria-label={`Quitar ${row.file.name}`}
                         disabled={sendingNote}
                         className="rounded-full p-0.5 text-violet-600 transition hover:bg-violet-100 hover:text-violet-950"
-                        onClick={() => setFileHints((xs) => xs.filter((n) => n !== name))}
+                        onClick={() => setAttachedFiles((xs) => xs.filter((x) => x.id !== row.id))}
                       >
                         <X className="size-3.5" />
                       </button>
@@ -712,7 +740,8 @@ export function CCDifusionGuiaDialog({
                 </div>
               )}
               <p className="border-t border-[var(--shelfy-border)] bg-slate-50/50 px-3 py-2 text-[10px] text-[var(--shelfy-muted)]">
-                Los archivos aparecen como referencia por nombre; la subida directa se suma en una próxima iteración.
+                Al enviar, los archivos se suben automáticamente (máx. {ATTACH_MAX_FILES} · 10 MB c/u): imágenes, PDF,
+                Excel y ZIP.
               </p>
             </div>
 

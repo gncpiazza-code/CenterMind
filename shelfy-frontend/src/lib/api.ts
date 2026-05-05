@@ -2308,12 +2308,65 @@ export async function postPortalGuiaTracking(body: {
   });
 }
 
-export async function postPortalFeedbackMessage(contenido: string): Promise<{ ok: boolean; id?: string }> {
-  return apiFetch<{ ok: boolean; id?: string }>("/api/portal-feedback/messages", {
+/** Clasificación automática rule-based que devuelve el backend en listado / creación */
+export interface PortalTicketCapaAf {
+  id: string;
+  etiqueta: string;
+}
+
+export interface PortalTicketCampos {
+  destinatario: string | null;
+  prioridad: string | null;
+  asunto: string | null;
+}
+
+export interface PortalTicketClasificacionAgent {
+  categoria_id: string;
+  categoria_etiqueta: string;
+  hipotesis_falla: string;
+  confianza: string;
+  capas_afectadas: PortalTicketCapaAf[];
+  campos_ticket: PortalTicketCampos;
+  señales_detectadas?: string[];
+  reglas_version?: string;
+}
+
+export async function postPortalFeedbackMessage(
+  contenido: string,
+): Promise<{ ok: boolean; id?: string; clasificacion_agent?: PortalTicketClasificacionAgent | null }> {
+  return apiFetch<{ ok: boolean; id?: string; clasificacion_agent?: PortalTicketClasificacionAgent | null }>(
+    "/api/portal-feedback/messages",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contenido }),
+    },
+  );
+}
+
+/** Multipart adjunto para tickets del portal — no usar apiFetch (evita Content-Type JSON). */
+export async function uploadPortalFeedbackAttachment(file: File): Promise<{
+  ok: boolean;
+  url: string;
+  filename: string;
+}> {
+  const token = typeof window !== "undefined" ? localStorage.getItem(TOKEN_KEY) : null;
+  const fd = new FormData();
+  fd.append("file", file);
+  const url = `${API_URL}/api/portal-feedback/attachments`;
+  const res = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ contenido }),
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: fd,
   });
+  if (!res.ok) {
+    handleSessionExpired401("/api/portal-feedback/attachments", res.status);
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    const detailMsg =
+      typeof err.detail === "string" ? err.detail : (err.detail?.mensaje ?? `HTTP ${res.status}`);
+    throw new ApiError(detailMsg, res.status, err.detail);
+  }
+  return res.json() as Promise<{ ok: boolean; url: string; filename: string }>;
 }
 
 export interface PortalFeedbackRow {
@@ -2328,6 +2381,8 @@ export interface PortalFeedbackRow {
   respuesta: string | null;
   responded_at: string | null;
   id_usuario_respuesta: number | null;
+  /** Presente sólo cuando el backend pudo ejecutar las reglas de clasificación */
+  clasificacion_agent?: PortalTicketClasificacionAgent | null;
 }
 
 export async function fetchPortalFeedbackMessages(limit = 200): Promise<{ items: PortalFeedbackRow[] }> {

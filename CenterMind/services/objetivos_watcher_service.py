@@ -620,16 +620,63 @@ class ObjetivosWatcherService:
     # ── Cobranza ──────────────────────────────────────────────────────────────
 
     def _compute_cobranza(self, obj: dict, dist_id: int) -> float | None:
-        """Calcula cuánto se cobró (deuda_inicial - deuda_actual)."""
+        """Calcula cuánto se cobró (deuda_inicial - deuda_actual).
+
+        Fix: Si estado_inicial es None/vacío y el objetivo tiene < 1 hora de
+        vida, intenta capturar la deuda actual como snapshot inicial para evitar
+        que el objetivo quede en valor_actual=0 eternamente por una CC vacía al
+        momento de creación.
+        """
         estado_inicial = obj.get("estado_inicial")
+        id_vendedor = obj.get("id_vendedor")
+
         if not estado_inicial:
+            # Intentar auto-inicializar si el objetivo es reciente (< 1 hora)
+            try:
+                created_at_str = obj.get("created_at", "")
+                if created_at_str:
+                    from datetime import timezone as _tz
+                    created = datetime.fromisoformat(
+                        created_at_str.replace("Z", "+00:00")
+                    )
+                    age_minutes = (
+                        datetime.now(_tz.utc) - created
+                    ).total_seconds() / 60
+                    if age_minutes < 60:
+                        # Intentar snapshot de la deuda actual
+                        cc_res = (
+                            sb.table("cc_detalle")
+                            .select("deuda_total")
+                            .eq("id_distribuidor", dist_id)
+                            .eq("id_vendedor", id_vendedor)
+                            .execute()
+                        )
+                        deuda_snapshot = sum(
+                            float(r.get("deuda_total") or 0)
+                            for r in (cc_res.data or [])
+                        )
+                        if deuda_snapshot > 0:
+                            sb.table("objetivos").update(
+                                {"estado_inicial": str(deuda_snapshot)}
+                            ).eq("id", obj.get("id")).execute()
+                            logger.info(
+                                f"[Watcher] cobranza auto-snapshot "
+                                f"obj={obj.get('id')} deuda={deuda_snapshot}"
+                            )
+                            # No comparar contra sí mismo en primera corrida —
+                            # en la siguiente el watcher usará el snapshot.
+                            return None
+            except Exception as e_init:
+                logger.warning(
+                    f"[Watcher] cobranza auto-init obj={obj.get('id')}: {e_init}"
+                )
             return None
+
         try:
             deuda_inicial = float(estado_inicial)
         except (ValueError, TypeError):
             return None
 
-        id_vendedor = obj.get("id_vendedor")
         try:
             res = (
                 sb.table("cc_detalle")

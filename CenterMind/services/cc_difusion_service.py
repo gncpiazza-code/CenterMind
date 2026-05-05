@@ -94,6 +94,19 @@ def _deuda_por_rango(clientes: list[dict]) -> list[tuple[str, float, float, int]
     return out
 
 
+def _erp_display(value: Any) -> str:
+    """Muestra ERP id preservando raw y versión normalizada para evitar confusión 002442 vs 2442."""
+    if value is None:
+        return "—"
+    raw = str(value).strip()
+    if not raw:
+        return "—"
+    norm = raw.lstrip("0") or "0"
+    if norm != raw:
+        return f"{raw} ({norm})"
+    return raw
+
+
 # ─── PDF generation ───────────────────────────────────────────────────────────
 
 def _build_cc_pdf(
@@ -160,17 +173,18 @@ def _build_cc_pdf(
     ])
 
     # Table header + rows
-    table_data = [["Cliente", "Días", "Comprobantes", "Deuda $"]]
+    table_data = [["Cliente ERP", "Cliente", "Días", "Comprobantes", "Deuda $"]]
     for c in clientes:
         dias = c.get("antiguedad") or 0
         table_data.append([
+            _erp_display(c.get("id_cliente_erp")),
             (c.get("cliente") or "—")[:40],
             str(dias),
             str(c.get("cantidad_comprobantes") or "—"),
             f"${float(c.get('deuda_total') or 0):,.0f}".replace(",", "."),
         ])
 
-    col_widths = [9 * cm, 2 * cm, 3 * cm, 3.5 * cm]
+    col_widths = [3.2 * cm, 6.0 * cm, 1.6 * cm, 2.4 * cm, 3.3 * cm]
     t = Table(table_data, colWidths=col_widths, repeatRows=1)
     t.setStyle(TableStyle([
         ("BACKGROUND",   (0, 0), (-1, 0), _VIOLET),
@@ -308,6 +322,7 @@ def _group_by_vendor(rows: list[dict]) -> dict[int | str, dict]:
             }
         vendors[vid]["clientes"].append({
             "cliente": r.get("cliente_nombre"),
+            "id_cliente_erp": r.get("id_cliente_erp"),
             "deuda_total": float(r.get("deuda_total") or 0),
             "antiguedad": r.get("antiguedad_dias"),
             "cantidad_comprobantes": r.get("cantidad_comprobantes"),
@@ -384,6 +399,191 @@ def enviar_cc_vendedor(
     except Exception as e:
         logger.error(f"[CCDifusion] exc vend={id_vendedor}: {e}")
         return {"ok": False, "vendedor": vend_data["vendedor_nombre"], "error": str(e)}
+
+
+# ─── SIGO resumen Telegram ───────────────────────────────────────────────────
+
+def _build_sigo_mensaje(
+    vendedor_nombre: str,
+    date_from: str,
+    date_to: str,
+    dia_data: dict,
+    mensaje_template: str,
+) -> str:
+    """
+    Genera el texto del mensaje Telegram con KPIs SIGO de un vendedor.
+    `dia_data` es la suma/agrupación de filas de `por_vendedor_y_dia` para ese vendedor.
+    """
+    planeadas = dia_data.get("planeadas", 0)
+    ejecutadas = dia_data.get("ejecutadas", 0)
+    con_venta = dia_data.get("con_venta", 0)
+    motivo_no_venta = dia_data.get("motivo_no_venta", 0)
+    sin_info = dia_data.get("sin_info", 0)
+    hora_primera_visita = dia_data.get("hora_primera_visita") or "—"
+    hora_primera_venta = dia_data.get("hora_primera_venta") or "—"
+
+    pct_ejecutadas = round(ejecutadas / planeadas * 100, 1) if planeadas > 0 else 0.0
+    pct_con_venta = round(con_venta / ejecutadas * 100, 1) if ejecutadas > 0 else 0.0
+
+    nombre_display = _extract_display_name(vendedor_nombre)
+
+    lines = [
+        f"📊 <b>Reporte SIGO — {nombre_display}</b>",
+        f"Período: {date_from} → {date_to}",
+        "",
+        f"Planeadas: {planeadas}",
+        f"Ejecutadas: {ejecutadas} ({pct_ejecutadas}%)",
+        f"Con venta: {con_venta} ({pct_con_venta}%)",
+        f"Sin venta con motivo: {motivo_no_venta}",
+        f"Sin info: {sin_info}",
+        "",
+        f"⏰ Primera visita: {hora_primera_visita}",
+        f"💰 Primera venta: {hora_primera_venta}",
+    ]
+    if mensaje_template and mensaje_template.strip():
+        lines.append("")
+        lines.append(mensaje_template.strip())
+
+    return "\n".join(lines)
+
+
+def _aggregate_sigo_for_vendor(vendor_rows: list[dict]) -> dict:
+    """Suma todas las filas `por_vendedor_y_dia` de un vendedor en un dict único."""
+    agg: dict = {
+        "planeadas": 0,
+        "ejecutadas": 0,
+        "sin_visita": 0,
+        "con_venta": 0,
+        "motivo_no_venta": 0,
+        "sin_info": 0,
+        "hora_primera_visita": None,
+        "hora_primera_venta": None,
+        "tiempo_promedio_venta_min": None,
+    }
+    tpv_list: list[float] = []
+    for row in vendor_rows:
+        agg["planeadas"] += row.get("planeadas") or 0
+        agg["ejecutadas"] += row.get("ejecutadas") or 0
+        agg["sin_visita"] += row.get("sin_visita") or 0
+        agg["con_venta"] += row.get("con_venta") or 0
+        agg["motivo_no_venta"] += row.get("motivo_no_venta") or 0
+        agg["sin_info"] += row.get("sin_info") or 0
+        h1v = row.get("hora_primera_visita")
+        if h1v and (agg["hora_primera_visita"] is None or h1v < agg["hora_primera_visita"]):
+            agg["hora_primera_visita"] = h1v
+        h1e = row.get("hora_primera_venta")
+        if h1e and (agg["hora_primera_venta"] is None or h1e < agg["hora_primera_venta"]):
+            agg["hora_primera_venta"] = h1e
+        tpv = row.get("tiempo_promedio_venta_min")
+        if tpv is not None:
+            tpv_list.append(float(tpv))
+    if tpv_list:
+        agg["tiempo_promedio_venta_min"] = round(sum(tpv_list) / len(tpv_list), 1)
+    return agg
+
+
+def difundir_sigo_resumen_telegram(
+    dist_id: int,
+    modo: str,          # "uno" | "todos"
+    id_vendedor: int | None,
+    mensaje_template: str,
+    sigo_data: dict,    # resultado de parse_sigo() con por_vendedor_y_dia
+) -> dict:
+    """
+    Envía un mensaje de texto con el resumen SIGO del período al grupo Telegram
+    del vendedor (o de todos).
+    Retorna {"enviados": [...], "errores": [...]}.
+    """
+    token = _get_bot_token(dist_id)
+    if not token:
+        raise ValueError(f"Distribuidor {dist_id} no tiene token_bot configurado")
+
+    date_from = sigo_data.get("date_from") or ""
+    date_to   = sigo_data.get("date_to") or ""
+    por_dia   = sigo_data.get("por_vendedor_y_dia") or []
+
+    if not por_dia:
+        return {"enviados": [], "errores": [{"vendedor": "—", "error": "sigo_data no contiene por_vendedor_y_dia"}]}
+
+    # Agrupar filas por vendedor (nombre del ERP tal como viene del SIGO)
+    vendor_rows_map: dict[str, list[dict]] = {}
+    for row in por_dia:
+        vname = (row.get("vendedor") or "").strip()
+        if not vname:
+            continue
+        vendor_rows_map.setdefault(vname, []).append(row)
+
+    # Si modo=uno necesitamos resolver el nombre ERP del vendedor por id_vendedor
+    def _resolve_erp_name_for_id(vid: int) -> str | None:
+        try:
+            from core.tenant_tables import tenant_table_name
+            t_vend = tenant_table_name("vendedores_v2", dist_id)
+            r = sb.table(t_vend).select("nombre_erp").eq("id_distribuidor", dist_id).eq("id_vendedor", vid).limit(1).execute()
+            rows = r.data or []
+            return rows[0].get("nombre_erp") if rows else None
+        except Exception:
+            return None
+
+    enviados: list[dict] = []
+    errores:  list[dict] = []
+
+    def _send_for_vendor(erp_name: str, real_id: int) -> None:
+        dia_rows = vendor_rows_map.get(erp_name)
+        if not dia_rows:
+            errores.append({"vendedor": erp_name, "error": "Sin datos SIGO para este vendedor"})
+            return
+        agg = _aggregate_sigo_for_vendor(dia_rows)
+        mensaje = _build_sigo_mensaje(erp_name, date_from, date_to, agg, mensaje_template)
+        chat_id = _get_telegram_chat_id(dist_id, real_id)
+        if not chat_id:
+            errores.append({"vendedor": erp_name, "error": "Sin grupo Telegram"})
+            return
+        ok = _send_text(token, chat_id, mensaje)
+        (enviados if ok else errores).append({
+            "vendedor": erp_name,
+            "error": None if ok else "Error al enviar mensaje",
+        })
+
+    if modo == "uno":
+        if id_vendedor is None:
+            return {"enviados": [], "errores": [{"vendedor": "—", "error": "modo=uno requiere id_vendedor"}]}
+        erp_name = _resolve_erp_name_for_id(id_vendedor)
+        if not erp_name:
+            return {"enviados": [], "errores": [{"vendedor": str(id_vendedor), "error": "Vendedor no encontrado en vendedores_v2"}]}
+        _send_for_vendor(erp_name, id_vendedor)
+    else:  # "todos"
+        # Obtener todos los vendedores del distribuidor para cruzar nombre→id_vendedor
+        try:
+            from core.tenant_tables import tenant_table_name
+            t_vend = tenant_table_name("vendedores_v2", dist_id)
+            vend_rows: list[dict] = []
+            offset = 0
+            while True:
+                batch = (
+                    sb.table(t_vend)
+                    .select("id_vendedor, nombre_erp")
+                    .eq("id_distribuidor", dist_id)
+                    .range(offset, offset + 999)
+                    .execute()
+                    .data or []
+                )
+                vend_rows.extend(batch)
+                if len(batch) < 1000:
+                    break
+                offset += 1000
+            name_to_id = {(v.get("nombre_erp") or "").strip(): v["id_vendedor"] for v in vend_rows if v.get("id_vendedor")}
+        except Exception as e:
+            logger.error(f"[SIGODifusion] fetch vendedores dist={dist_id}: {e}")
+            return {"enviados": [], "errores": [{"vendedor": "—", "error": f"Error al obtener vendedores: {e}"}]}
+
+        for erp_name in vendor_rows_map:
+            real_id = name_to_id.get(erp_name)
+            if not real_id:
+                errores.append({"vendedor": erp_name, "error": "id_vendedor no encontrado en vendedores_v2"})
+                continue
+            _send_for_vendor(erp_name, real_id)
+
+    return {"enviados": enviados, "errores": errores}
 
 
 # ─── Entry point para el router ───────────────────────────────────────────────

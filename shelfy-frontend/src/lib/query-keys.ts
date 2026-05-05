@@ -40,6 +40,8 @@ export const reportesKeys = {
   all: ['reportes'] as const,
   auditoriaSigo: (distId: number, desde: string, hasta: string) =>
     ['reportes', 'auditoria-sigo', distId, desde, hasta] as const,
+  sigoDetail: (distId: number) =>
+    ['reportes', 'sigo-detail', distId] as const,
   ventasResumen: (distId: number, desde: string, hasta: string) =>
     ['reportes', 'ventas-resumen', distId, desde, hasta] as const,
   ventasBultos: (distId: number, desde: string, hasta: string, proveedor?: string) =>

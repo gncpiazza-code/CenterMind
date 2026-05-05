@@ -4,6 +4,7 @@ Panel de supervisión: vendedores, rutas, clientes PDV, ventas, cuentas corrient
 objetivos, PDVs cercanos, evaluación de exhibiciones.
 """
 import io
+import json
 import logging
 import math
 import re
@@ -35,6 +36,52 @@ from models.schemas import EvaluarRequest, ObjetivoCreate, ObjetivoItemCreate, O
 
 logger = logging.getLogger("ShelfyAPI")
 router = APIRouter()
+
+
+def _iso_ts_latest(*candidates: object | None) -> str | None:
+    """El timestamp ISO más reciente entre candidatos (Postgres devuelve ISO ordenable)."""
+    best: str | None = None
+    for c in candidates:
+        if c is None:
+            continue
+        s = str(c).strip()
+        if not s:
+            continue
+        if best is None or s > best:
+            best = s
+    return best
+
+
+def _padron_global_last_ts_for_dist(dist_id: int) -> str | None:
+    """Último run padron_global OK cuyo payload incluyó este id_distribuidor."""
+    try:
+        res_g = (
+            sb.table("motor_runs")
+            .select("finalizado_en,iniciado_en,registros")
+            .eq("motor", "padron_global")
+            .eq("estado", "ok")
+            .order("finalizado_en", desc=True)
+            .limit(40)
+            .execute()
+        )
+        for row in res_g.data or []:
+            regs = row.get("registros")
+            if isinstance(regs, str):
+                try:
+                    regs = json.loads(regs)
+                except Exception:
+                    continue
+            if not isinstance(regs, dict):
+                continue
+            for did in regs.get("dist_ids") or []:
+                try:
+                    if int(did) == int(dist_id):
+                        return row.get("finalizado_en") or row.get("iniciado_en")
+                except (TypeError, ValueError):
+                    continue
+    except Exception as e:
+        logger.debug("[sync-status] padron_global lookup dist=%s: %s", dist_id, e)
+    return None
 
 
 def _norm_name(s) -> str:
@@ -2787,6 +2834,29 @@ def eliminar_objetivo(objetivo_id: str, user_payload=Depends(verify_auth)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ─── Watcher manual ───────────────────────────────────────────────────────────
+
+@router.post("/api/supervision/run-watcher/{dist_id}", tags=["Supervisión"])
+def run_watcher_manual(
+    dist_id: int,
+    obj_id: Optional[str] = Query(None, description="UUID del objetivo a procesar; si se omite procesa todos los activos"),
+    user_payload=Depends(verify_auth),
+):
+    """
+    Dispara el watcher de objetivos manualmente para un distribuidor.
+    Requiere permiso de superadmin o autenticación JWT del distribuidor.
+    Si se pasa obj_id, sólo procesa ese objetivo específico.
+    """
+    check_dist_permission(user_payload, dist_id)
+    try:
+        from services.objetivos_watcher_service import objetivos_watcher
+        result = objetivos_watcher.run_watcher(dist_id, obj_id=obj_id)
+        return result
+    except Exception as e:
+        logger.error(f"[run_watcher_manual] dist={dist_id} obj_id={obj_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ─── Actualizar Cuentas Corrientes (desde /supervision) ───────────────────────
 
 # Mapeo inverso dist_id → tenant_id para el procesamiento de CC
@@ -2919,8 +2989,10 @@ def supervision_sync_status(dist_id: int, user_payload=Depends(verify_auth)):
 
         padron_data: dict = {"last_updated": None, "count": 0}
         try:
-            # Fuente principal: última corrida exitosa del motor padrón para este distribuidor.
-            # Esto evita mostrar fechas viejas cuando la corrida fue "sin cambios" en filas.
+            # Señales de frescura del padrón (el badge debe alinearse con datos reales):
+            # - último motor_run padron OK por dist
+            # - último padron_global OK que procesó este dist (upload admin multi-tenant)
+            # - max(updated_at) en clientes_pdv_v2 (ingesta que tocó filas aunque motor_runs quedara viejo)
             run_ok = (
                 sb.table("motor_runs")
                 .select("finalizado_en,iniciado_en")
@@ -2931,14 +3003,10 @@ def supervision_sync_status(dist_id: int, user_payload=Depends(verify_auth)):
                 .limit(1)
                 .execute()
             )
-
+            run_ts: str | None = None
             if run_ok.data:
-                padron_data["last_updated"] = (
-                    run_ok.data[0].get("finalizado_en")
-                    or run_ok.data[0].get("iniciado_en")
-                )
+                run_ts = run_ok.data[0].get("finalizado_en") or run_ok.data[0].get("iniciado_en")
 
-            # Fallback legacy: última modificación real en tabla de padrón.
             res_p = (
                 sb.table(t_clientes)
                 .select("updated_at")
@@ -2946,9 +3014,12 @@ def supervision_sync_status(dist_id: int, user_payload=Depends(verify_auth)):
                 .limit(1)
                 .execute()
             )
+            cliente_ts: str | None = res_p.data[0]["updated_at"] if res_p.data else None
+
+            global_ts = _padron_global_last_ts_for_dist(dist_id)
+            padron_data["last_updated"] = _iso_ts_latest(run_ts, global_ts, cliente_ts)
+
             count_res = sb.table(t_clientes).select("id_cliente", count="exact").execute()
-            if (not padron_data["last_updated"]) and res_p.data:
-                padron_data["last_updated"] = res_p.data[0]["updated_at"]
             padron_data["count"] = count_res.count or 0
         except Exception as e:
             logger.warning(f"[sync-status] error leyendo padrón dist={dist_id}: {e}")

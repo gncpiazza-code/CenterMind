@@ -73,6 +73,89 @@ def get_ventas_bultos(id_distribuidor: int, desde: str = Query(...), hasta: str 
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/api/reports/sigo-detail/{dist_id}", tags=["Reports"])
+def get_sigo_detail(
+    dist_id: int,
+    snapshot_key: str = Query(None, description="Path en Storage sigo-rpa/{dist_id}/... (opcional; si se omite usa el más reciente)"),
+    date_from: str = Query("", description="YYYY-MM-DD; inferido del archivo si se omite"),
+    date_to: str   = Query("", description="YYYY-MM-DD; inferido del archivo si se omite"),
+    user_payload=Depends(verify_auth),
+):
+    """
+    Descarga el último (o un snapshot específico) xlsx SIGO de Storage y lo parsea.
+    Devuelve kpis, por_vendedor_y_dia, serie_temporal y top_vendedores.
+    """
+    check_dist_permission(user_payload, dist_id)
+
+    from services.reporting.parsers._normalization import read_excel_robust
+    from services.reporting.parsers.sigo_parser import parse_sigo
+
+    BUCKET = "Exhibiciones-PDV"
+    prefix = f"sigo-rpa/{dist_id}/"
+
+    try:
+        if snapshot_key:
+            path = snapshot_key
+        else:
+            # Listar archivos bajo el prefix y tomar el más reciente por nombre (timestamp en el path)
+            try:
+                files = sb.storage.from_(BUCKET).list(prefix)
+            except Exception:
+                files = []
+
+            # Flatten nested listing (Storage devuelve directamente archivos o carpetas según versión)
+            def _collect_paths(folder: str, depth: int = 0) -> list[str]:
+                if depth > 5:
+                    return []
+                try:
+                    items = sb.storage.from_(BUCKET).list(folder)
+                except Exception:
+                    return []
+                paths: list[str] = []
+                for item in (items or []):
+                    name = item.get("name", "")
+                    if not name:
+                        continue
+                    full = f"{folder}{name}" if folder.endswith("/") else f"{folder}/{name}"
+                    # Si no tiene extensión probablemente es carpeta
+                    if "." not in name.split("/")[-1]:
+                        paths.extend(_collect_paths(full + "/", depth + 1))
+                    else:
+                        paths.append(full)
+                return paths
+
+            all_paths = _collect_paths(prefix)
+            xlsx_paths = [p for p in all_paths if p.lower().endswith((".xlsx", ".xls"))]
+
+            if not xlsx_paths:
+                return {"disponible": False, "mensaje": "Sin datos SIGO para este distribuidor"}
+
+            # El más reciente: sort descendente por nombre (contiene timestamp YYYYMMDD_HHMMSS)
+            path = sorted(xlsx_paths, reverse=True)[0]
+
+        # Descargar archivo
+        try:
+            file_bytes: bytes = sb.storage.from_(BUCKET).download(path)
+        except Exception as dl_err:
+            logger.error(f"[sigo-detail] download dist={dist_id} path={path}: {dl_err}")
+            return {"disponible": False, "mensaje": f"No se pudo descargar el archivo: {dl_err}"}
+
+        if not file_bytes:
+            return {"disponible": False, "mensaje": "Archivo vacío en Storage"}
+
+        fname = path.split("/")[-1]
+        import pandas as pd
+        df = read_excel_robust(file_bytes, fname)
+        result = parse_sigo(df, date_from, date_to)
+        result["storage_path"] = path
+        result["disponible"] = True
+        return result
+
+    except Exception as e:
+        logger.error(f"[sigo-detail] dist={dist_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/api/reports/auditoria-sigo/{id_distribuidor}", tags=["Reports"])
 def get_auditoria_sigo(id_distribuidor: int, desde: str = Query(...), hasta: str = Query(...), user_payload=Depends(verify_auth)):
     check_dist_permission(user_payload, id_distribuidor)

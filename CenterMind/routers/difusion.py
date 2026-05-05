@@ -18,7 +18,7 @@ from pydantic import BaseModel
 from core.security import verify_auth, check_dist_permission
 from core.tenant_tables import tenant_table_name
 from db import sb
-from services.cc_difusion_service import difundir_cc_telegram
+from services.cc_difusion_service import difundir_cc_telegram, difundir_sigo_resumen_telegram
 
 logger = logging.getLogger("ShelfyAPI")
 router = APIRouter()
@@ -87,6 +87,90 @@ def difusion_cc_telegram(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"[difusion] cc-telegram dist={body.dist_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class DifusionSIGOTelegramRequest(BaseModel):
+    dist_id: int
+    modo: str                       # "uno" | "todos"
+    id_vendedor: Optional[int] = None
+    mensaje_template: str = ""
+    sigo_data: Optional[dict] = None  # resultado de parse_sigo(); si se omite, se descarga del Storage
+
+
+@router.post("/api/difusion/sigo-telegram", tags=["Difusión"])
+def difusion_sigo_telegram(
+    body: DifusionSIGOTelegramRequest,
+    user_payload=Depends(verify_auth),
+):
+    """
+    Envía un resumen de KPIs SIGO como mensaje de texto al grupo Telegram del vendedor (o de todos).
+    Si `sigo_data` se omite, descarga el último snapshot SIGO disponible en Storage para el distribuidor.
+    """
+    check_dist_permission(user_payload, body.dist_id)
+
+    if body.modo not in ("uno", "todos"):
+        raise HTTPException(status_code=400, detail="modo debe ser 'uno' o 'todos'")
+    if body.modo == "uno" and body.id_vendedor is None:
+        raise HTTPException(status_code=400, detail="id_vendedor requerido para modo='uno'")
+
+    sigo_data = body.sigo_data
+    if not sigo_data:
+        # Intentar cargar el snapshot más reciente de Storage
+        from db import sb
+        from services.reporting.parsers._normalization import read_excel_robust
+        from services.reporting.parsers.sigo_parser import parse_sigo
+
+        BUCKET = "Exhibiciones-PDV"
+        prefix = f"sigo-rpa/{body.dist_id}/"
+
+        def _collect_paths(folder: str, depth: int = 0) -> list[str]:
+            if depth > 5:
+                return []
+            try:
+                items = sb.storage.from_(BUCKET).list(folder)
+            except Exception:
+                return []
+            paths: list[str] = []
+            for item in (items or []):
+                name = item.get("name", "")
+                if not name:
+                    continue
+                full = f"{folder}{name}" if folder.endswith("/") else f"{folder}/{name}"
+                if "." not in name.split("/")[-1]:
+                    paths.extend(_collect_paths(full + "/", depth + 1))
+                else:
+                    paths.append(full)
+            return paths
+
+        xlsx_paths = [p for p in _collect_paths(prefix) if p.lower().endswith((".xlsx", ".xls"))]
+        if not xlsx_paths:
+            raise HTTPException(status_code=404, detail="Sin datos SIGO disponibles para este distribuidor")
+
+        path = sorted(xlsx_paths, reverse=True)[0]
+        try:
+            file_bytes: bytes = sb.storage.from_(BUCKET).download(path)
+        except Exception as dl_err:
+            logger.error(f"[difusion/sigo] download dist={body.dist_id}: {dl_err}")
+            raise HTTPException(status_code=500, detail=f"Error al descargar snapshot SIGO: {dl_err}")
+
+        fname = path.split("/")[-1]
+        df = read_excel_robust(file_bytes, fname)
+        sigo_data = parse_sigo(df, "", "")
+
+    try:
+        result = difundir_sigo_resumen_telegram(
+            dist_id=body.dist_id,
+            modo=body.modo,
+            id_vendedor=body.id_vendedor,
+            mensaje_template=body.mensaje_template,
+            sigo_data=sigo_data,
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"[difusion] sigo-telegram dist={body.dist_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

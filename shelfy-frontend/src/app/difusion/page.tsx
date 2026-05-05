@@ -3,10 +3,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Send, CreditCard, Users, AlertCircle, CheckCircle2,
   Loader2, Radio, Building2, ChevronDown, Target, Image, TrendingUp,
-  Clock, CalendarDays,
+  Clock, CalendarDays, BarChart2,
 } from "lucide-react";
 
 import { Sidebar } from "@/components/layout/Sidebar";
@@ -17,15 +18,19 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
   fetchDifusionVendedores, postDifusionCCTelegram,
   fetchVendedoresSupervision, fetchDifusionVendedorResumen,
+  fetchSigoDetail, postDifusionSIGOTelegram,
   type DifusionVendedor, type DifusionCCResult, type DifusionVendedorResumen,
+  type SigoDetailResponse, type DifusionSIGOResult,
 } from "@/lib/api";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 
 const PLANTILLAS = [
   {
@@ -47,6 +52,7 @@ export default function DifusionPage() {
   const router = useRouter();
   const distId = effectiveDistribuidorId ?? 0;
 
+  // ── CC state ──
   const [modo, setModo]               = useState<"uno" | "todos">("uno");
   const [sucursal, setSucursal]       = useState<string>("");
   const [idVendedor, setIdVendedor]   = useState<number | null>(null);
@@ -54,13 +60,18 @@ export default function DifusionPage() {
   const [result, setResult]           = useState<DifusionCCResult | null>(null);
   const [confirmando, setConfirmando] = useState(false);
 
+  // ── SIGO state ──
+  const [sigoModo, setSigoModo]       = useState<"uno" | "todos">("todos");
+  const [sigoSucursal, setSigoSucursal] = useState<string>("");
+  const [sigoVendedor, setSigoVendedor] = useState<number | null>(null);
+  const [sigoMensaje, setSigoMensaje] = useState("");
+  const [sigoResult, setSigoResult]   = useState<DifusionSIGOResult | null>(null);
+
   useEffect(() => {
-    if (!user) {
-      router.replace("/dashboard");
-    }
+    if (!user) router.replace("/dashboard");
   }, [user, router]);
 
-  // Vendedores base (para sucursales)
+  // ── Base vendors (for sucursal list) ──
   const { data: vendedoresBase = [], isLoading: loadingBase } = useQuery({
     queryKey: ["supervision-vendedores", distId],
     queryFn: () => fetchVendedoresSupervision(distId),
@@ -78,7 +89,7 @@ export default function DifusionPage() {
     return list.sort();
   }, [vendedoresBase]);
 
-  // Vendedores con binding Telegram para la sucursal seleccionada
+  // ── CC vendors ──
   const { data: vendedoresDifusion = [], isLoading: loadingVend } = useQuery<DifusionVendedor[]>({
     queryKey: ["difusion-vendedores", distId, sucursal],
     queryFn: () => fetchDifusionVendedores(distId, sucursal || undefined),
@@ -91,7 +102,6 @@ export default function DifusionPage() {
     [vendedoresDifusion]
   );
 
-  // Reset vendedor al cambiar sucursal
   useEffect(() => { setIdVendedor(null); }, [sucursal]);
 
   const selectedVend = useMemo(
@@ -99,7 +109,6 @@ export default function DifusionPage() {
     [vendedoresDifusion, idVendedor]
   );
 
-  // Resumen del vendedor seleccionado (CC + objetivos + exhibiciones)
   const { data: resumen, isLoading: loadingResumen } = useQuery<DifusionVendedorResumen>({
     queryKey: ["difusion-resumen", distId, idVendedor],
     queryFn: () => fetchDifusionVendedorResumen(distId, idVendedor!),
@@ -107,7 +116,35 @@ export default function DifusionPage() {
     staleTime: 2 * 60_000,
   });
 
-  const mutation = useMutation({
+  // ── SIGO data ──
+  const { data: sigoDetail, isLoading: sigoLoading } = useQuery<SigoDetailResponse>({
+    queryKey: ["sigo-detail-difusion", distId],
+    queryFn: () => fetchSigoDetail(distId),
+    enabled: !!distId,
+    staleTime: 5 * 60_000,
+  });
+
+  const { data: vendedoresSigo = [], isLoading: loadingSigoVend } = useQuery<DifusionVendedor[]>({
+    queryKey: ["difusion-vendedores-sigo", distId, sigoSucursal],
+    queryFn: () => fetchDifusionVendedores(distId, sigoSucursal || undefined),
+    enabled: !!distId,
+    staleTime: 5 * 60_000,
+  });
+
+  useEffect(() => { setSigoVendedor(null); }, [sigoSucursal]);
+
+  const sigoKpiAgg = useMemo(() => {
+    const rows = sigoDetail?.por_vendedor_y_dia ?? [];
+    return {
+      planeadas: rows.reduce((s, r) => s + r.planeadas, 0),
+      ejecutadas: rows.reduce((s, r) => s + r.ejecutadas, 0),
+      conVenta: rows.reduce((s, r) => s + r.con_venta, 0),
+      sinInfo: rows.reduce((s, r) => s + r.sin_info, 0),
+    };
+  }, [sigoDetail]);
+
+  // ── CC mutation ──
+  const ccMutation = useMutation({
     mutationFn: () =>
       postDifusionCCTelegram({
         dist_id: distId,
@@ -119,12 +156,8 @@ export default function DifusionPage() {
     onSuccess: (data) => {
       setResult(data);
       setConfirmando(false);
-      if (data.enviados.length > 0) {
-        toast.success(`✅ ${data.enviados.length} envío(s) completado(s)`);
-      }
-      if (data.errores.length > 0) {
-        toast.error(`⚠️ ${data.errores.length} envío(s) fallido(s)`);
-      }
+      if (data.enviados.length > 0) toast.success(`${data.enviados.length} envío(s) completado(s)`);
+      if (data.errores.length > 0) toast.error(`${data.errores.length} envío(s) fallido(s)`);
     },
     onError: (err: Error) => {
       setConfirmando(false);
@@ -132,9 +165,33 @@ export default function DifusionPage() {
     },
   });
 
-  const canSend =
-    !!distId &&
-    (modo === "todos" ? vendedoresConTelegram.length > 0 : !!idVendedor);
+  // ── SIGO mutation ──
+  const sigoMutation = useMutation({
+    mutationFn: () =>
+      postDifusionSIGOTelegram({
+        dist_id: distId,
+        modo: sigoModo,
+        id_vendedor: sigoModo === "uno" && sigoVendedor ? sigoVendedor : undefined,
+        mensaje_template: sigoMensaje || undefined,
+        sigo_data: sigoDetail,
+      }),
+    onSuccess: (data) => {
+      setSigoResult(data);
+      if (data.enviados.length > 0) toast.success(`${data.enviados.length} envío(s) completado(s)`);
+      if (data.errores.length > 0) toast.error(`${data.errores.length} envío(s) fallido(s)`);
+    },
+    onError: (err: Error) => {
+      toast.error(err.message || "Error al enviar SIGO");
+    },
+  });
+
+  const canSendCC =
+    !!distId && (modo === "todos" ? vendedoresConTelegram.length > 0 : !!idVendedor);
+
+  const canSendSigo =
+    !!distId && (sigoModo === "todos"
+      ? vendedoresSigo.filter((v) => v.tiene_telegram).length > 0
+      : !!sigoVendedor);
 
   if (!user) return null;
 
@@ -149,303 +206,510 @@ export default function DifusionPage() {
         <main className="flex-1 p-4 md:p-6 pb-28 md:pb-8 overflow-auto">
           <div className="max-w-2xl mx-auto flex flex-col gap-5">
 
-            {/* Header */}
-            <div>
-              <h2 className="text-lg font-black text-[var(--shelfy-text)] tracking-tight flex items-center gap-2">
-                <Radio className="w-5 h-5 text-[var(--shelfy-primary)]" />
-                Cuentas Corrientes vía Telegram
-              </h2>
-              <p className="text-xs text-[var(--shelfy-muted)] mt-1">
-                Enviá el PDF de CC activas al grupo Telegram del vendedor. El PDF incluye todos los clientes con deuda del snapshot más reciente.
-              </p>
-            </div>
+            <Tabs defaultValue="cc">
+              <TabsList className="w-full">
+                <TabsTrigger value="cc" className="flex-1 gap-1.5 text-xs">
+                  <CreditCard className="w-3.5 h-3.5" />
+                  Cuentas Corrientes
+                </TabsTrigger>
+                <TabsTrigger value="sigo" className="flex-1 gap-1.5 text-xs">
+                  <BarChart2 className="w-3.5 h-3.5" />
+                  SIGO
+                </TabsTrigger>
+              </TabsList>
 
-            {/* Selector de sucursal */}
-            <div className="rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] p-4 flex flex-col gap-3">
-              <div className="flex items-center gap-2 text-xs font-bold text-[var(--shelfy-text)] uppercase tracking-wide">
-                <Building2 className="w-3.5 h-3.5 text-amber-400" />
-                Sucursal
-              </div>
-              <Select value={sucursal || "__all__"} onValueChange={(v) => setSucursal(v === "__all__" ? "" : v)}>
-                <SelectTrigger className="h-9 text-sm bg-transparent border-[var(--shelfy-border)]">
-                  <SelectValue placeholder="Todas las sucursales" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__all__">Todas las sucursales</SelectItem>
-                  {sucursales.map((s) => (
-                    <SelectItem key={s} value={s}>{s}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+              {/* ──────────────────────────────────────────── */}
+              {/* TAB CC                                       */}
+              {/* ──────────────────────────────────────────── */}
+              <TabsContent value="cc" className="flex flex-col gap-5 mt-4">
+                <div>
+                  <h2 className="text-lg font-black text-[var(--shelfy-text)] tracking-tight flex items-center gap-2">
+                    <Radio className="w-5 h-5 text-[var(--shelfy-primary)]" />
+                    Cuentas Corrientes vía Telegram
+                  </h2>
+                  <p className="text-xs text-[var(--shelfy-muted)] mt-1">
+                    Enviá el PDF de CC activas al grupo Telegram del vendedor.
+                  </p>
+                </div>
 
-            {/* Modo: uno o todos */}
-            <div className="rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] p-4 flex flex-col gap-3">
-              <div className="flex items-center gap-2 text-xs font-bold text-[var(--shelfy-text)] uppercase tracking-wide">
-                <Users className="w-3.5 h-3.5 text-violet-400" />
-                Destinatarios
-              </div>
-
-              {/* Tab: uno / todos */}
-              <div className="flex rounded-xl overflow-hidden border border-[var(--shelfy-border)]">
-                {(["uno", "todos"] as const).map((m) => (
-                  <button
-                    key={m}
-                    className={`flex-1 py-2.5 text-xs font-semibold transition-colors ${
-                      modo === m
-                        ? "bg-[var(--shelfy-primary)]/20 text-[var(--shelfy-primary)]"
-                        : "text-[var(--shelfy-muted)]"
-                    }`}
-                    onClick={() => { setModo(m); setResult(null); }}
-                  >
-                    {m === "uno" ? "Un vendedor" : "Todos"}
-                  </button>
-                ))}
-              </div>
-
-              {/* Selector de vendedor (modo uno) */}
-              {modo === "uno" && (
-                loadingVend ? (
-                  <Skeleton className="h-9 w-full rounded-lg" />
-                ) : (
-                  <Select
-                    value={idVendedor ? String(idVendedor) : ""}
-                    onValueChange={(v) => setIdVendedor(Number(v))}
-                  >
+                {/* Sucursal */}
+                <div className="rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] p-4 flex flex-col gap-3">
+                  <div className="flex items-center gap-2 text-xs font-bold text-[var(--shelfy-text)] uppercase tracking-wide">
+                    <Building2 className="w-3.5 h-3.5 text-amber-400" />
+                    Sucursal
+                  </div>
+                  <Select value={sucursal || "__all__"} onValueChange={(v) => setSucursal(v === "__all__" ? "" : v)}>
                     <SelectTrigger className="h-9 text-sm bg-transparent border-[var(--shelfy-border)]">
-                      <SelectValue placeholder="Elegí un vendedor..." />
+                      <SelectValue placeholder="Todas las sucursales" />
                     </SelectTrigger>
                     <SelectContent>
-                      {vendedoresDifusion.map((v) => (
-                        <SelectItem key={v.id_vendedor} value={String(v.id_vendedor)}>
-                          <span className={v.tiene_telegram ? "text-foreground" : "text-muted-foreground line-through"}>
-                            {v.nombre_erp}
-                          </span>
-                          {!v.tiene_telegram && (
-                            <span className="ml-2 text-[10px] text-muted-foreground">(sin Telegram)</span>
-                          )}
-                        </SelectItem>
+                      <SelectItem value="__all__">Todas las sucursales</SelectItem>
+                      {sucursales.map((s) => (
+                        <SelectItem key={s} value={s}>{s}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
-                )
-              )}
-
-              {/* Info modo todos */}
-              {modo === "todos" && (
-                <div className="flex items-center gap-2 text-xs text-[var(--shelfy-muted)] bg-[var(--shelfy-bg)] rounded-lg px-3 py-2 border border-[var(--shelfy-border)]">
-                  <Users className="w-3.5 h-3.5 shrink-0" />
-                  {loadingVend ? (
-                    <span>Cargando...</span>
-                  ) : (
-                    <span>
-                      {vendedoresConTelegram.length} vendedor{vendedoresConTelegram.length !== 1 ? "es" : ""} con grupo Telegram
-                      {vendedoresDifusion.length > vendedoresConTelegram.length && (
-                        <> · <span className="text-amber-400">{vendedoresDifusion.length - vendedoresConTelegram.length} sin Telegram (se omiten)</span></>
-                      )}
-                    </span>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Card resumen vendedor seleccionado */}
-            {modo === "uno" && idVendedor && (
-              <div className="rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden">
-                <div className="px-4 py-2.5 border-b border-[var(--shelfy-border)]/50 flex items-center gap-2">
-                  <TrendingUp className="w-3.5 h-3.5 text-violet-400" />
-                  <span className="text-xs font-bold text-[var(--shelfy-text)] uppercase tracking-wide">
-                    Seguimiento — {selectedVend?.nombre_erp ?? "…"}
-                  </span>
-                  {!selectedVend?.tiene_telegram && (
-                    <Badge variant="outline" className="ml-auto text-[10px] border-amber-500/40 text-amber-400">Sin Telegram</Badge>
-                  )}
                 </div>
 
-                {loadingResumen ? (
-                  <div className="p-4 grid grid-cols-3 gap-3">
-                    {[0,1,2].map(i => <Skeleton key={i} className="h-16 rounded-xl" />)}
+                {/* Modo */}
+                <div className="rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] p-4 flex flex-col gap-3">
+                  <div className="flex items-center gap-2 text-xs font-bold text-[var(--shelfy-text)] uppercase tracking-wide">
+                    <Users className="w-3.5 h-3.5 text-violet-400" />
+                    Destinatarios
                   </div>
-                ) : resumen ? (
-                  <div className="p-4 flex flex-col gap-3">
-                    {/* CC */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                      <div className="rounded-xl bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] px-3 py-2.5 flex flex-col gap-0.5">
-                        <span className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide flex items-center gap-1">
-                          <CreditCard className="w-3 h-3" />Deuda CC
-                        </span>
-                        <span className="text-sm font-black text-amber-400 tabular-nums">
-                          {resumen.cc.cantidad_clientes > 0
-                            ? `$${resumen.cc.deuda_total.toLocaleString("es-AR", { maximumFractionDigits: 0 })}`
-                            : "Sin deuda"}
-                        </span>
-                        {resumen.cc.cantidad_clientes > 0 && (
-                          <span className="text-[10px] text-[var(--shelfy-muted)]">{resumen.cc.cantidad_clientes} cliente{resumen.cc.cantidad_clientes !== 1 ? "s" : ""}</span>
+                  <div className="flex rounded-xl overflow-hidden border border-[var(--shelfy-border)]">
+                    {(["uno", "todos"] as const).map((m) => (
+                      <button
+                        key={m}
+                        className={cn(
+                          "flex-1 py-2.5 text-xs font-semibold transition-colors",
+                          modo === m
+                            ? "bg-[var(--shelfy-primary)]/20 text-[var(--shelfy-primary)]"
+                            : "text-[var(--shelfy-muted)]"
                         )}
-                      </div>
-                      <div className="rounded-xl bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] px-3 py-2.5 flex flex-col gap-0.5">
-                        <span className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide flex items-center gap-1">
-                          <Clock className="w-3 h-3" />Antigüedad
-                        </span>
-                        {resumen.cc.antiguedad_max != null ? (
-                          <>
-                            <span className={`text-sm font-black tabular-nums ${resumen.cc.antiguedad_max >= 60 ? "text-rose-400" : resumen.cc.antiguedad_max >= 30 ? "text-amber-400" : "text-emerald-400"}`}>
-                              {resumen.cc.antiguedad_max}d máx
-                            </span>
-                            <span className="text-[10px] text-[var(--shelfy-muted)]">{resumen.cc.antiguedad_min}d mín</span>
-                          </>
-                        ) : (
-                          <span className="text-sm font-black text-[var(--shelfy-muted)]">—</span>
-                        )}
-                      </div>
-                      <div className="rounded-xl bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] px-3 py-2.5 flex flex-col gap-0.5">
-                        <span className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide flex items-center gap-1">
-                          <Target className="w-3 h-3" />Objetivos
-                        </span>
-                        <span className={`text-sm font-black tabular-nums ${resumen.objetivos.total_abiertos > 0 ? "text-violet-400" : "text-[var(--shelfy-muted)]"}`}>
-                          {resumen.objetivos.total_abiertos} abierto{resumen.objetivos.total_abiertos !== 1 ? "s" : ""}
-                        </span>
-                        {Object.entries(resumen.objetivos.por_tipo).length > 0 && (
-                          <span className="text-[10px] text-[var(--shelfy-muted)] truncate">
-                            {Object.entries(resumen.objetivos.por_tipo).map(([t, n]) => `${n} ${t}`).join(" · ")}
-                          </span>
-                        )}
-                      </div>
-                      <div className="rounded-xl bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] px-3 py-2.5 flex flex-col gap-0.5">
-                        <span className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide flex items-center gap-1">
-                          <Image className="w-3 h-3" />Exhibiciones
-                        </span>
-                        <span className="text-sm font-black tabular-nums text-emerald-400">
-                          {resumen.exhibiciones.aprobadas} aprob.
-                        </span>
-                        <span className="text-[10px] text-[var(--shelfy-muted)]">
-                          {resumen.exhibiciones.pendientes} pend. · mes {resumen.exhibiciones.mes_actual.replace("-", "/")}
-                        </span>
-                      </div>
-                    </div>
-                    {resumen.cc.fecha_snapshot && (
-                      <div className="flex items-center gap-1.5 text-[10px] text-[var(--shelfy-muted)]">
-                        <CalendarDays className="w-3 h-3" />
-                        Snapshot CC: {resumen.cc.fecha_snapshot.slice(0, 10).split("-").reverse().join("/")}
-                      </div>
-                    )}
-                  </div>
-                ) : null}
-              </div>
-            )}
-
-            {/* Mensaje */}
-            <div className="rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] p-4 flex flex-col gap-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-xs font-bold text-[var(--shelfy-text)] uppercase tracking-wide">
-                  <Send className="w-3.5 h-3.5 text-sky-400" />
-                  Mensaje
-                </div>
-                <Select
-                  value=""
-                  onValueChange={(v) => {
-                    const t = PLANTILLAS.find((p) => p.label === v);
-                    if (t) setMensaje(t.text);
-                  }}
-                >
-                  <SelectTrigger className="h-7 text-[11px] w-auto gap-1 bg-transparent border-[var(--shelfy-border)] pr-2">
-                    <ChevronDown className="w-3 h-3" />
-                    <SelectValue placeholder="Plantillas" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {PLANTILLAS.map((p) => (
-                      <SelectItem key={p.label} value={p.label} className="text-xs">{p.label}</SelectItem>
+                        onClick={() => { setModo(m); setResult(null); }}
+                      >
+                        {m === "uno" ? "Un vendedor" : "Todos"}
+                      </button>
                     ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <textarea
-                value={mensaje}
-                onChange={(e) => setMensaje(e.target.value)}
-                rows={4}
-                placeholder="Mensaje adicional que acompañará al PDF (opcional)..."
-                className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-xl px-3 py-2.5 text-sm text-[var(--shelfy-text)] placeholder:text-[var(--shelfy-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--shelfy-primary)]/50 resize-none"
-              />
-            </div>
+                  </div>
 
-            {/* Preview del PDF */}
-            <div className="rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] px-4 py-3 flex items-start gap-3">
-              <CreditCard className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
-              <div className="text-xs text-[var(--shelfy-muted)] leading-relaxed">
-                El PDF incluirá: <span className="text-[var(--shelfy-text)] font-semibold">nombre del vendedor, fecha del snapshot, total de deuda</span> y una tabla con todos sus clientes deudores (cliente · días · deuda). Se adjuntará junto al mensaje en el grupo Telegram.
-              </div>
-            </div>
+                  {modo === "uno" && (
+                    loadingVend ? (
+                      <Skeleton className="h-9 w-full rounded-lg" />
+                    ) : (
+                      <Select
+                        value={idVendedor ? String(idVendedor) : ""}
+                        onValueChange={(v) => setIdVendedor(Number(v))}
+                      >
+                        <SelectTrigger className="h-9 text-sm bg-transparent border-[var(--shelfy-border)]">
+                          <SelectValue placeholder="Elegí un vendedor..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {vendedoresDifusion.map((v) => (
+                            <SelectItem key={v.id_vendedor} value={String(v.id_vendedor)}>
+                              <span className={v.tiene_telegram ? "text-foreground" : "text-muted-foreground line-through"}>
+                                {v.nombre_erp}
+                              </span>
+                              {!v.tiene_telegram && (
+                                <span className="ml-2 text-[10px] text-muted-foreground">(sin Telegram)</span>
+                              )}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )
+                  )}
 
-            {/* Confirmación modo todos */}
-            {modo === "todos" && !confirmando && !mutation.isPending && (
-              <Alert className="border-amber-500/30 bg-amber-500/8 text-amber-800">
-                <AlertCircle className="h-4 w-4 text-amber-500" />
-                <AlertTitle className="text-xs font-bold">Envío masivo</AlertTitle>
-                <AlertDescription className="text-xs">
-                  Se enviará un PDF a <strong>{vendedoresConTelegram.length}</strong> grupos de Telegram. Esta acción no se puede deshacer.
-                </AlertDescription>
-              </Alert>
-            )}
+                  {modo === "todos" && (
+                    <div className="flex items-center gap-2 text-xs text-[var(--shelfy-muted)] bg-[var(--shelfy-bg)] rounded-lg px-3 py-2 border border-[var(--shelfy-border)]">
+                      <Users className="w-3.5 h-3.5 shrink-0" />
+                      {loadingVend ? (
+                        <span>Cargando...</span>
+                      ) : (
+                        <span>
+                          {vendedoresConTelegram.length} vendedor{vendedoresConTelegram.length !== 1 ? "es" : ""} con grupo Telegram
+                          {vendedoresDifusion.length > vendedoresConTelegram.length && (
+                            <> · <span className="text-amber-400">{vendedoresDifusion.length - vendedoresConTelegram.length} sin Telegram (se omiten)</span></>
+                          )}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
 
-            {/* Botón */}
-            <div className="flex gap-3">
-              {modo === "todos" && !confirmando && !mutation.isPending ? (
-                <Button
-                  className="flex-1 gap-2"
-                  variant="outline"
-                  disabled={!canSend}
-                  onClick={() => setConfirmando(true)}
-                >
-                  <Send className="w-4 h-4" />
-                  Confirmar envío masivo
-                </Button>
-              ) : (
-                <Button
-                  className="flex-1 gap-2"
-                  disabled={!canSend || mutation.isPending}
-                  onClick={() => { setResult(null); mutation.mutate(); }}
-                >
-                  {mutation.isPending ? (
-                    <><Loader2 className="w-4 h-4 animate-spin" /> Enviando...</>
+                {/* Resumen vendedor */}
+                {modo === "uno" && idVendedor && (
+                  <div className="rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden">
+                    <div className="px-4 py-2.5 border-b border-[var(--shelfy-border)]/50 flex items-center gap-2">
+                      <TrendingUp className="w-3.5 h-3.5 text-violet-400" />
+                      <span className="text-xs font-bold text-[var(--shelfy-text)] uppercase tracking-wide">
+                        Seguimiento — {selectedVend?.nombre_erp ?? "…"}
+                      </span>
+                      {!selectedVend?.tiene_telegram && (
+                        <Badge variant="outline" className="ml-auto text-[10px] border-amber-500/40 text-amber-400">Sin Telegram</Badge>
+                      )}
+                    </div>
+
+                    {loadingResumen ? (
+                      <div className="p-4 grid grid-cols-3 gap-3">
+                        {[0, 1, 2].map((i) => <Skeleton key={i} className="h-16 rounded-xl" />)}
+                      </div>
+                    ) : resumen ? (
+                      <div className="p-4 flex flex-col gap-3">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                          <div className="rounded-xl bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] px-3 py-2.5 flex flex-col gap-0.5">
+                            <span className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide flex items-center gap-1">
+                              <CreditCard className="w-3 h-3" />Deuda CC
+                            </span>
+                            <span className="text-sm font-black text-amber-400 tabular-nums">
+                              {resumen.cc.cantidad_clientes > 0
+                                ? `$${resumen.cc.deuda_total.toLocaleString("es-AR", { maximumFractionDigits: 0 })}`
+                                : "Sin deuda"}
+                            </span>
+                            {resumen.cc.cantidad_clientes > 0 && (
+                              <span className="text-[10px] text-[var(--shelfy-muted)]">
+                                {resumen.cc.cantidad_clientes} cliente{resumen.cc.cantidad_clientes !== 1 ? "s" : ""}
+                              </span>
+                            )}
+                          </div>
+                          <div className="rounded-xl bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] px-3 py-2.5 flex flex-col gap-0.5">
+                            <span className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide flex items-center gap-1">
+                              <Clock className="w-3 h-3" />Antigüedad
+                            </span>
+                            {resumen.cc.antiguedad_max != null ? (
+                              <>
+                                <span className={cn(
+                                  "text-sm font-black tabular-nums",
+                                  resumen.cc.antiguedad_max >= 60 ? "text-rose-400" :
+                                  resumen.cc.antiguedad_max >= 30 ? "text-amber-400" : "text-emerald-400"
+                                )}>
+                                  {resumen.cc.antiguedad_max}d máx
+                                </span>
+                                <span className="text-[10px] text-[var(--shelfy-muted)]">{resumen.cc.antiguedad_min}d mín</span>
+                              </>
+                            ) : (
+                              <span className="text-sm font-black text-[var(--shelfy-muted)]">—</span>
+                            )}
+                          </div>
+                          <div className="rounded-xl bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] px-3 py-2.5 flex flex-col gap-0.5">
+                            <span className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide flex items-center gap-1">
+                              <Target className="w-3 h-3" />Objetivos
+                            </span>
+                            <span className={cn(
+                              "text-sm font-black tabular-nums",
+                              resumen.objetivos.total_abiertos > 0 ? "text-violet-400" : "text-[var(--shelfy-muted)]"
+                            )}>
+                              {resumen.objetivos.total_abiertos} abierto{resumen.objetivos.total_abiertos !== 1 ? "s" : ""}
+                            </span>
+                            {Object.entries(resumen.objetivos.por_tipo).length > 0 && (
+                              <span className="text-[10px] text-[var(--shelfy-muted)] truncate">
+                                {Object.entries(resumen.objetivos.por_tipo).map(([t, n]) => `${n} ${t}`).join(" · ")}
+                              </span>
+                            )}
+                          </div>
+                          <div className="rounded-xl bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] px-3 py-2.5 flex flex-col gap-0.5">
+                            <span className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide flex items-center gap-1">
+                              <Image className="w-3 h-3" />Exhibiciones
+                            </span>
+                            <span className="text-sm font-black tabular-nums text-emerald-400">
+                              {resumen.exhibiciones.aprobadas} aprob.
+                            </span>
+                            <span className="text-[10px] text-[var(--shelfy-muted)]">
+                              {resumen.exhibiciones.pendientes} pend. · mes {resumen.exhibiciones.mes_actual.replace("-", "/")}
+                            </span>
+                          </div>
+                        </div>
+                        {resumen.cc.fecha_snapshot && (
+                          <div className="flex items-center gap-1.5 text-[10px] text-[var(--shelfy-muted)]">
+                            <CalendarDays className="w-3 h-3" />
+                            Snapshot CC: {resumen.cc.fecha_snapshot.slice(0, 10).split("-").reverse().join("/")}
+                          </div>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+                )}
+
+                {/* Mensaje */}
+                <div className="rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] p-4 flex flex-col gap-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-xs font-bold text-[var(--shelfy-text)] uppercase tracking-wide">
+                      <Send className="w-3.5 h-3.5 text-sky-400" />
+                      Mensaje
+                    </div>
+                    <Select
+                      value=""
+                      onValueChange={(v) => {
+                        const t = PLANTILLAS.find((p) => p.label === v);
+                        if (t) setMensaje(t.text);
+                      }}
+                    >
+                      <SelectTrigger className="h-7 text-[11px] w-auto gap-1 bg-transparent border-[var(--shelfy-border)] pr-2">
+                        <ChevronDown className="w-3 h-3" />
+                        <SelectValue placeholder="Plantillas" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {PLANTILLAS.map((p) => (
+                          <SelectItem key={p.label} value={p.label} className="text-xs">{p.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <textarea
+                    value={mensaje}
+                    onChange={(e) => setMensaje(e.target.value)}
+                    rows={4}
+                    placeholder="Mensaje adicional que acompañará al PDF (opcional)..."
+                    className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-xl px-3 py-2.5 text-sm text-[var(--shelfy-text)] placeholder:text-[var(--shelfy-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--shelfy-primary)]/50 resize-none"
+                  />
+                </div>
+
+                {/* Preview PDF */}
+                <div className="rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] px-4 py-3 flex items-start gap-3">
+                  <CreditCard className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
+                  <div className="text-xs text-[var(--shelfy-muted)] leading-relaxed">
+                    El PDF incluirá: <span className="text-[var(--shelfy-text)] font-semibold">nombre del vendedor, fecha del snapshot, total de deuda</span> y una tabla con todos sus clientes deudores. Se adjuntará junto al mensaje en el grupo Telegram.
+                  </div>
+                </div>
+
+                {modo === "todos" && !confirmando && !ccMutation.isPending && (
+                  <Alert className="border-amber-500/30 bg-amber-500/8 text-amber-800">
+                    <AlertCircle className="h-4 w-4 text-amber-500" />
+                    <AlertTitle className="text-xs font-bold">Envío masivo</AlertTitle>
+                    <AlertDescription className="text-xs">
+                      Se enviará un PDF a <strong>{vendedoresConTelegram.length}</strong> grupos de Telegram.
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                <div className="flex gap-3">
+                  {modo === "todos" && !confirmando && !ccMutation.isPending ? (
+                    <Button
+                      className="flex-1 gap-2"
+                      variant="outline"
+                      disabled={!canSendCC}
+                      onClick={() => setConfirmando(true)}
+                    >
+                      <Send className="w-4 h-4" />
+                      Confirmar envío masivo
+                    </Button>
                   ) : (
-                    <><Send className="w-4 h-4" /> Enviar{modo === "todos" ? " a todos" : ""}</>
+                    <Button
+                      className="flex-1 gap-2"
+                      disabled={!canSendCC || ccMutation.isPending}
+                      onClick={() => { setResult(null); ccMutation.mutate(); }}
+                    >
+                      {ccMutation.isPending ? (
+                        <><Loader2 className="w-4 h-4 animate-spin" /> Enviando...</>
+                      ) : (
+                        <><Send className="w-4 h-4" /> Enviar{modo === "todos" ? " a todos" : ""}</>
+                      )}
+                    </Button>
+                  )}
+                  {confirmando && (
+                    <Button variant="outline" onClick={() => setConfirmando(false)}>Cancelar</Button>
+                  )}
+                </div>
+
+                {result && (
+                  <div className="rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden">
+                    <div className="px-4 py-3 border-b border-[var(--shelfy-border)]/50 flex items-center gap-2">
+                      <span className="text-xs font-bold text-[var(--shelfy-text)]">Resultado del envío</span>
+                      {result.fecha_snapshot && (
+                        <Badge variant="outline" className="text-[10px]">
+                          Snapshot: {result.fecha_snapshot.slice(0, 10).split("-").reverse().join("/")}
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="divide-y divide-[var(--shelfy-border)]/30">
+                      {result.enviados.map((r, i) => (
+                        <div key={i} className="flex items-center gap-2 px-4 py-2.5 text-xs">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                          <span className="text-[var(--shelfy-text)] font-medium truncate">{r.vendedor}</span>
+                          <span className="text-emerald-400 ml-auto shrink-0">Enviado</span>
+                        </div>
+                      ))}
+                      {result.errores.map((r, i) => (
+                        <div key={i} className="flex items-center gap-2 px-4 py-2.5 text-xs">
+                          <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                          <span className="text-[var(--shelfy-muted)] font-medium truncate">{r.vendedor}</span>
+                          <span className="text-rose-400 ml-auto shrink-0 max-w-[120px] truncate">{r.error}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </TabsContent>
+
+              {/* ──────────────────────────────────────────── */}
+              {/* TAB SIGO                                     */}
+              {/* ──────────────────────────────────────────── */}
+              <TabsContent value="sigo" className="flex flex-col gap-5 mt-4">
+                <div>
+                  <h2 className="text-lg font-black text-[var(--shelfy-text)] tracking-tight flex items-center gap-2">
+                    <Radio className="w-5 h-5 text-[var(--shelfy-primary)]" />
+                    Resumen SIGO de visitas vía Telegram
+                  </h2>
+                  <p className="text-xs text-[var(--shelfy-muted)] mt-1">
+                    Enviá el resumen de visitas SIGO al grupo Telegram del vendedor.
+                  </p>
+                </div>
+
+                {/* Sucursal SIGO */}
+                <div className="rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] p-4 flex flex-col gap-3">
+                  <div className="flex items-center gap-2 text-xs font-bold text-[var(--shelfy-text)] uppercase tracking-wide">
+                    <Building2 className="w-3.5 h-3.5 text-amber-400" />
+                    Sucursal
+                  </div>
+                  <Select
+                    value={sigoSucursal || "__all__"}
+                    onValueChange={(v) => setSigoSucursal(v === "__all__" ? "" : v)}
+                  >
+                    <SelectTrigger className="h-9 text-sm bg-transparent border-[var(--shelfy-border)]">
+                      <SelectValue placeholder="Todas las sucursales" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__all__">Todas las sucursales</SelectItem>
+                      {sucursales.map((s) => (
+                        <SelectItem key={s} value={s}>{s}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  {/* Modo */}
+                  <div className="flex items-center gap-2 text-xs font-bold text-[var(--shelfy-text)] uppercase tracking-wide mt-1">
+                    <Users className="w-3.5 h-3.5 text-violet-400" />
+                    Destinatarios
+                  </div>
+                  <div className="flex rounded-xl overflow-hidden border border-[var(--shelfy-border)]">
+                    {(["todos", "uno"] as const).map((m) => (
+                      <button
+                        key={m}
+                        className={cn(
+                          "flex-1 py-2.5 text-xs font-semibold transition-colors",
+                          sigoModo === m
+                            ? "bg-[var(--shelfy-primary)]/20 text-[var(--shelfy-primary)]"
+                            : "text-[var(--shelfy-muted)]"
+                        )}
+                        onClick={() => { setSigoModo(m); setSigoVendedor(null); setSigoResult(null); }}
+                      >
+                        {m === "todos" ? "Todos" : "Un vendedor"}
+                      </button>
+                    ))}
+                  </div>
+
+                  {sigoModo === "uno" && (
+                    loadingSigoVend ? (
+                      <Skeleton className="h-9 w-full rounded-lg" />
+                    ) : (
+                      <Select
+                        value={sigoVendedor ? String(sigoVendedor) : ""}
+                        onValueChange={(v) => setSigoVendedor(Number(v))}
+                      >
+                        <SelectTrigger className="h-9 text-sm bg-transparent border-[var(--shelfy-border)]">
+                          <SelectValue placeholder="Elegí un vendedor..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {vendedoresSigo.filter((v) => v.tiene_telegram).map((v) => (
+                            <SelectItem key={v.id_vendedor} value={String(v.id_vendedor)} className="text-xs">
+                              {v.nombre_erp}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )
+                  )}
+                </div>
+
+                {/* Mensaje adicional */}
+                <div className="rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] p-4 flex flex-col gap-3">
+                  <div className="flex items-center gap-2 text-xs font-bold text-[var(--shelfy-text)] uppercase tracking-wide">
+                    <Send className="w-3.5 h-3.5 text-sky-400" />
+                    Mensaje adicional (opcional)
+                  </div>
+                  <textarea
+                    value={sigoMensaje}
+                    onChange={(e) => setSigoMensaje(e.target.value)}
+                    rows={3}
+                    placeholder="Mensaje extra que acompañará al resumen SIGO..."
+                    className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-xl px-3 py-2.5 text-sm text-[var(--shelfy-text)] placeholder:text-[var(--shelfy-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--shelfy-primary)]/50 resize-none"
+                  />
+                </div>
+
+                {/* Preview */}
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.25 }}
+                  className="rounded-2xl border border-violet-200 bg-violet-50/40 p-4 flex flex-col gap-1.5 text-sm text-[var(--shelfy-text)]"
+                >
+                  <p className="text-[10px] font-black uppercase tracking-widest text-violet-600 mb-1">Preview del mensaje</p>
+                  {sigoLoading ? (
+                    <div className="space-y-2">
+                      <Skeleton className="h-4 w-48 rounded" />
+                      <Skeleton className="h-4 w-36 rounded" />
+                      <Skeleton className="h-4 w-40 rounded" />
+                    </div>
+                  ) : (
+                    <>
+                      <p>📊 <strong>Resumen SIGO</strong></p>
+                      <p>🏃 Visitados: <strong>{sigoKpiAgg.ejecutadas}</strong> / {sigoKpiAgg.planeadas} planeados</p>
+                      <p>💰 Con venta: <strong>{sigoKpiAgg.conVenta}</strong></p>
+                      <p>⏰ Sin info: <strong>{sigoKpiAgg.sinInfo}</strong></p>
+                      {sigoMensaje && (
+                        <p className="text-[var(--shelfy-muted)] italic text-xs mt-1">"{sigoMensaje}"</p>
+                      )}
+                    </>
+                  )}
+                </motion.div>
+
+                {/* Botón difundir */}
+                <Button
+                  className="w-full gap-2"
+                  disabled={!canSendSigo || sigoMutation.isPending}
+                  onClick={() => { setSigoResult(null); sigoMutation.mutate(); }}
+                >
+                  {sigoMutation.isPending ? (
+                    <><Loader2 className="w-4 h-4 animate-spin" />Enviando...</>
+                  ) : (
+                    <><Send className="w-4 h-4" />Difundir</>
                   )}
                 </Button>
-              )}
-              {confirmando && (
-                <Button variant="outline" onClick={() => setConfirmando(false)}>Cancelar</Button>
-              )}
-            </div>
 
-            {/* Resultado */}
-            {result && (
-              <div className="rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden">
-                <div className="px-4 py-3 border-b border-[var(--shelfy-border)]/50 flex items-center gap-2">
-                  <span className="text-xs font-bold text-[var(--shelfy-text)]">Resultado del envío</span>
-                  {result.fecha_snapshot && (
-                    <Badge variant="outline" className="text-[10px]">
-                      Snapshot: {result.fecha_snapshot.slice(0, 10).split("-").reverse().join("/")}
-                    </Badge>
+                {/* Resultados SIGO */}
+                <AnimatePresence>
+                  {sigoResult && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0 }}
+                      className="rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden"
+                    >
+                      <div className="px-4 py-3 border-b border-[var(--shelfy-border)]/50 flex items-center gap-2">
+                        <span className="text-xs font-bold text-[var(--shelfy-text)]">Resultado del envío SIGO</span>
+                        <Badge variant="outline" className="text-[10px] text-emerald-600 border-emerald-300">
+                          {sigoResult.enviados.length} OK
+                        </Badge>
+                        {sigoResult.errores.length > 0 && (
+                          <Badge variant="outline" className="text-[10px] text-rose-500 border-rose-300">
+                            {sigoResult.errores.length} error
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="divide-y divide-[var(--shelfy-border)]/30">
+                        {sigoResult.enviados.map((r, i) => (
+                          <motion.div
+                            key={`ok-${i}`}
+                            initial={{ opacity: 0, x: -6 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ delay: i * 0.04 }}
+                            className="flex items-center gap-2 px-4 py-2.5 text-xs"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                            <span className="text-[var(--shelfy-text)] font-medium truncate">{r.vendedor}</span>
+                            <span className="text-emerald-400 ml-auto shrink-0">Enviado</span>
+                          </motion.div>
+                        ))}
+                        {sigoResult.errores.map((r, i) => (
+                          <motion.div
+                            key={`err-${i}`}
+                            initial={{ opacity: 0, x: -6 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ delay: i * 0.04 }}
+                            className="flex items-center gap-2 px-4 py-2.5 text-xs"
+                          >
+                            <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                            <span className="text-[var(--shelfy-muted)] font-medium truncate">{r.vendedor}</span>
+                            <span className="text-rose-400 ml-auto shrink-0 max-w-[120px] truncate">{r.error}</span>
+                          </motion.div>
+                        ))}
+                      </div>
+                    </motion.div>
                   )}
-                </div>
-                <div className="divide-y divide-[var(--shelfy-border)]/30">
-                  {result.enviados.map((r, i) => (
-                    <div key={i} className="flex items-center gap-2 px-4 py-2.5 text-xs">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                      <span className="text-[var(--shelfy-text)] font-medium truncate">{r.vendedor}</span>
-                      <span className="text-emerald-400 ml-auto shrink-0">Enviado</span>
-                    </div>
-                  ))}
-                  {result.errores.map((r, i) => (
-                    <div key={i} className="flex items-center gap-2 px-4 py-2.5 text-xs">
-                      <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
-                      <span className="text-[var(--shelfy-muted)] font-medium truncate">{r.vendedor}</span>
-                      <span className="text-rose-400 ml-auto shrink-0 max-w-[120px] truncate">{r.error}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+                </AnimatePresence>
+              </TabsContent>
+            </Tabs>
 
           </div>
         </main>

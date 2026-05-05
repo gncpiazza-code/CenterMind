@@ -2165,3 +2165,69 @@ export async function exportReporteria(jobId: string, formato: "xlsx" | "pdf" | 
   }
   return res.blob();
 }
+
+// ── SIGO Detail ───────────────────────────────────────────────────────────────
+
+export interface SigoVendorDia {
+  vendedor: string;
+  fecha: string;
+  planeadas: number;
+  ejecutadas: number;
+  sin_visita: number;
+  con_venta: number;
+  motivo_no_venta: number;
+  sin_info: number;
+  hora_primera_visita: string | null;
+  hora_primera_venta: string | null;
+  tiempo_promedio_venta_min: number | null;
+}
+
+export interface SigoDetailResponse {
+  disponible: boolean;
+  mensaje?: string;
+  kpis?: Array<{ label: string; value: number; unit?: string }>;
+  por_vendedor_y_dia?: SigoVendorDia[];
+  serie_temporal?: Array<{ fecha: string; valor: number }>;
+  top_vendedores?: Array<{ nombre: string; valor: number }>;
+  date_from?: string;
+  date_to?: string;
+}
+
+export async function fetchSigoDetail(distId: number): Promise<SigoDetailResponse> {
+  return apiFetch<SigoDetailResponse>(`/api/reports/sigo-detail/${distId}`);
+}
+
+export async function exportSigoDetail(distId: number): Promise<Blob> {
+  const token = typeof window !== "undefined" ? localStorage.getItem(TOKEN_KEY) : null;
+  const res = await fetch(`${API_URL}/api/reports/sigo-detail/${distId}/export`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    handleSessionExpired401(`/api/reports/sigo-detail/${distId}/export`, res.status);
+    throw new Error("Error exportando SIGO");
+  }
+  return res.blob();
+}
+
+// ── DIFusión SIGO ─────────────────────────────────────────────────────────────
+
+export interface DifusionSIGORequest {
+  dist_id: number;
+  modo: "uno" | "todos";
+  id_vendedor?: number;
+  mensaje_template?: string;
+  sigo_data?: SigoDetailResponse;
+}
+
+export interface DifusionSIGOResult {
+  enviados: Array<{ ok: boolean; vendedor: string; error?: string }>;
+  errores: Array<{ ok: boolean; vendedor: string; error?: string }>;
+}
+
+export async function postDifusionSIGOTelegram(req: DifusionSIGORequest): Promise<DifusionSIGOResult> {
+  return apiFetch<DifusionSIGOResult>("/api/difusion/sigo-telegram", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
+}

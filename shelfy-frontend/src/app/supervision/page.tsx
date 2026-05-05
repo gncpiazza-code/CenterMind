@@ -37,7 +37,7 @@ import {
 } from "@/components/ui/table";
 import {
   CreditCard, Users,
-  Clock, AlertTriangle, CheckCircle2, Map as MapIcon, Printer, ArrowUpDown,
+  Clock, AlertTriangle, CheckCircle2, Map as MapIcon, Printer, ArrowUpDown, Hash,
 } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
@@ -409,16 +409,21 @@ export default function SupervisionPage() {
                       <Table>
                         <TableHeader>
                           <TableRow className="text-[10px]">
-                            <TableHead className="pl-5 w-[40%]">Cliente</TableHead>
+                            <TableHead className="pl-5 w-[36%]">Cliente</TableHead>
                             <TableHead className="text-right">Deuda</TableHead>
                             <TableHead className="text-right">Antig.</TableHead>
+                            <TableHead className="text-right">
+                              <span className="flex items-center justify-end gap-0.5">
+                                <Hash size={9} />Cbtés.
+                              </span>
+                            </TableHead>
                             <TableHead className="text-right pr-5">Rango</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
                           {clientesOrdenados.map((c, idx) => (
                             <TableRow key={`${c.cliente ?? "x"}-${idx}`} className="text-xs">
-                              <TableCell className="pl-5 font-medium truncate max-w-[140px]">
+                              <TableCell className="pl-5 font-medium truncate max-w-[130px]">
                                 {c.cliente ?? "—"}
                               </TableCell>
                               <TableCell className="text-right font-mono text-[11px] text-rose-600 font-semibold">
@@ -426,6 +431,9 @@ export default function SupervisionPage() {
                               </TableCell>
                               <TableCell className="text-right text-muted-foreground">
                                 {c.antiguedad != null ? `${c.antiguedad}d` : "—"}
+                              </TableCell>
+                              <TableCell className="text-right text-muted-foreground font-mono text-[11px]">
+                                {c.cantidad_comprobantes ?? "—"}
                               </TableCell>
                               <TableCell className="text-right pr-5">
                                 {c.rango_antiguedad ? (

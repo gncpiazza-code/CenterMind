@@ -128,9 +128,11 @@ Layout conservado (overlay-based): barra superior semitransparente + barra infer
 ### 3b. Difusión — CC vía Telegram (May 2026)
 - **Ruta**: `/difusion` — página nueva en `app/difusion/page.tsx`.
 - **Acceso**: roles `superadmin`, `admin`, `directorio`. Entrada en `TopModeTabs` y `BottomNav` (icono `Radio`).
-- **Flujo UI**: selector de sucursal → modo (un vendedor / todos) → selector de vendedor (con indicador de tiene/no tiene Telegram) → textarea de mensaje con 3 plantillas → botón Enviar (con confirmación doble en modo "todos") → resultado inline (filas OK/error por vendedor).
-- **API frontend**: `fetchDifusionVendedores(distId, sucursal?)` → `DifusionVendedor[]`; `postDifusionCCTelegram(body)` → `DifusionCCResult`.
-- **Backend**: `POST /api/difusion/cc-telegram` llama `difundir_cc_telegram()` en `services/cc_difusion_service.py`. Genera PDF (reportlab tabla clientes+deuda) y envía via `sendDocument`. Fallback: texto plano si reportlab no disponible.
+- **Flujo UI**: selector de sucursal → modo (un vendedor / todos) → selector de vendedor (con indicador de tiene/no tiene Telegram) → textarea de mensaje con 3 plantillas → **"Ver preview y enviar"** (modo "todos") abre `Dialog` de preview antes de confirmar → resultado inline (filas OK/error por vendedor).
+- **Preview Dialog**: tabla vendedor ERP ↔ grupo Telegram con flags `ok | sin_grupo | duplicado | sin_cc`. Bloquea el botón "Confirmar y enviar" si hay `duplicate_group` salvo checkbox de override. Los títulos de grupos se obtienen con `getChat` API (cache TTL 30 min en memoria).
+- **API frontend**: `fetchDifusionVendedores(distId, sucursal?)` → `DifusionVendedor[]`; `postDifusionCCTelegram(body)` → `DifusionCCResult`; `postDifusionCCTelegramPreview(body)` → `DifusionPreviewResult`.
+- **Backend**: `POST /api/difusion/cc-telegram` llama `difundir_cc_telegram()`. `POST /api/difusion/cc-telegram/preview` llama `planificar_envios_cc_telegram()` (función pura sin efectos Telegram). Ambos en `routers/difusion.py` + `services/cc_difusion_service.py`.
+- **Columna Comprobantes en Panel Analítico** (`/supervision`): columna "Cbtés." añadida a la tabla CC — muestra `cantidad_comprobantes` de `cc_detalle`.
 
 ### 4. Matriz de Permisos (RBAC)
 - **UI**: Tabla de doble entrada (Rol vs Permiso) ubicada en `/admin/permissions`.

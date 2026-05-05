@@ -46,9 +46,11 @@ PARTICULARIDADES VERIFICADAS EN VIVO:
 import asyncio
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
@@ -61,6 +63,7 @@ from playwright.async_api import (
 from lib.logger import get_logger
 from lib.hash_guard import es_duplicado, guardar_hash
 from lib.api_client import subir_ventas, subir_ventas_analytics
+from lib.chess_document_types import seleccionar_tipos_documento_normalizado
 
 from motores.cuentas_corrientes import (
     TENANTS as _CC_TENANTS,
@@ -171,6 +174,63 @@ async def _screenshot_error(page: Page, tenant_id: str, paso: str) -> None:
 # (_hacer_login, _cerrar_popup_nexty importados).
 
 
+def _substring_busqueda_empresa_chess(nombre_legal: str) -> str:
+    """Texto para matchear mat-option Empresa en CHESS (evita 'Tabaco Hnos' vs 'Tabaco & Hnos S.R.L.')."""
+    cleaned = re.sub(r"[^\w\s&]", " ", nombre_legal or "")
+    words = [w for w in cleaned.split() if len(w) > 2][:4]
+    if not words:
+        return (nombre_legal or "EMPRESA")[:28].strip()
+    _W2_SKIP = frozenset({"hnos", "srl", "distribuidores", "oficiales", "oficial"})
+    if len(words) >= 2 and words[1].lower() not in _W2_SKIP:
+        return f"{words[0]} {words[1]}"
+    return words[0]
+
+
+async def _configurar_empresa_comprobantes(page: Page, tenant: dict) -> None:
+    """
+    Solo **Real**: el reporte multicompañía deja Empresas en placeholder y Procesar no avanza.
+    Otros tenants (Tabaco, Aloma, Liver) ya vienen con empresa usable; no tocar el combo.
+    """
+    if tenant.get("id") != "real":
+        return
+    try:
+        combo = page.get_by_role("combobox", name=re.compile(r"empresas?\b", re.I)).first
+        await combo.wait_for(state="visible", timeout=15_000)
+    except Exception:
+        logger.info("  Empresas: combobox no encontrado — omitido")
+        return
+    try:
+        raw = (await combo.inner_text()).strip().replace("\n", " ")
+    except Exception:
+        return
+    norm = re.sub(r"\s+", " ", raw.lower()).strip()
+    _PLACE = frozenset({"", "empresas", "empresa", "seleccioná", "selecciona", "seleccionar"})
+    need_pick = (not norm) or (norm in _PLACE) or ("todas" in norm)
+    if not need_pick:
+        logger.info(f"  Empresas: valor actual ({raw[:56]}...) — sin cambios")
+        return
+
+    needle = _substring_busqueda_empresa_chess(tenant.get("nombre") or "")
+    if not needle:
+        logger.warning("  Empresas: sin nombre de tenant para matchear opción")
+        return
+    logger.info(f"  Configurando Empresa (CHESS) buscando opción que contenga '{needle}'...")
+    try:
+        await combo.click()
+        await page.wait_for_timeout(500)
+        opt = page.locator("mat-option").filter(has_text=re.compile(re.escape(needle), re.I)).first
+        await opt.wait_for(state="visible", timeout=TIMEOUT_MS)
+        await opt.click()
+        await page.keyboard.press("Escape")
+        await page.wait_for_timeout(400)
+        logger.info("  ✅ Empresa seleccionada")
+    except Exception as e:
+        logger.warning(f"  No se pudo seleccionar Empresa automáticamente: {e}")
+        for _ in range(4):
+            await page.keyboard.press("Escape")
+            await page.wait_for_timeout(250)
+
+
 # ─────────────────────────────────────────────────────────────────
 # PASO 4: CONFIGURAR SUCURSAL (solo Real Tabacalera)
 # ─────────────────────────────────────────────────────────────────
@@ -249,6 +309,33 @@ async def _completar_fechas(page: Page, fecha_desde: str, fecha_hasta: str) -> N
 # PASO 6: PROCESAR Y DETECTAR RESULTADO
 # ─────────────────────────────────────────────────────────────────
 
+async def _esperar_post_procesar_chess(page: Page, timeout_sec: float = 240.0) -> str:
+    """
+    Tras clic en Procesar: modal de export, grilla con filas, o botón Redefinir.
+    En algunos tenants la grilla aparece sin que el botón pase a 'Redefinir' de inmediato.
+    Devuelve: 'modal' | 'grilla' | 'redefinir' | 'timeout'.
+    """
+    t0 = time.monotonic()
+    while time.monotonic() - t0 < timeout_sec:
+        try:
+            if await page.locator("kendo-dialog mat-radio-button").first.is_visible():
+                return "modal"
+        except Exception:
+            pass
+        try:
+            if await page.locator('button.btn.btn-primary.margin-boton:has-text("Redefinir")').is_visible():
+                return "redefinir"
+        except Exception:
+            pass
+        try:
+            if await page.locator(".ag-row").count() > 0:
+                return "grilla"
+        except Exception:
+            pass
+        await page.wait_for_timeout(400)
+    return "timeout"
+
+
 async def _abrir_modal_exportacion(page: Page) -> None:
     """
     Hace clic en Procesar (o en el botón fa-file-download de la grilla)
@@ -263,38 +350,74 @@ async def _abrir_modal_exportacion(page: Page) -> None:
     Los radio buttons mat-radio-button son el indicador de que el modal está listo.
     """
     logger.info("  Procesando consulta...")
-    await page.locator('button.btn.btn-primary.margin-boton').click()
+    for _ in range(1):
+        await page.keyboard.press("Escape")
+        await page.wait_for_timeout(120)
+    # CHESS/Angular: el nombre accesible no siempre matchea get_by_role("Procesar").
+    btn_procesar = page.locator("button.btn.btn-primary.margin-boton").filter(
+        has_text=re.compile(r"procesar", re.I)
+    ).first
+    await btn_procesar.wait_for(state="visible", timeout=TIMEOUT_MS)
+    await btn_procesar.scroll_into_view_if_needed()
+    try:
+        await btn_procesar.click(timeout=15_000)
+    except Exception:
+        await btn_procesar.click(force=True, timeout=15_000)
 
-    # Esperar que el botón cambie a "Redefinir" — indica que la consulta terminó
-    logger.info("  Esperando resultado de la consulta...")
-    try:
-        await page.locator('button.btn.btn-primary.margin-boton:has-text("Redefinir")').wait_for(
-            state="visible", timeout=60_000
-        )
-        logger.info("  Consulta completada")
-    except Exception:
-        pass  # Puede que el modal haya aparecido antes
-# Verificar si el modal ya está visible (caso >1000 registros)
-    try:
-        # Filtro de texto agregado 👇
-        await page.locator('kendo-dialog').filter(has_text="Exportación").wait_for(state="visible", timeout=3_000)
-        logger.info("  Modal de exportación visible (>1.000 registros)")
-        # Esperar que los radios estén listos
-        await page.locator('mat-radio-button').first.wait_for(state="visible", timeout=10_000)
+    _post_sec = float(os.environ.get("CHESS_VENTAS_POST_PROCESAR_SEC", "240"))
+    logger.info(f"  Esperando resultado de la consulta (modal, grilla o Redefinir, hasta {_post_sec:.0f}s)...")
+    post = await _esperar_post_procesar_chess(page, timeout_sec=_post_sec)
+    if post == "modal":
+        logger.info("  Modal de exportación visible (consulta / >1k)")
         return
-    except Exception:
-        pass
+    if post == "grilla":
+        logger.info("  Grilla con datos — abriendo exportación vía toolbar")
+        await page.wait_for_timeout(800)
+    elif post == "redefinir":
+        logger.info("  Consulta completada")
+        await page.wait_for_timeout(2000)
+    else:
+        logger.warning("  Timeout sin modal/Redefinir/grilla — intentando modal y grilla")
+        await page.wait_for_timeout(2000)
+
+    _MODAL_MS = 35_000
+    if post != "grilla":
+        try:
+            await page.locator("kendo-dialog mat-radio-button").first.wait_for(
+                state="visible", timeout=_MODAL_MS
+            )
+            logger.info("  Modal de exportación visible (radios listos)")
+            return
+        except Exception:
+            pass
+        try:
+            dlg = page.locator("kendo-dialog").filter(has_text=re.compile(r"exportaci", re.I))
+            await dlg.wait_for(state="visible", timeout=min(8_000, _MODAL_MS))
+            await dlg.locator("mat-radio-button").first.wait_for(state="visible", timeout=10_000)
+            logger.info("  Modal de exportación visible (título Exportación)")
+            return
+        except Exception:
+            pass
 
     # Si no hay modal, estamos en modo grilla (<=1000 registros)
-    # Clickear el botón fa-file-download para abrir el modal
     logger.info("  Modo grilla (<=1.000 reg) — abriendo modal via fa-file-download...")
-    btn_download = page.locator('button:has(i.fa-file-download)').first
-    await btn_download.wait_for(state="visible", timeout=TIMEOUT_MS)
+    try:
+        await page.locator(".ag-root").wait_for(state="visible", timeout=20_000)
+    except Exception:
+        logger.warning("  Grilla .ag-root no visible en 20s — sigue búsqueda del botón descarga")
+
+    btn_download = (
+        page.locator('button:has(i[class*="fa-file-download"])')
+        .or_(page.locator('button:has(svg[class*="fa-file-download"])'))
+        .or_(page.locator("button:has(i.fa-file-download)"))
+        .first
+    )
+    await btn_download.wait_for(state="visible", timeout=90_000)
     await btn_download.click()
 
-    # Esperar que el modal aparezca (Filtro de texto agregado 👇)
-    await page.locator('kendo-dialog').filter(has_text="Exportación").wait_for(state="visible", timeout=TIMEOUT_MS)
-    await page.locator('mat-radio-button').first.wait_for(state="visible", timeout=10_000)
+    dlg_post = page.locator("kendo-dialog").filter(has_text=re.compile(r"exportaci", re.I))
+    await dlg_post.wait_for(state="visible", timeout=60_000)
+    await dlg_post.locator("mat-radio-button").first.wait_for(state="visible", timeout=10_000)
     logger.info("  Modal de exportación abierto via grilla ✅")
     
 
@@ -536,6 +659,18 @@ async def _procesar_tenant(
             await _cerrar_accesos_concurrentes(page)
             await page.locator('#mat-input-5').wait_for(state="visible", timeout=TIMEOUT_MS)
             logger.info("  ✅ Reporte cargado")
+
+            # ── Empresa (Real y otros multicompañía: placeholder bloquea Procesar) ──
+            await _configurar_empresa_comprobantes(page, tenant)
+
+            # ── Tipos de documento (solo Real; orden alineado a scripts/ventas_real_caramele_debug_v1: antes de sucursal)
+            if tenant_id == "real":
+                try:
+                    marcados = await seleccionar_tipos_documento_normalizado(page, None)
+                    if marcados:
+                        logger.info(f"  Tipos documento: {len(marcados)} grupo(s) marcados")
+                except Exception as e:
+                    logger.warning(f"  Tipos documento (no bloqueante): {e}")
 
             # ── Configurar sucursal (solo Real Tabacalera) ────────
             await _configurar_sucursal(page, tenant["sucursal"])

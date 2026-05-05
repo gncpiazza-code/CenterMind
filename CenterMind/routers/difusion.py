@@ -18,7 +18,11 @@ from pydantic import BaseModel
 from core.security import verify_auth, check_dist_permission
 from core.tenant_tables import tenant_table_name
 from db import sb
-from services.cc_difusion_service import difundir_cc_telegram, difundir_sigo_resumen_telegram
+from services.cc_difusion_service import (
+    difundir_cc_telegram,
+    difundir_sigo_resumen_telegram,
+    planificar_envios_cc_telegram,
+)
 
 logger = logging.getLogger("ShelfyAPI")
 router = APIRouter()
@@ -87,6 +91,33 @@ def difusion_cc_telegram(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"[difusion] cc-telegram dist={body.dist_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/difusion/cc-telegram/preview", tags=["Difusión"])
+def difusion_cc_telegram_preview(
+    body: DifusionCCTelegramRequest,
+    user_payload=Depends(verify_auth),
+):
+    """
+    Devuelve los envíos planificados sin disparar nada.
+    Permite al supervisor ver el cruce vendedor ERP ↔ grupo Telegram antes
+    de confirmar el envío masivo, y detectar grupos duplicados.
+    """
+    check_dist_permission(user_payload, body.dist_id)
+    if body.modo not in ("uno", "todos"):
+        raise HTTPException(status_code=400, detail="modo debe ser 'uno' o 'todos'")
+    try:
+        result = planificar_envios_cc_telegram(
+            dist_id=body.dist_id,
+            modo=body.modo,
+            id_vendedor=body.id_vendedor,
+            sucursal=body.sucursal,
+            fecha=body.fecha,
+        )
+        return result
+    except Exception as e:
+        logger.error(f"[difusion] cc-preview dist={body.dist_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

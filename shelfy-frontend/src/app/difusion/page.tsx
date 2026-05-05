@@ -7,7 +7,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Send, CreditCard, Users, AlertCircle, CheckCircle2,
   Loader2, Radio, Building2, ChevronDown, Target, Image, TrendingUp,
-  Clock, CalendarDays, BarChart2, BookOpen,
+  Clock, CalendarDays, BarChart2, BookOpen, Eye, AlertTriangle,
+  MessageSquare, ShieldAlert, Bot,
 } from "lucide-react";
 
 import { Sidebar } from "@/components/layout/Sidebar";
@@ -26,9 +27,14 @@ import {
   fetchDifusionVendedores, postDifusionCCTelegram,
   fetchVendedoresSupervision, fetchDifusionVendedorResumen,
   fetchSigoDetail, postDifusionSIGOTelegram,
+  postDifusionCCTelegramPreview,
   type DifusionVendedor, type DifusionCCResult, type DifusionVendedorResumen,
-  type SigoDetailResponse, type DifusionSIGOResult,
+  type SigoDetailResponse, type DifusionSIGOResult, type DifusionPreviewResult,
+  type DifusionPreviewItem,
 } from "@/lib/api";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
+} from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { CCDifusionGuiaDialog } from "@/components/onboarding/CCDifusionGuiaDialog";
@@ -60,6 +66,13 @@ export default function DifusionPage() {
   const [mensaje, setMensaje]         = useState(PLANTILLAS[0].text);
   const [result, setResult]           = useState<DifusionCCResult | null>(null);
   const [confirmando, setConfirmando] = useState(false);
+
+  // ── Preview modal state ──
+  const [previewOpen, setPreviewOpen]           = useState(false);
+  const [previewData, setPreviewData]           = useState<DifusionPreviewResult | null>(null);
+  const [previewLoading, setPreviewLoading]     = useState(false);
+  const [previewError, setPreviewError]         = useState<string | null>(null);
+  const [conflictOverride, setConflictOverride] = useState(false);
 
   // ── SIGO state ──
   const [sigoModo, setSigoModo]       = useState<"uno" | "todos">("todos");
@@ -191,6 +204,33 @@ export default function DifusionPage() {
 
   const canSendCC =
     !!distId && (modo === "todos" ? vendedoresConTelegram.length > 0 : !!idVendedor);
+
+  async function openPreview() {
+    setPreviewLoading(true);
+    setPreviewError(null);
+    setPreviewData(null);
+    setConflictOverride(false);
+    setPreviewOpen(true);
+    try {
+      const data = await postDifusionCCTelegramPreview({
+        dist_id: distId,
+        modo,
+        id_vendedor: modo === "uno" ? idVendedor : null,
+        sucursal: sucursal || null,
+      });
+      setPreviewData(data);
+    } catch (e: unknown) {
+      setPreviewError(e instanceof Error ? e.message : "Error al cargar preview");
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
+
+  function confirmFromPreview() {
+    setPreviewOpen(false);
+    setResult(null);
+    ccMutation.mutate();
+  }
 
   const canSendSigo =
     !!distId && (sigoModo === "todos"
@@ -469,26 +509,27 @@ export default function DifusionPage() {
                   </div>
                 </div>
 
-                {modo === "todos" && !confirmando && !ccMutation.isPending && (
-                  <Alert className="border-amber-500/30 bg-amber-500/8 text-amber-800">
+                {modo === "todos" && !ccMutation.isPending && (
+                  <Alert className="border-amber-500/30 bg-amber-500/8">
                     <AlertCircle className="h-4 w-4 text-amber-500" />
-                    <AlertTitle className="text-xs font-bold">Envío masivo</AlertTitle>
-                    <AlertDescription className="text-xs">
+                    <AlertTitle className="text-xs font-bold text-amber-800">Envío masivo</AlertTitle>
+                    <AlertDescription className="text-xs text-amber-700">
                       Se enviará un PDF a <strong>{vendedoresConTelegram.length}</strong> grupos de Telegram.
+                      Revisá el preview antes de confirmar.
                     </AlertDescription>
                   </Alert>
                 )}
 
                 <div className="flex gap-3">
-                  {modo === "todos" && !confirmando && !ccMutation.isPending ? (
+                  {modo === "todos" ? (
                     <Button
                       className="flex-1 gap-2"
                       variant="outline"
-                      disabled={!canSendCC}
-                      onClick={() => setConfirmando(true)}
+                      disabled={!canSendCC || ccMutation.isPending}
+                      onClick={openPreview}
                     >
-                      <Send className="w-4 h-4" />
-                      Confirmar envío masivo
+                      <Eye className="w-4 h-4" />
+                      Ver preview y enviar
                     </Button>
                   ) : (
                     <Button
@@ -499,12 +540,9 @@ export default function DifusionPage() {
                       {ccMutation.isPending ? (
                         <><Loader2 className="w-4 h-4 animate-spin" /> Enviando...</>
                       ) : (
-                        <><Send className="w-4 h-4" /> Enviar{modo === "todos" ? " a todos" : ""}</>
+                        <><Send className="w-4 h-4" /> Enviar</>
                       )}
                     </Button>
-                  )}
-                  {confirmando && (
-                    <Button variant="outline" onClick={() => setConfirmando(false)}>Cancelar</Button>
                   )}
                 </div>
 
@@ -732,6 +770,168 @@ export default function DifusionPage() {
       </div>
 
       <CCDifusionGuiaDialog open={guiaOpen} onOpenChange={setGuiaOpen} />
+
+      {/* ── Preview Dialog ───────────────────────────────────── */}
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-hidden flex flex-col gap-0 p-0">
+          <DialogHeader className="px-5 pt-5 pb-3 border-b border-[var(--shelfy-border)]">
+            <DialogTitle className="flex items-center gap-2 text-sm font-bold">
+              <Eye className="w-4 h-4 text-violet-500" />
+              Preview de envíos — CC Telegram
+            </DialogTitle>
+            <DialogDescription className="text-xs text-[var(--shelfy-muted)]">
+              Revisá el cruce vendedor&nbsp;↔&nbsp;grupo antes de enviar. Los conflictos bloquean el envío masivo.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-auto px-5 py-4">
+            {previewLoading && (
+              <div className="flex flex-col gap-2">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <div key={i} className="h-10 rounded-xl bg-muted/40 animate-pulse" />
+                ))}
+              </div>
+            )}
+
+            {previewError && (
+              <Alert variant="destructive" className="text-xs">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>Error al cargar preview</AlertTitle>
+                <AlertDescription>{previewError}</AlertDescription>
+              </Alert>
+            )}
+
+            {previewData && (
+              <div className="flex flex-col gap-4">
+                {/* Metadata */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  {previewData.fecha_snapshot && (
+                    <Badge variant="outline" className="text-[10px] gap-1">
+                      <CalendarDays className="w-3 h-3" />
+                      Snapshot: {previewData.fecha_snapshot.slice(0, 10).split("-").reverse().join("/")}
+                    </Badge>
+                  )}
+                  <Badge variant="outline" className="text-[10px] gap-1">
+                    <Users className="w-3 h-3" />
+                    {previewData.envios.length} envíos planificados
+                  </Badge>
+                  {previewData.tiene_conflictos && (
+                    <Badge className="text-[10px] gap-1 bg-rose-500/15 text-rose-600 border-rose-300">
+                      <ShieldAlert className="w-3 h-3" />
+                      Conflictos detectados
+                    </Badge>
+                  )}
+                </div>
+
+                {/* Conflict warning */}
+                {previewData.tiene_conflictos && (
+                  <Alert className="border-rose-400/40 bg-rose-500/8">
+                    <ShieldAlert className="h-4 w-4 text-rose-500" />
+                    <AlertTitle className="text-xs font-bold text-rose-700">Grupos Telegram duplicados</AlertTitle>
+                    <AlertDescription className="text-xs text-rose-600 flex flex-col gap-2">
+                      Dos o más vendedores comparten el mismo grupo. Corregí los bindings en Fuerza de Ventas antes de enviar.
+                      <label className="flex items-center gap-2 mt-1 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          className="accent-rose-500"
+                          checked={conflictOverride}
+                          onChange={(e) => setConflictOverride(e.target.checked)}
+                        />
+                        <span className="font-semibold">Entiendo el riesgo y quiero enviar igual (superadmin)</span>
+                      </label>
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                {/* Envíos table */}
+                <div className="rounded-xl border border-[var(--shelfy-border)] overflow-hidden">
+                  <div className="grid grid-cols-[1fr_64px_80px_1fr_72px] text-[10px] font-bold uppercase tracking-wide text-[var(--shelfy-muted)] bg-muted/30 px-3 py-2 border-b border-[var(--shelfy-border)]">
+                    <span>Vendedor ERP</span>
+                    <span className="text-right">Clientes</span>
+                    <span className="text-right">Deuda</span>
+                    <span className="pl-3">Grupo Telegram</span>
+                    <span className="text-right">Estado</span>
+                  </div>
+                  <div className="divide-y divide-[var(--shelfy-border)]/50 max-h-[340px] overflow-auto">
+                    {previewData.envios.map((e: DifusionPreviewItem, i: number) => {
+                      const hasProblem = e.flags.missing_group || e.flags.empty_cc || e.flags.duplicate_group;
+                      return (
+                        <div
+                          key={i}
+                          className={cn(
+                            "grid grid-cols-[1fr_64px_80px_1fr_72px] px-3 py-2.5 text-xs items-center",
+                            hasProblem ? "bg-rose-500/4" : "bg-transparent",
+                          )}
+                        >
+                          <span className="font-medium truncate text-[var(--shelfy-text)]">
+                            {e.vendedor_nombre}
+                          </span>
+                          <span className="text-right tabular-nums text-[var(--shelfy-muted)]">
+                            {e.clientes_count}
+                          </span>
+                          <span className="text-right tabular-nums font-mono text-[11px] text-rose-500 font-semibold">
+                            {e.deuda_total > 0
+                              ? `$${Math.round(e.deuda_total).toLocaleString("es-AR")}`
+                              : "—"}
+                          </span>
+                          <span className="pl-3 truncate flex items-center gap-1.5">
+                            {e.flags.missing_group ? (
+                              <span className="text-amber-500 flex items-center gap-1">
+                                <AlertTriangle className="w-3 h-3 shrink-0" /> Sin grupo
+                              </span>
+                            ) : (
+                              <>
+                                <Bot className="w-3 h-3 text-violet-400 shrink-0" />
+                                <span className="truncate text-[var(--shelfy-text)]">
+                                  {e.telegram_title ?? String(e.telegram_group_id)}
+                                </span>
+                              </>
+                            )}
+                          </span>
+                          <span className="text-right">
+                            {e.flags.duplicate_group ? (
+                              <Badge className="text-[9px] bg-rose-500/15 text-rose-600 border-rose-300">Duplicado</Badge>
+                            ) : e.flags.missing_group ? (
+                              <Badge className="text-[9px] bg-amber-500/15 text-amber-600 border-amber-300">Sin grupo</Badge>
+                            ) : e.flags.empty_cc ? (
+                              <Badge className="text-[9px] bg-slate-500/15 text-slate-500 border-slate-300">Sin CC</Badge>
+                            ) : (
+                              <Badge className="text-[9px] bg-emerald-500/15 text-emerald-600 border-emerald-300">OK</Badge>
+                            )}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="px-5 py-4 border-t border-[var(--shelfy-border)] flex gap-2 flex-row justify-end">
+            <Button variant="outline" size="sm" onClick={() => setPreviewOpen(false)} className="h-8 text-xs">
+              Cancelar
+            </Button>
+            <Button
+              size="sm"
+              className="h-8 text-xs gap-1.5"
+              disabled={
+                previewLoading ||
+                !previewData ||
+                previewData.envios.length === 0 ||
+                (previewData.tiene_conflictos && !conflictOverride)
+              }
+              onClick={confirmFromPreview}
+            >
+              {ccMutation.isPending ? (
+                <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Enviando...</>
+              ) : (
+                <><Send className="w-3.5 h-3.5" /> Confirmar y enviar</>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

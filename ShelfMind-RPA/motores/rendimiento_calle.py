@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -25,6 +26,8 @@ DEBUG_ARTIFACTS = os.environ.get("RENDCALLE_DEBUG_ARTIFACTS", "true").lower() in
 TIMEOUT_MS = 30_000
 URL_LOGIN = "https://portal.nextbyn.com/"
 URL_SIGO = "https://portal.nextbyn.com/modulos/mapas/sigo.aspx"
+# Input DevExpress del combo Sucursal en popup "Entorno de trabajo" (mismo id que motores/sigo.py).
+_ENTORNO_SUC_I = "ContentPlaceHolder2_Popup_cmbxSucursal_I"
 
 TENANTS = [
     {"id": "aloma", "nombre": "ALOMA (ALOMA S. R. L.)", "user_key": "rendcalle_aloma_usuario", "pass_key": "rendcalle_aloma_password", "id_dist": 4},
@@ -223,11 +226,15 @@ async def _download_pdv(page: Page, fallback_name: str) -> tuple[bytes, Path] | 
                 await _esperar_ui_lista(page)
             except Exception:
                 pass
-        # Selector del codegen para este popup.
+        await _esperar_ui_lista(page)
+        await page.wait_for_timeout(1_000)
+        export_cell = page.get_by_role("cell", name="Exportar a XLS Exportar a XLS").locator("span").first
         try:
-            await _esperar_ui_lista(page)
-            async with page.expect_download(timeout=60_000) as info:
-                await page.get_by_role("cell", name="Exportar a XLS Exportar a XLS").locator("span").first.click()
+            async with page.expect_download(timeout=90_000) as info:
+                try:
+                    await export_cell.click(timeout=15_000, no_wait_after=True)
+                except Exception:
+                    await export_cell.click(timeout=15_000, force=True, no_wait_after=True)
             dl: Download = await info.value
             tup = await _finalize_download(dl, fallback_name)
             if tup:
@@ -287,6 +294,45 @@ def _secret_pass(tenant: dict) -> str:
     return get_secret(tenant["pass_key"]) or get_secret(tenant["pass_key"].replace("rendcalle_", "sigo_"))
 
 
+async def _abrir_entorno_toolbar(page: Page) -> bool:
+    """
+    Abre el popup Entorno desde la toolbar SIGO. El mapa u overlays suelen interceptar
+    el click normal en #ContentPlaceHolder2_btnEntorno en tenants con vista pesada.
+    """
+    suc = page.locator(f"#{_ENTORNO_SUC_I}").first
+    await _esperar_ui_lista(page)
+    candidates = (
+        page.get_by_role("link", name="Entorno"),
+        page.locator("#ContentPlaceHolder2_btnEntorno"),
+    )
+    for loc in candidates:
+        c = loc.first
+        try:
+            await c.wait_for(state="attached", timeout=12_000)
+        except Exception:
+            continue
+        try:
+            await c.scroll_into_view_if_needed(timeout=5_000)
+        except Exception:
+            pass
+        for use_force in (False, True):
+            try:
+                await c.click(timeout=15_000, force=use_force)
+                await _esperar_ui_lista(page)
+                await suc.wait_for(state="visible", timeout=12_000)
+                return True
+            except Exception:
+                continue
+    try:
+        btn = page.locator("#ContentPlaceHolder2_btnEntorno").first
+        await btn.evaluate("el => el.click()")
+        await _esperar_ui_lista(page)
+        await suc.wait_for(state="visible", timeout=12_000)
+        return True
+    except Exception:
+        return False
+
+
 async def _login(page: Page, tenant: dict) -> None:
     user, pwd = _secret_user(tenant), _secret_pass(tenant)
     if not user or not pwd:
@@ -314,90 +360,278 @@ async def _abrir_modulo(page: Page) -> None:
         await page.get_by_role("link", name="Seguimiento Diario").click()
 
 
-async def _leer_sucursales(page: Page) -> list[str]:
-    await _abrir_popup_entorno(page)
-    opened = False
-    for opener in (
-        page.locator("#ContentPlaceHolder2_Popup_cmbxSucursal_B-1Img").first,
-        page.locator("#ContentPlaceHolder2_Popup_cmbxSucursal_B-1").first,
-        page.get_by_role("textbox", name="Sucursal:").first,
-    ):
+async def _esperar_input_entorno_sucursal(page: Page) -> None:
+    """Tras cargar sigo.aspx: combo sucursal puede poblar async (DevExpress callback)."""
+    inp = page.locator(f"#{_ENTORNO_SUC_I}")
+    try:
+        await inp.wait_for(state="visible", timeout=12_000)
+    except Exception:
         try:
-            await opener.click(timeout=6_000)
-            opened = True
-            break
+            await page.locator("#ContentPlaceHolder2_btnEntorno").first.click(timeout=10_000)
+            await inp.wait_for(state="visible", timeout=TIMEOUT_MS)
         except Exception:
-            continue
-    if not opened:
-        raise RuntimeError("No se pudo abrir dropdown de sucursales en Entorno")
-    rows = page.locator("[id^='ContentPlaceHolder2_Popup_cmbxSucursal_DDD_L_LBI']")
-    n = await rows.count()
-    suc = []
+            pass
+    try:
+        await page.wait_for_load_state("networkidle", timeout=12_000)
+    except Exception:
+        pass
+    await _esperar_ui_lista(page)
+
+
+# Ítems reales del listbox: td ...LBI0T0, LBI1T0, ... (no la fila plantilla LBI-1 con &nbsp;).
+_RE_SUC_ITEM_TD_ID = re.compile(r"LBI\d+T0$")
+
+
+def _suc_combo_base_id() -> str:
+    return _ENTORNO_SUC_I[:-2] if _ENTORNO_SUC_I.endswith("_I") else _ENTORNO_SUC_I
+
+
+async def _wait_cmbx_sucursal_loading_done(page: Page) -> None:
+    """Panel DevExpress 'Cargando…' sobre el combo sucursal."""
+    lp = page.locator("#ContentPlaceHolder2_Popup_cmbxSucursal_LP")
+    try:
+        await lp.wait_for(state="hidden", timeout=5_000)
+    except Exception:
+        pass
+
+
+async def _collect_sucursal_items_text(page: Page) -> list[str]:
+    """
+    Textos de sucursal del combo Entorno.
+    DevExpress: tabla virtual #..._DDD_L_LBT con td ...LBI0T0, LBI1T0, ...
+    Primero lee vía evaluate (más estable que all_text_contents con DOM parcial).
+    """
+    base_id = _suc_combo_base_id()
+    seen: set[str] = set()
+    out: list[str] = []
+
+    def _push(raw: str) -> None:
+        t = raw.replace("\xa0", " ").strip()
+        if not t:
+            return
+        key = _norm(t)
+        if key in seen:
+            return
+        seen.add(key)
+        out.append(t)
+
+    try:
+        js_list = await page.evaluate(
+            """(baseId) => {
+              const tbl = document.querySelector('#' + baseId + '_DDD_L_LBT');
+              if (!tbl) return [];
+              const nbsp = String.fromCharCode(160);
+              const xs = [];
+              for (const td of tbl.querySelectorAll('td')) {
+                const id = td.id || '';
+                if (!/LBI\\d+T0$/i.test(id)) continue;
+                const t = (td.textContent || '').split(nbsp).join(' ').trim();
+                if (t) xs.push(t);
+              }
+              return xs;
+            }""",
+            base_id,
+        )
+        if isinstance(js_list, list):
+            for txt in js_list:
+                if isinstance(txt, str):
+                    _push(txt)
+            if out:
+                return out
+    except Exception:
+        pass
+
+    try:
+        lbt_cells = page.locator(f"#{base_id}_DDD_L_LBT td")
+        n_lbt = await lbt_cells.count()
+        if n_lbt > 0:
+            for txt in await lbt_cells.all_text_contents():
+                _push(txt)
+            if out:
+                return out
+    except Exception:
+        pass
+
+    tds = page.locator(f"td[id^='{base_id}_DDD_L_LBI']")
+    n = await tds.count()
     for i in range(n):
-        t = (await rows.nth(i).inner_text()).strip()
-        if t:
-            suc.append(t)
-    await page.keyboard.press("Escape")
+        el = tds.nth(i)
+        iid = await el.get_attribute("id")
+        if not iid or not _RE_SUC_ITEM_TD_ID.search(iid):
+            continue
+        raw = await el.text_content()
+        _push(raw or "")
+    return out
+
+
+async def _dx_abrir_combo_sucursal(page: Page, for_selection: bool = False) -> None:
+    """
+    Abre el dropdown del combo sucursal (botón _B-1 / _B-1Img).
+    for_selection=True: siempre intenta abrir (los td del listbox pueden estar en DOM pero no clickeables hasta abrir).
+    """
+    base_id = _suc_combo_base_id()
+    if not for_selection and await _collect_sucursal_items_text(page):
+        return
+    btn_candidates = (
+        page.locator(f"#{base_id}_B-1Img").first,
+        page.locator(f"#{base_id}_B-1").first,
+    )
+    await _esperar_ui_lista(page)
+    last_exc: Exception | None = None
+    for btn in btn_candidates:
+        try:
+            await btn.scroll_into_view_if_needed(timeout=5_000)
+        except Exception:
+            pass
+        for strategy in ("js", "dispatch"):
+            try:
+                if strategy == "js":
+                    await btn.evaluate("el => el.click()")
+                else:
+                    h = await btn.element_handle(timeout=5_000)
+                    if h is None:
+                        continue
+                    await h.dispatch_event("click")
+            except Exception as e:
+                last_exc = e
+                continue
+            await _wait_cmbx_sucursal_loading_done(page)
+            await _esperar_ui_lista(page)
+            poll = 70 if for_selection else 45
+            for _ in range(poll):
+                if await _collect_sucursal_items_text(page):
+                    await page.wait_for_timeout(150)
+                    return
+                await page.wait_for_timeout(200)
+            last_exc = RuntimeError("combo sucursal abierto pero sin textos de sucursal")
+    raise RuntimeError(f"No se abrió dropdown sucursal Entorno: {last_exc!r}") from last_exc
+
+
+async def _leer_sucursales(page: Page) -> list[str]:
+    """
+    Lista sucursales desde la tabla virtual del combo (LBT). No usa _dx aquí: abrir el dropdown
+    vía _dx dejaba el popup Entorno en estado raro y LBT vacío en corridas siguientes.
+    """
+    suc: list[str] = []
+    for reopen in range(3):
+        await _abrir_popup_entorno(page)
+        for _ in range(70):
+            suc = await _collect_sucursal_items_text(page)
+            if suc:
+                break
+            await page.wait_for_timeout(200)
+        if suc:
+            if len(suc) >= 2 or reopen == 2:
+                try:
+                    await page.keyboard.press("Escape")
+                except Exception:
+                    pass
+                return suc
+        await _esperar_ui_lista(page)
+        await page.wait_for_timeout(500 * (reopen + 1))
+    try:
+        await page.keyboard.press("Escape")
+    except Exception:
+        pass
+    if not suc:
+        await _abrir_popup_entorno(page)
+        await page.wait_for_timeout(800)
+        suc = await _collect_sucursal_items_text(page)
+    if not suc:
+        try:
+            v = await page.locator(f"#{_ENTORNO_SUC_I}").input_value()
+            if v.strip():
+                suc = [v.strip()]
+        except Exception:
+            pass
     return suc
 
 
+async def _sucursal_td_click_js(page: Page, sucursal: str) -> bool:
+    """Click en el td del listbox vía JS (DevExpress a veces acepta aunque Playwright marque not visible)."""
+    base = _suc_combo_base_id()
+    return bool(
+        await page.evaluate(
+            """({ base, name }) => {
+              const norm = (s) => (s || "").trim().toLowerCase().replace(/\\s+/g, " ");
+              const target = norm(name);
+              for (const el of document.querySelectorAll(`td[id^='${base}_DDD_L_LBI']`)) {
+                if (!/LBI\\d+T0$/.test(el.id)) continue;
+                if (norm(el.textContent) === target) {
+                  el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+                  el.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+                  el.click();
+                  return true;
+                }
+              }
+              return false;
+            }""",
+            {"base": base, "name": sucursal},
+        )
+    )
+
+
 async def _set_sucursal(page: Page, sucursal: str) -> None:
-    # Replica del codegen real: Entorno -> open combo (varias formas) -> cell -> Aplicar.
     await _abrir_popup_entorno(page)
+    inp = page.locator(f"#{_ENTORNO_SUC_I}").first
 
-    openers = [
-        page.locator("#ContentPlaceHolder2_Popup_cmbxSucursal_B-1"),
-        page.locator("#ContentPlaceHolder2_Popup_cmbxSucursal_B-1Img"),
-        page.get_by_role("textbox", name="Sucursal:"),
-    ]
-
-    selected = False
-    for opener in openers:
+    async def _verify_input() -> bool:
         try:
-            await opener.first.click(timeout=6_000)
-            await _esperar_ui_lista(page)
-            cell = page.get_by_role("cell", name=sucursal, exact=True).first
-            try:
-                await cell.click(timeout=8_000)
-            except Exception:
-                await cell.click(timeout=8_000, force=True)
-            selected = True
-            break
+            got = (await inp.input_value()).strip()
+            return _norm(got) == _norm(sucursal)
         except Exception:
-            continue
+            return False
 
-    if not selected:
-        raise RuntimeError(f"No se pudo seleccionar sucursal '{sucursal}'")
+    if await _verify_input():
+        await _set_fecha_entorno_ayer(page)
+        return
+
+    await inp.click(timeout=10_000, force=True)
+    await inp.press("Control+a")
+    await inp.fill(sucursal)
+    for key in ("Tab", "Enter"):
+        await page.keyboard.press(key)
+        await _esperar_ui_lista(page)
+        if await _verify_input():
+            await _set_fecha_entorno_ayer(page)
+            return
+
+    if await _sucursal_td_click_js(page, sucursal):
+        await _esperar_ui_lista(page)
+        if await _verify_input():
+            await _set_fecha_entorno_ayer(page)
+            return
+
+    try:
+        await _dx_abrir_combo_sucursal(page, for_selection=True)
+    except Exception as ex:
+        logger.warning("    _dx_abrir_combo_sucursal (selección): %s", ex)
+    base_id = _suc_combo_base_id()
+    item_td = page.locator(f"td[id^='{base_id}_DDD_L_LBI']").filter(has_text=sucursal).first
+    try:
+        await item_td.click(timeout=12_000, force=True, no_wait_after=True)
+    except Exception:
+        await item_td.evaluate("el => el.click()")
     await _esperar_ui_lista(page)
-
-    # Fecha de entorno = ayer (evita que a las 00:00 tome hoy por defecto).
+    if not await _verify_input():
+        raise RuntimeError(f"No se pudo seleccionar sucursal en Entorno: {sucursal!r}")
     await _set_fecha_entorno_ayer(page)
 
 
 async def _abrir_popup_entorno(page: Page) -> None:
-    suc_textbox = page.get_by_role("textbox", name="Sucursal:").first
+    inp = page.locator(f"#{_ENTORNO_SUC_I}").first
     try:
-        await suc_textbox.wait_for(state="visible", timeout=1200)
+        await inp.wait_for(state="visible", timeout=8_000)
         return
     except Exception:
         pass
-    for opener in (
-        page.get_by_role("link", name="Entorno").first,
-        page.locator("#ContentPlaceHolder2_btnEntorno").first,
-    ):
-        try:
-            await opener.click(timeout=8_000)
-            await _esperar_ui_lista(page)
-            await suc_textbox.wait_for(state="visible", timeout=8_000)
-            return
-        except Exception:
-            continue
-    # ultimo intento: volver a inicio y reabrir
+    if await _abrir_entorno_toolbar(page):
+        return
     await _click_menu_inicio(page)
     await _esperar_ui_lista(page)
-    await page.locator("#ContentPlaceHolder2_btnEntorno").first.click(timeout=8_000)
-    await _esperar_ui_lista(page)
-    await suc_textbox.wait_for(state="visible", timeout=8_000)
+    if await _abrir_entorno_toolbar(page):
+        return
+    raise RuntimeError("No se pudo abrir popup Entorno (toolbar / Sucursal: no visible)")
 
 
 async def _click_menu_alertas(page: Page) -> None:
@@ -768,6 +1002,8 @@ async def _procesar_tenant(tenant: dict) -> dict:
         try:
             await _login(page, tenant)
             await _abrir_modulo(page)
+            await _esperar_input_entorno_sucursal(page)
+            await page.wait_for_timeout(1_500)
             todas = await _leer_sucursales(page)
             sucursales = _filtrar_sucursales_objetivo(tenant, todas)
             logger.info(f"  Sucursales ({tenant['id']}) detectadas: {todas}")

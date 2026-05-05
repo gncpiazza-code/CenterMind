@@ -6,22 +6,15 @@ Motor 3: Reporte de Saldos Totales (Cuentas Corrientes) — CHESS ERP
 
 ¿Qué hace?
 ----------
-En producción, el horario lo define `scheduler.py` (07:30 y 17:30 AR) o `runner.py cuentas` manual. Flujo:
-  1. Para cada tenant de CHESS ERP:
-     a. Login (cerrando popup de actualización si aparece)
-     b. Navega directo a /#/cuentas-por-cobrar/reportes/saldos-totales
-     c. Cierra el dialog de "Accesos concurrentes" si aparece
-     d. Hace click en Procesar (todos los filtros en default):
-          - Empresa       : "Todas las Empresas" ← ya seleccionado
-          - Sucursal      : todas ← ya seleccionadas
-          - Tipo Cbte     : "TODOS" ← ya seleccionado
-          - Radio         : "Saldo actual" ← ya seleccionado
-     e. Espera el kendo-dialog de exportación
-     f. Si la grilla apareció primero (<=1000 reg), abre el modal via fa-file-download
-     g. Descarga el Excel
-     h. Parsea con cuentas_parser.procesar_excel_cuentas()
-     i. Compara hash MD5 con el de ayer
-     j. Si cambió, sube el JSON parseado a la API de Shelfy
+En producción, el horario lo define `scheduler.py` (07:30 y 17:30 AR) o `runner.py cuentas` manual.
+
+**Por defecto (`run()`):** delega en `motores/chess_cuentas_v2` — mismo login y Procesar; intenta
+payload desde JSON de red y si no, export Excel + parser (igual que antes). `RPA_CUENTAS_ENGINE=v1`
+fuerza el flujo histórico `_procesar_tenant` solo-Excel.
+
+Flujo clásico (v1 o fallback v2) para referencia:
+  1. Para cada tenant de CHESS ERP: login → saldos-totales → Procesar → (export Excel) →
+     cuentas_parser → hash → POST /api/v1/sync/cuentas-corrientes
   2. Si un tenant falla → screenshot + log + continuar con el siguiente
 
 TENANTS (5 total — 1 pendiente de credenciales):
@@ -994,19 +987,39 @@ async def _procesar_tenant(tenant: dict) -> dict:
 # PUNTO DE ENTRADA
 # ─────────────────────────────────────────────────────────────────
 
+def _cuentas_engine_v2_default() -> bool:
+    """v2 por defecto (JSON + fallback Excel). Forzar v1: RPA_CUENTAS_ENGINE=v1."""
+    raw = (os.environ.get("RPA_CUENTAS_ENGINE") or "v2").strip().lower()
+    return raw not in ("v1", "1", "legacy", "old")
+
+
 async def run() -> dict:
     """Corre el motor completo de Cuentas Corrientes. Llamado desde runner.py."""
     inicio = datetime.now(AR_TZ)
     tenants_activos = [t for t in TENANTS if t["activo"]]
+    use_v2 = _cuentas_engine_v2_default()
 
     logger.info("=" * 60)
     logger.info(f"🚀 Motor CUENTAS CORRIENTES — {inicio.strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info(f"   Tenants activos: {len(tenants_activos)}")
+    logger.info(f"   Motor: {'v2 (red + fallback Excel)' if use_v2 else 'v1 (solo Excel legado)'}")
     logger.info("=" * 60)
 
     resultados = []
     for tenant in tenants_activos:
-        r = await _procesar_tenant(tenant)
+        if use_v2:
+            from motores.chess_cuentas_v2.motor import run_tenant
+
+            sniff = (os.environ.get("RPA_CUENTAS_SNIFF_DUMP") or "").lower() in ("1", "true", "yes")
+            force_xl = (os.environ.get("RPA_CUENTAS_FORCE_EXCEL") or "").lower() in ("1", "true", "yes")
+            r = await run_tenant(
+                tenant["id"],
+                dry_run=False,
+                sniff_dump=sniff,
+                force_excel=force_xl,
+            )
+        else:
+            r = await _procesar_tenant(tenant)
         resultados.append(r)
 
         iconos = {"subida_ok": "✅", "sin_cambios": "ℹ️ ", "error": "❌"}

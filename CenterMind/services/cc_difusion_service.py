@@ -611,6 +611,126 @@ def difundir_sigo_resumen_telegram(
     return {"enviados": enviados, "errores": errores}
 
 
+# ─── Título de grupo Telegram ─────────────────────────────────────────────────
+
+_chat_title_cache: dict[int, tuple[str, float]] = {}  # chat_id -> (title, ts)
+_TITLE_TTL = 1800  # segundos
+
+TELEGRAM_GET_CHAT = "https://api.telegram.org/bot{token}/getChat"
+
+
+def _get_telegram_chat_title(token: str, chat_id: int) -> str | None:
+    import time
+    entry = _chat_title_cache.get(chat_id)
+    if entry and (time.time() - entry[1]) < _TITLE_TTL:
+        return entry[0]
+    try:
+        resp = requests.get(
+            TELEGRAM_GET_CHAT.format(token=token),
+            params={"chat_id": chat_id},
+            timeout=6,
+        )
+        if resp.ok:
+            title = resp.json().get("result", {}).get("title") or str(chat_id)
+            _chat_title_cache[chat_id] = (title, time.time())
+            return title
+    except Exception as e:
+        logger.warning(f"[CCDifusion] getChat chat={chat_id}: {e}")
+    return None
+
+
+# ─── Preview: planificación de envíos sin disparar Telegram ──────────────────
+
+def planificar_envios_cc_telegram(
+    dist_id: int,
+    modo: str,
+    id_vendedor: int | None,
+    sucursal: str | None,
+    fecha: str | None,
+) -> dict:
+    """
+    Resuelve qué envíos se realizarían sin enviar nada.
+    Retorna {
+        'fecha_snapshot': str | None,
+        'envios': [ { id_vendedor, vendedor_nombre, clientes_count, deuda_total,
+                      telegram_group_id, telegram_title, flags: {duplicate_group, missing_group, empty_cc} } ],
+        'tiene_conflictos': bool,
+    }
+    """
+    token = _get_bot_token(dist_id)
+
+    fecha_snapshot, all_rows = _fetch_cc_snapshot(dist_id, fecha)
+    if not fecha_snapshot:
+        return {"fecha_snapshot": None, "envios": [], "tiene_conflictos": False}
+
+    if sucursal:
+        t_suc = tenant_table_name("sucursales_v2", dist_id)
+        t_vend = tenant_table_name("vendedores_v2", dist_id)
+        suc_rows = (
+            sb.table(t_suc).select("id_sucursal")
+            .eq("id_distribuidor", dist_id).ilike("nombre_erp", sucursal.strip()).execute().data or []
+        )
+        valid_suc_ids = {s["id_sucursal"] for s in suc_rows}
+        valid_vend_ids: set = set()
+        if valid_suc_ids:
+            vend_rows = (
+                sb.table(t_vend).select("id_vendedor")
+                .eq("id_distribuidor", dist_id).in_("id_sucursal", list(valid_suc_ids)).execute().data or []
+            )
+            valid_vend_ids = {v["id_vendedor"] for v in vend_rows}
+        all_rows = [r for r in all_rows if r.get("id_vendedor") in valid_vend_ids] if valid_vend_ids else []
+
+    vendors = _group_by_vendor(all_rows)
+
+    if modo == "uno":
+        if id_vendedor is None:
+            return {"fecha_snapshot": fecha_snapshot, "envios": [], "tiene_conflictos": False}
+        vendors = {id_vendedor: vendors[id_vendedor]} if id_vendedor in vendors else {}
+
+    group_id_to_vend: dict[int, list[int]] = {}
+    envios = []
+
+    for vid, vd in vendors.items():
+        real_id = vd.get("id_vendedor")
+        if not real_id:
+            continue
+        chat_id = _get_telegram_chat_id(dist_id, real_id) if real_id else None
+        title: str | None = None
+        if chat_id and token:
+            title = _get_telegram_chat_title(token, chat_id)
+        if chat_id:
+            group_id_to_vend.setdefault(chat_id, []).append(real_id)
+
+        envios.append({
+            "id_vendedor":       real_id,
+            "vendedor_nombre":   _extract_display_name(vd["vendedor_nombre"]),
+            "clientes_count":    len(vd["clientes"]),
+            "deuda_total":       vd["deuda_total"],
+            "telegram_group_id": chat_id,
+            "telegram_title":    title or (str(chat_id) if chat_id else None),
+            "flags": {
+                "missing_group": chat_id is None,
+                "empty_cc":      len(vd["clientes"]) == 0,
+                "duplicate_group": False,  # se rellena en el segundo pass
+            },
+        })
+
+    # Detectar grupos duplicados (mismo chat_id → 2+ vendedores distintos)
+    duplicated_group_ids = {gid for gid, vids in group_id_to_vend.items() if len(vids) > 1}
+    for e in envios:
+        gid = e["telegram_group_id"]
+        if gid and gid in duplicated_group_ids:
+            e["flags"]["duplicate_group"] = True
+
+    tiene_conflictos = bool(duplicated_group_ids)
+
+    return {
+        "fecha_snapshot":   fecha_snapshot,
+        "envios":           envios,
+        "tiene_conflictos": tiene_conflictos,
+    }
+
+
 # ─── Entry point para el router ───────────────────────────────────────────────
 
 def difundir_cc_telegram(

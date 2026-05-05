@@ -1681,6 +1681,42 @@ export async function postDifusionCCTelegram(body: {
   });
 }
 
+export interface DifusionPreviewFlags {
+  missing_group: boolean;
+  empty_cc: boolean;
+  duplicate_group: boolean;
+}
+
+export interface DifusionPreviewItem {
+  id_vendedor: number;
+  vendedor_nombre: string;
+  clientes_count: number;
+  deuda_total: number;
+  telegram_group_id: number | null;
+  telegram_title: string | null;
+  flags: DifusionPreviewFlags;
+}
+
+export interface DifusionPreviewResult {
+  fecha_snapshot: string | null;
+  envios: DifusionPreviewItem[];
+  tiene_conflictos: boolean;
+}
+
+export async function postDifusionCCTelegramPreview(body: {
+  dist_id: number;
+  modo: "uno" | "todos";
+  id_vendedor?: number | null;
+  sucursal?: string | null;
+  fecha?: string | null;
+}): Promise<DifusionPreviewResult> {
+  return apiFetch<DifusionPreviewResult>("/api/difusion/cc-telegram/preview", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...body, mensaje_template: "" }),
+  });
+}
+
 // ── Objetivos ──────────────────────────────────────────────────────────────
 
 export type ObjetivoTipo = 'conversion_estado' | 'cobranza' | 'ruteo_alteo' | 'exhibicion' | 'ruteo';

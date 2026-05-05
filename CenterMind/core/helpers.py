@@ -16,6 +16,19 @@ from db import sb
 
 logger = logging.getLogger("ShelfyAPI")
 
+# ── Guardrails CC ingesta ──────────────────────────────────────────────────────
+# Mínimo de filas esperadas por distribuidor. Si el nuevo snapshot trae menos,
+# se aborta el sync para evitar pisar una cartera válida con datos basura.
+_CC_MIN_ROWS: dict[int, int] = {
+    3: 50,   # Tabaco (~4 500 rows normales)
+    4: 15,   # Aloma
+    5: 10,   # Liver
+    2: 10,   # Real
+}
+_CC_MIN_ROWS_DEFAULT = 5
+# Abort si el nuevo snapshot < este % respecto al último snapshot conocido.
+_CC_DROP_PCT_ABORT = 30
+
 
 def _norm_name(s) -> str:
     """Normaliza nombres de clientes para matching robusto entre ERPs distintos."""
@@ -370,6 +383,33 @@ def _enrich_and_store_cc(dist_id: int, fecha_snapshot: str, rows: list) -> int:
         record["id_cliente"] = matched_id
 
     if records:
+        # ── Guardrail: evitar pisar cartera con snapshot inválido ─────────────
+        min_rows = _CC_MIN_ROWS.get(int(dist_id), _CC_MIN_ROWS_DEFAULT)
+        if len(records) < min_rows:
+            raise ValueError(
+                f"CC GUARDRAIL dist={dist_id}: snapshot tiene solo {len(records)} filas "
+                f"(mínimo esperado: {min_rows}). Sync abortado para proteger datos existentes."
+            )
+        try:
+            last_count_res = (
+                sb.table("cc_detalle")
+                .select("id_distribuidor", count="exact")
+                .eq("id_distribuidor", int(dist_id))
+                .limit(1)
+                .execute()
+            )
+            last_count: int = last_count_res.count or 0
+            if last_count > min_rows and len(records) < last_count * (_CC_DROP_PCT_ABORT / 100):
+                raise ValueError(
+                    f"CC GUARDRAIL dist={dist_id}: nuevo snapshot tiene {len(records)} filas vs "
+                    f"{last_count} actuales ({100 * len(records) // last_count}%). "
+                    f"Caída >70%% — sync abortado."
+                )
+        except ValueError:
+            raise
+        except Exception as e:
+            logger.warning(f"_enrich_and_store_cc: no se pudo verificar count anterior dist={dist_id}: {e}")
+        # ─────────────────────────────────────────────────────────────────────
         # Delete ALL previous snapshots for this distribuidor before inserting the new one.
         # cc_detalle is a current-state table, not a history log — only the latest snapshot is kept.
         sb.table("cc_detalle").delete().eq("id_distribuidor", int(dist_id)).execute()

@@ -5,7 +5,7 @@ runner.py
 Motores disponibles:
     python runner.py padron          <- Motor 1: Padrón de Clientes (Consolido/Nextbyn)
     python runner.py ventas          <- Motor 2: Comprobantes de Ventas (CHESS)
-    python runner.py cuentas         <- Motor 3: Cuentas Corrientes (CHESS)
+    python runner.py cuentas         <- Motor 3: CC CHESS (v2 red+fallback Excel; v1 con RPA_CUENTAS_ENGINE=v1)
     python runner.py sigo            <- Motor 4: Reporte Sigo (Nextbyn)
     python runner.py rendcalle       <- Motor 5: Rendimiento en calle (Nextbyn)
     python runner.py todos           <- Todos los motores en secuencia

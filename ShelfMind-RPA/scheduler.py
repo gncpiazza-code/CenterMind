@@ -7,11 +7,10 @@ Proceso siempre activo para ejecutar motores RPA en horario Argentina.
 Zona: America/Argentina/Buenos_Aires (independiente de la región del host, ej. us-west).
 
 Horarios:
-  07:00  Padrón (única corrida diaria)
-  08:00  12:00  17:00  23:00  Ventas / comprobantes CHESS
-  08:20  12:20  17:20  23:20  Cuentas corrientes (CHESS saldos) — delay 20 min
+  07:30  Padrón (única corrida diaria)
+  08:00  13:30  17:30  20:00  Cuentas corrientes (CHESS saldos)
 
-Cuentas se corre **20 min después** de cada corrida de ventas para no sobrecargar.
+Ventas queda deshabilitado temporalmente en el scheduler.
 
 Monitorear CPU/RAM y “Accesos concurrentes” en CHESS según uso real.
 
@@ -38,16 +37,8 @@ logger = logging.getLogger("SCHEDULER")
 
 AR_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
 
-# Ventas: 08:00, 12:00, 17:00, 23:00 (AR)
-_SLOTS_VENTAS = [
-    (8, 0),
-    (12, 0),
-    (17, 0),
-    (23, 0),
-]
-
-# Cuentas corrientes: +20 minutos respecto de ventas
-_SLOTS_CUENTAS = [(8, 20), (12, 20), (17, 20), (23, 20)]
+# Cuentas corrientes (AR): 08:00, 13:30, 17:30, 20:00
+_SLOTS_CUENTAS = [(8, 0), (13, 30), (17, 30), (20, 0)]
 
 
 def job_cuentas():
@@ -112,7 +103,7 @@ def job_ventas():
 
 def main():
     logger.info("=" * 60)
-    logger.info("  ShelfMind RPA Scheduler — PADRÓN + CUENTAS + VENTAS")
+    logger.info("  ShelfMind RPA Scheduler — PADRÓN + CUENTAS (VENTAS deshabilitado)")
     from lib.shelfy_config import get_shelfy_base_url, get_shelfy_api_key
     from lib.vault_client import get_secret
 
@@ -144,14 +135,7 @@ def main():
 
     scheduler = BackgroundScheduler(timezone=AR_TZ)
 
-    scheduler.add_job(job_padron, CronTrigger(hour=7, minute=0, timezone=AR_TZ), id="padron_0700")
-
-    for hi, mi in _SLOTS_VENTAS:
-        scheduler.add_job(
-            job_ventas,
-            CronTrigger(hour=hi, minute=mi, timezone=AR_TZ),
-            id=f"ventas_{hi:02d}{mi:02d}",
-        )
+    scheduler.add_job(job_padron, CronTrigger(hour=7, minute=30, timezone=AR_TZ), id="padron_0730")
 
     for hi, mi in _SLOTS_CUENTAS:
         scheduler.add_job(

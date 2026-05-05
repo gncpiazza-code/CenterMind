@@ -64,13 +64,16 @@ El mismo `index.html` se copia en el frontend para que sea estático público:
 
 - Destino: `shelfy-frontend/public/anuncios/comunicacion-shelfy-cc-difusion/index.html`
 - URL: `/anuncios/comunicacion-shelfy-cc-difusion/index.html`
-- **Dashboard (`/dashboard`)** — primera pantalla después del login — abre un modal con ese HTML si no existe la clave en `localStorage` (componente `CCDifusionGuiaDialog`).
-- **`/difusion`** — botón **Guía CC y Telegram** para volver a leer el mismo comunicado.
+- **Dashboard (`/dashboard`)** — modal automático en los **primeros 3 logins** (pulso `sessionStorage` + contador `localStorage` `shelfy_difusion_cc_guia_login_opens` en `CCDifusionGuiaDialog`).
+- **`/difusion`** — botón **Guía CC y Telegram** para reabrir la guía sin depender del contador.
+- **Superadmin** — menú Corona → **Mensajes** (`/admin/mensajes`) para responder tickets enviados desde el botón del HTML.
+- **Backend / DB** — ejecutar en Supabase el SQL `CenterMind/sql/create_portal_feedback_tables.sql` antes de usar la API.
 
 Cuando cambies contenido importante en este HTML:
 
-1. Volvé a copiar el archivo a `public/anuncios/...` antes del deploy.
-2. En `shelfy-frontend/src/components/onboarding/CCDifusionGuiaDialog.tsx`, bump de `DIFUSION_GUIA_STORAGE_KEY` (`..._seen_v1` → `..._seen_v2`) para que los usuarios vean una vez la versión nueva.
+1. Copiá a `public/anuncios/...` antes del deploy.
+2. Subí `GUIA_CC_DIFUSION_VERSION` en `shelfy-frontend/src/lib/api.ts` (y el default en backend `PortalGuiaTrackingIn`) para segmentar telemetría.
+3. Opcional: resetear el contador de 3 logins borrando `shelfy_difusion_cc_guia_login_opens` en localStorage de prueba.
 
 ## Personalización antes de enviar
 

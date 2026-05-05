@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Modelos Pydantic compartidos por todos los routers."""
 from typing import Any, List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class LoginRequest(BaseModel):
@@ -296,3 +296,18 @@ class RendimientoCalleAnalyticsIn(BaseModel):
 
     tenant_id: str
     payload: dict[str, Any]
+
+
+class PortalGuiaTrackingIn(BaseModel):
+    scroll_max_pct: int = Field(0, ge=0, le=100)
+    active_seconds: int = Field(0, ge=0, le=86_400)
+    guia_version: str | None = "2026-05-cc-difusion-v2"
+    cerrado_modal: bool = False
+
+
+class PortalFeedbackMessageCreate(BaseModel):
+    contenido: str = Field(..., min_length=2, max_length=16_000)
+
+
+class PortalFeedbackReplyIn(BaseModel):
+    respuesta: str = Field(..., min_length=1, max_length=24_000)

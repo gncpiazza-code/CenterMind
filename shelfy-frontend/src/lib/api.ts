@@ -2231,3 +2231,56 @@ export async function postDifusionSIGOTelegram(req: DifusionSIGORequest): Promis
     body: JSON.stringify(req),
   });
 }
+
+// ── Portal: guía CC/Difusión + mensajes al desarrollador ─────────────────────
+
+/** Debe coincidir con iframe + backend `PortalGuiaTrackingIn.default`. */
+export const GUIA_CC_DIFUSION_VERSION = "2026-05-cc-difusion-v2";
+
+export async function postPortalGuiaTracking(body: {
+  scroll_max_pct: number;
+  active_seconds: number;
+  guia_version: string;
+  cerrado_modal: boolean;
+}): Promise<{ ok: boolean }> {
+  return apiFetch<{ ok: boolean }>("/api/portal-feedback/guia-tracking", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function postPortalFeedbackMessage(contenido: string): Promise<{ ok: boolean; id?: string }> {
+  return apiFetch<{ ok: boolean; id?: string }>("/api/portal-feedback/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ contenido }),
+  });
+}
+
+export interface PortalFeedbackRow {
+  id: string;
+  created_at: string;
+  updated_at: string | null;
+  id_usuario: number;
+  id_distribuidor: number | null;
+  usuario_snapshot: string | null;
+  rol_snapshot: string | null;
+  contenido: string;
+  respuesta: string | null;
+  responded_at: string | null;
+  id_usuario_respuesta: number | null;
+}
+
+export async function fetchPortalFeedbackMessages(limit = 200): Promise<{ items: PortalFeedbackRow[] }> {
+  const q = new URLSearchParams({ limit: String(limit), pendientes_primero: "true" });
+  return apiFetch(`/api/portal-feedback/messages?${q}`);
+}
+
+export async function patchPortalFeedbackReply(id: string, respuesta: string): Promise<{ ok: boolean }> {
+  return apiFetch<{ ok: boolean }>(`/api/portal-feedback/messages/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ respuesta }),
+  });
+}

@@ -19,7 +19,7 @@ from telegram import Update
 
 from core.config import CORS_ORIGINS, CORS_ALLOW_ORIGIN_REGEX
 from core.lifespan import bots, manager, lifespan
-from routers import auth, erp, supervision, admin, reportes, informes_excel, fuerza_ventas, difusion, supervisores, reporteria
+from routers import auth, erp, supervision, admin, reportes, informes_excel, fuerza_ventas, difusion, supervisores, reporteria, portal_feedback
 
 # ── Logging ────────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -52,6 +52,7 @@ app.include_router(fuerza_ventas.router)
 app.include_router(difusion.router)
 app.include_router(supervisores.router)
 app.include_router(reporteria.router)
+app.include_router(portal_feedback.router)
 
 # ── Health check ───────────────────────────────────────────────────────────────
 @app.get("/")

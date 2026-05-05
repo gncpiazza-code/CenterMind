@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
-import { Crown, LogOut, Building2, UserCog, Users } from "lucide-react";
+import { Crown, LogOut, Building2, UserCog, Users, MessageSquareText } from "lucide-react";
 import { fetchDistribuidoras } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -158,6 +158,12 @@ export function Topbar({ title, live = false }: TopbarProps) {
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild>
                     <Link href="/admin/mapa">Mapa en Vivo</Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/admin/mensajes" className="flex items-center gap-2">
+                      <MessageSquareText size={14} className="shrink-0" />
+                      Mensajes
+                    </Link>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>

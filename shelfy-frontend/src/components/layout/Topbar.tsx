@@ -218,6 +218,9 @@ export function Topbar({ title, live = false }: TopbarProps) {
                     <Link href="/admin/permissions">Permisos</Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild>
+                    <Link href="/admin/altas">Altas en Sistema</Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
                     <Link href="/admin">Administrar</Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild>

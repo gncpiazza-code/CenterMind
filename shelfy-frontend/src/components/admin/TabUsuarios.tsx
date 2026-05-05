@@ -5,7 +5,15 @@ import { Search, Shield, UserPlus, Edit2, Trash2 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { PageSpinner } from "@/components/ui/Spinner";
-import { fetchUsuarios, crearUsuario, editarUsuario, eliminarUsuario, type UsuarioPortal } from "@/lib/api";
+import {
+  fetchUsuarios,
+  crearUsuario,
+  editarUsuario,
+  eliminarUsuario,
+  fetchDistribuidoras,
+  type UsuarioPortal,
+  type Distribuidora,
+} from "@/lib/api";
 
 const ROL_LABEL: Record<string, string> = {
   superadmin: "Super Admin",
@@ -39,6 +47,7 @@ interface TabUsuariosProps {
 
 export default function TabUsuarios({ isSuperadmin, distId }: TabUsuariosProps) {
   const [usuarios, setUsuarios] = useState<UsuarioPortal[]>([]);
+  const [distribuidoras, setDistribuidoras] = useState<Distribuidora[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -63,6 +72,22 @@ export default function TabUsuarios({ isSuperadmin, distId }: TabUsuariosProps) 
   };
 
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!isSuperadmin) return;
+    fetchDistribuidoras(false)
+      .then((rows) => {
+        setDistribuidoras(rows);
+        if (!form.dist_id && rows.length > 0) {
+          setForm((f) => ({ ...f, dist_id: rows[0].id }));
+        }
+      })
+      .catch(() => {
+        // keep user flow available even if lookup fails
+      });
+  }, [isSuperadmin]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    setForm((f) => ({ ...f, dist_id: distId || f.dist_id }));
+  }, [distId]);
 
   async function handleCrear(e: React.FormEvent) {
     e.preventDefault();
@@ -140,7 +165,7 @@ export default function TabUsuarios({ isSuperadmin, distId }: TabUsuariosProps) 
         <Card className="border-t-4 border-t-[var(--shelfy-primary)] shadow-lg animate-in slide-in-from-top-2 duration-300">
           <h3 className="text-[var(--shelfy-text)] font-semibold mb-4 flex items-center gap-2">
             <Shield size={16} className="text-[var(--shelfy-primary)]" />
-            Crear nuevo administrador
+            Crear usuario del portal
           </h3>
           <form onSubmit={handleCrear} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             <div className="flex flex-col gap-1">
@@ -166,10 +191,20 @@ export default function TabUsuarios({ isSuperadmin, distId }: TabUsuariosProps) 
             </div>
             {isSuperadmin && (
               <div className="flex flex-col gap-1">
-                <label className="text-[10px] uppercase font-bold text-[var(--shelfy-muted)] ml-1">ID Distribuidora</label>
-                <input type="number" placeholder="ID Distribuidora" value={form.dist_id || ""}
+                <label className="text-[10px] uppercase font-bold text-[var(--shelfy-muted)] ml-1">Distribuidora</label>
+                <select
+                  required
+                  value={form.dist_id || ""}
                   onChange={(e) => setForm((f) => ({ ...f, dist_id: Number(e.target.value) }))}
-                  className={INPUT_CLS} />
+                  className={INPUT_CLS}
+                >
+                  <option value="" disabled>Seleccionar distribuidora...</option>
+                  {distribuidoras.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.nombre} (ID {d.id})
+                    </option>
+                  ))}
+                </select>
               </div>
             )}
             <div className="md:col-span-2 lg:col-span-3 flex gap-2 mt-2">

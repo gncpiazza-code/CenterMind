@@ -54,6 +54,13 @@ const PLANTILLAS = [
   },
 ];
 
+const PREVIEW_THINKING_STEPS = [
+  "Conectando con Telegram...",
+  "Calculando envíos por vendedor...",
+  "Validando grupos y conflictos...",
+  "Preparando vista previa final...",
+];
+
 export default function DifusionPage() {
   const { user, effectiveDistribuidorId } = useAuth();
   const router = useRouter();
@@ -73,6 +80,8 @@ export default function DifusionPage() {
   const [previewLoading, setPreviewLoading]     = useState(false);
   const [previewError, setPreviewError]         = useState<string | null>(null);
   const [conflictOverride, setConflictOverride] = useState(false);
+  const [previewStepIdx, setPreviewStepIdx]     = useState(0);
+  const [previewFakePct, setPreviewFakePct]     = useState(8);
 
   // ── SIGO state ──
   const [sigoModo, setSigoModo]       = useState<"uno" | "todos">("todos");
@@ -210,6 +219,8 @@ export default function DifusionPage() {
     setPreviewError(null);
     setPreviewData(null);
     setConflictOverride(false);
+    setPreviewStepIdx(0);
+    setPreviewFakePct(10);
     setPreviewOpen(true);
     try {
       const data = await postDifusionCCTelegramPreview({
@@ -225,6 +236,20 @@ export default function DifusionPage() {
       setPreviewLoading(false);
     }
   }
+
+  useEffect(() => {
+    if (!previewLoading) return;
+    const stepTimer = window.setInterval(() => {
+      setPreviewStepIdx((i) => (i + 1) % PREVIEW_THINKING_STEPS.length);
+    }, 1800);
+    const progressTimer = window.setInterval(() => {
+      setPreviewFakePct((p) => (p < 92 ? p + Math.max(2, Math.round((100 - p) * 0.08)) : p));
+    }, 350);
+    return () => {
+      window.clearInterval(stepTimer);
+      window.clearInterval(progressTimer);
+    };
+  }, [previewLoading]);
 
   function confirmFromPreview() {
     setPreviewOpen(false);
@@ -793,10 +818,28 @@ export default function DifusionPage() {
 
           <div className="flex-1 overflow-auto px-5 py-4">
             {previewLoading && (
-              <div className="flex flex-col gap-2">
-                {Array.from({ length: 5 }).map((_, i) => (
-                  <div key={i} className="h-10 rounded-xl bg-muted/40 animate-pulse" />
-                ))}
+              <div className="min-h-[300px] flex flex-col items-center justify-center gap-4 text-center">
+                <div className="size-12 rounded-full border border-violet-200 bg-violet-50 flex items-center justify-center">
+                  <Loader2 className="w-6 h-6 text-violet-500 animate-spin" />
+                </div>
+                <div className="space-y-1.5">
+                  <p className="text-sm font-semibold text-[var(--shelfy-text)]">
+                    {PREVIEW_THINKING_STEPS[previewStepIdx]}
+                  </p>
+                  <p className="text-xs text-[var(--shelfy-muted)]">
+                    Estamos preparando el cruce vendedor ↔ grupo para evitar envíos erróneos.
+                  </p>
+                </div>
+                <div className="w-full max-w-md space-y-1.5">
+                  <div className="h-2 rounded-full bg-muted/60 overflow-hidden">
+                    <motion.div
+                      className="h-full bg-gradient-to-r from-violet-400 to-fuchsia-500"
+                      animate={{ width: `${previewFakePct}%` }}
+                      transition={{ duration: 0.25, ease: "easeOut" }}
+                    />
+                  </div>
+                  <p className="text-[10px] text-[var(--shelfy-muted)] tabular-nums">{previewFakePct}%</p>
+                </div>
               </div>
             )}
 

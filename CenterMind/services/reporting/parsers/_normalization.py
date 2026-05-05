@@ -10,6 +10,8 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
+_PANDAS_MAX_YEAR = 2262
+
 
 def _strip_accents(text: str) -> str:
     if not isinstance(text, str):
@@ -72,12 +74,34 @@ def parse_fecha_robusta(series: pd.Series) -> pd.Series:
     # already datetime/Timestamp
     mask_dt = series.apply(lambda x: isinstance(x, (pd.Timestamp, dt.datetime, dt.date)))
     if mask_dt.any():
-        out.loc[mask_dt] = pd.to_datetime(series[mask_dt], errors="coerce")
+        safe_vals = []
+        for raw in series[mask_dt]:
+            try:
+                if isinstance(raw, pd.Timestamp):
+                    ts = raw.to_pydatetime()
+                elif isinstance(raw, dt.datetime):
+                    ts = raw
+                elif isinstance(raw, dt.date):
+                    ts = dt.datetime(raw.year, raw.month, raw.day)
+                else:
+                    safe_vals.append(pd.NaT)
+                    continue
+                # pandas datetime64[ns] upper bound ~2262-04-11
+                if ts.year > _PANDAS_MAX_YEAR:
+                    safe_vals.append(pd.NaT)
+                else:
+                    safe_vals.append(ts)
+            except Exception:
+                safe_vals.append(pd.NaT)
+        out.loc[mask_dt] = pd.to_datetime(pd.Series(safe_vals, index=series[mask_dt].index), errors="coerce")
 
     # string
     mask_str = series.apply(lambda x: isinstance(x, str)) & out.isna()
     if mask_str.any():
-        st = series[mask_str].str.strip().str.replace(r"[.\- ]", "/", regex=True)
+        st = series[mask_str].str.strip()
+        # Sentinel values commonly used by ERP exports (outside pandas bounds)
+        st = st.mask(st.str.contains(r"^9999[-/]12[-/]31", regex=True, na=False), "")
+        st = st.str.replace(r"[.\- ]", "/", regex=True)
         p1 = pd.to_datetime(st, errors="coerce", dayfirst=True)
         miss = p1.isna() & st.ne("")
         if miss.any():

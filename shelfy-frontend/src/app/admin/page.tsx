@@ -7,8 +7,6 @@ import { useAuth } from "@/hooks/useAuth";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  Shield,
-  Building2,
   Users,
   FileSpreadsheet,
   Network,
@@ -21,8 +19,6 @@ import dynamic from "next/dynamic";
 const UnifiedDashboard = dynamic(() => import("./UnifiedDashboard"), { ssr: false });
 
 // Modular Components
-import TabUsuarios from "@/components/admin/TabUsuarios";
-import TabDistribuidoras from "@/components/admin/TabDistribuidoras";
 import TabIntegrantes from "@/components/admin/TabIntegrantes";
 import TabERP from "@/components/admin/TabERP";
 import TabPadron from "@/components/admin/TabPadron";
@@ -39,12 +35,10 @@ export default function AdminPage() {
     ] as const;
     const mid = [
       { id: "mapeo",     label: "Mapeo Vendedores",       icon: Link2 },
-      { id: "usuarios",  label: "Usuarios Admin",         icon: Shield },
       { id: "erp",       label: "Importar ERP / Mapeo",  icon: FileSpreadsheet },
     ] as const;
     const tail = isSuperadmin
       ? [
-          { id: "distribuidoras", label: "Distribuidoras", icon: Building2 },
           { id: "integrantes",    label: "Integrantes Bot", icon: Users },
         ] as const
       : [];
@@ -86,7 +80,7 @@ export default function AdminPage() {
             {/* Header Section */}
             <div className="mb-8">
               <h1 className="text-3xl font-black text-slate-900 tracking-tight">Panel de Control</h1>
-              <p className="text-slate-500 font-medium mt-1">Gestiona usuarios, jerarquías y sincronización de datos.</p>
+              <p className="text-slate-500 font-medium mt-1">Gestiona jerarquías y sincronización de datos. Las altas se realizan desde "Altas en Sistema".</p>
             </div>
 
             {/* shadcn Tabs */}
@@ -116,17 +110,11 @@ export default function AdminPage() {
               <TabsContent value="mapeo" className="min-h-[500px] mt-0">
                 <TabMapeoVendedores distId={user.id_distribuidor || 0} isSuperadmin={isSuperadmin} />
               </TabsContent>
-              <TabsContent value="usuarios" className="min-h-[500px] mt-0">
-                <TabUsuarios isSuperadmin={isSuperadmin} distId={user.id_distribuidor || 0} />
-              </TabsContent>
               <TabsContent value="erp" className="min-h-[500px] mt-0">
                 <TabERP distId={user.id_distribuidor || 0} isSuperadmin={isSuperadmin} />
               </TabsContent>
               {isSuperadmin && (
                 <>
-                  <TabsContent value="distribuidoras" className="min-h-[500px] mt-0">
-                    <TabDistribuidoras />
-                  </TabsContent>
                   <TabsContent value="integrantes" className="min-h-[500px] mt-0">
                     <TabIntegrantes isSuperadmin={isSuperadmin} distId={user.id_distribuidor || 0} />
                   </TabsContent>

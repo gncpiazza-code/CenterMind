@@ -18,6 +18,7 @@ from typing import Any
 import requests
 
 from db import sb
+from core.helpers import load_active_vendedor_ids
 from core.tenant_tables import tenant_table_name
 
 logger = logging.getLogger("ShelfyAPI")
@@ -746,6 +747,12 @@ def planificar_envios_cc_telegram(
         if id_vendedor is None:
             return {"fecha_snapshot": fecha_snapshot, "envios": [], "tiene_conflictos": False}
         vendors = {id_vendedor: vendors[id_vendedor]} if id_vendedor in vendors else {}
+    else:
+        active_ids = load_active_vendedor_ids(dist_id)
+        n_before = len(vendors)
+        vendors = {vid: vd for vid, vd in vendors.items() if vid in active_ids}
+        if n_before != len(vendors):
+            logger.info(f"[CCDifusion] planificar dist={dist_id}: excludió {n_before - len(vendors)} vendedores inactivos")
 
     group_id_to_vend: dict[int, list[int]] = {}
     envios = []
@@ -840,6 +847,11 @@ def difundir_cc_telegram(
         (enviados if result["ok"] else errores).append(result)
 
     else:  # "todos"
+        active_ids = load_active_vendedor_ids(dist_id)
+        n_before = len(vendors)
+        vendors = {vid: vd for vid, vd in vendors.items() if vid in active_ids}
+        if n_before != len(vendors):
+            logger.info(f"[CCDifusion] difundir dist={dist_id}: excludió {n_before - len(vendors)} vendedores inactivos")
         for vid, vd in vendors.items():
             real_id = vd.get("id_vendedor")
             if not real_id:

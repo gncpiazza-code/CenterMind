@@ -190,10 +190,15 @@ export function ReporteriaDrilldownModal({
     source === "sigo" ? "SIGO" :
     source === "comprobantes" ? "Comprobantes" : "Bultos";
 
+  const headerBg =
+    source === "sigo"         ? "bg-violet-50" :
+    source === "comprobantes" ? "bg-blue-50"   :
+                                "bg-emerald-50";
+
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
-      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto rounded-2xl">
-        <DialogHeader className="pb-2 border-b border-slate-100">
+      <DialogContent className="max-w-xl sm:max-w-2xl max-h-[85vh] overflow-y-auto rounded-2xl sm:rounded-2xl">
+        <DialogHeader className={cn("pb-3 border-b border-slate-100 -mx-6 px-6 -mt-2 pt-4 rounded-t-2xl", headerBg)}>
           <DialogTitle className="flex items-center gap-2 text-base font-black text-slate-800">
             {titleIcon}
             <span className="text-[var(--shelfy-primary)]">{sourceLabel}</span>
@@ -202,7 +207,12 @@ export function ReporteriaDrilldownModal({
           </DialogTitle>
         </DialogHeader>
 
-        <div className="pt-3">
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ type: "spring", stiffness: 400, damping: 35 }}
+          className="pt-3"
+        >
           {source === "sigo" ? (
             <SigoDrilldown vendedor={row.nombre_cliente} rows={sigoRows} />
           ) : source === "comprobantes" ? (
@@ -210,7 +220,7 @@ export function ReporteriaDrilldownModal({
           ) : (
             <BultosDrilldown row={row} />
           )}
-        </div>
+        </motion.div>
       </DialogContent>
     </Dialog>
   );

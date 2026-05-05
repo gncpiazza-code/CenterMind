@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  BarChart2, Download, FileText, TrendingUp, Users, Loader2, Plus,
+  BarChart2, Download, FileText, TrendingUp, Users, Loader2, Plus, Package,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Sidebar } from "@/components/layout/Sidebar";
@@ -37,16 +37,28 @@ import { ReporteriaOrigen } from "@/components/reporteria/ReporteriaOrigen";
 type WizardStep = "pick" | "guide" | "upload" | "processing" | "panel";
 type TabId = "resumen" | "tendencias" | "clientes";
 
-const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
-  { id: "resumen",    label: "Resumen",    icon: BarChart2 },
-  { id: "tendencias", label: "Tendencias", icon: TrendingUp },
-  { id: "clientes",   label: "Clientes",   icon: Users },
-];
+const SOURCE_TABS: Record<ReporteriaSource, { id: TabId; label: string; icon: React.ElementType }[]> = {
+  sigo: [
+    { id: "resumen",    label: "Resumen",    icon: BarChart2 },
+    { id: "tendencias", label: "Evolución",  icon: TrendingUp },
+    { id: "clientes",   label: "Vendedores", icon: Users },
+  ],
+  comprobantes: [
+    { id: "resumen",    label: "Resumen",     icon: BarChart2 },
+    { id: "tendencias", label: "Evolución",   icon: TrendingUp },
+    { id: "clientes",   label: "Top Clientes",icon: Users },
+  ],
+  bultos: [
+    { id: "resumen",    label: "Resumen",   icon: Package },
+    { id: "tendencias", label: "Evolución", icon: TrendingUp },
+    { id: "clientes",   label: "PDVs",      icon: Users },
+  ],
+};
 
-const SOURCE_META: Record<ReporteriaSource, { label: string }> = {
-  sigo:         { label: "SIGO" },
-  comprobantes: { label: "Comprobantes" },
-  bultos:       { label: "Bultos" },
+const SOURCE_META: Record<ReporteriaSource, { label: string; icon: React.ElementType; color: string }> = {
+  sigo:         { label: "SIGO",          icon: BarChart2,  color: "text-violet-600" },
+  comprobantes: { label: "Comprobantes",  icon: FileText,   color: "text-blue-600" },
+  bultos:       { label: "Bultos",        icon: Package,    color: "text-emerald-600" },
 };
 
 function buildMockData(source: ReporteriaSource): ReporteriaExploreResponse {
@@ -396,34 +408,69 @@ interface PanelViewProps {
 }
 
 function PanelView({ data, activeTab, onTabChange }: PanelViewProps) {
+  const sourceMeta = SOURCE_META[data.source];
+  const SourceIcon = sourceMeta?.icon ?? BarChart2;
+  const tabs = SOURCE_TABS[data.source] ?? SOURCE_TABS.comprobantes;
+  const recordCount = data.top_clientes?.length ?? 0;
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+      transition={{ type: "spring", stiffness: 300, damping: 30 }}
       className="space-y-5"
     >
-      {/* Source badge */}
-      <div className="flex items-center gap-2.5 flex-wrap">
-        <span className="text-xs font-black bg-[var(--shelfy-primary)] text-white px-3 py-1 rounded-full">
-          {SOURCE_META[data.source]?.label ?? data.source}
-        </span>
-        <span className="text-xs text-[var(--shelfy-muted)] font-medium">
-          {data.date_from} → {data.date_to}
-        </span>
-        {data.snapshot_version === "demo-mock" && (
-          <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full border border-amber-200">
-            DEMO
-          </span>
-        )}
+      {/* Premium header card */}
+      <div className="relative rounded-2xl border border-[var(--shelfy-border)] bg-gradient-to-br from-white via-[var(--shelfy-primary)]/[0.03] to-white shadow-sm overflow-hidden p-5">
+        <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-[var(--shelfy-primary)]/60 via-[var(--shelfy-primary)]/20 to-transparent rounded-t-2xl" />
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-3">
+            <span className={cn(
+              "inline-flex items-center justify-center size-10 rounded-xl",
+              data.source === "sigo"         ? "bg-violet-100" :
+              data.source === "comprobantes" ? "bg-blue-100"   : "bg-emerald-100"
+            )}>
+              <SourceIcon size={18} className={sourceMeta?.color ?? "text-[var(--shelfy-primary)]"} />
+            </span>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-base font-black text-[var(--shelfy-text)]">
+                  {sourceMeta?.label ?? data.source}
+                </span>
+                {data.snapshot_version === "demo-mock" && (
+                  <span className="text-[9px] font-black bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full border border-amber-200">
+                    DEMO
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-[var(--shelfy-muted)] font-medium mt-0.5">
+                {data.date_from} → {data.date_to}
+              </p>
+            </div>
+          </div>
+          {recordCount > 0 && (
+            <div className="text-right">
+              <p className="text-2xl font-black text-[var(--shelfy-primary)] tabular-nums leading-none">
+                {recordCount.toLocaleString("es-AR")}
+              </p>
+              <p className="text-[10px] font-bold text-[var(--shelfy-muted)] uppercase tracking-wider mt-0.5">
+                registros
+              </p>
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* KPIs */}
-      <ReporteriaKpis kpis={data.kpis} />
+      {/* KPIs — clickable when on resumen tab */}
+      <ReporteriaKpis
+        kpis={data.kpis}
+        onKpiClick={() => onTabChange("clientes")}
+        activeOnClick={activeTab === "resumen"}
+      />
 
       {/* Tab bar */}
       <div className="flex gap-1 bg-white border border-[var(--shelfy-border)] rounded-xl p-1 w-fit">
-        {TABS.map(({ id, label, icon: Icon }) => (
+        {tabs.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
             onClick={() => onTabChange(id)}
@@ -454,7 +501,7 @@ function PanelView({ data, activeTab, onTabChange }: PanelViewProps) {
           initial={{ opacity: 0, x: 6 }}
           animate={{ opacity: 1, x: 0 }}
           exit={{ opacity: 0, x: -6 }}
-          transition={{ duration: 0.22, ease: "easeOut" }}
+          transition={{ type: "spring", stiffness: 300, damping: 30 }}
           className="space-y-4"
         >
           {(activeTab === "resumen" || activeTab === "tendencias") && (

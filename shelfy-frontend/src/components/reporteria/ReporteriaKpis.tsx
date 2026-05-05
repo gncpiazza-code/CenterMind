@@ -89,9 +89,11 @@ const CARD_PALETTE = [
 
 interface Props {
   kpis: ReporteriaKpi[];
+  onKpiClick?: () => void;
+  activeOnClick?: boolean;
 }
 
-export function ReporteriaKpis({ kpis }: Props) {
+export function ReporteriaKpis({ kpis, onKpiClick, activeOnClick = false }: Props) {
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5">
       {kpis.map((kpi, i) => {
@@ -104,10 +106,12 @@ export function ReporteriaKpis({ kpis }: Props) {
             key={kpi.label}
             initial={{ opacity: 0, y: 14 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.06, duration: 0.38, ease: [0.16, 1, 0.3, 1] }}
+            transition={{ delay: i * 0.05, type: "spring", stiffness: 280, damping: 28 }}
+            onClick={activeOnClick ? onKpiClick : undefined}
             className={cn(
-              "relative rounded-2xl p-3.5 border bg-white bg-gradient-to-br shadow-sm",
+              "relative rounded-2xl p-3.5 border bg-white bg-gradient-to-br shadow-sm transition-shadow",
               palette.gradient, palette.border, palette.glow,
+              activeOnClick && "cursor-pointer hover:shadow-md hover:scale-[1.02] hover:ring-2 hover:ring-[var(--shelfy-primary)]/30 transition-all duration-200",
             )}
           >
             {/* top accent bar */}
@@ -132,6 +136,11 @@ export function ReporteriaKpis({ kpis }: Props) {
                 }
                 <span>{kpi.delta_label ?? `${Math.abs(kpi.delta ?? 0)}%`}</span>
               </div>
+            )}
+            {activeOnClick && (
+              <p className="mt-2 text-[8px] font-semibold text-[var(--shelfy-muted)] opacity-60">
+                Clic para ver detalle →
+              </p>
             )}
           </motion.div>
         );

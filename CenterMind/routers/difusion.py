@@ -15,6 +15,7 @@ import unicodedata
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from core.helpers import load_active_vendedor_ids
 from core.security import verify_auth, check_dist_permission
 from core.tenant_tables import tenant_table_name
 from db import sb
@@ -217,6 +218,12 @@ def difusion_list_vendedores(dist_id: int, sucursal: Optional[str] = None, user_
         vend_rows = _fetch_all_rows(t_vend, "id_vendedor, nombre_erp, id_sucursal", dist_id, order_col="nombre_erp")
         suc_rows = _fetch_all_rows(t_suc, "id_sucursal, nombre_erp", dist_id)
         suc_map = {s["id_sucursal"]: s["nombre_erp"] for s in suc_rows}
+
+        # Filtrar vendedores inactivos
+        active_ids = load_active_vendedor_ids(dist_id)
+        n_all = len(vend_rows)
+        vend_rows = [v for v in vend_rows if v.get("id_vendedor") in active_ids]
+        logger.info(f"[difusion] list_vendedores dist={dist_id}: {len(vend_rows)} active vendors (excluded {n_all - len(vend_rows)} inactive)")
 
         # Filtrar por sucursal si se pide
         if sucursal:

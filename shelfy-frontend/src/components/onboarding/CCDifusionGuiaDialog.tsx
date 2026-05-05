@@ -1,6 +1,22 @@
 "use client";
 
-import React, { useCallback, useEffect, useRef, type SyntheticEvent } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useRef,
+  type ChangeEvent,
+  type SyntheticEvent,
+} from "react";
+import {
+  Bold,
+  Camera,
+  Code2,
+  Italic,
+  Paperclip,
+  Smile,
+  Strikethrough,
+  X,
+} from "lucide-react";
 
 import { useAuth } from "@/hooks/useAuth";
 import {
@@ -13,7 +29,17 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/Button";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import { cn } from "@/lib/utils";
 import {
   GUIA_CC_DIFUSION_VERSION,
   postPortalGuiaTracking,
@@ -28,6 +54,151 @@ export const DIFUSION_GUIA_HTML = "/anuncios/comunicacion-shelfy-cc-difusion/ind
 const SESSION_LOGIN_PULSE = "shelfy_login_pulse_guia";
 /** Cuántas veces se abrió automáticamente tras login (3 primeros ingresos con pulso). */
 const LOGIN_PROMPT_COUNT_KEY = "shelfy_difusion_cc_guia_login_opens";
+
+type TicketDestination = "producto" | "soporte" | "ideas";
+type TicketPriority = "baja" | "media" | "alta" | "critica";
+
+const DEST_META: Record<TicketDestination, { label: string; description: string }> = {
+  producto: { label: "Producto Shelfy", description: "Flujos del portal y la experiencia día a día" },
+  soporte: { label: "Soporte técnico", description: "Errores, lentitud o algo que no carga bien" },
+  ideas: { label: "Ideas y roadmap", description: "Sugerencias y mejoras a futuro" },
+};
+
+const PRIOS: TicketPriority[] = ["baja", "media", "alta", "critica"];
+
+const PRIO_LABEL: Record<TicketPriority, string> = {
+  baja: "Baja",
+  media: "Media",
+  alta: "Alta",
+  critica: "Crítica",
+};
+
+function prioButtonClass(active: boolean, p: TicketPriority): string {
+  const base =
+    "h-9 rounded-lg border px-2 text-[11px] font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--shelfy-accent)] focus-visible:ring-offset-2 sm:text-xs";
+  if (!active) {
+    return cn(
+      base,
+      "border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-[var(--shelfy-text-soft)] hover:border-[var(--shelfy-accent)]/35 hover:bg-white",
+      p === "critica" && "text-rose-800/85",
+      p === "alta" && "text-amber-900/80",
+    );
+  }
+  switch (p) {
+    case "critica":
+      return cn(base, "border-rose-600 bg-gradient-to-br from-rose-600 to-rose-700 text-white shadow-sm");
+    case "alta":
+      return cn(base, "border-amber-500 bg-gradient-to-br from-amber-500 to-orange-600 text-white shadow-sm");
+    case "media":
+      return cn(base, "border-transparent bg-[var(--shelfy-accent)] text-white shadow-md shadow-violet-400/25");
+    default:
+      return cn(base, "border-slate-500 bg-slate-800 text-white shadow-sm");
+  }
+}
+
+function draftStorageKey(uid: number) {
+  return `shelfy_portal_ticket_v1_${uid}`;
+}
+
+/** Legible para `Mensajes` en admin; formato estable con separadores ASCII. */
+function buildPortalTicketBlob(
+  dest: TicketDestination,
+  prio: TicketPriority,
+  subject: string,
+  body: string,
+  fileHints: string[],
+): string {
+  const head = [
+    `▸ TICKET PORTAL SHELFY`,
+    `──────────────────────`,
+    `Destinatario: ${DEST_META[dest].label}`,
+    `Prioridad: ${PRIO_LABEL[prio]}`,
+    `Asunto: ${subject.trim()}`,
+    `──────────────────────`,
+    ``,
+    body.trim(),
+  ];
+  if (fileHints.length) {
+    head.push("", `📎 Referencias de archivos (sin subida todavía): ${fileHints.join(", ")}`);
+  }
+  return head.join("\n");
+}
+
+/** Inserta marcadores Markdown alrededor de la selección (o punto de inserción). */
+function wrapSelection(
+  el: HTMLTextAreaElement | null,
+  value: string,
+  setValue: (s: string) => void,
+  before: string,
+  after: string,
+) {
+  if (!el) return;
+  const start = el.selectionStart;
+  const end = el.selectionEnd;
+  const slice = value.slice(start, end);
+  const next = `${value.slice(0, start)}${before}${slice || ""}${after}${value.slice(end)}`;
+  setValue(next);
+  window.requestAnimationFrame(() => {
+    el.focus();
+    const caret = slice ? start + before.length + slice.length + after.length : start + before.length;
+    el.setSelectionRange(caret, caret);
+  });
+}
+
+function insertTextAtCaret(
+  el: HTMLTextAreaElement | null,
+  value: string,
+  setValue: (s: string) => void,
+  insert: string,
+) {
+  if (!el) return;
+  const start = el.selectionStart;
+  const end = el.selectionEnd;
+  const next = `${value.slice(0, start)}${insert}${value.slice(end)}`;
+  setValue(next);
+  window.requestAnimationFrame(() => {
+    el.focus();
+    const pos = start + insert.length;
+    el.setSelectionRange(pos, pos);
+  });
+}
+
+type DraftShape = {
+  dest: TicketDestination;
+  prio: TicketPriority;
+  subject: string;
+  body: string;
+  hints: string[];
+};
+
+function ToolbarIcon({
+  title,
+  children,
+  onPress,
+  disabled,
+}: {
+  title: string;
+  children: React.ReactNode;
+  onPress: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      aria-label={title}
+      onClick={onPress}
+      disabled={disabled}
+      className={cn(
+        "inline-flex size-8 items-center justify-center rounded-lg text-slate-600",
+        "transition hover:bg-violet-50 hover:text-[var(--shelfy-accent)]",
+        "disabled:pointer-events-none disabled:opacity-45",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
 
 type Props = {
   autoOpenIfUnseen?: boolean;
@@ -49,7 +220,15 @@ export function CCDifusionGuiaDialog({
   const [internalOpen, internalSetOpen] = React.useState(false);
   const [composerOpen, setComposerOpen] = React.useState(false);
   const [composerBody, setComposerBody] = React.useState("");
+  const [ticketDest, setTicketDest] = React.useState<TicketDestination>("soporte");
+  const [ticketPrio, setTicketPrio] = React.useState<TicketPriority>("media");
+  const [ticketSubject, setTicketSubject] = React.useState("");
+  const [fileHints, setFileHints] = React.useState<string[]>([]);
+  const [autosaveLabel, setAutosaveLabel] = React.useState<string | null>(null);
   const [sendingNote, setSendingNote] = React.useState(false);
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const prevComposerOpen = useRef(false);
   const trackAgg = useRef<TrackAgg>({ scrollMaxPct: 0, activeSeconds: 0 });
   const lastFlushAt = useRef(0);
 
@@ -61,6 +240,79 @@ export function CCDifusionGuiaDialog({
     },
     [controlled, onOpenChange],
   );
+
+  const persistDraft = useCallback(() => {
+    const uid = user?.id_usuario;
+    if (!uid) return;
+    try {
+      const blob: DraftShape = {
+        dest: ticketDest,
+        prio: ticketPrio,
+        subject: ticketSubject,
+        body: composerBody,
+        hints: fileHints,
+      };
+      localStorage.setItem(draftStorageKey(uid), JSON.stringify(blob));
+      setAutosaveLabel(
+        new Date().toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" }),
+      );
+    } catch {
+      /* ignore */
+    }
+  }, [user?.id_usuario, ticketDest, ticketPrio, ticketSubject, composerBody, fileHints]);
+
+  const resetComposerForm = useCallback(() => {
+    setTicketSubject("");
+    setComposerBody("");
+    setFileHints([]);
+    setTicketDest("soporte");
+    setTicketPrio("media");
+    setAutosaveLabel(null);
+  }, []);
+
+  /** Borrador desde localStorage al pasar cerrado → abierto. */
+  useEffect(() => {
+    const uid = user?.id_usuario;
+    const wasOpen = prevComposerOpen.current;
+
+    if (composerOpen && !wasOpen && uid) {
+      try {
+        const raw = localStorage.getItem(draftStorageKey(uid));
+        if (raw) {
+          const d = JSON.parse(raw) as Partial<DraftShape>;
+          if (d.dest === "producto" || d.dest === "soporte" || d.dest === "ideas") setTicketDest(d.dest);
+          if (d.prio === "baja" || d.prio === "media" || d.prio === "alta" || d.prio === "critica") {
+            setTicketPrio(d.prio);
+          }
+          if (typeof d.subject === "string") setTicketSubject(d.subject);
+          if (typeof d.body === "string") setComposerBody(d.body);
+          if (Array.isArray(d.hints)) setFileHints(d.hints.filter((x) => typeof x === "string"));
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
+    prevComposerOpen.current = composerOpen;
+  }, [composerOpen, user?.id_usuario]);
+
+  /** Autoguardado local discreto para no perder el texto. */
+  useEffect(() => {
+    if (!composerOpen || !user?.id_usuario) return;
+    const timer = window.setTimeout(() => {
+      persistDraft();
+    }, 650);
+    return () => window.clearTimeout(timer);
+  }, [
+    composerOpen,
+    user?.id_usuario,
+    ticketDest,
+    ticketPrio,
+    ticketSubject,
+    composerBody,
+    fileHints,
+    persistDraft,
+  ]);
 
   const flushTracking = useCallback(
     async (cerradoModal: boolean) => {
@@ -154,16 +406,28 @@ export function CCDifusionGuiaDialog({
 
   const handleComposerSubmit = async (ev: SyntheticEvent) => {
     ev.preventDefault();
-    const trimmed = composerBody.trim();
-    if (trimmed.length < 3) {
-      toast.error("Escribí al menos unas palabras para enviar.");
+    const sub = ticketSubject.trim();
+    const bod = composerBody.trim();
+    if (sub.length < 4) {
+      toast.error("Escribí un asunto un poco más descriptivo (al menos 4 caracteres).");
       return;
     }
+    if (bod.length < 16) {
+      toast.error("Contá un poco más de detalle en el mensaje (al menos 16 caracteres).");
+      return;
+    }
+    const payload = buildPortalTicketBlob(ticketDest, ticketPrio, sub, bod, fileHints);
     setSendingNote(true);
     try {
-      await postPortalFeedbackMessage(trimmed);
-      toast.success("Mensaje enviado al equipo de desarrollo.");
-      setComposerBody("");
+      await postPortalFeedbackMessage(payload);
+      toast.success("Ticket enviado. Gracias por el feedback.");
+      try {
+        const uid = user?.id_usuario;
+        if (uid) localStorage.removeItem(draftStorageKey(uid));
+      } catch {
+        /* ignore */
+      }
+      resetComposerForm();
       setComposerOpen(false);
       void flushTracking(false);
     } catch (e: unknown) {
@@ -171,6 +435,41 @@ export function CCDifusionGuiaDialog({
     } finally {
       setSendingNote(false);
     }
+  };
+
+  const handleSaveDraftClick = () => {
+    persistDraft();
+    toast.success("Borrador guardado en este dispositivo.", { duration: 2200 });
+  };
+
+  const handleAttachChange = (ev: ChangeEvent<HTMLInputElement>) => {
+    const list = ev.target.files;
+    if (!list?.length) return;
+    const names: string[] = [];
+    for (let i = 0; i < list.length && names.length < 6; i++) {
+      const n = list[i]?.name;
+      if (n) names.push(n);
+    }
+    setFileHints((prev) => {
+      const merged = [...prev, ...names];
+      return merged.slice(0, 8);
+    });
+    ev.target.value = "";
+  };
+
+  const handleInsertEmoji = () => {
+    insertTextAtCaret(bodyRef.current, composerBody, setComposerBody, " 🙂 ");
+  };
+
+  const handleComposerClose = (next: boolean) => {
+    if (!next && user?.id_usuario) {
+      try {
+        persistDraft();
+      } catch {
+        /* ignore */
+      }
+    }
+    setComposerOpen(next);
   };
 
   return (
@@ -212,44 +511,243 @@ export function CCDifusionGuiaDialog({
         </DialogContent>
       </Dialog>
 
-      <Dialog open={composerOpen} onOpenChange={setComposerOpen}>
-        <DialogContent className="max-w-lg border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] rounded-2xl">
-          <DialogHeader className="space-y-2 text-left">
-            <p className="text-xs text-[var(--shelfy-muted)] leading-snug">
-              Toda idea es bienvenida: el equipo de desarrollo la tendrá en cuenta.
-            </p>
-            <DialogTitle>Mensaje al desarrollador</DialogTitle>
-            <DialogDescription className="sr-only">
-              Escribí un mensaje opcional sobre la guía o el producto. Podés usar varias líneas.
-            </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleComposerSubmit} className="space-y-3">
-            <div className="space-y-2">
-              <Label htmlFor="dev-note" className="text-xs">
-                ¿Qué querés comunicar?
+      <Dialog open={composerOpen} onOpenChange={handleComposerClose}>
+        <DialogContent
+          className={cn(
+            "max-w-[min(100vw-1.25rem,32rem)] overflow-hidden rounded-2xl border border-[var(--shelfy-border)]",
+            "bg-[var(--shelfy-panel)] p-0 gap-0 shadow-[0_22px_48px_-28px_rgba(79,22,184,0.45)]",
+          )}
+        >
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-[3px] bg-gradient-to-r from-violet-400 via-[var(--shelfy-accent)] to-fuchsia-400" />
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_90%_52%_at_50%_-25%,rgba(124,58,237,0.11),transparent)]" />
+
+          <div className="relative px-5 pt-6 pb-4">
+            <DialogHeader className="space-y-2 text-left gap-0">
+              <DialogTitle className="font-serif text-xl font-semibold tracking-tight text-[var(--shelfy-text)] pr-8">
+                Ticket para Shelfy
+              </DialogTitle>
+              <p className="text-[13px] leading-relaxed text-[var(--shelfy-muted)]">
+                Toda idea cuenta: lo leemos con calma y respondemos desde{" "}
+                <span className="text-[var(--shelfy-accent)] font-medium">Mensajes</span> (superadmin).
+              </p>
+              <DialogDescription className="sr-only">
+                Formulario tipo ticket: destinatario, prioridad, asunto y detalle. Borrador local opcional.
+              </DialogDescription>
+            </DialogHeader>
+          </div>
+
+          <Separator className="opacity-60" />
+
+          <form onSubmit={handleComposerSubmit} className="relative flex flex-col gap-0">
+            <div className="grid gap-5 px-5 py-5 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label className="text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--shelfy-accent)]">
+                  Destinatario
+                </Label>
+                <Select
+                  value={ticketDest}
+                  onValueChange={(v) => setTicketDest(v as TicketDestination)}
+                  disabled={sendingNote}
+                >
+                  <SelectTrigger className="h-11 rounded-xl border-[var(--shelfy-border)] bg-white/90 text-left text-sm shadow-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(DEST_META) as TicketDestination[]).map((k) => (
+                      <SelectItem key={k} value={k} className="text-sm">
+                        <div className="flex flex-col py-0.5">
+                          <span className="font-semibold text-[var(--shelfy-text)]">{DEST_META[k].label}</span>
+                          <span className="text-[11px] text-[var(--shelfy-muted)]">
+                            {DEST_META[k].description}
+                          </span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--shelfy-accent)]">
+                  Prioridad
+                </Label>
+                <div role="radiogroup" aria-label="Prioridad del ticket" className="grid grid-cols-2 gap-1.5">
+                  {PRIOS.map((p) => (
+                    <button
+                      key={p}
+                      type="button"
+                      role="radio"
+                      aria-checked={ticketPrio === p}
+                      onClick={() => setTicketPrio(p)}
+                      disabled={sendingNote}
+                      className={cn(
+                        prioButtonClass(ticketPrio === p, p),
+                        sendingNote && "pointer-events-none opacity-60",
+                      )}
+                    >
+                      {PRIO_LABEL[p]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2 px-5">
+              <Label
+                htmlFor="ticket-subject"
+                className="text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--shelfy-accent)]"
+              >
+                Asunto del ticket
               </Label>
-              <Textarea
-                id="dev-note"
-                value={composerBody}
-                onChange={(e) => setComposerBody(e.target.value)}
-                rows={6}
-                className="text-sm min-h-[120px]"
-                placeholder="Contá problema, idea o consulta..."
+              <Input
+                id="ticket-subject"
+                value={ticketSubject}
+                onChange={(e) => setTicketSubject(e.target.value)}
                 disabled={sendingNote}
+                placeholder="Un título corto que resuma la consulta…"
+                maxLength={140}
+                className="h-11 rounded-xl border-[var(--shelfy-border)] bg-white/90 text-sm shadow-sm"
               />
             </div>
-            <DialogFooter className="gap-2 flex-row justify-end pt-2">
+
+            <div className="mt-5 mx-5 overflow-hidden rounded-xl border border-[var(--shelfy-border)] bg-white shadow-inner">
+              <div className="flex flex-wrap items-center gap-1 border-b border-[var(--shelfy-border)] bg-slate-50/90 px-2 py-1.5">
+                <div className="flex items-center gap-0.5 rounded-lg bg-white/80 p-0.5 shadow-sm">
+                  <ToolbarIcon
+                    title="Negrita (**)"
+                    onPress={() => wrapSelection(bodyRef.current, composerBody, setComposerBody, "**", "**")}
+                    disabled={sendingNote}
+                  >
+                    <Bold className="size-3.5" />
+                  </ToolbarIcon>
+                  <ToolbarIcon
+                    title="Cursiva (*)"
+                    onPress={() => wrapSelection(bodyRef.current, composerBody, setComposerBody, "*", "*")}
+                    disabled={sendingNote}
+                  >
+                    <Italic className="size-3.5" />
+                  </ToolbarIcon>
+                  <ToolbarIcon
+                    title="Tachado (~~)"
+                    onPress={() => wrapSelection(bodyRef.current, composerBody, setComposerBody, "~~", "~~")}
+                    disabled={sendingNote}
+                  >
+                    <Strikethrough className="size-3.5" />
+                  </ToolbarIcon>
+                  <ToolbarIcon
+                    title="Código (`)"
+                    onPress={() => wrapSelection(bodyRef.current, composerBody, setComposerBody, "`", "`")}
+                    disabled={sendingNote}
+                  >
+                    <Code2 className="size-3.5" />
+                  </ToolbarIcon>
+                </div>
+                <Separator orientation="vertical" className="mx-1 hidden h-7 sm:block bg-border" />
+                <div className="flex flex-1 flex-wrap items-center gap-0.5">
+                  <ToolbarIcon
+                    title="Adjuntar (nombre de archivo)"
+                    onPress={() => fileInputRef.current?.click()}
+                    disabled={sendingNote}
+                  >
+                    <Paperclip className="size-3.5" />
+                  </ToolbarIcon>
+                  <ToolbarIcon
+                    title="Misma acción — ideal para capturas"
+                    onPress={() => fileInputRef.current?.click()}
+                    disabled={sendingNote}
+                  >
+                    <Camera className="size-3.5" />
+                  </ToolbarIcon>
+                  <ToolbarIcon title="Insertar emoji" onPress={handleInsertEmoji} disabled={sendingNote}>
+                    <Smile className="size-3.5" />
+                  </ToolbarIcon>
+                </div>
+                <span className="ml-auto hidden text-[9px] font-bold uppercase tracking-wider text-muted-foreground tabular-nums sm:inline">
+                  {autosaveLabel ? <>Autoguardado · {autosaveLabel}</> : "Borrador local"}
+                </span>
+              </div>
+              <p className="sm:hidden border-b border-transparent px-3 py-1.5 text-center text-[9px] font-bold uppercase tracking-wider text-muted-foreground tabular-nums">
+                {autosaveLabel ? <>Autoguardado · {autosaveLabel}</> : "Borrador solo en este dispositivo"}
+              </p>
+              <Textarea
+                ref={bodyRef}
+                id="ticket-body"
+                value={composerBody}
+                onChange={(e) => setComposerBody(e.target.value)}
+                disabled={sendingNote}
+                placeholder="Contá pasos para reproducir el problema, qué esperabas y qué viste. Cuanto más contexto, mejor."
+                className={cn(
+                  "min-h-[140px] resize-y rounded-none border-0 bg-transparent px-3 py-3 text-sm",
+                  "leading-relaxed shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 md:min-h-[168px]",
+                )}
+              />
+              <input
+                ref={fileInputRef}
+                type="file"
+                className="hidden"
+                multiple
+                accept="image/*,.pdf,.txt,.csv,.xlsx,.zip"
+                onChange={handleAttachChange}
+              />
+
+              {fileHints.length > 0 && (
+                <div className="flex flex-wrap gap-2 border-t border-dashed border-[var(--shelfy-border)] bg-violet-50/30 px-3 py-3">
+                  {fileHints.map((name, idx) => (
+                    <span
+                      key={`${idx}-${name}`}
+                      className="group inline-flex max-w-full items-center gap-1.5 rounded-full border border-violet-200 bg-white pl-2.5 pr-1 text-[11px] font-medium text-violet-950"
+                    >
+                      <span className="truncate">{name}</span>
+                      <button
+                        type="button"
+                        aria-label={`Quitar ${name}`}
+                        disabled={sendingNote}
+                        className="rounded-full p-0.5 text-violet-600 transition hover:bg-violet-100 hover:text-violet-950"
+                        onClick={() => setFileHints((xs) => xs.filter((n) => n !== name))}
+                      >
+                        <X className="size-3.5" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <p className="border-t border-[var(--shelfy-border)] bg-slate-50/50 px-3 py-2 text-[10px] text-[var(--shelfy-muted)]">
+                Los archivos aparecen como referencia por nombre; la subida directa se suma en una próxima iteración.
+              </p>
+            </div>
+
+            <DialogFooter className="mt-5 flex-col gap-3 border-t border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
               <Button
                 type="button"
-                variant="outline"
+                variant="ghost"
                 size="sm"
-                onClick={() => setComposerOpen(false)}
+                className="text-xs text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] justify-start px-0 sm:order-1 sm:justify-center"
+                disabled={sendingNote}
+                onClick={() => handleComposerClose(false)}
               >
                 Cancelar
               </Button>
-              <Button type="submit" size="sm" disabled={sendingNote} loading={sendingNote}>
-                Enviar
-              </Button>
+              <div className="flex w-full flex-wrap justify-end gap-2 sm:w-auto sm:flex-nowrap">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-9 flex-1 rounded-xl border-[var(--shelfy-border)] sm:flex-none"
+                  disabled={sendingNote}
+                  onClick={handleSaveDraftClick}
+                >
+                  Guardar borrador
+                </Button>
+                <Button
+                  type="submit"
+                  size="sm"
+                  className="h-9 flex-1 rounded-xl bg-[var(--shelfy-accent)] text-white hover:bg-[var(--shelfy-accent)]/90 sm:flex-none"
+                  disabled={sendingNote}
+                  loading={sendingNote}
+                >
+                  Enviar ticket
+                </Button>
+              </div>
             </DialogFooter>
           </form>
         </DialogContent>

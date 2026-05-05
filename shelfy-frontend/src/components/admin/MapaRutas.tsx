@@ -277,6 +277,10 @@ export default function MapaRutas({
     [pines, filterEnabled]
   );
 
+  // Keep ref updated so polygon closure always has current filtered pins
+  const filteredPinesRef = useRef(filteredPines);
+  useEffect(() => { filteredPinesRef.current = filteredPines; }, [filteredPines]);
+
   // Resetear fitBounds cuando cambia el set de pines
   const prevPineIdsRef = useRef<string>('');
   const currentPineIds = pines.map(p => p.id).sort().join(',');
@@ -605,9 +609,9 @@ export default function MapaRutas({
           drawnPolyRef.current.push(polygon);
           setPolygonCount(c => c + 1);
 
-          // Spatial containment: find PDVs inside polygon
+          // Spatial containment: find only VISIBLE PDVs (respects filter toggles)
           const pdvIds: number[] = [];
-          pines.forEach(p => {
+          filteredPinesRef.current.forEach(p => {
             if (!p.lat || !p.lng) return;
             const point = new window.google.maps.LatLng(p.lat, p.lng);
             if (window.google.maps.geometry.poly.containsLocation(point, polygon)) {

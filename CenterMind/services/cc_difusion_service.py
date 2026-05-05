@@ -24,8 +24,13 @@ logger = logging.getLogger("ShelfyAPI")
 
 TELEGRAM_SEND_DOC = "https://api.telegram.org/bot{token}/sendDocument"
 TELEGRAM_SEND_MSG = "https://api.telegram.org/bot{token}/sendMessage"
+TELEGRAM_PIN_MSG  = "https://api.telegram.org/bot{token}/pinChatMessage"
+TELEGRAM_UNPIN_MSG = "https://api.telegram.org/bot{token}/unpinChatMessage"
 # Límite caption Telegram ~1024; dejamos margen HTML
 TELEGRAM_CAPTION_SAFE_MAX = 900
+
+# In-memory store del último message_id pineado por (dist_id, chat_id)
+_pinned_msgs: dict[tuple[int, int], int] = {}
 
 # ─── PDF ──────────────────────────────────────────────────────────────────────
 try:
@@ -109,6 +114,27 @@ def _erp_display(value: Any) -> str:
     return raw
 
 
+_COD_NOMBRE_RE = re.compile(r'^(\d+)\s*-\s*(.+)$')
+
+
+def _normalize_cliente_row(cliente_nombre: str | None, id_cliente_erp: Any) -> tuple[str, str]:
+    """
+    Returns (erp_display, cliente_display).
+    Si id_cliente_erp es null y cliente_nombre tiene formato 'COD - NOMBRE',
+    extrae el código como ERP y deja solo el nombre como cliente.
+    """
+    nombre = (cliente_nombre or "").strip()
+    erp_raw = id_cliente_erp
+
+    if not erp_raw and nombre:
+        m = _COD_NOMBRE_RE.match(nombre)
+        if m:
+            erp_raw = m.group(1)
+            nombre = m.group(2).strip()
+
+    return _erp_display(erp_raw), nombre
+
+
 # ─── PDF generation ───────────────────────────────────────────────────────────
 
 def _build_cc_pdf(
@@ -178,9 +204,10 @@ def _build_cc_pdf(
     table_data = [["Cliente ERP", "Cliente", "Días", "Comprobantes", "Deuda $"]]
     for c in clientes:
         dias = c.get("antiguedad") or 0
+        erp_disp, cliente_disp = _normalize_cliente_row(c.get("cliente"), c.get("id_cliente_erp"))
         table_data.append([
-            _erp_display(c.get("id_cliente_erp")),
-            (c.get("cliente") or "—")[:40],
+            erp_disp,
+            (cliente_disp or "—")[:40],
             str(dias),
             str(c.get("cantidad_comprobantes") or "—"),
             f"${float(c.get('deuda_total') or 0):,.0f}".replace(",", "."),
@@ -261,7 +288,8 @@ def _trim_telegram_caption(html: str) -> str:
     return html[:cut] + "\n<b>…(texto cortado — ver mensaje siguiente)</b>"
 
 
-def _send_document(token: str, chat_id: int, pdf_bytes: bytes, filename: str, caption: str) -> bool:
+def _send_document(token: str, chat_id: int, pdf_bytes: bytes, filename: str, caption: str) -> tuple[bool, int | None]:
+    """Returns (ok, message_id). message_id is None on failure."""
     caption_eff = _trim_telegram_caption(caption)
     try:
         resp = requests.post(
@@ -271,13 +299,43 @@ def _send_document(token: str, chat_id: int, pdf_bytes: bytes, filename: str, ca
             timeout=20,
         )
         if resp.ok:
-            logger.info(f"[CCDifusion] PDF enviado chat={chat_id}")
-            return True
+            msg_id = (resp.json().get("result") or {}).get("message_id")
+            logger.info(f"[CCDifusion] PDF enviado chat={chat_id} msg_id={msg_id}")
+            return True, msg_id
         logger.warning(f"[CCDifusion] sendDocument error chat={chat_id}: {resp.status_code} {resp.text[:120]}")
-        return False
+        return False, None
     except Exception as e:
         logger.error(f"[CCDifusion] sendDocument exc chat={chat_id}: {e}")
-        return False
+        return False, None
+
+
+def _pin_cc_message(token: str, dist_id: int, chat_id: int, message_id: int) -> None:
+    """Pin el mensaje CC en el grupo. Desancla el anterior si existe. Degrada sin lanzar si sin permisos."""
+    prev_id = _pinned_msgs.get((dist_id, chat_id))
+    if prev_id:
+        try:
+            requests.post(
+                TELEGRAM_UNPIN_MSG.format(token=token),
+                json={"chat_id": chat_id, "message_id": prev_id},
+                timeout=5,
+            )
+        except Exception:
+            pass
+    try:
+        resp = requests.post(
+            TELEGRAM_PIN_MSG.format(token=token),
+            json={"chat_id": chat_id, "message_id": message_id, "disable_notification": True},
+            timeout=5,
+        )
+        if resp.ok:
+            _pinned_msgs[(dist_id, chat_id)] = message_id
+            logger.info(f"[CCDifusion] Mensaje pineado chat={chat_id} msg_id={message_id}")
+        elif resp.status_code == 403:
+            logger.warning(f"[CCDifusion] Sin permisos de pin en chat={chat_id}")
+        else:
+            logger.warning(f"[CCDifusion] pinChatMessage error chat={chat_id}: {resp.status_code}")
+    except Exception as e:
+        logger.warning(f"[CCDifusion] pin exc chat={chat_id}: {e}")
 
 
 def _send_text(token: str, chat_id: int, text: str) -> bool:
@@ -410,7 +468,9 @@ def enviar_cc_vendedor(
         # Nombre corto: Telegram trunca nombres largos en la UI del chat
         ftag = fecha_snapshot[:10].replace("-", "")
         filename = f"CC_{ftag}_{id_vendedor}.pdf"
-        ok = _send_document(token, chat_id, pdf_bytes, filename, caption)
+        ok, doc_msg_id = _send_document(token, chat_id, pdf_bytes, filename, caption)
+        if ok and doc_msg_id:
+            _pin_cc_message(token, dist_id, chat_id, doc_msg_id)
         if ok and extra_plain:
             ok = ok and _send_text(token, chat_id, f"💬 {_escape_telegram_html_text(extra_plain)}")
         return {"ok": ok, "vendedor": vend_data["vendedor_nombre"], "error": None if ok else "Error al enviar"}

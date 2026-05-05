@@ -1,10 +1,23 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { motion, useInView, useMotionValue, useSpring, animate } from "framer-motion";
+import { motion, useInView, animate } from "framer-motion";
 import type { ReporteriaKpi } from "@/lib/api";
 import { TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+function formatKpiValue(value: number, unit?: string): string {
+  const u = unit ?? "";
+  if (u === "%") return `${value.toLocaleString("es-AR", { maximumFractionDigits: 1 })}${u}`;
+  if (u === "$" || u.startsWith("$")) {
+    if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(1).replace(".", ",")}M`;
+    if (value >= 1_000)     return `$${Math.round(value / 1_000)}k`;
+    return `$${Math.round(value)}`;
+  }
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1).replace(".", ",")}M${u}`;
+  if (value >= 1_000)     return `${(value / 1_000).toFixed(1).replace(".", ",")}k${u}`;
+  return `${Number.isInteger(value) ? value : value.toLocaleString("es-AR", { maximumFractionDigits: 1 })}${u}`;
+}
 
 function AnimatedNumber({ value, unit = "" }: { value: number; unit?: string }) {
   const ref = useRef<HTMLSpanElement>(null);
@@ -13,15 +26,10 @@ function AnimatedNumber({ value, unit = "" }: { value: number; unit?: string }) 
   useEffect(() => {
     if (!isInView || !ref.current) return;
     const controls = animate(0, value, {
-      duration: 1.2,
+      duration: 1.1,
       ease: [0.16, 1, 0.3, 1],
       onUpdate(v) {
-        if (ref.current) {
-          const formatted = Number.isInteger(value)
-            ? Math.round(v).toLocaleString("es-AR")
-            : v.toLocaleString("es-AR", { maximumFractionDigits: 1 });
-          ref.current.textContent = formatted + unit;
-        }
+        if (ref.current) ref.current.textContent = formatKpiValue(v, unit);
       },
     });
     return () => controls.stop();
@@ -29,18 +37,54 @@ function AnimatedNumber({ value, unit = "" }: { value: number; unit?: string }) 
 
   return (
     <span ref={ref} className="tabular-nums">
-      {value.toLocaleString("es-AR")}{unit}
+      {formatKpiValue(value, unit)}
     </span>
   );
 }
 
-const CARD_COLORS = [
-  { bg: "from-violet-50 to-purple-50", border: "border-violet-100", accent: "text-violet-600", dot: "bg-violet-500" },
-  { bg: "from-blue-50 to-indigo-50",   border: "border-blue-100",   accent: "text-blue-600",   dot: "bg-blue-500" },
-  { bg: "from-emerald-50 to-teal-50",  border: "border-emerald-100", accent: "text-emerald-600", dot: "bg-emerald-500" },
-  { bg: "from-amber-50 to-orange-50",  border: "border-amber-100",  accent: "text-amber-600",  dot: "bg-amber-500" },
-  { bg: "from-rose-50 to-pink-50",     border: "border-rose-100",   accent: "text-rose-600",   dot: "bg-rose-500" },
-  { bg: "from-sky-50 to-cyan-50",      border: "border-sky-100",    accent: "text-sky-600",    dot: "bg-sky-500" },
+const CARD_PALETTE = [
+  {
+    gradient: "from-violet-500/10 via-purple-500/5 to-transparent",
+    border: "border-violet-200/60",
+    accent: "text-violet-700",
+    bar: "bg-violet-500",
+    glow: "shadow-violet-100",
+  },
+  {
+    gradient: "from-blue-500/10 via-sky-500/5 to-transparent",
+    border: "border-blue-200/60",
+    accent: "text-blue-700",
+    bar: "bg-blue-500",
+    glow: "shadow-blue-100",
+  },
+  {
+    gradient: "from-emerald-500/10 via-teal-500/5 to-transparent",
+    border: "border-emerald-200/60",
+    accent: "text-emerald-700",
+    bar: "bg-emerald-500",
+    glow: "shadow-emerald-100",
+  },
+  {
+    gradient: "from-amber-500/10 via-orange-500/5 to-transparent",
+    border: "border-amber-200/60",
+    accent: "text-amber-700",
+    bar: "bg-amber-500",
+    glow: "shadow-amber-100",
+  },
+  {
+    gradient: "from-rose-500/10 via-pink-500/5 to-transparent",
+    border: "border-rose-200/60",
+    accent: "text-rose-700",
+    bar: "bg-rose-500",
+    glow: "shadow-rose-100",
+  },
+  {
+    gradient: "from-cyan-500/10 via-sky-500/5 to-transparent",
+    border: "border-cyan-200/60",
+    accent: "text-cyan-700",
+    bar: "bg-cyan-500",
+    glow: "shadow-cyan-100",
+  },
 ];
 
 interface Props {
@@ -49,41 +93,44 @@ interface Props {
 
 export function ReporteriaKpis({ kpis }: Props) {
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5">
       {kpis.map((kpi, i) => {
-        const color = CARD_COLORS[i % CARD_COLORS.length];
+        const palette = CARD_PALETTE[i % CARD_PALETTE.length];
         const hasDelta = kpi.delta !== undefined && kpi.delta !== null;
-        const deltaPositive = (kpi.delta ?? 0) >= 0;
+        const deltaUp = (kpi.delta ?? 0) > 0;
+        const deltaFlat = kpi.delta === 0;
         return (
           <motion.div
             key={kpi.label}
-            initial={{ opacity: 0, y: 16 }}
+            initial={{ opacity: 0, y: 14 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.07, duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+            transition={{ delay: i * 0.06, duration: 0.38, ease: [0.16, 1, 0.3, 1] }}
             className={cn(
-              "relative rounded-2xl p-4 border bg-gradient-to-br overflow-hidden",
-              color.bg, color.border
+              "relative rounded-2xl p-3.5 border bg-white bg-gradient-to-br shadow-sm",
+              palette.gradient, palette.border, palette.glow,
             )}
           >
-            <div className={cn("absolute top-0 right-0 w-16 h-16 rounded-full blur-2xl opacity-30", color.dot)} />
-            <p className="text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider mb-2 leading-tight">
+            {/* top accent bar */}
+            <div className={cn("absolute top-0 left-4 right-4 h-[2px] rounded-b-full opacity-60", palette.bar)} />
+
+            <p className="text-[9px] font-bold text-[var(--shelfy-muted)] uppercase tracking-widest mb-1.5 leading-none mt-1">
               {kpi.label}
             </p>
-            <p className={cn("text-2xl font-black tracking-tight", color.accent)}>
+            <p className={cn("text-xl font-black tracking-tight leading-none", palette.accent)}>
               <AnimatedNumber value={kpi.value} unit={kpi.unit ?? ""} />
             </p>
             {hasDelta && (
               <div className={cn(
-                "mt-1.5 flex items-center gap-1 text-[10px] font-semibold",
-                deltaPositive ? "text-emerald-600" : "text-rose-500"
+                "mt-2 flex items-center gap-1 text-[9px] font-bold",
+                deltaFlat ? "text-slate-400" : deltaUp ? "text-emerald-600" : "text-rose-500"
               )}>
-                {deltaPositive
-                  ? <TrendingUp size={10} />
-                  : kpi.delta === 0
-                    ? <Minus size={10} />
-                    : <TrendingDown size={10} />
+                {deltaFlat
+                  ? <Minus size={9} />
+                  : deltaUp
+                    ? <TrendingUp size={9} />
+                    : <TrendingDown size={9} />
                 }
-                {kpi.delta_label ?? `${Math.abs(kpi.delta ?? 0)}%`}
+                <span>{kpi.delta_label ?? `${Math.abs(kpi.delta ?? 0)}%`}</span>
               </div>
             )}
           </motion.div>

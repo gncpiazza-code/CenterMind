@@ -162,6 +162,7 @@ export default function ReporteriaPage() {
   const [reportType, setReportType]   = useState<ReporteriaSource | null>(null);
   const [file, setFile]               = useState<File | null>(null);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [completedJobId, setCompletedJobId] = useState<string | null>(null);
   const [exploreData, setExploreData] = useState<ReporteriaExploreResponse | null>(null);
   const [activeTab, setActiveTab]     = useState<TabId>("resumen");
   const [exportingFmt, setExportingFmt] = useState<string | null>(null);
@@ -182,9 +183,11 @@ export default function ReporteriaPage() {
   useEffect(() => {
     if (jobData?.status === "completed" && reportType && activeJobId) {
       toast.success("Análisis completado. Cargando datos…");
+      const jobIdForExport = activeJobId;
       fetchReporteriaExploreByJob(distId, activeJobId)
         .then((data) => {
           setExploreData(data);
+          setCompletedJobId(jobIdForExport);
           setStep("panel");
           setActiveTab("resumen");
         })
@@ -250,6 +253,7 @@ export default function ReporteriaPage() {
     setReportType(null);
     setFile(null);
     setActiveJobId(null);
+    setCompletedJobId(null);
     setExploreData(null);
   }, []);
 
@@ -257,7 +261,7 @@ export default function ReporteriaPage() {
     if (!exploreData) return;
     setExportingFmt(fmt);
     try {
-      const blob = await exportReporteria(activeJobId ?? "mock", fmt);
+      const blob = await exportReporteria(completedJobId ?? "mock", fmt);
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -455,7 +459,7 @@ function PanelView({ data, activeTab, onTabChange }: PanelViewProps) {
         >
           {(activeTab === "resumen" || activeTab === "tendencias") && (
             <>
-              <ReporteriaCharts data={data} />
+              <ReporteriaCharts data={data} viewMode={activeTab === "tendencias" ? "tendencias" : "resumen"} />
               <ReporteriaOrigen data={data} />
             </>
           )}

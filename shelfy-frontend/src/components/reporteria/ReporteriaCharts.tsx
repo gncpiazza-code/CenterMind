@@ -77,9 +77,10 @@ function ChartCard({ title, subtitle, children, className }: ChartCardProps) {
 
 interface Props {
   data: ReporteriaExploreResponse;
+  viewMode?: "resumen" | "tendencias";
 }
 
-export function ReporteriaCharts({ data }: Props) {
+export function ReporteriaCharts({ data, viewMode = "resumen" }: Props) {
   const fmt = makeFormatter(data.source);
 
   const serieFormatted = (data.serie_temporal ?? []).map((s) => ({
@@ -96,6 +97,66 @@ export function ReporteriaCharts({ data }: Props) {
   const sLabel = serieLabel(data.source);
   const rLabel = rankingLabel(data.source);
 
+  // Tendencias: only temporal evolution chart
+  if (viewMode === "tendencias") {
+    return (
+      <div className="space-y-4">
+        <ChartCard
+          title={data.source === "sigo" ? "Evolución de visitas" : data.source === "bultos" ? "Evolución de bultos" : "Evolución de facturación"}
+          subtitle={`Tendencia diaria · ${data.date_from} → ${data.date_to}`}
+        >
+          <ResponsiveContainer width="100%" height={280}>
+            <AreaChart data={serieFormatted} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+              <defs>
+                <linearGradient id="rptGradTend" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor={BLUE} stopOpacity={0.22} />
+                  <stop offset="95%" stopColor={BLUE} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" vertical={false} />
+              <XAxis
+                dataKey="fecha_label"
+                tick={{ fontSize: 10, fill: "#64748b" }}
+                axisLine={false}
+                tickLine={false}
+                interval="preserveStartEnd"
+              />
+              <YAxis
+                tickFormatter={fmt}
+                tick={{ fontSize: 10, fill: "#64748b" }}
+                axisLine={false}
+                tickLine={false}
+                width={52}
+              />
+              <Tooltip
+                formatter={(v) => [fmt(Number(v)), sLabel]}
+                labelFormatter={(l) => `Fecha: ${l}`}
+                contentStyle={{
+                  borderRadius: "12px",
+                  border: "1px solid rgba(0,0,0,0.08)",
+                  fontSize: 12,
+                  boxShadow: "0 4px 24px rgba(0,0,0,0.08)",
+                }}
+              />
+              <Area
+                type="monotone"
+                dataKey="valor"
+                stroke={BLUE}
+                strokeWidth={2.5}
+                fill="url(#rptGradTend)"
+                dot={false}
+                activeDot={{ r: 5, strokeWidth: 0, fill: BLUE }}
+                animationDuration={1200}
+                animationEasing="ease-out"
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </ChartCard>
+      </div>
+    );
+  }
+
+  // Resumen: area chart + ranking bar + pie
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
       {/* Serie temporal */}

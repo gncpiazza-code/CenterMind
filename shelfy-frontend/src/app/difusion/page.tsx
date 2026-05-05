@@ -388,8 +388,8 @@ export default function DifusionPage() {
                     </div>
 
                     {loadingResumen ? (
-                      <div className="p-4 grid grid-cols-3 gap-3">
-                        {[0, 1, 2].map((i) => <Skeleton key={i} className="h-16 rounded-xl" />)}
+                      <div className="p-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        {[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-16 rounded-xl" />)}
                       </div>
                     ) : resumen ? (
                       <div className="p-4 flex flex-col gap-3">
@@ -463,7 +463,14 @@ export default function DifusionPage() {
                           </div>
                         )}
                       </div>
-                    ) : null}
+                    ) : (
+                      <div className="p-5 flex flex-col items-center justify-center gap-2 text-center">
+                        <AlertCircle className="w-5 h-5 text-[var(--shelfy-muted)] opacity-50" />
+                        <span className="text-xs text-[var(--shelfy-muted)]">
+                          Sin datos de seguimiento disponibles para este vendedor.
+                        </span>
+                      </div>
+                    )}
                   </div>
                 )}
 

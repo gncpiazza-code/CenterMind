@@ -16,6 +16,24 @@ logger = logging.getLogger("motores.chess_cuentas_v2.json")
 
 CHESS_SALDO_TOTAL_DEUDORES_PATH = "/web/api/saldoTotalDeudores/ObtenerSaldoTotalDeudores"
 
+
+def _url_es_saldo_total_deudores(url: str) -> bool:
+    """
+    Solo aceptamos JSON del reporte explícito de CHESS para CC (deudores).
+    Otros endpoints (ej. empresas/obtener) tienen grillas parecidas y pocas filas — rompen guardrails API.
+    """
+    if not url:
+        return False
+    u = url.lower()
+    return "obtenersaldototaldeudores" in u or "/saldototaldeudores/" in u
+
+
+def _captura_http_ok(it: Any) -> bool:
+    st = getattr(it, "status", None)
+    if st is None:
+        return True
+    return int(st) < 400
+
 EXCEL_HEADERS = (
     "Sucursal",
     "Vendedor",
@@ -82,10 +100,14 @@ def _score_row_keys(row: dict) -> float:
 def pick_best_grid_json(capture_items: list[Any]) -> tuple[list[dict] | None, str | None]:
     best: tuple[float, list[dict], str] | None = None
     for it in capture_items:
+        if not _captura_http_ok(it):
+            continue
+        url = getattr(it, "url", "") or ""
+        if not _url_es_saldo_total_deudores(url):
+            continue
         j = getattr(it, "body_json", None)
         if j is None:
             continue
-        url = getattr(it, "url", "")
         for lst in _iter_nested_lists(j):
             if len(lst) < 3:
                 continue
@@ -167,6 +189,7 @@ def api_rows_to_datos(rows: list[dict]) -> dict | None:
 
 
 def try_build_datos_from_capture(capture_items: list[Any]) -> tuple[dict | None, str | None]:
+    """Solo usa respuestas cuya URL sea ObtenerSaldoTotalDeudores (evita falsos positivos tipo empresas/obtener)."""
     rows, url = pick_best_grid_json(capture_items)
     if not rows:
         return None, None

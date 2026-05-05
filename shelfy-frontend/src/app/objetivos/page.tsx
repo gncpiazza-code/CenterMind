@@ -72,6 +72,8 @@ import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { DatePicker } from "@/components/ui/date-picker";
 import { toast } from "sonner";
 
@@ -721,6 +723,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
 
   const [activacionPdvs, setActivacionPdvs] = useState<{ id: number; nombre: string; fechaCompra: string | null; diasSinCompra: number | null; estado: string | null }[]>([]);
   const [selectedPdvIds, setSelectedPdvIds] = useState<Set<number>>(new Set());
+  const [cantidadActivacion, setCantidadActivacion] = useState<number | "">("");
 
   // Sucursal filter inside modal
   const [modalSucursal, setModalSucursal] = useState<string>("");
@@ -775,6 +778,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
     setCobranzaMonto("");
     setActivacionPdvs([]);
     setSelectedPdvIds(new Set());
+    setCantidadActivacion("");
     setPdvCatalogAll([]);
     setPdvCatalogPage(0);
     setPdvCatalogHasMore(false);
@@ -900,7 +904,12 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
     }
     if (tipo === "conversion_estado") {
       if (selectedPdvIds.size > 0) {
-        return `${vendedorNombre} debe activar ${selectedPdvIds.size} PDV${selectedPdvIds.size !== 1 ? "s" : ""}${fechaLabel}.${diasLabel}`;
+        const metaN = cantidadActivacion !== "" ? Number(cantidadActivacion) : selectedPdvIds.size;
+        const total = selectedPdvIds.size;
+        if (metaN < total) {
+          return `${vendedorNombre} deberá activar ${metaN} de ${total} PDVs inactivos${fechaLabel}.${diasLabel}`;
+        }
+        return `${vendedorNombre} deberá activar ${total} PDV${total !== 1 ? "s" : ""} inactivos${fechaLabel}.${diasLabel}`;
       }
       return `${vendedorNombre} debe activar clientes inactivos${fechaLabel}.`;
     }
@@ -962,7 +971,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
           };
         });
         base.pdv_items = pdvItems;
-        base.valor_objetivo = pdvItems.length;
+        base.valor_objetivo = cantidadActivacion !== "" ? Number(cantidadActivacion) : pdvItems.length;
         base.descripcion = desc || buildPhrase();
         onCreate([base]);
         return;
@@ -1304,6 +1313,39 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
                 <p className="text-[10px] font-semibold text-[var(--shelfy-accent)]">
                   {selectedPdvIds.size} seleccionado{selectedPdvIds.size > 1 ? "s" : ""} para objetivo de activación
                 </p>
+              )}
+              {selectedPdvIds.size > 0 && (
+                <motion.div
+                  initial={{ opacity: 0, y: -6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="bg-muted/50 rounded-lg p-3 space-y-2"
+                >
+                  <Label htmlFor="cantidadActivacion" className="text-xs text-[var(--shelfy-muted)]">
+                    Activar al menos N PDVs
+                  </Label>
+                  <Input
+                    id="cantidadActivacion"
+                    type="number"
+                    min={1}
+                    max={selectedPdvIds.size}
+                    value={cantidadActivacion}
+                    onChange={(e) => {
+                      const v = e.target.value === "" ? "" : Math.min(selectedPdvIds.size, Math.max(1, Number(e.target.value)));
+                      setCantidadActivacion(v === "" ? "" : v);
+                    }}
+                    placeholder={String(selectedPdvIds.size)}
+                    className="h-8 text-xs"
+                  />
+                  <p className="text-[10px] text-[var(--shelfy-muted)]">
+                    Meta:{" "}
+                    <span className="text-[var(--shelfy-accent)] font-semibold">
+                      {cantidadActivacion !== "" ? Number(cantidadActivacion) : selectedPdvIds.size}
+                    </span>
+                    {" "}de{" "}
+                    <span className="font-medium">{selectedPdvIds.size}</span>
+                    {" "}PDVs seleccionados
+                  </p>
+                </motion.div>
               )}
               {pdvCatalogHasMore && (
                 <button

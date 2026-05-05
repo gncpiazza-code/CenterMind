@@ -609,8 +609,12 @@ def get_pendientes(id_distribuidor: int, payload=Depends(verify_auth)):
             ex_id = d.get("id_exhibicion")
             if not ex_id:
                 continue
-            key = str(d.get("telegram_msg_id")) if d.get("telegram_msg_id") else f"solo_{ex_id}"
             tg_vendedor = (d.get("vendedor") or "S/V").strip()
+            # Scope the group key by vendor so that two different vendors who happen
+            # to share the same telegram_msg_id (sequential per-chat integers) are
+            # never collapsed into the same group, which would show one vendor's photo
+            # under another vendor's PDV data.
+            key = f"{d.get('telegram_msg_id')}_{tg_vendedor}" if d.get("telegram_msg_id") else f"solo_{ex_id}"
             vendedor_display = erp_name_map.get(tg_vendedor.lower(), tg_vendedor)
             if inactive_vendor_names:
                 tg_norm = tg_vendedor.lower()

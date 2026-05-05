@@ -36,9 +36,28 @@ def _parse_time(val) -> dt.time | None:
     return None
 
 
+def _safe_col(df: pd.DataFrame, col: str) -> pd.Series:
+    """Select column as Series; if duplicated name returns DataFrame, take first occurrence."""
+    s = df[col]
+    return s.iloc[:, 0] if isinstance(s, pd.DataFrame) else s
+
+
 def parse_sigo(df: pd.DataFrame, date_from: str, date_to: str) -> dict[str, Any]:
     df = df.copy()
     df.columns = [str(c).strip() for c in df.columns]
+
+    # Deduplicate column names (some SIGO exports repeat header columns)
+    if df.columns.duplicated().any():
+        seen: dict[str, int] = {}
+        deduped = []
+        for c in df.columns:
+            if c in seen:
+                seen[c] += 1
+                deduped.append(f"{c}.{seen[c]}")
+            else:
+                seen[c] = 0
+                deduped.append(c)
+        df.columns = deduped
 
     col_vendedor   = find_col(df, ["Sector", "vendedor", "descripcion vendedor", "desc vendedor"])
     col_fecha      = find_date_col(df) or find_col(df, ["fecha"])
@@ -64,20 +83,14 @@ def parse_sigo(df: pd.DataFrame, date_from: str, date_to: str) -> dict[str, Any]
     dfp["_visitado_norm"] = dfp[col_visitado].apply(_norm).apply(
         lambda s: "si" if s in {"si", "sı", "s", "yes", "1", "true", "x"} else "no"
     )
-    dfp["_hora_vis"] = dfp[col_hora_vis].apply(_parse_time) if col_hora_vis else pd.Series([None] * len(dfp), index=dfp.index)
-    dfp["_hora_ven"] = dfp[col_hora_ven].apply(_parse_time) if col_hora_ven else pd.Series([None] * len(dfp), index=dfp.index)
-    dfp["_hora_mot"] = dfp[col_hora_mot].apply(_parse_time) if col_hora_mot else pd.Series([None] * len(dfp), index=dfp.index)
-    dfp["_motivo"]   = dfp[col_motivo].astype(str).str.strip() if col_motivo else pd.Series([""] * len(dfp), index=dfp.index)
+    _nan_times = pd.array([pd.NaT] * len(dfp), dtype=object)
+    dfp["_hora_vis"] = _safe_col(dfp, col_hora_vis).apply(_parse_time) if col_hora_vis else pd.Series(_nan_times, index=dfp.index)
+    dfp["_hora_ven"] = _safe_col(dfp, col_hora_ven).apply(_parse_time) if col_hora_ven else pd.Series(_nan_times, index=dfp.index)
+    dfp["_hora_mot"] = _safe_col(dfp, col_hora_mot).apply(_parse_time) if col_hora_mot else pd.Series(_nan_times, index=dfp.index)
+    dfp["_motivo"]   = _safe_col(dfp, col_motivo).astype(str).str.strip() if col_motivo else pd.Series([""] * len(dfp), index=dfp.index)
 
-    if col_lat:
-        import numpy as np
-        dfp["_lat"] = pd.to_numeric(dfp[col_lat], errors="coerce")
-    else:
-        dfp["_lat"] = float("nan")
-    if col_lon:
-        dfp["_lon"] = pd.to_numeric(dfp[col_lon], errors="coerce")
-    else:
-        dfp["_lon"] = float("nan")
+    dfp["_lat"] = pd.to_numeric(_safe_col(dfp, col_lat), errors="coerce") if col_lat else float("nan")
+    dfp["_lon"] = pd.to_numeric(_safe_col(dfp, col_lon), errors="coerce") if col_lon else float("nan")
 
     dfp = dfp.dropna(subset=["_fecha", "_vendedor"]).copy()
     dfp = dfp[dfp["_vendedor"].ne("nan") & dfp["_vendedor"].ne("")].copy()

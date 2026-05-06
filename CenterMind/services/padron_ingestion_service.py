@@ -440,10 +440,15 @@ class PadronIngestionService:
 
         # Insert nuevas
         if to_insert:
-            sb.table(suc_table).insert(to_insert).execute()
+            # Insertar en tabla base para generar IDs y mantener FKs
+            res = sb.table("sucursales_v2").insert(to_insert).execute()
+            if res.data:
+                sb.table(suc_table).insert(res.data).execute()
 
         # Update nombres cambiados
         for upd in to_update:
+            sb.table("sucursales_v2").update({"nombre_erp": upd["nombre_erp"]}) \
+                .eq("id_sucursal", upd["id_sucursal"]).execute()
             sb.table(suc_table).update({"nombre_erp": upd["nombre_erp"]}) \
                 .eq("id_sucursal", upd["id_sucursal"]).execute()
 
@@ -535,7 +540,11 @@ class PadronIngestionService:
             # Insertar en lotes para evitar límites de URL/body
             BATCH = 200
             for i in range(0, len(to_insert), BATCH):
-                sb.table(vend_table).insert(to_insert[i:i + BATCH]).execute()
+                batch = to_insert[i:i + BATCH]
+                # Insertar en tabla base primero
+                res = sb.table("vendedores_v2").insert(batch).execute()
+                if res.data:
+                    sb.table(vend_table).insert(res.data).execute()
             logger.info(f"[Padrón] Vendedores insertados: {len(to_insert)}")
 
         # Fetch final para construir el mapping
@@ -618,9 +627,15 @@ class PadronIngestionService:
         if to_upsert:
             BATCH = 200
             for i in range(0, len(to_upsert), BATCH):
-                sb.table(rutas_table).upsert(
-                    to_upsert[i:i + BATCH], on_conflict="id_vendedor,id_ruta_erp"
+                batch = to_upsert[i:i + BATCH]
+                # Upsert en tabla base primero
+                res = sb.table("rutas_v2").upsert(
+                    batch, on_conflict="id_vendedor,id_ruta_erp"
                 ).execute()
+                if res.data:
+                    sb.table(rutas_table).upsert(
+                        res.data, on_conflict="id_vendedor,id_ruta_erp"
+                    ).execute()
             nuevas = len(to_upsert)
             logger.info(f"[Padrón] Rutas upserted: {nuevas}")
 
@@ -808,6 +823,9 @@ class PadronIngestionService:
                 erp_id = limbo["id_cliente_erp"]
                 # update directo por PK con todos los campos reales
                 update_data = {**erp_ids_en_padron[erp_id]}
+                sb.table("clientes_pdv_v2").update(update_data) \
+                    .eq("id_cliente", limbo["id_cliente"]) \
+                    .execute()
                 sb.table(cli_table).update(update_data) \
                     .eq("id_cliente", limbo["id_cliente"]) \
                     .execute()
@@ -823,14 +841,21 @@ class PadronIngestionService:
         for i in range(0, len(records), BATCH):
             batch = records[i:i + BATCH]
             try:
-                sb.table(cli_table).upsert(
+                # Upsert en tabla base primero
+                res = sb.table("clientes_pdv_v2").upsert(
                     batch, on_conflict="id_ruta,id_cliente_erp"
                 ).execute()
+                if res.data:
+                    sb.table(cli_table).upsert(
+                        res.data, on_conflict="id_ruta,id_cliente_erp"
+                    ).execute()
             except Exception as e_upsert:
                 # Fallback: intentar insert ignorando duplicados
                 logger.warning(f"[Padrón] Upsert falló en batch {i//BATCH} ({e_upsert}), intentando insert...")
                 try:
-                    sb.table(cli_table).insert(batch, count="exact").execute()
+                    res = sb.table("clientes_pdv_v2").insert(batch, count="exact").execute()
+                    if res.data:
+                        sb.table(cli_table).insert(res.data, count="exact").execute()
                 except Exception as e_insert:
                     logger.error(f"[Padrón] Insert batch {i//BATCH} también falló: {e_insert}")
                     continue
@@ -931,12 +956,14 @@ class PadronIngestionService:
         for i in range(0, len(ids), 200):
             batch = ids[i : i + 200]
             try:
-                sb.table(tenant_table_name("clientes_pdv_v2", dist_id)).update({
+                update_data = {
                     "estado": "inactivo",
                     "motivo_inactivo": "padron_absent",
                     "fecha_inactivacion": ts,
                     "updated_at": ts,
-                }).in_("id_cliente", batch).execute()
+                }
+                sb.table("clientes_pdv_v2").update(update_data).in_("id_cliente", batch).execute()
+                sb.table(tenant_table_name("clientes_pdv_v2", dist_id)).update(update_data).in_("id_cliente", batch).execute()
                 upd += len(batch)
             except Exception as e:
                 logger.error(f"[Padrón] Tombstone batch error: {e}")

@@ -362,11 +362,10 @@ async def _seleccionar_reporte_padron(page: Page) -> None:
 
     async def _esperar_ui_reporteador(timeout_ms: int = 12_000) -> bool:
         try:
-            await page.locator(
-                'button#button-procesar, [role="combobox"], select'
-            ).first.wait_for(state="visible", timeout=timeout_ms)
+            await page.locator('select[formcontrolname="idproceso"]').first.wait_for(state="attached", timeout=timeout_ms)
             return True
-        except Exception:
+        except Exception as e:
+            logger.error(f"      [DEBUG] _esperar_ui_reporteador exception: {e}")
             return False
 
     # Si quedó en dashboard/login tras login, forzar navegación client-side más rápida.
@@ -398,6 +397,9 @@ async def _seleccionar_reporte_padron(page: Page) -> None:
         await page.goto(ADMIN_PROCESOS_URL, wait_until="domcontentloaded", timeout=20_000)
         await page.wait_for_timeout(1800)
         if not await _esperar_ui_reporteador(15_000):
+            html = await page.content()
+            with open("logs/errors/debug_html.html", "w") as f:
+                f.write(html)
             raise RuntimeError(
                 f"No cargó administrador de procesos. URL actual: {page.url}. "
                 "No se encontró button#button-procesar / combobox / select."

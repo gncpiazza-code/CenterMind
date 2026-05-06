@@ -37,6 +37,11 @@ from models.schemas import EvaluarRequest, ObjetivoCreate, ObjetivoItemCreate, O
 logger = logging.getLogger("ShelfyAPI")
 router = APIRouter()
 
+# PostgREST OR: mapa / conteos de supervisión = padrón “visible” (sin fantasmas ni anulados Consolido).
+_SUPERVISION_PADRON_VISIBLE_OR = (
+    "motivo_inactivo.is.null,motivo_inactivo.not.in.(padron_absent,padron_anulado)"
+)
+
 
 def _iso_ts_latest(*candidates: object | None) -> str | None:
     """El timestamp ISO más reciente entre candidatos (Postgres devuelve ISO ordenable)."""
@@ -973,8 +978,7 @@ def supervision_vendedores(dist_id: int, user_payload=Depends(verify_auth)):
 
         # Fetch ALL clients with pagination — Supabase defaults to 1000 rows which
         # would truncate large distributors (Tabaco has 13k+ PDVs).
-        # Exclude padron_absent: PDVs that have been reassigned to a different route
-        # should not appear in this vendor's count.
+        # Exclude padron_absent / padron_anulado (mapa = reflejo del padrón operativo).
         PAGE = 1000
         all_clients: list[dict] = []
         offset = 0
@@ -983,7 +987,7 @@ def supervision_vendedores(dist_id: int, user_payload=Depends(verify_auth)):
                 sb.table(t_clientes)
                 .select("id_cliente,id_cliente_erp,id_ruta,fecha_ultima_compra")
                 .eq("id_distribuidor", dist_id)
-                .or_("motivo_inactivo.is.null,motivo_inactivo.neq.padron_absent")
+                .or_(_SUPERVISION_PADRON_VISIBLE_OR)
                 .range(offset, offset + PAGE - 1)
                 .execute()
             )
@@ -1136,12 +1140,9 @@ def supervision_clientes(id_ruta: int, user_payload=Depends(verify_auth)):
                 "fecha_ultima_compra, fecha_alta, id_distribuidor, id_ruta, estado, updated_at"
             )
             .eq("id_ruta", id_ruta)
-            # Exclude ghost records: PDVs reassigned to a different route by the padrón.
-            # These are marked estado='inactivo', motivo_inactivo='padron_absent' and should
-            # no longer appear under the old vendor's route in the map or sidebar.
-            # NOTE: must use OR to include rows where motivo_inactivo IS NULL (active PDVs),
-            # since NULL != 'padron_absent' evaluates to NULL (falsy) in SQL.
-            .or_("motivo_inactivo.is.null,motivo_inactivo.neq.padron_absent")
+            # Exclude padron_absent / padron_anulado (mapa alineado al padrón operativo).
+            # NOTE: OR con is.null — NULL not in (...) falla en SQL sin esta rama.
+            .or_(_SUPERVISION_PADRON_VISIBLE_OR)
             .order("nombre_fantasia")
             .execute()
         )

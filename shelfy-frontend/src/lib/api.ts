@@ -2329,6 +2329,8 @@ export interface PortalTicketClasificacionAgent {
   campos_ticket: PortalTicketCampos;
   señales_detectadas?: string[];
   reglas_version?: string;
+  /** Pasos concretos (p. ej. mapa vs padrón) */
+  revision_checklist?: string[];
 }
 
 export async function postPortalFeedbackMessage(

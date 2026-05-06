@@ -104,6 +104,18 @@ function TicketAgentPanel({ c }: { c: PortalTicketClasificacionAgent }) {
           {c.señales_detectadas.join(" · ")}
         </p>
       ) : null}
+      {c.revision_checklist && c.revision_checklist.length > 0 ? (
+        <div className="pt-1 border-t border-violet-200/50">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-violet-900 mb-1.5">
+            Checklist revisión (mapa / padrón)
+          </p>
+          <ul className="list-disc pl-4 space-y-1 text-[11px] text-[var(--shelfy-text)] leading-snug">
+            {c.revision_checklist.map((line, i) => (
+              <li key={i}>{line}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </div>
   );
 }

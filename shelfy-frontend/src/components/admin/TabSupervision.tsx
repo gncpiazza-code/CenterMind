@@ -104,6 +104,12 @@ const VENDOR_COLORS = [
 ];
 const defaultVendorColor = (i: number) => VENDOR_COLORS[i % VENDOR_COLORS.length];
 
+/** Mapa debe alinearse al padrón: nunca usar staleTime Infinity aquí (ver handoff RPA/sync). */
+const SUPERVISION_MAP_RUTAS_STALE_MS = 90_000;
+const SUPERVISION_MAP_CLIENTES_STALE_MS = 90_000;
+/** Detectar nuevo timestamp de padrón y disparar invalidateQueries antes de que el usuario recargue. */
+const SUPERVISION_SYNC_POLL_MS = 45_000;
+
 function normalizeText(value: string | null | undefined): string {
   return (value ?? "")
     .normalize("NFD")
@@ -452,6 +458,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
   const [loadingMap, setLoadingMap]             = useState<Set<number>>(new Set());
   /** Re-render conteos alineados al mapa cuando cambia caché de rutas/clientes */
   const [mapStatsTick, setMapStatsTick]         = useState(0);
+  const lastPadronTsByDistRef = useRef<Record<number, string>>({});
 
   // ── Ventas & Cuentas ──────────────────────────────────────────────────────
   // Mobile tab: toggle between map and vendor list on small screens
@@ -666,9 +673,36 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
     queryKey: ['supervision-sync-status', selectedDist],
     queryFn: () => fetchSyncStatus(selectedDist!),
     enabled: !!selectedDist,
-    staleTime: 120_000,
-    refetchOnWindowFocus: false,
+    staleTime: 30_000,
+    refetchInterval: SUPERVISION_SYNC_POLL_MS,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
   });
+
+  // Cuando cambia last_updated del padrón (ingesta RPA), forzar rutas/clientes/vendedores.
+  useEffect(() => {
+    if (!selectedDist) return;
+    const ts = syncStatus?.padron?.last_updated ?? null;
+    if (!ts) return;
+    const prev = lastPadronTsByDistRef.current[selectedDist];
+    lastPadronTsByDistRef.current[selectedDist] = ts;
+    if (prev === undefined) return;
+    if (prev === ts) return;
+
+    void queryClient.invalidateQueries({
+      predicate: (q) => {
+        const k = q.queryKey;
+        if (!Array.isArray(k) || k[1] !== selectedDist) return false;
+        const head = k[0];
+        return (
+          head === "supervision-vendedores" ||
+          head === "supervision-rutas" ||
+          head === "supervision-clientes"
+        );
+      },
+    });
+    setMapStatsTick((x) => x + 1);
+  }, [syncStatus?.padron?.last_updated, selectedDist, queryClient]);
 
   // ── Exhibiciones fetch ──────────────────────────────────────────────────
   useEffect(() => {
@@ -792,8 +826,8 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
   const getRutasQuery = (vendorId: number) => ({
     queryKey: ['supervision-rutas', selectedDist, vendorId],
     queryFn: () => fetchRutasSupervision(vendorId),
-    staleTime: 5 * 60 * 1000,
-    gcTime: Infinity, // Mantener en caché mientras la sesión esté abierta — evita que el mapa quede en blanco
+    staleTime: SUPERVISION_MAP_RUTAS_STALE_MS,
+    gcTime: Infinity, // Mantener en memoria; staleTime permite refetch tras padrón / TTL
     enabled: false, // Lazy load
   });
 
@@ -801,8 +835,8 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
   const getClientesQuery = (rutaId: number) => ({
     queryKey: ['supervision-clientes', selectedDist, rutaId],
     queryFn: () => fetchClientesSupervision(rutaId),
-    staleTime: Infinity,
-    gcTime: Infinity, // Mantener en caché mientras la sesión esté abierta — evita que el mapa quede en blanco
+    staleTime: SUPERVISION_MAP_CLIENTES_STALE_MS,
+    gcTime: Infinity,
     enabled: false, // Lazy load
   });
 

@@ -185,7 +185,7 @@ Excel (padrón/ventas) → erp_*_raw → padron_ingestion_service / ventas_inges
                                   → sucursales_v2 → vendedores_v2 → rutas_v2 → clientes_pdv_v2
 ```
 - Upsert idempotente: UNIQUE `(id_distribuidor, id_*_erp)`.
-- Padrón trae solo activos → `padron_ingestion_service` marca `estado='inactivo'` a PDVs no presentes.
+- Padrón Consolido: export con **anulados incluidos** (RPA `PADRON_INCLUIR_ANULADOS`, default true) → columna `anulado` → `motivo_inactivo='padron_anulado'` (el mapa los oculta). PDVs **ausentes** del archivo → `padron_absent` / inactivo según tombstone.
 - **`SUCURSAL_FILTER`** en `padron_ingestion_service.py`: dist_id=2 (Real) filtra solo sucursal `"8"` (`uequin rodrigo`). Real también enruta: `OSCAR ONDARRETA → Bolivar`, `JOSE IGNACIO BIAVA → CARAMELE`.
 
 ### Cuentas Corrientes
@@ -313,12 +313,14 @@ El `scheduler.py` corre en el contenedor RPA (Railway o Mac) y dispara cada moto
 
 ### Motor `padron.py`
 
-**Qué hace:** Para cada tenant, abre Chrome headless, hace login en Consolido (nextbyn), descarga el Excel de Padrón de Clientes, compara hash MD5, y sube el archivo al backend.
+**Qué hace:** Para cada tenant, abre Chrome headless, hace login en Consolido (nextbyn), descarga el Excel de Padrón de Clientes (por defecto **incluye anulados**), compara hash MD5, y sube el archivo al backend.
 
 **Endpoint al que llama:** `POST /api/v1/sync/erp-padrón?id_distribuidor={id}` (API Key)
 
 **Tablas que alimenta:** `sucursales_v2_d{id}` → `vendedores_v2_d{id}` → `rutas_v2_d{id}` → `clientes_pdv_v2_d{id}`  
-→ Upsert idempotente. Marca `estado='inactivo'` a PDVs ausentes del Excel.
+→ Upsert idempotente. Filas anuladas en Consolido → `motivo_inactivo='padron_anulado'`. Ausentes del Excel → tombstone (`padron_absent` donde aplica).
+
+**Variables:** `PADRON_INCLUIR_ANULADOS` (default true; `false`/`0`/`no` vuelve a export solo “activos” en Consolido).
 
 **Tenant config:** Lee de tabla `rpa_consolido_tenants` en Supabase (fallback a `TENANTS_LEGACY` en código). Credenciales: vault `consolido_usuario` / `consolido_password` (únicas para todos los tenants de Consolido).
 

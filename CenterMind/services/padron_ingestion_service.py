@@ -134,6 +134,20 @@ def _safe_str(val: Any, default: str = "") -> str:
     return default if s.lower() in ("nan", "none", "null", "") else s
 
 
+def _row_padron_anulado_si(row: pd.Series, cols: dict[str, str | None]) -> bool:
+    """True si Consolido marca el cliente como anulado en el Excel (columna opcional)."""
+    key = cols.get("anulado")
+    if not key:
+        return False
+    raw = row.get(key)
+    if raw is None or (isinstance(raw, float) and pd.isna(raw)):
+        return False
+    s = _safe_str(raw, "").strip().upper()
+    if not s:
+        return False
+    return s in ("SI", "SÍ", "S", "TRUE", "1", "Y", "YES", "ANULADO")
+
+
 def _norm_empresa_erp_key(v: Any) -> str | None:
     """Normaliza id_empresa_erp / idempresa CHESS para comparar con el Excel."""
     if v is None or (isinstance(v, float) and pd.isna(v)):
@@ -359,6 +373,7 @@ class PadronIngestionService:
             # Fecha última compra y fecha de alta
             "fecha_ultima_compra": _flexible_col(df, ["fecha_ultima_compra", "fec_ult", "fecultcom", "ultima_compra"]),
             "fecha_alta":          _flexible_col(df, ["fecalta", "fecha_alta", "fec_alta"]),
+            "anulado":             _flexible_col(df, ["anulado", "anulada", "cliente_anulado", "estado_anulado"]),
             # Columnas de día de visita (booleanas)
             "dia_lunes":     _flexible_col(df, ["lunes"]),
             "dia_martes":    _flexible_col(df, ["martes"]),
@@ -632,7 +647,7 @@ class PadronIngestionService:
     def _sync_clientes(
         self, df: pd.DataFrame, cols: dict, dist_id: int,
         ruta_map: dict[tuple, int], vend_map: dict[tuple, int], suc_map: dict[str, int]
-    ) -> tuple[int, dict[str, int], set[int]]:
+    ) -> tuple[int, dict[str, int], set[int], frozenset[str]]:
         """
         Upsert masivo de clientes PDV.
 
@@ -641,8 +656,9 @@ class PadronIngestionService:
         padrón, lo reasigna a la ruta correcta y marca es_limbo=False.
 
         Retorna (total_upserted, mapa id_cliente_erp → id_ruta esperado en este archivo,
-        conjunto de id_ruta presentes en el archivo) para marcar inactivos los PDV
-        que ya no están en el padrón o quedaron en una ruta obsoleta.
+        conjunto de id_ruta presentes en el archivo, ids ERP presentes en **cualquier**
+        fila del Excel) para el tombstone: no dar de baja filas válidas sólo porque
+        faltó mapear (vendedor/código inconsistente temporal).
         """
         BATCH = 300
         records = []
@@ -651,6 +667,7 @@ class PadronIngestionService:
 
         # Recolectar todos los id_erp del padrón para el paso de adopción
         erp_ids_en_padron: dict[str, dict] = {}
+        erp_seen_in_sheet: set[str] = set()
 
         for _, row in df.iterrows():
             id_erp = _safe_str(row.get(cols["id_cliente"]) if cols.get("id_cliente") else None, "")
@@ -660,6 +677,8 @@ class PadronIngestionService:
             if not id_erp:
                 skip_no_id += 1
                 continue
+
+            erp_seen_in_sheet.add(str(id_erp).strip())
 
             # Resolver ruta usando los mismos keys que en _sync_rutas
             cod = _safe_str(row.get(cols["vendedor_erp_cod"]) if cols.get("vendedor_erp_cod") else None, "")
@@ -680,8 +699,22 @@ class PadronIngestionService:
                 ruta_code = ruta_code[:-2]
 
             id_ruta = ruta_map.get((vend_key, erp_suc, ruta_code))
+            # Fallback: mismas combinaciones aparecen como código ERP en algunas filas y sólo nombre en otras.
+            if not id_ruta and cod and nombre_vend and cod != nombre_vend:
+                if vend_key == cod:
+                    id_ruta = ruta_map.get((nombre_vend, erp_suc, ruta_code))
+                else:
+                    id_ruta = ruta_map.get((cod, erp_suc, ruta_code))
+
             if not id_ruta:
                 skip_no_ruta += 1
+                logger.debug(
+                    "[Padrón] Cliente %s omitido esta corrida sin id_ruta (vend_key=%r suc=%s ruta=%s)",
+                    id_erp,
+                    vend_key,
+                    erp_suc,
+                    ruta_code,
+                )
                 continue
 
             lat_raw = _safe_str(row.get(cols["latitud"]))  if cols.get("latitud")  else ""
@@ -690,9 +723,13 @@ class PadronIngestionService:
 
             fuc_raw = _safe_date(row.get(cols["fecha_ultima_compra"]) if cols.get("fecha_ultima_compra") else None)
 
-            # Regla de negocio: estado según última compra
+            # Regla de negocio: anulado en Consolido tiene prioridad; luego última compra.
             _now_ts = datetime.now(timezone.utc).isoformat()
-            if fuc_raw is None:
+            if _row_padron_anulado_si(row, cols):
+                _estado = "inactivo"
+                _motivo = "padron_anulado"
+                _fecha_inact = _now_ts
+            elif fuc_raw is None:
                 _estado = "inactivo"
                 _motivo = "sin_compra_null"
                 _fecha_inact = _now_ts
@@ -740,7 +777,7 @@ class PadronIngestionService:
         logger.info(f"[Padrón] Clientes: {len(records)} a procesar, {skip_no_id} sin id_erp, {skip_no_ruta} sin ruta mapeada")
 
         if not records:
-            return 0, {}, set()
+            return 0, {}, set(), frozenset(erp_seen_in_sheet)
 
         erp_to_ruta: dict[str, int] = {}
         rutas_en_archivo: set[int] = set()
@@ -802,7 +839,7 @@ class PadronIngestionService:
                 logger.info(f"[Padrón] Clientes procesados: {total}/{len(records)}...")
 
         logger.info(f"[Padrón] Clientes upserted: {total} (adoptados del limbo: {adopted})")
-        return total, erp_to_ruta, rutas_en_archivo
+        return total, erp_to_ruta, rutas_en_archivo, frozenset(erp_seen_in_sheet)
 
     def _tombstone_padron_absents(
         self,
@@ -810,13 +847,19 @@ class PadronIngestionService:
         erp_to_ruta: dict[str, int],
         rutas_en_archivo: set[int],
         partial_scope: bool,
+        erp_seen_in_sheet: frozenset[str],
     ) -> int:
         """
         Marca `estado='inactivo'` en clientes_pdv_v2 que ya no corresponden al padrón cargado.
 
-        Operativa típica: el Excel **solo incluye clientes activos** (export sin anulados).
-        Por tanto, quien no aparezca en esta corrida no está en el padrón activo y se
-        marca inactivo en Shelfy para mapa / catálogos.
+        Operativa: el Excel puede incluir clientes anulados (Consolido «Incluir anulados» = SÍ);
+        esas filas llegan con columna `anulado` y se marcan `motivo_inactivo=padron_anulado` en
+        `_sync_clientes`. Quien **no** aparezca en el archivo (salvo `erp_seen_in_sheet` sin ruta)
+        se considera fuera del padrón activo y puede pasar a `padron_absent`.
+
+        **`erp_seen_in_sheet`**: ids que aparecen en el Excel pero no ingirieron (p. ej. sin
+        ruta resuelta) **no se marcan aquí**: evita darlos de baja por error antes de poder
+        reasignar al vendedor correcto tras el próximo arreglo de mapeo.
 
         - Alcance **completo** (p. ej. Tabaco sin SUCURSAL_FILTER): todo PDV no limbo del
           distribuidor que no esté en el archivo o esté en una ruta distinta a la del archivo
@@ -868,12 +911,16 @@ class PadronIngestionService:
                         if int(rid) != erp_to_ruta[erp]:
                             to_inactivo.append(int(r["id_cliente"]))
                     else:
+                        if erp in erp_seen_in_sheet:
+                            continue  # aparece en el Excel pero no quedó mapeado esta corrida
                         to_inactivo.append(int(r["id_cliente"]))
                 else:
                     if erp in erp_en:
                         if int(rid) != erp_to_ruta[erp]:
                             to_inactivo.append(int(r["id_cliente"]))
                     else:
+                        if erp in erp_seen_in_sheet:
+                            continue  # id en export pero falta resolver ruta / vendedor
                         to_inactivo.append(int(r["id_cliente"]))
             offset += page
             if len(chunk) < page:
@@ -1513,7 +1560,7 @@ class PadronIngestionService:
             suc_count,  suc_map  = self._sync_sucursales(df, cols, dist_id)
             vend_count, vend_map = self._sync_vendedores(df, cols, dist_id, suc_map)
             ruta_count, ruta_map = self._sync_rutas(df, cols, dist_id, vend_map, suc_map)
-            cli_count, erp_map, rutas_archivo = self._sync_clientes(
+            cli_count, erp_map, rutas_archivo, erp_vistos_sheet = self._sync_clientes(
                 df, cols, dist_id, ruta_map, vend_map, suc_map
             )
             partial_scope = bool(SUCURSAL_FILTER.get(dist_id)) or (
@@ -1524,7 +1571,7 @@ class PadronIngestionService:
                 caramele_fr_id is not None and dist_id == caramele_fr_id
             )
             cli_inactivos = self._tombstone_padron_absents(
-                dist_id, erp_map, rutas_archivo, partial_scope
+                dist_id, erp_map, rutas_archivo, partial_scope, erp_vistos_sheet
             )
             exhib_linked         = self._reconcile_exhibiciones(dist_id)
 

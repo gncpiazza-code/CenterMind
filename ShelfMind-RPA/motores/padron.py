@@ -13,7 +13,7 @@ Cada día a las 04:00 y 14:00:
      c. Hace login con las credenciales del tenant
      d. Accede al módulo REPORTEADOR GENÉRICO
      e. Selecciona el reporte "Padrón de Clientes"
-     f. Configura parámetros: "Incluyí Anulados" = NO, "Empresas" = tenant actual
+     f. Configura parámetros: "Incluyí Anulados" = SI (env PADRON_INCLUIR_ANULADOS=false para NO), "Empresas" = tenant actual
      g. Hace clic en Ejecutar
      h. Espera tabla de resultados (típicamente 25k+ registros)
      i. Descarga el Excel via "Exportar resultados"
@@ -39,7 +39,7 @@ FLUJO CONSOLIDADO EN CONSOLIDO:
   3. Módulo: REPORTEADOR GENÉRICO → Tab "Informes"
   4. Seleccionar proceso: Dropdown "Proceso" → "Padrón de clientes"
   5. Parámetros:
-     - "Incluyí Anulados": radio button / toggle (por defecto: NO)
+     - "Incluyí Anulados": mat-select → **SI** (el backend marca `motivo_inactivo=padron_anulado` y el mapa los oculta)
      - "Empresas": multi-checkbox (seleccionar solo la empresa del tenant)
   6. Botón "Ejecutar": lanza el procesamiento
   7. Tabla de resultados aparece automáticamente
@@ -90,6 +90,12 @@ ERRORS_DIR = RPA_BASE_DIR / "logs" / "errors"
 HEADLESS = os.environ.get("RPA_HEADLESS", "true").lower() != "false"
 TENANT_RETRY_MAX = int(os.environ.get("PADRON_TENANT_RETRY_MAX", "2"))
 TENANT_RETRY_BACKOFF_SEC = int(os.environ.get("PADRON_TENANT_RETRY_BACKOFF_SEC", "8"))
+# Export con filas anuladas para que ingesta etiquete padron_anulado (evita PDVs fantasmas en el mapa).
+PADRON_INCLUIR_ANULADOS = os.environ.get("PADRON_INCLUIR_ANULADOS", "true").lower() not in (
+    "false",
+    "0",
+    "no",
+)
 
 # Timeout general (ms)
 TIMEOUT_MS = 120_000  # Consolido puede ser lento (aumentado a 2 min porque reportes grandes tardan >1 min)
@@ -442,7 +448,7 @@ async def _seleccionar_reporte_padron(page: Page) -> None:
 async def _configurar_parametros(page: Page, tenant: dict) -> None:
     """
     Configura los parámetros del reporte:
-      1. "Incluyí Anulados" = NO (mat-select Angular Material)
+      1. "Incluyí Anulados" = SI por defecto (mat-select Angular Material)
       2. "Empresas" = seleccionar solo IDEMPRESA del tenant (mat-select Angular Material)
 
     Ambos son dropdowns Angular Material con [role="option"].
@@ -450,9 +456,10 @@ async def _configurar_parametros(page: Page, tenant: dict) -> None:
     logger.info(f"  Configurando parámetros para {tenant['nombre']}")
 
     # ─────────────────────────────────────────────────────────────────
-    # PASO 0: SELECCIONAR "INCLUIR ANULADOS" = NO
+    # PASO 0: SELECCIONAR "INCLUIR ANULADOS" (SI = default; rollback env PADRON_INCLUIR_ANULADOS)
     # ─────────────────────────────────────────────────────────────────
-    logger.info("    - Incluí Anulados: NO")
+    want_si = PADRON_INCLUIR_ANULADOS
+    logger.info(f"    - Incluí Anulados: {'SI' if want_si else 'NO'}")
 
     try:
         # Abrir el dropdown de "Incluir Anulados"
@@ -461,10 +468,15 @@ async def _configurar_parametros(page: Page, tenant: dict) -> None:
         await page.wait_for_timeout(1000)
         logger.info("      ✅ Dropdown de Incluir Anulados abierto")
 
-        # Buscar y clickear la opción "NO"
+        # Buscar y clickear SI o NO según configuración
         options = page.locator('[role="option"]')
         count = await options.count()
         logger.info(f"      📊 Opciones encontradas: {count}")
+
+        def _matches_anulados_choice(text_upper: str) -> bool:
+            if want_si:
+                return text_upper in ("SI", "SÍ", "YES", "TRUE", "S", "1")
+            return text_upper == "NO"
 
         for i in range(count):
             option = options.nth(i)
@@ -473,11 +485,11 @@ async def _configurar_parametros(page: Page, tenant: dict) -> None:
                 option_text = (option_text.strip() if option_text else "").upper()
                 logger.info(f"      [{i}] {option_text}")
 
-                if option_text == "NO":
-                    logger.info(f"      ✨ ¡Opción NO encontrada!")
+                if _matches_anulados_choice(option_text):
+                    logger.info(f"      ✨ Opción {'SI' if want_si else 'NO'} encontrada")
                     await option.click(timeout=5000, force=True)
                     await page.wait_for_timeout(500)
-                    logger.info(f"      ✅ Opción NO seleccionada")
+                    logger.info(f"      ✅ Opción seleccionada")
                     break
             except Exception as e:
                 logger.warning(f"      [{i}] Error: {e}")

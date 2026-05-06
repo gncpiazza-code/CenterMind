@@ -6,7 +6,14 @@ import re
 import unicodedata
 from typing import Any
 
-REGLAS_VERSION = "2026-05-05-v1"
+REGLAS_VERSION = "2026-05-05-v2"
+
+_REVISION_MAPA_PDV: list[str] = [
+    "En el padrón Consolido (Excel del RPA): confirmar que el id de cliente quede bajo el vendedor nuevo y la ruta/código correctos.",
+    "El mapa refleja clientes_pdv_v2 después de ingesta (~07:00 AR). Cambios sólo en CHESS no mueven rutas hasta que el padrón traiga esa jerarquía.",
+    "Si no ingirió bien: revisar logs de padrón por skip_no_ruta (mezcla código/nombre de vendedor entre filas).",
+    "Validar número de cliente que cita el usuario vs id_cliente_erp exacto del Excel.",
+]
 
 
 def _normalize(text: str) -> str:
@@ -232,7 +239,16 @@ def clasificar_portal_ticket(contenido: str) -> dict[str, Any]:
         seen.add(cid)
         capas_final.append(_capa_entry(cid))
 
-    return {
+    checklist: list[str] | None = None
+    if categoria_id == "mapa_supervision_rutas":
+        checklist = list(_REVISION_MAPA_PDV)
+        if "sin subida todavía" in raw.lower() or "(sin subida todavía)" in raw.lower():
+            checklist.append(
+                "Este ticket menciona archivo **sin subir**: pedir nueva captura o reenvío desde portal ya deployado "
+                "(adjuntos van a Storage; entradas viejas sólo tenían el nombre del archivo).",
+            )
+
+    out: dict[str, Any] = {
         "categoria_id": categoria_id,
         "categoria_etiqueta": categoria_etiqueta,
         "hipotesis_falla": hipotesis,
@@ -242,3 +258,6 @@ def clasificar_portal_ticket(contenido: str) -> dict[str, Any]:
         "señales_detectadas": sorted(set(señales))[:24],
         "reglas_version": REGLAS_VERSION,
     }
+    if checklist:
+        out["revision_checklist"] = checklist
+    return out

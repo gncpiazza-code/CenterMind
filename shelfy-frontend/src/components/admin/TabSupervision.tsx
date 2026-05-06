@@ -46,6 +46,7 @@ import {
 import { openCuentasCorrientesPrintWindow } from "@/lib/printCuentasCorrientes";
 import type { PinCliente } from "./MapaRutas";
 import { useSupervisionStore } from "@/store/useSupervisionStore";
+import { SyncStatusPanel } from "./SyncStatusPanel";
 import { useObjetivosMenuStore } from "@/store/useObjetivosMenuStore";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/Button";
@@ -389,30 +390,6 @@ function formatSyncTime(iso: string | null): string {
   return `${argDate} ${argTime}`;
 }
 
-function SyncStatusBar({ syncStatus }: { syncStatus: SyncStatus }) {
-  const padronTime = formatSyncTime(syncStatus.padron.last_updated);
-  const ccTime = formatSyncTime(syncStatus.cuentas_corrientes.last_updated);
-  const padronCount = syncStatus.padron.count;
-  const ccCount = syncStatus.cuentas_corrientes.count;
-
-  const isStale = (iso: string | null) => {
-    if (!iso) return true;
-    return (Date.now() - new Date(iso).getTime()) > 12 * 3_600_000;
-  };
-
-  return (
-    <div className="flex items-center gap-3 mt-1.5 flex-wrap">
-      <span className={`inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border ${isStale(syncStatus.padron.last_updated) ? "text-amber-400 border-amber-500/30 bg-amber-500/10" : "text-emerald-400 border-emerald-500/30 bg-emerald-500/10"}`}>
-        <span className={`w-1.5 h-1.5 rounded-full ${isStale(syncStatus.padron.last_updated) ? "bg-amber-400" : "bg-emerald-400"}`} />
-        Padrón: {padronTime}{padronCount > 0 ? ` · ${padronCount.toLocaleString()} PDV` : ""}
-      </span>
-      <span className={`inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border ${isStale(syncStatus.cuentas_corrientes.last_updated) ? "text-amber-400 border-amber-500/30 bg-amber-500/10" : "text-emerald-400 border-emerald-500/30 bg-emerald-500/10"}`}>
-        <span className={`w-1.5 h-1.5 rounded-full ${isStale(syncStatus.cuentas_corrientes.last_updated) ? "bg-amber-400" : "bg-emerald-400"}`} />
-        CC: {ccTime}{ccCount > 0 ? ` · ${ccCount.toLocaleString()} deudores` : ""}
-      </span>
-    </div>
-  );
-}
 
 export default function TabSupervision({ distId, isSuperadmin, fullscreen = false, mapOnly = false }: TabSupervisionProps) {
   const queryClient = useQueryClient();
@@ -1600,7 +1577,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
             </p>
           )}
           {syncStatus && (
-            <SyncStatusBar syncStatus={syncStatus} />
+            <SyncStatusPanel syncStatus={syncStatus} className="mt-2" />
           )}
         </div>
         <div className="flex items-center gap-2">

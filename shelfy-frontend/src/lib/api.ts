@@ -1583,6 +1583,12 @@ export interface CuentasSupervision {
 export interface SyncStatusEntry {
   last_updated: string | null;
   count: number;
+  // padrón-only fields
+  activos?: number;
+  anulados?: number;
+  ausentes?: number;
+  last_run_estado?: "ok" | "error" | "en_curso" | null;
+  has_zombie?: boolean;
 }
 
 export interface SyncStatus {

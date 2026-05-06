@@ -1,6 +1,10 @@
 # Progress — Shelfy CenterMind
 
-**Última actualización: 5 de Mayo, 2026 (Padrón Consolido anulados + mapa)**
+**Última actualización: 5 de Mayo, 2026 (SyncStatusPanel premium + observabilidad padrón)**
+
+- **Historial reciente:** **SyncStatusPanel (admin/supervisión):** Reemplaza el antiguo `SyncStatusBar` (dos pills mínimas) por un panel expandible premium. `supervision.py` → `GET /api/supervision/sync-status/{dist_id}` ahora devuelve `activos`, `anulados`, `ausentes` (conteos de `clientes_pdv_v2`), `last_run_estado`, y `has_zombie` (run `en_curso` >2h). `api.ts`: `SyncStatusEntry` extendido con esos campos. `SyncStatusPanel.tsx` (nuevo): `PulseDot` con ping animation, `MiniProgress` framer-motion, `StatChip` (activos/anulados/ausentes), `PadronBreakdown` expandible con alerta roja zombie. `TabSupervision.tsx`: `SyncStatusBar` eliminado, ahora usa `SyncStatusPanel`.
+
+**Última actualización (anterior): 5 de Mayo, 2026 (Padrón Consolido anulados + mapa)**
 
 - **Historial reciente:** **Padrón / mapa:** RPA `padron.py` default **Incluir Anulados = SI** (`PADRON_INCLUIR_ANULADOS` para rollback). Ingesta `padron_ingestion_service`: columna `anulado` → `motivo_inactivo=padron_anulado`. API supervisión (`supervision_clientes`, conteos vendedor) oculta `padron_absent` y `padron_anulado` vía PostgREST `not.in`.
 

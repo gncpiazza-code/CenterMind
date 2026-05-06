@@ -301,6 +301,14 @@ Reemplaza el modelo sidebar-para-todos por navegación top-center para usuarios 
   - `applyMatchCenterRow(distId, idIntegrante, idVendedorV2)`
   - `applyMatchCenterSafe(distId)`
 
+### 30. SyncStatusPanel — Supervisión padrón/CC/ventas premium (05/05/2026)
+- **Archivo**: `src/components/admin/SyncStatusPanel.tsx` (reemplaza `SyncStatusBar`).
+- **Subcomponentes**: `PulseDot` (ping animation por estado), `MiniProgress` (framer-motion bar activos/total), `StatChip` (chip coloreado activos/anulados/ausentes), `PadronBreakdown` (breakdown expandible con zombie alert), `SourceRow` (fila por fuente).
+- **Estados de color**: azul=en_curso (procesando), ámbar=stale, esmeralda=fresco.
+- **Zombie alert**: banner rojo con `<AlertTriangle>` si `has_zombie=true` (motor_runs `en_curso` >2h). Mensaje: "Ingesta bloqueada (run zombie >2h) — verificar Railway".
+- **Backend**: `GET /api/supervision/sync-status/{dist_id}` devuelve `activos`, `anulados`, `ausentes`, `last_run_estado`, `has_zombie`.
+- **Tipos TS**: `SyncStatusEntry` en `api.ts` con los 5 campos nuevos opcionales.
+
 ### 29. RPA Padrón (28/04/2026) — sin cambios de UI requeridos
 - El hardening reciente del motor Padrón ocurrió en `ShelfMind-RPA/` (navegación Consolido, selector de exportación y upload), sin impactos de contrato ni cambios visuales en pantallas del frontend.
 

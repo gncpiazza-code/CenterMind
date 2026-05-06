@@ -2984,23 +2984,24 @@ def supervision_cc_status(dist_id: int, user_payload=Depends(verify_auth)):
 @router.get("/api/supervision/sync-status/{dist_id}", tags=["Supervisión"])
 def supervision_sync_status(dist_id: int, user_payload=Depends(verify_auth)):
     """
-    Devuelve el timestamp y conteo de la última ingesta de padrón y CC
-    para un distribuidor. Usado en el dashboard de supervisión para mostrar
-    cuándo fue la última actualización de datos.
+    Devuelve el timestamp y conteo de la última ingesta de padrón y CC.
+    Incluye breakdown de estados del padrón (activos/anulados/ausentes) y
+    detección de zombie runs (motor_runs en_curso > 2h — §10.1 del spec padrón).
     """
     check_dist_permission(user_payload, dist_id)
     try:
         t_clientes = tenant_table_name("clientes_pdv_v2", dist_id)
 
-        padron_data: dict = {"last_updated": None, "count": 0}
+        padron_data: dict = {
+            "last_updated": None, "count": 0,
+            "activos": 0, "anulados": 0, "ausentes": 0,
+            "last_run_estado": None, "has_zombie": False,
+        }
         try:
-            # Señales de frescura del padrón (el badge debe alinearse con datos reales):
-            # - último motor_run padron OK por dist
-            # - último padron_global OK que procesó este dist (upload admin multi-tenant)
-            # - max(updated_at) en clientes_pdv_v2 (ingesta que tocó filas aunque motor_runs quedara viejo)
+            # ── Timestamps de frescura ──────────────────────────────────────────
             run_ok = (
                 sb.table("motor_runs")
-                .select("finalizado_en,iniciado_en")
+                .select("finalizado_en,iniciado_en,estado")
                 .eq("motor", "padron")
                 .eq("dist_id", dist_id)
                 .eq("estado", "ok")
@@ -3011,6 +3012,7 @@ def supervision_sync_status(dist_id: int, user_payload=Depends(verify_auth)):
             run_ts: str | None = None
             if run_ok.data:
                 run_ts = run_ok.data[0].get("finalizado_en") or run_ok.data[0].get("iniciado_en")
+                padron_data["last_run_estado"] = "ok"
 
             res_p = (
                 sb.table(t_clientes)
@@ -3020,12 +3022,76 @@ def supervision_sync_status(dist_id: int, user_payload=Depends(verify_auth)):
                 .execute()
             )
             cliente_ts: str | None = res_p.data[0]["updated_at"] if res_p.data else None
-
             global_ts = _padron_global_last_ts_for_dist(dist_id)
             padron_data["last_updated"] = _iso_ts_latest(run_ts, global_ts, cliente_ts)
 
+            # ── Total count ────────────────────────────────────────────────────
             count_res = sb.table(t_clientes).select("id_cliente", count="exact").execute()
             padron_data["count"] = count_res.count or 0
+
+            # ── Breakdown por estado/motivo ────────────────────────────────────
+            try:
+                activos_res = (
+                    sb.table(t_clientes)
+                    .select("id_cliente", count="exact")
+                    .eq("estado", "activo")
+                    .execute()
+                )
+                padron_data["activos"] = activos_res.count or 0
+            except Exception:
+                pass
+
+            try:
+                anulados_res = (
+                    sb.table(t_clientes)
+                    .select("id_cliente", count="exact")
+                    .eq("motivo_inactivo", "padron_anulado")
+                    .execute()
+                )
+                padron_data["anulados"] = anulados_res.count or 0
+            except Exception:
+                pass
+
+            try:
+                ausentes_res = (
+                    sb.table(t_clientes)
+                    .select("id_cliente", count="exact")
+                    .eq("motivo_inactivo", "padron_absent")
+                    .execute()
+                )
+                padron_data["ausentes"] = ausentes_res.count or 0
+            except Exception:
+                pass
+
+            # ── Detección de zombie runs (§10.1: motor_runs en_curso > 2h) ────
+            try:
+                from datetime import timezone
+                two_hours_ago = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+                zombie_res = (
+                    sb.table("motor_runs")
+                    .select("id_run", count="exact")
+                    .eq("motor", "padron")
+                    .eq("dist_id", dist_id)
+                    .eq("estado", "en_curso")
+                    .lt("iniciado_en", two_hours_ago)
+                    .execute()
+                )
+                padron_data["has_zombie"] = (zombie_res.count or 0) > 0
+                if not padron_data["last_run_estado"]:
+                    # Detectar si hay run reciente en_curso (no zombie) como señal de procesando
+                    recent_res = (
+                        sb.table("motor_runs")
+                        .select("id_run")
+                        .eq("motor", "padron")
+                        .eq("dist_id", dist_id)
+                        .eq("estado", "en_curso")
+                        .execute()
+                    )
+                    if recent_res.data:
+                        padron_data["last_run_estado"] = "en_curso"
+            except Exception:
+                pass
+
         except Exception as e:
             logger.warning(f"[sync-status] error leyendo padrón dist={dist_id}: {e}")
 

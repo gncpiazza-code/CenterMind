@@ -158,7 +158,8 @@ async def erp_sync_padron(
         raise HTTPException(status_code=400, detail="Se requiere un archivo .xlsx o .xls")
     try:
         content = await file.read()
-        background_tasks.add_task(padron_service.ingest_for_dist, io.BytesIO(content), id_distribuidor)
+        # ingest_for_dist espera bytes (internamente hace BytesIO); pasar BytesIO rompe _parse_excel.
+        background_tasks.add_task(padron_service.ingest_for_dist, content, id_distribuidor)
         return {
             "status": "accepted",
             "message": f"Padrón recibido para dist {id_distribuidor}. Procesando en segundo plano.",

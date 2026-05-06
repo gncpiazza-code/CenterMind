@@ -79,10 +79,12 @@ export function TopModeTabs() {
   const pathname = usePathname();
   const { user, hasPermiso } = useAuth();
   const rol = user?.rol ?? "";
+  const isSuperadmin = !!user?.is_superadmin;
 
   const visibleTabs = useMemo(
     () =>
       TABS.filter((tab) => {
+        if (tab.href === "/reporteria" && !isSuperadmin) return false;
         const roleOk = tab.roles.includes(rol);
         if (!tab.permisoKey) return roleOk;
         const permisoOk = hasPermiso(tab.permisoKey);
@@ -90,7 +92,7 @@ export function TopModeTabs() {
         if (!permisoOk) return false;
         return true;
       }),
-    [rol, hasPermiso],
+    [rol, hasPermiso, isSuperadmin],
   );
 
   if (!user) return null;

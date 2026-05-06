@@ -30,8 +30,10 @@ export function BottomNav() {
   const pathname = usePathname();
   const { user, hasPermiso } = useAuth();
   const rol = user?.rol ?? "";
+  const isSuperadmin = !!user?.is_superadmin;
 
   const navItems = ALL_NAV.filter((i) => {
+    if (i.href === "/reporteria" && !isSuperadmin) return false;
     const roleAllowed = i.roles.includes(rol);
     const permisoAllowed = i.permisoKey ? hasPermiso(i.permisoKey) : false;
     if (!roleAllowed && !permisoAllowed) return false;

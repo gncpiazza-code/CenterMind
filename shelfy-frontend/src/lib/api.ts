@@ -2100,7 +2100,7 @@ export async function setSupervisorVendedores(distId: number, idSupervisor: numb
 
 // ── Reportería ────────────────────────────────────────────────────────────────
 
-export type ReporteriaSource = "sigo" | "comprobantes" | "bultos";
+export type ReporteriaSource = "sigo" | "comprobantes" | "comprobantes_detallado" | "bultos";
 export type ReporteriaJobStatus = "queued" | "running" | "completed" | "failed";
 
 export interface ReporteriaJob {
@@ -2151,12 +2151,191 @@ export interface ReporteriaExploreResponse {
   top_clientes: ReporteriaClienteRow[];
   top_vendedores: { nombre: string; valor: number }[];
   por_vendedor_y_dia?: SigoVendorDia[];
+  // SIGO extras
+  por_sucursal?: SigoSucursalRow[];
+  por_ruta?: SigoRutaRow[];
+  por_hora?: SigoHoraRow[];
+  clientes_detalle?: SigoClienteRow[];
+  vendor_matrix?: Record<string, VendorMatrixEntry>;
+  // Comprobantes extras
+  por_canal?: CanalRow[];
+  por_sucursal_comp?: SucursalCompRow[];
+  por_cond_pago_serie?: CondPagoSerieRow[];
+  semana_serie?: SemanaSerie[];
+  clientes_full?: ClienteFullRow[];
+  por_vendedor_full?: VendedorFullRow[];
+  // Comprobantes Detallado
+  por_articulo?: ArticuloRow[];
+  por_canal_articulo?: CanalArticuloRow[];
+  por_vendedor_articulo?: VendedorArticuloRow[];
+  clientes_x_articulo?: ClienteArticuloRow[];
+  // Bultos extras
+  semana_serie_bultos?: BultosSemana[];
+  por_vendedor_bultos?: VendedorBultosRow[];
+  clientes_semana_pivot?: ClienteSemanaPivot[];
+  articulos_por_vendedor?: ArticuloVendedorRow[];
   origen_datos: {
     fuente: string;
     menu_referencia: string;
     filtros_aplicados: string[];
     snapshot_at: string | null;
   };
+}
+
+// ── SIGO new fields ──────────────────────────────────────────────────────────
+
+export interface SigoSucursalRow {
+  sucursal: string;
+  total: number;
+  visitados: number;
+  ventas: number;
+  cobertura: number;
+  efectividad: number;
+}
+
+export interface SigoRutaRow {
+  ruta: string;
+  vendedor: string;
+  total: number;
+  visitados: number;
+  ventas: number;
+}
+
+export interface SigoHoraRow {
+  hora: string;
+  visitas: number;
+  ventas: number;
+}
+
+export interface SigoClienteRow {
+  id_cliente: string | null;
+  nombre: string;
+  vendedor: string;
+  ruta: string | null;
+  visitado: boolean;
+  con_venta: boolean;
+  motivo: string | null;
+  hora_visita: string | null;
+  hora_venta: string | null;
+}
+
+export interface VendorMatrixEntry {
+  dias: SigoVendorDia[];
+  por_hora: SigoHoraRow[];
+  clientes: { nombre: string; visitado: boolean; con_venta: boolean }[];
+}
+
+// ── Comprobantes Resumido new fields ─────────────────────────────────────────
+
+export interface CanalRow {
+  canal: string;
+  subcanal: string;
+  importe: number;
+  contado: number;
+  cc: number;
+  n_ops: number;
+}
+
+export interface SucursalCompRow {
+  sucursal: string;
+  importe: number;
+  contado: number;
+  cc: number;
+  recibo: number;
+  n_ops: number;
+}
+
+export interface CondPagoSerieRow {
+  fecha: string;
+  contado: number;
+  cc: number;
+  recibo: number;
+}
+
+export interface SemanaSerie {
+  semana: string;
+  importe: number;
+}
+
+export interface ClienteFullRow {
+  nombre_cliente: string;
+  vendedor: string;
+  sucursal: string;
+  canal: string;
+  importe: number;
+  contado: number;
+  cc: number;
+  n_ops: number;
+  ultimo_comprobante: string | null;
+}
+
+export interface VendedorFullRow {
+  vendedor: string;
+  sucursal: string;
+  importe: number;
+  contado: number;
+  cc: number;
+  recibo: number;
+  n_clientes: number;
+  n_ops: number;
+}
+
+// ── Comprobantes Detallado ────────────────────────────────────────────────────
+
+export interface ArticuloRow {
+  articulo: string;
+  importe: number;
+  n_ops: number;
+  n_clientes: number;
+  prom_sem: number;
+}
+
+export interface CanalArticuloRow {
+  canal: string;
+  articulo: string;
+  importe: number;
+}
+
+export interface VendedorArticuloRow {
+  vendedor: string;
+  articulo: string;
+  importe: number;
+  n_ops: number;
+}
+
+export interface ClienteArticuloRow {
+  cliente: string;
+  articulo: string;
+  importe: number;
+  n_ops: number;
+}
+
+// ── Bultos new fields ─────────────────────────────────────────────────────────
+
+export interface BultosSemana {
+  semana: string;
+  bultos: number;
+}
+
+export interface VendedorBultosRow {
+  vendedor: string;
+  bultos: number;
+  prom_sem: number;
+  n_clientes: number;
+  pct_25: number;
+}
+
+export interface ClienteSemanaPivot {
+  cliente: string;
+  vendedor: string;
+  semanas: Record<string, number>;
+}
+
+export interface ArticuloVendedorRow {
+  vendedor: string;
+  articulo: string;
+  bultos: number;
+  prom_sem: number;
 }
 
 export async function createReporteriaJob(

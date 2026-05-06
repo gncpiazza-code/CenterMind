@@ -172,6 +172,132 @@ def parse_comprobantes(df: pd.DataFrame, date_from: str, date_to: str) -> dict[s
             for _, r in by_vend.iterrows()
         ]
 
+    # ── Por canal ─────────────────────────────────────────────────────────────
+    por_canal: list[dict] = []
+    if "desc_canal_mkt" in df.columns and df["desc_canal_mkt"].notna().any():
+        _df_pos = df[df["_importe"] > 0].copy()
+        _canal_keys = ["desc_canal_mkt"]
+        if "desc_subcanal_mkt" in _df_pos.columns:
+            _canal_keys.append("desc_subcanal_mkt")
+        canal_grp = _df_pos.groupby(_canal_keys)
+        for _keys, _cg in canal_grp:
+            if not isinstance(_keys, tuple):
+                _keys = (_keys,)
+            _canal_name = str(_keys[0])
+            _subcanal_name = str(_keys[1]) if len(_keys) > 1 else ""
+            por_canal.append({
+                "canal":    _canal_name,
+                "subcanal": _subcanal_name,
+                "importe":  round(float(_cg["_importe"].sum()), 0),
+                "contado":  round(float(_cg[_cg["_cond"] == "contado"]["_importe"].sum()), 0),
+                "cc":       round(float(_cg[_cg["_cond"] == "cc"]["_importe"].sum()), 0),
+                "n_ops":    int(len(_cg)),
+            })
+        por_canal.sort(key=lambda x: x["importe"], reverse=True)
+
+    # ── Por sucursal (comprobantes) ────────────────────────────────────────────
+    por_sucursal_comp: list[dict] = []
+    if "desc_sucursal" in df.columns and df["desc_sucursal"].notna().any():
+        _df_pos_s = df[df["_importe"] > 0].copy()
+        for _suc_name, _sg in _df_pos_s.groupby("desc_sucursal"):
+            por_sucursal_comp.append({
+                "sucursal": str(_suc_name),
+                "importe":  round(float(_sg["_importe"].sum()), 0),
+                "contado":  round(float(_sg[_sg["_cond"] == "contado"]["_importe"].sum()), 0),
+                "cc":       round(float(_sg[_sg["_cond"] == "cc"]["_importe"].sum()), 0),
+                "recibo":   round(float(_sg[_sg["_cond"] == "recibo"]["_importe"].sum()), 0),
+                "n_ops":    int((_sg["_importe"] > 0).sum()),
+            })
+        por_sucursal_comp.sort(key=lambda x: x["importe"], reverse=True)
+
+    # ── Por condición de pago serie ────────────────────────────────────────────
+    por_cond_pago_serie: list[dict] = []
+    if df["_fecha"].notna().any():
+        _df_fecha = df[df["_fecha"].notna() & (df["_importe"] > 0)].copy()
+        _df_fecha["_date_str"] = _df_fecha["_fecha"].dt.date.astype(str)
+        for _date_str, _dg in _df_fecha.groupby("_date_str"):
+            por_cond_pago_serie.append({
+                "fecha":   _date_str,
+                "contado": round(float(_dg[_dg["_cond"] == "contado"]["_importe"].sum()), 0),
+                "cc":      round(float(_dg[_dg["_cond"] == "cc"]["_importe"].sum()), 0),
+                "recibo":  round(float(_dg[_dg["_cond"] == "recibo"]["_importe"].sum()), 0),
+            })
+        por_cond_pago_serie.sort(key=lambda x: x["fecha"])
+
+    # ── Semana serie ──────────────────────────────────────────────────────────
+    semana_serie: list[dict] = []
+    if df["_fecha"].notna().any():
+        _df_w = df[df["_fecha"].notna() & (df["_importe"] > 0)].copy()
+        _df_w["_semana"] = _df_w["_fecha"].dt.isocalendar().year.astype(str) + "-W" + \
+                           _df_w["_fecha"].dt.isocalendar().week.astype(str).str.zfill(2)
+        _sem_grp = _df_w.groupby("_semana")["_importe"].sum().reset_index()
+        semana_serie = [
+            {"semana": str(r["_semana"]), "importe": round(float(r["_importe"]), 0)}
+            for _, r in _sem_grp.sort_values("_semana").iterrows()
+        ]
+
+    # ── Clientes full ─────────────────────────────────────────────────────────
+    MAX_CLI = 3000
+    clientes_full: list[dict] = []
+    if name_col in df.columns:
+        _df_pos_c = df[df["_importe"] > 0].copy()
+        _full_grp = (
+            _df_pos_c.groupby(name_col)["_importe"]
+            .sum()
+            .reset_index()
+            .sort_values("_importe", ascending=False)
+            .head(MAX_CLI)
+        )
+        _full_grp.columns = [name_col, "importe"]
+        _vend_map_f = {}
+        _suc_map_f  = {}
+        _canal_map_f = {}
+        _ult_map_f  = {}
+        _nops_map_f: dict = _df_pos_c.groupby(name_col)["_importe"].count().to_dict()
+        _cont_map_f: dict = _df_pos_c[_df_pos_c["_cond"] == "contado"].groupby(name_col)["_importe"].sum().to_dict()
+        _cc_map_f:   dict = _df_pos_c[_df_pos_c["_cond"] == "cc"].groupby(name_col)["_importe"].sum().to_dict()
+        if "desc_vendedor" in df.columns:
+            _vend_map_f = df.groupby(name_col)["desc_vendedor"].first().to_dict()
+        if "desc_sucursal" in df.columns:
+            _suc_map_f = df.groupby(name_col)["desc_sucursal"].first().to_dict()
+        if "desc_canal_mkt" in df.columns:
+            _canal_map_f = df.groupby(name_col)["desc_canal_mkt"].first().to_dict()
+        if df["_fecha"].notna().any():
+            _ult_map_f = df[df["_fecha"].notna()].groupby(name_col)["_fecha"].max().dt.strftime("%Y-%m-%d").to_dict()
+        clientes_full = [
+            {
+                "nombre_cliente":    str(r[name_col]),
+                "vendedor":          str(_vend_map_f.get(r[name_col], "")),
+                "sucursal":          str(_suc_map_f.get(r[name_col], "")),
+                "canal":             str(_canal_map_f.get(r[name_col], "")),
+                "importe":           round(float(r["importe"]), 0),
+                "contado":           round(float(_cont_map_f.get(r[name_col], 0)), 0),
+                "cc":                round(float(_cc_map_f.get(r[name_col], 0)), 0),
+                "n_ops":             int(_nops_map_f.get(r[name_col], 0)),
+                "ultimo_comprobante": _ult_map_f.get(r[name_col]),
+            }
+            for _, r in _full_grp.iterrows()
+        ]
+
+    # ── Por vendedor full ─────────────────────────────────────────────────────
+    por_vendedor_full: list[dict] = []
+    if "desc_vendedor" in df.columns:
+        _df_pos_v = df[df["_importe"] > 0].copy()
+        for _vend_name, _vg in _df_pos_v.groupby("desc_vendedor"):
+            _suc_v = _vg["desc_sucursal"].mode().iloc[0] if "desc_sucursal" in _vg.columns and not _vg["desc_sucursal"].dropna().empty else ""
+            _n_cli = _vg[name_col].nunique() if name_col in _vg.columns else 0
+            por_vendedor_full.append({
+                "vendedor":  str(_vend_name),
+                "sucursal":  str(_suc_v),
+                "importe":   round(float(_vg["_importe"].sum()), 0),
+                "contado":   round(float(_vg[_vg["_cond"] == "contado"]["_importe"].sum()), 0),
+                "cc":        round(float(_vg[_vg["_cond"] == "cc"]["_importe"].sum()), 0),
+                "recibo":    round(float(_vg[_vg["_cond"] == "recibo"]["_importe"].sum()), 0),
+                "n_clientes": int(_n_cli),
+                "n_ops":     int(len(_vg)),
+            })
+        por_vendedor_full.sort(key=lambda x: x["importe"], reverse=True)
+
     sucursal = ""
     if "desc_sucursal" in df.columns:
         vals = df["desc_sucursal"].dropna().astype(str)
@@ -185,6 +311,12 @@ def parse_comprobantes(df: pd.DataFrame, date_from: str, date_to: str) -> dict[s
         "serie_temporal": serie,
         "top_clientes": top_clientes,
         "top_vendedores": top_vendedores,
+        "por_canal":           por_canal,
+        "por_sucursal_comp":   por_sucursal_comp,
+        "por_cond_pago_serie": por_cond_pago_serie,
+        "semana_serie":        semana_serie,
+        "clientes_full":       clientes_full,
+        "por_vendedor_full":   por_vendedor_full,
         "origen_datos": {
             "fuente": "Comprobantes CHESS",
             "menu_referencia": "CHESS → Comprobantes → Resumen por período",

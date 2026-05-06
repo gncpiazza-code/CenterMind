@@ -215,6 +215,72 @@ def parse_bultos(df: pd.DataFrame, date_from: str, date_to: str) -> dict[str, An
         for _, r in by_pdv.iterrows()
     ]
 
+    # ── Semana serie ──────────────────────────────────────────────────────────
+    semana_serie_bultos: list[dict] = []
+    if df["_fecha"].notna().any():
+        _df_w = df.copy()
+        _df_w["_semana"] = _df_w["_fecha"].dt.isocalendar().year.astype(str) + "-W" + \
+                           _df_w["_fecha"].dt.isocalendar().week.astype(str).str.zfill(2)
+        _sw_grp = _df_w[_df_w["_fecha"].notna()].groupby("_semana")["bultos_cargo"].sum().reset_index()
+        semana_serie_bultos = [
+            {"semana": str(r["_semana"]), "bultos": round(float(r["bultos_cargo"]), 1)}
+            for _, r in _sw_grp.sort_values("_semana").iterrows()
+        ]
+
+    # ── Por vendedor bultos ────────────────────────────────────────────────────
+    por_vendedor_bultos: list[dict] = []
+    if "desc_vendedor" in df.columns:
+        for _vend_name, _vg in df.groupby("desc_vendedor"):
+            _total_v = _vg["bultos_cargo"].sum()
+            _n_cli_v = _vg["_cliente_final"].nunique()
+            _prom_v  = round(_total_v / semanas, 1)
+            _by_cli_v = _vg.groupby("_cliente_final")["bultos_cargo"].sum()
+            _pct_25_v = round((_by_cli_v / semanas > 2.5).sum() / max(len(_by_cli_v), 1), 2)
+            por_vendedor_bultos.append({
+                "vendedor":   str(_vend_name),
+                "bultos":     round(float(_total_v), 1),
+                "prom_sem":   _prom_v,
+                "n_clientes": int(_n_cli_v),
+                "pct_25":     float(_pct_25_v),
+            })
+        por_vendedor_bultos.sort(key=lambda x: x["bultos"], reverse=True)
+
+    # ── Clientes semana pivot ─────────────────────────────────────────────────
+    MAX_SEMANAS = 13
+    clientes_semana_pivot: list[dict] = []
+    if df["_fecha"].notna().any():
+        _df_piv = df.copy()
+        _df_piv["_semana"] = _df_piv["_fecha"].dt.isocalendar().year.astype(str) + "-W" + \
+                             _df_piv["_fecha"].dt.isocalendar().week.astype(str).str.zfill(2)
+        _all_semanas = sorted(_df_piv["_semana"].dropna().unique())[-MAX_SEMANAS:]
+        _df_piv = _df_piv[_df_piv["_semana"].isin(_all_semanas)]
+        _pivot_grp = _df_piv.groupby(["_cliente_final", "_semana"])["bultos_cargo"].sum()
+        _pivot_dict: dict[str, dict] = {}
+        for (_cli, _sem), _val in _pivot_grp.items():
+            _pivot_dict.setdefault(_cli, {})[_sem] = round(float(_val), 1)
+        _vend_map_p = {}
+        if "desc_vendedor" in df.columns:
+            _vend_map_p = df.groupby("_cliente_final")["desc_vendedor"].first().to_dict()
+        for _cli, _semanas_d in sorted(_pivot_dict.items(), key=lambda x: sum(x[1].values()), reverse=True)[:200]:
+            clientes_semana_pivot.append({
+                "cliente":  _cli,
+                "vendedor": str(_vend_map_p.get(_cli, "")),
+                "semanas":  _semanas_d,
+            })
+
+    # ── Artículos por vendedor ────────────────────────────────────────────────
+    articulos_por_vendedor: list[dict] = []
+    if "desc_vendedor" in df.columns:
+        _av_grp = df.groupby(["desc_vendedor", "_articulo"])["bultos_cargo"].sum().reset_index()
+        _av_grp["prom_sem"] = (_av_grp["bultos_cargo"] / semanas).round(1)
+        for _, r in _av_grp.sort_values("bultos_cargo", ascending=False).head(300).iterrows():
+            articulos_por_vendedor.append({
+                "vendedor":  str(r["desc_vendedor"]),
+                "articulo":  str(r["_articulo"]),
+                "bultos":    round(float(r["bultos_cargo"]), 1),
+                "prom_sem":  float(r["prom_sem"]),
+            })
+
     return {
         "source": "bultos",
         "date_from": date_from,
@@ -223,6 +289,10 @@ def parse_bultos(df: pd.DataFrame, date_from: str, date_to: str) -> dict[str, An
         "serie_temporal": serie,
         "top_clientes": top_clientes,
         "top_vendedores": top_vendedores,
+        "semana_serie_bultos":     semana_serie_bultos,
+        "por_vendedor_bultos":     por_vendedor_bultos,
+        "clientes_semana_pivot":   clientes_semana_pivot,
+        "articulos_por_vendedor":  articulos_por_vendedor,
         "origen_datos": {
             "fuente": "Bultos / Análisis Unificado CHESS",
             "menu_referencia": "CHESS → Comprobantes → Detalle por artículo",

@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  BarChart2, Receipt, Package, ArrowRight, AlertTriangle,
+  BarChart2, Receipt, Package, Package2, ArrowRight, AlertTriangle,
   ChevronDown, Download, FileSpreadsheet, MousePointer2, Settings2,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -30,6 +30,37 @@ interface GuideConfig {
 }
 
 const GUIDES: Record<ReporteriaSource, GuideConfig> = {
+  comprobantes_detallado: {
+    sistema: "CHESS ERP",
+    badge: "CHESS ERP",
+    badgeClass: "bg-orange-50 text-orange-700 border-orange-200",
+    icon: Package2,
+    iconBg: "bg-orange-100",
+    iconColor: "text-orange-600",
+    steps: [
+      {
+        label: "Ingresar a CHESS ERP",
+        description: "Accedé a tu instancia de CHESS ERP (chesserp.com) e iniciá sesión con tu usuario.",
+        highlight: "login",
+      },
+      {
+        label: "REPORTE DE COMPROBANTES",
+        description: "Navegá al módulo Ventas → Reporte de Comprobantes. Completá Fecha Desde y Fecha Hasta con el período deseado.",
+        highlight: "filters",
+      },
+      {
+        label: "Clic en Procesar",
+        description: "Con las fechas completas, hacé clic en el botón Procesar. El sistema detectará que hay más de 1.000 registros.",
+        highlight: "procesar",
+      },
+      {
+        label: "Exportar reporte DETALLADO",
+        description: "En el modal, elegí DETALLADO (a nivel de lineas) y hacé clic en Exportar. El archivo se llama 'ReporteComprobantesDetallado.xlsx'.",
+        highlight: "modal-detallado",
+      },
+    ],
+    advertencia: "Usá el mismo archivo DETALLADO que para Bultos. Shelfy filtrará y agregará los datos por artículo automáticamente.",
+  },
   comprobantes: {
     sistema: "CHESS ERP",
     badge: "CHESS ERP",

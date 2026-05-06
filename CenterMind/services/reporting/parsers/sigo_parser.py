@@ -71,6 +71,7 @@ def parse_sigo(df: pd.DataFrame, date_from: str, date_to: str) -> dict[str, Any]
     col_ruta       = find_col(df, ["Ruta", "nombre ruta", "id ruta"])
     col_lat        = find_col(df, ["lat", "latitud", "latitude"])
     col_lon        = find_col(df, ["lon", "lng", "longitud", "longitude"])
+    col_sucursal   = find_col(df, ["Sucursal", "nombre sucursal", "desc sucursal", "zona"])
 
     missing = [k for k, v in {"vendedor": col_vendedor, "fecha": col_fecha, "visitado": col_visitado}.items() if v is None]
     if missing:
@@ -91,6 +92,10 @@ def parse_sigo(df: pd.DataFrame, date_from: str, date_to: str) -> dict[str, Any]
 
     dfp["_lat"] = pd.to_numeric(_safe_col(dfp, col_lat), errors="coerce") if col_lat else float("nan")
     dfp["_lon"] = pd.to_numeric(_safe_col(dfp, col_lon), errors="coerce") if col_lon else float("nan")
+    dfp["_cli_nom"] = _safe_col(dfp, col_cli_nom).astype(str).str.strip() if col_cli_nom else pd.Series([""] * len(dfp), index=dfp.index)
+    dfp["_cli_id"]  = _safe_col(dfp, col_cli_id).astype(str).str.strip() if col_cli_id else pd.Series([""] * len(dfp), index=dfp.index)
+    dfp["_ruta_val"] = _safe_col(dfp, col_ruta).astype(str).str.strip() if col_ruta else pd.Series([""] * len(dfp), index=dfp.index)
+    dfp["_suc_val"]  = _safe_col(dfp, col_sucursal).astype(str).str.strip() if col_sucursal else pd.Series([""] * len(dfp), index=dfp.index)
 
     dfp = dfp.dropna(subset=["_fecha", "_vendedor"]).copy()
     dfp = dfp[dfp["_vendedor"].ne("nan") & dfp["_vendedor"].ne("")].copy()
@@ -310,6 +315,113 @@ def parse_sigo(df: pd.DataFrame, date_from: str, date_to: str) -> dict[str, Any]
     # Sort by vendedor, then fecha
     por_vendedor_y_dia.sort(key=lambda x: (x["vendedor"], x["fecha"]))
 
+    # ── Por sucursal ──────────────────────────────────────────────────────────
+    por_sucursal: list[dict] = []
+    if col_sucursal:
+        def _suc_stats(g: pd.DataFrame):
+            t = len(g); v = int((g["_visitado_norm"] == "si").sum())
+            vn = int(g["_hora_ven"].notna().sum())
+            return pd.Series({
+                "total": t, "visitados": v, "ventas": vn,
+                "cobertura": round(v / t * 100, 1) if t > 0 else 0.0,
+                "efectividad": round(vn / v * 100, 1) if v > 0 else 0.0,
+            })
+        suc_df = dfp.groupby("_suc_val").apply(_suc_stats).reset_index()
+        por_sucursal = [
+            {
+                "sucursal": str(r["_suc_val"]),
+                "total": int(r["total"]), "visitados": int(r["visitados"]), "ventas": int(r["ventas"]),
+                "cobertura": float(r["cobertura"]), "efectividad": float(r["efectividad"]),
+            }
+            for _, r in suc_df.iterrows()
+        ]
+
+    # ── Por ruta ──────────────────────────────────────────────────────────────
+    por_ruta: list[dict] = []
+    if col_ruta:
+        def _ruta_stats(g: pd.DataFrame):
+            t = len(g); v = int((g["_visitado_norm"] == "si").sum())
+            vn = int(g["_hora_ven"].notna().sum())
+            mod_vend = g["_vendedor"].mode()
+            vend_str = str(mod_vend.iloc[0]) if len(mod_vend) > 0 else ""
+            return pd.Series({"total": t, "visitados": v, "ventas": vn, "vendedor": vend_str})
+        ruta_df = dfp.groupby("_ruta_val").apply(_ruta_stats).reset_index()
+        por_ruta = [
+            {
+                "ruta": str(r["_ruta_val"]), "vendedor": str(r["vendedor"]),
+                "total": int(r["total"]), "visitados": int(r["visitados"]), "ventas": int(r["ventas"]),
+            }
+            for _, r in ruta_df.iterrows()
+        ]
+
+    # ── Por hora ──────────────────────────────────────────────────────────────
+    por_hora: list[dict] = []
+    if col_hora_vis:
+        dfp["_hora_bucket"] = dfp["_hora_vis"].apply(
+            lambda t: f"{t.hour:02d}" if t is not None else None
+        )
+        hora_valid = dfp[dfp["_hora_bucket"].notna()].copy()
+        if not hora_valid.empty:
+            hora_grp = hora_valid.groupby("_hora_bucket").agg(
+                visitas=("_hora_bucket", "count"),
+                ventas=("_hora_ven", lambda s: s.notna().sum()),
+            ).reset_index()
+            por_hora = [
+                {"hora": str(r["_hora_bucket"]), "visitas": int(r["visitas"]), "ventas": int(r["ventas"])}
+                for _, r in hora_grp.sort_values("_hora_bucket").iterrows()
+            ]
+
+    # ── Clientes detalle ──────────────────────────────────────────────────────
+    MAX_CLI = 3000
+    clientes_detalle: list[dict] = []
+    for _, row in dfp.head(MAX_CLI).iterrows():
+        h_vis = row["_hora_vis"]
+        h_ven = row["_hora_ven"]
+        clientes_detalle.append({
+            "id_cliente": str(row["_cli_id"]) if row["_cli_id"] not in ("", "nan") else None,
+            "nombre":     str(row["_cli_nom"]),
+            "vendedor":   str(row["_vendedor"]),
+            "ruta":       str(row["_ruta_val"]) if col_ruta else None,
+            "visitado":   row["_visitado_norm"] == "si",
+            "con_venta":  h_ven is not None,
+            "motivo":     str(row["_motivo"]) if row["_motivo"] not in ("", "nan") else None,
+            "hora_visita": h_vis.strftime("%H:%M") if h_vis is not None else None,
+            "hora_venta":  h_ven.strftime("%H:%M") if h_ven is not None else None,
+        })
+
+    # ── Vendor matrix ─────────────────────────────────────────────────────────
+    _vd_map: dict[str, list[dict]] = {}
+    for d in por_vendedor_y_dia:
+        _vd_map.setdefault(d["vendedor"], []).append(d)
+
+    vendor_matrix: dict[str, dict] = {}
+    for vend_key, grp_v in dfp.groupby("_vendedor"):
+        vk = str(vend_key)
+        ph_v: list[dict] = []
+        if "_hora_bucket" in dfp.columns:
+            grp_hb = grp_v[grp_v["_hora_bucket"].notna()].copy()
+            if not grp_hb.empty:
+                hg = grp_hb.groupby("_hora_bucket").agg(
+                    visitas=("_hora_bucket", "count"),
+                    ventas=("_hora_ven", lambda s: s.notna().sum()),
+                ).reset_index()
+                ph_v = [
+                    {"hora": str(r["_hora_bucket"]), "visitas": int(r["visitas"]), "ventas": int(r["ventas"])}
+                    for _, r in hg.sort_values("_hora_bucket").iterrows()
+                ]
+        clientes_v: list[dict] = []
+        for _, rw in grp_v.head(500).iterrows():
+            clientes_v.append({
+                "nombre":    str(rw["_cli_nom"]),
+                "visitado":  rw["_visitado_norm"] == "si",
+                "con_venta": rw["_hora_ven"] is not None,
+            })
+        vendor_matrix[vk] = {
+            "dias":     _vd_map.get(vk, []),
+            "por_hora": ph_v,
+            "clientes": clientes_v,
+        }
+
     return {
         "source": "sigo",
         "date_from": date_from,
@@ -319,6 +431,11 @@ def parse_sigo(df: pd.DataFrame, date_from: str, date_to: str) -> dict[str, Any]
         "top_clientes": top_clientes,
         "top_vendedores": top_vendedores,
         "por_vendedor_y_dia": por_vendedor_y_dia,
+        "por_sucursal":    por_sucursal,
+        "por_ruta":        por_ruta,
+        "por_hora":        por_hora,
+        "clientes_detalle": clientes_detalle,
+        "vendor_matrix":   vendor_matrix,
         "origen_datos": {
             "fuente": "SIGO",
             "menu_referencia": "SIGO → Módulo de Gestión → Visitas por rango",

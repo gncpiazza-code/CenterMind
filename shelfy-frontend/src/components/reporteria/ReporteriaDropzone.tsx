@@ -26,6 +26,7 @@ interface Props {
 const SOURCE_LABELS: Record<ReporteriaSource, string> = {
   sigo: "SIGO",
   comprobantes: "Comprobantes",
+  comprobantes_detallado: "Comprobantes Detallado",
   bultos: "Bultos",
 };
 

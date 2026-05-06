@@ -18,7 +18,7 @@ from services.reporting.export_service import export_xlsx
 logger = logging.getLogger("ShelfyAPI")
 router = APIRouter()
 
-_ALLOWED_SOURCES = {"sigo", "comprobantes", "bultos"}
+_ALLOWED_SOURCES = {"sigo", "comprobantes", "comprobantes_detallado", "bultos"}
 _MAX_MB = 50
 
 

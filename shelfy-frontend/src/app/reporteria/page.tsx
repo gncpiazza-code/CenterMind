@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import {
-  BarChart2, Download, FileText, TrendingUp, Users, Loader2, Plus, Package, User,
+  BarChart2, Download, FileText, Loader2, Plus, Package, Package2,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Sidebar } from "@/components/layout/Sidebar";
@@ -30,43 +30,21 @@ import { ReporteriaSourceGuide } from "@/components/reporteria/ReporteriaSourceG
 import { ReporteriaDropzone } from "@/components/reporteria/ReporteriaDropzone";
 import { ReporteriaProcessingState } from "@/components/reporteria/ReporteriaProcessingState";
 import { ReporteriaKpis } from "@/components/reporteria/ReporteriaKpis";
-import { ReporteriaCharts } from "@/components/reporteria/ReporteriaCharts";
-import { ReporteriaTable } from "@/components/reporteria/ReporteriaTable";
-import { ReporteriaOrigen } from "@/components/reporteria/ReporteriaOrigen";
-import { ReporteriaVendorSelector, type VendorSummary } from "@/components/reporteria/ReporteriaVendorSelector";
-import { ReporteriaVendorDetail } from "@/components/reporteria/ReporteriaVendorDetail";
+import { SigoPanel } from "@/components/reporteria/panels/SigoPanel";
+import { ComprobantesPanel } from "@/components/reporteria/panels/ComprobantesPanel";
+import { DetalladoPanel } from "@/components/reporteria/panels/DetalladoPanel";
+import { BultosPanel } from "@/components/reporteria/panels/BultosPanel";
 
 type WizardStep = "pick" | "guide" | "upload" | "processing" | "panel";
-type TabId = "resumen" | "tendencias" | "clientes" | "detalle";
 
-const SOURCE_TABS: Record<ReporteriaSource, { id: TabId; label: string; icon: React.ElementType }[]> = {
-  sigo: [
-    { id: "resumen",    label: "Resumen",    icon: BarChart2 },
-    { id: "tendencias", label: "Evolución",  icon: TrendingUp },
-    { id: "clientes",   label: "Vendedores", icon: Users },
-    { id: "detalle",    label: "Detalle",    icon: User },
-  ],
-  comprobantes: [
-    { id: "resumen",    label: "Resumen",     icon: BarChart2 },
-    { id: "tendencias", label: "Evolución",   icon: TrendingUp },
-    { id: "clientes",   label: "Top Clientes",icon: Users },
-    { id: "detalle",    label: "Detalle",     icon: User },
-  ],
-  bultos: [
-    { id: "resumen",    label: "Resumen",   icon: Package },
-    { id: "tendencias", label: "Evolución", icon: TrendingUp },
-    { id: "clientes",   label: "PDVs",      icon: Users },
-    { id: "detalle",    label: "Detalle",   icon: User },
-  ],
+const SOURCE_META: Record<string, { label: string; icon: React.ElementType; color: string }> = {
+  sigo:                   { label: "SIGO",                   icon: BarChart2,  color: "text-violet-600" },
+  comprobantes:           { label: "Comprobantes",           icon: FileText,   color: "text-blue-600" },
+  comprobantes_detallado: { label: "Comprobantes Detallado", icon: Package2,   color: "text-orange-600" },
+  bultos:                 { label: "Bultos",                  icon: Package,    color: "text-emerald-600" },
 };
 
-const SOURCE_META: Record<ReporteriaSource, { label: string; icon: React.ElementType; color: string }> = {
-  sigo:         { label: "SIGO",          icon: BarChart2,  color: "text-violet-600" },
-  comprobantes: { label: "Comprobantes",  icon: FileText,   color: "text-blue-600" },
-  bultos:       { label: "Bultos",        icon: Package,    color: "text-emerald-600" },
-};
-
-function buildMockData(source: ReporteriaSource): ReporteriaExploreResponse {
+function buildMockData(source: string): ReporteriaExploreResponse {
   const dateFrom = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
   const dateTo   = new Date().toISOString().slice(0, 10);
   const baseKpis = {
@@ -94,6 +72,13 @@ function buildMockData(source: ReporteriaSource): ReporteriaExploreResponse {
       { label: "PDVs >2.5/sem",    value: 38 },
       { label: "Vendedores",       value: 12 },
     ],
+    comprobantes_detallado: [
+      { label: "Facturación",       value: 3_200_000, unit: "" },
+      { label: "Artículos únicos",  value: 48 },
+      { label: "Clientes únicos",   value: 214 },
+      { label: "Ticket promedio",   value: 14_953, unit: "" },
+      { label: "Operaciones",       value: 214 },
+    ],
   };
 
   const days = Math.max(
@@ -103,7 +88,7 @@ function buildMockData(source: ReporteriaSource): ReporteriaExploreResponse {
   const serie = Array.from({ length: Math.min(days, 30) }, (_, i) => {
     const d = new Date(dateFrom + "T00:00:00");
     d.setDate(d.getDate() + Math.round(i * (days / 30)));
-    const base = source === "sigo" ? 18 : source === "comprobantes" ? 160_000 : 280;
+    const base = source === "sigo" ? 18 : source === "comprobantes" || source === "comprobantes_detallado" ? 160_000 : 280;
     return {
       fecha: d.toISOString().slice(0, 10),
       valor: base + Math.round((Math.random() - 0.4) * base * 0.6),
@@ -130,14 +115,14 @@ function buildMockData(source: ReporteriaSource): ReporteriaExploreResponse {
   ];
 
   return {
-    source,
+    source: source as import("@/lib/api").ReporteriaSource,
     date_from: dateFrom,
     date_to: dateTo,
     snapshot_version: "demo-mock",
     snapshot_created_at: new Date().toISOString(),
-    kpis: baseKpis[source],
+    kpis: (baseKpis as Record<string, typeof baseKpis.sigo>)[source] ?? baseKpis.comprobantes,
     serie_temporal: serie,
-    top_clientes: source === "sigo" ? sigoClientes : source === "comprobantes" ? compClientes : bultosClientes,
+    top_clientes: source === "sigo" ? sigoClientes : (source === "comprobantes" || source === "comprobantes_detallado") ? compClientes : bultosClientes,
     top_vendedores: source === "sigo"
       ? [
           { nombre: "GARCIA ROBERTO",    valor: 78 },
@@ -145,7 +130,7 @@ function buildMockData(source: ReporteriaSource): ReporteriaExploreResponse {
           { nombre: "FERNANDEZ CARLOS",  valor: 74 },
           { nombre: "TORRES ANA",        valor: 72 },
         ]
-      : source === "comprobantes"
+      : (source === "comprobantes" || source === "comprobantes_detallado")
         ? [
             { nombre: "GARCIA ROBERTO",    valor: 820_000 },
             { nombre: "LOPEZ MARIA",       valor: 740_000 },
@@ -164,7 +149,9 @@ function buildMockData(source: ReporteriaSource): ReporteriaExploreResponse {
         ? "SIGO → Módulo de Gestión → Visitas por rango"
         : source === "comprobantes"
           ? "CHESS → Comprobantes → Resumen por período"
-          : "CHESS → Comprobantes → Detalle por artículo",
+          : source === "comprobantes_detallado"
+            ? "CHESS → Comprobantes → Detalle por período"
+            : "CHESS → Comprobantes → Detalle por artículo",
       filtros_aplicados: [`Desde: ${dateFrom}`, `Hasta: ${dateTo}`, "Datos de demostración"],
       snapshot_at: new Date().toISOString(),
     },
@@ -181,8 +168,6 @@ export default function ReporteriaPage() {
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [completedJobId, setCompletedJobId] = useState<string | null>(null);
   const [exploreData, setExploreData] = useState<ReporteriaExploreResponse | null>(null);
-  const [activeTab, setActiveTab]     = useState<TabId>("resumen");
-  const [selectedVendor, setSelectedVendor] = useState<string | null>(null);
   const [exportingFmt, setExportingFmt] = useState<string | null>(null);
   const [uploadLoading, setUploadLoading] = useState(false);
 
@@ -207,13 +192,11 @@ export default function ReporteriaPage() {
           setExploreData(data);
           setCompletedJobId(jobIdForExport);
           setStep("panel");
-          setActiveTab("resumen");
         })
         .catch(() => {
           const mock = buildMockData(reportType);
           setExploreData(mock);
           setStep("panel");
-          setActiveTab("resumen");
         });
       setActiveJobId(null);
     }
@@ -254,7 +237,6 @@ export default function ReporteriaPage() {
       setStep("processing");
       setTimeout(() => {
         setStep("panel");
-        setActiveTab("resumen");
       }, 1800);
     } finally {
       setUploadLoading(false);
@@ -273,8 +255,6 @@ export default function ReporteriaPage() {
     setActiveJobId(null);
     setCompletedJobId(null);
     setExploreData(null);
-    setSelectedVendor(null);
-    setActiveTab("resumen");
   }, []);
 
   async function handleExport(fmt: "xlsx" | "pdf") {
@@ -316,7 +296,7 @@ export default function ReporteriaPage() {
                 Reportería
               </h1>
               <p className="text-sm text-[var(--shelfy-muted)] mt-1">
-                SIGO · Comprobantes · Bultos — análisis interactivo on-demand
+                SIGO · Comprobantes · Detallado · Bultos — análisis interactivo on-demand
               </p>
             </div>
 
@@ -394,13 +374,7 @@ export default function ReporteriaPage() {
             )}
 
             {step === "panel" && exploreData && (
-              <PanelView
-                data={exploreData}
-                activeTab={activeTab}
-                onTabChange={setActiveTab}
-                selectedVendor={selectedVendor}
-                onVendorSelect={setSelectedVendor}
-              />
+              <PanelView data={exploreData} />
             )}
           </ReporteriaWizardLayout>
         </main>
@@ -409,81 +383,16 @@ export default function ReporteriaPage() {
   );
 }
 
-// ── Empty vendor prompt ───────────────────────────────────────────────────────
-
-function EmptyVendorPrompt() {
-  return (
-    <motion.div
-      initial={{ opacity: 0, scale: 0.97 }}
-      animate={{ opacity: 1, scale: 1 }}
-      transition={{ type: "spring", stiffness: 300, damping: 28 }}
-      className="flex flex-col items-center justify-center h-64 rounded-2xl border-2 border-dashed border-[var(--shelfy-border)] bg-white gap-3"
-    >
-      <span className="inline-flex items-center justify-center size-12 rounded-xl bg-[var(--shelfy-primary)]/10">
-        <User size={22} className="text-[var(--shelfy-primary)]/50" />
-      </span>
-      <div className="text-center">
-        <p className="text-sm font-bold text-[var(--shelfy-muted)]">Seleccioná un vendedor</p>
-        <p className="text-xs text-[var(--shelfy-muted)] mt-0.5 opacity-70">para ver su detalle completo</p>
-      </div>
-    </motion.div>
-  );
-}
-
-// ── Build vendor summaries from data ─────────────────────────────────────────
-
-function buildVendorSummaries(data: ReporteriaExploreResponse): VendorSummary[] {
-  if (data.source === "sigo") {
-    const byVendor: Record<string, { planeadas: number; ejecutadas: number; con_venta: number; dias: number }> = {};
-    for (const r of data.por_vendedor_y_dia ?? []) {
-      if (!byVendor[r.vendedor]) byVendor[r.vendedor] = { planeadas: 0, ejecutadas: 0, con_venta: 0, dias: 0 };
-      byVendor[r.vendedor].planeadas += r.planeadas;
-      byVendor[r.vendedor].ejecutadas += r.ejecutadas;
-      byVendor[r.vendedor].con_venta += r.con_venta;
-      byVendor[r.vendedor].dias += 1;
-    }
-    return Object.entries(byVendor).map(([name, t]) => ({
-      name,
-      isActive: t.ejecutadas > 0,
-      metric: t.planeadas > 0 ? (t.ejecutadas / t.planeadas) * 100 : 0,
-      metricUnit: "%",
-      diasConDatos: t.dias,
-    })).sort((a, b) => b.metric - a.metric);
-  }
-
-  // comprobantes / bultos — derive from top_clientes grouped by vendor
-  const byVendor: Record<string, { importe: number; facturas: number; sucursal?: string }> = {};
-  for (const r of data.top_clientes ?? []) {
-    const k = r.vendedor_nombre;
-    if (!byVendor[k]) byVendor[k] = { importe: 0, facturas: 0, sucursal: r.sucursal_nombre };
-    byVendor[k].importe += r.importe_total;
-    byVendor[k].facturas += r.cantidad_facturas;
-  }
-  return Object.entries(byVendor).map(([name, t]) => ({
-    name,
-    isActive: t.facturas > 0 || t.importe > 0,
-    metric: data.source === "bultos" ? t.facturas : t.importe,
-    metricUnit: "",
-    sucursal: t.sucursal,
-  })).sort((a, b) => b.metric - a.metric);
-}
-
 // ── Panel view (step 5) ───────────────────────────────────────────────────────
 
 interface PanelViewProps {
   data: ReporteriaExploreResponse;
-  activeTab: TabId;
-  onTabChange: (tab: TabId) => void;
-  selectedVendor: string | null;
-  onVendorSelect: (name: string | null) => void;
 }
 
-function PanelView({ data, activeTab, onTabChange, selectedVendor, onVendorSelect }: PanelViewProps) {
+function PanelView({ data }: PanelViewProps) {
   const sourceMeta = SOURCE_META[data.source];
   const SourceIcon = sourceMeta?.icon ?? BarChart2;
-  const tabs = SOURCE_TABS[data.source] ?? SOURCE_TABS.comprobantes;
   const recordCount = data.top_clientes?.length ?? 0;
-  const vendorSummaries = buildVendorSummaries(data);
 
   return (
     <motion.div
@@ -499,8 +408,9 @@ function PanelView({ data, activeTab, onTabChange, selectedVendor, onVendorSelec
           <div className="flex items-center gap-3">
             <span className={cn(
               "inline-flex items-center justify-center size-10 rounded-xl",
-              data.source === "sigo"         ? "bg-violet-100" :
-              data.source === "comprobantes" ? "bg-blue-100"   : "bg-emerald-100"
+              data.source === "sigo"                   ? "bg-violet-100" :
+              data.source === "comprobantes"            ? "bg-blue-100"   :
+              data.source === "comprobantes_detallado"  ? "bg-orange-100" : "bg-emerald-100"
             )}>
               <SourceIcon size={18} className={sourceMeta?.color ?? "text-[var(--shelfy-primary)]"} />
             </span>
@@ -533,96 +443,14 @@ function PanelView({ data, activeTab, onTabChange, selectedVendor, onVendorSelec
         </div>
       </div>
 
-      {/* KPIs — clickable when on resumen tab */}
-      <ReporteriaKpis
-        kpis={data.kpis}
-        onKpiClick={() => onTabChange("clientes")}
-        activeOnClick={activeTab === "resumen"}
-      />
+      {/* KPIs */}
+      <ReporteriaKpis kpis={data.kpis} />
 
-      {/* Tab bar */}
-      <div className="flex gap-1 bg-white border border-[var(--shelfy-border)] rounded-xl p-1 w-fit">
-        {tabs.map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            onClick={() => onTabChange(id)}
-            className={cn(
-              "relative flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold transition-all duration-200",
-              activeTab === id
-                ? "text-[var(--shelfy-primary)]"
-                : "text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
-            )}
-          >
-            {activeTab === id && (
-              <motion.div
-                layoutId="tab-panel-bg"
-                className="absolute inset-0 bg-[var(--shelfy-primary)]/10 rounded-lg"
-                transition={{ type: "spring", stiffness: 400, damping: 35 }}
-              />
-            )}
-            <Icon size={13} className="relative z-10" />
-            <span className="relative z-10">{label}</span>
-          </button>
-        ))}
-      </div>
-
-      {/* Tab content */}
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={activeTab}
-          initial={{ opacity: 0, x: 6 }}
-          animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: -6 }}
-          transition={{ type: "spring", stiffness: 300, damping: 30 }}
-          className="space-y-4"
-        >
-          {(activeTab === "resumen" || activeTab === "tendencias") && (
-            <>
-              <ReporteriaCharts
-                data={data}
-                viewMode={activeTab === "tendencias" ? "tendencias" : "resumen"}
-                onVendorClick={(nombre) => {
-                  onVendorSelect(nombre);
-                  onTabChange("detalle");
-                }}
-              />
-              <ReporteriaOrigen data={data} />
-            </>
-          )}
-          {activeTab === "clientes" && (
-            <>
-              <ReporteriaTable
-                rows={data.top_clientes}
-                source={data.source}
-                sigoRows={data.por_vendedor_y_dia}
-              />
-              <ReporteriaOrigen data={data} />
-            </>
-          )}
-          {activeTab === "detalle" && (
-            <div className="grid grid-cols-1 md:grid-cols-[280px_1fr] gap-4 items-start">
-              <ReporteriaVendorSelector
-                vendors={vendorSummaries}
-                selected={selectedVendor}
-                onSelect={onVendorSelect}
-                source={data.source}
-              />
-              {selectedVendor ? (
-                <ReporteriaVendorDetail
-                  vendorName={selectedVendor}
-                  source={data.source}
-                  sigoRows={data.por_vendedor_y_dia ?? []}
-                  clienteRows={data.top_clientes}
-                  dateFrom={data.date_from}
-                  dateTo={data.date_to}
-                />
-              ) : (
-                <EmptyVendorPrompt />
-              )}
-            </div>
-          )}
-        </motion.div>
-      </AnimatePresence>
+      {/* Source-specific panel */}
+      {data.source === "sigo" && <SigoPanel data={data} />}
+      {data.source === "comprobantes" && <ComprobantesPanel data={data} />}
+      {data.source === "comprobantes_detallado" && <DetalladoPanel data={data} />}
+      {data.source === "bultos" && <BultosPanel data={data} />}
     </motion.div>
   );
 }

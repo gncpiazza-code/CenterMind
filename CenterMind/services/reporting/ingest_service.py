@@ -11,14 +11,16 @@ from typing import Any, Optional
 from .parsers._normalization import read_excel_robust
 from .parsers.sigo_parser import parse_sigo
 from .parsers.comprobantes_parser import parse_comprobantes
+from .parsers.comprobantes_detallado_parser import parse_comprobantes_detallado
 from .parsers.bultos_parser import parse_bultos
 
 logger = logging.getLogger("ShelfyAPI")
 
 _PARSERS = {
-    "sigo":         parse_sigo,
-    "comprobantes": parse_comprobantes,
-    "bultos":       parse_bultos,
+    "sigo":                   parse_sigo,
+    "comprobantes":            parse_comprobantes,
+    "comprobantes_detallado":  parse_comprobantes_detallado,
+    "bultos":                  parse_bultos,
 }
 
 # In-memory cache (L1) — fast, reset on process restart

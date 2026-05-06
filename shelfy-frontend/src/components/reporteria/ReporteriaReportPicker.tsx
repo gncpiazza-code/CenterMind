@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { BarChart2, Receipt, Package, ArrowRight } from "lucide-react";
+import { BarChart2, Receipt, Package, Package2, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
 import type { ReporteriaSource } from "@/lib/api";
@@ -41,6 +41,14 @@ const REPORTS: ReportCard[] = [
     color: "from-emerald-50 to-teal-50 border-emerald-100",
     iconBg: "bg-emerald-100 text-emerald-600",
   },
+  {
+    value: "comprobantes_detallado",
+    icon: Package2,
+    title: "Comprobantes Detallado",
+    description: "Análisis por artículo, canal y cliente con drill-down",
+    color: "from-orange-50 to-amber-50 border-orange-100",
+    iconBg: "bg-orange-100 text-orange-600",
+  },
 ];
 
 interface Props {
@@ -61,7 +69,7 @@ export function ReporteriaReportPicker({ onSelect }: Props) {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full max-w-2xl">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-3xl">
         {REPORTS.map((report, i) => {
           const Icon = report.icon;
           const isSelected = selected === report.value;

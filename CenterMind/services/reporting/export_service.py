@@ -58,6 +58,8 @@ def export_xlsx(snapshot: dict[str, Any]) -> bytes:
         _export_sigo(wb, snapshot, mods)
     elif source == "comprobantes":
         _export_comprobantes(wb, snapshot, mods)
+    elif source == "comprobantes_detallado":
+        _export_comprobantes_detallado(wb, snapshot, mods)
     elif source == "bultos":
         _export_bultos(wb, snapshot, mods)
 
@@ -96,6 +98,23 @@ def _export_sigo(wb, snapshot: dict, mods):
         ])
     _autofit(ws2)
 
+    # Hoja por sucursal (if available)
+    if snapshot.get("por_sucursal"):
+        ws3 = wb.create_sheet("Por Sucursal")
+        _header_row(ws3, ["Sucursal", "Total", "Visitados", "Ventas", "Cobertura %", "Efectividad %"], mods)
+        for r in snapshot.get("por_sucursal") or []:
+            ws3.append([r.get("sucursal"), r.get("total"), r.get("visitados"),
+                        r.get("ventas"), r.get("cobertura"), r.get("efectividad")])
+        _autofit(ws3)
+
+    # Hoja por hora (if available)
+    if snapshot.get("por_hora"):
+        ws4 = wb.create_sheet("Por Hora")
+        _header_row(ws4, ["Hora", "Visitas", "Ventas"], mods)
+        for r in snapshot.get("por_hora") or []:
+            ws4.append([r.get("hora"), r.get("visitas"), r.get("ventas")])
+        _autofit(ws4)
+
 
 def _export_comprobantes(wb, snapshot: dict, mods):
     # Hoja top clientes
@@ -115,6 +134,57 @@ def _export_comprobantes(wb, snapshot: dict, mods):
         ws2.append([r.get("nombre"), r.get("valor")])
     _autofit(ws2)
 
+    # Hoja clientes full (if available)
+    if snapshot.get("clientes_full"):
+        ws3 = wb.create_sheet("Clientes Full")
+        _header_row(ws3, ["Cliente", "Vendedor", "Sucursal", "Canal", "Importe", "Contado", "Cta Cte", "Operaciones"], mods)
+        for r in snapshot.get("clientes_full") or []:
+            ws3.append([r.get("nombre_cliente"), r.get("vendedor"), r.get("sucursal"),
+                        r.get("canal"), r.get("importe"), r.get("contado"),
+                        r.get("cc"), r.get("n_ops")])
+        _autofit(ws3)
+
+    # Hoja por canal (if available)
+    if snapshot.get("por_canal"):
+        ws4 = wb.create_sheet("Por Canal")
+        _header_row(ws4, ["Canal", "Subcanal", "Importe", "Contado", "Cta Cte", "Operaciones"], mods)
+        for r in snapshot.get("por_canal") or []:
+            ws4.append([r.get("canal"), r.get("subcanal"), r.get("importe"),
+                        r.get("contado"), r.get("cc"), r.get("n_ops")])
+        _autofit(ws4)
+
+
+def _export_comprobantes_detallado(wb, snapshot: dict, mods):
+    # Hoja artículos
+    ws = wb.create_sheet("Artículos")
+    _header_row(ws, ["Artículo", "Importe", "Operaciones", "Clientes", "Prom/Sem"], mods)
+    for r in snapshot.get("por_articulo") or []:
+        ws.append([r.get("articulo"), r.get("importe"), r.get("n_ops"),
+                   r.get("n_clientes"), r.get("prom_sem")])
+    _autofit(ws)
+
+    # Hoja vendedores × artículo
+    ws2 = wb.create_sheet("Vendedores × Artículo")
+    _header_row(ws2, ["Vendedor", "Artículo", "Importe", "Operaciones"], mods)
+    for r in snapshot.get("por_vendedor_articulo") or []:
+        ws2.append([r.get("vendedor"), r.get("articulo"), r.get("importe"), r.get("n_ops")])
+    _autofit(ws2)
+
+    # Hoja clientes × artículo
+    ws3 = wb.create_sheet("Clientes × Artículo")
+    _header_row(ws3, ["Cliente", "Artículo", "Importe", "Operaciones"], mods)
+    for r in snapshot.get("clientes_x_articulo") or []:
+        ws3.append([r.get("cliente"), r.get("articulo"), r.get("importe"), r.get("n_ops")])
+    _autofit(ws3)
+
+    # Hoja top clientes
+    ws4 = wb.create_sheet("Top Clientes")
+    _header_row(ws4, ["Cliente", "Vendedor", "Sucursal", "Importe", "Operaciones"], mods)
+    for r in snapshot.get("top_clientes") or []:
+        ws4.append([r.get("nombre_cliente"), r.get("vendedor_nombre"),
+                    r.get("sucursal_nombre"), r.get("importe_total"), r.get("cantidad_facturas")])
+    _autofit(ws4)
+
 
 def _export_bultos(wb, snapshot: dict, mods):
     # Hoja top PDVs
@@ -133,3 +203,12 @@ def _export_bultos(wb, snapshot: dict, mods):
     for r in snapshot.get("top_vendedores") or []:
         ws2.append([r.get("nombre"), r.get("valor")])
     _autofit(ws2)
+
+    # Hoja por vendedor bultos (if available)
+    if snapshot.get("por_vendedor_bultos"):
+        ws3 = wb.create_sheet("Por Vendedor")
+        _header_row(ws3, ["Vendedor", "Bultos", "Prom/Sem", "Clientes", "% >2.5/sem"], mods)
+        for r in snapshot.get("por_vendedor_bultos") or []:
+            ws3.append([r.get("vendedor"), r.get("bultos"), r.get("prom_sem"),
+                        r.get("n_clientes"), r.get("pct_25")])
+        _autofit(ws3)

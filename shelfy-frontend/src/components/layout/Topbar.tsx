@@ -1,18 +1,21 @@
 "use client";
 
-import { useEffect } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState, useCallback } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { usePathname } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
-import { Crown, LogOut, Building2, UserCog, Users, MessageSquareText } from "lucide-react";
+import { Crown, LogOut, Building2, UserCog, Users, MessageSquareText, Mail, X, Send, Paperclip, Loader2, MessageSquarePlus } from "lucide-react";
 import {
   fetchDistribuidoras,
   fetchPortalFeedbackPendingCount,
+  fetchPortalFeedbackMessages,
   getSuperadminWSUrl,
 } from "@/lib/api";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/Button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { TopModeTabs } from "./TopModeTabs";
 import {
@@ -31,6 +34,166 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import Link from "next/link";
+
+// ── Ticket flotante ───────────────────────────────────────────────────────────
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
+
+function TicketPanel({ onClose }: { onClose: () => void }) {
+  const { user } = useAuth();
+  const pathname = usePathname();
+  const [asunto, setAsunto] = useState("");
+  const [mensaje, setMensaje] = useState("");
+  const [attachments, setAttachments] = useState<File[]>([]);
+  const [pos, setPos] = useState({ x: window.innerWidth - 420, y: 70 });
+  const dragging = useRef(false);
+  const dragOffset = useRef({ x: 0, y: 0 });
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const { data: history } = useQuery({
+    queryKey: ["portal-feedback-messages-mine"],
+    queryFn: () => fetchPortalFeedbackMessages(50),
+    staleTime: 30_000,
+  });
+
+  const myTickets = (history?.items ?? []).filter(
+    (m: any) => m.id_usuario === user?.id_usuario
+  );
+
+  const buildContextLog = () => JSON.stringify({
+    ruta: pathname,
+    distribuidor: user?.id_distribuidor,
+    usuario: user?.usuario,
+    rol: user?.rol,
+    ts: new Date().toISOString(),
+  });
+
+  const sendMutation = useMutation({
+    mutationFn: async () => {
+      const token = typeof window !== "undefined" ? localStorage.getItem("shelfy_token") : null;
+      const fd = new FormData();
+      fd.append("contenido", `**${asunto}**\n\n${mensaje}`);
+      fd.append("context_log", buildContextLog());
+      attachments.forEach((f) => fd.append("files", f));
+      const r = await fetch(`${API_URL}/api/portal-feedback/messages`, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: fd,
+      });
+      if (!r.ok) throw new Error(await r.text());
+    },
+    onSuccess: () => {
+      toast.success("Ticket enviado");
+      setAsunto(""); setMensaje(""); setAttachments([]);
+    },
+    onError: (e: any) => toast.error(e.message || "Error al enviar"),
+  });
+
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    const items = Array.from(e.clipboardData.items);
+    const imgItem = items.find((i) => i.type.startsWith("image/"));
+    if (imgItem) {
+      const file = imgItem.getAsFile();
+      if (file) setAttachments((prev) => [...prev, file]);
+    }
+  }, []);
+
+  const onMouseDown = (e: React.MouseEvent) => {
+    dragging.current = true;
+    dragOffset.current = { x: e.clientX - pos.x, y: e.clientY - pos.y };
+  };
+  useEffect(() => {
+    const move = (e: MouseEvent) => {
+      if (!dragging.current) return;
+      setPos({ x: e.clientX - dragOffset.current.x, y: e.clientY - dragOffset.current.y });
+    };
+    const up = () => { dragging.current = false; };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+    return () => { window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); };
+  }, []);
+
+  return (
+    <div
+      style={{ position: "fixed", left: pos.x, top: pos.y, zIndex: 9999, width: 380 }}
+      className="rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] shadow-2xl flex flex-col overflow-hidden"
+    >
+      {/* Header draggable */}
+      <div
+        onMouseDown={onMouseDown}
+        className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--shelfy-border)] cursor-grab active:cursor-grabbing select-none bg-[var(--shelfy-bg)]/60"
+      >
+        <div className="flex items-center gap-2">
+          <Mail size={14} className="text-violet-400" />
+          <span className="text-xs font-bold text-[var(--shelfy-text)]">Contactar al equipo</span>
+        </div>
+        <button onClick={onClose} className="text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] transition-colors">
+          <X size={14} />
+        </button>
+      </div>
+
+      {/* Form */}
+      <div className="p-3 flex flex-col gap-2 border-b border-[var(--shelfy-border)]">
+        <input
+          value={asunto}
+          onChange={(e) => setAsunto(e.target.value)}
+          placeholder="Asunto"
+          className="w-full text-xs rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] px-3 py-1.5 text-[var(--shelfy-text)] placeholder:text-[var(--shelfy-muted)] focus:outline-none focus:border-violet-400"
+        />
+        <textarea
+          ref={textareaRef}
+          value={mensaje}
+          onChange={(e) => setMensaje(e.target.value)}
+          onPaste={handlePaste}
+          placeholder="Describí el problema o sugerencia… (pegá imágenes con Ctrl+V)"
+          rows={4}
+          className="w-full text-xs rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] px-3 py-2 text-[var(--shelfy-text)] placeholder:text-[var(--shelfy-muted)] focus:outline-none focus:border-violet-400 resize-none"
+        />
+        {attachments.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {attachments.map((f, i) => (
+              <span key={i} className="flex items-center gap-1 text-[10px] bg-violet-500/10 text-violet-400 border border-violet-500/20 rounded-full px-2 py-0.5">
+                <Paperclip size={9} />
+                {f.name || `imagen-${i + 1}`}
+                <button onClick={() => setAttachments((a) => a.filter((_, j) => j !== i))} className="hover:text-red-400 ml-0.5">×</button>
+              </span>
+            ))}
+          </div>
+        )}
+        <div className="flex items-center justify-between gap-2">
+          <label className="cursor-pointer text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] transition-colors">
+            <Paperclip size={13} />
+            <input type="file" className="hidden" multiple onChange={(e) => {
+              if (e.target.files) setAttachments((a) => [...a, ...Array.from(e.target.files!)]);
+            }} />
+          </label>
+          <Button
+            size="sm"
+            onClick={() => sendMutation.mutate()}
+            disabled={!asunto.trim() || !mensaje.trim() || sendMutation.isPending}
+            className="h-7 text-xs gap-1.5"
+          >
+            {sendMutation.isPending ? <Loader2 size={11} className="animate-spin" /> : <Send size={11} />}
+            Enviar
+          </Button>
+        </div>
+      </div>
+
+      {/* Historial propio */}
+      {myTickets.length > 0 && (
+        <div className="max-h-48 overflow-y-auto divide-y divide-[var(--shelfy-border)]/40">
+          {myTickets.slice(0, 10).map((t: any) => (
+            <div key={t.id} className="px-3 py-2">
+              <p className="text-[10px] text-[var(--shelfy-text)] line-clamp-2">{t.contenido}</p>
+              {t.respuesta && (
+                <p className="text-[10px] text-violet-400 mt-1 line-clamp-2">↩ {t.respuesta}</p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface TopbarProps {
   title?: string;
@@ -56,6 +219,7 @@ export function Topbar({ title, live = false }: TopbarProps) {
     refetchInterval: 120_000,
   });
   const pendingTickets = pendingTicketsData?.pending ?? 0;
+  const [ticketOpen, setTicketOpen] = useState(false);
 
   useEffect(() => {
     if (!isSuperadmin) return;
@@ -253,6 +417,21 @@ export function Topbar({ title, live = false }: TopbarProps) {
               <p className="text-[10px] text-[var(--shelfy-muted)]">{user.nombre_empresa}</p>
             </div>
 
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setTicketOpen((o) => !o)}
+                  className="text-[var(--shelfy-muted)] hover:text-violet-500 hover:bg-violet-50"
+                >
+                  <MessageSquarePlus size={17} />
+                  <span className="sr-only">Contactar al equipo</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">Contactar al equipo</TooltipContent>
+            </Tooltip>
+
             <Avatar className="size-8 shrink-0">
               <AvatarFallback
                 className={cn(
@@ -283,6 +462,7 @@ export function Topbar({ title, live = false }: TopbarProps) {
           </div>
         )}
       </header>
+      {ticketOpen && <TicketPanel onClose={() => setTicketOpen(false)} />}
     </TooltipProvider>
   );
 }

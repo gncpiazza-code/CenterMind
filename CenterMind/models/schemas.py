@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Modelos Pydantic compartidos por todos los routers."""
-from typing import Any, List, Optional
+from datetime import date
+from typing import Any, List, Literal, Optional
 from pydantic import BaseModel, Field
 
 
@@ -167,6 +168,10 @@ class ObjetivoCreate(BaseModel):
     resultado_final: Optional[str] = None
     # Modo "Armar Ruta": indica si los PDVs fueron seleccionados por polígono
     ruteo_build_mode: Optional[str] = None   # 'manual' | 'polygon'
+    # Origen y campos de compañía
+    origen: Literal['compania', 'distribuidora'] = 'distribuidora'
+    mes_referencia: Optional[date] = None
+    tasa_pendientes: Optional[int] = None
 
 
 class ObjetivoUpdate(BaseModel):

@@ -369,7 +369,7 @@ export default function MapaRutas({
     const selSet = new Set(selectedPDVs ?? []);
 
     conCoords.forEach(p => {
-      const size        = p.activo ? 18 : 14;
+      const size        = p.activo ? 32 : 24;
       const isSelected  = selSet.has(p.id);
 
       const pinFillColor = p.color;
@@ -462,12 +462,20 @@ export default function MapaRutas({
         if (infoWindowRef.current) infoWindowRef.current.close();
       };
 
+      let clickTimer: ReturnType<typeof setTimeout> | null = null;
       marker.addListener('click', () => {
+        if (clickTimer) return;
+        clickTimer = setTimeout(() => {
+          clickTimer = null;
+          if (infoWindowRef.current) {
+            infoWindowRef.current.setContent(popupHTML);
+            infoWindowRef.current.open(map, marker);
+          }
+        }, 250);
+      });
+      marker.addListener('dblclick', () => {
+        if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; }
         if (onTogglePDV) onTogglePDV(p.id);
-        if (infoWindowRef.current) {
-          infoWindowRef.current.setContent(popupHTML);
-          infoWindowRef.current.open(map, marker);
-        }
       });
     });
 
@@ -488,7 +496,7 @@ export default function MapaRutas({
     markersMapRef.current.forEach((marker, id) => {
       const pin = filteredPines.find(p => p.id === id);
       if (!pin) return;
-      const size       = pin.activo ? 18 : 14;
+      const size       = pin.activo ? 32 : 24;
       const isSelected = selSet.has(id);
 
       const iconUrl = isSelected
@@ -589,20 +597,28 @@ export default function MapaRutas({
 
   // ── Print ─────────────────────────────────────────────────────────────────
   const handlePrint = () => {
-    const legend = filteredPines.map(p =>
-      `<tr><td style="padding:4px 8px;border:1px solid #ccc;">${p.nombre}</td><td style="padding:4px 8px;border:1px solid #ccc;">${p.vendedor}</td></tr>`
-    ).join('');
-    const win = window.open('', '_blank');
-    if (!win) return;
-    win.document.write(`<!DOCTYPE html><html><head><title>Mapa de Rutas</title>
-    <style>body{margin:0;font-family:sans-serif;} table{border-collapse:collapse;width:100%;margin-top:16px;} @media print{@page{margin:1cm;}}</style>
-    </head><body>
-    <h2 style="font-size:16px;margin:8px 0;">Mapa de Rutas — PDVs visibles (${filteredPines.length})</h2>
-    <table><thead><tr><th style="padding:4px 8px;border:1px solid #ccc;text-align:left;">PDV</th><th style="padding:4px 8px;border:1px solid #ccc;text-align:left;">Vendedor</th></tr></thead>
-    <tbody>${legend}</tbody></table>
-    <script>window.onload=function(){window.print();}<\/script>
-    </body></html>`);
-    win.document.close();
+    const mapContainer = containerRef.current;
+    if (!mapContainer) return;
+
+    const styleId = '__shelfy_print_style';
+    let style = document.getElementById(styleId) as HTMLStyleElement | null;
+    if (!style) {
+      style = document.createElement('style');
+      style.id = styleId;
+      document.head.appendChild(style);
+    }
+    const containerId = mapContainer.id || '__shelfy_map_print_target';
+    if (!mapContainer.id) mapContainer.id = containerId;
+
+    style.textContent = `
+      @media print {
+        body > * { display: none !important; }
+        #${containerId} { display: block !important; width: 100vw !important; height: 100vh !important; }
+        #${containerId} * { display: block !important; }
+      }
+    `;
+    window.print();
+    style.textContent = '';
   };
 
   const STATUS_ORDER: PinStatus[] = ['activo_exhibicion', 'activo', 'inactivo_exhibicion', 'inactivo'];

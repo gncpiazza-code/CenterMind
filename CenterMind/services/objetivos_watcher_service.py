@@ -83,12 +83,41 @@ class ObjetivosWatcherService:
 
                     valor_obj = obj.get("valor_objetivo")
                     ahora = datetime.now(timezone.utc)
+                    tasa_p = obj.get("tasa_pendientes")
+                    umbral_meta = float(valor_obj) if valor_obj else 0.0
+                    if valor_obj and tasa_p is not None and int(tasa_p) > 0:
+                        umbral_meta = max(0.0, float(valor_obj) - float(tasa_p))
 
-                    # ── Cumplido por progreso (meta alcanzada) ─────────────────
+                    # Calcular pendientes para desglose_cache (tipos con ítems)
+                    if obj.get("tipo") in ("conversion_estado", "ruteo_alteo") and obj.get("id"):
+                        try:
+                            items_pend_res = (
+                                sb.table("objetivo_items")
+                                .select("id_cliente_pdv, nombre_pdv, estado_item")
+                                .eq("id_objetivo", obj["id"])
+                                .neq("estado_item", "cumplido")
+                                .limit(21)
+                                .execute()
+                            )
+                            pend_items = items_pend_res.data or []
+                            pendientes_count = len(pend_items)
+                            pendientes_ids = [
+                                str(it.get("id_cliente_pdv") or it.get("nombre_pdv") or "")
+                                for it in pend_items[:20]
+                            ]
+                            updates["desglose_cache"] = {
+                                "tasa_pendientes": tasa_p,
+                                "pendientes_count": pendientes_count,
+                                "pendientes_items": pendientes_ids,
+                            }
+                        except Exception as e_pend:
+                            logger.warning(f"[Watcher] desglose_cache pendientes obj={obj.get('id')}: {e_pend}")
+
+                    # ── Cumplido por progreso (meta alcanzada con umbral tasa) ──
                     if (
                         valor_obj
                         and float(valor_obj) > 0
-                        and valor_aprobados >= float(valor_obj)
+                        and valor_aprobados >= umbral_meta
                     ):
                         updates["cumplido"] = True
                         updates["resultado_final"] = "exito"
@@ -114,7 +143,7 @@ class ObjetivosWatcherService:
                                 if date.today() > fecha_limite:
                                     resultado = (
                                         "exito"
-                                        if (valor_obj and float(valor_obj) > 0 and valor_aprobados >= float(valor_obj))
+                                        if (valor_obj and float(valor_obj) > 0 and valor_aprobados >= umbral_meta)
                                         else "falla"
                                     )
                                     updates["cumplido"] = True

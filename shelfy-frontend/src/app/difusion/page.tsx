@@ -293,10 +293,12 @@ export default function DifusionPage() {
                   <CreditCard className="w-3.5 h-3.5" />
                   Cuentas Corrientes
                 </TabsTrigger>
-                <TabsTrigger value="sigo" className="flex-1 gap-1.5 text-xs">
-                  <BarChart2 className="w-3.5 h-3.5" />
-                  SIGO
-                </TabsTrigger>
+                {(user?.is_superadmin || user?.rol === 'superadmin') && (
+                  <TabsTrigger value="sigo" className="flex-1 gap-1.5 text-xs">
+                    <BarChart2 className="w-3.5 h-3.5" />
+                    SIGO
+                  </TabsTrigger>
+                )}
               </TabsList>
 
               {/* ──────────────────────────────────────────── */}

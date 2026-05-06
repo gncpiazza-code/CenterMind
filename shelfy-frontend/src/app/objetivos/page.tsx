@@ -80,11 +80,18 @@ import { toast } from "sonner";
 // ── Tipo / actividad config ───────────────────────────────────────────────────
 
 const TIPO_CONFIG: Record<ObjetivoTipo, { label: string; color: string; bg: string }> = {
-  conversion_estado: { label: "Activación", color: "text-blue-500",    bg: "bg-blue-500/10 border-blue-500/20" },
-  cobranza:          { label: "Cobranza",   color: "text-orange-500",  bg: "bg-orange-500/10 border-orange-500/20" },
-  ruteo_alteo:       { label: "Alteo",      color: "text-violet-600",  bg: "bg-violet-500/10 border-violet-500/20" },
-  exhibicion:        { label: "Exhibición", color: "text-emerald-600", bg: "bg-emerald-500/10 border-emerald-500/20" },
-  ruteo:             { label: "Ruteo",      color: "text-purple-600",  bg: "bg-purple-500/10 border-purple-500/20" },
+  conversion_estado: { label: "Activación",                color: "text-blue-500",    bg: "bg-blue-500/10 border-blue-500/20" },
+  cobranza:          { label: "Cobranza",                  color: "text-orange-500",  bg: "bg-orange-500/10 border-orange-500/20" },
+  ruteo_alteo:       { label: "Alteo",                     color: "text-violet-600",  bg: "bg-violet-500/10 border-violet-500/20" },
+  exhibicion:        { label: "Exhibición",                color: "text-emerald-600", bg: "bg-emerald-500/10 border-emerald-500/20" },
+  ruteo:             { label: "Guía para armado de ruta",  color: "text-purple-600",  bg: "bg-purple-500/10 border-purple-500/20" },
+};
+
+// Descripciones educativas por tipo (mostradas en wizard lateral)
+const TIPO_EDUCATIVO: Partial<Record<ObjetivoTipo, string>> = {
+  ruteo_alteo:       "Alta de nuevo PDV en tu ruta. Meta: incorporar PDVs nuevos que nunca compraron.",
+  conversion_estado: "Reactivar PDVs inactivos (sin compra hace más de 30 días). Meta: volver a comprar.",
+  exhibicion:        "Registrar foto de exhibición en PDV. Meta: cobertura de exhibiciones por ruta.",
 };
 
 const DIA_ORDER: Record<string, number> = {
@@ -124,11 +131,28 @@ function TipoBadge({ tipo }: { tipo: ObjetivoTipo }) {
   );
 }
 
+function OrigenBadge({ origen }: { origen?: string | null }) {
+  if (origen !== "compania") return null;
+  return (
+    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold bg-amber-500/10 border border-amber-500/30 text-amber-600">
+      Cía
+    </span>
+  );
+}
+
 // ── Progress bar ──────────────────────────────────────────────────────────────
 
-function ProgressBar({ actual, objetivo, className }: { actual: number; objetivo: number | null; className?: string }) {
+function ProgressBar({ actual, objetivo, tasaPendientes, className }: {
+  actual: number;
+  objetivo: number | null;
+  tasaPendientes?: number | null;
+  className?: string;
+}) {
   if (!objetivo || objetivo === 0) return null;
-  const pct = Math.min(100, Math.round((actual / objetivo) * 100));
+  const umbral = (tasaPendientes != null && tasaPendientes > 0)
+    ? Math.max(0, objetivo - tasaPendientes)
+    : objetivo;
+  const pct = Math.min(100, Math.round((actual / umbral) * 100));
   return (
     <div className={`flex items-center gap-2 ${className ?? ""}`}>
       <Progress value={pct} className="flex-1 h-1.5" />
@@ -485,6 +509,7 @@ function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado, onOpenR
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-1.5 flex-wrap">
             <TipoBadge tipo={obj.tipo} />
+            <OrigenBadge origen={obj.origen} />
             {obj.resultado_final === "exito" && (
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 font-semibold border border-emerald-500/20">
                 Exito
@@ -492,7 +517,7 @@ function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado, onOpenR
             )}
             {obj.resultado_final === "falla" && (
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/10 text-red-500 font-semibold border border-red-500/20">
-                Falla
+                Sin completar
               </span>
             )}
           </div>
@@ -526,8 +551,16 @@ function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado, onOpenR
           <div onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between text-[10px] text-[var(--shelfy-muted)] mb-1 tabular-nums">
               <span>{obj.valor_actual} / {Math.round(obj.valor_objetivo)}</span>
+              {obj.tasa_pendientes != null && (
+                <span className="text-[var(--shelfy-muted)]/70">
+                  P={obj.tasa_pendientes}
+                  {((obj.desglose_cache?.pendientes_count ?? 0) > 0) && (
+                    <span className="ml-1">· {obj.desglose_cache!.pendientes_count} pendiente{obj.desglose_cache!.pendientes_count !== 1 ? "s" : ""}</span>
+                  )}
+                </span>
+              )}
             </div>
-            <ProgressBar actual={obj.valor_actual} objetivo={obj.valor_objetivo} />
+            <ProgressBar actual={obj.valor_actual} objetivo={obj.valor_objetivo} tasaPendientes={obj.tasa_pendientes} />
           </div>
         ) : null}
 
@@ -704,9 +737,16 @@ interface NuevoObjetivoModalProps {
   onClose: () => void;
   onCreate: (data: ObjetivoCreate[]) => void;
   loading: boolean;
+  userRol?: string;
+  isSuperadmin?: boolean;
 }
 
-function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: NuevoObjetivoModalProps) {
+function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, userRol, isSuperadmin }: NuevoObjetivoModalProps) {
+  const canCrearCompania = isSuperadmin || userRol === "directorio" || userRol === "superadmin";
+  const [origenMode, setOrigenMode] = useState<"distribuidora" | "compania">("distribuidora");
+  const [mesReferencia, setMesReferencia] = useState<string>("");
+  const [tasaPendientes, setTasaPendientes] = useState<number | "">("");
+
   const [vendedorId, setVendedorId] = useState<number | "">("");
   const [tipo, setTipo] = useState<ObjetivoTipo>("ruteo_alteo");
   const [fecha, setFecha] = useState<string>("");
@@ -939,6 +979,9 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
       nombre_vendedor: vendedorNombre,
       tipo,
       ...(fecha ? { fecha_objetivo: fecha } : {}),
+      origen: origenMode,
+      ...(origenMode === "compania" && mesReferencia ? { mes_referencia: `${mesReferencia}-01` } : {}),
+      ...(origenMode === "compania" && tasaPendientes !== "" ? { tasa_pendientes: Number(tasaPendientes) } : {}),
     };
 
     if (tipo === "ruteo_alteo") {
@@ -1049,7 +1092,10 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
     onCreate([base]);
   };
 
-  const TIPOS_DISPONIBLES: ObjetivoTipo[] = ["ruteo_alteo", "conversion_estado", "exhibicion", "cobranza", "ruteo"];
+  // cobranza oculto en UI — no se crea desde el formulario
+  const TIPOS_DISPONIBLES: ObjetivoTipo[] = origenMode === "compania"
+    ? ["ruteo_alteo", "conversion_estado", "exhibicion"]
+    : ["ruteo_alteo", "conversion_estado", "exhibicion", "ruteo"];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -1066,6 +1112,59 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Origen selector — solo visible para directorio/superadmin */}
+          {canCrearCompania && (
+            <div className="flex gap-1.5 p-1 bg-[var(--shelfy-bg)] rounded-xl border border-[var(--shelfy-border)]">
+              {(["distribuidora", "compania"] as const).map(o => (
+                <button
+                  key={o}
+                  type="button"
+                  onClick={() => { setOrigenMode(o); if (tipo === "cobranza") setTipo("ruteo_alteo"); }}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                    origenMode === o
+                      ? "bg-[var(--shelfy-accent)] text-white shadow-sm"
+                      : "text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
+                  }`}
+                >
+                  {o === "distribuidora" ? "Distribuidora" : "Compañía"}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Campos compañía */}
+          {origenMode === "compania" && (
+            <div className="rounded-xl bg-amber-500/5 border border-amber-500/20 p-3 space-y-2">
+              <p className="text-[10px] font-semibold text-amber-600 uppercase tracking-wider">Objetivo de Compañía</p>
+              <div>
+                <label className="text-[10px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1">Mes de referencia</label>
+                <input
+                  type="month"
+                  required={origenMode === "compania"}
+                  className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-1.5 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-amber-500/60"
+                  value={mesReferencia}
+                  onChange={e => setMesReferencia(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1">
+                  Tasa de pendientes (P)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  placeholder="0"
+                  className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-1.5 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-amber-500/60"
+                  value={tasaPendientes}
+                  onChange={e => setTasaPendientes(e.target.value !== "" ? Number(e.target.value) : "")}
+                />
+                <p className="text-[10px] text-[var(--shelfy-muted)] mt-1">
+                  Margen de completud: cuántos pueden quedar pendientes y el objetivo igual se considera cumplido.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Live phrase preview */}
           <div className="rounded-xl bg-[var(--shelfy-bg)] border border-[var(--shelfy-accent)]/20 p-3">
             <p className="text-[11px] text-[var(--shelfy-muted)] mb-1 uppercase tracking-wider font-medium">Objetivo generado</p>
@@ -1139,6 +1238,13 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading }: 
                 </button>
               ))}
             </div>
+
+            {/* Panel educativo por tipo */}
+            {TIPO_EDUCATIVO[tipo] && (
+              <div className="mt-2 rounded-lg bg-[var(--shelfy-accent)]/5 border border-[var(--shelfy-accent)]/15 px-3 py-2">
+                <p className="text-[10px] text-[var(--shelfy-accent)] leading-relaxed">{TIPO_EDUCATIVO[tipo]}</p>
+              </div>
+            )}
           </div>
 
           {/* Contextual: Alteo */}
@@ -2711,6 +2817,8 @@ export default function ObjetivosPage() {
           onClose={() => setModalOpen(false)}
           onCreate={items => createMut.mutate(items)}
           loading={createMut.isPending}
+          userRol={user?.rol}
+          isSuperadmin={user?.is_superadmin}
         />
       )}
 

@@ -130,7 +130,6 @@ export default function SupervisionPage() {
 
   const [selectedSucursal, setSelectedSucursal] = useState<string>("__all__");
   const [selectedVendedor, setSelectedVendedor] = useState<string | null>(null);
-  const [fechaCorte, setFechaCorte] = useState<string>(new Date().toISOString().slice(0, 10));
   const [ccSort, setCCSort] = useState<"deuda" | "antiguedad">("antiguedad");
   const [ccSortDir, setCCSortDir] = useState<"desc" | "asc">("desc");
   const isAllowed = !!user && ALLOWED_ROLES.includes(user.rol);
@@ -163,8 +162,8 @@ export default function SupervisionPage() {
   const sucursalParam = selectedSucursal === "__all__" ? undefined : selectedSucursal;
 
   const { data: cuentasData, isLoading: loadingCuentas } = useQuery({
-    queryKey: [...supervisionPanelKeys.cuentas(distId, sucursalParam), fechaCorte, selectedVendedor ?? "__none__"] as const,
-    queryFn: () => fetchCuentasSupervision(distId, sucursalParam, fechaCorte || undefined, selectedVendedor ?? undefined),
+    queryKey: [...supervisionPanelKeys.cuentas(distId, sucursalParam), selectedVendedor ?? "__none__"] as const,
+    queryFn: () => fetchCuentasSupervision(distId, sucursalParam, undefined, selectedVendedor ?? undefined),
     enabled: !!distId && !!selectedVendedor,
     staleTime: 5 * 60_000,
   });
@@ -289,13 +288,6 @@ export default function SupervisionPage() {
                     ))}
                   </SelectContent>
                 </Select>
-
-                <DatePicker
-                  value={fechaCorte}
-                  onChange={(v) => setFechaCorte(v || new Date().toISOString().slice(0, 10))}
-                  className="w-[190px]"
-                  placeholder="Fecha de corte"
-                />
 
                 <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5" asChild>
                   <Link href="/modo-mapa">

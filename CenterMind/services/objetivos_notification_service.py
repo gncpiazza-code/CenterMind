@@ -463,6 +463,25 @@ class ObjetivosNotificationService:
                 str(tipo or "").replace("_", " ").title() or "General",
             )
 
+            origen = obj_data.get("origen", "distribuidora")
+            origen_label = "Compañía" if origen == "compania" else "Distribuidora"
+            origen_str = f"\n🏢 <b>Origen:</b> {origen_label}"
+
+            mes_ref = obj_data.get("mes_referencia")
+            mes_str = ""
+            if mes_ref:
+                try:
+                    from datetime import date as _date_cls
+                    mes_d = _date_cls.fromisoformat(str(mes_ref)[:10])
+                    meses_es = ["Enero","Febrero","Marzo","Abril","Mayo","Junio",
+                                "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"]
+                    mes_str = f"\n📅 <b>Mes:</b> {meses_es[mes_d.month - 1]} {mes_d.year}"
+                except Exception:
+                    mes_str = f"\n📅 <b>Mes:</b> {mes_ref}"
+
+            tasa_p = obj_data.get("tasa_pendientes")
+            tasa_str = f"\n⚖️ <b>Tasa pendientes (P):</b> {tasa_p}" if tasa_p is not None else ""
+
             created = obj_data.get("created_at")
             inicio_fmt = self._format_fecha_dd_mm_yyyy(created)
             inicio_str = (
@@ -742,7 +761,10 @@ class ObjetivosNotificationService:
                 f"🚀 <b>¡Nuevo objetivo asignado!</b>\n"
                 f"{inicio_str}"
                 f"{supervisor_str}"
+                f"{origen_str}"
+                f"{mes_str}"
                 f"\n\n🎯 <b>Tipo:</b> {tipo_label} {emoji}"
+                f"{tasa_str}"
                 f"{accion_block}"
                 f"{pdv_lines}"
                 f"{ruta_str}"
@@ -750,6 +772,11 @@ class ObjetivosNotificationService:
                 f"{desc_str}\n\n"
                 f"¡Éxitos con la gestión! 💪"
             )
+
+            # Telegram tiene límite ~4096 chars; truncar si es necesario
+            TELEGRAM_MAX = 4096
+            if len(text) > TELEGRAM_MAX:
+                text = text[:TELEGRAM_MAX - 20] + "\n…(mensaje truncado)"
 
             resp = requests.post(
                 TELEGRAM_API.format(token=token),

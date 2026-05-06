@@ -43,6 +43,8 @@ import {
   type ClienteContacto,
   type ObjetivoCreate,
   type ObjetivoTipo,
+  fetchPdvsMovimiento,
+  type PdvsMovimientoItem,
 } from "@/lib/api";
 import { openCuentasCorrientesPrintWindow } from "@/lib/printCuentasCorrientes";
 import type { PinCliente } from "./MapaRutas";
@@ -655,6 +657,32 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
     refetchInterval: SUPERVISION_SYNC_POLL_MS,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
+  });
+
+  // ── Altas y Activaciones state ───────────────────────────────────────────
+  const currentMes = new Date().toISOString().slice(0, 7);
+  const [altasMes, setAltasMes] = useState(currentMes);
+  const mesOptions = useMemo(() => {
+    const opts: string[] = [];
+    const d = new Date();
+    for (let i = 0; i < 6; i++) {
+      opts.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+      d.setMonth(d.getMonth() - 1);
+    }
+    return opts;
+  }, []);
+
+  const selectedVendedorId = useMemo(() => {
+    if (!openVend) return null;
+    const v = vendedores.find(v => v.id_vendedor === openVend);
+    return v?.id_vendedor ?? null;
+  }, [openVend, vendedores]);
+
+  const { data: altasData, isLoading: loadingAltas } = useQuery({
+    queryKey: ['pdvs-movimiento', selectedDist, selectedVendedorId, altasMes],
+    queryFn: () => fetchPdvsMovimiento(selectedDist!, selectedVendedorId!, altasMes),
+    enabled: !!selectedDist && !!selectedVendedorId && !!altasMes,
+    staleTime: 5 * 60_000,
   });
 
   // Cuando cambia last_updated del padrón (ingesta RPA), forzar rutas/clientes/vendedores.
@@ -1340,19 +1368,6 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
           Activos
         </button>
 
-        {/* Capa Deudores */}
-        <button
-          onClick={() => setMapMode('deudores')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all ${
-            mapMode === 'deudores'
-              ? 'border-amber-400/60 bg-amber-500/15 text-amber-400'
-              : 'border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:border-amber-400/40 hover:text-amber-400'
-          }`}
-        >
-          <CreditCard className="w-3.5 h-3.5" />
-          Deudores
-        </button>
-
         {/* Separador */}
         {hasPermiso("action_edit_objetivos") && (
           <span className="w-px h-5 bg-[var(--shelfy-border)] mx-0.5" />
@@ -1608,9 +1623,16 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
               <span className="text-red-400 font-semibold">{100 - pctActivos}% inactivos</span>
             </p>
           )}
-          {syncStatus && (
-            <SyncStatusPanel syncStatus={syncStatus} className="mt-2" />
-          )}
+          {cuentasData?.fecha ? (
+            <p className="text-xs text-[var(--shelfy-muted)] mt-0.5">
+              Cuentas corrientes actualizadas el{" "}
+              {new Date(cuentasData.fecha).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "2-digit" })}{" "}
+              a las{" "}
+              {new Date(cuentasData.fecha).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/Argentina/Buenos_Aires" })}
+            </p>
+          ) : selectedDist ? (
+            <p className="text-xs text-[var(--shelfy-muted)] mt-0.5">Sin datos de CC recientes</p>
+          ) : null}
         </div>
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-2 bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-xl px-3 py-1.5 shadow-sm">
@@ -1709,22 +1731,6 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
               <MapaRutas
                 pines={pines}
                 fullscreenPanel={vendorPanelContent}
-                mode={mapMode}
-                onModeChange={setMapMode}
-                deudoresData={mapMode === 'deudores'
-                  ? cuentasData?.vendedores?.flatMap(v =>
-                      (v.clientes ?? []).map(c => ({
-                        id_cliente_erp: c.id_cliente_erp ?? null,
-                        id_cliente: c.id_cliente ?? null,
-                        id_vendedor: v.id_vendedor ?? null,
-                        cliente_nombre: c.cliente ?? '',
-                        deuda_total: c.deuda_total,
-                        antiguedad_dias: c.antiguedad ?? 0,
-                        vendedor_nombre: v.vendedor,
-                      }))
-                    )
-                  : undefined
-                }
                 selectedPDVs={hasPermiso("action_edit_objetivos") ? selectedPDVsForObjective : []}
                 onTogglePDV={hasPermiso("action_edit_objetivos") ? togglePDVForObjective : undefined}
                 routeBuildEnabled={routeBuildEnabled}
@@ -2207,7 +2213,10 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
       </div>
 
       {/* ── SECCIÓN CUENTAS CORRIENTES — solo desktop (xl+) ─────────────────── */}
-      {!mapOnly && <div className="hidden xl:block rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden shadow-sm">
+      {!mapOnly && <div className="hidden xl:grid xl:grid-cols-2 gap-4">
+
+        {/* Columna izquierda: CC */}
+        <div className="rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden shadow-sm">
 
         {/* Header */}
         <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-[var(--shelfy-border)]/50">
@@ -2451,6 +2460,78 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
             )}
           </>
         )}
+        </div>{/* fin columna CC */}
+
+        {/* Columna derecha: Altas y Activaciones */}
+        <div className="rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden shadow-sm flex flex-col">
+          {/* Header */}
+          <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-[var(--shelfy-border)]/50">
+            <div className="flex items-center gap-2">
+              <Target className="w-4 h-4 text-emerald-400" />
+              <h3 className="text-sm font-bold text-[var(--shelfy-text)]">Altas y Activaciones</h3>
+            </div>
+            <select
+              value={altasMes}
+              onChange={e => setAltasMes(e.target.value)}
+              className="text-xs bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-2 py-1 text-[var(--shelfy-text)] focus:outline-none"
+            >
+              {mesOptions.map(m => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+          </div>
+
+          {!openVend ? (
+            <div className="flex-1 flex flex-col items-center justify-center py-10 text-center px-6">
+              <Target className="w-8 h-8 text-[var(--shelfy-muted)]/30 mb-2" />
+              <p className="text-sm text-[var(--shelfy-muted)]">Seleccioná un vendedor para ver altas y activaciones</p>
+            </div>
+          ) : loadingAltas ? (
+            <div className="flex items-center justify-center py-10">
+              <Loader2 className="w-5 h-5 animate-spin text-[var(--shelfy-muted)]" />
+            </div>
+          ) : !altasData?.items.length ? (
+            <div className="flex-1 flex flex-col items-center justify-center py-10 text-center px-6">
+              <p className="text-sm text-[var(--shelfy-muted)]">Sin altas ni activaciones en {altasMes}</p>
+            </div>
+          ) : (
+            <div className="flex-1 overflow-y-auto">
+              {/* KPI strip */}
+              <div className="grid grid-cols-2 divide-x divide-[var(--shelfy-border)]/40 border-b border-[var(--shelfy-border)]/30">
+                <div className="px-4 py-2.5">
+                  <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-0.5">Altas</p>
+                  <p className="text-base font-bold text-emerald-400">{altasData.total_altas}</p>
+                </div>
+                <div className="px-4 py-2.5">
+                  <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-0.5">Activaciones</p>
+                  <p className="text-base font-bold text-blue-400">{altasData.total_activaciones}</p>
+                </div>
+              </div>
+              {/* Items */}
+              <div className="divide-y divide-[var(--shelfy-border)]/30">
+                {altasData.items.map((item: PdvsMovimientoItem, i: number) => (
+                  <div key={i} className="px-4 py-2.5 flex items-start gap-3 hover:bg-white/5 transition-colors">
+                    <span className={`mt-0.5 shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                      item.categoria === 'alta'
+                        ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
+                        : 'bg-blue-500/15 border-blue-500/30 text-blue-400'
+                    }`}>
+                      {item.categoria === 'alta' ? 'Alta' : 'Activ.'}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-[var(--shelfy-text)] truncate">{item.nombre || '—'}</p>
+                      <p className="text-[10px] text-[var(--shelfy-muted)] truncate">{item.id_cliente_erp ?? 'Sin código ERP'} · {item.localidad || item.direccion || '—'}</p>
+                    </div>
+                    {item.exhibido && (
+                      <span title="Exhibido este mes" className="text-[10px] text-violet-400 font-bold shrink-0">★</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>{/* fin columna Altas */}
+
       </div>}
 
       {/* ── SECCIÓN EXHIBICIONES ────────────────────────────────────────────── */}

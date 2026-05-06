@@ -1264,7 +1264,8 @@ class BotWorker:
                 self.db.sb.table("objetivos")
                 .select(
                     "id, tipo, descripcion, fecha_objetivo, valor_actual, valor_objetivo, "
-                    "cumplido, id_target_pdv, created_at"
+                    "cumplido, id_target_pdv, created_at, origen, mes_referencia, "
+                    "tasa_pendientes, desglose_cache"
                 )
                 .eq("id_distribuidor", dist_id)
                 .eq("id_vendedor", id_vendedor)
@@ -1353,6 +1354,8 @@ class BotWorker:
                 "ruteo_alteo": "Alteo",
             }
 
+            from datetime import date as _date_cls, timezone as _tz_cls
+
             lines = [f"🎯 <b>Objetivos de {html.escape(str(vendedor_nombre), quote=False)}</b>"]
             shown = 0
             for obj in objetivos:
@@ -1362,16 +1365,40 @@ class BotWorker:
                 oid = str(obj.get("id") or "")
                 tipo = str(obj.get("tipo") or "").strip().lower()
                 tipo_txt = tipo_label.get(tipo, tipo.replace("_", " ").title() or "Objetivo")
+                origen = obj.get("origen", "distribuidora")
+                origen_tag = " [Cía]" if origen == "compania" else ""
                 cumplido = bool(obj.get("cumplido"))
                 estado_icon = "✅" if cumplido else "⏳"
                 vo = float(obj.get("valor_objetivo") or 0)
                 va = float(obj.get("valor_actual") or 0)
-                pct = 0 if vo <= 0 else int(max(0, min(100, round((va / vo) * 100))))
+                tasa_p = obj.get("tasa_pendientes")
+                umbral = max(0.0, vo - float(tasa_p)) if (vo > 0 and tasa_p is not None) else vo
+                pct = 0 if umbral <= 0 else int(max(0, min(100, round((va / umbral) * 100))))
+
                 fecha = str(obj.get("fecha_objetivo") or "")[:10]
                 fecha_fmt = ""
+                dias_restantes_txt = ""
                 if fecha and len(fecha) == 10 and fecha.count("-") == 2:
                     y, mo, d = fecha.split("-")
                     fecha_fmt = f"{d}/{mo}/{y}"
+                    try:
+                        hoy = _date_cls.today()
+                        fecha_limite = _date_cls.fromisoformat(fecha)
+                        dias = (fecha_limite - hoy).days
+                        if dias > 0:
+                            dias_restantes_txt = f" ⏱ {dias}d restantes"
+                        elif dias == 0:
+                            dias_restantes_txt = " ⏱ ¡Vence hoy!"
+                        else:
+                            dias_restantes_txt = f" ⏱ Vencido hace {abs(dias)}d"
+                    except Exception:
+                        pass
+
+                tasa_txt = ""
+                if tasa_p is not None:
+                    desglose = obj.get("desglose_cache") or {}
+                    pend_count = desglose.get("pendientes_count", "–")
+                    tasa_txt = f"\n   • Tasa P={tasa_p} · {pend_count} pendiente{'s' if pend_count != 1 else ''}"
 
                 pdv_candidates = []
                 if obj.get("id_target_pdv"):
@@ -1383,27 +1410,46 @@ class BotWorker:
                 if pdv_candidates and tipo in {"exhibicion", "conversion_estado", "activacion", "cobranza"}:
                     ref = pdv_map.get(pdv_candidates[0], {})
                     erp = ref.get("id_cliente_erp")
-                    ruta_label = rutas_map.get(int(ref.get("id_ruta"))) if ref.get("id_ruta") else ""
+                    ruta_label_val = rutas_map.get(int(ref.get("id_ruta"))) if ref.get("id_ruta") else ""
                     count_txt = f" (+{len(pdv_candidates)-1} PDV)" if len(pdv_candidates) > 1 else ""
                     parts = []
                     if erp:
                         parts.append(f"NRO CLIENTE ERP: {html.escape(str(erp), quote=False)}")
-                    if ruta_label:
-                        parts.append(f"Ruta: {html.escape(str(ruta_label), quote=False)}")
+                    if ruta_label_val:
+                        parts.append(f"Ruta: {html.escape(str(ruta_label_val), quote=False)}")
                     if parts:
                         pdv_line = f"\n   • {' · '.join(parts)}{count_txt}"
 
                 lines.append(
-                    f"\n{estado_icon} <b>{tipo_txt}</b>"
+                    f"\n{estado_icon} <b>{tipo_txt}{origen_tag}</b>"
                     f"\n   • Progreso: <b>{int(va) if va.is_integer() else round(va, 2)}/{int(vo) if vo.is_integer() else round(vo, 2)}</b> ({pct}%)"
-                    f"{f' · Vence: {fecha_fmt}' if fecha_fmt else ''}"
+                    f"{f' · Vence: {fecha_fmt}{dias_restantes_txt}' if fecha_fmt else ''}"
+                    f"{tasa_txt}"
                     f"{pdv_line}"
                 )
 
             if len(objetivos) > 8:
                 lines.append(f"\n<i>Mostrando 8 de {len(objetivos)} objetivos.</i>")
 
-            await m.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+            # Enviar dividiendo si supera el límite de Telegram (~4096 chars)
+            TELE_MAX = 4000
+            full_text = "\n".join(lines)
+            if len(full_text) <= TELE_MAX:
+                await m.reply_text(full_text, parse_mode=ParseMode.HTML)
+            else:
+                # Dividir por bloques de objetivos individuales
+                header = lines[0]
+                chunks: list[str] = []
+                current = header
+                for line in lines[1:]:
+                    if len(current) + len(line) + 1 > TELE_MAX:
+                        chunks.append(current)
+                        current = line
+                    else:
+                        current += line
+                chunks.append(current)
+                for chunk in chunks:
+                    await m.reply_text(chunk, parse_mode=ParseMode.HTML)
         except Exception as e:
             self.logger.error(f"[objetivos] Error uid={uid} dist={dist_id}: {e}", exc_info=True)
             await m.reply_text("❌ No pude consultar tus objetivos en este momento.")

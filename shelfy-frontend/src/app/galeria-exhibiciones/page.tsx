@@ -30,6 +30,9 @@ import {
   type GaleriaClienteCard as GaleriaClienteCardType,
 } from "@/lib/api";
 import { useGaleriaStore } from "@/store/useGaleriaStore";
+import { Sidebar } from "@/components/layout/Sidebar";
+import { BottomNav } from "@/components/layout/BottomNav";
+import { Topbar } from "@/components/layout/Topbar";
 
 export default function GaleriaExhibicionesPage() {
   const { user } = useAuth();
@@ -204,7 +207,11 @@ export default function GaleriaExhibicionesPage() {
   }, [errorClientes, selectedVendedor, distId, fechaDesde, fechaHasta]);
 
   return (
-    <div className="min-h-screen p-4 md:p-8" style={{ background: "var(--shelfy-bg)" }}>
+    <div className="flex min-h-screen" style={{ background: "var(--shelfy-bg)" }}>
+      <Sidebar />
+      <div className="flex flex-col flex-1 min-w-0">
+        <Topbar title="Galería de Exhibiciones" />
+        <main className="flex-1 p-4 md:p-6 pb-24 md:pb-8 overflow-auto">
       {/* Header */}
       <div className="mb-6">
         {selectedVendedor ? (
@@ -486,6 +493,9 @@ export default function GaleriaExhibicionesPage() {
         open={timelineOpen}
         onClose={() => { setTimelineOpen(false); setTimelineCliente(null); }}
       />
+        </main>
+        <BottomNav />
+      </div>
     </div>
   );
 }

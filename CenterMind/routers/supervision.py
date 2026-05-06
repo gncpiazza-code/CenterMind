@@ -1763,6 +1763,121 @@ def supervision_cuentas(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/api/supervision/vendedor/{dist_id}/{id_vendedor}/pdvs-movimiento", tags=["Supervisión"])
+def supervision_pdvs_movimiento(
+    dist_id: int,
+    id_vendedor: int,
+    mes: str = Query(..., description="Mes en formato YYYY-MM"),
+    categorias: str = Query("alta,activacion"),
+    user_payload=Depends(verify_auth),
+):
+    """Retorna PDVs dados de alta o activados en el mes calendario indicado para un vendedor."""
+    try:
+        check_dist_permission(user_payload, dist_id)
+        import calendar as _cal
+        try:
+            year, month = int(mes[:4]), int(mes[5:7])
+        except Exception:
+            raise HTTPException(status_code=422, detail="mes debe ser YYYY-MM")
+
+        last_day = _cal.monthrange(year, month)[1]
+        fecha_inicio = f"{year}-{month:02d}-01T00:00:00-03:00"
+        fecha_fin    = f"{year}-{month:02d}-{last_day:02d}T23:59:59-03:00"
+
+        cats = [c.strip() for c in categorias.split(",")]
+        t_clientes = tenant_table_name("clientes_pdv_v2", dist_id)
+        t_exhib    = "exhibiciones"
+
+        items = []
+
+        if "alta" in cats:
+            PAGE = 1000
+            offset = 0
+            while True:
+                rows = (
+                    sb.table(t_clientes)
+                    .select("id_cliente, id_cliente_erp, nombre_fantasia, nombre_razon_social, domicilio, localidad, created_at")
+                    .eq("id_distribuidor", dist_id)
+                    .eq("id_vendedor", id_vendedor)
+                    .gte("created_at", fecha_inicio)
+                    .lte("created_at", fecha_fin)
+                    .range(offset, offset + PAGE - 1)
+                    .execute()
+                    .data or []
+                )
+                for r in rows:
+                    id_cl = r.get("id_cliente")
+                    exhibido = False
+                    if id_cl:
+                        ex = sb.table(t_exhib).select("id").eq("id_distribuidor", dist_id).eq("id_cliente_pdv", id_cl).gte("created_at", fecha_inicio).lte("created_at", fecha_fin).limit(1).execute()
+                        exhibido = bool(ex.data)
+                    items.append({
+                        "id_cliente_erp": r.get("id_cliente_erp"),
+                        "nombre": (r.get("nombre_fantasia") or r.get("nombre_razon_social") or "").strip(),
+                        "direccion": r.get("domicilio", ""),
+                        "localidad": r.get("localidad", ""),
+                        "categoria": "alta",
+                        "exhibido": exhibido,
+                        "fecha_evento": r.get("created_at"),
+                    })
+                if len(rows) < PAGE:
+                    break
+                offset += PAGE
+
+        if "activacion" in cats:
+            PAGE = 1000
+            offset = 0
+            while True:
+                rows = (
+                    sb.table(t_clientes)
+                    .select("id_cliente, id_cliente_erp, nombre_fantasia, nombre_razon_social, domicilio, localidad, fecha_ultima_compra, created_at")
+                    .eq("id_distribuidor", dist_id)
+                    .eq("id_vendedor", id_vendedor)
+                    .gte("fecha_ultima_compra", fecha_inicio[:10])
+                    .lte("fecha_ultima_compra", fecha_fin[:10])
+                    .range(offset, offset + PAGE - 1)
+                    .execute()
+                    .data or []
+                )
+                for r in rows:
+                    created = r.get("created_at", "") or ""
+                    fuc = r.get("fecha_ultima_compra", "") or ""
+                    is_alta = created >= fecha_inicio and created <= fecha_fin
+                    if is_alta:
+                        continue
+                    id_cl = r.get("id_cliente")
+                    exhibido = False
+                    if id_cl:
+                        ex = sb.table(t_exhib).select("id").eq("id_distribuidor", dist_id).eq("id_cliente_pdv", id_cl).gte("created_at", fecha_inicio).lte("created_at", fecha_fin).limit(1).execute()
+                        exhibido = bool(ex.data)
+                    items.append({
+                        "id_cliente_erp": r.get("id_cliente_erp"),
+                        "nombre": (r.get("nombre_fantasia") or r.get("nombre_razon_social") or "").strip(),
+                        "direccion": r.get("domicilio", ""),
+                        "localidad": r.get("localidad", ""),
+                        "categoria": "activacion",
+                        "exhibido": exhibido,
+                        "fecha_evento": fuc,
+                    })
+                if len(rows) < PAGE:
+                    break
+                offset += PAGE
+
+        total_altas = sum(1 for i in items if i["categoria"] == "alta")
+        total_activaciones = sum(1 for i in items if i["categoria"] == "activacion")
+        return {
+            "items": items,
+            "total_altas": total_altas,
+            "total_activaciones": total_activaciones,
+            "has_more": False,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error en supervision_pdvs_movimiento: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/api/supervision/cliente-info/{dist_id}", tags=["Supervisión"])
 def supervision_cliente_info(
     dist_id: int, nombre: str,
@@ -2023,6 +2138,38 @@ def crear_objetivo(body: ObjetivoCreate, user_payload=Depends(verify_auth)):
             if item.accion_ruteo == "baja" and not (item.motivo_baja and item.motivo_baja.strip()):
                 raise HTTPException(status_code=400, detail=f"PDV {item.id_cliente_pdv}: accion 'baja' requiere motivo_baja")
 
+    # Validar roles para objetivos de compañía
+    if body.origen == "compania":
+        rol = user_payload.get("rol", "")
+        is_superadmin = user_payload.get("is_superadmin", False)
+        if not is_superadmin and rol not in ("directorio", "superadmin"):
+            raise HTTPException(status_code=403, detail="Solo directorio y superadmin pueden crear objetivos de compañía")
+        if not body.mes_referencia:
+            raise HTTPException(status_code=422, detail="mes_referencia requerido para objetivos de compañía")
+        # Validar unicidad de objetivo de compañía activo para ese vendedor/tipo/mes
+        try:
+            dup_q = (
+                sb.table("objetivos")
+                .select("id")
+                .eq("id_distribuidor", body.id_distribuidor)
+                .eq("id_vendedor", body.id_vendedor)
+                .eq("tipo", body.tipo)
+                .eq("origen", "compania")
+                .eq("mes_referencia", body.mes_referencia.isoformat())
+                .neq("estado", "archivado")
+                .limit(1)
+                .execute()
+            )
+            if dup_q.data:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Ya existe un objetivo de compañía activo para este vendedor/tipo/mes",
+                )
+        except HTTPException:
+            raise
+        except Exception as e_dup_compania:
+            logger.warning(f"[Objetivo] Error al verificar unicidad compañía: {e_dup_compania}")
+
     # Validar que el vendedor pertenece a la distribuidora
     if not user_payload.get("is_superadmin"):
         t_vendedores = tenant_table_name("vendedores_v2", body.id_distribuidor)
@@ -2130,6 +2277,9 @@ def crear_objetivo(body: ObjetivoCreate, user_payload=Depends(verify_auth)):
             "descripcion": body.descripcion, "nombre_pdv": body.nombre_pdv, "nombre_vendedor": body.nombre_vendedor,
             "estado_inicial": estado_inicial, "estado_objetivo": body.estado_objetivo,
             "valor_objetivo": valor_objetivo, "fecha_objetivo": body.fecha_objetivo,
+            "origen": body.origen,
+            "mes_referencia": body.mes_referencia.isoformat() if body.mes_referencia else None,
+            "tasa_pendientes": body.tasa_pendientes,
         }
         res = sb.table("objetivos").insert(payload).execute()
         rows = res.data or []

@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-export type MapMode = 'activos' | 'deudores';
+export type MapMode = 'activos';
 
 export interface DrawnPolygon {
   id: string;
@@ -199,9 +199,7 @@ export const useSupervisionStore = create<SupervisionStore>()(
       merge: (persistedState: any, currentState) => {
         // Guard against legacy persisted 'ruteo' mode (no longer valid)
         const persistedMode: MapMode = persistedState?.mapMode;
-        const safeMode: MapMode = (persistedMode === 'activos' || persistedMode === 'deudores')
-          ? persistedMode
-          : 'activos';
+        const safeMode: MapMode = persistedMode === 'activos' ? 'activos' : 'activos';
         return {
           ...currentState,
           mapMode: safeMode,

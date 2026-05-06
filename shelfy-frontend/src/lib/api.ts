@@ -1760,6 +1760,14 @@ export interface Objetivo {
   items_count?: number;
   items_cumplidos?: number;
   url_pdf_ruteo?: string | null;
+  origen?: 'compania' | 'distribuidora' | null;
+  mes_referencia?: string | null;
+  tasa_pendientes?: number | null;
+  desglose_cache?: {
+    tasa_pendientes?: number | null;
+    pendientes_count?: number;
+    pendientes_items?: string[];
+  } | null;
 }
 
 export interface ObjetivoItem {
@@ -1829,6 +1837,12 @@ export interface ObjetivoCreate {
   }[];
   /** Modo de selección de PDVs: 'manual' | 'polygon' */
   ruteo_build_mode?: string;
+  /** Origen del objetivo: 'compania' (directorio/superadmin) o 'distribuidora' (default) */
+  origen?: 'compania' | 'distribuidora';
+  /** Mes de referencia para objetivos de compañía (YYYY-MM-DD, primer día del mes) */
+  mes_referencia?: string;
+  /** Margen de completud: cuántos ítems pueden quedar pendientes y el objetivo igual se considera cumplido */
+  tasa_pendientes?: number;
 }
 
 export interface ObjetivoUpdate {
@@ -2591,4 +2605,36 @@ export async function patchPortalFeedbackReply(id: string, respuesta: string): P
 
 export async function fetchPortalFeedbackPendingCount(): Promise<{ pending: number }> {
   return apiFetch<{ pending: number }>("/api/portal-feedback/pending-count");
+}
+
+// ── Supervisión — Altas y Activaciones ─────────────────────────────────────
+
+export interface PdvsMovimientoItem {
+  id_cliente_erp: string | null;
+  nombre: string;
+  direccion: string;
+  localidad: string;
+  categoria: "alta" | "activacion";
+  exhibido: boolean;
+  fecha_evento: string | null;
+}
+
+export interface PdvsMovimientoResponse {
+  items: PdvsMovimientoItem[];
+  total_altas: number;
+  total_activaciones: number;
+  has_more: boolean;
+}
+
+export async function fetchPdvsMovimiento(
+  distId: number,
+  idVendedor: number,
+  mes: string,
+  categorias?: string,
+): Promise<PdvsMovimientoResponse> {
+  const q = new URLSearchParams({ mes });
+  if (categorias) q.set("categorias", categorias);
+  return apiFetch<PdvsMovimientoResponse>(
+    `/api/supervision/vendedor/${distId}/${idVendedor}/pdvs-movimiento?${q}`,
+  );
 }

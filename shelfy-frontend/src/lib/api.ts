@@ -1406,6 +1406,10 @@ export interface VendedorSupervision {
   total_pdv: number;
   pdv_activos: number;
   pdv_inactivos: number;
+  pdv_nuevos_7d?: number;
+  pdv_activados_7d?: number;
+  pdv_exhibidos?: number;
+  pdv_exhibidos_nuevos_7d?: number;
 }
 
 export interface RutaSupervision {

@@ -985,7 +985,7 @@ def supervision_vendedores(dist_id: int, user_payload=Depends(verify_auth)):
         while True:
             page_res = (
                 sb.table(t_clientes)
-                .select("id_cliente,id_cliente_erp,id_ruta,fecha_ultima_compra")
+                .select("id_cliente,id_cliente_erp,id_ruta,fecha_ultima_compra,fecha_alta")
                 .eq("id_distribuidor", dist_id)
                 .or_(_SUPERVISION_PADRON_VISIBLE_OR)
                 .range(offset, offset + PAGE - 1)
@@ -1009,11 +1009,50 @@ def supervision_vendedores(dist_id: int, user_payload=Depends(verify_auth)):
             vend_por_ruta[rid] = vid
             rutas_por_vend.setdefault(vid, []).append(rid)
 
+        # Pre-compute exhibición stats in a single pass before the vendor loop.
+        # Fetches all exhibiciones in the last 30 days for this distributor and
+        # builds two sets used later for intersection per vendor.
+        exh_since = (datetime.now() - timedelta(days=30)).isoformat()
+        all_exh: list[dict] = []
+        exh_offset = 0
+        while True:
+            exh_batch = (
+                sb.table("exhibiciones")
+                .select("id_cliente_pdv,timestamp_subida")
+                .eq("id_distribuidor", dist_id)
+                .gte("timestamp_subida", exh_since)
+                .range(exh_offset, exh_offset + PAGE - 1)
+                .execute()
+            ).data or []
+            all_exh.extend(exh_batch)
+            if len(exh_batch) < PAGE:
+                break
+            exh_offset += PAGE
+        exhibidos_30d: set[int] = set()
+        primera_exhibicion: dict[int, str] = {}  # id_cliente_pdv -> min timestamp_subida
+        for exh in all_exh:
+            cid = exh.get("id_cliente_pdv")
+            if cid is None:
+                continue
+            cid_int = int(cid)
+            exhibidos_30d.add(cid_int)
+            ts = exh.get("timestamp_subida") or ""
+            if cid_int not in primera_exhibicion or ts < primera_exhibicion[cid_int]:
+                primera_exhibicion[cid_int] = ts
+        threshold_7d_iso = (datetime.now() - timedelta(days=7)).isoformat()
+        primera_exhibicion_7d: set[int] = {
+            cid for cid, ts in primera_exhibicion.items() if ts >= threshold_7d_iso
+        }
+
         # Contar PDVs igual que el mapa: deduplicar por id_cliente_erp y
         # usar regla de 30 días sin compra para clasificar activo/inactivo.
         threshold_30d = (datetime.now() - timedelta(days=30)).isoformat()[:10]
+        threshold_7d = (datetime.now() - timedelta(days=7)).isoformat()[:10]
         pdv_activos: dict[int, int] = {}
         pdv_inactivos: dict[int, int] = {}
+        pdv_nuevos_7d_dict: dict[int, int] = {}
+        pdv_activados_7d_dict: dict[int, int] = {}
+        pdv_ids_per_vend: dict[int, set[int]] = {}
         seen_per_vend: dict[int, set] = {}
         for c in all_clients:
             rid = c.get("id_ruta")
@@ -1031,12 +1070,23 @@ def supervision_vendedores(dist_id: int, user_payload=Depends(verify_auth)):
             if dedup_key in seen_per_vend.setdefault(vid, set()):
                 continue
             seen_per_vend[vid].add(dedup_key)
+            # Track PK set per vendor for exhibición intersection
+            pk = c.get("id_cliente")
+            if pk is not None:
+                pdv_ids_per_vend.setdefault(vid, set()).add(int(pk))
             # Activo = compra en los últimos 30 días (misma regla que isInactivo30 en el frontend)
             fecha_uc = (c.get("fecha_ultima_compra") or "")[:10]
             if fecha_uc and fecha_uc >= threshold_30d:
                 pdv_activos[vid] = pdv_activos.get(vid, 0) + 1
             else:
                 pdv_inactivos[vid] = pdv_inactivos.get(vid, 0) + 1
+            # PDVs activados en los últimos 7 días (subset de activos)
+            if fecha_uc and fecha_uc >= threshold_7d:
+                pdv_activados_7d_dict[vid] = pdv_activados_7d_dict.get(vid, 0) + 1
+            # PDVs nuevos en los últimos 7 días (por fecha_alta)
+            fecha_alta = (c.get("fecha_alta") or "")[:10]
+            if fecha_alta and fecha_alta >= threshold_7d:
+                pdv_nuevos_7d_dict[vid] = pdv_nuevos_7d_dict.get(vid, 0) + 1
 
         rows = []
         for v in (vend_res.data or []):
@@ -1049,6 +1099,7 @@ def supervision_vendedores(dist_id: int, user_payload=Depends(verify_auth)):
             rutas_ids = rutas_por_vend.get(vid, [])
             total_act = pdv_activos.get(vid, 0)
             total_inact = pdv_inactivos.get(vid, 0)
+            vend_pdv_ids = pdv_ids_per_vend.get(vid, set())
             rows.append(
                 {
                     "id_vendedor": vid,
@@ -1058,6 +1109,10 @@ def supervision_vendedores(dist_id: int, user_payload=Depends(verify_auth)):
                     "total_pdv": total_act + total_inact,
                     "pdv_activos": total_act,
                     "pdv_inactivos": total_inact,
+                    "pdv_nuevos_7d": pdv_nuevos_7d_dict.get(vid, 0),
+                    "pdv_activados_7d": pdv_activados_7d_dict.get(vid, 0),
+                    "pdv_exhibidos": len(vend_pdv_ids & exhibidos_30d),
+                    "pdv_exhibidos_nuevos_7d": len(vend_pdv_ids & primera_exhibicion_7d),
                 }
             )
 

@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { setOptions, importLibrary } from "@googlemaps/js-api-loader";
 import type { DrawnPolygon } from "@/store/useSupervisionStore";
+import { MapLegendTooltip } from "./MapLegendTooltip";
 
 // ── Interfaces ────────────────────────────────────────────────────────────────
 export interface PinCliente {
@@ -24,22 +25,7 @@ export interface PinCliente {
   antiguedadDias?: number | null;
   totalExhibiciones?: number;
   id_vendedor?: number;
-}
-
-export interface DeudorInfo {
-  id_cliente_erp: string | null;
-  id_cliente?: number | null;
-  id_vendedor?: number | null;
-  cliente_nombre: string;
-  deuda_total: number;
-  antiguedad_dias: number;
-  vendedor_nombre: string;
-}
-
-function debtBorderColor(antiguedad: number): string {
-  if (antiguedad <= 30) return '#22c55e';
-  if (antiguedad <= 60) return '#f97316';
-  return '#ef4444';
+  fechaAlta?: string | null;
 }
 
 export type PinStatus = "activo_exhibicion" | "activo" | "inactivo_exhibicion" | "inactivo";
@@ -71,28 +57,79 @@ const diasDesdeIso = (iso: string | null | undefined): number | null => {
   return Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
 };
 
-function buildPinSvg(fillColor: string, borderColor: string, size: number, count?: number): string {
-  const r = size / 2 - 1.5;
-  const cx = size / 2;
-  const textContent = count && count > 0
-    ? `<text x="${cx}" y="${cx + 3.5}" text-anchor="middle" font-size="9" font-weight="900" fill="white" font-family="system-ui">${count}</text>`
-    : '';
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-    <circle cx="${cx}" cy="${cx}" r="${r}" fill="${fillColor}" stroke="${borderColor}" stroke-width="2.5"/>
-    ${textContent}
-  </svg>`;
-  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+function altaBorderColor(fechaAlta: string | null | undefined): string | null {
+  const dias = diasDesdeIso(fechaAlta);
+  if (dias === null) return null;
+  if (dias < 7)  return '#f97316'; // naranja — alta < 7d
+  if (dias < 30) return '#38bdf8'; // celeste — alta 7-30d
+  return null;
 }
 
-function buildPinSvgWithLabel(fillColor: string, borderColor: string, size: number, label: string): string {
-  const r = size / 2 - 1.5;
-  const cx = size / 2;
-  const safeLabel = label.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-    <circle cx="${cx}" cy="${cx}" r="${r}" fill="${fillColor}" stroke="${borderColor}" stroke-width="2.5"/>
-    <text x="${cx}" y="${cx + 3}" text-anchor="middle" font-size="7" font-weight="900" fill="white" font-family="system-ui">${safeLabel}</text>
-  </svg>`;
-  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+// Star (5-point) — activo_exhibicion
+function buildStarSvg(fillColor: string, borderColor: string | null, size: number): string {
+  const cx = size / 2, cy = size / 2, r_out = size / 2 - 2, r_in = r_out * 0.4;
+  const pts = Array.from({length: 10}, (_, i) => {
+    const angle = (i * Math.PI / 5) - Math.PI / 2;
+    const r = i % 2 === 0 ? r_out : r_in;
+    return `${cx + r * Math.cos(angle)},${cy + r * Math.sin(angle)}`;
+  }).join(' ');
+  const stroke = borderColor ?? '#ffffff33';
+  const sw = borderColor ? 2.5 : 1;
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+      <polygon points="${pts}" fill="${fillColor}" stroke="${stroke}" stroke-width="${sw}"/>
+    </svg>`
+  )}`;
+}
+
+// Dollar sign — activo
+function buildDollarSvg(fillColor: string, borderColor: string | null, size: number): string {
+  const cx = size / 2, r = size / 2 - 2;
+  const stroke = borderColor ?? '#ffffff33';
+  const sw = borderColor ? 2.5 : 1;
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+      <circle cx="${cx}" cy="${cx}" r="${r}" fill="${fillColor}" stroke="${stroke}" stroke-width="${sw}"/>
+      <text x="${cx}" y="${cx + 4}" text-anchor="middle" font-size="${size * 0.52}" font-weight="900" fill="white" font-family="system-ui">$</text>
+    </svg>`
+  )}`;
+}
+
+// Question mark — inactivo_exhibicion
+function buildQuestionSvg(fillColor: string, borderColor: string | null, size: number): string {
+  const cx = size / 2, r = size / 2 - 2;
+  const stroke = borderColor ?? '#ffffff33';
+  const sw = borderColor ? 2.5 : 1;
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+      <circle cx="${cx}" cy="${cx}" r="${r}" fill="${fillColor}" stroke="${stroke}" stroke-width="${sw}"/>
+      <text x="${cx}" y="${cx + 4}" text-anchor="middle" font-size="${size * 0.52}" font-weight="900" fill="white" font-family="system-ui">?</text>
+    </svg>`
+  )}`;
+}
+
+// Cross (✕) — inactivo
+function buildCrossSvg(fillColor: string, borderColor: string | null, size: number): string {
+  const cx = size / 2, r = size / 2 - 2;
+  const d = size * 0.22, h = size * 0.08;
+  const stroke = borderColor ?? '#ffffff33';
+  const sw = borderColor ? 2.5 : 1;
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+      <circle cx="${cx}" cy="${cx}" r="${r}" fill="${fillColor}" stroke="${stroke}" stroke-width="${sw}"/>
+      <line x1="${cx - d}" y1="${cx - d}" x2="${cx + d}" y2="${cx + d}" stroke="white" stroke-width="${h * 2}" stroke-linecap="round"/>
+      <line x1="${cx + d}" y1="${cx - d}" x2="${cx - d}" y2="${cx + d}" stroke="white" stroke-width="${h * 2}" stroke-linecap="round"/>
+    </svg>`
+  )}`;
+}
+
+function buildShapeSvg(pin: PinCliente, fillColor: string, size: number): string {
+  const bc = altaBorderColor(pin.fechaAlta);
+  const status = getPinStatus(pin);
+  if (status === 'activo_exhibicion') return buildStarSvg(fillColor, bc, size);
+  if (status === 'activo')            return buildDollarSvg(fillColor, bc, size);
+  if (status === 'inactivo_exhibicion') return buildQuestionSvg(fillColor, bc, size);
+  return buildCrossSvg(fillColor, bc, size);
 }
 
 function buildSelectedPinSvg(fillColor: string, borderColor: string, size: number): string {
@@ -108,37 +145,11 @@ function buildSelectedPinSvg(fillColor: string, borderColor: string, size: numbe
   return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
 }
 
-function normalizeKey(value: string | null | undefined): string {
-  return (value ?? "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-zA-Z0-9 ]/g, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase();
-}
-
-function normErpId(id: string | null | undefined): string | null {
-  if (!id) return null;
-  let s = String(id).trim();
-  if (s.endsWith('.0')) s = s.slice(0, -2);
-  s = s.replace(/^0+/, '') || '0';
-  return s.toLowerCase();
-}
-
-function compactDebtAmount(amount: number): string {
-  if (amount >= 1_000_000) return `$${(amount / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
-  if (amount >= 1_000) return `$${Math.round(amount / 1_000)}k`;
-  return `$${Math.round(amount)}`;
-}
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 interface MapaRutasProps {
   pines: PinCliente[];
   fullscreenPanel?: React.ReactNode;
-  mode?: 'activos' | 'deudores';
-  onModeChange?: (mode: 'activos' | 'deudores') => void;
-  deudoresData?: DeudorInfo[];
   selectedPDVs?: number[];
   onTogglePDV?: (id: number) => void;
   // Armar Ruta
@@ -230,9 +241,6 @@ function StreetViewPanel({ lat, lng, onClose }: { lat: number; lng: number; onCl
 export default function MapaRutas({
   pines,
   fullscreenPanel,
-  mode = 'activos',
-  onModeChange,
-  deudoresData,
   selectedPDVs,
   onTogglePDV,
   routeBuildEnabled = false,
@@ -361,58 +369,13 @@ export default function MapaRutas({
     const selSet = new Set(selectedPDVs ?? []);
 
     conCoords.forEach(p => {
-      const status      = getPinStatus(p);
-      const statusColor = STATUS_COLORS[status];
-      const vendorColor = p.color;
       const size        = p.activo ? 18 : 14;
       const isSelected  = selSet.has(p.id);
 
-      // Deuda: resolver deudor para borde + etiqueta interna en modo deudores
-      let matchedDeudor: DeudorInfo | null = null;
-      if (mode === 'deudores' && deudoresData) {
-        matchedDeudor =
-          // 1. Match por id_cliente (PK) — más confiable cuando está resuelto
-          deudoresData.find(d => d.id_cliente != null && d.id_cliente === p.id) ??
-          // 2. Match por id_vendedor + nombre cliente normalizado (CHESS vs Consolido tienen ERP IDs distintos)
-          deudoresData.find(d =>
-            d.id_vendedor != null && d.id_vendedor === p.id_vendedor &&
-            normalizeKey(d.cliente_nombre) === normalizeKey(p.nombre)
-          ) ??
-          // 3. Match por id_vendedor + razon social normalizada
-          deudoresData.find(d =>
-            d.id_vendedor != null && d.id_vendedor === p.id_vendedor &&
-            p.razonSocial != null && normalizeKey(d.cliente_nombre) === normalizeKey(p.razonSocial)
-          ) ??
-          // 4. Match por ERP ID normalizado (solo si mismo sistema)
-          deudoresData.find(d =>
-            normErpId(d.id_cliente_erp) != null && normErpId(d.id_cliente_erp) === normErpId(p.idClienteErp)
-          ) ??
-          null;
-      }
-      // Fallback: pin carries pre-computed debt data from pines memo (matched in TabSupervision)
-      if (mode === 'deudores' && !matchedDeudor && p.deuda != null && p.deuda > 0) {
-        matchedDeudor = {
-          id_cliente_erp: p.idClienteErp ?? null,
-          id_cliente: p.id,
-          cliente_nombre: p.nombre,
-          deuda_total: p.deuda,
-          antiguedad_dias: p.antiguedadDias ?? 0,
-          vendedor_nombre: p.vendedor,
-        };
-      }
-      const debtColor = matchedDeudor ? debtBorderColor(matchedDeudor.antiguedad_dias) : null;
-
-      const pinLabel =
-        mode === "deudores" && matchedDeudor
-          ? compactDebtAmount(matchedDeudor.deuda_total)
-          : null;
-      const pinFillColor = vendorColor;
-      const pinBorderColor = mode === "deudores" && debtColor ? debtColor : statusColor;
+      const pinFillColor = p.color;
       const iconUrl = isSelected
-        ? buildSelectedPinSvg(pinFillColor, pinBorderColor, size)
-        : pinLabel
-          ? buildPinSvgWithLabel(pinFillColor, pinBorderColor, size, pinLabel)
-          : buildPinSvg(pinFillColor, pinBorderColor, size, p.totalExhibiciones);
+        ? buildSelectedPinSvg(pinFillColor, STATUS_COLORS[getPinStatus(p)], size)
+        : buildShapeSvg(p, pinFillColor, size);
 
       const iconSize = isSelected ? size + 8 : size;
 
@@ -465,21 +428,10 @@ export default function MapaRutas({
         🏘️ Street View
       </button>`;
 
-      const debtAgeLabel = matchedDeudor
-        ? matchedDeudor.antiguedad_dias <= 30
-          ? "Al día (<=30d)"
-          : matchedDeudor.antiguedad_dias <= 60
-            ? "Atención (31-60d)"
-            : "Crítico (>60d)"
-        : null;
-      const modeBadge = mode === "deudores"
-        ? `<div style="font-size:10px;padding:3px 8px;border-radius:20px;display:inline-flex;align-items:center;gap:4px;
-                    background:${(debtColor ?? "#64748b")}22;color:${debtColor ?? "#94a3b8"};
-                    border:1px solid ${(debtColor ?? "#64748b")}44;font-weight:700;margin-bottom:8px">
-             <span style="width:6px;height:6px;border-radius:50%;background:${debtColor ?? "#64748b"};flex-shrink:0"></span>
-             ${debtAgeLabel ?? "Sin deuda mapeada"}
-           </div>`
-        : `<div style="font-size:10px;padding:3px 8px;border-radius:20px;display:inline-flex;align-items:center;gap:4px;
+      const status      = getPinStatus(p);
+      const statusColor = STATUS_COLORS[status];
+      const vendorColor = p.color;
+      const modeBadge = `<div style="font-size:10px;padding:3px 8px;border-radius:20px;display:inline-flex;align-items:center;gap:4px;
                     background:${statusColor}22;color:${statusColor};border:1px solid ${statusColor}44;font-weight:700;margin-bottom:8px">
              <span style="width:6px;height:6px;border-radius:50%;background:${statusColor};flex-shrink:0"></span>
              ${STATUS_LABELS[status]}
@@ -527,7 +479,7 @@ export default function MapaRutas({
       map.fitBounds(bounds, 60);
       if (conCoords.length === 1) map.setZoom(14);
     }
-  }, [filteredPines, mapLoaded, mode, deudoresData, onTogglePDV]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [filteredPines, mapLoaded, onTogglePDV]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Update selection style without recreating markers ─────────────────────
   useEffect(() => {
@@ -536,45 +488,12 @@ export default function MapaRutas({
     markersMapRef.current.forEach((marker, id) => {
       const pin = filteredPines.find(p => p.id === id);
       if (!pin) return;
-      const status      = getPinStatus(pin);
-      const statusColor = STATUS_COLORS[status];
-      const size        = pin.activo ? 18 : 14;
-      const isSelected  = selSet.has(id);
-
-      // En modo deudores: mantener el borde/color de deuda para no pisar el estilo creado por el efecto de markers
-      let borderColor = statusColor;
-      let pinLabel: string | null = null;
-      if (mode === 'deudores') {
-        let matchedDeudor: DeudorInfo | null = null;
-        if (deudoresData) {
-          matchedDeudor =
-            deudoresData.find(d => d.id_cliente != null && d.id_cliente === pin.id) ??
-            deudoresData.find(d => d.id_vendedor != null && d.id_vendedor === pin.id_vendedor && normalizeKey(d.cliente_nombre) === normalizeKey(pin.nombre)) ??
-            deudoresData.find(d => d.id_vendedor != null && d.id_vendedor === pin.id_vendedor && pin.razonSocial != null && normalizeKey(d.cliente_nombre) === normalizeKey(pin.razonSocial)) ??
-            deudoresData.find(d => normErpId(d.id_cliente_erp) != null && normErpId(d.id_cliente_erp) === normErpId(pin.idClienteErp)) ??
-            null;
-        }
-        if (!matchedDeudor && pin.deuda != null && pin.deuda > 0) {
-          matchedDeudor = {
-            id_cliente_erp: pin.idClienteErp ?? null,
-            id_cliente: pin.id,
-            cliente_nombre: pin.nombre,
-            deuda_total: pin.deuda,
-            antiguedad_dias: pin.antiguedadDias ?? 0,
-            vendedor_nombre: pin.vendedor,
-          };
-        }
-        if (matchedDeudor) {
-          borderColor = debtBorderColor(matchedDeudor.antiguedad_dias);
-          pinLabel = compactDebtAmount(matchedDeudor.deuda_total);
-        }
-      }
+      const size       = pin.activo ? 18 : 14;
+      const isSelected = selSet.has(id);
 
       const iconUrl = isSelected
-        ? buildSelectedPinSvg(pin.color, borderColor, size)
-        : pinLabel
-          ? buildPinSvgWithLabel(pin.color, borderColor, size, pinLabel)
-          : buildPinSvg(pin.color, borderColor, size, pin.totalExhibiciones);
+        ? buildSelectedPinSvg(pin.color, STATUS_COLORS[getPinStatus(pin)], size)
+        : buildShapeSvg(pin, pin.color, size);
       const iconSize = isSelected ? size + 8 : size;
       marker.setIcon({
         url: iconUrl,
@@ -583,7 +502,7 @@ export default function MapaRutas({
       });
       marker.setZIndex(isSelected ? 20 : (pin.activo ? 10 : 5));
     });
-  }, [selectedPDVs, filteredPines, mapLoaded, mode, deudoresData]);
+  }, [selectedPDVs, filteredPines, mapLoaded]);
 
   // ── Drawing Manager (Armar Ruta mode) ─────────────────────────────────────
   useEffect(() => {
@@ -838,8 +757,8 @@ export default function MapaRutas({
         </div>
       )}
 
-      {/* Fullscreen mode switcher (capas: Activos / Deudores + Armar Ruta) */}
-      {isFullscreen && onModeChange && (
+      {/* Fullscreen Armar Ruta toggle */}
+      {isFullscreen && onToggleRouteBuild && (
         <div style={{
           position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)',
           zIndex: 31, display: 'flex', gap: 6,
@@ -848,7 +767,7 @@ export default function MapaRutas({
           boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
         }}>
           <button
-            onClick={() => onModeChange('activos')}
+            onClick={onToggleRouteBuild}
             style={{
               border: 'none',
               borderRadius: 8,
@@ -856,44 +775,12 @@ export default function MapaRutas({
               fontSize: 11,
               fontWeight: 700,
               cursor: 'pointer',
-              color: mode === 'activos' ? '#0f172a' : '#cbd5e1',
-              background: mode === 'activos' ? '#a78bfa' : 'transparent',
+              color: routeBuildEnabled ? '#0f172a' : '#cbd5e1',
+              background: routeBuildEnabled ? '#8b5cf6' : 'transparent',
             }}
           >
-            Activos
+            Dibujar Zona
           </button>
-          <button
-            onClick={() => onModeChange('deudores')}
-            style={{
-              border: 'none',
-              borderRadius: 8,
-              padding: '6px 10px',
-              fontSize: 11,
-              fontWeight: 700,
-              cursor: 'pointer',
-              color: mode === 'deudores' ? '#0f172a' : '#cbd5e1',
-              background: mode === 'deudores' ? '#f97316' : 'transparent',
-            }}
-          >
-            Deudores
-          </button>
-          {onToggleRouteBuild && (
-            <button
-              onClick={onToggleRouteBuild}
-              style={{
-                border: 'none',
-                borderRadius: 8,
-                padding: '6px 10px',
-                fontSize: 11,
-                fontWeight: 700,
-                cursor: 'pointer',
-                color: routeBuildEnabled ? '#0f172a' : '#cbd5e1',
-                background: routeBuildEnabled ? '#8b5cf6' : 'transparent',
-              }}
-            >
-              Dibujar Zona
-            </button>
-          )}
         </div>
       )}
 
@@ -932,28 +819,18 @@ export default function MapaRutas({
         >🖨️</button>
       </div>
 
-      {/* Filter legend (modo activos) */}
-      {mode !== 'deudores' && (
-        <div style={{
-          position: 'absolute', bottom: 40, left: panelOffset + 12,
-          zIndex: 30, transition: 'left 0.2s ease',
-        }}>
-          <FilterLegend />
-        </div>
-      )}
+      {/* Filter legend */}
+      <div style={{
+        position: 'absolute', bottom: 52, left: panelOffset + 12,
+        zIndex: 30, transition: 'left 0.2s ease',
+      }}>
+        <FilterLegend />
+      </div>
 
-      {/* Debt legend (modo deudores) */}
-      {mode === 'deudores' && (
-        <div className="absolute bottom-4 left-4 z-10 bg-black/70 backdrop-blur-sm rounded-lg p-3 text-xs space-y-1.5">
-          <div className="text-white/50 font-medium mb-1">Estado de deuda</div>
-          {[['#22c55e', '≤ 30 días'], ['#f97316', '31 – 60 días'], ['#ef4444', '> 60 días']].map(([c, l]) => (
-            <div key={l} className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full" style={{ background: c }} />
-              <span className="text-white/70">{l}</span>
-            </div>
-          ))}
-        </div>
-      )}
+      {/* MapLegendTooltip */}
+      <div style={{ position: 'absolute', bottom: 16, left: panelOffset + 12, zIndex: 30 }}>
+        <MapLegendTooltip />
+      </div>
 
       {/* PDV count badge */}
       <div style={{
@@ -969,22 +846,7 @@ export default function MapaRutas({
         boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
         pointerEvents: 'none', transition: 'left 0.3s ease',
       }}>
-        {mode === 'deudores'
-          ? (() => {
-              const withDebt = filteredPines.filter(p => {
-                if (p.deuda != null && p.deuda > 0) return true;
-                if (!deudoresData) return false;
-                return !!(
-                  deudoresData.find(d => d.id_cliente != null && d.id_cliente === p.id) ??
-                  deudoresData.find(d => d.id_vendedor != null && d.id_vendedor === p.id_vendedor && normalizeKey(d.cliente_nombre) === normalizeKey(p.nombre)) ??
-                  deudoresData.find(d => d.id_vendedor != null && d.id_vendedor === p.id_vendedor && p.razonSocial != null && normalizeKey(d.cliente_nombre) === normalizeKey(p.razonSocial)) ??
-                  deudoresData.find(d => normErpId(d.id_cliente_erp) != null && normErpId(d.id_cliente_erp) === normErpId(p.idClienteErp))
-                );
-              });
-              return <>{withDebt.length.toLocaleString()} <span style={{ color: 'rgba(255,255,255,0.5)', fontWeight: 400 }}>PDVs con deuda</span></>;
-            })()
-          : <>{filteredPines.length.toLocaleString()} <span style={{ color: 'rgba(255,255,255,0.5)', fontWeight: 400 }}>PDVs visibles</span></>
-        }
+        {filteredPines.length.toLocaleString()} <span style={{ color: 'rgba(255,255,255,0.5)', fontWeight: 400 }}>PDVs visibles</span>
       </div>
     </div>
   );

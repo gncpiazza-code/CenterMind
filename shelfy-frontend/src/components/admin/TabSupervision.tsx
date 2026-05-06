@@ -28,9 +28,7 @@ import {
   fetchRutasSupervision,
   fetchClientesSupervision,
   fetchCuentasSupervision,
-  fetchSyncStatus,
   type CuentasSupervision,
-  type SyncStatus,
   fetchClienteInfo,
   fetchReporteExhibiciones,
   resolveImageUrl,
@@ -46,7 +44,6 @@ import {
 import { openCuentasCorrientesPrintWindow } from "@/lib/printCuentasCorrientes";
 import type { PinCliente } from "./MapaRutas";
 import { useSupervisionStore } from "@/store/useSupervisionStore";
-import { SyncStatusPanel } from "./SyncStatusPanel";
 import { useObjetivosMenuStore } from "@/store/useObjetivosMenuStore";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/Button";
@@ -108,8 +105,6 @@ const defaultVendorColor = (i: number) => VENDOR_COLORS[i % VENDOR_COLORS.length
 /** Mapa debe alinearse al padrón: nunca usar staleTime Infinity aquí (ver handoff RPA/sync). */
 const SUPERVISION_MAP_RUTAS_STALE_MS = 90_000;
 const SUPERVISION_MAP_CLIENTES_STALE_MS = 90_000;
-/** Detectar nuevo timestamp de padrón y disparar invalidateQueries antes de que el usuario recargue. */
-const SUPERVISION_SYNC_POLL_MS = 45_000;
 
 function normalizeText(value: string | null | undefined): string {
   return (value ?? "")
@@ -400,8 +395,6 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
   const {
     selectedSucursal,
     setSelectedSucursal,
-    mapMode,
-    setMapMode,
     visibleVends,
     visibleRutas,
     visibleClientes,
@@ -435,7 +428,6 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
   const [loadingMap, setLoadingMap]             = useState<Set<number>>(new Set());
   /** Re-render conteos alineados al mapa cuando cambia caché de rutas/clientes */
   const [mapStatsTick, setMapStatsTick]         = useState(0);
-  const lastPadronTsByDistRef = useRef<Record<number, string>>({});
 
   // ── Ventas & Cuentas ──────────────────────────────────────────────────────
   // Mobile tab: toggle between map and vendor list on small screens
@@ -646,40 +638,6 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
     staleTime: 60_000,
   });
 
-  const { data: syncStatus = null } = useQuery<SyncStatus>({
-    queryKey: ['supervision-sync-status', selectedDist],
-    queryFn: () => fetchSyncStatus(selectedDist!),
-    enabled: !!selectedDist,
-    staleTime: 30_000,
-    refetchInterval: SUPERVISION_SYNC_POLL_MS,
-    refetchOnWindowFocus: true,
-    refetchOnReconnect: true,
-  });
-
-  // Cuando cambia last_updated del padrón (ingesta RPA), forzar rutas/clientes/vendedores.
-  useEffect(() => {
-    if (!selectedDist) return;
-    const ts = syncStatus?.padron?.last_updated ?? null;
-    if (!ts) return;
-    const prev = lastPadronTsByDistRef.current[selectedDist];
-    lastPadronTsByDistRef.current[selectedDist] = ts;
-    if (prev === undefined) return;
-    if (prev === ts) return;
-
-    void queryClient.invalidateQueries({
-      predicate: (q) => {
-        const k = q.queryKey;
-        if (!Array.isArray(k) || k[1] !== selectedDist) return false;
-        const head = k[0];
-        return (
-          head === "supervision-vendedores" ||
-          head === "supervision-rutas" ||
-          head === "supervision-clientes"
-        );
-      },
-    });
-    setMapStatsTick((x) => x + 1);
-  }, [syncStatus?.padron?.last_updated, selectedDist, queryClient]);
 
   // ── Exhibiciones fetch ──────────────────────────────────────────────────
   useEffect(() => {
@@ -1044,6 +1002,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
               antiguedadDias:        deudaInfo?.antiguedad ?? null,
               totalExhibiciones:     c.total_exhibiciones ?? 0,
               id_vendedor:           v.id_vendedor,
+              fechaAlta:             c.fecha_alta ?? null,
             },
             estadoPdv: c.estado,
             fechaUc:   c.fecha_ultima_compra ?? null,
@@ -1321,41 +1280,9 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
   };
 
   // ── Map layer controls (inline pill bar above the map) ────────────────────
-  // Replaces the old MAP_MODES selector — only 'activos' and 'deudores' remain.
-  // "Armar Ruta" is now a layer tool in this same control bar.
   function MapLayerControls() {
     return (
       <div className="flex items-center gap-2 px-3 py-2 border-b border-[var(--shelfy-border)] bg-[var(--shelfy-panel)]/80 shrink-0 flex-wrap">
-        {/* Capa Activos */}
-        <button
-          onClick={() => setMapMode('activos')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all ${
-            mapMode === 'activos'
-              ? 'border-[var(--shelfy-accent)] bg-[var(--shelfy-accent)]/15 text-[var(--shelfy-accent)]'
-              : 'border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:border-[var(--shelfy-accent)]/40 hover:text-[var(--shelfy-text)]'
-          }`}
-        >
-          <MapPin className="w-3.5 h-3.5" />
-          Activos
-        </button>
-
-        {/* Capa Deudores */}
-        <button
-          onClick={() => setMapMode('deudores')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all ${
-            mapMode === 'deudores'
-              ? 'border-amber-400/60 bg-amber-500/15 text-amber-400'
-              : 'border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:border-amber-400/40 hover:text-amber-400'
-          }`}
-        >
-          <CreditCard className="w-3.5 h-3.5" />
-          Deudores
-        </button>
-
-        {/* Separador */}
-        {hasPermiso("action_edit_objetivos") && (
-          <span className="w-px h-5 bg-[var(--shelfy-border)] mx-0.5" />
-        )}
 
         {/* Armar Ruta — herramienta de polígono */}
         {hasPermiso("action_edit_objetivos") && (
@@ -1446,6 +1373,29 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                     <div className="flex-1 min-w-0">
                       <p className="text-[12px] font-bold text-white truncate leading-snug">{v.nombre_vendedor}</p>
                       <p className="text-[10px] text-white/40">{pdvTot} PDV · {pct}% activos</p>
+                      {/* Stats pills */}
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {(v.pdv_nuevos_7d ?? 0) > 0 && (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-orange-500/15 text-orange-400 border border-orange-500/20">
+                            +{v.pdv_nuevos_7d} nuevos
+                          </span>
+                        )}
+                        {(v.pdv_activados_7d ?? 0) > 0 && (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">
+                            {v.pdv_activados_7d} activ. semana
+                          </span>
+                        )}
+                        {(v.pdv_exhibidos ?? 0) > 0 && (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-violet-500/15 text-violet-400 border border-violet-500/20">
+                            {v.pdv_exhibidos} exhibidos
+                          </span>
+                        )}
+                        {(v.pdv_exhibidos_nuevos_7d ?? 0) > 0 && (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-sky-500/15 text-sky-400 border border-sky-500/20">
+                            {v.pdv_exhibidos_nuevos_7d} 1ª vez
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
                       <input
@@ -1576,9 +1526,6 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
               <span className="text-red-400 font-semibold">{100 - pctActivos}% inactivos</span>
             </p>
           )}
-          {syncStatus && (
-            <SyncStatusPanel syncStatus={syncStatus} className="mt-2" />
-          )}
         </div>
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-2 bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-xl px-3 py-1.5 shadow-sm">
@@ -1677,22 +1624,6 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
               <MapaRutas
                 pines={pines}
                 fullscreenPanel={vendorPanelContent}
-                mode={mapMode}
-                onModeChange={setMapMode}
-                deudoresData={mapMode === 'deudores'
-                  ? cuentasData?.vendedores?.flatMap(v =>
-                      (v.clientes ?? []).map(c => ({
-                        id_cliente_erp: c.id_cliente_erp ?? null,
-                        id_cliente: c.id_cliente ?? null,
-                        id_vendedor: v.id_vendedor ?? null,
-                        cliente_nombre: c.cliente ?? '',
-                        deuda_total: c.deuda_total,
-                        antiguedad_dias: c.antiguedad ?? 0,
-                        vendedor_nombre: v.vendedor,
-                      }))
-                    )
-                  : undefined
-                }
                 selectedPDVs={hasPermiso("action_edit_objetivos") ? selectedPDVsForObjective : []}
                 onTogglePDV={hasPermiso("action_edit_objetivos") ? togglePDVForObjective : undefined}
                 routeBuildEnabled={routeBuildEnabled}
@@ -1782,6 +1713,29 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                             <p className="text-[11px] text-[var(--shelfy-muted)]">
                               {pdvTot.toLocaleString()} PDV · {v.total_rutas} rutas
                             </p>
+                            {/* Stats pills */}
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {(v.pdv_nuevos_7d ?? 0) > 0 && (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-orange-500/15 text-orange-400 border border-orange-500/20">
+                                  +{v.pdv_nuevos_7d} nuevos
+                                </span>
+                              )}
+                              {(v.pdv_activados_7d ?? 0) > 0 && (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">
+                                  {v.pdv_activados_7d} activ. semana
+                                </span>
+                              )}
+                              {(v.pdv_exhibidos ?? 0) > 0 && (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-violet-500/15 text-violet-400 border border-violet-500/20">
+                                  {v.pdv_exhibidos} exhibidos
+                                </span>
+                              )}
+                              {(v.pdv_exhibidos_nuevos_7d ?? 0) > 0 && (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-sky-500/15 text-sky-400 border border-sky-500/20">
+                                  {v.pdv_exhibidos_nuevos_7d} 1ª vez
+                                </span>
+                              )}
+                            </div>
                           </div>
                           <div className="flex items-center gap-1 shrink-0">
                             <input

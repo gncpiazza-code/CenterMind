@@ -22,6 +22,7 @@ import {
   Image as ImageIcon,
   Search,
   Target,
+  HelpCircle,
 } from "lucide-react";
 import {
   fetchVendedoresSupervision,
@@ -1446,6 +1447,37 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                     <div className="flex-1 min-w-0">
                       <p className="text-[12px] font-bold text-white truncate leading-snug">{v.nombre_vendedor}</p>
                       <p className="text-[10px] text-white/40">{pdvTot} PDV · {pct}% activos</p>
+                      {/* Stats 7d pills */}
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {(v.pdv_nuevos_7d ?? 0) > 0 && (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-orange-500/15 text-orange-400 border border-orange-500/20">
+                            +{v.pdv_nuevos_7d} nuevos
+                          </span>
+                        )}
+                        {(v.pdv_activados_7d ?? 0) > 0 && (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">
+                            {v.pdv_activados_7d} activ. 7d
+                          </span>
+                        )}
+                        {(v.pdv_exhibidos ?? 0) > 0 && (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-violet-500/15 text-violet-400 border border-violet-500/20">
+                            {v.pdv_exhibidos} exhibidos
+                          </span>
+                        )}
+                        {(v.pdv_exhibidos_nuevos_7d ?? 0) > 0 && (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-sky-500/15 text-sky-400 border border-sky-500/20">
+                            {v.pdv_exhibidos_nuevos_7d} 1ª vez
+                          </span>
+                        )}
+                        {((v.pdv_nuevos_7d ?? 0) > 0 || (v.pdv_activados_7d ?? 0) > 0 || (v.pdv_exhibidos ?? 0) > 0 || (v.pdv_exhibidos_nuevos_7d ?? 0) > 0) && (
+                          <span
+                            title={"🟠 Nuevos: PDVs dados de alta en los últimos 7 días\n🟢 Activ. 7d: PDVs con compra en los últimos 7 días\n🟣 Exhibidos: PDVs con foto de exhibición en últimos 30 días\n🔵 1ª vez: PDVs con primera exhibición en los últimos 7 días"}
+                            className="inline-flex items-center px-1 py-0.5 rounded text-white/25 hover:text-white/60 transition-colors cursor-help"
+                          >
+                            <HelpCircle className="w-3 h-3" />
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
                       <input
@@ -1782,6 +1814,37 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                             <p className="text-[11px] text-[var(--shelfy-muted)]">
                               {pdvTot.toLocaleString()} PDV · {v.total_rutas} rutas
                             </p>
+                            {/* Stats 7d pills */}
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {(v.pdv_nuevos_7d ?? 0) > 0 && (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-orange-500/15 text-orange-400 border border-orange-500/20">
+                                  +{v.pdv_nuevos_7d} nuevos
+                                </span>
+                              )}
+                              {(v.pdv_activados_7d ?? 0) > 0 && (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">
+                                  {v.pdv_activados_7d} activ. 7d
+                                </span>
+                              )}
+                              {(v.pdv_exhibidos ?? 0) > 0 && (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-violet-500/15 text-violet-400 border border-violet-500/20">
+                                  {v.pdv_exhibidos} exhibidos
+                                </span>
+                              )}
+                              {(v.pdv_exhibidos_nuevos_7d ?? 0) > 0 && (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-sky-500/15 text-sky-400 border border-sky-500/20">
+                                  {v.pdv_exhibidos_nuevos_7d} 1ª vez
+                                </span>
+                              )}
+                              {((v.pdv_nuevos_7d ?? 0) > 0 || (v.pdv_activados_7d ?? 0) > 0 || (v.pdv_exhibidos ?? 0) > 0 || (v.pdv_exhibidos_nuevos_7d ?? 0) > 0) && (
+                                <span
+                                  title={"🟠 Nuevos: PDVs dados de alta en los últimos 7 días\n🟢 Activ. 7d: PDVs con compra en los últimos 7 días\n🟣 Exhibidos: PDVs con foto de exhibición en últimos 30 días\n🔵 1ª vez: PDVs con primera exhibición en los últimos 7 días"}
+                                  className="inline-flex items-center px-1 py-0.5 rounded text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] transition-colors cursor-help"
+                                >
+                                  <HelpCircle className="w-3 h-3" />
+                                </span>
+                              )}
+                            </div>
                           </div>
                           <div className="flex items-center gap-1 shrink-0">
                             <input

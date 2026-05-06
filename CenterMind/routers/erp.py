@@ -158,8 +158,18 @@ async def erp_sync_padron(
         raise HTTPException(status_code=400, detail="Se requiere un archivo .xlsx o .xls")
     try:
         content = await file.read()
-        # ingest_for_dist espera bytes (internamente hace BytesIO); pasar BytesIO rompe _parse_excel.
-        background_tasks.add_task(padron_service.ingest_for_dist, content, id_distribuidor)
+
+        def _padron_sync_rpa_background(dist_id: int, file_bytes: bytes) -> None:
+            try:
+                padron_service.ingest_for_dist(file_bytes, dist_id)
+            except Exception as exc:
+                logger.exception(
+                    "[Padrón RPA] ingest_for_dist falló tras POST sync (dist=%s): %s",
+                    dist_id,
+                    exc,
+                )
+
+        background_tasks.add_task(_padron_sync_rpa_background, id_distribuidor, content)
         return {
             "status": "accepted",
             "message": f"Padrón recibido para dist {id_distribuidor}. Procesando en segundo plano.",

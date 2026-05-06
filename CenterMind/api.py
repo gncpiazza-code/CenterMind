@@ -12,6 +12,7 @@ Punto de entrada limpio. Toda la lógica de negocio vive en:
 from __future__ import annotations
 
 import logging
+import os
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -62,6 +63,13 @@ async def health_check():
     return {
         "status": "online",
         "version": "2.1.3-deploy-marker",
+        # Railway / CI inyectan SHA para verificar deploy sin CLI (fixit / ops).
+        "deploy_git_sha": (
+            os.getenv("RAILWAY_GIT_COMMIT_SHA")
+            or os.getenv("RAILWAY_GIT_COMMIT")
+            or os.getenv("GIT_COMMIT")
+            or os.getenv("COMMIT_SHA")
+        ),
         "bots_active": list(bots.keys()),
         "webhook_url": WEBHOOK_URL,
     }

@@ -838,7 +838,10 @@ interface NuevoObjetivoModalProps {
 function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, userRol, isSuperadmin }: NuevoObjetivoModalProps) {
   const canCrearCompania = isSuperadmin || userRol === "directorio" || userRol === "superadmin";
   const [origenMode, setOrigenMode] = useState<"distribuidora" | "compania">("distribuidora");
-  const [mesReferencia, setMesReferencia] = useState<string>("");
+  const [mesReferencia, setMesReferencia] = useState<string>(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
   const [tasaPendientes, setTasaPendientes] = useState<number | "">("");
 
   const [vendedorId, setVendedorId] = useState<number | "">("");
@@ -1239,17 +1242,14 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
                   className="h-9 text-sm bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 text-[var(--shelfy-text)] w-full focus:outline-none focus:border-amber-500/60"
                 >
                   <option value="">Seleccioná el mes</option>
-                  {(() => {
-                    const opts: { value: string; label: string }[] = [];
-                    const now = new Date();
-                    for (let i = -6; i <= 2; i++) {
-                      const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
-                      const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-                      const label = d.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
-                      opts.push({ value, label: label.charAt(0).toUpperCase() + label.slice(1) });
-                    }
-                    return opts.map(o => <option key={o.value} value={o.value}>{o.label}</option>);
-                  })()}
+                  {Array.from({ length: 4 }, (_, i) => {
+                    const d = new Date();
+                    d.setDate(1);
+                    d.setMonth(d.getMonth() + i);
+                    const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                    const label = d.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
+                    return { value, label: label.charAt(0).toUpperCase() + label.slice(1) };
+                  }).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
               </div>
             </div>

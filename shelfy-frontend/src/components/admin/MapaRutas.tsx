@@ -1,5 +1,6 @@
 "use client";
 import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { Settings } from "lucide-react";
 import { setOptions, importLibrary } from "@googlemaps/js-api-loader";
 import type { DrawnPolygon } from "@/store/useSupervisionStore";
 import { diasCalendarioDesdeFechaCompra, normalizeFechaPadrón } from "@/lib/supervisionMapHelpers";
@@ -171,6 +172,8 @@ interface MapaRutasProps {
   routeBuildEnabled?: boolean;
   onToggleRouteBuild?: () => void;
   onPolygonSelectionChange?: (pdvIds: number[], geoJson: DrawnPolygon['geoJson']) => void;
+  distId?: number;
+  isSuperadmin?: boolean;
 }
 
 // ── Google Maps API Key ───────────────────────────────────────────────────────
@@ -262,6 +265,8 @@ export default function MapaRutas({
   routeBuildEnabled = false,
   onToggleRouteBuild,
   onPolygonSelectionChange,
+  distId,
+  isSuperadmin,
 }: MapaRutasProps) {
   const containerRef  = useRef<HTMLDivElement>(null);
   const mapRef        = useRef<google.maps.Map | null>(null);
@@ -277,6 +282,20 @@ export default function MapaRutas({
   const [svPos,        setSvPos]        = useState<{ lat: number; lng: number } | null>(null);
   const [noKey,        setNoKey]        = useState(false);
   const [polygonCount, setPolygonCount] = useState(0);
+  const [pinConfig, setPinConfig] = useState({ pin_size_activo: 35, pin_size_inactivo: 24 });
+  const [configOpen, setConfigOpen] = useState(false);
+
+  useEffect(() => {
+    if (!distId) return;
+    const token = typeof window !== 'undefined' ? localStorage.getItem('shelfy_token') || '' : '';
+    const API = process.env.NEXT_PUBLIC_API_URL || '';
+    fetch(`${API}/api/admin/mapa-config/${distId}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setPinConfig(d); })
+      .catch(() => {});
+  }, [distId]);
 
   // ── Filter toggles ─────────────────────────────────────────────────────────
   const [filterEnabled, setFilterEnabled] = useState<Record<PinStatus, boolean>>({
@@ -385,7 +404,7 @@ export default function MapaRutas({
     const selSet = new Set(selectedPDVs ?? []);
 
     conCoords.forEach(p => {
-      const size        = p.activo ? 35 : 24;
+      const size        = p.activo ? pinConfig.pin_size_activo : pinConfig.pin_size_inactivo;
       const isSelected  = selSet.has(p.id);
 
       const pinFillColor = p.color;
@@ -503,7 +522,7 @@ export default function MapaRutas({
       map.fitBounds(bounds, 60);
       if (conCoords.length === 1) map.setZoom(14);
     }
-  }, [filteredPines, mapLoaded, onTogglePDV]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [filteredPines, mapLoaded, onTogglePDV, pinConfig]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Update selection style without recreating markers ─────────────────────
   useEffect(() => {
@@ -512,7 +531,7 @@ export default function MapaRutas({
     markersMapRef.current.forEach((marker, id) => {
       const pin = filteredPines.find(p => p.id === id);
       if (!pin) return;
-      const size       = pin.activo ? 35 : 24;
+      const size       = pin.activo ? pinConfig.pin_size_activo : pinConfig.pin_size_inactivo;
       const isSelected = selSet.has(id);
 
       const iconUrl = isSelected
@@ -526,7 +545,7 @@ export default function MapaRutas({
       });
       marker.setZIndex(isSelected ? 20 : (pin.activo ? 10 : 5));
     });
-  }, [selectedPDVs, filteredPines, mapLoaded]);
+  }, [selectedPDVs, filteredPines, mapLoaded, pinConfig]);
 
   // ── Drawing Manager (Armar Ruta mode) ─────────────────────────────────────
   useEffect(() => {
@@ -876,6 +895,53 @@ export default function MapaRutas({
       <div style={{ position: 'absolute', bottom: 16, left: panelOffset + 12, zIndex: 30 }}>
         <MapLegendTooltip />
       </div>
+
+      {/* Superadmin: config panel */}
+      {isSuperadmin && (
+        <>
+          <button
+            onClick={() => setConfigOpen(v => !v)}
+            className="absolute bottom-16 right-3 z-30 bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-lg p-2 shadow-md hover:bg-white/10 transition"
+            title="Configuración del mapa"
+          >
+            <Settings className="w-4 h-4 text-[var(--shelfy-muted)]" />
+          </button>
+
+          {configOpen && (
+            <div className="absolute bottom-28 right-3 z-40 bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-xl shadow-xl p-4 w-60">
+              <p className="text-xs font-bold text-[var(--shelfy-text)] mb-3">Config del mapa</p>
+
+              <div className="flex flex-col gap-3">
+                <div>
+                  <label className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide">Pin activo: {pinConfig.pin_size_activo}px</label>
+                  <input type="range" min={16} max={52} value={pinConfig.pin_size_activo}
+                    onChange={e => setPinConfig(p => ({ ...p, pin_size_activo: +e.target.value }))}
+                    className="w-full mt-1" />
+                </div>
+                <div>
+                  <label className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide">Pin inactivo: {pinConfig.pin_size_inactivo}px</label>
+                  <input type="range" min={12} max={40} value={pinConfig.pin_size_inactivo}
+                    onChange={e => setPinConfig(p => ({ ...p, pin_size_inactivo: +e.target.value }))}
+                    className="w-full mt-1" />
+                </div>
+                <button
+                  onClick={() => {
+                    const token = localStorage.getItem('shelfy_token') || '';
+                    fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/admin/mapa-config/${distId}`, {
+                      method: 'PATCH',
+                      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                      body: JSON.stringify(pinConfig),
+                    }).then(r => r.ok && setConfigOpen(false));
+                  }}
+                  className="mt-1 w-full py-1.5 text-xs bg-[var(--shelfy-accent)] text-white rounded-lg font-semibold hover:opacity-90 transition"
+                >
+                  Guardar para todos
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
 
       {/* PDV count badge */}
       <div style={{

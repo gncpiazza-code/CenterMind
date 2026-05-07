@@ -11,8 +11,10 @@ import {
   fetchCuentasSupervision,
   fetchSyncStatus,
   fetchVendedoresSupervision,
+  fetchPdvsMovimiento,
   type VendedorSupervision,
   type VendedorCuentas,
+  type PdvsMovimientoResponse,
 } from "@/lib/api";
 import { openCuentasCorrientesPrintWindow } from "@/lib/printCuentasCorrientes";
 import { supervisionPanelKeys } from "@/lib/query-keys";
@@ -37,7 +39,7 @@ import {
 } from "@/components/ui/table";
 import {
   CreditCard, Users,
-  Clock, AlertTriangle, CheckCircle2, Map as MapIcon, Printer, ArrowUpDown, Hash,
+  Clock, AlertTriangle, CheckCircle2, Map as MapIcon, Printer, ArrowUpDown, Hash, Target,
 } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
@@ -127,10 +129,12 @@ export default function SupervisionPage() {
   const { user, effectiveDistribuidorId } = useAuth();
   const router = useRouter();
 
+  const currentMes = new Date().toISOString().slice(0, 7);
   const [selectedSucursal, setSelectedSucursal] = useState<string>("__all__");
   const [selectedVendedor, setSelectedVendedor] = useState<string | null>(null);
   const [ccSort, setCCSort] = useState<"deuda" | "antiguedad">("antiguedad");
   const [ccSortDir, setCCSortDir] = useState<"desc" | "asc">("desc");
+  const [altasMes, setAltasMes] = useState(currentMes);
   const isAllowed = !!user && ALLOWED_ROLES.includes(user.rol);
   const distId = effectiveDistribuidorId ?? 0;
 
@@ -172,6 +176,16 @@ export default function SupervisionPage() {
     queryFn: () => fetchSyncStatus(distId),
     enabled: !!distId,
     staleTime: 2 * 60_000,
+  });
+
+  const selectedVendedorObj = vendedores.find(v => v.nombre_vendedor === selectedVendedor);
+  const selectedVendedorId = selectedVendedorObj?.id_vendedor ?? null;
+
+  const { data: altasData, isLoading: loadingAltas } = useQuery<PdvsMovimientoResponse>({
+    queryKey: ['supervision-altas', distId, selectedVendedorId, altasMes],
+    queryFn: () => fetchPdvsMovimiento(distId!, selectedVendedorId!, altasMes),
+    enabled: !!distId && !!selectedVendedorId,
+    staleTime: 5 * 60_000,
   });
 
   // ── Derived metrics ────────────────────────────────────────────────────────
@@ -297,150 +311,242 @@ export default function SupervisionPage() {
               </div>
             </div>
 
-            {/* ── KPI cards ─────────────────────────────────────────────── */}
-            <div className="grid grid-cols-2 gap-3">
-              <KpiCard
-                label="Deuda Total"
-                value={fmt$$(deudaTotal)}
-                icon={CreditCard}
-                color="rose"
-                loading={loadingCuentas}
-              />
-              <KpiCard
-                label="Clientes Deudores"
-                value={clientesDeudores.toLocaleString("es-AR")}
-                icon={Users}
-                color="amber"
-                loading={loadingCuentas}
-              />
-            </div>
+            {/* ── 50/50 grid: CC (left) + Altas (right) ─────────────── */}
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
 
-            {/* ── Cuentas Corrientes ───────────────────────────────────── */}
-            <div>
-              <Card>
-                <CardHeader className="pb-3 pt-4 px-5">
-                  <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <CardTitle className="text-sm font-bold flex items-center gap-2">
-                      <CreditCard size={15} className="text-rose-500" />
-                      Cuentas Corrientes
-                    </CardTitle>
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      {cuentasData?.fecha && (
-                        <Badge variant="outline" className="text-[10px] gap-1 border-[var(--shelfy-border)]">
-                          <Clock size={9} />
-                          {new Date(cuentasData.fecha).toLocaleDateString("es-AR")}
-                        </Badge>
-                      )}
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 text-[10px] px-2 gap-1"
-                        onClick={() => {
-                          const nextDir = ccSort === "deuda" && ccSortDir === "desc" ? "asc" : "desc";
-                          setCCSort("deuda");
-                          setCCSortDir(ccSort === "deuda" ? nextDir : "desc");
-                        }}
-                      >
-                        <ArrowUpDown size={10} />
-                        Deuda
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 text-[10px] px-2 gap-1"
-                        onClick={() => {
-                          const nextDir = ccSort === "antiguedad" && ccSortDir === "desc" ? "asc" : "desc";
-                          setCCSort("antiguedad");
-                          setCCSortDir(ccSort === "antiguedad" ? nextDir : "desc");
-                        }}
-                      >
-                        <ArrowUpDown size={10} />
-                        Antigüedad
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 text-[10px] px-2 gap-1"
-                        disabled={
-                          !selectedVendedor ||
-                          loadingCuentas ||
-                          !cuentasData?.vendedores?.length
-                        }
-                        title="Abre una hoja A4 con el detalle de deudores para imprimir y entregar al vendedor"
-                        onClick={() => cuentasData && openCuentasCorrientesPrintWindow(cuentasData)}
-                      >
-                        <Printer size={10} />
-                        Hoja vendedor
-                      </Button>
+              {/* ── Left col: KPI cards + Cuentas Corrientes ─────────── */}
+              <div className="flex flex-col gap-4">
+
+                {/* KPI cards */}
+                <div className="grid grid-cols-2 gap-3">
+                  <KpiCard
+                    label="Deuda Total"
+                    value={fmt$$(deudaTotal)}
+                    icon={CreditCard}
+                    color="rose"
+                    loading={loadingCuentas}
+                  />
+                  <KpiCard
+                    label="Clientes Deudores"
+                    value={clientesDeudores.toLocaleString("es-AR")}
+                    icon={Users}
+                    color="amber"
+                    loading={loadingCuentas}
+                  />
+                </div>
+
+                {/* Cuentas Corrientes */}
+                <Card>
+                  <CardHeader className="pb-3 pt-4 px-5">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <CardTitle className="text-sm font-bold flex items-center gap-2">
+                        <CreditCard size={15} className="text-rose-500" />
+                        Cuentas Corrientes
+                      </CardTitle>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {cuentasData?.fecha && (
+                          <Badge variant="outline" className="text-[10px] gap-1 border-[var(--shelfy-border)]">
+                            <Clock size={9} />
+                            {new Date(cuentasData.fecha).toLocaleDateString("es-AR")}
+                          </Badge>
+                        )}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-[10px] px-2 gap-1"
+                          onClick={() => {
+                            const nextDir = ccSort === "deuda" && ccSortDir === "desc" ? "asc" : "desc";
+                            setCCSort("deuda");
+                            setCCSortDir(ccSort === "deuda" ? nextDir : "desc");
+                          }}
+                        >
+                          <ArrowUpDown size={10} />
+                          Deuda
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-[10px] px-2 gap-1"
+                          onClick={() => {
+                            const nextDir = ccSort === "antiguedad" && ccSortDir === "desc" ? "asc" : "desc";
+                            setCCSort("antiguedad");
+                            setCCSortDir(ccSort === "antiguedad" ? nextDir : "desc");
+                          }}
+                        >
+                          <ArrowUpDown size={10} />
+                          Antigüedad
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-[10px] px-2 gap-1"
+                          disabled={
+                            !selectedVendedor ||
+                            loadingCuentas ||
+                            !cuentasData?.vendedores?.length
+                          }
+                          title="Abre una hoja A4 con el detalle de deudores para imprimir y entregar al vendedor"
+                          onClick={() => cuentasData && openCuentasCorrientesPrintWindow(cuentasData)}
+                        >
+                          <Printer size={10} />
+                          Hoja vendedor
+                        </Button>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <Separator />
+                  <CardContent className="p-0">
+                    {!selectedVendedor ? (
+                      <div className="flex flex-col items-center justify-center py-14 gap-3 text-center px-6">
+                        <div className="size-12 rounded-2xl bg-rose-500/8 flex items-center justify-center">
+                          <CreditCard size={22} className="text-rose-500" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-foreground">Seleccioná un vendedor</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">Elegí vendedor para ver sus ventas y cuentas</p>
+                        </div>
+                      </div>
+                    ) : loadingCuentas ? (
+                      <div className="p-4 flex flex-col gap-2">
+                        {Array.from({ length: 5 }).map((_, i) => (
+                          <Skeleton key={i} className="h-9 w-full rounded" />
+                        ))}
+                      </div>
+                    ) : clientesOrdenados.length === 0 ? (
+                      <p className="text-center text-xs text-muted-foreground py-8">Sin datos de CC disponibles</p>
+                    ) : (
+                      <div className="overflow-auto max-h-[460px]">
+                        <Table>
+                          <TableHeader>
+                            <TableRow className="text-[10px]">
+                              <TableHead className="pl-5 w-[36%]">Cliente</TableHead>
+                              <TableHead className="text-right">Deuda</TableHead>
+                              <TableHead className="text-right">Antig.</TableHead>
+                              <TableHead className="text-right">
+                                <span className="flex items-center justify-end gap-0.5">
+                                  <Hash size={9} />Cbtés.
+                                </span>
+                              </TableHead>
+                              <TableHead className="text-right pr-5">Rango</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {clientesOrdenados.map((c, idx) => (
+                              <TableRow key={`${c.cliente ?? "x"}-${idx}`} className="text-xs">
+                                <TableCell className="pl-5 font-medium truncate max-w-[130px]">
+                                  {c.cliente ?? "—"}
+                                </TableCell>
+                                <TableCell className="text-right font-mono text-[11px] text-rose-600 font-semibold">
+                                  {fmt$$(c.deuda_total)}
+                                </TableCell>
+                                <TableCell className="text-right text-muted-foreground">
+                                  {c.antiguedad != null ? `${c.antiguedad}d` : "—"}
+                                </TableCell>
+                                <TableCell className="text-right text-muted-foreground font-mono text-[11px]">
+                                  {c.cantidad_comprobantes ?? "—"}
+                                </TableCell>
+                                <TableCell className="text-right pr-5">
+                                  {c.rango_antiguedad ? (
+                                    <Badge variant="outline" className="text-[10px]">
+                                      {c.rango_antiguedad}
+                                    </Badge>
+                                  ) : "—"}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+              </div>
+
+              {/* ── Right col: Altas y Activaciones ──────────────────── */}
+              <div className="rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden shadow-sm flex flex-col min-h-[400px]">
+
+                {/* Panel header */}
+                <div className="flex items-center justify-between px-5 py-3.5 border-b border-[var(--shelfy-border)]/50">
+                  <div className="flex items-center gap-2">
+                    <Target size={14} className="text-violet-500" />
+                    <span className="text-sm font-bold text-[var(--shelfy-text)]">Altas y Activaciones</span>
+                  </div>
+                  <select
+                    value={altasMes}
+                    onChange={e => setAltasMes(e.target.value)}
+                    className="text-xs bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-2 py-1 text-[var(--shelfy-text)]"
+                  >
+                    {Array.from({ length: 3 }, (_, i) => {
+                      const d = new Date();
+                      d.setMonth(d.getMonth() - i);
+                      const v = d.toISOString().slice(0, 7);
+                      return <option key={v} value={v}>{v}</option>;
+                    })}
+                  </select>
+                </div>
+
+                {/* Panel body */}
+                {!selectedVendedorId ? (
+                  <div className="flex-1 flex flex-col items-center justify-center py-14 gap-3 text-center px-6">
+                    <div className="size-12 rounded-2xl bg-violet-500/8 flex items-center justify-center">
+                      <Target size={22} className="text-violet-500" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-[var(--shelfy-text)]">Seleccioná un vendedor</p>
+                      <p className="text-xs text-[var(--shelfy-muted)] mt-0.5">Elegí un vendedor para ver sus altas y activaciones</p>
                     </div>
                   </div>
-                </CardHeader>
-                <Separator />
-                <CardContent className="p-0">
-                  {!selectedVendedor ? (
-                    <div className="flex flex-col items-center justify-center py-14 gap-3 text-center px-6">
-                      <div className="size-12 rounded-2xl bg-rose-500/8 flex items-center justify-center">
-                        <CreditCard size={22} className="text-rose-500" />
+                ) : loadingAltas ? (
+                  <div className="p-4 flex flex-col gap-2">
+                    {Array.from({ length: 5 }).map((_, i) => (
+                      <Skeleton key={i} className="h-9 w-full rounded" />
+                    ))}
+                  </div>
+                ) : !altasData?.items?.length ? (
+                  <div className="flex-1 flex items-center justify-center py-10 text-sm text-[var(--shelfy-muted)]">
+                    Sin altas ni activaciones en {altasMes}
+                  </div>
+                ) : (
+                  <div className="flex-1 overflow-y-auto">
+                    {/* Summary counts */}
+                    <div className="grid grid-cols-2 divide-x divide-[var(--shelfy-border)]/40 border-b border-[var(--shelfy-border)]/30">
+                      <div className="px-4 py-2.5">
+                        <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-0.5">Altas</p>
+                        <p className="text-base font-bold text-emerald-500">{altasData.total_altas}</p>
                       </div>
-                      <div>
-                        <p className="text-sm font-semibold text-foreground">Seleccioná un vendedor</p>
-                        <p className="text-xs text-muted-foreground mt-0.5">Elegí vendedor para ver sus ventas y cuentas</p>
+                      <div className="px-4 py-2.5">
+                        <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-0.5">Activaciones</p>
+                        <p className="text-base font-bold text-blue-500">{altasData.total_activaciones}</p>
                       </div>
                     </div>
-                  ) : loadingCuentas ? (
-                    <div className="p-4 flex flex-col gap-2">
-                      {Array.from({ length: 5 }).map((_, i) => (
-                        <Skeleton key={i} className="h-9 w-full rounded" />
+                    {/* Item list */}
+                    <div className="divide-y divide-[var(--shelfy-border)]/30">
+                      {altasData.items.map((item, i) => (
+                        <div key={i} className="px-4 py-2.5 flex items-start gap-3 hover:bg-white/5">
+                          <span className={`mt-0.5 shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                            item.categoria === "alta"
+                              ? "bg-emerald-500/15 border-emerald-500/30 text-emerald-600"
+                              : "bg-blue-500/15 border-blue-500/30 text-blue-600"
+                          }`}>
+                            {item.categoria === "alta" ? "Alta" : "Activ."}
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-semibold text-[var(--shelfy-text)] truncate">{item.nombre || "—"}</p>
+                            <p className="text-[10px] text-[var(--shelfy-muted)] truncate">
+                              {item.id_cliente_erp ?? "Sin código"} · {item.localidad || item.direccion || "—"}
+                            </p>
+                          </div>
+                          {item.exhibido && (
+                            <span className="text-[10px] text-violet-500 font-bold shrink-0">★</span>
+                          )}
+                        </div>
                       ))}
                     </div>
-                  ) : clientesOrdenados.length === 0 ? (
-                    <p className="text-center text-xs text-muted-foreground py-8">Sin datos de CC disponibles</p>
-                  ) : (
-                    <div className="overflow-auto max-h-[460px]">
-                      <Table>
-                        <TableHeader>
-                          <TableRow className="text-[10px]">
-                            <TableHead className="pl-5 w-[36%]">Cliente</TableHead>
-                            <TableHead className="text-right">Deuda</TableHead>
-                            <TableHead className="text-right">Antig.</TableHead>
-                            <TableHead className="text-right">
-                              <span className="flex items-center justify-end gap-0.5">
-                                <Hash size={9} />Cbtés.
-                              </span>
-                            </TableHead>
-                            <TableHead className="text-right pr-5">Rango</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {clientesOrdenados.map((c, idx) => (
-                            <TableRow key={`${c.cliente ?? "x"}-${idx}`} className="text-xs">
-                              <TableCell className="pl-5 font-medium truncate max-w-[130px]">
-                                {c.cliente ?? "—"}
-                              </TableCell>
-                              <TableCell className="text-right font-mono text-[11px] text-rose-600 font-semibold">
-                                {fmt$$(c.deuda_total)}
-                              </TableCell>
-                              <TableCell className="text-right text-muted-foreground">
-                                {c.antiguedad != null ? `${c.antiguedad}d` : "—"}
-                              </TableCell>
-                              <TableCell className="text-right text-muted-foreground font-mono text-[11px]">
-                                {c.cantidad_comprobantes ?? "—"}
-                              </TableCell>
-                              <TableCell className="text-right pr-5">
-                                {c.rango_antiguedad ? (
-                                  <Badge variant="outline" className="text-[10px]">
-                                    {c.rango_antiguedad}
-                                  </Badge>
-                                ) : "—"}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+                  </div>
+                )}
+              </div>
+
             </div>
 
           </div>

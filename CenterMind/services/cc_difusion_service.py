@@ -301,6 +301,8 @@ def _send_document(token: str, chat_id: int, pdf_bytes: bytes, filename: str, ca
         )
         if resp.ok:
             msg_id = (resp.json().get("result") or {}).get("message_id")
+            if msg_id is None:
+                logger.warning(f"[CCDifusion] sendDocument ok pero message_id ausente en response: {resp.text[:200]}")
             logger.info(f"[CCDifusion] PDF enviado chat={chat_id} msg_id={msg_id}")
             return True, msg_id
         logger.warning(f"[CCDifusion] sendDocument error chat={chat_id}: {resp.status_code} {resp.text[:120]}")
@@ -332,9 +334,9 @@ def _pin_cc_message(token: str, dist_id: int, chat_id: int, message_id: int) -> 
             _pinned_msgs[(dist_id, chat_id)] = message_id
             logger.info(f"[CCDifusion] Mensaje pineado chat={chat_id} msg_id={message_id}")
         elif resp.status_code == 403:
-            logger.warning(f"[CCDifusion] Sin permisos de pin en chat={chat_id}")
+            logger.warning(f"[CCDifusion] Sin permisos de pin en chat={chat_id} (403) — {resp.text[:200]}")
         else:
-            logger.warning(f"[CCDifusion] pinChatMessage error chat={chat_id}: {resp.status_code}")
+            logger.warning(f"[CCDifusion] pinChatMessage error chat={chat_id}: HTTP {resp.status_code} resp={resp.text[:400]}")
     except Exception as e:
         logger.warning(f"[CCDifusion] pin exc chat={chat_id}: {e}")
 
@@ -471,7 +473,10 @@ def enviar_cc_vendedor(
         filename = f"CC_{ftag}_{id_vendedor}.pdf"
         ok, doc_msg_id = _send_document(token, chat_id, pdf_bytes, filename, caption)
         if ok and doc_msg_id:
+            logger.info(f"[CCDifusion] Intentando pin chat={chat_id} msg_id={doc_msg_id}")
             _pin_cc_message(token, dist_id, chat_id, doc_msg_id)
+        elif ok and not doc_msg_id:
+            logger.warning(f"[CCDifusion] PDF enviado OK pero doc_msg_id=None, no se puede pinear")
         if ok and extra_plain:
             ok = ok and _send_text(token, chat_id, f"💬 {_escape_telegram_html_text(extra_plain)}")
         return {"ok": ok, "vendedor": vend_data["vendedor_nombre"], "error": None if ok else "Error al enviar"}

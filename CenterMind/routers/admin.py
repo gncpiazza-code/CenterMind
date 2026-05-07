@@ -1373,6 +1373,29 @@ def admin_asignar_vendedor(id_cliente: int, req: AsignarVendedorRequest, _=Depen
 
 # ─── Dashboard unificado y legacy ─────────────────────────────────────────────
 
+@router.get("/api/admin/mapa-config/{dist_id}", tags=["Admin"])
+def get_mapa_config(dist_id: int, user_payload=Depends(verify_auth)):
+    check_dist_permission(user_payload, dist_id)
+    row = sb.table("distribuidores").select("feature_flags").eq("id_distribuidor", dist_id).limit(1).execute()
+    ff = (row.data or [{}])[0].get("feature_flags") or {}
+    return ff.get("mapa_config", {"pin_size_activo": 35, "pin_size_inactivo": 24})
+
+
+@router.patch("/api/admin/mapa-config/{dist_id}", tags=["Admin"])
+def patch_mapa_config(dist_id: int, body: dict, user_payload=Depends(verify_auth)):
+    if not user_payload.get("is_superadmin"):
+        raise HTTPException(status_code=403, detail="Solo superadmin")
+    check_dist_permission(user_payload, dist_id)
+    row = sb.table("distribuidores").select("feature_flags").eq("id_distribuidor", dist_id).limit(1).execute()
+    ff = dict((row.data or [{}])[0].get("feature_flags") or {})
+    ff["mapa_config"] = {
+        "pin_size_activo": int(body.get("pin_size_activo", 35)),
+        "pin_size_inactivo": int(body.get("pin_size_inactivo", 24)),
+    }
+    sb.table("distribuidores").update({"feature_flags": ff}).eq("id_distribuidor", dist_id).execute()
+    return ff["mapa_config"]
+
+
 @router.get("/api/admin/unified-dashboard", summary="Dashboard unificado ERP 3.0")
 def get_unified_dashboard(_=Depends(verify_auth)):
     try:

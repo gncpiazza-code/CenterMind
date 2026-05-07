@@ -1775,6 +1775,8 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                 vendedorKpis={vendedorKpis}
                 routeBuildEnabled={routeBuildEnabled}
                 onToggleRouteBuild={hasPermiso("action_edit_objetivos") ? handleToggleRouteBuild : undefined}
+                distId={selectedDist}
+                isSuperadmin={isSuperadmin}
                 onPolygonSelectionChange={(pdvIds, geoJson) => {
                   setActivePolygon(pdvIds, geoJson);
                   // En modo polígono, la selección debe representar exactamente
@@ -3256,18 +3258,14 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                       onChange={e => setObjMesReferencia(e.target.value)}
                     >
                       <option value="">Seleccionar mes...</option>
-                      {(() => {
-                        const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
-                        const now = new Date();
-                        const opts = [];
-                        for (let i = -6; i <= 1; i++) {
-                          const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
-                          const val = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-                          const label = `${MESES[d.getMonth()]} ${d.getFullYear()}`;
-                          opts.push(<option key={val} value={val}>{label}</option>);
-                        }
-                        return opts;
-                      })()}
+                      {Array.from({ length: 4 }, (_, i) => {
+                        const d = new Date();
+                        d.setDate(1);
+                        d.setMonth(d.getMonth() + i);
+                        const val = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                        const label = d.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
+                        return <option key={val} value={val}>{label.charAt(0).toUpperCase() + label.slice(1)}</option>;
+                      })}
                     </select>
                   </div>
                 )}

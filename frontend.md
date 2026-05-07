@@ -165,6 +165,7 @@ Layout conservado (overlay-based): barra superior semitransparente + barra infer
 
 ### 9. Dashboard — KPI Carousel Rotante (14/04/2026)
 - **2 grupos de 3 KPIs**: Grupo 0 (Pendientes/Aprobadas/Destacadas), Grupo 1 (Rechazadas/Tasa Aprob./Total).
+- **Fuente de verdad backend (May 2026)**: `fetchKpis` consume `/api/dashboard/kpis/{dist_id}` con conteo de **exhibiciones lógicas únicas** (cliente+día por integrante), alineado con ranking y evitando inflado por múltiples fotos del mismo evento.
 - **Auto-rotación**: `setInterval(7000)` con cleanup en `useEffect`. Estado `kpiGroup: 0 | 1`.
 - **`AnimatePresence` + `motion.div`**: `initial={{ opacity:0, y:10 }}` → `animate={{ opacity:1, y:0 }}` → `exit={{ opacity:0, y:-10 }}` con `key={kpiGroup}`.
 - **Dot indicators**: pills clickeables `onClick={() => setKpiGroup(i)}` con `bg-[var(--shelfy-primary)]` para el activo.

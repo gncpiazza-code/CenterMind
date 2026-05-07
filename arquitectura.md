@@ -71,6 +71,10 @@ Este documento describe la infraestructura, tecnologías y flujos de datos que c
 16. **Cuentas de prueba exhibiciones (Tabaco, Abr 2026)**:
     - `core/helpers.py` centraliza IDs QA (`id_vendedor_v2` 157 / 76) y resolución de `id_integrante` por nombre (Grimaldi).
     - `routers/reportes.py` y `routers/supervision.py` filtran ranking, pendientes y evaluación para usuarios no superadmin; el bot excluye esas filas del ranking en Telegram.
+16b. **Dashboard KPIs + Ranking sobre exhibición lógica única (May 2026)**:
+    - `GET /api/dashboard/kpis/{dist_id}` y `GET /api/dashboard/ranking/{dist_id}` calculan desde `exhibiciones` con deduplicación por `(id_integrante, cliente, día)` para evitar inflado por múltiples fotos de una misma exhibición.
+    - Fallback para históricos incompletos: dedupe por `url_foto_drive` o `telegram_chat_id:telegram_msg_id` cuando no hay clave cliente/día.
+    - Ambos respetan filtro por `sucursal_id` y exclusión QA en Tabaco para usuarios no superadmin.
 17. **Supervisión/Objectivos — PDVs inactivos visibles (Abr 2026)**:
     - `GET /api/supervision/clientes/{id_ruta}` ya no descarta `estado='inactivo'`, permitiendo prender/apagar el universo completo de PDVs del vendedor en mapa/listado.
     - `GET /api/supervision/pdvs-catalog/{dist_id}` devuelve también `estado` y `fecha_ultima_compra`; objetivos usa estos campos para priorizar activación y exhibición sobre clientes inactivos/rezagados.

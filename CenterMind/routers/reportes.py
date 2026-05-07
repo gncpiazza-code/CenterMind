@@ -25,6 +25,116 @@ from models.schemas import BonusConfigPayload, ReporteQuery
 logger = logging.getLogger("ShelfyAPI")
 router = APIRouter()
 
+def _resolve_period_bounds(periodo: str) -> tuple[str, str]:
+    try:
+        ar_offset_hours = float(AR_OFFSET)
+    except Exception:
+        ar_offset_hours = -3.0
+    ar_now = datetime.utcnow() + timedelta(hours=ar_offset_hours)
+    p = (periodo or "mes").strip()
+    if p == "hoy":
+        start_dt = datetime(ar_now.year, ar_now.month, ar_now.day)
+        end_dt = start_dt + timedelta(days=1)
+    elif p == "mes":
+        start_dt = datetime(ar_now.year, ar_now.month, 1)
+        if ar_now.month == 12:
+            end_dt = datetime(ar_now.year + 1, 1, 1)
+        else:
+            end_dt = datetime(ar_now.year, ar_now.month + 1, 1)
+    elif len(p) == 7 and p[4] == "-":
+        y, m = p.split("-")
+        start_dt = datetime(int(y), int(m), 1)
+        if int(m) == 12:
+            end_dt = datetime(int(y) + 1, 1, 1)
+        else:
+            end_dt = datetime(int(y), int(m) + 1, 1)
+    elif len(p) == 10 and p[4] == "-" and p[7] == "-":
+        y, m, d = p.split("-")
+        start_dt = datetime(int(y), int(m), int(d))
+        end_dt = start_dt + timedelta(days=1)
+    else:
+        start_dt = datetime(ar_now.year, ar_now.month, 1)
+        if ar_now.month == 12:
+            end_dt = datetime(ar_now.year + 1, 1, 1)
+        else:
+            end_dt = datetime(ar_now.year, ar_now.month + 1, 1)
+    return start_dt.isoformat(), end_dt.isoformat()
+
+
+def _allowed_integrantes_for_sucursal(distribuidor_id: int, sucursal_id: int | None) -> set[int] | None:
+    integ_rows = (
+        sb.table("integrantes_grupo")
+        .select("id_integrante,id_vendedor_v2,telegram_user_id,telegram_group_id")
+        .eq("id_distribuidor", distribuidor_id)
+        .execute()
+        .data
+        or []
+    )
+    bindings_rows = (
+        sb.table("vendedores_telegram_binding")
+        .select("telegram_user_id,id_vendedor_v2,telegram_group_id")
+        .eq("id_distribuidor", distribuidor_id)
+        .execute()
+        .data
+        or []
+    )
+    id_int_to_v2: dict[int, int | None] = {}
+    for ig in integ_rows:
+        iid = ig.get("id_integrante")
+        if iid is None:
+            continue
+        try:
+            iid_i = int(iid)
+        except (TypeError, ValueError):
+            continue
+        id_int_to_v2[iid_i] = resolve_vendedor_v2_for_integrante(ig, bindings_rows)
+
+    if sucursal_id is None:
+        return None
+
+    t_vendedores = tenant_table_name("vendedores_v2", distribuidor_id)
+    vend_rows = (
+        sb.table(t_vendedores)
+        .select("id_vendedor,id_sucursal")
+        .eq("id_distribuidor", distribuidor_id)
+        .execute()
+        .data
+        or []
+    )
+    vend_ids_suc = {
+        int(v["id_vendedor"])
+        for v in vend_rows
+        if v.get("id_vendedor") is not None and int(v.get("id_sucursal") or 0) == int(sucursal_id)
+    }
+    return {iid for iid, vid in id_int_to_v2.items() if vid is not None and int(vid) in vend_ids_suc}
+
+
+def _fetch_exhibiciones_periodo(distribuidor_id: int, start_iso: str, end_iso: str) -> list[dict[str, Any]]:
+    PAGE = 1000
+    offset = 0
+    rows: list[dict[str, Any]] = []
+    while True:
+        chunk = (
+            sb.table("exhibiciones")
+            .select(
+                "id_exhibicion,id_integrante,estado,url_foto_drive,telegram_msg_id,telegram_chat_id,timestamp_subida,"
+                "id_cliente_pdv,id_cliente,cliente_sombra_codigo"
+            )
+            .eq("id_distribuidor", distribuidor_id)
+            .gte("timestamp_subida", start_iso)
+            .lt("timestamp_subida", end_iso)
+            .order("timestamp_subida")
+            .range(offset, offset + PAGE - 1)
+            .execute()
+            .data
+            or []
+        )
+        rows.extend(chunk)
+        if len(chunk) < PAGE:
+            break
+        offset += PAGE
+    return rows
+
 
 # ─── Landing pública ─────────────────────────────────────────────────────────
 
@@ -195,123 +305,78 @@ def report_auditoria_sigo(dist_id: int, desde: str = Query(...), hasta: str = Qu
 @router.get("/api/dashboard/kpis/{distribuidor_id}", summary="KPIs del dashboard por período")
 def dashboard_kpis(distribuidor_id: int, periodo: str = "mes", sucursal_id: int = Query(None), payload=Depends(verify_auth)):
     check_dist_permission(payload, distribuidor_id)
-    result = sb.rpc("fn_dashboard_kpis", {"p_dist_id": distribuidor_id, "p_periodo": periodo, "p_sucursal_id": sucursal_id}).execute()
-    r = result.data[0] if result.data else {}
-    return {k: (v or 0) for k, v in r.items()}
+    start_iso, end_iso = _resolve_period_bounds(periodo)
+    allowed_integrantes = _allowed_integrantes_for_sucursal(distribuidor_id, sucursal_id)
+    ex_rows = _fetch_exhibiciones_periodo(distribuidor_id, start_iso, end_iso)
 
+    hide_qa = should_apply_exhibicion_qa_filter(distribuidor_id, payload)
+    iid_to_erp = build_integrante_to_erp_name(distribuidor_id)
 
-@router.get("/api/dashboard/ranking/{distribuidor_id}", summary="Ranking de vendedores por período")
-def dashboard_ranking(distribuidor_id: int, periodo: str = "mes", top: int = 999, sucursal_id: int = Query(None), payload=Depends(verify_auth)):
-    check_dist_permission(payload, distribuidor_id)
-    # Recalculado desde exhibiciones para evitar inflar ranking por fotos duplicadas.
-    # Dedupe por URL y por telegram_msg_id/chat_id (misma lógica operativa del bot/auditoría).
-    try:
-        ar_offset_hours = float(AR_OFFSET)
-    except Exception:
-        ar_offset_hours = -3.0
-    ar_now = datetime.utcnow() + timedelta(hours=ar_offset_hours)
-    p = (periodo or "mes").strip()
-    if p == "hoy":
-        start_dt = datetime(ar_now.year, ar_now.month, ar_now.day)
-        end_dt = start_dt + timedelta(days=1)
-    elif p == "mes":
-        start_dt = datetime(ar_now.year, ar_now.month, 1)
-        if ar_now.month == 12:
-            end_dt = datetime(ar_now.year + 1, 1, 1)
-        else:
-            end_dt = datetime(ar_now.year, ar_now.month + 1, 1)
-    elif len(p) == 7 and p[4] == "-":
-        y, m = p.split("-")
-        start_dt = datetime(int(y), int(m), 1)
-        if int(m) == 12:
-            end_dt = datetime(int(y) + 1, 1, 1)
-        else:
-            end_dt = datetime(int(y), int(m) + 1, 1)
-    elif len(p) == 10 and p[4] == "-" and p[7] == "-":
-        y, m, d = p.split("-")
-        start_dt = datetime(int(y), int(m), int(d))
-        end_dt = start_dt + timedelta(days=1)
-    else:
-        # fallback seguro a mes actual
-        start_dt = datetime(ar_now.year, ar_now.month, 1)
-        if ar_now.month == 12:
-            end_dt = datetime(ar_now.year + 1, 1, 1)
-        else:
-            end_dt = datetime(ar_now.year, ar_now.month + 1, 1)
+    seen_logic: set[tuple[int, str, str]] = set()
+    seen_url: set[str] = set()
+    seen_msg: set[str] = set()
 
-    start_iso = start_dt.isoformat()
-    end_iso = end_dt.isoformat()
+    totals = {"total": 0, "pendientes": 0, "aprobadas": 0, "rechazadas": 0, "destacadas": 0}
 
-    integ_rows = (
-        sb.table("integrantes_grupo")
-        .select("id_integrante,id_vendedor_v2,telegram_user_id,telegram_group_id")
-        .eq("id_distribuidor", distribuidor_id)
-        .execute()
-        .data
-        or []
-    )
-    bindings_rows = (
-        sb.table("vendedores_telegram_binding")
-        .select("telegram_user_id,id_vendedor_v2,telegram_group_id")
-        .eq("id_distribuidor", distribuidor_id)
-        .execute()
-        .data
-        or []
-    )
-    id_int_to_v2: dict[int, int | None] = {}
-    for ig in integ_rows:
-        iid = ig.get("id_integrante")
+    for ex in ex_rows:
+        iid = ex.get("id_integrante")
         if iid is None:
             continue
         try:
             iid_i = int(iid)
         except (TypeError, ValueError):
             continue
-        id_int_to_v2[iid_i] = resolve_vendedor_v2_for_integrante(ig, bindings_rows)
+        if allowed_integrantes is not None and iid_i not in allowed_integrantes:
+            continue
 
-    allowed_integrantes: set[int] | None = None
-    if sucursal_id is not None:
-        t_vendedores = tenant_table_name("vendedores_v2", distribuidor_id)
-        vend_rows = (
-            sb.table(t_vendedores)
-            .select("id_vendedor,id_sucursal")
-            .eq("id_distribuidor", distribuidor_id)
-            .execute()
-            .data
-            or []
-        )
-        vend_ids_suc = {
-            int(v["id_vendedor"])
-            for v in vend_rows
-            if v.get("id_vendedor") is not None and int(v.get("id_sucursal") or 0) == int(sucursal_id)
-        }
-        allowed_integrantes = {
-            iid for iid, vid in id_int_to_v2.items() if vid is not None and int(vid) in vend_ids_suc
-        }
+        vendedor = iid_to_erp.get(iid_i, "Desconocido")
+        if hide_qa and is_exhibicion_qa_display_for_dist(distribuidor_id, vendedor):
+            continue
 
-    PAGE = 1000
-    offset = 0
-    ex_rows: list[dict[str, Any]] = []
-    while True:
-        chunk = (
-            sb.table("exhibiciones")
-            .select(
-                "id_exhibicion,id_integrante,estado,url_foto_drive,telegram_msg_id,telegram_chat_id,timestamp_subida,"
-                "id_cliente_pdv,id_cliente,cliente_sombra_codigo"
-            )
-            .eq("id_distribuidor", distribuidor_id)
-            .gte("timestamp_subida", start_iso)
-            .lt("timestamp_subida", end_iso)
-            .order("timestamp_subida")
-            .range(offset, offset + PAGE - 1)
-            .execute()
-            .data
-            or []
-        )
-        ex_rows.extend(chunk)
-        if len(chunk) < PAGE:
-            break
-        offset += PAGE
+        ts = (ex.get("timestamp_subida") or "").strip()
+        day_key = ts[:10] if len(ts) >= 10 else ""
+        client_key_raw = ex.get("id_cliente_pdv") or ex.get("id_cliente") or ex.get("cliente_sombra_codigo")
+        client_key = str(client_key_raw).strip() if client_key_raw is not None else ""
+        if day_key and client_key:
+            logic_key = (iid_i, client_key, day_key)
+            if logic_key in seen_logic:
+                continue
+            seen_logic.add(logic_key)
+        else:
+            url = (ex.get("url_foto_drive") or "").strip()
+            if url:
+                if url in seen_url:
+                    continue
+                seen_url.add(url)
+            else:
+                msg = ex.get("telegram_msg_id")
+                chat = ex.get("telegram_chat_id")
+                if msg is not None and chat is not None:
+                    mk = f"{chat}:{msg}"
+                    if mk in seen_msg:
+                        continue
+                    seen_msg.add(mk)
+
+        totals["total"] += 1
+        estado = (ex.get("estado") or "").strip().lower()
+        if "pendient" in estado or estado == "":
+            totals["pendientes"] += 1
+        elif "destacad" in estado:
+            totals["destacadas"] += 1
+        elif "aprobad" in estado:
+            totals["aprobadas"] += 1
+        elif "rechaz" in estado:
+            totals["rechazadas"] += 1
+
+    return totals
+
+
+@router.get("/api/dashboard/ranking/{distribuidor_id}", summary="Ranking de vendedores por período")
+def dashboard_ranking(distribuidor_id: int, periodo: str = "mes", top: int = 999, sucursal_id: int = Query(None), payload=Depends(verify_auth)):
+    check_dist_permission(payload, distribuidor_id)
+    start_iso, end_iso = _resolve_period_bounds(periodo)
+    allowed_integrantes = _allowed_integrantes_for_sucursal(distribuidor_id, sucursal_id)
+    ex_rows = _fetch_exhibiciones_periodo(distribuidor_id, start_iso, end_iso)
 
     iid_to_erp = build_integrante_to_erp_name(distribuidor_id)
     hide_qa = should_apply_exhibicion_qa_filter(distribuidor_id, payload)

@@ -157,6 +157,10 @@ GET  /api/dashboard/{kpis,ranking}/{dist_id}
 GET  /api/reports/{performance,ventas-resumen,auditoria-sigo}/{dist_id}
 GET  /api/erp/roi/{dist_id}
 
+# Regla KPI/Ranking (May 2026)
+- `kpis` y `ranking` deben contar **exhibiciones únicas** (1 por `id_integrante + cliente + día`), no fotos individuales.
+- Fallback histórico cuando falta cliente/fecha: dedupe por `url_foto_drive` o `telegram_chat_id:telegram_msg_id`.
+
 # Portal — guía CC / feedback (JWT; superadmin donde aplica)
 POST /api/portal-feedback/guia-tracking
 POST /api/portal-feedback/messages                  # ticket equipo desarrollo (+ `clasificacion_agent`)

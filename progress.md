@@ -1,8 +1,8 @@
 # Progress — Shelfy CenterMind
 
-**Última actualización: 7 de Mayo, 2026 (Objetivos compañía mensual + prorrateo anidado)**
+**Última actualización: 7 de Mayo, 2026 (Dashboard KPIs: exhibiciones únicas, no fotos)**
 
-- **Historial reciente:** **Objetivos + Supervisión (jerarquía Día→Ruta):** se normaliza la lectura operativa de rutas en frontend para evitar colisiones cuando un vendedor tiene múltiples rutas el mismo día. `shelfy-frontend/src/app/objetivos/page.tsx` y `shelfy-frontend/src/components/admin/TabSupervision.tsx` pasan a priorizar selección/agrupación por `dia_semana` (no por `id_ruta`), incluyendo alta de Alteo por días asignados y listados de mapa/supervisión agrupados por día. `useObjetivosMenuStore` migra estado de `objSelectedRutaId` a `objSelectedDias + objAlteoMode`. `objetivos_notification_service.py` actualiza copy de Alteo a “por día”.
+- **Historial reciente:** **Dashboard KPIs alineados a exhibiciones lógicas únicas:** `GET /api/dashboard/kpis/{dist_id}` en `CenterMind/routers/reportes.py` deja de depender de `fn_dashboard_kpis` (conteo por foto) y calcula sobre `exhibiciones` con deduplicación por `(id_integrante, cliente, día)` + fallback por `url_foto_drive` o `telegram_chat_id:telegram_msg_id`. Queda consistente con `dashboard_ranking` y respeta filtros por `sucursal_id` y exclusión QA (Tabaco no-superadmin).
 
 **Última actualización (anterior): 5 de Mayo, 2026 (Padrón Consolido anulados + mapa)**
 

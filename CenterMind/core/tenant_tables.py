@@ -10,6 +10,14 @@ PARTITIONED_BASES = {
     "rutas_v2",
 }
 
+# Tablas base a clonar cuando se da de alta un nuevo tenant.
+TENANT_TABLE_BLUEPRINTS = {
+    "sucursales_v2": "sucursales_v2",
+    "vendedores_v2": "vendedores_v2",
+    "rutas_v2": "rutas_v2",
+    "clientes_pdv_v2": "clientes_pdv_v2",
+}
+
 
 def tenant_table_name(base_table: str, dist_id: int | None) -> str:
     """
@@ -87,4 +95,30 @@ def find_dist_by_ruta(sb, id_ruta: int, dist_ids: Iterable[int]) -> int | None:
         except Exception:
             continue
     return None
+
+
+def ensure_tenant_partition_tables(sb, dist_id: int) -> None:
+    """
+    Crea tablas tenant *_d{dist} si no existen, clonando el esquema
+    desde un tenant blueprint conocido.
+    """
+    did = int(dist_id)
+    statements: list[str] = []
+    for base, blueprint in TENANT_TABLE_BLUEPRINTS.items():
+        target = tenant_table_name(base, did)
+        statements.append(
+            f"CREATE TABLE IF NOT EXISTS public.{target} "
+            f"(LIKE public.{blueprint} INCLUDING ALL);"
+        )
+
+    sql = " ".join(statements)
+    last_err: Exception | None = None
+    for payload in ({"sql": sql}, {"p_sql": sql}):
+        try:
+            sb.rpc("exec_sql", payload).execute()
+            return
+        except Exception as e:
+            last_err = e
+    if last_err is not None:
+        raise last_err
 

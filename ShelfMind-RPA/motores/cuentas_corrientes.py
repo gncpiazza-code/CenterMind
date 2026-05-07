@@ -825,103 +825,127 @@ async def _procesar_tenant(tenant: dict) -> dict:
                 uploads = []
 
                 for sucursal_objetivo, nombre_dist_destino in split_map.items():
-                    # Sesión limpia por sucursal para evitar estado residual de filtros/UI.
-                    await _hacer_login(page, tenant)
-                    await _cerrar_popup_nexty(page)
-
-                    # Flujo robusto: procesar una sucursal por vez, descargar un Excel por sucursal.
-                    tenant_sucursal = dict(tenant)
-                    tenant_sucursal.pop("sucursales", None)
-                    tenant_sucursal["sucursal"] = sucursal_objetivo.upper()
-
-                    await _navegar_y_procesar(page, tenant_sucursal)
-                    await _abrir_modal_exportacion(page)
-
-                    sufijo = _norm_txt(sucursal_objetivo).replace(" ", "_")
-                    file_bytes = await _descargar_excel(page, f"{tenant_id}_{sufijo}")
-                    if not file_bytes:
-                        ok_global = False
-                        uploads.append(
-                            {
-                                "sucursal": sucursal_objetivo,
-                                "destino": nombre_dist_destino,
-                                "ok": False,
-                                "error": "descarga fallida",
-                            }
-                        )
-                        await _screenshot_error(page, tenant_id, f"descarga_{sufijo}")
-                        continue
-
                     try:
-                        await page.locator('kendo-dialog:not(#error-dialog) button.btn.btn-md.btn-default').click()
-                    except Exception:
-                        pass
+                        # Sesión limpia por sucursal para evitar estado residual de filtros/UI.
+                        await _hacer_login(page, tenant)
+                        await _cerrar_popup_nexty(page)
 
-                    clave_hash = f"cuentas_{tenant_id}_{sufijo}"
-                    if es_duplicado(clave_hash, file_bytes):
+                        # Flujo robusto: procesar una sucursal por vez, descargar un Excel por sucursal.
+                        tenant_sucursal = dict(tenant)
+                        tenant_sucursal.pop("sucursales", None)
+                        tenant_sucursal["sucursal"] = sucursal_objetivo.upper()
+
+                        await _navegar_y_procesar(page, tenant_sucursal)
+                        await _abrir_modal_exportacion(page)
+
+                        sufijo = _norm_txt(sucursal_objetivo).replace(" ", "_")
+                        file_bytes = await _descargar_excel(page, f"{tenant_id}_{sufijo}")
+                        if not file_bytes:
+                            ok_global = False
+                            uploads.append(
+                                {
+                                    "sucursal": sucursal_objetivo,
+                                    "destino": nombre_dist_destino,
+                                    "ok": False,
+                                    "error": "descarga fallida",
+                                }
+                            )
+                            await _screenshot_error(page, tenant_id, f"descarga_{sufijo}")
+                            continue
+
+                        try:
+                            await page.locator('kendo-dialog:not(#error-dialog) button.btn.btn-md.btn-default').click()
+                        except Exception:
+                            pass
+
+                        clave_hash = f"cuentas_{tenant_id}_{sufijo}"
+                        if es_duplicado(clave_hash, file_bytes):
+                            uploads.append(
+                                {
+                                    "sucursal": sucursal_objetivo,
+                                    "destino": nombre_dist_destino,
+                                    "ok": True,
+                                    "sin_cambios": True,
+                                }
+                            )
+                            continue
+
+                        datos = _parsear_excel(file_bytes, f"{tenant_id}_{sufijo}")
+                        if not datos:
+                            ok_global = False
+                            uploads.append(
+                                {
+                                    "sucursal": sucursal_objetivo,
+                                    "destino": nombre_dist_destino,
+                                    "ok": False,
+                                    "error": "fallo en parseo",
+                                }
+                            )
+                            continue
+
+                        id_dist_destino = _resolver_id_dist_por_nombre(nombre_dist_destino)
+                        if not id_dist_destino:
+                            logger.error(f"  ❌ No se pudo resolver id_dist de '{nombre_dist_destino}'.")
+                            ok_global = False
+                            uploads.append(
+                                {
+                                    "sucursal": sucursal_objetivo,
+                                    "destino": nombre_dist_destino,
+                                    "ok": False,
+                                    "error": "id_dist no resuelto",
+                                }
+                            )
+                            continue
+
+                        tenant_override = dict(tenant)
+                        tenant_override["id_dist"] = id_dist_destino
+                        logger.info(
+                            f"  🔀 Ruta sucursal '{sucursal_objetivo}' -> "
+                            f"'{nombre_dist_destino}' (dist={id_dist_destino})"
+                        )
+
+                        ok_subida = await _subir_a_api(
+                            tenant_override,
+                            datos,
+                            f"cuentas_{tenant_id}_{sufijo}_{_timestamp()}.xlsx",
+                        )
                         uploads.append(
                             {
                                 "sucursal": sucursal_objetivo,
                                 "destino": nombre_dist_destino,
-                                "ok": True,
-                                "sin_cambios": True,
+                                "id_dist": id_dist_destino,
+                                "filas": len(datos.get("detalle_cuentas", [])),
+                                "ok": ok_subida,
                             }
                         )
-                        continue
-
-                    datos = _parsear_excel(file_bytes, f"{tenant_id}_{sufijo}")
-                    if not datos:
+                        if ok_subida:
+                            guardar_hash(clave_hash, file_bytes)
+                            hubo_subida = True
+                        else:
+                            ok_global = False
+                    except Exception as e_sucursal:
                         ok_global = False
+                        try:
+                            await _screenshot_error(
+                                page,
+                                tenant_id,
+                                f"proceso_split_{_norm_txt(sucursal_objetivo).replace(' ', '_')}",
+                            )
+                        except Exception:
+                            pass
                         uploads.append(
                             {
                                 "sucursal": sucursal_objetivo,
                                 "destino": nombre_dist_destino,
                                 "ok": False,
-                                "error": "fallo en parseo",
+                                "error": str(e_sucursal)[:240],
                             }
                         )
-                        continue
-
-                    id_dist_destino = _resolver_id_dist_por_nombre(nombre_dist_destino)
-                    if not id_dist_destino:
-                        logger.error(f"  ❌ No se pudo resolver id_dist de '{nombre_dist_destino}'.")
-                        ok_global = False
-                        uploads.append(
-                            {
-                                "sucursal": sucursal_objetivo,
-                                "destino": nombre_dist_destino,
-                                "ok": False,
-                                "error": "id_dist no resuelto",
-                            }
+                        logger.error(
+                            f"  ❌ Error en split sucursal '{sucursal_objetivo}' -> "
+                            f"'{nombre_dist_destino}': {e_sucursal}"
                         )
                         continue
-
-                    tenant_override = dict(tenant)
-                    tenant_override["id_dist"] = id_dist_destino
-                    logger.info(
-                        f"  🔀 Ruta sucursal '{sucursal_objetivo}' -> "
-                        f"'{nombre_dist_destino}' (dist={id_dist_destino})"
-                    )
-
-                    ok_subida = await _subir_a_api(
-                        tenant_override,
-                        datos,
-                        f"cuentas_{tenant_id}_{sufijo}_{_timestamp()}.xlsx",
-                    )
-                    uploads.append(
-                        {
-                            "sucursal": sucursal_objetivo,
-                            "destino": nombre_dist_destino,
-                            "id_dist": id_dist_destino,
-                            "filas": len(datos.get("detalle_cuentas", [])),
-                            "ok": ok_subida,
-                        }
-                    )
-                    if ok_subida:
-                        guardar_hash(clave_hash, file_bytes)
-                        hubo_subida = True
-                    else:
-                        ok_global = False
 
                 if ok_global and any(not u.get("sin_cambios") for u in uploads):
                     resultado["estado"] = "subida_ok"

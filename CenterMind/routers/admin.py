@@ -18,7 +18,12 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from core.config import WEBHOOK_URL
 from core.lifespan import bots, manager
 from core.security import verify_auth, check_dist_permission
-from core.tenant_tables import tenant_table_name, load_dist_ids, find_dist_by_ruta
+from core.tenant_tables import (
+    tenant_table_name,
+    load_dist_ids,
+    find_dist_by_ruta,
+    ensure_tenant_partition_tables,
+)
 from db import sb
 from models.schemas import (
     AsignarVendedorRequest,
@@ -365,6 +370,7 @@ async def admin_crear_distribuidora(req: DistribuidoraRequest, payload=Depends(v
         }).execute()
         if res.data:
             d_id = res.data[0]["id_distribuidor"]
+            ensure_tenant_partition_tables(sb, d_id)
             try:
                 worker  = BotWorker(distribuidor_id=d_id)
                 ptb_app = worker.build_app()
@@ -478,6 +484,8 @@ def create_distribuidor(data: dict, user_payload=Depends(verify_auth)):
             "estado": "activo",
         }
         res = sb.table("distribuidores").insert(payload).execute()
+        if res.data:
+            ensure_tenant_partition_tables(sb, res.data[0]["id_distribuidor"])
         return res.data[0]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

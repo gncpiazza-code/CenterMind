@@ -169,6 +169,13 @@ Este documento describe la infraestructura, tecnologías y flujos de datos que c
     - Tablas Supabase `portal_guia_cc_events`, `portal_feedback_messages` (fuera de código; SQL en repo si existe).
     - Tras insertar mensaje o guardar respuesta, `broadcast_sync(SUPERADMIN_WS_DIST_ID, …)` donde `SUPERADMIN_WS_DIST_ID = 0` en `lifespan.ConnectionManager` (canal paralelo a `/api/ws/exhibiciones/{dist_id}`, que usa `id_distribuidor` real).
     - Frontend: `GET /api/ws/superadmin?token=<JWT>` desde `Topbar` (solo superadmin) + invalidación TanStack Query; PDF Telegram difusión: nombre corto y texto largo fuera del caption cuando aplica (`cc_difusion_service`).
+42. **Objetivos de compañía — período mensual fijo (May 2026)**:
+    - En `shelfy-frontend/src/app/objetivos/page.tsx`, cuando `origen='compania'` el wizard define automáticamente `fecha_objetivo` al último día del `mes_referencia`.
+    - El detalle de cumplimiento en card usa prorrateo multinivel (mes→semana→día, lun-sáb) con cálculo de metas remanentes (`meta/ semanas restantes`, `meta semanal / 6`) y progreso visual por `Progress`.
+    - Tipos `ruteo_alteo`, `conversion_estado` y `exhibicion` incorporan dos modos de creación: metas generales por cantidad o metas por universo explícito (rutas/PDVs).
+43. **Jerarquía operativa de rutas (May 2026)**:
+    - En frontend operacional (`TabSupervision`, objetivos flotantes, modo ruteo), la navegación de rutas se normaliza a `dia_semana -> rutas_del_dia`.
+    - El alta de objetivos de Alteo referencia días asignados (`estado_inicial`) como contexto principal y deja `id_target_ruta` sólo para casos puntuales.
 
 ---
 
@@ -219,7 +226,7 @@ CenterMind/                     # Raíz del Repositorio
 ## Flujo de Datos Crítico
 
 1. **ERP → Supabase**: El RPA extrae datos del ERP local → `POST` a la API → `erp_ingestion_service` → Tablas `_v2`.
-   - Caso especial Cuentas Corrientes (Real Tabacalera): el motor selecciona `UEQUIN RODRIGO` + `OSCAR ONDARRETA` + `JOSE IGNACIO BIAVA` y luego divide server-payload por sucursal para enrutar cada bloque al distribuidor destino correcto (`La Magica - Santiago del Estero` / `Bolivar Distribuciones` / `CARAMELE - SAN LUIS`).
+   - Caso especial Cuentas Corrientes (Real Tabacalera): el motor selecciona `UEQUIN RODRIGO` + `OSCAR ONDARRETA` + `JOSE IGNACIO BIAVA` + `GONZALEZ LUIS ANTONIO` y luego divide server-payload por sucursal para enrutar cada bloque al distribuidor destino correcto (`La Magica - Santiago del Estero` / `Bolivar Distribuciones` / `CARAMELE - SAN LUIS` / `LAG Distribuidora - Tucuman`).
    - Caso especial Padrón Consolido (28/04/2026): el motor usa navegación SPA rápida por hash hacia `#/parametrizaciones/reportes/administrador-de-procesos` (con fallback controlado), selecciona exportación por botón con ícono Excel (`fa-file-excel`) para evitar click en autoajuste de columnas, y sube a backend vía `POST /api/v1/sync/erp-padrón?id_distribuidor=...` (query param obligatorio).
 2. **Telegram → Supabase**: Vendedor sube foto → `bot_worker.py` → Supabase Storage → Tabla `exhibiciones`.
 3. **Supabase → Portal**: `api.py` consulta vistas/tablas → Frontend Renderiza dashboard y mapas.

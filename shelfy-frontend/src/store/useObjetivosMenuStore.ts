@@ -14,6 +14,7 @@ export type { ObjetivoTipo };
 export type ObjRuteoAccion = 'cambio_ruta' | 'baja';
 export type ObjCobranzaMode = 'total' | 'parcial';
 export type ObjRuteoConfigMode = 'global' | 'per_pdv';
+export type ObjAlteoMode = 'por_dia' | 'general';
 
 export interface ObjRuteoItem {
   accion: ObjRuteoAccion;
@@ -55,8 +56,10 @@ interface ObjetivosMenuStore {
   // Rutas for the selected vendedor
   objVendedorRoutes: ObjVendedorRoute[];
   setObjVendedorRoutes: (v: ObjVendedorRoute[]) => void;
-  objSelectedRutaId: number | null;
-  setObjSelectedRutaId: (v: number | null) => void;
+  objSelectedDias: string[];
+  setObjSelectedDias: (v: string[]) => void;
+  objAlteoMode: ObjAlteoMode;
+  setObjAlteoMode: (v: ObjAlteoMode) => void;
 
   // Deuda / inactivos context
   objDebtList: ObjDeudor[];
@@ -108,7 +111,7 @@ const INITIAL_FORM: Omit<
   | 'objMenuOpen' | 'setObjMenuOpen'
   | 'setObjTipo' | 'setObjFecha' | 'setObjDesc'
   | 'setObjSubmitting' | 'setObjLoadingContext'
-  | 'setObjVendedorRoutes' | 'setObjSelectedRutaId'
+  | 'setObjVendedorRoutes' | 'setObjSelectedDias' | 'setObjAlteoMode'
   | 'setObjDebtList' | 'setObjInactivePdvCount'
   | 'setObjCantidadAlteo'
   | 'setObjCobranzaMode' | 'setObjCobranzaMonto' | 'setObjSelectedDeudor'
@@ -123,7 +126,8 @@ const INITIAL_FORM: Omit<
   objSubmitting: false,
   objLoadingContext: false,
   objVendedorRoutes: [],
-  objSelectedRutaId: null,
+  objSelectedDias: [],
+  objAlteoMode: 'por_dia',
   objDebtList: [],
   objInactivePdvCount: 0,
   objCantidadAlteo: '',
@@ -154,7 +158,8 @@ export const useObjetivosMenuStore = create<ObjetivosMenuStore>()((set) => ({
   setObjLoadingContext: (v) => set({ objLoadingContext: v }),
 
   setObjVendedorRoutes: (v) => set({ objVendedorRoutes: v }),
-  setObjSelectedRutaId: (v) => set({ objSelectedRutaId: v }),
+  setObjSelectedDias: (v) => set({ objSelectedDias: v }),
+  setObjAlteoMode: (v) => set({ objAlteoMode: v }),
 
   setObjDebtList: (v) => set({ objDebtList: v }),
   setObjInactivePdvCount: (v) => set({ objInactivePdvCount: v }),

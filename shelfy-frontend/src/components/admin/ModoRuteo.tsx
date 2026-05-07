@@ -89,7 +89,7 @@ async function generarPDFRuteo(
       const pdvs = slot.clientesPorRuta[ruta.id_ruta] ?? [];
       doc.setFontSize(10);
       doc.setTextColor(80, 80, 200);
-      doc.text(`  ${ruta.dia_semana} — ${ruta.nombre_ruta} (${pdvs.length} PDV)`, 22, y);
+      doc.text(`  ${ruta.dia_semana} — Ruta ${ruta.nombre_ruta} (${pdvs.length} PDV)`, 22, y);
       y += 6;
       doc.setFontSize(8);
       doc.setTextColor(40, 40, 40);
@@ -170,7 +170,7 @@ function PDVList({
               }}
             >
               <span style={{ fontSize: 11, fontWeight: 700, color: vendedorColor }}>
-                {ruta.dia_semana}
+                {ruta.dia_semana} · Ruta {ruta.nombre_ruta}
               </span>
               <span
                 style={{

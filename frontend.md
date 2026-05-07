@@ -309,6 +309,25 @@ Reemplaza el modelo sidebar-para-todos por navegación top-center para usuarios 
 - **Backend**: `GET /api/supervision/sync-status/{dist_id}` devuelve `activos`, `anulados`, `ausentes`, `last_run_estado`, `has_zombie`.
 - **Tipos TS**: `SyncStatusEntry` en `api.ts` con los 5 campos nuevos opcionales.
 
+### 31. Objetivos — compañía mensual + acordeones prorrateados (07/05/2026)
+- **Archivo**: `shelfy-frontend/src/app/objetivos/page.tsx`.
+- **Card Kanban**: objetivos de compañía muestran badge persistente `N días restantes` y mantienen barra de progreso principal.
+- **Acordeón anidado**:
+  - Nivel 1 (semanal): meta semanal calculada con `meta restante / semanas restantes`.
+  - Nivel 2 (diario): meta diaria calculada con `meta semanal / 6` (lunes a sábado).
+  - Cada nivel incluye barra de progreso y texto explícito de avance requerido.
+- **Wizard de creación**:
+  - `origen=compania`: período mensual forzado (fecha límite automática al fin de `mes_referencia`).
+  - `ruteo_alteo`: modos “Altear en X rutas + Y PDVs” y “Altear Y PDVs nuevos”.
+  - `conversion_estado`: modos “Activar PDVs X,Y,Z” y “Activar X PDVs”.
+  - `exhibicion`: mantiene dualidad “meta general” vs “por PDV”.
+
+### 32. Jerarquía de rutas unificada (Día → Ruta) (07/05/2026)
+- **TabSupervision** (`components/admin/TabSupervision.tsx`): panel de vendedores/rutas en modo mapa y panel lateral agrupan rutas primero por `dia_semana` y luego por ruta para evitar ambigüedad con múltiples rutas en un mismo día.
+- **Objetivos flotantes en Supervisión**: Alteo deja de seleccionar `id_ruta` puntual como referencia primaria y pasa a seleccionar `días asignados` (`objSelectedDias`), con copy y descripción orientadas a “ALTEAR los días X”.
+- **Store** (`store/useObjetivosMenuStore.ts`): reemplazo de `objSelectedRutaId` por `objSelectedDias: string[]` y `objAlteoMode: 'por_dia'|'general'`.
+- **ModoRuteo** (`components/admin/ModoRuteo.tsx`): textos de rutas reordenados para mostrar día primero (`día · Ruta X`).
+
 ### 29. RPA Padrón (28/04/2026) — sin cambios de UI requeridos
 - El hardening reciente del motor Padrón ocurrió en `ShelfMind-RPA/` (navegación Consolido, selector de exportación y upload), sin impactos de contrato ni cambios visuales en pantallas del frontend.
 
@@ -374,7 +393,7 @@ Para garantizar el rendimiento y la mantenibilidad de Shelfy, se siguen estos pa
    - *Ejemplo*: `useObjetivosStore` para coordinar el panel flotante y los pines del mapa.
 2. **TanStack Query v5**: Única herramienta para el **estado del servidor** (fetching de API, caching, mutaciones).
    - *Regla*: Todas las funciones fetch deben estar en `src/lib/api.ts` y usarse únicamente vía Query/Mutation hooks.
-   - *Nota operativa CC (20/04/2026)*: para Real Tabacalera, el RPA separa automáticamente las filas de cuentas corrientes por sucursal (`UEQUIN RODRIGO` / `OSCAR ONDARRETA` / `JOSE IGNACIO BIAVA`) antes de subirlas al backend, por lo que el frontend recibe los datos ya segmentados por distribuidor destino.
+   - *Nota operativa CC (20/04/2026)*: para Real Tabacalera, el RPA separa automáticamente las filas de cuentas corrientes por sucursal (`UEQUIN RODRIGO` / `OSCAR ONDARRETA` / `JOSE IGNACIO BIAVA` / `GONZALEZ LUIS ANTONIO`) antes de subirlas al backend, por lo que el frontend recibe los datos ya segmentados por distribuidor destino.
    - *Nota operativa Padrón Consolido (27/04/2026)*: la extracción RPA se parametriza desde tabla backend `rpa_consolido_tenants` y usa credencial única de Consolido; no requiere cambios de UI, pero sí garantiza que cada archivo se procese por distribuidor objetivo.
 3. **Animations (Framer Motion)**: Se utilizan para mejorar la percepción de fluidez sin sacrificar la densidad.
    - *Performance*: Máximo `0.4s` de duración. Se evitan animaciones de entrada pesadas en tablas con gran volumen de datos para priorizar la productividad.

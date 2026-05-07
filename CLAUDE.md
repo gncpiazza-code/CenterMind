@@ -186,7 +186,7 @@ Excel (padrón/ventas) → erp_*_raw → padron_ingestion_service / ventas_inges
 ```
 - Upsert idempotente: UNIQUE `(id_distribuidor, id_*_erp)`.
 - Padrón Consolido: export con **anulados incluidos** (RPA `PADRON_INCLUIR_ANULADOS`, default true) → columna `anulado` → `motivo_inactivo='padron_anulado'` (el mapa los oculta). PDVs **ausentes** del archivo → `padron_absent` / inactivo según tombstone.
-- **`SUCURSAL_FILTER`** en `padron_ingestion_service.py`: dist_id=2 (Real) filtra solo sucursal `"8"` (`uequin rodrigo`). Real también enruta: `OSCAR ONDARRETA → Bolivar`, `JOSE IGNACIO BIAVA → CARAMELE`.
+- **`SUCURSAL_FILTER`** en `padron_ingestion_service.py`: dist_id=2 (Real) filtra solo sucursal `"8"` (`uequin rodrigo`). Real también enruta: `OSCAR ONDARRETA → Bolivar`, `JOSE IGNACIO BIAVA → CARAMELE`, `GONZALEZ LUIS ANTONIO → LAG Distribuidora - Tucuman`.
 
 ### Cuentas Corrientes
 ```
@@ -253,6 +253,9 @@ Vendedor sube foto → bot pide nro cliente → foto → Supabase Storage → ex
 - Permisos: usar `hasPermiso("clave")` del AuthContext — no leer `user.permisos` directo.
 - `useEffect` con fetch: cleanup con flag `cancelled` o `AbortController`.
 - `DatePicker` (`@/components/ui/date-picker`) para campos de fecha — no `<input type="date">`.
+- Objetivos `origen='compania'`: siempre mensual (`mes_referencia`) y con fecha límite automática al fin de mes; el detalle de card usa prorrateo mensual→semanal→diario (lun-sáb) con acordeones anidados.
+- En objetivos `ruteo_alteo`, `conversion_estado` y `exhibicion`, mantener siempre dos modos de creación: **general por cantidad** y **por universo explícito** (rutas/PDVs).
+- Cuando se presenten rutas en UI operativa (mapa/supervisión/objetivos), la jerarquía visual y semántica debe ser **Día (`dia_semana`) → Ruta (`id_ruta`/`nombre_ruta`)**, nunca al revés.
 - shadcn instalados: Button, Card, Input, Label, Avatar, Badge, Skeleton, Select, Alert, Dialog, Sheet, Tabs, Progress, Tooltip, Separator, ScrollArea, Form, Popover, Checkbox, Table, DropdownMenu, Sonner. Agregar: `npx shadcn@latest add <component>`.
 - Toasts: `toast()` de `sonner`. Loading: `<Skeleton>`. Errores: `<Alert variant="destructive">`.
 - `Sidebar` quedó desactivado para layout limpio; herramientas superadmin deben exponerse en `Topbar` vía menú flotante.
@@ -309,7 +312,7 @@ El `scheduler.py` corre en el contenedor RPA (Railway o Mac) y dispara cada moto
 | `real` | realtabacalera.chesserp.com/AR1272 | 2 | `chess_real_usuario/password` |
 | `extra` | (pendiente credenciales) | 6 | — |
 
-**Real Tabacalera split:** divide `detalle_cuentas` por sucursal (`UEQUIN RODRIGO → dist La Magica`, `OSCAR ONDARRETA → Bolivar`, `JOSE IGNACIO BIAVA → CARAMELE`), resolviendo `id_distribuidor` por nombre vía API.
+**Real Tabacalera split:** divide `detalle_cuentas` por sucursal (`UEQUIN RODRIGO → dist La Magica`, `OSCAR ONDARRETA → Bolivar`, `JOSE IGNACIO BIAVA → CARAMELE`, `GONZALEZ LUIS ANTONIO → LAG Distribuidora - Tucuman`), resolviendo `id_distribuidor` por nombre vía API.
 
 ### Motor `padron.py`
 

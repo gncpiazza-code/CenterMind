@@ -452,7 +452,7 @@ class ObjetivosNotificationService:
             emoji = TIPO_EMOJI.get(tipo, "🎯")
             tipo_label = {
                 "ruteo":             "Ruteo (cambio / baja)",
-                "ruteo_alteo":       "Alteo de ruta",
+                "ruteo_alteo":       "Alteo por día",
                 "conversion_estado": "Activación",
                 "exhibicion":        "Exhibición",
                 "cobranza":          "Cobranza",
@@ -737,12 +737,15 @@ class ObjetivosNotificationService:
                         if cant > 1:
                             pdv_lines = f"\n📍 <b>PDVs objetivo:</b> {cant} (consultá el detalle en la app)"
 
+                    dias_ref = (obj_data.get("estado_inicial") or "").strip()
                     if tipo == "cobranza":
                         accion_block = "\n⚙️ <b>Acción a realizar:</b> Cobranza"
                     elif tipo == "exhibicion":
                         accion_block = "\n⚙️ <b>Acción a realizar:</b> Exhibición en el PDV objetivo"
                     elif tipo == "ruteo_alteo":
                         accion_block = "\n⚙️ <b>Acción a realizar:</b> Alteo"
+                        if dias_ref:
+                            accion_block += f"\n📅 <b>Días asignados:</b> {html.escape(dias_ref, quote=False)}"
                     elif tipo == "conversion_estado":
                         accion_block = "\n⚙️ <b>Acción a realizar:</b> Activación"
 
@@ -750,6 +753,8 @@ class ObjetivosNotificationService:
                     rl = self._ruta_label(int(id_target_ruta), dist_id)
                     if rl:
                         ruta_str = f"\n🗺️ <b>Ruta referencia:</b> {rl}"
+                elif tipo == "ruteo_alteo" and dias_ref:
+                    ruta_str = f"\n🗓️ <b>Referencia por día:</b> {html.escape(dias_ref, quote=False)}"
 
             except Exception as e_enrich:
                 logger.warning(f"[Notif] Enrich PDV/ruta omitido: {e_enrich}")

@@ -99,6 +99,26 @@ const DIA_ORDER: Record<string, number> = {
   "viernes": 4, "sabado": 5, "sábado": 5, "domingo": 6,
 };
 
+function normDia(dia?: string | null): string {
+  return (dia ?? "Sin día").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+function groupRoutesByDay(rutas: RutaSupervision[]) {
+  const byDay = new Map<string, RutaSupervision[]>();
+  for (const r of rutas) {
+    const day = r.dia_semana || "Sin día";
+    if (!byDay.has(day)) byDay.set(day, []);
+    byDay.get(day)!.push(r);
+  }
+  return Array.from(byDay.entries())
+    .sort((a, b) => (DIA_ORDER[normDia(a[0])] ?? 9) - (DIA_ORDER[normDia(b[0])] ?? 9))
+    .map(([day, routes]) => ({
+      day,
+      routes,
+      totalPdvs: routes.reduce((acc, r) => acc + (r.total_pdv ?? 0), 0),
+    }));
+}
+
 const ACTIVIDADES_FRASE: { tipo: ObjetivoTipo; label: string }[] = [
   { tipo: "ruteo_alteo",       label: "altear" },
   { tipo: "exhibicion",        label: "exhibir en" },
@@ -175,6 +195,13 @@ function daysUntil(d: string | null | undefined): number | null {
   return Math.ceil(diff / 86400000);
 }
 
+function monthEndISO(monthRef: string): string {
+  const [y, m] = monthRef.split("-").map(Number);
+  if (!y || !m) return "";
+  const dt = new Date(y, m, 0);
+  return dt.toISOString().split("T")[0];
+}
+
 function DateChip({ date }: { date: string | null | undefined }) {
   const days = daysUntil(date);
   if (days === null) return null;
@@ -189,6 +216,104 @@ function DateChip({ date }: { date: string | null | undefined }) {
       {isOverdue && ` (vencido)`}
       {isSoon && !isOverdue && ` (${days}d)`}
     </span>
+  );
+}
+
+function CompaniaProrrateo({ obj }: { obj: Objetivo }) {
+  if (obj.origen !== "compania" || !obj.mes_referencia || !obj.valor_objetivo) return null;
+  const base = new Date(`${obj.mes_referencia}T00:00:00`);
+  if (Number.isNaN(base.getTime())) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const y = base.getFullYear();
+  const m = base.getMonth();
+  const monthEnd = new Date(y, m + 1, 0);
+  const daysInMonth = monthEnd.getDate();
+  const businessDays: Date[] = [];
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dt = new Date(y, m, d);
+    const wd = dt.getDay();
+    if (wd >= 1 && wd <= 6) businessDays.push(dt);
+  }
+  if (businessDays.length === 0) return null;
+
+  const futureBusinessDays = businessDays.filter((d) => d >= today);
+  const allWeeks = new Map<string, Date[]>();
+  for (const dt of businessDays) {
+    const weekIdx = Math.floor((dt.getDate() - 1) / 7) + 1;
+    const key = `Semana ${weekIdx}`;
+    if (!allWeeks.has(key)) allWeeks.set(key, []);
+    allWeeks.get(key)!.push(dt);
+  }
+  const weekEntries = Array.from(allWeeks.entries());
+  const remainingWeekEntries = weekEntries.filter(([, days]) => days.some((d) => d >= today));
+  const remainingMeta = Math.max(0, (obj.valor_objetivo ?? 0) - (obj.valor_actual ?? 0));
+  const remainingWeeks = Math.max(1, remainingWeekEntries.length);
+  const weeklyTarget = remainingMeta > 0 ? remainingMeta / remainingWeeks : 0;
+  const dailyTarget = weeklyTarget / 6;
+  const monthPct = obj.valor_objetivo > 0 ? Math.min(100, Math.round((obj.valor_actual / obj.valor_objetivo) * 100)) : 0;
+  const diasRestantes = Math.max(0, Math.ceil((monthEnd.getTime() - today.getTime()) / 86400000));
+
+  return (
+    <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-2.5 py-2 space-y-2">
+      <div className="flex items-center justify-between">
+        <p className="text-[10px] font-semibold text-amber-700">Prorrateo mensual (lun-sáb)</p>
+        <span className="text-[10px] text-amber-700/80">{diasRestantes} días restantes</span>
+      </div>
+      <div className="text-[10px] text-[var(--shelfy-muted)] tabular-nums flex items-center justify-between">
+        <span>{Math.round(obj.valor_actual)} / {Math.round(obj.valor_objetivo)}</span>
+        <span>{monthPct}%</span>
+      </div>
+      <Progress value={monthPct} className="h-1.5" />
+      <div className="space-y-1.5">
+        {remainingWeekEntries.map(([weekLabel, days], weekIndex) => {
+          const weekDoneEst = Math.min(weeklyTarget, (obj.valor_actual ?? 0) * (weeklyTarget / obj.valor_objetivo));
+          const weekPct = weeklyTarget > 0 ? Math.min(100, Math.round((weekDoneEst / weeklyTarget) * 100)) : 0;
+          return (
+            <details key={weekLabel} className="rounded border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] px-2 py-1">
+              <summary className="cursor-pointer text-[11px] text-[var(--shelfy-text)] flex items-center justify-between gap-2">
+                <span>{weekLabel}</span>
+                <span className="text-[10px] text-[var(--shelfy-muted)] tabular-nums">
+                  Meta: {Math.round(weeklyTarget)}
+                </span>
+              </summary>
+              <div className="mt-1.5 space-y-1.5">
+                <div className="text-[10px] text-[var(--shelfy-muted)] flex items-center justify-between tabular-nums">
+                  <span>Avance semanal</span>
+                  <span>{Math.round(weekDoneEst)} / {Math.round(weeklyTarget)}</span>
+                </div>
+                <Progress value={weekPct} className="h-1.5" />
+                <div className="text-[10px] text-amber-700">
+                  Debe avanzar {Math.ceil(dailyTarget)} por día (lun-sáb) para cumplir la semana.
+                </div>
+                {days.filter((d) => d >= today).map((dt) => {
+                  const dayDoneEst = Math.min(dailyTarget, weekDoneEst / 6);
+                  const dayPct = dailyTarget > 0 ? Math.min(100, Math.round((dayDoneEst / dailyTarget) * 100)) : 0;
+                  return (
+                    <details key={`${weekIndex}-${dt.toISOString()}`} className="rounded border border-[var(--shelfy-border)]/80 px-2 py-1 bg-white/60">
+                      <summary className="cursor-pointer text-[10px] text-[var(--shelfy-text)] flex items-center justify-between gap-2 capitalize">
+                        <span>{dt.toLocaleDateString("es-AR", { weekday: "long" })} {String(dt.getDate()).padStart(2, "0")}</span>
+                        <span className="text-[10px] text-[var(--shelfy-muted)] tabular-nums">Meta diaria: {Math.ceil(dailyTarget)}</span>
+                      </summary>
+                      <div className="mt-1 space-y-1">
+                        <div className="text-[10px] text-[var(--shelfy-muted)] tabular-nums flex items-center justify-between">
+                          <span>Progreso diario</span>
+                          <span>{Math.round(dayDoneEst)} / {Math.round(dailyTarget)}</span>
+                        </div>
+                        <Progress value={dayPct} className="h-1" />
+                        <p className="text-[10px] text-emerald-700">
+                          Objetivo del día: avanzar al menos {Math.ceil(dailyTarget)} para llegar a la meta semanal.
+                        </p>
+                      </div>
+                    </details>
+                  );
+                })}
+              </div>
+            </details>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -573,6 +698,7 @@ function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado, onOpenR
   onOpenRuteoPdf: (obj: Objetivo) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const daysLeft = daysUntil(obj.fecha_objetivo);
 
   const leftBorderClass =
     obj.resultado_final === "exito"
@@ -599,6 +725,11 @@ function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado, onOpenR
           <div className="flex items-center gap-1.5 flex-wrap">
             <TipoBadge tipo={obj.tipo} />
             <OrigenBadge origen={obj.origen} />
+            {daysLeft !== null && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-700 font-semibold border border-violet-500/20">
+                {daysLeft < 0 ? "Vencido" : `${daysLeft} días restantes`}
+              </span>
+            )}
             {obj.resultado_final === "exito" && (
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 font-semibold border border-emerald-500/20">
                 Exito
@@ -718,6 +849,7 @@ function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado, onOpenR
                 {obj.descripcion && (
                   <p className="text-xs text-[var(--shelfy-muted)] leading-relaxed">{obj.descripcion}</p>
                 )}
+                <CompaniaProrrateo obj={obj} />
                 {obj.items && obj.items.length > 0 && obj.tipo === "ruteo_alteo" ? (
                   <RuteoAlteoItemsTree obj={obj} />
                 ) : obj.items && obj.items.length > 0 ? (
@@ -850,7 +982,8 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
   const [desc, setDesc] = useState<string>("");
 
   const [rutas, setRutas] = useState<RutaSupervision[]>([]);
-  const [selectedRutaId, setSelectedRutaId] = useState<number | null>(null);
+  const [alteoMode, setAlteoMode] = useState<"por_dia" | "general">("por_dia");
+  const [selectedDias, setSelectedDias] = useState<Set<string>>(new Set());
   const [cantidadAlteo, setCantidadAlteo] = useState<number | "">("");
 
   const [deudores, setDeudores] = useState<{ cliente_nombre: string; deuda_total: number }[]>([]);
@@ -860,6 +993,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
 
   const [activacionPdvs, setActivacionPdvs] = useState<{ id: number; nombre: string; fechaCompra: string | null; diasSinCompra: number | null; estado: string | null }[]>([]);
   const [selectedPdvIds, setSelectedPdvIds] = useState<Set<number>>(new Set());
+  const [activacionMode, setActivacionMode] = useState<"general" | "por_pdv">("general");
   const [cantidadActivacion, setCantidadActivacion] = useState<number | "">("");
 
   // Sucursal filter inside modal
@@ -903,11 +1037,16 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
   const [loadingCtx, setLoadingCtx] = useState(false);
 
   const vendedorNombre = vendedores.find(v => v.id_vendedor === vendedorId)?.nombre_erp ?? "";
-  const selectedRuta = rutas.find(r => r.id_ruta === selectedRutaId) ?? null;
+  const rutasPorDia = useMemo(
+    () => groupRoutesByDay(rutas).map((g) => ({ ...g, dayKey: normDia(g.day) })),
+    [rutas]
+  );
+  const selectedDayGroups = rutasPorDia.filter((g) => selectedDias.has(g.dayKey));
 
   function resetCtx() {
     setRutas([]);
-    setSelectedRutaId(null);
+    setAlteoMode("por_dia");
+    setSelectedDias(new Set());
     setCantidadAlteo("");
     setDeudores([]);
     setSelectedDeudor(null);
@@ -915,6 +1054,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
     setCobranzaMonto("");
     setActivacionPdvs([]);
     setSelectedPdvIds(new Set());
+    setActivacionMode("general");
     setCantidadActivacion("");
     setPdvCatalogAll([]);
     setPdvCatalogPage(0);
@@ -1031,15 +1171,27 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
           ? " El plazo vence hoy."
           : ` Tenés ${diasCalendario} día${diasCalendario !== 1 ? "s" : ""} para cumplir el objetivo.`;
 
-    if (tipo === "ruteo_alteo" && selectedRuta) {
-      const qty = cantidadAlteo || selectedRuta.total_pdv;
-      return `${vendedorNombre} debe Altear ${qty} PDVs en la ruta ${selectedRuta.nombre_ruta} de los días ${selectedRuta.dia_semana}${fechaLabel}.${diasLabel}`;
+    if (tipo === "ruteo_alteo") {
+      const qty = cantidadAlteo ? Number(cantidadAlteo) : null;
+      if (alteoMode === "por_dia" && selectedDayGroups.length > 0) {
+        const diasCount = selectedDayGroups.length;
+        const defaultQty = selectedDayGroups.reduce((acc, g) => acc + g.totalPdvs, 0);
+        const meta = qty ?? defaultQty;
+        return `${vendedorNombre} debe altear los ${diasCount} día${diasCount !== 1 ? "s" : ""} asignados y sumar ${meta} PDVs nuevos${fechaLabel}.${diasLabel}`;
+      }
+      if (qty) {
+        return `${vendedorNombre} debe altear ${qty} PDVs nuevos${fechaLabel}.${diasLabel}`;
+      }
+      return `${vendedorNombre} debe altear nuevos PDVs${fechaLabel}.`;
     }
     if (tipo === "cobranza" && selectedDeudor) {
       const monto = cobranzaMode === "parcial" && cobranzaMonto ? cobranzaMonto : selectedDeudor.deuda_total;
       return `${vendedorNombre} deberá cobrarle $${Number(monto).toLocaleString("es-AR")} a ${selectedDeudor.cliente_nombre}${fechaLabel}.`;
     }
     if (tipo === "conversion_estado") {
+      if (activacionMode === "general" && cantidadActivacion) {
+        return `${vendedorNombre} deberá activar ${cantidadActivacion} PDV${Number(cantidadActivacion) !== 1 ? "s" : ""}${fechaLabel}.${diasLabel}`;
+      }
       if (selectedPdvIds.size > 0) {
         const metaN = cantidadActivacion !== "" ? Number(cantidadActivacion) : selectedPdvIds.size;
         const total = selectedPdvIds.size;
@@ -1075,15 +1227,24 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
       id_vendedor: Number(vendedorId),
       nombre_vendedor: vendedorNombre,
       tipo,
-      ...(fecha ? { fecha_objetivo: fecha } : {}),
+      ...(origenMode === "compania"
+        ? { fecha_objetivo: monthEndISO(mesReferencia) }
+        : (fecha ? { fecha_objetivo: fecha } : {})),
       origen: origenMode,
       ...(origenMode === "compania" && mesReferencia ? { mes_referencia: `${mesReferencia}-01` } : {}),
       ...(tasaPendientes !== "" ? { tasa_pendientes: Number(tasaPendientes) } : {}),
     };
 
     if (tipo === "ruteo_alteo") {
-      base.valor_objetivo = cantidadAlteo ? Number(cantidadAlteo) : (selectedRuta?.total_pdv ?? undefined);
-      if (selectedRuta) { base.estado_inicial = selectedRuta.dia_semana; base.id_target_ruta = selectedRuta.id_ruta; }
+      if (alteoMode === "general") {
+        base.valor_objetivo = cantidadAlteo ? Number(cantidadAlteo) : undefined;
+      } else {
+        const defaultQty = selectedDayGroups.reduce((acc, g) => acc + g.totalPdvs, 0);
+        base.valor_objetivo = cantidadAlteo ? Number(cantidadAlteo) : (defaultQty || undefined);
+        if (selectedDayGroups.length > 0) {
+          base.estado_inicial = selectedDayGroups.map((g) => g.day.toUpperCase()).join(", ");
+        }
+      }
       base.descripcion = desc || buildPhrase();
       onCreate([base]);
       return;
@@ -1101,6 +1262,12 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
     }
 
     if (tipo === "conversion_estado") {
+      if (activacionMode === "general") {
+        base.valor_objetivo = cantidadActivacion !== "" ? Number(cantidadActivacion) : undefined;
+        base.descripcion = desc || buildPhrase();
+        onCreate([base]);
+        return;
+      }
       if (selectedPdvIds.size > 0) {
         const pdvItems = Array.from(selectedPdvIds).map((pdvId) => {
           const pdv = pdvCatalogAll.find((p) => p.id_cliente === pdvId);
@@ -1358,38 +1525,77 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
           {/* Contextual: Alteo */}
           {tipo === "ruteo_alteo" && (
             <div className="space-y-2 rounded-xl bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] p-3">
-              <p className="text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider">Ruta del vendedor</p>
+              <div className="flex gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setAlteoMode("por_dia")}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                    alteoMode === "por_dia"
+                      ? "border-[var(--shelfy-accent)] bg-[var(--shelfy-accent)]/10 text-[var(--shelfy-accent)]"
+                      : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
+                  }`}
+                >
+                  Altear los días X + Y PDVs
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAlteoMode("general")}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                    alteoMode === "general"
+                      ? "border-[var(--shelfy-accent)] bg-[var(--shelfy-accent)]/10 text-[var(--shelfy-accent)]"
+                      : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
+                  }`}
+                >
+                  Altear Y PDVs nuevos
+                </button>
+              </div>
+              {alteoMode === "por_dia" && (
+                <p className="text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider">Días asignados del vendedor</p>
+              )}
               {!vendedorId ? (
                 <p className="text-xs text-[var(--shelfy-muted)]">Seleccioná un vendedor para ver sus rutas</p>
               ) : loadingCtx ? (
                 <div className="flex items-center gap-1.5 text-xs text-[var(--shelfy-muted)]">
                   <Loader2 className="w-3 h-3 animate-spin" /> Cargando rutas...
                 </div>
-              ) : rutas.length === 0 ? (
+              ) : alteoMode === "por_dia" && rutas.length === 0 ? (
                 <p className="text-xs text-[var(--shelfy-muted)]">Sin rutas registradas</p>
-              ) : (
+              ) : alteoMode === "por_dia" ? (
                 <div className="space-y-1">
-                  {rutas.map(r => (
-                    <button
-                      key={r.id_ruta}
-                      type="button"
-                      onClick={() => setSelectedRutaId(selectedRutaId === r.id_ruta ? null : r.id_ruta)}
-                      className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs transition-colors border ${
-                        selectedRutaId === r.id_ruta
-                          ? "border-[var(--shelfy-accent)]/60 bg-[var(--shelfy-accent)]/10 text-[var(--shelfy-text)]"
-                          : "border-transparent hover:bg-black/5 text-[var(--shelfy-muted)]"
-                      }`}
-                    >
-                      <span className="font-medium">{r.nombre_ruta}</span>
-                      <span className="flex items-center gap-2 text-[10px]">
-                        <span className="opacity-70">{r.dia_semana}</span>
-                        <span className="text-[var(--shelfy-accent)] font-semibold">{r.total_pdv} PDVs</span>
-                      </span>
-                    </button>
+                  {rutasPorDia.map(({ day, dayKey, routes: dayRoutes, totalPdvs }) => (
+                    <div key={dayKey} className="rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] p-2">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedDias((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(dayKey)) next.delete(dayKey);
+                          else next.add(dayKey);
+                          return next;
+                        })}
+                        className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors border ${
+                          selectedDias.has(dayKey)
+                            ? "border-[var(--shelfy-accent)]/60 bg-[var(--shelfy-accent)]/10 text-[var(--shelfy-text)]"
+                            : "border-transparent hover:bg-black/5 text-[var(--shelfy-muted)]"
+                        }`}
+                      >
+                        <span className="font-semibold uppercase">{day}</span>
+                        <span className="text-[10px] text-[var(--shelfy-accent)] font-semibold">{totalPdvs} PDVs</span>
+                      </button>
+                      <div className="mt-1 pl-1 space-y-0.5">
+                        {dayRoutes.map((r) => (
+                          <div key={r.id_ruta} className="text-[10px] text-[var(--shelfy-muted)] flex items-center justify-between">
+                            <span>Ruta {r.nombre_ruta}</span>
+                            <span>{r.total_pdv} PDVs</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   ))}
                 </div>
+              ) : (
+                <p className="text-xs text-[var(--shelfy-muted)]">Modo general activo: definí cuántos PDVs nuevos debe altear.</p>
               )}
-              {selectedRutaId && (
+              <div>
                 <div>
                   <label className="text-[10px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1">
                     Cantidad a altear
@@ -1397,13 +1603,17 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
                   <input
                     type="number"
                     min={1}
-                    placeholder={String(selectedRuta?.total_pdv ?? "Todos")}
+                    placeholder={
+                      alteoMode === "por_dia"
+                        ? String(selectedDayGroups.reduce((acc, g) => acc + g.totalPdvs, 0) || "Total días")
+                        : "Ej: 12"
+                    }
                     className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-1.5 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
                     value={cantidadAlteo}
                     onChange={e => setCantidadAlteo(e.target.value ? Number(e.target.value) : "")}
                   />
                 </div>
-              )}
+              </div>
             </div>
           )}
 
@@ -1477,16 +1687,55 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
           {/* Contextual: Activación (conversion_estado) */}
           {tipo === "conversion_estado" && vendedorId && (
             <div className="space-y-2 rounded-xl bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] p-3">
+              <div className="flex gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setActivacionMode("por_pdv")}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                    activacionMode === "por_pdv"
+                      ? "border-[var(--shelfy-accent)] bg-[var(--shelfy-accent)]/10 text-[var(--shelfy-accent)]"
+                      : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
+                  }`}
+                >
+                  Activar PDVs X, Y, Z
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActivacionMode("general")}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                    activacionMode === "general"
+                      ? "border-[var(--shelfy-accent)] bg-[var(--shelfy-accent)]/10 text-[var(--shelfy-accent)]"
+                      : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
+                  }`}
+                >
+                  Activar X PDVs
+                </button>
+              </div>
+              {activacionMode === "general" && (
+                <div>
+                  <label className="text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">
+                    Cantidad de PDVs a activar
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    placeholder="Ej: 10"
+                    className="w-full bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                    value={cantidadActivacion}
+                    onChange={e => setCantidadActivacion(e.target.value ? Number(e.target.value) : "")}
+                  />
+                </div>
+              )}
               <p className="text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider">
                 PDVs sin compra +30 días
               </p>
-              {loadingCtx ? (
+              {activacionMode === "por_pdv" && loadingCtx ? (
                 <div className="flex items-center gap-1.5 text-xs text-[var(--shelfy-muted)]">
                   <Loader2 className="w-3 h-3 animate-spin" /> Cargando PDVs...
                 </div>
-              ) : activacionPdvs.length === 0 ? (
+              ) : activacionMode === "por_pdv" && activacionPdvs.length === 0 ? (
                 <p className="text-xs text-[var(--shelfy-muted)]">Sin PDVs en esa condición</p>
-              ) : (
+              ) : activacionMode === "por_pdv" ? (
                 <div className="max-h-40 overflow-y-auto space-y-0.5">
                   {activacionPdvs.map((pdv) => (
                     <button
@@ -1522,13 +1771,15 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
                     </button>
                   ))}
                 </div>
+              ) : (
+                <p className="text-xs text-[var(--shelfy-muted)]">Modo general activo: meta por cantidad, sin lista fija de PDVs.</p>
               )}
-              {selectedPdvIds.size > 0 && (
+              {activacionMode === "por_pdv" && selectedPdvIds.size > 0 && (
                 <p className="text-[10px] font-semibold text-[var(--shelfy-accent)]">
                   {selectedPdvIds.size} seleccionado{selectedPdvIds.size > 1 ? "s" : ""} para objetivo de activación
                 </p>
               )}
-              {selectedPdvIds.size > 0 && (
+              {activacionMode === "por_pdv" && selectedPdvIds.size > 0 && (
                 <motion.div
                   initial={{ opacity: 0, y: -6 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -1561,7 +1812,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
                   </p>
                 </motion.div>
               )}
-              {pdvCatalogHasMore && (
+              {activacionMode === "por_pdv" && pdvCatalogHasMore && (
                 <button
                   type="button"
                   disabled={loadingMorePdv}

@@ -312,6 +312,28 @@ const DIA_ORDER: Record<string, number> = {
   viernes: 5, sabado: 6, sábado: 6, domingo: 7,
 };
 
+function normDia(dia?: string | null): string {
+  return (dia ?? "sin día").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+type RouteLike = { id_ruta: number; dia_semana?: string | null; total_pdv?: number | null };
+
+function groupRouteLikeByDay<T extends RouteLike>(rutas: T[]) {
+  const byDay = new Map<string, T[]>();
+  for (const r of rutas) {
+    const day = r.dia_semana || "Sin día";
+    if (!byDay.has(day)) byDay.set(day, []);
+    byDay.get(day)!.push(r);
+  }
+  return Array.from(byDay.entries())
+    .sort((a, b) => (DIA_ORDER[normDia(a[0])] ?? 99) - (DIA_ORDER[normDia(b[0])] ?? 99))
+    .map(([day, routes]) => ({
+      day,
+      routes,
+      totalPdvs: routes.reduce((acc, r) => acc + (r.total_pdv ?? 0), 0),
+    }));
+}
+
 // ── Vendor avatar ─────────────────────────────────────────────────────────────
 const RANGO_COLORS: Record<string, string> = {
   "1-7 Días":   "bg-green-500/15 text-green-400 border-green-500/25",
@@ -478,8 +500,10 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
   const setObjSubmitting     = useObjetivosMenuStore(s => s.setObjSubmitting);
   const objVendedorRoutes    = useObjetivosMenuStore(s => s.objVendedorRoutes);
   const setObjVendedorRoutes = useObjetivosMenuStore(s => s.setObjVendedorRoutes);
-  const objSelectedRutaId    = useObjetivosMenuStore(s => s.objSelectedRutaId);
-  const setObjSelectedRutaId = useObjetivosMenuStore(s => s.setObjSelectedRutaId);
+  const objSelectedDias      = useObjetivosMenuStore(s => s.objSelectedDias);
+  const setObjSelectedDias   = useObjetivosMenuStore(s => s.setObjSelectedDias);
+  const objAlteoMode         = useObjetivosMenuStore(s => s.objAlteoMode);
+  const setObjAlteoMode      = useObjetivosMenuStore(s => s.setObjAlteoMode);
   const objDebtList          = useObjetivosMenuStore(s => s.objDebtList);
   const setObjDebtList       = useObjetivosMenuStore(s => s.setObjDebtList);
   const objInactivePdvCount  = useObjetivosMenuStore(s => s.objInactivePdvCount);
@@ -1192,7 +1216,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
   function buildObjectivePhrase(
     tipo: ObjetivoTipo,
     vendorName: string,
-    selectedRuta: { id_ruta: number; nro_ruta: string; dia_semana: string; total_pdv: number } | null,
+    selectedDays: string[],
     fecha: string,
     cantidadAlteo?: number | "",
     selectedDeudor?: {cliente_nombre: string; deuda_total: number} | null,
@@ -1205,9 +1229,16 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
     const fechaLabel = fecha ? ` para el día ${fecha}` : "";
     const diasLabel = diasDisponibles !== null ? ` Tenés ${diasDisponibles} días para cumplir el objetivo.` : "";
 
-    if (tipo === "ruteo_alteo" && selectedRuta) {
-      const qty = cantidadAlteo || selectedRuta.total_pdv;
-      return `${vendorName} debe Altear ${qty} PDVs en la ruta ${selectedRuta.nro_ruta} de los días ${selectedRuta.dia_semana}${fechaLabel}.${diasLabel}`;
+    if (tipo === "ruteo_alteo") {
+      const qty = cantidadAlteo ? Number(cantidadAlteo) : null;
+      if (selectedDays.length > 0) {
+        const diasLabelTxt = selectedDays.map((d) => d.toUpperCase()).join(", ");
+        return `${vendorName} debe ALTEAR los ${diasLabelTxt}${qty ? ` y sumar ${qty} PDVs nuevos` : ""}${fechaLabel}.${diasLabel}`;
+      }
+      if (qty) {
+        return `${vendorName} debe ALTEAR ${qty} PDVs nuevos${fechaLabel}.${diasLabel}`;
+      }
+      return `${vendorName} debe ALTEAR nuevos PDVs${fechaLabel}.`;
     }
     if (tipo === "cobranza") {
       if (selectedDeudor) {
@@ -1247,7 +1278,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
         // For ruteo: group all selected PDVs into a single objetivo with pdv_items
         const firstPin = pines.find(p => selectedPDVsForObjective.includes(p.id) && p.id_vendedor);
         if (firstPin?.id_vendedor) {
-          const autoDesc = objDesc || buildObjectivePhrase(objTipo, firstPin.vendedor, null, objFecha);
+          const autoDesc = objDesc || buildObjectivePhrase(objTipo, firstPin.vendedor, [], objFecha);
           const globalDestinoRuta = objVendedorRoutes.find(r => r.id_ruta === objRuteoGlobalDestinoId) ?? null;
           const pdvItems = selectedPDVsForObjective.map((pdvId, idx) => {
             const pin = pines.find(p => p.id === pdvId);
@@ -1337,8 +1368,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
         }
 
         for (const [vendedorId, { vendedor, pdvs }] of byVendedor) {
-          const selectedRuta = objVendedorRoutes.find(r => r.id_ruta === objSelectedRutaId) ?? null;
-          const autoDesc = objDesc || buildObjectivePhrase(objTipo, vendedor, selectedRuta, objFecha, objCantidadAlteo, objSelectedDeudor, objCobranzaMode, objCobranzaMonto);
+          const autoDesc = objDesc || buildObjectivePhrase(objTipo, vendedor, objSelectedDias, objFecha, objCantidadAlteo, objSelectedDeudor, objCobranzaMode, objCobranzaMonto);
 
           // Para cobranza (objetivo de deuda, no multi-PDV) usar id_target_pdv del primer pin
           if (objTipo === "cobranza") {
@@ -1367,12 +1397,17 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
               nombre_vendedor: vendedor,
               descripcion: autoDesc || undefined,
               fecha_objetivo: objOrigen === 'distribuidora' ? (objFecha || undefined) : undefined,
-              valor_objetivo: pdvs.length,
+              valor_objetivo: objTipo === "ruteo_alteo"
+                ? (objCantidadAlteo !== '' ? Number(objCantidadAlteo) : pdvs.length)
+                : pdvs.length,
               pdv_items: pdvs.map(pin => ({
                 id_cliente_pdv: pin.id,
                 id_cliente_erp: pin.idClienteErp ?? undefined,
                 nombre_pdv: pin.nombre,
               })),
+              ...(objTipo === "ruteo_alteo" && objSelectedDias.length > 0
+                ? { estado_inicial: objSelectedDias.map((d) => d.toUpperCase()).join(", ") }
+                : {}),
               origen: objOrigen,
               mes_referencia: objOrigen === 'compania' ? (objMesReferencia || undefined) : undefined,
               tasa_pendientes: objTasaPendientes !== '' ? Number(objTasaPendientes) : undefined,
@@ -1575,59 +1610,66 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
 
               <Accordion open={vOpen}>
                 <div className="bg-black/20 divide-y divide-white/5">
-                  {vRutas.map(r => {
-                    const rOpen    = openRuta === r.id_ruta;
-                    const isRutaOn = visibleRutas.has(r.id_ruta);
-                    const rCli     = queryClient.getQueryData<ClienteSupervision[]>(['supervision-clientes', selectedDist, r.id_ruta]) ?? [];
-                    const cliVis   = rCli.filter(c => visibleClientes.has(c.id_cliente)).length;
-
-                    return (
-                      <div key={r.id_ruta}>
-                        <div className="flex items-center gap-2 px-6 py-2 hover:bg-white/5 transition-colors">
-                          <button onClick={() => handleRuta(r.id_ruta)} className="flex-1 flex items-center gap-2 text-left min-w-0">
-                            <ChevronRight className={`w-3 h-3 text-white/20 transition-transform ${rOpen ? "rotate-90" : ""}`} />
-                            <RouteIcon className="w-3 h-3" style={{ color: isRutaOn ? color : color + "66" }} />
-                            <span className="text-[11px] font-semibold text-white/70 truncate">Ruta {r.nombre_ruta}</span>
-                          </button>
-                          <div className="flex items-center gap-2">
-                             <span className="text-[9px] font-bold text-white/30">{isRutaOn ? cliVis : r.total_pdv}</span>
-                             <EyeBtn on={isRutaOn} color={color} className="w-5 h-5" onClick={() => toggleRuta(r.id_ruta, v.id_vendedor)} />
-                          </div>
-                        </div>
-                        <Accordion open={rOpen}>
-                          <div className="bg-black/40">
-                            {rCli.map(c => {
-                              const padronOff = !isClientePadronActivo(c);
-                              const isCliOn = visibleClientes.has(c.id_cliente);
-                              const inactivo = isInactivo(c.fecha_ultima_compra);
-                              const dotColor = padronOff ? "#374151" : !isRutaOn || !isCliOn ? "#4b5563" : inactivo ? "#6b7280" : color;
-                              return (
-                                <div key={c.id_cliente} className="flex items-center gap-2 pl-10 pr-2 py-1.5 hover:bg-white/5 transition-colors">
-                                  <div
-                                    className="flex-1 flex items-center gap-2 min-w-0"
-                                    onClick={() => { if (!padronOff) toggleCliente(c.id_cliente); }}
-                                  >
-                                    <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: dotColor }} />
-                                    <span className={`text-[10px] truncate ${padronOff ? "text-white/25 line-through" : !isCliOn ? "text-white/20" : inactivo ? "text-white/40" : "text-white/80"}`}>
-                                      {c.nombre_fantasia || c.nombre_razon_social}
-                                    </span>
-                                  </div>
-                                  <EyeBtn
-                                    on={isCliOn}
-                                    color={inactivo ? "#6b7280" : color}
-                                    className="w-4 h-4"
-                                    disabled={padronOff}
-                                    title={padronOff ? "Dado de baja en padrón" : undefined}
-                                    onClick={() => toggleCliente(c.id_cliente)}
-                                  />
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </Accordion>
+                  {groupRouteLikeByDay(vRutas).map(({ day, routes }) => (
+                    <div key={`${v.id_vendedor}-${day}`} className="py-1">
+                      <div className="px-6 py-1 text-[10px] font-bold uppercase tracking-wide text-white/45">
+                        {day}
                       </div>
-                    );
-                  })}
+                      {routes.map((r) => {
+                        const rOpen    = openRuta === r.id_ruta;
+                        const isRutaOn = visibleRutas.has(r.id_ruta);
+                        const rCli     = queryClient.getQueryData<ClienteSupervision[]>(['supervision-clientes', selectedDist, r.id_ruta]) ?? [];
+                        const cliVis   = rCli.filter(c => visibleClientes.has(c.id_cliente)).length;
+
+                        return (
+                          <div key={r.id_ruta}>
+                            <div className="flex items-center gap-2 px-6 py-2 hover:bg-white/5 transition-colors">
+                              <button onClick={() => handleRuta(r.id_ruta)} className="flex-1 flex items-center gap-2 text-left min-w-0">
+                                <ChevronRight className={`w-3 h-3 text-white/20 transition-transform ${rOpen ? "rotate-90" : ""}`} />
+                                <RouteIcon className="w-3 h-3" style={{ color: isRutaOn ? color : color + "66" }} />
+                                <span className="text-[11px] font-semibold text-white/70 truncate">Ruta {r.nombre_ruta}</span>
+                              </button>
+                              <div className="flex items-center gap-2">
+                                <span className="text-[9px] font-bold text-white/30">{isRutaOn ? cliVis : r.total_pdv}</span>
+                                <EyeBtn on={isRutaOn} color={color} className="w-5 h-5" onClick={() => toggleRuta(r.id_ruta, v.id_vendedor)} />
+                              </div>
+                            </div>
+                            <Accordion open={rOpen}>
+                              <div className="bg-black/40">
+                                {rCli.map(c => {
+                                  const padronOff = !isClientePadronActivo(c);
+                                  const isCliOn = visibleClientes.has(c.id_cliente);
+                                  const inactivo = isInactivo(c.fecha_ultima_compra);
+                                  const dotColor = padronOff ? "#374151" : !isRutaOn || !isCliOn ? "#4b5563" : inactivo ? "#6b7280" : color;
+                                  return (
+                                    <div key={c.id_cliente} className="flex items-center gap-2 pl-10 pr-2 py-1.5 hover:bg-white/5 transition-colors">
+                                      <div
+                                        className="flex-1 flex items-center gap-2 min-w-0"
+                                        onClick={() => { if (!padronOff) toggleCliente(c.id_cliente); }}
+                                      >
+                                        <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: dotColor }} />
+                                        <span className={`text-[10px] truncate ${padronOff ? "text-white/25 line-through" : !isCliOn ? "text-white/20" : inactivo ? "text-white/40" : "text-white/80"}`}>
+                                          {c.nombre_fantasia || c.nombre_razon_social}
+                                        </span>
+                                      </div>
+                                      <EyeBtn
+                                        on={isCliOn}
+                                        color={inactivo ? "#6b7280" : color}
+                                        className="w-4 h-4"
+                                        disabled={padronOff}
+                                        title={padronOff ? "Dado de baja en padrón" : undefined}
+                                        onClick={() => toggleCliente(c.id_cliente)}
+                                      />
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </Accordion>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
                 </div>
               </Accordion>
             </div>
@@ -2919,34 +2961,80 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                   </div>
                 </div>
 
-                {/* Contextual section: Alteo — ruta selector */}
+                {/* Contextual section: Alteo — día selector */}
                 {objTipo === "ruteo_alteo" && (
                   <div className="space-y-2">
+                    <div className="flex gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setObjAlteoMode("por_dia")}
+                        className={`flex-1 py-1 rounded-lg text-xs font-medium transition-colors border ${
+                          objAlteoMode === "por_dia"
+                            ? "bg-[var(--shelfy-accent)]/20 text-[var(--shelfy-accent)] border-[var(--shelfy-accent)]/40"
+                            : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-white"
+                        }`}
+                      >
+                        Por día
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setObjAlteoMode("general")}
+                        className={`flex-1 py-1 rounded-lg text-xs font-medium transition-colors border ${
+                          objAlteoMode === "general"
+                            ? "bg-[var(--shelfy-accent)]/20 text-[var(--shelfy-accent)] border-[var(--shelfy-accent)]/40"
+                            : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-white"
+                        }`}
+                      >
+                        General
+                      </button>
+                    </div>
                     <div>
-                      <label className="text-[10px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1">Ruta</label>
+                      <label className="text-[10px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1">Día asignado</label>
                       {objLoadingContext ? (
                         <div className="flex items-center gap-1.5 text-xs text-[var(--shelfy-muted)]">
                           <Loader2 className="w-3 h-3 animate-spin" /> Cargando rutas...
                         </div>
                       ) : objVendedorRoutes.length === 0 ? (
                         <p className="text-xs text-[var(--shelfy-muted)]">Sin rutas encontradas</p>
+                      ) : objAlteoMode === "general" ? (
+                        <p className="text-xs text-[var(--shelfy-muted)]">Modo general activo: el objetivo no depende de una ruta puntual.</p>
                       ) : (
-                        <select
-                          className="w-full appearance-none bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-1.5 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
-                          value={objSelectedRutaId ?? ""}
-                          onChange={e => setObjSelectedRutaId(e.target.value ? Number(e.target.value) : null)}
-                        >
-                          <option value="">Seleccionar ruta...</option>
-                          {objVendedorRoutes.map(r => (
-                            <option key={r.id_ruta} value={r.id_ruta}>
-                              {r.nro_ruta} · {r.dia_semana} · {r.total_pdv} PDVs
-                            </option>
-                          ))}
-                        </select>
+                        <div className="space-y-1.5 max-h-36 overflow-y-auto rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] p-2">
+                          {groupRouteLikeByDay(objVendedorRoutes).map(({ day, routes, totalPdvs }) => {
+                            const dayKey = normDia(day);
+                            const on = objSelectedDias.includes(dayKey);
+                            return (
+                              <button
+                                key={dayKey}
+                                type="button"
+                                onClick={() =>
+                                  setObjSelectedDias(
+                                    on
+                                      ? objSelectedDias.filter((d) => d !== dayKey)
+                                      : [...objSelectedDias, dayKey]
+                                  )
+                                }
+                                className={`w-full text-left px-2.5 py-1.5 rounded-md border transition-colors ${
+                                  on
+                                    ? "border-[var(--shelfy-accent)]/50 bg-[var(--shelfy-accent)]/10"
+                                    : "border-transparent hover:bg-white/5"
+                                }`}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[11px] font-semibold uppercase text-[var(--shelfy-text)]">{day}</span>
+                                  <span className="text-[10px] text-[var(--shelfy-muted)]">{totalPdvs} PDVs</span>
+                                </div>
+                                <p className="text-[10px] text-[var(--shelfy-muted)]">
+                                  {routes.length} ruta{routes.length !== 1 ? "s" : ""} asignada{routes.length !== 1 ? "s" : ""}
+                                </p>
+                              </button>
+                            );
+                          })}
+                        </div>
                       )}
                     </div>
                     {/* Cantidad a altear */}
-                    {objSelectedRutaId && (
+                    {(objAlteoMode === "general" || objSelectedDias.length > 0) && (
                       <div>
                         <label className="text-[10px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1">
                           Cantidad de PDVs a altear
@@ -2954,7 +3042,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                         <input
                           type="number"
                           min={1}
-                          placeholder={String(objVendedorRoutes.find(r => r.id_ruta === objSelectedRutaId)?.total_pdv ?? "N PDVs")}
+                          placeholder="N PDVs"
                           className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-1.5 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
                           value={objCantidadAlteo}
                           onChange={e => setObjCantidadAlteo(e.target.value ? Number(e.target.value) : "")}
@@ -3046,16 +3134,23 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                     ) : (
                       <div className="rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] p-2 max-h-28 overflow-y-auto">
                         <p className="text-[9px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider mb-1">Rutas asignadas al vendedor</p>
-                        <ul className="text-[11px] text-[var(--shelfy-text)] space-y-0.5">
-                          {objVendedorRoutes.map(r => (
-                            <li key={r.id_ruta}>
-                              <span className="font-mono text-[var(--shelfy-accent)]">Ruta {r.nro_ruta ?? "—"}</span>
-                              {" · "}
-                              <span className="capitalize">{r.dia_semana || "—"}</span>
-                              {r.total_pdv != null ? <span className="text-[var(--shelfy-muted)]"> · {r.total_pdv} PDV</span> : null}
-                            </li>
+                        <div className="space-y-1">
+                          {groupRouteLikeByDay(objVendedorRoutes).map(({ day, routes, totalPdvs }) => (
+                            <details key={day} className="rounded border border-[var(--shelfy-border)]/60 bg-[var(--shelfy-panel)] px-2 py-1">
+                              <summary className="cursor-pointer text-[10px] font-semibold text-[var(--shelfy-text)] uppercase">
+                                {day} · {totalPdvs} PDVs
+                              </summary>
+                              <ul className="text-[11px] text-[var(--shelfy-text)] space-y-0.5 mt-1">
+                                {routes.map(r => (
+                                  <li key={r.id_ruta}>
+                                    <span className="font-mono text-[var(--shelfy-accent)]">Ruta {r.nro_ruta ?? "—"}</span>
+                                    {r.total_pdv != null ? <span className="text-[var(--shelfy-muted)]"> · {r.total_pdv} PDV</span> : null}
+                                  </li>
+                                ))}
+                              </ul>
+                            </details>
                           ))}
-                        </ul>
+                        </div>
                       </div>
                     )}
 
@@ -3128,10 +3223,17 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                                 <SelectValue placeholder="Elegir ruta destino..." />
                               </SelectTrigger>
                               <SelectContent className="max-h-60 z-[10060]">
-                                {objVendedorRoutes.map(r => (
-                                  <SelectItem key={r.id_ruta} value={String(r.id_ruta)}>
-                                    Ruta {r.nro_ruta ?? "—"} · {r.dia_semana || "—"}
-                                  </SelectItem>
+                                {groupRouteLikeByDay(objVendedorRoutes).map(({ day, routes, totalPdvs }) => (
+                                  <div key={day}>
+                                    <div className="px-2 py-1 text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase">
+                                      {day} · {totalPdvs} PDVs
+                                    </div>
+                                    {routes.map(r => (
+                                      <SelectItem key={r.id_ruta} value={String(r.id_ruta)}>
+                                        Ruta {r.nro_ruta ?? "—"} · {r.total_pdv ?? 0} PDVs
+                                      </SelectItem>
+                                    ))}
+                                  </div>
                                 ))}
                               </SelectContent>
                             </Select>
@@ -3194,10 +3296,17 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                                     <SelectValue placeholder="Ruta destino..." />
                                   </SelectTrigger>
                                   <SelectContent className="max-h-52 z-[10060]">
-                                    {objVendedorRoutes.map(r => (
-                                      <SelectItem key={`${pdvId}-${r.id_ruta}`} value={String(r.id_ruta)}>
-                                        Ruta {r.nro_ruta ?? "—"} · {r.dia_semana || "—"}
-                                      </SelectItem>
+                                    {groupRouteLikeByDay(objVendedorRoutes).map(({ day, routes, totalPdvs }) => (
+                                      <div key={`${pdvId}-${day}`}>
+                                        <div className="px-2 py-1 text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase">
+                                          {day} · {totalPdvs} PDVs
+                                        </div>
+                                        {routes.map(r => (
+                                          <SelectItem key={`${pdvId}-${r.id_ruta}`} value={String(r.id_ruta)}>
+                                            Ruta {r.nro_ruta ?? "—"} · {r.total_pdv ?? 0} PDVs
+                                          </SelectItem>
+                                        ))}
+                                      </div>
                                     ))}
                                   </SelectContent>
                                 </Select>

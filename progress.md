@@ -1,8 +1,8 @@
 # Progress — Shelfy CenterMind
 
-**Última actualización: 5 de Mayo, 2026 (SyncStatusPanel premium + observabilidad padrón)**
+**Última actualización: 7 de Mayo, 2026 (Objetivos compañía mensual + prorrateo anidado)**
 
-- **Historial reciente:** **SyncStatusPanel (admin/supervisión):** Reemplaza el antiguo `SyncStatusBar` (dos pills mínimas) por un panel expandible premium. `supervision.py` → `GET /api/supervision/sync-status/{dist_id}` ahora devuelve `activos`, `anulados`, `ausentes` (conteos de `clientes_pdv_v2`), `last_run_estado`, y `has_zombie` (run `en_curso` >2h). `api.ts`: `SyncStatusEntry` extendido con esos campos. `SyncStatusPanel.tsx` (nuevo): `PulseDot` con ping animation, `MiniProgress` framer-motion, `StatChip` (activos/anulados/ausentes), `PadronBreakdown` expandible con alerta roja zombie. `TabSupervision.tsx`: `SyncStatusBar` eliminado, ahora usa `SyncStatusPanel`.
+- **Historial reciente:** **Objetivos + Supervisión (jerarquía Día→Ruta):** se normaliza la lectura operativa de rutas en frontend para evitar colisiones cuando un vendedor tiene múltiples rutas el mismo día. `shelfy-frontend/src/app/objetivos/page.tsx` y `shelfy-frontend/src/components/admin/TabSupervision.tsx` pasan a priorizar selección/agrupación por `dia_semana` (no por `id_ruta`), incluyendo alta de Alteo por días asignados y listados de mapa/supervisión agrupados por día. `useObjetivosMenuStore` migra estado de `objSelectedRutaId` a `objSelectedDias + objAlteoMode`. `objetivos_notification_service.py` actualiza copy de Alteo a “por día”.
 
 **Última actualización (anterior): 5 de Mayo, 2026 (Padrón Consolido anulados + mapa)**
 

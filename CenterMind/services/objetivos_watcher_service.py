@@ -326,11 +326,11 @@ class ObjetivosWatcherService:
         self, obj: dict, id_vendedor: int, dist_id: int, since: str
     ) -> tuple[float, int]:
         """
-        Detecta nuevos PDVs en las rutas del vendedor creados después de
-        'since' que no estén registrados en objetivos_tracking.
+        Detecta nuevos PDVs por FECHA DE ALTA (padrón) posteriores a `since`
+        que no estén registrados en objetivos_tracking.
 
         Si el objetivo tiene objetivo_items, sólo evalúa esos PDVs específicos
-        y marca como cumplido cada ítem cuyo PDV ya aparece en la ruta.
+        y marca como cumplido cada ítem cuya fecha_alta es posterior al objetivo.
         """
         obj_id = obj["id"]
         try:
@@ -340,22 +340,20 @@ class ObjetivosWatcherService:
                 return (float(obj.get("valor_actual") or 0), 0)
 
             if item_pdv_ids:
-                # Verificar qué ítems ya están en la ruta del vendedor
+                # En alteo NO se usa cambio de ruta como señal de cumplimiento:
+                # solo fecha_alta posterior al alta del objetivo.
                 clientes_res = (
                     sb.table(tenant_table_name("clientes_pdv_v2", dist_id))
-                    .select("id_cliente, id_cliente_erp, nombre_fantasia, fecha_alta, id_ruta")
+                    .select("id_cliente, id_cliente_erp, nombre_fantasia, fecha_alta")
                     .eq("id_distribuidor", dist_id)
                     .in_("id_cliente", item_pdv_ids)
+                    .gte("fecha_alta", since)
                     .execute()
                 )
                 all_clients = clientes_res.data or []
 
-                # Filtrar los que tienen una ruta asignada al vendedor
-                rutas_res = sb.table(tenant_table_name("rutas_v2", dist_id)).select("id_ruta").eq("id_vendedor", id_vendedor).execute()
-                ruta_ids = {r["id_ruta"] for r in (rutas_res.data or [])}
-
                 ya_trackeados = self._get_tracked_refs(obj_id, "alteo")
-                cumplidos = [c for c in all_clients if c.get("id_ruta") in ruta_ids and str(c["id_cliente"]) not in ya_trackeados]
+                cumplidos = [c for c in all_clients if str(c["id_cliente"]) not in ya_trackeados]
 
                 if cumplidos:
                     self._insert_tracking_batch(obj_id, "alteo", cumplidos, id_llave="id_cliente", dist_id=dist_id, id_vendedor=id_vendedor)
@@ -372,7 +370,7 @@ class ObjetivosWatcherService:
                     logger.warning(f"[Watcher] alteo items relecture obj={obj_id}: {e_items}")
                 return (float(obj.get("valor_actual") or 0), len(cumplidos))
 
-            # Sin ítems: comportamiento original — contar PDVs nuevos en ruta
+            # Sin ítems: contar altas en rutas del vendedor por fecha_alta.
             rutas_res = (
                 sb.table(tenant_table_name("rutas_v2", dist_id))
                 .select("id_ruta")
@@ -388,7 +386,7 @@ class ObjetivosWatcherService:
                 .select("id_cliente, id_cliente_erp, nombre_fantasia, fecha_alta")
                 .eq("id_distribuidor", dist_id)
                 .in_("id_ruta", ruta_ids)
-                .gte("fecha_alta", since[:10])
+                .gte("fecha_alta", since)
                 .execute()
             )
             all_clients = clientes_res.data or []
@@ -429,7 +427,7 @@ class ObjetivosWatcherService:
                     .select("id_cliente, id_cliente_erp, nombre_fantasia, fecha_ultima_compra")
                     .eq("id_distribuidor", dist_id)
                     .in_("id_cliente", item_pdv_ids)
-                    .gte("fecha_ultima_compra", since[:10])
+                    .gte("fecha_ultima_compra", since)
                     .execute()
                 )
                 all_clients = clientes_res.data or []
@@ -468,7 +466,7 @@ class ObjetivosWatcherService:
                 .select("id_cliente, id_cliente_erp, nombre_fantasia, fecha_ultima_compra")
                 .eq("id_distribuidor", dist_id)
                 .in_("id_ruta", ruta_ids)
-                .gte("fecha_ultima_compra", since[:10])
+                .gte("fecha_ultima_compra", since)
                 .execute()
             )
             all_clients = clientes_res.data or []

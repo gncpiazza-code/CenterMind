@@ -221,7 +221,7 @@ function DateChip({ date }: { date: string | null | undefined }) {
   );
 }
 
-function CompaniaProrrateo({ obj }: { obj: Objetivo }) {
+function CompaniaProrrateo({ obj, visualActual }: { obj: Objetivo; visualActual?: number }) {
   if (obj.origen !== "compania" || !obj.mes_referencia || !obj.valor_objetivo) return null;
   const base = new Date(`${obj.mes_referencia}T00:00:00`);
   if (Number.isNaN(base.getTime())) return null;
@@ -247,13 +247,14 @@ function CompaniaProrrateo({ obj }: { obj: Objetivo }) {
     allWeeks.get(key)!.push(dt);
   }
   const weekEntries = Array.from(allWeeks.entries());
-  const remainingMeta = Math.max(0, (obj.valor_objetivo ?? 0) - (obj.valor_actual ?? 0));
+  const shownActual = Math.max(obj.valor_actual ?? 0, visualActual ?? obj.valor_actual ?? 0);
+  const remainingMeta = Math.max(0, (obj.valor_objetivo ?? 0) - shownActual);
   const remainingWeeks = Math.max(1, weekEntries.length);
   const weeklyTarget = remainingMeta > 0 ? remainingMeta / remainingWeeks : 0;
   const dailyTarget = weeklyTarget / 6;
   const diasRestantes = Math.max(0, Math.ceil((monthEnd.getTime() - today.getTime()) / 86400000));
   const elapsedBusinessDays = Math.max(1, businessDays.filter((d) => d <= today).length);
-  const avgPerBusinessDay = (obj.valor_actual ?? 0) / elapsedBusinessDays;
+  const avgPerBusinessDay = shownActual / elapsedBusinessDays;
 
   return (
     <div
@@ -401,6 +402,8 @@ function ObjetivoPhrase({ obj }: { obj: Objetivo }) {
 function getObjectiveKanbanPhase(obj: Objetivo): 'pendiente' | 'en_progreso' | 'terminado' {
   if (obj.cumplido) return 'terminado';
   if (obj.kanban_phase === "terminado") return "terminado";
+  if (obj.kanban_phase === "en_progreso") return "en_progreso";
+  if (obj.kanban_phase === "pendiente") return "pendiente";
   const actual = obj.valor_actual ?? 0;
   const objetivo = obj.valor_objetivo;
   if (obj.tipo === 'exhibicion') {
@@ -733,6 +736,9 @@ function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado, onOpenR
     if (itemPending > 0) return itemPending;
     return obj.tiene_exhibicion_pendiente ? 1 : 0;
   }, [obj.items, obj.tiene_exhibicion_pendiente]);
+  const shownActual = obj.tipo === "exhibicion"
+    ? (obj.valor_actual ?? 0) + pendingEvidenceCount
+    : (obj.valor_actual ?? 0);
 
   const leftBorderClass =
     obj.resultado_final === "exito"
@@ -802,7 +808,7 @@ function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado, onOpenR
         {obj.valor_objetivo ? (
           <div onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between text-[10px] text-[var(--shelfy-muted)] mb-1 tabular-nums">
-              <span>{obj.valor_actual} / {Math.round(obj.valor_objetivo)}</span>
+              <span>{shownActual} / {Math.round(obj.valor_objetivo)}</span>
               {obj.tasa_pendientes != null && (
                 <span className="text-[var(--shelfy-muted)]/70">
                   Tasa pendientes: {obj.tasa_pendientes}
@@ -817,7 +823,7 @@ function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado, onOpenR
             </div>
             <ProgressBar
               actual={obj.valor_actual}
-              visualActual={obj.tipo === "exhibicion" ? obj.valor_actual + pendingEvidenceCount : obj.valor_actual}
+              visualActual={shownActual}
               objetivo={obj.valor_objetivo}
               tasaPendientes={obj.tasa_pendientes}
             />
@@ -886,7 +892,7 @@ function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado, onOpenR
                 {obj.descripcion && (
                   <p className="text-xs text-[var(--shelfy-muted)] leading-relaxed">{obj.descripcion}</p>
                 )}
-                <CompaniaProrrateo obj={obj} />
+                <CompaniaProrrateo obj={obj} visualActual={shownActual} />
                 {obj.items && obj.items.length > 0 && obj.tipo === "ruteo_alteo" ? (
                   <RuteoAlteoItemsTree obj={obj} />
                 ) : obj.items && obj.items.length > 0 ? (

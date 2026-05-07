@@ -59,6 +59,7 @@ Tokens clave:
 - En el modal de alta, `fecha limite` es obligatoria para origen distribuidora.
 - `Tasa de pendientes` se muestra debajo del bloque contextual del tipo y antes del selector de fecha.
 - La card de compania muestra avance semanal y diario en todas las semanas/dias del mes (no solo futuros).
+- El progreso mostrado en card y desglose de compañía usa el mismo `visualActual` para evitar desfasajes entre barras.
 
 ### `visor/page.tsx`
 

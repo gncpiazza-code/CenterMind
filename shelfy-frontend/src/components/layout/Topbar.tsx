@@ -10,6 +10,8 @@ import {
   fetchPortalFeedbackPendingCount,
   fetchPortalFeedbackMessages,
   getSuperadminWSUrl,
+  postPortalFeedbackMessage,
+  uploadPortalFeedbackAttachment,
 } from "@/lib/api";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/Button";
@@ -36,7 +38,6 @@ import {
 import Link from "next/link";
 
 // ── Ticket flotante ───────────────────────────────────────────────────────────
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 function TicketPanel({ onClose }: { onClose: () => void }) {
   const { user } = useAuth();
@@ -76,17 +77,24 @@ function TicketPanel({ onClose }: { onClose: () => void }) {
 
   const sendMutation = useMutation({
     mutationFn: async () => {
-      const token = typeof window !== "undefined" ? localStorage.getItem("shelfy_token") : null;
-      const fd = new FormData();
-      fd.append("contenido", `**${asunto}**\n\n${mensaje}`);
-      fd.append("context_log", buildContextLog());
-      attachments.forEach((f) => fd.append("files", f));
-      const r = await fetch(`${API_URL}/api/portal-feedback/messages`, {
-        method: "POST",
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        body: fd,
-      });
-      if (!r.ok) throw new Error(await r.text());
+      const uploaded: { url: string; filename: string }[] = [];
+      for (const file of attachments) {
+        const r = await uploadPortalFeedbackAttachment(file);
+        uploaded.push({ url: r.url, filename: r.filename });
+      }
+      const bodyLines = [
+        `Asunto: ${asunto.trim()}`,
+        "",
+        mensaje.trim(),
+        "",
+        "Contexto técnico:",
+        buildContextLog(),
+      ];
+      if (uploaded.length) {
+        bodyLines.push("", "Adjuntos:");
+        uploaded.forEach((a) => bodyLines.push(`- ${a.url} (${a.filename})`));
+      }
+      await postPortalFeedbackMessage(bodyLines.join("\n"));
     },
     onSuccess: () => {
       toast.success("Ticket enviado");

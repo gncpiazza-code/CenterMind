@@ -24,14 +24,14 @@
 
 1. Objetivos: fecha limite obligatoria (UI + validacion backend) y tasa de pendientes reubicada antes del bloque de fecha.
 2. Objetivos compania (exhibicion): retroactividad mensual activa desde `mes_referencia` para calcular avance inicial.
-3. Bot Telegram: recordatorio diario 08:00 AR para vendedores con objetivos activos + mensaje de alta mas accionable.
-4. Objetivos: prorrateo compania semanal/diario visible en card (semanas y dias del mes).
-5. Objetivos: identificacion PDV estandar (`#id_cliente_erp + nombre`).
-6. Padron: soporte anulados (`padron_anulado`) y ocultamiento en supervision.
-7. Difusion CC: preview de envios + guardrails de conflicto.
-8. Reporteria v2: selector y detalle premium por vendedor.
-9. SIGO detail: parser extendido + endpoint + difusion Telegram.
-10. Sync-status: timestamp padron alineado con datos reales.
+3. Objetivos alteo: cumplimiento por `fecha_alta` de padrón (no por cambio de ruta), con corte temporal por timestamp del objetivo.
+4. Objetivos activacion: corte temporal por timestamp completo para evitar avances previos del mismo dia.
+5. Tickets portal (Topbar): fix de envío (adjuntos por `/attachments` + mensaje JSON) para eliminar `Failed to fetch`.
+6. Bot Telegram: recordatorio diario 08:00 AR para vendedores con objetivos activos + mensaje de alta mas accionable.
+7. Objetivos: prorrateo compania semanal/diario visible en card (semanas y dias del mes).
+8. Objetivos: identificacion PDV estandar (`#id_cliente_erp + nombre`).
+9. Padron: soporte anulados (`padron_anulado`) y ocultamiento en supervision.
+10. Difusion CC: preview de envios + guardrails de conflicto.
 
 ## Riesgos y Guardrails Activos
 

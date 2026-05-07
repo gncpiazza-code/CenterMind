@@ -90,6 +90,7 @@ while True:
 - Mensajes Telegram de alta de objetivos deben incluir instruccion accionable clara y referencia a `/objetivos`.
 - Bot envia recordatorio diario de objetivos a las 08:00 AR para vendedores con objetivos activos.
 - Retroactividad solo para objetivos de compania tipo `exhibicion`: calcular avance desde `mes_referencia`.
+- En `ruteo_alteo`, el cumplimiento debe evaluarse por `fecha_alta` de padrón; no usar cambio de ruta como señal.
 
 ## 10) Protocolo Shelfy (obligatorio)
 

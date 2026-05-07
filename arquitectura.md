@@ -37,6 +37,7 @@ Claves:
 - Upsert idempotente por `(id_distribuidor, id_*_erp)`.
 - Soporte de anulados (`motivo_inactivo='padron_anulado'`).
 - Ausentes del padron: `padron_absent`.
+- Objetivos `ruteo_alteo` se calculan por `fecha_alta` del padrón (no por cambio de ruta), usando el timestamp de creación del objetivo como corte.
 
 ### Cuentas Corrientes
 

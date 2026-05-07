@@ -1535,7 +1535,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
                       : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
                   }`}
                 >
-                  Altear los días X + Y PDVs
+                  Por días asignados
                 </button>
                 <button
                   type="button"
@@ -1546,9 +1546,12 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
                       : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
                   }`}
                 >
-                  Altear Y PDVs nuevos
+                  Meta general por cantidad
                 </button>
               </div>
+              <p className="text-[10px] text-[var(--shelfy-muted)]">
+                <strong>Por días asignados:</strong> elegís los días del vendedor y definís cuántos PDVs nuevos debe sumar.
+              </p>
               {alteoMode === "por_dia" && (
                 <p className="text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider">Días asignados del vendedor</p>
               )}
@@ -1697,7 +1700,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
                       : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
                   }`}
                 >
-                  Activar PDVs X, Y, Z
+                  Seleccionar PDVs
                 </button>
                 <button
                   type="button"
@@ -1708,7 +1711,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
                       : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
                   }`}
                 >
-                  Activar X PDVs
+                  Meta general por cantidad
                 </button>
               </div>
               {activacionMode === "general" && (
@@ -1880,7 +1883,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
                       : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
                   }`}
                 >
-                  Meta general
+                  Meta general por cantidad
                 </button>
                 <button
                   type="button"
@@ -1891,7 +1894,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
                       : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
                   }`}
                 >
-                  Por PDV
+                  Seleccionar PDVs
                 </button>
               </div>
 

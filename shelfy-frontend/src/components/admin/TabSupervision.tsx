@@ -397,7 +397,7 @@ function formatSyncTime(iso: string | null): string {
 
 export default function TabSupervision({ distId, isSuperadmin, fullscreen = false, mapOnly = false }: TabSupervisionProps) {
   const queryClient = useQueryClient();
-  const { hasPermiso } = useAuth();
+  const { hasPermiso, user } = useAuth();
   const [selectedDist, setSelectedDist]         = useState(distId);
   
   // Zustand store for persistent visibility state
@@ -434,6 +434,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
   const [openVend, setOpenVend]                 = useState<number | null>(null);
   const [openRuta, setOpenRuta]                 = useState<number | null>(null);
   const [openCliente, setOpenCliente]           = useState<number | null>(null);
+  const [expandedDias, setExpandedDias]         = useState<Set<string>>(new Set());
 
   // loading states for async operations
   const [loadingMap, setLoadingMap]             = useState<Set<number>>(new Set());
@@ -507,6 +508,12 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
   const objRuteoGlobalMotivo    = useObjetivosMenuStore(s => s.objRuteoGlobalMotivo);
   const setObjRuteoGlobalMotivo = useObjetivosMenuStore(s => s.setObjRuteoGlobalMotivo);
   const resetObjForm            = useObjetivosMenuStore(s => s.resetObjForm);
+  const objOrigen               = useObjetivosMenuStore(s => s.objOrigen);
+  const setObjOrigen            = useObjetivosMenuStore(s => s.setObjOrigen);
+  const objMesReferencia        = useObjetivosMenuStore(s => s.objMesReferencia);
+  const setObjMesReferencia     = useObjetivosMenuStore(s => s.setObjMesReferencia);
+  const objTasaPendientes       = useObjetivosMenuStore(s => s.objTasaPendientes);
+  const setObjTasaPendientes    = useObjetivosMenuStore(s => s.setObjTasaPendientes);
 
   // ── CC Upload Dialog ──────────────────────────────────────────────────────
   type CCUploadStatus = "idle" | "uploading" | "polling" | "done" | "error";
@@ -1308,10 +1315,13 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
             tipo: objTipo,
             nombre_vendedor: firstPin.vendedor,
             descripcion: autoDesc || undefined,
-            fecha_objetivo: objFecha || undefined,
+            fecha_objetivo: objOrigen === 'distribuidora' ? (objFecha || undefined) : undefined,
             valor_objetivo: selectedPDVsForObjective.length,
             pdv_items: enrichedPdvItems,
             ruteo_build_mode: hasValidPolygon ? 'polygon' : 'manual',
+            origen: objOrigen,
+            mes_referencia: objOrigen === 'compania' ? (objMesReferencia || undefined) : undefined,
+            tasa_pendientes: objTasaPendientes !== '' ? Number(objTasaPendientes) : undefined,
           } as ObjetivoCreate);
         }
       } else {
@@ -1340,10 +1350,13 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
               nombre_pdv: pdvs[0].nombre,
               nombre_vendedor: vendedor,
               descripcion: autoDesc || undefined,
-              fecha_objetivo: objFecha || undefined,
+              fecha_objetivo: objOrigen === 'distribuidora' ? (objFecha || undefined) : undefined,
               ...(objSelectedDeudor ? {
                 valor_objetivo: objCobranzaMode === "parcial" && objCobranzaMonto ? Number(objCobranzaMonto) : objSelectedDeudor.deuda_total,
               } : {}),
+              origen: objOrigen,
+              mes_referencia: objOrigen === 'compania' ? (objMesReferencia || undefined) : undefined,
+              tasa_pendientes: objTasaPendientes !== '' ? Number(objTasaPendientes) : undefined,
             } as ObjetivoCreate);
           } else {
             // Un solo objetivo con todos los PDVs como pdv_items
@@ -1353,13 +1366,16 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
               tipo: objTipo,
               nombre_vendedor: vendedor,
               descripcion: autoDesc || undefined,
-              fecha_objetivo: objFecha || undefined,
+              fecha_objetivo: objOrigen === 'distribuidora' ? (objFecha || undefined) : undefined,
               valor_objetivo: pdvs.length,
               pdv_items: pdvs.map(pin => ({
                 id_cliente_pdv: pin.id,
                 id_cliente_erp: pin.idClienteErp ?? undefined,
                 nombre_pdv: pin.nombre,
               })),
+              origen: objOrigen,
+              mes_referencia: objOrigen === 'compania' ? (objMesReferencia || undefined) : undefined,
+              tasa_pendientes: objTasaPendientes !== '' ? Number(objTasaPendientes) : undefined,
             } as ObjetivoCreate);
           }
         }
@@ -1957,191 +1973,249 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                           </p>
                         )}
 
-                        {vRutas.map(r => {
-                          const rOpen    = openRuta === r.id_ruta;
-                          const rCli     = queryClient.getQueryData<ClienteSupervision[]>(['supervision-clientes', selectedDist, r.id_ruta]) ?? [];
-                          const isRutaOn = visibleRutas.has(r.id_ruta);
-                          // count how many clients in this route are visible
-                          const cliVisible = rCli.filter(c => visibleClientes.has(c.id_cliente)).length;
+                        {(() => {
+                          // Group rutas by dia_semana
+                          const diaGroups: { dia: string; rutas: typeof vRutas }[] = [];
+                          const diaMap = new Map<string, typeof vRutas>();
+                          for (const r of vRutas) {
+                            const dia = r.dia_semana ?? "Sin día";
+                            if (!diaMap.has(dia)) diaMap.set(dia, []);
+                            diaMap.get(dia)!.push(r);
+                          }
+                          // Sort days by DIA_ORDER
+                          const sortedDias = Array.from(diaMap.keys()).sort(
+                            (a, b) => (DIA_ORDER[a.toLowerCase()] ?? 9) - (DIA_ORDER[b.toLowerCase()] ?? 9)
+                          );
+                          for (const dia of sortedDias) {
+                            diaGroups.push({ dia, rutas: diaMap.get(dia)! });
+                          }
 
-                          return (
-                            <div key={r.id_ruta}>
-                              {/* Route row */}
-                              <div className="flex items-center gap-2 px-5 py-2 hover:bg-white/5 transition-colors">
-                                {/* Expand button */}
+                          return diaGroups.map(({ dia, rutas: diaRutas }) => {
+                            const diaKey = `${v.id_vendedor}-${dia}`;
+                            const diaOpen = expandedDias.has(diaKey);
+                            const diaTotalPDVs = diaRutas.reduce((sum, r) => sum + (r.total_pdv ?? 0), 0);
+                            const diaLabel = dia.charAt(0).toUpperCase() + dia.slice(1).toLowerCase();
+
+                            return (
+                              <div key={diaKey}>
+                                {/* ── Day header ── */}
                                 <button
-                                  onClick={() => handleRuta(r.id_ruta)}
-                                  className="flex items-center gap-2 flex-1 min-w-0 text-left"
+                                  onClick={() => {
+                                    setExpandedDias(prev => {
+                                      const next = new Set(prev);
+                                      if (next.has(diaKey)) next.delete(diaKey);
+                                      else next.add(diaKey);
+                                      return next;
+                                    });
+                                  }}
+                                  className="w-full flex items-center gap-2 px-4 py-2 hover:bg-white/5 transition-colors text-left"
                                 >
                                   <ChevronRight
-                                    className={`w-3 h-3 text-[var(--shelfy-muted)] shrink-0 transition-transform duration-200 ${rOpen ? "rotate-90" : ""}`}
+                                    className={`w-3.5 h-3.5 text-[var(--shelfy-muted)] shrink-0 transition-transform duration-200 ${diaOpen ? "rotate-90" : ""}`}
                                   />
-                                  <RouteIcon
-                                    className="w-3 h-3 shrink-0"
-                                    style={{ color: isRutaOn ? color : color + "66" }}
-                                  />
-                                  <span className="text-[11px] font-semibold text-[var(--shelfy-text)] flex-1 truncate">
-                                    Ruta {r.nombre_ruta}
+                                  <span className="text-[12px] font-bold text-[var(--shelfy-text)] uppercase tracking-wide flex-1">
+                                    {diaLabel}
+                                  </span>
+                                  <span className="text-[10px] font-semibold text-[var(--shelfy-muted)]">
+                                    {diaTotalPDVs.toLocaleString()} PDV{diaTotalPDVs !== 1 ? "s" : ""}
+                                  </span>
+                                  <span className="text-[9px] text-[var(--shelfy-muted)]/60 ml-1">
+                                    {diaRutas.length} ruta{diaRutas.length !== 1 ? "s" : ""}
                                   </span>
                                 </button>
-                                <div className="flex items-center gap-1.5 shrink-0">
-                                  <DiaBadge dia={r.dia_semana} />
-                                  <span className="text-[10px] text-[var(--shelfy-muted)]">
-                                    {isRutaOn && rCli.length > 0
-                                      ? <span style={{ color }}>{cliVisible}</span>
-                                      : r.total_pdv
-                                    }
-                                  </span>
-                                  {loadingMap.has(v.id_vendedor) && !visibleRutas.has(r.id_ruta) && (
-                                    <Loader2 className="w-3 h-3 animate-spin text-[var(--shelfy-muted)]" />
-                                  )}
-                                  {/* Route eye toggle */}
-                                  <EyeBtn
-                                    on={isRutaOn}
-                                    color={color}
-                                    loading={loadingMap.has(v.id_vendedor) && !isRutaOn}
-                                    onClick={() => toggleRuta(r.id_ruta, v.id_vendedor)}
-                                    title={isRutaOn ? "Ocultar ruta del mapa" : "Mostrar ruta en mapa"}
-                                  />
-                                </div>
-                              </div>
 
-                              {/* ── Clientes accordion ── */}
-                              <Accordion open={rOpen}>
-                                <div className="bg-[var(--shelfy-bg)]/60 divide-y divide-[var(--shelfy-border)]/20">
-                                  {rCli.length === 0 && loadingMap.has(v.id_vendedor) && (
-                                    <div className="flex items-center gap-2 py-2 px-8 text-[11px] text-[var(--shelfy-muted)]">
-                                      <Loader2 className="w-3 h-3 animate-spin" /> Cargando clientes...
-                                    </div>
-                                  )}
+                                {/* ── Day children (rutas) ── */}
+                                <Accordion open={diaOpen}>
+                                  <div className="divide-y divide-[var(--shelfy-border)]/20">
+                                    {diaRutas.map(r => {
+                                      const rOpen    = openRuta === r.id_ruta;
+                                      const rCli     = queryClient.getQueryData<ClienteSupervision[]>(['supervision-clientes', selectedDist, r.id_ruta]) ?? [];
+                                      const isRutaOn = visibleRutas.has(r.id_ruta);
+                                      const cliVisible = rCli.filter(c => visibleClientes.has(c.id_cliente)).length;
 
-                                  {rCli.map(c => {
-                                    const padronOff  = !isClientePadronActivo(c);
-                                    const cOpen      = openCliente === c.id_cliente;
-                                    const inactivo   = isInactivo(c.fecha_ultima_compra);
-                                    const fechaAlta  = fmt(c.fecha_alta);
-                                    const ultimaComp = fmt(c.fecha_ultima_compra);
-                                    const isCliOn    = visibleClientes.has(c.id_cliente);
-                                    const mapUrl     = c.latitud && c.longitud
-                                      ? `https://www.google.com/maps/search/?api=1&query=${c.latitud},${c.longitud}`
-                                      : null;
-                                    const dotColor   = padronOff
-                                      ? "#4b5563"
-                                      : !isRutaOn || !isCliOn
-                                        ? "#4b5563"
-                                        : inactivo ? "#6b7280" : color;
-
-                                    return (
-                                      <div key={c.id_cliente}>
-                                        <div className="flex items-center gap-2 pl-8 pr-2 py-1.5 hover:bg-white/5 transition-colors">
-                                          {/* Detail toggle */}
-                                          <button
-                                            onClick={() => handleCliente(c.id_cliente)}
-                                            className="flex items-center gap-2 flex-1 min-w-0 text-left"
-                                          >
-                                            <ChevronRight
-                                              className={`w-3 h-3 text-[var(--shelfy-muted)] shrink-0 transition-transform duration-200 ${cOpen ? "rotate-90" : ""}`}
-                                            />
-                                            {/* Dot = PDV map toggle */}
-                                            <span
-                                              className={`w-2 h-2 rounded-full shrink-0 transition-all ${padronOff ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
-                                              style={{ backgroundColor: dotColor, boxShadow: isCliOn && isRutaOn && !inactivo && !padronOff ? `0 0 4px ${color}88` : "none" }}
-                                              onClick={e => {
-                                                e.stopPropagation();
-                                                if (!padronOff) toggleCliente(c.id_cliente);
-                                              }}
-                                              title={padronOff ? "Dado de baja en padrón" : isCliOn ? "Ocultar PDV del mapa" : "Mostrar PDV en mapa"}
-                                            />
-                                            <span className={`text-[11px] flex-1 truncate ${padronOff ? "line-through opacity-50" : !isCliOn || !isRutaOn ? "opacity-50" : inactivo ? "text-[var(--shelfy-muted)]" : "text-[var(--shelfy-text)]"}`}>
-                                              <span className="font-mono text-[9px] bg-white/10 px-1 rounded mr-1 opacity-70">
-                                                {c.id_cliente_erp}
+                                      return (
+                                        <div key={r.id_ruta}>
+                                          {/* Route row (indented) */}
+                                          <div className="flex items-center gap-2 pl-8 pr-3 py-1.5 hover:bg-white/5 transition-colors">
+                                            {/* Expand button */}
+                                            <button
+                                              onClick={() => handleRuta(r.id_ruta)}
+                                              className="flex items-center gap-2 flex-1 min-w-0 text-left"
+                                            >
+                                              <ChevronRight
+                                                className={`w-3 h-3 text-[var(--shelfy-muted)] shrink-0 transition-transform duration-200 ${rOpen ? "rotate-90" : ""}`}
+                                              />
+                                              <RouteIcon
+                                                className="w-3 h-3 shrink-0"
+                                                style={{ color: isRutaOn ? color : color + "66" }}
+                                              />
+                                              <span className="text-[11px] font-semibold text-[var(--shelfy-text)] flex-1 truncate">
+                                                Ruta {r.nombre_ruta}
                                               </span>
-                                              {c.nombre_fantasia || c.nombre_razon_social || "Sin nombre"}
-                                            </span>
-                                          </button>
-                                          {/* PDV eye mini toggle */}
-                                          <EyeBtn
-                                            on={isCliOn}
-                                            color={inactivo ? "#6b7280" : color}
-                                            onClick={() => toggleCliente(c.id_cliente)}
-                                            disabled={padronOff}
-                                            title={padronOff ? "Dado de baja en padrón" : isCliOn ? "Ocultar PDV del mapa" : "Mostrar PDV en mapa"}
-                                          />
-                                        </div>
-
-                                        {/* Detail card */}
-                                        <Accordion open={cOpen}>
-                                          <div className="mx-3 mb-1.5 rounded-lg border border-[var(--shelfy-border)]/50 bg-[var(--shelfy-panel)] px-3 py-2 space-y-1.5">
-                                            <div className="flex items-center justify-between gap-2 border-b border-[var(--shelfy-border)]/30 pb-1.5">
-                                              <span className="text-[10px] font-bold text-[var(--shelfy-muted)] uppercase tracking-tight">Código ERP</span>
-                                              <span className="text-[11px] font-mono font-bold text-sky-400 bg-sky-500/10 px-1.5 py-0.5 rounded">{c.id_cliente_erp}</span>
-                                            </div>
-
-                                            {c.domicilio && (
-                                              <div className="flex items-start gap-1.5">
-                                                <MapPin className="w-3 h-3 text-[var(--shelfy-muted)] mt-0.5 shrink-0" />
-                                                <span className="text-[11px] text-[var(--shelfy-text)] flex-1 leading-snug">
-                                                  {c.domicilio}{c.localidad ? `, ${c.localidad}` : ""}{c.provincia ? ` (${c.provincia})` : ""}
-                                                </span>
-                                                {mapUrl && (
-                                                  <a
-                                                    href={mapUrl} target="_blank" rel="noopener noreferrer"
-                                                    onClick={e => e.stopPropagation()}
-                                                    className="text-[10px] text-[var(--shelfy-primary)] hover:underline shrink-0"
-                                                  >
-                                                    mapa ↗
-                                                  </a>
-                                                )}
-                                              </div>
-                                            )}
-                                            <div className="flex flex-col gap-1">
-                                              <div className="flex items-center gap-1">
-                                                <ShoppingCart className="w-3 h-3 text-[var(--shelfy-muted)] shrink-0" />
-                                                <span className={`text-[11px] font-semibold ${inactivo ? "text-red-400" : "text-emerald-400"}`}>
-                                                  {ultimaComp
-                                                    ? <>Últ. compra: {ultimaComp} <span className="font-normal opacity-70">({diasDesde(c.fecha_ultima_compra)})</span></>
-                                                    : "Sin compras"}
-                                                </span>
-                                              </div>
-                                              <div className="flex items-center gap-1">
-                                                <Calendar className="w-3 h-3 text-[var(--shelfy-muted)] shrink-0" />
-                                                <span className="text-[11px] text-[var(--shelfy-text)]">
-                                                  {c.fecha_ultima_exhibicion
-                                                    ? <>Últ. exhibición: <span className="font-semibold">{fmt(c.fecha_ultima_exhibicion?.split("T")[0])}</span> <span className="opacity-60">({diasDesde(c.fecha_ultima_exhibicion)})</span></>
-                                                    : <span className="opacity-40 italic text-[10px]">Sin exhibiciones registradas</span>
-                                                  }
-                                                </span>
-                                              </div>
-                                              <div className="flex items-center gap-1">
-                                                <Calendar className="w-3 h-3 text-[var(--shelfy-muted)] shrink-0" />
-                                                <span className="text-[11px] text-[var(--shelfy-text)]">
-                                                  Alta:{" "}
-                                                  {fechaAlta
-                                                    ? <span className="font-semibold">{fechaAlta}</span>
-                                                    : <span className="italic opacity-40 text-[10px]">re-subir padrón*</span>
-                                                  }
-                                                </span>
-                                              </div>
-                                            </div>
-                                            {c.canal && (
-                                              <span
-                                                className="inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded border"
-                                                style={{ backgroundColor: color + "15", color, borderColor: color + "30" }}
-                                              >
-                                                {c.canal}
+                                            </button>
+                                            <div className="flex items-center gap-1.5 shrink-0">
+                                              <span className="text-[10px] text-[var(--shelfy-muted)]">
+                                                {isRutaOn && rCli.length > 0
+                                                  ? <span style={{ color }}>{cliVisible}</span>
+                                                  : r.total_pdv
+                                                }
                                               </span>
-                                            )}
+                                              {loadingMap.has(v.id_vendedor) && !visibleRutas.has(r.id_ruta) && (
+                                                <Loader2 className="w-3 h-3 animate-spin text-[var(--shelfy-muted)]" />
+                                              )}
+                                              {/* Route eye toggle */}
+                                              <EyeBtn
+                                                on={isRutaOn}
+                                                color={color}
+                                                loading={loadingMap.has(v.id_vendedor) && !isRutaOn}
+                                                onClick={() => toggleRuta(r.id_ruta, v.id_vendedor)}
+                                                title={isRutaOn ? "Ocultar ruta del mapa" : "Mostrar ruta en mapa"}
+                                              />
+                                            </div>
                                           </div>
-                                        </Accordion>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              </Accordion>
 
-                            </div>
-                          );
-                        })}
+                                          {/* ── Clientes accordion ── */}
+                                          <Accordion open={rOpen}>
+                                            <div className="bg-[var(--shelfy-bg)]/60 divide-y divide-[var(--shelfy-border)]/20">
+                                              {rCli.length === 0 && loadingMap.has(v.id_vendedor) && (
+                                                <div className="flex items-center gap-2 py-2 px-8 text-[11px] text-[var(--shelfy-muted)]">
+                                                  <Loader2 className="w-3 h-3 animate-spin" /> Cargando clientes...
+                                                </div>
+                                              )}
+
+                                              {rCli.map(c => {
+                                                const padronOff  = !isClientePadronActivo(c);
+                                                const cOpen      = openCliente === c.id_cliente;
+                                                const inactivo   = isInactivo(c.fecha_ultima_compra);
+                                                const fechaAlta  = fmt(c.fecha_alta);
+                                                const ultimaComp = fmt(c.fecha_ultima_compra);
+                                                const isCliOn    = visibleClientes.has(c.id_cliente);
+                                                const mapUrl     = c.latitud && c.longitud
+                                                  ? `https://www.google.com/maps/search/?api=1&query=${c.latitud},${c.longitud}`
+                                                  : null;
+                                                const dotColor   = padronOff
+                                                  ? "#4b5563"
+                                                  : !isRutaOn || !isCliOn
+                                                    ? "#4b5563"
+                                                    : inactivo ? "#6b7280" : color;
+
+                                                return (
+                                                  <div key={c.id_cliente}>
+                                                    <div className="flex items-center gap-2 pl-8 pr-2 py-1.5 hover:bg-white/5 transition-colors">
+                                                      {/* Detail toggle */}
+                                                      <button
+                                                        onClick={() => handleCliente(c.id_cliente)}
+                                                        className="flex items-center gap-2 flex-1 min-w-0 text-left"
+                                                      >
+                                                        <ChevronRight
+                                                          className={`w-3 h-3 text-[var(--shelfy-muted)] shrink-0 transition-transform duration-200 ${cOpen ? "rotate-90" : ""}`}
+                                                        />
+                                                        {/* Dot = PDV map toggle */}
+                                                        <span
+                                                          className={`w-2 h-2 rounded-full shrink-0 transition-all ${padronOff ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
+                                                          style={{ backgroundColor: dotColor, boxShadow: isCliOn && isRutaOn && !inactivo && !padronOff ? `0 0 4px ${color}88` : "none" }}
+                                                          onClick={e => {
+                                                            e.stopPropagation();
+                                                            if (!padronOff) toggleCliente(c.id_cliente);
+                                                          }}
+                                                          title={padronOff ? "Dado de baja en padrón" : isCliOn ? "Ocultar PDV del mapa" : "Mostrar PDV en mapa"}
+                                                        />
+                                                        <span className={`text-[11px] flex-1 truncate ${padronOff ? "line-through opacity-50" : !isCliOn || !isRutaOn ? "opacity-50" : inactivo ? "text-[var(--shelfy-muted)]" : "text-[var(--shelfy-text)]"}`}>
+                                                          <span className="font-mono text-[9px] bg-white/10 px-1 rounded mr-1 opacity-70">
+                                                            {c.id_cliente_erp}
+                                                          </span>
+                                                          {c.nombre_fantasia || c.nombre_razon_social || "Sin nombre"}
+                                                        </span>
+                                                      </button>
+                                                      {/* PDV eye mini toggle */}
+                                                      <EyeBtn
+                                                        on={isCliOn}
+                                                        color={inactivo ? "#6b7280" : color}
+                                                        onClick={() => toggleCliente(c.id_cliente)}
+                                                        disabled={padronOff}
+                                                        title={padronOff ? "Dado de baja en padrón" : isCliOn ? "Ocultar PDV del mapa" : "Mostrar PDV en mapa"}
+                                                      />
+                                                    </div>
+
+                                                    {/* Detail card */}
+                                                    <Accordion open={cOpen}>
+                                                      <div className="mx-3 mb-1.5 rounded-lg border border-[var(--shelfy-border)]/50 bg-[var(--shelfy-panel)] px-3 py-2 space-y-1.5">
+                                                        <div className="flex items-center justify-between gap-2 border-b border-[var(--shelfy-border)]/30 pb-1.5">
+                                                          <span className="text-[10px] font-bold text-[var(--shelfy-muted)] uppercase tracking-tight">Código ERP</span>
+                                                          <span className="text-[11px] font-mono font-bold text-sky-400 bg-sky-500/10 px-1.5 py-0.5 rounded">{c.id_cliente_erp}</span>
+                                                        </div>
+
+                                                        {c.domicilio && (
+                                                          <div className="flex items-start gap-1.5">
+                                                            <MapPin className="w-3 h-3 text-[var(--shelfy-muted)] mt-0.5 shrink-0" />
+                                                            <span className="text-[11px] text-[var(--shelfy-text)] flex-1 leading-snug">
+                                                              {c.domicilio}{c.localidad ? `, ${c.localidad}` : ""}{c.provincia ? ` (${c.provincia})` : ""}
+                                                            </span>
+                                                            {mapUrl && (
+                                                              <a
+                                                                href={mapUrl} target="_blank" rel="noopener noreferrer"
+                                                                onClick={e => e.stopPropagation()}
+                                                                className="text-[10px] text-[var(--shelfy-primary)] hover:underline shrink-0"
+                                                              >
+                                                                mapa ↗
+                                                              </a>
+                                                            )}
+                                                          </div>
+                                                        )}
+                                                        <div className="flex flex-col gap-1">
+                                                          <div className="flex items-center gap-1">
+                                                            <ShoppingCart className="w-3 h-3 text-[var(--shelfy-muted)] shrink-0" />
+                                                            <span className={`text-[11px] font-semibold ${inactivo ? "text-red-400" : "text-emerald-400"}`}>
+                                                              {ultimaComp
+                                                                ? <>Últ. compra: {ultimaComp} <span className="font-normal opacity-70">({diasDesde(c.fecha_ultima_compra)})</span></>
+                                                                : "Sin compras"}
+                                                            </span>
+                                                          </div>
+                                                          <div className="flex items-center gap-1">
+                                                            <Calendar className="w-3 h-3 text-[var(--shelfy-muted)] shrink-0" />
+                                                            <span className="text-[11px] text-[var(--shelfy-text)]">
+                                                              {c.fecha_ultima_exhibicion
+                                                                ? <>Últ. exhibición: <span className="font-semibold">{fmt(c.fecha_ultima_exhibicion?.split("T")[0])}</span> <span className="opacity-60">({diasDesde(c.fecha_ultima_exhibicion)})</span></>
+                                                                : <span className="opacity-40 italic text-[10px]">Sin exhibiciones registradas</span>
+                                                              }
+                                                            </span>
+                                                          </div>
+                                                          <div className="flex items-center gap-1">
+                                                            <Calendar className="w-3 h-3 text-[var(--shelfy-muted)] shrink-0" />
+                                                            <span className="text-[11px] text-[var(--shelfy-text)]">
+                                                              Alta:{" "}
+                                                              {fechaAlta
+                                                                ? <span className="font-semibold">{fechaAlta}</span>
+                                                                : <span className="italic opacity-40 text-[10px]">re-subir padrón*</span>
+                                                              }
+                                                            </span>
+                                                          </div>
+                                                        </div>
+                                                        {c.canal && (
+                                                          <span
+                                                            className="inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded border"
+                                                            style={{ backgroundColor: color + "15", color, borderColor: color + "30" }}
+                                                          >
+                                                            {c.canal}
+                                                          </span>
+                                                        )}
+                                                      </div>
+                                                    </Accordion>
+                                                  </div>
+                                                );
+                                              })}
+                                            </div>
+                                          </Accordion>
+
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </Accordion>
+                              </div>
+                            );
+                          });
+                        })()}
                       </div>
                     </Accordion>
 
@@ -2153,8 +2227,8 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
 
         </div>
 
-        {/* ── MOBILE CC — debajo de rutas en mobile (xl:hidden) ──────────── */}
-        {!mapOnly && <div className="xl:hidden flex flex-col rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-y-auto min-h-[300px]">
+        {/* ── MOBILE CC — debajo de rutas en mobile (lg:hidden) ──────────── */}
+        {!mapOnly && <div className="lg:hidden flex flex-col rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-y-auto min-h-[300px]">
           <div className="flex items-center gap-2 px-3 py-2.5 border-b border-[var(--shelfy-border)]/50 shrink-0">
             <CreditCard className="w-3.5 h-3.5 text-amber-400" />
             <span className="text-xs font-bold text-[var(--shelfy-text)]">Cuentas</span>
@@ -2236,8 +2310,8 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
 
       </div>
 
-      {/* ── SECCIÓN CUENTAS CORRIENTES — solo desktop (xl+) ─────────────────── */}
-      {!mapOnly && <div className="hidden xl:grid xl:grid-cols-2 gap-4">
+      {/* ── SECCIÓN CUENTAS CORRIENTES — solo desktop (lg+) ─────────────────── */}
+      {!mapOnly && <div className="hidden lg:grid lg:grid-cols-2 gap-4">
 
         {/* Columna izquierda: CC */}
         <div className="rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden shadow-sm">
@@ -3149,6 +3223,55 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                 {/* Contextual section: Activación / Exhibición — inactive PDV count */}
                 {/* (Phrase builder preview hidden per v12 plan) */}
 
+                {/* Origen: Distribuidora / Compañía — solo para directorio o superadmin */}
+                {(user?.is_superadmin || user?.rol === 'directorio') && (
+                  <div>
+                    <p className="text-[9px] font-bold uppercase tracking-widest text-[var(--shelfy-muted)] mb-2">Origen</p>
+                    <div className="flex gap-1.5">
+                      {(['distribuidora', 'compania'] as const).map(op => (
+                        <button
+                          key={op}
+                          type="button"
+                          onClick={() => setObjOrigen(op)}
+                          className={`flex-1 py-1.5 rounded-lg text-[11px] font-semibold transition-all border ${
+                            objOrigen === op
+                              ? 'border-[var(--shelfy-accent)] bg-[var(--shelfy-accent)]/15 text-[var(--shelfy-accent)]'
+                              : 'border-black/10 dark:border-white/10 text-[var(--shelfy-muted)] hover:border-black/20 dark:hover:border-white/20'
+                          }`}
+                        >
+                          {op === 'distribuidora' ? 'Distribuidora' : 'Compañía'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Mes de referencia — solo cuando origen === compania */}
+                {objOrigen === 'compania' && (
+                  <div>
+                    <label className="text-[10px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1">Mes de referencia</label>
+                    <select
+                      className="w-full appearance-none bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-1.5 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                      value={objMesReferencia}
+                      onChange={e => setObjMesReferencia(e.target.value)}
+                    >
+                      <option value="">Seleccionar mes...</option>
+                      {(() => {
+                        const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+                        const now = new Date();
+                        const opts = [];
+                        for (let i = -6; i <= 1; i++) {
+                          const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+                          const val = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                          const label = `${MESES[d.getMonth()]} ${d.getFullYear()}`;
+                          opts.push(<option key={val} value={val}>{label}</option>);
+                        }
+                        return opts;
+                      })()}
+                    </select>
+                  </div>
+                )}
+
                 {/* Descripción */}
                 <div>
                   <label className="text-[10px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1">Descripción</label>
@@ -3161,14 +3284,29 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                   />
                 </div>
 
-                {/* Fecha */}
+                {/* Fecha límite — solo cuando origen === distribuidora */}
+                {objOrigen === 'distribuidora' && (
+                  <div>
+                    <label className="text-[10px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1">Fecha límite</label>
+                    <DatePicker
+                      value={objFecha}
+                      onChange={setObjFecha}
+                      placeholder="Fecha límite"
+                      contentClassName="z-[10070]"
+                    />
+                  </div>
+                )}
+
+                {/* Tasa de pendientes — siempre visible, opcional */}
                 <div>
-                  <label className="text-[10px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1">Fecha límite</label>
-                  <DatePicker
-                    value={objFecha}
-                    onChange={setObjFecha}
-                    placeholder="Fecha límite"
-                    contentClassName="z-[10070]"
+                  <label className="text-[10px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1">Tasa de pendientes (opcional)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    placeholder="0"
+                    className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-1.5 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                    value={objTasaPendientes}
+                    onChange={e => setObjTasaPendientes(e.target.value ? Number(e.target.value) : '')}
                   />
                 </div>
 

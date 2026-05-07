@@ -89,6 +89,16 @@ interface ObjetivosMenuStore {
   objRuteoGlobalMotivo: string;
   setObjRuteoGlobalMotivo: (v: string) => void;
 
+  // Origen / Compañía
+  objOrigen: 'distribuidora' | 'compania';
+  setObjOrigen: (v: 'distribuidora' | 'compania') => void;
+  objMesReferencia: string;
+  setObjMesReferencia: (v: string) => void;
+
+  // Tasa de pendientes
+  objTasaPendientes: number | '';
+  setObjTasaPendientes: (v: number | '') => void;
+
   // Reset everything except open state
   resetObjForm: () => void;
 }
@@ -104,6 +114,7 @@ const INITIAL_FORM: Omit<
   | 'setObjCobranzaMode' | 'setObjCobranzaMonto' | 'setObjSelectedDeudor'
   | 'setObjRuteoAccionGlobal' | 'setObjRuteoItemsMap' | 'updateObjRuteoItem'
   | 'setObjRuteoConfigMode' | 'setObjRuteoGlobalDestinoId' | 'setObjRuteoGlobalMotivo'
+  | 'setObjOrigen' | 'setObjMesReferencia' | 'setObjTasaPendientes'
   | 'resetObjForm'
 > = {
   objTipo: 'exhibicion',
@@ -124,6 +135,9 @@ const INITIAL_FORM: Omit<
   objRuteoConfigMode: 'global',
   objRuteoGlobalDestinoId: null,
   objRuteoGlobalMotivo: '',
+  objOrigen: 'distribuidora',
+  objMesReferencia: '',
+  objTasaPendientes: '',
 };
 
 export const useObjetivosMenuStore = create<ObjetivosMenuStore>()((set) => ({
@@ -158,6 +172,10 @@ export const useObjetivosMenuStore = create<ObjetivosMenuStore>()((set) => ({
   setObjRuteoConfigMode: (v) => set({ objRuteoConfigMode: v }),
   setObjRuteoGlobalDestinoId: (v) => set({ objRuteoGlobalDestinoId: v }),
   setObjRuteoGlobalMotivo: (v) => set({ objRuteoGlobalMotivo: v }),
+
+  setObjOrigen: (v) => set({ objOrigen: v }),
+  setObjMesReferencia: (v) => set({ objMesReferencia: v }),
+  setObjTasaPendientes: (v) => set({ objTasaPendientes: v }),
 
   resetObjForm: () => set(INITIAL_FORM),
 }));

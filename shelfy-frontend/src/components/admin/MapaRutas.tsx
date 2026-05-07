@@ -385,7 +385,7 @@ export default function MapaRutas({
     const selSet = new Set(selectedPDVs ?? []);
 
     conCoords.forEach(p => {
-      const size        = p.activo ? 38 : 26;
+      const size        = p.activo ? 35 : 24;
       const isSelected  = selSet.has(p.id);
 
       const pinFillColor = p.color;
@@ -512,7 +512,7 @@ export default function MapaRutas({
     markersMapRef.current.forEach((marker, id) => {
       const pin = filteredPines.find(p => p.id === id);
       if (!pin) return;
-      const size       = pin.activo ? 38 : 26;
+      const size       = pin.activo ? 35 : 24;
       const isSelected = selSet.has(id);
 
       const iconUrl = isSelected
@@ -628,9 +628,16 @@ export default function MapaRutas({
 
     style.textContent = `
       @media print {
-        body > * { display: none !important; }
-        #${containerId} { display: block !important; width: 100vw !important; height: 100vh !important; }
-        #${containerId} * { display: block !important; }
+        * { visibility: hidden !important; }
+        #${containerId} {
+          visibility: visible !important;
+          position: fixed !important;
+          top: 0 !important;
+          left: 0 !important;
+          width: 100vw !important;
+          height: 100vh !important;
+        }
+        #${containerId} * { visibility: visible !important; }
       }
     `;
     window.print();

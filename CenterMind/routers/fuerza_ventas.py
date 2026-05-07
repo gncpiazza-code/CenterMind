@@ -1310,6 +1310,14 @@ def galeria_list_clientes_por_vendedor(
             nombre_fantasia = _safe_text(meta.get("nombre_fantasia")).strip()
             nombre_cliente = _safe_text(meta.get("nombre_cliente")).strip()
             id_cliente_erp = meta.get("id_cliente_erp")
+            if not id_cliente_erp:
+                # Fallback: intentar recuperar desde la exhibición si ya está en ultima_por_cliente
+                key_lookup = f"pdv:{cid}"
+                if key_lookup in ultima_por_cliente:
+                    ult = ultima_por_cliente[key_lookup]
+                    raw_nro = _safe_text(ult.get("nro_cliente")).strip() or _safe_text(ult.get("cliente_sombra_codigo")).strip()
+                    if raw_nro:
+                        id_cliente_erp = raw_nro
             nombre_final = nombre_fantasia or nombre_cliente or f"Cliente {id_cliente_erp or cid}"
             key = f"pdv:{cid}"
             result_by_key[key] = GaleriaClienteCard(
@@ -1339,6 +1347,12 @@ def galeria_list_clientes_por_vendedor(
             nombre_fantasia = _safe_text(meta.get("nombre_fantasia")).strip() if meta else ""
             nombre_cliente = _safe_text(meta.get("nombre_cliente")).strip() if meta else ""
             id_cliente_erp = meta.get("id_cliente_erp") if meta else None
+            if not id_cliente_erp:
+                raw_nro = _safe_text(ultima.get("nro_cliente")).strip()
+                if not raw_nro:
+                    raw_nro = _safe_text(ultima.get("cliente_sombra_codigo")).strip()
+                if raw_nro:
+                    id_cliente_erp = raw_nro
 
             nombre_final = nombre_fantasia or nombre_cliente
             if not nombre_final:

@@ -474,6 +474,95 @@ function downloadCertificado(obj: Objetivo, sucursalNombre?: string) {
   });
 }
 
+// ── Ruteo Alteo — jerarquía día → rutas ──────────────────────────────────────
+
+function RuteoAlteoItemsTree({ obj }: { obj: Objetivo }) {
+  const [expandedDays, setExpandedDays] = useState<Set<string>>(new Set());
+
+  // Group items by day (from metadata_ruteo.dia_semana, else obj.estado_inicial)
+  const byDay = useMemo(() => {
+    const map = new Map<string, { rutaLabel: string; items: Objetivo["items"] }[]>();
+    for (const it of obj.items ?? []) {
+      const md = (it.metadata_ruteo ?? {}) as Record<string, unknown>;
+      const dia = (typeof md["dia_semana"] === "string" ? md["dia_semana"] : obj.estado_inicial ?? "Sin día").toUpperCase();
+      const rutaLabel = typeof md["nombre_ruta"] === "string" ? md["nombre_ruta"] : `Ruta ${it.id_ruta_destino ?? ""}`;
+      if (!map.has(dia)) map.set(dia, []);
+      const dayGroups = map.get(dia)!;
+      const existing = dayGroups.find(g => g.rutaLabel === rutaLabel);
+      if (existing) {
+        existing.items!.push(it);
+      } else {
+        dayGroups.push({ rutaLabel, items: [it] });
+      }
+    }
+    return Array.from(map.entries()).sort((a, b) => {
+      const da = DIA_ORDER[a[0].toLowerCase()] ?? 9;
+      const db = DIA_ORDER[b[0].toLowerCase()] ?? 9;
+      return da - db;
+    });
+  }, [obj.items, obj.estado_inicial]);
+
+  const toggleDay = (dia: string) => {
+    setExpandedDays(prev => {
+      const next = new Set(prev);
+      if (next.has(dia)) next.delete(dia);
+      else next.add(dia);
+      return next;
+    });
+  };
+
+  return (
+    <div className="space-y-1 max-h-48 overflow-y-auto">
+      {byDay.map(([dia, rutaGroups]) => {
+        const totalPdvs = rutaGroups.reduce((acc, g) => acc + (g.items?.length ?? 0), 0);
+        const isExpanded = expandedDays.has(dia);
+        return (
+          <div key={dia} className="rounded-lg border border-[var(--shelfy-border)] overflow-hidden">
+            <button
+              type="button"
+              onClick={() => toggleDay(dia)}
+              className="w-full flex items-center justify-between px-2.5 py-1.5 bg-[var(--shelfy-bg)] hover:bg-black/5 transition-colors text-left"
+            >
+              <span className="text-[11px] font-semibold text-[var(--shelfy-text)] capitalize">{dia}</span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] text-[var(--shelfy-accent)] font-semibold tabular-nums">{totalPdvs} PDVs</span>
+                <ChevronDown className={`w-3 h-3 text-[var(--shelfy-muted)] transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+              </div>
+            </button>
+            {isExpanded && (
+              <div className="px-2 pb-1.5 pt-1 space-y-1.5 bg-[var(--shelfy-panel)]">
+                {rutaGroups.map(({ rutaLabel, items }) => (
+                  <div key={rutaLabel} className="space-y-0.5">
+                    <p className="text-[10px] font-medium text-[var(--shelfy-muted)] flex items-center gap-1">
+                      <GitBranch className="w-2.5 h-2.5" />
+                      {rutaLabel}
+                      <span className="ml-auto text-[var(--shelfy-muted)]/70 tabular-nums">{items?.length ?? 0} PDVs</span>
+                    </p>
+                    {(items ?? []).map(it => (
+                      <div key={it.id_cliente_pdv} className="flex items-center gap-1.5 pl-3 text-[10px]">
+                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                          it.estado_item === 'cumplido' ? 'bg-emerald-500' :
+                          it.estado_item === 'foto_subida' ? 'bg-yellow-400' :
+                          it.estado_item === 'falla' ? 'bg-red-500' :
+                          'bg-[var(--shelfy-muted)]/30'
+                        }`} />
+                        <span className="text-[var(--shelfy-text)] truncate flex-1">{it.nombre_pdv ?? "Cliente sin nombre"}</span>
+                        {getObjetivoItemClientCode(it) && (
+                          <span className="text-[var(--shelfy-muted)]/60 font-mono shrink-0">#{getObjetivoItemClientCode(it)}</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ── Kanban card ───────────────────────────────────────────────────────────────
 
 function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado, onOpenRuteoPdf }: {
@@ -629,7 +718,9 @@ function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado, onOpenR
                 {obj.descripcion && (
                   <p className="text-xs text-[var(--shelfy-muted)] leading-relaxed">{obj.descripcion}</p>
                 )}
-                {obj.items && obj.items.length > 0 && (
+                {obj.items && obj.items.length > 0 && obj.tipo === "ruteo_alteo" ? (
+                  <RuteoAlteoItemsTree obj={obj} />
+                ) : obj.items && obj.items.length > 0 ? (
                   <div className="space-y-0.5 max-h-32 overflow-y-auto">
                     {obj.items.map(it => (
                       <div key={it.id_cliente_pdv} className="flex items-center gap-2 text-[11px]">
@@ -649,7 +740,7 @@ function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado, onOpenR
                       </div>
                     ))}
                   </div>
-                )}
+                ) : null}
               </div>
             </motion.div>
           )}
@@ -984,7 +1075,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
       ...(fecha ? { fecha_objetivo: fecha } : {}),
       origen: origenMode,
       ...(origenMode === "compania" && mesReferencia ? { mes_referencia: `${mesReferencia}-01` } : {}),
-      ...(origenMode === "compania" && tasaPendientes !== "" ? { tasa_pendientes: Number(tasaPendientes) } : {}),
+      ...(tasaPendientes !== "" ? { tasa_pendientes: Number(tasaPendientes) } : {}),
     };
 
     if (tipo === "ruteo_alteo") {
@@ -1141,32 +1232,46 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
               <p className="text-[10px] font-semibold text-amber-600 uppercase tracking-wider">Objetivo de Compañía</p>
               <div>
                 <label className="text-[10px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1">Mes de referencia</label>
-                <input
-                  type="month"
+                <select
                   required={origenMode === "compania"}
-                  className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-1.5 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-amber-500/60"
                   value={mesReferencia}
                   onChange={e => setMesReferencia(e.target.value)}
-                />
-              </div>
-              <div>
-                <label className="text-[10px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1">
-                  Tasa de pendientes (P)
-                </label>
-                <input
-                  type="number"
-                  min={0}
-                  placeholder="0"
-                  className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-1.5 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-amber-500/60"
-                  value={tasaPendientes}
-                  onChange={e => setTasaPendientes(e.target.value !== "" ? Number(e.target.value) : "")}
-                />
-                <p className="text-[10px] text-[var(--shelfy-muted)] mt-1">
-                  Margen de completud: cuántos pueden quedar pendientes y el objetivo igual se considera cumplido.
-                </p>
+                  className="h-9 text-sm bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 text-[var(--shelfy-text)] w-full focus:outline-none focus:border-amber-500/60"
+                >
+                  <option value="">Seleccioná el mes</option>
+                  {(() => {
+                    const opts: { value: string; label: string }[] = [];
+                    const now = new Date();
+                    for (let i = -6; i <= 2; i++) {
+                      const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+                      const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                      const label = d.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
+                      opts.push({ value, label: label.charAt(0).toUpperCase() + label.slice(1) });
+                    }
+                    return opts.map(o => <option key={o.value} value={o.value}>{o.label}</option>);
+                  })()}
+                </select>
               </div>
             </div>
           )}
+
+          {/* Tasa de pendientes — disponible para todos los orígenes */}
+          <div>
+            <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1">
+              Tasa de pendientes <span className="normal-case font-normal">(opcional)</span>
+            </label>
+            <input
+              type="number"
+              min={0}
+              placeholder="0"
+              className="h-9 w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+              value={tasaPendientes}
+              onChange={e => setTasaPendientes(e.target.value !== "" ? Number(e.target.value) : "")}
+            />
+            <p className="text-[10px] text-[var(--shelfy-muted)] mt-1">
+              Número de ítems con margen de tolerancia. Los ítems pendientes siguen visibles hasta el cierre aunque se alcance la meta.
+            </p>
+          </div>
 
           {/* Live phrase preview */}
           <div className="rounded-xl bg-[var(--shelfy-bg)] border border-[var(--shelfy-accent)]/20 p-3">
@@ -1796,40 +1901,42 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
             </div>
           )}
 
-          {/* Fecha límite — bloqueada hasta que vendedor Y tipo estén seleccionados */}
-          <div className={!vendedorId ? "opacity-40 pointer-events-none select-none" : ""}>
-            <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">
-              Fecha límite <span className="normal-case font-normal">(opcional)</span>
-            </label>
-            <div className="flex gap-1.5 flex-wrap items-center">
-              {([{ label: "Hoy", days: 0 }, { label: "+7d", days: 7 }, { label: "+15d", days: 15 }, { label: "+30d", days: 30 }] as const).map(({ label, days }) => {
-                const d = new Date();
-                d.setDate(d.getDate() + days);
-                const iso = d.toISOString().split("T")[0];
-                return (
-                  <button
-                    key={label}
-                    type="button"
-                    onClick={() => setFecha(iso)}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-all ${
-                      fecha === iso
-                        ? "border-[var(--shelfy-accent)] bg-[var(--shelfy-accent)]/10 text-[var(--shelfy-accent)]"
-                        : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
-              <div className="flex-1 min-w-0">
-                <DatePicker
-                  value={fecha}
-                  onChange={setFecha}
-                  placeholder="Fecha límite"
-                />
+          {/* Fecha límite — bloqueada hasta que vendedor Y tipo estén seleccionados. Oculta en modo compañía (el mes define el período) */}
+          {origenMode !== "compania" && (
+            <div className={!vendedorId ? "opacity-40 pointer-events-none select-none" : ""}>
+              <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">
+                Fecha límite <span className="normal-case font-normal">(opcional)</span>
+              </label>
+              <div className="flex gap-1.5 flex-wrap items-center">
+                {([{ label: "Hoy", days: 0 }, { label: "+7d", days: 7 }, { label: "+15d", days: 15 }, { label: "+30d", days: 30 }] as const).map(({ label, days }) => {
+                  const d = new Date();
+                  d.setDate(d.getDate() + days);
+                  const iso = d.toISOString().split("T")[0];
+                  return (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() => setFecha(iso)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-all ${
+                        fecha === iso
+                          ? "border-[var(--shelfy-accent)] bg-[var(--shelfy-accent)]/10 text-[var(--shelfy-accent)]"
+                          : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+                <div className="flex-1 min-w-0">
+                  <DatePicker
+                    value={fecha}
+                    onChange={setFecha}
+                    placeholder="Fecha límite"
+                  />
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
           {/* Descripción */}
           <div>

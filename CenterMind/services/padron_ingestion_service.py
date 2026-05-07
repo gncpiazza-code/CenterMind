@@ -1222,6 +1222,7 @@ class PadronIngestionService:
                         )
 
                     if lag_dist_id and not df_after_bol.empty:
+                        lag_fallback_ids9 = False
                         if id_suc_col:
                             mask_lag = df_after_bol[id_suc_col].apply(lambda v: _is_idsucursal(v, 10))
                         else:
@@ -1229,11 +1230,20 @@ class PadronIngestionService:
                         # Fallback por nombre textual cuando no venga idsucur utilizable.
                         if suc_col:
                             mask_lag = mask_lag | df_after_bol[suc_col].apply(_is_gonzalez_luis_antonio_sucursal)
+                        # Fallback operativo: en algunos exports Consolido la sucursal 10 no llega;
+                        # usar idsucur=9 para poblar LAG sin bloquear la corrida.
+                        if (not bool(mask_lag.any())) and id_suc_col:
+                            mask_lag = df_after_bol[id_suc_col].apply(lambda v: _is_idsucursal(v, 9))
+                            lag_fallback_ids9 = bool(mask_lag.any())
                         df_lag = df_after_bol[mask_lag].copy()
-                        df_after_lag = df_after_bol[~mask_lag].copy()
+                        # Si el fallback usa idsucur=9, no consumimos filas para no vaciar Caramele.
+                        if lag_fallback_ids9:
+                            df_after_lag = df_after_bol.copy()
+                        else:
+                            df_after_lag = df_after_bol[~mask_lag].copy()
                         if not df_lag.empty:
                             logger.info(
-                                f"[Padrón] Reenrutando {len(df_lag)} filas de sucursal LAG (idsucur=10 / GONZALEZ) "
+                                f"[Padrón] Reenrutando {len(df_lag)} filas de sucursal LAG (idsucur=10 / GONZALEZ / fallback=9) "
                                 f"hacia LAG Distribuidora - Tucuman (dist {lag_dist_id})."
                             )
                             resultados.append(
@@ -1439,13 +1449,15 @@ class PadronIngestionService:
                 else:
                     mask_lag = pd.Series(False, index=df_rpl.index)
                 mask_lag = mask_lag | df_rpl[suc_l].apply(_is_gonzalez_luis_antonio_sucursal)
+                if (not bool(mask_lag.any())) and id_suc_l:
+                    mask_lag = df_rpl[id_suc_l].apply(lambda v: _is_idsucursal(v, 9))
                 df_gl = df_rpl[mask_lag].copy()
                 if not df_gl.empty:
                     df_target = df_gl
                     lag_gonzalez_only = True
                     logger.info(
                         f"[Padrón] LAG Tucumán sin id_empresa_erp: {len(df_target)} filas "
-                        f"de sucursal LAG (idsucur=10 / GONZALEZ) (idempresa franquicia: {sorted(franchise_erp_keys)})."
+                        f"de sucursal LAG (idsucur=10 / GONZALEZ / fallback=9) (idempresa franquicia: {sorted(franchise_erp_keys)})."
                     )
             if not bolivar_ondarreta_only and not magica_uequin_only and not caramele_biava_only and not lag_gonzalez_only:
                 if n_emp > 1:
@@ -1513,8 +1525,15 @@ class PadronIngestionService:
             else:
                 mask_lag = pd.Series(False, index=df_after_bol.index)
             mask_lag = mask_lag | df_after_bol[suc_col].apply(_is_gonzalez_luis_antonio_sucursal)
+            lag_fallback_ids9 = False
+            if (not bool(mask_lag.any())) and id_suc_col:
+                mask_lag = df_after_bol[id_suc_col].apply(lambda v: _is_idsucursal(v, 9))
+                lag_fallback_ids9 = bool(mask_lag.any())
             df_lag = df_after_bol[mask_lag].copy()
-            df_after_lag = df_after_bol[~mask_lag].copy()
+            if lag_fallback_ids9:
+                df_after_lag = df_after_bol.copy()
+            else:
+                df_after_lag = df_after_bol[~mask_lag].copy()
 
             mask_biava = df_after_lag[suc_col].apply(_is_jose_ignacio_biava_sucursal)
             df_caramele = df_after_lag[mask_biava].copy()
@@ -1674,14 +1693,22 @@ class PadronIngestionService:
             if lag_fr_id is not None and dist_id == lag_fr_id and cols.get("sucursal"):
                 sc_l = cols["sucursal"]
                 n_antes_l = len(df)
-                df = df[df[sc_l].apply(_is_gonzalez_luis_antonio_sucursal)].copy()
+                id_sc_l = cols.get("id_sucursal")
+                if id_sc_l:
+                    mask_l = df[id_sc_l].apply(lambda v: _is_idsucursal(v, 10))
+                else:
+                    mask_l = pd.Series(False, index=df.index)
+                mask_l = mask_l | df[sc_l].apply(_is_gonzalez_luis_antonio_sucursal)
+                if (not bool(mask_l.any())) and id_sc_l:
+                    mask_l = df[id_sc_l].apply(lambda v: _is_idsucursal(v, 9))
+                df = df[mask_l].copy()
                 logger.info(
-                    f"[Padrón] LAG Tucumán (unicidad GONZALEZ LUIS ANTONIO): "
+                    f"[Padrón] LAG Tucumán (unicidad GONZALEZ LUIS ANTONIO / idsucur=10 / fallback=9): "
                     f"{n_antes_l} → {len(df)} filas"
                 )
                 if df.empty:
                     raise ValueError(
-                        "Tras filtrar por sucursal GONZALEZ LUIS ANTONIO no quedaron filas para LAG Tucumán."
+                        "Tras filtrar por sucursal LAG (GONZALEZ / idsucur=10 / fallback=9) no quedaron filas para LAG Tucumán."
                     )
 
             # ── Filtro de sucursales por distribuidor ─────────────────────────

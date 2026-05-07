@@ -775,6 +775,8 @@ class ObjetivosNotificationService:
                 f"{ruta_str}"
                 f"{limite_str}"
                 f"{desc_str}\n\n"
+                f"🧭 <b>Qué tenés que hacer:</b> ejecutá la acción indicada en los PDVs objetivo y subí/confirmá evidencia según el tipo.\n"
+                f"📲 <b>Tip:</b> usá <code>/objetivos</code> para ver progreso en tiempo real.\n\n"
                 f"¡Éxitos con la gestión! 💪"
             )
 

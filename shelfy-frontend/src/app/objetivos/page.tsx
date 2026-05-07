@@ -239,7 +239,6 @@ function CompaniaProrrateo({ obj }: { obj: Objetivo }) {
   }
   if (businessDays.length === 0) return null;
 
-  const futureBusinessDays = businessDays.filter((d) => d >= today);
   const allWeeks = new Map<string, Date[]>();
   for (const dt of businessDays) {
     const weekIdx = Math.floor((dt.getDate() - 1) / 7) + 1;
@@ -248,9 +247,8 @@ function CompaniaProrrateo({ obj }: { obj: Objetivo }) {
     allWeeks.get(key)!.push(dt);
   }
   const weekEntries = Array.from(allWeeks.entries());
-  const remainingWeekEntries = weekEntries.filter(([, days]) => days.some((d) => d >= today));
   const remainingMeta = Math.max(0, (obj.valor_objetivo ?? 0) - (obj.valor_actual ?? 0));
-  const remainingWeeks = Math.max(1, remainingWeekEntries.length);
+  const remainingWeeks = Math.max(1, weekEntries.length);
   const weeklyTarget = remainingMeta > 0 ? remainingMeta / remainingWeeks : 0;
   const dailyTarget = weeklyTarget / 6;
   const diasRestantes = Math.max(0, Math.ceil((monthEnd.getTime() - today.getTime()) / 86400000));
@@ -267,7 +265,7 @@ function CompaniaProrrateo({ obj }: { obj: Objetivo }) {
         <span className="text-[10px] text-amber-700/80">{diasRestantes} días restantes</span>
       </div>
       <div className="space-y-1.5">
-        {remainingWeekEntries.map(([weekLabel, days], weekIndex) => {
+        {weekEntries.map(([weekLabel, days], weekIndex) => {
           const elapsedInWeek = days.filter((d) => d <= today).length;
           const weekDoneEst = Math.max(0, Math.min(weeklyTarget, avgPerBusinessDay * elapsedInWeek));
           const weekPct = weeklyTarget > 0 ? Math.min(100, Math.round((weekDoneEst / weeklyTarget) * 100)) : 0;
@@ -292,7 +290,7 @@ function CompaniaProrrateo({ obj }: { obj: Objetivo }) {
                 <div className="text-[10px] text-amber-700">
                   Debe avanzar {Math.ceil(dailyTarget)} por día (lun-sáb) para cumplir la semana.
                 </div>
-                {days.filter((d) => d >= today).map((dt) => {
+                {days.map((dt) => {
                   const dayDoneEst = dt <= today ? Math.min(dailyTarget, avgPerBusinessDay) : 0;
                   const dayPct = dailyTarget > 0 ? Math.min(100, Math.round((dayDoneEst / dailyTarget) * 100)) : 0;
                   return (
@@ -1209,7 +1207,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
         diasCalendario = Math.round((target.getTime() - today.getTime()) / 86_400_000);
       }
     }
-    const fechaLabel = fecha ? ` para el día ${fecha}` : "";
+    const fechaLabel = fecha ? ` antes del ${fecha}` : "";
     const diasLabel =
       diasCalendario === null
         ? ""
@@ -1223,50 +1221,55 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
         const diasCount = selectedDayGroups.length;
         const defaultQty = selectedDayGroups.reduce((acc, g) => acc + g.totalPdvs, 0);
         const meta = qty ?? defaultQty;
-        return `${vendedorNombre} debe altear los ${diasCount} día${diasCount !== 1 ? "s" : ""} asignados y sumar ${meta} PDVs nuevos${fechaLabel}.${diasLabel}`;
+        const diasTxt = selectedDayGroups.map((g) => g.day).join(", ");
+        return `${vendedorNombre} debe altear en sus días asignados (${diasTxt}) y sumar ${meta} PDVs nuevos ${fechaLabel}. Progreso esperado: ${meta} altas válidas en el período.${diasLabel}`;
       }
       if (qty) {
-        return `${vendedorNombre} debe altear ${qty} PDVs nuevos${fechaLabel}.${diasLabel}`;
+        return `${vendedorNombre} debe altear ${qty} PDVs nuevos ${fechaLabel}. Progreso esperado: ${qty} altas válidas.${diasLabel}`;
       }
-      return `${vendedorNombre} debe altear nuevos PDVs${fechaLabel}.`;
+      return `${vendedorNombre} debe altear nuevos PDVs ${fechaLabel}.`;
     }
     if (tipo === "cobranza" && selectedDeudor) {
       const monto = cobranzaMode === "parcial" && cobranzaMonto ? cobranzaMonto : selectedDeudor.deuda_total;
-      return `${vendedorNombre} deberá cobrarle $${Number(monto).toLocaleString("es-AR")} a ${selectedDeudor.cliente_nombre}${fechaLabel}.`;
+      return `${vendedorNombre} deberá cobrar $${Number(monto).toLocaleString("es-AR")} del cliente ${selectedDeudor.cliente_nombre} ${fechaLabel}. Progreso esperado: registrar ese monto cobrado.`;
     }
     if (tipo === "conversion_estado") {
       if (activacionMode === "general" && cantidadActivacion) {
-        return `${vendedorNombre} deberá activar ${cantidadActivacion} PDV${Number(cantidadActivacion) !== 1 ? "s" : ""}${fechaLabel}.${diasLabel}`;
+        return `${vendedorNombre} deberá activar ${cantidadActivacion} PDV${Number(cantidadActivacion) !== 1 ? "s" : ""} inactivos ${fechaLabel}. Progreso esperado: ${cantidadActivacion} reactivaciones.${diasLabel}`;
       }
       if (selectedPdvIds.size > 0) {
         const metaN = cantidadActivacion !== "" ? Number(cantidadActivacion) : selectedPdvIds.size;
         const total = selectedPdvIds.size;
         if (metaN < total) {
-          return `${vendedorNombre} deberá activar ${metaN} de ${total} PDVs inactivos${fechaLabel}.${diasLabel}`;
+          return `${vendedorNombre} deberá activar ${metaN} de ${total} PDVs seleccionados ${fechaLabel}. Progreso esperado: ${metaN} activaciones válidas.${diasLabel}`;
         }
-        return `${vendedorNombre} deberá activar ${total} PDV${total !== 1 ? "s" : ""} inactivos${fechaLabel}.${diasLabel}`;
+        return `${vendedorNombre} deberá activar ${total} PDV${total !== 1 ? "s" : ""} seleccionados ${fechaLabel}. Progreso esperado: completar todos los PDVs asignados.${diasLabel}`;
       }
-      return `${vendedorNombre} debe activar clientes inactivos${fechaLabel}.`;
+      return `${vendedorNombre} debe activar clientes inactivos ${fechaLabel}.`;
     }
     if (tipo === "exhibicion") {
       const qty = exhibicionMode === "general" && cantidadExhibicion ? cantidadExhibicion : selectedPdvIds.size || null;
       return qty
-        ? `${vendedorNombre} debe realizar ${qty} exhibición${Number(qty) !== 1 ? "es" : ""}${fechaLabel}.${diasLabel}`
-        : `${vendedorNombre} debe exhibir en PDVs${fechaLabel}.`;
+        ? `${vendedorNombre} debe realizar ${qty} exhibición${Number(qty) !== 1 ? "es" : ""} ${fechaLabel}. Progreso esperado: ${qty} exhibiciones aprobadas.${diasLabel}`
+        : `${vendedorNombre} debe exhibir en PDVs ${fechaLabel}.`;
     }
     if (tipo === "ruteo") {
       const total = selectedPdvIds.size;
       if (total > 0) {
-        return `${vendedorNombre} debe reasignar ${total} PDV${total !== 1 ? "s" : ""}${fechaLabel}.`;
+        return `${vendedorNombre} debe ejecutar acciones de ruteo sobre ${total} PDV${total !== 1 ? "s" : ""} ${fechaLabel}. Progreso esperado: completar cambios de ruta y/o bajas definidas.`;
       }
-      return `${vendedorNombre} debe reasignar PDVs${fechaLabel}.`;
+      return `${vendedorNombre} debe reasignar PDVs ${fechaLabel}.`;
     }
-    return `${vendedorNombre} — objetivo ${TIPO_CONFIG[tipo]?.label ?? tipo}${fechaLabel}.`;
+    return `${vendedorNombre} — objetivo ${TIPO_CONFIG[tipo]?.label ?? tipo} ${fechaLabel}.`;
   }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!vendedorId) return;
+    if (origenMode !== "compania" && !fecha) {
+      toast.error("La fecha límite es obligatoria.");
+      return;
+    }
 
     const base: ObjetivoCreate = {
       id_distribuidor: distId,
@@ -1479,24 +1482,6 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
               </div>
             </div>
           )}
-
-          {/* Tasa de pendientes — disponible para todos los orígenes */}
-          <div>
-            <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1">
-              Tasa de pendientes <span className="normal-case font-normal">(opcional)</span>
-            </label>
-            <input
-              type="number"
-              min={0}
-              placeholder="0"
-              className="h-9 w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
-              value={tasaPendientes}
-              onChange={e => setTasaPendientes(e.target.value !== "" ? Number(e.target.value) : "")}
-            />
-            <p className="text-[10px] text-[var(--shelfy-muted)] mt-1">
-              Número de ítems con margen de tolerancia. Los ítems pendientes siguen visibles hasta el cierre aunque se alcance la meta.
-            </p>
-          </div>
 
           {/* Live phrase preview */}
           <div className="rounded-xl bg-[var(--shelfy-bg)] border border-[var(--shelfy-accent)]/20 p-3">
@@ -2238,11 +2223,29 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
             </div>
           )}
 
+          {/* Tasa de pendientes — ubicar debajo del bloque contextual y antes de fecha límite */}
+          <div>
+            <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1">
+              Tasa de pendientes <span className="normal-case font-normal">(opcional)</span>
+            </label>
+            <input
+              type="number"
+              min={0}
+              placeholder="0"
+              className="h-9 w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+              value={tasaPendientes}
+              onChange={e => setTasaPendientes(e.target.value !== "" ? Number(e.target.value) : "")}
+            />
+            <p className="text-[10px] text-[var(--shelfy-muted)] mt-1">
+              Número de ítems con margen de tolerancia. Los ítems pendientes siguen visibles hasta el cierre aunque se alcance la meta.
+            </p>
+          </div>
+
           {/* Fecha límite — bloqueada hasta que vendedor Y tipo estén seleccionados. Oculta en modo compañía (el mes define el período) */}
           {origenMode !== "compania" && (
             <div className={!vendedorId ? "opacity-40 pointer-events-none select-none" : ""}>
               <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">
-                Fecha límite <span className="normal-case font-normal">(opcional)</span>
+                Fecha límite
               </label>
               <div className="flex gap-1.5 flex-wrap items-center">
                 {([{ label: "Hoy", days: 0 }, { label: "+7d", days: 7 }, { label: "+15d", days: 15 }, { label: "+30d", days: 30 }] as const).map(({ label, days }) => {

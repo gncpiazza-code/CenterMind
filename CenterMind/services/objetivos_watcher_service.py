@@ -294,13 +294,25 @@ class ObjetivosWatcherService:
         tipo = obj.get("tipo")
         id_vendedor = obj.get("id_vendedor")
         created_at = obj.get("created_at", "")
+        origen = (obj.get("origen") or "").strip().lower()
+        mes_referencia = obj.get("mes_referencia")
 
         if tipo == "ruteo_alteo":
             return self._diff_alteo(obj, id_vendedor, dist_id, created_at)
         if tipo == "conversion_estado":
             return self._diff_activacion(obj, id_vendedor, dist_id, created_at)
         if tipo == "exhibicion":
-            return self._diff_exhibicion(obj, id_vendedor, dist_id, created_at)
+            # Retroactividad solo para objetivos de compañía:
+            # si la meta se crea a mitad de mes, tomar exhibiciones desde el 1er día del mes.
+            since = created_at
+            if origen == "compania" and mes_referencia:
+                try:
+                    from datetime import date as _date_cls
+                    mes_dt = _date_cls.fromisoformat(str(mes_referencia)[:10])
+                    since = f"{mes_dt.strftime('%Y-%m-%d')}T00:00:00"
+                except Exception:
+                    pass
+            return self._diff_exhibicion(obj, id_vendedor, dist_id, since)
         if tipo == "cobranza":
             valor = self._compute_cobranza(obj, dist_id)
             if valor is None:

@@ -18,7 +18,7 @@ import sqlite3
 import uuid
 import atexit
 import errno
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time as dt_time
 from zoneinfo import ZoneInfo
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, DefaultDict
@@ -2826,6 +2826,111 @@ class BotWorker:
         if expired:
             self.logger.info(f"🧹 {len(expired)} sesiones expiradas eliminadas")
 
+    async def objetivos_daily_reminder_job(self, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """
+        Recordatorio diario 08:00 AR para vendedores con objetivos activos.
+        Resume progreso y fecha límite para impulsar ejecución diaria.
+        """
+        dist_id = self.distribuidor_id
+        try:
+            rows = await asyncio.to_thread(
+                self.db.sb.table("integrantes_grupo")
+                .select("id_vendedor_v2, telegram_group_id, nombre_integrante")
+                .eq("id_distribuidor", dist_id)
+                .execute
+            )
+            integrantes = [
+                r for r in (rows.data or [])
+                if r.get("id_vendedor_v2")
+                and r.get("telegram_group_id") not in (None, "", "0")
+            ]
+            if not integrantes:
+                return
+
+            vendors_map: dict[int, dict[str, Any]] = {}
+            for r in integrantes:
+                vid = int(r["id_vendedor_v2"])
+                if vid not in vendors_map:
+                    vendors_map[vid] = {
+                        "chat_id": int(r["telegram_group_id"]),
+                        "nombre": r.get("nombre_integrante") or "Vendedor",
+                    }
+
+            objetivos_res = await asyncio.to_thread(
+                self.db.sb.table("objetivos")
+                .select("id, id_vendedor, tipo, valor_actual, valor_objetivo, fecha_objetivo, cumplido, tasa_pendientes")
+                .eq("id_distribuidor", dist_id)
+                .eq("cumplido", False)
+                .in_("id_vendedor", list(vendors_map.keys()))
+                .order("fecha_objetivo", desc=False)
+                .execute
+            )
+            objetivos = objetivos_res.data or []
+            if not objetivos:
+                return
+
+            by_vendor: DefaultDict[int, list[dict[str, Any]]] = defaultdict(list)
+            for obj in objetivos:
+                try:
+                    by_vendor[int(obj["id_vendedor"])].append(obj)
+                except Exception:
+                    continue
+
+            tipo_label = {
+                "exhibicion": "Exhibición",
+                "conversion_estado": "Activación",
+                "activacion": "Activación",
+                "cobranza": "Cobranza",
+                "ruteo": "Ruteo",
+                "ruteo_alteo": "Alteo",
+            }
+            hoy = datetime.now(AR_TZ).date()
+            sent = 0
+            for vendor_id, objs in by_vendor.items():
+                info = vendors_map.get(vendor_id)
+                if not info:
+                    continue
+                lines = [
+                    f"⏰ <b>Recordatorio diario de objetivos</b>",
+                    f"👤 <b>{html.escape(str(info['nombre']), quote=False)}</b>",
+                    f"📊 Tenés <b>{len(objs)}</b> objetivo{'s' if len(objs) != 1 else ''} activo{'s' if len(objs) != 1 else ''}:",
+                ]
+                for o in objs[:6]:
+                    tipo = str(o.get("tipo") or "").strip().lower()
+                    tipo_txt = tipo_label.get(tipo, tipo.replace("_", " ").title() or "Objetivo")
+                    vo = float(o.get("valor_objetivo") or 0)
+                    va = float(o.get("valor_actual") or 0)
+                    tasa = o.get("tasa_pendientes")
+                    umbral = max(0.0, vo - float(tasa)) if (vo > 0 and tasa is not None) else vo
+                    pct = 0 if umbral <= 0 else int(max(0, min(100, round((va / umbral) * 100))))
+                    fecha = str(o.get("fecha_objetivo") or "")[:10]
+                    vence_txt = ""
+                    if len(fecha) == 10 and fecha.count("-") == 2:
+                        try:
+                            fl = datetime.fromisoformat(fecha).date()
+                            dias = (fl - hoy).days
+                            if dias > 0:
+                                vence_txt = f" · vence en {dias}d"
+                            elif dias == 0:
+                                vence_txt = " · vence hoy"
+                            else:
+                                vence_txt = f" · vencido {abs(dias)}d"
+                        except Exception:
+                            pass
+                    lines.append(f"• <b>{tipo_txt}</b>: {int(va) if va.is_integer() else round(va, 1)}/{int(vo) if vo.is_integer() else round(vo, 1)} ({pct}%){vence_txt}")
+
+                lines.append("\n📲 Usá <code>/objetivos</code> para ver el detalle completo.")
+                await context.bot.send_message(
+                    chat_id=info["chat_id"],
+                    text="\n".join(lines),
+                    parse_mode=ParseMode.HTML,
+                )
+                sent += 1
+            if sent:
+                self.logger.info(f"[objetivos_daily_reminder] dist={dist_id} recordatorios enviados={sent}")
+        except Exception as e:
+            self.logger.warning(f"[objetivos_daily_reminder] dist={dist_id}: {e}")
+
     # ─────────────────────────────────────────────────────────────
     # ERROR HANDLER
     # ─────────────────────────────────────────────────────────────
@@ -2915,6 +3020,11 @@ class BotWorker:
         # Jobs periódicos
         app.job_queue.run_repeating(self.sync_evaluaciones_job, interval=30, first=10)
         app.job_queue.run_repeating(self.cleanup_sessions_job,  interval=300, first=60)
+        app.job_queue.run_daily(
+            self.objetivos_daily_reminder_job,
+            time=dt_time(hour=8, minute=0, tzinfo=AR_TZ),
+            name=f"objetivos_daily_reminder_{self.distribuidor_id}",
+        )
 
 
         app.post_init = self.post_init

@@ -2220,6 +2220,9 @@ def crear_objetivo(body: ObjetivoCreate, user_payload=Depends(verify_auth)):
             raise
         except Exception as e_dup_compania:
             logger.warning(f"[Objetivo] Error al verificar unicidad compañía: {e_dup_compania}")
+    else:
+        if not body.fecha_objetivo:
+            raise HTTPException(status_code=422, detail="fecha_objetivo es obligatoria")
 
     # Validar que el vendedor pertenece a la distribuidora
     if not user_payload.get("is_superadmin"):

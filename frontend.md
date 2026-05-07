@@ -1,455 +1,101 @@
-# Frontend Design System — Shelfy
-
-Este documento especifica los colores, estilos y componentes visuales utilizados en la plataforma Shelfy.
-
-## Paleta de Colores (Shelfy Light-Violet Theme)
-
-La interfaz se basa en un **tema claro** con fondos off-white y violeta como color de marca. El modo oscuro (`.dark`) existe como fallback pero no es el tema por defecto.
-
-| Variable CSS | Valor Hex/RGBA | Uso |
-|---|---|---|
-| `--shelfy-bg` | `#F8FAFC` | Color de fondo principal (off-white). |
-| `--shelfy-panel` | `rgba(255, 255, 255, 0.85)` | Paneles y tarjetas con fondo translúcido. |
-| `--shelfy-primary` | `#a855f7` (Violet 500) | Botones primarios, estados activos, acento de marca. |
-| `--shelfy-primary-2`| `#8b5cf6` (Violet 500 oscuro) | Gradientes y acentos secundarios (switcher de distribuidora). |
-| `--shelfy-accent` | `#7C3AED` | Hover states y bordes destacados (Deep Violet). |
-| `--shelfy-border` | `rgba(0, 0, 0, 0.08)` | Bordes sutiles en paneles. |
-| `--shelfy-text` | `#0F172A` | Texto principal (casi negro). |
-| `--shelfy-text-soft` | `#475569` | Texto secundario y etiquetas. |
-| `--shelfy-muted` | `#64748B` | Texto deshabilitado o de menor importancia. |
-| `--shelfy-success` | `#10B981` (Emerald) | Compra reciente, activo, objetivo cumplido. |
-| `--shelfy-error` | `#EF4444` (Rose) | Inactivo, moroso, error en carga. |
-| `--shelfy-warning` | `#F59E0B` (Amber) | Alertas, preventivos, objetivos próximos a vencer. |
-
-### Tokens shadcn/ui (primitivos)
-Los primitivos de shadcn (`Button`, `Checkbox`, `Table`, `DropdownMenu`) usan los tokens `--primary` / `--ring` que resuelven a `oklch(0.627 0.265 303.9)` (violeta), asegurando coherencia visual sin sobreescribir los componentes.
-
----
-
-## Visual Aesthetics
-
-### Glassmorphism (Light)
-Los paneles utilizan el estilo "Glass-Card" adaptado al tema claro:
-- **Background**: `rgba(255, 255, 255, 0.6)`
-- **Backdrop-filter**: `blur(12px)`
-- **Borde**: `1px solid rgba(0, 0, 0, 0.06)`
-- **Sombra**: `0 4px 24px 0 rgba(0, 0, 0, 0.06)`
-
-### Tipografía
-- **Fuente Principal**: `'Inter', ui-sans-serif, system-ui`.
-- **Peso**: `400` (Regular), `500` (Medium), `600` (Semibold).
-
----
-
-## Componentes UI Clave
-
-### 0. Visor de Exhibiciones `/visor` — Layout 3-Paneles (28/04/2026)
-
-**Archivo**: `shelfy-frontend/src/app/visor/page.tsx`
-
-#### Layout Desktop (≥md)
-Tres columnas fijas sin solapamiento, reemplaza la barra inferior full-width anterior:
-
-| Zona | Ancho | Contenido |
-|---|---|---|
-| Panel IZQ — "Exhibición" | `w-64` | Vendedor, sucursal, tipo PDV, fecha/hora AR, ERP rápido (tipo comercio, compró 30d), ID foto |
-| Canvas Central | `flex-1` | FotoViewer + flechas nav foto + action bar (botones evaluación + kbd hints) |
-| Panel DER — "Info del PDV" | `w-72` | Nombre/fantasía, razón social, localidad, dirección, última compra, ruta/visita (de `erpContext`) + textarea observaciones + frases rápidas |
-
-#### Atajos de teclado (handler global unificado)
-Un solo `useEffect` maneja todos los shortcuts. Se ignoran cuando el foco está en `input/textarea/select/contentEditable`.
-
-| Tecla | Acción |
-|---|---|
-| `A` | Aprobar |
-| `R` | Rechazar |
-| `D` | Destacar |
-| `Z` | Revertir último |
-| `←` / `→` | Foto anterior / siguiente |
-| `↑` / `↓` | Grupo anterior / siguiente |
-
-#### Componentes / helpers clave
-- **`Kbd` + `KbdGroup`** (shadcn, `src/components/ui/kbd.tsx`): Hints visuales de shortcuts debajo de los botones de evaluación, con `opacity-60 hover:opacity-100`.
-- **`InfoRow`**: Subcomponente `{ icon, label, value, valueClass }` para filas icono+etiqueta+valor reutilizables en ambos paneles.
-- **`formatFechaAR(iso)`**: Helper a nivel módulo que formatea fechas con `Intl` en timezone `America/Argentina/Buenos_Aires`.
-- **`isTypingTarget(target)`**: Helper a nivel módulo que detecta si el foco está en un campo de texto.
-- **`FotoViewer`**: Sin cambios — zoom/pan por rueda, doble click, arrastrar.
-
-#### Estado (Zustand + TanStack Query)
-- **Zustand** (`useViewerStore`): `currentIndex`, `currentFotoIdx`, `vistas`, `resetGroupState`.
-- **TanStack Query**: `['pendientes', distId]`, `['stats', distId]`, `['vendedores', distId]`, `['visor', 'erp-contexto', distId, nroForErp]`.
-
-#### Mobile
-Layout conservado (overlay-based): barra superior semitransparente + barra inferior glassmorphism con botones de evaluación + "Obs" toggle para textarea.
-
----
-
-### 1. Marcadores de Mapa — Google Maps (24/04/2026)
-- **Motor**: Google Maps JS API (`@googlemaps/js-api-loader` v2). Reemplaza MapLibre GL. Requiere `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`.
-- **Pines**: `google.maps.Marker` con icono SVG dinámico (color vendedor + borde por estado + número de exhibiciones). Selección agrega ring blanco exterior.
-- **Popups**: `google.maps.InfoWindow` (instancia única reutilizada por hover/click). HTML oscuro idéntico al anterior.
-- **Street View**: Botón "Street View" en popup abre `StreetViewPanorama` en panel inferior dentro del componente (opt-in, no monta por defecto).
-- **Armar Ruta**: `google.maps.drawing.DrawingManager` en modo `POLYGON` cuando `routeBuildEnabled=true`. Al completar el polígono, `google.maps.geometry.poly.containsLocation` detecta PDVs dentro y los selecciona automáticamente.
-- **Fallback**: Si `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` no está definida, el mapa muestra un mensaje de configuración pendiente.
-
-### 1b. Armar Ruta — Selección por Polígono (24/04/2026)
-- Toggle "Armar Ruta" en el `MapModeSelector` de `TabSupervision` (solo visible con `action_edit_objetivos`).
-- `routeBuildEnabled` activa `google.maps.drawing.DrawingManager` en modo polígono.
-- Al cerrar el polígono → `containsLocation` sobre todos los pines → auto-selección en carrito de objetivos.
-- Barra contextual superior indica estado: "Dibujá un polígono…" / botón "Limpiar (N)".
-- Al hacer submit del objetivo ruteo, cada `pdv_item` lleva `group_id` (UUID), `group_name` y `polygon_geojson` (GeoJSON Feature<Polygon>), y el objetivo recibe `ruteo_build_mode: 'polygon'`.
-- Estado persistido en `useSupervisionStore`: `routeBuildEnabled`, `activePolygonPdvIds`, `activePolygonGeoJson`. Se limpia al hacer submit o desactivar el toggle.
-
-### 2. TabSupervision
-- **Layout**: Sidebar de selección de distribuidor/sucursal + Tabs centrales (Mapa, Ventas, Cuentas).
-- **Sticky Headers**: Los selectores se mantienen visibles durante el scroll en móviles.
-- **Actualizar CC**: Botón "Actualizar CC" (`RefreshCw`) en el header de la sección Cuentas Corrientes (visible cuando `selectedDist > 0`). Abre un `<Dialog>` con file picker `.xlsx` y flujo: `idle` → `uploading` (Progress 60) → `polling` cada 3s contra `GET /api/supervision/cc-status/{distId}` (Progress 80) → cierre automático al recibir `estado: "completado"` + `invalidateQueries({queryKey:["supervision-cuentas"]})`. Timeout de seguridad de 120s. Toda la lógica de polling usa refs (`ccPollingRef`, `ccTimeoutRef`) limpiados en `useEffect(() => () => stopCCPolling(), [])`.
-- **Responsive map + ojitos (May 2026)**: En viewports < `xl`, un tab switcher "Mapa / Vendedores" controla qué panel se muestra (estado local `mobileView`). El mapa toma `min-h-[350px]` cuando activo en mobile. `EyeBtn` y el ojo a nivel vendedor ya no tienen `hidden xl:flex`; son siempre visibles y permiten activar PDVs en mapa también desde mobile. En `xl+` el layout sigue siendo grid de 5 columnas.
-
-### 2b. Supervision Page — Generar Informe
-- **Botón "Generar Informe"** (`FileBarChart2`) en el header de `/supervision/page.tsx`, alineado a la derecha del título.
-- **Sheet**: `<Sheet side="right" sm:max-w-md>` con zona drag-and-drop para múltiples `.xlsx/.xls`. Drag activo aplica `border-[var(--shelfy-primary)]` + `bg-[var(--shelfy-primary)]/5`.
-- **Edge case**: Si `distId === 0` (superadmin sin distribuidora en sesión) el sheet muestra un `<Alert>` explicativo en lugar de la zona de drop.
-- **Download automático**: Respuesta binaria del backend → `URL.createObjectURL(blob)` + click programático + `URL.revokeObjectURL`. Nombrado: `informe_ventas_YYYY-MM-DD.pdf`.
-- **Protección de cierre**: `onOpenChange` bloquea el cierre del sheet mientras `generating === true` para evitar pérdida de estado.
-
-### 3. Floating Objetivos ("Carrito")
-- **UI**: Panel flotante en la esquina inferior derecha del mapa.
-- **Interacción**: Permite "añadir" PDVs al tocar el icono de objetivo en el pin.
-- **Tipos de objetivo** (labels en UI):
-  - `conversion_estado` → "Activación"
-  - `cobranza` → "Cobranza"
-  - `ruteo_alteo` → **"Alteo"** (nunca "Visita" — tipo inexistente en el negocio)
-  - `exhibicion` → "Exhibición"
-  - `general` → "General"
-- **Alteo flow**: Al seleccionar tipo Alteo, carga rutas del vendedor. Al elegir ruta, aparece campo numérico de cantidad (con máximo = `total_pdv` de la ruta). Frase generada: `[vendedor] debe Altear [N] PDVs en [ruta] de los días [dia]. Tenés [N] días.`
-- **Cobranza flow**: Carga lista de deudores del vendedor (seleccionable). Toggle Total/Parcial: "Total" usa toda la deuda; "Parcial" muestra input de monto. Persiste `valor_objetivo` en Supabase. Frase: `[vendedor] deberá cobrarle $[monto] a [cliente] para la fecha [fecha].`
-
-### 3b. Difusión — CC vía Telegram (May 2026)
-- **Ruta**: `/difusion` — página nueva en `app/difusion/page.tsx`.
-- **Acceso**: roles `superadmin`, `admin`, `directorio`. Entrada en `TopModeTabs` y `BottomNav` (icono `Radio`).
-- **Flujo UI**: selector de sucursal → modo (un vendedor / todos) → selector de vendedor (con indicador de tiene/no tiene Telegram) → textarea de mensaje con 3 plantillas → **"Ver preview y enviar"** (modo "todos") abre `Dialog` de preview antes de confirmar → resultado inline (filas OK/error por vendedor).
-- **Preview Dialog**: tabla vendedor ERP ↔ grupo Telegram con flags `ok | sin_grupo | duplicado | sin_cc`. Bloquea el botón "Confirmar y enviar" si hay `duplicate_group` salvo checkbox de override. Los títulos de grupos se obtienen con `getChat` API (cache TTL 30 min en memoria).
-- **API frontend**: `fetchDifusionVendedores(distId, sucursal?)` → `DifusionVendedor[]`; `postDifusionCCTelegram(body)` → `DifusionCCResult`; `postDifusionCCTelegramPreview(body)` → `DifusionPreviewResult`.
-- **Backend**: `POST /api/difusion/cc-telegram` llama `difundir_cc_telegram()`. `POST /api/difusion/cc-telegram/preview` llama `planificar_envios_cc_telegram()` (función pura sin efectos Telegram). Ambos en `routers/difusion.py` + `services/cc_difusion_service.py`.
-- **Columna Comprobantes en Panel Analítico** (`/supervision`): columna "Cbtés." añadida a la tabla CC — muestra `cantidad_comprobantes` de `cc_detalle`.
-
-### 4. Matriz de Permisos (RBAC)
-- **UI**: Tabla de doble entrada (Rol vs Permiso) ubicada en `/admin/permissions`.
-- **Componentes**: `shadcn/ui` `Table`, `Checkbox` y `Button`.
-- **Rendimiento**: `PERMISSION_GROUPS` y `PERMISSIONS_BY_GROUP` son constantes de módulo (no se recomputan en render). Los grupos de permisos se renderizan con `<Fragment key={group}>`.
-- **Seguridad**: Los elementos del menú en el `Sidebar` se ocultan automáticamente si el usuario no tiene la `permisoKey` correspondiente.
-
-### 5. Motor de Informes Excel (supervision/page.tsx)
-- **Botón "Generar Informe"**: icono `FileBarChart2`, abre `<Sheet side="right">`.
-- **Sheet**: zona drag-and-drop multi-archivo `.xlsx`, lista removible de archivos, `<Progress>` durante generación, descarga automática del PDF al completar.
-- **Edge case**: si `distId === 0` (superadmin sin dist), muestra `<Alert>` en lugar de la zona de drop.
-- **API**: `generateInformeExcel(distId, files[]) → Promise<Blob>`. POST a `/api/reports/generate/{dist_id}` con multipart (campo `files`).
-
-### 6. Actualizar CC en TabSupervision
-- **Botón "Actualizar CC"**: icono `RefreshCw`, `variant="outline" size="sm"`, visible cuando `selectedDist > 0`.
-- **Dialog**: upload single-file `.xlsx`, estados `idle → uploading → polling → done`.
-- **Polling**: `setInterval` en `ccPollingRef` (useRef) cada 3s a `fetchCCStatus`. Timeout a 120s. Cleanup en `useEffect` al desmontar.
-- **Al completar**: `queryClient.invalidateQueries({queryKey:["supervision-cuentas"]})` + `toast.success`.
-- **APIs**: `uploadCCForDist(distId, file)`, `fetchCCStatus(distId)`, interfaz `CCStatusResponse`.
-
-### 7. Sidebar — Switcher de Distribuidora
-- **Componente**: `shadcn/ui` `DropdownMenu` (reemplaza el dropdown custom anterior).
-- **Visibilidad**: Disponible para Superadmin y usuarios con el permiso `action_switch_tenant`.
-- **Posición**: `side="top"`, aparece sobre el trigger, alineado al ancho del botón trigger.
-- **Optimización**: `navItems` se memoiza con `useMemo([rol, hasPermiso])` para evitar re-cómputos.
-- **Fuente única de contexto**: Desde 13/04/2026 este es el único punto de cambio de entorno; se removieron selectores locales de tenant en `/supervision` y `/objetivos`.
-
-### 8b. Visor — Exhibiciones de prueba (Tabaco)
-- El backend excluye de `/api/pendientes` y de listas de ranking a integrantes/vendedores marcados como QA (NACHO PIAZZA, JESUS GRIMALDI) salvo sesión **superadmin**; no requiere cambios de UI en el visor.
-
-### 9. Dashboard — KPI Carousel Rotante (14/04/2026)
-- **2 grupos de 3 KPIs**: Grupo 0 (Pendientes/Aprobadas/Destacadas), Grupo 1 (Rechazadas/Tasa Aprob./Total).
-- **Fuente de verdad backend (May 2026)**: `fetchKpis` consume `/api/dashboard/kpis/{dist_id}` con conteo de **exhibiciones lógicas únicas** (cliente+día por integrante), alineado con ranking y evitando inflado por múltiples fotos del mismo evento.
-- **Auto-rotación**: `setInterval(7000)` con cleanup en `useEffect`. Estado `kpiGroup: 0 | 1`.
-- **`AnimatePresence` + `motion.div`**: `initial={{ opacity:0, y:10 }}` → `animate={{ opacity:1, y:0 }}` → `exit={{ opacity:0, y:-10 }}` con `key={kpiGroup}`.
-- **Dot indicators**: pills clickeables `onClick={() => setKpiGroup(i)}` con `bg-[var(--shelfy-primary)]` para el activo.
-- **KpiCard `colorName="slate"`**: nuevo color añadido a `KpiColorName` type y `COLOR_MAP`.
-- **Carousel height**: fijo `h-[380px] md:h-[420px]` (no más `flex-1 min-h-[460px]` que causaba scroll).
-
-### 10. ApiError — Errores Estructurados de API (14/04/2026)
-- **Clase `ApiError extends Error`** en `api.ts` con campos `status: number` y `detail: unknown`.
-- **`apiFetch`**: lanza `ApiError` en lugar de `Error` genérico; extrae `detail.mensaje` para 409 duplicados.
-- **Uso en mutaciones**: `onError: (err) => { if (err instanceof ApiError && err.status === 409) toast.warning(...) }`.
-- **Wizard sequential blocking en Objetivos**: Secciones Tipo y Fecha límite con `opacity-40 pointer-events-none select-none` cuando `!vendedorId`.
-### 11. Galería — Debug Visible y Contextual (15/04/2026)
-- `apiFetch` imprime debug para cualquier error en `/api/galeria/*` (URL, status, options, response body).
-- `galeria-exhibiciones/page.tsx` agrega `console.group` con contexto de filtros y vendedor al fallar queries, y muestra `error.message` en `<Alert>` destructiva.
-
-### 12. Calendarios shadcn estandarizados (15/04/2026)
-- Todos los calendarios detectados en `src/` migrados a `DatePicker` (sin `input type="date"`).
-- `DatePicker` soporta `disabled` para formularios en modo lectura (ej. edición de vendedor sin permiso).
-
-### 13. Rediseño de Navegación Global — TopModeTabs (29/04/2026)
-
-**Archivo**: `shelfy-frontend/src/components/layout/TopModeTabs.tsx`
-
-Reemplaza el modelo sidebar-para-todos por navegación top-center para usuarios no-superadmin.
-
-| Componente | Cambio |
-|---|---|
-| `TopModeTabs.tsx` | Nuevo. 8 tabs icono+label filtrados por rol+permisoKey; active state con borde bottom violeta; visible solo ≥md. |
-| `Topbar.tsx` | Centro: TopModeTabs (desktop) o title page (mobile). Derecha: avatar + logout y menú flotante superadmin con ícono `Crown`; entrada «Mensajes» muestra badge con pendientes (`/api/portal-feedback/pending-count`) y toast vía WebSocket `/api/ws/superadmin` (`getSuperadminWSUrl` en `api.ts`). |
-| `Sidebar.tsx` | Desactivado (retorna `null`) para eliminar panel izquierdo y priorizar layout limpio de mapa/paneles. |
-| `BottomNav.tsx` | Sincronizado con los mismos 8 tabs de TopModeTabs (agrega `/modo-mapa`, elimina Academy/Reportes/Admin). |
-
-**Tabs de navegación (`TABS`):**
-
-| href | label | permisoKey |
-|---|---|---|
-| `/visor` | Evaluar | `action_evaluar_exhibiciones` |
-| `/dashboard` | Dashboard | `menu_dashboard` |
-| `/supervision` | Supervisión | `menu_supervision` |
-| `/modo-mapa` | Mapa | `menu_supervision` |
-| `/objetivos` | Objetivos | `menu_objetivos` |
-| `/fuerza-ventas` | F. Ventas | `menu_fuerza_ventas` |
-| `/modo-oficina` | Oficina | `menu_modo_oficina` |
-| `/galeria-exhibiciones` | Galería | `menu_galeria_exhibiciones` |
-
-### 13b. Guía CC/Difusión + mensaje desarrollador (04/05/2026)
-
-- **`CCDifusionGuiaDialog.tsx`**: iframe a `public/anuncios/comunicacion-shelfy-cc-difusion/index.html`; segundo diálogo con copy de bienvenida arriba, título «Mensaje al desarrollador», `Textarea` shadcn (`@/components/ui/textarea`); POST `POST /api/portal-feedback/messages`.
-
-### 14. Nueva Ruta `/modo-mapa` (29/04/2026)
-
-**Archivo**: `shelfy-frontend/src/app/modo-mapa/page.tsx`
-
-- Renderiza `TabSupervision` en modo `mapOnly` (sin secciones de Cuentas Corrientes/Exhibiciones embebidas).
-- Roles: `superadmin`, `admin`, `supervisor`, `directorio`.
-- Guard: redirect a `/dashboard` si el rol no tiene acceso.
-
-### 14c. Panel Analítico — Flujo Sucursal→Vendedor obligatorio (30/04/2026)
-- `supervision/page.tsx`: ambas queries gateadas en `!!selectedVendedor` — nada carga hasta elegir vendedor.
-- Estado guiado (placeholder icon + texto) en ambos paneles cuando no hay vendedor seleccionado.
-- `vendedorOptions` derivados de `fetchVendedoresSupervision` (filtrado por sucursal), sin dependencia circular con datos de ventas/CC.
-- CC panel: lista plana de clientes del vendedor seleccionado con sort Deuda/Antigüedad (toggle asc/desc) y botón Imprimir.
-- Backend `supervision_cuentas` acepta `?vendedor=` (filtro server-side, match exacto case-insensitive en `vendedor_nombre`).
-
-### 14b. Panel Analítico — Filtro temporal “Hoy” (30/04/2026)
-- `supervision/page.tsx` agrega selector rápido `Hoy / 7d / 15d / 90d` para ventas.
-- `Hoy` mapea a `dias=1` contra `/api/supervision/ventas/{dist}`.
-- La tabla izquierda permite seleccionar vendedor y desplegar clientes con detalle por comprobante, mostrando badge de recibos detectados (`RECIBO $...`) cuando aparece operación de recibo en la misma fecha operativa.
-
-### 15. Panel Analítico de Supervisión `/supervision` (29/04/2026)
-
-**Archivo**: `shelfy-frontend/src/app/supervision/page.tsx` (reescrito)
-
-- **KPI cards** (6): Facturación total, Recaudación, Facturas, Deuda CC total, Clientes deudores, Última sincronización CC.
-- **Tabla Ventas**: `VendedorVentas[]` ordenable por monto/facturas/recaudación, con badge de tipo y deuda inline.
-- **Tabla CC**: `CuentasSupervisionVendedor[]` por sucursal, con deuda total y clientes deudores.
-- **Filtro sucursal**: `Select` alimentado desde `vendedores` (valores únicos de `sucursal_nombre`). El filtro de ventas es **client-side** (cross-join con `nombre_vendedor`); el de CC es **server-side** (param `?sucursal=` enviado al endpoint).
-- **Query keys**: `supervisionPanelKeys.ventas(distId, dias)`, `supervisionPanelKeys.cuentas(distId, sucursalParam)` — ambas incluyen parámetros relevantes para invalidación correcta.
-
-**Bugs críticos corregidos en la misma sesión:**
-- `ventasFiltradas`: usaba `v.nombre_erp || v.vendedor` para cruzar con el resultado de ventas; backend devuelve `nombre_vendedor`. Siempre retornaba Set vacío → 0 vendedores visibles con filtro activo. Fix: `v.nombre_vendedor`.
-- KPIs globales ignoraban el filtro de sucursal (usaban `ventasData.total_*`). Fix: calculados con `.reduce()` sobre `ventasFiltradas`.
-
-### 13. Nombres ERP de vendedores unificados (15/04/2026)
-- `src/lib/api.ts` agrega normalización central `resolveVendorERPName` para resolver display name de vendedor priorizando `nombre_erp`.
-- Se aplica en respuestas de ranking, supervisión y objetivos para que la UI no mezcle nombres legacy o aliases de Telegram.
-
-### 14. Fuerza de Ventas — Selects largos de Telegram (15/04/2026)
-- En `VendedorEditSheet`, los `SelectContent` de “Grupo Telegram” y “Usuario Telegram” usan `max-h-72` para habilitar scroll interno cuando hay muchas opciones.
-
-### 15. Fuerza de Ventas — contexto de actividad por usuario Telegram (15/04/2026)
-- El select de “Usuario Telegram” muestra sublínea en gris por opción con `total_exhibiciones` y fecha de `ultima_exhibicion`.
-- Permite desambiguar homónimos (ej. dos “Jeronimo”) usando actividad real de exhibiciones.
-### 15b. Fuerza de Ventas — mapeo tenant-first sincronizado (28/04/2026)
-- En `VendedorEditSheet`, al guardar binding Telegram ya no se persiste solo el vínculo “nuevo”; el backend sincroniza también la asignación operativa usada por métricas/reportes.
-- La UI deja explícito que `Nombre en panel = nombre_erp` y que ese guardado define la fuente principal de atribución del vendedor.
-- Atajo operativo recomendado para tenant: corregir desde esta pantalla la dupla `Grupo + Usuario Telegram` cuando un vendedor sume exhibiciones ajenas.
-
-### 16. Modo Oficina — estabilidad visual KPI chart (15/04/2026)
-- `ResponsiveContainer` del bloque KPI usa `minWidth={0}` y `minHeight={80}` para evitar warnings de Recharts (`width(-1)/height(-1)`) durante transiciones/layout.
-
-### 17. Galería — Timeline Inteligente (16/04/2026)
-- `ExhibicionesTimelineDialog` usa `useInfiniteQuery` de TanStack con paginación `offset/limit` y botón "Cargar más" (sin cargar todo el histórico en mount).
-- La timeline se agrupa por fecha: **1 fecha = 1 exhibición lógica**; múltiples fotos del mismo día se muestran en grid dentro de la misma tarjeta.
-- Se deduplican URLs repetidas para evitar mostrar la misma imagen en fechas distintas por duplicados históricos.
-- El contador y badges del header de timeline cuentan exhibiciones agrupadas por fecha (no cantidad bruta de filas/fotos).
-
-### 18. Galería — Estado global con Zustand (16/04/2026)
-- Nuevo store `useGaleriaStore` para persistir filtros/sort/rango de fechas y `timelinePageSize`.
-- `galeria-exhibiciones/page.tsx` deja de dispersar estado local de filtros y consume el store como fuente única.
-
-### 19. SuperAdmin Dashboard — Corridas y Mapeo ERP (27/04/2026)
-- **Ruta**: `/admin/dashboard` (superadmin-only). Label en Sidebar: `Corridas RPA`.
-- **Layout**: consola operativa multi-tenant; reemplaza la vista de "cards por motor".
-- **KPI header**: 3 chips (`OK hoy` / `Error hoy` / `En curso`) derivados del snapshot; cálculo por `toDateString()` de `iniciado_en`.
-- **Filtros**: búsqueda textual de empresa, chips de motor (`Padrón / Ventas / Cuentas CC`), chips de estado (`OK / Error / En curso`). Sin TanStack Query — estado local con `useState` + `loadData` callback.
-- **Tabla**: filas = distribuidoras, columnas = motores. Celda vacía si no hay run. Celda activa muestra: estado dot + label + timestamp + duración (OK) o error truncado (Error). Click en celda abre el Sheet de detalle.
-- **Global footer**: runs con `dist_id=0` (ej. `padron_global`) aparecen en una fila de chips fuera de la tabla principal.
-- **Sheet de detalle**: `side="right" max-w-[640px]`. Carga `fetchMotorRunsDetail(distId, motor, 50)` al abrir. Cada run es colapsable; expandido muestra: error en `<pre>` con copy, registros JSONB en `<pre>`, timestamps inicio/fin en grid 2col.
-- **Auto-refresh**: `setInterval(30_000)` con cleanup. Botón "Actualizar" manual.
-- **Acción rápida**: botón "Correr CC" (solo motor cuentas) llama a `fetchRunCCMotor()` con confirm previo.
-- **Estado de fondo del dashboard**: usa `bg-slate-950` / `bg-slate-900` (dark operativo) para diferenciar visualmente del resto del portal light-violet.
-- **Tipos TS nuevos**: `EmpresaMotorSnapshot`, `EmpresaMotorSnapshotResponse` en `api.ts`; `MotorRun.registros` ampliado a `Record<string, unknown> | number | null`.
-
-### 20. Match Center (29/04/2026)
-- **Ruta**: `/admin/match-center` (superadmin-only) + acceso en `Sidebar`.
-- **Objetivo**: saneo manual-asistido de mapeo `integrantes_grupo` ↔ `vendedores_v2` sin tocar a ciegas datos productivos.
-- **Tabla operativa**: muestra texto legible + IDs (`telegram_user_id`, grupo, nombre integrante, vendedor actual/binding/sugerido, motivo).
-- **Acciones**:
-  - Aplicar por fila (`applyMatchCenterRow`)
-  - Aplicar lote seguro (`applyMatchCenterSafe`) sobre filas con criterio confiable.
-- **Contratos API en `api.ts`**:
-  - `fetchMatchCenterCandidates(distId)`
-  - `applyMatchCenterRow(distId, idIntegrante, idVendedorV2)`
-  - `applyMatchCenterSafe(distId)`
-
-### 30. SyncStatusPanel — Supervisión padrón/CC/ventas premium (05/05/2026)
-- **Archivo**: `src/components/admin/SyncStatusPanel.tsx` (reemplaza `SyncStatusBar`).
-- **Subcomponentes**: `PulseDot` (ping animation por estado), `MiniProgress` (framer-motion bar activos/total), `StatChip` (chip coloreado activos/anulados/ausentes), `PadronBreakdown` (breakdown expandible con zombie alert), `SourceRow` (fila por fuente).
-- **Estados de color**: azul=en_curso (procesando), ámbar=stale, esmeralda=fresco.
-- **Zombie alert**: banner rojo con `<AlertTriangle>` si `has_zombie=true` (motor_runs `en_curso` >2h). Mensaje: "Ingesta bloqueada (run zombie >2h) — verificar Railway".
-- **Backend**: `GET /api/supervision/sync-status/{dist_id}` devuelve `activos`, `anulados`, `ausentes`, `last_run_estado`, `has_zombie`.
-- **Tipos TS**: `SyncStatusEntry` en `api.ts` con los 5 campos nuevos opcionales.
-
-### 31. Objetivos — compañía mensual + acordeones prorrateados (07/05/2026)
-- **Archivo**: `shelfy-frontend/src/app/objetivos/page.tsx`.
-- **Card Kanban**: objetivos de compañía muestran badge persistente `N días restantes` y mantienen barra de progreso principal.
-- **Acordeón anidado**:
-  - Nivel 1 (semanal): meta semanal calculada con `meta restante / semanas restantes`.
-  - Nivel 2 (diario): meta diaria calculada con `meta semanal / 6` (lunes a sábado).
-  - Cada nivel incluye barra de progreso y texto explícito de avance requerido.
-- **Ajuste UX (07/05 tarde)**:
-  - El panel de prorrateo interno elimina la barra mensual redundante (ya existe en la card) y deja el foco en avance semanal + diario.
-  - Los `details` internos frenan propagación de click para evitar que la tarjeta Kanban se cierre al abrir/cerrar desglose diario.
-  - La barra de exhibición en card considera evidencia pendiente (`foto_subida`) para reflejar avance visual antes de aprobación final.
-- **Wizard de creación**:
-  - `origen=compania`: período mensual forzado (fecha límite automática al fin de `mes_referencia`).
-  - `ruteo_alteo`: modos “Altear en X rutas + Y PDVs” y “Altear Y PDVs nuevos”.
-  - `conversion_estado`: modos “Activar PDVs X,Y,Z” y “Activar X PDVs”.
-  - `exhibicion`: mantiene dualidad “meta general” vs “por PDV”.
-
-### 33. Objetivos — identificación robusta de PDV (07/05/2026)
-- En cards/listas de objetivos se prioriza visual `#id_cliente_erp + nombre`, y en ítems se agrega sublínea opcional de razón social.
-- Selectores de PDV para Activación, Exhibición y Ruteo muestran: ID cliente (mono), nombre en texto principal y razón social en texto secundario.
-- El catálogo tipado `PDVCatalogItem` incorpora `nombre_razon_social` para mantener consistencia visual entre formularios y cards.
-
-### 32. Jerarquía de rutas unificada (Día → Ruta) (07/05/2026)
-- **TabSupervision** (`components/admin/TabSupervision.tsx`): panel de vendedores/rutas en modo mapa y panel lateral agrupan rutas primero por `dia_semana` y luego por ruta para evitar ambigüedad con múltiples rutas en un mismo día.
-- **Objetivos flotantes en Supervisión**: Alteo deja de seleccionar `id_ruta` puntual como referencia primaria y pasa a seleccionar `días asignados` (`objSelectedDias`), con copy y descripción orientadas a “ALTEAR los días X”.
-- **Store** (`store/useObjetivosMenuStore.ts`): reemplazo de `objSelectedRutaId` por `objSelectedDias: string[]` y `objAlteoMode: 'por_dia'|'general'`.
-- **ModoRuteo** (`components/admin/ModoRuteo.tsx`): textos de rutas reordenados para mostrar día primero (`día · Ruta X`).
-
-### 29. RPA Padrón (28/04/2026) — sin cambios de UI requeridos
-- El hardening reciente del motor Padrón ocurrió en `ShelfMind-RPA/` (navegación Consolido, selector de exportación y upload), sin impactos de contrato ni cambios visuales en pantallas del frontend.
-
-### 19. Supervisión — visibilidad inactivos anti-regresión (16/04/2026)
-- `MapaRutas` reinicia filtros del legend de estados al cambiar el set de pines para prevenir sesiones donde solo queden visibles activos tras toggles previos.
-- Comportamiento esperado: al prender vendedor/ruta se visualizan activos e inactivos (siempre que tengan coordenadas válidas).
-
-### 20. Supervisión — color personalizado por vendedor (16/04/2026)
-- `TabSupervision` agrega picker (`input type=color`) + acción de reset por vendedor en ambos paneles (normal y fullscreen overlay de `ShelfyMaps`).
-- El color se persiste en Zustand (`useSupervisionStore.vendorColorOverrides`) con key `distId:vendorId`.
-- Los pines de mapa y acentos de filas/rutas consumen ese color override en tiempo real.
-
-### 21. Supervisión — galería del día filtrable y tenant-safe (16/04/2026)
-- Filtros de estado robustos por normalización (`Aprobado/Aprobada`, `Rechazado/Rechazada`, `Destacado/Destacada`, `Pendiente`).
-- La galería inferior “Exhibiciones del día” muestra solo registros de vendedores pertenecientes a la `selectedSucursal`.
-- El contador de cabecera muestra registros visibles (post-filtro), no el total bruto.
-
-### 22. Supervisión — comparabilidad mapa/galería por rango temporal (16/04/2026)
-- La galería inferior agrega switch de período: `Hoy`, `7 días`, `Histórico`.
-- `Histórico` permite contrastar contra el mapa (que marca “con exhibición” por última evidencia histórica del PDV, no solo del día).
-
-### 23. Galería de Exhibiciones — cambio de tenant robusto (16/04/2026)
-- `galeria-exhibiciones/page.tsx` limpia contexto al cambiar distribuidora activa (`selectedVendedor`, búsqueda y filtro de sucursal).
-- Evita estados persistidos de un tenant anterior que dejaban la vista en “Sin exhibiciones” aunque existieran datos.
-
-### 24. Visor de evaluación — filtro por sucursal (16/04/2026)
-- `visor/page.tsx` agrega selector de sucursal (`Todas las sucursales` + opciones detectadas en pendientes) en el header de desktop.
-- El filtro se combina con vendedor y tab (`todas`/`objetivo`) para acotar el lote que evalúa el usuario sin perder la navegación por grupos.
-
-### 25. Visor — Stage adaptativo y Modo foco (16/04/2026)
-- `FotoViewer` usa fondo adaptativo (blur de la misma imagen + capa gradiente) para reducir el protagonismo del marco negro en fotos verticales/horizontales.
-- La imagen principal mantiene `object-contain` para garantizar visualización completa sin recortes.
-- Nuevo toggle `Modo foco` en el canvas: oculta overlays/paneles de contexto para priorizar lectura visual de la foto durante la evaluación.
-
-### 26. Visor/Mobile — barra de evaluación menos intrusiva (16/04/2026)
-- El acceso a `Modo foco` se mueve al bloque de acciones de evaluación (desktop + mobile) para quedar en el mismo punto de decisión.
-- En mobile, la barra inferior reduce opacidad y padding; observaciones/frases quedan colapsadas por defecto y se despliegan con botón `Obs`.
-
-### 27. Galería Timeline — badges jerarquizados por color (16/04/2026)
-- En el detalle por cliente, badges de metadata usan color semántico para escaneo rápido (estado, cantidad de imágenes y fecha).
-- Regla de negocio del badge tipo: solo `COMERCIO CON INGRESO` (verde) y `COMERCIO SIN INGRESO` (rojo), con fallback neutro.
-
-### 28. Objetivos Telegram — alineación de contenido (23/04/2026)
-- No requiere cambios de UI en frontend.
-- El backend/bot ahora muestra en Telegram `NRO CLIENTE ERP` y `Ruta (id + día)` para objetivos de exhibición/activación/cobranza, por lo que el contexto operativo de ejecución queda consistente con el módulo de objetivos del portal.
-
-### 8. Supervisión — Aislamiento de Cache por Tenant
-- `TabSupervision.tsx` scopea las query keys de rutas/clientes con `dist_id`:
-  - `['supervision-rutas', distId, id_vendedor]`
-  - `['supervision-clientes', distId, id_ruta]`
-- Al cambiar distribuidora limpia caches de rutas/clientes para evitar cruces de datos entre contextos y etiquetas de vendedor incorrectas en mapa.
-
-### 9. Objetivos — Cascada obligatoria y Activación multi-PDV (Abr 2026)
-- En `NuevoObjetivoModal`, si hay múltiples sucursales la selección de vendedor queda bloqueada hasta elegir sucursal (`mustSelectSucursalFirst` + `disabled` en select de vendedor).
-- Tipo `conversion_estado` ahora permite seleccionar múltiples PDVs (checkbox visual + contador), y al enviar persiste `pdv_items` + `valor_objetivo` con la cantidad seleccionada.
-- El contexto de activación consume `fetchPDVCatalog` (no sólo rutas/clientes cargados) y usa paginación “Cargar más PDVs” para incluir clientes inactivos o con compra/exhibición antigua.
-
-## State Management & Ingesta
-
-Para garantizar el rendimiento y la mantenibilidad de Shelfy, se siguen estos patrones:
-
-1. **Zustand**: Estándar para el **estado global del cliente** (UI sync, filtros entre componentes, estado del mapa, carrito de objetivos). 
-   - *Ejemplo*: `useObjetivosStore` para coordinar el panel flotante y los pines del mapa.
-2. **TanStack Query v5**: Única herramienta para el **estado del servidor** (fetching de API, caching, mutaciones).
-   - *Regla*: Todas las funciones fetch deben estar en `src/lib/api.ts` y usarse únicamente vía Query/Mutation hooks.
-   - *Nota operativa CC (20/04/2026)*: para Real Tabacalera, el RPA separa automáticamente las filas de cuentas corrientes por sucursal (`UEQUIN RODRIGO` / `OSCAR ONDARRETA` / `JOSE IGNACIO BIAVA` / `GONZALEZ LUIS ANTONIO`) antes de subirlas al backend, por lo que el frontend recibe los datos ya segmentados por distribuidor destino.
-   - *Nota operativa Padrón Consolido (27/04/2026)*: la extracción RPA se parametriza desde tabla backend `rpa_consolido_tenants` y usa credencial única de Consolido; no requiere cambios de UI, pero sí garantiza que cada archivo se procese por distribuidor objetivo.
-3. **Animations (Framer Motion)**: Se utilizan para mejorar la percepción de fluidez sin sacrificar la densidad.
-   - *Performance*: Máximo `0.4s` de duración. Se evitan animaciones de entrada pesadas en tablas con gran volumen de datos para priorizar la productividad.
-
-## Primitivos shadcn/ui Disponibles
-
-Los siguientes componentes están instalados en `src/components/ui/` (completo desde 2026-04-04):
-
-| Componente | Archivo | Uso |
-|---|---|---|
-| `Button` | `button.tsx` + `Button.tsx` | Acciones primarias y secundarias. `variant="default"` usa violeta. |
-| `Card` | `card.tsx` | KPI cards, paneles. Usar `CardHeader`/`CardContent`/`CardFooter`. |
-| `Input` | `input.tsx` | Campos de texto (login, filtros, búsqueda). |
-| `Label` | `label.tsx` | Etiquetas de formulario. |
-| `Avatar` | `avatar.tsx` | Avatares de usuario con `AvatarFallback`. |
-| `Badge` | `badge.tsx` | Chips de estado (roles, PDV activo/inactivo). |
-| `Skeleton` | `skeleton.tsx` | Placeholders de carga (reemplaza `animate-pulse`). |
-| `Select` | `select.tsx` | Dropdowns de filtro. |
-| `Alert` | `alert.tsx` | Banners de error/advertencia (`variant="destructive"`). |
-| `Sonner` | `sonner.tsx` | Toasts via `toast()` de `sonner`. `<Toaster>` en `layout.tsx`. |
-| `Dialog` | `dialog.tsx` | Modales con `DialogTitle` obligatorio. |
-| `Sheet` | `sheet.tsx` | Paneles laterales/drawers con `SheetTitle`. |
-| `Tabs` | `tabs.tsx` | Navegación multi-sección (admin, reportes). |
-| `Progress` | `progress.tsx` | Barras de progreso. |
-| `Tooltip` | `tooltip.tsx` | Accesibilidad en botones solo-icono. |
-| `Separator` | `separator.tsx` | Divisores visuales (reemplaza `border-t` divs). |
-| `ScrollArea` | `scroll-area.tsx` | Contenedores scrolleables con scrollbar custom. |
-| `Form` | `form.tsx` | Formularios validados con `react-hook-form`. |
-| `Popover` | `popover.tsx` | Selectores de fecha, filtros flotantes. |
-| `Checkbox` | `checkbox.tsx` | Toggles de permisos, listas de selección. |
-| `Table` | `table.tsx` | Matrices de datos (permisos, reportes). |
-| `DropdownMenu` | `dropdown-menu.tsx` | Menús contextuales. Sidebar tenant switcher. |
-
-## Gráficos y Visualización
-- **Recharts**: Se utilizan paletas de colores basadas en `--shelfy-primary` para consistencia.
-- **MapLibre GL**: El tema del mapa puede actualizarse a un estilo claro para alinear con el nuevo light theme.
-
-## Reportería — Componentes nuevos (2026-05-05)
-
-| Componente | Archivo | Descripción |
-|---|---|---|
-| `ReporteriaVendorSelector` | `components/reporteria/ReporteriaVendorSelector.tsx` | Lista scrolleable de vendedores con avatar initials, badge activo/inactivo, búsqueda, métrica chip por fuente. Animación stagger spring delay i*0.025. |
-| `ReporteriaVendorDetail` | `components/reporteria/ReporteriaVendorDetail.tsx` | Panel deep-dive por vendedor: SIGO→ 6-KPI grid + ComposedChart (bars+line) + timeline color-coded; comprobantes/bultos→ KPI chips + tabla filtrada. Re-anima con `key={vendorName}`. |
-
-### Tab "Detalle" (4º tab en Reportería)
-- Layout: `grid grid-cols-1 md:grid-cols-[280px_1fr]` — selector izquierda, detalle derecha.
-- Click en barra de ranking (ReporteriaCharts) → `onVendorClick` → navega al tab Detalle con vendor preseleccionado.
-- `buildVendorSummaries(data)`: deriva `VendorSummary[]` desde `por_vendedor_y_dia` (SIGO) o `top_clientes` agrupado por vendedor_nombre (comprobantes/bultos).
-- Vendor `isActive`: SIGO = tiene ejecutadas > 0; comprobantes/bultos = tiene facturas > 0 o importe > 0.
+# Frontend Design System — Shelfy (Lean)
+
+Guia compacta para implementaciones UI en el portal Shelfy.
+
+## Stack UI
+
+- Next.js 16 App Router + React 19 + TypeScript 5.9
+- Tailwind CSS 4 + shadcn/ui
+- TanStack Query v5 + Zustand
+- Recharts + Google Maps JS API
+
+## Tema Visual (Light-Violet)
+
+Principios:
+
+- Tema claro por defecto.
+- Violeta como acento principal.
+- Contraste alto para lectura operativa.
+- Evitar hex hardcodeado en componentes.
+
+Tokens clave:
+
+- `--shelfy-bg`: fondo principal
+- `--shelfy-panel`: panel glass claro
+- `--shelfy-primary`: acciones primarias
+- `--shelfy-text`: texto principal
+- `--shelfy-success|warning|error`: estados semanticos
+
+## Reglas UI No Negociables
+
+- Fetch solo via `src/lib/api.ts`.
+- Permisos solo via `hasPermiso(...)`.
+- Estados de servidor con TanStack Query, no fetch directo en componentes.
+- Usar `DatePicker` (no `input type="date"`).
+- En rutas operativas: **Dia -> Ruta** (nunca al reves).
+- En objetivos: mostrar PDV como `#id_cliente_erp + nombre` y razon social secundaria.
+- En mapas: no usar `transform: scale()` para animar marcadores.
+
+## Componentes Criticos
+
+### `TabSupervision.tsx`
+
+- Tabs: mapa, ventas, cuentas.
+- Query keys con `distId`.
+- Modo mobile con switch `Mapa / Vendedores`.
+- Matching de deudas prioriza `id_cliente` y `id_cliente_erp`.
+
+### `MapaRutas.tsx`
+
+- Google Maps API + `InfoWindow`.
+- `fitBounds({ animate: false })`.
+- `ResizeObserver` para evitar drift visual al cambiar layout.
+
+### `objetivos/page.tsx`
+
+- Modos por tipo con dualidad general vs universo explicito.
+- Compania: periodo mensual con prorrateo semanal/diario.
+- Kanban + timeline + stats + print.
+- En el modal de alta, `fecha limite` es obligatoria para origen distribuidora.
+- `Tasa de pendientes` se muestra debajo del bloque contextual del tipo y antes del selector de fecha.
+- La card de compania muestra avance semanal y diario en todas las semanas/dias del mes (no solo futuros).
+
+### `visor/page.tsx`
+
+- Layout de 3 paneles en desktop.
+- Atajos de teclado para evaluar/navegar.
+- Filtro por sucursal y foco en imagen.
+
+## shadcn/ui
+
+Uso obligatorio de primitives existentes:
+
+- `Button`, `Card`, `Input`, `Label`, `Select`, `Dialog`, `Sheet`, `Alert`
+- `Tabs`, `Progress`, `Tooltip`, `Popover`, `DropdownMenu`, `Sonner`
+- `Table`, `Checkbox`, `Skeleton`, `ScrollArea`, `Avatar`, `Badge`
+
+Reglas:
+
+- `cn()` para combinacion de clases.
+- `Avatar` con `AvatarFallback`.
+- `Dialog`/`Sheet` siempre con `Title`.
+- `toast()` de `sonner` para feedback.
+
+## Navegacion
+
+- Sidebar desactivado para operacion normal.
+- Herramientas superadmin expuestas en `Topbar`.
+- `TopModeTabs` + `BottomNav` como navegacion principal de modulos.
+
+## Calidad y Performance
+
+- Evitar estado derivado duplicado.
+- Limitar animaciones pesadas en tablas de alto volumen.
+- Limpiar timers/subscripciones en `useEffect`.
+- Usar `Skeleton` en cargas y `Alert` en errores.
+
+## Contratos Frontend que no romper
+
+- `api.ts` como fuente unica de tipos y funciones.
+- Query keys de supervision y objetivos incluyen `distId`.
+- Compatibilidad con `/api/ws/superadmin` para notificaciones operativas.

@@ -1,240 +1,88 @@
-# Arquitectura de Shelfy CenterMind
+# Arquitectura de Shelfy CenterMind (Lean)
 
-Este documento describe la infraestructura, tecnologías y flujos de datos que componen el ecosistema de Shelfy.
+Documento de referencia tecnica estable para agentes y desarrolladores.
 
-## Stack Tecnológico
+## Stack
 
-### Frontend
-- **Framework**: Next.js 16 (App Router).
-- **Lógica**: React 19 + TypeScript 5.9.
-- **Estilos**: Tailwind CSS 4 + shadcn/ui (radix-ui, lucide-react).
-- **Gráficos**: Recharts.
-- **Mapas**: **Google Maps JS API** (`@googlemaps/js-api-loader` v2) con `google.maps.Marker`, `InfoWindow`, `DrawingManager` y `StreetViewPanorama`. Requiere `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` en variables de entorno Vercel.
-- **Fetching**: @tanstack/react-query (caching y re-fetching).
-- **Deploy**: Vercel.
+- Frontend: Next.js 16, React 19, TypeScript 5.9, Tailwind 4, shadcn/ui.
+- Backend: FastAPI (Python 3.11+), Uvicorn.
+- DB: Supabase PostgreSQL.
+- Estado frontend: Zustand + TanStack Query v5.
+- Bot: python-telegram-bot v20.
+- RPA: Playwright (`ShelfMind-RPA/`).
 
-### Backend
-- **Lenguaje**: Python 3.11+.
-- **Framework**: FastAPI + Uvicorn (ASGI).
-- **Base de Datos**: Supabase (PostgreSQL 15+).
-- **Task Scheduling**: APScheduler (local en el proceso API).
-- **Telegram**: python-telegram-bot v20 (bots multi-tenant).
-- **Data Analysis**: pandas, numpy, openpyxl (procesamiento Excel ERP).
-- **Auth**: JWT (jose) para portal, API Key para bots/RPA.
-- **Deploy**: Railway.
+## Componentes Principales
 
-### RPA / Automatización
-- **Motor**: Python + Playwright.
-- **Credenciales**: Supabase Vault (lectura segura vía RPC).
-- **Ejecución**: Local (Mac del operador/servidor físico con acceso a ERP local).
-- **Padrón Consolido**: credencial única (`consolido_usuario` / `consolido_password`) y catálogo de empresas por distribuidor en tabla `rpa_consolido_tenants` (fallback legacy para compatibilidad).
+- `CenterMind/api.py`: entry point slim.
+- `CenterMind/routers/`: auth, supervision, admin, reportes, difusion, erp.
+- `CenterMind/core/helpers.py`: enrichment y utilidades tenant-safe.
+- `shelfy-frontend/src/lib/api.ts`: contrato unico de fetch/tipos.
+- `ShelfMind-RPA/motores/`: padron, cuentas, ventas, sigo.
 
----
+## Reglas de Multi-Tenant
 
-## Relación Front-End / Back-End
+- Resolver tablas por tenant con `tenant_table_name()`.
+- Nunca hardcodear sufijos `_d{id}`.
+- Mantener filtro `id_distribuidor` en todas las consultas.
+- En frontend, query keys deben incluir `distId`.
 
-1. **REST API**: El frontend consume endpoints definidos en `routers/` (incluidos por `api.py` vía `include_router`).
-    - Autenticación vía `POST /auth/login` → JWT.
-    - Cada request incluye `Authorization: Bearer <token>`.
-2. **Supabase Client**: El backend interactúa con PostgreSQL a través de `db.py` (singleton de Supabase Client).
-3. **RPC (Remote Procedure Calls)**: Se utilizan funciones PL/pgSQL en Supabase para operaciones complejas como `fn_supervision_vendedores` o `fn_login`.
-4. **WebSocket (Realtime)**: Supabase Realtime se utiliza para sincronización de estado en el mapa (navegación coordinada).
-5. **Storage**: Las imágenes subidas por el bot se guardan en Supabase Storage. El frontend usa las URLs públicas para renderizar fotos de exhibiciones.
-6. **Navegación Admin Oculta (Abr 2026)**:
-    - El `Sidebar` fue retirado del layout operativo (retorna `null`) para mantener la pantalla limpia en todos los módulos.
-    - Las herramientas de superadmin se exponen desde `Topbar` mediante menú flotante (ícono `Crown`) con links a Corridas RPA, Match Center, Permisos y módulos admin.
-    - Logout/avatar se mantienen en la esquina superior derecha como punto único de sesión.
-7. **RBAC (Role Based Access Control)**: La tabla `roles_permisos` define llaves de acceso por rol. El frontend usa `hasPermiso(key)` via `AuthContext`.
-8. **Multi-tenant Switcher**: El backend permite el cambio de contexto operativo a usuarios no-superadmin si cuentan con el permiso `action_switch_tenant`, validado en `check_dist_permission`.
-9. **Resolución de tablas físicas por tenant (runtime)**:
-    - Los nombres lógicos `*_v2` se resuelven con `tenant_table_name(...)` a tablas físicas por distribuidor.
-    - Patrón: `<tabla_base>_<id_distribuidor>` (ej. `clientes_pdv_v2_3`, `rutas_v2_3`, `vendedores_v2_3`, `sucursales_v2_3`).
-    - Regla: nunca hardcodear sufijos; siempre resolver por helper + mantener filtro `id_distribuidor`.
-10. **Estado legacy (aún existente, no para código nuevo)**:
-    - Persisten endpoints administrativos puntuales que todavía consultan tablas legacy sin sufijo (`sucursales`, `vendedores`, `rutas`) por compatibilidad.
-    - Módulos operativos (Supervisión, Visor, ERP ingest/contexto) deben usar tablas `_v2` resueltas por tenant.
-11. **Contexto Único de Entorno (Abr 2026)**:
-    - El cambio de distribuidora se centraliza en `Sidebar` + `AuthContext` (`switchDistributor` + `shelfy_active_dist`).
-    - `TabSupervision` y `objetivos/page.tsx` ya no exponen selectores locales de tenant para evitar estados desalineados.
-    - Las consultas de rutas/clientes en supervisión se cachean con `dist_id` en la query key para aislar datos por tenant.
-12. **Padrón ERP — PDV dados de baja (Abr 2026)**:
-    - El padrón exportado **solo incluye clientes activos** (sin anulados). Tras ingesta, `padron_ingestion_service` marca `clientes_pdv_v2.estado='inactivo'` cuando el PDV ya no está en ese Excel (o queda en ruta obsoleta según alcance parcial). Los endpoints de supervisión que alimentan mapa y catálogo filtran `estado != inactivo`.
-13. **Duplicate Guard Objetivos (14/04/2026)**:
-    - `supervision.py::crear_objetivo` previene creación de objetivos duplicados activos `(id_distribuidor, id_vendedor, tipo)` → HTTP 409 `{code:"OBJETIVO_DUPLICADO", id_existente, mensaje}`.
-    - Para tipo `exhibicion`: también verifica overlap de PDVs antes de bloquear.
-    - DB: índice parcial `UNIQUE(id_distribuidor, id_vendedor, tipo) WHERE cumplido=FALSE` en `migrations/objetivos_uniqueness_2026-04-14.sql`.
-14. **Watcher Terminal State Guard (14/04/2026)**:
-    - `objetivos_watcher_service._update_item_estado` lee el estado actual del ítem antes de actualizar; si ya es `cumplido` o `falla`, ignora la transición regresiva (guard idempotente).
-15. **Bot /stats Tenant Scope (14/04/2026)**:
-    - `cmd_stats` en `bot_worker.py` filtra `integrantes_grupo` por `id_distribuidor` (fix: antes podía cruzar datos de un vendedor registrado en múltiples distribuidoras).
-    - Consulta exhibiciones con paginación por lotes de 1000 (cumple límite PostgREST).
-16. **Cuentas de prueba exhibiciones (Tabaco, Abr 2026)**:
-    - `core/helpers.py` centraliza IDs QA (`id_vendedor_v2` 157 / 76) y resolución de `id_integrante` por nombre (Grimaldi).
-    - `routers/reportes.py` y `routers/supervision.py` filtran ranking, pendientes y evaluación para usuarios no superadmin; el bot excluye esas filas del ranking en Telegram.
-16b. **Dashboard KPIs + Ranking sobre exhibición lógica única (May 2026)**:
-    - `GET /api/dashboard/kpis/{dist_id}` y `GET /api/dashboard/ranking/{dist_id}` calculan desde `exhibiciones` con deduplicación por `(id_integrante, cliente, día)` para evitar inflado por múltiples fotos de una misma exhibición.
-    - Fallback para históricos incompletos: dedupe por `url_foto_drive` o `telegram_chat_id:telegram_msg_id` cuando no hay clave cliente/día.
-    - Ambos respetan filtro por `sucursal_id` y exclusión QA en Tabaco para usuarios no superadmin.
-17. **Supervisión/Objectivos — PDVs inactivos visibles (Abr 2026)**:
-    - `GET /api/supervision/clientes/{id_ruta}` ya no descarta `estado='inactivo'`, permitiendo prender/apagar el universo completo de PDVs del vendedor en mapa/listado.
-    - `GET /api/supervision/pdvs-catalog/{dist_id}` devuelve también `estado` y `fecha_ultima_compra`; objetivos usa estos campos para priorizar activación y exhibición sobre clientes inactivos/rezagados.
-18. **Fuerza de Ventas — ubicación guiada por tenant (Abr 2026)**:
-    - `VendedorEditSheet` consume `fetchLocations(distId)` y fuerza selección de `ciudad/localidad` mediante catálogo del tenant (sin texto libre), alineando la carga manual con la estructura ERP del distribuidor.
-19. **Calendario unificado shadcn (Abr 2026)**:
-    - Se eliminan `input type="date"` de módulos activos y se estandariza `DatePicker` (`Calendar` + `Popover`) en Fuerza de Ventas, Mapa Admin, Reportes y Academy.
-20. **Nombres de vendedor ERP consistentes en frontend (Abr 2026)**:
-    - `src/lib/api.ts` normaliza nombres de vendedor en el borde de datos (`resolveVendorERPName`) priorizando `nombre_erp` antes de aliases legacy.
-    - Endpoints frontend cubiertos: ranking (`fetchRanking`, `fetchRankingHistorico`), supervisión (`fetchVendedoresSupervision`, `fetchVentasSupervision`, `fetchCuentasSupervision`) y objetivos (`fetchObjetivos`, `fetchObjetivosTimeline`, `fetchResumenSupervisorObjetivos`).
-21. **Fuerza de Ventas — listas largas de Telegram con scroll (Abr 2026)**:
-    - `VendedorEditSheet` limita altura de los dropdowns de binding (`SelectContent` con `max-h-72`) para asegurar navegación de grupos/usuarios numerosos sin clipping visual.
-22. **Fuerza de Ventas — metadata de actividad en usuarios Telegram (Abr 2026)**:
-    - `GET /api/fuerza-ventas/telegram/usuarios/{dist_id}` enriquece cada integrante con `total_exhibiciones` y `ultima_exhibicion` (agregado por `id_integrante` sobre tabla `exhibiciones`).
-    - `VendedorEditSheet` renderiza esa metadata en el dropdown de usuarios para seleccionar correctamente entre homónimos.
-23. **Modo Oficina — autorización por permiso (Abr 2026)**:
-    - `GET /api/admin/live-map-events` habilita acceso para usuarios con permiso `menu_modo_oficina` (además de superadmin).
-    - Para no-superadmin, el endpoint scopea datos por `id_distribuidor` del JWT para mantener aislamiento tenant.
-24. **Distribuidoras API — acceso para switch de tenant (Abr 2026)**:
-    - `GET /api/admin/distribuidoras|distribuidores` ya no es exclusivo de superadmin; permite usuarios con `action_switch_tenant` (o rol `directorio`) para soportar el switcher sin 403.
-25. **Galería — timeline inteligente paginada (Abr 2026)**:
-    - `GET /api/galeria/cliente/{id_cliente_pdv}/timeline` soporta `offset` + `limit` y responde `{items, has_more}` para carga incremental en frontend.
-    - La UI agrupa por fecha (`1 fecha = 1 exhibición lógica`) y mantiene múltiples imágenes del día dentro del mismo bloque, evitando inflar conteos.
-    - Se aplica deduplicación por URL de imagen en el borde de datos para mitigar repeticiones históricas del mismo asset en fechas distintas.
-26. **Supervisión — guardia visual de inactivos en mapa (Abr 2026)**:
-    - `MapaRutas` re-habilita por defecto los 4 estados del legend (`activo`, `activo+exhibición`, `inactivo`, `inactivo+exhibición`) cuando cambia el set de pines.
-    - Con esto, prender vendedor/ruta siempre muestra también PDVs inactivos (si tienen coordenadas válidas), evitando regressions por filtros locales persistidos en sesión.
-27. **Supervisión — identidad visual por vendedor (Abr 2026)**:
-    - `useSupervisionStore` persiste `vendorColorOverrides` por `distId:vendorId`.
-    - `TabSupervision` permite personalizar y resetear el color del vendedor desde panel normal y fullscreen.
-    - El color impacta avatares, acentos de lista y pines de mapa para continuidad visual entre vistas.
-28. **Supervisión — galería del día con scope de sucursal (Abr 2026)**:
-    - La galería de exhibiciones en `/supervision` aplica dos filtros en frontend: estado normalizado y pertenencia de vendedor a la sucursal activa.
-    - Evita mezclar exhibiciones cross-sucursal y corrige mismatches de estados por variantes de género/tildes.
-29. **Supervisión — rango temporal configurable en galería (Abr 2026)**:
-    - La galería embebida en `/supervision` soporta períodos `Hoy`, `7 días` y `Histórico` para alinear lectura operativa con el mapa.
-    - Reduce falsas discrepancias al comparar métricas por usar ventanas temporales distintas.
-30. **Galería — consulta por cliente desacoplada de integrantes (Abr 2026)**:
-    - `GET /api/galeria/vendedor/{id_vendedor}/clientes` ya no corta en vacío si faltan filas en `integrantes_grupo`.
-    - La fuente principal para clientes con exhibición es `rutas_v2` + `clientes_pdv_v2` + `exhibiciones.id_cliente_pdv`, consistente con supervisión.
-31. **Fuerza de Ventas — mapeo explícito vendedor↔Telegram sincronizado (Abr 2026)**:
-    - Guardar un vendedor en `PUT /api/fuerza-ventas/vendedor/{id_vendedor}` actualiza **dos capas**: `vendedores_telegram_binding` (modelo nuevo) e `integrantes_grupo.id_vendedor_v2` (legacy operativo todavía consumido por reportes/helpers).
-    - El backend propaga también `id_vendedor_erp` al integrante cuando está disponible y limpia asignaciones paralelas del mismo `id_vendedor_v2` para evitar doble atribución de exhibiciones.
-    - Resultado: el tenant corrige cruces de vendedor desde UI sin hotfix backend manual.
-31. **Visor — pendientes enriquecidos con sucursal (Abr 2026)**:
-    - `GET /api/pendientes/{id_distribuidor}` agrega `sucursal` por grupo para habilitar filtros operativos en el visor.
-    - La sucursal se resuelve por cadena relacional `exhibiciones -> clientes_pdv_v2 -> rutas_v2 -> vendedores_v2 -> sucursales_v2` (sin hardcodeos).
-32. **Visor — hardening tenant-safe en enrich de pendientes (Abr 2026)**:
-    - Las consultas de enriquecimiento de `/api/pendientes/{id_distribuidor}` aplican `eq("id_distribuidor", dist)` en tablas auxiliares para impedir mezcla de registros entre tenants.
-    - Campos afectados por el hardening: `sucursal`, `nro_cliente` fallback e identificación de `id_objetivo`.
-33. **Visor — resolución de sucursal robusta (Abr 2026)**:
-    - La sucursal del pendiente se resuelve primero por `nro_cliente` (`id_cliente_erp` en `clientes_pdv_v2`) y solo usa `id_cliente_pdv` como fallback.
-    - Evita asignaciones erróneas de sucursal cuando existen referencias legacy de cliente que no corresponden al esquema `_v2`.
-34. **Visor — capa visual de imagen adaptativa (Abr 2026)**:
-    - El render de foto en evaluación usa un stage adaptativo (blur de la imagen + gradiente suave) para evitar letterbox negro dominante sin sacrificar performance.
-    - El modo foco permite ocultar overlays operativos y mantener la foto como elemento principal durante la validación.
-35. **Visor — controles de evaluación y densidad de overlays (Abr 2026)**:
-    - `Modo foco` se ubica junto al bloque de acciones de evaluación para reducir fricción operativa.
-    - En mobile, el panel inferior mantiene acciones críticas visibles y colapsa inputs secundarios (observaciones/plantillas) para reducir oclusión de la foto.
-36. **Galería — semántica visual en detalle por cliente (Abr 2026)**:
-    - Los badges del timeline adoptan color semántico para priorizar lectura rápida.
-    - `tipo_pdv` queda normalizado de negocio a dos estados visuales: `CON INGRESO` vs `SIN INGRESO`.
-37. **Match Center (SuperAdmin) — Saneo Telegram↔ERP (Abr 2026)**:
-38. **Modo Mapa Full-Layout (30/04/2026)**:
-    - `app/modo-mapa/page.tsx` utiliza `TabSupervision` en modo `mapOnly`.
-    - En `mapOnly`, se ocultan bloques de Cuentas Corrientes y Exhibiciones embebidas; la vista prioriza interacción cartográfica y filtros operativos.
-    - El mapa ocupa toda el área de contenido disponible sin `fullscreen` nativo del navegador.
-    - Nuevo módulo administrativo con endpoints: `GET /api/admin/match-center/candidates/{dist_id}`, `POST /api/admin/match-center/apply`, `POST /api/admin/match-center/apply-safe/{dist_id}`.
-    - Estrategia de resolución: `binding` como fuente primaria; fallback por `nombre+apellido+sucursal` solo cuando el candidato es único.
-    - Cuentas de test quedan bloqueadas del auto-match (`MATCH_CENTER_TEST_TELEGRAM_IDS`), evitando contaminación de ranking y supervision.
-    - Cada fila de candidato incluye contexto textual operativo (integrante, grupo, vendedor actual, binding y sugerido) para decisión humana trazable.
-16. **Bot Telegram — tipo PDV silent-first (Abr 2026)**:
-    - Nueva tabla `pdv_tipo_profiles` (por `id_distribuidor + id_cliente_erp`) con `tipo_pdv_preferido`, `trust_level`, `confidence`, `tipo_counts`, `total_observaciones`.
-    - `handle_text` intenta inferir tipo por perfil: si confianza alta, registra exhibición sin preguntar botones; si no, mantiene selección manual.
-    - Cada carga exitosa actualiza el perfil (`upsert_pdv_tipo_observation`) para reforzar aprendizaje incremental.
-    - Script `backfill_pdv_tipo_profiles.py` inicializa perfiles desde histórico de `exhibiciones` para reducir preguntas desde el día 1.
-17. **Bot Telegram — comando `/objetivos` + contexto operativo (Abr 2026)**:
-    - Nuevo comando `/objetivos` en `bot_worker.py` para que el vendedor consulte sus objetivos asignados y progreso en tiempo real.
-    - La salida incluye `valor_actual/valor_objetivo`, porcentaje y fecha límite.
-    - Para tipos `exhibicion`, `activacion` y `cobranza`, se agrega metadata de ejecución: `NRO CLIENTE ERP` y `Ruta (id + día)` cuando hay PDV vinculado.
-38. **Fix CC backend — filtro sucursal estricto por id_vendedor (May 2026)**:
-    - `supervision_cuentas` en `routers/supervision.py` corrigió lógica de filtro: cuando `valid_vend_ids` no está vacío, solo pasan filas con `id_vendedor ∈ valid_vend_ids`. Fallback a `sucursal_nombre` solo para filas con `id_vendedor` NULL. Elimina el bug de clientes de vendedores de otras sucursales apareciendo en el panel.
-39. **Difusión CC vía Telegram (May 2026)**:
-    - Nuevo servicio `services/cc_difusion_service.py`: genera PDF (reportlab) con tabla de clientes deudores por vendedor y lo envía vía `sendDocument` al grupo Telegram. Fallback a texto plano si reportlab no disponible.
-    - Nuevo router `routers/difusion.py`: `POST /api/difusion/cc-telegram` (modo uno/todos), `GET /api/difusion/vendedores/{dist_id}`. Requiere rol `admin|directorio|superadmin`.
-    - Frontend `app/difusion/page.tsx` con selector de sucursal/vendedor, plantillas de mensaje y resultado inline.
-    - Entrada "Difusión" en `TopModeTabs` y `BottomNav`.
-40. **Guardrails CC ingesta + Preview pre-envío (May 2026)**:
-    - `_enrich_and_store_cc` en `core/helpers.py`: guardrail de mínimo de filas por tenant (`_CC_MIN_ROWS` dict) y guardrail de caída porcentual (`_CC_DROP_PCT_ABORT=30`). Si nuevo snapshot < umbral o < 30% del anterior → `ValueError` abortando el sync antes del delete masivo.
-    - Función pura `planificar_envios_cc_telegram(dist_id, modo, id_vendedor, sucursal, fecha)` en `cc_difusion_service.py`: resuelve cruce vendedor↔Telegram sin enviar nada. Detecta `duplicate_group`, `missing_group`, `empty_cc`. Títulos de grupo via `getChat` con cache TTL 30min.
-    - Endpoint `POST /api/difusion/cc-telegram/preview` en `routers/difusion.py`: retorna `{fecha_snapshot, envios: [...], tiene_conflictos}`.
-    - Frontend `difusion/page.tsx`: botón "Ver preview y enviar" (modo todos) abre Dialog con tabla de envíos planificados. Bloquea envío si `tiene_conflictos=true` salvo override de superadmin.
-    - `supervision/page.tsx`: columna "Cbtés." añadida a la tabla CC mostrando `cantidad_comprobantes`.
-41. **Portal feedback + WebSocket superadmin (May 2026)**:
-    - Router `routers/portal_feedback.py`: JWT `POST /guia-tracking`, `POST /messages`, `GET /messages` + `PATCH /messages/{id}` (solo superadmin), `GET /pending-count` (tickets sin `respuesta`).
-    - Tablas Supabase `portal_guia_cc_events`, `portal_feedback_messages` (fuera de código; SQL en repo si existe).
-    - Tras insertar mensaje o guardar respuesta, `broadcast_sync(SUPERADMIN_WS_DIST_ID, …)` donde `SUPERADMIN_WS_DIST_ID = 0` en `lifespan.ConnectionManager` (canal paralelo a `/api/ws/exhibiciones/{dist_id}`, que usa `id_distribuidor` real).
-    - Frontend: `GET /api/ws/superadmin?token=<JWT>` desde `Topbar` (solo superadmin) + invalidación TanStack Query; PDF Telegram difusión: nombre corto y texto largo fuera del caption cuando aplica (`cc_difusion_service`).
-42. **Objetivos de compañía — período mensual fijo (May 2026)**:
-    - En `shelfy-frontend/src/app/objetivos/page.tsx`, cuando `origen='compania'` el wizard define automáticamente `fecha_objetivo` al último día del `mes_referencia`.
-    - El detalle de cumplimiento en card usa prorrateo multinivel (mes→semana→día, lun-sáb) con cálculo de metas remanentes (`meta/ semanas restantes`, `meta semanal / 6`) y progreso visual por `Progress`.
-    - Tipos `ruteo_alteo`, `conversion_estado` y `exhibicion` incorporan dos modos de creación: metas generales por cantidad o metas por universo explícito (rutas/PDVs).
-43. **Jerarquía operativa de rutas (May 2026)**:
-    - En frontend operacional (`TabSupervision`, objetivos flotantes, modo ruteo), la navegación de rutas se normaliza a `dia_semana -> rutas_del_dia`.
-    - El alta de objetivos de Alteo referencia días asignados (`estado_inicial`) como contexto principal y deja `id_target_ruta` sólo para casos puntuales.
-44. **Objetivos — identificación PDV + progreso multinivel estable (May 2026)**:
-    - El catálogo `GET /api/supervision/pdvs-catalog/{dist_id}` expone también `nombre_razon_social` para mejorar desambiguación operativa en el selector de PDVs.
-    - En frontend de objetivos, los selectores muestran `#id_cliente_erp` + nombre comercial y sublínea de razón social.
-    - En cards de objetivos, el desglose de compañía usa foco semanal→diario sin duplicar la barra mensual ya visible en el header de la tarjeta, y los acordeones internos no propagan click al contenedor para evitar colapsos accidentales.
+## Flujos Criticos
 
----
+### ERP / Padron
 
-## Estructura de Carpetas
+`Excel -> erp_*_raw -> padron_ingestion_service -> sucursales_v2 -> vendedores_v2 -> rutas_v2 -> clientes_pdv_v2`
 
-```
-CenterMind/                     # Raíz del Repositorio
-├── CenterMind/                 # Backend Python (FastAPI)
-│   ├── api.py                  # Entry point slim (~98 líneas): app + routers + health + WS
-│   ├── core/                   # Infraestructura transversal
-│   │   ├── config.py           # Constantes: API_KEY, JWT, CORS, WEBHOOK_URL
-│   │   ├── security.py         # verify_auth, verify_key, check_dist_permission
-│   │   ├── lifespan.py         # bots{}, ConnectionManager, scheduler, lifespan()
-│   │   └── helpers.py          # _get_erp_name_map, _enrich_and_store_cc
-│   ├── models/
-│   │   └── schemas.py          # Todos los modelos Pydantic
-│   ├── routers/
-│   │   ├── auth.py             # /login, /auth/login, /auth/switch-context
-│   │   ├── erp.py              # ERP ingesta, sync v1, padrón, motores RPA, CC
-│   │   ├── supervision.py      # Pendientes, evaluar, mapa, objetivos, GPS, upload-cc, cc-status
-│   │   ├── admin.py            # Distribuidoras, usuarios, integrantes, jerarquía
-│   │   ├── reportes.py         # Dashboard, reports, bonos, reportes exhibiciones
-│   │   └── informes_excel.py   # Motor de informes: infer-config, tenant config, generate PDF
-│   ├── bot_worker.py           # Gestión de Bots de Telegram
-│   ├── db.py                   # Conexión Supabase (singleton)
-│   ├── services/               # Lógica de negocio (Ingesta ERP, CC, Monitoring)
-│   ├── base_datos/             # Scripts SQL y migraciones
-│   └── requirements.txt        # Dependencias de Python
-│
-├── shelfy-frontend/            # Frontend Web (Next.js)
-│   ├── src/app/                # Rutas y layouts (App Router)
-│   │   ├── admin/permissions/  # Matriz de accesos por rol (RBAC)
-│   ├── src/components/         # Componentes React (MapaRutas, TabSupervision)
-│   ├── src/lib/api.ts          # Centralización de llamadas API y Types
-│   ├── public/                 # Assets (Logo, Backgrounds)
-│   └── package.json            # Dependencias de Node.js
-│
-├── ShelfMind-RPA/              # Automatización RPA
-│   ├── runner.py               # Orquestador de motores
-│   ├── motores/                # Lógica por tipo de sync (Ventas, CC, Sigo)
-│   └── lib/                    # Utilidades (Vault Client, Logger)
-│
-└── docs/                       # Documentación técnica adicional
-```
+Claves:
 
----
+- Upsert idempotente por `(id_distribuidor, id_*_erp)`.
+- Soporte de anulados (`motivo_inactivo='padron_anulado'`).
+- Ausentes del padron: `padron_absent`.
 
-## Flujo de Datos Crítico
+### Cuentas Corrientes
 
-1. **ERP → Supabase**: El RPA extrae datos del ERP local → `POST` a la API → `erp_ingestion_service` → Tablas `_v2`.
-   - Caso especial Cuentas Corrientes (Real Tabacalera): el motor selecciona `UEQUIN RODRIGO` + `OSCAR ONDARRETA` + `JOSE IGNACIO BIAVA` + `GONZALEZ LUIS ANTONIO` y luego divide server-payload por sucursal para enrutar cada bloque al distribuidor destino correcto (`La Magica - Santiago del Estero` / `Bolivar Distribuciones` / `CARAMELE - SAN LUIS` / `LAG Distribuidora - Tucuman`).
-   - Caso especial Padrón Consolido (28/04/2026): el motor usa navegación SPA rápida por hash hacia `#/parametrizaciones/reportes/administrador-de-procesos` (con fallback controlado), selecciona exportación por botón con ícono Excel (`fa-file-excel`) para evitar click en autoajuste de columnas, y sube a backend vía `POST /api/v1/sync/erp-padrón?id_distribuidor=...` (query param obligatorio).
-2. **Telegram → Supabase**: Vendedor sube foto → `bot_worker.py` → Supabase Storage → Tabla `exhibiciones`.
-3. **Supabase → Portal**: `api.py` consulta vistas/tablas → Frontend Renderiza dashboard y mapas.
+`CHESS (JSON/Excel) -> parser -> _enrich_and_store_cc -> cc_detalle`
+
+Claves:
+
+- Resolver `id_cliente` en ingesta (no en runtime).
+- Filtro por sucursal/vendedor en backend para evitar cruces.
+- Tablas grandes: paginacion obligatoria.
+
+### Exhibiciones
+
+`Telegram -> bot_worker -> Supabase Storage -> exhibiciones -> evaluacion en portal`
+
+Claves:
+
+- `url_foto_drive` es URL de Supabase Storage (nombre legado).
+- Watcher actualiza objetivos y emite eventos.
+- Objetivos de compania tipo exhibicion aplican retroactividad mensual: el watcher toma como inicio el primer dia de `mes_referencia` (no `created_at`).
+
+## Endpoints Nucleares
+
+- Supervision: `/api/supervision/*`, `/api/pendientes/*`
+- Dashboard/reportes: `/api/dashboard/*`, `/api/reports/*`
+- Difusion: `/api/difusion/*`
+- ERP sync: `/api/v1/sync/*`
+- Auth: `/auth/login`, `/auth/switch-context/{dist_id}`
+- WS: `/api/ws/exhibiciones/{dist_id}`, `/api/ws/superadmin`
+
+## Invariantes Operativas
+
+- KPI/ranking: contar exhibicion logica unica (no fotos duplicadas).
+- QA Tabaco (no superadmin): excluir cuentas de prueba en ranking/visor.
+- En UI operativa de rutas: jerarquia **Dia -> Ruta**.
+- Para objectives de compania: periodo mensual fijo.
+- Recordatorios de objetivos por bot: envio diario 08:00 AR a vendedores con metas activas (resumen de progreso y vencimiento).
+
+## Riesgos Tecnicos
+
+- Limite PostgREST de 1000 filas por pagina.
+- Riesgo de mezcla cross-tenant por query keys incompletas.
+- Dependencia de consistencia en mapeo vendedor Telegram <-> ERP.
+
+## Pendientes de Arquitectura
+
+1. Eliminar uso residual de tablas legacy en admin.
+2. Evaluar scheduler fuera del proceso API.
+3. Definir estrategia de archivo mensual de cambios tecnicos.

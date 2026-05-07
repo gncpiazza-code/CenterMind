@@ -1223,7 +1223,7 @@ class PadronIngestionService:
 
                     if lag_dist_id and not df_after_bol.empty:
                         if id_suc_col:
-                            mask_lag = df_after_bol[id_suc_col].apply(lambda v: _is_idsucursal(v, 9))
+                            mask_lag = df_after_bol[id_suc_col].apply(lambda v: _is_idsucursal(v, 10))
                         else:
                             mask_lag = pd.Series(False, index=df_after_bol.index)
                         # Fallback por nombre textual cuando no venga idsucur utilizable.
@@ -1233,7 +1233,7 @@ class PadronIngestionService:
                         df_after_lag = df_after_bol[~mask_lag].copy()
                         if not df_lag.empty:
                             logger.info(
-                                f"[Padrón] Reenrutando {len(df_lag)} filas de sucursal LAG (idsucur=9 / GONZALEZ) "
+                                f"[Padrón] Reenrutando {len(df_lag)} filas de sucursal LAG (idsucur=10 / GONZALEZ) "
                                 f"hacia LAG Distribuidora - Tucuman (dist {lag_dist_id})."
                             )
                             resultados.append(
@@ -1435,7 +1435,7 @@ class PadronIngestionService:
                 id_suc_l = cols.get("id_sucursal")
                 df_rpl = df[df["_empresa_key"].isin(franchise_erp_keys)].copy()
                 if id_suc_l:
-                    mask_lag = df_rpl[id_suc_l].apply(lambda v: _is_idsucursal(v, 9))
+                    mask_lag = df_rpl[id_suc_l].apply(lambda v: _is_idsucursal(v, 10))
                 else:
                     mask_lag = pd.Series(False, index=df_rpl.index)
                 mask_lag = mask_lag | df_rpl[suc_l].apply(_is_gonzalez_luis_antonio_sucursal)
@@ -1445,7 +1445,7 @@ class PadronIngestionService:
                     lag_gonzalez_only = True
                     logger.info(
                         f"[Padrón] LAG Tucumán sin id_empresa_erp: {len(df_target)} filas "
-                        f"de sucursal LAG (idsucur=9 / GONZALEZ) (idempresa franquicia: {sorted(franchise_erp_keys)})."
+                        f"de sucursal LAG (idsucur=10 / GONZALEZ) (idempresa franquicia: {sorted(franchise_erp_keys)})."
                     )
             if not bolivar_ondarreta_only and not magica_uequin_only and not caramele_biava_only and not lag_gonzalez_only:
                 if n_emp > 1:
@@ -1509,7 +1509,7 @@ class PadronIngestionService:
             id_suc_col = cols.get("id_sucursal")
 
             if id_suc_col:
-                mask_lag = df_after_bol[id_suc_col].apply(lambda v: _is_idsucursal(v, 9))
+                mask_lag = df_after_bol[id_suc_col].apply(lambda v: _is_idsucursal(v, 10))
             else:
                 mask_lag = pd.Series(False, index=df_after_bol.index)
             mask_lag = mask_lag | df_after_bol[suc_col].apply(_is_gonzalez_luis_antonio_sucursal)

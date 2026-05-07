@@ -362,3 +362,156 @@ def difusion_vendedor_resumen(dist_id: int, id_vendedor: int, user_payload=Depen
     except Exception as e:
         logger.error(f"[difusion] resumen vend={id_vendedor} dist={dist_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Plantillas de difusión por usuario ─────────────────────────────────────────
+
+class PlantillaCreate(BaseModel):
+    titulo: str
+    cuerpo: str
+
+
+class PlantillaUpdate(BaseModel):
+    titulo: Optional[str] = None
+    cuerpo: Optional[str] = None
+
+
+@router.get("/api/difusion/plantillas", tags=["Difusión"])
+def list_plantillas(user_payload=Depends(verify_auth)):
+    """Lista todas las plantillas de difusión del usuario autenticado."""
+    id_usuario = user_payload.get("id_usuario")
+    if not id_usuario:
+        raise HTTPException(status_code=401, detail="Usuario no identificado en el token")
+    try:
+        rows = (
+            sb.table("difusion_plantilla_usuario")
+            .select("id, titulo, cuerpo, created_at, updated_at")
+            .eq("id_usuario", id_usuario)
+            .order("updated_at", desc=True)
+            .execute()
+            .data or []
+        )
+        return rows
+    except Exception as e:
+        logger.error(f"[difusion/plantillas] list usuario={id_usuario}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/difusion/plantillas", tags=["Difusión"], status_code=201)
+def create_plantilla(body: PlantillaCreate, user_payload=Depends(verify_auth)):
+    """Crea una nueva plantilla de difusión para el usuario autenticado."""
+    id_usuario = user_payload.get("id_usuario")
+    if not id_usuario:
+        raise HTTPException(status_code=401, detail="Usuario no identificado en el token")
+    titulo = (body.titulo or "").strip()
+    cuerpo = (body.cuerpo or "").strip()
+    if not titulo:
+        raise HTTPException(status_code=400, detail="El título no puede estar vacío")
+    if not cuerpo:
+        raise HTTPException(status_code=400, detail="El cuerpo no puede estar vacío")
+    try:
+        from datetime import datetime, timezone as _tz
+        now_iso = datetime.now(_tz.utc).isoformat()
+        res = (
+            sb.table("difusion_plantilla_usuario")
+            .insert({
+                "id_usuario": id_usuario,
+                "titulo": titulo,
+                "cuerpo": cuerpo,
+                "created_at": now_iso,
+                "updated_at": now_iso,
+            })
+            .execute()
+        )
+        created = (res.data or [{}])[0]
+        return created
+    except Exception as e:
+        logger.error(f"[difusion/plantillas] create usuario={id_usuario}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/api/difusion/plantillas/{plantilla_id}", tags=["Difusión"])
+def update_plantilla(
+    plantilla_id: int,
+    body: PlantillaUpdate,
+    user_payload=Depends(verify_auth),
+):
+    """Actualiza una plantilla del usuario autenticado (solo las propias)."""
+    id_usuario = user_payload.get("id_usuario")
+    if not id_usuario:
+        raise HTTPException(status_code=401, detail="Usuario no identificado en el token")
+    try:
+        # Verificar propiedad
+        existing = (
+            sb.table("difusion_plantilla_usuario")
+            .select("id, id_usuario")
+            .eq("id", plantilla_id)
+            .limit(1)
+            .execute()
+            .data or []
+        )
+        if not existing:
+            raise HTTPException(status_code=404, detail="Plantilla no encontrada")
+        if existing[0].get("id_usuario") != id_usuario:
+            raise HTTPException(status_code=403, detail="No tenés permiso para editar esta plantilla")
+
+        fields: dict = {}
+        if body.titulo is not None:
+            titulo = body.titulo.strip()
+            if not titulo:
+                raise HTTPException(status_code=400, detail="El título no puede estar vacío")
+            fields["titulo"] = titulo
+        if body.cuerpo is not None:
+            cuerpo = body.cuerpo.strip()
+            if not cuerpo:
+                raise HTTPException(status_code=400, detail="El cuerpo no puede estar vacío")
+            fields["cuerpo"] = cuerpo
+        if not fields:
+            raise HTTPException(status_code=400, detail="Se requiere al menos un campo para actualizar")
+
+        from datetime import datetime, timezone as _tz
+        fields["updated_at"] = datetime.now(_tz.utc).isoformat()
+
+        res = (
+            sb.table("difusion_plantilla_usuario")
+            .update(fields)
+            .eq("id", plantilla_id)
+            .eq("id_usuario", id_usuario)
+            .execute()
+        )
+        updated = (res.data or [{}])[0]
+        return updated
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[difusion/plantillas] update id={plantilla_id} usuario={id_usuario}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/api/difusion/plantillas/{plantilla_id}", tags=["Difusión"], status_code=204)
+def delete_plantilla(plantilla_id: int, user_payload=Depends(verify_auth)):
+    """Elimina una plantilla del usuario autenticado (solo las propias)."""
+    id_usuario = user_payload.get("id_usuario")
+    if not id_usuario:
+        raise HTTPException(status_code=401, detail="Usuario no identificado en el token")
+    try:
+        # Verificar propiedad antes de eliminar
+        existing = (
+            sb.table("difusion_plantilla_usuario")
+            .select("id, id_usuario")
+            .eq("id", plantilla_id)
+            .limit(1)
+            .execute()
+            .data or []
+        )
+        if not existing:
+            raise HTTPException(status_code=404, detail="Plantilla no encontrada")
+        if existing[0].get("id_usuario") != id_usuario:
+            raise HTTPException(status_code=403, detail="No tenés permiso para eliminar esta plantilla")
+
+        sb.table("difusion_plantilla_usuario").delete().eq("id", plantilla_id).eq("id_usuario", id_usuario).execute()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[difusion/plantillas] delete id={plantilla_id} usuario={id_usuario}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

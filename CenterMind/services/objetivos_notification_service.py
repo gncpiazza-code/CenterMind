@@ -773,36 +773,60 @@ class ObjetivosNotificationService:
                 f"¡Éxitos con la gestión! 💪"
             )
 
-            # Telegram tiene límite ~4096 chars; truncar si es necesario
-            TELEGRAM_MAX = 4096
-            if len(text) > TELEGRAM_MAX:
-                text = text[:TELEGRAM_MAX - 20] + "\n…(mensaje truncado)"
+            # Partir en múltiples mensajes si supera el límite de Telegram (~4096 chars)
+            TELEGRAM_MAX = 4000
 
-            resp = requests.post(
-                TELEGRAM_API.format(token=token),
-                json={"chat_id": chat_id, "text": text, "parse_mode": "HTML"},
-                timeout=8,
-            )
-            if resp.ok:
-                logger.info(f"[Notif] Nuevo objetivo enviado a chat={chat_id} dist={dist_id}")
-                try:
-                    payload = resp.json() or {}
-                    msg = payload.get("result") or {}
-                    message_id = msg.get("message_id")
-                    if message_id:
+            def _send_tg_text(chunk: str) -> dict | None:
+                r = requests.post(
+                    TELEGRAM_API.format(token=token),
+                    json={"chat_id": chat_id, "text": chunk, "parse_mode": "HTML"},
+                    timeout=8,
+                )
+                if r.ok:
+                    try:
+                        result_msg = (r.json() or {}).get("result") or {}
                         return {
                             "chat_id": int(chat_id),
-                            "message_id": int(message_id),
+                            "message_id": result_msg.get("message_id"),
                         }
-                except Exception:
-                    pass
-                return {"chat_id": int(chat_id), "message_id": None}
+                    except Exception:
+                        return {"chat_id": int(chat_id), "message_id": None}
+                else:
+                    logger.warning(
+                        f"[Notif] Error enviando objetivo: "
+                        f"chat={chat_id} dist={dist_id} → {r.status_code} {r.text[:120]}"
+                    )
+                    return None
+
+            if len(text) <= TELEGRAM_MAX:
+                result_dict = _send_tg_text(text)
+                if result_dict is not None:
+                    logger.info(f"[Notif] Nuevo objetivo enviado a chat={chat_id} dist={dist_id}")
+                return result_dict
             else:
-                logger.warning(
-                    f"[Notif] Error enviando nuevo objetivo: "
-                    f"chat={chat_id} dist={dist_id} → {resp.status_code} {resp.text[:120]}"
-                )
-                return None
+                # Partir el mensaje en trozos sin romper tags HTML: dividir por líneas
+                parts: list[str] = []
+                current = ""
+                for line in text.split("\n"):
+                    segment = (line + "\n")
+                    if len(current) + len(segment) > TELEGRAM_MAX and current:
+                        parts.append(current.rstrip())
+                        current = segment
+                    else:
+                        current += segment
+                if current.strip():
+                    parts.append(current.rstrip())
+
+                first_result: dict | None = None
+                for idx, part in enumerate(parts):
+                    r = _send_tg_text(part)
+                    if r is not None and first_result is None:
+                        first_result = r
+                        logger.info(
+                            f"[Notif] Nuevo objetivo enviado (parte {idx+1}/{len(parts)}) "
+                            f"a chat={chat_id} dist={dist_id}"
+                        )
+                return first_result
         except Exception as e:
             logger.error(f"[Notif] Error en notify_new_objective_telegram: {e}")
             return None

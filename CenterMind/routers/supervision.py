@@ -105,11 +105,31 @@ def _norm_name(s) -> str:
 
 def _dedupe_pdvs_latest_by_erp(rows: list[dict]) -> list[dict]:
     """
-    Mantiene una única fila por id_cliente_erp (la más reciente por updated_at)
-    para evitar mostrar duplicados stale cuando un PDV cambió de ruta.
+    Una fila por id_cliente_erp. Prioriza la fila con fecha_ultima_compra **no nula**
+    y, si hay varias, la de **fecha más reciente** (padrón), luego updated_at.
+    Evita quedarse con una fila duplicada “nueva” pero sin FUC que borre la vista del mapa.
     """
     if not rows:
         return rows
+
+    def _fuc_key(row: dict) -> str:
+        s = row.get("fecha_ultima_compra")
+        if not s:
+            return ""
+        return str(s)[:10]
+
+    def _better(prev: dict, row: dict) -> dict:
+        fp, fr = _fuc_key(prev), _fuc_key(row)
+        if bool(fr) != bool(fp):
+            return row if fr else prev
+        if fp and fr and fp != fr:
+            return row if fr > fp else prev
+        pu = str(prev.get("updated_at") or "")
+        ru = str(row.get("updated_at") or "")
+        if ru != pu:
+            return row if ru > pu else prev
+        return row if int(row.get("id_cliente") or 0) > int(prev.get("id_cliente") or 0) else prev
+
     chosen_by_erp: dict[str, dict] = {}
     no_erp_rows: list[dict] = []
     for row in rows:
@@ -120,14 +140,8 @@ def _dedupe_pdvs_latest_by_erp(rows: list[dict]) -> list[dict]:
         prev = chosen_by_erp.get(erp)
         if prev is None:
             chosen_by_erp[erp] = row
-            continue
-        prev_updated = str(prev.get("updated_at") or "")
-        curr_updated = str(row.get("updated_at") or "")
-        if curr_updated > prev_updated:
-            chosen_by_erp[erp] = row
-            continue
-        if curr_updated == prev_updated and int(row.get("id_cliente") or 0) > int(prev.get("id_cliente") or 0):
-            chosen_by_erp[erp] = row
+        else:
+            chosen_by_erp[erp] = _better(prev, row)
     return list(chosen_by_erp.values()) + no_erp_rows
 
 
@@ -3354,4 +3368,78 @@ def supervision_sync_status(dist_id: int, user_payload=Depends(verify_auth)):
 
         return {"padron": padron_data, "cuentas_corrientes": cc_data, "ventas": ventas_data}
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/supervision/vendedor/{dist_id}/{id_vendedor}/kpi-mapa", tags=["Supervisión"])
+def supervision_vendedor_kpi_mapa(
+    dist_id: int,
+    id_vendedor: int,
+    user_payload=Depends(verify_auth),
+):
+    """Retorna PDV nuevos y activados en los últimos 7 días corridos (timezone AR)."""
+    try:
+        check_dist_permission(user_payload, dist_id)
+        # Ventana: hoy 00:00 AR → hace 7 días 00:00 AR. Hardcodeamos -03:00 (AR no observa DST).
+        from datetime import timezone as _tz
+        now_utc = datetime.now(_tz.utc)
+        ar_offset = timedelta(hours=-3)
+        now_ar = now_utc + ar_offset
+        desde_ar = (now_ar - timedelta(days=7)).replace(hour=0, minute=0, second=0, microsecond=0)
+        # Convertir a strings con offset AR para comparar contra created_at (timestamptz)
+        desde_iso = desde_ar.strftime("%Y-%m-%dT%H:%M:%S-03:00")
+        hasta_iso = now_ar.strftime("%Y-%m-%dT%H:%M:%S-03:00")
+        # Para fecha_ultima_compra (campo date) usamos solo YYYY-MM-DD
+        desde_date = desde_ar.strftime("%Y-%m-%d")
+        hasta_date = now_ar.strftime("%Y-%m-%d")
+
+        t = tenant_table_name("clientes_pdv_v2", dist_id)
+
+        # PDV nuevos: created_at cae en la ventana de 7 días
+        nuevos_ids: set[int] = set()
+        PAGE = 1000
+        offset = 0
+        while True:
+            rows = (
+                sb.table(t)
+                .select("id_cliente")
+                .eq("id_distribuidor", dist_id)
+                .eq("id_vendedor", id_vendedor)
+                .gte("created_at", desde_iso)
+                .lte("created_at", hasta_iso)
+                .range(offset, offset + PAGE - 1)
+                .execute()
+                .data or []
+            )
+            for r in rows:
+                nuevos_ids.add(r["id_cliente"])
+            if len(rows) < PAGE:
+                break
+            offset += PAGE
+
+        # PDV activados: fecha_ultima_compra en ventana y NO son altas nuevas
+        activados = 0
+        offset = 0
+        while True:
+            rows = (
+                sb.table(t)
+                .select("id_cliente")
+                .eq("id_distribuidor", dist_id)
+                .eq("id_vendedor", id_vendedor)
+                .gte("fecha_ultima_compra", desde_date)
+                .lte("fecha_ultima_compra", hasta_date)
+                .range(offset, offset + PAGE - 1)
+                .execute()
+                .data or []
+            )
+            activados += sum(1 for r in rows if r["id_cliente"] not in nuevos_ids)
+            if len(rows) < PAGE:
+                break
+            offset += PAGE
+
+        return {"pdv_nuevos_7d": len(nuevos_ids), "pdv_activados_7d": activados}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error en supervision_vendedor_kpi_mapa: {e}")
         raise HTTPException(status_code=500, detail=str(e))

@@ -118,7 +118,7 @@ function TimelineGroupCard({
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={item.url_foto}
-                  alt={`Exhibición #${item.id_exhibicion}`}
+                  alt={`Exhibición del ${item.timestamp_subida?.slice(0, 10) ?? "sin fecha"}`}
                   className="w-full h-full object-cover cursor-zoom-in"
                   loading="lazy"
                   onClick={() => onOpenImage(item.url_foto, item.id_exhibicion)}
@@ -348,7 +348,7 @@ export function ExhibicionesTimelineDialog({
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={zoomedImage.url}
-              alt={`Exhibición ampliada #${zoomedImage.id}`}
+              alt={`Vista ampliada de exhibición`}
               className="max-w-full max-h-[82vh] object-contain rounded-xl shadow-2xl"
               onClick={(e) => e.stopPropagation()}
             />

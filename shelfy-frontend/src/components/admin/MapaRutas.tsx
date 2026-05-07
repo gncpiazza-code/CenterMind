@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { setOptions, importLibrary } from "@googlemaps/js-api-loader";
 import type { DrawnPolygon } from "@/store/useSupervisionStore";
+import { diasCalendarioDesdeFechaCompra, normalizeFechaPadrón } from "@/lib/supervisionMapHelpers";
 import { MapLegendTooltip } from "./MapLegendTooltip";
 
 // ── Interfaces ────────────────────────────────────────────────────────────────
@@ -52,10 +53,9 @@ export const STATUS_LABELS: Record<PinStatus, string> = {
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-const diasDesdeIso = (iso: string | null | undefined): number | null => {
-  if (!iso) return null;
-  return Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
-};
+/** Días calendario desde fecha padrón (evita parse ISO solo-fecha en UTC). */
+const diasDesdeIso = (iso: string | null | undefined): number | null =>
+  diasCalendarioDesdeFechaCompra(normalizeFechaPadrón(iso) ?? iso ?? null);
 
 function altaBorderColor(fechaAlta: string | null | undefined): string | null {
   const dias = diasDesdeIso(fechaAlta);
@@ -146,12 +146,27 @@ function buildSelectedPinSvg(fillColor: string, borderColor: string, size: numbe
 }
 
 
+const LEGEND_ICON_SIZE = 18;
+const LEGEND_ICONS: Record<PinStatus, string> = {
+  activo_exhibicion:   buildStarSvg(STATUS_COLORS.activo_exhibicion, null, LEGEND_ICON_SIZE),
+  activo:              buildDollarSvg(STATUS_COLORS.activo, null, LEGEND_ICON_SIZE),
+  inactivo_exhibicion: buildQuestionSvg(STATUS_COLORS.inactivo_exhibicion, null, LEGEND_ICON_SIZE),
+  inactivo:            buildCrossSvg(STATUS_COLORS.inactivo, null, LEGEND_ICON_SIZE),
+};
+
 // ── Props ─────────────────────────────────────────────────────────────────────
+export interface VendedorKpis {
+  pdv_nuevos_7d?: number;
+  pdv_activados_7d?: number;
+  nombre?: string;
+}
+
 interface MapaRutasProps {
   pines: PinCliente[];
   fullscreenPanel?: React.ReactNode;
   selectedPDVs?: number[];
   onTogglePDV?: (id: number) => void;
+  vendedorKpis?: VendedorKpis;
   // Armar Ruta
   routeBuildEnabled?: boolean;
   onToggleRouteBuild?: () => void;
@@ -243,6 +258,7 @@ export default function MapaRutas({
   fullscreenPanel,
   selectedPDVs,
   onTogglePDV,
+  vendedorKpis,
   routeBuildEnabled = false,
   onToggleRouteBuild,
   onPolygonSelectionChange,
@@ -369,7 +385,7 @@ export default function MapaRutas({
     const selSet = new Set(selectedPDVs ?? []);
 
     conCoords.forEach(p => {
-      const size        = p.activo ? 32 : 24;
+      const size        = p.activo ? 38 : 26;
       const isSelected  = selSet.has(p.id);
 
       const pinFillColor = p.color;
@@ -377,7 +393,7 @@ export default function MapaRutas({
         ? buildSelectedPinSvg(pinFillColor, STATUS_COLORS[getPinStatus(p)], size)
         : buildShapeSvg(p, pinFillColor, size);
 
-      const iconSize = isSelected ? size + 8 : size;
+      const iconSize = isSelected ? size + 10 : size;
 
       const marker = new window.google.maps.Marker({
         position: { lat: p.lat, lng: p.lng },
@@ -399,8 +415,8 @@ export default function MapaRutas({
       const diasExhib  = diasDesdeIso(p.fechaUltimaExhibicion);
       const compraColor = p.activo ? '#86efac' : '#fca5a5';
       const compraLabel = diasCompra === null
-        ? `<span style="color:#475569">Sin compras registradas</span>`
-        : `<span style="color:${compraColor}">🛒 Últ. compra: ${p.ultimaCompra} · <b>hace ${diasCompra}d</b></span>`;
+        ? `<span style="color:#475569">Sin compras registradas (padrón)</span>`
+        : `<span style="color:${compraColor}">🛒 Últ. compra (padrón): ${p.ultimaCompra} · <b>hace ${diasCompra}d</b></span>`;
       const razonSocial = (p.razonSocial ?? '').trim();
       const nombreFantasia = (p.nombre ?? '').trim();
       const razonLine = razonSocial && razonSocial.toLowerCase() !== nombreFantasia.toLowerCase()
@@ -438,7 +454,7 @@ export default function MapaRutas({
            </div>`;
 
       const popupHTML = `
-        <div style="min-width:200px;max-width:260px;font-size:12px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+        <div style="min-width:200px;max-width:260px;max-height:288px;overflow-y:auto;font-size:12px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
                     background:#1e293b;color:#e2e8f0;padding:12px 14px;border-radius:10px;
                     box-shadow:0 8px 30px rgba(0,0,0,0.45);line-height:1.5;border:1px solid rgba(255,255,255,0.08)">
           ${p.idClienteErp ? `<div style="font-size:9px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px">Cliente ${p.idClienteErp}</div>` : ''}
@@ -496,13 +512,13 @@ export default function MapaRutas({
     markersMapRef.current.forEach((marker, id) => {
       const pin = filteredPines.find(p => p.id === id);
       if (!pin) return;
-      const size       = pin.activo ? 32 : 24;
+      const size       = pin.activo ? 38 : 26;
       const isSelected = selSet.has(id);
 
       const iconUrl = isSelected
         ? buildSelectedPinSvg(pin.color, STATUS_COLORS[getPinStatus(pin)], size)
         : buildShapeSvg(pin, pin.color, size);
-      const iconSize = isSelected ? size + 8 : size;
+      const iconSize = isSelected ? size + 10 : size;
       marker.setIcon({
         url: iconUrl,
         scaledSize: new window.google.maps.Size(iconSize, iconSize),
@@ -648,7 +664,13 @@ export default function MapaRutas({
               cursor: 'pointer', fontSize: 11, fontWeight: 600,
               transition: 'all 0.15s', opacity: count === 0 ? 0.35 : 1,
             }}>
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: on ? color : 'rgba(255,255,255,0.5)', flexShrink: 0 }} />
+            <img
+              src={LEGEND_ICONS[s]}
+              width={LEGEND_ICON_SIZE}
+              height={LEGEND_ICON_SIZE}
+              style={{ flexShrink: 0, opacity: on ? 1 : 0.4 }}
+              alt=""
+            />
             <span style={{ maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {STATUS_LABELS[s]}
             </span>
@@ -864,6 +886,43 @@ export default function MapaRutas({
       }}>
         {filteredPines.length.toLocaleString()} <span style={{ color: 'rgba(255,255,255,0.5)', fontWeight: 400 }}>PDVs visibles</span>
       </div>
+
+      {/* Vendedor KPI badges */}
+      {vendedorKpis && ((vendedorKpis.pdv_nuevos_7d ?? 0) > 0 || (vendedorKpis.pdv_activados_7d ?? 0) > 0) && (
+        <div style={{
+          position: 'absolute', top: 42,
+          left: (isFullscreen && fullscreenPanel)
+            ? (showSidePanel ? 403 : 105)
+            : (panelOffset + 10),
+          zIndex: 30,
+          display: 'flex', gap: 5, transition: 'left 0.3s ease',
+        }}>
+          {(vendedorKpis.pdv_nuevos_7d ?? 0) > 0 && (
+            <div style={{
+              background: 'rgba(16,185,129,0.18)', backdropFilter: 'blur(8px)',
+              border: '1px solid rgba(16,185,129,0.35)',
+              color: '#34d399', fontSize: 10, fontWeight: 700,
+              padding: '3px 8px', borderRadius: 6,
+              boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
+              pointerEvents: 'none',
+            }}>
+              +{vendedorKpis.pdv_nuevos_7d} nuevos 7d
+            </div>
+          )}
+          {(vendedorKpis.pdv_activados_7d ?? 0) > 0 && (
+            <div style={{
+              background: 'rgba(59,130,246,0.18)', backdropFilter: 'blur(8px)',
+              border: '1px solid rgba(59,130,246,0.35)',
+              color: '#60a5fa', fontSize: 10, fontWeight: 700,
+              padding: '3px 8px', borderRadius: 6,
+              boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
+              pointerEvents: 'none',
+            }}>
+              {vendedorKpis.pdv_activados_7d} activ. 7d
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -2,13 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Send, CreditCard, Users, AlertCircle, CheckCircle2,
   Loader2, Radio, Building2, ChevronDown, Target, Image, TrendingUp,
   Clock, CalendarDays, BarChart2, BookOpen, Eye, AlertTriangle,
-  MessageSquare, ShieldAlert, Bot,
+  MessageSquare, ShieldAlert, Bot, BookmarkPlus, X,
 } from "lucide-react";
 
 import { Sidebar } from "@/components/layout/Sidebar";
@@ -28,9 +28,10 @@ import {
   fetchVendedoresSupervision, fetchDifusionVendedorResumen,
   fetchSigoDetail, postDifusionSIGOTelegram,
   postDifusionCCTelegramPreview,
+  fetchDifusionPlantillas, createDifusionPlantilla, deleteDifusionPlantilla,
   type DifusionVendedor, type DifusionCCResult, type DifusionVendedorResumen,
   type SigoDetailResponse, type DifusionSIGOResult, type DifusionPreviewResult,
-  type DifusionPreviewItem,
+  type DifusionPreviewItem, type DifusionPlantilla,
 } from "@/lib/api";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
@@ -92,6 +93,11 @@ export default function DifusionPage() {
 
   /** Reabrir el comunicado (el auto-open está en dashboard tras login). */
   const [guiaOpen, setGuiaOpen] = useState(false);
+
+  // ── Plantillas state ──
+  const [savingPlantilla, setSavingPlantilla] = useState(false);
+  const [plantillaTitulo, setPlantillaTitulo] = useState("");
+  const qc = useQueryClient();
 
   useEffect(() => {
     if (!user) router.replace("/dashboard");
@@ -168,6 +174,32 @@ export default function DifusionPage() {
       sinInfo: rows.reduce((s, r) => s + r.sin_info, 0),
     };
   }, [sigoDetail]);
+
+  // ── Plantillas ──
+  const { data: plantillas = [], isLoading: plantillasLoading } = useQuery({
+    queryKey: ['difusion-plantillas'],
+    queryFn: fetchDifusionPlantillas,
+  });
+
+  const crearPlantillaMutation = useMutation({
+    mutationFn: () => createDifusionPlantilla(plantillaTitulo.trim(), mensaje),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['difusion-plantillas'] });
+      setSavingPlantilla(false);
+      setPlantillaTitulo("");
+      toast.success("Plantilla guardada");
+    },
+    onError: () => toast.error("Error al guardar la plantilla"),
+  });
+
+  const eliminarPlantillaMutation = useMutation({
+    mutationFn: (id: number) => deleteDifusionPlantilla(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['difusion-plantillas'] });
+      toast.success("Plantilla eliminada");
+    },
+    onError: () => toast.error("Error al eliminar la plantilla"),
+  });
 
   // ── CC mutation ──
   const ccMutation = useMutation({
@@ -533,6 +565,81 @@ export default function DifusionPage() {
                     placeholder="Mensaje adicional que acompañará al PDF (opcional)..."
                     className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-xl px-3 py-2.5 text-sm text-[var(--shelfy-text)] placeholder:text-[var(--shelfy-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--shelfy-primary)]/50 resize-none"
                   />
+
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-[var(--shelfy-muted)] uppercase tracking-wide">
+                      Mis plantillas
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => { setSavingPlantilla((v) => !v); setPlantillaTitulo(""); }}
+                      className="flex items-center gap-1 text-[11px] text-[var(--shelfy-primary)] hover:opacity-70 transition-opacity"
+                    >
+                      <BookmarkPlus className="w-3.5 h-3.5" />
+                      Guardar como plantilla
+                    </button>
+                  </div>
+
+                  {savingPlantilla && (
+                    <div className="flex gap-2 items-center">
+                      <input
+                        autoFocus
+                        value={plantillaTitulo}
+                        onChange={(e) => setPlantillaTitulo(e.target.value)}
+                        placeholder="Título de la plantilla..."
+                        className="flex-1 h-8 bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 text-xs text-[var(--shelfy-text)] placeholder:text-[var(--shelfy-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--shelfy-primary)]/50"
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="h-8 text-xs px-3"
+                        disabled={!plantillaTitulo.trim() || crearPlantillaMutation.isPending}
+                        onClick={() => crearPlantillaMutation.mutate()}
+                      >
+                        {crearPlantillaMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Guardar"}
+                      </Button>
+                      <button
+                        type="button"
+                        onClick={() => setSavingPlantilla(false)}
+                        className="text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] transition-colors"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
+
+                  {plantillasLoading ? (
+                    <div className="flex flex-col gap-2">
+                      <Skeleton className="h-14 w-full rounded-lg" />
+                      <Skeleton className="h-14 w-full rounded-lg" />
+                    </div>
+                  ) : plantillas.length === 0 ? (
+                    <p className="text-[11px] text-[var(--shelfy-muted)] text-center py-2">
+                      Sin plantillas guardadas. Guardá tu primer plantilla desde el campo de mensaje.
+                    </p>
+                  ) : (
+                    <div className="flex flex-col gap-1.5">
+                      {plantillas.map((p: DifusionPlantilla) => (
+                        <div
+                          key={p.id}
+                          className="group flex items-start gap-2 rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] px-3 py-2 hover:border-[var(--shelfy-primary)]/40 hover:bg-[var(--shelfy-primary)]/5 transition-colors cursor-pointer"
+                          onClick={() => { setMensaje(p.cuerpo); toast.success("Plantilla aplicada"); }}
+                        >
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-semibold text-[var(--shelfy-text)] truncate">{p.titulo}</p>
+                            <p className="text-[11px] text-[var(--shelfy-muted)] line-clamp-1 mt-0.5">{p.cuerpo || <em>Sin contenido</em>}</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); eliminarPlantillaMutation.mutate(p.id); }}
+                            className="shrink-0 text-[var(--shelfy-muted)] hover:text-rose-400 opacity-0 group-hover:opacity-100 transition-all mt-0.5"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {/* Preview PDF */}

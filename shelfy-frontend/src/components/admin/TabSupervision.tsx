@@ -47,9 +47,9 @@ import {
   type PdvsMovimientoItem,
 } from "@/lib/api";
 import { openCuentasCorrientesPrintWindow } from "@/lib/printCuentasCorrientes";
-import type { PinCliente } from "./MapaRutas";
+import type { PinCliente, VendedorKpis } from "./MapaRutas";
+import { isInactivo30, normalizeFechaPadrón } from "@/lib/supervisionMapHelpers";
 import { useSupervisionStore } from "@/store/useSupervisionStore";
-import { SyncStatusPanel } from "./SyncStatusPanel";
 import { useObjetivosMenuStore } from "@/store/useObjetivosMenuStore";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/Button";
@@ -173,11 +173,6 @@ function isInactivo(fecha: string | null): boolean {
   if (!fecha) return true;
   return Date.now() - new Date(fecha).getTime() > 90 * 86_400_000;
 }
-/** For map pins: inactive = no purchase in last 30 days (or never) */
-function isInactivo30(fecha: string | null): boolean {
-  if (!fecha) return true;
-  return Date.now() - new Date(fecha).getTime() > 30 * 86_400_000;
-}
 
 /** Mismo ERP puede existir en varias rutas (filas viejas); el mapa debe mostrar un solo pin. */
 interface PinDedupeRow {
@@ -192,13 +187,19 @@ function pickBetterPinRow(a: PinDedupeRow, b: PinDedupeRow): PinDedupeRow {
   const bAct = b.estadoPdv === "activo";
   if (aAct !== bAct) return aAct ? a : b;
 
+  const fa = normalizeFechaPadrón(a.fechaUc) ?? "";
+  const fb = normalizeFechaPadrón(b.fechaUc) ?? "";
+  if (fa && !fb) return a;
+  if (fb && !fa) return b;
+  if (fa && fb && fa !== fb) return fa > fb ? a : b;
+
   const aRecent = !isInactivo30(a.fechaUc);
   const bRecent = !isInactivo30(b.fechaUc);
   if (aRecent !== bRecent) return aRecent ? a : b;
 
-  const fa = a.fechaUc ?? "";
-  const fb = b.fechaUc ?? "";
-  if (fa !== fb) return fa > fb ? a : b;
+  const fra = a.fechaUc ?? "";
+  const frb = b.fechaUc ?? "";
+  if (fra !== frb) return fra > frb ? a : b;
 
   return a.idCliente > b.idCliente ? a : b;
 }
@@ -685,6 +686,28 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
     staleTime: 5 * 60_000,
   });
 
+  const { data: kpiMapa } = useQuery<{ pdv_nuevos_7d: number; pdv_activados_7d: number } | null>({
+    queryKey: ['vendedor-kpi-mapa', selectedDist, openVend],
+    queryFn: async () => {
+      if (!selectedDist || !openVend) return null;
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? '';
+      const token = typeof window !== 'undefined' ? localStorage.getItem('shelfy_token') ?? '' : '';
+      const r = await fetch(`${apiUrl}/api/supervision/vendedor/${selectedDist}/${openVend}/kpi-mapa`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!r.ok) return null;
+      return r.json();
+    },
+    enabled: !!selectedDist && !!openVend,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const vendedorKpis = useMemo<VendedorKpis | undefined>(() => {
+    if (!kpiMapa || !openVend) return undefined;
+    const v = vendedores.find((v) => v.id_vendedor === openVend);
+    return { ...kpiMapa, nombre: v?.nombre_vendedor ?? '' };
+  }, [kpiMapa, openVend, vendedores]);
+
   // Cuando cambia last_updated del padrón (ingesta RPA), forzar rutas/clientes/vendedores.
   useEffect(() => {
     if (!selectedDist) return;
@@ -1051,7 +1074,9 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
             ?? (nombreRazon ? deudaByNombre.get(nombreRazon) : null)
             ?? (normRazon ? deudaByNombre.get(normRazon) : null)
             ?? null;
-          
+
+          const fucCanon = normalizeFechaPadrón(c.fecha_ultima_compra);
+
           result.push({
             pin: {
               id:                    c.id_cliente,
@@ -1062,11 +1087,11 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
               color,
               activo:                !isInactivo30(c.fecha_ultima_compra),
               vendedor:              v.nombre_vendedor,
-              ultimaCompra:          fmt(c.fecha_ultima_compra),
+              ultimaCompra:          fucCanon ? fmt(fucCanon) : fmt(c.fecha_ultima_compra),
               conExhibicion:         c.fecha_ultima_exhibicion != null,
               idClienteErp:          c.id_cliente_erp ?? null,
               nroRuta:               r.dia_semana ?? null,
-              fechaUltimaCompra:     c.fecha_ultima_compra ?? null,
+              fechaUltimaCompra:     fucCanon ?? c.fecha_ultima_compra ?? null,
               fechaUltimaExhibicion: c.fecha_ultima_exhibicion ?? null,
               urlExhibicion:         c.url_ultima_exhibicion ?? null,
               deuda:                 deudaInfo?.deuda ?? null,
@@ -1350,8 +1375,6 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
   };
 
   // ── Map layer controls (inline pill bar above the map) ────────────────────
-  // Replaces the old MAP_MODES selector — only 'activos' and 'deudores' remain.
-  // "Armar Ruta" is now a layer tool in this same control bar.
   function MapLayerControls() {
     return (
       <div className="flex items-center gap-2 px-3 py-2 border-b border-[var(--shelfy-border)] bg-[var(--shelfy-panel)]/80 shrink-0 flex-wrap">
@@ -1733,6 +1756,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                 fullscreenPanel={vendorPanelContent}
                 selectedPDVs={hasPermiso("action_edit_objetivos") ? selectedPDVsForObjective : []}
                 onTogglePDV={hasPermiso("action_edit_objetivos") ? togglePDVForObjective : undefined}
+                vendedorKpis={vendedorKpis}
                 routeBuildEnabled={routeBuildEnabled}
                 onToggleRouteBuild={hasPermiso("action_edit_objetivos") ? handleToggleRouteBuild : undefined}
                 onPolygonSelectionChange={(pdvIds, geoJson) => {

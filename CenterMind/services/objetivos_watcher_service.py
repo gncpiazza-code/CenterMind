@@ -85,10 +85,22 @@ class ObjetivosWatcherService:
                     ahora = datetime.now(timezone.utc)
                     tasa_p = obj.get("tasa_pendientes")
                     umbral_meta = float(valor_obj) if valor_obj else 0.0
-                    if valor_obj and tasa_p is not None and int(tasa_p) > 0:
-                        umbral_meta = max(0.0, float(valor_obj) - float(tasa_p))
+                    tasa_p_efectiva = tasa_p
+                    if valor_obj and tasa_p is not None:
+                        tasa_val = float(tasa_p)
+                        meta_val = float(valor_obj)
+                        if tasa_val >= meta_val:
+                            logger.warning(
+                                f"[Watcher] tasa_pendientes={tasa_p} >= meta={valor_obj} en "
+                                f"obj={obj.get('id')} — se trata como P=0 (sin margen)"
+                            )
+                            tasa_p_efectiva = 0
+                        elif tasa_val > 0:
+                            umbral_meta = max(0.0, meta_val - tasa_val)
 
-                    # Calcular pendientes para desglose_cache (tipos con ítems)
+                    # Calcular pendientes para desglose_cache (tipos con ítems).
+                    # Se escribe SIEMPRE para mantener estado de pendientes actualizado,
+                    # incluso cuando la barra llega al 100% (cumplido=True se setea aparte).
                     if obj.get("tipo") in ("conversion_estado", "ruteo_alteo") and obj.get("id"):
                         try:
                             items_pend_res = (
@@ -106,7 +118,7 @@ class ObjetivosWatcherService:
                                 for it in pend_items[:20]
                             ]
                             updates["desglose_cache"] = {
-                                "tasa_pendientes": tasa_p,
+                                "tasa_pendientes": tasa_p_efectiva,
                                 "pendientes_count": pendientes_count,
                                 "pendientes_items": pendientes_ids,
                             }

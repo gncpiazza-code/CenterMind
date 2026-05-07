@@ -41,7 +41,6 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
-import { DatePicker } from "@/components/ui/date-picker";
 
 const ALLOWED_ROLES = ["superadmin", "admin", "supervisor", "directorio"];
 

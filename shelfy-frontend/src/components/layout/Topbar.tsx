@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
-import { Crown, LogOut, Building2, UserCog, Users, MessageSquareText, Mail, X, Send, Paperclip, Loader2, MessageSquarePlus } from "lucide-react";
+import { Crown, LogOut, Building2, UserCog, Users, MessageSquareText, Mail, X, Send, Paperclip, Loader2, MessageSquarePlus, Monitor } from "lucide-react";
 import {
   fetchDistribuidoras,
   fetchPortalFeedbackPendingCount,
@@ -65,6 +65,13 @@ function TicketPanel({ onClose }: { onClose: () => void }) {
     usuario: user?.usuario,
     rol: user?.rol,
     ts: new Date().toISOString(),
+    pathname: typeof window !== "undefined" ? window.location.pathname : undefined,
+    search: typeof window !== "undefined" ? window.location.search : undefined,
+    href: typeof window !== "undefined" ? window.location.href : undefined,
+    timestamp_cliente: new Date().toISOString(),
+    user_agent: typeof navigator !== "undefined" ? navigator.userAgent : undefined,
+    viewport: typeof window !== "undefined" ? `${window.innerWidth}x${window.innerHeight}` : undefined,
+    screen: typeof window !== "undefined" ? `${screen.width}x${screen.height}` : undefined,
   });
 
   const sendMutation = useMutation({
@@ -96,6 +103,34 @@ function TicketPanel({ onClose }: { onClose: () => void }) {
       if (file) setAttachments((prev) => [...prev, file]);
     }
   }, []);
+
+  const supportsScreenshot = typeof window !== "undefined" && "getDisplayMedia" in (navigator.mediaDevices || {});
+
+  const handleScreenshot = async () => {
+    try {
+      const stream = await (navigator.mediaDevices as any).getDisplayMedia({
+        video: { displaySurface: "browser" },
+        preferCurrentTab: true,
+      });
+      const track = stream.getVideoTracks()[0];
+      const imageCapture = new (window as any).ImageCapture(track);
+      const bitmap = await imageCapture.grabFrame();
+      track.stop();
+      const canvas = document.createElement("canvas");
+      canvas.width = bitmap.width;
+      canvas.height = bitmap.height;
+      const ctx = canvas.getContext("2d");
+      ctx?.drawImage(bitmap, 0, 0);
+      canvas.toBlob((blob) => {
+        if (blob) {
+          const file = new File([blob], "screenshot.png", { type: "image/png" });
+          setAttachments((prev) => [...prev, file]);
+        }
+      }, "image/png");
+    } catch (e) {
+      console.warn("Screenshot cancelled or not supported:", e);
+    }
+  };
 
   const onMouseDown = (e: React.MouseEvent) => {
     dragging.current = true;
@@ -160,12 +195,25 @@ function TicketPanel({ onClose }: { onClose: () => void }) {
           </div>
         )}
         <div className="flex items-center justify-between gap-2">
-          <label className="cursor-pointer text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] transition-colors">
-            <Paperclip size={13} />
-            <input type="file" className="hidden" multiple onChange={(e) => {
-              if (e.target.files) setAttachments((a) => [...a, ...Array.from(e.target.files!)]);
-            }} />
-          </label>
+          <div className="flex items-center gap-2">
+            <label className="cursor-pointer text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] transition-colors">
+              <Paperclip size={13} />
+              <input type="file" className="hidden" multiple onChange={(e) => {
+                if (e.target.files) setAttachments((a) => [...a, ...Array.from(e.target.files!)]);
+              }} />
+            </label>
+            {supportsScreenshot && (
+              <button
+                type="button"
+                onClick={handleScreenshot}
+                title="Capturar pantalla"
+                className="flex items-center gap-1 text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] transition-colors text-[10px]"
+              >
+                <Monitor size={13} />
+                <span>Capturar pantalla</span>
+              </button>
+            )}
+          </div>
           <Button
             size="sm"
             onClick={() => sendMutation.mutate()}
@@ -176,6 +224,7 @@ function TicketPanel({ onClose }: { onClose: () => void }) {
             Enviar
           </Button>
         </div>
+        <p className="text-[10px] text-[var(--shelfy-muted)] mt-1">Los adjuntos se conservan 30 días.</p>
       </div>
 
       {/* Historial propio */}

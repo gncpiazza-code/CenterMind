@@ -207,11 +207,11 @@ export default function GaleriaExhibicionesPage() {
   }, [errorClientes, selectedVendedor, distId, fechaDesde, fechaHasta]);
 
   return (
-    <div className="flex min-h-screen" style={{ background: "var(--shelfy-bg)" }}>
+    <div className="flex h-screen overflow-hidden" style={{ background: "var(--shelfy-bg)" }}>
       <Sidebar />
-      <div className="flex flex-col flex-1 min-w-0">
+      <div className="flex flex-col flex-1 min-w-0 h-full">
         <Topbar title="Galería de Exhibiciones" />
-        <main className="flex-1 p-4 md:p-6 pb-24 md:pb-8 overflow-auto">
+        <main className="flex-1 p-4 md:p-6 pb-24 md:pb-8 overflow-y-auto">
       {/* Header */}
       <div className="mb-6">
         {selectedVendedor ? (

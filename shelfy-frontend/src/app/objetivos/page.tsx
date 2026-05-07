@@ -553,10 +553,13 @@ function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado, onOpenR
               <span>{obj.valor_actual} / {Math.round(obj.valor_objetivo)}</span>
               {obj.tasa_pendientes != null && (
                 <span className="text-[var(--shelfy-muted)]/70">
-                  P={obj.tasa_pendientes}
-                  {((obj.desglose_cache?.pendientes_count ?? 0) > 0) && (
-                    <span className="ml-1">· {obj.desglose_cache!.pendientes_count} pendiente{obj.desglose_cache!.pendientes_count !== 1 ? "s" : ""}</span>
-                  )}
+                  Tasa pendientes: {obj.tasa_pendientes}
+                  {obj.desglose_cache != null
+                    ? obj.desglose_cache.pendientes_count > 0
+                      ? <span className="ml-1">· {obj.desglose_cache.pendientes_count} pendiente{obj.desglose_cache.pendientes_count !== 1 ? "s" : ""}</span>
+                      : null
+                    : <span className="ml-1">· –</span>
+                  }
                 </span>
               )}
             </div>
@@ -2497,6 +2500,8 @@ export default function ObjetivosPage() {
       );
     }
 
+    list = list.filter(o => o.tipo !== "cobranza");
+
     if (searchText) {
       const q = searchText.toLowerCase();
       list = list.filter(o =>
@@ -2977,23 +2982,65 @@ function KanbanOrListaView({
             </span>
           </button>
           <div className="p-3 space-y-2 min-h-24">
-            <AnimatePresence mode="popLayout">
-              {kanbanGroups[col.key].map(obj => (
-                <KanbanCard
-                  key={obj.id}
-                  obj={obj}
-                  onDelete={() => onDelete(obj.id)}
-                  onReagendar={onReagendar}
-                  onDownloadCertificado={onDownloadCertificado}
-                  onOpenRuteoPdf={onOpenRuteoPdf}
-                />
-              ))}
-            </AnimatePresence>
-            {kanbanGroups[col.key].length === 0 && (
-              <p className="text-[11px] text-[var(--shelfy-muted)] text-center py-4 opacity-50">
-                Sin objetivos
-              </p>
-            )}
+            {(() => {
+              const items = kanbanGroups[col.key];
+              const compania = items.filter(o => o.origen === "compania");
+              const distribuidora = items.filter(o => o.origen !== "compania");
+              if (items.length === 0) {
+                return (
+                  <p className="text-[11px] text-[var(--shelfy-muted)] text-center py-4 opacity-50">
+                    Sin objetivos
+                  </p>
+                );
+              }
+              return (
+                <>
+                  {compania.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-[9px] font-bold uppercase tracking-widest text-amber-600/80 px-1 pt-1">
+                        Objetivos de Compañía
+                      </p>
+                      <AnimatePresence mode="popLayout">
+                        {compania.map(obj => (
+                          <KanbanCard
+                            key={obj.id}
+                            obj={obj}
+                            onDelete={() => onDelete(obj.id)}
+                            onReagendar={onReagendar}
+                            onDownloadCertificado={onDownloadCertificado}
+                            onOpenRuteoPdf={onOpenRuteoPdf}
+                          />
+                        ))}
+                      </AnimatePresence>
+                    </div>
+                  )}
+                  {compania.length > 0 && distribuidora.length > 0 && (
+                    <div className="border-t border-[var(--shelfy-border)]/50 my-2" />
+                  )}
+                  {distribuidora.length > 0 && (
+                    <div className="space-y-2">
+                      {compania.length > 0 && (
+                        <p className="text-[9px] font-bold uppercase tracking-widest text-[var(--shelfy-muted)]/70 px-1">
+                          Objetivos de Distribuidora
+                        </p>
+                      )}
+                      <AnimatePresence mode="popLayout">
+                        {distribuidora.map(obj => (
+                          <KanbanCard
+                            key={obj.id}
+                            obj={obj}
+                            onDelete={() => onDelete(obj.id)}
+                            onReagendar={onReagendar}
+                            onDownloadCertificado={onDownloadCertificado}
+                            onOpenRuteoPdf={onOpenRuteoPdf}
+                          />
+                        ))}
+                      </AnimatePresence>
+                    </div>
+                  )}
+                </>
+              );
+            })()}
           </div>
         </div>
         );

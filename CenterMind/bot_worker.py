@@ -1394,11 +1394,29 @@ class BotWorker:
                     except Exception:
                         pass
 
+                # Mes de referencia (solo objetivos de compañía)
+                mes_ref_txt = ""
+                if origen == "compania":
+                    mes_ref = str(obj.get("mes_referencia") or "")[:7]  # YYYY-MM
+                    if mes_ref and len(mes_ref) == 7:
+                        try:
+                            yr, mn = mes_ref.split("-")
+                            MESES_ES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio",
+                                        "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"]
+                            mes_ref_txt = f"\n   • Mes: {MESES_ES[int(mn)-1]} {yr}"
+                        except Exception:
+                            mes_ref_txt = f"\n   • Mes: {mes_ref}"
+
                 tasa_txt = ""
+                desglose = obj.get("desglose_cache") or {}
                 if tasa_p is not None:
-                    desglose = obj.get("desglose_cache") or {}
                     pend_count = desglose.get("pendientes_count", "–")
                     tasa_txt = f"\n   • Tasa P={tasa_p} · {pend_count} pendiente{'s' if pend_count != 1 else ''}"
+
+                # Avance semanal acumulado para objetivos de compañía (si está en desglose_cache)
+                avance_semanal_txt = ""
+                if origen == "compania" and desglose.get("avance_semanal") is not None:
+                    avance_semanal_txt = f"\n   • Avance semanal: {desglose['avance_semanal']}"
 
                 pdv_candidates = []
                 if obj.get("id_target_pdv"):
@@ -1424,7 +1442,9 @@ class BotWorker:
                     f"\n{estado_icon} <b>{tipo_txt}{origen_tag}</b>"
                     f"\n   • Progreso: <b>{int(va) if va.is_integer() else round(va, 2)}/{int(vo) if vo.is_integer() else round(vo, 2)}</b> ({pct}%)"
                     f"{f' · Vence: {fecha_fmt}{dias_restantes_txt}' if fecha_fmt else ''}"
+                    f"{mes_ref_txt}"
                     f"{tasa_txt}"
+                    f"{avance_semanal_txt}"
                     f"{pdv_line}"
                 )
 

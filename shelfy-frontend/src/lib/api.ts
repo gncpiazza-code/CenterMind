@@ -2638,3 +2638,27 @@ export async function fetchPdvsMovimiento(
     `/api/supervision/vendedor/${distId}/${idVendedor}/pdvs-movimiento?${q}`,
   );
 }
+
+// ── Difusión: Plantillas de usuario ─────────────────────────────────────────
+export interface DifusionPlantilla {
+  id: number;
+  titulo: string;
+  cuerpo: string;
+  created_at: string;
+}
+
+export async function fetchDifusionPlantillas(): Promise<DifusionPlantilla[]> {
+  return apiFetch('/api/difusion/plantillas');
+}
+
+export async function createDifusionPlantilla(titulo: string, cuerpo: string): Promise<DifusionPlantilla> {
+  return apiFetch('/api/difusion/plantillas', { method: 'POST', body: JSON.stringify({ titulo, cuerpo }) });
+}
+
+export async function updateDifusionPlantilla(id: number, titulo: string, cuerpo: string): Promise<DifusionPlantilla> {
+  return apiFetch(`/api/difusion/plantillas/${id}`, { method: 'PUT', body: JSON.stringify({ titulo, cuerpo }) });
+}
+
+export async function deleteDifusionPlantilla(id: number): Promise<void> {
+  await apiFetch(`/api/difusion/plantillas/${id}`, { method: 'DELETE' });
+}

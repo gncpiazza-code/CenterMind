@@ -111,15 +111,17 @@ TENANTS = [
         "vault_user": "chess_real_usuario",
         "vault_pass": "chess_real_password",
         "id_dist":    2,
-        "sucursales": ["UEQUIN RODRIGO", "OSCAR ONDARRETA", "JOSE IGNACIO BIAVA"],
+        "sucursales": ["UEQUIN RODRIGO", "OSCAR ONDARRETA", "GONZALEZ LUIS ANTONIO", "JOSE IGNACIO BIAVA"],
         # Split operativo solicitado:
         # - UEQUIN RODRIGO  -> La Magica
         # - OSCAR ONDARRETA -> Bolivar Distribuiciones
         # - JOSE IGNACIO BIAVA -> Caramele - San Luis
+        # - GONZALEZ LUIS ANTONIO -> LAG Distribuidora - Tucuman
         # Los id_dist se resuelven dinámicamente por nombre de distribuidor.
         "split_por_sucursal": {
             "uequin rodrigo": "La Magica - Santiago del Estero",
             "oscar ondarreta": "Bolivar Distribuciones",
+            "gonzalez luis antonio": "LAG Distribuidora - Tucuman",
             "jose ignacio biava": "CARAMELE - SAN LUIS",
         },
         "activo":     True,

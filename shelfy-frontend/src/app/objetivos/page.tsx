@@ -162,17 +162,19 @@ function OrigenBadge({ origen }: { origen?: string | null }) {
 
 // ── Progress bar ──────────────────────────────────────────────────────────────
 
-function ProgressBar({ actual, objetivo, tasaPendientes, className }: {
+function ProgressBar({ actual, objetivo, tasaPendientes, className, visualActual }: {
   actual: number;
   objetivo: number | null;
   tasaPendientes?: number | null;
   className?: string;
+  visualActual?: number;
 }) {
   if (!objetivo || objetivo === 0) return null;
   const umbral = (tasaPendientes != null && tasaPendientes > 0)
     ? Math.max(0, objetivo - tasaPendientes)
     : objetivo;
-  const pct = Math.min(100, Math.round((actual / umbral) * 100));
+  const shownActual = Math.max(actual, visualActual ?? actual);
+  const pct = Math.min(100, Math.round((shownActual / umbral) * 100));
   return (
     <div className={`flex items-center gap-2 ${className ?? ""}`}>
       <Progress value={pct} className="flex-1 h-1.5" />
@@ -251,26 +253,30 @@ function CompaniaProrrateo({ obj }: { obj: Objetivo }) {
   const remainingWeeks = Math.max(1, remainingWeekEntries.length);
   const weeklyTarget = remainingMeta > 0 ? remainingMeta / remainingWeeks : 0;
   const dailyTarget = weeklyTarget / 6;
-  const monthPct = obj.valor_objetivo > 0 ? Math.min(100, Math.round((obj.valor_actual / obj.valor_objetivo) * 100)) : 0;
   const diasRestantes = Math.max(0, Math.ceil((monthEnd.getTime() - today.getTime()) / 86400000));
+  const elapsedBusinessDays = Math.max(1, businessDays.filter((d) => d <= today).length);
+  const avgPerBusinessDay = (obj.valor_actual ?? 0) / elapsedBusinessDays;
 
   return (
-    <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-2.5 py-2 space-y-2">
+    <div
+      className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-2.5 py-2 space-y-2"
+      onClick={(e) => e.stopPropagation()}
+    >
       <div className="flex items-center justify-between">
         <p className="text-[10px] font-semibold text-amber-700">Prorrateo mensual (lun-sáb)</p>
         <span className="text-[10px] text-amber-700/80">{diasRestantes} días restantes</span>
       </div>
-      <div className="text-[10px] text-[var(--shelfy-muted)] tabular-nums flex items-center justify-between">
-        <span>{Math.round(obj.valor_actual)} / {Math.round(obj.valor_objetivo)}</span>
-        <span>{monthPct}%</span>
-      </div>
-      <Progress value={monthPct} className="h-1.5" />
       <div className="space-y-1.5">
         {remainingWeekEntries.map(([weekLabel, days], weekIndex) => {
-          const weekDoneEst = Math.min(weeklyTarget, (obj.valor_actual ?? 0) * (weeklyTarget / obj.valor_objetivo));
+          const elapsedInWeek = days.filter((d) => d <= today).length;
+          const weekDoneEst = Math.max(0, Math.min(weeklyTarget, avgPerBusinessDay * elapsedInWeek));
           const weekPct = weeklyTarget > 0 ? Math.min(100, Math.round((weekDoneEst / weeklyTarget) * 100)) : 0;
           return (
-            <details key={weekLabel} className="rounded border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] px-2 py-1">
+            <details
+              key={weekLabel}
+              className="rounded border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] px-2 py-1"
+              onClick={(e) => e.stopPropagation()}
+            >
               <summary className="cursor-pointer text-[11px] text-[var(--shelfy-text)] flex items-center justify-between gap-2">
                 <span>{weekLabel}</span>
                 <span className="text-[10px] text-[var(--shelfy-muted)] tabular-nums">
@@ -287,10 +293,14 @@ function CompaniaProrrateo({ obj }: { obj: Objetivo }) {
                   Debe avanzar {Math.ceil(dailyTarget)} por día (lun-sáb) para cumplir la semana.
                 </div>
                 {days.filter((d) => d >= today).map((dt) => {
-                  const dayDoneEst = Math.min(dailyTarget, weekDoneEst / 6);
+                  const dayDoneEst = dt <= today ? Math.min(dailyTarget, avgPerBusinessDay) : 0;
                   const dayPct = dailyTarget > 0 ? Math.min(100, Math.round((dayDoneEst / dailyTarget) * 100)) : 0;
                   return (
-                    <details key={`${weekIndex}-${dt.toISOString()}`} className="rounded border border-[var(--shelfy-border)]/80 px-2 py-1 bg-white/60">
+                    <details
+                      key={`${weekIndex}-${dt.toISOString()}`}
+                      className="rounded border border-[var(--shelfy-border)]/80 px-2 py-1 bg-white/60"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       <summary className="cursor-pointer text-[10px] text-[var(--shelfy-text)] flex items-center justify-between gap-2 capitalize">
                         <span>{dt.toLocaleDateString("es-AR", { weekday: "long" })} {String(dt.getDate()).padStart(2, "0")}</span>
                         <span className="text-[10px] text-[var(--shelfy-muted)] tabular-nums">Meta diaria: {Math.ceil(dailyTarget)}</span>
@@ -322,6 +332,22 @@ function getObjetivoItemClientCode(it: Objetivo["items"][number]): string | null
   const md = (it.metadata_ruteo ?? {}) as Record<string, unknown>;
   const erp = md["id_cliente_erp"];
   return typeof erp === "string" && erp.trim() ? erp : null;
+}
+
+function getObjetivoItemDisplayName(it: Objetivo["items"][number]): string {
+  const md = (it.metadata_ruteo ?? {}) as Record<string, unknown>;
+  const razon = md["nombre_razon_social"];
+  if (typeof razon === "string" && razon.trim()) return razon.trim();
+  if (it.nombre_pdv && it.nombre_pdv.trim()) return it.nombre_pdv.trim();
+  return "Cliente sin nombre";
+}
+
+function getObjetivoItemSecondaryName(it: Objetivo["items"][number]): string | null {
+  const md = (it.metadata_ruteo ?? {}) as Record<string, unknown>;
+  const fantasia = md["nombre_fantasia"];
+  if (typeof fantasia !== "string" || !fantasia.trim()) return null;
+  const trimmed = fantasia.trim();
+  return trimmed === getObjetivoItemDisplayName(it) ? null : trimmed;
 }
 
 // ── Phrase rendering ──────────────────────────────────────────────────────────
@@ -375,8 +401,8 @@ function ObjetivoPhrase({ obj }: { obj: Objetivo }) {
 // ── Kanban phase resolver ─────────────────────────────────────────────────────
 
 function getObjectiveKanbanPhase(obj: Objetivo): 'pendiente' | 'en_progreso' | 'terminado' {
-  if (obj.kanban_phase) return obj.kanban_phase;
   if (obj.cumplido) return 'terminado';
+  if (obj.kanban_phase === "terminado") return "terminado";
   const actual = obj.valor_actual ?? 0;
   const objetivo = obj.valor_objetivo;
   if (obj.tipo === 'exhibicion') {
@@ -445,10 +471,10 @@ function ObjetivoRow({ obj, onDelete }: {
         {obj.nombre_pdv && (
           <div className="flex items-center gap-1.5 mb-0.5">
             <MapPin className="w-3 h-3 text-[var(--shelfy-muted)] shrink-0" />
-            <span className="text-xs text-[var(--shelfy-muted)] truncate">{obj.nombre_pdv}</span>
             {obj.id_cliente_erp && (
-              <span className="text-[10px] text-[var(--shelfy-muted)]/60 font-mono shrink-0">#{obj.id_cliente_erp}</span>
+              <span className="text-[10px] text-[var(--shelfy-muted)]/80 font-mono shrink-0">#{obj.id_cliente_erp}</span>
             )}
+            <span className="text-xs text-[var(--shelfy-text)] truncate">{obj.nombre_pdv}</span>
           </div>
         )}
         <ObjetivoPhrase obj={obj} />
@@ -671,10 +697,15 @@ function RuteoAlteoItemsTree({ obj }: { obj: Objetivo }) {
                           it.estado_item === 'falla' ? 'bg-red-500' :
                           'bg-[var(--shelfy-muted)]/30'
                         }`} />
-                        <span className="text-[var(--shelfy-text)] truncate flex-1">{it.nombre_pdv ?? "Cliente sin nombre"}</span>
                         {getObjetivoItemClientCode(it) && (
                           <span className="text-[var(--shelfy-muted)]/60 font-mono shrink-0">#{getObjetivoItemClientCode(it)}</span>
                         )}
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[var(--shelfy-text)] truncate">{getObjetivoItemDisplayName(it)}</p>
+                          {getObjetivoItemSecondaryName(it) && (
+                            <p className="text-[10px] text-[var(--shelfy-muted)] truncate">{getObjetivoItemSecondaryName(it)}</p>
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -699,6 +730,11 @@ function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado, onOpenR
 }) {
   const [expanded, setExpanded] = useState(false);
   const daysLeft = daysUntil(obj.fecha_objetivo);
+  const pendingEvidenceCount = useMemo(() => {
+    const itemPending = (obj.items ?? []).filter((it) => it.estado_item === "foto_subida").length;
+    if (itemPending > 0) return itemPending;
+    return obj.tiene_exhibicion_pendiente ? 1 : 0;
+  }, [obj.items, obj.tiene_exhibicion_pendiente]);
 
   const leftBorderClass =
     obj.resultado_final === "exito"
@@ -759,10 +795,8 @@ function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado, onOpenR
         {obj.nombre_pdv && (
           <div className="flex items-center gap-1.5 flex-wrap">
             <MapPin className="w-3 h-3 text-[var(--shelfy-muted)] shrink-0" />
-            <span className="text-xs text-[var(--shelfy-muted)]">{obj.nombre_pdv}</span>
-            {obj.id_cliente_erp && (
-              <span className="text-[10px] text-[var(--shelfy-muted)]/60 font-mono">#{obj.id_cliente_erp}</span>
-            )}
+            {obj.id_cliente_erp && <span className="text-[10px] text-[var(--shelfy-muted)]/80 font-mono">#{obj.id_cliente_erp}</span>}
+            <span className="text-xs text-[var(--shelfy-text)]">{obj.nombre_pdv}</span>
           </div>
         )}
 
@@ -783,7 +817,12 @@ function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado, onOpenR
                 </span>
               )}
             </div>
-            <ProgressBar actual={obj.valor_actual} objetivo={obj.valor_objetivo} tasaPendientes={obj.tasa_pendientes} />
+            <ProgressBar
+              actual={obj.valor_actual}
+              visualActual={obj.tipo === "exhibicion" ? obj.valor_actual + pendingEvidenceCount : obj.valor_actual}
+              objetivo={obj.valor_objetivo}
+              tasaPendientes={obj.tasa_pendientes}
+            />
           </div>
         ) : null}
 
@@ -862,12 +901,17 @@ function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado, onOpenR
                           it.estado_item === 'falla' ? 'bg-red-500' :
                           'bg-[var(--shelfy-muted)]/30'
                         }`} />
-                        <span className="text-[var(--shelfy-text)] truncate">{it.nombre_pdv ?? "Cliente sin nombre"}</span>
                         {getObjetivoItemClientCode(it) && (
                           <span className="text-[10px] text-[var(--shelfy-muted)]/70 font-mono shrink-0">
                             ERP #{getObjetivoItemClientCode(it)}
                           </span>
                         )}
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[var(--shelfy-text)] truncate">{getObjetivoItemDisplayName(it)}</p>
+                          {getObjetivoItemSecondaryName(it) && (
+                            <p className="text-[10px] text-[var(--shelfy-muted)] truncate">{getObjetivoItemSecondaryName(it)}</p>
+                          )}
+                        </div>
                         <span className="text-[var(--shelfy-muted)] shrink-0 capitalize">{it.estado_item.replace('_', ' ')}</span>
                       </div>
                     ))}
@@ -991,7 +1035,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
   const [cobranzaMode, setCobranzaMode] = useState<"total" | "parcial">("total");
   const [cobranzaMonto, setCobranzaMonto] = useState<number | "">("");
 
-  const [activacionPdvs, setActivacionPdvs] = useState<{ id: number; nombre: string; fechaCompra: string | null; diasSinCompra: number | null; estado: string | null }[]>([]);
+  const [activacionPdvs, setActivacionPdvs] = useState<{ id: number; nombre: string; idClienteErp: string | null; razonSocial: string | null; fechaCompra: string | null; diasSinCompra: number | null; estado: string | null }[]>([]);
   const [selectedPdvIds, setSelectedPdvIds] = useState<Set<number>>(new Set());
   const [activacionMode, setActivacionMode] = useState<"general" | "por_pdv">("general");
   const [cantidadActivacion, setCantidadActivacion] = useState<number | "">("");
@@ -1129,6 +1173,8 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
               return {
                 id: pdv.id_cliente,
                 nombre: pdv.nombre_cliente ?? "S/N",
+                idClienteErp: pdv.id_cliente_erp ?? null,
+                razonSocial: pdv.nombre_razon_social ?? null,
                 fechaCompra,
                 diasSinCompra,
                 estado: pdv.estado ?? null,
@@ -1275,6 +1321,10 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
             id_cliente_pdv: pdvId,
             id_cliente_erp: pdv?.id_cliente_erp ?? undefined,
             nombre_pdv: pdv?.nombre_cliente,
+            metadata_ruteo: {
+              nombre_fantasia: pdv?.nombre_cliente ?? null,
+              nombre_razon_social: pdv?.nombre_razon_social ?? null,
+            },
           };
         });
         base.pdv_items = pdvItems;
@@ -1303,6 +1353,10 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
             id_cliente_pdv: pdvId,
             id_cliente_erp: pdv?.id_cliente_erp ?? undefined,
             nombre_pdv: pdv?.nombre_cliente,
+            metadata_ruteo: {
+              nombre_fantasia: pdv?.nombre_cliente ?? null,
+              nombre_razon_social: pdv?.nombre_razon_social ?? null,
+            },
           };
         });
         const count = pdvItems.length;
@@ -1343,6 +1397,10 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
           ...(item.accion === 'cambio_ruta' && item.id_ruta_destino ? { id_ruta_destino: item.id_ruta_destino } : {}),
           ...(item.accion === 'baja' && item.motivo_baja ? { motivo_baja: item.motivo_baja } : {}),
           orden_sugerido: idx + 1,
+          metadata_ruteo: {
+            nombre_fantasia: pdv?.nombre_cliente ?? null,
+            nombre_razon_social: pdv?.nombre_razon_social ?? null,
+          },
         };
       });
       base.pdv_items = pdvItems;
@@ -1763,7 +1821,15 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
                       }`}>
                         {selectedPdvIds.has(pdv.id) && <Check className="w-2.5 h-2.5 text-white" />}
                       </div>
-                      <span className="text-[var(--shelfy-text)] truncate flex-1 text-left">{pdv.nombre}</span>
+                      <div className="min-w-0 flex-1 text-left">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] text-[var(--shelfy-muted)]/80 font-mono shrink-0">#{pdv.idClienteErp ?? "—"}</span>
+                          <span className="text-[var(--shelfy-text)] truncate">{pdv.nombre}</span>
+                        </div>
+                        {pdv.razonSocial && (
+                          <p className="text-[10px] text-[var(--shelfy-muted)] truncate">{pdv.razonSocial}</p>
+                        )}
+                      </div>
                       {pdv.diasSinCompra !== null ? (
                         <span className={`font-medium tabular-nums shrink-0 ${pdv.diasSinCompra > 60 ? "text-red-500" : "text-orange-500"}`}>
                           {pdv.diasSinCompra}d
@@ -1845,6 +1911,8 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
                             next.push({
                               id: pdv.id_cliente,
                               nombre: pdv.nombre_cliente ?? "S/N",
+                              idClienteErp: pdv.id_cliente_erp ?? null,
+                              razonSocial: pdv.nombre_razon_social ?? null,
                               fechaCompra,
                               diasSinCompra,
                               estado: pdv.estado ?? null,
@@ -1965,7 +2033,15 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
                                 }`}>
                                   {sel && <Check className="w-2.5 h-2.5 text-white" />}
                                 </div>
-                                <span className="text-[var(--shelfy-text)] truncate flex-1 text-left">{pdv.nombre_cliente}</span>
+                                <div className="min-w-0 flex-1 text-left">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-[10px] text-[var(--shelfy-muted)]/80 font-mono shrink-0">#{pdv.id_cliente_erp ?? "—"}</span>
+                                    <span className="text-[var(--shelfy-text)] truncate">{pdv.nombre_cliente}</span>
+                                  </div>
+                                  {pdv.nombre_razon_social && (
+                                    <p className="text-[10px] text-[var(--shelfy-muted)] truncate">{pdv.nombre_razon_social}</p>
+                                  )}
+                                </div>
                                 {diasSinExhib === null ? (
                                   <span className="text-red-500 font-semibold shrink-0 text-[10px]">Nunca</span>
                                 ) : (
@@ -2088,8 +2164,15 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
                               }`}>
                                 {sel && <Check className="w-2.5 h-2.5 text-white" />}
                               </div>
-                              <span className="text-[var(--shelfy-text)] truncate flex-1 text-left">{pdv.nombre_cliente}</span>
-                              <span className="text-[10px] text-[var(--shelfy-muted)]/70 font-mono shrink-0">ERP #{pdv.id_cliente_erp ?? "—"}</span>
+                              <div className="min-w-0 flex-1 text-left">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[10px] text-[var(--shelfy-muted)]/80 font-mono shrink-0">#{pdv.id_cliente_erp ?? "—"}</span>
+                                  <span className="text-[var(--shelfy-text)] truncate">{pdv.nombre_cliente}</span>
+                                </div>
+                                {pdv.nombre_razon_social && (
+                                  <p className="text-[10px] text-[var(--shelfy-muted)] truncate">{pdv.nombre_razon_social}</p>
+                                )}
+                              </div>
                             </button>
 
                             {/* Per-item action (only when selected) */}

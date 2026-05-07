@@ -180,6 +180,10 @@ Este documento describe la infraestructura, tecnologías y flujos de datos que c
 43. **Jerarquía operativa de rutas (May 2026)**:
     - En frontend operacional (`TabSupervision`, objetivos flotantes, modo ruteo), la navegación de rutas se normaliza a `dia_semana -> rutas_del_dia`.
     - El alta de objetivos de Alteo referencia días asignados (`estado_inicial`) como contexto principal y deja `id_target_ruta` sólo para casos puntuales.
+44. **Objetivos — identificación PDV + progreso multinivel estable (May 2026)**:
+    - El catálogo `GET /api/supervision/pdvs-catalog/{dist_id}` expone también `nombre_razon_social` para mejorar desambiguación operativa en el selector de PDVs.
+    - En frontend de objetivos, los selectores muestran `#id_cliente_erp` + nombre comercial y sublínea de razón social.
+    - En cards de objetivos, el desglose de compañía usa foco semanal→diario sin duplicar la barra mensual ya visible en el header de la tarjeta, y los acordeones internos no propagan click al contenedor para evitar colapsos accidentales.
 
 ---
 

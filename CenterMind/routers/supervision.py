@@ -1800,82 +1800,119 @@ def supervision_pdvs_movimiento(
 
         cats = [c.strip() for c in categorias.split(",")]
         t_clientes = tenant_table_name("clientes_pdv_v2", dist_id)
+        t_rutas    = tenant_table_name("rutas_v2", dist_id)
         t_exhib    = "exhibiciones"
 
         items = []
+        seen_ids: set[int] = set()
+
+        # Algunas ingestas pueden dejar `id_vendedor` nulo en clientes y resolver vínculo por `id_ruta`.
+        route_ids: list[int] = []
+        try:
+            rr = (
+                sb.table(t_rutas)
+                .select("id_ruta")
+                .eq("id_distribuidor", dist_id)
+                .eq("id_vendedor", id_vendedor)
+                .execute()
+            )
+            route_ids = [int(r.get("id_ruta")) for r in (rr.data or []) if r.get("id_ruta") is not None]
+        except Exception:
+            route_ids = []
+
+        def _fetch_client_rows(select_cols: str, date_col: str) -> list[dict]:
+            PAGE = 1000
+            all_rows: list[dict] = []
+            offset = 0
+            while True:
+                q = (
+                    sb.table(t_clientes)
+                    .select(select_cols)
+                    .eq("id_distribuidor", dist_id)
+                    .eq("id_vendedor", id_vendedor)
+                    .gte(date_col, fecha_inicio if date_col == "created_at" else fecha_inicio[:10])
+                    .lte(date_col, fecha_fin if date_col == "created_at" else fecha_fin[:10])
+                    .range(offset, offset + PAGE - 1)
+                )
+                batch = q.execute().data or []
+                all_rows.extend(batch)
+                if len(batch) < PAGE:
+                    break
+                offset += PAGE
+
+            if route_ids:
+                offset = 0
+                while True:
+                    q = (
+                        sb.table(t_clientes)
+                        .select(select_cols)
+                        .eq("id_distribuidor", dist_id)
+                        .in_("id_ruta", route_ids)
+                        .gte(date_col, fecha_inicio if date_col == "created_at" else fecha_inicio[:10])
+                        .lte(date_col, fecha_fin if date_col == "created_at" else fecha_fin[:10])
+                        .range(offset, offset + PAGE - 1)
+                    )
+                    batch = q.execute().data or []
+                    all_rows.extend(batch)
+                    if len(batch) < PAGE:
+                        break
+                    offset += PAGE
+            return all_rows
 
         if "alta" in cats:
-            PAGE = 1000
-            offset = 0
-            while True:
-                rows = (
-                    sb.table(t_clientes)
-                    .select("id_cliente, id_cliente_erp, nombre_fantasia, nombre_razon_social, domicilio, localidad, created_at")
-                    .eq("id_distribuidor", dist_id)
-                    .eq("id_vendedor", id_vendedor)
-                    .gte("created_at", fecha_inicio)
-                    .lte("created_at", fecha_fin)
-                    .range(offset, offset + PAGE - 1)
-                    .execute()
-                    .data or []
-                )
-                for r in rows:
-                    id_cl = r.get("id_cliente")
-                    exhibido = False
-                    if id_cl:
-                        ex = sb.table(t_exhib).select("id").eq("id_distribuidor", dist_id).eq("id_cliente_pdv", id_cl).gte("created_at", fecha_inicio).lte("created_at", fecha_fin).limit(1).execute()
-                        exhibido = bool(ex.data)
-                    items.append({
-                        "id_cliente_erp": r.get("id_cliente_erp"),
-                        "nombre": (r.get("nombre_fantasia") or r.get("nombre_razon_social") or "").strip(),
-                        "direccion": r.get("domicilio", ""),
-                        "localidad": r.get("localidad", ""),
-                        "categoria": "alta",
-                        "exhibido": exhibido,
-                        "fecha_evento": r.get("created_at"),
-                    })
-                if len(rows) < PAGE:
-                    break
-                offset += PAGE
+            rows = _fetch_client_rows(
+                "id_cliente, id_cliente_erp, nombre_fantasia, nombre_razon_social, domicilio, localidad, created_at, id_ruta",
+                "created_at",
+            )
+            for r in rows:
+                id_cl = r.get("id_cliente")
+                if isinstance(id_cl, int) and id_cl in seen_ids:
+                    continue
+                exhibido = False
+                if id_cl:
+                    ex = sb.table(t_exhib).select("id").eq("id_distribuidor", dist_id).eq("id_cliente_pdv", id_cl).gte("created_at", fecha_inicio).lte("created_at", fecha_fin).limit(1).execute()
+                    exhibido = bool(ex.data)
+                items.append({
+                    "id_cliente_erp": r.get("id_cliente_erp"),
+                    "nombre": (r.get("nombre_fantasia") or r.get("nombre_razon_social") or "").strip(),
+                    "direccion": r.get("domicilio", ""),
+                    "localidad": r.get("localidad", ""),
+                    "categoria": "alta",
+                    "exhibido": exhibido,
+                    "fecha_evento": r.get("created_at"),
+                })
+                if isinstance(id_cl, int):
+                    seen_ids.add(id_cl)
 
         if "activacion" in cats:
-            PAGE = 1000
-            offset = 0
-            while True:
-                rows = (
-                    sb.table(t_clientes)
-                    .select("id_cliente, id_cliente_erp, nombre_fantasia, nombre_razon_social, domicilio, localidad, fecha_ultima_compra, created_at")
-                    .eq("id_distribuidor", dist_id)
-                    .eq("id_vendedor", id_vendedor)
-                    .gte("fecha_ultima_compra", fecha_inicio[:10])
-                    .lte("fecha_ultima_compra", fecha_fin[:10])
-                    .range(offset, offset + PAGE - 1)
-                    .execute()
-                    .data or []
-                )
-                for r in rows:
-                    created = r.get("created_at", "") or ""
-                    fuc = r.get("fecha_ultima_compra", "") or ""
-                    is_alta = created >= fecha_inicio and created <= fecha_fin
-                    if is_alta:
-                        continue
-                    id_cl = r.get("id_cliente")
-                    exhibido = False
-                    if id_cl:
-                        ex = sb.table(t_exhib).select("id").eq("id_distribuidor", dist_id).eq("id_cliente_pdv", id_cl).gte("created_at", fecha_inicio).lte("created_at", fecha_fin).limit(1).execute()
-                        exhibido = bool(ex.data)
-                    items.append({
-                        "id_cliente_erp": r.get("id_cliente_erp"),
-                        "nombre": (r.get("nombre_fantasia") or r.get("nombre_razon_social") or "").strip(),
-                        "direccion": r.get("domicilio", ""),
-                        "localidad": r.get("localidad", ""),
-                        "categoria": "activacion",
-                        "exhibido": exhibido,
-                        "fecha_evento": fuc,
-                    })
-                if len(rows) < PAGE:
-                    break
-                offset += PAGE
+            rows = _fetch_client_rows(
+                "id_cliente, id_cliente_erp, nombre_fantasia, nombre_razon_social, domicilio, localidad, fecha_ultima_compra, created_at, id_ruta",
+                "fecha_ultima_compra",
+            )
+            for r in rows:
+                created = r.get("created_at", "") or ""
+                fuc = r.get("fecha_ultima_compra", "") or ""
+                is_alta = created >= fecha_inicio and created <= fecha_fin
+                if is_alta:
+                    continue
+                id_cl = r.get("id_cliente")
+                if isinstance(id_cl, int) and id_cl in seen_ids:
+                    continue
+                exhibido = False
+                if id_cl:
+                    ex = sb.table(t_exhib).select("id").eq("id_distribuidor", dist_id).eq("id_cliente_pdv", id_cl).gte("created_at", fecha_inicio).lte("created_at", fecha_fin).limit(1).execute()
+                    exhibido = bool(ex.data)
+                items.append({
+                    "id_cliente_erp": r.get("id_cliente_erp"),
+                    "nombre": (r.get("nombre_fantasia") or r.get("nombre_razon_social") or "").strip(),
+                    "direccion": r.get("domicilio", ""),
+                    "localidad": r.get("localidad", ""),
+                    "categoria": "activacion",
+                    "exhibido": exhibido,
+                    "fecha_evento": fuc,
+                })
+                if isinstance(id_cl, int):
+                    seen_ids.add(id_cl)
 
         total_altas = sum(1 for i in items if i["categoria"] == "alta")
         total_activaciones = sum(1 for i in items if i["categoria"] == "activacion")
@@ -2668,7 +2705,7 @@ def get_pdvs_catalog(
                 return []
             clients_res = (
                 sb.table(t_clientes)
-                .select("id_cliente, nombre_fantasia, id_cliente_erp, domicilio, estado, fecha_ultima_compra, updated_at")
+                .select("id_cliente, nombre_fantasia, nombre_razon_social, id_cliente_erp, domicilio, estado, fecha_ultima_compra, updated_at")
                 .in_("id_ruta", route_ids)
                 .eq("id_distribuidor", dist_id)
             )
@@ -2677,7 +2714,7 @@ def get_pdvs_catalog(
             t_clientes = tenant_table_name("clientes_pdv_v2", dist_id)
             clients_res = (
                 sb.table(t_clientes)
-                .select("id_cliente, nombre_fantasia, id_cliente_erp, domicilio, estado, fecha_ultima_compra, updated_at")
+                .select("id_cliente, nombre_fantasia, nombre_razon_social, id_cliente_erp, domicilio, estado, fecha_ultima_compra, updated_at")
                 .eq("id_distribuidor", dist_id)
             )
             clients_data = _fetch_clients_paginated(clients_res)
@@ -2710,7 +2747,8 @@ def get_pdvs_catalog(
             fecha = fecha_map.get(erp) if erp else None
             enriched.append({
                 "id_cliente": c["id_cliente"],
-                "nombre_cliente": c.get("nombre_fantasia"),
+                "nombre_cliente": c.get("nombre_fantasia") or c.get("nombre_razon_social"),
+                "nombre_razon_social": c.get("nombre_razon_social"),
                 "id_cliente_erp": erp,
                 "domicilio": c.get("domicilio"),
                 "estado": c.get("estado"),

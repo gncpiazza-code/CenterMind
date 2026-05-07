@@ -1,8 +1,8 @@
 # Progress — Shelfy CenterMind
 
-**Última actualización: 7 de Mayo, 2026 (Dashboard KPIs: exhibiciones únicas, no fotos)**
+**Última actualización: 7 de Mayo, 2026 (Objetivos: prorrateo por semana/día + identificación PDV)**
 
-- **Historial reciente:** **Dashboard KPIs alineados a exhibiciones lógicas únicas:** `GET /api/dashboard/kpis/{dist_id}` en `CenterMind/routers/reportes.py` deja de depender de `fn_dashboard_kpis` (conteo por foto) y calcula sobre `exhibiciones` con deduplicación por `(id_integrante, cliente, día)` + fallback por `url_foto_drive` o `telegram_chat_id:telegram_msg_id`. Queda consistente con `dashboard_ranking` y respeta filtros por `sucursal_id` y exclusión QA (Tabaco no-superadmin).
+- **Historial reciente:** **Objetivos (UX + tracking visual):** `shelfy-frontend/src/app/objetivos/page.tsx` corrige el prorrateo de compañía para que el primer acordeón muestre foco semanal (sin repetir barra mensual), el segundo acordeón mantenga progreso diario y no colapse la tarjeta al interactuar. Se ajusta el cálculo de fase Kanban para no quedar trabado en `pendiente` cuando ya hay evidencia de avance y la barra de exhibición contempla evidencia pendiente (`foto_subida`) para reflejo visual inmediato. Además, en cards/listas y selectors de PDVs ahora se muestra `#id_cliente_erp + nombre` y sublínea de razón social para identificación operativa.
 
 **Última actualización (anterior): 5 de Mayo, 2026 (Padrón Consolido anulados + mapa)**
 

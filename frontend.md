@@ -317,11 +317,20 @@ Reemplaza el modelo sidebar-para-todos por navegación top-center para usuarios 
   - Nivel 1 (semanal): meta semanal calculada con `meta restante / semanas restantes`.
   - Nivel 2 (diario): meta diaria calculada con `meta semanal / 6` (lunes a sábado).
   - Cada nivel incluye barra de progreso y texto explícito de avance requerido.
+- **Ajuste UX (07/05 tarde)**:
+  - El panel de prorrateo interno elimina la barra mensual redundante (ya existe en la card) y deja el foco en avance semanal + diario.
+  - Los `details` internos frenan propagación de click para evitar que la tarjeta Kanban se cierre al abrir/cerrar desglose diario.
+  - La barra de exhibición en card considera evidencia pendiente (`foto_subida`) para reflejar avance visual antes de aprobación final.
 - **Wizard de creación**:
   - `origen=compania`: período mensual forzado (fecha límite automática al fin de `mes_referencia`).
   - `ruteo_alteo`: modos “Altear en X rutas + Y PDVs” y “Altear Y PDVs nuevos”.
   - `conversion_estado`: modos “Activar PDVs X,Y,Z” y “Activar X PDVs”.
   - `exhibicion`: mantiene dualidad “meta general” vs “por PDV”.
+
+### 33. Objetivos — identificación robusta de PDV (07/05/2026)
+- En cards/listas de objetivos se prioriza visual `#id_cliente_erp + nombre`, y en ítems se agrega sublínea opcional de razón social.
+- Selectores de PDV para Activación, Exhibición y Ruteo muestran: ID cliente (mono), nombre en texto principal y razón social en texto secundario.
+- El catálogo tipado `PDVCatalogItem` incorpora `nombre_razon_social` para mantener consistencia visual entre formularios y cards.
 
 ### 32. Jerarquía de rutas unificada (Día → Ruta) (07/05/2026)
 - **TabSupervision** (`components/admin/TabSupervision.tsx`): panel de vendedores/rutas en modo mapa y panel lateral agrupan rutas primero por `dia_semana` y luego por ruta para evitar ambigüedad con múltiples rutas en un mismo día.

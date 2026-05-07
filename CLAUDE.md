@@ -258,6 +258,7 @@ Vendedor sube foto → bot pide nro cliente → foto → Supabase Storage → ex
 - `useEffect` con fetch: cleanup con flag `cancelled` o `AbortController`.
 - `DatePicker` (`@/components/ui/date-picker`) para campos de fecha — no `<input type="date">`.
 - Objetivos `origen='compania'`: siempre mensual (`mes_referencia`) y con fecha límite automática al fin de mes; el detalle de card usa prorrateo mensual→semanal→diario (lun-sáb) con acordeones anidados.
+- En Objetivos, cuando se muestren PDVs (cards, listas o selectors), priorizar formato `#id_cliente_erp + nombre` y usar razón social en sublínea para desambiguación.
 - En objetivos `ruteo_alteo`, `conversion_estado` y `exhibicion`, mantener siempre dos modos de creación: **general por cantidad** y **por universo explícito** (rutas/PDVs).
 - Cuando se presenten rutas en UI operativa (mapa/supervisión/objetivos), la jerarquía visual y semántica debe ser **Día (`dia_semana`) → Ruta (`id_ruta`/`nombre_ruta`)**, nunca al revés.
 - shadcn instalados: Button, Card, Input, Label, Avatar, Badge, Skeleton, Select, Alert, Dialog, Sheet, Tabs, Progress, Tooltip, Separator, ScrollArea, Form, Popover, Checkbox, Table, DropdownMenu, Sonner. Agregar: `npx shadcn@latest add <component>`.

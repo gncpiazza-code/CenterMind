@@ -2064,6 +2064,7 @@ export async function fetchCCStatus(distId: number): Promise<CCStatusResponse> {
 export interface PDVCatalogItem {
   id_cliente: number;
   nombre_cliente: string;
+  nombre_razon_social?: string | null;
   id_cliente_erp: string | null;
   domicilio: string | null;
   estado?: string | null;

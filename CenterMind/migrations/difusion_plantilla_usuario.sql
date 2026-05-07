@@ -3,7 +3,7 @@
 
 CREATE TABLE IF NOT EXISTS difusion_plantilla_usuario (
   id bigserial PRIMARY KEY,
-  id_usuario bigint NOT NULL REFERENCES usuarios_portal(id) ON DELETE CASCADE,
+  id_usuario bigint NOT NULL REFERENCES usuarios_portal(id_usuario) ON DELETE CASCADE,
   titulo text NOT NULL,
   cuerpo text NOT NULL,
   created_at timestamptz DEFAULT now(),

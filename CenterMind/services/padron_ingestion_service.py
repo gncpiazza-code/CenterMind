@@ -128,6 +128,16 @@ def _is_gonzalez_luis_antonio_sucursal(val: Any) -> bool:
     return False
 
 
+def _is_idsucursal(val: Any, expected: int) -> bool:
+    """Compara idsucur tolerando strings/float del Excel (p. ej. 9, 9.0, '9')."""
+    s = _safe_str(val, "").strip()
+    if not s:
+        return False
+    if s.endswith(".0"):
+        s = s[:-2]
+    return s == str(expected)
+
+
 def _flexible_col(df: pd.DataFrame, candidates: list[str]) -> str | None:
     """Devuelve el nombre de columna del DataFrame que coincida con algún candidato."""
     norm_cols = {c: _norm(c) for c in df.columns}
@@ -1186,6 +1196,7 @@ class PadronIngestionService:
                 # Mismo idempresa CHESS en varios tenants Shelfy (p. ej. id en La Mágica=2, Bolívar=7):
                 # split por sucursal aunque dist_map apunte a La Mágica u otro holder del id_empresa_erp.
                 suc_col = cols.get("sucursal")
+                id_suc_col = cols.get("id_sucursal")
                 if suc_col and empresa_erp in franchise_erp_keys:
                     mask_ondarreta = df_dist[suc_col].apply(_is_ondarreta_sucursal)
                     df_bolivar = df_dist[mask_ondarreta].copy()
@@ -1210,6 +1221,31 @@ class PadronIngestionService:
                             )
                         )
 
+                    if lag_dist_id and not df_after_bol.empty:
+                        if id_suc_col:
+                            mask_lag = df_after_bol[id_suc_col].apply(lambda v: _is_idsucursal(v, 9))
+                        else:
+                            mask_lag = pd.Series(False, index=df_after_bol.index)
+                        # Fallback por nombre textual cuando no venga idsucur utilizable.
+                        if suc_col:
+                            mask_lag = mask_lag | df_after_bol[suc_col].apply(_is_gonzalez_luis_antonio_sucursal)
+                        df_lag = df_after_bol[mask_lag].copy()
+                        df_after_lag = df_after_bol[~mask_lag].copy()
+                        if not df_lag.empty:
+                            logger.info(
+                                f"[Padrón] Reenrutando {len(df_lag)} filas de sucursal LAG (idsucur=9 / GONZALEZ) "
+                                f"hacia LAG Distribuidora - Tucuman (dist {lag_dist_id})."
+                            )
+                            resultados.append(
+                                self._ingest_for_dist(
+                                    df_lag,
+                                    cols,
+                                    lag_dist_id,
+                                    f"{empresa_erp}->lag_tucuman",
+                                )
+                            )
+                        df_after_bol = df_after_lag
+
                     if not df_after_bol.empty and caramele_dist_id:
                         mask_biava = df_after_bol[suc_col].apply(_is_jose_ignacio_biava_sucursal)
                         df_caramele = df_after_bol[mask_biava].copy()
@@ -1230,25 +1266,6 @@ class PadronIngestionService:
                         df_after_bol = df_after_biava
 
                     df_after_fr = df_after_bol
-                    if lag_dist_id and not df_after_fr.empty:
-                        mask_lag = df_after_fr[suc_col].apply(_is_gonzalez_luis_antonio_sucursal)
-                        df_lag = df_after_fr[mask_lag].copy()
-                        df_after_lag = df_after_fr[~mask_lag].copy()
-                        if not df_lag.empty:
-                            logger.info(
-                                f"[Padrón] Reenrutando {len(df_lag)} filas GONZALEZ LUIS ANTONIO "
-                                f"hacia LAG Distribuidora - Tucuman (dist {lag_dist_id})."
-                            )
-                            resultados.append(
-                                self._ingest_for_dist(
-                                    df_lag,
-                                    cols,
-                                    lag_dist_id,
-                                    f"{empresa_erp}->lag_tucuman",
-                                )
-                            )
-                        df_after_fr = df_after_lag
-
                     if magica_dist_id and not df_after_fr.empty:
                         mask_ueq = df_after_fr[suc_col].apply(_is_uequin_rodrigo_sucursal)
                         df_magica = df_after_fr[mask_ueq].copy()
@@ -1415,14 +1432,20 @@ class PadronIngestionService:
                 and cols.get("sucursal")
             ):
                 suc_l = cols["sucursal"]
+                id_suc_l = cols.get("id_sucursal")
                 df_rpl = df[df["_empresa_key"].isin(franchise_erp_keys)].copy()
-                df_gl = df_rpl[df_rpl[suc_l].apply(_is_gonzalez_luis_antonio_sucursal)].copy()
+                if id_suc_l:
+                    mask_lag = df_rpl[id_suc_l].apply(lambda v: _is_idsucursal(v, 9))
+                else:
+                    mask_lag = pd.Series(False, index=df_rpl.index)
+                mask_lag = mask_lag | df_rpl[suc_l].apply(_is_gonzalez_luis_antonio_sucursal)
+                df_gl = df_rpl[mask_lag].copy()
                 if not df_gl.empty:
                     df_target = df_gl
                     lag_gonzalez_only = True
                     logger.info(
                         f"[Padrón] LAG Tucumán sin id_empresa_erp: {len(df_target)} filas "
-                        f"GONZALEZ LUIS ANTONIO (idempresa franquicia: {sorted(franchise_erp_keys)})."
+                        f"de sucursal LAG (idsucur=9 / GONZALEZ) (idempresa franquicia: {sorted(franchise_erp_keys)})."
                     )
             if not bolivar_ondarreta_only and not magica_uequin_only and not caramele_biava_only and not lag_gonzalez_only:
                 if n_emp > 1:
@@ -1483,13 +1506,19 @@ class PadronIngestionService:
             df_bolivar = df_target[mask_ondarreta].copy()
             df_after_bol = df_target[~mask_ondarreta].copy()
 
-            mask_biava = df_after_bol[suc_col].apply(_is_jose_ignacio_biava_sucursal)
-            df_caramele = df_after_bol[mask_biava].copy()
-            df_after_caramele = df_after_bol[~mask_biava].copy()
+            id_suc_col = cols.get("id_sucursal")
 
-            mask_lag = df_after_caramele[suc_col].apply(_is_gonzalez_luis_antonio_sucursal)
-            df_lag = df_after_caramele[mask_lag].copy()
-            df_after_lag = df_after_caramele[~mask_lag].copy()
+            if id_suc_col:
+                mask_lag = df_after_bol[id_suc_col].apply(lambda v: _is_idsucursal(v, 9))
+            else:
+                mask_lag = pd.Series(False, index=df_after_bol.index)
+            mask_lag = mask_lag | df_after_bol[suc_col].apply(_is_gonzalez_luis_antonio_sucursal)
+            df_lag = df_after_bol[mask_lag].copy()
+            df_after_lag = df_after_bol[~mask_lag].copy()
+
+            mask_biava = df_after_lag[suc_col].apply(_is_jose_ignacio_biava_sucursal)
+            df_caramele = df_after_lag[mask_biava].copy()
+            df_after_caramele = df_after_lag[~mask_biava].copy()
 
             result_magica: dict | None = None
             result_real: dict | None = None

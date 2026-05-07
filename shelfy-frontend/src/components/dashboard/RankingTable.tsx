@@ -190,11 +190,17 @@ export function RankingTable({
 
                     <td className="py-2.5 px-2">
                       <div className="flex flex-col min-w-0">
-                        <span className={cn("font-black text-[13px] tracking-tight truncate max-w-[130px]", isTop3 ? "text-slate-900" : "text-slate-700")}>
+                        <span
+                          className={cn(
+                            "font-black text-[13px] tracking-tight whitespace-nowrap",
+                            isTop3 ? "text-slate-900" : "text-slate-700"
+                          )}
+                          title={v.vendedor}
+                        >
                           {v.vendedor}
                         </span>
                         <div className="flex items-center gap-1.5">
-                          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider truncate max-w-[90px]">
+                          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider whitespace-nowrap" title={v.sucursal || "General"}>
                             {v.sucursal || "General"}
                           </span>
                           {ratio !== null && (

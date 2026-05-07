@@ -14,7 +14,18 @@ export default function TabDistribuidoras() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ nombre: "", token: "", carpeta_drive: "", ruta_cred: "" });
+  const [form, setForm] = useState({
+    nombre: "",
+    token: "",
+    carpeta_drive: "",
+    ruta_cred: "",
+    es_franquiciado: false,
+    franquicia_tenant_matriz_id: "",
+    franquicia_tenant_matriz_nombre: "",
+    franquicia_sucursal_origen: "",
+    franquicia_idsucur_origen: "",
+    franquicia_aplicar_en: "ambos" as "padron" | "cuentas" | "ambos",
+  });
   const [saving, setSaving] = useState(false);
   const [soloActivas, setSoloActivas] = useState(false);
 
@@ -33,9 +44,28 @@ export default function TabDistribuidoras() {
     setSaving(true);
     setError(null);
     try {
-      await crearDistribuidora(form);
+      await crearDistribuidora({
+        ...form,
+        franquicia_tenant_matriz_id: form.franquicia_tenant_matriz_id
+          ? Number(form.franquicia_tenant_matriz_id)
+          : null,
+        franquicia_idsucur_origen: form.franquicia_idsucur_origen
+          ? Number(form.franquicia_idsucur_origen)
+          : null,
+      });
       setShowForm(false);
-      setForm({ nombre: "", token: "", carpeta_drive: "", ruta_cred: "" });
+      setForm({
+        nombre: "",
+        token: "",
+        carpeta_drive: "",
+        ruta_cred: "",
+        es_franquiciado: false,
+        franquicia_tenant_matriz_id: "",
+        franquicia_tenant_matriz_nombre: "",
+        franquicia_sucursal_origen: "",
+        franquicia_idsucur_origen: "",
+        franquicia_aplicar_en: "ambos",
+      });
       load();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Error al crear");
@@ -109,6 +139,68 @@ export default function TabDistribuidoras() {
                 onChange={(e) => setForm((f) => ({ ...f, ruta_cred: e.target.value }))}
                 className={INPUT_CLS + " w-full"} />
             </div>
+            <div className="md:col-span-2 rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)]/40 p-3">
+              <label className="flex items-center gap-2 text-sm font-semibold text-[var(--shelfy-text)]">
+                <input
+                  type="checkbox"
+                  checked={form.es_franquiciado}
+                  onChange={(e) => setForm((f) => ({ ...f, es_franquiciado: e.target.checked }))}
+                />
+                Es franquiciado (split desde tenant matriz)
+              </label>
+              {form.es_franquiciado && (
+                <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] uppercase font-bold text-[var(--shelfy-muted)] ml-1">Tenant matriz origen (ID)</label>
+                    <input
+                      placeholder="Ej: 2"
+                      value={form.franquicia_tenant_matriz_id}
+                      onChange={(e) => setForm((f) => ({ ...f, franquicia_tenant_matriz_id: e.target.value }))}
+                      className={INPUT_CLS + " w-full"}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] uppercase font-bold text-[var(--shelfy-muted)] ml-1">Tenant matriz origen (Nombre)</label>
+                    <input
+                      placeholder="Ej: Real Tabacalera de Santiago S.A."
+                      value={form.franquicia_tenant_matriz_nombre}
+                      onChange={(e) => setForm((f) => ({ ...f, franquicia_tenant_matriz_nombre: e.target.value }))}
+                      className={INPUT_CLS + " w-full"}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] uppercase font-bold text-[var(--shelfy-muted)] ml-1">Sucursal origen (texto)</label>
+                    <input
+                      placeholder="Ej: GONZALEZ LUIS ANTONIO"
+                      value={form.franquicia_sucursal_origen}
+                      onChange={(e) => setForm((f) => ({ ...f, franquicia_sucursal_origen: e.target.value }))}
+                      className={INPUT_CLS + " w-full"}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] uppercase font-bold text-[var(--shelfy-muted)] ml-1">idsucur origen</label>
+                    <input
+                      placeholder="Ej: 10"
+                      value={form.franquicia_idsucur_origen}
+                      onChange={(e) => setForm((f) => ({ ...f, franquicia_idsucur_origen: e.target.value }))}
+                      className={INPUT_CLS + " w-full"}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1 md:col-span-2">
+                    <label className="text-[10px] uppercase font-bold text-[var(--shelfy-muted)] ml-1">Aplicar en</label>
+                    <select
+                      value={form.franquicia_aplicar_en}
+                      onChange={(e) => setForm((f) => ({ ...f, franquicia_aplicar_en: e.target.value as "padron" | "cuentas" | "ambos" }))}
+                      className={INPUT_CLS + " w-full"}
+                    >
+                      <option value="padron">Padrón</option>
+                      <option value="cuentas">Cuentas</option>
+                      <option value="ambos">Ambos</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+            </div>
             <div className="md:col-span-2 flex gap-2 mt-2">
               <Button type="submit" loading={saving} size="sm">Registrar Distribuidora</Button>
               <Button type="button" variant="ghost" size="sm" onClick={() => setShowForm(false)}>Cancelar</Button>
@@ -140,6 +232,11 @@ export default function TabDistribuidoras() {
                       <span className={`text-[10px] px-2.5 py-1 rounded-full font-black uppercase tracking-wider ${d.estado === "activo" ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-500"}`}>
                         {d.estado}
                       </span>
+                      {d.es_franquiciado && (
+                        <span className="ml-2 text-[10px] px-2.5 py-1 rounded-full font-black uppercase tracking-wider bg-violet-100 text-violet-700">
+                          Franquiciado
+                        </span>
+                      )}
                     </td>
                     <td className="py-4 px-4 text-right">
                       <button

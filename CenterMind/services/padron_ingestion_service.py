@@ -1053,7 +1053,7 @@ class PadronIngestionService:
     def _load_distribuidores(self) -> list[dict[str, Any]]:
         """Carga distribuidores activos para mapear por ERP y por nombre."""
         res = sb.table("distribuidores").select(
-            "id_distribuidor, id_empresa_erp, nombre_empresa"
+            "id_distribuidor, id_empresa_erp, nombre_empresa, feature_flags"
         ).execute()
         return res.data or []
 
@@ -1066,6 +1066,61 @@ class PadronIngestionService:
                 continue
             out[key] = r["id_distribuidor"]
         return out
+
+    def _franchise_cfg_for_dist(
+        self, dist_rows: list[dict[str, Any]], dist_id: int
+    ) -> dict[str, Any] | None:
+        for r in dist_rows:
+            if int(r.get("id_distribuidor") or 0) != int(dist_id):
+                continue
+            ff = r.get("feature_flags") or {}
+            if not isinstance(ff, dict):
+                return None
+            cfg = ff.get("franchise_config")
+            if not isinstance(cfg, dict) or not cfg.get("enabled"):
+                return None
+            apply_to = _norm(_safe_str(cfg.get("apply_to"), "ambos"))
+            if apply_to not in {"padron", "ambos"}:
+                return None
+            return cfg
+        return None
+
+    def _apply_dynamic_franchise_filter(
+        self,
+        df: pd.DataFrame,
+        cols: dict[str, str | None],
+        cfg: dict[str, Any],
+        dist_id: int,
+    ) -> pd.DataFrame:
+        suc_col = cols.get("sucursal")
+        id_suc_col = cols.get("id_sucursal")
+        idsucur_raw = cfg.get("source_idsucur")
+        sucursal_raw = _safe_str(cfg.get("source_sucursal"), "")
+        mask = pd.Series(False, index=df.index)
+
+        if idsucur_raw is not None and id_suc_col:
+            try:
+                idsucur_int = int(idsucur_raw)
+                mask = mask | df[id_suc_col].apply(lambda v: _is_idsucursal(v, idsucur_int))
+            except Exception:
+                pass
+
+        if sucursal_raw and suc_col:
+            suc_norm = _norm(sucursal_raw)
+            mask = mask | df[suc_col].apply(lambda v: suc_norm in _norm(_safe_str(v, "")))
+
+        if not bool(mask.any()):
+            raise ValueError(
+                f"Franquicia dist {dist_id}: no se encontraron filas para "
+                f"idsucur={idsucur_raw!r} / sucursal='{sucursal_raw}'."
+            )
+
+        df_out = df[mask].copy()
+        logger.info(
+            f"[Padrón] Franquicia dinámica dist {dist_id}: {len(df)} -> {len(df_out)} filas "
+            f"(idsucur={idsucur_raw!r}, sucursal='{sucursal_raw}')."
+        )
+        return df_out
 
     def _resolve_real_franchise_dists(
         self, dist_rows: list[dict[str, Any]]
@@ -1627,11 +1682,16 @@ class PadronIngestionService:
 
         try:
             dist_rows_fr = self._load_distribuidores()
+            dynamic_cfg = self._franchise_cfg_for_dist(dist_rows_fr, dist_id)
+            dynamic_franchise_applied = False
+            if dynamic_cfg:
+                df = self._apply_dynamic_franchise_filter(df, cols, dynamic_cfg, dist_id)
+                dynamic_franchise_applied = True
             _, magica_fr_id, bolivar_fr_id, caramele_fr_id, lag_fr_id = self._resolve_real_franchise_dists(
                 dist_rows_fr
             )
             # Defensa en profundidad: franquicias sólo reciben su sucursal CHESS.
-            if bolivar_fr_id is not None and dist_id == bolivar_fr_id and cols.get(
+            if (not dynamic_franchise_applied) and bolivar_fr_id is not None and dist_id == bolivar_fr_id and cols.get(
                 "sucursal"
             ):
                 sc_b = cols["sucursal"]
@@ -1644,7 +1704,7 @@ class PadronIngestionService:
                     raise ValueError(
                         "Tras filtrar por sucursal OSCAR ONDARRETA no quedaron filas para Bolívar."
                     )
-            if magica_fr_id is not None and dist_id == magica_fr_id and cols.get(
+            if (not dynamic_franchise_applied) and magica_fr_id is not None and dist_id == magica_fr_id and cols.get(
                 "sucursal"
             ):
                 sc_m = cols["sucursal"]
@@ -1657,7 +1717,7 @@ class PadronIngestionService:
                     raise ValueError(
                         "Tras filtrar por sucursal UEQUIN RODRIGO no quedaron filas para La Mágica."
                     )
-            if caramele_fr_id is not None and dist_id == caramele_fr_id and cols.get(
+            if (not dynamic_franchise_applied) and caramele_fr_id is not None and dist_id == caramele_fr_id and cols.get(
                 "sucursal"
             ):
                 sc_c = cols["sucursal"]
@@ -1671,7 +1731,7 @@ class PadronIngestionService:
                     raise ValueError(
                         "Tras filtrar por sucursal JOSE IGNACIO BIAVA no quedaron filas para Caramele - San Luis."
                     )
-            if lag_fr_id is not None and dist_id == lag_fr_id and cols.get("sucursal"):
+            if (not dynamic_franchise_applied) and lag_fr_id is not None and dist_id == lag_fr_id and cols.get("sucursal"):
                 sc_l = cols["sucursal"]
                 n_antes_l = len(df)
                 id_sc_l = cols.get("id_sucursal")

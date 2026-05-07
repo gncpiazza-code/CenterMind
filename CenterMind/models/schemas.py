@@ -40,6 +40,12 @@ class DistribuidoraRequest(BaseModel):
     token: str
     carpeta_drive: str = ""
     ruta_cred: str = ""
+    es_franquiciado: bool = False
+    franquicia_tenant_matriz_id: int | None = None
+    franquicia_tenant_matriz_nombre: str = ""
+    franquicia_sucursal_origen: str = ""
+    franquicia_idsucur_origen: int | None = None
+    franquicia_aplicar_en: Literal["padron", "cuentas", "ambos"] | None = None
 
 
 class UsuarioRequest(BaseModel):

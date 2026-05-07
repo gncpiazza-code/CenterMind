@@ -861,6 +861,12 @@ export interface Distribuidora {
   id: number;
   nombre: string;
   estado: string;
+  es_franquiciado?: boolean;
+  franquicia_tenant_matriz_id?: number | null;
+  franquicia_tenant_matriz_nombre?: string | null;
+  franquicia_sucursal_origen?: string | null;
+  franquicia_idsucur_origen?: number | null;
+  franquicia_aplicar_en?: "padron" | "cuentas" | "ambos" | null;
 }
 
 export async function fetchDistribuidoras(soloActivas = false): Promise<Distribuidora[]> {
@@ -870,11 +876,33 @@ export async function fetchDistribuidoras(soloActivas = false): Promise<Distribu
 // Alias para Sidebar y otros lugares que usan el masculino
 export const fetchDistribuidores = fetchDistribuidoras as any;
 
-export async function crearDistribuidora(data: { nombre: string; token: string; carpeta_drive?: string; ruta_cred?: string }) {
+export async function crearDistribuidora(data: {
+  nombre: string;
+  token: string;
+  carpeta_drive?: string;
+  ruta_cred?: string;
+  es_franquiciado?: boolean;
+  franquicia_tenant_matriz_id?: number | null;
+  franquicia_tenant_matriz_nombre?: string;
+  franquicia_sucursal_origen?: string;
+  franquicia_idsucur_origen?: number | null;
+  franquicia_aplicar_en?: "padron" | "cuentas" | "ambos" | null;
+}) {
   return apiFetch("/api/admin/distribuidoras", { method: "POST", body: JSON.stringify(data) });
 }
 
-export async function editarDistribuidora(id: number, data: { nombre: string; token: string; carpeta_drive?: string; ruta_cred?: string }) {
+export async function editarDistribuidora(id: number, data: {
+  nombre: string;
+  token: string;
+  carpeta_drive?: string;
+  ruta_cred?: string;
+  es_franquiciado?: boolean;
+  franquicia_tenant_matriz_id?: number | null;
+  franquicia_tenant_matriz_nombre?: string;
+  franquicia_sucursal_origen?: string;
+  franquicia_idsucur_origen?: number | null;
+  franquicia_aplicar_en?: "padron" | "cuentas" | "ambos" | null;
+}) {
   return apiFetch(`/api/admin/distribuidoras/${id}`, { method: "PUT", body: JSON.stringify(data) });
 }
 

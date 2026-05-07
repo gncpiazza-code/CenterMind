@@ -70,6 +70,51 @@ def _full_name(value: str | None) -> bool:
     return len(parts) >= 2
 
 
+def _build_franchise_config_payload(data: dict) -> dict | None:
+    es_franquiciado = bool(data.get("es_franquiciado"))
+    if not es_franquiciado:
+        return None
+
+    aplicar_en_raw = str(data.get("franquicia_aplicar_en") or "ambos").strip().lower()
+    aplicar_en = aplicar_en_raw if aplicar_en_raw in {"padron", "cuentas", "ambos"} else "ambos"
+
+    sucursal_origen = str(data.get("franquicia_sucursal_origen") or "").strip()
+    matriz_nombre = str(data.get("franquicia_tenant_matriz_nombre") or "").strip()
+    matriz_id_raw = data.get("franquicia_tenant_matriz_id")
+    idsucur_raw = data.get("franquicia_idsucur_origen")
+    matriz_id = None if matriz_id_raw in ("", None) else matriz_id_raw
+    idsucur = None if idsucur_raw in ("", None) else idsucur_raw
+
+    if not matriz_nombre and not matriz_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Si es franquiciado, debe indicar Tenant matriz origen (ID o nombre).",
+        )
+    if not sucursal_origen and idsucur is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Si es franquiciado, debe indicar Sucursal/idsucur origen.",
+        )
+
+    config: dict = {
+        "enabled": True,
+        "source_dist_id": int(matriz_id) if matriz_id is not None else None,
+        "source_name": matriz_nombre or None,
+        "source_sucursal": sucursal_origen or None,
+        "source_idsucur": int(idsucur) if idsucur is not None else None,
+        "apply_to": aplicar_en,
+    }
+    return config
+
+
+def _extract_franchise_config(feature_flags: dict | None) -> dict | None:
+    ff = feature_flags or {}
+    cfg = ff.get("franchise_config")
+    if not isinstance(cfg, dict) or not cfg.get("enabled"):
+        return None
+    return cfg
+
+
 def _build_match_center_rows(dist_id: int) -> dict:
     t_v = tenant_table_name("vendedores_v2", dist_id)
     t_s = tenant_table_name("sucursales_v2", dist_id)
@@ -351,11 +396,27 @@ def admin_get_distribuidoras(solo_activas: str = "true", payload=Depends(verify_
         permisos = payload.get("permisos", {})
         if not permisos.get("action_switch_tenant"):
             raise HTTPException(status_code=403, detail="Acceso denegado")
-    q = sb.table("distribuidores").select("id_distribuidor, nombre_empresa, token_bot, estado, id_carpeta_drive, ruta_credencial_drive")
+    q = sb.table("distribuidores").select("id_distribuidor, nombre_empresa, token_bot, estado, id_carpeta_drive, ruta_credencial_drive, feature_flags")
     if solo_activas.lower() == "true":
         q = q.eq("estado", "activo")
     result = q.order("nombre_empresa").execute()
-    return [{"id": r["id_distribuidor"], "nombre": r["nombre_empresa"], **{k: r[k] for k in r if k not in ("id_distribuidor", "nombre_empresa")}} for r in (result.data or [])]
+    out = []
+    for r in (result.data or []):
+        cfg = _extract_franchise_config(r.get("feature_flags"))
+        out.append(
+            {
+                "id": r["id_distribuidor"],
+                "nombre": r["nombre_empresa"],
+                "es_franquiciado": bool(cfg),
+                "franquicia_tenant_matriz_id": cfg.get("source_dist_id") if cfg else None,
+                "franquicia_tenant_matriz_nombre": cfg.get("source_name") if cfg else None,
+                "franquicia_sucursal_origen": cfg.get("source_sucursal") if cfg else None,
+                "franquicia_idsucur_origen": cfg.get("source_idsucur") if cfg else None,
+                "franquicia_aplicar_en": cfg.get("apply_to") if cfg else None,
+                **{k: r[k] for k in r if k not in ("id_distribuidor", "nombre_empresa")},
+            }
+        )
+    return out
 
 
 @router.post("/admin/distribuidoras", summary="Crear distribuidora")
@@ -363,10 +424,15 @@ async def admin_crear_distribuidora(req: DistribuidoraRequest, payload=Depends(v
     if not payload.get("is_superadmin"):
         raise HTTPException(status_code=403, detail="Acceso denegado")
     try:
+        feature_flags: dict = {}
+        cfg = _build_franchise_config_payload(req.model_dump())
+        if cfg:
+            feature_flags["franchise_config"] = cfg
         res = sb.table("distribuidores").insert({
             "nombre_empresa": req.nombre.strip(), "token_bot": req.token.strip(),
             "id_carpeta_drive": req.carpeta_drive.strip(), "ruta_credencial_drive": req.ruta_cred.strip(),
             "estado": "activo",
+            "feature_flags": feature_flags,
         }).execute()
         if res.data:
             d_id = res.data[0]["id_distribuidor"]
@@ -391,9 +457,24 @@ async def admin_editar_distribuidora(dist_id: int, req: DistribuidoraRequest, pa
     if not payload.get("is_superadmin"):
         raise HTTPException(status_code=403, detail="Acceso denegado")
     try:
+        current = (
+            sb.table("distribuidores")
+            .select("feature_flags")
+            .eq("id_distribuidor", dist_id)
+            .limit(1)
+            .execute()
+        )
+        ff = dict((current.data or [{}])[0].get("feature_flags") or {})
+        cfg = _build_franchise_config_payload(req.model_dump())
+        if cfg:
+            ff["franchise_config"] = cfg
+        else:
+            ff.pop("franchise_config", None)
+
         res = sb.table("distribuidores").update({
             "nombre_empresa": req.nombre.strip(), "token_bot": req.token.strip(),
             "id_carpeta_drive": req.carpeta_drive.strip(), "ruta_credencial_drive": req.ruta_cred.strip(),
+            "feature_flags": ff,
         }).eq("id_distribuidor", dist_id).execute()
         is_active = res.data[0]["estado"] == "activo" if res.data else False
         if is_active:
@@ -461,11 +542,18 @@ def list_distribuidores(solo_activas: bool = False, user_payload=Depends(verify_
         res = query.execute()
         data = []
         for d in res.data or []:
+            cfg = _extract_franchise_config(d.get("feature_flags"))
             data.append({
                 "id": d["id_distribuidor"], "id_distribuidor": d["id_distribuidor"],
                 "nombre": d["nombre_empresa"], "nombre_dist": d["nombre_empresa"],
                 "estado": d["estado"], "token": d.get("token_bot"),
                 "carpeta_drive": d.get("id_carpeta_drive"), "ruta_cred": d.get("ruta_credencial_drive"),
+                "es_franquiciado": bool(cfg),
+                "franquicia_tenant_matriz_id": cfg.get("source_dist_id") if cfg else None,
+                "franquicia_tenant_matriz_nombre": cfg.get("source_name") if cfg else None,
+                "franquicia_sucursal_origen": cfg.get("source_sucursal") if cfg else None,
+                "franquicia_idsucur_origen": cfg.get("source_idsucur") if cfg else None,
+                "franquicia_aplicar_en": cfg.get("apply_to") if cfg else None,
             })
         return data
     except Exception as e:
@@ -478,10 +566,15 @@ def create_distribuidor(data: dict, user_payload=Depends(verify_auth)):
     if not user_payload.get("is_superadmin"):
         raise HTTPException(status_code=403, detail="SuperAdmin only")
     try:
+        feature_flags: dict = {}
+        cfg = _build_franchise_config_payload(data)
+        if cfg:
+            feature_flags["franchise_config"] = cfg
         payload = {
             "nombre_empresa": data["nombre"], "token_bot": data["token"],
             "id_carpeta_drive": data.get("carpeta_drive"), "ruta_credencial_drive": data.get("ruta_cred"),
             "estado": "activo",
+            "feature_flags": feature_flags,
         }
         res = sb.table("distribuidores").insert(payload).execute()
         if res.data:
@@ -509,9 +602,24 @@ def update_distribuidor(dist_id: int, data: dict, user_payload=Depends(verify_au
     if not user_payload.get("is_superadmin"):
         raise HTTPException(status_code=403, detail="SuperAdmin only")
     try:
+        current = (
+            sb.table("distribuidores")
+            .select("feature_flags")
+            .eq("id_distribuidor", dist_id)
+            .limit(1)
+            .execute()
+        )
+        ff = dict((current.data or [{}])[0].get("feature_flags") or {})
+        cfg = _build_franchise_config_payload(data)
+        if cfg:
+            ff["franchise_config"] = cfg
+        else:
+            ff.pop("franchise_config", None)
+
         payload = {
             "nombre_empresa": data["nombre"], "token_bot": data["token"],
             "id_carpeta_drive": data.get("carpeta_drive"), "ruta_credencial_drive": data.get("ruta_cred"),
+            "feature_flags": ff,
         }
         res = sb.table("distribuidores").update(payload).eq("id_distribuidor", dist_id).execute()
         return res.data[0]

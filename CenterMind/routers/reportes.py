@@ -15,6 +15,7 @@ from core.helpers import (
     build_integrante_to_erp_name,
     build_qa_exhibicion_integrante_ids,
     is_exhibicion_qa_display_for_dist,
+    resolve_vendedor_v2_for_integrante,
     should_apply_exhibicion_qa_filter,
 )
 from core.security import verify_auth, check_dist_permission
@@ -202,30 +203,189 @@ def dashboard_kpis(distribuidor_id: int, periodo: str = "mes", sucursal_id: int 
 @router.get("/api/dashboard/ranking/{distribuidor_id}", summary="Ranking de vendedores por período")
 def dashboard_ranking(distribuidor_id: int, periodo: str = "mes", top: int = 999, sucursal_id: int = Query(None), payload=Depends(verify_auth)):
     check_dist_permission(payload, distribuidor_id)
-    result = sb.rpc("fn_dashboard_ranking", {"p_dist_id": distribuidor_id, "p_periodo": periodo, "p_top": top, "p_sucursal_id": sucursal_id}).execute()
-    rows = result.data or []
-
-    erp_name_map = _get_erp_name_map(distribuidor_id)
-    hide_qa = should_apply_exhibicion_qa_filter(distribuidor_id, payload)
-    aggregated: dict = {}
-    NUMERIC_FIELDS = ("total", "aprobadas", "rechazadas", "destacadas", "pendientes", "total_enviadas", "total_aprobadas", "total_rechazadas", "total_destacadas", "puntos")
-    for row in rows:
-        tg_name = (row.get("vendedor") or "").strip()
-        erp_name = erp_name_map.get(tg_name.lower(), tg_name)
-        if hide_qa and is_exhibicion_qa_display_for_dist(distribuidor_id, erp_name):
-            continue
-        if erp_name not in aggregated:
-            aggregated[erp_name] = {**row, "vendedor": erp_name}
+    # Recalculado desde exhibiciones para evitar inflar ranking por fotos duplicadas.
+    # Dedupe por URL y por telegram_msg_id/chat_id (misma lógica operativa del bot/auditoría).
+    try:
+        ar_offset_hours = float(AR_OFFSET)
+    except Exception:
+        ar_offset_hours = -3.0
+    ar_now = datetime.utcnow() + timedelta(hours=ar_offset_hours)
+    p = (periodo or "mes").strip()
+    if p == "hoy":
+        start_dt = datetime(ar_now.year, ar_now.month, ar_now.day)
+        end_dt = start_dt + timedelta(days=1)
+    elif p == "mes":
+        start_dt = datetime(ar_now.year, ar_now.month, 1)
+        if ar_now.month == 12:
+            end_dt = datetime(ar_now.year + 1, 1, 1)
         else:
-            for field in NUMERIC_FIELDS:
-                if field in row:
-                    val     = row.get(field) or 0
-                    current = aggregated[erp_name].get(field) or 0
-                    aggregated[erp_name][field] = current + val
+            end_dt = datetime(ar_now.year, ar_now.month + 1, 1)
+    elif len(p) == 7 and p[4] == "-":
+        y, m = p.split("-")
+        start_dt = datetime(int(y), int(m), 1)
+        if int(m) == 12:
+            end_dt = datetime(int(y) + 1, 1, 1)
+        else:
+            end_dt = datetime(int(y), int(m) + 1, 1)
+    elif len(p) == 10 and p[4] == "-" and p[7] == "-":
+        y, m, d = p.split("-")
+        start_dt = datetime(int(y), int(m), int(d))
+        end_dt = start_dt + timedelta(days=1)
+    else:
+        # fallback seguro a mes actual
+        start_dt = datetime(ar_now.year, ar_now.month, 1)
+        if ar_now.month == 12:
+            end_dt = datetime(ar_now.year + 1, 1, 1)
+        else:
+            end_dt = datetime(ar_now.year, ar_now.month + 1, 1)
 
-    sample   = rows[0] if rows else {}
-    sort_key = "puntos" if "puntos" in sample else ("total" if "total" in sample else "total_enviadas")
-    sorted_rows = sorted(aggregated.values(), key=lambda x: x.get(sort_key) or 0, reverse=True)
+    start_iso = start_dt.isoformat()
+    end_iso = end_dt.isoformat()
+
+    integ_rows = (
+        sb.table("integrantes_grupo")
+        .select("id_integrante,id_vendedor_v2,telegram_user_id,telegram_group_id")
+        .eq("id_distribuidor", distribuidor_id)
+        .execute()
+        .data
+        or []
+    )
+    bindings_rows = (
+        sb.table("vendedores_telegram_binding")
+        .select("telegram_user_id,id_vendedor_v2,telegram_group_id")
+        .eq("id_distribuidor", distribuidor_id)
+        .execute()
+        .data
+        or []
+    )
+    id_int_to_v2: dict[int, int | None] = {}
+    for ig in integ_rows:
+        iid = ig.get("id_integrante")
+        if iid is None:
+            continue
+        try:
+            iid_i = int(iid)
+        except (TypeError, ValueError):
+            continue
+        id_int_to_v2[iid_i] = resolve_vendedor_v2_for_integrante(ig, bindings_rows)
+
+    allowed_integrantes: set[int] | None = None
+    if sucursal_id is not None:
+        t_vendedores = tenant_table_name("vendedores_v2", distribuidor_id)
+        vend_rows = (
+            sb.table(t_vendedores)
+            .select("id_vendedor,id_sucursal")
+            .eq("id_distribuidor", distribuidor_id)
+            .execute()
+            .data
+            or []
+        )
+        vend_ids_suc = {
+            int(v["id_vendedor"])
+            for v in vend_rows
+            if v.get("id_vendedor") is not None and int(v.get("id_sucursal") or 0) == int(sucursal_id)
+        }
+        allowed_integrantes = {
+            iid for iid, vid in id_int_to_v2.items() if vid is not None and int(vid) in vend_ids_suc
+        }
+
+    PAGE = 1000
+    offset = 0
+    ex_rows: list[dict[str, Any]] = []
+    while True:
+        chunk = (
+            sb.table("exhibiciones")
+            .select(
+                "id_exhibicion,id_integrante,estado,url_foto_drive,telegram_msg_id,telegram_chat_id,timestamp_subida,"
+                "id_cliente_pdv,id_cliente,cliente_sombra_codigo"
+            )
+            .eq("id_distribuidor", distribuidor_id)
+            .gte("timestamp_subida", start_iso)
+            .lt("timestamp_subida", end_iso)
+            .order("timestamp_subida")
+            .range(offset, offset + PAGE - 1)
+            .execute()
+            .data
+            or []
+        )
+        ex_rows.extend(chunk)
+        if len(chunk) < PAGE:
+            break
+        offset += PAGE
+
+    iid_to_erp = build_integrante_to_erp_name(distribuidor_id)
+    hide_qa = should_apply_exhibicion_qa_filter(distribuidor_id, payload)
+    seen_logic: set[tuple[int, str, str]] = set()
+    seen_url: set[str] = set()
+    seen_msg: set[str] = set()
+    aggregated: dict[str, dict[str, Any]] = {}
+    for ex in ex_rows:
+        iid = ex.get("id_integrante")
+        if iid is None:
+            continue
+        try:
+            iid_i = int(iid)
+        except (TypeError, ValueError):
+            continue
+        if allowed_integrantes is not None and iid_i not in allowed_integrantes:
+            continue
+
+        # Exhibición lógica única (no fotos): 1 por cliente y día por integrante.
+        # Esto evita inflar ranking cuando una misma exhibición tiene múltiples fotos.
+        ts = (ex.get("timestamp_subida") or "").strip()
+        day_key = ts[:10] if len(ts) >= 10 else ""
+        client_key_raw = (
+            ex.get("id_cliente_pdv")
+            or ex.get("id_cliente")
+            or ex.get("cliente_sombra_codigo")
+        )
+        client_key = str(client_key_raw).strip() if client_key_raw is not None else ""
+        if day_key and client_key:
+            logic_key = (iid_i, client_key, day_key)
+            if logic_key in seen_logic:
+                continue
+            seen_logic.add(logic_key)
+        else:
+            # Fallback defensivo para filas antiguas sin cliente/fecha útil.
+            url = (ex.get("url_foto_drive") or "").strip()
+            if url:
+                if url in seen_url:
+                    continue
+                seen_url.add(url)
+            else:
+                msg = ex.get("telegram_msg_id")
+                chat = ex.get("telegram_chat_id")
+                if msg is not None and chat is not None:
+                    k = f"{chat}:{msg}"
+                    if k in seen_msg:
+                        continue
+                    seen_msg.add(k)
+
+        vendedor = iid_to_erp.get(iid_i, "Desconocido")
+        if hide_qa and is_exhibicion_qa_display_for_dist(distribuidor_id, vendedor):
+            continue
+        row = aggregated.setdefault(
+            vendedor,
+            {
+                "vendedor": vendedor,
+                "aprobadas": 0,
+                "destacadas": 0,
+                "rechazadas": 0,
+                "puntos": 0,
+                "location_id": None,
+            },
+        )
+        estado = (ex.get("estado") or "").strip().lower()
+        if "destacad" in estado:
+            row["destacadas"] += 1
+            row["puntos"] += 2
+        elif "aprobad" in estado:
+            row["aprobadas"] += 1
+            row["puntos"] += 1
+        elif "rechaz" in estado:
+            row["rechazadas"] += 1
+
+    sorted_rows = sorted(aggregated.values(), key=lambda x: x.get("puntos") or 0, reverse=True)
     return sorted_rows[:top]
 
 
@@ -238,7 +398,9 @@ def dashboard_ranking_historico(distribuidor_id: int, sucursal_id: int = Query(N
 
     result = (
         sb.table("exhibiciones")
-        .select("timestamp_subida, estado, id_integrante")
+        .select(
+            "timestamp_subida, estado, id_integrante, id_cliente_pdv, id_cliente, cliente_sombra_codigo"
+        )
         .eq("id_distribuidor", distribuidor_id)
         .gte("timestamp_subida", primer_dia)
         .lte("timestamp_subida", hoy + "T23:59:59")
@@ -250,6 +412,7 @@ def dashboard_ranking_historico(distribuidor_id: int, sucursal_id: int = Query(N
     integrante_resolver = build_integrante_to_erp_name(distribuidor_id)
 
     daily: dict[tuple[str, str], int] = {}
+    seen_daily_logic: set[tuple[str, str, str]] = set()
     hide_qa = should_apply_exhibicion_qa_filter(distribuidor_id, payload)
     for r in rows:
         ts     = r.get("timestamp_subida") or ""
@@ -258,6 +421,19 @@ def dashboard_ranking_historico(distribuidor_id: int, sucursal_id: int = Query(N
         erp_name = integrante_resolver.get(id_int, "Desconocido") if id_int is not None else "Desconocido"
         if hide_qa and is_exhibicion_qa_display_for_dist(distribuidor_id, erp_name):
             continue
+
+        client_key_raw = (
+            r.get("id_cliente_pdv")
+            or r.get("id_cliente")
+            or r.get("cliente_sombra_codigo")
+        )
+        client_key = str(client_key_raw).strip() if client_key_raw is not None else ""
+        if fecha and client_key:
+            k_logic = (fecha, erp_name, client_key)
+            if k_logic in seen_daily_logic:
+                continue
+            seen_daily_logic.add(k_logic)
+
         est = (r.get("estado") or "").lower()
         pts = 2 if "destacad" in est else (1 if "aprobad" in est else 0)
         if pts > 0:

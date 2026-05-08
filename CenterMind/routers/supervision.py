@@ -1829,13 +1829,17 @@ def supervision_pdvs_movimiento(
         def _fetch_client_rows(select_cols: str, date_col: str) -> list[dict]:
             PAGE = 1000
             all_rows: list[dict] = []
+            # clientes_pdv_v2 no tiene `id_vendedor`; resolvemos el vínculo por `id_ruta`.
+            if not route_ids:
+                return []
+
             offset = 0
             while True:
                 q = (
                     sb.table(t_clientes)
                     .select(select_cols)
                     .eq("id_distribuidor", dist_id)
-                    .eq("id_vendedor", id_vendedor)
+                    .in_("id_ruta", route_ids)
                     .gte(date_col, fecha_inicio if date_col == "created_at" else fecha_inicio[:10])
                     .lte(date_col, fecha_fin if date_col == "created_at" else fecha_fin[:10])
                     .range(offset, offset + PAGE - 1)
@@ -1845,24 +1849,6 @@ def supervision_pdvs_movimiento(
                 if len(batch) < PAGE:
                     break
                 offset += PAGE
-
-            if route_ids:
-                offset = 0
-                while True:
-                    q = (
-                        sb.table(t_clientes)
-                        .select(select_cols)
-                        .eq("id_distribuidor", dist_id)
-                        .in_("id_ruta", route_ids)
-                        .gte(date_col, fecha_inicio if date_col == "created_at" else fecha_inicio[:10])
-                        .lte(date_col, fecha_fin if date_col == "created_at" else fecha_fin[:10])
-                        .range(offset, offset + PAGE - 1)
-                    )
-                    batch = q.execute().data or []
-                    all_rows.extend(batch)
-                    if len(batch) < PAGE:
-                        break
-                    offset += PAGE
             return all_rows
 
         if "alta" in cats:

@@ -42,3 +42,54 @@ ON public.ventas_enriched_v2 (
 
 CREATE INDEX IF NOT EXISTS idx_ventas_enriched_v2_dist_fecha
 ON public.ventas_enriched_v2 (id_distribuidor, fecha_factura);
+
+-- Tenant tables: ventas_enriched_v2_d{dist}
+DO $$
+DECLARE
+  dist RECORD;
+  tbl TEXT;
+  idx_uniq TEXT;
+  idx_fecha TEXT;
+  dist_query TEXT;
+BEGIN
+  -- Compat: algunos entornos usan distribuidores.id, otros id_distribuidor.
+  BEGIN
+    PERFORM 1 FROM public.distribuidores LIMIT 1;
+    dist_query := 'SELECT id_distribuidor::int AS dist_id FROM public.distribuidores';
+    EXECUTE dist_query;
+  EXCEPTION WHEN undefined_column THEN
+    dist_query := 'SELECT id::int AS dist_id FROM public.distribuidores';
+  END;
+
+  FOR dist IN
+    EXECUTE dist_query
+  LOOP
+    tbl := format('ventas_enriched_v2_d%s', dist.dist_id);
+    idx_uniq := format('uq_%s_doc_art', tbl);
+    idx_fecha := format('idx_%s_dist_fecha', tbl);
+
+    EXECUTE format(
+      'CREATE TABLE IF NOT EXISTS public.%I (LIKE public.ventas_enriched_v2 INCLUDING DEFAULTS INCLUDING CONSTRAINTS INCLUDING INDEXES)',
+      tbl
+    );
+
+    EXECUTE format(
+      'INSERT INTO public.%I
+       SELECT * FROM public.ventas_enriched_v2 src
+       WHERE src.id_distribuidor = %s
+       ON CONFLICT DO NOTHING',
+      tbl, dist.dist_id
+    );
+
+    EXECUTE format(
+      'CREATE UNIQUE INDEX IF NOT EXISTS %I
+       ON public.%I (id_distribuidor, fecha_factura, numero_documento, id_cliente_erp, cod_articulo)',
+      idx_uniq, tbl
+    );
+
+    EXECUTE format(
+      'CREATE INDEX IF NOT EXISTS %I ON public.%I (id_distribuidor, fecha_factura)',
+      idx_fecha, tbl
+    );
+  END LOOP;
+END $$;

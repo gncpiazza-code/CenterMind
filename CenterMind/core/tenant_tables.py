@@ -8,6 +8,7 @@ PARTITIONED_BASES = {
     "sucursales_v2",
     "vendedores_v2",
     "rutas_v2",
+    "ventas_enriched_v2",
 }
 
 # Tablas base a clonar cuando se da de alta un nuevo tenant.
@@ -16,6 +17,7 @@ TENANT_TABLE_BLUEPRINTS = {
     "vendedores_v2": "vendedores_v2",
     "rutas_v2": "rutas_v2",
     "clientes_pdv_v2": "clientes_pdv_v2",
+    "ventas_enriched_v2": "ventas_enriched_v2",
 }
 
 

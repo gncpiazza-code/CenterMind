@@ -42,7 +42,10 @@
       "Bash(npx playwright *)",
       "Bash(npm install *)",
       "Bash(node *)",
-      "Bash(git *)"
+      "Bash(git *)",
+      "Bash(awk 'NR>=2215 && NR<=2500' /Users/ignaciopiazza/Desktop/CenterMind/shelfy-frontend/src/components/admin/TabSupervision.tsx)",
+      "mcp__plugin_vercel_vercel__list_deployments",
+      "Bash(vercel ls *)"
     ]
   }
 }

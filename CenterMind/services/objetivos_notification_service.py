@@ -735,7 +735,7 @@ class ObjetivosNotificationService:
                     ):
                         cant = int(float(obj_data.get("valor_objetivo") or 0))
                         if cant > 1:
-                            pdv_lines = f"\n📍 <b>PDVs objetivo:</b> {cant} (consultá el detalle en la app)"
+                            pdv_lines = f"\n📍 <b>PDVs objetivo:</b> {cant} (consultá el detalle enviando /objetivos)"
 
                     dias_ref = (obj_data.get("estado_inicial") or "").strip()
                     if tipo == "cobranza":
@@ -775,8 +775,8 @@ class ObjetivosNotificationService:
                 f"{ruta_str}"
                 f"{limite_str}"
                 f"{desc_str}\n\n"
-                f"🧭 <b>Qué tenés que hacer:</b> ejecutá la acción indicada en los PDVs objetivo y subí/confirmá evidencia según el tipo.\n"
-                f"📲 <b>Tip:</b> usá <code>/objetivos</code> para ver progreso en tiempo real.\n\n"
+                f"🧭 <b>Qué tenés que hacer:</b> ejecutá la acción indicada y subí la evidencia al bot.\n"
+                f"📲 <b>Tip:</b> usá <code>/objetivos</code> para ver el detalle de los clientes y el progreso en tiempo real.\n\n"
                 f"¡Éxitos con la gestión! 💪"
             )
 

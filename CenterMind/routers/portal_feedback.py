@@ -244,31 +244,15 @@ async def list_feedback_messages(
     order: str = "desc",
     user_payload: dict = Depends(verify_auth),
 ):
-    pl = _require_jwt_user(user_payload)
+    _require_superadmin(user_payload)
     lim = max(1, min(limit, 500))
     try:
-        query = (
+        res = (
             sb.table("portal_feedback_messages")
             .select(
                 "id,created_at,updated_at,id_usuario,id_distribuidor,usuario_snapshot,rol_snapshot,"
                 "contenido,respuesta,responded_at,id_usuario_respuesta"
             )
-        )
-        
-        # Si no es superadmin, restringir a los tickets de su distribuidora
-        if not pl.get("is_superadmin"):
-            user_dist_id = pl.get("id_distribuidor")
-            if user_dist_id:
-                query = query.eq("id_distribuidor", user_dist_id)
-            else:
-                # Fallback de seguridad: si no tiene distribuidora y no es superadmin, no ve nada
-                return {"items": []}
-        elif dist_id is not None:
-            # Solo el superadmin puede filtrar por una distribuidora específica
-            query = query.eq("id_distribuidor", dist_id)
-
-        res = (
-            query
             .order("created_at", desc=(order.lower() == "desc"))
             .limit(lim)
             .execute()
@@ -330,7 +314,7 @@ async def export_feedback_messages_json(
     q: str | None = None,
     user_payload: dict = Depends(verify_auth),
 ):
-    pl = _require_jwt_user(user_payload)
+    _require_superadmin(user_payload)
     data = await list_feedback_messages(
         pendientes_primero=pendientes_primero,
         limit=limit,
@@ -359,23 +343,15 @@ async def export_feedback_messages_json(
 
 @router.get("/pending-count")
 async def pending_feedback_count(user_payload: dict = Depends(verify_auth)):
-    """Tickets sin respuesta."""
-    pl = _require_jwt_user(user_payload)
+    """Solo superadmin — tickets sin respuesta."""
+    _require_superadmin(user_payload)
     try:
-        query = (
+        cr = (
             sb.table("portal_feedback_messages")
             .select("id", count="exact")
             .is_("respuesta", "null")
+            .execute()
         )
-        
-        if not pl.get("is_superadmin"):
-            user_dist_id = pl.get("id_distribuidor")
-            if user_dist_id:
-                query = query.eq("id_distribuidor", user_dist_id)
-            else:
-                return {"pending": 0}
-                
-        cr = query.execute()
         pending = int(cr.count or 0)
     except Exception as e:
         logger.error(f"[portal-feedback] pending-count: {e}")
@@ -389,7 +365,7 @@ async def reply_feedback_message(
     body: PortalFeedbackReplyIn,
     user_payload: dict = Depends(verify_auth),
 ):
-    pl = _require_jwt_user(user_payload)
+    pl = _require_superadmin(user_payload)
     responder = int(pl["id_usuario"])
     patch = {
         "respuesta": body.respuesta.strip(),
@@ -430,25 +406,18 @@ async def generar_pre_resolucion(
     message_id: str,
     user_payload: dict = Depends(verify_auth),
 ):
-    pl = _require_jwt_user(user_payload)
+    _require_superadmin(user_payload)
     try:
-        query = (
+        res = (
             sb.table("portal_feedback_messages")
             .select(
                 "id,created_at,updated_at,id_usuario,id_distribuidor,usuario_snapshot,rol_snapshot,"
                 "contenido,respuesta,responded_at,id_usuario_respuesta"
             )
             .eq("id", message_id)
+            .limit(1)
+            .execute()
         )
-        
-        if not pl.get("is_superadmin"):
-            user_dist_id = pl.get("id_distribuidor")
-            if user_dist_id:
-                query = query.eq("id_distribuidor", user_dist_id)
-            else:
-                raise HTTPException(status_code=403, detail="No tienes permisos para ver este ticket")
-                
-        res = query.limit(1).execute()
         row = (res.data or [None])[0]
         if not row:
             raise HTTPException(status_code=404, detail="Ticket no encontrado")

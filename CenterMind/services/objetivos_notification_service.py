@@ -762,6 +762,20 @@ class ObjetivosNotificationService:
             if not accion_block and tipo:
                 accion_block = f"\n⚙️ <b>Acción a realizar:</b> {tipo_label}"
 
+            instrucciones_txt = ""
+            if tipo == "exhibicion":
+                instrucciones_txt = "🧭 <b>Qué tenés que hacer:</b> ejecutá la acción indicada y subí la foto de evidencia al bot.\n"
+            elif tipo in ("conversion_estado", "activacion"):
+                instrucciones_txt = "🧭 <b>Qué tenés que hacer:</b> realizá una venta al cliente para activarlo. El progreso se actualizará automáticamente con la facturación.\n"
+            elif tipo == "ruteo_alteo":
+                instrucciones_txt = "🧭 <b>Qué tenés que hacer:</b> da de alta al cliente en tu ruta. El progreso se actualizará automáticamente con el padrón.\n"
+            elif tipo == "cobranza":
+                instrucciones_txt = "🧭 <b>Qué tenés que hacer:</b> gestioná el cobro de la deuda. El progreso se actualizará automáticamente con los recibos.\n"
+            elif tipo == "ruteo":
+                instrucciones_txt = "🧭 <b>Qué tenés que hacer:</b> gestioná el cambio en la ruta. El progreso se actualizará automáticamente con el padrón.\n"
+            else:
+                instrucciones_txt = "🧭 <b>Qué tenés que hacer:</b> ejecutá la acción indicada para cumplir el objetivo.\n"
+
             text = (
                 f"🚀 <b>¡Nuevo objetivo asignado!</b>\n"
                 f"{inicio_str}"
@@ -775,7 +789,7 @@ class ObjetivosNotificationService:
                 f"{ruta_str}"
                 f"{limite_str}"
                 f"{desc_str}\n\n"
-                f"🧭 <b>Qué tenés que hacer:</b> ejecutá la acción indicada y subí la evidencia al bot.\n"
+                f"{instrucciones_txt}"
                 f"📲 <b>Tip:</b> usá <code>/objetivos</code> para ver el detalle de los clientes y el progreso en tiempo real.\n\n"
                 f"¡Éxitos con la gestión! 💪"
             )

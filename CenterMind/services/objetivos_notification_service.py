@@ -632,16 +632,19 @@ class ObjetivosNotificationService:
                         for it in items:
                             cid = it.get("id_cliente_pdv") or 0
                             info = erp_map.get(cid, {})
-                            nombre_raw = (
-                                (it.get("nombre_pdv") or "").strip()
-                                or info.get("nombre_fantasia")
-                                or info.get("nombre_cliente")
-                                or info.get("nombre_razon_social")
-                                or (f"Cliente #{info.get('erp')}" if info.get("erp") else "")
-                                or f"PDV #{cid}"
-                            )
-                            nombre = html.escape(nombre_raw, quote=False)
+                            
+                            rs = info.get("nombre_razon_social") or ""
+                            nf = info.get("nombre_fantasia") or info.get("nombre_cliente") or ""
                             erp = (it.get("id_cliente_erp") or info.get("erp", "") or "")
+                            
+                            if rs and nf and rs != nf:
+                                nombre_raw = f"{rs} ({nf})"
+                            elif rs or nf:
+                                nombre_raw = rs or nf
+                            else:
+                                nombre_raw = (it.get("nombre_pdv") or "").strip() or f"PDV #{cid}"
+                                
+                            nombre = html.escape(nombre_raw, quote=False)
                             nro_txt = html.escape(str(erp), quote=False) if erp else "S/N"
                             ruta_actual = self._ruta_label(info.get("id_ruta"), dist_id)
                             ruta_part = f" · <b>Ruta:</b> {ruta_actual}" if ruta_actual else " · <b>Ruta:</b> S/N"
@@ -662,7 +665,7 @@ class ObjetivosNotificationService:
                                     accion_resumen.append("Baja de ruta")
 
                             lineas.append(
-                                f"  • <b>Nro:</b> {nro_txt} · <b>PDV:</b> {nombre}{ruta_part}{extra}"
+                                f"  • <b>#{nro_txt}</b> - {nombre}{ruta_part}{extra}"
                             )
 
                         n_items = len(items)
@@ -735,7 +738,10 @@ class ObjetivosNotificationService:
                     ):
                         cant = int(float(obj_data.get("valor_objetivo") or 0))
                         if cant > 1:
-                            pdv_lines = f"\n📍 <b>PDVs objetivo:</b> {cant} (consultá el detalle enviando /objetivos)"
+                            # Si es un objetivo masivo (sin items pero con valor_objetivo > 1)
+                            pdv_lines = f"\n📍 <b>PDVs objetivo:</b> {cant} clientes a elección"
+                        else:
+                            pdv_lines = f"\n📍 <b>PDVs objetivo:</b> cliente a elección"
 
                     dias_ref = (obj_data.get("estado_inicial") or "").strip()
                     if tipo == "cobranza":

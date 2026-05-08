@@ -87,15 +87,48 @@ def supervision_v2_dashboard(
         vendedores_disponibles = set()
         sucursales_disponibles = set()
         
+        def normalize_seller_name(name: str) -> str:
+            if not name: return ""
+            if "-" in name:
+                return name.split("-")[-1].strip().upper()
+            return name.strip().upper()
+
+        # Fetch valid sellers for this tenant to avoid mixing data from other tenants
+        # due to potential data ingestion issues
+        t_vend = tenant_table_name("vendedores_v2", dist_id)
+        res_vends = sb.table(t_vend).select("nombre_erp, id_sucursal").execute()
+        
+        t_suc = tenant_table_name("sucursales_v2", dist_id)
+        res_sucs = sb.table(t_suc).select("id_sucursal, nombre_erp").execute()
+        suc_map = {r["id_sucursal"]: r.get("nombre_erp", "") for r in res_sucs.data if r.get("id_sucursal")}
+        
+        valid_sellers = set()
+        vend_to_suc = {}
+        for r in res_vends.data:
+            name = r.get("nombre_erp")
+            if name:
+                norm_name = normalize_seller_name(name)
+                valid_sellers.add(norm_name)
+                vend_to_suc[norm_name] = suc_map.get(r.get("id_sucursal"), "").strip().lower()
+        
+        # Filter rows by valid sellers
+        valid_ventas_rows = []
         for v in ventas_rows:
-            vend = v.get("nombre_vendedor")
-            if vend: vendedores_disponibles.add(vend)
-            
+            vend = normalize_seller_name(v.get("nombre_vendedor", ""))
+            if not valid_sellers or vend in valid_sellers:
+                valid_ventas_rows.append(v)
+                if vend: vendedores_disponibles.add(vend)
+        ventas_rows = valid_ventas_rows
+        
+        valid_cc_rows = []
         for c in cc_rows:
-            suc = c.get("sucursal_nombre")
-            if suc: sucursales_disponibles.add(suc)
-            vend = c.get("vendedor_nombre")
-            if vend: vendedores_disponibles.add(vend)
+            vend = normalize_seller_name(c.get("vendedor_nombre", ""))
+            if not valid_sellers or vend in valid_sellers:
+                valid_cc_rows.append(c)
+                suc = c.get("sucursal_nombre")
+                if suc: sucursales_disponibles.add(suc)
+                if vend: vendedores_disponibles.add(vend)
+        cc_rows = valid_cc_rows
 
         # 4. Filter by sucursal and vendedor
         # Normalizar nombres para filtrado
@@ -105,9 +138,14 @@ def supervision_v2_dashboard(
         # Filtrar ventas
         filtered_ventas = []
         for v in ventas_rows:
-            if vendedor_norm and vendedor_norm not in str(v.get("nombre_vendedor", "")).lower():
+            vend_norm = normalize_seller_name(v.get("nombre_vendedor", "")).lower()
+            if vendedor_norm and vendedor_norm not in vend_norm:
                 continue
-            # TODO: Filtrar por sucursal si es necesario (requiere cruce con vendedores_v2 o si viene en la data)
+            if sucursal_norm:
+                vend_upper = normalize_seller_name(v.get("nombre_vendedor", ""))
+                suc_for_vend = vend_to_suc.get(vend_upper, "")
+                if sucursal_norm not in suc_for_vend:
+                    continue
             filtered_ventas.append(v)
             
         # Filtrar CC
@@ -115,7 +153,7 @@ def supervision_v2_dashboard(
         for c in cc_rows:
             if sucursal_norm and sucursal_norm not in str(c.get("sucursal_nombre", "")).lower():
                 continue
-            if vendedor_norm and vendedor_norm not in str(c.get("vendedor_nombre", "")).lower():
+            if vendedor_norm and vendedor_norm not in normalize_seller_name(c.get("vendedor_nombre", "")).lower():
                 continue
             filtered_cc.append(c)
 
@@ -130,7 +168,7 @@ def supervision_v2_dashboard(
         # Chart Vendedores
         vendedores_agg = {}
         for v in filtered_ventas:
-            vend_name = v.get("nombre_vendedor") or "Sin Vendedor"
+            vend_name = normalize_seller_name(v.get("nombre_vendedor", "")) or "SIN VENDEDOR"
             if vend_name not in vendedores_agg:
                 vendedores_agg[vend_name] = {"id": vend_name, "name": vend_name, "ventas": 0, "bultos": 0, "ticketPromedio": 0, "count": 0}
             vendedores_agg[vend_name]["ventas"] += float(v.get("importe_final") or 0)
@@ -181,7 +219,7 @@ def supervision_v2_dashboard(
                     "fecha": v.get("fecha_factura"),
                     "pdv": v.get("nombre_cliente"),
                     "vendedorId": v.get("codigo_vendedor"),
-                    "vendedor": v.get("nombre_vendedor"),
+                    "vendedor": normalize_seller_name(v.get("nombre_vendedor", "")) or "SIN VENDEDOR",
                     "condicion": "Contado", # TODO: cruzar con CC
                     "bultos": 0,
                     "total": 0

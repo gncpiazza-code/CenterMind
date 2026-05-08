@@ -517,7 +517,101 @@ class Database:
 
     def get_pendientes_sync(self, distribuidor_id: int) -> List[Dict]:
         res = self.sb.rpc("fn_bot_pendientes_sync", {"p_distribuidor_id": distribuidor_id}).execute()
-        return res.data if res.data else []
+        data = res.data if res.data else []
+        if not data:
+            return []
+            
+        try:
+            ex_ids = [d["id"] for d in data]
+            ex_res = self.sb.table("exhibiciones").select("id_exhibicion, cliente_sombra_codigo, id_cliente_pdv, id_integrante, comentario_evaluacion").in_("id_exhibicion", ex_ids).execute()
+            ex_map = {r["id_exhibicion"]: r for r in ex_res.data}
+            
+            # Fetch ERP names from integrantes_grupo
+            ig_ids = list(set(r["id_integrante"] for r in ex_res.data if r.get("id_integrante")))
+            ig_map = {}
+            if ig_ids:
+                ig_res = self.sb.table("integrantes_grupo").select("id_integrante, id_vendedor_v2").in_("id_integrante", ig_ids).execute()
+                ig_map = {r["id_integrante"]: r.get("id_vendedor_v2") for r in ig_res.data}
+            
+            # Fetch seller names from vendedores_v2
+            v_ids = list(set(v for v in ig_map.values() if v))
+            v_map = {}
+            if v_ids:
+                v_res = self.sb.table(f"vendedores_v2_d{distribuidor_id}").select("id_vendedor, nombre_erp").in_("id_vendedor", v_ids).execute()
+                v_map = {r["id_vendedor"]: r.get("nombre_erp") for r in v_res.data}
+                
+            # Fetch client names
+            client_erp_ids = list(set(r["cliente_sombra_codigo"] for r in ex_res.data if r.get("cliente_sombra_codigo")))
+            client_pdv_ids = list(set(r["id_cliente_pdv"] for r in ex_res.data if r.get("id_cliente_pdv")))
+            
+            c_map_erp = {}
+            c_map_pdv = {}
+            
+            if client_erp_ids or client_pdv_ids:
+                # We can query by both if needed, but it's easier to just query all matching either
+                query = self.sb.table(f"clientes_pdv_v2_d{distribuidor_id}").select("id_cliente, id_cliente_erp, nombre_razon_social, nombre_fantasia")
+                if client_erp_ids and client_pdv_ids:
+                    # PostgREST doesn't support OR easily with IN, so we do two queries
+                    c_res_erp = self.sb.table(f"clientes_pdv_v2_d{distribuidor_id}").select("id_cliente, id_cliente_erp, nombre_razon_social, nombre_fantasia").in_("id_cliente_erp", client_erp_ids).execute()
+                    c_res_pdv = self.sb.table(f"clientes_pdv_v2_d{distribuidor_id}").select("id_cliente, id_cliente_erp, nombre_razon_social, nombre_fantasia").in_("id_cliente", client_pdv_ids).execute()
+                    all_clients = (c_res_erp.data or []) + (c_res_pdv.data or [])
+                elif client_erp_ids:
+                    c_res = self.sb.table(f"clientes_pdv_v2_d{distribuidor_id}").select("id_cliente, id_cliente_erp, nombre_razon_social, nombre_fantasia").in_("id_cliente_erp", client_erp_ids).execute()
+                    all_clients = c_res.data or []
+                else:
+                    c_res = self.sb.table(f"clientes_pdv_v2_d{distribuidor_id}").select("id_cliente, id_cliente_erp, nombre_razon_social, nombre_fantasia").in_("id_cliente", client_pdv_ids).execute()
+                    all_clients = c_res.data or []
+                    
+                for r in all_clients:
+                    if r.get("id_cliente_erp"):
+                        c_map_erp[str(r["id_cliente_erp"])] = r
+                    if r.get("id_cliente"):
+                        c_map_pdv[r["id_cliente"]] = r
+                
+            for d in data:
+                ex_data = ex_map.get(d["id"], {})
+                
+                # Enrich vendedor
+                id_int = ex_data.get("id_integrante")
+                id_vend = ig_map.get(id_int)
+                nombre_erp = v_map.get(id_vend)
+                if nombre_erp:
+                    d["vendedor_nombre"] = nombre_erp
+                    
+                # Enrich cliente
+                sombra = ex_data.get("cliente_sombra_codigo")
+                id_pdv = ex_data.get("id_cliente_pdv")
+                
+                c_info = None
+                if sombra and str(sombra) in c_map_erp:
+                    c_info = c_map_erp[str(sombra)]
+                elif id_pdv and id_pdv in c_map_pdv:
+                    c_info = c_map_pdv[id_pdv]
+                    
+                if c_info:
+                    rs = c_info.get("nombre_razon_social") or ""
+                    nf = c_info.get("nombre_fantasia") or ""
+                    erp_code = c_info.get("id_cliente_erp") or sombra or id_pdv
+                    if rs and nf and rs != nf:
+                        d["cliente"] = f"{erp_code} - {rs} ({nf})"
+                    elif rs or nf:
+                        d["cliente"] = f"{erp_code} - {rs or nf}"
+                    else:
+                        d["cliente"] = str(erp_code)
+                elif sombra:
+                    d["cliente"] = str(sombra)
+                elif id_pdv:
+                    d["cliente"] = str(id_pdv)
+                
+                # Enrich comentarios if missing
+                if not d.get("comentarios"):
+                    d["comentarios"] = ex_data.get("comentario_evaluacion")
+                    
+        except Exception as e:
+            # Si falla el enriquecimiento, devolvemos la data original para no romper el flujo
+            pass
+            
+        return data
 
     def marcar_synced(self, exhibicion_id: str) -> None:
         self.sb.table("exhibiciones").update({"synced_telegram": 1}).eq("id_exhibicion", exhibicion_id).execute()
@@ -2775,13 +2869,13 @@ class BotWorker:
                         return ""
                     return txt
 
-                # El campo "Cliente" debe priorizar SIEMPRE nro de cliente / código ERP.
+                # El campo "Cliente" debe priorizar el string enriquecido si existe
                 cliente = (
-                    _clean_text(ex.get("nro_cliente"))
+                    _clean_text(ex.get("cliente"))
+                    or _clean_text(ex.get("nro_cliente"))
                     or _clean_text(ex.get("id_cliente_erp"))
                     or _clean_text(ex.get("cliente_sombra_codigo"))
                     or _clean_text(ex.get("id_cliente_pdv"))
-                    or _clean_text(ex.get("cliente"))
                 )
                 tipo = (
                     _clean_text(ex.get("tipo_pdv"))

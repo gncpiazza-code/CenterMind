@@ -1136,6 +1136,11 @@ def supervision_vendedores(dist_id: int, user_payload=Depends(verify_auth)):
             vid = r.get("id_vendedor")
             if active_ids and vid is not None and int(vid) not in active_ids:
                 continue
+            # Padrón ingest no elimina rutas/vendedores huérfanos: si no hay ningún PDV
+            # visible (misma consulta que KPIs/mapa), ocultar — evita bajas CHESS con rutas
+            # fantasma en rutas_v2.
+            if int(r.get("total_pdv") or 0) == 0:
+                continue
             tg_name = (r.get("nombre_vendedor") or "").strip()
             erp_name = erp_name_map.get(tg_name.lower(), tg_name)
             if hide_qa and is_exhibicion_qa_display_for_dist(dist_id, erp_name):

@@ -9,10 +9,14 @@ Flujo: un Excel (el Padrón) → jerarquía limpia en Supabase
 
 Características:
 - Idempotente: correr N veces con el mismo archivo produce el mismo resultado
+- Upsert PDV contra `UNIQUE(id_distribuidor, id_cliente_erp)` (no por ruta), para que
+  un cambio de vendedor/ruta en Consolido mueve **la misma fila** y no crea fantasmas.
 - Tras upsert: marca `clientes_pdv_v2.estado='inactivo'` para PDV que ya no están en
   el archivo. El padrón que subís **ya viene filtrado** (solo clientes activos, sin
   anulados en export), así que ausencia en el Excel = baja operativa para el mapa.
   Alcance total vs parcial (SUCURSAL_FILTER, Bolívar, La Mágica) igual que antes.
+- Con alcance completo del Excel: borra rutas vacías de vendedores que ya no están en el
+  archivo (baja CHESS sin filas Consolido para ese vendedor).
 - Registra cada ejecución en motor_runs (ok / error)
 - Rollback lógico: si falla, el run queda marcado como 'error' con el mensaje
 - No modifica exhibiciones ni ninguna tabla legacy
@@ -889,13 +893,15 @@ class PadronIngestionService:
         for i in range(0, len(records), BATCH):
             batch = records[i:i + BATCH]
             try:
-                # Upsert en tabla base primero
+                # Upsert en tabla base primero — clave ERP por distribuidor (ver bot_worker /
+                # insert_nacho_clients): un PDV debe ser único por (dist, id_cliente_erp).
+                # On conflict por id_ruta haría segunda fila al cambiar de ruta sin borrar la vieja.
                 res = sb.table("clientes_pdv_v2").upsert(
-                    batch, on_conflict="id_ruta,id_cliente_erp"
+                    batch, on_conflict="id_distribuidor,id_cliente_erp"
                 ).execute()
                 if res.data:
                     sb.table(cli_table).upsert(
-                        res.data, on_conflict="id_ruta,id_cliente_erp"
+                        res.data, on_conflict="id_distribuidor,id_cliente_erp"
                     ).execute()
             except Exception as e_upsert:
                 # Fallback: intentar insert ignorando duplicados
@@ -1021,6 +1027,99 @@ class PadronIngestionService:
                 f"(partial_scope={partial_scope})"
             )
         return upd
+
+    def _prune_routes_for_absent_vendors(self, dist_id: int, vend_map: dict[tuple[str, str], int]) -> int:
+        """
+        Vendedores con filas en el Excel actual están en vend_map.values().
+        Quienes ya no están (baja en CHESS / sin Consolido para ese código) pueden dejar
+        rutas huérfanas sin clientes. Borrar esas rutas evita fantasmas en mapa/reportes.
+
+        Solo invocar con padrón de alcance completo (partial_scope=False): con filtro de
+        sucursal/franquicia vend_map cubre sólo una porción y no se puede inferir baja global.
+        """
+        t_vend = tenant_table_name("vendedores_v2", dist_id)
+        t_rutas = tenant_table_name("rutas_v2", dist_id)
+        t_clientes = tenant_table_name("clientes_pdv_v2", dist_id)
+        try:
+            active_vid = {int(v) for v in vend_map.values()}
+        except Exception:
+            return 0
+        if not active_vid:
+            return 0
+        PAGE = 1000
+        all_vids: list[int] = []
+        offset = 0
+        while True:
+            res = (
+                sb.table(t_vend)
+                .select("id_vendedor")
+                .eq("id_distribuidor", dist_id)
+                .range(offset, offset + PAGE - 1)
+                .execute()
+            )
+            chunk = res.data or []
+            for r in chunk:
+                try:
+                    all_vids.append(int(r["id_vendedor"]))
+                except Exception:
+                    continue
+            if len(chunk) < PAGE:
+                break
+            offset += PAGE
+
+        stale_vids = [vid for vid in all_vids if vid not in active_vid]
+        if not stale_vids:
+            return 0
+
+        rutas_in_use: set[int] = set()
+        offset = 0
+        while True:
+            res = (
+                sb.table(t_clientes)
+                .select("id_ruta")
+                .eq("id_distribuidor", dist_id)
+                .range(offset, offset + PAGE - 1)
+                .execute()
+            )
+            chunk = res.data or []
+            for r in chunk:
+                rid = r.get("id_ruta")
+                if rid is None:
+                    continue
+                rutas_in_use.add(int(rid))
+            if len(chunk) < PAGE:
+                break
+            offset += PAGE
+
+        stale_route_ids: list[int] = []
+        for i in range(0, len(stale_vids), 250):
+            chunk_v = stale_vids[i : i + 250]
+            rres = sb.table(t_rutas).select("id_ruta").in_("id_vendedor", chunk_v).execute()
+            for rr in rres.data or []:
+                try:
+                    rid = int(rr["id_ruta"])
+                except Exception:
+                    continue
+                if rid not in rutas_in_use:
+                    stale_route_ids.append(rid)
+
+        stale_route_ids = list(dict.fromkeys(stale_route_ids))
+        if not stale_route_ids:
+            return 0
+        deleted = 0
+        for i in range(0, len(stale_route_ids), 150):
+            batch = stale_route_ids[i : i + 150]
+            try:
+                sb.table("rutas_v2").delete().in_("id_ruta", batch).execute()
+                sb.table(t_rutas).delete().in_("id_ruta", batch).execute()
+                deleted += len(batch)
+            except Exception as e:
+                logger.warning(f"[Padrón] Prune rutas obsoletas dist={dist_id} batch falta: {e}")
+        if deleted:
+            logger.info(
+                f"[Padrón] Rutas borradas (vendedor ausente en Excel, sin PDVs enlazados): {deleted}"
+            )
+        return deleted
 
     # ── Paso 5: Reconciliación retroactiva de exhibiciones ───────────────────
 
@@ -1811,6 +1910,12 @@ class PadronIngestionService:
             cli_inactivos = self._tombstone_padron_absents(
                 dist_id, erp_map, rutas_archivo, partial_scope, erp_vistos_sheet
             )
+            rutas_obsoletas_borradas = 0
+            if not partial_scope and vend_map:
+                try:
+                    rutas_obsoletas_borradas = self._prune_routes_for_absent_vendors(dist_id, vend_map)
+                except Exception as e_prune:
+                    logger.warning(f"[Padrón] Poda rutas obsoletas omitida dist={dist_id}: {e_prune}")
             exhib_linked         = self._reconcile_exhibiciones(dist_id)
 
             # Actualizar progreso de objetivos activos
@@ -1827,6 +1932,7 @@ class PadronIngestionService:
                 "rutas":            ruta_count,
                 "clientes":         cli_count,
                 "clientes_inactivos_padron": cli_inactivos,
+                "rutas_obsoletas_borradas": rutas_obsoletas_borradas,
                 "exhib_vinculadas": exhib_linked,
             }
             self._finish_run(run_id, "ok", registros=registros)

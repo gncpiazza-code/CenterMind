@@ -237,12 +237,25 @@ function TicketPanel({ onClose }: { onClose: () => void }) {
 
       {/* Historial propio */}
       {myTickets.length > 0 && (
-        <div className="max-h-48 overflow-y-auto divide-y divide-[var(--shelfy-border)]/40">
+        <div className="max-h-64 overflow-y-auto divide-y divide-[var(--shelfy-border)]/40 bg-[var(--shelfy-bg)]/30">
           {myTickets.slice(0, 10).map((t: any) => (
-            <div key={t.id} className="px-3 py-2">
-              <p className="text-[10px] text-[var(--shelfy-text)] line-clamp-2">{t.contenido}</p>
+            <div key={t.id} className="px-3 py-2.5 flex flex-col gap-1.5">
+              <div className="flex justify-between items-start gap-2">
+                <span className="text-[9px] font-medium text-[var(--shelfy-muted)]">
+                  {new Date(t.created_at).toLocaleDateString("es-AR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+                </span>
+                {t.respuesta ? (
+                  <span className="text-[9px] font-semibold text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded">Respondido</span>
+                ) : (
+                  <span className="text-[9px] font-semibold text-orange-500 bg-orange-500/10 px-1.5 py-0.5 rounded">Pendiente</span>
+                )}
+              </div>
+              <p className="text-[11px] text-[var(--shelfy-text)] whitespace-pre-wrap">{t.contenido}</p>
               {t.respuesta && (
-                <p className="text-[10px] text-violet-400 mt-1 line-clamp-2">↩ {t.respuesta}</p>
+                <div className="mt-1 p-2 bg-violet-500/10 border border-violet-500/20 rounded-md">
+                  <p className="text-[10px] font-semibold text-violet-500 mb-0.5">Respuesta de soporte:</p>
+                  <p className="text-[11px] text-violet-400 whitespace-pre-wrap">{t.respuesta}</p>
+                </div>
               )}
             </div>
           ))}
@@ -267,6 +280,63 @@ export function Topbar({ title, live = false }: TopbarProps) {
   } = useAuth();
   const isSuperadmin = user?.is_superadmin;
   const qc = useQueryClient();
+
+  const { data: myTicketsData } = useQuery({
+    queryKey: ["portal-feedback-messages-mine"],
+    queryFn: () => fetchPortalFeedbackMessages({ limit: 10 }),
+    enabled: !!user,
+    staleTime: 60_000,
+    refetchInterval: 120_000,
+  });
+
+  const myTickets = useMemo(() => {
+    return (myTicketsData?.items ?? []).filter(
+      (m: any) => m.id_usuario === user?.id_usuario
+    );
+  }, [myTicketsData, user?.id_usuario]);
+
+  const [lastSeenTickets, setLastSeenTickets] = useState<string | null>(null);
+  
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setLastSeenTickets(localStorage.getItem("last_seen_tickets"));
+    }
+  }, []);
+
+  const latestResponseId = useMemo(() => {
+    const withResponse = myTickets.filter((t: any) => t.respuesta && t.responded_at);
+    if (!withResponse.length) return null;
+    withResponse.sort((a: any, b: any) => new Date(b.responded_at).getTime() - new Date(a.responded_at).getTime());
+    return withResponse[0].id;
+  }, [myTickets]);
+
+  const hasUnreadResponse = useMemo(() => {
+    const withResponse = myTickets.filter((t: any) => t.respuesta && t.responded_at);
+    if (!withResponse.length) return false;
+    withResponse.sort((a: any, b: any) => new Date(b.responded_at).getTime() - new Date(a.responded_at).getTime());
+    const latestResponse = withResponse[0];
+    if (!lastSeenTickets) return true;
+    return new Date(latestResponse.responded_at) > new Date(lastSeenTickets);
+  }, [myTickets, lastSeenTickets]);
+
+  const notifiedRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (hasUnreadResponse && latestResponseId && notifiedRef.current !== latestResponseId) {
+      toast.info("¡Tenés una nueva respuesta!", {
+        description: "El equipo de soporte respondió tu ticket.",
+        duration: 5000,
+      });
+      notifiedRef.current = latestResponseId;
+    }
+  }, [hasUnreadResponse, latestResponseId]);
+
+  const handleOpenTickets = () => {
+    setTicketOpen(true);
+    const now = new Date().toISOString();
+    setLastSeenTickets(now);
+    localStorage.setItem("last_seen_tickets", now);
+  };
 
   const { data: pendingTicketsData } = useQuery({
     queryKey: ["portal-feedback-pending-count"],
@@ -470,21 +540,26 @@ export function Topbar({ title, live = false }: TopbarProps) {
               </DropdownMenu>
             )}
             <div className="hidden sm:block text-right">
-              <p className="text-xs font-medium text-[var(--shelfy-text)]">{user.usuario}</p>
-              <p className="text-[10px] text-[var(--shelfy-muted)]">{user.nombre_empresa}</p>
+              <p className="text-xs font-medium text-[var(--shelfy-text)]">{user?.usuario ?? "Invitado"}</p>
+              <p className="text-[10px] text-[var(--shelfy-muted)]">{user?.nombre_empresa ?? "Modo Mockup"}</p>
             </div>
 
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setTicketOpen((o) => !o)}
-                  className="text-[var(--shelfy-muted)] hover:text-violet-500 hover:bg-violet-50"
-                >
-                  <MessageSquarePlus size={17} />
-                  <span className="sr-only">Contactar al equipo</span>
-                </Button>
+                <div className="relative">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => ticketOpen ? setTicketOpen(false) : handleOpenTickets()}
+                    className="text-[var(--shelfy-muted)] hover:text-violet-500 hover:bg-violet-50"
+                  >
+                    <MessageSquarePlus size={17} />
+                    <span className="sr-only">Contactar al equipo</span>
+                  </Button>
+                  {hasUnreadResponse && (
+                    <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                  )}
+                </div>
               </TooltipTrigger>
               <TooltipContent side="bottom">Contactar al equipo</TooltipContent>
             </Tooltip>
@@ -498,7 +573,7 @@ export function Topbar({ title, live = false }: TopbarProps) {
                     : "bg-[var(--shelfy-primary)]",
                 )}
               >
-                {user.usuario.charAt(0).toUpperCase()}
+                {user?.usuario?.charAt(0).toUpperCase() ?? "I"}
               </AvatarFallback>
             </Avatar>
 

@@ -2650,6 +2650,7 @@ export interface PortalFeedbackListFilters {
   category_id?: string;
   dist_id?: number;
   q?: string;
+  order?: "desc" | "asc";
 }
 
 function buildPortalFeedbackQuery(filters: PortalFeedbackListFilters): URLSearchParams {
@@ -2663,6 +2664,7 @@ function buildPortalFeedbackQuery(filters: PortalFeedbackListFilters): URLSearch
     q.set("dist_id", String(filters.dist_id));
   }
   if (filters.q && filters.q.trim()) q.set("q", filters.q.trim());
+  if (filters.order) q.set("order", filters.order);
   return q;
 }
 

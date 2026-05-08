@@ -14,6 +14,8 @@ import {
   Sparkles,
   UserCircle,
   FileJson,
+  ArrowDown,
+  ArrowUp,
 } from "lucide-react";
 
 import { Sidebar } from "@/components/layout/Sidebar";
@@ -223,6 +225,7 @@ export default function AdminTicketsPage() {
   const [distFilter, setDistFilter] = useState<string>("all");
   const [criticidadFilter, setCriticidadFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
+  const [order, setOrder] = useState<"desc" | "asc">("desc");
   const [sheetOpen, setSheetOpen] = useState(false);
   const [selected, setSelected] = useState<PortalFeedbackRow | null>(null);
   const [replyDraft, setReplyDraft] = useState("");
@@ -232,7 +235,7 @@ export default function AdminTicketsPage() {
   }, [user, router]);
 
   const { data, isLoading } = useQuery({
-    queryKey: ["portal-feedback-messages", categoryFilter, statusFilter, distFilter, search],
+    queryKey: ["portal-feedback-messages", categoryFilter, statusFilter, distFilter, search, order],
     queryFn: () =>
       fetchPortalFeedbackMessages({
         limit: 300,
@@ -240,6 +243,7 @@ export default function AdminTicketsPage() {
         status: statusFilter,
         dist_id: distFilter !== "all" ? Number(distFilter) : undefined,
         q: search.trim() || undefined,
+        order,
       }),
     enabled: !!user?.is_superadmin,
     staleTime: 30_000,
@@ -460,7 +464,16 @@ export default function AdminTicketsPage() {
                       </TableHead>
                       <TableHead className="text-[10px] uppercase font-black text-muted-foreground w-[88px]">Crítico</TableHead>
                       <TableHead className="text-[10px] uppercase font-black text-muted-foreground w-[100px]">Estado</TableHead>
-                      <TableHead className="text-[10px] uppercase font-black text-muted-foreground w-[120px]">Fecha</TableHead>
+                      <TableHead 
+                        className="text-[10px] uppercase font-black text-muted-foreground w-[120px] cursor-pointer hover:text-violet-500 transition-colors select-none"
+                        onClick={() => setOrder(order === "desc" ? "asc" : "desc")}
+                        title="Click para ordenar por fecha"
+                      >
+                        <div className="flex items-center gap-1">
+                          Fecha
+                          {order === "desc" ? <ArrowDown className="w-3 h-3" /> : <ArrowUp className="w-3 h-3" />}
+                        </div>
+                      </TableHead>
                       <TableHead className="text-[10px] uppercase font-black text-muted-foreground w-[72px]" />
                     </TableRow>
                   </TableHeader>

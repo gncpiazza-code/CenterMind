@@ -241,6 +241,7 @@ async def list_feedback_messages(
     category_id: str | None = None,
     dist_id: int | None = None,
     q: str | None = None,
+    order: str = "desc",
     user_payload: dict = Depends(verify_auth),
 ):
     _require_superadmin(user_payload)
@@ -252,7 +253,7 @@ async def list_feedback_messages(
                 "id,created_at,updated_at,id_usuario,id_distribuidor,usuario_snapshot,rol_snapshot,"
                 "contenido,respuesta,responded_at,id_usuario_respuesta"
             )
-            .order("created_at", desc=True)
+            .order("created_at", desc=(order.lower() == "desc"))
             .limit(lim)
             .execute()
         )
@@ -261,11 +262,14 @@ async def list_feedback_messages(
         logger.error(f"[portal-feedback] list messages: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     if pendientes_primero:
+        # Si order es desc, queremos los más nuevos primero (dentro de cada grupo)
+        # Si order es asc, queremos los más viejos primero
+        # Pero SIEMPRE queremos los pendientes (False) primero.
         rows = sorted(
             rows,
             key=lambda r: (
                 bool((r.get("respuesta") or "").strip()),
-                r.get("created_at") or "",
+                r.get("created_at") or "" if order.lower() == "asc" else -(datetime.fromisoformat((r.get("created_at") or "1970-01-01").replace("Z", "+00:00")).timestamp())
             ),
         )
     q_norm = (q or "").strip().lower()

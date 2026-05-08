@@ -384,17 +384,21 @@ class ObjetivosWatcherService:
             if item_pdv_ids is not None and len(item_pdv_ids) == 0:
                 return (float(obj.get("valor_actual") or 0), 0)
 
-            if item_pdv_ids:
+            if item_pdv_ids or obj.get("id_target_pdv") is not None:
                 # En alteo NO se usa cambio de ruta como señal de cumplimiento:
                 # solo fecha_alta posterior al alta del objetivo.
-                clientes_res = (
+                q = (
                     sb.table(tenant_table_name("clientes_pdv_v2", dist_id))
                     .select("id_cliente, id_cliente_erp, nombre_fantasia, fecha_alta")
                     .eq("id_distribuidor", dist_id)
-                    .in_("id_cliente", item_pdv_ids)
                     .gte("fecha_alta", since)
-                    .execute()
                 )
+                if item_pdv_ids:
+                    q = q.in_("id_cliente", item_pdv_ids)
+                else:
+                    q = q.eq("id_cliente", obj.get("id_target_pdv"))
+                
+                clientes_res = q.execute()
                 all_clients = clientes_res.data or []
 
                 ya_trackeados = self._get_tracked_refs(obj_id, "alteo")
@@ -402,20 +406,25 @@ class ObjetivosWatcherService:
 
                 if cumplidos:
                     self._insert_tracking_batch(obj_id, "alteo", cumplidos, id_llave="id_cliente", dist_id=dist_id, id_vendedor=id_vendedor)
-                    for c in cumplidos:
-                        self._update_item_estado(obj_id, c["id_cliente"], "cumplido")
+                    if item_pdv_ids:
+                        for c in cumplidos:
+                            self._update_item_estado(obj_id, c["id_cliente"], "cumplido")
 
-                # valor_actual = count de ítems cumplidos (por estado_item)
-                try:
-                    items_res = sb.table("objetivo_items").select("estado_item").eq("id_objetivo", obj_id).execute()
-                    items = items_res.data or []
-                    cumplidos_count = sum(1 for it in items if it.get("estado_item") == "cumplido")
-                    return (float(cumplidos_count), len(cumplidos))
-                except Exception as e_items:
-                    logger.warning(f"[Watcher] alteo items relecture obj={obj_id}: {e_items}")
-                return (float(obj.get("valor_actual") or 0), len(cumplidos))
+                if item_pdv_ids:
+                    try:
+                        items_res = sb.table("objetivo_items").select("estado_item").eq("id_objetivo", obj_id).execute()
+                        items = items_res.data or []
+                        cumplidos_count = sum(1 for it in items if it.get("estado_item") == "cumplido")
+                        return (float(cumplidos_count), len(cumplidos))
+                    except Exception as e_items:
+                        logger.warning(f"[Watcher] alteo items relecture obj={obj_id}: {e_items}")
+                    return (float(obj.get("valor_actual") or 0), len(cumplidos))
+                else:
+                    # Single PDV target
+                    nuevo_valor = float(obj.get("valor_actual") or 0) + len(cumplidos)
+                    return (nuevo_valor, len(cumplidos))
 
-            # Sin ítems: contar altas en rutas del vendedor por fecha_alta.
+            # Sin ítems y sin target PDV: comportamiento original (todas las rutas del vendedor)
             rutas_res = (
                 sb.table(tenant_table_name("rutas_v2", dist_id))
                 .select("id_ruta")
@@ -522,15 +531,19 @@ class ObjetivosWatcherService:
             if item_pdv_ids is not None and len(item_pdv_ids) == 0:
                 return (float(obj.get("valor_actual") or 0), 0)
 
-            if item_pdv_ids:
-                clientes_res = (
+            if item_pdv_ids or obj.get("id_target_pdv") is not None:
+                q = (
                     sb.table(tenant_table_name("clientes_pdv_v2", dist_id))
                     .select("id_cliente, id_cliente_erp, nombre_fantasia, fecha_ultima_compra")
                     .eq("id_distribuidor", dist_id)
-                    .in_("id_cliente", item_pdv_ids)
                     .gte("fecha_ultima_compra", since)
-                    .execute()
                 )
+                if item_pdv_ids:
+                    q = q.in_("id_cliente", item_pdv_ids)
+                else:
+                    q = q.eq("id_cliente", obj.get("id_target_pdv"))
+                
+                clientes_res = q.execute()
                 all_clients = clientes_res.data or []
                 all_clients = _filter_previously_active(all_clients, since)
                 all_clients = _filter_sales_before_objective(all_clients, since)
@@ -540,20 +553,24 @@ class ObjetivosWatcherService:
 
                 if nuevos:
                     self._insert_tracking_batch(obj_id, "activacion", nuevos, id_llave="id_cliente", dist_id=dist_id, id_vendedor=id_vendedor)
-                    for c in nuevos:
-                        self._update_item_estado(obj_id, c["id_cliente"], "cumplido")
+                    if item_pdv_ids:
+                        for c in nuevos:
+                            self._update_item_estado(obj_id, c["id_cliente"], "cumplido")
 
-                # valor_actual = count de ítems cumplidos
-                try:
-                    items_res = sb.table("objetivo_items").select("estado_item").eq("id_objetivo", obj_id).execute()
-                    items = items_res.data or []
-                    cumplidos_count = sum(1 for it in items if it.get("estado_item") == "cumplido")
-                    return (float(cumplidos_count), len(nuevos))
-                except Exception as e_items:
-                    logger.warning(f"[Watcher] activacion items relecture obj={obj_id}: {e_items}")
-                return (float(obj.get("valor_actual") or 0), len(nuevos))
+                if item_pdv_ids:
+                    try:
+                        items_res = sb.table("objetivo_items").select("estado_item").eq("id_objetivo", obj_id).execute()
+                        items = items_res.data or []
+                        cumplidos_count = sum(1 for it in items if it.get("estado_item") == "cumplido")
+                        return (float(cumplidos_count), len(nuevos))
+                    except Exception as e_items:
+                        logger.warning(f"[Watcher] activacion items relecture obj={obj_id}: {e_items}")
+                    return (float(obj.get("valor_actual") or 0), len(nuevos))
+                else:
+                    nuevo_valor = float(obj.get("valor_actual") or 0) + len(nuevos)
+                    return (nuevo_valor, len(nuevos))
 
-            # Sin ítems: comportamiento original
+            # Sin ítems y sin target PDV: comportamiento original (todas las rutas del vendedor)
             rutas_res = (
                 sb.table(tenant_table_name("rutas_v2", dist_id))
                 .select("id_ruta")
@@ -689,9 +706,14 @@ class ObjetivosWatcherService:
                 )
                 if item_pdv_ids:
                     q = q.in_("id_cliente_pdv", item_pdv_ids)
-                elif obj.get("id_target_pdv") is None:
-                    # Exhibición global: no mezclar con otras metas ni fotos sin enlazar.
+                elif obj.get("id_target_pdv") is not None:
+                    q = q.eq("id_cliente_pdv", obj.get("id_target_pdv"))
+                elif obj.get("origen") != "compania":
+                    # Exhibición global de distribuidora: requiere que la foto se haya sacado
+                    # específicamente para este objetivo (id_objetivo = obj_id).
                     q = q.eq("id_objetivo", obj_id)
+                # Si es global de compañía (origen == "compania" y no hay PDVs target),
+                # no filtramos más: cuentan TODAS las exhibiciones del vendedor desde `since`.
                 return q.execute()
 
             # ── Fase 1: fotos Pendientes ──────────────────────────────────────

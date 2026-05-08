@@ -28,6 +28,7 @@ from services.padron_ingestion_service import padron_service
 from services.ventas_detalle_ingestion_service import ingest_detallado as ventas_detalle_ingest
 from services.ventas_ingestion_service import ingest as ventas_ingest, TENANT_DIST_MAP
 from services.ventas_detalle_ingestion_service import ingest_detallado as ventas_detalle_ingest
+from services.ventas_enriched_ingestion_service import ingest_enriched as ventas_enriched_ingest
 from services.rendimiento_calle_analytics_service import (
     obtener_analytics_rendimiento_calle,
     persistir_analisis_rendimiento_calle,
@@ -453,6 +454,26 @@ async def motor_ventas(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Error en motor_ventas ({tenant_id}/{tipo}): {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/motor/ventas-enriched", tags=["Motores RPA"])
+async def motor_ventas_enriched(
+    tenant_id: str = Form(...),
+    file: UploadFile = File(...),
+    _=Depends(verify_key),
+):
+    """
+    Ingesta de Informe de Ventas (Reporteador Genérico) con métricas enriquecidas
+    de $ y bultos por línea.
+    """
+    if not (file.filename.endswith(".xlsx") or file.filename.endswith(".xls")):
+        raise HTTPException(status_code=400, detail="Se requiere un archivo .xlsx o .xls")
+    try:
+        file_bytes = await file.read()
+        return ventas_enriched_ingest(tenant_id, file_bytes)
+    except Exception as e:
+        logger.error(f"Error en motor_ventas_enriched ({tenant_id}): {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

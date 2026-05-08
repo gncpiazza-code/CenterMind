@@ -37,7 +37,8 @@ from models.schemas import EvaluarRequest, ObjetivoCreate, ObjetivoItemCreate, O
 logger = logging.getLogger("ShelfyAPI")
 router = APIRouter()
 
-# PostgREST OR: mapa / conteos de supervisión = padrón “visible” (sin fantasmas ni anulados Consolido).
+# Padrón operativo en mapa: inactivos por `sin_compra_*` siguen visibles; se excluyen
+# `padron_anulado` (Consolido anulado + “fuera de padrón” luego del tombstone) y `padron_absent` legado.
 _SUPERVISION_PADRON_VISIBLE_OR = (
     "motivo_inactivo.is.null,motivo_inactivo.not.in.(padron_absent,padron_anulado)"
 )
@@ -992,7 +993,7 @@ def supervision_vendedores(dist_id: int, user_payload=Depends(verify_auth)):
 
         # Fetch ALL clients with pagination — Supabase defaults to 1000 rows which
         # would truncate large distributors (Tabaco has 13k+ PDVs).
-        # Exclude padron_absent / padron_anulado (mapa = reflejo del padrón operativo).
+        # Excluye anulados + fuera de padrón; NO excluye inactivos por sin_compra (siguen en mapa).
         PAGE = 1000
         all_clients: list[dict] = []
         offset = 0
@@ -1211,7 +1212,7 @@ def supervision_clientes(id_ruta: int, user_payload=Depends(verify_auth)):
                 "fecha_ultima_compra, fecha_alta, id_distribuidor, id_ruta, estado, updated_at"
             )
             .eq("id_ruta", id_ruta)
-            # Exclude padron_absent / padron_anulado (mapa alineado al padrón operativo).
+            # Excluye anulados + fuera de padrón; sin_compra_* permanecen para pin inactivo.
             # NOTE: OR con is.null — NULL not in (...) falla en SQL sin esta rama.
             .or_(_SUPERVISION_PADRON_VISIBLE_OR)
             .order("nombre_fantasia")
@@ -1866,8 +1867,8 @@ def supervision_pdvs_movimiento(
 
         if "alta" in cats:
             rows = _fetch_client_rows(
-                "id_cliente, id_cliente_erp, nombre_fantasia, nombre_razon_social, domicilio, localidad, created_at, id_ruta",
-                "created_at",
+                "id_cliente, id_cliente_erp, nombre_fantasia, nombre_razon_social, domicilio, localidad, fecha_alta, id_ruta",
+                "fecha_alta",
             )
             for r in rows:
                 id_cl = r.get("id_cliente")
@@ -1884,20 +1885,20 @@ def supervision_pdvs_movimiento(
                     "localidad": r.get("localidad", ""),
                     "categoria": "alta",
                     "exhibido": exhibido,
-                    "fecha_evento": r.get("created_at"),
+                    "fecha_evento": r.get("fecha_alta"),
                 })
                 if isinstance(id_cl, int):
                     seen_ids.add(id_cl)
 
         if "activacion" in cats:
             rows = _fetch_client_rows(
-                "id_cliente, id_cliente_erp, nombre_fantasia, nombre_razon_social, domicilio, localidad, fecha_ultima_compra, created_at, id_ruta",
+                "id_cliente, id_cliente_erp, nombre_fantasia, nombre_razon_social, domicilio, localidad, fecha_ultima_compra, fecha_alta, id_ruta",
                 "fecha_ultima_compra",
             )
             for r in rows:
-                created = r.get("created_at", "") or ""
+                falta = (r.get("fecha_alta") or "")[:10]
                 fuc = r.get("fecha_ultima_compra", "") or ""
-                is_alta = created >= fecha_inicio and created <= fecha_fin
+                is_alta = (falta >= fecha_inicio[:10] and falta <= fecha_fin[:10])
                 if is_alta:
                     continue
                 id_cl = r.get("id_cliente")

@@ -934,7 +934,9 @@ class PadronIngestionService:
         Operativa: el Excel puede incluir clientes anulados (Consolido «Incluir anulados» = SÍ);
         esas filas llegan con columna `anulado` y se marcan `motivo_inactivo=padron_anulado` en
         `_sync_clientes`. Quien **no** aparezca en el archivo (salvo `erp_seen_in_sheet` sin ruta)
-        se considera fuera del padrón activo y puede pasar a `padron_absent`.
+        —o quede en una ruta distinta a la del archivo— también se marca `motivo_inactivo=padron_anulado`,
+        igual que Consolido “anulado”, para que supervisión/map no lo mezclen con PDV inactivos por
+        **solo** sin última compra (`sin_compra_*`). Motivo legacy `padron_absent` se ignora en mapa igual.
 
         **`erp_seen_in_sheet`**: ids que aparecen en el Excel pero no ingirieron (p. ej. sin
         ruta resuelta) **no se marcan aquí**: evita darlos de baja por error antes de poder
@@ -978,8 +980,7 @@ class PadronIngestionService:
                 if r.get("estado") == "inactivo":
                     # Still check for route mismatches on already-inactive records.
                     # If the record was inactive for another reason (sin_compra_30d) but the
-                    # client has since moved routes, we must tag it padron_absent so the
-                    # new filter hides it from the old vendor's route list.
+                    # client has since moved routes, we must tag it padron_anulado (bloque mapa).
                     if already_absent:
                         continue  # Already correctly tagged — skip
                     # Fall through to route-mismatch check below
@@ -1012,7 +1013,7 @@ class PadronIngestionService:
             try:
                 update_data = {
                     "estado": "inactivo",
-                    "motivo_inactivo": "padron_absent",
+                    "motivo_inactivo": "padron_anulado",
                     "fecha_inactivacion": ts,
                     "updated_at": ts,
                 }
@@ -1023,7 +1024,7 @@ class PadronIngestionService:
                 logger.error(f"[Padrón] Tombstone batch error: {e}")
         if upd:
             logger.info(
-                f"[Padrón] Clientes marcados inactivo (fuera de padrón o ruta obsoleta): {upd} "
+                f"[Padrón] Clientes marcados inactivo (fuera de padrón / ruta obsoleta → motivo.anulado): {upd} "
                 f"(partial_scope={partial_scope})"
             )
         return upd

@@ -100,13 +100,19 @@ function PadronBreakdown({ padron }: { padron: SyncStatus["padron"] }) {
               : "bg-slate-50 border-slate-100 text-slate-400"}
           />
           <StatChip
-            label="Ausentes"
+            label="Absent (leg.)"
             value={ausentes}
             colorClass={ausentes > 0
               ? "bg-amber-50 border-amber-100 text-amber-700"
               : "bg-slate-50 border-slate-100 text-slate-400"}
           />
         </div>
+        <p className="text-[9px] text-[var(--shelfy-muted)] leading-snug">
+          «Anulados» incluye marcados en Consolido como anulados y clientes fuera del padrón cargado
+          (no se muestran en el mapa). «Absent (leg.)» son filas con motivo histórico{' '}
+          <code className="text-[8px]">padron_absent</code>. PDV inactivos solo por última compra
+          siguen en el mapa.
+        </p>
         {/* Progress bar: activos / total */}
         {total > 0 && (
           <div className="space-y-0.5">

@@ -187,8 +187,13 @@ function ProgressBar({ actual, objetivo, tasaPendientes, className, visualActual
 
 function formatDate(d: string | null | undefined) {
   if (!d) return null;
-  const [y, m, day] = d.split("-");
-  return `${day}/${m}/${y}`;
+  try {
+    const dateOnly = d.split("T")[0];
+    const [y, m, day] = dateOnly.split("-");
+    return `${day}/${m}/${y}`;
+  } catch (e) {
+    return d;
+  }
 }
 
 function daysUntil(d: string | null | undefined): number | null {
@@ -911,7 +916,7 @@ function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado, onOpenR
                   <p className="text-xs text-[var(--shelfy-muted)] leading-relaxed">{obj.descripcion}</p>
                 )}
                 <CompaniaProrrateo obj={obj} visualActual={shownActual} />
-                {obj.items && obj.items.length > 0 && obj.tipo === "ruteo_alteo" ? (
+                {obj.items && obj.items.length > 0 && obj.tipo === "ruteo_alteo" && obj.items[0].id_ruta_destino ? (
                   <RuteoAlteoItemsTree obj={obj} />
                 ) : obj.items && obj.items.length > 0 ? (
                   <div className="space-y-0.5 max-h-32 overflow-y-auto">

@@ -2930,6 +2930,40 @@ def listar_objetivos(
                     obj["items_count"] = 0
                     obj["items_cumplidos"] = 0
 
+        # ── Enriquecer con tracking_events para objetivos genéricos ──
+        try:
+            generic_obj_ids = [str(o["id"]) for o in items if (o.get("items_count") or 0) == 0 and (o.get("valor_actual") or 0) > 0 and o.get("tipo") in ("conversion_estado", "ruteo_alteo")]
+            if generic_obj_ids:
+                track_res = sb.table("objetivos_tracking") \
+                    .select("id_objetivo, id_referencia, metadata") \
+                    .in_("id_objetivo", generic_obj_ids) \
+                    .in_("tipo_evento", ["activacion", "alteo"]) \
+                    .execute()
+                
+                track_by_obj: dict[str, list] = {}
+                for t in (track_res.data or []):
+                    track_by_obj.setdefault(str(t["id_objetivo"]), []).append(t)
+                    
+                for obj in items:
+                    oid = str(obj["id"])
+                    if oid in track_by_obj:
+                        synthetic_items = []
+                        for t in track_by_obj[oid]:
+                            md = t.get("metadata") or {}
+                            synthetic_items.append({
+                                "id_objetivo": oid,
+                                "id_cliente_pdv": t.get("id_referencia"),
+                                "id_cliente_erp": md.get("id_cliente_erp"),
+                                "nombre_pdv": md.get("nombre_fantasia") or md.get("nombre_razon_social") or "Cliente",
+                                "estado_item": "cumplido",
+                                "metadata_ruteo": md
+                            })
+                        obj["items"] = synthetic_items
+                        obj["items_count"] = len(synthetic_items)
+                        obj["items_cumplidos"] = len(synthetic_items)
+        except Exception as e_track:
+            logger.warning(f"[listar_objetivos] Error cargando tracking para genéricos: {e_track}")
+
         # Exhibición global (sin id_target_pdv ni ítems): pendiente de evaluación
         # si existe al menos una exhibición Pendiente vinculada por id_objetivo.
         try:
@@ -2937,32 +2971,52 @@ def listar_objetivos(
                 str(o["id"])
                 for o in items
                 if o.get("tipo") == "exhibicion"
-                and not o.get("cumplido")
                 and not o.get("id_target_pdv")
                 and (o.get("items_count") or 0) == 0
             ]
             objs_con_foto_pend_global: set[str] = set()
+            exhib_by_obj: dict[str, list] = {}
             if global_exhib_ids:
                 pend_g = (
                     sb.table("exhibiciones")
-                    .select("id_objetivo")
+                    .select("id_objetivo, estado, id_cliente_pdv, id_cliente_erp, nombre_fantasia, razon_social")
                     .eq("id_distribuidor", dist_id)
-                    .eq("estado", "Pendiente")
                     .in_("id_objetivo", global_exhib_ids)
                     .execute()
                 )
                 for r in pend_g.data or []:
                     oid = r.get("id_objetivo")
                     if oid is not None:
-                        objs_con_foto_pend_global.add(str(oid))
+                        exhib_by_obj.setdefault(str(oid), []).append(r)
+                        if r.get("estado") == "Pendiente":
+                            objs_con_foto_pend_global.add(str(oid))
             for obj in items:
                 if (
                     obj.get("tipo") == "exhibicion"
-                    and not obj.get("cumplido")
                     and not obj.get("id_target_pdv")
                     and (obj.get("items_count") or 0) == 0
                 ):
                     obj["tiene_exhibicion_pendiente"] = str(obj["id"]) in objs_con_foto_pend_global
+                    # Synthesize items for global exhibicion
+                    oid = str(obj["id"])
+                    if oid in exhib_by_obj:
+                        synthetic_items = []
+                        for e in exhib_by_obj[oid]:
+                            synthetic_items.append({
+                                "id_objetivo": oid,
+                                "id_cliente_pdv": e.get("id_cliente_pdv"),
+                                "id_cliente_erp": e.get("id_cliente_erp"),
+                                "nombre_pdv": e.get("nombre_fantasia") or e.get("razon_social") or "Cliente",
+                                "estado_item": "foto_subida" if e.get("estado") == "Pendiente" else "cumplido",
+                                "metadata_ruteo": {
+                                    "id_cliente_erp": e.get("id_cliente_erp"),
+                                    "nombre_fantasia": e.get("nombre_fantasia"),
+                                    "nombre_razon_social": e.get("razon_social")
+                                }
+                            })
+                        obj["items"] = synthetic_items
+                        obj["items_count"] = len(synthetic_items)
+                        obj["items_cumplidos"] = sum(1 for it in synthetic_items if it["estado_item"] == "cumplido")
         except Exception as e_pend_g:
             logger.warning(f"[listar_objetivos] exhibiciones pendientes (global): {e_pend_g}")
 

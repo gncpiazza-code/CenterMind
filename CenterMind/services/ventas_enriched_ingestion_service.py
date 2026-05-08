@@ -9,6 +9,7 @@ import logging
 from typing import Any
 
 from db import sb
+from core.tenant_tables import tenant_table_name
 from services.ventas_enriched_parser import parse_informe_ventas_enriched
 from services.ventas_ingestion_service import TENANT_DIST_MAP
 
@@ -25,6 +26,7 @@ def ingest_enriched(tenant_id: str, file_bytes: bytes) -> dict[str, Any]:
         return {"ok": True, "rows": 0, "upserted": 0, "dist_id": dist_id}
 
     payload: list[dict[str, Any]] = []
+    tenant_table = tenant_table_name("ventas_enriched_v2", dist_id)
     for r in rows:
         payload.append(
             {
@@ -82,15 +84,15 @@ def ingest_enriched(tenant_id: str, file_bytes: bytes) -> dict[str, Any]:
     BATCH = 500
     for i in range(0, len(records), BATCH):
         chunk = records[i : i + BATCH]
-        res = (
-            sb.table("ventas_enriched_v2")
-            .upsert(
-                chunk,
-                on_conflict="id_distribuidor,fecha_factura,numero_documento,id_cliente_erp,cod_articulo",
-            )
-            .execute()
-        )
-        upserted += len(res.data or chunk)
+        sb.table("ventas_enriched_v2").upsert(
+            chunk,
+            on_conflict="id_distribuidor,fecha_factura,numero_documento,id_cliente_erp,cod_articulo",
+        ).execute()
+        sb.table(tenant_table).upsert(
+            chunk,
+            on_conflict="id_distribuidor,fecha_factura,numero_documento,id_cliente_erp,cod_articulo",
+        ).execute()
+        upserted += len(chunk)
 
     logger.info("[ventas_enriched] dist=%s rows=%s upserted=%s", dist_id, len(rows), upserted)
     return {"ok": True, "rows": len(rows), "upserted": upserted, "dist_id": dist_id}

@@ -105,20 +105,33 @@ async def _cerrar_overlays(page: Page) -> None:
 async def _set_empresa_single(page: Page, tenant: dict) -> None:
     id_emp = str(tenant["id_empresa"])
     await _cerrar_overlays(page)
-    # Abrir selector empresas
-    await page.get_by_label("Empresas").get_by_text("Empresas").click(timeout=8000)
-    await page.wait_for_timeout(600)
+    # Abrir selector empresas usando el combobox Angular (estable entre tenants)
+    await page.locator('[role="combobox"]').last.click(timeout=8000)
+    await page.wait_for_timeout(700)
 
     # Limpiar selección existente (toggle sobre checkboxes marcados)
-    checked = page.locator('[role="option"] mat-pseudo-checkbox.mat-pseudo-checkbox-checked')
-    n_checked = await checked.count()
-    for i in range(n_checked):
-        await checked.nth(i).click()
-        await page.wait_for_timeout(100)
+    # Limpiar selección existente de forma robusta (el DOM cambia en cada click)
+    for _ in range(25):
+        selected_options = page.locator('[role="option"][aria-selected="true"]')
+        if await selected_options.count() == 0:
+            break
+        await selected_options.first.click(timeout=3000, force=True)
+        await page.wait_for_timeout(120)
 
     # Seleccionar empresa objetivo por ID (mismo split que padrón)
-    opt = page.get_by_role("option", name=f"({id_emp})")
-    await opt.locator("mat-pseudo-checkbox").click(timeout=5000)
+    options = page.locator('[role="option"]')
+    count = await options.count()
+    selected = False
+    for i in range(count):
+        opt = options.nth(i)
+        txt = ((await opt.text_content()) or "").strip()
+        if f"({id_emp})" in txt:
+            await opt.click(timeout=5000, force=True)
+            selected = True
+            break
+    if not selected:
+        raise RuntimeError(f"No se encontró empresa ({id_emp}) en selector de Empresas")
+
     # cerrar overlay
     await _cerrar_overlays(page)
     await page.wait_for_timeout(500)

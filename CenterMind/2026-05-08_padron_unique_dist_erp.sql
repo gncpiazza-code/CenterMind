@@ -76,6 +76,13 @@ FROM tmp_cli_v2_dedupe_map m
 WHERE e.id_cliente_pdv = m.old_id
   AND e.id_cliente_pdv <> m.new_id;
 
+-- Repoint FK de ventas_v2 al registro canónico.
+UPDATE public.ventas_v2 v
+SET id_cliente = m.new_id
+FROM tmp_cli_v2_dedupe_map m
+WHERE v.id_cliente = m.old_id
+  AND v.id_cliente <> m.new_id;
+
 -- Ahora sí, eliminar duplicados base.
 DELETE FROM public.clientes_pdv_v2 b
 USING tmp_cli_v2_dedupe_map m

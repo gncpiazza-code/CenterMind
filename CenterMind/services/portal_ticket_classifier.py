@@ -9,7 +9,24 @@ import unicodedata
 import requests
 from typing import Any
 
-REGLAS_VERSION = "2026-05-05-v2"
+REGLAS_VERSION = "2026-05-08-v3"
+
+
+# ── Condensado técnico embebido en prompts Gemini — NO inventar módulos fuera de esta lista.
+SHELFY_TRIAGE_KB = """
+Shelfy stack:
+- Frontend Next.js 16 React 19 TS: rutas supervisor/mapa en `shelfy-frontend/src/` (Tabs supervisión `TabSupervision.tsx`, mapa rutas PDV `MapaRutas.tsx`, modo operativo modo-mapa).
+- Backend FastAPI Python en `CenterMind/`: `routers/supervision.py`, `routers/portal_feedback.py`, `services/padron_ingestion_service.py`, `services/objetivos_watcher_service.py`, `bot_worker.py`.
+- DB Supabase PostgreSQL multi-tenant: tablas base + por tenant `clientes_pdv_v2`, `rutas_v2`, `vendedores_v2` vía `tenant_table_name()`. No hardcodear sufijos de tablas.
+- Mapa y rutas leen padrón ya ingerido; ingesta diaria RPA ~07:00 AR `ShelfMind-RPA/motores/padron.py` → normaliza jerarquía PDV/vendedor/ruta.
+- CHESS / portal proveedor: cambios de baja o reasignación en CHESS NO actualizan el mapa hasta que el **padrón Consolido** traiga la misma jerarquía y corra la ingesta. NO decir "bug de CHESS" si es expectable desfase padrón.
+- Cuentas corrientes: fuente `cc_detalle`; ingesta separada de mapa.
+- Tickets portal: tabla `portal_feedback_messages`; clasificador reglas `portal_ticket_classifier.py`.
+
+Reglas de negocio útiles en triage:
+- Ticket “baja vendedor en CHESS y sigue en mapa” → revisar última ingesta padrón, fila Excel vendedor–cliente, `integrantes_grupo` / matching Telegram, y que `id_distribuidor` sea el del ticket.
+- PostgREST pagina 1000 filas: scripts deben usar `.range()` en loops.
+"""
 
 _REVISION_MAPA_PDV: list[str] = [
     "En el padrón Consolido (Excel del RPA): confirmar que el id de cliente quede bajo el vendedor nuevo y la ruta/código correctos.",
@@ -135,7 +152,16 @@ _PRIMARIAS: list[Rule] = [
     (
         "mapa_supervision_rutas",
         "Mapa / rutas / PDV supervisión",
-        ("mapa", "no actualiza", "actualiza mapa", "no se actualizo", "marcador"),
+        (
+            "mapa",
+            "chess",
+            "dada de baja",
+            "dadas de baja",
+            "no actualiza",
+            "actualiza mapa",
+            "no se actualizo",
+            "marcador",
+        ),
         ("frontend_portal_supervision_mapa", "datos_cliente_rutas_v2", "ingesta_padron_consolido"),
         "Cambios de clientes u orden de rutas pueden depender del padrón diario Consolido + ingesta rutas/clientes PDV "
         "(también errores visibles sólo en el mapa React). Si el usuario cambió algo en CHESS sólo sobre ventas/CC, "
@@ -175,6 +201,48 @@ _PRIMARIAS: list[Rule] = [
         "media",
     ),
 ]
+
+
+def _infer_criticidad(
+    raw: str,
+    t: str,
+    campos: dict[str, str | None],
+    categoria_id: str,
+    confianza: str,
+    dest_n: str,
+) -> tuple[str, str]:
+    prio = _normalize(campos.get("prioridad") or "")
+    low = (raw or "").lower()
+    if any(x in prio for x in ("critica", "urgente", "inmediat", "bloqueante")):
+        return ("critica", "Prioridad explícita alta en el formulario del ticket.")
+    if any(
+        x in low
+        for x in (
+            "caida total",
+            "caída total",
+            "perdida de datos",
+            "pérdida de datos",
+            "borrado masivo",
+        )
+    ):
+        return ("critica", "Lenguaje asociado a incidente mayor.")
+
+    if "chess" in t and any(x in t for x in ("mapa", "vendedor", "ruta", "sigue", "aparece", "baja")):
+        return ("alta", "CHESS vs datos en supervisión / mapa (riesgo operativo).")
+    if categoria_id == "mapa_supervision_rutas" and confianza == "alta":
+        return ("alta", "Mapa / rutas con categoría confiable.")
+    if categoria_id in {"cuentas_difusion", "rendimiento_errores"} and confianza in {"alta", "media"}:
+        if any(x in t for x in ("deuda", "cc", "difusion", "difusión", "envio", "envío", "telegram")):
+            return ("alta", "Cuentas corrientes o difusión con señal clara.")
+    if "500" in t or "502" in t or "no carga" in t:
+        return ("alta", "Error de plataforma o disponibilidad.")
+
+    if any(x in dest_n for x in ("idea", "roadmap", "producto")) and categoria_id == "soporte_general":
+        return ("baja", "Feedback de producto / idea sin síntoma bloqueante.")
+    if confianza == "baja" and categoria_id == "soporte_general":
+        return ("baja", "Triage general — revisar manualmente.")
+
+    return ("media", "Impacto operativo estándar.")
 
 
 def clasificar_portal_ticket(contenido: str) -> dict[str, Any]:
@@ -263,6 +331,10 @@ def clasificar_portal_ticket(contenido: str) -> dict[str, Any]:
     }
     if checklist:
         out["revision_checklist"] = checklist
+
+    cr, cr_mot = _infer_criticidad(raw, t, campos, categoria_id, confianza, dest_n)
+    out["criticidad"] = cr
+    out["criticidad_motivo"] = cr_mot
     return out
 
 
@@ -301,24 +373,31 @@ def generar_pre_resolucion_ticket(
     )
     prompt = {
         "rol": "shelfy_ticket_triage_expert",
+        "contexto_proyecto_shelfy": SHELFY_TRIAGE_KB.strip(),
         "instrucciones": [
-            "Analizá el ticket en contexto Shelfy (FastAPI + Next + Supabase multi-tenant).",
-            "Respondé SOLO JSON válido, sin markdown.",
-            "No inventes tablas/endpoints inexistentes; si hay duda, explicitá 'suposición'.",
-            "Priorizá hipótesis concretas y checks verificables.",
+            "Sos ingeniero senior del monorepo Shelfy. El ticket lo envió un usuario del portal.",
+            "Respondé SOLO un único objeto JSON UTF-8 válido, sin markdown ni texto adicional.",
+            "Cada bloque debe ser accionable: módulo + dato + verificación (no generalidades).",
+            "Si el ticket trae JSON con pathname o id_distribuidor, usalos en el razonamiento.",
+            "Desalineación CHESS vs mapa: explicá cadena padrón Consolido → ingesta RPA → tablas tenant → UI mapa.",
         ],
         "schema_objetivo": {
-            "resumen": "string",
-            "hipotesis": "string",
-            "checks_sugeridos": ["string"],
-            "codigo_posible": ["string"],
-            "riesgo_regresion": "bajo|medio|alto",
+            "resumen_ticket": "string 1-2 oraciones",
+            "hipotesis_principal": "string",
+            "archivos_o_modulos_sospechosos": ["ruta relativa repo p.ej. CenterMind/routers/supervision.py"],
+            "checks_ordenados": ["paso concreto 1", "paso 2"],
+            "categoria_etiqueta_corta_es": "string",
+            "criticidad_ia": "baja|media|alta|critica",
+            "justificacion_criticidad_ia": "string",
+            "riesgo_si_no_se_corrige": "bajo|medio|alto",
             "suposiciones": ["string"],
+            "mensaje_supervisor_si_aplica": "string opcional para copiar",
         },
         "ticket": {
             "id": ticket.get("id"),
             "id_distribuidor": ticket.get("id_distribuidor"),
             "usuario_snapshot": ticket.get("usuario_snapshot"),
+            "rol_snapshot": ticket.get("rol_snapshot"),
             "contenido": ticket.get("contenido"),
             "respuesta_actual": ticket.get("respuesta"),
         },
@@ -332,13 +411,13 @@ def generar_pre_resolucion_ticket(
             }
         ],
         "generationConfig": {
-            "temperature": 0.2,
+            "temperature": 0.15,
             "responseMimeType": "application/json",
         },
     }
 
     try:
-        resp = requests.post(url, json=body, timeout=20)
+        resp = requests.post(url, json=body, timeout=55)
         if not resp.ok:
             return fallback | {
                 "fuente": "reglas_locales",
@@ -353,10 +432,22 @@ def generar_pre_resolucion_ticket(
         parsed = json.loads(text) if text else {}
         if not isinstance(parsed, dict):
             return fallback
-        return {
+        # Alias legacy para frontend que ya consume resumen / checks_sugeridos
+        out = {
             "fuente": "gemini",
             "modelo": model,
             **parsed,
         }
+        if parsed.get("resumen_ticket") and not parsed.get("resumen"):
+            out["resumen"] = parsed.get("resumen_ticket")
+        if parsed.get("checks_ordenados") and not parsed.get("checks_sugeridos"):
+            out["checks_sugeridos"] = parsed["checks_ordenados"]
+        if parsed.get("hipotesis_principal") and not parsed.get("hipotesis"):
+            out["hipotesis"] = parsed["hipotesis_principal"]
+        if parsed.get("archivos_o_modulos_sospechosos") and not parsed.get("codigo_posible"):
+            out["codigo_posible"] = parsed["archivos_o_modulos_sospechosos"]
+        if parsed.get("riesgo_si_no_se_corrige"):
+            out["riesgo_regresion"] = parsed["riesgo_si_no_se_corrige"]
+        return out
     except Exception:
         return fallback

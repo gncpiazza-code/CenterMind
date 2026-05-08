@@ -2563,6 +2563,9 @@ export interface PortalTicketClasificacionAgent {
   reglas_version?: string;
   /** Pasos concretos (p. ej. mapa vs padrón) */
   revision_checklist?: string[];
+  /** Heurística backend (sin LLM) */
+  criticidad?: "baja" | "media" | "alta" | "critica" | string;
+  criticidad_motivo?: string;
 }
 
 export interface PortalTicketPreResolucion {
@@ -2576,6 +2579,14 @@ export interface PortalTicketPreResolucion {
   suposiciones?: string[];
   proxima_accion?: string;
   error_proveedor?: string;
+  resumen_ticket?: string;
+  hipotesis_principal?: string;
+  archivos_o_modulos_sospechosos?: string[];
+  checks_ordenados?: string[];
+  categoria_etiqueta_corta_es?: string;
+  criticidad_ia?: string;
+  justificacion_criticidad_ia?: string;
+  mensaje_supervisor_si_aplica?: string;
 }
 
 export async function postPortalFeedbackMessage(

@@ -69,9 +69,11 @@ Tokens clave:
 
 ### `admin/tickets/page.tsx`
 
-- Triage superadmin con filtros por categoria, estado, distribuidora y texto.
-- Export JSON de tickets filtrados para extraccion externa.
-- Boton "Pre-resolucion IA" consume endpoint backend con Gemini opcional + fallback por reglas.
+- Centro de tickets superadmin estilo tabla (usuario, asunto, dist, categoría, criticidad automática, estado, fecha).
+- Filtros: categoría, estado, distribuidora, criticidad (`baja`–`critica`), búsqueda texto.
+- Export JSON con los mismos filtros.
+- Fila clickable abre Sheet de detalle: mensaje completo + análisis IA (Gemini) automático al abrir (`pre-resolucion`) + responder.
+- Críticos heurísticos en listado; IA refina etiqueta corta + criticidad + pasos sobre el repo Shelfy embebidos en prompt.
 
 ## shadcn/ui
 

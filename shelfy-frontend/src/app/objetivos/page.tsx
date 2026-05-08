@@ -60,6 +60,7 @@ import {
   FileDown,
   GitBranch,
   Activity,
+  Crown,
 } from "lucide-react";
 import {
   Dialog,
@@ -154,7 +155,8 @@ function TipoBadge({ tipo }: { tipo: ObjetivoTipo }) {
 function OrigenBadge({ origen }: { origen?: string | null }) {
   if (origen !== "compania") return null;
   return (
-    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold bg-amber-500/10 border border-amber-500/30 text-amber-600">
+    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-amber-500/10 border border-amber-500/30 text-amber-600">
+      <Crown className="w-3 h-3" />
       Cía
     </span>
   );

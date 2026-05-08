@@ -327,13 +327,29 @@ class ObjetivosWatcherService:
                     if base_raw:
                         mes_dt = _date_cls.fromisoformat(base_raw)
                         first_day = mes_dt.replace(day=1)
+                        # El padrón usa fecha_alta como date (YYYY-MM-DD), since debe ser compatible
                         since = f"{first_day.isoformat()}T00:00:00"
                 except Exception as e_retro:
                     logger.warning(f"[Watcher] Retroactividad compañía inválida alteo obj={obj.get('id')}: {e_retro}")
             return self._diff_alteo(obj, id_vendedor, dist_id, since)
             
         if tipo == "conversion_estado":
-            return self._diff_activacion(obj, id_vendedor, dist_id, created_at)
+            since = created_at
+            if origen == "compania":
+                try:
+                    from datetime import date as _date_cls
+                    base_raw = (
+                        str(mes_referencia)[:10]
+                        if mes_referencia
+                        else str(obj.get("fecha_objetivo") or obj.get("created_at") or "")[:10]
+                    )
+                    if base_raw:
+                        mes_dt = _date_cls.fromisoformat(base_raw)
+                        first_day = mes_dt.replace(day=1)
+                        since = f"{first_day.isoformat()}T00:00:00"
+                except Exception as e_retro:
+                    logger.warning(f"[Watcher] Retroactividad compañía inválida conversion obj={obj.get('id')}: {e_retro}")
+            return self._diff_activacion(obj, id_vendedor, dist_id, since)
             
         if tipo == "exhibicion":
             # Retroactividad solo para objetivos de compañía:
@@ -347,12 +363,11 @@ class ObjetivosWatcherService:
                         if mes_referencia
                         else str(obj.get("fecha_objetivo") or obj.get("created_at") or "")[:10]
                     )
-                    if not base_raw:
-                        raise ValueError("sin mes_referencia/fecha_objetivo/created_at")
-                    mes_dt = _date_cls.fromisoformat(base_raw)
-                    # Contar desde el 1° del mes de referencia (no desde el día guardado en la fila).
-                    first_day = mes_dt.replace(day=1)
-                    since = f"{first_day.isoformat()}T00:00:00"
+                    if base_raw:
+                        mes_dt = _date_cls.fromisoformat(base_raw)
+                        # Contar desde el 1° del mes de referencia (no desde el día guardado en la fila).
+                        first_day = mes_dt.replace(day=1)
+                        since = f"{first_day.isoformat()}T00:00:00"
                 except Exception as e_retro:
                     logger.warning(
                         f"[Watcher] Retroactividad compañía inválida obj={obj.get('id')}: {e_retro}"

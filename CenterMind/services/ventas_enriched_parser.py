@@ -28,9 +28,25 @@ def _s(v: Any) -> str:
 
 
 def _num(v: Any) -> float:
-    s = _s(v).replace(".", "").replace(",", ".")
+    s = _s(v).replace(" ", "")
     if not s:
         return 0.0
+    # Normaliza separadores decimales/miles sin destruir decimales válidos.
+    # Casos soportados:
+    # - 1234.56
+    # - 1,234.56
+    # - 1234,56
+    # - 1.234,56
+    if "," in s and "." in s:
+        if s.rfind(",") > s.rfind("."):
+            # Formato tipo 1.234,56
+            s = s.replace(".", "").replace(",", ".")
+        else:
+            # Formato tipo 1,234.56
+            s = s.replace(",", "")
+    elif "," in s:
+        # Formato tipo 1234,56
+        s = s.replace(",", ".")
     try:
         return float(Decimal(s))
     except (InvalidOperation, ValueError):
@@ -55,6 +71,30 @@ def _date_ymd(v: Any) -> str | None:
 def _yn_to_bool(v: Any) -> bool:
     s = _s(v).upper()
     return s in {"SI", "S", "YES", "Y", "TRUE", "1", "ANULADO"}
+
+
+def _contains_token(value: str, token: str) -> bool:
+    return token in (value or "").upper()
+
+
+def _normalize_bultos_by_business_rule(row: "VentaEnrichedRow") -> None:
+    """
+    Regla de negocio:
+    - CIGARRILLOS: 1 bulto = 250 unidades
+    - MIX EXHIBIDORES: 1 bulto = 25 unidades
+    """
+    if row.unidades_total == 0:
+        return
+
+    is_cig = _contains_token(row.agrupacion_art_2, "CIGARRILLOS")
+    if not is_cig:
+        return
+
+    is_mix_exhib = _contains_token(row.descripcion_articulo, "MIX EXHIBIDORES") or _contains_token(
+        row.descripcion_articulo_comp, "MIX EXHIBIDORES"
+    )
+    unidades_por_bulto = 25.0 if is_mix_exhib else 250.0
+    row.bultos_total = float(row.unidades_total) / unidades_por_bulto
 
 
 @dataclass(slots=True)
@@ -188,6 +228,7 @@ def parse_informe_ventas_enriched(file_bytes: bytes) -> list[dict[str, Any]]:
             importe_bruto=_num(r.get("importe_bruto")),
             importe_bonificado=_num(r.get("importe_bonificado")),
         )
+        _normalize_bultos_by_business_rule(row)
         rows.append(asdict(row))
 
     return rows

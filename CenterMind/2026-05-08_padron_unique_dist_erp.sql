@@ -38,8 +38,13 @@ END $$;
 
 -- 1) Deduplicar en tabla base por (id_distribuidor, id_cliente_erp)
 --    Conserva fila más reciente por updated_at, luego id_cliente más alto.
+--    IMPORTANTE: antes de borrar, re-apunta FKs (exhibiciones.id_cliente_pdv).
+DROP TABLE IF EXISTS tmp_cli_v2_dedupe_map;
+CREATE TEMP TABLE tmp_cli_v2_dedupe_map AS
 WITH ranked AS (
   SELECT
+    id_distribuidor,
+    id_cliente_erp,
     id_cliente,
     ROW_NUMBER() OVER (
       PARTITION BY id_distribuidor, id_cliente_erp
@@ -50,12 +55,31 @@ WITH ranked AS (
     AND id_cliente_erp IS NOT NULL
     AND btrim(id_cliente_erp) <> ''
 ),
-to_delete AS (
-  SELECT id_cliente FROM ranked WHERE rn > 1
+keepers AS (
+  SELECT id_distribuidor, id_cliente_erp, id_cliente AS keep_id
+  FROM ranked
+  WHERE rn = 1
 )
+SELECT
+  r.id_cliente AS old_id,
+  k.keep_id AS new_id
+FROM ranked r
+JOIN keepers k
+  ON k.id_distribuidor = r.id_distribuidor
+ AND k.id_cliente_erp = r.id_cliente_erp
+WHERE r.rn > 1;
+
+-- Repoint FK de exhibiciones al registro canónico.
+UPDATE public.exhibiciones e
+SET id_cliente_pdv = m.new_id
+FROM tmp_cli_v2_dedupe_map m
+WHERE e.id_cliente_pdv = m.old_id
+  AND e.id_cliente_pdv <> m.new_id;
+
+-- Ahora sí, eliminar duplicados base.
 DELETE FROM public.clientes_pdv_v2 b
-USING to_delete d
-WHERE b.id_cliente = d.id_cliente;
+USING tmp_cli_v2_dedupe_map m
+WHERE b.id_cliente = m.old_id;
 
 -- 2) Deduplicar en particiones tenant por (id_distribuidor, id_cliente_erp)
 DO $$

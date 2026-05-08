@@ -244,15 +244,25 @@ async def list_feedback_messages(
     order: str = "desc",
     user_payload: dict = Depends(verify_auth),
 ):
-    _require_superadmin(user_payload)
+    pl = _require_jwt_user(user_payload)
     lim = max(1, min(limit, 500))
     try:
-        res = (
+        query = (
             sb.table("portal_feedback_messages")
             .select(
                 "id,created_at,updated_at,id_usuario,id_distribuidor,usuario_snapshot,rol_snapshot,"
                 "contenido,respuesta,responded_at,id_usuario_respuesta"
             )
+        )
+        
+        # Si no es superadmin, solo puede ver sus propios tickets
+        if not pl.get("is_superadmin"):
+            query = query.eq("id_usuario", int(pl["id_usuario"]))
+        elif dist_id is not None:
+            query = query.eq("id_distribuidor", dist_id)
+
+        res = (
+            query
             .order("created_at", desc=(order.lower() == "desc"))
             .limit(lim)
             .execute()

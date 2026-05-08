@@ -1886,6 +1886,7 @@ def supervision_pdvs_movimiento(
                 items.append({
                     "id_cliente_erp": r.get("id_cliente_erp"),
                     "nombre": (r.get("nombre_fantasia") or r.get("nombre_razon_social") or "").strip(),
+                    "razon_social": (r.get("nombre_razon_social") or "").strip(),
                     "direccion": r.get("domicilio", ""),
                     "localidad": r.get("localidad", ""),
                     "categoria": "alta",
@@ -1900,6 +1901,37 @@ def supervision_pdvs_movimiento(
                 "id_cliente, id_cliente_erp, nombre_fantasia, nombre_razon_social, domicilio, localidad, fecha_ultima_compra, fecha_alta, id_ruta",
                 "fecha_ultima_compra",
             )
+            # Activación real: compra en mes + no haber estado activo al inicio del mes.
+            # Usamos ventas_v2 para obtener última compra previa al mes (si existe).
+            start_dt = datetime.fromisoformat(f"{fecha_inicio[:10]}T00:00:00")
+            threshold_prev = (start_dt - timedelta(days=30)).date().isoformat()
+            ids_for_prev = [
+                int(r["id_cliente"])
+                for r in rows
+                if isinstance(r.get("id_cliente"), int)
+            ]
+            prev_last_by_id: dict[int, str] = {}
+            if ids_for_prev:
+                t_ventas = "ventas_v2"
+                for i in range(0, len(ids_for_prev), 400):
+                    chunk = ids_for_prev[i:i + 400]
+                    try:
+                        vr = (
+                            sb.table(t_ventas)
+                            .select("id_cliente,fecha")
+                            .eq("id_distribuidor", dist_id)
+                            .in_("id_cliente", chunk)
+                            .lt("fecha", fecha_inicio[:10])
+                            .order("fecha", desc=True)
+                            .execute()
+                        )
+                        for v in (vr.data or []):
+                            cid = v.get("id_cliente")
+                            f = str(v.get("fecha") or "")[:10]
+                            if isinstance(cid, int) and f and cid not in prev_last_by_id:
+                                prev_last_by_id[cid] = f
+                    except Exception as e_prev:
+                        logger.warning(f"[pdvs-movimiento] lookup ventas prev falló: {e_prev}")
             for r in rows:
                 falta = (r.get("fecha_alta") or "")[:10]
                 fuc = r.get("fecha_ultima_compra", "") or ""
@@ -1908,6 +1940,10 @@ def supervision_pdvs_movimiento(
                     continue
                 id_cl = r.get("id_cliente")
                 if isinstance(id_cl, int) and id_cl in seen_ids:
+                    continue
+                # Solo activaciones (transición): sin compra previa o con previa vieja (>30d al inicio mes).
+                prev_f = prev_last_by_id.get(id_cl) if isinstance(id_cl, int) else None
+                if prev_f and prev_f > threshold_prev:
                     continue
                 exhibido = False
                 if id_cl:
@@ -1925,6 +1961,7 @@ def supervision_pdvs_movimiento(
                 items.append({
                     "id_cliente_erp": r.get("id_cliente_erp"),
                     "nombre": (r.get("nombre_fantasia") or r.get("nombre_razon_social") or "").strip(),
+                    "razon_social": (r.get("nombre_razon_social") or "").strip(),
                     "direccion": r.get("domicilio", ""),
                     "localidad": r.get("localidad", ""),
                     "categoria": "activacion",

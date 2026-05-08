@@ -2649,26 +2649,46 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                   <p className="text-base font-bold text-blue-400">{altasData.total_activaciones}</p>
                 </div>
               </div>
-              {/* Items */}
-              <div className="divide-y divide-[var(--shelfy-border)]/30">
-                {altasData.items.map((item: PdvsMovimientoItem, i: number) => (
-                  <div key={i} className="px-4 py-2.5 flex items-start gap-3 hover:bg-white/5 transition-colors">
-                    <span className={`mt-0.5 shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                      item.categoria === 'alta'
-                        ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
-                        : 'bg-blue-500/15 border-blue-500/30 text-blue-400'
-                    }`}>
-                      {item.categoria === 'alta' ? 'Alta' : 'Activ.'}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-[var(--shelfy-text)] truncate">{item.nombre || '—'}</p>
-                      <p className="text-[10px] text-[var(--shelfy-muted)] truncate">{item.id_cliente_erp ?? 'Sin código ERP'} · {item.localidad || item.direccion || '—'}</p>
+              {/* Items by category (Altas izquierda / Activaciones derecha) */}
+              <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-[var(--shelfy-border)]/30">
+                {(["alta", "activacion"] as const).map((cat) => {
+                  const rows = altasData.items.filter((i: PdvsMovimientoItem) => i.categoria === cat);
+                  return (
+                    <div key={cat} className="min-h-[220px]">
+                      <div className="px-4 py-2 border-b border-[var(--shelfy-border)]/30">
+                        <p className={`text-[11px] font-bold uppercase tracking-wide ${
+                          cat === "alta" ? "text-emerald-400" : "text-blue-400"
+                        }`}>
+                          {cat === "alta" ? "Altas" : "Activaciones"}
+                        </p>
+                      </div>
+                      {!rows.length ? (
+                        <div className="px-4 py-6 text-[11px] text-[var(--shelfy-muted)]">Sin datos</div>
+                      ) : (
+                        <div className="divide-y divide-[var(--shelfy-border)]/30">
+                          {rows.map((item: PdvsMovimientoItem, i: number) => (
+                            <div key={`${cat}-${i}`} className="px-4 py-2.5 flex items-start gap-2 hover:bg-white/5 transition-colors">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="text-xs font-bold text-black truncate">{item.nombre || "—"}</p>
+                                  <span className="text-[10px] text-[var(--shelfy-muted)] shrink-0">
+                                    {item.fecha_evento ? String(item.fecha_evento).slice(0, 10) : "—"}
+                                  </span>
+                                </div>
+                                <p className="text-[10px] text-[var(--shelfy-muted)] truncate">
+                                  {item.id_cliente_erp ?? "Sin código ERP"} · {(item.razon_social || "Sin razón social")}
+                                </p>
+                              </div>
+                              {item.exhibido && (
+                                <span title="Exhibido este mes" className="text-[10px] text-violet-400 font-bold shrink-0">★</span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    {item.exhibido && (
-                      <span title="Exhibido este mes" className="text-[10px] text-violet-400 font-bold shrink-0">★</span>
-                    )}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}

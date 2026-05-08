@@ -2707,6 +2707,7 @@ export async function fetchPortalFeedbackPendingCount(): Promise<{ pending: numb
 export interface PdvsMovimientoItem {
   id_cliente_erp: string | null;
   nombre: string;
+  razon_social?: string;
   direccion: string;
   localidad: string;
   categoria: "alta" | "activacion";

@@ -886,28 +886,69 @@ class PadronIngestionService:
                 logger.info(f"[Padrón] Clientes limbo adoptados: {adopted}")
 
         # ── Upsert normal en batches ──────────────────────────────────────────
-        # Nota: on_conflict requiere un UNIQUE INDEX completo (sin WHERE parcial).
-        # Si el índice fue creado con WHERE, usar ignore_duplicates=False y
-        # dejar que Supabase maneje el conflicto vía la constraint.
+        # Compat operativa:
+        # - En algunos entornos todavía no existe UNIQUE(dist,id_cliente_erp),
+        #   pero sí UNIQUE(id_ruta,id_cliente_erp).
+        # - Para no cortar ingestas, primero actualizamos por PK (id_cliente) los
+        #   ERP ya existentes en el dist; luego hacemos upsert de los nuevos por
+        #   (id_ruta,id_cliente_erp).
         total = 0
         for i in range(0, len(records), BATCH):
             batch = records[i:i + BATCH]
+            erp_ids = [str((it.get("id_cliente_erp") or "")).strip() for it in batch if it.get("id_cliente_erp")]
+            existing_by_erp: dict[str, int] = {}
+            if erp_ids:
+                try:
+                    existing_res = (
+                        sb.table(cli_table)
+                        .select("id_cliente,id_cliente_erp")
+                        .eq("id_distribuidor", dist_id)
+                        .in_("id_cliente_erp", list(dict.fromkeys(erp_ids)))
+                        .execute()
+                    )
+                    for row in (existing_res.data or []):
+                        erp = str(row.get("id_cliente_erp") or "").strip()
+                        pk = row.get("id_cliente")
+                        if erp and pk is not None:
+                            existing_by_erp[erp] = int(pk)
+                except Exception as e_lookup:
+                    logger.warning(f"[Padrón] Lookup existentes batch {i//BATCH} falló: {e_lookup}")
+
+            to_update: list[dict] = []
+            to_upsert: list[dict] = []
+            for item in batch:
+                erp = str((item.get("id_cliente_erp") or "")).strip()
+                existing_pk = existing_by_erp.get(erp) if erp else None
+                if existing_pk is not None:
+                    upd = dict(item)
+                    upd["id_cliente"] = existing_pk
+                    to_update.append(upd)
+                else:
+                    to_upsert.append(item)
+
             try:
-                # Upsert en tabla base primero — clave ERP por distribuidor (ver bot_worker /
-                # insert_nacho_clients): un PDV debe ser único por (dist, id_cliente_erp).
-                # On conflict por id_ruta haría segunda fila al cambiar de ruta sin borrar la vieja.
-                res = sb.table("clientes_pdv_v2").upsert(
-                    batch, on_conflict="id_distribuidor,id_cliente_erp"
-                ).execute()
-                if res.data:
-                    sb.table(cli_table).upsert(
-                        res.data, on_conflict="id_distribuidor,id_cliente_erp"
+                if to_update:
+                    # Update masivo por PK (canónico y seguro en todos los entornos).
+                    sb.table("clientes_pdv_v2").upsert(
+                        to_update, on_conflict="id_cliente"
                     ).execute()
+                    sb.table(cli_table).upsert(
+                        to_update, on_conflict="id_cliente"
+                    ).execute()
+                if to_upsert:
+                    # Nuevos: mantener conflicto por ruta+erp (constraint presente hoy).
+                    res = sb.table("clientes_pdv_v2").upsert(
+                        to_upsert, on_conflict="id_ruta,id_cliente_erp"
+                    ).execute()
+                    if res.data:
+                        sb.table(cli_table).upsert(
+                            res.data, on_conflict="id_ruta,id_cliente_erp"
+                        ).execute()
             except Exception as e_upsert:
                 # Fallback: intentar insert ignorando duplicados
                 logger.warning(f"[Padrón] Upsert falló en batch {i//BATCH} ({e_upsert}), intentando insert...")
                 try:
-                    res = sb.table("clientes_pdv_v2").insert(batch, count="exact").execute()
+                    res = sb.table("clientes_pdv_v2").insert(to_upsert, count="exact").execute()
                     if res.data:
                         sb.table(cli_table).insert(res.data, count="exact").execute()
                 except Exception as e_insert:

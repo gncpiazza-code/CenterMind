@@ -124,11 +124,10 @@ BEGIN
 END $$;
 
 -- 3) UNIQUE índice base para ON CONFLICT (id_distribuidor,id_cliente_erp)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_cli_v2_dist_erp
-  ON public.clientes_pdv_v2 (id_distribuidor, id_cliente_erp)
-  WHERE id_distribuidor IS NOT NULL
-    AND id_cliente_erp IS NOT NULL
-    AND btrim(id_cliente_erp) <> '';
+--    Debe ser NO parcial para que Postgres acepte ON CONFLICT sobre esas columnas.
+DROP INDEX IF EXISTS public.uq_cli_v2_dist_erp;
+CREATE UNIQUE INDEX uq_cli_v2_dist_erp
+  ON public.clientes_pdv_v2 (id_distribuidor, id_cliente_erp);
 
 -- 4) UNIQUE índice tenant para ON CONFLICT (id_distribuidor,id_cliente_erp)
 DO $$
@@ -143,12 +142,10 @@ BEGIN
   LOOP
     t := format('clientes_pdv_v2_d%s', r.dist_id);
     idx := format('uq_cli_v2_d%s_dist_erp', r.dist_id);
+    EXECUTE format('DROP INDEX IF EXISTS public.%I', idx);
     EXECUTE format(
-      'CREATE UNIQUE INDEX IF NOT EXISTS %I
-       ON public.%I (id_distribuidor, id_cliente_erp)
-       WHERE id_distribuidor IS NOT NULL
-         AND id_cliente_erp IS NOT NULL
-         AND btrim(id_cliente_erp) <> ''''',
+      'CREATE UNIQUE INDEX %I
+       ON public.%I (id_distribuidor, id_cliente_erp)',
       idx, t
     );
   END LOOP;

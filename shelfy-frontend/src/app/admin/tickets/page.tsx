@@ -41,7 +41,7 @@ import {
   type PortalTicketCampos,
   type PortalTicketPreResolucion,
 } from "@/lib/api";
-import { Input } from "@/components/ui/Input";
+import { Input } from "@/components/ui/input";
 
 function TicketHeaderFields({ campos }: { campos: PortalTicketCampos | null | undefined }) {
   if (!campos || (!campos.asunto && !campos.prioridad)) return null;

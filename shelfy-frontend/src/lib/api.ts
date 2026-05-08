@@ -2565,6 +2565,19 @@ export interface PortalTicketClasificacionAgent {
   revision_checklist?: string[];
 }
 
+export interface PortalTicketPreResolucion {
+  fuente: string;
+  modelo?: string | null;
+  resumen?: string;
+  hipotesis?: string;
+  checks_sugeridos?: string[];
+  codigo_posible?: string[];
+  riesgo_regresion?: "bajo" | "medio" | "alto" | string;
+  suposiciones?: string[];
+  proxima_accion?: string;
+  error_proveedor?: string;
+}
+
 export async function postPortalFeedbackMessage(
   contenido: string,
 ): Promise<{ ok: boolean; id?: string; clasificacion_agent?: PortalTicketClasificacionAgent | null }> {
@@ -2619,9 +2632,40 @@ export interface PortalFeedbackRow {
   clasificacion_agent?: PortalTicketClasificacionAgent | null;
 }
 
-export async function fetchPortalFeedbackMessages(limit = 200): Promise<{ items: PortalFeedbackRow[] }> {
-  const q = new URLSearchParams({ limit: String(limit), pendientes_primero: "true" });
+export interface PortalFeedbackListFilters {
+  limit?: number;
+  pendientes_primero?: boolean;
+  status?: "all" | "pending" | "answered";
+  category_id?: string;
+  dist_id?: number;
+  q?: string;
+}
+
+function buildPortalFeedbackQuery(filters: PortalFeedbackListFilters): URLSearchParams {
+  const q = new URLSearchParams({
+    limit: String(filters.limit ?? 200),
+    pendientes_primero: String(filters.pendientes_primero ?? true),
+  });
+  if (filters.status && filters.status !== "all") q.set("status", filters.status);
+  if (filters.category_id) q.set("category_id", filters.category_id);
+  if (typeof filters.dist_id === "number" && Number.isFinite(filters.dist_id)) {
+    q.set("dist_id", String(filters.dist_id));
+  }
+  if (filters.q && filters.q.trim()) q.set("q", filters.q.trim());
+  return q;
+}
+
+export async function fetchPortalFeedbackMessages(filters: PortalFeedbackListFilters = {}): Promise<{ items: PortalFeedbackRow[] }> {
+  const q = buildPortalFeedbackQuery(filters);
   return apiFetch(`/api/portal-feedback/messages?${q}`);
+}
+
+export async function exportPortalFeedbackMessagesJson(filters: PortalFeedbackListFilters = {}): Promise<{
+  meta: Record<string, unknown>;
+  items: PortalFeedbackRow[];
+}> {
+  const q = buildPortalFeedbackQuery({ ...filters, limit: Math.min(filters.limit ?? 500, 1000) });
+  return apiFetch(`/api/portal-feedback/messages/export?${q}`);
 }
 
 export async function patchPortalFeedbackReply(id: string, respuesta: string): Promise<{ ok: boolean }> {
@@ -2629,6 +2673,17 @@ export async function patchPortalFeedbackReply(id: string, respuesta: string): P
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ respuesta }),
+  });
+}
+
+export async function generatePortalTicketPreResolution(id: string): Promise<{
+  ok: boolean;
+  id: string;
+  clasificacion_agent: PortalTicketClasificacionAgent | null;
+  pre_resolucion: PortalTicketPreResolucion | null;
+}> {
+  return apiFetch(`/api/portal-feedback/messages/${id}/pre-resolucion`, {
+    method: "POST",
   });
 }
 

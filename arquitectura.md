@@ -58,6 +58,8 @@ Claves:
 - `url_foto_drive` es URL de Supabase Storage (nombre legado).
 - Watcher actualiza objetivos y emite eventos.
 - Objetivos de compania tipo exhibicion aplican retroactividad mensual: el watcher toma como inicio el primer dia de `mes_referencia` (no `created_at`).
+- El watcher normaliza `origen` (p.ej. `compañia`/`compania`) y usa fallback de mes (`fecha_objetivo` o `created_at`) para no perder retroactividad.
+- Notificaciones Telegram de progreso quedaron acotadas a eventos de exhibicion para evitar spam operativo.
 
 ## Endpoints Nucleares
 
@@ -67,6 +69,7 @@ Claves:
 - ERP sync: `/api/v1/sync/*`
 - Auth: `/auth/login`, `/auth/switch-context/{dist_id}`
 - WS: `/api/ws/exhibiciones/{dist_id}`, `/api/ws/superadmin`
+- Tickets portal: `/api/portal-feedback/messages` (filtros), `/api/portal-feedback/messages/export` (JSON), `/api/portal-feedback/messages/{id}/pre-resolucion` (IA opcional)
 
 ## Invariantes Operativas
 

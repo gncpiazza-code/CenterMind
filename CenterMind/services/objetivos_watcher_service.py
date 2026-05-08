@@ -16,6 +16,7 @@ Tipos soportados:
 from __future__ import annotations
 
 import logging
+import unicodedata
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
@@ -23,6 +24,22 @@ from db import sb
 from core.tenant_tables import tenant_table_name
 
 logger = logging.getLogger("ObjetivosWatcher")
+
+
+def _norm_origen(value: Any) -> str:
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return ""
+    txt = "".join(
+        c for c in unicodedata.normalize("NFD", raw)
+        if unicodedata.category(c) != "Mn"
+    )
+    txt = " ".join(txt.split())
+    if txt in {"compania", "company"}:
+        return "compania"
+    if txt in {"distribuidora", "distributor"}:
+        return "distribuidora"
+    return txt
 
 
 class ObjetivosWatcherService:
@@ -294,7 +311,7 @@ class ObjetivosWatcherService:
         tipo = obj.get("tipo")
         id_vendedor = obj.get("id_vendedor")
         created_at = obj.get("created_at", "")
-        origen = (obj.get("origen") or "").strip().lower()
+        origen = _norm_origen(obj.get("origen"))
         mes_referencia = obj.get("mes_referencia")
 
         if tipo == "ruteo_alteo":
@@ -305,13 +322,24 @@ class ObjetivosWatcherService:
             # Retroactividad solo para objetivos de compañía:
             # si la meta se crea a mitad de mes, tomar exhibiciones desde el 1er día del mes.
             since = created_at
-            if origen == "compania" and mes_referencia:
+            if origen == "compania":
                 try:
                     from datetime import date as _date_cls
-                    mes_dt = _date_cls.fromisoformat(str(mes_referencia)[:10])
-                    since = f"{mes_dt.strftime('%Y-%m-%d')}T00:00:00"
-                except Exception:
-                    pass
+                    base_raw = (
+                        str(mes_referencia)[:10]
+                        if mes_referencia
+                        else str(obj.get("fecha_objetivo") or obj.get("created_at") or "")[:10]
+                    )
+                    if not base_raw:
+                        raise ValueError("sin mes_referencia/fecha_objetivo/created_at")
+                    mes_dt = _date_cls.fromisoformat(base_raw)
+                    # Contar desde el 1° del mes de referencia (no desde el día guardado en la fila).
+                    first_day = mes_dt.replace(day=1)
+                    since = f"{first_day.isoformat()}T00:00:00"
+                except Exception as e_retro:
+                    logger.warning(
+                        f"[Watcher] Retroactividad compañía inválida obj={obj.get('id')}: {e_retro}"
+                    )
             return self._diff_exhibicion(obj, id_vendedor, dist_id, since)
         if tipo == "cobranza":
             valor = self._compute_cobranza(obj, dist_id)
@@ -834,14 +862,16 @@ class ObjetivosWatcherService:
                             )
                             continue
 
-                # Telegram al grupo del vendedor
-                objetivos_notification.notify_vendor_telegram(
-                    dist_id=dist_id,
-                    id_objetivo=obj_id,
-                    id_vendedor=id_vendedor,
-                    tipo_evento=tipo_evento,
-                    pdv_data=item,
-                )
+                # Anti-spam: solo notificar progreso por Telegram en exhibición.
+                # Los demás tipos ya notifican alta/cierre y el detalle vive en /objetivos.
+                if tipo_evento in {"exhibicion", "exhibicion_pendiente"}:
+                    objetivos_notification.notify_vendor_telegram(
+                        dist_id=dist_id,
+                        id_objetivo=obj_id,
+                        id_vendedor=id_vendedor,
+                        tipo_evento=tipo_evento,
+                        pdv_data=item,
+                    )
                 # WebSocket al supervisor
                 objetivos_notification.notify_supervisor_ws(
                     dist_id=dist_id,

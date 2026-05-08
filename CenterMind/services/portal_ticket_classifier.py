@@ -2,8 +2,11 @@
 """Clasificador automático (reglas) para tickets del portal — sin LLM, versionable."""
 from __future__ import annotations
 
+import json
+import os
 import re
 import unicodedata
+import requests
 from typing import Any
 
 REGLAS_VERSION = "2026-05-05-v2"
@@ -261,3 +264,99 @@ def clasificar_portal_ticket(contenido: str) -> dict[str, Any]:
     if checklist:
         out["revision_checklist"] = checklist
     return out
+
+
+def generar_pre_resolucion_ticket(
+    *,
+    ticket: dict[str, Any],
+    clasificacion: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Genera una pre-resolución para triage técnico.
+    - Si hay GEMINI_API_KEY, usa Gemini para un análisis asistido.
+    - Si no hay credencial/disponibilidad, usa fallback determinístico por reglas.
+    """
+    clf = clasificacion or clasificar_portal_ticket(str(ticket.get("contenido") or ""))
+    fallback = {
+        "fuente": "reglas_locales",
+        "modelo": None,
+        "resumen": (
+            "Pre-triage basado en reglas internas. No se ejecutó Gemini "
+            "(faltó credencial o hubo error en el proveedor)."
+        ),
+        "hipotesis": clf.get("hipotesis_falla"),
+        "capas_sospechadas": clf.get("capas_afectadas") or [],
+        "checks_sugeridos": (clf.get("revision_checklist") or [])[:8],
+        "proxima_accion": "Corroborar hipótesis con logs y datos del tenant afectado.",
+    }
+
+    api_key = (os.getenv("GEMINI_API_KEY") or "").strip()
+    if not api_key:
+        return fallback
+
+    model = (os.getenv("GEMINI_MODEL") or "gemini-2.5-flash").strip()
+    url = (
+        f"https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{model}:generateContent?key={api_key}"
+    )
+    prompt = {
+        "rol": "shelfy_ticket_triage_expert",
+        "instrucciones": [
+            "Analizá el ticket en contexto Shelfy (FastAPI + Next + Supabase multi-tenant).",
+            "Respondé SOLO JSON válido, sin markdown.",
+            "No inventes tablas/endpoints inexistentes; si hay duda, explicitá 'suposición'.",
+            "Priorizá hipótesis concretas y checks verificables.",
+        ],
+        "schema_objetivo": {
+            "resumen": "string",
+            "hipotesis": "string",
+            "checks_sugeridos": ["string"],
+            "codigo_posible": ["string"],
+            "riesgo_regresion": "bajo|medio|alto",
+            "suposiciones": ["string"],
+        },
+        "ticket": {
+            "id": ticket.get("id"),
+            "id_distribuidor": ticket.get("id_distribuidor"),
+            "usuario_snapshot": ticket.get("usuario_snapshot"),
+            "contenido": ticket.get("contenido"),
+            "respuesta_actual": ticket.get("respuesta"),
+        },
+        "clasificacion_reglas": clf,
+    }
+    body = {
+        "contents": [
+            {
+                "role": "user",
+                "parts": [{"text": json.dumps(prompt, ensure_ascii=False)}],
+            }
+        ],
+        "generationConfig": {
+            "temperature": 0.2,
+            "responseMimeType": "application/json",
+        },
+    }
+
+    try:
+        resp = requests.post(url, json=body, timeout=20)
+        if not resp.ok:
+            return fallback | {
+                "fuente": "reglas_locales",
+                "error_proveedor": f"Gemini {resp.status_code}",
+            }
+        payload = resp.json() or {}
+        text = (
+            ((payload.get("candidates") or [{}])[0].get("content") or {})
+            .get("parts", [{}])[0]
+            .get("text", "")
+        )
+        parsed = json.loads(text) if text else {}
+        if not isinstance(parsed, dict):
+            return fallback
+        return {
+            "fuente": "gemini",
+            "modelo": model,
+            **parsed,
+        }
+    except Exception:
+        return fallback

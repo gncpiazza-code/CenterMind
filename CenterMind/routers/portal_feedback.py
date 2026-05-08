@@ -12,7 +12,10 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from core.security import verify_auth
 from core.lifespan import broadcast_sync, SUPERADMIN_WS_DIST_ID
 from db import sb
-from services.portal_ticket_classifier import clasificar_portal_ticket
+from services.portal_ticket_classifier import (
+    clasificar_portal_ticket,
+    generar_pre_resolucion_ticket,
+)
 from models.schemas import (
     PortalFeedbackMessageCreate,
     PortalFeedbackReplyIn,
@@ -234,6 +237,10 @@ async def post_feedback_message(
 async def list_feedback_messages(
     pendientes_primero: bool = True,
     limit: int = 200,
+    status: str = "all",
+    category_id: str | None = None,
+    dist_id: int | None = None,
+    q: str | None = None,
     user_payload: dict = Depends(verify_auth),
 ):
     _require_superadmin(user_payload)
@@ -261,8 +268,73 @@ async def list_feedback_messages(
                 r.get("created_at") or "",
             ),
         )
-    enriched = [_fila_feedback_con_agente(r) for r in rows]
+    q_norm = (q or "").strip().lower()
+    status_norm = (status or "all").strip().lower()
+    cat_norm = (category_id or "").strip().lower()
+    enriched: list[dict] = []
+    for r in rows:
+        if dist_id is not None and r.get("id_distribuidor") != dist_id:
+            continue
+        has_reply = bool((r.get("respuesta") or "").strip())
+        if status_norm == "pending" and has_reply:
+            continue
+        if status_norm == "answered" and not has_reply:
+            continue
+        row_enriched = _fila_feedback_con_agente(r)
+        if cat_norm:
+            rid = str((row_enriched.get("clasificacion_agent") or {}).get("categoria_id") or "").lower()
+            if rid != cat_norm:
+                continue
+        if q_norm:
+            haystack = " ".join(
+                [
+                    str(row_enriched.get("contenido") or ""),
+                    str(row_enriched.get("respuesta") or ""),
+                    str(row_enriched.get("usuario_snapshot") or ""),
+                    str((row_enriched.get("clasificacion_agent") or {}).get("hipotesis_falla") or ""),
+                ]
+            ).lower()
+            if q_norm not in haystack:
+                continue
+        enriched.append(row_enriched)
     return {"items": enriched}
+
+
+@router.get("/messages/export")
+async def export_feedback_messages_json(
+    pendientes_primero: bool = True,
+    limit: int = 500,
+    status: str = "all",
+    category_id: str | None = None,
+    dist_id: int | None = None,
+    q: str | None = None,
+    user_payload: dict = Depends(verify_auth),
+):
+    _require_superadmin(user_payload)
+    data = await list_feedback_messages(
+        pendientes_primero=pendientes_primero,
+        limit=limit,
+        status=status,
+        category_id=category_id,
+        dist_id=dist_id,
+        q=q,
+        user_payload=user_payload,
+    )
+    return {
+        "meta": {
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "filters": {
+                "pendientes_primero": pendientes_primero,
+                "limit": limit,
+                "status": status,
+                "category_id": category_id,
+                "dist_id": dist_id,
+                "q": q,
+            },
+            "count": len(data.get("items") or []),
+        },
+        "items": data.get("items") or [],
+    }
 
 
 @router.get("/pending-count")
@@ -323,3 +395,33 @@ async def reply_feedback_message(
         },
     )
     return {"ok": True}
+
+
+@router.post("/messages/{message_id}/pre-resolucion")
+async def generar_pre_resolucion(
+    message_id: str,
+    user_payload: dict = Depends(verify_auth),
+):
+    _require_superadmin(user_payload)
+    try:
+        res = (
+            sb.table("portal_feedback_messages")
+            .select(
+                "id,created_at,updated_at,id_usuario,id_distribuidor,usuario_snapshot,rol_snapshot,"
+                "contenido,respuesta,responded_at,id_usuario_respuesta"
+            )
+            .eq("id", message_id)
+            .limit(1)
+            .execute()
+        )
+        row = (res.data or [None])[0]
+        if not row:
+            raise HTTPException(status_code=404, detail="Ticket no encontrado")
+        clf = clasificar_portal_ticket(str(row.get("contenido") or ""))
+        pre = generar_pre_resolucion_ticket(ticket=row, clasificacion=clf)
+        return {"ok": True, "id": str(row.get("id")), "clasificacion_agent": clf, "pre_resolucion": pre}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[portal-feedback] pre-resolucion {message_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

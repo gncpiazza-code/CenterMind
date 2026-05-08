@@ -9,7 +9,52 @@ Para queries complejas con JOINs, creamos funciones RPC en Supabase.
 import os
 from pathlib import Path
 from dotenv import load_dotenv
-load_dotenv()
+
+_CM_DIR = Path(__file__).resolve().parent
+_ENV_FILE = _CM_DIR / ".env"
+
+
+def _bootstrap_env() -> None:
+    """
+    Orden de carga (sin romper nada en Railway: allí las vars ya vienen del panel).
+
+    1) SHELFY_DOTENV_EXTRA — ruta opcional a un .env suelto (export local).
+    2) Primer archivo que exista en ~/Desktop/*railway*.env (copia tipo Railway/RPA).
+    3) CenterMind/.env — prioridad (Gemini, overrides; pisa lo anterior).
+    4) .env en el directorio de trabajo actual.
+
+    Así podés tener Supabase en el archivo del escritorio y solo GEMINI en CenterMind/.env.
+    """
+    extra = (os.environ.get("SHELFY_DOTENV_EXTRA") or "").strip()
+    if extra:
+        p = Path(extra).expanduser()
+        if p.is_file():
+            load_dotenv(p, override=False)
+
+    desktop = Path.home() / "Desktop"
+    # Cualquier export tipo *railway*.env en el Escritorio (nombre exacto da igual)
+    for cand in sorted(desktop.glob("*railway*.env")):
+        if cand.is_file():
+            load_dotenv(cand, override=False)
+            break
+    else:
+        # Nombres fijos habituales si no hubo glob
+        for name in (
+            "shelfmind-rpa-railway.env",
+            "ShelfMind-RPA-railway.env",
+            "shelfy-railway.env",
+        ):
+            cand = desktop / name
+            if cand.is_file():
+                load_dotenv(cand, override=False)
+                break
+
+    if _ENV_FILE.is_file():
+        load_dotenv(_ENV_FILE, override=True)
+    load_dotenv(override=True)
+
+
+_bootstrap_env()
 from supabase import create_client, Client, ClientOptions
 import httpx
 

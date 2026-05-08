@@ -90,7 +90,15 @@ while True:
 - Mensajes Telegram de alta de objetivos deben incluir instruccion accionable clara y referencia a `/objetivos`.
 - Bot envia recordatorio diario de objetivos a las 08:00 AR para vendedores con objetivos activos.
 - Retroactividad solo para objetivos de compania tipo `exhibicion`: calcular avance desde `mes_referencia`.
+- En retroactividad de compania, normalizar `origen` y aplicar fallback de mes (`fecha_objetivo`/`created_at`) si falta `mes_referencia`.
+- Evitar spam de progreso por Telegram: reservar notificaciones de avance para exhibicion; resto usa alta/cierre.
 - En `ruteo_alteo`, el cumplimiento debe evaluarse por `fecha_alta` de padrón; no usar cambio de ruta como señal.
+
+## 9.2) Tickets de portal (operativo)
+
+- Superadmin debe poder filtrar tickets por estado, categoria, distribuidora y texto.
+- Export oficial para auditoria/extraccion: `GET /api/portal-feedback/messages/export` (JSON con `meta` + `items`).
+- Pre-resolucion automatica: endpoint `POST /api/portal-feedback/messages/{id}/pre-resolucion` con Gemini opcional y fallback por reglas locales.
 
 ## 10) Protocolo Shelfy (obligatorio)
 

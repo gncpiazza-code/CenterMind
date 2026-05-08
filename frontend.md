@@ -67,6 +67,12 @@ Tokens clave:
 - Atajos de teclado para evaluar/navegar.
 - Filtro por sucursal y foco en imagen.
 
+### `admin/tickets/page.tsx`
+
+- Triage superadmin con filtros por categoria, estado, distribuidora y texto.
+- Export JSON de tickets filtrados para extraccion externa.
+- Boton "Pre-resolucion IA" consume endpoint backend con Gemini opcional + fallback por reglas.
+
 ## shadcn/ui
 
 Uso obligatorio de primitives existentes:

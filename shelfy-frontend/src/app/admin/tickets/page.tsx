@@ -33,11 +33,15 @@ import {
 import { PortalTicketContenido } from "@/components/admin/PortalTicketContenido";
 import {
   fetchPortalFeedbackMessages,
+  exportPortalFeedbackMessagesJson,
+  generatePortalTicketPreResolution,
   patchPortalFeedbackReply,
   type PortalFeedbackRow,
   type PortalTicketClasificacionAgent,
   type PortalTicketCampos,
+  type PortalTicketPreResolucion,
 } from "@/lib/api";
+import { Input } from "@/components/ui/Input";
 
 function TicketHeaderFields({ campos }: { campos: PortalTicketCampos | null | undefined }) {
   if (!campos || (!campos.asunto && !campos.prioridad)) return null;
@@ -127,14 +131,25 @@ export default function AdminTicketsPage() {
   const [replyRow, setReplyRow] = useState<PortalFeedbackRow | null>(null);
   const [replyDraft, setReplyDraft] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "answered">("all");
+  const [distFilter, setDistFilter] = useState<string>("all");
+  const [search, setSearch] = useState("");
+  const [preById, setPreById] = useState<Record<string, PortalTicketPreResolucion>>({});
 
   useEffect(() => {
     if (user && !user.is_superadmin) router.replace("/dashboard");
   }, [user, router]);
 
   const { data, isLoading } = useQuery({
-    queryKey: ["portal-feedback-messages"],
-    queryFn: () => fetchPortalFeedbackMessages(250),
+    queryKey: ["portal-feedback-messages", categoryFilter, statusFilter, distFilter, search],
+    queryFn: () =>
+      fetchPortalFeedbackMessages({
+        limit: 250,
+        category_id: categoryFilter !== "all" ? categoryFilter : undefined,
+        status: statusFilter,
+        dist_id: distFilter !== "all" ? Number(distFilter) : undefined,
+        q: search.trim() || undefined,
+      }),
     enabled: !!user?.is_superadmin,
     staleTime: 30_000,
   });
@@ -151,7 +166,7 @@ export default function AdminTicketsPage() {
     onError: (err: Error) => toast.error(err.message || "Error al guardar"),
   });
 
-  const rows = data?.items ?? [];
+  const rows = useMemo(() => data?.items ?? [], [data?.items]);
 
   const categoryOptions = useMemo(() => {
     const map = new Map<string, string>();
@@ -165,10 +180,23 @@ export default function AdminTicketsPage() {
     );
   }, [rows]);
 
-  const filteredRows = useMemo(() => {
-    if (categoryFilter === "all") return rows;
-    return rows.filter((r) => r.clasificacion_agent?.categoria_id === categoryFilter);
-  }, [rows, categoryFilter]);
+  const filteredRows = rows;
+  const distOptions = useMemo(() => {
+    const ids = new Set<number>();
+    for (const r of rows) if (typeof r.id_distribuidor === "number") ids.add(r.id_distribuidor);
+    return Array.from(ids).sort((a, b) => a - b);
+  }, [rows]);
+
+  const preMutation = useMutation({
+    mutationFn: (id: string) => generatePortalTicketPreResolution(id),
+    onSuccess: (res) => {
+      if (res?.id && res.pre_resolucion) {
+        setPreById((prev) => ({ ...prev, [res.id]: res.pre_resolucion }));
+        toast.success("Pre-resolución generada.");
+      }
+    },
+    onError: (err: Error) => toast.error(err.message || "No se pudo generar la pre-resolución"),
+  });
 
   if (!user?.is_superadmin) return null;
 
@@ -212,6 +240,68 @@ export default function AdminTicketsPage() {
                 ))}
               </SelectContent>
             </Select>
+            <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as "all" | "pending" | "answered")}>
+              <SelectTrigger className="w-full sm:w-52 h-10 text-xs rounded-xl border-[var(--shelfy-border)]">
+                <SelectValue placeholder="Estado" />
+              </SelectTrigger>
+              <SelectContent className="rounded-xl">
+                <SelectItem value="all" className="text-xs">Todos</SelectItem>
+                <SelectItem value="pending" className="text-xs">Sin respuesta</SelectItem>
+                <SelectItem value="answered" className="text-xs">Respondidos</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={distFilter} onValueChange={setDistFilter}>
+              <SelectTrigger className="w-full sm:w-44 h-10 text-xs rounded-xl border-[var(--shelfy-border)]">
+                <SelectValue placeholder="Distribuidora" />
+              </SelectTrigger>
+              <SelectContent className="rounded-xl">
+                <SelectItem value="all" className="text-xs">Todas dist.</SelectItem>
+                {distOptions.map((d) => (
+                  <SelectItem key={d} value={String(d)} className="text-xs">
+                    Dist #{d}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Buscar texto, usuario o hipótesis..."
+              className="h-10 text-xs rounded-xl sm:max-w-72"
+            />
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="rounded-xl text-xs"
+              onClick={async () => {
+                try {
+                  const payload = await exportPortalFeedbackMessagesJson({
+                    limit: 1000,
+                    category_id: categoryFilter !== "all" ? categoryFilter : undefined,
+                    status: statusFilter,
+                    dist_id: distFilter !== "all" ? Number(distFilter) : undefined,
+                    q: search.trim() || undefined,
+                  });
+                  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+                  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = `tickets-portal-${stamp}.json`;
+                  document.body.appendChild(a);
+                  a.click();
+                  a.remove();
+                  URL.revokeObjectURL(url);
+                  toast.success("Export JSON generado.");
+                } catch (e) {
+                  const msg = e instanceof Error ? e.message : "No se pudo exportar";
+                  toast.error(msg);
+                }
+              }}
+            >
+              Exportar JSON
+            </Button>
             <p className="text-[11px] text-muted-foreground">
               Mostrando <span className="font-semibold text-[var(--shelfy-text)]">{filteredRows.length}</span> de{" "}
               <span className="font-semibold text-[var(--shelfy-text)]">{rows.length}</span> tickets
@@ -272,6 +362,22 @@ export default function AdminTicketsPage() {
                         {r.respuesta}
                       </div>
                     )}
+                    {preById[r.id] ? (
+                      <div className="rounded-xl border border-violet-200 bg-violet-50/60 px-3 py-2 text-xs text-violet-950 space-y-1.5">
+                        <span className="font-bold block">Pre-resolución ({preById[r.id].fuente})</span>
+                        {preById[r.id].resumen ? <p>{preById[r.id].resumen}</p> : null}
+                        {preById[r.id].hipotesis ? (
+                          <p>
+                            <span className="font-semibold">Hipótesis:</span> {preById[r.id].hipotesis}
+                          </p>
+                        ) : null}
+                        {preById[r.id].checks_sugeridos?.length ? (
+                          <ul className="list-disc pl-4 space-y-1">
+                            {preById[r.id].checks_sugeridos?.slice(0, 6).map((line, i) => <li key={i}>{line}</li>)}
+                          </ul>
+                        ) : null}
+                      </div>
+                    ) : null}
                     <Button
                       type="button"
                       size="sm"
@@ -283,6 +389,16 @@ export default function AdminTicketsPage() {
                       }}
                     >
                       <Reply size={13} /> {hasReply ? "Editar respuesta" : "Responder"}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5 text-xs rounded-xl w-fit border-[var(--shelfy-border)]"
+                      disabled={preMutation.isPending}
+                      onClick={() => preMutation.mutate(r.id)}
+                    >
+                      <Sparkles size={13} /> Pre-resolución IA
                     </Button>
                   </Card>
                 );

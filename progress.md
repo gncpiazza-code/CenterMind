@@ -1,6 +1,6 @@
 # Progress — Shelfy CenterMind (Lean)
 
-**Ultima actualizacion:** 7 de Mayo, 2026  
+**Ultima actualizacion:** 8 de Mayo, 2026  
 **Objetivo:** estado operativo actual, riesgos y prioridades.  
 **Historial largo:** `docs/changelog/archive/2026-05.md`.
 
@@ -32,6 +32,9 @@
 8. Objetivos: identificacion PDV estandar (`#id_cliente_erp + nombre`).
 9. Padron: soporte anulados (`padron_anulado`) y ocultamiento en supervision.
 10. Difusion CC: preview de envios + guardrails de conflicto.
+11. Objetivos exhibicion compañía: watcher robusto para retroactividad mensual (normaliza origen y aplica fallback de mes cuando falta `mes_referencia`).
+12. Objetivos: anti-spam Telegram en progreso (se mantienen altas/cierres y eventos de exhibición; se silencian mensajes "en marcha" del resto).
+13. Tickets portal superadmin: filtros server-side (estado/categoría/dist/texto), export JSON enriquecido y endpoint de pre-resolución IA (Gemini opcional + fallback por reglas).
 
 ## Riesgos y Guardrails Activos
 

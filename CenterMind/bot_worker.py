@@ -1319,11 +1319,14 @@ class BotWorker:
                 for r in pdv_res.data or []:
                     pdv_map[int(r["id_cliente"])] = r
 
-            ruta_ids = {
-                int(r.get("id_ruta"))
-                for r in pdv_map.values()
-                if r.get("id_ruta") is not None
-            }
+            ruta_ids = set()
+            for r in pdv_map.values():
+                rid = r.get("id_ruta")
+                if rid is not None and str(rid).strip():
+                    try:
+                        ruta_ids.add(int(rid))
+                    except ValueError:
+                        pass
             rutas_map: dict[int, str] = {}
             if ruta_ids:
                 rutas_res = await asyncio.to_thread(
@@ -1369,10 +1372,20 @@ class BotWorker:
                 origen_tag = " [Cía]" if origen == "compania" else ""
                 cumplido = bool(obj.get("cumplido"))
                 estado_icon = "✅" if cumplido else "⏳"
-                vo = float(obj.get("valor_objetivo") or 0)
-                va = float(obj.get("valor_actual") or 0)
+                try:
+                    vo = float(obj.get("valor_objetivo") or 0)
+                except (ValueError, TypeError):
+                    vo = 0.0
+                try:
+                    va = float(obj.get("valor_actual") or 0)
+                except (ValueError, TypeError):
+                    va = 0.0
                 tasa_p = obj.get("tasa_pendientes")
-                umbral = max(0.0, vo - float(tasa_p)) if (vo > 0 and tasa_p is not None) else vo
+                try:
+                    tasa_val = float(tasa_p) if tasa_p is not None and str(tasa_p).strip() else 0.0
+                except ValueError:
+                    tasa_val = 0.0
+                umbral = max(0.0, vo - tasa_val) if (vo > 0 and tasa_p is not None) else vo
                 pct = 0 if umbral <= 0 else int(max(0, min(100, round((va / umbral) * 100))))
 
                 fecha = str(obj.get("fecha_objetivo") or "")[:10]
@@ -1409,6 +1422,12 @@ class BotWorker:
 
                 tasa_txt = ""
                 desglose = obj.get("desglose_cache") or {}
+                if isinstance(desglose, str):
+                    import json
+                    try:
+                        desglose = json.loads(desglose)
+                    except Exception:
+                        desglose = {}
                 if tasa_p is not None:
                     pend_count = desglose.get("pendientes_count", "–")
                     tasa_txt = f"\n   • Tasa P={tasa_p} · {pend_count} pendiente{'s' if pend_count != 1 else ''}"
@@ -1420,7 +1439,10 @@ class BotWorker:
 
                 pdv_candidates = []
                 if obj.get("id_target_pdv"):
-                    pdv_candidates.append(int(obj["id_target_pdv"]))
+                    try:
+                        pdv_candidates.append(int(obj["id_target_pdv"]))
+                    except ValueError:
+                        pass
                 pdv_candidates.extend(items_map.get(oid, []))
                 pdv_candidates = list(dict.fromkeys(pdv_candidates))
 
@@ -1428,7 +1450,10 @@ class BotWorker:
                 if pdv_candidates and tipo in {"exhibicion", "conversion_estado", "activacion", "cobranza"}:
                     ref = pdv_map.get(pdv_candidates[0], {})
                     erp = ref.get("id_cliente_erp")
-                    ruta_label_val = rutas_map.get(int(ref.get("id_ruta"))) if ref.get("id_ruta") else ""
+                    try:
+                        ruta_label_val = rutas_map.get(int(ref.get("id_ruta"))) if ref.get("id_ruta") and str(ref.get("id_ruta")).strip() else ""
+                    except ValueError:
+                        ruta_label_val = ""
                     count_txt = f" (+{len(pdv_candidates)-1} PDV)" if len(pdv_candidates) > 1 else ""
                     parts = []
                     if erp:
@@ -2898,10 +2923,20 @@ class BotWorker:
                 for o in objs[:6]:
                     tipo = str(o.get("tipo") or "").strip().lower()
                     tipo_txt = tipo_label.get(tipo, tipo.replace("_", " ").title() or "Objetivo")
-                    vo = float(o.get("valor_objetivo") or 0)
-                    va = float(o.get("valor_actual") or 0)
+                    try:
+                        vo = float(o.get("valor_objetivo") or 0)
+                    except (ValueError, TypeError):
+                        vo = 0.0
+                    try:
+                        va = float(o.get("valor_actual") or 0)
+                    except (ValueError, TypeError):
+                        va = 0.0
                     tasa = o.get("tasa_pendientes")
-                    umbral = max(0.0, vo - float(tasa)) if (vo > 0 and tasa is not None) else vo
+                    try:
+                        tasa_val = float(tasa) if tasa is not None and str(tasa).strip() else 0.0
+                    except ValueError:
+                        tasa_val = 0.0
+                    umbral = max(0.0, vo - tasa_val) if (vo > 0 and tasa is not None) else vo
                     pct = 0 if umbral <= 0 else int(max(0, min(100, round((va / umbral) * 100))))
                     fecha = str(o.get("fecha_objetivo") or "")[:10]
                     vence_txt = ""

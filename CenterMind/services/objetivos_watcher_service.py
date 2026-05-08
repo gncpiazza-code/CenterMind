@@ -490,6 +490,33 @@ class ObjetivosWatcherService:
                 logger.warning(f"[Watcher] Error filtrando activos previos en activacion: {filter_err}")
                 return clients
 
+        def _filter_sales_before_objective(clients: list[dict], since_str: str) -> list[dict]:
+            # Evita contar ventas que se ingirieron ANTES de la creación del objetivo
+            if not clients:
+                return clients
+            try:
+                client_ids = [int(c["id_cliente"]) for c in clients if c.get("id_cliente")]
+                if not client_ids:
+                    return clients
+                    
+                since_date = since_str[:10]
+                
+                ventas_res = (
+                    sb.table("ventas_v2")
+                    .select("id_cliente")
+                    .eq("id_distribuidor", dist_id)
+                    .in_("id_cliente", client_ids)
+                    .gte("fecha", since_date)
+                    .gte("created_at", since_str)
+                    .execute()
+                )
+                valid_ids = {int(v["id_cliente"]) for v in (ventas_res.data or []) if v.get("id_cliente")}
+                return [c for c in clients if c.get("id_cliente") and int(c["id_cliente"]) in valid_ids]
+            except Exception as filter_err:
+                logger.warning(f"[Watcher] Error filtrando ventas previas a objetivo: {filter_err}")
+                # Fallback: si falla, no filtramos para no romper el flujo
+                return clients
+
         try:
             item_pdv_ids = self._get_item_pdv_ids(obj_id)
             if item_pdv_ids is not None and len(item_pdv_ids) == 0:
@@ -506,6 +533,7 @@ class ObjetivosWatcherService:
                 )
                 all_clients = clientes_res.data or []
                 all_clients = _filter_previously_active(all_clients, since)
+                all_clients = _filter_sales_before_objective(all_clients, since)
 
                 ya_trackeados = self._get_tracked_refs(obj_id, "activacion")
                 nuevos = [c for c in all_clients if str(c["id_cliente"]) not in ya_trackeados]
@@ -546,6 +574,7 @@ class ObjetivosWatcherService:
             )
             all_clients = clientes_res.data or []
             all_clients = _filter_previously_active(all_clients, since)
+            all_clients = _filter_sales_before_objective(all_clients, since)
 
             ya_trackeados = self._get_tracked_refs(obj_id, "activacion")
             nuevos = [c for c in all_clients if str(c["id_cliente"]) not in ya_trackeados]

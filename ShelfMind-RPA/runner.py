@@ -8,6 +8,7 @@ Motores disponibles:
     python runner.py cuentas         <- Motor 3: CC CHESS (v2 red+fallback Excel; v1 con RPA_CUENTAS_ENGINE=v1)
     python runner.py sigo            <- Motor 4: Reporte Sigo (Nextbyn)
     python runner.py rendcalle       <- Motor 5: Rendimiento en calle (Nextbyn)
+    python runner.py informe_ventas  <- Motor 6: Informe de Ventas (Consolido Reporteador)
     python runner.py todos           <- Todos los motores en secuencia
 
 Ventas con fechas custom:
@@ -101,11 +102,20 @@ async def correr_rendcalle() -> None:
     _log_resumen(resumen, "RENDCALLE")
 
 
+async def correr_informe_ventas() -> None:
+    """Motor 6: Informe de Ventas (Consolido Reporteador)."""
+    _banner("INFORME VENTAS -- Consolido Reporteador")
+    _verificar_vault_o_salir()
+    from motores.informe_ventas import run as _run
+    resumen = await _run()
+    _log_resumen(resumen, "INFORME_VENTAS")
+
+
 async def main() -> None:
     if len(sys.argv) < 2:
         logger.error(
             "Falta el argumento del motor.\n"
-            "Uso: python runner.py padron|ventas|cuentas|sigo|rendcalle|todos\n"
+            "Uso: python runner.py padron|ventas|cuentas|sigo|rendcalle|informe_ventas|todos\n"
             "Ventas con fechas: python runner.py ventas DD/MM/YYYY DD/MM/YYYY"
         )
         sys.exit(1)
@@ -124,6 +134,8 @@ async def main() -> None:
         await correr_sigo()
     elif motor == "rendcalle":
         await correr_rendcalle()
+    elif motor == "informe_ventas":
+        await correr_informe_ventas()
     elif motor == "todos":
         logger.info("Corriendo todos los motores en secuencia...")
         await correr_padron()
@@ -135,8 +147,10 @@ async def main() -> None:
         await correr_sigo()
         await asyncio.sleep(30)
         await correr_rendcalle()
+        await asyncio.sleep(30)
+        await correr_informe_ventas()
     else:
-        logger.error(f"Motor desconocido: '{motor}'. Validos: padron, ventas, cuentas, sigo, rendcalle, todos")
+        logger.error(f"Motor desconocido: '{motor}'. Validos: padron, ventas, cuentas, sigo, rendcalle, informe_ventas, todos")
         sys.exit(1)
 
 

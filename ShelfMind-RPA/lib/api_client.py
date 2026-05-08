@@ -294,6 +294,41 @@ async def subir_padron(archivo_path, id_distribuidor: int) -> bool:
         return False
 
 
+async def subir_ventas_enriched(archivo_path, tenant_id: str) -> bool:
+    """
+    Sube un Excel de Informe de Ventas (Reporteador Genérico) a
+    POST /api/motor/ventas-enriched.
+    """
+    url = f"{_url()}/api/motor/ventas-enriched"
+    try:
+        archivo_path = Path(archivo_path)
+        with open(archivo_path, "rb") as f:
+            file_bytes = f.read()
+        timeout = httpx.Timeout(connect=20.0, read=240.0, write=120.0, pool=20.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.post(
+                url,
+                headers=_headers(),
+                data={"tenant_id": tenant_id},
+                files={"file": (archivo_path.name, file_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+            )
+        if resp.status_code in (200, 201):
+            try:
+                data = resp.json()
+            except Exception:
+                data = {}
+            logger.info(
+                f"  ✅ Ventas enriched subido — rows={data.get('rows', '?')} "
+                f"upserted={data.get('upserted', '?')} dist={data.get('dist_id', '?')}"
+            )
+            return True
+        logger.error(f"  ❌ API ventas-enriched {resp.status_code}: {resp.text[:260]}")
+        return False
+    except Exception as e:
+        logger.error(f"  ❌ Error subiendo ventas-enriched ({tenant_id}): {e}")
+        return False
+
+
 def _compactar_excel_para_upload(file_bytes: bytes) -> bytes | None:
     """
     Reescribe el Excel sin estilos para bajar peso, preservando contenido.

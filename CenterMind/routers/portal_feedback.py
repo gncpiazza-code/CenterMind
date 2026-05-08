@@ -7,7 +7,7 @@ import re
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 
 from core.security import verify_auth
 from core.lifespan import broadcast_sync, SUPERADMIN_WS_DIST_ID
@@ -53,6 +53,53 @@ def _ext_from_name(name: str) -> str:
     if re.fullmatch(r"[a-z0-9]{1,12}", tail or ""):
         return f".{tail}"
     return ""
+
+
+async def _store_portal_attachment(file: UploadFile, dist_id: int | None, uid: int) -> dict:
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Archivo inválido")
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Archivo vacío")
+    if len(data) > _MAX_ATTACHMENT_BYTES:
+        raise HTTPException(status_code=400, detail="El archivo supera los 10 MB")
+
+    ctype = (file.content_type or "").strip().lower() or "application/octet-stream"
+    if ctype != "application/octet-stream":
+        prefix_ok = any(ctype.startswith(p) for p in _ALLOWED_CT_PREFIXES)
+        full_ok = ctype in _ALLOWED_CT_FULL
+        if not (prefix_ok or full_ok):
+            raise HTTPException(status_code=400, detail=f"Tipo de archivo no permitido: {ctype}")
+    elif _ext_from_name(file.filename) not in {
+        ".jpg", ".jpeg", ".png", ".gif", ".webp", ".pdf", ".txt", ".csv", ".zip", ".xlsx", ".xls"
+    }:
+        raise HTTPException(
+            status_code=400,
+            detail="Tipo de archivo no permitido — usá imagen, PDF, TXT/CSV o Excel",
+        )
+
+    try:
+        dist_part = int(dist_id) if dist_id is not None else 0
+    except (TypeError, ValueError):
+        dist_part = 0
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    orig = _safe_orig_name(file.filename)
+    short = uuid4().hex[:10]
+    ext = _ext_from_name(orig) or ""
+    fname_core = orig[: -len(ext)] if ext and orig.endswith(ext) else orig
+    if not fname_core:
+        fname_core = "archivo"
+    storage_name = f"u{uid}_{stamp}_{short}_{fname_core}{ext}"
+    storage_path = f"portal-tickets/{dist_part}/{storage_name}"
+    upload_opts = {"content-type": ctype, "upsert": "true"}
+
+    try:
+        sb.storage.from_(_TICKET_BUCKET).upload(storage_path, data, file_options=upload_opts)
+        url = sb.storage.from_(_TICKET_BUCKET).get_public_url(storage_path)
+    except Exception as e:
+        logger.error(f"[portal-feedback] upload attachment path={storage_path}: {e}")
+        raise HTTPException(status_code=500, detail="No se pudo guardar el adjunto") from e
+    return {"ok": True, "url": url, "filename": orig}
 
 
 
@@ -109,81 +156,47 @@ async def post_portal_feedback_attachment(
 ):
     """Sube un adjunto para tickets del portal (JWT). Bucket público, path por distribuidor."""
     pl = _require_jwt_user(user_payload)
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="Archivo inválido")
-    data = await file.read()
-    if not data:
-        raise HTTPException(status_code=400, detail="Archivo vacío")
-    if len(data) > _MAX_ATTACHMENT_BYTES:
-        raise HTTPException(status_code=400, detail="El archivo supera los 10 MB")
-
-    ctype = (file.content_type or "").strip().lower() or "application/octet-stream"
-    if ctype != "application/octet-stream":
-        prefix_ok = any(ctype.startswith(p) for p in _ALLOWED_CT_PREFIXES)
-        full_ok = ctype in _ALLOWED_CT_FULL
-        if not (prefix_ok or full_ok):
-            raise HTTPException(status_code=400, detail=f"Tipo de archivo no permitido: {ctype}")
-    elif _ext_from_name(file.filename) not in {
-        ".jpg",
-        ".jpeg",
-        ".png",
-        ".gif",
-        ".webp",
-        ".pdf",
-        ".txt",
-        ".csv",
-        ".zip",
-        ".xlsx",
-        ".xls",
-    }:
-        raise HTTPException(
-            status_code=400,
-            detail="Tipo de archivo no permitido — usá imagen, PDF, TXT/CSV o Excel",
-        )
-
-    dist_id = pl.get("id_distribuidor")
-    try:
-        dist_part = int(dist_id) if dist_id is not None else 0
-    except (TypeError, ValueError):
-        dist_part = 0
     uid = int(pl.get("id_usuario") or 0)
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    orig = _safe_orig_name(file.filename)
-    short = uuid4().hex[:10]
-    ext = _ext_from_name(orig) or ""
-    fname_core = orig[: -len(ext)] if ext and orig.endswith(ext) else orig
-    if not fname_core:
-        fname_core = "archivo"
-    storage_name = f"u{uid}_{stamp}_{short}_{fname_core}{ext}"
-    storage_path = f"portal-tickets/{dist_part}/{storage_name}"
-
-    upload_opts = {"content-type": ctype, "upsert": "true"}
-
-    try:
-        sb.storage.from_(_TICKET_BUCKET).upload(
-            storage_path,
-            data,
-            file_options=upload_opts,
-        )
-        url = sb.storage.from_(_TICKET_BUCKET).get_public_url(storage_path)
-    except Exception as e:
-        logger.error(f"[portal-feedback] upload attachment path={storage_path}: {e}")
-        raise HTTPException(status_code=500, detail="No se pudo guardar el adjunto") from e
-
-    return {"ok": True, "url": url, "filename": orig}
+    return await _store_portal_attachment(file, pl.get("id_distribuidor"), uid)
 
 
 @router.post("/messages")
 async def post_feedback_message(
-    body: PortalFeedbackMessageCreate, user_payload: dict = Depends(verify_auth)
+    request: Request,
+    user_payload: dict = Depends(verify_auth),
 ):
     pl = _require_jwt_user(user_payload)
+    content_type = (request.headers.get("content-type") or "").lower()
+    contenido: str = ""
+    attachments_lines: list[str] = []
+    if "multipart/form-data" in content_type or "application/x-www-form-urlencoded" in content_type:
+        form = await request.form()
+        contenido = str(form.get("contenido") or "").strip()
+        files = [
+            v for v in form.values()
+            if isinstance(v, UploadFile) and v.filename
+        ]
+        if files:
+            uid = int(pl.get("id_usuario") or 0)
+            for f in files:
+                stored = await _store_portal_attachment(f, pl.get("id_distribuidor"), uid)
+                attachments_lines.append(f"- {stored['url']} ({stored['filename']})")
+    else:
+        payload = await request.json()
+        body = PortalFeedbackMessageCreate.model_validate(payload)
+        contenido = body.contenido.strip()
+
+    if not contenido:
+        raise HTTPException(status_code=422, detail="contenido es obligatorio")
+    if attachments_lines:
+        contenido = f"{contenido}\n\nAdjuntos:\n" + "\n".join(attachments_lines)
+
     row = {
         "id_usuario": int(pl["id_usuario"]),
         "id_distribuidor": pl.get("id_distribuidor"),
         "usuario_snapshot": pl.get("sub") or "",
         "rol_snapshot": str(pl.get("rol") or ""),
-        "contenido": body.contenido.strip(),
+        "contenido": contenido,
     }
     pending_safe = 0
     try:
@@ -213,7 +226,7 @@ async def post_feedback_message(
             "pending": pending_safe,
         },
     )
-    cl = clasificar_portal_ticket(body.contenido.strip())
+    cl = clasificar_portal_ticket(contenido)
     return {"ok": True, "id": cid, "clasificacion_agent": cl}
 
 

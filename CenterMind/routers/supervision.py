@@ -1815,13 +1815,23 @@ def supervision_pdvs_movimiento(
         # Algunas ingestas pueden dejar `id_vendedor` nulo en clientes y resolver vínculo por `id_ruta`.
         route_ids: list[int] = []
         try:
-            rr = (
-                sb.table(t_rutas)
-                .select("id_ruta")
-                .eq("id_distribuidor", dist_id)
-                .eq("id_vendedor", id_vendedor)
-                .execute()
-            )
+            # `rutas_v2_d{dist}` no siempre tiene `id_distribuidor` (tenant partition), por eso
+            # intentamos con el filtro si existe y si falla, hacemos fallback por `id_vendedor`.
+            try:
+                rr = (
+                    sb.table(t_rutas)
+                    .select("id_ruta")
+                    .eq("id_distribuidor", dist_id)
+                    .eq("id_vendedor", id_vendedor)
+                    .execute()
+                )
+            except Exception:
+                rr = (
+                    sb.table(t_rutas)
+                    .select("id_ruta")
+                    .eq("id_vendedor", id_vendedor)
+                    .execute()
+                )
             route_ids = [int(r.get("id_ruta")) for r in (rr.data or []) if r.get("id_ruta") is not None]
         except Exception:
             route_ids = []
@@ -1862,7 +1872,16 @@ def supervision_pdvs_movimiento(
                     continue
                 exhibido = False
                 if id_cl:
-                    ex = sb.table(t_exhib).select("id").eq("id_distribuidor", dist_id).eq("id_cliente_pdv", id_cl).gte("created_at", fecha_inicio).lte("created_at", fecha_fin).limit(1).execute()
+                    ex = (
+                        sb.table(t_exhib)
+                        .select("id_exhibicion")
+                        .eq("id_distribuidor", dist_id)
+                        .eq("id_cliente_pdv", id_cl)
+                        .gte("timestamp_subida", fecha_inicio)
+                        .lte("timestamp_subida", fecha_fin)
+                        .limit(1)
+                        .execute()
+                    )
                     exhibido = bool(ex.data)
                 items.append({
                     "id_cliente_erp": r.get("id_cliente_erp"),
@@ -1892,7 +1911,16 @@ def supervision_pdvs_movimiento(
                     continue
                 exhibido = False
                 if id_cl:
-                    ex = sb.table(t_exhib).select("id").eq("id_distribuidor", dist_id).eq("id_cliente_pdv", id_cl).gte("created_at", fecha_inicio).lte("created_at", fecha_fin).limit(1).execute()
+                    ex = (
+                        sb.table(t_exhib)
+                        .select("id_exhibicion")
+                        .eq("id_distribuidor", dist_id)
+                        .eq("id_cliente_pdv", id_cl)
+                        .gte("timestamp_subida", fecha_inicio)
+                        .lte("timestamp_subida", fecha_fin)
+                        .limit(1)
+                        .execute()
+                    )
                     exhibido = bool(ex.data)
                 items.append({
                     "id_cliente_erp": r.get("id_cliente_erp"),

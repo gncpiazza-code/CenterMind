@@ -6,11 +6,10 @@ Proceso siempre activo para ejecutar motores RPA en horario Argentina.
 
 Zona: America/Argentina/Buenos_Aires (independiente de la región del host, ej. us-west).
 
-Horarios:
-  07:30  Padrón (única corrida diaria)
-  08:00  13:30  17:30  20:00  Cuentas corrientes (CHESS saldos)
-
-Ventas queda deshabilitado temporalmente en el scheduler.
+Horarios productivos (AR):
+  - Padrón: 08:30, 11:30, 15:30, 18:30
+  - Cuentas corrientes: 07:00, 14:30
+  - Informe de ventas enriquecido: 09:30, 13:00, 17:00, 21:00 (cierre)
 
 Monitorear CPU/RAM y “Accesos concurrentes” en CHESS según uso real.
 
@@ -37,8 +36,12 @@ logger = logging.getLogger("SCHEDULER")
 
 AR_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
 
-# Cuentas corrientes (AR): 08:00, 13:30, 17:30, 20:00
-_SLOTS_CUENTAS = [(8, 0), (13, 30), (17, 30), (20, 0)]
+# Cuentas corrientes (AR): 07:00, 14:30
+_SLOTS_CUENTAS = [(7, 0), (14, 30)]
+# Padrón (AR): 08:30, 11:30, 15:30, 18:30
+_SLOTS_PADRON = [(8, 30), (11, 30), (15, 30), (18, 30)]
+# Informe de ventas enriquecido (AR): 09:30, 13:00, 17:00, 21:00
+_SLOTS_INFORME_VENTAS = [(9, 30), (13, 0), (17, 0), (21, 0)]
 
 
 def job_cuentas():
@@ -81,10 +84,10 @@ async def _run_padron():
 
 
 async def _run_ventas():
-    from motores.ventas import run
+    from motores.informe_ventas import run
     resumen = await run()
     logger.info(
-        f"VENTAS completo — ok={resumen.get('ok', '?')}, "
+        f"INFORME_VENTAS completo — ok={resumen.get('ok', '?')}, "
         f"errores={resumen.get('errores', '?')}, "
         f"sin_cambios={resumen.get('sin_cambios', '?')}"
     )
@@ -103,7 +106,7 @@ def job_ventas():
 
 def main():
     logger.info("=" * 60)
-    logger.info("  ShelfMind RPA Scheduler — PADRÓN + CUENTAS (VENTAS deshabilitado)")
+    logger.info("  ShelfMind RPA Scheduler — PADRÓN + CUENTAS + INFORME_VENTAS")
     from lib.shelfy_config import get_shelfy_base_url, get_shelfy_api_key
     from lib.vault_client import get_secret
 
@@ -135,13 +138,34 @@ def main():
 
     scheduler = BackgroundScheduler(timezone=AR_TZ)
 
-    scheduler.add_job(job_padron, CronTrigger(hour=7, minute=30, timezone=AR_TZ), id="padron_0730")
+    job_defaults = {
+        "coalesce": True,
+        "max_instances": 1,
+        "misfire_grace_time": 60 * 20,
+    }
+
+    for hi, mi in _SLOTS_PADRON:
+        scheduler.add_job(
+            job_padron,
+            CronTrigger(hour=hi, minute=mi, timezone=AR_TZ),
+            id=f"padron_{hi:02d}{mi:02d}",
+            **job_defaults,
+        )
 
     for hi, mi in _SLOTS_CUENTAS:
         scheduler.add_job(
             job_cuentas,
             CronTrigger(hour=hi, minute=mi, timezone=AR_TZ),
             id=f"cuentas_{hi:02d}{mi:02d}",
+            **job_defaults,
+        )
+
+    for hi, mi in _SLOTS_INFORME_VENTAS:
+        scheduler.add_job(
+            job_ventas,
+            CronTrigger(hour=hi, minute=mi, timezone=AR_TZ),
+            id=f"informe_ventas_{hi:02d}{mi:02d}",
+            **job_defaults,
         )
 
     scheduler.start()

@@ -19,6 +19,7 @@ const ALL_NAV: MobileNavItem[] = [
   { href: "/visor",                label: "Evaluar",      icon: Eye,             roles: ["superadmin", "admin", "supervisor", "evaluador", "directorio"], permisoKey: "action_evaluar_exhibiciones" },
   { href: "/dashboard",            label: "Dashboard",    icon: LayoutDashboard, roles: ["superadmin", "admin", "supervisor", "directorio"],               permisoKey: "menu_dashboard" },
   { href: "/supervision",          label: "Supervisión",  icon: BarChart2,        roles: ["superadmin", "admin", "supervisor", "directorio"],               permisoKey: "menu_supervision" },
+  { href: "/supervision-v2",       label: "SUP2",         icon: BarChart2,        roles: ["superadmin"] },
   { href: "/modo-mapa",            label: "Mapa",         icon: Map,              roles: ["superadmin", "admin", "supervisor", "directorio"],               permisoKey: "menu_supervision" },
   { href: "/objetivos",            label: "Objetivos",    icon: Target,           roles: ["superadmin", "admin", "supervisor", "directorio"],               permisoKey: "menu_objetivos" },
   { href: "/galeria-exhibiciones", label: "Galería",      icon: Images,           roles: ["superadmin", "admin", "supervisor", "directorio", "evaluador"],  permisoKey: "menu_galeria_exhibiciones" },

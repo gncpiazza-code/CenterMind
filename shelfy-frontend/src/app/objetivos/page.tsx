@@ -204,6 +204,24 @@ function monthEndISO(monthRef: string): string {
   return dt.toISOString().split("T")[0];
 }
 
+function DateBadge({ date, label, type }: { date: string | null | undefined, label: string, type: 'start' | 'end' | 'done' }) {
+  if (!date) return null;
+  const colors = {
+    start: 'bg-blue-500/10 text-blue-600 border-blue-500/20',
+    end: 'bg-orange-500/10 text-orange-600 border-orange-500/20',
+    done: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20'
+  };
+  return (
+    <div className={`flex flex-col gap-0.5 px-2 py-1 rounded border ${colors[type]}`}>
+      <span className="text-[9px] font-semibold uppercase tracking-wider opacity-80">{label}</span>
+      <span className="text-[10px] font-medium flex items-center gap-1">
+        <Calendar className="w-3 h-3" />
+        {formatDate(date)}
+      </span>
+    </div>
+  );
+}
+
 function DateChip({ date }: { date: string | null | undefined }) {
   const days = daysUntil(date);
   if (days === null) return null;
@@ -326,26 +344,26 @@ function CompaniaProrrateo({ obj, visualActual }: { obj: Objetivo; visualActual?
   );
 }
 
-function getObjetivoItemClientCode(it: Objetivo["items"][number]): string | null {
+function getObjetivoItemClientCode(it: NonNullable<Objetivo["items"]>[number]): string | null {
   if (it.id_cliente_erp) return it.id_cliente_erp;
   const md = (it.metadata_ruteo ?? {}) as Record<string, unknown>;
   const erp = md["id_cliente_erp"];
   return typeof erp === "string" && erp.trim() ? erp : null;
 }
 
-function getObjetivoItemDisplayName(it: Objetivo["items"][number]): string {
+function getObjetivoItemDisplayName(it: NonNullable<Objetivo["items"]>[number]): string {
   const md = (it.metadata_ruteo ?? {}) as Record<string, unknown>;
-  const razon = md["nombre_razon_social"];
-  if (typeof razon === "string" && razon.trim()) return razon.trim();
+  const fantasia = md["nombre_fantasia"];
+  if (typeof fantasia === "string" && fantasia.trim()) return fantasia.trim();
   if (it.nombre_pdv && it.nombre_pdv.trim()) return it.nombre_pdv.trim();
   return "Cliente sin nombre";
 }
 
-function getObjetivoItemSecondaryName(it: Objetivo["items"][number]): string | null {
+function getObjetivoItemSecondaryName(it: NonNullable<Objetivo["items"]>[number]): string | null {
   const md = (it.metadata_ruteo ?? {}) as Record<string, unknown>;
-  const fantasia = md["nombre_fantasia"];
-  if (typeof fantasia !== "string" || !fantasia.trim()) return null;
-  const trimmed = fantasia.trim();
+  const razon = md["nombre_razon_social"];
+  if (typeof razon !== "string" || !razon.trim()) return null;
+  const trimmed = razon.trim();
   return trimmed === getObjetivoItemDisplayName(it) ? null : trimmed;
 }
 
@@ -813,7 +831,7 @@ function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado, onOpenR
                 <span className="text-[var(--shelfy-muted)]/70">
                   Tasa pendientes: {obj.tasa_pendientes}
                   {obj.desglose_cache != null
-                    ? obj.desglose_cache.pendientes_count > 0
+                    ? (obj.desglose_cache.pendientes_count ?? 0) > 0
                       ? <span className="ml-1">· {obj.desglose_cache.pendientes_count} pendiente{obj.desglose_cache.pendientes_count !== 1 ? "s" : ""}</span>
                       : null
                     : <span className="ml-1">· –</span>
@@ -928,7 +946,11 @@ function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado, onOpenR
 
         {/* Footer */}
         <div className="flex items-center justify-between pt-1 gap-1.5 flex-wrap" onClick={(e) => e.stopPropagation()}>
-          <DateChip date={obj.fecha_objetivo} />
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <DateBadge date={obj.created_at} label="Inicio" type="start" />
+            <DateBadge date={obj.fecha_objetivo} label="Fin" type="end" />
+            {obj.cumplido && <DateBadge date={obj.completed_at || obj.updated_at} label="Cumplido" type="done" />}
+          </div>
           <div className="flex items-center gap-1 print-hidden">
             {obj.tipo === "ruteo" && (
               <button

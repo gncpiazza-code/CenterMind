@@ -41,6 +41,12 @@ const TABS: TabItem[] = [
     roles: ["superadmin", "admin", "supervisor", "directorio"],
   },
   {
+    href: "/supervision-v2",
+    label: "SUP2",
+    icon: BarChart2,
+    roles: ["superadmin"],
+  },
+  {
     href: "/modo-mapa",
     label: "Mapa",
     icon: Map,

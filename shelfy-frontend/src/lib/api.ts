@@ -2758,3 +2758,27 @@ export async function updateDifusionPlantilla(id: number, titulo: string, cuerpo
 export async function deleteDifusionPlantilla(id: number): Promise<void> {
   await apiFetch(`/api/difusion/plantillas/${id}`, { method: 'DELETE' });
 }
+
+export async function fetchSupervisionV2Dashboard(
+  distId: number,
+  params: {
+    dias?: number;
+    fecha_hasta?: string;
+    sucursal?: string;
+    vendedor?: string;
+  } = {}
+): Promise<any> {
+  const q = new URLSearchParams();
+  if (params.dias) q.append("dias", params.dias.toString());
+  if (params.fecha_hasta) q.append("fecha_hasta", params.fecha_hasta);
+  if (params.sucursal) q.append("sucursal", params.sucursal);
+  if (params.vendedor) q.append("vendedor", params.vendedor);
+
+  const res = await fetch(`${API_URL}/api/supervision/v2/dashboard/${distId}?${q.toString()}`, {
+    headers: {
+      Authorization: `Bearer ${localStorage.getItem(TOKEN_KEY)}`,
+    },
+  });
+  if (!res.ok) throw new Error("Error fetching supervision v2 dashboard");
+  return res.json();
+}

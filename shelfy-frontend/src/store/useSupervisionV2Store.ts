@@ -8,8 +8,8 @@ interface SupervisionV2State {
   selectedSucursal: string | null;
   setSelectedSucursal: (sucursal: string | null) => void;
   
-  selectedVendedor: number | null;
-  setSelectedVendedor: (vendedorId: number | null) => void;
+  selectedVendedor: string | null;
+  setSelectedVendedor: (vendedorId: string | null) => void;
   
   selectedRuta: string | null;
   setSelectedRuta: (ruta: string | null) => void;

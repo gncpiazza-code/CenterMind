@@ -28,7 +28,7 @@ const formatCurrency = (val: number) => new Intl.NumberFormat('es-AR', { style: 
 import { useRouter } from "next/navigation";
 
 export default function SupervisionV2Page() {
-  const { user } = useAuth();
+  const { user, effectiveDistribuidorId } = useAuth();
   const router = useRouter();
   
   React.useEffect(() => {
@@ -37,7 +37,7 @@ export default function SupervisionV2Page() {
     }
   }, [user, router]);
 
-  const distId = user?.id_distribuidor || 2; // Fallback to 2 for mockup if not logged in
+  const distId = effectiveDistribuidorId || 2; // Fallback to 2 for mockup if not logged in
 
   const { 
     dateRange, setDateRange, 
@@ -53,7 +53,7 @@ export default function SupervisionV2Page() {
     queryFn: () => fetchSupervisionV2Dashboard(distId, { 
       dias: dateRange === 'hoy' ? 1 : dateRange === 'semana' ? 7 : 30, // Simplification
       sucursal: selectedSucursal || undefined, 
-      vendedor: selectedVendedor ? selectedVendedor.toString() : undefined 
+      vendedor: selectedVendedor || undefined 
     }),
     enabled: !!distId,
   });
@@ -99,21 +99,21 @@ export default function SupervisionV2Page() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="todas">Todas las Sucursales</SelectItem>
-                  <SelectItem value="norte">Sucursal Norte</SelectItem>
-                  <SelectItem value="sur">Sucursal Sur</SelectItem>
+                  {data?.filtrosDisponibles?.sucursales?.map((s: string) => (
+                    <SelectItem key={s} value={s}>{s}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
-              <Select value={selectedVendedor ? String(selectedVendedor) : "todos"} onValueChange={(v: any) => setSelectedVendedor(v === "todos" ? null : Number(v))}>
+              <Select value={selectedVendedor || "todos"} onValueChange={(v: any) => setSelectedVendedor(v === "todos" ? null : v)}>
                 <SelectTrigger className="w-[140px] bg-[var(--shelfy-bg)]">
                   <Users className="w-4 h-4 mr-2 text-[var(--shelfy-muted)]" />
                   <SelectValue placeholder="Vendedor" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="todos">Todos los Vendedores</SelectItem>
-                  <SelectItem value="1">Juan Perez</SelectItem>
-                  <SelectItem value="2">Maria Gomez</SelectItem>
-                  <SelectItem value="3">Carlos Ruiz</SelectItem>
-                  <SelectItem value="4">Ana Lopez</SelectItem>
+                  {data?.filtrosDisponibles?.vendedores?.map((v: string) => (
+                    <SelectItem key={v} value={v}>{v}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -281,7 +281,7 @@ export default function SupervisionV2Page() {
                       {isLoading ? (
                         <TableRow><TableCell colSpan={6} className="text-center py-8 text-[var(--shelfy-muted)]">Cargando...</TableCell></TableRow>
                       ) : (
-                        data?.rankingVendedores?.map((v) => (
+                        data?.rankingVendedores?.map((v: any) => (
                           <TableRow key={v.id} className="border-[var(--shelfy-border)] hover:bg-black/[0.02] cursor-pointer" onClick={() => openDrawer('vendedor', v.id)}>
                             <TableCell className="font-medium text-[var(--shelfy-text)]">{v.nombre}</TableCell>
                             <TableCell className="text-right text-emerald-600 font-medium">{formatCurrency(v.ventas)}</TableCell>
@@ -318,7 +318,7 @@ export default function SupervisionV2Page() {
                       {isLoading ? (
                         <TableRow><TableCell colSpan={7} className="text-center py-8 text-[var(--shelfy-muted)]">Cargando...</TableCell></TableRow>
                       ) : (
-                        data?.ventas?.map((v) => (
+                        data?.ventas?.map((v: any) => (
                           <TableRow key={v.id} className="border-[var(--shelfy-border)] hover:bg-black/[0.02] cursor-pointer" onClick={() => openDrawer('venta', v.id)}>
                             <TableCell className="font-mono text-xs text-[var(--shelfy-text)] flex items-center gap-2">
                               <Receipt className="w-3 h-3 text-[var(--shelfy-muted)]" />
@@ -340,10 +340,10 @@ export default function SupervisionV2Page() {
                     </TableBody>
                   </Table>
                   <div className="p-4 border-t border-[var(--shelfy-border)] flex justify-between items-center text-sm text-[var(--shelfy-muted)] bg-black/[0.01]">
-                    <span>Mostrando 4 de 1.245 transacciones</span>
+                    <span>Mostrando {data?.ventas?.length || 0} transacciones recientes</span>
                     <div className="flex gap-2">
                       <button className="px-3 py-1 rounded border border-[var(--shelfy-border)] hover:bg-[var(--shelfy-border)]/50 disabled:opacity-50" disabled>Anterior</button>
-                      <button className="px-3 py-1 rounded border border-[var(--shelfy-border)] hover:bg-[var(--shelfy-border)]/50">Siguiente</button>
+                      <button className="px-3 py-1 rounded border border-[var(--shelfy-border)] hover:bg-[var(--shelfy-border)]/50" disabled>Siguiente</button>
                     </div>
                   </div>
                 </TabsContent>
@@ -363,7 +363,7 @@ export default function SupervisionV2Page() {
                       {isLoading ? (
                         <TableRow><TableCell colSpan={4} className="text-center py-8 text-[var(--shelfy-muted)]">Cargando...</TableCell></TableRow>
                       ) : (
-                        data?.articulos?.map((a) => (
+                        data?.articulos?.map((a: any) => (
                           <TableRow key={a.id} className="border-[var(--shelfy-border)] hover:bg-black/[0.02]">
                             <TableCell className="font-mono text-xs text-[var(--shelfy-muted)]">{a.codigo}</TableCell>
                             <TableCell className="font-medium text-[var(--shelfy-text)]">{a.descripcion}</TableCell>
@@ -397,7 +397,7 @@ export default function SupervisionV2Page() {
                       {isLoading ? (
                         <TableRow><TableCell colSpan={5} className="text-center py-8 text-[var(--shelfy-muted)]">Cargando...</TableCell></TableRow>
                       ) : (
-                        data?.cc?.map((c) => (
+                        data?.cc?.map((c: any) => (
                           <TableRow key={c.id} className="border-[var(--shelfy-border)] hover:bg-black/[0.02] cursor-pointer" onClick={() => openDrawer('pdv', c.id)}>
                             <TableCell>
                               <div className="flex flex-col">
@@ -439,81 +439,13 @@ export default function SupervisionV2Page() {
             </SheetDescription>
           </SheetHeader>
 
-          {drawerType === 'venta' && (
-            <div className="space-y-6">
-              <div className="grid grid-cols-2 gap-4 bg-black/[0.02] p-4 rounded-lg border border-[var(--shelfy-border)]">
-                <div>
-                  <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wider mb-1">Comprobante</p>
-                  <p className="font-mono text-sm font-medium text-[var(--shelfy-text)]">FC-A-0001-00001234</p>
-                </div>
-                <div>
-                  <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wider mb-1">Fecha</p>
-                  <p className="text-sm font-medium text-[var(--shelfy-text)]">07/05/2026 10:30</p>
-                </div>
-                <div>
-                  <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wider mb-1">Cliente</p>
-                  <p className="text-sm font-medium text-[var(--shelfy-text)]">Kiosco El Sol</p>
-                </div>
-                <div>
-                  <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wider mb-1">Condición</p>
-                  <Badge variant="outline" className="bg-orange-500/10 text-orange-600 border-orange-500/20">Cta. Cte.</Badge>
-                </div>
-              </div>
-
-              <div>
-                <h4 className="font-medium text-[var(--shelfy-text)] mb-3 flex items-center gap-2">
-                  <Package className="w-4 h-4 text-[var(--shelfy-muted)]" />
-                  Artículos (Líneas)
-                </h4>
-                <div className="border border-[var(--shelfy-border)] rounded-lg overflow-hidden">
-                  <Table>
-                    <TableHeader className="bg-black/[0.02]">
-                      <TableRow className="border-[var(--shelfy-border)]">
-                        <TableHead className="text-xs">Artículo</TableHead>
-                        <TableHead className="text-xs text-right">Cant.</TableHead>
-                        <TableHead className="text-xs text-right">P. Unit</TableHead>
-                        <TableHead className="text-xs text-right">Subtotal</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      <TableRow className="border-[var(--shelfy-border)]">
-                        <TableCell className="text-xs">LIVERPOOL SPECIAL RED BOX</TableCell>
-                        <TableCell className="text-xs text-right">10</TableCell>
-                        <TableCell className="text-xs text-right">$2.500</TableCell>
-                        <TableCell className="text-xs text-right font-medium">$25.000</TableCell>
-                      </TableRow>
-                      <TableRow className="border-[var(--shelfy-border)]">
-                        <TableCell className="text-xs">LIVERPOOL SPECIAL GREEN BOX</TableCell>
-                        <TableCell className="text-xs text-right">5</TableCell>
-                        <TableCell className="text-xs text-right">$2.500</TableCell>
-                        <TableCell className="text-xs text-right font-medium">$12.500</TableCell>
-                      </TableRow>
-                      <TableRow className="border-[var(--shelfy-border)]">
-                        <TableCell className="text-xs">LIVERPOOL BLUE POP BOX</TableCell>
-                        <TableCell className="text-xs text-right">3</TableCell>
-                        <TableCell className="text-xs text-right">$2.500</TableCell>
-                        <TableCell className="text-xs text-right font-medium">$7.500</TableCell>
-                      </TableRow>
-                    </TableBody>
-                  </Table>
-                  <div className="p-3 bg-black/[0.03] flex justify-between items-center border-t border-[var(--shelfy-border)]">
-                    <span className="font-medium text-sm text-[var(--shelfy-text)]">Total</span>
-                    <span className="font-bold text-lg text-emerald-600">$45.000</span>
-                  </div>
-                </div>
-              </div>
+          <div className="flex flex-col items-center justify-center h-64 text-[var(--shelfy-muted)] text-center space-y-4">
+            <div className="w-16 h-16 rounded-full bg-[var(--shelfy-border)]/50 flex items-center justify-center">
+              {drawerType === 'vendedor' ? <Users className="w-8 h-8" /> : drawerType === 'pdv' ? <MapPin className="w-8 h-8" /> : <Receipt className="w-8 h-8" />}
             </div>
-          )}
-
-          {drawerType !== 'venta' && (
-            <div className="flex flex-col items-center justify-center h-64 text-[var(--shelfy-muted)] text-center space-y-4">
-              <div className="w-16 h-16 rounded-full bg-[var(--shelfy-border)]/50 flex items-center justify-center">
-                {drawerType === 'vendedor' ? <Users className="w-8 h-8" /> : <MapPin className="w-8 h-8" />}
-              </div>
-              <p>Aquí se cargará el perfil detallado del {drawerType === 'vendedor' ? 'vendedor' : 'PDV'}.</p>
-              <p className="text-xs max-w-[250px]">Incluirá gráficos individuales, historial de visitas y métricas específicas.</p>
-            </div>
-          )}
+            <p>Aquí se cargará el detalle de {drawerType === 'vendedor' ? 'vendedor' : drawerType === 'pdv' ? 'PDV' : 'la venta'}.</p>
+            <p className="text-xs max-w-[250px]">Esta funcionalidad se encuentra en desarrollo para la versión final.</p>
+          </div>
         </SheetContent>
       </Sheet>
     </div>

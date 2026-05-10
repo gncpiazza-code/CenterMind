@@ -793,6 +793,7 @@ class Database:
 
             # 4. Agregación con DEDUPLICACIÓN robusta (URL > MsgID)
             stats = defaultdict(lambda: {"aprobadas": 0, "destacadas": 0, "rechazadas": 0, "puntos": 0})
+            seen_logic: set[tuple[int, str, str]] = set()
             seen_urls = set()
             seen_msgs = set()
 
@@ -803,18 +804,35 @@ class Database:
                 tuid = int_to_user.get(iid)
                 if not tuid or tuid in EXCLUDE_UIDS: continue
                 
-                # Deduplicación
-                is_dupe = False
-                url = e.get("url_foto_drive")
-                msg_id = e.get("telegram_msg_id")
+                # Exhibición lógica única (no fotos): 1 por cliente y día por integrante.
+                ts = (e.get("timestamp_subida") or "").strip()
+                day_key = ts[:10] if len(ts) >= 10 else ""
+                client_key_raw = (
+                    e.get("id_cliente_pdv")
+                    or e.get("id_cliente")
+                    or e.get("cliente_sombra_codigo")
+                )
+                client_key = str(client_key_raw).strip() if client_key_raw is not None else ""
                 
-                if url:
-                    if url in seen_urls: is_dupe = True
-                    else: seen_urls.add(url)
-                elif msg_id:
-                    msg_key = (tuid, e.get("telegram_chat_id"), msg_id)
-                    if msg_key in seen_msgs: is_dupe = True
-                    else: seen_msgs.add(msg_key)
+                is_dupe = False
+                if day_key and client_key:
+                    logic_key = (iid, client_key, day_key)
+                    if logic_key in seen_logic:
+                        is_dupe = True
+                    else:
+                        seen_logic.add(logic_key)
+                else:
+                    # Fallback para filas antiguas sin cliente/fecha útil
+                    url = e.get("url_foto_drive")
+                    msg_id = e.get("telegram_msg_id")
+                    
+                    if url:
+                        if url in seen_urls: is_dupe = True
+                        else: seen_urls.add(url)
+                    elif msg_id:
+                        msg_key = (tuid, e.get("telegram_chat_id"), msg_id)
+                        if msg_key in seen_msgs: is_dupe = True
+                        else: seen_msgs.add(msg_key)
                 
                 if is_dupe: continue
 
@@ -1226,21 +1244,42 @@ class BotWorker:
             self.logger.debug(f"[stats] uid={uid} dist={self.distribuidor_id} total_ex={len(all_ex)}")
 
             def _calc_counts(exhibiciones_list):
+                seen_logic: set[tuple[int, str, str]] = set()
                 seen_urls = set()
                 seen_msgs = set()
-                counts = {"aprobadas": 0, "destacadas": 0, "rechazadas": 0, "pendientes": 0, "puntos": 0}
+                counts = {"aprobadas": 0, "destacadas": 0, "rechazadas": 0, "pendientes": 0, "puntos": 0, "total_logicas": 0}
                 for e in exhibiciones_list:
                     is_dupe = False
-                    url = e.get("url_foto_drive")
-                    msg_id = e.get("telegram_msg_id")
-                    if url:
-                        if url in seen_urls: is_dupe = True
-                        else: seen_urls.add(url)
-                    elif msg_id:
-                        msg_key = (e.get("id_integrante"), e.get("telegram_chat_id"), msg_id)
-                        if msg_key in seen_msgs: is_dupe = True
-                        else: seen_msgs.add(msg_key)
+                    
+                    # Exhibición lógica única (no fotos): 1 por cliente y día por integrante.
+                    iid = e.get("id_integrante")
+                    ts = (e.get("timestamp_subida") or "").strip()
+                    day_key = ts[:10] if len(ts) >= 10 else ""
+                    client_key_raw = (
+                        e.get("id_cliente_pdv")
+                        or e.get("id_cliente")
+                        or e.get("cliente_sombra_codigo")
+                    )
+                    client_key = str(client_key_raw).strip() if client_key_raw is not None else ""
+                    
+                    if day_key and client_key:
+                        logic_key = (iid, client_key, day_key)
+                        if logic_key in seen_logic:
+                            is_dupe = True
+                        else:
+                            seen_logic.add(logic_key)
+                    else:
+                        url = e.get("url_foto_drive")
+                        msg_id = e.get("telegram_msg_id")
+                        if url:
+                            if url in seen_urls: is_dupe = True
+                            else: seen_urls.add(url)
+                        elif msg_id:
+                            msg_key = (iid, e.get("telegram_chat_id"), msg_id)
+                            if msg_key in seen_msgs: is_dupe = True
+                            else: seen_msgs.add(msg_key)
                     if is_dupe: continue
+                    counts["total_logicas"] += 1
                     est = (e.get("estado") or "").lower()
                     if est in ('aprobado', 'aprobada'):
                         counts["aprobadas"] += 1; counts["puntos"] += 1
@@ -1265,8 +1304,8 @@ class BotWorker:
             counts_actual = _calc_counts(ex_actual)
             counts_prev = _calc_counts(ex_prev)
 
-            total_actual = counts_actual["aprobadas"] + counts_actual["destacadas"] + counts_actual["rechazadas"] + counts_actual["pendientes"]
-            total_prev = counts_prev["aprobadas"] + counts_prev["destacadas"] + counts_prev["rechazadas"] + counts_prev["pendientes"]
+            total_actual = counts_actual["total_logicas"]
+            total_prev = counts_prev["total_logicas"]
 
             display_name = "LUCIANO ITURRIA" if uid in LUCIANO_UIDS else m.from_user.first_name
             msg = (
@@ -1277,14 +1316,14 @@ class BotWorker:
                 f"   • 🔥 Destacadas: {counts_actual['destacadas']}\n"
                 f"   • ❌ Rechazadas: {counts_actual['rechazadas']}\n"
                 f"   • ⏳ Pendientes: {counts_actual['pendientes']}\n"
-                f"   • 🏆 <b>Puntos: {counts_actual['puntos']}</b>  (fotos: {total_actual})\n\n"
+                f"   • 🏆 <b>Puntos: {counts_actual['puntos']}</b>  (exhibiciones: {total_actual})\n\n"
                 f"📅 <b>Mes Anterior ({self.MESES[prev_m]}):</b>\n"
                 f"   • ✅ Aprobadas:  {counts_prev['aprobadas']}\n"
                 f"   • 🔥 Destacadas: {counts_prev['destacadas']}\n"
                 f"   • ❌ Rechazadas: {counts_prev['rechazadas']}\n"
                 f"   • ⏳ Pendientes: {counts_prev['pendientes']}\n"
-                f"   • 🏆 <b>Puntos: {counts_prev['puntos']}</b>  (fotos: {total_prev})\n"
-                f"<i>(Deduplicadas por ID y URL)</i>"
+                f"   • 🏆 <b>Puntos: {counts_prev['puntos']}</b>  (exhibiciones: {total_prev})\n"
+                f"<i>(Exhibiciones únicas por cliente y día)</i>"
             )
             await m.reply_text(msg, parse_mode=ParseMode.HTML)
         except Exception as e:

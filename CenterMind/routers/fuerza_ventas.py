@@ -1050,6 +1050,8 @@ def galeria_list_vendedores(
                 "pendientes": 0,
             }
 
+        seen_logic: set[tuple[int, int, str]] = set()
+
         for ex in exhibiciones:
             ts = _safe_text(ex.get("timestamp_subida")).strip()
             fecha = ts[:10] if ts else ""
@@ -1071,6 +1073,13 @@ def galeria_list_vendedores(
             vid = integ_vend_map.get(ig_id) if ig_id is not None else None
             if vid is None or vid not in stats:
                 continue
+                
+            if fecha and id_pdv:
+                logic_key = (vid, id_pdv, fecha)
+                if logic_key in seen_logic:
+                    continue
+                seen_logic.add(logic_key)
+                
             estado = _safe_text(ex.get("estado")).lower()
             stats[vid]["total_exhibiciones"] += 1
             if "aprobad" in estado:
@@ -1256,6 +1265,7 @@ def galeria_list_clientes_por_vendedor(
         ultima_por_cliente: dict[str, dict] = {}
         total_por_cliente: dict[str, int] = {}
         id_pdv_por_key: dict[str, int] = {}
+        seen_logic: set[tuple[str, str]] = set()
 
         for ex in exhibiciones:
             id_pdv = _safe_int(ex.get("id_cliente_pdv")) or _safe_int(ex.get("id_cliente"))
@@ -1267,6 +1277,15 @@ def galeria_list_clientes_por_vendedor(
                 continue
             key = f"pdv:{id_pdv}"
             id_pdv_por_key[key] = id_pdv
+            
+            ts = _safe_text(ex.get("timestamp_subida")).strip()
+            fecha = ts[:10] if ts else ""
+            
+            if fecha:
+                logic_key = (key, fecha)
+                if logic_key in seen_logic:
+                    continue
+                seen_logic.add(logic_key)
 
             if key not in ultima_por_cliente:
                 # Orden desc => primera fila es la más reciente.

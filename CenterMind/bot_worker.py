@@ -3191,6 +3191,7 @@ class BotWorker:
         app.job_queue.run_daily(
             self.objetivos_daily_reminder_job,
             time=dt_time(hour=8, minute=0, tzinfo=AR_TZ),
+            days=(0, 1, 2, 3, 4, 5),  # Lunes a Sábado, excluye Domingo (6)
             name=f"objetivos_daily_reminder_{self.distribuidor_id}",
         )
 

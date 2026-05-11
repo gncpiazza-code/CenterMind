@@ -42,7 +42,7 @@ from telegram.ext import (
 import json
 import html
 
-from core.helpers import build_qa_exhibicion_integrante_ids, is_exhibicion_qa_display_for_dist
+from core.helpers import build_qa_exhibicion_integrante_ids, is_exhibicion_qa_display_for_dist, build_integrante_to_erp_name
 from core.tenant_tables import tenant_table_name
 
 # PARCHE SSL (fix PostgreSQL sobreescribe SSL_CERT_FILE)
@@ -714,7 +714,7 @@ class Database:
             exhibiciones = []
             offset = 0
             while True:
-                q = self.sb.table("exhibiciones").select("id_integrante, estado")\
+                q = self.sb.table("exhibiciones").select("id_integrante, estado, url_foto_drive, telegram_msg_id, telegram_chat_id, timestamp_subida, id_cliente_pdv, id_cliente, cliente_sombra_codigo")\
                     .eq("id_distribuidor", distribuidor_id)\
                     .gte("timestamp_subida", start_date)\
                     .order("timestamp_subida")\
@@ -733,58 +733,26 @@ class Database:
             # 3. Fetch Integrantes y Sucursales para nombres y unificación
             try:
                 res_int = self.sb.table("integrantes_grupo")\
-                    .select("id_integrante, telegram_user_id, nombre_integrante, id_sucursal_erp, id_vendedor_v2, activo")\
+                    .select("id_integrante, id_sucursal_erp")\
                     .eq("id_distribuidor", distribuidor_id).execute()
-            except Exception as e_int:
-                # Compatibilidad con esquemas legacy sin columna `activo`.
-                if "column integrantes_grupo.activo does not exist" in str(e_int).lower() or "42703" in str(e_int):
-                    res_int = self.sb.table("integrantes_grupo")\
-                        .select("id_integrante, telegram_user_id, nombre_integrante, id_sucursal_erp, id_vendedor_v2")\
-                        .eq("id_distribuidor", distribuidor_id).execute()
-                else:
-                    raise
+            except Exception:
+                res_int = None
 
+            iid_to_erp = build_integrante_to_erp_name(distribuidor_id)
+            
             # Mapas para metadata
-            int_to_user = {i["id_integrante"]: i["telegram_user_id"] for i in res_int.data or [] if i.get("telegram_user_id")}
-            user_meta = {}
-
-            # REGLAS ESPECIALES DIST 3 (MARZO AUDIT)
-            EXCLUDE_UIDS = [9001156, 9000101] if distribuidor_id == 3 else [] # Ivan duplicado + Matias Wüthrich (fusionado → Ivan Wuthrich 9000666)
-            LUCIANO_UIDS = [6823099488, 9000005, 9000202] if distribuidor_id == 3 else []
-
-            # Fetch nombre_erp desde vendedores_v2 para mostrar nombre ERP en ranking
-            vendedor_ids = [i["id_vendedor_v2"] for i in res_int.data or [] if i.get("id_vendedor_v2")]
-            nombre_erp_map = {}
-            if vendedor_ids:
-                try:
-                    res_vend = self.sb.table(tenant_table_name("vendedores_v2", distribuidor_id))\
-                        .select("id_vendedor, nombre_erp")\
-                        .in_("id_vendedor", vendedor_ids).execute()
-                    nombre_erp_map = {v["id_vendedor"]: v["nombre_erp"] for v in res_vend.data or []}
-                except Exception:
-                    pass
-
-            for i in res_int.data or []:
-                tuid = i.get("telegram_user_id")
-                if not tuid or tuid in EXCLUDE_UIDS: continue
-                # Filtrar vendedores inactivos (activo=False); si la columna no existe, tratar como activo
-                if i.get("activo") is False:
-                    continue
-
-                # Unificación Luciano
-                identity_key = "LUCIANO_UNIFIED" if tuid in LUCIANO_UIDS else tuid
-
-                # Prefer nombre_erp from vendedores_v2, fallback to nombre_integrante
-                id_vend = i.get("id_vendedor_v2")
-                display_name = nombre_erp_map.get(id_vend) if id_vend else None
-                if not display_name:
-                    display_name = "LUCIANO ITURRIA" if identity_key == "LUCIANO_UNIFIED" else i["nombre_integrante"]
-
-                if identity_key not in user_meta:
-                    user_meta[identity_key] = {
-                        "nombre": "LUCIANO ITURRIA" if identity_key == "LUCIANO_UNIFIED" else display_name,
-                        "sucursal_id": i["id_sucursal_erp"]
-                    }
+            erp_to_suc_id = {}
+            if res_int and res_int.data:
+                for i in res_int.data:
+                    iid_raw = i.get("id_integrante")
+                    if iid_raw is not None:
+                        try:
+                            iid = int(iid_raw)
+                            erp_name = iid_to_erp.get(iid)
+                            if erp_name and erp_name not in erp_to_suc_id:
+                                erp_to_suc_id[erp_name] = i.get("id_sucursal_erp")
+                        except (TypeError, ValueError):
+                            pass
 
             res_suc = self.sb.table("sucursales")\
                 .select("id_sucursal_erp, nombre_erp")\
@@ -798,11 +766,20 @@ class Database:
             seen_msgs = set()
 
             for e in exhibiciones:
-                iid = e.get("id_integrante")
+                iid_raw = e.get("id_integrante")
+                if iid_raw is None:
+                    continue
+                try:
+                    iid = int(iid_raw)
+                except (TypeError, ValueError):
+                    continue
+
                 if iid in qa_ids:
                     continue
-                tuid = int_to_user.get(iid)
-                if not tuid or tuid in EXCLUDE_UIDS: continue
+                
+                vendedor = iid_to_erp.get(iid, "Desconocido")
+                if is_exhibicion_qa_display_for_dist(distribuidor_id, vendedor):
+                    continue
                 
                 # Exhibición lógica única (no fotos): 1 por cliente y día por integrante.
                 ts = (e.get("timestamp_subida") or "").strip()
@@ -830,36 +807,30 @@ class Database:
                         if url in seen_urls: is_dupe = True
                         else: seen_urls.add(url)
                     elif msg_id:
-                        msg_key = (tuid, e.get("telegram_chat_id"), msg_id)
+                        chat_id = e.get("telegram_chat_id")
+                        msg_key = (chat_id, msg_id)
                         if msg_key in seen_msgs: is_dupe = True
                         else: seen_msgs.add(msg_key)
                 
                 if is_dupe: continue
 
-                # Identidad unificada (Luciano)
-                identity_key = "LUCIANO_UNIFIED" if tuid in LUCIANO_UIDS else tuid
                 est = (e.get("estado") or "").lower()
                 
-                if est in ('aprobado', 'aprobada'):
-                    stats[identity_key]["aprobadas"] += 1
-                    stats[identity_key]["puntos"] += 1
-                elif est in ('destacado', 'destacada'):
-                    stats[identity_key]["destacadas"] += 1
-                    stats[identity_key]["aprobadas"] += 1 
-                    stats[identity_key]["puntos"] += 2
-                elif est in ('rechazado', 'rechazada'):
-                    stats[identity_key]["rechazadas"] += 1
+                if "aprobad" in est:
+                    stats[vendedor]["aprobadas"] += 1
+                    stats[vendedor]["puntos"] += 1
+                elif "destacad" in est:
+                    stats[vendedor]["destacadas"] += 1
+                    stats[vendedor]["puntos"] += 2
+                elif "rechaz" in est:
+                    stats[vendedor]["rechazadas"] += 1
 
             # 5. Formatear ranking
             ranking = []
-            for tuid, s in stats.items():
-                meta = user_meta.get(tuid, {})
-                nombre_fin = meta.get("nombre", f"User {tuid}")
-                if is_exhibicion_qa_display_for_dist(distribuidor_id, nombre_fin):
-                    continue
-                suc_id = meta.get("sucursal_id")
+            for vendedor, s in stats.items():
+                suc_id = erp_to_suc_id.get(vendedor)
                 ranking.append({
-                    "vendedor":   nombre_fin,
+                    "vendedor":   vendedor,
                     "sucursal":   suc_map.get(suc_id, "S/D"),
                     "puntos":     s["puntos"],
                     "aprobadas":  s["aprobadas"],
@@ -1229,7 +1200,7 @@ class BotWorker:
             while True:
                 res_ex = await asyncio.to_thread(
                     self.db.sb.table("exhibiciones")
-                        .select("id_integrante, telegram_chat_id, telegram_msg_id, url_foto_drive, timestamp_subida, estado")
+                        .select("id_integrante, telegram_chat_id, telegram_msg_id, url_foto_drive, timestamp_subida, estado, id_cliente_pdv, id_cliente, cliente_sombra_codigo")
                         .eq("id_distribuidor", self.distribuidor_id)
                         .in_("id_integrante", iids)
                         .gte("timestamp_subida", start_mes_prev.isoformat())
@@ -1275,17 +1246,18 @@ class BotWorker:
                             if url in seen_urls: is_dupe = True
                             else: seen_urls.add(url)
                         elif msg_id:
-                            msg_key = (iid, e.get("telegram_chat_id"), msg_id)
+                            chat_id = e.get("telegram_chat_id")
+                            msg_key = (chat_id, msg_id)
                             if msg_key in seen_msgs: is_dupe = True
                             else: seen_msgs.add(msg_key)
                     if is_dupe: continue
                     counts["total_logicas"] += 1
                     est = (e.get("estado") or "").lower()
-                    if est in ('aprobado', 'aprobada'):
+                    if "aprobad" in est:
                         counts["aprobadas"] += 1; counts["puntos"] += 1
-                    elif est in ('destacado', 'destacada'):
+                    elif "destacad" in est:
                         counts["destacadas"] += 1; counts["puntos"] += 2
-                    elif est in ('rechazado', 'rechazada'):
+                    elif "rechaz" in est:
                         counts["rechazadas"] += 1
                     else:
                         counts["pendientes"] += 1
@@ -1405,10 +1377,12 @@ class BotWorker:
                 .order("cumplido")
                 .order("fecha_objetivo", desc=False)
                 .order("created_at", desc=True)
-                .limit(20)
+                .limit(40)
                 .execute
             )
-            objetivos = objetivos_res.data or []
+            # Filtrar objetivos de ruteo (uso interno de supervisores)
+            objetivos = [o for o in (objetivos_res.data or []) if not str(o.get("tipo") or "").startswith("ruteo")]
+            objetivos = objetivos[:20]
 
             if not objetivos:
                 await m.reply_text(
@@ -3023,7 +2997,8 @@ class BotWorker:
                 .order("fecha_objetivo", desc=False)
                 .execute
             )
-            objetivos = objetivos_res.data or []
+            # Filtrar objetivos de ruteo (uso interno de supervisores)
+            objetivos = [o for o in (objetivos_res.data or []) if not str(o.get("tipo") or "").startswith("ruteo")]
             if not objetivos:
                 return
 

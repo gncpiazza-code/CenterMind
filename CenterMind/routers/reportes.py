@@ -58,6 +58,11 @@ def _resolve_period_bounds(periodo: str) -> tuple[str, str]:
             end_dt = datetime(ar_now.year + 1, 1, 1)
         else:
             end_dt = datetime(ar_now.year, ar_now.month + 1, 1)
+            
+    from datetime import timezone
+    tz = timezone(timedelta(hours=ar_offset_hours))
+    start_dt = start_dt.replace(tzinfo=tz)
+    end_dt = end_dt.replace(tzinfo=tz)
     return start_dt.isoformat(), end_dt.isoformat()
 
 
@@ -441,12 +446,12 @@ def dashboard_ranking(distribuidor_id: int, periodo: str = "mes", top: int = 999
             },
         )
         estado = (ex.get("estado") or "").strip().lower()
-        if "destacad" in estado:
-            row["destacadas"] += 1
-            row["puntos"] += 2
-        elif "aprobad" in estado:
+        if "aprobad" in estado:
             row["aprobadas"] += 1
             row["puntos"] += 1
+        elif "destacad" in estado:
+            row["destacadas"] += 1
+            row["puntos"] += 2
         elif "rechaz" in estado:
             row["rechazadas"] += 1
 

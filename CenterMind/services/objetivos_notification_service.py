@@ -449,6 +449,10 @@ class ObjetivosNotificationService:
                 return None
 
             tipo = obj_data.get("tipo")
+            if str(tipo or "").startswith("ruteo"):
+                logger.info(f"[Notif] Omitiendo notificación Telegram para objetivo de tipo {tipo} (uso interno)")
+                return None
+
             emoji = TIPO_EMOJI.get(tipo, "🎯")
             tipo_label = {
                 "ruteo":             "Ruteo (cambio / baja)",

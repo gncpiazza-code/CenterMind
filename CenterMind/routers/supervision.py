@@ -1673,6 +1673,7 @@ def supervision_cuentas(
         # Cache PDV info for extra metadata (last purchase date)
         _t_clientes_meta = tenant_table_name("clientes_pdv_v2", d_id)
         fecha_uc_map: dict = {}
+        erp_fuc_map: dict = {}      # normalized erp_id → fecha_ultima_compra
         erp_id_map:   dict = {}
         id_cliente_map: dict = {}   # nombre_norm → id_cliente (PK)
         erp_to_id_cliente: dict = {} # normalized erp_id → id_cliente (PK)
@@ -1717,6 +1718,8 @@ def supervision_cuentas(
                                     id_cliente_map[norm_key] = pk
                     if erp_norm and pk and erp_norm not in erp_to_id_cliente:
                         erp_to_id_cliente[erp_norm] = pk
+                    if erp_norm and fuc and erp_norm not in erp_fuc_map:
+                        erp_fuc_map[erp_norm] = fuc
                 if len(pdv_batch) < 1000:
                     break
                 pdv_offset += 1000
@@ -1757,7 +1760,7 @@ def supervision_cuentas(
                 "sucursal": item.get("sucursal_nombre"), "deuda_total": deuda,
                 "antiguedad": item.get("antiguedad_dias"), "rango_antiguedad": item.get("rango_antiguedad"),
                 "cantidad_comprobantes": item.get("cantidad_comprobantes"),
-                "fecha_ultima_compra": fecha_uc_map.get(nombre_norm) or fecha_uc_map.get(nombre_raw_upper),
+                "fecha_ultima_compra": erp_fuc_map.get(_norm_erp(item.get("id_cliente_erp"))) or fecha_uc_map.get(nombre_norm) or fecha_uc_map.get(nombre_raw_upper),
             })
 
         for vd in vendors.values():

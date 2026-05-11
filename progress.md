@@ -1,6 +1,6 @@
 # Progress — Shelfy CenterMind (Lean)
 
-**Ultima actualizacion:** 8 de Mayo, 2026  
+**Ultima actualizacion:** 11 de Mayo, 2026  
 **Objetivo:** estado operativo actual, riesgos y prioridades.  
 **Historial largo:** `docs/changelog/archive/2026-05.md`.
 
@@ -13,6 +13,7 @@
 ## Estado por Modulo
 
 - 🟢 Supervision: mapa, ventas, cuentas, filtros por sucursal/vendedor.
+- 🟢 Supervision-v2: router registrado, filtro valid_sellers eliminado, altas reales desde clientes_pdv_v2, drawers completos.
 - 🟢 Objetivos v9: kanban/timeline/stats/print, multi-PDV, watcher y Telegram.
 - 🟢 Difusion: CC por Telegram con preview y validaciones.
 - 🟢 Reporteria v2: tabs por fuente + detalle por vendedor.
@@ -35,6 +36,7 @@
 11. Objetivos exhibicion compañía: watcher robusto para retroactividad mensual (normaliza origen y aplica fallback de mes cuando falta `mes_referencia`).
 12. Objetivos: anti-spam Telegram en progreso (se mantienen altas/cierres y eventos de exhibición; se silencian mensajes "en marcha" del resto).
 13. Tickets portal superadmin: filtros server-side (estado/categoría/dist/texto), export JSON enriquecido y endpoint de pre-resolución IA (Gemini opcional + fallback por reglas).
+14. Supervision-v2: router incluido en api.py; eliminado filtro valid_sellers que causaba pérdida de datos; altas calculadas desde clientes_pdv_v2 via rutas_v2; Drawer de vendedor y comprobante 100% funcionales.
 
 ## Riesgos y Guardrails Activos
 

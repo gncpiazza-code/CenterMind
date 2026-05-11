@@ -55,44 +55,76 @@ def supervision_v2_dashboard(
                 break
             offset += PAGE
 
-        # 2. Aggregate Data for Filters (BEFORE filtering by sucursal/vendedor)
+        # 2. Build support maps (sucursales, vendedores, altas)
         vendedores_disponibles = set()
         sucursales_disponibles = set()
-        
+
         def normalize_seller_name(name: str) -> str:
             if not name: return ""
             if "-" in name:
                 return name.split("-")[-1].strip().upper()
             return name.strip().upper()
 
-        # Fetch valid sellers for this tenant to avoid mixing data from other tenants
-        t_vend = tenant_table_name("vendedores_v2", dist_id)
-        res_vends = sb.table(t_vend).select("nombre_erp, id_sucursal").execute()
-        
         t_suc = tenant_table_name("sucursales_v2", dist_id)
         res_sucs = sb.table(t_suc).select("id_sucursal, nombre_erp").execute()
         suc_map = {r["id_sucursal"]: r.get("nombre_erp", "") for r in res_sucs.data if r.get("id_sucursal")}
-        
-        valid_sellers = set()
-        vend_to_suc = {}
+
+        # Fetch vendedores: id_vendedor needed for altas linkage
+        t_vend = tenant_table_name("vendedores_v2", dist_id)
+        res_vends = sb.table(t_vend).select("id_vendedor, nombre_erp, id_sucursal").execute()
+        vend_to_suc: dict = {}
+        vend_id_to_norm: dict = {}
         for r in res_vends.data:
             name = r.get("nombre_erp")
+            vid = r.get("id_vendedor")
             if name:
                 norm_name = normalize_seller_name(name)
-                valid_sellers.add(norm_name)
                 suc_name = suc_map.get(r.get("id_sucursal"), "").strip()
                 vend_to_suc[norm_name] = suc_name.lower() if suc_name else ""
                 if suc_name:
                     sucursales_disponibles.add(suc_name)
-        
-        # Filter rows by valid sellers
-        valid_ventas_rows = []
+                if vid is not None:
+                    vend_id_to_norm[vid] = norm_name
+
+        # Fetch rutas → vendedor mapping for altas calculation
+        t_rutas = tenant_table_name("rutas_v2", dist_id)
+        res_rutas = sb.table(t_rutas).select("id_ruta, id_vendedor").execute()
+        ruta_to_vend_id = {
+            r["id_ruta"]: r["id_vendedor"]
+            for r in res_rutas.data
+            if r.get("id_ruta") is not None and r.get("id_vendedor") is not None
+        }
+
+        # Count altas (new clients with fecha_alta in period) per normalized vendor name
+        t_clientes = tenant_table_name("clientes_pdv_v2", dist_id)
+        vend_norm_to_altas: dict = {}
+        altas_offset = 0
+        while True:
+            altas_batch = (
+                sb.table(t_clientes)
+                .select("id_ruta")
+                .gte("fecha_alta", fecha_desde_str)
+                .lte("fecha_alta", fecha_hasta_str)
+                .range(altas_offset, altas_offset + PAGE - 1)
+                .execute()
+                .data or []
+            )
+            for row in altas_batch:
+                rid = row.get("id_ruta")
+                if rid is not None and rid in ruta_to_vend_id:
+                    vid = ruta_to_vend_id[rid]
+                    norm = vend_id_to_norm.get(vid, "")
+                    if norm:
+                        vend_norm_to_altas[norm] = vend_norm_to_altas.get(norm, 0) + 1
+            if len(altas_batch) < PAGE:
+                break
+            altas_offset += PAGE
+
+        # Collect available vendedores from actual sales data (id_distribuidor already isolates tenant)
         for v in ventas_rows:
             vend = normalize_seller_name(v.get("nombre_vendedor", ""))
-            if not valid_sellers or vend in valid_sellers:
-                valid_ventas_rows.append(v)
-                if vend: vendedores_disponibles.add(vend)
-        ventas_rows = valid_ventas_rows
+            if vend:
+                vendedores_disponibles.add(vend)
 
         # 3. Filter by sucursal and vendedor
         sucursal_norm = (sucursal or "").strip().lower()
@@ -134,12 +166,12 @@ def supervision_v2_dashboard(
             val["ticketPromedio"] = val["ventas"] / val["count"] if val["count"] > 0 else 0
             chart_vendedores.append({"id": val["id"], "name": val["name"], "ventas": val["ventas"], "bultos": val["bultos"]})
             ranking_vendedores.append({
-                "id": val["id"], 
-                "nombre": val["name"], 
-                "ventas": val["ventas"], 
-                "bultos": val["bultos"], 
+                "id": val["id"],
+                "nombre": val["name"],
+                "ventas": val["ventas"],
+                "bultos": val["bultos"],
                 "ticketPromedio": val["ticketPromedio"],
-                "altas": 0
+                "altas": vend_norm_to_altas.get(val["id"], 0)
             })
             
         chart_vendedores.sort(key=lambda x: x["ventas"], reverse=True)

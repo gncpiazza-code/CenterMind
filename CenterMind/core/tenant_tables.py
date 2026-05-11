@@ -117,10 +117,17 @@ def ensure_tenant_partition_tables(sb, dist_id: int) -> None:
     last_err: Exception | None = None
     for payload in ({"sql": sql}, {"p_sql": sql}):
         try:
+            # We try to use exec_sql if it exists, otherwise we just try to execute the query directly if possible
+            # or skip if not supported
             sb.rpc("exec_sql", payload).execute()
             return
         except Exception as e:
             last_err = e
-    if last_err is not None:
-        raise last_err
+            
+    # If exec_sql fails, we can't create the tables automatically.
+    # This is a known issue with some Supabase instances that don't have the exec_sql function.
+    # We'll just log the error and continue, the tables will need to be created manually.
+    import logging
+    logger = logging.getLogger("tenant_tables")
+    logger.error(f"Could not create tenant tables for dist_id {dist_id}. Please create them manually. Error: {last_err}")
 

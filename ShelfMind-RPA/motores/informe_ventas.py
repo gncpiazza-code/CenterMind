@@ -105,34 +105,80 @@ async def _cerrar_overlays(page: Page) -> None:
 async def _set_empresa_single(page: Page, tenant: dict) -> None:
     id_emp = str(tenant["id_empresa"])
     await _cerrar_overlays(page)
-    # Abrir selector empresas usando el combobox Angular (estable entre tenants)
-    await page.locator('[role="combobox"]').last.click(timeout=8000)
-    await page.wait_for_timeout(700)
+    
+    logger.info(f"    - Empresa objetivo: ({id_emp}) {tenant['nombre']}")
 
-    # Limpiar selección existente (toggle sobre checkboxes marcados)
-    # Limpiar selección existente de forma robusta (el DOM cambia en cada click)
-    for _ in range(25):
-        selected_options = page.locator('[role="option"][aria-selected="true"]')
-        if await selected_options.count() == 0:
-            break
-        await selected_options.first.click(timeout=3000, force=True)
-        await page.wait_for_timeout(120)
+    # PASO 1: Abrir el dropdown de Empresas (combobox Angular Material)
+    try:
+        # Hacer clic en el combobox de Empresas para abrirlo
+        empresas_combobox = page.locator('[role="combobox"]')
+        await empresas_combobox.last.click(timeout=5000)
+        await page.wait_for_timeout(1000)
+        logger.info("      ✅ Dropdown de Empresas abierto")
+    except Exception as e:
+        logger.warning(f"      Error abriendo dropdown de Empresas: {e}")
 
-    # Seleccionar empresa objetivo por ID (mismo split que padrón)
-    options = page.locator('[role="option"]')
-    count = await options.count()
-    selected = False
-    for i in range(count):
-        opt = options.nth(i)
-        txt = ((await opt.text_content()) or "").strip()
-        if f"({id_emp})" in txt:
-            await opt.click(timeout=5000, force=True)
-            selected = True
-            break
-    if not selected:
-        raise RuntimeError(f"No se encontró empresa ({id_emp}) en selector de Empresas")
+    # PASO 2: Seleccionar la empresa correcta
+    try:
+        logger.info(f"      🔍 Buscando opción para empresa: ({id_emp})")
 
-    # cerrar overlay
+        # Los items del dropdown son [role="option"]
+        options = page.locator('[role="option"]')
+        count = await options.count()
+        logger.info(f"      📊 Total de opciones encontradas: {count}")
+
+        empresa_encontrada = False
+        for i in range(count):
+            option = options.nth(i)
+            try:
+                # Obtener el texto de la opción
+                option_text = await option.text_content()
+                option_text = option_text.strip() if option_text else ""
+
+                # Verificar si está seleccionada (tiene aria-selected="true")
+                is_selected = await option.get_attribute("aria-selected")
+                is_selected = is_selected == "true" if is_selected else False
+
+                logger.info(f"      [{i}] {option_text} [selected={is_selected}]")
+
+                # Buscar la opción que contiene el ID de empresa
+                if f"({id_emp})" in option_text:
+                    logger.info(f"      ✨ ¡Opción encontrada! ({id_emp})")
+                    empresa_encontrada = True
+
+                    # Si no está seleccionada, clickearla
+                    if not is_selected:
+                        logger.info(f"      🔲 Clickeando opción para {id_emp}...")
+                        await option.click(timeout=5000, force=True)
+                        await page.wait_for_timeout(500)
+
+                        # Verificar que se seleccionó correctamente
+                        is_selected_after = await option.get_attribute("aria-selected")
+                        is_selected_after = is_selected_after == "true" if is_selected_after else False
+                        logger.info(f"      ✅ Post-click: aria-selected = {is_selected_after}")
+
+                        if is_selected_after:
+                            logger.info(f"      ✅ Empresa {id_emp} seleccionada correctamente")
+                        else:
+                            logger.error(f"      ❌ Opción no se seleccionó después del click")
+                    else:
+                        logger.info(f"      ✅ Empresa {id_emp} ya estaba seleccionada")
+                    break
+            except Exception as e:
+                logger.warning(f"      [{i}] Error procesando opción: {type(e).__name__}: {e}")
+                continue
+
+        if not empresa_encontrada:
+            logger.error(f"      ❌ Empresa ({id_emp}) NO ENCONTRADA en las opciones disponibles")
+            raise RuntimeError(f"No se encontró empresa ({id_emp}) en selector de Empresas")
+
+        await page.wait_for_timeout(500)
+
+    except Exception as e:
+        logger.warning(f"      Error seleccionando empresa: {type(e).__name__}: {e}")
+        raise
+
+    # PASO 3: CRÍTICO — Cerrar el overlay del combobox
     await _cerrar_overlays(page)
     await page.wait_for_timeout(500)
     logger.info(f"  ✅ Empresa seleccionada: {tenant['nombre']} ({id_emp})")

@@ -401,7 +401,7 @@ class ObjetivosWatcherService:
                 clientes_res = q.execute()
                 all_clients = clientes_res.data or []
 
-                ya_trackeados = self._get_tracked_refs(obj_id, "alteo")
+                ya_trackeados = self._get_globally_tracked_refs(dist_id, "alteo")
                 cumplidos = [c for c in all_clients if str(c["id_cliente"]) not in ya_trackeados]
 
                 if cumplidos:
@@ -445,7 +445,7 @@ class ObjetivosWatcherService:
             )
             all_clients = clientes_res.data or []
 
-            ya_trackeados = self._get_tracked_refs(obj_id, "alteo")
+            ya_trackeados = self._get_globally_tracked_refs(dist_id, "alteo")
             nuevos = [c for c in all_clients if str(c["id_cliente"]) not in ya_trackeados]
 
             if nuevos:
@@ -872,6 +872,37 @@ class ObjetivosWatcherService:
             return None
 
     # ── Tracking helpers ──────────────────────────────────────────────────────
+
+    def _get_globally_tracked_refs(self, dist_id: int, tipo_evento: str) -> set[str]:
+        """Devuelve el conjunto de id_referencia ya registrados en tracking para cualquier objetivo del tenant."""
+        try:
+            # Primero obtenemos todos los IDs de objetivos del tenant
+            objs_res = sb.table("objetivos").select("id").eq("id_distribuidor", dist_id).execute()
+            obj_ids = [o["id"] for o in (objs_res.data or [])]
+            
+            if not obj_ids:
+                return set()
+                
+            # Luego buscamos los trackings de esos objetivos
+            # PostgREST in_ filter has a limit, so we might need to chunk it if there are thousands of objectives,
+            # but usually there aren't that many active/recent objectives.
+            # To be safe, we can just fetch all tracking for the tipo_evento and filter in memory if needed,
+            # but let's try with in_ first for up to 200 objectives.
+            
+            # Mejor enfoque: obtener todos los trackings del tipo_evento y filtrar los que pertenecen a nuestros objetivos
+            # Para evitar el límite de in_()
+            res = (
+                sb.table("objetivos_tracking")
+                .select("id_referencia, id_objetivo")
+                .eq("tipo_evento", tipo_evento)
+                .execute()
+            )
+            
+            obj_ids_set = set(obj_ids)
+            return {r["id_referencia"] for r in (res.data or []) if r["id_objetivo"] in obj_ids_set}
+        except Exception as e:
+            logger.warning(f"[Watcher] _get_globally_tracked_refs dist={dist_id}: {e}")
+            return set()
 
     def _get_tracked_refs(self, obj_id: str, tipo_evento: str) -> set[str]:
         """Devuelve el conjunto de id_referencia ya registrados en tracking."""

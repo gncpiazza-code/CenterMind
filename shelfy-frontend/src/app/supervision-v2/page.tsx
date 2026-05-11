@@ -17,10 +17,10 @@ import {
   LineChart, Line, Legend
 } from "recharts";
 import { 
-  DollarSign, Package, UserPlus, Search, Calendar, MapPin, Users, Receipt, Printer, AlertTriangle, ShoppingCart, TrendingUp
+  DollarSign, Package, UserPlus, Search, Calendar, MapPin, Users, Receipt, AlertTriangle, ShoppingCart
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
-import { fetchSupervisionV2Dashboard } from "@/lib/api";
+import { fetchSupervisionV2Dashboard, fetchSupervisionV2VendedorDetalle, fetchSupervisionV2VentaDetalle } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 
 const formatCurrency = (val: number) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(val);
@@ -58,6 +58,16 @@ export default function SupervisionV2Page() {
     enabled: !!distId,
   });
 
+  const { data: drawerData, isLoading: drawerLoading } = useQuery({
+    queryKey: ['supervision-v2-drawer', distId, drawerType, drawerId],
+    queryFn: () => {
+      if (drawerType === 'vendedor') return fetchSupervisionV2VendedorDetalle(distId, drawerId as string);
+      if (drawerType === 'venta') return fetchSupervisionV2VentaDetalle(distId, drawerId as string);
+      return Promise.resolve(null);
+    },
+    enabled: !!distId && drawerOpen && (drawerType === 'vendedor' || drawerType === 'venta') && !!drawerId,
+  });
+
   return (
     <div className="flex h-screen bg-[var(--shelfy-bg)]">
       <Sidebar />
@@ -77,7 +87,7 @@ export default function SupervisionV2Page() {
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
               </div>
-              <Select value={dateRange} onValueChange={(v: any) => setDateRange(v)}>
+              <Select value={dateRange} onValueChange={(v: string) => setDateRange(v)}>
                 <SelectTrigger className="w-[140px] bg-[var(--shelfy-bg)]">
                   <Calendar className="w-4 h-4 mr-2 text-[var(--shelfy-muted)]" />
                   <SelectValue placeholder="Fecha" />
@@ -92,7 +102,7 @@ export default function SupervisionV2Page() {
             </div>
             
             <div className="flex items-center gap-2 w-full md:w-auto">
-              <Select value={selectedSucursal || "todas"} onValueChange={(v: any) => setSelectedSucursal(v === "todas" ? null : v)}>
+              <Select value={selectedSucursal || "todas"} onValueChange={(v: string) => setSelectedSucursal(v === "todas" ? null : v)}>
                 <SelectTrigger className="w-[140px] bg-[var(--shelfy-bg)]">
                   <MapPin className="w-4 h-4 mr-2 text-[var(--shelfy-muted)]" />
                   <SelectValue placeholder="Sucursal" />
@@ -104,7 +114,7 @@ export default function SupervisionV2Page() {
                   ))}
                 </SelectContent>
               </Select>
-              <Select value={selectedVendedor || "todos"} onValueChange={(v: any) => setSelectedVendedor(v === "todos" ? null : v)}>
+              <Select value={selectedVendedor || "todos"} onValueChange={(v: string) => setSelectedVendedor(v === "todos" ? null : v)}>
                 <SelectTrigger className="w-[140px] bg-[var(--shelfy-bg)]">
                   <Users className="w-4 h-4 mr-2 text-[var(--shelfy-muted)]" />
                   <SelectValue placeholder="Vendedor" />
@@ -189,7 +199,7 @@ export default function SupervisionV2Page() {
                     <BarChart data={data?.chartVendedores} margin={{ top: 10, right: 10, left: 20, bottom: 20 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="var(--shelfy-border)" vertical={false} />
                       <XAxis dataKey="name" stroke="var(--shelfy-muted)" fontSize={12} tickLine={false} axisLine={false} />
-                      <YAxis yAxisId="left" stroke="var(--shelfy-muted)" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(val: any) => `$${val/1000000}M`} />
+                      <YAxis yAxisId="left" stroke="var(--shelfy-muted)" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(val: number) => `$${val/1000000}M`} />
                       <YAxis yAxisId="right" orientation="right" stroke="var(--shelfy-muted)" fontSize={12} tickLine={false} axisLine={false} />
                       <RechartsTooltip 
                         cursor={{fill: 'var(--shelfy-bg)'}}
@@ -216,7 +226,7 @@ export default function SupervisionV2Page() {
                     <LineChart data={data?.chartTendencia} margin={{ top: 10, right: 10, left: 20, bottom: 20 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="var(--shelfy-border)" vertical={false} />
                       <XAxis dataKey="date" stroke="var(--shelfy-muted)" fontSize={12} tickLine={false} axisLine={false} />
-                      <YAxis yAxisId="left" stroke="var(--shelfy-muted)" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(val: any) => `$${val/1000000}M`} />
+                      <YAxis yAxisId="left" stroke="var(--shelfy-muted)" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(val: number) => `$${val/1000000}M`} />
                       <YAxis yAxisId="right" orientation="right" stroke="var(--shelfy-muted)" fontSize={12} tickLine={false} axisLine={false} />
                       <RechartsTooltip 
                         contentStyle={{ backgroundColor: 'var(--shelfy-panel)', borderColor: 'var(--shelfy-border)', borderRadius: '8px', color: 'var(--shelfy-text)' }}
@@ -233,7 +243,7 @@ export default function SupervisionV2Page() {
 
           {/* 4. DATA TABLES (DRILL-DOWN) */}
           <Card className="bg-[var(--shelfy-panel)] border-[var(--shelfy-border)] shadow-sm flex flex-col">
-            <Tabs value={activeTab} onValueChange={(v: any) => setActiveTab(v)} className="w-full">
+            <Tabs value={activeTab} onValueChange={(v: string) => setActiveTab(v as "ranking" | "ventas" | "articulos")} className="w-full">
               <div className="px-6 pt-4 border-b border-[var(--shelfy-border)] overflow-x-auto">
                 <TabsList className="bg-transparent h-auto p-0 gap-6 min-w-max">
                   <TabsTrigger 
@@ -253,12 +263,6 @@ export default function SupervisionV2Page() {
                     className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-[var(--shelfy-accent)] rounded-none px-0 pb-3 font-medium text-[var(--shelfy-muted)] data-[state=active]:text-[var(--shelfy-text)]"
                   >
                     Ranking Artículos
-                  </TabsTrigger>
-                  <TabsTrigger 
-                    value="cc" 
-                    className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-[var(--shelfy-accent)] rounded-none px-0 pb-3 font-medium text-[var(--shelfy-muted)] data-[state=active]:text-[var(--shelfy-text)]"
-                  >
-                    Cuentas Corrientes (Saldos y Mora)
                   </TabsTrigger>
                 </TabsList>
               </div>
@@ -281,7 +285,7 @@ export default function SupervisionV2Page() {
                       {isLoading ? (
                         <TableRow><TableCell colSpan={6} className="text-center py-8 text-[var(--shelfy-muted)]">Cargando...</TableCell></TableRow>
                       ) : (
-                        data?.rankingVendedores?.map((v: any) => (
+                        data?.rankingVendedores?.map((v: { id: string, nombre: string, ventas: number, bultos: number, altas: number, ticketPromedio: number }) => (
                           <TableRow key={v.id} className="border-[var(--shelfy-border)] hover:bg-black/[0.02] cursor-pointer" onClick={() => openDrawer('vendedor', v.id)}>
                             <TableCell className="font-medium text-[var(--shelfy-text)]">{v.nombre}</TableCell>
                             <TableCell className="text-right text-emerald-600 font-medium">{formatCurrency(v.ventas)}</TableCell>
@@ -309,7 +313,6 @@ export default function SupervisionV2Page() {
                         <TableHead className="text-[var(--shelfy-muted)] font-semibold">Fecha</TableHead>
                         <TableHead className="text-[var(--shelfy-muted)] font-semibold">Cliente (PDV)</TableHead>
                         <TableHead className="text-[var(--shelfy-muted)] font-semibold">Vendedor</TableHead>
-                        <TableHead className="text-[var(--shelfy-muted)] font-semibold text-center">Condición</TableHead>
                         <TableHead className="text-[var(--shelfy-muted)] font-semibold text-right">Bultos</TableHead>
                         <TableHead className="text-[var(--shelfy-muted)] font-semibold text-right">Total ($)</TableHead>
                       </TableRow>
@@ -318,7 +321,7 @@ export default function SupervisionV2Page() {
                       {isLoading ? (
                         <TableRow><TableCell colSpan={7} className="text-center py-8 text-[var(--shelfy-muted)]">Cargando...</TableCell></TableRow>
                       ) : (
-                        data?.ventas?.map((v: any) => (
+                        data?.ventas?.map((v: { id: string, comprobante: string, fecha: string, pdv: string, vendedor: string, bultos: number, total: number }) => (
                           <TableRow key={v.id} className="border-[var(--shelfy-border)] hover:bg-black/[0.02] cursor-pointer" onClick={() => openDrawer('venta', v.id)}>
                             <TableCell className="font-mono text-xs text-[var(--shelfy-text)] flex items-center gap-2">
                               <Receipt className="w-3 h-3 text-[var(--shelfy-muted)]" />
@@ -327,11 +330,6 @@ export default function SupervisionV2Page() {
                             <TableCell className="text-[var(--shelfy-text)] text-sm">{new Date(v.fecha).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' })}</TableCell>
                             <TableCell className="text-[var(--shelfy-text)] text-sm">{v.pdv}</TableCell>
                             <TableCell className="text-[var(--shelfy-text)] text-sm">{v.vendedor}</TableCell>
-                            <TableCell className="text-center">
-                              <Badge variant="outline" className={v.condicion === 'Contado' ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20' : 'bg-orange-500/10 text-orange-600 border-orange-500/20'}>
-                                {v.condicion}
-                              </Badge>
-                            </TableCell>
                             <TableCell className="text-right text-[var(--shelfy-text)]">{v.bultos}</TableCell>
                             <TableCell className="text-right font-medium text-emerald-600">{formatCurrency(v.total)}</TableCell>
                           </TableRow>
@@ -363,7 +361,7 @@ export default function SupervisionV2Page() {
                       {isLoading ? (
                         <TableRow><TableCell colSpan={4} className="text-center py-8 text-[var(--shelfy-muted)]">Cargando...</TableCell></TableRow>
                       ) : (
-                        data?.articulos?.map((a: any) => (
+                        data?.articulos?.map((a: { id: string, codigo: string, descripcion: string, bultos: number, total: number }) => (
                           <TableRow key={a.id} className="border-[var(--shelfy-border)] hover:bg-black/[0.02]">
                             <TableCell className="font-mono text-xs text-[var(--shelfy-muted)]">{a.codigo}</TableCell>
                             <TableCell className="font-medium text-[var(--shelfy-text)]">{a.descripcion}</TableCell>
@@ -376,62 +374,18 @@ export default function SupervisionV2Page() {
                   </Table>
                 </TabsContent>
 
-                {/* TAB 4: CUENTAS CORRIENTES */}
-                <TabsContent value="cc" className="m-0 border-none outline-none">
-                  <div className="p-4 border-b border-[var(--shelfy-border)] flex justify-end bg-black/[0.01]">
-                    <Button variant="outline" size="sm" className="gap-2 text-[var(--shelfy-text)]">
-                      <Printer className="w-4 h-4" /> Imprimir Reporte CC
-                    </Button>
-                  </div>
-                  <Table>
-                    <TableHeader className="bg-black/[0.02]">
-                      <TableRow className="border-[var(--shelfy-border)] hover:bg-transparent">
-                        <TableHead className="text-[var(--shelfy-muted)] font-semibold">Cliente (PDV)</TableHead>
-                        <TableHead className="text-[var(--shelfy-muted)] font-semibold text-right">Deuda Total</TableHead>
-                        <TableHead className="text-[var(--shelfy-muted)] font-semibold text-center">Antigüedad (Días)</TableHead>
-                        <TableHead className="text-[var(--shelfy-muted)] font-semibold text-center">Comp. Adeudados</TableHead>
-                        <TableHead className="text-[var(--shelfy-muted)] font-semibold">Tramos de Mora</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {isLoading ? (
-                        <TableRow><TableCell colSpan={5} className="text-center py-8 text-[var(--shelfy-muted)]">Cargando...</TableCell></TableRow>
-                      ) : (
-                        data?.cc?.map((c: any) => (
-                          <TableRow key={c.id} className="border-[var(--shelfy-border)] hover:bg-black/[0.02] cursor-pointer" onClick={() => openDrawer('pdv', c.id)}>
-                            <TableCell>
-                              <div className="flex flex-col">
-                                <span className="font-medium text-[var(--shelfy-text)]">{c.fantasia}</span>
-                                <span className="text-[10px] text-[var(--shelfy-muted)] font-mono">ERP #{c.erp}</span>
-                              </div>
-                            </TableCell>
-                            <TableCell className="text-right text-rose-500 font-medium">{formatCurrency(c.deuda)}</TableCell>
-                            <TableCell className="text-center">
-                              <span className={`font-medium ${c.antiguedad > 30 ? 'text-rose-500' : 'text-orange-500'}`}>
-                                {c.antiguedad}
-                              </span>
-                            </TableCell>
-                            <TableCell className="text-center text-[var(--shelfy-text)]">{c.comprobantes}</TableCell>
-                            <TableCell className="text-[var(--shelfy-muted)] text-xs">{c.mora}</TableCell>
-                          </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
-                </TabsContent>
               </div>
             </Tabs>
           </Card>
         </main>
       </div>
 
-      {/* 5. DRAWER (SHEET) FOR DRILL-DOWN DETAILS */}
+          {/* 5. DRAWER (SHEET) FOR DRILL-DOWN DETAILS */}
       <Sheet open={drawerOpen} onOpenChange={(open) => !open && closeDrawer()}>
         <SheetContent className="w-full sm:max-w-md md:max-w-lg overflow-y-auto bg-[var(--shelfy-panel)] border-l-[var(--shelfy-border)]">
           <SheetHeader className="mb-6">
             <SheetTitle className="text-xl text-[var(--shelfy-text)]">
               {drawerType === 'vendedor' && 'Perfil del Vendedor'}
-              {drawerType === 'pdv' && 'Ficha del Cliente (PDV)'}
               {drawerType === 'venta' && 'Detalle del Comprobante'}
             </SheetTitle>
             <SheetDescription className="text-[var(--shelfy-muted)]">
@@ -439,13 +393,116 @@ export default function SupervisionV2Page() {
             </SheetDescription>
           </SheetHeader>
 
-          <div className="flex flex-col items-center justify-center h-64 text-[var(--shelfy-muted)] text-center space-y-4">
-            <div className="w-16 h-16 rounded-full bg-[var(--shelfy-border)]/50 flex items-center justify-center">
-              {drawerType === 'vendedor' ? <Users className="w-8 h-8" /> : drawerType === 'pdv' ? <MapPin className="w-8 h-8" /> : <Receipt className="w-8 h-8" />}
+          {drawerLoading ? (
+            <div className="flex items-center justify-center h-64 text-[var(--shelfy-muted)]">Cargando detalles...</div>
+          ) : drawerData ? (
+            <div className="space-y-6">
+              {drawerType === 'vendedor' && (
+                <>
+                  <div className="flex items-center gap-4 border-b border-[var(--shelfy-border)] pb-4">
+                    <div className="w-12 h-12 rounded-full bg-[var(--shelfy-accent)]/10 flex items-center justify-center">
+                      <Users className="w-6 h-6 text-[var(--shelfy-accent)]" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-lg text-[var(--shelfy-text)]">{drawerData.nombre}</h3>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <Card className="bg-black/[0.02] border-[var(--shelfy-border)] shadow-none">
+                      <CardContent className="p-4">
+                        <p className="text-xs text-[var(--shelfy-muted)]">Ventas 30 Días</p>
+                        <p className="text-xl font-bold text-emerald-600">{formatCurrency(drawerData.ventas_30d)}</p>
+                      </CardContent>
+                    </Card>
+                    <Card className="bg-black/[0.02] border-[var(--shelfy-border)] shadow-none">
+                      <CardContent className="p-4">
+                        <p className="text-xs text-[var(--shelfy-muted)]">Bultos</p>
+                        <p className="text-xl font-bold text-[var(--shelfy-text)]">{drawerData.bultos_30d}</p>
+                      </CardContent>
+                    </Card>
+                    <Card className="bg-black/[0.02] border-[var(--shelfy-border)] shadow-none">
+                      <CardContent className="p-4">
+                        <p className="text-xs text-[var(--shelfy-muted)]">Clientes Activos</p>
+                        <p className="text-xl font-bold text-[var(--shelfy-text)]">{drawerData.clientes_activos}</p>
+                      </CardContent>
+                    </Card>
+                    <Card className="bg-black/[0.02] border-[var(--shelfy-border)] shadow-none">
+                      <CardContent className="p-4">
+                        <p className="text-xs text-[var(--shelfy-muted)]">Comprobantes</p>
+                        <p className="text-xl font-bold text-[var(--shelfy-text)]">{drawerData.cantidad_comprobantes}</p>
+                      </CardContent>
+                    </Card>
+                  </div>
+                </>
+              )}
+
+              {drawerType === 'venta' && (
+                <>
+                  <div className="flex items-center justify-between border-b border-[var(--shelfy-border)] pb-4">
+                    <div>
+                      <p className="text-xs text-[var(--shelfy-muted)]">Comprobante</p>
+                      <h3 className="font-mono font-semibold text-lg text-[var(--shelfy-text)]">{drawerData.comprobante}</h3>
+                      <p className="text-xs text-[var(--shelfy-muted)] mt-1">{new Date(drawerData.fecha).toLocaleString('es-AR')}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs text-[var(--shelfy-muted)]">Total</p>
+                      <p className="text-xl font-bold text-emerald-600">{formatCurrency(drawerData.total)}</p>
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-4">
+                    <div>
+                      <p className="text-xs font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider mb-2">Cliente y Vendedor</p>
+                      <div className="bg-black/[0.02] rounded-lg p-3 border border-[var(--shelfy-border)]">
+                        <div className="flex items-center gap-2 mb-2">
+                          <MapPin className="w-4 h-4 text-[var(--shelfy-muted)]" />
+                          <span className="text-sm font-medium text-[var(--shelfy-text)]">{drawerData.cliente}</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-sm text-[var(--shelfy-text)]">
+                          <Users className="w-4 h-4 text-[var(--shelfy-muted)]" />
+                          <span>{drawerData.vendedor}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="text-xs font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider mb-2">Artículos ({drawerData.bultos} bultos)</p>
+                      <div className="border border-[var(--shelfy-border)] rounded-lg overflow-hidden">
+                        <Table>
+                          <TableHeader className="bg-black/[0.02]">
+                            <TableRow className="border-[var(--shelfy-border)] hover:bg-transparent">
+                              <TableHead className="text-xs font-semibold text-[var(--shelfy-muted)]">Cant.</TableHead>
+                              <TableHead className="text-xs font-semibold text-[var(--shelfy-muted)]">Artículo</TableHead>
+                              <TableHead className="text-xs font-semibold text-[var(--shelfy-muted)] text-right">Importe</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {drawerData.items.map((item: { cantidad: number, descripcion: string, codigo: string, importe: number }, i: number) => (
+                              <TableRow key={i} className="border-[var(--shelfy-border)] hover:bg-transparent">
+                                <TableCell className="text-xs text-[var(--shelfy-text)] py-2">{item.cantidad}</TableCell>
+                                <TableCell className="py-2">
+                                  <p className="text-xs font-medium text-[var(--shelfy-text)] truncate max-w-[200px]" title={item.descripcion}>{item.descripcion}</p>
+                                  <p className="text-[10px] text-[var(--shelfy-muted)] font-mono">{item.codigo}</p>
+                                </TableCell>
+                                <TableCell className="text-xs text-right text-[var(--shelfy-text)] font-medium py-2">{formatCurrency(item.importe)}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
-            <p>Aquí se cargará el detalle de {drawerType === 'vendedor' ? 'vendedor' : drawerType === 'pdv' ? 'PDV' : 'la venta'}.</p>
-            <p className="text-xs max-w-[250px]">Esta funcionalidad se encuentra en desarrollo para la versión final.</p>
-          </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center h-64 text-[var(--shelfy-muted)] text-center space-y-4">
+              <div className="w-16 h-16 rounded-full bg-[var(--shelfy-border)]/50 flex items-center justify-center">
+                <AlertTriangle className="w-8 h-8 text-[var(--shelfy-muted)]" />
+              </div>
+              <p>No se encontró información detallada.</p>
+            </div>
+          )}
         </SheetContent>
       </Sheet>
     </div>

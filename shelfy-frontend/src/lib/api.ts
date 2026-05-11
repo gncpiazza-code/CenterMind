@@ -2784,3 +2784,29 @@ export async function fetchSupervisionV2Dashboard(
   if (!res.ok) throw new Error("Error fetching supervision v2 dashboard");
   return res.json();
 }
+
+export async function fetchSupervisionV2VendedorDetalle(
+  distId: number,
+  vendedorId: string
+): Promise<any> {
+  const res = await fetch(`${API_URL}/api/supervision/v2/vendedor/${distId}/${encodeURIComponent(vendedorId)}/detalle`, {
+    headers: {
+      Authorization: `Bearer ${localStorage.getItem(TOKEN_KEY)}`,
+    },
+  });
+  if (!res.ok) throw new Error("Error fetching vendedor detalle");
+  return res.json();
+}
+
+export async function fetchSupervisionV2VentaDetalle(
+  distId: number,
+  comprobanteId: string
+): Promise<any> {
+  const res = await fetch(`${API_URL}/api/supervision/v2/venta/${distId}/${encodeURIComponent(comprobanteId)}/detalle`, {
+    headers: {
+      Authorization: `Bearer ${localStorage.getItem(TOKEN_KEY)}`,
+    },
+  });
+  if (!res.ok) throw new Error("Error fetching venta detalle");
+  return res.json();
+}

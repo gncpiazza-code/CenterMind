@@ -5,7 +5,7 @@ import logging
 
 from db import sb
 from core.tenant_tables import tenant_table_name
-from auth.auth_bearer import verify_auth
+from core.security import verify_auth
 from routers.supervision import check_dist_permission
 
 logger = logging.getLogger("supervision_v2")
@@ -55,35 +55,7 @@ def supervision_v2_dashboard(
                 break
             offset += PAGE
 
-        # 2. Fetch CC Detalle (latest snapshot)
-        q_snap = (
-            sb.table("cc_detalle")
-            .select("fecha_snapshot")
-            .eq("id_distribuidor", dist_id)
-            .order("fecha_snapshot", desc=True)
-            .limit(1)
-            .execute()
-        )
-        cc_rows = []
-        if q_snap.data:
-            fecha_snapshot = q_snap.data[0]["fecha_snapshot"]
-            offset = 0
-            while True:
-                batch = (
-                    sb.table("cc_detalle")
-                    .select("*")
-                    .eq("id_distribuidor", dist_id)
-                    .eq("fecha_snapshot", fecha_snapshot)
-                    .range(offset, offset + PAGE - 1)
-                    .execute()
-                    .data or []
-                )
-                cc_rows.extend(batch)
-                if len(batch) < PAGE:
-                    break
-                offset += PAGE
-
-        # 3. Aggregate Data for Filters (BEFORE filtering by sucursal/vendedor)
+        # 2. Aggregate Data for Filters (BEFORE filtering by sucursal/vendedor)
         vendedores_disponibles = set()
         sucursales_disponibles = set()
         
@@ -94,7 +66,6 @@ def supervision_v2_dashboard(
             return name.strip().upper()
 
         # Fetch valid sellers for this tenant to avoid mixing data from other tenants
-        # due to potential data ingestion issues
         t_vend = tenant_table_name("vendedores_v2", dist_id)
         res_vends = sb.table(t_vend).select("nombre_erp, id_sucursal").execute()
         
@@ -109,7 +80,10 @@ def supervision_v2_dashboard(
             if name:
                 norm_name = normalize_seller_name(name)
                 valid_sellers.add(norm_name)
-                vend_to_suc[norm_name] = suc_map.get(r.get("id_sucursal"), "").strip().lower()
+                suc_name = suc_map.get(r.get("id_sucursal"), "").strip()
+                vend_to_suc[norm_name] = suc_name.lower() if suc_name else ""
+                if suc_name:
+                    sucursales_disponibles.add(suc_name)
         
         # Filter rows by valid sellers
         valid_ventas_rows = []
@@ -119,43 +93,22 @@ def supervision_v2_dashboard(
                 valid_ventas_rows.append(v)
                 if vend: vendedores_disponibles.add(vend)
         ventas_rows = valid_ventas_rows
-        
-        valid_cc_rows = []
-        for c in cc_rows:
-            vend = normalize_seller_name(c.get("vendedor_nombre", ""))
-            if not valid_sellers or vend in valid_sellers:
-                valid_cc_rows.append(c)
-                suc = c.get("sucursal_nombre")
-                if suc: sucursales_disponibles.add(suc)
-                if vend: vendedores_disponibles.add(vend)
-        cc_rows = valid_cc_rows
 
-        # 4. Filter by sucursal and vendedor
-        # Normalizar nombres para filtrado
+        # 3. Filter by sucursal and vendedor
         sucursal_norm = (sucursal or "").strip().lower()
         vendedor_norm = (vendedor or "").strip().lower()
         
-        # Filtrar ventas
         filtered_ventas = []
         for v in ventas_rows:
-            vend_norm = normalize_seller_name(v.get("nombre_vendedor", "")).lower()
-            if vendedor_norm and vendedor_norm not in vend_norm:
+            vend_upper = normalize_seller_name(v.get("nombre_vendedor", ""))
+            vend_lower = vend_upper.lower()
+            if vendedor_norm and vendedor_norm not in vend_lower:
                 continue
             if sucursal_norm:
-                vend_upper = normalize_seller_name(v.get("nombre_vendedor", ""))
                 suc_for_vend = vend_to_suc.get(vend_upper, "")
                 if sucursal_norm not in suc_for_vend:
                     continue
             filtered_ventas.append(v)
-            
-        # Filtrar CC
-        filtered_cc = []
-        for c in cc_rows:
-            if sucursal_norm and sucursal_norm not in str(c.get("sucursal_nombre", "")).lower():
-                continue
-            if vendedor_norm and vendedor_norm not in normalize_seller_name(c.get("vendedor_nombre", "")).lower():
-                continue
-            filtered_cc.append(c)
 
         # 4. Aggregate Data
         
@@ -186,7 +139,7 @@ def supervision_v2_dashboard(
                 "ventas": val["ventas"], 
                 "bultos": val["bultos"], 
                 "ticketPromedio": val["ticketPromedio"],
-                "altas": 0 # TODO: cruzar con altas
+                "altas": 0
             })
             
         chart_vendedores.sort(key=lambda x: x["ventas"], reverse=True)
@@ -207,7 +160,6 @@ def supervision_v2_dashboard(
         chart_tendencia.sort(key=lambda x: x["date"])
 
         # Transacciones (Comprobantes)
-        # Agrupar por comprobante
         comprobantes_agg = {}
         for v in filtered_ventas:
             comp = v.get("numero_documento")
@@ -220,18 +172,11 @@ def supervision_v2_dashboard(
                     "pdv": v.get("nombre_cliente"),
                     "vendedorId": v.get("codigo_vendedor"),
                     "vendedor": normalize_seller_name(v.get("nombre_vendedor", "")) or "SIN VENDEDOR",
-                    "condicion": "Contado", # TODO: cruzar con CC
                     "bultos": 0,
                     "total": 0
                 }
             comprobantes_agg[comp]["bultos"] += float(v.get("bultos_total") or 0)
             comprobantes_agg[comp]["total"] += float(v.get("importe_final") or 0)
-            
-        # Determinar condición cruzando con CC
-        cc_clientes = {str(c.get("id_cliente_erp")): c for c in cc_rows}
-        for comp, data in comprobantes_agg.items():
-            # Si el cliente tiene deuda, marcamos como Cta. Cte. (simplificación)
-            pass
             
         ventas_list = list(comprobantes_agg.values())
         ventas_list.sort(key=lambda x: x["fecha"] or "", reverse=True)
@@ -255,20 +200,6 @@ def supervision_v2_dashboard(
         articulos_list = list(articulos_agg.values())
         articulos_list.sort(key=lambda x: x["total"], reverse=True)
 
-        # CC
-        cc_list = []
-        for c in filtered_cc:
-            cc_list.append({
-                "id": c.get("id_cliente_erp"),
-                "erp": c.get("id_cliente_erp"),
-                "fantasia": c.get("cliente_nombre"),
-                "deuda": float(c.get("deuda_total") or 0),
-                "antiguedad": c.get("antiguedad_dias"),
-                "comprobantes": c.get("cantidad_comprobantes"),
-                "mora": c.get("rango_antiguedad")
-            })
-        cc_list.sort(key=lambda x: x["deuda"], reverse=True)
-
         return {
             "kpis": {
                 "ventas": total_ventas,
@@ -279,9 +210,8 @@ def supervision_v2_dashboard(
             "chartVendedores": chart_vendedores,
             "chartTendencia": chart_tendencia,
             "rankingVendedores": ranking_vendedores,
-            "ventas": ventas_list[:1000], # Limitar a 1000 para no saturar
+            "ventas": ventas_list[:1000],
             "articulos": articulos_list[:500],
-            "cc": cc_list,
             "filtrosDisponibles": {
                 "vendedores": sorted(list(vendedores_disponibles)),
                 "sucursales": sorted(list(sucursales_disponibles))
@@ -290,4 +220,121 @@ def supervision_v2_dashboard(
 
     except Exception as e:
         logger.error(f"Error en supervision_v2_dashboard: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/api/supervision/v2/vendedor/{dist_id}/{vendedor_id}/detalle", tags=["Supervisión"])
+def supervision_v2_vendedor_detalle(
+    dist_id: int,
+    vendedor_id: str, # Puede ser el nombre normalizado
+    user_payload=Depends(verify_auth),
+):
+    if not user_payload.get("is_superadmin"):
+        raise HTTPException(status_code=403, detail="Solo superadmin")
+    check_dist_permission(user_payload, dist_id)
+    try:
+        # Simplificamos: traer últimos 30 días de ventas de este vendedor
+        fecha_desde_str = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+        t_ventas = tenant_table_name("ventas_enriched_v2", dist_id)
+        
+        ventas_rows = []
+        offset = 0
+        while True:
+            batch = (
+                sb.table(t_ventas)
+                .select("*")
+                .eq("id_distribuidor", dist_id)
+                .gte("fecha_factura", fecha_desde_str)
+                .eq("anulado", False)
+                .range(offset, offset + 1000 - 1)
+                .execute()
+                .data or []
+            )
+            ventas_rows.extend(batch)
+            if len(batch) < 1000:
+                break
+            offset += 1000
+
+        def normalize_seller_name(name: str) -> str:
+            if not name: return ""
+            if "-" in name:
+                return name.split("-")[-1].strip().upper()
+            return name.strip().upper()
+            
+        target_vend = normalize_seller_name(vendedor_id)
+        filtered_ventas = []
+        for v in ventas_rows:
+            vend_upper = normalize_seller_name(v.get("nombre_vendedor", ""))
+            if target_vend and target_vend in vend_upper:
+                filtered_ventas.append(v)
+                
+        # Calcular kpis basicos del vendedor
+        total_ventas = sum(float(v.get("importe_final") or 0) for v in filtered_ventas)
+        total_bultos = sum(float(v.get("bultos_total") or 0) for v in filtered_ventas)
+        clientes_unicos = len(set(v.get("id_cliente_erp") for v in filtered_ventas if v.get("id_cliente_erp")))
+        
+        return {
+            "nombre": target_vend,
+            "ventas_30d": total_ventas,
+            "bultos_30d": total_bultos,
+            "clientes_activos": clientes_unicos,
+            "cantidad_comprobantes": len(set(v.get("numero_documento") for v in filtered_ventas))
+        }
+
+    except Exception as e:
+        logger.error(f"Error detalle vendedor: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/api/supervision/v2/venta/{dist_id}/{comprobante_id}/detalle", tags=["Supervisión"])
+def supervision_v2_venta_detalle(
+    dist_id: int,
+    comprobante_id: str,
+    user_payload=Depends(verify_auth),
+):
+    if not user_payload.get("is_superadmin"):
+        raise HTTPException(status_code=403, detail="Solo superadmin")
+    check_dist_permission(user_payload, dist_id)
+    try:
+        t_ventas = tenant_table_name("ventas_enriched_v2", dist_id)
+        res = (
+            sb.table(t_ventas)
+            .select("*")
+            .eq("id_distribuidor", dist_id)
+            .eq("numero_documento", comprobante_id)
+            .execute()
+        )
+        rows = res.data or []
+        if not rows:
+            raise HTTPException(status_code=404, detail="Comprobante no encontrado")
+            
+        # Agrupar items
+        items = []
+        total = 0
+        bultos = 0
+        for r in rows:
+            importe = float(r.get("importe_final") or 0)
+            b = float(r.get("bultos_total") or 0)
+            total += importe
+            bultos += b
+            items.append({
+                "codigo": r.get("cod_articulo"),
+                "descripcion": r.get("descripcion_articulo"),
+                "cantidad": b,
+                "importe": importe
+            })
+            
+        base = rows[0]
+        return {
+            "comprobante": comprobante_id,
+            "fecha": base.get("fecha_factura"),
+            "cliente": base.get("nombre_cliente"),
+            "vendedor": base.get("nombre_vendedor"),
+            "total": total,
+            "bultos": bultos,
+            "items": items
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error detalle venta: {e}")
         raise HTTPException(status_code=500, detail=str(e))

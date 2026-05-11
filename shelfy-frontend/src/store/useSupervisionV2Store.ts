@@ -18,14 +18,14 @@ interface SupervisionV2State {
   setSearchQuery: (query: string) => void;
 
   // Estado de la UI
-  activeTab: 'ranking' | 'ventas' | 'articulos' | 'cc';
-  setActiveTab: (tab: 'ranking' | 'ventas' | 'articulos' | 'cc') => void;
+  activeTab: 'ranking' | 'ventas' | 'articulos';
+  setActiveTab: (tab: 'ranking' | 'ventas' | 'articulos') => void;
 
   // Drawers
   drawerOpen: boolean;
-  drawerType: 'vendedor' | 'pdv' | 'venta' | null;
+  drawerType: 'vendedor' | 'venta' | null;
   drawerId: string | number | null;
-  openDrawer: (type: 'vendedor' | 'pdv' | 'venta', id: string | number) => void;
+  openDrawer: (type: 'vendedor' | 'venta', id: string | number) => void;
   closeDrawer: () => void;
 }
 

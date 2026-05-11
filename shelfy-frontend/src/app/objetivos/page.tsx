@@ -82,10 +82,10 @@ import { toast } from "sonner";
 
 const TIPO_CONFIG: Record<ObjetivoTipo, { label: string; color: string; bg: string }> = {
   conversion_estado: { label: "Activación",                color: "text-blue-500",    bg: "bg-blue-500/10 border-blue-500/20" },
-  cobranza:          { label: "Cobranza",                  color: "text-orange-500",  bg: "bg-orange-500/10 border-orange-500/20" },
+  // cobranza:          { label: "Cobranza",                  color: "text-orange-500",  bg: "bg-orange-500/10 border-orange-500/20" }, // OCULTO A PETICION (No mostrar objetivos de cobranza)
   ruteo_alteo:       { label: "Alteo",                     color: "text-violet-600",  bg: "bg-violet-500/10 border-violet-500/20" },
   exhibicion:        { label: "Exhibición",                color: "text-emerald-600", bg: "bg-emerald-500/10 border-emerald-500/20" },
-  ruteo:             { label: "Guía para armado de ruta",  color: "text-purple-600",  bg: "bg-purple-500/10 border-purple-500/20" },
+  ruteo:             { label: "Guía de cambio de ruta",    color: "text-purple-600",  bg: "bg-purple-500/10 border-purple-500/20" },
 };
 
 // Descripciones educativas por tipo (mostradas en wizard lateral)

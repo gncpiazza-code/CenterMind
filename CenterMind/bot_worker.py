@@ -1797,6 +1797,9 @@ class BotWorker:
             )
             return
 
+        # Quitar ceros a la izquierda (ej: "00194" -> "194"), evitando que quede vacío si envían "0"
+        clean = clean.lstrip("0") or "0"
+
         session["nro_cliente"] = clean
         session["stage"] = self.STAGE_WAITING_TYPE
 

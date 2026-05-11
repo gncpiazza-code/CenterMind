@@ -2192,7 +2192,7 @@ def _compute_kanban_phase(obj: dict) -> str:
                 for it in obj_items
                 if it.get("estado_item") in ("cumplido", "falla")
             )
-            if resolved == items_count:
+            if resolved >= items_count:
                 return "terminado"
             if items_con_foto > 0:
                 return "en_progreso"
@@ -2959,7 +2959,8 @@ def listar_objetivos(
                                 "metadata_ruteo": md
                             })
                         obj["items"] = synthetic_items
-                        obj["items_count"] = len(synthetic_items)
+                        vo = obj.get("valor_objetivo")
+                        obj["items_count"] = int(float(vo)) if vo and float(vo) > 0 else len(synthetic_items)
                         obj["items_cumplidos"] = len(synthetic_items)
         except Exception as e_track:
             logger.warning(f"[listar_objetivos] Error cargando tracking para genéricos: {e_track}")
@@ -3015,7 +3016,8 @@ def listar_objetivos(
                                 }
                             })
                         obj["items"] = synthetic_items
-                        obj["items_count"] = len(synthetic_items)
+                        vo = obj.get("valor_objetivo")
+                        obj["items_count"] = int(float(vo)) if vo and float(vo) > 0 else len(synthetic_items)
                         obj["items_cumplidos"] = sum(1 for it in synthetic_items if it["estado_item"] == "cumplido")
         except Exception as e_pend_g:
             logger.warning(f"[listar_objetivos] exhibiciones pendientes (global): {e_pend_g}")

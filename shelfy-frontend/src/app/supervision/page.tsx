@@ -427,6 +427,7 @@ export default function SupervisionPage() {
                                   <Hash size={9} />Cbtés.
                                 </span>
                               </TableHead>
+                              <TableHead className="text-right">Últ. Compra</TableHead>
                               <TableHead className="text-right pr-5">Rango</TableHead>
                             </TableRow>
                           </TableHeader>
@@ -444,6 +445,9 @@ export default function SupervisionPage() {
                                 </TableCell>
                                 <TableCell className="text-right text-muted-foreground font-mono text-[11px]">
                                   {c.cantidad_comprobantes ?? "—"}
+                                </TableCell>
+                                <TableCell className="text-right text-muted-foreground text-[10px] whitespace-nowrap">
+                                  {c.fecha_ultima_compra ? new Date(c.fecha_ultima_compra + "T12:00:00Z").toLocaleDateString("es-AR") : "—"}
                                 </TableCell>
                                 <TableCell className="text-right pr-5">
                                   {c.rango_antiguedad ? (

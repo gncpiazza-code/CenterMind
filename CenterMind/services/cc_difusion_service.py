@@ -202,19 +202,22 @@ def _build_cc_pdf(
     ])
 
     # Table header + rows
-    table_data = [["Cliente ERP", "Cliente", "Días", "Comprobantes", "Deuda $"]]
+    table_data = [["Cliente ERP", "Cliente", "Días", "Cbtés.", "Últ. Comp.", "Deuda $"]]
     for c in clientes:
         dias = c.get("antiguedad") or 0
         erp_disp, cliente_disp = _normalize_cliente_row(c.get("cliente"), c.get("id_cliente_erp"))
+        fuc = c.get("fecha_ultima_compra")
+        fuc_disp = "/".join(reversed(fuc.split("-"))) if fuc else "—"
         table_data.append([
             erp_disp,
-            (cliente_disp or "—")[:40],
+            (cliente_disp or "—")[:35],
             str(dias),
             str(c.get("cantidad_comprobantes") or "—"),
+            fuc_disp,
             f"${float(c.get('deuda_total') or 0):,.0f}".replace(",", "."),
         ])
 
-    col_widths = [3.2 * cm, 6.0 * cm, 1.6 * cm, 2.4 * cm, 3.3 * cm]
+    col_widths = [2.5 * cm, 5.5 * cm, 1.3 * cm, 1.7 * cm, 2.3 * cm, 3.2 * cm]
     t = Table(table_data, colWidths=col_widths, repeatRows=1)
     t.setStyle(TableStyle([
         ("BACKGROUND",   (0, 0), (-1, 0), _VIOLET),
@@ -382,6 +385,29 @@ def _fetch_cc_snapshot(dist_id: int, fecha: str | None = None) -> tuple[str | No
         if len(batch) < 1000:
             break
         offset += 1000
+
+    # Enrich with fecha_ultima_compra from clientes_pdv_v2
+    id_erps = [r["id_cliente_erp"] for r in rows if r.get("id_cliente_erp")]
+    fuc_map = {}
+    if id_erps:
+        from core.tenant_tables import tenant_table_name
+        t_cli = tenant_table_name("clientes_pdv_v2", dist_id)
+        # Fetch in batches if there are many
+        chunk_size = 500
+        for i in range(0, len(id_erps), chunk_size):
+            chunk = id_erps[i:i+chunk_size]
+            try:
+                c_res = sb.table(t_cli).select("id_cliente_erp, fecha_ultima_compra").eq("id_distribuidor", dist_id).in_("id_cliente_erp", chunk).execute()
+                for c in (c_res.data or []):
+                    if c.get("fecha_ultima_compra"):
+                        fuc_map[str(c["id_cliente_erp"]).strip().upper()] = c["fecha_ultima_compra"][:10]
+            except Exception as e:
+                logger.warning(f"[CCDifusion] Error fetching fecha_ultima_compra for chunk: {e}")
+
+    for r in rows:
+        erp_key = str(r.get("id_cliente_erp")).strip().upper()
+        r["fecha_ultima_compra"] = fuc_map.get(erp_key)
+
     return fecha_snapshot, rows
 
 
@@ -407,6 +433,7 @@ def _group_by_vendor(rows: list[dict]) -> dict[int | str, dict]:
             "deuda_total": float(r.get("deuda_total") or 0),
             "antiguedad": r.get("antiguedad_dias"),
             "cantidad_comprobantes": r.get("cantidad_comprobantes"),
+            "fecha_ultima_compra": r.get("fecha_ultima_compra"),
         })
         vendors[vid]["deuda_total"] += float(r.get("deuda_total") or 0)
     for vd in vendors.values():

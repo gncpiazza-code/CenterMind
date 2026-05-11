@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Building2, ToggleRight, ToggleLeft } from "lucide-react";
+import { Building2, ToggleRight, ToggleLeft, Database } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { PageSpinner } from "@/components/ui/Spinner";
 import { fetchDistribuidoras, crearDistribuidora, toggleDistribuidora, type Distribuidora } from "@/lib/api";
+import { SqlModal } from "./SqlModal";
 
 const INPUT_CLS = "rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] text-[var(--shelfy-text)] px-3 py-2 text-sm focus:outline-none focus:border-[var(--shelfy-primary)]";
 
@@ -28,6 +29,7 @@ export default function TabDistribuidoras() {
   });
   const [saving, setSaving] = useState(false);
   const [soloActivas, setSoloActivas] = useState(false);
+  const [sqlModalDist, setSqlModalDist] = useState<{id: number, nombre: string} | null>(null);
 
   const load = () => {
     setLoading(true);
@@ -220,7 +222,7 @@ export default function TabDistribuidoras() {
                   <th className="py-3 px-4 font-bold uppercase tracking-wider text-[10px] w-12">ID</th>
                   <th className="py-3 px-4 font-bold uppercase tracking-wider text-[10px]">Nombre / Empresa</th>
                   <th className="py-3 px-4 font-bold uppercase tracking-wider text-[10px]">Estado</th>
-                  <th className="py-3 px-4 w-12"></th>
+                  <th className="py-3 px-4 w-24 text-right">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--shelfy-border)]">
@@ -238,7 +240,14 @@ export default function TabDistribuidoras() {
                         </span>
                       )}
                     </td>
-                    <td className="py-4 px-4 text-right">
+                    <td className="py-4 px-4 text-right flex items-center justify-end gap-2">
+                      <button
+                        onClick={() => setSqlModalDist({ id: d.id, nombre: d.nombre })}
+                        title="Ver SQL para crear tablas"
+                        className="text-[var(--shelfy-muted)] hover:text-blue-500 transition-all p-1.5 rounded-lg hover:bg-blue-500/10"
+                      >
+                        <Database size={18} />
+                      </button>
                       <button
                         onClick={() => handleToggle(d.id, d.estado)}
                         title={d.estado === "activo" ? "Desactivar" : "Activar"}
@@ -258,6 +267,14 @@ export default function TabDistribuidoras() {
             </table>
           </div>
         </Card>
+      )}
+
+      {sqlModalDist && (
+        <SqlModal 
+          distId={sqlModalDist.id} 
+          distNombre={sqlModalDist.nombre} 
+          onClose={() => setSqlModalDist(null)} 
+        />
       )}
     </div>
   );

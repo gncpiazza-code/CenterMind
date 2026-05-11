@@ -24,6 +24,7 @@ _CC_MIN_ROWS: dict[int, int] = {
     4: 15,   # Aloma
     5: 10,   # Liver
     2: 10,   # Real
+    11: 10,  # Beltrocco
 }
 _CC_MIN_ROWS_DEFAULT = 5
 # Abort si el nuevo snapshot < este % respecto al último snapshot conocido.

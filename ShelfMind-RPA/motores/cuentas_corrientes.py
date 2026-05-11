@@ -135,6 +135,15 @@ TENANTS = [
         "id_dist":    6,  # GyG Distribucion
         "activo":     False,  # ← activar cuando estén las credenciales
     },
+    {
+        "id":         "beltrocco",
+        "nombre":     "Beltrocco - Rafaela",
+        "url_base":   "https://silvinaribero.chesserp.com/AR1283",
+        "vault_user": "chess_beltrocco_usuario",
+        "vault_pass": "chess_beltrocco_password",
+        "id_dist":    11,
+        "activo":     True,
+    },
 ]
 
 
@@ -1023,6 +1032,10 @@ async def run() -> dict:
     """Corre el motor completo de Cuentas Corrientes. Llamado desde runner.py."""
     inicio = datetime.now(AR_TZ)
     tenants_activos = [t for t in TENANTS if t["activo"]]
+    target = (os.environ.get("RPA_CUENTAS_TENANT") or "").strip().lower()
+    if target:
+        tenants_activos = [t for t in tenants_activos if t.get("id") == target]
+        logger.warning(f"⚙️ RPA_CUENTAS_TENANT activo: ejecutando sólo tenant '{target}'")
     use_v2 = _cuentas_engine_v2_default()
 
     logger.info("=" * 60)

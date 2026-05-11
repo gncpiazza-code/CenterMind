@@ -119,6 +119,7 @@ _VENTAS_SUCURSAL = {
     # ⚠️ Texto EXACTO verificado en vivo — "UEQUIN RODRIGO", no "8 RODRIGO UEQUIN"
     "real": "UEQUIN RODRIGO",
     "extra": None,
+    "beltrocco": None,
 }
 
 
@@ -786,6 +787,10 @@ async def run(
     logger.info("=" * 60)
     logger.info(f"🚀 Motor VENTAS iniciado — {inicio.strftime('%Y-%m-%d %H:%M:%S')}")
     tenants_activos = [t for t in TENANTS if t.get("activo", True)]
+    target = (os.environ.get("RPA_VENTAS_TENANT") or "").strip().lower()
+    if target:
+        tenants_activos = [t for t in tenants_activos if t.get("id") == target]
+        logger.warning(f"⚙️ RPA_VENTAS_TENANT activo: ejecutando sólo tenant '{target}'")
     if _SOLO_TENANT:
         tenants_activos = [t for t in tenants_activos if t["id"] == _SOLO_TENANT]
         logger.info(f"   Filtro RPA_VENTAS_SOLO_TENANT={_SOLO_TENANT}")

@@ -138,6 +138,12 @@ TENANTS_LEGACY = [
         "id_empresa": "5597",  # ✅ CONFIRMADO — contiene franquiciados (split en backend)
         "id_dist":    2,
     },
+    {
+        "id":         "beltrocco",
+        "nombre":     "SILVINA RIBERO",
+        "id_empresa": "3559",
+        "id_dist":    11,
+    },
 ]
 
 

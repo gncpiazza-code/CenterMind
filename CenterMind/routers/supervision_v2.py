@@ -67,23 +67,27 @@ def supervision_v2_dashboard(
 
         t_suc = tenant_table_name("sucursales_v2", dist_id)
         res_sucs = sb.table(t_suc).select("id_sucursal, nombre_erp").execute()
-        suc_map = {r["id_sucursal"]: r.get("nombre_erp", "") for r in res_sucs.data if r.get("id_sucursal")}
+        suc_map = {str(r["id_sucursal"]): r.get("nombre_erp", "") for r in res_sucs.data if r.get("id_sucursal") is not None}
 
         # Fetch vendedores: id_vendedor needed for altas linkage
         t_vend = tenant_table_name("vendedores_v2", dist_id)
         res_vends = sb.table(t_vend).select("id_vendedor, nombre_erp, id_sucursal").execute()
         vend_to_suc: dict = {}
+        vend_id_to_suc: dict = {}
         vend_id_to_norm: dict = {}
         for r in res_vends.data:
             name = r.get("nombre_erp")
-            vid = r.get("id_vendedor")
+            vid = str(r.get("id_vendedor") or "").strip()
+            sid = str(r.get("id_sucursal") or "").strip()
             if name:
                 norm_name = normalize_seller_name(name)
-                suc_name = suc_map.get(r.get("id_sucursal"), "").strip()
+                suc_name = suc_map.get(sid, "").strip()
                 vend_to_suc[norm_name] = suc_name.lower() if suc_name else ""
+                if vid:
+                    vend_id_to_suc[vid] = suc_name.lower() if suc_name else ""
                 if suc_name:
                     sucursales_disponibles.add(suc_name)
-                if vid is not None:
+                if vid:
                     vend_id_to_norm[vid] = norm_name
 
         # Fetch rutas → vendedor mapping for altas calculation
@@ -134,11 +138,14 @@ def supervision_v2_dashboard(
         for v in ventas_rows:
             vend_upper = normalize_seller_name(v.get("nombre_vendedor", ""))
             vend_lower = vend_upper.lower()
-            if vendedor_norm and vendedor_norm not in vend_lower:
+            if vendedor_norm and vendedor_norm != vend_lower:
                 continue
             if sucursal_norm:
-                suc_for_vend = vend_to_suc.get(vend_upper, "")
-                if sucursal_norm not in suc_for_vend:
+                vid = str(v.get("codigo_vendedor") or "").strip()
+                suc_for_vend = vend_id_to_suc.get(vid, "")
+                if not suc_for_vend:
+                    suc_for_vend = vend_to_suc.get(vend_upper, "")
+                if sucursal_norm != suc_for_vend:
                     continue
             filtered_ventas.append(v)
 
@@ -176,6 +183,9 @@ def supervision_v2_dashboard(
             
         chart_vendedores.sort(key=lambda x: x["ventas"], reverse=True)
         ranking_vendedores.sort(key=lambda x: x["ventas"], reverse=True)
+        
+        # Limitar chart a Top 15 para evitar que quede superpoblado
+        chart_vendedores = chart_vendedores[:15]
 
         # Chart Tendencia
         tendencia_agg = {}

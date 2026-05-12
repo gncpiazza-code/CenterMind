@@ -325,12 +325,12 @@ class ObjetivosWatcherService:
         mes_referencia = obj.get("mes_referencia")
 
         if tipo == "ruteo_alteo":
-            since = created_at
+            since = created_at[:10] if created_at else ""
             # El prorrateo en compañía ahora es de fecha_objetivo a fin de mes, no aplica retroactividad
             return self._diff_alteo(obj, id_vendedor, dist_id, since)
             
         if tipo == "conversion_estado":
-            since = created_at
+            since = created_at[:10] if created_at else ""
             # Sin retroactividad para activación
             return self._diff_activacion(obj, id_vendedor, dist_id, since)
             

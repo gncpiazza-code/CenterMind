@@ -271,8 +271,6 @@ function CompaniaProrrateo({ obj, visualActual }: { obj: Objetivo; visualActual?
   const startDay = new Date(Math.max(base.getTime(), new Date(y, m, 1).getTime()));
   
   // We need to know ALL possible business days in the month to build the week grid properly
-  // so the grid always shows the full month layout, but we only calculate the daily target
-  // and spread the remaining value across the *remaining* business days from startDay
   const allBusinessDaysInMonth: Date[] = [];
   for (let d = 1; d <= monthEnd.getDate(); d++) {
     const dt = new Date(y, m, d);
@@ -284,6 +282,19 @@ function CompaniaProrrateo({ obj, visualActual }: { obj: Objetivo; visualActual?
   
   if (allBusinessDaysInMonth.length === 0) return null;
 
+  const isNoRetro = obj.tipo === "ruteo_alteo" || obj.tipo === "conversion_estado";
+  const validBusinessDays = isNoRetro ? remainingBusinessDays : allBusinessDaysInMonth;
+  
+  const pastDays = validBusinessDays.filter(d => d < today);
+  const futureDays = validBusinessDays.filter(d => d >= today);
+  
+  const shownActual = Math.max(obj.valor_actual ?? 0, visualActual ?? obj.valor_actual ?? 0);
+  const remainingMeta = Math.max(0, (obj.valor_objetivo ?? 0) - shownActual);
+  
+  const originalDailyTarget = validBusinessDays.length > 0 ? (obj.valor_objetivo ?? 0) / validBusinessDays.length : 0;
+  const futureDailyTarget = futureDays.length > 0 ? remainingMeta / futureDays.length : remainingMeta;
+  const avgPastPerDay = pastDays.length > 0 ? shownActual / pastDays.length : shownActual;
+
   const allWeeks = new Map<string, Date[]>();
   for (const dt of allBusinessDaysInMonth) {
     const weekIdx = Math.floor((dt.getDate() - 1) / 7) + 1;
@@ -293,21 +304,8 @@ function CompaniaProrrateo({ obj, visualActual }: { obj: Objetivo; visualActual?
   }
   const weekEntries = Array.from(allWeeks.entries());
   
-  const shownActual = Math.max(obj.valor_actual ?? 0, visualActual ?? obj.valor_actual ?? 0);
-  const remainingMeta = Math.max(0, (obj.valor_objetivo ?? 0) - shownActual);
-  const totalBusinessDaysRemaining = remainingBusinessDays.length;
-  
   const remainingFutureBusinessDays = remainingBusinessDays.filter(d => d >= today).length;
   const diasRestantesStr = remainingFutureBusinessDays;
-  
-  // Calculate targets strictly based on remaining business days for Alteo/Activacion
-  // For retroactivos (exhibicion) we divide by all month days.
-  const isNoRetro = obj.tipo === "ruteo_alteo" || obj.tipo === "conversion_estado";
-  const denominator = isNoRetro ? totalBusinessDaysRemaining : allBusinessDaysInMonth.length;
-  const dailyTarget = denominator > 0 ? (obj.valor_objetivo ?? 0) / denominator : 0;
-  
-  const elapsedBusinessDays = Math.max(1, (isNoRetro ? remainingBusinessDays : allBusinessDaysInMonth).filter((d) => d <= today).length);
-  const avgPerBusinessDay = shownActual / elapsedBusinessDays;
 
   return (
     <div
@@ -320,11 +318,9 @@ function CompaniaProrrateo({ obj, visualActual }: { obj: Objetivo; visualActual?
       </div>
       <div className="space-y-1.5">
         {weekEntries.map(([weekLabel, days], weekIndex) => {
-          // Si es NoRetro, la semana cuenta solo si tiene dias laborables a partir de startDay
           const applicableDaysInWeek = isNoRetro ? days.filter(d => d.getTime() >= startDay.getTime()) : days;
           
           if (isNoRetro && applicableDaysInWeek.length === 0) {
-            // Toda esta semana fue ANTES de la creacion del objetivo -> No hubo meta esta semana
             return (
               <details
                 key={weekLabel}
@@ -346,10 +342,20 @@ function CompaniaProrrateo({ obj, visualActual }: { obj: Objetivo; visualActual?
             );
           }
           
-          const weeklyTarget = dailyTarget * applicableDaysInWeek.length;
-          const elapsedInWeek = applicableDaysInWeek.filter((d) => d <= today).length;
-          const weekDoneEst = Math.max(0, Math.min(weeklyTarget, avgPerBusinessDay * elapsedInWeek));
-          const weekPct = weeklyTarget > 0 ? Math.min(100, Math.round((weekDoneEst / weeklyTarget) * 100)) : 0;
+          let weeklyTarget = 0;
+          let weekDoneEst = 0;
+          
+          applicableDaysInWeek.forEach(dt => {
+            if (dt < today) {
+              weeklyTarget += originalDailyTarget;
+              weekDoneEst += avgPastPerDay;
+            } else {
+              weeklyTarget += futureDailyTarget;
+            }
+          });
+          
+          const weekPct = weeklyTarget > 0 ? Math.min(100, Math.round((weekDoneEst / weeklyTarget) * 100)) : (weekDoneEst > 0 ? 100 : 0);
+          
           return (
             <details
               key={weekLabel}
@@ -368,15 +374,32 @@ function CompaniaProrrateo({ obj, visualActual }: { obj: Objetivo; visualActual?
                   <span>{Math.round(weekDoneEst)} / {Math.round(weeklyTarget)}</span>
                 </div>
                 <Progress value={weekPct} className="h-1.5" />
-                <div className="text-[10px] text-amber-700">
-                  Debe avanzar {Math.ceil(dailyTarget)} por día (lun-sáb) para cumplir la semana.
-                </div>
+                
+                {futureDailyTarget > 0 && remainingMeta > 0 && (
+                  <div className="text-[10px] text-amber-700">
+                    Debe avanzar {Math.ceil(futureDailyTarget)} por día (lun-sáb) para cumplir la meta.
+                  </div>
+                )}
+                {remainingMeta === 0 && (
+                  <div className="text-[10px] text-emerald-600 font-medium">
+                    ¡Objetivo cumplido!
+                  </div>
+                )}
+                {futureDays.length === 0 && remainingMeta > 0 && (
+                  <div className="text-[10px] text-red-500 font-medium">
+                    Sin días restantes. Faltaron {Math.round(remainingMeta)}.
+                  </div>
+                )}
+
                 {days.map((dt) => {
                   const isBeforeCreation = isNoRetro && dt.getTime() < startDay.getTime();
-                  if (isBeforeCreation) return null; // Hide days before objective creation entirely inside the week details
+                  if (isBeforeCreation) return null;
                   
-                  const dayDoneEst = dt <= today ? Math.min(dailyTarget, avgPerBusinessDay) : 0;
-                  const dayPct = dailyTarget > 0 ? Math.min(100, Math.round((dayDoneEst / dailyTarget) * 100)) : 0;
+                  const isPast = dt < today;
+                  const dayTarget = isPast ? originalDailyTarget : futureDailyTarget;
+                  const dayDoneEst = isPast ? avgPastPerDay : 0;
+                  const dayPct = dayTarget > 0 ? Math.min(100, Math.round((dayDoneEst / dayTarget) * 100)) : (dayDoneEst > 0 ? 100 : 0);
+                  
                   return (
                     <details
                       key={`${weekIndex}-${dt.toISOString()}`}
@@ -385,17 +408,19 @@ function CompaniaProrrateo({ obj, visualActual }: { obj: Objetivo; visualActual?
                     >
                       <summary className="cursor-pointer text-[10px] text-[var(--shelfy-text)] flex items-center justify-between gap-2 capitalize">
                         <span>{dt.toLocaleDateString("es-AR", { weekday: "long" })} {String(dt.getDate()).padStart(2, "0")}</span>
-                        <span className="text-[10px] text-[var(--shelfy-muted)] tabular-nums">Meta diaria: {Math.ceil(dailyTarget)}</span>
+                        <span className="text-[10px] text-[var(--shelfy-muted)] tabular-nums">Meta diaria: {Math.ceil(dayTarget)}</span>
                       </summary>
                       <div className="mt-1 space-y-1">
                         <div className="text-[10px] text-[var(--shelfy-muted)] tabular-nums flex items-center justify-between">
                           <span>Progreso diario</span>
-                          <span>{Math.round(dayDoneEst)} / {Math.round(dailyTarget)}</span>
+                          <span>{Math.round(dayDoneEst)} / {Math.round(dayTarget)}</span>
                         </div>
                         <Progress value={dayPct} className="h-1" />
-                        <p className="text-[10px] text-emerald-700">
-                          Objetivo del día: avanzar al menos {Math.ceil(dailyTarget)} para llegar a la meta semanal.
-                        </p>
+                        {dayTarget > 0 && !isPast && (
+                          <p className="text-[10px] text-emerald-700">
+                            Objetivo del día: avanzar al menos {Math.ceil(dayTarget)} para llegar a la meta.
+                          </p>
+                        )}
                       </div>
                     </details>
                   );

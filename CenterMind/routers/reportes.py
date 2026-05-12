@@ -385,10 +385,8 @@ def dashboard_ranking(distribuidor_id: int, periodo: str = "mes", top: int = 999
 
     iid_to_erp = build_integrante_to_erp_name(distribuidor_id)
     hide_qa = should_apply_exhibicion_qa_filter(distribuidor_id, payload)
-    seen_logic: set[tuple[int, str, str]] = set()
-    seen_url: set[str] = set()
-    seen_msg: set[str] = set()
-    aggregated: dict[str, dict[str, Any]] = {}
+    best_exhib_per_logic = {}
+    
     for ex in ex_rows:
         iid = ex.get("id_integrante")
         if iid is None:
@@ -401,7 +399,6 @@ def dashboard_ranking(distribuidor_id: int, periodo: str = "mes", top: int = 999
             continue
 
         # Exhibición lógica única (no fotos): 1 por cliente y día por integrante.
-        # Esto evita inflar ranking cuando una misma exhibición tiene múltiples fotos.
         ts = (ex.get("timestamp_subida") or "").strip()
         day_key = ts[:10] if len(ts) >= 10 else ""
         client_key_raw = (
@@ -410,30 +407,44 @@ def dashboard_ranking(distribuidor_id: int, periodo: str = "mes", top: int = 999
             or ex.get("cliente_sombra_codigo")
         )
         client_key = str(client_key_raw).strip() if client_key_raw is not None else ""
-        if day_key and client_key:
-            logic_key = (iid_i, client_key, day_key)
-            if logic_key in seen_logic:
-                continue
-            seen_logic.add(logic_key)
-        else:
-            # Fallback defensivo para filas antiguas sin cliente/fecha útil.
-            url = (ex.get("url_foto_drive") or "").strip()
-            if url:
-                if url in seen_url:
-                    continue
-                seen_url.add(url)
-            else:
-                msg = ex.get("telegram_msg_id")
-                chat = ex.get("telegram_chat_id")
-                if msg is not None and chat is not None:
-                    k = f"{chat}:{msg}"
-                    if k in seen_msg:
-                        continue
-                    seen_msg.add(k)
-
+        
         vendedor = iid_to_erp.get(iid_i, "Desconocido")
         if hide_qa and is_exhibicion_qa_display_for_dist(distribuidor_id, vendedor):
             continue
+            
+        estado = (ex.get("estado") or "").strip().lower()
+        score = 0
+        if "destacad" in estado: score = 3
+        elif "aprobad" in estado: score = 2
+        elif "rechaz" in estado: score = 1
+        
+        if day_key and client_key:
+            logic_key = f"{iid_i}_{client_key}_{day_key}"
+        else:
+            # Fallback defensivo para filas antiguas sin cliente/fecha útil.
+            url = (ex.get("url_foto_drive") or "").strip()
+            msg = ex.get("telegram_msg_id")
+            if url:
+                logic_key = f"url_{url}"
+            elif msg is not None:
+                chat = ex.get("telegram_chat_id")
+                logic_key = f"msg_{chat}_{msg}"
+            else:
+                logic_key = f"id_{ex.get('id_exhibicion')}"
+
+        if logic_key not in best_exhib_per_logic or score > best_exhib_per_logic[logic_key]["score"]:
+            best_exhib_per_logic[logic_key] = {
+                "estado": estado,
+                "score": score,
+                "vendedor": vendedor
+            }
+
+    aggregated: dict[str, dict[str, Any]] = {}
+    
+    for v in best_exhib_per_logic.values():
+        vendedor = v["vendedor"]
+        estado = v["estado"]
+        
         row = aggregated.setdefault(
             vendedor,
             {
@@ -445,7 +456,6 @@ def dashboard_ranking(distribuidor_id: int, periodo: str = "mes", top: int = 999
                 "location_id": None,
             },
         )
-        estado = (ex.get("estado") or "").strip().lower()
         if "aprobad" in estado:
             row["aprobadas"] += 1
             row["puntos"] += 1

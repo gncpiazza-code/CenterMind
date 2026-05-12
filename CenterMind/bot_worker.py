@@ -759,11 +759,9 @@ class Database:
                 .eq("id_distribuidor", distribuidor_id).execute()
             suc_map = {s["id_sucursal_erp"]: s["nombre_erp"] for s in res_suc.data or []}
 
-            # 4. Agregación con DEDUPLICACIÓN robusta (URL > MsgID)
+            # 4. Agregación con DEDUPLICACIÓN robusta por exhibición lógica (integrante + cliente + día)
             stats = defaultdict(lambda: {"aprobadas": 0, "destacadas": 0, "rechazadas": 0, "puntos": 0})
-            seen_logic: set[tuple[int, str, str]] = set()
-            seen_urls = set()
-            seen_msgs = set()
+            best_exhib_per_logic = {}
 
             for e in exhibiciones:
                 iid_raw = e.get("id_integrante")
@@ -791,39 +789,48 @@ class Database:
                 )
                 client_key = str(client_key_raw).strip() if client_key_raw is not None else ""
                 
-                is_dupe = False
+                est = (e.get("estado") or "").lower()
+                
+                # Score para deduplicar: Destacado (3) > Aprobado (2) > Rechazado (1) > Otro (0)
+                score = 0
+                if "destacad" in est: score = 3
+                elif "aprobad" in est: score = 2
+                elif "rechaz" in est: score = 1
+                
                 if day_key and client_key:
-                    logic_key = (iid, client_key, day_key)
-                    if logic_key in seen_logic:
-                        is_dupe = True
-                    else:
-                        seen_logic.add(logic_key)
+                    logic_key = f"{iid}_{client_key}_{day_key}"
                 else:
                     # Fallback para filas antiguas sin cliente/fecha útil
                     url = e.get("url_foto_drive")
                     msg_id = e.get("telegram_msg_id")
                     
                     if url:
-                        if url in seen_urls: is_dupe = True
-                        else: seen_urls.add(url)
+                        logic_key = f"url_{url}"
                     elif msg_id:
                         chat_id = e.get("telegram_chat_id")
-                        msg_key = (chat_id, msg_id)
-                        if msg_key in seen_msgs: is_dupe = True
-                        else: seen_msgs.add(msg_key)
-                
-                if is_dupe: continue
+                        logic_key = f"msg_{chat_id}_{msg_id}"
+                    else:
+                        logic_key = f"id_{e.get('id_exhibicion')}"
+                        
+                if logic_key not in best_exhib_per_logic or score > best_exhib_per_logic[logic_key]["score"]:
+                    best_exhib_per_logic[logic_key] = {
+                        "est": est,
+                        "score": score,
+                        "vendedor": vendedor
+                    }
 
-                est = (e.get("estado") or "").lower()
+            for v in best_exhib_per_logic.values():
+                est = v["est"]
+                v_name = v["vendedor"]
                 
                 if "aprobad" in est:
-                    stats[vendedor]["aprobadas"] += 1
-                    stats[vendedor]["puntos"] += 1
+                    stats[v_name]["aprobadas"] += 1
+                    stats[v_name]["puntos"] += 1
                 elif "destacad" in est:
-                    stats[vendedor]["destacadas"] += 1
-                    stats[vendedor]["puntos"] += 2
+                    stats[v_name]["destacadas"] += 1
+                    stats[v_name]["puntos"] += 2
                 elif "rechaz" in est:
-                    stats[vendedor]["rechazadas"] += 1
+                    stats[v_name]["rechazadas"] += 1
 
             # 5. Formatear ranking
             ranking = []

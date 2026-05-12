@@ -248,20 +248,32 @@ function DateChip({ date }: { date: string | null | undefined }) {
 
 function CompaniaProrrateo({ obj, visualActual }: { obj: Objetivo; visualActual?: number }) {
   if (obj.origen !== "compania" || !obj.mes_referencia || !obj.valor_objetivo) return null;
-  const base = new Date(`${obj.mes_referencia}T00:00:00`);
-  if (Number.isNaN(base.getTime())) return null;
+  const mesRefDate = new Date(`${obj.mes_referencia}T00:00:00`);
+  if (Number.isNaN(mesRefDate.getTime())) return null;
+  
+  let base = mesRefDate;
+  if (obj.tipo === "ruteo_alteo" || obj.tipo === "conversion_estado") {
+    // No retroactivity for Alteo/Activacion: start prorating from creation/objective date
+    const startStr = obj.fecha_objetivo || obj.created_at || obj.mes_referencia;
+    base = new Date(startStr.substring(0, 10) + "T00:00:00");
+  }
+
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const y = base.getFullYear();
-  const m = base.getMonth();
+  
+  const y = mesRefDate.getFullYear();
+  const m = mesRefDate.getMonth();
   const monthEnd = new Date(y, m + 1, 0);
-  const daysInMonth = monthEnd.getDate();
+  
+  // businessDays from base to monthEnd
   const businessDays: Date[] = [];
-  for (let d = 1; d <= daysInMonth; d++) {
+  const startDay = new Date(Math.max(base.getTime(), new Date(y, m, 1).getTime()));
+  for (let d = startDay.getDate(); d <= monthEnd.getDate(); d++) {
     const dt = new Date(y, m, d);
     const wd = dt.getDay();
     if (wd >= 1 && wd <= 6) businessDays.push(dt);
   }
+  
   if (businessDays.length === 0) return null;
 
   const allWeeks = new Map<string, Date[]>();
@@ -272,12 +284,17 @@ function CompaniaProrrateo({ obj, visualActual }: { obj: Objetivo; visualActual?
     allWeeks.get(key)!.push(dt);
   }
   const weekEntries = Array.from(allWeeks.entries());
+  
   const shownActual = Math.max(obj.valor_actual ?? 0, visualActual ?? obj.valor_actual ?? 0);
   const remainingMeta = Math.max(0, (obj.valor_objetivo ?? 0) - shownActual);
-  const remainingWeeks = Math.max(1, weekEntries.length);
-  const weeklyTarget = remainingMeta > 0 ? remainingMeta / remainingWeeks : 0;
-  const dailyTarget = weeklyTarget / 6;
-  const diasRestantes = Math.max(0, Math.ceil((monthEnd.getTime() - today.getTime()) / 86400000));
+  const totalBusinessDays = businessDays.length;
+  
+  const remainingFutureBusinessDays = businessDays.filter(d => d >= today).length;
+  const diasRestantesStr = remainingFutureBusinessDays;
+  
+  // If there are no future business days, dailyTarget is 0
+  const dailyTarget = totalBusinessDays > 0 ? (obj.valor_objetivo ?? 0) / totalBusinessDays : 0;
+  
   const elapsedBusinessDays = Math.max(1, businessDays.filter((d) => d <= today).length);
   const avgPerBusinessDay = shownActual / elapsedBusinessDays;
 
@@ -288,10 +305,11 @@ function CompaniaProrrateo({ obj, visualActual }: { obj: Objetivo; visualActual?
     >
       <div className="flex items-center justify-between">
         <p className="text-[10px] font-semibold text-amber-700">Prorrateo mensual (lun-sáb)</p>
-        <span className="text-[10px] text-amber-700/80">{diasRestantes} días restantes</span>
+        <span className="text-[10px] text-amber-700/80">{diasRestantesStr} días restantes</span>
       </div>
       <div className="space-y-1.5">
         {weekEntries.map(([weekLabel, days], weekIndex) => {
+          const weeklyTarget = dailyTarget * days.length;
           const elapsedInWeek = days.filter((d) => d <= today).length;
           const weekDoneEst = Math.max(0, Math.min(weeklyTarget, avgPerBusinessDay * elapsedInWeek));
           const weekPct = weeklyTarget > 0 ? Math.min(100, Math.round((weekDoneEst / weeklyTarget) * 100)) : 0;
@@ -1054,6 +1072,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
   const [tasaPendientes, setTasaPendientes] = useState<number | "">("");
 
   const [vendedorId, setVendedorId] = useState<number | "">("");
+  const [paraTodosFDV, setParaTodosFDV] = useState(false);
   const [tipo, setTipo] = useState<ObjetivoTipo>("ruteo_alteo");
   const [fecha, setFecha] = useState<string>("");
   const [desc, setDesc] = useState<string>("");
@@ -1300,156 +1319,169 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!vendedorId) return;
+    if (!paraTodosFDV && !vendedorId) return;
     if (origenMode !== "compania" && !fecha) {
       toast.error("La fecha límite es obligatoria.");
       return;
     }
 
-    const base: ObjetivoCreate = {
-      id_distribuidor: distId,
-      id_vendedor: Number(vendedorId),
-      nombre_vendedor: vendedorNombre,
-      tipo,
-      ...(origenMode === "compania"
-        ? { fecha_objetivo: monthEndISO(mesReferencia) }
-        : (fecha ? { fecha_objetivo: fecha } : {})),
-      origen: origenMode,
-      ...(origenMode === "compania" && mesReferencia ? { mes_referencia: `${mesReferencia}-01` } : {}),
-      ...(tasaPendientes !== "" ? { tasa_pendientes: Number(tasaPendientes) } : {}),
-    };
+    const creates: ObjetivoCreate[] = [];
+    const targets = paraTodosFDV ? vendedoresFiltrados : [{ id_vendedor: Number(vendedorId), nombre_erp: vendedorNombre }];
 
-    if (tipo === "ruteo_alteo") {
-      if (alteoMode === "general") {
-        base.valor_objetivo = cantidadAlteo ? Number(cantidadAlteo) : undefined;
-      } else {
-        const defaultQty = selectedDayGroups.reduce((acc, g) => acc + g.totalPdvs, 0);
-        base.valor_objetivo = cantidadAlteo ? Number(cantidadAlteo) : (defaultQty || undefined);
-        if (selectedDayGroups.length > 0) {
-          base.estado_inicial = selectedDayGroups.map((g) => g.day.toUpperCase()).join(", ");
+    for (const target of targets) {
+      const base: ObjetivoCreate = {
+        id_distribuidor: distId,
+        id_vendedor: target.id_vendedor,
+        nombre_vendedor: target.nombre_erp,
+        tipo,
+        ...(origenMode === "compania"
+          ? { fecha_objetivo: monthEndISO(mesReferencia) }
+          : (fecha ? { fecha_objetivo: fecha } : {})),
+        origen: origenMode,
+        ...(origenMode === "compania" && mesReferencia ? { mes_referencia: `${mesReferencia}-01` } : {}),
+        ...(tasaPendientes !== "" ? { tasa_pendientes: Number(tasaPendientes) } : {}),
+      };
+
+      if (tipo === "ruteo_alteo") {
+        if (alteoMode === "general") {
+          base.valor_objetivo = cantidadAlteo ? Number(cantidadAlteo) : undefined;
+        } else {
+          const defaultQty = selectedDayGroups.reduce((acc, g) => acc + g.totalPdvs, 0);
+          base.valor_objetivo = cantidadAlteo ? Number(cantidadAlteo) : (defaultQty || undefined);
+          if (selectedDayGroups.length > 0 && !paraTodosFDV) {
+            base.estado_inicial = selectedDayGroups.map((g) => g.day.toUpperCase()).join(", ");
+          }
         }
+        base.descripcion = desc || buildPhrase(target.nombre_erp);
+        creates.push(base);
+        continue;
       }
-      base.descripcion = desc || buildPhrase();
-      onCreate([base]);
-      return;
-    }
 
-    if (tipo === "cobranza") {
-      if (selectedDeudor) {
-        base.valor_objetivo = cobranzaMode === "parcial" && cobranzaMonto
-          ? Number(cobranzaMonto)
-          : selectedDeudor.deuda_total;
+      if (tipo === "cobranza") {
+        if (selectedDeudor) {
+          base.valor_objetivo = cobranzaMode === "parcial" && cobranzaMonto
+            ? Number(cobranzaMonto)
+            : selectedDeudor.deuda_total;
+        }
+        base.descripcion = desc || buildPhrase(target.nombre_erp);
+        creates.push(base);
+        continue;
       }
-      base.descripcion = desc || buildPhrase();
-      onCreate([base]);
-      return;
-    }
 
-    if (tipo === "conversion_estado") {
-      if (activacionMode === "general") {
-        base.valor_objetivo = cantidadActivacion !== "" ? Number(cantidadActivacion) : undefined;
-        base.descripcion = desc || buildPhrase();
-        onCreate([base]);
-        return;
+      if (tipo === "conversion_estado") {
+        if (activacionMode === "general") {
+          base.valor_objetivo = cantidadActivacion !== "" ? Number(cantidadActivacion) : undefined;
+          base.descripcion = desc || buildPhrase(target.nombre_erp);
+          creates.push(base);
+          continue;
+        }
+        if (selectedPdvIds.size > 0 && !paraTodosFDV) {
+          const pdvItems = Array.from(selectedPdvIds).map((pdvId) => {
+            const pdv = pdvCatalogAll.find((p) => p.id_cliente === pdvId);
+            return {
+              id_cliente_pdv: pdvId,
+              id_cliente_erp: pdv?.id_cliente_erp ?? undefined,
+              nombre_pdv: pdv?.nombre_cliente,
+              metadata_ruteo: {
+                nombre_fantasia: pdv?.nombre_cliente ?? null,
+                nombre_razon_social: pdv?.nombre_razon_social ?? null,
+              },
+            };
+          });
+          base.pdv_items = pdvItems;
+          base.valor_objetivo = cantidadActivacion !== "" ? Number(cantidadActivacion) : pdvItems.length;
+          base.descripcion = desc || buildPhrase(target.nombre_erp);
+          creates.push(base);
+          continue;
+        }
+        base.descripcion = desc || buildPhrase(target.nombre_erp);
+        creates.push(base);
+        continue;
       }
-      if (selectedPdvIds.size > 0) {
-        const pdvItems = Array.from(selectedPdvIds).map((pdvId) => {
-          const pdv = pdvCatalogAll.find((p) => p.id_cliente === pdvId);
-          return {
-            id_cliente_pdv: pdvId,
-            id_cliente_erp: pdv?.id_cliente_erp ?? undefined,
-            nombre_pdv: pdv?.nombre_cliente,
-            metadata_ruteo: {
-              nombre_fantasia: pdv?.nombre_cliente ?? null,
-              nombre_razon_social: pdv?.nombre_razon_social ?? null,
-            },
-          };
-        });
-        base.pdv_items = pdvItems;
-        base.valor_objetivo = cantidadActivacion !== "" ? Number(cantidadActivacion) : pdvItems.length;
-        base.descripcion = desc || buildPhrase();
-        onCreate([base]);
-        return;
-      }
-      base.descripcion = desc || buildPhrase();
-      onCreate([base]);
-      return;
-    }
 
-    if (tipo === "exhibicion") {
-      if (exhibicionMode === "general") {
+      if (tipo === "exhibicion") {
+        if (exhibicionMode === "general") {
+          const qty = cantidadExhibicion ? Number(cantidadExhibicion) : undefined;
+          base.valor_objetivo = qty;
+          base.descripcion = desc || buildPhrase(target.nombre_erp);
+          creates.push(base);
+          continue;
+        }
+        if (selectedPdvIds.size > 0 && !paraTodosFDV) {
+          const pdvItems = Array.from(selectedPdvIds).map(pdvId => {
+            const pdv = pdvCatalogAll.find(p => p.id_cliente === pdvId);
+            return {
+              id_cliente_pdv: pdvId,
+              id_cliente_erp: pdv?.id_cliente_erp ?? undefined,
+              nombre_pdv: pdv?.nombre_cliente,
+              metadata_ruteo: {
+                nombre_fantasia: pdv?.nombre_cliente ?? null,
+                nombre_razon_social: pdv?.nombre_razon_social ?? null,
+              },
+            };
+          });
+          const count = pdvItems.length;
+          base.pdv_items = pdvItems;
+          base.valor_objetivo = count;
+          base.descripcion = desc || `Lograr exhibición en ${count} PDV${count > 1 ? 's' : ''}`;
+          creates.push(base);
+          continue;
+        }
+        // por_pdv with nothing selected or paraTodosFDV — fallthrough to generic
         const qty = cantidadExhibicion ? Number(cantidadExhibicion) : undefined;
         base.valor_objetivo = qty;
-        base.descripcion = desc || buildPhrase();
-        onCreate([base]);
-        return;
+        base.descripcion = desc || buildPhrase(target.nombre_erp);
+        creates.push(base);
+        continue;
       }
-      if (selectedPdvIds.size > 0) {
-        const pdvItems = Array.from(selectedPdvIds).map(pdvId => {
+
+      if (tipo === "ruteo") {
+        const selected = Array.from(selectedPdvIds);
+        if (selected.length === 0 || paraTodosFDV) {
+          base.descripcion = desc || buildPhrase(target.nombre_erp);
+          creates.push(base);
+          continue;
+        }
+        // Validate: every selected PDV must have an action + required field
+        for (const pdvId of selected) {
+          const item = ruteoItemsMap[pdvId] ?? { accion: ruteoAccionGlobal };
+          if (item.accion === 'cambio_ruta' && !item.id_ruta_destino) {
+            // allow submit without ruta destino — supervisor can add later
+          }
+          if (item.accion === 'baja' && !item.motivo_baja?.trim()) {
+            // allow submit without motivo — supervisor can add later
+          }
+        }
+        const pdvItems = selected.map((pdvId, idx) => {
           const pdv = pdvCatalogAll.find(p => p.id_cliente === pdvId);
+          const item = ruteoItemsMap[pdvId] ?? { accion: ruteoAccionGlobal };
           return {
             id_cliente_pdv: pdvId,
             id_cliente_erp: pdv?.id_cliente_erp ?? undefined,
             nombre_pdv: pdv?.nombre_cliente,
+            accion_ruteo: item.accion,
+            ...(item.accion === 'cambio_ruta' && item.id_ruta_destino ? { id_ruta_destino: item.id_ruta_destino } : {}),
+            ...(item.accion === 'baja' && item.motivo_baja ? { motivo_baja: item.motivo_baja } : {}),
+            orden_sugerido: idx + 1,
             metadata_ruteo: {
               nombre_fantasia: pdv?.nombre_cliente ?? null,
               nombre_razon_social: pdv?.nombre_razon_social ?? null,
             },
           };
         });
-        const count = pdvItems.length;
         base.pdv_items = pdvItems;
-        base.valor_objetivo = count;
-        base.descripcion = desc || `Lograr exhibición en ${count} PDV${count > 1 ? 's' : ''}`;
-        onCreate([base]);
-        return;
+        base.valor_objetivo = selected.length;
+        base.descripcion = desc || buildPhrase(target.nombre_erp);
+        creates.push(base);
+        continue;
       }
-      // por_pdv with nothing selected — fallthrough to generic
-    }
 
-    if (tipo === "ruteo") {
-      const selected = Array.from(selectedPdvIds);
-      if (selected.length === 0) {
-        base.descripcion = desc || buildPhrase();
-        onCreate([base]);
-        return;
-      }
-      // Validate: every selected PDV must have an action + required field
-      for (const pdvId of selected) {
-        const item = ruteoItemsMap[pdvId] ?? { accion: ruteoAccionGlobal };
-        if (item.accion === 'cambio_ruta' && !item.id_ruta_destino) {
-          // allow submit without ruta destino — supervisor can add later
-        }
-        if (item.accion === 'baja' && !item.motivo_baja?.trim()) {
-          // allow submit without motivo — supervisor can add later
-        }
-      }
-      const pdvItems = selected.map((pdvId, idx) => {
-        const pdv = pdvCatalogAll.find(p => p.id_cliente === pdvId);
-        const item = ruteoItemsMap[pdvId] ?? { accion: ruteoAccionGlobal };
-        return {
-          id_cliente_pdv: pdvId,
-          id_cliente_erp: pdv?.id_cliente_erp ?? undefined,
-          nombre_pdv: pdv?.nombre_cliente,
-          accion_ruteo: item.accion,
-          ...(item.accion === 'cambio_ruta' && item.id_ruta_destino ? { id_ruta_destino: item.id_ruta_destino } : {}),
-          ...(item.accion === 'baja' && item.motivo_baja ? { motivo_baja: item.motivo_baja } : {}),
-          orden_sugerido: idx + 1,
-          metadata_ruteo: {
-            nombre_fantasia: pdv?.nombre_cliente ?? null,
-            nombre_razon_social: pdv?.nombre_razon_social ?? null,
-          },
-        };
-      });
-      base.pdv_items = pdvItems;
-      base.valor_objetivo = selected.length;
-      base.descripcion = desc || buildPhrase();
-      onCreate([base]);
-      return;
+      base.descripcion = desc || buildPhrase(target.nombre_erp);
+      creates.push(base);
     }
-
-    base.descripcion = desc || buildPhrase();
-    onCreate([base]);
+    if (creates.length > 0) {
+      onCreate(creates);
+    }
   };
 
   // cobranza oculto en UI — no se crea desde el formulario
@@ -1549,10 +1581,10 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
             <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">Vendedor</label>
             <div className="relative">
               <select
-                required
-                className="w-full appearance-none bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
-                value={vendedorId}
-                disabled={mustSelectSucursalFirst}
+                required={!paraTodosFDV}
+                className="w-full appearance-none bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60 disabled:opacity-50"
+                value={paraTodosFDV ? "" : vendedorId}
+                disabled={mustSelectSucursalFirst || paraTodosFDV}
                 onChange={e => { setVendedorId(Number(e.target.value) || ""); resetCtx(); }}
               >
                 <option value="">
@@ -1566,20 +1598,34 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
               </select>
               <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--shelfy-muted)] pointer-events-none" />
             </div>
+            {vendedoresCascada.length > 0 && (
+              <label className="flex items-center gap-2 mt-2 cursor-pointer w-fit">
+                <input 
+                  type="checkbox" 
+                  checked={paraTodosFDV}
+                  onChange={(e) => {
+                    setParaTodosFDV(e.target.checked);
+                    if (e.target.checked) setVendedorId("");
+                  }}
+                  className="rounded border-[var(--shelfy-border)] text-orange-500 focus:ring-orange-500 bg-[var(--shelfy-bg)]"
+                />
+                <span className="text-[11px] font-medium text-[var(--shelfy-text)]">¿Objetivo general para la FDV?</span>
+              </label>
+            )}
           </div>
 
-          {/* Tipo — bloqueado hasta que el vendedor esté seleccionado */}
-          <div className={!vendedorId ? "opacity-40 pointer-events-none select-none" : ""}>
+          {/* Tipo — bloqueado hasta que el vendedor esté seleccionado o sea para todos */}
+          <div className={(!vendedorId && !paraTodosFDV) ? "opacity-40 pointer-events-none select-none" : ""}>
             <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5 flex items-center gap-1.5">
               Tipo
-              {!vendedorId && <span className="text-[9px] font-normal normal-case text-[var(--shelfy-muted)]/60">(seleccioná un vendedor primero)</span>}
+              {(!vendedorId && !paraTodosFDV) && <span className="text-[9px] font-normal normal-case text-[var(--shelfy-muted)]/60">(seleccioná un vendedor primero)</span>}
             </label>
             <div className="flex gap-1.5 flex-wrap">
               {TIPOS_DISPONIBLES.map(t => (
                 <button
                   key={t}
                   type="button"
-                  disabled={!vendedorId}
+                  disabled={!vendedorId && !paraTodosFDV}
                   onClick={() => setTipo(t)}
                   className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
                     tipo === t

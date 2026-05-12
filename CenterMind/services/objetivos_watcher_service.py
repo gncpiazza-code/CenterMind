@@ -319,25 +319,13 @@ class ObjetivosWatcherService:
 
         if tipo == "ruteo_alteo":
             since = created_at
-            if origen == "compania":
-                try:
-                    from datetime import date as _date_cls
-                    base_raw = (
-                        str(mes_referencia)[:10]
-                        if mes_referencia
-                        else str(obj.get("fecha_objetivo") or obj.get("created_at") or "")[:10]
-                    )
-                    if base_raw:
-                        mes_dt = _date_cls.fromisoformat(base_raw)
-                        first_day = mes_dt.replace(day=1)
-                        # El padrón usa fecha_alta como date (YYYY-MM-DD), since debe ser compatible
-                        since = f"{first_day.isoformat()}T00:00:00"
-                except Exception as e_retro:
-                    logger.warning(f"[Watcher] Retroactividad compañía inválida alteo obj={obj.get('id')}: {e_retro}")
+            # El prorrateo en compañía ahora es de fecha_objetivo a fin de mes, no aplica retroactividad
             return self._diff_alteo(obj, id_vendedor, dist_id, since)
             
         if tipo == "conversion_estado":
-            return self._diff_activacion(obj, id_vendedor, dist_id, created_at)
+            since = created_at
+            # Sin retroactividad para activación
+            return self._diff_activacion(obj, id_vendedor, dist_id, since)
             
         if tipo == "exhibicion":
             # Retroactividad solo para objetivos de compañía:
@@ -408,7 +396,7 @@ class ObjetivosWatcherService:
                 cumplidos = [c for c in all_clients if str(c["id_cliente"]) not in ya_trackeados]
 
                 if cumplidos:
-                    self._insert_tracking_batch(obj_id, "alteo", cumplidos, id_llave="id_cliente", dist_id=dist_id, id_vendedor=id_vendedor)
+                    self._insert_tracking_batch(obj_id, "alteo", cumplidos, id_llave="id_cliente", dist_id=dist_id, id_vendedor=id_vendedor, obj_created_at=obj.get("created_at"))
                     if item_pdv_ids:
                         for c in cumplidos:
                             self._update_item_estado(obj_id, c["id_cliente"], "cumplido")
@@ -452,7 +440,7 @@ class ObjetivosWatcherService:
             nuevos = [c for c in all_clients if str(c["id_cliente"]) not in ya_trackeados]
 
             if nuevos:
-                self._insert_tracking_batch(obj_id, "alteo", nuevos, id_llave="id_cliente", dist_id=dist_id, id_vendedor=id_vendedor)
+                self._insert_tracking_batch(obj_id, "alteo", nuevos, id_llave="id_cliente", dist_id=dist_id, id_vendedor=id_vendedor, obj_created_at=obj.get("created_at"))
 
             nuevo_valor = float(len(all_clients))
             return (nuevo_valor, len(nuevos))
@@ -555,7 +543,7 @@ class ObjetivosWatcherService:
                 nuevos = [c for c in all_clients if str(c["id_cliente"]) not in ya_trackeados]
 
                 if nuevos:
-                    self._insert_tracking_batch(obj_id, "activacion", nuevos, id_llave="id_cliente", dist_id=dist_id, id_vendedor=id_vendedor)
+                    self._insert_tracking_batch(obj_id, "activacion", nuevos, id_llave="id_cliente", dist_id=dist_id, id_vendedor=id_vendedor, obj_created_at=obj.get("created_at"))
                     if item_pdv_ids:
                         for c in nuevos:
                             self._update_item_estado(obj_id, c["id_cliente"], "cumplido")
@@ -600,7 +588,7 @@ class ObjetivosWatcherService:
             nuevos = [c for c in all_clients if str(c["id_cliente"]) not in ya_trackeados]
 
             if nuevos:
-                self._insert_tracking_batch(obj_id, "activacion", nuevos, id_llave="id_cliente", dist_id=dist_id, id_vendedor=id_vendedor)
+                self._insert_tracking_batch(obj_id, "activacion", nuevos, id_llave="id_cliente", dist_id=dist_id, id_vendedor=id_vendedor, obj_created_at=obj.get("created_at"))
 
             nuevo_valor = float(len(all_clients))
             return (nuevo_valor, len(nuevos))
@@ -730,6 +718,7 @@ class ObjetivosWatcherService:
                     id_llave="id_exhibicion",
                     dist_id=dist_id,
                     id_vendedor=id_vendedor_v2,
+                    obj_created_at=obj.get("created_at")
                 )
                 # Marcar ítems como foto_subida
                 if item_pdv_ids:
@@ -750,6 +739,7 @@ class ObjetivosWatcherService:
                     id_llave="id_exhibicion",
                     dist_id=dist_id,
                     id_vendedor=id_vendedor_v2,
+                    obj_created_at=obj.get("created_at")
                 )
                 # Marcar ítems como cumplido
                 if item_pdv_ids:
@@ -930,6 +920,7 @@ class ObjetivosWatcherService:
         id_llave: str,
         dist_id: int,
         id_vendedor: int,
+        obj_created_at: str | None = None,
     ) -> None:
         """
         Inserta registros nuevos en objetivos_tracking y dispara notificaciones.
@@ -998,13 +989,21 @@ class ObjetivosWatcherService:
                 # Anti-spam: solo notificar progreso por Telegram en exhibición.
                 # Los demás tipos ya notifican alta/cierre y el detalle vive en /objetivos.
                 if tipo_evento in {"exhibicion", "exhibicion_pendiente"}:
-                    objetivos_notification.notify_vendor_telegram(
-                        dist_id=dist_id,
-                        id_objetivo=obj_id,
-                        id_vendedor=id_vendedor,
-                        tipo_evento=tipo_evento,
-                        pdv_data=item,
-                    )
+                    # Anti-spam: Silenciar eventos retroactivos
+                    is_retroactive = False
+                    if obj_created_at:
+                        event_ts = item.get("timestamp_subida") or item.get("fecha_alta") or item.get("fecha_ultima_compra") or item.get("created_at")
+                        if event_ts and str(event_ts) < str(obj_created_at):
+                            is_retroactive = True
+
+                    if not is_retroactive:
+                        objetivos_notification.notify_vendor_telegram(
+                            dist_id=dist_id,
+                            id_objetivo=obj_id,
+                            id_vendedor=id_vendedor,
+                            tipo_evento=tipo_evento,
+                            pdv_data=item,
+                        )
                 # WebSocket al supervisor
                 objetivos_notification.notify_supervisor_ws(
                     dist_id=dist_id,

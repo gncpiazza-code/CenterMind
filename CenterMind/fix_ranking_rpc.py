@@ -35,22 +35,15 @@ try:
      LANGUAGE plpgsql SECURITY DEFINER AS $$
     BEGIN
         RETURN QUERY
-        WITH stats AS (
-            SELECT 
-                i.id_integrante,
-                i.nombre_integrante as nom,
-                i.id_vendedor_erp as v_erp,
-                i.id_sucursal_erp as s_erp,
-                COUNT(*) FILTER (WHERE LOWER(e.estado) IN ('aprobado', 'aprobada', 'destacada', 'destacado')) as aprob,
-                COUNT(*) FILTER (WHERE LOWER(e.estado) IN ('rechazado', 'rechazada')) as rech,
-                COUNT(*) FILTER (WHERE LOWER(e.estado) IN ('destacada', 'destacado')) as dest,
-                (COUNT(*) FILTER (WHERE LOWER(e.estado) IN ('aprobado', 'aprobada')) * 1 +
-                 COUNT(*) FILTER (WHERE LOWER(e.estado) IN ('destacada', 'destacado')) * 2) as pts
+        WITH unique_exhibs AS (
+            SELECT DISTINCT ON (
+                e.id_integrante, 
+                COALESCE(e.id_cliente_pdv::text, e.id_cliente::text, e.cliente_sombra_codigo::text, e.url_foto_drive, e.telegram_msg_id::text, e.id_exhibicion::text), 
+                e.timestamp_subida::DATE
+            ) 
+                e.id_exhibicion, e.id_integrante, e.estado, e.id_distribuidor
             FROM public.exhibiciones e
-            JOIN public.integrantes_grupo i ON e.id_integrante = i.id_integrante
-            LEFT JOIN public.vendedores v ON i.id_vendedor_erp = v.id_vendedor_erp AND i.id_distribuidor = v.id_distribuidor
             WHERE (p_dist_id = 0 OR e.id_distribuidor = p_dist_id)
-              AND (p_sucursal_id IS NULL OR v.id_sucursal = p_sucursal_id)
               AND (
                 (p_periodo = 'mes' AND e.timestamp_subida >= date_trunc('month', now())) OR
                 (p_periodo = 'hoy' AND e.timestamp_subida >= date_trunc('day', now())) OR
@@ -59,6 +52,32 @@ try:
                 OR (p_periodo ~ '^\d{4}-\d{2}$' AND to_char(e.timestamp_subida, 'YYYY-MM') = p_periodo)
                 OR (p_periodo ~ '^\d{4}-\d{2}-\d{2}$' AND e.timestamp_subida::DATE = p_periodo::DATE)
               )
+            ORDER BY 
+                e.id_integrante, 
+                COALESCE(e.id_cliente_pdv::text, e.id_cliente::text, e.cliente_sombra_codigo::text, e.url_foto_drive, e.telegram_msg_id::text, e.id_exhibicion::text), 
+                e.timestamp_subida::DATE,
+                CASE 
+                    WHEN LOWER(e.estado) IN ('destacado', 'destacada') THEN 1 
+                    WHEN LOWER(e.estado) IN ('aprobado', 'aprobada') THEN 2
+                    WHEN LOWER(e.estado) IN ('rechazado', 'rechazada') THEN 3
+                    ELSE 4 
+                END ASC, e.timestamp_subida DESC
+        ),
+        stats AS (
+            SELECT 
+                i.id_integrante,
+                i.nombre_integrante as nom,
+                i.id_vendedor_erp as v_erp,
+                i.id_sucursal_erp as s_erp,
+                COUNT(ue.id_exhibicion) FILTER (WHERE LOWER(ue.estado) IN ('aprobado', 'aprobada', 'destacada', 'destacado')) as aprob,
+                COUNT(ue.id_exhibicion) FILTER (WHERE LOWER(ue.estado) IN ('rechazado', 'rechazada')) as rech,
+                COUNT(ue.id_exhibicion) FILTER (WHERE LOWER(ue.estado) IN ('destacada', 'destacado')) as dest,
+                (COUNT(ue.id_exhibicion) FILTER (WHERE LOWER(ue.estado) IN ('aprobado', 'aprobada')) * 1 +
+                 COUNT(ue.id_exhibicion) FILTER (WHERE LOWER(ue.estado) IN ('destacada', 'destacado')) * 2) as pts
+            FROM unique_exhibs ue
+            JOIN public.integrantes_grupo i ON ue.id_integrante = i.id_integrante
+            LEFT JOIN public.vendedores v ON i.id_vendedor_erp = v.id_vendedor_erp AND i.id_distribuidor = v.id_distribuidor
+            WHERE (p_sucursal_id IS NULL OR v.id_sucursal = p_sucursal_id)
             GROUP BY i.id_integrante, i.nombre_integrante, i.id_vendedor_erp, i.id_sucursal_erp
         )
         SELECT 

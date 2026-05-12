@@ -285,10 +285,28 @@ function CompaniaProrrateo({ obj, visualActual }: { obj: Objetivo; visualActual?
   const isNoRetro = obj.tipo === "ruteo_alteo" || obj.tipo === "conversion_estado";
   const validBusinessDays = isNoRetro ? remainingBusinessDays : allBusinessDaysInMonth;
   
-  const pastDays = validBusinessDays.filter(d => d < today);
-  const futureDays = validBusinessDays.filter(d => d >= today);
+  const pastDays = validBusinessDays.filter(d => d <= today); // Include today in past/current evaluation
+  const futureDays = validBusinessDays.filter(d => d > today);
   
   const shownActual = Math.max(obj.valor_actual ?? 0, visualActual ?? obj.valor_actual ?? 0);
+  
+  // Obtain exact daily progress from backend tracking if available
+  const progresoDiarioReal = (obj.desglose_cache as any)?.progreso_diario || {};
+  
+  // Check if we have real tracking data. If not, fallback to average.
+  const hasRealTracking = Object.keys(progresoDiarioReal).length > 0;
+  
+  // Calculate how much was already done in the past days to deduce what's left for the future
+  let totalPastDoneEst = 0;
+  if (hasRealTracking) {
+    pastDays.forEach(d => {
+      totalPastDoneEst += progresoDiarioReal[d.toISOString().split('T')[0]] || 0;
+    });
+  } else {
+    totalPastDoneEst = shownActual; // fallback
+  }
+  
+  // Safe bounds: don't let it be negative or exceed shownActual drastically
   const remainingMeta = Math.max(0, (obj.valor_objetivo ?? 0) - shownActual);
   
   const originalDailyTarget = validBusinessDays.length > 0 ? (obj.valor_objetivo ?? 0) / validBusinessDays.length : 0;
@@ -346,9 +364,11 @@ function CompaniaProrrateo({ obj, visualActual }: { obj: Objetivo; visualActual?
           let weekDoneEst = 0;
           
           applicableDaysInWeek.forEach(dt => {
-            if (dt < today) {
+            const isPast = dt <= today;
+            if (isPast) {
               weeklyTarget += originalDailyTarget;
-              weekDoneEst += avgPastPerDay;
+              const dayStr = dt.toISOString().split('T')[0];
+              weekDoneEst += hasRealTracking ? (progresoDiarioReal[dayStr] || 0) : avgPastPerDay;
             } else {
               weeklyTarget += futureDailyTarget;
             }
@@ -395,9 +415,10 @@ function CompaniaProrrateo({ obj, visualActual }: { obj: Objetivo; visualActual?
                   const isBeforeCreation = isNoRetro && dt.getTime() < startDay.getTime();
                   if (isBeforeCreation) return null;
                   
-                  const isPast = dt < today;
+                  const isPast = dt <= today;
                   const dayTarget = isPast ? originalDailyTarget : futureDailyTarget;
-                  const dayDoneEst = isPast ? avgPastPerDay : 0;
+                  const dayStr = dt.toISOString().split('T')[0];
+                  const dayDoneEst = isPast ? (hasRealTracking ? (progresoDiarioReal[dayStr] || 0) : avgPastPerDay) : 0;
                   const dayPct = dayTarget > 0 ? Math.min(100, Math.round((dayDoneEst / dayTarget) * 100)) : (dayDoneEst > 0 ? 100 : 0);
                   
                   return (

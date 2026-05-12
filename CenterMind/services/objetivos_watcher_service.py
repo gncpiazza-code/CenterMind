@@ -84,9 +84,10 @@ class ObjetivosWatcherService:
                     if result is None:
                         continue  # tipo general o sin datos base
 
-                    # exhibicion returns a 3-tuple (display_valor, eventos, approved_valor)
-                    # all other types return a 2-tuple (valor, eventos)
-                    if len(result) == 3:
+                    progreso_diario = {}
+                    if len(result) == 4:
+                        nuevo_valor, nuevos_eventos, valor_aprobados, progreso_diario = result
+                    elif len(result) == 3:
                         nuevo_valor, nuevos_eventos, valor_aprobados = result
                     else:
                         nuevo_valor, nuevos_eventos = result
@@ -97,6 +98,11 @@ class ObjetivosWatcherService:
                         "valor_actual": nuevo_valor,
                         "updated_at": datetime.now(timezone.utc).isoformat(),
                     }
+
+                    if progreso_diario:
+                        dc = obj.get("desglose_cache") or {}
+                        dc["progreso_diario"] = progreso_diario
+                        updates["desglose_cache"] = dc
 
                     valor_obj = obj.get("valor_objetivo")
                     ahora = datetime.now(timezone.utc)
@@ -135,6 +141,7 @@ class ObjetivosWatcherService:
                                 for it in pend_items[:20]
                             ]
                             updates["desglose_cache"] = {
+                                **updates.get("desglose_cache", {}),
                                 "tasa_pendientes": tasa_p_efectiva,
                                 "pendientes_count": pendientes_count,
                                 "pendientes_items": pendientes_ids,
@@ -394,6 +401,12 @@ class ObjetivosWatcherService:
 
                 ya_trackeados = self._get_globally_tracked_refs(dist_id, "alteo")
                 cumplidos = [c for c in all_clients if str(c["id_cliente"]) not in ya_trackeados]
+                
+                progreso_diario = {}
+                for c in all_clients:
+                    dkey = str(c.get("fecha_alta") or "")[:10]
+                    if dkey:
+                        progreso_diario[dkey] = progreso_diario.get(dkey, 0) + 1
 
                 if cumplidos:
                     self._insert_tracking_batch(obj_id, "alteo", cumplidos, id_llave="id_cliente", dist_id=dist_id, id_vendedor=id_vendedor, obj_created_at=obj.get("created_at"))
@@ -406,14 +419,14 @@ class ObjetivosWatcherService:
                         items_res = sb.table("objetivo_items").select("estado_item").eq("id_objetivo", obj_id).execute()
                         items = items_res.data or []
                         cumplidos_count = sum(1 for it in items if it.get("estado_item") == "cumplido")
-                        return (float(cumplidos_count), len(cumplidos))
+                        return (float(cumplidos_count), len(cumplidos), float(cumplidos_count), progreso_diario)
                     except Exception as e_items:
                         logger.warning(f"[Watcher] alteo items relecture obj={obj_id}: {e_items}")
-                    return (float(obj.get("valor_actual") or 0), len(cumplidos))
+                    return (float(obj.get("valor_actual") or 0), len(cumplidos), float(obj.get("valor_actual") or 0), progreso_diario)
                 else:
                     # Single PDV target
                     nuevo_valor = float(obj.get("valor_actual") or 0) + len(cumplidos)
-                    return (nuevo_valor, len(cumplidos))
+                    return (nuevo_valor, len(cumplidos), nuevo_valor, progreso_diario)
 
             # Sin ítems y sin target PDV: comportamiento original (todas las rutas del vendedor)
             rutas_res = (
@@ -438,12 +451,18 @@ class ObjetivosWatcherService:
 
             ya_trackeados = self._get_globally_tracked_refs(dist_id, "alteo")
             nuevos = [c for c in all_clients if str(c["id_cliente"]) not in ya_trackeados]
+            
+            progreso_diario = {}
+            for c in all_clients:
+                dkey = str(c.get("fecha_alta") or "")[:10]
+                if dkey:
+                    progreso_diario[dkey] = progreso_diario.get(dkey, 0) + 1
 
             if nuevos:
                 self._insert_tracking_batch(obj_id, "alteo", nuevos, id_llave="id_cliente", dist_id=dist_id, id_vendedor=id_vendedor, obj_created_at=obj.get("created_at"))
 
             nuevo_valor = float(len(all_clients))
-            return (nuevo_valor, len(nuevos))
+            return (nuevo_valor, len(nuevos), nuevo_valor, progreso_diario)
 
         except Exception as e:
             logger.warning(f"[Watcher] alteo vend={id_vendedor}: {e}")
@@ -542,6 +561,12 @@ class ObjetivosWatcherService:
                 ya_trackeados = self._get_tracked_refs(obj_id, "activacion")
                 nuevos = [c for c in all_clients if str(c["id_cliente"]) not in ya_trackeados]
 
+                progreso_diario = {}
+                for c in all_clients:
+                    dkey = str(c.get("fecha_ultima_compra") or "")[:10]
+                    if dkey:
+                        progreso_diario[dkey] = progreso_diario.get(dkey, 0) + 1
+
                 if nuevos:
                     self._insert_tracking_batch(obj_id, "activacion", nuevos, id_llave="id_cliente", dist_id=dist_id, id_vendedor=id_vendedor, obj_created_at=obj.get("created_at"))
                     if item_pdv_ids:
@@ -553,13 +578,13 @@ class ObjetivosWatcherService:
                         items_res = sb.table("objetivo_items").select("estado_item").eq("id_objetivo", obj_id).execute()
                         items = items_res.data or []
                         cumplidos_count = sum(1 for it in items if it.get("estado_item") == "cumplido")
-                        return (float(cumplidos_count), len(nuevos))
+                        return (float(cumplidos_count), len(nuevos), float(cumplidos_count), progreso_diario)
                     except Exception as e_items:
                         logger.warning(f"[Watcher] activacion items relecture obj={obj_id}: {e_items}")
-                    return (float(obj.get("valor_actual") or 0), len(nuevos))
+                    return (float(obj.get("valor_actual") or 0), len(nuevos), float(obj.get("valor_actual") or 0), progreso_diario)
                 else:
                     nuevo_valor = float(obj.get("valor_actual") or 0) + len(nuevos)
-                    return (nuevo_valor, len(nuevos))
+                    return (nuevo_valor, len(nuevos), nuevo_valor, progreso_diario)
 
             # Sin ítems y sin target PDV: comportamiento original (todas las rutas del vendedor)
             rutas_res = (
@@ -587,11 +612,17 @@ class ObjetivosWatcherService:
             ya_trackeados = self._get_tracked_refs(obj_id, "activacion")
             nuevos = [c for c in all_clients if str(c["id_cliente"]) not in ya_trackeados]
 
+            progreso_diario = {}
+            for c in all_clients:
+                dkey = str(c.get("fecha_ultima_compra") or "")[:10]
+                if dkey:
+                    progreso_diario[dkey] = progreso_diario.get(dkey, 0) + 1
+
             if nuevos:
                 self._insert_tracking_batch(obj_id, "activacion", nuevos, id_llave="id_cliente", dist_id=dist_id, id_vendedor=id_vendedor, obj_created_at=obj.get("created_at"))
 
             nuevo_valor = float(len(all_clients))
-            return (nuevo_valor, len(nuevos))
+            return (nuevo_valor, len(nuevos), nuevo_valor, progreso_diario)
 
         except Exception as e:
             logger.warning(f"[Watcher] activacion vend={id_vendedor}: {e}")
@@ -800,14 +831,21 @@ class ObjetivosWatcherService:
             # Sin filas en objetivo_items (item_pdv_ids es None), o falló la relecutura de ítems:
             # Meta global: calcular puntos basándose en la lógica del ranking
             puntos = 0
+            progreso_diario = {}
             for v in best_exhib_per_logic.values():
                 score = v["score"]
-                if score == 3: puntos += 2
-                elif score == 2: puntos += 1
+                pt = 0
+                if score == 3: pt = 2
+                elif score == 2: pt = 1
+                puntos += pt
+                if pt > 0:
+                    dkey = v.get("day", str(v["exhib"].get("timestamp_subida") or "")[:10])
+                    if dkey:
+                        progreso_diario[dkey] = progreso_diario.get(dkey, 0) + pt
             
             valor_aprobados = float(puntos)
             nuevo_valor = valor_aprobados + float(len(pendientes))
-            return (nuevo_valor, len(nuevas) + len(nuevas_pend), valor_aprobados)
+            return (nuevo_valor, len(nuevas) + len(nuevas_pend), valor_aprobados, progreso_diario)
 
         except Exception as e:
             logger.error(f"[Watcher] exhibicion vend={id_vendedor_v2}: {e}")

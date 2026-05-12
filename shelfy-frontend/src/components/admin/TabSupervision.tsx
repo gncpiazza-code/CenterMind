@@ -2958,12 +2958,11 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                 {/* Tipo — pill buttons */}
                 <div>
                   <p className="text-[9px] font-bold uppercase tracking-widest text-[var(--shelfy-muted)] mb-2">Tipo de objetivo</p>
-                  <div className="grid grid-cols-3 gap-1.5">
+                  <div className="grid grid-cols-2 gap-1.5">
                     {([
                       { id: 'conversion_estado', label: 'Activación', color: '#8b5cf6' },
-                      { id: 'cobranza',          label: 'Cobranza',   color: '#f97316' },
                       { id: 'ruteo_alteo',       label: 'Alteo',      color: '#0ea5e9' },
-                      { id: 'ruteo',             label: 'Ruteo',      color: '#22c55e' },
+                      { id: 'ruteo',             label: 'Guía de cambio de ruta', color: '#22c55e' },
                       { id: 'exhibicion',        label: 'Exhibición', color: '#ec4899' },
                     ] as { id: ObjetivoTipo; label: string; color: string }[]).map(t => (
                       <button key={t.id}

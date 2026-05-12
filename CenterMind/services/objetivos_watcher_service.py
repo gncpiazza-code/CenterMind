@@ -686,13 +686,12 @@ class ObjetivosWatcherService:
 
             id_integrante = ig_row["id_integrante"]
 
-            def _build_exhibicion_query(estado: str):
+            def _fetch_exhibiciones_all_states():
                 q = (
                     sb.table("exhibiciones")
-                    .select("id_exhibicion, id_cliente_pdv, timestamp_subida")
+                    .select("id_exhibicion, id_cliente_pdv, timestamp_subida, estado")
                     .eq("id_distribuidor", dist_id)
                     .eq("id_integrante", id_integrante)
-                    .eq("estado", estado)
                     .gte("timestamp_subida", since)
                 )
                 if item_pdv_ids:
@@ -705,11 +704,42 @@ class ObjetivosWatcherService:
                     q = q.eq("id_objetivo", obj_id)
                 # Si es global de compañía (origen == "compania" y no hay PDVs target),
                 # no filtramos más: cuentan TODAS las exhibiciones del vendedor desde `since`.
-                return q.execute()
+                return q.execute().data or []
 
+            all_raw = _fetch_exhibiciones_all_states()
+            
+            pendientes = []
+            aprobados_list = []
+            
+            # Deduplicate by day/client to calculate accurate score
+            best_exhib_per_logic = {}
+            for e in all_raw:
+                estado = (e.get("estado") or "").strip().lower()
+                is_pend = "pendient" in estado
+                if is_pend:
+                    pendientes.append(e)
+                    continue
+                
+                score = 0
+                if "destacad" in estado: score = 3
+                elif "aprobad" in estado: score = 2
+                elif "rechaz" in estado: score = 1
+                
+                if score > 0:
+                    cli_id = e.get("id_cliente_pdv") or e.get("id_exhibicion")
+                    day_key = str(e.get("timestamp_subida") or "")[:10]
+                    logic_key = f"{cli_id}_{day_key}"
+                    
+                    if logic_key not in best_exhib_per_logic or score > best_exhib_per_logic[logic_key]["score"]:
+                        best_exhib_per_logic[logic_key] = {
+                            "exhib": e,
+                            "score": score
+                        }
+
+            for v in best_exhib_per_logic.values():
+                aprobados_list.append(v["exhib"])
+            
             # ── Fase 1: fotos Pendientes ──────────────────────────────────────
-            pend_res = _build_exhibicion_query("Pendiente")
-            pendientes = pend_res.data or []
             ya_pend = self._get_tracked_refs(obj_id, "exhibicion_pendiente")
             nuevas_pend = [e for e in pendientes if str(e["id_exhibicion"]) not in ya_pend]
             if nuevas_pend:
@@ -728,11 +758,8 @@ class ObjetivosWatcherService:
                             self._update_item_estado(obj_id, pdv, "foto_subida")
 
             # ── Fase 2: fotos Aprobadas ───────────────────────────────────────
-            aprov_res = _build_exhibicion_query("Aprobado")
-            all_exhibs = aprov_res.data or []
-
             ya_trackeados = self._get_tracked_refs(obj_id, "exhibicion")
-            nuevas = [e for e in all_exhibs if str(e["id_exhibicion"]) not in ya_trackeados]
+            nuevas = [e for e in aprobados_list if str(e["id_exhibicion"]) not in ya_trackeados]
             if nuevas:
                 self._insert_tracking_batch(
                     obj_id, "exhibicion", nuevas,
@@ -764,24 +791,15 @@ class ObjetivosWatcherService:
                     # Caer al conteo por exhibiciones acotado a item_pdv_ids (único PDV)
 
             # Sin filas en objetivo_items (item_pdv_ids es None), o falló la relecutura de ítems:
-            # contar PDVs únicos, no filas de exhibiciones.
-            # no filas de exhibiciones — varias fotos al mismo cliente no duplican progreso.
-            pdv_con_actividad: set[int] = set()
-            for e in pendientes:
-                pid = e.get("id_cliente_pdv")
-                if pid is not None:
-                    pdv_con_actividad.add(int(pid))
-            for e in all_exhibs:
-                pid = e.get("id_cliente_pdv")
-                if pid is not None:
-                    pdv_con_actividad.add(int(pid))
-            nuevo_valor = float(len(pdv_con_actividad))
-            pdv_solo_aprob = {
-                int(e["id_cliente_pdv"])
-                for e in all_exhibs
-                if e.get("id_cliente_pdv") is not None
-            }
-            valor_aprobados = float(len(pdv_solo_aprob))
+            # Meta global: calcular puntos basándose en la lógica del ranking
+            puntos = 0
+            for v in best_exhib_per_logic.values():
+                score = v["score"]
+                if score == 3: puntos += 2
+                elif score == 2: puntos += 1
+            
+            valor_aprobados = float(puntos)
+            nuevo_valor = valor_aprobados + float(len(pendientes))
             return (nuevo_valor, len(nuevas) + len(nuevas_pend), valor_aprobados)
 
         except Exception as e:

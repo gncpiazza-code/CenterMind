@@ -254,8 +254,10 @@ function CompaniaProrrateo({ obj, visualActual }: { obj: Objetivo; visualActual?
   let base = mesRefDate;
   if (obj.tipo === "ruteo_alteo" || obj.tipo === "conversion_estado") {
     // No retroactivity for Alteo/Activacion: start prorating from creation/objective date
-    const startStr = obj.fecha_objetivo || obj.created_at || obj.mes_referencia;
-    base = new Date(startStr.substring(0, 10) + "T00:00:00");
+    const startStr = obj.created_at || obj.fecha_objetivo || obj.mes_referencia;
+    if (startStr) {
+      base = new Date(startStr.substring(0, 10) + "T00:00:00");
+    }
   }
 
   const today = new Date();
@@ -265,19 +267,25 @@ function CompaniaProrrateo({ obj, visualActual }: { obj: Objetivo; visualActual?
   const m = mesRefDate.getMonth();
   const monthEnd = new Date(y, m + 1, 0);
   
-  // businessDays from base to monthEnd
-  const businessDays: Date[] = [];
+  // For Alteo/Activacion, prorating only happens on days AFTER the objective was created
   const startDay = new Date(Math.max(base.getTime(), new Date(y, m, 1).getTime()));
-  for (let d = startDay.getDate(); d <= monthEnd.getDate(); d++) {
+  
+  // We need to know ALL possible business days in the month to build the week grid properly
+  // so the grid always shows the full month layout, but we only calculate the daily target
+  // and spread the remaining value across the *remaining* business days from startDay
+  const allBusinessDaysInMonth: Date[] = [];
+  for (let d = 1; d <= monthEnd.getDate(); d++) {
     const dt = new Date(y, m, d);
     const wd = dt.getDay();
-    if (wd >= 1 && wd <= 6) businessDays.push(dt);
+    if (wd >= 1 && wd <= 6) allBusinessDaysInMonth.push(dt);
   }
   
-  if (businessDays.length === 0) return null;
+  const remainingBusinessDays = allBusinessDaysInMonth.filter(d => d.getTime() >= startDay.getTime());
+  
+  if (allBusinessDaysInMonth.length === 0) return null;
 
   const allWeeks = new Map<string, Date[]>();
-  for (const dt of businessDays) {
+  for (const dt of allBusinessDaysInMonth) {
     const weekIdx = Math.floor((dt.getDate() - 1) / 7) + 1;
     const key = `Semana ${weekIdx}`;
     if (!allWeeks.has(key)) allWeeks.set(key, []);
@@ -287,15 +295,18 @@ function CompaniaProrrateo({ obj, visualActual }: { obj: Objetivo; visualActual?
   
   const shownActual = Math.max(obj.valor_actual ?? 0, visualActual ?? obj.valor_actual ?? 0);
   const remainingMeta = Math.max(0, (obj.valor_objetivo ?? 0) - shownActual);
-  const totalBusinessDays = businessDays.length;
+  const totalBusinessDaysRemaining = remainingBusinessDays.length;
   
-  const remainingFutureBusinessDays = businessDays.filter(d => d >= today).length;
+  const remainingFutureBusinessDays = remainingBusinessDays.filter(d => d >= today).length;
   const diasRestantesStr = remainingFutureBusinessDays;
   
-  // If there are no future business days, dailyTarget is 0
-  const dailyTarget = totalBusinessDays > 0 ? (obj.valor_objetivo ?? 0) / totalBusinessDays : 0;
+  // Calculate targets strictly based on remaining business days for Alteo/Activacion
+  // For retroactivos (exhibicion) we divide by all month days.
+  const isNoRetro = obj.tipo === "ruteo_alteo" || obj.tipo === "conversion_estado";
+  const denominator = isNoRetro ? totalBusinessDaysRemaining : allBusinessDaysInMonth.length;
+  const dailyTarget = denominator > 0 ? (obj.valor_objetivo ?? 0) / denominator : 0;
   
-  const elapsedBusinessDays = Math.max(1, businessDays.filter((d) => d <= today).length);
+  const elapsedBusinessDays = Math.max(1, (isNoRetro ? remainingBusinessDays : allBusinessDaysInMonth).filter((d) => d <= today).length);
   const avgPerBusinessDay = shownActual / elapsedBusinessDays;
 
   return (
@@ -309,8 +320,34 @@ function CompaniaProrrateo({ obj, visualActual }: { obj: Objetivo; visualActual?
       </div>
       <div className="space-y-1.5">
         {weekEntries.map(([weekLabel, days], weekIndex) => {
-          const weeklyTarget = dailyTarget * days.length;
-          const elapsedInWeek = days.filter((d) => d <= today).length;
+          // Si es NoRetro, la semana cuenta solo si tiene dias laborables a partir de startDay
+          const applicableDaysInWeek = isNoRetro ? days.filter(d => d.getTime() >= startDay.getTime()) : days;
+          
+          if (isNoRetro && applicableDaysInWeek.length === 0) {
+            // Toda esta semana fue ANTES de la creacion del objetivo -> No hubo meta esta semana
+            return (
+              <details
+                key={weekLabel}
+                className="rounded border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] px-2 py-1 opacity-50"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <summary className="cursor-pointer text-[11px] text-[var(--shelfy-text)] flex items-center justify-between gap-2">
+                  <span>{weekLabel}</span>
+                  <span className="text-[10px] text-[var(--shelfy-muted)] tabular-nums">
+                    No aplicable
+                  </span>
+                </summary>
+                <div className="mt-1.5 space-y-1.5">
+                  <div className="text-[10px] text-[var(--shelfy-muted)]">
+                    El objetivo no existía en esta semana.
+                  </div>
+                </div>
+              </details>
+            );
+          }
+          
+          const weeklyTarget = dailyTarget * applicableDaysInWeek.length;
+          const elapsedInWeek = applicableDaysInWeek.filter((d) => d <= today).length;
           const weekDoneEst = Math.max(0, Math.min(weeklyTarget, avgPerBusinessDay * elapsedInWeek));
           const weekPct = weeklyTarget > 0 ? Math.min(100, Math.round((weekDoneEst / weeklyTarget) * 100)) : 0;
           return (
@@ -335,6 +372,9 @@ function CompaniaProrrateo({ obj, visualActual }: { obj: Objetivo; visualActual?
                   Debe avanzar {Math.ceil(dailyTarget)} por día (lun-sáb) para cumplir la semana.
                 </div>
                 {days.map((dt) => {
+                  const isBeforeCreation = isNoRetro && dt.getTime() < startDay.getTime();
+                  if (isBeforeCreation) return null; // Hide days before objective creation entirely inside the week details
+                  
                   const dayDoneEst = dt <= today ? Math.min(dailyTarget, avgPerBusinessDay) : 0;
                   const dayPct = dailyTarget > 0 ? Math.min(100, Math.round((dayDoneEst / dailyTarget) * 100)) : 0;
                   return (

@@ -159,6 +159,7 @@ class ObjetivosWatcherService:
                                 id_vendedor=obj.get("id_vendedor"),
                                 tipo=obj.get("tipo"),
                                 nombre_pdv=obj.get("nombre_pdv"),
+                                obj_data=obj,
                             )
                         except Exception as e_notif:
                             logger.warning(f"[Watcher] Notif cumplido omitida obj={obj.get('id')}: {e_notif}")
@@ -201,6 +202,7 @@ class ObjetivosWatcherService:
                                                 id_vendedor=obj.get("id_vendedor"),
                                                 tipo=obj.get("tipo"),
                                                 nombre_pdv=obj.get("nombre_pdv"),
+                                                obj_data=obj,
                                             )
                                         except Exception as e_notif:
                                             logger.warning(f"[Watcher] Notif fallido omitida obj={obj.get('id')}: {e_notif}")
@@ -262,6 +264,7 @@ class ObjetivosWatcherService:
                                                 id_vendedor=obj.get("id_vendedor"),
                                                 tipo=obj.get("tipo"),
                                                 nombre_pdv=obj.get("nombre_pdv"),
+                                                obj_data=obj,
                                             )
                                         except Exception as e_notif:
                                             logger.warning(

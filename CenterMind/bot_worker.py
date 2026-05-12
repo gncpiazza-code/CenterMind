@@ -1814,6 +1814,27 @@ class BotWorker:
         if inferred.get("use_auto") and inferred.get("tipo_pdv"):
             session["tipo_pdv_sugerido"] = inferred["tipo_pdv"]
 
+        # Buscar nombre del PDV para mostrarlo en el mensaje
+        try:
+            pdv_info_res = await asyncio.to_thread(
+                self.db.sb.table(f"clientes_pdv_v2_d{self.distribuidor_id}")
+                .select("nombre_fantasia, nombre_razon_social")
+                .eq("id_cliente_erp", clean)
+                .limit(1)
+                .execute
+            )
+            pdv_name_display = ""
+            if pdv_info_res.data:
+                nf_raw = pdv_info_res.data[0].get("nombre_fantasia") or ""
+                rs_raw = pdv_info_res.data[0].get("nombre_razon_social") or ""
+                if nf_raw and rs_raw and nf_raw != rs_raw:
+                    pdv_name_display = f" - {nf_raw} / {rs_raw}"
+                elif nf_raw or rs_raw:
+                    pdv_name_display = f" - {nf_raw or rs_raw}"
+            session["pdv_name_display"] = pdv_name_display
+        except Exception:
+            pdv_name_display = ""
+
         # Botones de tipo PDV (de la lista editable)
         botones = [
             InlineKeyboardButton(t, callback_data=f"TYPE_{''.join(c for c in t if c.isalnum()).upper()}_{user_id}")
@@ -1823,7 +1844,7 @@ class BotWorker:
 
         try:
             await update.message.reply_text(
-                f"✅ NRO CLIENTE: <code>{clean}</code>\n\n"
+                f"✅ NRO CLIENTE: <code>{clean}</code>{pdv_name_display}\n\n"
                 f"Seleccioná el <b>tipo de PDV</b>:",
                 parse_mode=ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup(keyboard),
@@ -1854,6 +1875,7 @@ class BotWorker:
 
         session["tipo_pdv"] = tipo_pdv
         nro_cliente = session["nro_cliente"]
+        pdv_name_display = session.get("pdv_name_display", "")
         photos = session["photos"]
         chat_id = session["chat_id"]
         chat_title = session.get("chat_title") or str(chat_id)
@@ -1866,7 +1888,7 @@ class BotWorker:
                     chat_id=status_chat_id,
                     message_id=status_message_id,
                     text=(
-                        f"✅ NRO CLIENTE: <code>{nro_cliente}</code>\n"
+                        f"✅ NRO CLIENTE: <code>{nro_cliente}</code>{pdv_name_display}\n"
                         f"📍 <b>{tipo_pdv}</b>\n\n"
                         f"⏳ Registrando {_pics_str}..."
                     ),
@@ -1877,7 +1899,7 @@ class BotWorker:
                 await context.bot.send_message(
                     chat_id=chat_id,
                     text=(
-                        f"✅ NRO CLIENTE: <code>{nro_cliente}</code>\n"
+                        f"✅ NRO CLIENTE: <code>{nro_cliente}</code>{pdv_name_display}\n"
                         f"📍 <b>{tipo_pdv}</b>\n\n"
                         f"⏳ Registrando {_pics_str}..."
                     ),
@@ -2126,6 +2148,7 @@ class BotWorker:
 
         session["tipo_pdv"] = tipo_pdv
         nro_cliente    = session["nro_cliente"]
+        pdv_name_display = session.get("pdv_name_display", "")
         photos         = session["photos"]
         chat_id        = session["chat_id"]
         chat_title     = session.get("chat_title") or str(chat_id)
@@ -2138,7 +2161,7 @@ class BotWorker:
         try:
             await q.edit_message_text(
                 text=(
-                    f"✅ NRO CLIENTE: <code>{nro_cliente}</code>\n"
+                    f"✅ NRO CLIENTE: <code>{nro_cliente}</code>{pdv_name_display}\n"
                     f"📍 <b>{tipo_pdv}</b>\n\n"
                     f"⏳ Registrando {_pics_str}..."
                 ),
@@ -2265,7 +2288,7 @@ class BotWorker:
                                     _t_pdv_bot = tenant_table_name("clientes_pdv_v2", self.distribuidor_id)
                                     pdv_res = await asyncio.to_thread(
                                         self.db.sb.table(_t_pdv_bot)
-                                        .select("nombre_fantasia, latitud, longitud, domicilio, localidad, fecha_alta")
+                                        .select("nombre_fantasia, nombre_razon_social, latitud, longitud, domicilio, localidad, fecha_alta")
                                         .eq("id_distribuidor", self.distribuidor_id)
                                         .eq("id_cliente_erp", nro_cliente)
                                         .limit(1)
@@ -2280,7 +2303,7 @@ class BotWorker:
                                             self.logger.info(f"🔍 Reintento sin ceros iniciales: id_cliente_erp='{nro_stripped}'")
                                             pdv_res = await asyncio.to_thread(
                                                 self.db.sb.table(_t_pdv_bot)
-                                                .select("nombre_fantasia, latitud, longitud, domicilio, localidad, fecha_alta")
+                                                .select("nombre_fantasia, nombre_razon_social, latitud, longitud, domicilio, localidad, fecha_alta")
                                                 .eq("id_distribuidor", self.distribuidor_id)
                                                 .eq("id_cliente_erp", nro_stripped)
                                                 .limit(1)
@@ -2290,7 +2313,14 @@ class BotWorker:
                                         pdv = pdv_res.data[0]
                                         lat = float(pdv.get("latitud") or 0.0)
                                         lon = float(pdv.get("longitud") or 0.0)
-                                        cliente_nombre = pdv.get("nombre_fantasia") or cliente_nombre
+                                        
+                                        nf_raw = pdv.get("nombre_fantasia") or cliente_nombre or ""
+                                        rs_raw = pdv.get("nombre_razon_social") or ""
+                                        if nf_raw and rs_raw and nf_raw != rs_raw:
+                                            cliente_nombre = f"{nf_raw} / {rs_raw}"
+                                        else:
+                                            cliente_nombre = nf_raw or rs_raw
+                                            
                                         domicilio = pdv.get("domicilio") or ""
                                         localidad = pdv.get("localidad") or ""
                                         fecha_alta = pdv.get("fecha_alta") or ""
@@ -2741,7 +2771,7 @@ class BotWorker:
                 f"📋 <b>Exhibición registrada</b>\n\n"
                 f"{fotos_text}"
                 f"👤 <b>Vendedor:</b> {uploader_name}\n"
-                f"🏪 <b>Cliente:</b> {nro_cliente}\n"
+                f"🏪 <b>Cliente:</b> {nro_cliente} - {cliente_nombre}\n"
                 f"📍 <b>Tipo:</b> {tipo_pdv}\n"
                 f"{foto_line_efectivo}"
                 f"{estado_label}"

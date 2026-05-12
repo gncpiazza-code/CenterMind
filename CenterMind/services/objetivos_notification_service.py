@@ -642,7 +642,7 @@ class ObjetivosNotificationService:
                             erp = (it.get("id_cliente_erp") or info.get("erp", "") or "")
                             
                             if rs and nf and rs != nf:
-                                nombre_raw = f"{rs} ({nf})"
+                                nombre_raw = f"{nf} / {rs}"
                             elif rs or nf:
                                 nombre_raw = rs or nf
                             else:
@@ -720,11 +720,13 @@ class ObjetivosNotificationService:
                         erp = row0.get("id_cliente_erp") or ""
                         id_ruta_pdv = row0.get("id_ruta")
                         if not pdv_nombre:
-                            pdv_nombre = (
-                                (row0.get("nombre_fantasia") or "").strip()
-                                or (row0.get("nombre_cliente") or "").strip()
-                                or (row0.get("nombre_razon_social") or "").strip()
-                            )
+                            nf_raw = (row0.get("nombre_fantasia") or "").strip() or (row0.get("nombre_cliente") or "").strip()
+                            rs_raw = (row0.get("nombre_razon_social") or "").strip()
+                            if nf_raw and rs_raw and nf_raw != rs_raw:
+                                pdv_nombre = f"{nf_raw} / {rs_raw}"
+                            else:
+                                pdv_nombre = nf_raw or rs_raw
+                                
                     if not pdv_nombre:
                         pdv_nombre = (
                             (f"Cliente ERP {erp}" if erp else "")
@@ -921,13 +923,16 @@ class ObjetivosNotificationService:
                 return
 
             emoji = TIPO_EMOJI.get(tipo_evento, "🎯")
-            pdv_nombre_raw = (
-                pdv_data.get("nombre_cliente") or pdv_data.get("nombre") or "PDV"
-            )
+            nf_raw = pdv_data.get("nombre_fantasia") or pdv_data.get("nombre_cliente") or pdv_data.get("nombre") or ""
+            rs_raw = pdv_data.get("nombre_razon_social") or ""
+            if nf_raw and rs_raw and nf_raw != rs_raw:
+                pdv_nombre_raw = f"{nf_raw} / {rs_raw}"
+            else:
+                pdv_nombre_raw = nf_raw or rs_raw or "PDV"
             pdv_nombre = html.escape(str(pdv_nombre_raw), quote=False)
             pdv_codigo = pdv_data.get("id_cliente_erp") or pdv_data.get("codigo") or ""
             cod_esc = html.escape(str(pdv_codigo), quote=False) if pdv_codigo else ""
-            cod_str = f" (#{cod_esc})" if cod_esc else ""
+            cod_str = f" (ERP: {cod_esc})" if cod_esc else ""
 
             tipo_label = {
                 "alteo":               "Alteo",
@@ -980,6 +985,7 @@ class ObjetivosNotificationService:
         id_vendedor: int,
         tipo: str,
         nombre_pdv: str | None = None,
+        obj_data: dict[str, Any] | None = None,
     ) -> None:
         """Notifica al vendedor que su objetivo fue marcado como CUMPLIDO."""
         try:
@@ -999,11 +1005,23 @@ class ObjetivosNotificationService:
                 "cobranza":   "Cobranza",
             }.get(tipo, tipo.capitalize() if tipo else "Objetivo")
 
-            pdv_str = (
-                f" en <b>{html.escape(str(nombre_pdv), quote=False)}</b>"
-                if nombre_pdv
-                else ""
-            )
+            pdv_str = ""
+            if obj_data:
+                pdv_codigo = obj_data.get("id_cliente_erp") or obj_data.get("codigo") or ""
+                cod_esc = html.escape(str(pdv_codigo), quote=False) if pdv_codigo else ""
+                cod_str = f" (ERP: {cod_esc})" if cod_esc else ""
+                
+                nf_raw = obj_data.get("nombre_fantasia") or obj_data.get("nombre_cliente") or ""
+                rs_raw = obj_data.get("nombre_razon_social") or ""
+                if nf_raw and rs_raw and nf_raw != rs_raw:
+                    pdv_nombre_raw = f"{nf_raw} / {rs_raw}"
+                else:
+                    pdv_nombre_raw = nf_raw or rs_raw or nombre_pdv or ""
+                
+                if pdv_nombre_raw:
+                    pdv_str = f" en <b>{html.escape(str(pdv_nombre_raw), quote=False)}</b>{cod_str}"
+            elif nombre_pdv:
+                pdv_str = f" en <b>{html.escape(str(nombre_pdv), quote=False)}</b>"
             text = (
                 f"🏆 <b>¡OBJETIVO CUMPLIDO!</b> {emoji}\n\n"
                 f"Completaste tu objetivo de <b>{tipo_label}</b>{pdv_str}.\n"
@@ -1030,6 +1048,7 @@ class ObjetivosNotificationService:
         id_vendedor: int,
         tipo: str,
         nombre_pdv: str | None = None,
+        obj_data: dict[str, Any] | None = None,
     ) -> None:
         """Notifica al vendedor que su objetivo fue cerrado como FALLIDO (no cumplido)."""
         try:
@@ -1050,11 +1069,23 @@ class ObjetivosNotificationService:
                 "ruteo":      "Ruteo",
             }.get(tipo, tipo.capitalize() if tipo else "Objetivo")
 
-            pdv_str = (
-                f" en <b>{html.escape(str(nombre_pdv), quote=False)}</b>"
-                if nombre_pdv
-                else ""
-            )
+            pdv_str = ""
+            if obj_data:
+                pdv_codigo = obj_data.get("id_cliente_erp") or obj_data.get("codigo") or ""
+                cod_esc = html.escape(str(pdv_codigo), quote=False) if pdv_codigo else ""
+                cod_str = f" (ERP: {cod_esc})" if cod_esc else ""
+                
+                nf_raw = obj_data.get("nombre_fantasia") or obj_data.get("nombre_cliente") or ""
+                rs_raw = obj_data.get("nombre_razon_social") or ""
+                if nf_raw and rs_raw and nf_raw != rs_raw:
+                    pdv_nombre_raw = f"{nf_raw} / {rs_raw}"
+                else:
+                    pdv_nombre_raw = nf_raw or rs_raw or nombre_pdv or ""
+                
+                if pdv_nombre_raw:
+                    pdv_str = f" en <b>{html.escape(str(pdv_nombre_raw), quote=False)}</b>{cod_str}"
+            elif nombre_pdv:
+                pdv_str = f" en <b>{html.escape(str(nombre_pdv), quote=False)}</b>"
             text = (
                 f"⏱️ <b>Objetivo cerrado sin completar</b> {emoji}\n\n"
                 f"Tu objetivo de <b>{tipo_label}</b>{pdv_str} venció sin alcanzar la meta.\n"

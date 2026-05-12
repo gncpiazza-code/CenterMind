@@ -914,7 +914,7 @@ function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado, onOpenR
         ) : null}
 
         {/* Items checklist (compact dots) */}
-        {obj.items_count && obj.items_count > 1 && (
+        {!!obj.items_count && obj.items_count > 1 && (
           <div className="flex items-center gap-1.5 text-[10px] text-[var(--shelfy-muted)]">
             <span className="tabular-nums">
               <span className="text-[var(--shelfy-text)] font-medium">{obj.items_cumplidos ?? 0}</span>
@@ -941,7 +941,7 @@ function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado, onOpenR
         )}
 
         {/* ERP quick IDs para reconocimiento rápido en Kanban */}
-        {obj.items && obj.items.length > 0 && (
+        {!!obj.items && obj.items.length > 0 && (
           <div className="flex items-center gap-1 flex-wrap text-[10px]">
             {obj.items
               .map((it) => getObjetivoItemClientCode(it))

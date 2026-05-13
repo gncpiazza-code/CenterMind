@@ -519,6 +519,64 @@ def enviar_cc_vendedor(
         return {"ok": False, "vendedor": vend_data["vendedor_nombre"], "error": str(e)}
 
 
+def enviar_cc_cadenaone(
+    dist_id: int,
+    token: str,
+    dist_nombre: str,
+    chat_id: int,
+) -> dict:
+    """
+    Genera y envía el PDF de CC para la Cadena One (Federico Alvarez) al chat indicado.
+    """
+    fecha_snapshot, rows = _fetch_cc_snapshot(dist_id)
+    if not fecha_snapshot or not rows:
+        return {"ok": False, "error": "No hay snapshot reciente"}
+
+    clientes_cadena = []
+    for r in rows:
+        c_nombre = r.get("cliente_nombre", "")
+        if "FEDERICO ALVAREZ" in _norm(c_nombre):
+            clientes_cadena.append({
+                "cliente": r.get("cliente_nombre"),
+                "id_cliente_erp": r.get("id_cliente_erp"),
+                "deuda_total": r.get("deuda_total"),
+                "antiguedad": r.get("antiguedad_dias"),
+                "cantidad_comprobantes": r.get("cantidad_comprobantes"),
+                "fecha_ultima_compra": r.get("fecha_ultima_compra"),
+            })
+
+    if not clientes_cadena:
+        return {"ok": False, "error": "No se encontraron clientes para la Cadena One (Federico Alvarez)."}
+
+    deuda_total = sum(c["deuda_total"] or 0.0 for c in clientes_cadena)
+    nombre_display = "Cadena One (Federico Alvarez)"
+    fecha_fmt = "/".join(reversed(fecha_snapshot[:10].split("-")))
+
+    caption_lines = [
+        f"💳 <b>Cuentas Corrientes — {nombre_display}</b>",
+        f"📅 Al {fecha_fmt}",
+        f"💰 Total deuda: <b>${deuda_total:,.0f}</b>".replace(",", "."),
+        f"👥 {len(clientes_cadena)} clientes deudores",
+    ]
+    caption = "\n".join(caption_lines)
+
+    try:
+        pdf_bytes = _build_cc_pdf(
+            vendedor_nombre=nombre_display,
+            dist_nombre=dist_nombre,
+            fecha=fecha_fmt,
+            clientes=clientes_cadena,
+            deuda_total=deuda_total,
+        )
+        ftag = fecha_snapshot[:10].replace("-", "")
+        filename = f"CC_{ftag}_CadenaOne.pdf"
+        ok, doc_msg_id = _send_document(token, chat_id, pdf_bytes, filename, caption)
+        return {"ok": ok, "error": None if ok else "Error al enviar PDF"}
+    except Exception as e:
+        logger.error(f"[CCDifusion] exc cadenaone: {e}")
+        return {"ok": False, "error": str(e)}
+
+
 # ─── SIGO resumen Telegram ───────────────────────────────────────────────────
 
 def _build_sigo_mensaje(

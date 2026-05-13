@@ -1613,6 +1613,34 @@ class BotWorker:
             self.logger.error(f"[objetivos] Error uid={uid} dist={dist_id}: {e}", exc_info=True)
             await m.reply_text("❌ No pude consultar tus objetivos en este momento.")
 
+    async def cmd_cadenaone(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if not update.message:
+            return
+
+        if not await self._check_compliance(update):
+            return
+
+        m = update.message
+        dist_id = self.distribuidor_id
+        chat_id = m.chat.id
+
+        await m.reply_text("⏳ Generando reporte de Cadena One (Federico Alvarez)...", parse_mode=ParseMode.HTML)
+
+        from services.cc_difusion_service import enviar_cc_cadenaone
+        try:
+            res = await asyncio.to_thread(
+                enviar_cc_cadenaone,
+                dist_id,
+                self.token,
+                self.nombre_dist,
+                chat_id
+            )
+            if not res.get("ok"):
+                await m.reply_text(f"❌ Error: {res.get('error', 'Desconocido')}")
+        except Exception as e:
+            self.logger.error(f"[cadenaone] exc dist={dist_id}: {e}")
+            await m.reply_text("❌ Error interno al generar reporte.")
+
     async def cmd_reset(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not update.message:
             return
@@ -3182,6 +3210,7 @@ class BotWorker:
         app.add_handler(CommandHandler("stats",      self.cmd_stats))
         app.add_handler(CommandHandler("ranking",    self.cmd_ranking))
         app.add_handler(CommandHandler("objetivos",  self.cmd_objetivos))
+        app.add_handler(CommandHandler("cadenaone",  self.cmd_cadenaone))
         app.add_handler(CommandHandler("reset",      self.cmd_reset))
         app.add_handler(CommandHandler("hardreset",  self.cmd_hardreset))
 

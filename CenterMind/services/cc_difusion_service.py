@@ -150,11 +150,12 @@ def _build_cc_pdf(
         raise RuntimeError("reportlab no instalado")
 
     buf = io.BytesIO()
+    from reportlab.lib.pagesizes import landscape, A4
     doc = SimpleDocTemplate(
         buf,
-        pagesize=A4,
-        leftMargin=1.5 * cm, rightMargin=1.5 * cm,
-        topMargin=1.5 * cm, bottomMargin=1.5 * cm,
+        pagesize=landscape(A4),
+        leftMargin=1.0 * cm, rightMargin=1.0 * cm,
+        topMargin=1.0 * cm, bottomMargin=1.0 * cm,
     )
     styles = getSampleStyleSheet()
     title_style  = ParagraphStyle("Title",  parent=styles["Normal"], fontSize=14, textColor=_VIOLET, fontName="Helvetica-Bold", spaceAfter=4)
@@ -202,30 +203,29 @@ def _build_cc_pdf(
     ])
 
     # Table header + rows
-    table_data = [["Cliente ERP", "Cliente", "Días", "Cbtés.", "Últ. Comp.", "Deuda $"]]
+    table_data = [["Cliente ERP", "Cliente", "Total $", "7 Días", "15 Días", "30 Días", "60 Días", "+60 Días"]]
     for c in clientes:
-        dias = c.get("antiguedad") or 0
         erp_disp, cliente_disp = _normalize_cliente_row(c.get("cliente"), c.get("id_cliente_erp"))
-        fuc = c.get("fecha_ultima_compra")
-        fuc_disp = "/".join(reversed(fuc.split("-"))) if fuc else "—"
         table_data.append([
             erp_disp,
-            (cliente_disp or "—")[:35],
-            str(dias),
-            str(c.get("cantidad_comprobantes") or "—"),
-            fuc_disp,
+            (cliente_disp or "—")[:40],
             f"${float(c.get('deuda_total') or 0):,.0f}".replace(",", "."),
+            f"${float(c.get('deuda_7_dias') or 0):,.0f}".replace(",", ".") if c.get('deuda_7_dias') else "-",
+            f"${float(c.get('deuda_15_dias') or 0):,.0f}".replace(",", ".") if c.get('deuda_15_dias') else "-",
+            f"${float(c.get('deuda_30_dias') or 0):,.0f}".replace(",", ".") if c.get('deuda_30_dias') else "-",
+            f"${float(c.get('deuda_60_dias') or 0):,.0f}".replace(",", ".") if c.get('deuda_60_dias') else "-",
+            f"${float(c.get('deuda_mas_60_dias') or 0):,.0f}".replace(",", ".") if c.get('deuda_mas_60_dias') else "-",
         ])
 
-    col_widths = [2.5 * cm, 5.5 * cm, 1.3 * cm, 1.7 * cm, 2.3 * cm, 3.2 * cm]
+    col_widths = [2.2 * cm, 7.5 * cm, 3.0 * cm, 2.7 * cm, 2.7 * cm, 2.7 * cm, 2.7 * cm, 2.7 * cm]
     t = Table(table_data, colWidths=col_widths, repeatRows=1)
     t.setStyle(TableStyle([
         ("BACKGROUND",   (0, 0), (-1, 0), _VIOLET),
         ("TEXTCOLOR",    (0, 0), (-1, 0), colors.white),
         ("FONTNAME",     (0, 0), (-1, 0), "Helvetica-Bold"),
         ("FONTSIZE",     (0, 0), (-1, 0), 8),
-        ("ALIGN",        (1, 0), (-1, -1), "CENTER"),
-        ("ALIGN",        (0, 0), (0, -1), "LEFT"),
+        ("ALIGN",        (2, 0), (-1, -1), "RIGHT"),
+        ("ALIGN",        (0, 0), (1, -1), "LEFT"),
         ("FONTSIZE",     (0, 1), (-1, -1), 7.5),
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, _LIGHT]),
         ("GRID",         (0, 0), (-1, -1), 0.3, _SLATE),

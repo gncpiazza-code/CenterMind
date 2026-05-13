@@ -1429,7 +1429,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
       };
 
       if (tipo === "ruteo_alteo") {
-        if (alteoMode === "general") {
+        if (alteoMode === "general" || paraTodosFDV) {
           base.valor_objetivo = cantidadAlteo ? Number(cantidadAlteo) : undefined;
         } else {
           const defaultQty = selectedDayGroups.reduce((acc, g) => acc + g.totalPdvs, 0);
@@ -1455,7 +1455,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
       }
 
       if (tipo === "conversion_estado") {
-        if (activacionMode === "general") {
+        if (activacionMode === "general" || paraTodosFDV) {
           base.valor_objetivo = cantidadActivacion !== "" ? Number(cantidadActivacion) : undefined;
           base.descripcion = desc || buildPhrase(target.nombre_erp);
           creates.push(base);
@@ -1486,7 +1486,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
       }
 
       if (tipo === "exhibicion") {
-        if (exhibicionMode === "general") {
+        if (exhibicionMode === "general" || paraTodosFDV) {
           const qty = cantidadExhibicion ? Number(cantidadExhibicion) : undefined;
           base.valor_objetivo = qty;
           base.descripcion = desc || buildPhrase(target.nombre_erp);
@@ -1735,45 +1735,49 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
           {/* Contextual: Alteo */}
           {tipo === "ruteo_alteo" && (
             <div className="space-y-2 rounded-xl bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] p-3">
-              <div className="flex gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setAlteoMode("por_dia")}
-                  className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all ${
-                    alteoMode === "por_dia"
-                      ? "border-[var(--shelfy-accent)] bg-[var(--shelfy-accent)]/10 text-[var(--shelfy-accent)]"
-                      : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
-                  }`}
-                >
-                  Por días asignados
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setAlteoMode("general")}
-                  className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all ${
-                    alteoMode === "general"
-                      ? "border-[var(--shelfy-accent)] bg-[var(--shelfy-accent)]/10 text-[var(--shelfy-accent)]"
-                      : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
-                  }`}
-                >
-                  Meta general por cantidad
-                </button>
-              </div>
-              <p className="text-[10px] text-[var(--shelfy-muted)]">
-                <strong>Por días asignados:</strong> elegís los días del vendedor y definís cuántos PDVs nuevos debe sumar.
-              </p>
-              {alteoMode === "por_dia" && (
+              {!paraTodosFDV && (
+                <div className="flex gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setAlteoMode("por_dia")}
+                    className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                      alteoMode === "por_dia"
+                        ? "border-[var(--shelfy-accent)] bg-[var(--shelfy-accent)]/10 text-[var(--shelfy-accent)]"
+                        : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
+                    }`}
+                  >
+                    Por días asignados
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAlteoMode("general")}
+                    className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                      alteoMode === "general"
+                        ? "border-[var(--shelfy-accent)] bg-[var(--shelfy-accent)]/10 text-[var(--shelfy-accent)]"
+                        : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
+                    }`}
+                  >
+                    Meta general por cantidad
+                  </button>
+                </div>
+              )}
+              {!paraTodosFDV && (
+                <p className="text-[10px] text-[var(--shelfy-muted)]">
+                  <strong>Por días asignados:</strong> elegís los días del vendedor y definís cuántos PDVs nuevos debe sumar.
+                </p>
+              )}
+              {!paraTodosFDV && alteoMode === "por_dia" && (
                 <p className="text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider">Días asignados del vendedor</p>
               )}
-              {!vendedorId ? (
+              {!paraTodosFDV && !vendedorId ? (
                 <p className="text-xs text-[var(--shelfy-muted)]">Seleccioná un vendedor para ver sus rutas</p>
-              ) : loadingCtx ? (
+              ) : !paraTodosFDV && loadingCtx ? (
                 <div className="flex items-center gap-1.5 text-xs text-[var(--shelfy-muted)]">
                   <Loader2 className="w-3 h-3 animate-spin" /> Cargando rutas...
                 </div>
-              ) : alteoMode === "por_dia" && rutas.length === 0 ? (
+              ) : !paraTodosFDV && alteoMode === "por_dia" && rutas.length === 0 ? (
                 <p className="text-xs text-[var(--shelfy-muted)]">Sin rutas registradas</p>
-              ) : alteoMode === "por_dia" ? (
+              ) : !paraTodosFDV && alteoMode === "por_dia" ? (
                 <div className="space-y-1">
                   {rutasPorDia.map(({ day, dayKey, routes: dayRoutes, totalPdvs }) => (
                     <div key={dayKey} className="rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] p-2">
@@ -1898,33 +1902,35 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
           )}
 
           {/* Contextual: Activación (conversion_estado) */}
-          {tipo === "conversion_estado" && vendedorId && (
+          {tipo === "conversion_estado" && (vendedorId || paraTodosFDV) && (
             <div className="space-y-2 rounded-xl bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] p-3">
-              <div className="flex gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setActivacionMode("por_pdv")}
-                  className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all ${
-                    activacionMode === "por_pdv"
-                      ? "border-[var(--shelfy-accent)] bg-[var(--shelfy-accent)]/10 text-[var(--shelfy-accent)]"
-                      : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
-                  }`}
-                >
-                  Seleccionar PDVs
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActivacionMode("general")}
-                  className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all ${
-                    activacionMode === "general"
-                      ? "border-[var(--shelfy-accent)] bg-[var(--shelfy-accent)]/10 text-[var(--shelfy-accent)]"
-                      : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
-                  }`}
-                >
-                  Meta general por cantidad
-                </button>
-              </div>
-              {activacionMode === "general" && (
+              {!paraTodosFDV && (
+                <div className="flex gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setActivacionMode("por_pdv")}
+                    className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                      activacionMode === "por_pdv"
+                        ? "border-[var(--shelfy-accent)] bg-[var(--shelfy-accent)]/10 text-[var(--shelfy-accent)]"
+                        : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
+                    }`}
+                  >
+                    Seleccionar PDVs
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActivacionMode("general")}
+                    className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                      activacionMode === "general"
+                        ? "border-[var(--shelfy-accent)] bg-[var(--shelfy-accent)]/10 text-[var(--shelfy-accent)]"
+                        : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
+                    }`}
+                  >
+                    Meta general por cantidad
+                  </button>
+                </div>
+              )}
+              {(activacionMode === "general" || paraTodosFDV) && (
                 <div>
                   <label className="text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">
                     Cantidad de PDVs a activar
@@ -1939,16 +1945,18 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
                   />
                 </div>
               )}
-              <p className="text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider">
-                PDVs sin compra +30 días
-              </p>
-              {activacionMode === "por_pdv" && loadingCtx ? (
+              {!paraTodosFDV && (
+                <p className="text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider">
+                  PDVs sin compra +30 días
+                </p>
+              )}
+              {!paraTodosFDV && activacionMode === "por_pdv" && loadingCtx ? (
                 <div className="flex items-center gap-1.5 text-xs text-[var(--shelfy-muted)]">
                   <Loader2 className="w-3 h-3 animate-spin" /> Cargando PDVs...
                 </div>
-              ) : activacionMode === "por_pdv" && activacionPdvs.length === 0 ? (
+              ) : !paraTodosFDV && activacionMode === "por_pdv" && activacionPdvs.length === 0 ? (
                 <p className="text-xs text-[var(--shelfy-muted)]">Sin PDVs en esa condición</p>
-              ) : activacionMode === "por_pdv" ? (
+              ) : !paraTodosFDV && activacionMode === "por_pdv" ? (
                 <div className="max-h-40 overflow-y-auto space-y-0.5">
                   {activacionPdvs.map((pdv) => (
                     <button
@@ -2090,35 +2098,37 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
           )}
 
           {/* Contextual: Exhibición */}
-          {tipo === "exhibicion" && vendedorId && (
+          {tipo === "exhibicion" && (vendedorId || paraTodosFDV) && (
             <div className="space-y-3 rounded-xl bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] p-3">
               {/* Mode toggle */}
-              <div className="flex gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setExhibicionMode("general")}
-                  className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all ${
-                    exhibicionMode === "general"
-                      ? "border-[var(--shelfy-accent)] bg-[var(--shelfy-accent)]/10 text-[var(--shelfy-accent)]"
-                      : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
-                  }`}
-                >
-                  Meta general por cantidad
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setExhibicionMode("por_pdv")}
-                  className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all ${
-                    exhibicionMode === "por_pdv"
-                      ? "border-[var(--shelfy-accent)] bg-[var(--shelfy-accent)]/10 text-[var(--shelfy-accent)]"
-                      : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
-                  }`}
-                >
-                  Seleccionar PDVs
-                </button>
-              </div>
+              {!paraTodosFDV && (
+                <div className="flex gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setExhibicionMode("general")}
+                    className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                      exhibicionMode === "general"
+                        ? "border-[var(--shelfy-accent)] bg-[var(--shelfy-accent)]/10 text-[var(--shelfy-accent)]"
+                        : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
+                    }`}
+                  >
+                    Meta general por cantidad
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setExhibicionMode("por_pdv")}
+                    className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                      exhibicionMode === "por_pdv"
+                        ? "border-[var(--shelfy-accent)] bg-[var(--shelfy-accent)]/10 text-[var(--shelfy-accent)]"
+                        : "border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
+                    }`}
+                  >
+                    Seleccionar PDVs
+                  </button>
+                </div>
+              )}
 
-              {exhibicionMode === "general" ? (
+              {exhibicionMode === "general" || paraTodosFDV ? (
                 /* ── General: just set a quantity ── */
                 <div>
                   <label className="text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">

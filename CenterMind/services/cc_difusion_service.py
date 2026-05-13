@@ -241,6 +241,73 @@ def _build_cc_pdf(
     return buf.getvalue()
 
 
+def _build_cadenaone_pdf(
+    dist_nombre: str,
+    fecha: str,
+    clientes: list[dict],
+    deuda_total: float,
+) -> bytes:
+    if not _REPORTLAB:
+        raise RuntimeError("reportlab no instalado")
+
+    buf = io.BytesIO()
+    # A4 Horizontal/Landscape
+    from reportlab.lib.pagesizes import landscape, A4
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=landscape(A4),
+        leftMargin=1.0 * cm, rightMargin=1.0 * cm,
+        topMargin=1.0 * cm, bottomMargin=1.0 * cm,
+    )
+    styles = getSampleStyleSheet()
+    title_style  = ParagraphStyle("Title",  parent=styles["Normal"], fontSize=14, textColor=_VIOLET, fontName="Helvetica-Bold", spaceAfter=4)
+    sub_style    = ParagraphStyle("Sub",    parent=styles["Normal"], fontSize=9,  textColor=_SLATE,  spaceAfter=2)
+    sect_style = ParagraphStyle("Sect", parent=styles["Normal"], fontSize=9, textColor=_VIOLET, fontName="Helvetica-Bold", spaceAfter=4, spaceBefore=2)
+
+    story = [
+        Paragraph(f"Cuentas Corrientes — Cadena One (Federico Alvarez)", title_style),
+        Paragraph(f"Distribuidora: <b>{dist_nombre}</b>  ·  Al {fecha}  ·  Total deuda: <b>${deuda_total:,.0f}</b>".replace(",", "."), sub_style),
+        Spacer(1, 10),
+    ]
+
+    table_data = [["Cliente ERP", "Cliente", "Total $", "7 Días", "15 Días", "30 Días", "60 Días", "+60 Días"]]
+    for c in clientes:
+        erp_disp, cliente_disp = _normalize_cliente_row(c.get("cliente"), c.get("id_cliente_erp"))
+        table_data.append([
+            erp_disp,
+            (cliente_disp or "—")[:40],
+            f"${float(c.get('deuda_total') or 0):,.0f}".replace(",", "."),
+            f"${float(c.get('deuda_7_dias') or 0):,.0f}".replace(",", ".") if c.get('deuda_7_dias') else "-",
+            f"${float(c.get('deuda_15_dias') or 0):,.0f}".replace(",", ".") if c.get('deuda_15_dias') else "-",
+            f"${float(c.get('deuda_30_dias') or 0):,.0f}".replace(",", ".") if c.get('deuda_30_dias') else "-",
+            f"${float(c.get('deuda_60_dias') or 0):,.0f}".replace(",", ".") if c.get('deuda_60_dias') else "-",
+            f"${float(c.get('deuda_mas_60_dias') or 0):,.0f}".replace(",", ".") if c.get('deuda_mas_60_dias') else "-",
+        ])
+
+    col_widths = [2.2 * cm, 7.5 * cm, 3.0 * cm, 2.7 * cm, 2.7 * cm, 2.7 * cm, 2.7 * cm, 2.7 * cm]
+    t = Table(table_data, colWidths=col_widths, repeatRows=1)
+    t.setStyle(TableStyle([
+        ("BACKGROUND",   (0, 0), (-1, 0), _VIOLET),
+        ("TEXTCOLOR",    (0, 0), (-1, 0), colors.white),
+        ("FONTNAME",     (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE",     (0, 0), (-1, 0), 8),
+        ("ALIGN",        (2, 0), (-1, -1), "RIGHT"),
+        ("ALIGN",        (0, 0), (1, -1), "LEFT"),
+        ("FONTSIZE",     (0, 1), (-1, -1), 7.5),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, _LIGHT]),
+        ("GRID",         (0, 0), (-1, -1), 0.3, _SLATE),
+        ("TEXTCOLOR",    (0, 1), (-1, -1), colors.black),
+        ("TOPPADDING",   (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING",(0, 0), (-1, -1), 3),
+        ("LEFTPADDING",  (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    story.append(t)
+
+    doc.build(story)
+    return buf.getvalue()
+
+
 # ─── Telegram helpers ─────────────────────────────────────────────────────────
 
 def _get_bot_token(dist_id: int) -> str | None:
@@ -374,7 +441,7 @@ def _fetch_cc_snapshot(dist_id: int, fecha: str | None = None) -> tuple[str | No
     while True:
         batch = (
             sb.table("cc_detalle")
-            .select("id_vendedor, vendedor_nombre, cliente_nombre, id_cliente_erp, id_cliente, deuda_total, antiguedad_dias, cantidad_comprobantes")
+            .select("id_vendedor, vendedor_nombre, cliente_nombre, id_cliente_erp, id_cliente, deuda_total, antiguedad_dias, cantidad_comprobantes, deuda_7_dias, deuda_15_dias, deuda_30_dias, deuda_60_dias, deuda_mas_60_dias")
             .eq("id_distribuidor", dist_id)
             .eq("fecha_snapshot", fecha_snapshot)
             .range(offset, offset + 999)
@@ -431,6 +498,11 @@ def _group_by_vendor(rows: list[dict]) -> dict[int | str, dict]:
             "cliente": r.get("cliente_nombre"),
             "id_cliente_erp": r.get("id_cliente_erp"),
             "deuda_total": float(r.get("deuda_total") or 0),
+            "deuda_7_dias": float(r.get("deuda_7_dias") or 0),
+            "deuda_15_dias": float(r.get("deuda_15_dias") or 0),
+            "deuda_30_dias": float(r.get("deuda_30_dias") or 0),
+            "deuda_60_dias": float(r.get("deuda_60_dias") or 0),
+            "deuda_mas_60_dias": float(r.get("deuda_mas_60_dias") or 0),
             "antiguedad": r.get("antiguedad_dias"),
             "cantidad_comprobantes": r.get("cantidad_comprobantes"),
             "fecha_ultima_compra": r.get("fecha_ultima_compra"),
@@ -539,7 +611,12 @@ def enviar_cc_cadenaone(
             clientes_cadena.append({
                 "cliente": r.get("cliente_nombre"),
                 "id_cliente_erp": r.get("id_cliente_erp"),
-                "deuda_total": r.get("deuda_total"),
+                "deuda_total": float(r.get("deuda_total") or 0),
+                "deuda_7_dias": float(r.get("deuda_7_dias") or 0),
+                "deuda_15_dias": float(r.get("deuda_15_dias") or 0),
+                "deuda_30_dias": float(r.get("deuda_30_dias") or 0),
+                "deuda_60_dias": float(r.get("deuda_60_dias") or 0),
+                "deuda_mas_60_dias": float(r.get("deuda_mas_60_dias") or 0),
                 "antiguedad": r.get("antiguedad_dias"),
                 "cantidad_comprobantes": r.get("cantidad_comprobantes"),
                 "fecha_ultima_compra": r.get("fecha_ultima_compra"),
@@ -561,8 +638,7 @@ def enviar_cc_cadenaone(
     caption = "\n".join(caption_lines)
 
     try:
-        pdf_bytes = _build_cc_pdf(
-            vendedor_nombre=nombre_display,
+        pdf_bytes = _build_cadenaone_pdf(
             dist_nombre=dist_nombre,
             fecha=fecha_fmt,
             clientes=clientes_cadena,

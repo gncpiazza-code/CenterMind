@@ -32,6 +32,11 @@ CANONICAL = {
     "antiguedad": ["antiguedad deuda", "antiguedad", "antigüedad"],
     "cant_cbte": ["cant cbte", "cantidad comprobantes"],
     "saldo_total": ["saldo total", "saldo"],
+    "deuda_7_dias": ["a 7 dias", "a 7 días", "7 dias", "7 días"],
+    "deuda_15_dias": ["a 15 dias", "a 15 días", "15 dias", "15 días"],
+    "deuda_30_dias": ["a 30 dias", "a 30 días", "30 dias", "30 días"],
+    "deuda_60_dias": ["a 60 dias", "a 60 días", "60 dias", "60 días"],
+    "deuda_mas_60_dias": ["a +60", "a + 60", "a mas de 60", "a mas de", "a +60 dias", "a +60 días", "+60 dias", "+60 días"],
 }
 
 def _map_columns(df: pd.DataFrame):
@@ -85,8 +90,9 @@ def procesar_excel_cuentas(file_path: str) -> dict:
     if "cod_cliente" not in df.columns: df["cod_cliente"] = np.nan
     df["cod_cliente"] = df["cod_cliente"].apply(lambda x: str(int(x)) if pd.notna(x) and x != "" else None)
     
-    for col in ["cant_cbte", "saldo_total", "antiguedad"]:
-        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+    for col in ["cant_cbte", "saldo_total", "antiguedad", "deuda_7_dias", "deuda_15_dias", "deuda_30_dias", "deuda_60_dias", "deuda_mas_60_dias"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
     # Creación de Etiquetas (Flags) en lugar de borrar
     df["tiene_vendedor"] = ~df["vendedor"].str.contains("SIN VENDEDOR", case=False, na=False)
@@ -103,8 +109,12 @@ def procesar_excel_cuentas(file_path: str) -> dict:
     # Detalles
     cols_detalle = [
         "sucursal", "vendedor", "cliente", "cod_cliente", "cant_cbte", "saldo_total",
-        "antiguedad", "rango_antiguedad", "es_valido"
+        "antiguedad", "rango_antiguedad", "es_valido",
+        "deuda_7_dias", "deuda_15_dias", "deuda_30_dias", "deuda_60_dias", "deuda_mas_60_dias"
     ]
+    # Filtramos las que sí se agregaron (puede que el archivo no las traiga todas)
+    cols_detalle = [c for c in cols_detalle if c in df.columns]
+    
     renames = {
         "cant_cbte": "cantidad_comprobantes",
         "saldo_total": "deuda_total"

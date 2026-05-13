@@ -311,6 +311,11 @@ def _enrich_and_store_cc(dist_id: int, fecha_snapshot: str, rows: list) -> int:
             ),
             "cliente_nombre":        (row.get("cliente") or "Sin Cliente").strip(),
             "deuda_total":           deuda_total,
+            "deuda_7_dias":          float(row.get("deuda_7_dias") or 0.0),
+            "deuda_15_dias":         float(row.get("deuda_15_dias") or 0.0),
+            "deuda_30_dias":         float(row.get("deuda_30_dias") or 0.0),
+            "deuda_60_dias":         float(row.get("deuda_60_dias") or 0.0),
+            "deuda_mas_60_dias":     float(row.get("deuda_mas_60_dias") or 0.0),
             "rango_antiguedad":      row.get("rango_antiguedad"),
             "antiguedad_dias":       int(row.get("antiguedad") or 0),
             "cantidad_comprobantes": int(row.get("cantidad_comprobantes") or row.get("cant_cbte") or 0),
@@ -328,6 +333,11 @@ def _enrich_and_store_cc(dist_id: int, fecha_snapshot: str, rows: list) -> int:
         else:
             existing = dedup[key]
             existing["deuda_total"] += r["deuda_total"]
+            existing["deuda_7_dias"] += r["deuda_7_dias"]
+            existing["deuda_15_dias"] += r["deuda_15_dias"]
+            existing["deuda_30_dias"] += r["deuda_30_dias"]
+            existing["deuda_60_dias"] += r["deuda_60_dias"]
+            existing["deuda_mas_60_dias"] += r["deuda_mas_60_dias"]
             existing["cantidad_comprobantes"] += r["cantidad_comprobantes"]
             if r["antiguedad_dias"] > existing["antiguedad_dias"]:
                 existing["antiguedad_dias"] = r["antiguedad_dias"]

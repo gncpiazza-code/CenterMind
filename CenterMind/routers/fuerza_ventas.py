@@ -439,11 +439,19 @@ def fuerza_ventas_update_vendedor(
         # Upsert perfil
         perfil_data = perfil_req.model_dump(exclude_none=True)
         if perfil_data:
+            nombre_erp_nuevo = perfil_data.pop("nombre_erp", None)
+            
             sb.table("vendedores_perfil").upsert({
                 "id_distribuidor": dist_id,
                 "id_vendedor_v2": id_vendedor,
                 **perfil_data,
             }, on_conflict="id_distribuidor,id_vendedor_v2").execute()
+            
+            # Si viene nombre_erp, actualizamos la tabla vendedores_v2
+            if nombre_erp_nuevo:
+                sb.table(tenant_table_name("vendedores_v2", dist_id)).update({
+                    "nombre_erp": nombre_erp_nuevo
+                }).eq("id_distribuidor", dist_id).eq("id_vendedor", id_vendedor).execute()
 
         # Upsert binding
         if binding_req is not None:

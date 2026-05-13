@@ -227,6 +227,7 @@ class VendedorPerfilUpdateRequest(BaseModel):
     localidad: Optional[str] = None
     fecha_ingreso: Optional[str] = None
     activo: Optional[bool] = None
+    nombre_erp: Optional[str] = None
 
 
 class VendedorTelegramBindingRequest(BaseModel):

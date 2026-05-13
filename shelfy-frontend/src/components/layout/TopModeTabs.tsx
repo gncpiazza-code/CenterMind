@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useMemo } from "react";
 import {
-  Eye, LayoutDashboard, BarChart2, Map, Target, Images, Radio, FileBarChart2,
+  Eye, LayoutDashboard, BarChart2, Map, Target, Images, Radio, FileBarChart2, UserCog,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
@@ -79,11 +79,17 @@ const TABS: TabItem[] = [
     icon: FileBarChart2,
     roles: ["superadmin"],
   },
+  {
+    href: "/fuerza-ventas",
+    label: "FV",
+    icon: UserCog,
+    roles: ["superadmin", "admin"], // Roles permitidos para ALOMA
+  },
 ];
 
 export function TopModeTabs() {
   const pathname = usePathname();
-  const { user, hasPermiso } = useAuth();
+  const { user, hasPermiso, effectiveDistribuidorId } = useAuth();
   const rol = user?.rol ?? "";
   const isSuperadmin = !!user?.is_superadmin;
 
@@ -91,6 +97,11 @@ export function TopModeTabs() {
     () =>
       TABS.filter((tab) => {
         if (tab.href === "/reporteria" && !isSuperadmin) return false;
+        if (tab.href === "/fuerza-ventas") {
+          // Visible para Superadmin (en cualquier tenant) o para ALOMA (dist_id = 4)
+          const distId = effectiveDistribuidorId ?? user?.id_distribuidor;
+          if (!isSuperadmin && distId !== 4) return false;
+        }
         const roleOk = tab.roles.includes(rol);
         if (!tab.permisoKey) return roleOk;
         const permisoOk = hasPermiso(tab.permisoKey);

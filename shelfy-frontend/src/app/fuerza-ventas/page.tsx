@@ -29,9 +29,13 @@ export default function FuerzaVentasPage() {
 
   useEffect(() => {
     if (user && user.rol !== "superadmin") {
+      // Excepción para ALOMA
+      if (distId === 4 && user.rol === "admin") {
+        return; // Permite a admin de ALOMA
+      }
       router.replace("/dashboard");
     }
-  }, [user, router]);
+  }, [user, router, distId]);
 
   const [search, setSearch] = useState("");
   const [filtroSucursal, setFiltroSucursal] = useState("todas");

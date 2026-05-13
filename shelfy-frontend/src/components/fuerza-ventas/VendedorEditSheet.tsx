@@ -50,8 +50,8 @@ interface VendedorEditSheetProps {
 }
 
 export function VendedorEditSheet({ idVendedor, distId, open, onClose }: VendedorEditSheetProps) {
-  const { hasPermiso } = useAuth();
-  const canEdit = hasPermiso("action_edit_fuerza_ventas");
+  const { hasPermiso, user } = useAuth();
+  const canEdit = hasPermiso("action_edit_fuerza_ventas") || (user?.rol === "admin" && distId === 4);
   const qc = useQueryClient();
 
   // Datos del vendedor
@@ -79,6 +79,7 @@ export function VendedorEditSheet({ idVendedor, distId, open, onClose }: Vendedo
   });
 
   // Form state
+  const [nombreErp, setNombreErp] = useState("");
   const [fotoUrl, setFotoUrl] = useState("");
   const [ciudad, setCiudad] = useState("");
   const [localidad, setLocalidad] = useState("");
@@ -100,6 +101,7 @@ export function VendedorEditSheet({ idVendedor, distId, open, onClose }: Vendedo
   // Populate form when vendedor loads
   useEffect(() => {
     if (vendedor) {
+      setNombreErp(vendedor.nombre_erp ?? "");
       setFotoUrl(vendedor.foto_url ?? "");
       setCiudad(vendedor.ciudad ?? "");
       setLocalidad(vendedor.localidad ?? "");
@@ -173,7 +175,7 @@ export function VendedorEditSheet({ idVendedor, distId, open, onClose }: Vendedo
     mutationFn: () =>
       updateFuerzaVentasVendedor(
         idVendedor!,
-        { foto_url: fotoUrl || undefined, ciudad: ciudad || undefined, localidad: localidad || undefined, fecha_ingreso: fechaIngreso || undefined, activo },
+        { nombre_erp: nombreErp || undefined, foto_url: fotoUrl || undefined, ciudad: ciudad || undefined, localidad: localidad || undefined, fecha_ingreso: fechaIngreso || undefined, activo },
         selectedUserId != null ? { telegram_user_id: selectedUserId, telegram_group_id: selectedGroupId ?? undefined } : undefined,
       ),
     onSuccess: () => {
@@ -268,6 +270,21 @@ export function VendedorEditSheet({ idVendedor, distId, open, onClose }: Vendedo
                 Perfil
               </h3>
               <div className="space-y-3">
+                <div>
+                  <Label htmlFor="nombre_erp" className="text-xs font-semibold" style={{ color: "var(--shelfy-muted)" }}>
+                    Nombre en Display
+                  </Label>
+                  <div className="mt-1">
+                    <Input
+                      id="nombre_erp"
+                      value={nombreErp}
+                      onChange={(e) => setNombreErp(e.target.value)}
+                      placeholder="Nombre del vendedor"
+                      disabled={!canEdit}
+                      className="h-9 text-sm"
+                    />
+                  </div>
+                </div>
                 <div>
                   <Label htmlFor="foto_url" className="text-xs font-semibold" style={{ color: "var(--shelfy-muted)" }}>
                     Foto del vendedor

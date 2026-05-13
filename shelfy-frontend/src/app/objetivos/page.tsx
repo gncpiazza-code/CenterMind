@@ -2420,7 +2420,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
 
           {/* Fecha límite — bloqueada hasta que vendedor Y tipo estén seleccionados. Oculta en modo compañía (el mes define el período) */}
           {origenMode !== "compania" && (
-            <div className={!vendedorId ? "opacity-40 pointer-events-none select-none" : ""}>
+            <div className={(!vendedorId && !paraTodosFDV) ? "opacity-40 pointer-events-none select-none" : ""}>
               <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">
                 Fecha límite
               </label>
@@ -2474,7 +2474,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
               className="flex-1 py-2 rounded-lg border border-[var(--shelfy-border)] text-sm text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] transition-colors">
               Cancelar
             </button>
-            <button type="submit" disabled={loading || !vendedorId}
+            <button type="submit" disabled={loading || (!vendedorId && !paraTodosFDV)}
               className="flex-1 py-2 rounded-lg bg-[var(--shelfy-accent)] text-white text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2">
               {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
               Crear objetivo

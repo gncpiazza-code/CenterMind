@@ -1684,7 +1684,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
               </select>
               <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--shelfy-muted)] pointer-events-none" />
             </div>
-            {vendedoresCascada.length > 0 && (
+            {vendedoresFiltrados.length > 0 && (
               <label className="flex items-center gap-2 mt-2 cursor-pointer w-fit">
                 <input 
                   type="checkbox" 

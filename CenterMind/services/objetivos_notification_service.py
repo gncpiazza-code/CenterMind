@@ -449,7 +449,7 @@ class ObjetivosNotificationService:
                 return None
 
             tipo = obj_data.get("tipo")
-            if str(tipo or "").startswith("ruteo"):
+            if tipo == "ruteo":
                 logger.info(f"[Notif] Omitiendo notificación Telegram para objetivo de tipo {tipo} (uso interno)")
                 return None
 

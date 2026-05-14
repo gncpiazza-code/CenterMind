@@ -1388,7 +1388,7 @@ class BotWorker:
                 .execute
             )
             # Filtrar objetivos de ruteo (uso interno de supervisores)
-            objetivos = [o for o in (objetivos_res.data or []) if not str(o.get("tipo") or "").startswith("ruteo")]
+            objetivos = [o for o in (objetivos_res.data or []) if str(o.get("tipo") or "") != "ruteo"]
             objetivos = objetivos[:20]
 
             if not objetivos:
@@ -3066,7 +3066,7 @@ class BotWorker:
                 .execute
             )
             # Filtrar objetivos de ruteo (uso interno de supervisores)
-            objetivos = [o for o in (objetivos_res.data or []) if not str(o.get("tipo") or "").startswith("ruteo")]
+            objetivos = [o for o in (objetivos_res.data or []) if str(o.get("tipo") or "") != "ruteo"]
             if not objetivos:
                 return
 

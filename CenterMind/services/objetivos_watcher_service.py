@@ -562,6 +562,21 @@ class ObjetivosWatcherService:
                         .execute()
                     )
                     valid_erps = {str(v["id_cliente_erp"]) for v in (ventas_enr_res.data or []) if v.get("id_cliente_erp")}
+                    
+                    # Fallback para ventas recientes que no estén en ventas_enriched_v2
+                    try:
+                        agg_res = (
+                            sb.table("ventas_comprobantes_agg_cliente")
+                            .select("cliente_codigo, ventas_comprobantes_analytics_runs!inner(fecha_rango_desde, created_at)")
+                            .eq("id_distribuidor", dist_id)
+                            .in_("cliente_codigo", erp_ids)
+                            .gte("ventas_comprobantes_analytics_runs.fecha_rango_desde", since_date)
+                            .gte("ventas_comprobantes_analytics_runs.created_at", since_str)
+                            .execute()
+                        )
+                        valid_erps.update(str(v["cliente_codigo"]) for v in (agg_res.data or []) if v.get("cliente_codigo"))
+                    except Exception as e_agg:
+                        logger.warning(f"[Watcher] Error consultando ventas_comprobantes_agg_cliente para valid_erps: {e_agg}")
                 
                 client_ids = [int(c["id_cliente"]) for c in clients if c.get("id_cliente")]
                 valid_ids = set()
@@ -580,7 +595,8 @@ class ObjetivosWatcherService:
                 return [
                     c for c in clients 
                     if (str(c.get("id_cliente_erp")) in valid_erps) or 
-                       (c.get("id_cliente") and int(c["id_cliente"]) in valid_ids)
+                       (c.get("id_cliente") and int(c["id_cliente"]) in valid_ids) or
+                       (c.get("fecha_ultima_compra") and str(c.get("fecha_ultima_compra")) >= since_date)
                 ]
             except Exception as filter_err:
                 logger.warning(f"[Watcher] Error filtrando ventas previas a objetivo: {filter_err}")

@@ -491,20 +491,53 @@ class ObjetivosWatcherService:
                 since_date = since_str[:10]
                 
                 erp_ids = [str(c["id_cliente_erp"]) for c in clients if c.get("id_cliente_erp")]
-                if not erp_ids:
-                    return clients
+                active_erps = set()
+                if erp_ids:
+                    ventas_res = (
+                        sb.table(tenant_table_name("ventas_enriched_v2", dist_id))
+                        .select("id_cliente_erp")
+                        .eq("id_distribuidor", dist_id)
+                        .in_("id_cliente_erp", erp_ids)
+                        .gte("fecha_factura", thirty_days_ago)
+                        .lt("fecha_factura", since_date)
+                        .execute()
+                    )
+                    active_erps = {str(v["id_cliente_erp"]) for v in (ventas_res.data or []) if v.get("id_cliente_erp")}
                     
-                ventas_res = (
-                    sb.table(tenant_table_name("ventas_enriched_v2", dist_id))
-                    .select("id_cliente_erp")
-                    .eq("id_distribuidor", dist_id)
-                    .in_("id_cliente_erp", erp_ids)
-                    .gte("fecha_factura", thirty_days_ago)
-                    .lt("fecha_factura", since_date)
-                    .execute()
-                )
-                active_erps = {str(v["id_cliente_erp"]) for v in (ventas_res.data or [])}
-                return [c for c in clients if str(c.get("id_cliente_erp")) not in active_erps]
+                    # Fallback para ventas históricas que no estén en ventas_enriched_v2
+                    try:
+                        agg_res = (
+                            sb.table("ventas_comprobantes_agg_cliente")
+                            .select("cliente_codigo, ventas_comprobantes_analytics_runs!inner(fecha_rango_desde)")
+                            .eq("id_distribuidor", dist_id)
+                            .in_("cliente_codigo", erp_ids)
+                            .gte("ventas_comprobantes_analytics_runs.fecha_rango_desde", thirty_days_ago)
+                            .lt("ventas_comprobantes_analytics_runs.fecha_rango_desde", since_date)
+                            .execute()
+                        )
+                        active_erps.update(str(v["cliente_codigo"]) for v in (agg_res.data or []) if v.get("cliente_codigo"))
+                    except Exception as e_agg:
+                        logger.warning(f"[Watcher] Error consultando ventas_comprobantes_agg_cliente: {e_agg}")
+                
+                client_ids = [int(c["id_cliente"]) for c in clients if c.get("id_cliente")]
+                active_ids = set()
+                if client_ids:
+                    ventas_v2_res = (
+                        sb.table("ventas_v2")
+                        .select("id_cliente")
+                        .eq("id_distribuidor", dist_id)
+                        .in_("id_cliente", client_ids)
+                        .gte("fecha", thirty_days_ago)
+                        .lt("fecha", since_date)
+                        .execute()
+                    )
+                    active_ids = {int(v["id_cliente"]) for v in (ventas_v2_res.data or []) if v.get("id_cliente")}
+
+                return [
+                    c for c in clients 
+                    if str(c.get("id_cliente_erp")) not in active_erps and 
+                       (not c.get("id_cliente") or int(c["id_cliente"]) not in active_ids)
+                ]
             except Exception as filter_err:
                 logger.warning(f"[Watcher] Error filtrando activos previos en activacion: {filter_err}")
                 return clients
@@ -514,23 +547,41 @@ class ObjetivosWatcherService:
             if not clients:
                 return clients
             try:
-                client_ids = [int(c["id_cliente"]) for c in clients if c.get("id_cliente")]
-                if not client_ids:
-                    return clients
-                    
                 since_date = since_str[:10]
                 
-                ventas_res = (
-                    sb.table("ventas_v2")
-                    .select("id_cliente")
-                    .eq("id_distribuidor", dist_id)
-                    .in_("id_cliente", client_ids)
-                    .gte("fecha", since_date)
-                    .gte("created_at", since_str)
-                    .execute()
-                )
-                valid_ids = {int(v["id_cliente"]) for v in (ventas_res.data or []) if v.get("id_cliente")}
-                return [c for c in clients if c.get("id_cliente") and int(c["id_cliente"]) in valid_ids]
+                erp_ids = [str(c["id_cliente_erp"]) for c in clients if c.get("id_cliente_erp")]
+                valid_erps = set()
+                if erp_ids:
+                    ventas_enr_res = (
+                        sb.table(tenant_table_name("ventas_enriched_v2", dist_id))
+                        .select("id_cliente_erp")
+                        .eq("id_distribuidor", dist_id)
+                        .in_("id_cliente_erp", erp_ids)
+                        .gte("fecha_factura", since_date)
+                        .gte("created_at", since_str)
+                        .execute()
+                    )
+                    valid_erps = {str(v["id_cliente_erp"]) for v in (ventas_enr_res.data or []) if v.get("id_cliente_erp")}
+                
+                client_ids = [int(c["id_cliente"]) for c in clients if c.get("id_cliente")]
+                valid_ids = set()
+                if client_ids:
+                    ventas_res = (
+                        sb.table("ventas_v2")
+                        .select("id_cliente")
+                        .eq("id_distribuidor", dist_id)
+                        .in_("id_cliente", client_ids)
+                        .gte("fecha", since_date)
+                        .gte("created_at", since_str)
+                        .execute()
+                    )
+                    valid_ids = {int(v["id_cliente"]) for v in (ventas_res.data or []) if v.get("id_cliente")}
+                    
+                return [
+                    c for c in clients 
+                    if (str(c.get("id_cliente_erp")) in valid_erps) or 
+                       (c.get("id_cliente") and int(c["id_cliente"]) in valid_ids)
+                ]
             except Exception as filter_err:
                 logger.warning(f"[Watcher] Error filtrando ventas previas a objetivo: {filter_err}")
                 # Fallback: si falla, no filtramos para no romper el flujo

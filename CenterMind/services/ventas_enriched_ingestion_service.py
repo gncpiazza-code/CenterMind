@@ -80,6 +80,22 @@ def ingest_enriched(tenant_id: str, file_bytes: bytes) -> dict[str, Any]:
         prev["importe_bruto"] = float(prev.get("importe_bruto") or 0.0) + float(p.get("importe_bruto") or 0.0)
 
     records = list(merged.values())
+    
+    # Acumular fecha más reciente por cliente (para actualizar fecha_ultima_compra)
+    ids_cliente_erp_actualizados: dict[str, str] = {}
+    for r in records:
+        fecha = r.get("fecha_factura")
+        id_cliente_erp = r.get("id_cliente_erp")
+        anulado = r.get("anulado")
+        # Ignorar anulados o devoluciones (importe negativo)
+        if not fecha or not id_cliente_erp or anulado or r.get("importe_final", 0) < 0:
+            continue
+            
+        id_cliente_erp_str = str(id_cliente_erp)
+        prev = ids_cliente_erp_actualizados.get(id_cliente_erp_str)
+        if not prev or fecha > prev:
+            ids_cliente_erp_actualizados[id_cliente_erp_str] = fecha
+
     upserted = 0
     BATCH = 500
     for i in range(0, len(records), BATCH):
@@ -95,4 +111,38 @@ def ingest_enriched(tenant_id: str, file_bytes: bytes) -> dict[str, Any]:
         upserted += len(chunk)
 
     logger.info("[ventas_enriched] dist=%s rows=%s upserted=%s", dist_id, len(rows), upserted)
-    return {"ok": True, "rows": len(rows), "upserted": upserted, "dist_id": dist_id}
+
+    # Actualizar fecha_ultima_compra en clientes_pdv_v2
+    actualizados = 0
+    for id_cliente_erp, fecha_str in ids_cliente_erp_actualizados.items():
+        try:
+            sb.table(tenant_table_name("clientes_pdv_v2", dist_id)) \
+                .update({"fecha_ultima_compra": fecha_str}) \
+                .eq("id_cliente_erp", id_cliente_erp) \
+                .lt("fecha_ultima_compra", fecha_str) \
+                .execute()
+            actualizados += 1
+        except Exception as e:
+            logger.warning(f"[ventas_enriched] No se pudo actualizar cliente_erp {id_cliente_erp}: {e}")
+
+    logger.info(f"[ventas_enriched] fecha_ultima_compra actualizada: {actualizados} clientes")
+
+    # Actualizar progreso de objetivos activos
+    try:
+        from services.objetivos_watcher_service import objetivos_watcher
+        objetivos_watcher.run_watcher(dist_id)
+    except Exception as e_watch:
+        logger.warning(f"[ventas_enriched] Watcher de objetivos omitido: {e_watch}")
+
+    # Registrar en motor_runs
+    try:
+        sb.table("motor_runs").insert({
+            "dist_id": dist_id,
+            "motor": "ventas_enriched",
+            "estado": "ok",
+            "registros": {"rows": len(rows), "upserted": upserted, "actualizados": actualizados}
+        }).execute()
+    except Exception as e:
+        logger.warning(f"[ventas_enriched] No se pudo registrar en motor_runs: {e}")
+
+    return {"ok": True, "rows": len(rows), "upserted": upserted, "actualizados": actualizados, "dist_id": dist_id}

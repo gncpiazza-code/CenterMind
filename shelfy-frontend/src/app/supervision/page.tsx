@@ -137,7 +137,7 @@ export default function SupervisionPage() {
 
   const { data: altasData, isLoading: loadingAltas } = useQuery<PdvsMovimientoResponse>({
     queryKey: supervisionPanelKeys.altas(distId, selectedVendedorId, altasMes),
-    queryFn: () => fetchPdvsMovimiento(distId!, selectedVendedorId!, altasMes),
+    queryFn: () => fetchPdvsMovimiento(distId!, selectedVendedorId!, altasMes, "alta,comprador"),
     enabled: !!distId && !!selectedVendedorId,
     staleTime: 5 * 60_000,
   });
@@ -146,7 +146,7 @@ export default function SupervisionPage() {
   const deudaTotal       = cuentasData?.metadatos?.total_deuda ?? 0;
   const clientesDeudores = cuentasData?.metadatos?.clientes_deudores ?? 0;
   const totalAltas       = altasData?.total_altas ?? 0;
-  const totalActivaciones = altasData?.total_activaciones ?? 0;
+  const totalCompradores = altasData?.total_compradores ?? 0;
 
   const sucursales = useMemo(() => {
     const seen = new Set<string>();
@@ -197,7 +197,7 @@ export default function SupervisionPage() {
   const itemsFiltrados = useMemo(() => {
     const items = altasData?.items ?? [];
     if (altasTab === "alta") return items.filter((i) => i.categoria === "alta");
-    if (altasTab === "comprador") return items.filter((i) => i.categoria === "activacion");
+    if (altasTab === "comprador") return items.filter((i) => i.categoria === "comprador");
     return items;
   }, [altasData, altasTab]);
 
@@ -306,8 +306,8 @@ export default function SupervisionPage() {
                   delay={0.12}
                 />
                 <AnimatedKpiCard
-                  label={`Activaciones en ${altasMes}`}
-                  value={totalActivaciones}
+                  label={`Compradores en ${altasMes}`}
+                  value={totalCompradores}
                   icon={ShoppingCart}
                   color="blue"
                   loading={loadingAltas && !!selectedVendedorId}
@@ -539,7 +539,7 @@ export default function SupervisionPage() {
                                 <Store size={9} className="text-violet-500" />
                                 Compradores en {altasMes.slice(5)}
                               </p>
-                              <p className="text-xl font-black text-violet-500 tabular-nums leading-none">{altasData.total_activaciones}</p>
+                              <p className="text-xl font-black text-violet-500 tabular-nums leading-none">{altasData.total_compradores}</p>
                             </div>
                           </div>
 
@@ -548,7 +548,7 @@ export default function SupervisionPage() {
                             {([
                               { key: "todos", label: "Todos", icon: LayoutList, count: altasData.items.length },
                               { key: "alta", label: "Altas", icon: ArrowUpFromLine, count: altasData.total_altas },
-                              { key: "comprador", label: "Compradores", icon: Store, count: altasData.total_activaciones },
+                              { key: "comprador", label: "Compradores", icon: Store, count: altasData.total_compradores },
                             ] as const).map(({ key, label, icon: Icon, count }) => (
                               <button
                                 key={key}

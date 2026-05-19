@@ -23,6 +23,7 @@ export function PdvMovimientoCard({ item, index }: PdvMovimientoCardProps) {
   const [expanded, setExpanded] = useState(false);
 
   const isAlta = item.categoria === "alta";
+  const isComprador = item.categoria === "comprador";
   const delay = Math.min(index * 0.04, 0.4);
 
   const infoLine = [item.localidad, item.direccion].filter(Boolean).join(" · ");
@@ -42,10 +43,12 @@ export function PdvMovimientoCard({ item, index }: PdvMovimientoCardProps) {
           className={`mt-0.5 shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full border select-none ${
             isAlta
               ? "bg-emerald-500/15 border-emerald-500/30 text-emerald-600"
-              : "bg-violet-500/15 border-violet-500/30 text-violet-600"
+              : isComprador
+                ? "bg-violet-500/15 border-violet-500/30 text-violet-600"
+                : "bg-blue-500/15 border-blue-500/30 text-blue-600"
           }`}
         >
-          {isAlta ? "Alta" : "Comp."}
+          {isAlta ? "Alta" : isComprador ? "Comp." : "Act."}
         </span>
 
         {/* Content */}
@@ -100,7 +103,7 @@ export function PdvMovimientoCard({ item, index }: PdvMovimientoCardProps) {
                 </span>
               )}
               <span className="text-[10px] text-muted-foreground">
-                Categoría: <span className="font-medium">{isAlta ? "Alta de padrón" : "Comprador activo"}</span>
+                Categoría: <span className="font-medium">{isAlta ? "Alta de padrón" : isComprador ? "Comprador del mes" : "Activación"}</span>
               </span>
             </motion.div>
           )}

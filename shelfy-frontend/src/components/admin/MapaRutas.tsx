@@ -159,6 +159,9 @@ const LEGEND_ICONS: Record<PinStatus, string> = {
 export interface VendedorKpis {
   pdv_nuevos_7d?: number;
   pdv_activados_7d?: number;
+  pdv_altas_mes?: number;
+  pdv_compradores_mes?: number;
+  mes?: string;
   nombre?: string;
 }
 
@@ -961,7 +964,7 @@ export default function MapaRutas({
       </div>
 
       {/* Vendedor KPI badges */}
-      {vendedorKpis && ((vendedorKpis.pdv_nuevos_7d ?? 0) > 0 || (vendedorKpis.pdv_activados_7d ?? 0) > 0) && (
+      {vendedorKpis && ((vendedorKpis.pdv_compradores_mes ?? 0) > 0 || (vendedorKpis.pdv_altas_mes ?? 0) > 0) && (
         <div style={{
           position: 'absolute', top: 42,
           left: (isFullscreen && fullscreenPanel)
@@ -970,7 +973,7 @@ export default function MapaRutas({
           zIndex: 30,
           display: 'flex', gap: 5, transition: 'left 0.3s ease',
         }}>
-          {(vendedorKpis.pdv_nuevos_7d ?? 0) > 0 && (
+          {(vendedorKpis.pdv_altas_mes ?? 0) > 0 && (
             <div style={{
               background: 'rgba(16,185,129,0.18)', backdropFilter: 'blur(8px)',
               border: '1px solid rgba(16,185,129,0.35)',
@@ -979,19 +982,19 @@ export default function MapaRutas({
               boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
               pointerEvents: 'none',
             }}>
-              +{vendedorKpis.pdv_nuevos_7d} nuevos 7d
+              +{vendedorKpis.pdv_altas_mes} altas {vendedorKpis.mes?.slice(5) ?? ""}
             </div>
           )}
-          {(vendedorKpis.pdv_activados_7d ?? 0) > 0 && (
+          {(vendedorKpis.pdv_compradores_mes ?? 0) > 0 && (
             <div style={{
-              background: 'rgba(59,130,246,0.18)', backdropFilter: 'blur(8px)',
-              border: '1px solid rgba(59,130,246,0.35)',
-              color: '#60a5fa', fontSize: 10, fontWeight: 700,
+              background: 'rgba(139,92,246,0.18)', backdropFilter: 'blur(8px)',
+              border: '1px solid rgba(139,92,246,0.35)',
+              color: '#a78bfa', fontSize: 10, fontWeight: 700,
               padding: '3px 8px', borderRadius: 6,
               boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
               pointerEvents: 'none',
             }}>
-              {vendedorKpis.pdv_activados_7d} activ. 7d
+              {vendedorKpis.pdv_compradores_mes} compr. {vendedorKpis.mes?.slice(5) ?? ""}
             </div>
           )}
         </div>

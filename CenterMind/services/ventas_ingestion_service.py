@@ -3,7 +3,8 @@
 services/ventas_ingestion_service.py
 =====================================
 Recibe el Excel de Comprobantes de Ventas (resumido o detallado) descargado
-por el motor RPA de CHESS y lo persiste en la tabla ventas_v2 de Supabase.
+por el motor RPA legacy de CHESS y lo persiste en ventas_v2 (no usar en flujo nuevo;
+fuente oficial: Consolido → ventas_enriched_v2 vía ventas_enriched_ingestion_service).
 
 Flujo:
   1. Parsear el Excel con la lógica de ventas_parser
@@ -308,6 +309,17 @@ def ingest(tenant_id: str, tipo: str, file_bytes: bytes) -> dict:
         objetivos_watcher.run_watcher(dist_id)
     except Exception as e_watch:
         logger.warning(f"[Ventas] Watcher de objetivos omitido: {e_watch}")
+
+    # 6. Registrar en motor_runs
+    try:
+        sb.table("motor_runs").insert({
+            "dist_id": dist_id,
+            "motor": "ventas",
+            "estado": "ok",
+            "registros": {"tipo": tipo, "upserted": upserted, "errores": errores, "vinculados": len(ids_cliente_actualizados), "actualizados": actualizados}
+        }).execute()
+    except Exception as e:
+        logger.warning(f"[Ventas] No se pudo registrar en motor_runs: {e}")
 
     return {
         "registros":   upserted,

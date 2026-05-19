@@ -44,6 +44,7 @@ import {
   type ObjetivoCreate,
   type ObjetivoTipo,
   fetchPdvsMovimiento,
+  fetchVendedorKpiMapa,
   type PdvsMovimientoItem,
 } from "@/lib/api";
 import { openCuentasCorrientesPrintWindow } from "@/lib/printCuentasCorrientes";
@@ -691,7 +692,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
     refetchOnReconnect: true,
   });
 
-  // ── Altas y Activaciones state ───────────────────────────────────────────
+  // ── Altas y Compradores state ─────────────────────────────────────────────
   const currentMes = new Date().toISOString().slice(0, 7);
   const [altasMes, setAltasMes] = useState(currentMes);
   const mesOptions = useMemo(() => {
@@ -712,24 +713,15 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
 
   const { data: altasData, isLoading: loadingAltas } = useQuery({
     queryKey: ['pdvs-movimiento', selectedDist, selectedVendedorId, altasMes],
-    queryFn: () => fetchPdvsMovimiento(selectedDist!, selectedVendedorId!, altasMes),
+    queryFn: () => fetchPdvsMovimiento(selectedDist!, selectedVendedorId!, altasMes, "alta,comprador"),
     enabled: !!selectedDist && !!selectedVendedorId && !!altasMes,
     staleTime: 5 * 60_000,
   });
 
-  const { data: kpiMapa } = useQuery<{ pdv_nuevos_7d: number; pdv_activados_7d: number } | null>({
-    queryKey: ['vendedor-kpi-mapa', selectedDist, openVend],
-    queryFn: async () => {
-      if (!selectedDist || !openVend) return null;
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? '';
-      const token = typeof window !== 'undefined' ? localStorage.getItem('shelfy_token') ?? '' : '';
-      const r = await fetch(`${apiUrl}/api/supervision/vendedor/${selectedDist}/${openVend}/kpi-mapa`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!r.ok) return null;
-      return r.json();
-    },
-    enabled: !!selectedDist && !!openVend,
+  const { data: kpiMapa } = useQuery({
+    queryKey: ['vendedor-kpi-mapa', selectedDist, openVend, altasMes],
+    queryFn: () => fetchVendedorKpiMapa(selectedDist!, openVend!, altasMes),
+    enabled: !!selectedDist && !!openVend && !!altasMes,
     staleTime: 5 * 60 * 1000,
   });
 
@@ -1972,12 +1964,17 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                             }
                           </button>
                         </div>
-                        {/* Activity bar */}
+                        {openVend === v.id_vendedor && altasData && (
+                          <p className="text-[10px] text-violet-400 font-semibold mb-1">
+                            {(altasData.total_compradores ?? 0).toLocaleString()} compradores en {altasMes.slice(5)}/{altasMes.slice(0, 4)}
+                          </p>
+                        )}
+                        {/* Activity bar (activos = ventana 30 días, distinto de compradores del mes) */}
                         {pdvTot > 0 && (
                           <div className="mb-2">
                             <div className="flex justify-between items-center mb-0.5">
                               <span className="text-[10px] text-emerald-400 font-semibold">
-                                {pdvAct.toLocaleString()} activos
+                                {pdvAct.toLocaleString()} activos 30d
                               </span>
                               <span className="text-[10px] font-bold" style={{ color }}>
                                 {pct}%
@@ -2604,13 +2601,13 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
         )}
         </div>{/* fin columna CC */}
 
-        {/* Columna derecha: Altas y Activaciones */}
+        {/* Columna derecha: Altas y Compradores */}
         <div className="rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden shadow-sm flex flex-col">
           {/* Header */}
           <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-[var(--shelfy-border)]/50">
             <div className="flex items-center gap-2">
               <Target className="w-4 h-4 text-emerald-400" />
-              <h3 className="text-sm font-bold text-[var(--shelfy-text)]">Altas y Activaciones</h3>
+              <h3 className="text-sm font-bold text-[var(--shelfy-text)]">Altas y Compradores</h3>
             </div>
             <select
               value={altasMes}
@@ -2626,7 +2623,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
           {!openVend ? (
             <div className="flex-1 flex flex-col items-center justify-center py-10 text-center px-6">
               <Target className="w-8 h-8 text-[var(--shelfy-muted)]/30 mb-2" />
-              <p className="text-sm text-[var(--shelfy-muted)]">Seleccioná un vendedor para ver altas y activaciones</p>
+              <p className="text-sm text-[var(--shelfy-muted)]">Seleccioná un vendedor para ver altas y compradores</p>
             </div>
           ) : loadingAltas ? (
             <div className="flex items-center justify-center py-10">
@@ -2634,7 +2631,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
             </div>
           ) : !altasData?.items.length ? (
             <div className="flex-1 flex flex-col items-center justify-center py-10 text-center px-6">
-              <p className="text-sm text-[var(--shelfy-muted)]">Sin altas ni activaciones en {altasMes}</p>
+              <p className="text-sm text-[var(--shelfy-muted)]">Sin altas ni compradores en {altasMes}</p>
             </div>
           ) : (
             <div className="flex-1 overflow-y-auto">
@@ -2645,21 +2642,21 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                   <p className="text-base font-bold text-emerald-400">{altasData.total_altas}</p>
                 </div>
                 <div className="px-4 py-2.5">
-                  <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-0.5">Activaciones</p>
-                  <p className="text-base font-bold text-blue-400">{altasData.total_activaciones}</p>
+                  <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-0.5">Compradores</p>
+                  <p className="text-base font-bold text-violet-400">{altasData.total_compradores}</p>
                 </div>
               </div>
-              {/* Items by category (Altas izquierda / Activaciones derecha) */}
+              {/* Items by category (Altas izquierda / Compradores derecha) */}
               <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-[var(--shelfy-border)]/30">
-                {(["alta", "activacion"] as const).map((cat) => {
+                {(["alta", "comprador"] as const).map((cat) => {
                   const rows = altasData.items.filter((i: PdvsMovimientoItem) => i.categoria === cat);
                   return (
                     <div key={cat} className="min-h-[220px]">
                       <div className="px-4 py-2 border-b border-[var(--shelfy-border)]/30">
                         <p className={`text-[11px] font-bold uppercase tracking-wide ${
-                          cat === "alta" ? "text-emerald-400" : "text-blue-400"
+                          cat === "alta" ? "text-emerald-400" : "text-violet-400"
                         }`}>
-                          {cat === "alta" ? "Altas" : "Activaciones"}
+                          {cat === "alta" ? "Altas" : "Compradores"}
                         </p>
                       </div>
                       {!rows.length ? (

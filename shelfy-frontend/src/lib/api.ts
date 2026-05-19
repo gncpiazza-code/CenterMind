@@ -2712,7 +2712,7 @@ export interface PdvsMovimientoItem {
   razon_social?: string;
   direccion: string;
   localidad: string;
-  categoria: "alta" | "activacion";
+  categoria: "alta" | "activacion" | "comprador";
   exhibido: boolean;
   fecha_evento: string | null;
 }
@@ -2721,7 +2721,27 @@ export interface PdvsMovimientoResponse {
   items: PdvsMovimientoItem[];
   total_altas: number;
   total_activaciones: number;
+  total_compradores: number;
   has_more: boolean;
+}
+
+export interface VendedorKpiMapaResponse {
+  mes?: string;
+  pdv_altas_mes?: number;
+  pdv_compradores_mes?: number;
+  pdv_nuevos_7d: number;
+  pdv_activados_7d: number;
+}
+
+export async function fetchVendedorKpiMapa(
+  distId: number,
+  idVendedor: number,
+  mes?: string,
+): Promise<VendedorKpiMapaResponse> {
+  const q = mes ? `?mes=${encodeURIComponent(mes)}` : "";
+  return apiFetch<VendedorKpiMapaResponse>(
+    `/api/supervision/vendedor/${distId}/${idVendedor}/kpi-mapa${q}`,
+  );
 }
 
 export async function fetchPdvsMovimiento(

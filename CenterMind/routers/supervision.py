@@ -1300,6 +1300,18 @@ def supervision_clientes(id_ruta: int, user_payload=Depends(verify_auth)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _ventas_enriched_es_recaudacion(tipo_documento: str | None) -> bool:
+    s = (tipo_documento or "").strip().upper()
+    return "RECIB" in s or s in {"RECCC"}
+
+
+def _ventas_enriched_es_devolucion(tipo_documento: str | None, importe: float) -> bool:
+    if importe < 0:
+        return True
+    s = (tipo_documento or "").strip().upper()
+    return "DEVOL" in s or ("NOTA" in s and "CRED" in s)
+
+
 @router.get("/api/supervision/ventas/{dist_id}", tags=["Supervisión"])
 def supervision_ventas(
     dist_id: int,
@@ -1309,196 +1321,123 @@ def supervision_ventas(
     vendedor: Optional[str] = Query(None),
     user_payload=Depends(verify_auth),
 ):
+    """Ventas de supervisión desde Informe de Ventas Consolido (ventas_enriched_v2)."""
     check_dist_permission(user_payload, dist_id)
     try:
         if fecha_hasta:
             base_hasta = datetime.strptime(fecha_hasta, "%Y-%m-%d")
         else:
             base_hasta = datetime.now()
-        fecha_hasta = base_hasta.strftime("%Y-%m-%d")
+        fecha_hasta_str = base_hasta.strftime("%Y-%m-%d")
         fecha_desde = (base_hasta - timedelta(days=max(1, dias) - 1)).strftime("%Y-%m-%d")
 
-        res = (
-            sb.table("ventas_v2")
-            .select("vendedor, sucursal, tipo_operacion, es_devolucion, monto_total, monto_recaudado, fecha, cliente, comprobante, numero")
-            .eq("id_distribuidor", int(dist_id))
-            .eq("es_anulado", False)
-            .gte("fecha", fecha_desde)
-            .order("fecha", desc=True)
-            .execute()
-        )
+        t_ventas = tenant_table_name("ventas_enriched_v2", dist_id)
+        PAGE = 1000
+        raw_lines: list[dict] = []
+        offset = 0
+        while True:
+            batch = (
+                sb.table(t_ventas)
+                .select(
+                    "fecha_factura,nombre_vendedor,nombre_cliente,id_cliente_erp,"
+                    "tipo_documento,numero_documento,cod_articulo,descripcion_articulo,"
+                    "bultos_total,importe_final,anulado,ruta,agrupacion_art_1"
+                )
+                .eq("id_distribuidor", dist_id)
+                .eq("anulado", False)
+                .gte("fecha_factura", fecha_desde)
+                .lte("fecha_factura", fecha_hasta_str)
+                .range(offset, offset + PAGE - 1)
+                .execute()
+                .data or []
+            )
+            raw_lines.extend(batch)
+            if len(batch) < PAGE:
+                break
+            offset += PAGE
 
-        def _row_fecha_iso(val) -> str:
-            """Normaliza fecha de fila (date / timestamps / texto) a YYYY-MM-DD para comparar."""
-            if val is None:
-                return ""
-            s = str(val).strip()
-            if len(s) >= 10 and s[4] == "-" and s[7] == "-":
-                return s[:10]
-            try:
-                return datetime.fromisoformat(s.replace("Z", "+00:00")).date().isoformat()
-            except Exception:
-                return s[:10] if len(s) >= 10 else ""
-
-        rows = []
-        for r in res.data or []:
-            fk = _row_fecha_iso(r.get("fecha"))
-            if fk and fecha_desde <= fk <= fecha_hasta:
-                rows.append(r)
         erp_name_map = _get_erp_name_map(dist_id)
         sucursal_norm = (sucursal or "").strip().lower()
         vendedor_norm = (vendedor or "").strip().lower()
+        vend_branch = (
+            _vendor_display_names_for_sucursal_erp(dist_id, sucursal) or set()
+            if sucursal_norm
+            else None
+        )
 
-        if sucursal_norm:
-            needle = str(sucursal).strip().lower()
-            vend_branch = _vendor_display_names_for_sucursal_erp(dist_id, sucursal) or set()
-            kept = []
-            for row in rows:
-                v_raw = row.get("vendedor") or "Sin Vendedor"
-                v_disp = erp_name_map.get(v_raw.lower(), v_raw)
-                row_suc = (row.get("sucursal") or "").strip().lower()
-                # Regla estricta: si la fila trae sucursal, debe coincidir.
-                if row_suc and row_suc != needle:
-                    continue
-                # Fallback para filas sin sucursal: usar padrón vendedores de la sucursal.
-                if not row_suc and vend_branch and v_disp not in vend_branch:
-                    continue
-                ok = True
-                if ok:
-                    kept.append(row)
-            rows = kept
+        lines: list[dict] = []
+        for row in raw_lines:
+            v_raw = (row.get("nombre_vendedor") or "Sin Vendedor").strip()
+            v_disp = erp_name_map.get(v_raw.lower(), v_raw)
+            if vendedor_norm and v_raw.lower() != vendedor_norm and v_disp.lower() != vendedor_norm:
+                continue
+            if sucursal_norm and vend_branch is not None:
+                if v_disp not in vend_branch:
+                    ruta = (row.get("ruta") or "").strip().lower()
+                    agr = (row.get("agrupacion_art_1") or "").strip().lower()
+                    if sucursal_norm not in ruta and sucursal_norm not in agr:
+                        continue
+            lines.append({**row, "_vendedor": v_disp, "_vendedor_raw": v_raw})
 
-        if vendedor_norm:
-            kept_v = []
-            for row in rows:
-                v_raw = (row.get("vendedor") or "Sin Vendedor").strip()
-                v_disp = erp_name_map.get(v_raw.lower(), v_raw)
-                if v_raw.lower() == vendedor_norm or v_disp.lower() == vendedor_norm:
-                    kept_v.append(row)
-            rows = kept_v
-
-        # ── Enriquecimiento desde ventas_detalle_v2 ──────────────────────────────
-        # Clave por comprobante para artículos por comprobante (detalle exacto).
-        # Clave vendedor+cliente para clientes_bultos/top_articulos (agregados).
-        articulos_by_comp: dict[tuple[str, str, str], list[dict]] = {}
+        # Agregar por comprobante (cabecera lógica) y acumular líneas/artículos.
+        docs: dict[tuple, dict] = {}
         detalles_by_vendor_client: dict[tuple[str, str], dict] = {}
         top_articulos_by_vendor: dict[str, dict[str, float]] = {}
 
-        def _norm_comp(v: str | None) -> str:
-            """
-            Normaliza tipos de comprobante para poder matchear ventas_v2 (texto)
-            con ventas_detalle_v2 (código ERP).
-            """
-            s = (v or "").strip().upper()
-            if not s:
-                return ""
-            if s in {"PRVTA", "RECCC", "FCVTA", "DVVTA", "NCVTA", "NDVTA"}:
-                return s
-            if "PRESUPUESTO" in s:
-                return "PRVTA"
-            if "RECIB" in s:
-                return "RECCC"
-            if "FACTURA" in s and "VENTA" in s:
-                return "FCVTA"
-            if "DEVOL" in s:
-                return "DVVTA"
-            return s
+        for row in lines:
+            f = str(row.get("fecha_factura") or "")[:10]
+            tipo = (row.get("tipo_documento") or "").strip()
+            num = (row.get("numero_documento") or "").strip()
+            erp = (row.get("id_cliente_erp") or "").strip()
+            cli = (row.get("nombre_cliente") or "").strip()
+            v_disp = row["_vendedor"]
+            doc_key = (f, tipo, num, erp)
+            imp = float(row.get("importe_final") or 0)
+            bultos = float(row.get("bultos_total") or 0)
+            cod = (row.get("cod_articulo") or "").strip()
+            desc = (row.get("descripcion_articulo") or "").strip()
+            art_label = desc or cod or "Artículo sin descripción"
 
-        # Universo de comprobantes permitidos según las filas filtradas de ventas_v2.
-        allowed_comps: set[tuple[str, str, str]] = set()
-        for row in rows:
-            f = str(row.get("fecha") or "")[:10]
-            c = _norm_comp(row.get("comprobante"))
-            n = (row.get("numero") or "").strip()
-            if c and n:
-                allowed_comps.add((f, c, n))
-
-        try:
-            PAGE = 1000
-            det_all: list[dict] = []
-            offset = 0
-            while True:
-                batch = (
-                    sb.table("ventas_detalle_v2")
-                    .select("fecha,vendedor,comprobante,numero,codigo_articulo,descripcion_articulo,bultos,monto_linea")
-                    .eq("id_distribuidor", int(dist_id))
-                    .gte("fecha", fecha_desde)
-                    .lte("fecha", fecha_hasta)
-                    .range(offset, offset + PAGE - 1)
-                    .execute()
-                    .data or []
+            doc = docs.get(doc_key)
+            if doc is None:
+                es_dev = _ventas_enriched_es_devolucion(tipo, imp)
+                es_rec = _ventas_enriched_es_recaudacion(tipo)
+                doc = {
+                    "fecha": f,
+                    "cliente": cli,
+                    "comprobante": tipo,
+                    "numero": num,
+                    "vendedor": v_disp,
+                    "tipo_operacion": "RECAUDACION" if es_rec else ("DEVOLUCION" if es_dev else "VENTA"),
+                    "es_devolucion": es_dev,
+                    "monto_total": 0.0,
+                    "monto_recaudado": 0.0,
+                    "articulos_map": {},
+                }
+                docs[doc_key] = doc
+            if _ventas_enriched_es_recaudacion(tipo):
+                doc["monto_recaudado"] += imp
+            else:
+                doc["monto_total"] += imp
+            if art_label:
+                doc["articulos_map"][art_label] = float(doc["articulos_map"].get(art_label, 0.0)) + bultos
+                va = top_articulos_by_vendor.setdefault(v_disp, {})
+                va[art_label] = float(va.get(art_label, 0.0)) + bultos
+            if cli:
+                vc_key = (v_disp, cli)
+                bucket = detalles_by_vendor_client.setdefault(
+                    vc_key, {"cliente": cli, "total_bultos": 0.0, "articulos": {}}
                 )
-                det_all.extend(batch)
-                if len(batch) < PAGE:
-                    break
-                offset += PAGE
-
-            for drow in det_all:
-                f = str(drow.get("fecha") or "")[:10]
-                comp = _norm_comp(drow.get("comprobante"))
-                num = (drow.get("numero") or "").strip()
-                comp_key = (f, comp, num)
-
-                # Saltar filas que no corresponden a los comprobantes filtrados
-                if allowed_comps and comp_key not in allowed_comps:
-                    continue
-
-                bultos = float(drow.get("bultos") or 0)
-                monto = float(drow.get("monto_linea") or 0)
-                cod = (drow.get("codigo_articulo") or "").strip()
-                desc = (drow.get("descripcion_articulo") or "").strip()
-                art_label = desc or cod or "Artículo sin descripción"
-
-                # Map por comprobante — para artículos por comprobante individual
-                articulos_by_comp.setdefault(comp_key, []).append({
-                    "codigo": cod or None,
-                    "articulo": art_label,
-                    "bultos": round(bultos, 4),
-                    "monto": round(monto, 2),
-                })
-
-                # Map por vendedor+cliente — para clientes_bultos y top_articulos
-                v_raw_det = (drow.get("vendedor") or "Sin Vendedor").strip()
-                v_det = erp_name_map.get(v_raw_det.lower(), v_raw_det)
-
-                # El cliente se infiere desde la clave de comprobante: buscar en rows
-                # (se construye más adelante al iterar rows)
+                bucket["total_bultos"] += bultos
                 if art_label:
-                    va = top_articulos_by_vendor.setdefault(v_det, {})
-                    va[art_label] = float(va.get(art_label, 0.0)) + bultos
+                    bucket["articulos"][art_label] = float(bucket["articulos"].get(art_label, 0.0)) + bultos
 
-        except Exception as det_e:
-            logger.warning(f"[supervision_ventas] ventas_detalle_v2 no disponible: {det_e}")
-
-        # Construir mapa vendedor+cliente para clientes_bultos usando articulos_by_comp y rows
-        for row in rows:
-            f = str(row.get("fecha") or "")[:10]
-            comp = _norm_comp(row.get("comprobante"))
-            num = (row.get("numero") or "").strip()
-            comp_key = (f, comp, num)
-            cli = (row.get("cliente") or "").strip()
-            if not cli:
-                continue
-            v_raw = (row.get("vendedor") or "Sin Vendedor").strip()
-            v_disp = erp_name_map.get(v_raw.lower(), v_raw)
-            vc_key = (v_disp, cli)
-            bucket = detalles_by_vendor_client.setdefault(
-                vc_key, {"cliente": cli, "total_bultos": 0.0, "articulos": {}}
-            )
-            for art in articulos_by_comp.get(comp_key, []):
-                bucket["total_bultos"] += art["bultos"]
-                label = art["articulo"]
-                if label:
-                    bucket["articulos"][label] = float(bucket["articulos"].get(label, 0.0)) + art["bultos"]
-
-        vendors: dict = {}
+        vendors: dict[str, dict] = {}
         is_sa = user_payload.get("is_superadmin")
-        for row in rows:
-            v_raw = row.get("vendedor") or "Sin Vendedor"
-            if not is_sa and dist_id == 3 and v_raw.lower() == "nacho":
-                continue
-            v = erp_name_map.get(v_raw.lower(), v_raw)
-            if not is_sa and dist_id == 3 and v.lower() == "nacho":
+        for doc in docs.values():
+            v = doc["vendedor"]
+            v_raw_lower = (v or "").lower()
+            if not is_sa and dist_id == 3 and v_raw_lower == "nacho":
                 continue
             if v not in vendors:
                 vendors[v] = {
@@ -1513,24 +1452,30 @@ def supervision_ventas(
                 }
             vd = vendors[v]
             vd["total_facturas"] += 1
-            vd["monto_total"]    += float(row.get("monto_total") or 0)
-            vd["monto_recaudado"] += float(row.get("monto_recaudado") or 0)
+            vd["monto_total"] += float(doc["monto_total"] or 0)
+            vd["monto_recaudado"] += float(doc["monto_recaudado"] or 0)
+            articulos_list = [
+                {
+                    "codigo": None,
+                    "articulo": a,
+                    "bultos": round(float(b), 4),
+                    "monto": 0.0,
+                }
+                for a, b in (doc.get("articulos_map") or {}).items()
+            ]
             if len(vd["transacciones"]) < 100:
-                f = str(row.get("fecha") or "")[:10]
-                comp = _norm_comp(row.get("comprobante"))
-                num = (row.get("numero") or "").strip()
-                comp_key = (f, comp, num)
                 vd["transacciones"].append({
-                    "fecha": row["fecha"], "cliente": row.get("cliente"),
-                    "comprobante": row.get("comprobante"), "numero": row.get("numero"),
-                    "tipo_operacion": row.get("tipo_operacion"),
-                    "es_devolucion": row.get("es_devolucion", False),
-                    "monto_total": float(row.get("monto_total") or 0),
-                    "monto_recaudado": float(row.get("monto_recaudado") or 0),
-                    "articulos": articulos_by_comp.get(comp_key, []),
+                    "fecha": doc["fecha"],
+                    "cliente": doc.get("cliente"),
+                    "comprobante": doc.get("comprobante"),
+                    "numero": doc.get("numero"),
+                    "tipo_operacion": doc.get("tipo_operacion"),
+                    "es_devolucion": doc.get("es_devolucion", False),
+                    "monto_total": round(float(doc["monto_total"] or 0), 2),
+                    "monto_recaudado": round(float(doc["monto_recaudado"] or 0), 2),
+                    "articulos": articulos_list,
                 })
 
-        # Acoplar agregados de bultos y top artículos al resultado de cada vendedor.
         for vend_name, vend_payload in vendors.items():
             clientes_rows = []
             for (vv, _cli), data in detalles_by_vendor_client.items():
@@ -1554,8 +1499,7 @@ def supervision_ventas(
             clientes_rows.sort(key=lambda x: x["total_bultos"], reverse=True)
             vend_payload["clientes_bultos"] = clientes_rows
             vend_payload["total_bultos"] = round(sum(x["total_bultos"] for x in clientes_rows), 2)
-
-            vend_top = sorted(
+            vend_payload["top_articulos"] = sorted(
                 [
                     {"articulo": a, "bultos": round(float(b), 2)}
                     for a, b in (top_articulos_by_vendor.get(vend_name) or {}).items()
@@ -1563,17 +1507,18 @@ def supervision_ventas(
                 key=lambda x: x["bultos"],
                 reverse=True,
             )[:10]
-            vend_payload["top_articulos"] = vend_top
 
         result = sorted(vendors.values(), key=lambda x: x["monto_total"], reverse=True)
         return {
-            "dias": dias, "fecha_desde": fecha_desde,
+            "dias": dias,
+            "fecha_desde": fecha_desde,
+            "fecha_hasta": fecha_hasta_str,
             "total_facturado": round(sum(v["monto_total"] for v in result), 2),
             "total_recaudado": round(sum(v["monto_recaudado"] for v in result), 2),
             "total_facturas": sum(v["total_facturas"] for v in result),
             "fuente": {
-                "ventas": "ventas_v2",
-                "detalle_articulos": "ventas_detalle_v2",
+                "ventas": tenant_table_name("ventas_enriched_v2", dist_id),
+                "origen": "consolido_informe_ventas",
             },
             "vendedores": result,
         }
@@ -1806,58 +1751,168 @@ def supervision_cuentas(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _supervision_parse_mes(mes: str) -> tuple[int, int, int, str, str]:
+    """Año, mes, último día, fecha_inicio y fecha_fin (AR) para un mes calendario YYYY-MM."""
+    import calendar as _cal
+
+    try:
+        year, month = int(mes[:4]), int(mes[5:7])
+    except Exception:
+        raise HTTPException(status_code=422, detail="mes debe ser YYYY-MM")
+    if month < 1 or month > 12:
+        raise HTTPException(status_code=422, detail="mes debe ser YYYY-MM")
+    last_day = _cal.monthrange(year, month)[1]
+    fecha_inicio = f"{year}-{month:02d}-01T00:00:00-03:00"
+    fecha_fin = f"{year}-{month:02d}-{last_day:02d}T23:59:59-03:00"
+    return year, month, last_day, fecha_inicio, fecha_fin
+
+
+def _supervision_route_ids(dist_id: int, id_vendedor: int) -> list[int]:
+    t_rutas = tenant_table_name("rutas_v2", dist_id)
+    try:
+        try:
+            rr = (
+                sb.table(t_rutas)
+                .select("id_ruta")
+                .eq("id_distribuidor", dist_id)
+                .eq("id_vendedor", id_vendedor)
+                .execute()
+            )
+        except Exception:
+            rr = (
+                sb.table(t_rutas)
+                .select("id_ruta")
+                .eq("id_vendedor", id_vendedor)
+                .execute()
+            )
+        return [int(r.get("id_ruta")) for r in (rr.data or []) if r.get("id_ruta") is not None]
+    except Exception:
+        return []
+
+
+def _supervision_clients_by_route(
+    dist_id: int, route_ids: list[int], select_cols: str,
+) -> dict[int, dict]:
+    """Mapa id_cliente → fila de clientes_pdv_v2 en las rutas del vendedor."""
+    if not route_ids:
+        return {}
+    t_clientes = tenant_table_name("clientes_pdv_v2", dist_id)
+    out: dict[int, dict] = {}
+    PAGE = 1000
+    offset = 0
+    while True:
+        batch = (
+            sb.table(t_clientes)
+            .select(select_cols)
+            .eq("id_distribuidor", dist_id)
+            .in_("id_ruta", route_ids)
+            .range(offset, offset + PAGE - 1)
+            .execute()
+            .data or []
+        )
+        for r in batch:
+            cid = r.get("id_cliente")
+            if isinstance(cid, int):
+                out[cid] = r
+        if len(batch) < PAGE:
+            break
+        offset += PAGE
+    return out
+
+
+def _supervision_compradores_mes(
+    dist_id: int,
+    client_by_id: dict[int, dict],
+    fecha_desde: str,
+    fecha_hasta: str,
+) -> tuple[Set[int], dict[int, str]]:
+    """PDVs con venta en mes calendario según ventas_enriched_v2 (Informe de Ventas Consolido)."""
+    comprador_ids: Set[int] = set()
+    ultima_compra_mes: dict[int, str] = {}
+    if not client_by_id:
+        return comprador_ids, ultima_compra_mes
+
+    erp_to_id: dict[str, int] = {}
+    for cid, row in client_by_id.items():
+        erp = str(row.get("id_cliente_erp") or "").strip()
+        if erp:
+            erp_to_id[erp] = int(cid)
+
+    if not erp_to_id:
+        return comprador_ids, ultima_compra_mes
+
+    t_ventas = tenant_table_name("ventas_enriched_v2", dist_id)
+    desde = fecha_desde[:10]
+    hasta = fecha_hasta[:10]
+    PAGE = 1000
+    offset = 0
+    while True:
+        batch = (
+            sb.table(t_ventas)
+            .select("id_cliente_erp,fecha_factura,importe_final")
+            .eq("id_distribuidor", dist_id)
+            .eq("anulado", False)
+            .gte("fecha_factura", desde)
+            .lte("fecha_factura", hasta)
+            .range(offset, offset + PAGE - 1)
+            .execute()
+            .data or []
+        )
+        for row in batch:
+            if float(row.get("importe_final") or 0) < 0:
+                continue
+            erp = str(row.get("id_cliente_erp") or "").strip()
+            cid = erp_to_id.get(erp)
+            if cid is None:
+                continue
+            f = str(row.get("fecha_factura") or "")[:10]
+            if not f:
+                continue
+            comprador_ids.add(cid)
+            prev = ultima_compra_mes.get(cid)
+            if not prev or f > prev:
+                ultima_compra_mes[cid] = f
+        if len(batch) < PAGE:
+            break
+        offset += PAGE
+    return comprador_ids, ultima_compra_mes
+
+
+def _supervision_exhibido_en_mes(dist_id: int, id_cl: int, fecha_inicio: str, fecha_fin: str) -> bool:
+    ex = (
+        sb.table("exhibiciones")
+        .select("id_exhibicion")
+        .eq("id_distribuidor", dist_id)
+        .eq("id_cliente_pdv", id_cl)
+        .gte("timestamp_subida", fecha_inicio)
+        .lte("timestamp_subida", fecha_fin)
+        .limit(1)
+        .execute()
+    )
+    return bool(ex.data)
+
+
 @router.get("/api/supervision/vendedor/{dist_id}/{id_vendedor}/pdvs-movimiento", tags=["Supervisión"])
 def supervision_pdvs_movimiento(
     dist_id: int,
     id_vendedor: int,
     mes: str = Query(..., description="Mes en formato YYYY-MM"),
-    categorias: str = Query("alta,activacion"),
+    categorias: str = Query("alta,comprador"),
     user_payload=Depends(verify_auth),
 ):
-    """Retorna PDVs dados de alta o activados en el mes calendario indicado para un vendedor."""
+    """Retorna PDVs dados de alta o compradores (venta en mes calendario) para un vendedor."""
     try:
         check_dist_permission(user_payload, dist_id)
-        import calendar as _cal
-        try:
-            year, month = int(mes[:4]), int(mes[5:7])
-        except Exception:
-            raise HTTPException(status_code=422, detail="mes debe ser YYYY-MM")
-
-        last_day = _cal.monthrange(year, month)[1]
-        fecha_inicio = f"{year}-{month:02d}-01T00:00:00-03:00"
-        fecha_fin    = f"{year}-{month:02d}-{last_day:02d}T23:59:59-03:00"
+        _, _, _, fecha_inicio, fecha_fin = _supervision_parse_mes(mes)
 
         cats = [c.strip() for c in categorias.split(",")]
         t_clientes = tenant_table_name("clientes_pdv_v2", dist_id)
-        t_rutas    = tenant_table_name("rutas_v2", dist_id)
         t_exhib    = "exhibiciones"
 
         items = []
         seen_ids: set[int] = set()
 
-        # Algunas ingestas pueden dejar `id_vendedor` nulo en clientes y resolver vínculo por `id_ruta`.
-        route_ids: list[int] = []
-        try:
-            # `rutas_v2_d{dist}` no siempre tiene `id_distribuidor` (tenant partition), por eso
-            # intentamos con el filtro si existe y si falla, hacemos fallback por `id_vendedor`.
-            try:
-                rr = (
-                    sb.table(t_rutas)
-                    .select("id_ruta")
-                    .eq("id_distribuidor", dist_id)
-                    .eq("id_vendedor", id_vendedor)
-                    .execute()
-                )
-            except Exception:
-                rr = (
-                    sb.table(t_rutas)
-                    .select("id_ruta")
-                    .eq("id_vendedor", id_vendedor)
-                    .execute()
-                )
-            route_ids = [int(r.get("id_ruta")) for r in (rr.data or []) if r.get("id_ruta") is not None]
-        except Exception:
-            route_ids = []
+        route_ids = _supervision_route_ids(dist_id, id_vendedor)
 
         def _fetch_client_rows(select_cols: str, date_col: str) -> list[dict]:
             PAGE = 1000
@@ -1925,33 +1980,36 @@ def supervision_pdvs_movimiento(
                 "fecha_ultima_compra",
             )
             # Activación real: compra en mes + no haber estado activo al inicio del mes.
-            # Usamos ventas_v2 para obtener última compra previa al mes (si existe).
             start_dt = datetime.fromisoformat(f"{fecha_inicio[:10]}T00:00:00")
             threshold_prev = (start_dt - timedelta(days=30)).date().isoformat()
-            ids_for_prev = [
-                int(r["id_cliente"])
-                for r in rows
-                if isinstance(r.get("id_cliente"), int)
-            ]
+            erp_for_prev: dict[str, int] = {}
+            for r in rows:
+                cid = r.get("id_cliente")
+                erp = str(r.get("id_cliente_erp") or "").strip()
+                if isinstance(cid, int) and erp:
+                    erp_for_prev[erp] = int(cid)
             prev_last_by_id: dict[int, str] = {}
-            if ids_for_prev:
-                t_ventas = "ventas_v2"
-                for i in range(0, len(ids_for_prev), 400):
-                    chunk = ids_for_prev[i:i + 400]
+            if erp_for_prev:
+                t_ventas = tenant_table_name("ventas_enriched_v2", dist_id)
+                erp_list = list(erp_for_prev.keys())
+                for i in range(0, len(erp_list), 400):
+                    chunk = erp_list[i:i + 400]
                     try:
                         vr = (
                             sb.table(t_ventas)
-                            .select("id_cliente,fecha")
+                            .select("id_cliente_erp,fecha_factura")
                             .eq("id_distribuidor", dist_id)
-                            .in_("id_cliente", chunk)
-                            .lt("fecha", fecha_inicio[:10])
-                            .order("fecha", desc=True)
+                            .eq("anulado", False)
+                            .in_("id_cliente_erp", chunk)
+                            .lt("fecha_factura", fecha_inicio[:10])
+                            .order("fecha_factura", desc=True)
                             .execute()
                         )
                         for v in (vr.data or []):
-                            cid = v.get("id_cliente")
-                            f = str(v.get("fecha") or "")[:10]
-                            if isinstance(cid, int) and f and cid not in prev_last_by_id:
+                            erp = str(v.get("id_cliente_erp") or "").strip()
+                            cid = erp_for_prev.get(erp)
+                            f = str(v.get("fecha_factura") or "")[:10]
+                            if cid is not None and f and cid not in prev_last_by_id:
                                 prev_last_by_id[cid] = f
                     except Exception as e_prev:
                         logger.warning(f"[pdvs-movimiento] lookup ventas prev falló: {e_prev}")
@@ -1994,12 +2052,42 @@ def supervision_pdvs_movimiento(
                 if isinstance(id_cl, int):
                     seen_ids.add(id_cl)
 
+        if "comprador" in cats:
+            client_by_id = _supervision_clients_by_route(
+                dist_id,
+                route_ids,
+                "id_cliente, id_cliente_erp, nombre_fantasia, nombre_razon_social, domicilio, localidad",
+            )
+            comprador_ids, ultima_compra_mes = _supervision_compradores_mes(
+                dist_id,
+                client_by_id,
+                fecha_inicio,
+                fecha_fin,
+            )
+            for id_cl in sorted(comprador_ids):
+                if id_cl in seen_ids:
+                    continue
+                r = client_by_id.get(id_cl) or {}
+                items.append({
+                    "id_cliente_erp": r.get("id_cliente_erp"),
+                    "nombre": (r.get("nombre_fantasia") or r.get("nombre_razon_social") or "").strip(),
+                    "razon_social": (r.get("nombre_razon_social") or "").strip(),
+                    "direccion": r.get("domicilio", ""),
+                    "localidad": r.get("localidad", ""),
+                    "categoria": "comprador",
+                    "exhibido": _supervision_exhibido_en_mes(dist_id, id_cl, fecha_inicio, fecha_fin),
+                    "fecha_evento": ultima_compra_mes.get(id_cl),
+                })
+                seen_ids.add(id_cl)
+
         total_altas = sum(1 for i in items if i["categoria"] == "alta")
         total_activaciones = sum(1 for i in items if i["categoria"] == "activacion")
+        total_compradores = sum(1 for i in items if i["categoria"] == "comprador")
         return {
             "items": items,
             "total_altas": total_altas,
             "total_activaciones": total_activaciones,
+            "total_compradores": total_compradores,
             "has_more": False,
         }
     except HTTPException:
@@ -3519,7 +3607,7 @@ def supervision_sync_status(dist_id: int, user_payload=Depends(verify_auth)):
             run_ventas = (
                 sb.table("motor_runs")
                 .select("finalizado_en,iniciado_en,registros")
-                .eq("motor", "ventas")
+                .eq("motor", "ventas_enriched")
                 .eq("dist_id", dist_id)
                 .eq("estado", "ok")
                 .order("finalizado_en", desc=True)
@@ -3530,12 +3618,17 @@ def supervision_sync_status(dist_id: int, user_payload=Depends(verify_auth)):
                 row = run_ventas.data[0]
                 ventas_data["last_updated"] = row.get("finalizado_en") or row.get("iniciado_en")
                 try:
-                    ventas_data["count"] = int(row.get("registros") or 0)
+                    reg = row.get("registros") or {}
+                    if isinstance(reg, dict):
+                        ventas_data["count"] = int(reg.get("upserted") or reg.get("rows") or 0)
+                    else:
+                        ventas_data["count"] = int(reg or 0)
                 except Exception:
                     ventas_data["count"] = 0
             if not ventas_data["last_updated"]:
+                t_ventas = tenant_table_name("ventas_enriched_v2", dist_id)
                 res_v = (
-                    sb.table("ventas_v2")
+                    sb.table(t_ventas)
                     .select("created_at")
                     .eq("id_distribuidor", dist_id)
                     .order("created_at", desc=True)
@@ -3556,27 +3649,61 @@ def supervision_sync_status(dist_id: int, user_payload=Depends(verify_auth)):
 def supervision_vendedor_kpi_mapa(
     dist_id: int,
     id_vendedor: int,
+    mes: Optional[str] = Query(None, description="YYYY-MM: altas y compradores del mes calendario"),
     user_payload=Depends(verify_auth),
 ):
-    """Retorna PDV nuevos y activados en los últimos 7 días corridos (timezone AR)."""
+    """KPIs de mapa: con `mes` devuelve altas/compradores del mes calendario; sin `mes`, ventana 7d."""
     try:
         check_dist_permission(user_payload, dist_id)
-        # Ventana: hoy 00:00 AR → hace 7 días 00:00 AR. Hardcodeamos -03:00 (AR no observa DST).
+
+        out: dict = {"pdv_nuevos_7d": 0, "pdv_activados_7d": 0}
+
+        if mes:
+            _, _, _, fecha_inicio, fecha_fin = _supervision_parse_mes(mes)
+            route_ids = _supervision_route_ids(dist_id, id_vendedor)
+            t_clientes = tenant_table_name("clientes_pdv_v2", dist_id)
+            pdv_altas_mes = 0
+            if route_ids:
+                PAGE = 1000
+                offset = 0
+                while True:
+                    batch = (
+                        sb.table(t_clientes)
+                        .select("id_cliente")
+                        .eq("id_distribuidor", dist_id)
+                        .in_("id_ruta", route_ids)
+                        .gte("fecha_alta", fecha_inicio[:10])
+                        .lte("fecha_alta", fecha_fin[:10])
+                        .range(offset, offset + PAGE - 1)
+                        .execute()
+                        .data or []
+                    )
+                    pdv_altas_mes += len(batch)
+                    if len(batch) < PAGE:
+                        break
+                    offset += PAGE
+            client_by_id = _supervision_clients_by_route(
+                dist_id, route_ids, "id_cliente,id_cliente_erp",
+            )
+            compradores, _ = _supervision_compradores_mes(
+                dist_id, client_by_id, fecha_inicio, fecha_fin,
+            )
+            out["mes"] = mes
+            out["pdv_altas_mes"] = pdv_altas_mes
+            out["pdv_compradores_mes"] = len(compradores)
+
+        # Ventana 7d (retrocompat): hoy 00:00 AR → hace 7 días 00:00 AR.
         from datetime import timezone as _tz
         now_utc = datetime.now(_tz.utc)
         ar_offset = timedelta(hours=-3)
         now_ar = now_utc + ar_offset
         desde_ar = (now_ar - timedelta(days=7)).replace(hour=0, minute=0, second=0, microsecond=0)
-        # Convertir a strings con offset AR para comparar contra created_at (timestamptz)
         desde_iso = desde_ar.strftime("%Y-%m-%dT%H:%M:%S-03:00")
         hasta_iso = now_ar.strftime("%Y-%m-%dT%H:%M:%S-03:00")
-        # Para fecha_ultima_compra (campo date) usamos solo YYYY-MM-DD
         desde_date = desde_ar.strftime("%Y-%m-%d")
         hasta_date = now_ar.strftime("%Y-%m-%d")
 
         t = tenant_table_name("clientes_pdv_v2", dist_id)
-
-        # PDV nuevos: created_at cae en la ventana de 7 días
         nuevos_ids: set[int] = set()
         PAGE = 1000
         offset = 0
@@ -3598,7 +3725,6 @@ def supervision_vendedor_kpi_mapa(
                 break
             offset += PAGE
 
-        # PDV activados: fecha_ultima_compra en ventana y NO son altas nuevas
         activados = 0
         offset = 0
         while True:
@@ -3618,7 +3744,9 @@ def supervision_vendedor_kpi_mapa(
                 break
             offset += PAGE
 
-        return {"pdv_nuevos_7d": len(nuevos_ids), "pdv_activados_7d": activados}
+        out["pdv_nuevos_7d"] = len(nuevos_ids)
+        out["pdv_activados_7d"] = activados
+        return out
     except HTTPException:
         raise
     except Exception as e:

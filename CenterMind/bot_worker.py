@@ -43,6 +43,11 @@ import json
 import html
 
 from core.helpers import build_qa_exhibicion_integrante_ids, is_exhibicion_qa_display_for_dist, build_integrante_to_erp_name
+from core.exhibicion_aggregate import (
+    EXHIBICION_ROW_COLS,
+    aggregate_exhibicion_counts,
+    aggregate_ranking_by_vendor,
+)
 from core.tenant_tables import tenant_table_name
 
 # PARCHE SSL (fix PostgreSQL sobreescribe SSL_CERT_FILE)
@@ -616,48 +621,109 @@ class Database:
     def marcar_synced(self, exhibicion_id: str) -> None:
         self.sb.table("exhibiciones").update({"synced_telegram": 1}).eq("id_exhibicion", exhibicion_id).execute()
 
+    def _fetch_exhibiciones(
+        self,
+        distribuidor_id: int,
+        since_iso: str,
+        *,
+        end_iso: str | None = None,
+        integrante_ids: list[int] | None = None,
+    ) -> list[dict]:
+        rows: list[dict] = []
+        offset = 0
+        while True:
+            q = (
+                self.sb.table("exhibiciones")
+                .select(EXHIBICION_ROW_COLS)
+                .eq("id_distribuidor", distribuidor_id)
+                .gte("timestamp_subida", since_iso)
+                .order("timestamp_subida")
+                .range(offset, offset + 999)
+            )
+            if end_iso:
+                q = q.lt("timestamp_subida", end_iso)
+            if integrante_ids:
+                q = q.in_("id_integrante", integrante_ids)
+            batch = q.execute().data or []
+            rows.extend(batch)
+            if len(batch) < 1000:
+                break
+            offset += 1000
+        return rows
+
+    @staticmethod
+    def _parse_exhibicion_ts(ts: str) -> datetime:
+        try:
+            return datetime.fromisoformat(ts)
+        except Exception:
+            return datetime.min.replace(tzinfo=AR_TZ)
+
     @retry_supabase()
-    def get_stats_vendedor(self, distribuidor_id: int, vendedor_id: int) -> Dict:
-        ig_res = self.sb.table("integrantes_grupo").select("id_integrante").eq("id_distribuidor", distribuidor_id).eq("telegram_user_id", vendedor_id).limit(1).execute()
-        if not ig_res.data:
+    def get_stats_vendedor(
+        self,
+        distribuidor_id: int,
+        *,
+        telegram_user_id: int | None = None,
+        telegram_user_ids: list[int] | None = None,
+        telegram_group_id: int | None = None,
+    ) -> Dict | None:
+        """Stats mes actual/anterior con dedup de exhibición lógica (alineado a ranking)."""
+        uids: list[int] = list(telegram_user_ids or [])
+        if telegram_user_id is not None and telegram_user_id not in uids:
+            uids.append(telegram_user_id)
+        if not uids:
             return None
-        pk_integrante = ig_res.data[0]["id_integrante"]
 
-        res = self.sb.rpc("fn_bot_stats_vendedor", {
-            "p_distribuidor_id": distribuidor_id,
-            "p_vendedor_id": pk_integrante
-        }).execute()
-        
-        mes_actual = {"aprobadas": 0, "destacadas": 0, "rechazadas": 0, "pendientes": 0, "total": 0}
-        mes_anterior = {"aprobadas": 0, "destacadas": 0, "rechazadas": 0, "pendientes": 0, "total": 0}
-        
-        if res.data:
-            for row in res.data:
-                if row["rango"] == "mes_actual":
-                    mes_actual = row
-                elif row["rango"] == "mes_anterior":
-                    mes_anterior = row
+        ig_q = (
+            self.sb.table("integrantes_grupo")
+            .select("id_integrante")
+            .eq("id_distribuidor", distribuidor_id)
+            .in_("telegram_user_id", uids)
+        )
+        if telegram_group_id is not None:
+            ig_q = ig_q.eq("telegram_group_id", telegram_group_id)
+        ig_res = ig_q.execute()
+        iids = [r["id_integrante"] for r in (ig_res.data or [])]
+        if not iids:
+            return None
 
-        def safe(d, key): return d.get(key) or 0
+        now = datetime.now(AR_TZ)
+        start_mes_actual = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        if now.month == 1:
+            prev_y, prev_m = now.year - 1, 12
+        else:
+            prev_y, prev_m = now.year, now.month - 1
+        start_mes_prev = now.replace(year=prev_y, month=prev_m, day=1, hour=0, minute=0, second=0, microsecond=0)
 
-        return {
-            "mes_actual": {
-                "aprobadas":  safe(mes_actual, "aprobadas"),
-                "destacadas": safe(mes_actual, "destacadas"),
-                "rechazadas": safe(mes_actual, "rechazadas"),
-                "pendientes": safe(mes_actual, "pendientes"),
-                "total":      safe(mes_actual, "total"),
-                "puntos":     safe(mes_actual, "aprobadas") + safe(mes_actual, "destacadas") * 2,
-            },
-            "mes_anterior": {
-                "aprobadas":  safe(mes_anterior, "aprobadas"),
-                "destacadas": safe(mes_anterior, "destacadas"),
-                "rechazadas": safe(mes_anterior, "rechazadas"),
-                "pendientes": safe(mes_anterior, "pendientes"),
-                "total":      safe(mes_anterior, "total"),
-                "puntos":     safe(mes_anterior, "aprobadas") + safe(mes_anterior, "destacadas") * 2,
-            },
-        }
+        all_ex = self._fetch_exhibiciones(
+            distribuidor_id,
+            start_mes_prev.isoformat(),
+            integrante_ids=iids,
+        )
+
+        ex_actual = [
+            e for e in all_ex
+            if self._parse_exhibicion_ts(e.get("timestamp_subida", "")) >= start_mes_actual
+        ]
+        ex_prev = [
+            e for e in all_ex
+            if start_mes_prev <= self._parse_exhibicion_ts(e.get("timestamp_subida", "")) < start_mes_actual
+        ]
+
+        counts_actual = aggregate_exhibicion_counts(ex_actual)
+        counts_prev = aggregate_exhibicion_counts(ex_prev)
+
+        def _pack(c: dict[str, int]) -> dict:
+            return {
+                "aprobadas": c["aprobadas"],
+                "destacadas": c["destacadas"],
+                "rechazadas": c["rechazadas"],
+                "pendientes": c["pendientes"],
+                "total": c["total_logicas"],
+                "puntos": c["puntos"],
+            }
+
+        return {"mes_actual": _pack(counts_actual), "mes_anterior": _pack(counts_prev)}
 
     def get_racha_vendedor(self, distribuidor_id: int, vendedor_id: int) -> int:
         """Racha actual: cuantas exhibiciones consecutivas aprobadas/destacadas."""
@@ -710,25 +776,9 @@ class Database:
 
             qa_ids = build_qa_exhibicion_integrante_ids(distribuidor_id)
 
-            # 2. Fetch Exhibitions (con paginación para > 1000 registros)
-            exhibiciones = []
-            offset = 0
-            while True:
-                q = self.sb.table("exhibiciones").select("id_integrante, estado, url_foto_drive, telegram_msg_id, telegram_chat_id, timestamp_subida, id_cliente_pdv, id_cliente, cliente_sombra_codigo")\
-                    .eq("id_distribuidor", distribuidor_id)\
-                    .gte("timestamp_subida", start_date)\
-                    .order("timestamp_subida")\
-                    .range(offset, offset + 999)
-                
-                if end_date:
-                    q = q.lt("timestamp_subida", end_date)
-                    
-                res_ex = q.execute()
-                batch = res_ex.data or []
-                exhibiciones.extend(batch)
-                if len(batch) < 1000:
-                    break
-                offset += 1000
+            exhibiciones = self._fetch_exhibiciones(
+                distribuidor_id, start_date, end_iso=end_date
+            )
 
             # 3. Fetch Integrantes y Sucursales para nombres y unificación
             try:
@@ -759,10 +809,7 @@ class Database:
                 .eq("id_distribuidor", distribuidor_id).execute()
             suc_map = {s["id_sucursal_erp"]: s["nombre_erp"] for s in res_suc.data or []}
 
-            # 4. Agregación con DEDUPLICACIÓN robusta por exhibición lógica (integrante + cliente + día)
-            stats = defaultdict(lambda: {"aprobadas": 0, "destacadas": 0, "rechazadas": 0, "puntos": 0})
-            best_exhib_per_logic = {}
-
+            filtered_ex: list[dict] = []
             for e in exhibiciones:
                 iid_raw = e.get("id_integrante")
                 if iid_raw is None:
@@ -771,66 +818,14 @@ class Database:
                     iid = int(iid_raw)
                 except (TypeError, ValueError):
                     continue
-
                 if iid in qa_ids:
                     continue
-                
                 vendedor = iid_to_erp.get(iid, "Desconocido")
                 if is_exhibicion_qa_display_for_dist(distribuidor_id, vendedor):
                     continue
-                
-                # Exhibición lógica única (no fotos): 1 por cliente y día por integrante.
-                ts = (e.get("timestamp_subida") or "").strip()
-                day_key = ts[:10] if len(ts) >= 10 else ""
-                client_key_raw = (
-                    e.get("id_cliente_pdv")
-                    or e.get("id_cliente")
-                    or e.get("cliente_sombra_codigo")
-                )
-                client_key = str(client_key_raw).strip() if client_key_raw is not None else ""
-                
-                est = (e.get("estado") or "").lower()
-                
-                # Score para deduplicar: Destacado (3) > Aprobado (2) > Rechazado (1) > Otro (0)
-                score = 0
-                if "destacad" in est: score = 3
-                elif "aprobad" in est: score = 2
-                elif "rechaz" in est: score = 1
-                
-                if day_key and client_key:
-                    logic_key = f"{iid}_{client_key}_{day_key}"
-                else:
-                    # Fallback para filas antiguas sin cliente/fecha útil
-                    url = e.get("url_foto_drive")
-                    msg_id = e.get("telegram_msg_id")
-                    
-                    if url:
-                        logic_key = f"url_{url}"
-                    elif msg_id:
-                        chat_id = e.get("telegram_chat_id")
-                        logic_key = f"msg_{chat_id}_{msg_id}"
-                    else:
-                        logic_key = f"id_{e.get('id_exhibicion')}"
-                        
-                if logic_key not in best_exhib_per_logic or score > best_exhib_per_logic[logic_key]["score"]:
-                    best_exhib_per_logic[logic_key] = {
-                        "est": est,
-                        "score": score,
-                        "vendedor": vendedor
-                    }
+                filtered_ex.append(e)
 
-            for v in best_exhib_per_logic.values():
-                est = v["est"]
-                v_name = v["vendedor"]
-                
-                if "aprobad" in est:
-                    stats[v_name]["aprobadas"] += 1
-                    stats[v_name]["puntos"] += 1
-                elif "destacad" in est:
-                    stats[v_name]["destacadas"] += 1
-                    stats[v_name]["puntos"] += 2
-                elif "rechaz" in est:
-                    stats[v_name]["rechazadas"] += 1
+            stats = aggregate_ranking_by_vendor(filtered_ex, iid_to_erp)
 
             # 5. Formatear ranking
             ranking = []
@@ -1161,129 +1156,27 @@ class BotWorker:
                 return
 
             related_uids = LUCIANO_UIDS if uid in LUCIANO_UIDS else [uid]
-            
-            # 1. Obtener todos los id_integrante para este vendedor (scoped a este distribuidor)
-            try:
-                res_int = await asyncio.to_thread(
-                    self.db.sb.table("integrantes_grupo")
-                        .select("id_integrante, activo")
-                        .eq("id_distribuidor", self.distribuidor_id)
-                        .in_("telegram_user_id", related_uids)
-                        .execute
-                )
-            except Exception as e_int:
-                # Compatibilidad con esquemas legacy donde `integrantes_grupo` no tiene `activo`.
-                if "column integrantes_grupo.activo does not exist" in str(e_int).lower() or "42703" in str(e_int):
-                    res_int = await asyncio.to_thread(
-                        self.db.sb.table("integrantes_grupo")
-                            .select("id_integrante")
-                            .eq("id_distribuidor", self.distribuidor_id)
-                            .in_("telegram_user_id", related_uids)
-                            .execute
-                    )
-                else:
-                    raise
-            # Filtrar inactivos (activo=False); si la columna no existe, tratar como activo
-            iids = [r["id_integrante"] for r in res_int.data or [] if r.get("activo") is not False]
-            if not iids:
-                self.logger.warning(f"[stats] uid={uid} dist={self.distribuidor_id} no tiene integrantes activos")
+
+            now = datetime.now(AR_TZ)
+            prev_m = 12 if now.month == 1 else now.month - 1
+            stats = await asyncio.to_thread(
+                self.db.get_stats_vendedor,
+                self.distribuidor_id,
+                telegram_user_ids=related_uids,
+                telegram_group_id=m.chat.id,
+            )
+            if not stats:
                 await m.reply_text("⚠️ <b>No estás registrado en el sistema.</b>", parse_mode=ParseMode.HTML)
                 return
 
-            # 2. Calcular rangos: mes actual y mes anterior
-            now = datetime.now(AR_TZ)
-            start_mes_actual = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-            # Mes anterior
-            if now.month == 1:
-                prev_y, prev_m = now.year - 1, 12
-            else:
-                prev_y, prev_m = now.year, now.month - 1
-            start_mes_prev = now.replace(year=prev_y, month=prev_m, day=1, hour=0, minute=0, second=0, microsecond=0)
-            end_mes_prev = start_mes_actual
-
-            # 3. Consultar exhibiciones de ambos meses (paginar en lotes de 1000 por límite PostgREST)
-            all_ex: list[dict] = []
-            BATCH = 1000
-            offset = 0
-            while True:
-                res_ex = await asyncio.to_thread(
-                    self.db.sb.table("exhibiciones")
-                        .select("id_integrante, telegram_chat_id, telegram_msg_id, url_foto_drive, timestamp_subida, estado, id_cliente_pdv, id_cliente, cliente_sombra_codigo")
-                        .eq("id_distribuidor", self.distribuidor_id)
-                        .in_("id_integrante", iids)
-                        .gte("timestamp_subida", start_mes_prev.isoformat())
-                        .range(offset, offset + BATCH - 1)
-                        .execute
-                )
-                batch = res_ex.data or []
-                all_ex.extend(batch)
-                if len(batch) < BATCH:
-                    break
-                offset += BATCH
-            self.logger.debug(f"[stats] uid={uid} dist={self.distribuidor_id} total_ex={len(all_ex)}")
-
-            def _calc_counts(exhibiciones_list):
-                seen_logic: set[tuple[int, str, str]] = set()
-                seen_urls = set()
-                seen_msgs = set()
-                counts = {"aprobadas": 0, "destacadas": 0, "rechazadas": 0, "pendientes": 0, "puntos": 0, "total_logicas": 0}
-                for e in exhibiciones_list:
-                    is_dupe = False
-                    
-                    # Exhibición lógica única (no fotos): 1 por cliente y día por integrante.
-                    iid = e.get("id_integrante")
-                    ts = (e.get("timestamp_subida") or "").strip()
-                    day_key = ts[:10] if len(ts) >= 10 else ""
-                    client_key_raw = (
-                        e.get("id_cliente_pdv")
-                        or e.get("id_cliente")
-                        or e.get("cliente_sombra_codigo")
-                    )
-                    client_key = str(client_key_raw).strip() if client_key_raw is not None else ""
-                    
-                    if day_key and client_key:
-                        logic_key = (iid, client_key, day_key)
-                        if logic_key in seen_logic:
-                            is_dupe = True
-                        else:
-                            seen_logic.add(logic_key)
-                    else:
-                        url = e.get("url_foto_drive")
-                        msg_id = e.get("telegram_msg_id")
-                        if url:
-                            if url in seen_urls: is_dupe = True
-                            else: seen_urls.add(url)
-                        elif msg_id:
-                            chat_id = e.get("telegram_chat_id")
-                            msg_key = (chat_id, msg_id)
-                            if msg_key in seen_msgs: is_dupe = True
-                            else: seen_msgs.add(msg_key)
-                    if is_dupe: continue
-                    counts["total_logicas"] += 1
-                    est = (e.get("estado") or "").lower()
-                    if "aprobad" in est:
-                        counts["aprobadas"] += 1; counts["puntos"] += 1
-                    elif "destacad" in est:
-                        counts["destacadas"] += 1; counts["puntos"] += 2
-                    elif "rechaz" in est:
-                        counts["rechazadas"] += 1
-                    else:
-                        counts["pendientes"] += 1
-                return counts
-
-            # Separar por periodo — comparar como datetime para evitar errores de string con TZ offset
-            def _parse_ts(ts: str) -> datetime:
-                try:
-                    return datetime.fromisoformat(ts)
-                except Exception:
-                    return datetime.min.replace(tzinfo=AR_TZ)
-
-            ex_actual = [e for e in all_ex if _parse_ts(e.get("timestamp_subida", "")) >= start_mes_actual]
-            ex_prev   = [e for e in all_ex if start_mes_prev <= _parse_ts(e.get("timestamp_subida", "")) < end_mes_prev]
-
-            counts_actual = _calc_counts(ex_actual)
-            counts_prev = _calc_counts(ex_prev)
-
+            counts_actual = {
+                **stats["mes_actual"],
+                "total_logicas": stats["mes_actual"]["total"],
+            }
+            counts_prev = {
+                **stats["mes_anterior"],
+                "total_logicas": stats["mes_anterior"]["total"],
+            }
             total_actual = counts_actual["total_logicas"]
             total_prev = counts_prev["total_logicas"]
 
@@ -2437,7 +2330,10 @@ class BotWorker:
                 # Obtenemos stats directamente usando el telegram_user_id (uploader_id)
                 # La función get_stats_vendedor ya se encarga de buscar el id_integrante internamente.
                 stats = await asyncio.to_thread(
-                    self.db.get_stats_vendedor, self.distribuidor_id, uploader_id
+                    self.db.get_stats_vendedor,
+                    self.distribuidor_id,
+                    telegram_user_id=uploader_id,
+                    telegram_group_id=chat_id,
                 )
                 
                 # Para la racha sí necesitamos el PK interno (esto se podría optimizar en el futuro)
@@ -2460,7 +2356,8 @@ class BotWorker:
                 f"🔥 {mes.get('destacadas', 0)} destacadas\n"
                 f"   ❌ {mes.get('rechazadas', 0)} rechazadas   "
                 f"⏳ {mes.get('pendientes', 0)} pendientes\n"
-                f"   🏆 Puntos: {mes.get('puntos', 0)}   📦 Total: {mes.get('total', 0)}\n"
+                f"   🏆 Puntos: {mes.get('puntos', 0)}   📦 Exhibiciones: {mes.get('total', 0)}\n"
+                f"   <i>(Únicas por cliente y día — mismo criterio que el ranking)</i>\n"
                 f"{racha_text}"
             )
 

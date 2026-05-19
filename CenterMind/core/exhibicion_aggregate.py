@@ -12,6 +12,14 @@ Una exhibición lógica = máximo un conteo por:
 """
 from __future__ import annotations
 
+from collections import defaultdict
+
+EXHIBICION_ROW_COLS = (
+    "id_exhibicion,id_integrante,estado,timestamp_subida,"
+    "id_cliente_pdv,id_cliente,cliente_sombra_codigo,"
+    "url_foto_drive,telegram_msg_id,telegram_chat_id"
+)
+
 
 def exhibicion_score(estado: str) -> int:
     """Score de una exhibición según su estado."""
@@ -56,6 +64,151 @@ def build_logic_key(iid: int | None, client_key: str, day_key: str, row: dict) -
     if msg is not None and chat is not None:
         return f"msg_{chat}_{msg}"
     return f"id_{row.get('id_exhibicion')}"
+
+
+def aggregate_exhibicion_counts(rows: list[dict]) -> dict[str, int]:
+    """
+    Conteos por estado tras dedup lógico (integrante + cliente + día).
+    Si hay varias filas para la misma clave, gana la de mayor exhibicion_score.
+    """
+    best: dict[str, dict] = {}
+    for row in rows:
+        iid_raw = row.get("id_integrante")
+        iid = int(iid_raw) if iid_raw is not None else None
+        client_key = resolve_client_key(row)
+        day_key = resolve_day_key(row)
+        key = build_logic_key(iid, client_key, day_key, row)
+        estado = (row.get("estado") or "")
+        score = exhibicion_score(estado)
+        if key not in best or score > best[key]["score"]:
+            best[key] = {"estado": estado, "score": score}
+
+    counts = {
+        "aprobadas": 0,
+        "destacadas": 0,
+        "rechazadas": 0,
+        "pendientes": 0,
+        "puntos": 0,
+        "total_logicas": 0,
+    }
+    for v in best.values():
+        counts["total_logicas"] += 1
+        est = (v["estado"] or "").lower()
+        if "aprobad" in est:
+            counts["aprobadas"] += 1
+            counts["puntos"] += 1
+        elif "destacad" in est:
+            counts["destacadas"] += 1
+            counts["puntos"] += 2
+        elif "rechaz" in est:
+            counts["rechazadas"] += 1
+        else:
+            counts["pendientes"] += 1
+    return counts
+
+
+def vendor_logic_key(row: dict) -> str:
+    """Clave lógica por vendedor (todos los integrantes): cliente + día."""
+    client_key = resolve_client_key(row)
+    day_key = resolve_day_key(row)
+    if client_key and day_key:
+        return f"v_{client_key}_{day_key}"
+    return build_logic_key(None, client_key, day_key, row)
+
+
+def aggregate_exhibicion_counts_vendor_scope(rows: list[dict]) -> dict[str, int]:
+    """
+    Conteos para objetivos compañía / exhibición global del vendedor.
+    Dedup por (cliente_key, día) sin separar por integrante — misma visita lógica
+    aunque haya varias fotos o varios grupos Telegram.
+    """
+    best: dict[str, dict] = {}
+    for row in rows:
+        key = vendor_logic_key(row)
+        estado = (row.get("estado") or "")
+        score = exhibicion_score(estado)
+        if key not in best or score > best[key]["score"]:
+            best[key] = {"estado": estado, "score": score}
+
+    counts = {
+        "aprobadas": 0,
+        "destacadas": 0,
+        "rechazadas": 0,
+        "pendientes": 0,
+        "puntos": 0,
+        "total_logicas": 0,
+    }
+    for v in best.values():
+        counts["total_logicas"] += 1
+        est = (v["estado"] or "").lower()
+        if "aprobad" in est:
+            counts["aprobadas"] += 1
+            counts["puntos"] += 1
+        elif "destacad" in est:
+            counts["destacadas"] += 1
+            counts["puntos"] += 2
+        elif "rechaz" in est:
+            counts["rechazadas"] += 1
+        else:
+            counts["pendientes"] += 1
+    return counts
+
+
+def aggregate_ranking_by_vendor(
+    rows: list[dict],
+    iid_to_erp: dict[int, str],
+) -> dict[str, dict[str, int]]:
+    """
+    Ranking por nombre ERP: dedup lógico + puntos (aprobada +1, destacada +2).
+    """
+    best: dict[str, dict] = {}
+    for row in rows:
+        iid_raw = row.get("id_integrante")
+        if iid_raw is None:
+            continue
+        try:
+            iid = int(iid_raw)
+        except (TypeError, ValueError):
+            continue
+        client_key = resolve_client_key(row)
+        day_key = resolve_day_key(row)
+        key = build_logic_key(iid, client_key, day_key, row)
+        estado = (row.get("estado") or "")
+        score = exhibicion_score(estado)
+        if key not in best or score > best[key]["score"]:
+            best[key] = {
+                "estado": estado,
+                "score": score,
+                "vendedor": iid_to_erp.get(iid, "Desconocido"),
+            }
+
+    stats: dict[str, dict[str, int]] = defaultdict(
+        lambda: {"aprobadas": 0, "destacadas": 0, "rechazadas": 0, "puntos": 0}
+    )
+    for v in best.values():
+        vn = v["vendedor"]
+        est = (v["estado"] or "").lower()
+        if "aprobad" in est:
+            stats[vn]["aprobadas"] += 1
+            stats[vn]["puntos"] += 1
+        elif "destacad" in est:
+            stats[vn]["destacadas"] += 1
+            stats[vn]["puntos"] += 2
+        elif "rechaz" in est:
+            stats[vn]["rechazadas"] += 1
+    return dict(stats)
+
+
+def aggregate_kpi_totals(rows: list[dict]) -> dict[str, int]:
+    """KPIs globales del periodo con dedup lógico (misma clave que ranking)."""
+    counts = aggregate_exhibicion_counts(rows)
+    return {
+        "total": counts["total_logicas"],
+        "pendientes": counts["pendientes"],
+        "aprobadas": counts["aprobadas"],
+        "rechazadas": counts["rechazadas"],
+        "destacadas": counts["destacadas"],
+    }
 
 
 def count_logical_per_client(

@@ -76,10 +76,12 @@ Claves:
 
 - KPI/ranking: contar exhibicion logica unica (no fotos duplicadas).
   - Definicion canonica: 1 conteo por (id_integrante, cliente_key, calendar_day_AR).
-  - Modulo: `core/exhibicion_aggregate.py` — `build_logic_key`, `count_logical_per_client`.
+  - Modulo: `core/exhibicion_aggregate.py` — `build_logic_key`, `aggregate_exhibicion_counts`, `aggregate_exhibicion_counts_vendor_scope` (objetivos compañía), `aggregate_ranking_by_vendor`, `aggregate_kpi_totals`.
   - Fallback: url_foto_drive → (telegram_chat_id, msg_id) → id_exhibicion.
   - Ganador por score: Destacado 3 > Aprobado 2 > Rechazado 1 > Pendiente 0.
+  - Bot Telegram: `get_stats_vendedor`, `/stats`, mensaje post-carga y `get_ranking_periodo` usan el mismo modulo (no `fn_bot_stats_vendedor` legacy).
   - RPC `fn_dashboard_ranking` deprecado: no usar como fallback.
+  - RPC `fn_bot_stats_vendedor`: migracion `sql/2026-05-19_fn_bot_stats_vendedor_logical.sql` alinea SQL si algo lo invoca directo.
 - Objetivos: vendedores bucket (sin vendedor, supervisor) nunca reciben objetivos.
   - Helper: `core/helpers.is_vendedor_excluido_objetivos(nombre_erp)`.
   - Aplicado en: lista API vendedores, endpoint POST crear_objetivo, frontend.

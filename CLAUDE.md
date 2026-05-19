@@ -48,7 +48,7 @@ while True:
 
 ## 5) Invariantes de negocio
 
-- KPI y ranking deben usar exhibicion logica unica (no contar fotos duplicadas).
+- KPI y ranking deben usar exhibicion logica unica (no contar fotos duplicadas). Bot: `get_stats_vendedor` / post-carga / `/stats` usan `core/exhibicion_aggregate.py` (no RPC legacy por foto).
 - `cc_detalle` es fuente autoritativa para cuentas corrientes.
 - `url_foto_drive` apunta a Supabase Storage (nombre legacy).
 - En objetivos operativos: rutas con jerarquia **Dia -> Ruta**.

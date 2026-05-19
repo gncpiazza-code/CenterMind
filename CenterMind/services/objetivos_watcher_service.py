@@ -791,10 +791,17 @@ class ObjetivosWatcherService:
                 )
                 return (float(obj.get("valor_actual") or 0), 0)
 
+            from core.exhibicion_aggregate import (
+                EXHIBICION_ROW_COLS,
+                aggregate_exhibicion_counts_vendor_scope,
+                exhibicion_score,
+                vendor_logic_key,
+            )
+
             def _fetch_exhibiciones_all_states():
                 q = (
                     sb.table("exhibiciones")
-                    .select("id_exhibicion, id_cliente_pdv, timestamp_subida, estado")
+                    .select(EXHIBICION_ROW_COLS)
                     .eq("id_distribuidor", dist_id)
                     .in_("id_integrante", id_integrantes)
                     .gte("timestamp_subida", since)
@@ -812,37 +819,26 @@ class ObjetivosWatcherService:
                 return q.execute().data or []
 
             all_raw = _fetch_exhibiciones_all_states()
-            
-            pendientes = []
-            aprobados_list = []
-            
-            # Deduplicate by day/client to calculate accurate score
-            best_exhib_per_logic = {}
+
+            # Dedup por cliente+día a nivel vendedor (retroactividad compañía alineada a ranking).
+            vendor_counts = aggregate_exhibicion_counts_vendor_scope(all_raw)
+            best_exhib_per_logic: dict[str, dict] = {}
+            pendientes: list[dict] = []
+            aprobados_list: list[dict] = []
+
             for e in all_raw:
+                key = vendor_logic_key(e)
                 estado = (e.get("estado") or "").strip().lower()
-                is_pend = "pendient" in estado
-                if is_pend:
-                    pendientes.append(e)
-                    continue
-                
-                score = 0
-                if "destacad" in estado: score = 3
-                elif "aprobad" in estado: score = 2
-                elif "rechaz" in estado: score = 1
-                
-                if score > 0:
-                    cli_id = e.get("id_cliente_pdv") or e.get("id_exhibicion")
-                    day_key = str(e.get("timestamp_subida") or "")[:10]
-                    logic_key = f"{cli_id}_{day_key}"
-                    
-                    if logic_key not in best_exhib_per_logic or score > best_exhib_per_logic[logic_key]["score"]:
-                        best_exhib_per_logic[logic_key] = {
-                            "exhib": e,
-                            "score": score
-                        }
+                score = exhibicion_score(e.get("estado") or "")
+                if key not in best_exhib_per_logic or score > best_exhib_per_logic[key]["score"]:
+                    best_exhib_per_logic[key] = {"exhib": e, "score": score}
 
             for v in best_exhib_per_logic.values():
-                aprobados_list.append(v["exhib"])
+                est = (v["exhib"].get("estado") or "").lower()
+                if "pendient" in est and "aprobad" not in est and "destacad" not in est:
+                    pendientes.append(v["exhib"])
+                elif v["score"] > 0:
+                    aprobados_list.append(v["exhib"])
             
             # ── Fase 1: fotos Pendientes ──────────────────────────────────────
             ya_pend = self._get_tracked_refs(obj_id, "exhibicion_pendiente")
@@ -895,23 +891,19 @@ class ObjetivosWatcherService:
                     logger.warning(f"[Watcher] Error releyendo items exhibicion obj={obj_id}: {e_items}")
                     # Caer al conteo por exhibiciones acotado a item_pdv_ids (único PDV)
 
-            # Sin filas en objetivo_items (item_pdv_ids es None), o falló la relecutura de ítems:
-            # Meta global: calcular puntos basándose en la lógica del ranking
-            puntos = 0
-            progreso_diario = {}
+            # Meta global (compañía o distribuidora): puntos = exhibiciones lógicas aprobadas/destacadas.
+            puntos = vendor_counts["puntos"]
+            progreso_diario: dict[str, int] = {}
             for v in best_exhib_per_logic.values():
                 score = v["score"]
-                pt = 0
-                if score == 3: pt = 2
-                elif score == 2: pt = 1
-                puntos += pt
+                pt = 2 if score == 3 else 1 if score == 2 else 0
                 if pt > 0:
-                    dkey = v.get("day", str(v["exhib"].get("timestamp_subida") or "")[:10])
+                    dkey = str(v["exhib"].get("timestamp_subida") or "")[:10]
                     if dkey:
                         progreso_diario[dkey] = progreso_diario.get(dkey, 0) + pt
-            
+
             valor_aprobados = float(puntos)
-            nuevo_valor = valor_aprobados + float(len(pendientes))
+            nuevo_valor = valor_aprobados + float(vendor_counts["pendientes"])
             return (nuevo_valor, len(nuevas) + len(nuevas_pend), valor_aprobados, progreso_diario)
 
         except Exception as e:

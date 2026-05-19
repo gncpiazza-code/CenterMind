@@ -1751,6 +1751,18 @@ def supervision_cuentas(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _norm_erp_cliente_id(erp_id: object | None) -> str | None:
+    """Normaliza id_cliente_erp para matching padrón ↔ ventas_enriched (ceros, .0 float)."""
+    if erp_id is None:
+        return None
+    s = str(erp_id).strip()
+    if not s:
+        return None
+    if s.endswith(".0"):
+        s = s[:-2]
+    return (s.lstrip("0") or "0").upper()
+
+
 def _supervision_parse_mes(mes: str) -> tuple[int, int, int, str, str]:
     """Año, mes, último día, fecha_inicio y fecha_fin (AR) para un mes calendario YYYY-MM."""
     import calendar as _cal
@@ -1826,55 +1838,67 @@ def _supervision_compradores_mes(
     fecha_desde: str,
     fecha_hasta: str,
 ) -> tuple[Set[int], dict[int, str]]:
-    """PDVs con venta en mes calendario según ventas_enriched_v2 (Informe de Ventas Consolido)."""
+    """
+    PDVs compradores en mes calendario:
+    1) ventas_enriched_v2 (Informe de Ventas Consolido), si hay ingesta.
+    2) Fallback padrón: fecha_ultima_compra en el mes (distribuidoras sin motor ventas).
+    """
     comprador_ids: Set[int] = set()
     ultima_compra_mes: dict[int, str] = {}
     if not client_by_id:
         return comprador_ids, ultima_compra_mes
 
-    erp_to_id: dict[str, int] = {}
-    for cid, row in client_by_id.items():
-        erp = str(row.get("id_cliente_erp") or "").strip()
-        if erp:
-            erp_to_id[erp] = int(cid)
-
-    if not erp_to_id:
-        return comprador_ids, ultima_compra_mes
-
-    t_ventas = tenant_table_name("ventas_enriched_v2", dist_id)
     desde = fecha_desde[:10]
     hasta = fecha_hasta[:10]
-    PAGE = 1000
-    offset = 0
-    while True:
-        batch = (
-            sb.table(t_ventas)
-            .select("id_cliente_erp,fecha_factura,importe_final")
-            .eq("id_distribuidor", dist_id)
-            .eq("anulado", False)
-            .gte("fecha_factura", desde)
-            .lte("fecha_factura", hasta)
-            .range(offset, offset + PAGE - 1)
-            .execute()
-            .data or []
-        )
-        for row in batch:
-            if float(row.get("importe_final") or 0) < 0:
-                continue
-            erp = str(row.get("id_cliente_erp") or "").strip()
-            cid = erp_to_id.get(erp)
-            if cid is None:
-                continue
-            f = str(row.get("fecha_factura") or "")[:10]
-            if not f:
-                continue
-            comprador_ids.add(cid)
+
+    erp_norm_to_id: dict[str, int] = {}
+    for cid, row in client_by_id.items():
+        n = _norm_erp_cliente_id(row.get("id_cliente_erp"))
+        if n:
+            erp_norm_to_id[n] = int(cid)
+
+    if erp_norm_to_id:
+        t_ventas = tenant_table_name("ventas_enriched_v2", dist_id)
+        PAGE = 1000
+        offset = 0
+        while True:
+            batch = (
+                sb.table(t_ventas)
+                .select("id_cliente_erp,fecha_factura,importe_final")
+                .eq("id_distribuidor", dist_id)
+                .eq("anulado", False)
+                .gte("fecha_factura", desde)
+                .lte("fecha_factura", hasta)
+                .range(offset, offset + PAGE - 1)
+                .execute()
+                .data or []
+            )
+            for row in batch:
+                if float(row.get("importe_final") or 0) < 0:
+                    continue
+                n = _norm_erp_cliente_id(row.get("id_cliente_erp"))
+                cid = erp_norm_to_id.get(n) if n else None
+                if cid is None:
+                    continue
+                f = str(row.get("fecha_factura") or "")[:10]
+                if not f:
+                    continue
+                comprador_ids.add(cid)
+                prev = ultima_compra_mes.get(cid)
+                if not prev or f > prev:
+                    ultima_compra_mes[cid] = f
+            if len(batch) < PAGE:
+                break
+            offset += PAGE
+
+    for cid, row in client_by_id.items():
+        fuc = str(row.get("fecha_ultima_compra") or "")[:10]
+        if len(fuc) >= 10 and desde <= fuc <= hasta:
+            comprador_ids.add(int(cid))
             prev = ultima_compra_mes.get(cid)
-            if not prev or f > prev:
-                ultima_compra_mes[cid] = f
-        if len(batch) < PAGE:
-            break
-        offset += PAGE
+            if not prev or fuc > prev:
+                ultima_compra_mes[cid] = fuc
+
     return comprador_ids, ultima_compra_mes
 
 
@@ -2056,7 +2080,7 @@ def supervision_pdvs_movimiento(
             client_by_id = _supervision_clients_by_route(
                 dist_id,
                 route_ids,
-                "id_cliente, id_cliente_erp, nombre_fantasia, nombre_razon_social, domicilio, localidad",
+                "id_cliente, id_cliente_erp, nombre_fantasia, nombre_razon_social, domicilio, localidad, fecha_ultima_compra",
             )
             comprador_ids, ultima_compra_mes = _supervision_compradores_mes(
                 dist_id,
@@ -3683,7 +3707,9 @@ def supervision_vendedor_kpi_mapa(
                         break
                     offset += PAGE
             client_by_id = _supervision_clients_by_route(
-                dist_id, route_ids, "id_cliente,id_cliente_erp",
+                dist_id,
+                route_ids,
+                "id_cliente,id_cliente_erp,fecha_ultima_compra",
             )
             compradores, _ = _supervision_compradores_mes(
                 dist_id, client_by_id, fecha_inicio, fecha_fin,

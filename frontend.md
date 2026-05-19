@@ -108,3 +108,11 @@ Reglas:
 - `api.ts` como fuente unica de tipos y funciones.
 - Query keys de supervision y objetivos incluyen `distId`.
 - Compatibilidad con `/api/ws/superadmin` para notificaciones operativas.
+
+## Objetivos — Convenciones del Modal
+
+- Switch (no checkbox) para "Objetivo general para la FDV" (`@/components/ui/switch`).
+- El resumen "Objetivo generado" va **al final** del formulario, encima de los botones Crear/Cancelar.
+- `buildPhrase(overrideVendorName?)`: el argumento es requerido en bulk FDV para generar frases individuales por vendedor.
+- `tasa_pendientes` visible solo con PDVs explícitos (`showTasaPendientes`); se limpia automaticamente al ocultarse.
+- `vendedoresFiltrados` excluye buckets (sin vendedor, supervisor) antes de mostrar en modal.

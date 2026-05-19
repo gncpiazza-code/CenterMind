@@ -15,7 +15,8 @@ Documento de referencia tecnica estable para agentes y desarrolladores.
 
 - `CenterMind/api.py`: entry point slim.
 - `CenterMind/routers/`: auth, supervision, admin, reportes, difusion, erp.
-- `CenterMind/core/helpers.py`: enrichment y utilidades tenant-safe.
+- `CenterMind/core/helpers.py`: enrichment y utilidades tenant-safe (incl. `is_vendedor_excluido_objetivos`).
+- `CenterMind/core/exhibicion_aggregate.py`: definicion canonica de exhibicion logica unica.
 - `shelfy-frontend/src/lib/api.ts`: contrato unico de fetch/tipos.
 - `ShelfMind-RPA/motores/`: padron, cuentas, ventas, sigo.
 
@@ -74,6 +75,14 @@ Claves:
 ## Invariantes Operativas
 
 - KPI/ranking: contar exhibicion logica unica (no fotos duplicadas).
+  - Definicion canonica: 1 conteo por (id_integrante, cliente_key, calendar_day_AR).
+  - Modulo: `core/exhibicion_aggregate.py` — `build_logic_key`, `count_logical_per_client`.
+  - Fallback: url_foto_drive → (telegram_chat_id, msg_id) → id_exhibicion.
+  - Ganador por score: Destacado 3 > Aprobado 2 > Rechazado 1 > Pendiente 0.
+  - RPC `fn_dashboard_ranking` deprecado: no usar como fallback.
+- Objetivos: vendedores bucket (sin vendedor, supervisor) nunca reciben objetivos.
+  - Helper: `core/helpers.is_vendedor_excluido_objetivos(nombre_erp)`.
+  - Aplicado en: lista API vendedores, endpoint POST crear_objetivo, frontend.
 - QA Tabaco (no superadmin): excluir cuentas de prueba en ranking/visor.
 - En UI operativa de rutas: jerarquia **Dia -> Ruta**.
 - Para objectives de compania: periodo mensual fijo.

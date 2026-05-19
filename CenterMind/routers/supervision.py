@@ -21,8 +21,10 @@ from core.helpers import (
     build_qa_exhibicion_integrante_ids,
     is_exhibicion_qa_display_for_dist,
     should_apply_exhibicion_qa_filter,
+    is_vendedor_excluido_objetivos,
     load_active_vendedor_ids,
 )
+from core.exhibicion_aggregate import count_logical_per_client
 from core.lifespan import broadcast_sync
 from core.security import verify_auth, check_dist_permission
 from core.tenant_tables import (
@@ -1147,6 +1149,8 @@ def supervision_vendedores(dist_id: int, user_payload=Depends(verify_auth)):
             if int(r.get("total_pdv") or 0) == 0:
                 continue
             tg_name = (r.get("nombre_vendedor") or "").strip()
+            if is_vendedor_excluido_objetivos(tg_name):
+                continue
             erp_name = erp_name_map.get(tg_name.lower(), tg_name)
             if hide_qa and is_exhibicion_qa_display_for_dist(dist_id, erp_name):
                 continue
@@ -1235,27 +1239,31 @@ def supervision_clientes(id_ruta: int, user_payload=Depends(verify_auth)):
             threshold_date = (datetime.now() - timedelta(days=30)).isoformat()
 
             try:
+                # Incluir id_integrante para dedup lógico (una exhibición por integrante+cliente+día)
                 exh_res = (
                     sb.table("exhibiciones")
-                    .select("id_cliente_pdv, cliente_sombra_codigo, timestamp_subida, url_foto_drive")
+                    .select("id_exhibicion, id_integrante, id_cliente_pdv, cliente_sombra_codigo, timestamp_subida, url_foto_drive")
                     .eq("id_distribuidor", dist_id)
                     .in_("id_cliente_pdv", ids_pdv)
                     .order("timestamp_subida", desc=True)
                     .execute()
                 )
+                seen_logic: set[str] = set()
                 for e in exh_res.data or []:
                     cid = e.get("id_cliente_pdv")
                     if cid:
-                        exh_count_map[cid] = exh_count_map.get(cid, 0) + 1
                         if cid not in exh_map:
                             exh_map[cid]      = e.get("timestamp_subida")
                             exh_foto_map[cid] = e.get("url_foto_drive")
+                logical_counts = count_logical_per_client(exh_res.data or [], seen=seen_logic)
+                for cid, cnt in logical_counts.items():
+                    exh_count_map[cid] = exh_count_map.get(cid, 0) + cnt
 
                 erps_pending = [erp for erp, vid in erp_map.items() if vid not in exh_map]
                 if erps_pending:
                     exh_erp_res = (
                         sb.table("exhibiciones")
-                        .select("cliente_sombra_codigo, timestamp_subida, url_foto_drive")
+                        .select("id_exhibicion, id_integrante, id_cliente_pdv, cliente_sombra_codigo, timestamp_subida, url_foto_drive")
                         .eq("id_distribuidor", dist_id)
                         .in_("cliente_sombra_codigo", erps_pending)
                         .order("timestamp_subida", desc=True)
@@ -1265,10 +1273,18 @@ def supervision_clientes(id_ruta: int, user_payload=Depends(verify_auth)):
                         erp = e.get("cliente_sombra_codigo")
                         vid = erp_map.get(erp)
                         if vid:
-                            exh_count_map[vid] = exh_count_map.get(vid, 0) + 1
                             if vid not in exh_map:
                                 exh_map[vid]      = e.get("timestamp_subida")
                                 exh_foto_map[vid] = e.get("url_foto_drive")
+                    # Dedup lógico para el fallback ERP (mapear sombra → cliente_pk antes de contar)
+                    erp_rows_mapped = [
+                        {**e, "id_cliente_pdv": erp_map.get(e.get("cliente_sombra_codigo"))}
+                        for e in (exh_erp_res.data or [])
+                        if erp_map.get(e.get("cliente_sombra_codigo"))
+                    ]
+                    logical_erp = count_logical_per_client(erp_rows_mapped, seen=seen_logic)
+                    for cid, cnt in logical_erp.items():
+                        exh_count_map[cid] = exh_count_map.get(cid, 0) + cnt
             except Exception as e:
                 logger.error(f"Error en join exhibiciones: {e}")
 
@@ -2288,12 +2304,15 @@ def crear_objetivo(body: ObjetivoCreate, user_payload=Depends(verify_auth)):
         if not body.fecha_objetivo:
             raise HTTPException(status_code=422, detail="fecha_objetivo es obligatoria")
 
-    # Validar que el vendedor pertenece a la distribuidora
-    if not user_payload.get("is_superadmin"):
-        t_vendedores = tenant_table_name("vendedores_v2", body.id_distribuidor)
-        vend_check = sb.table(t_vendedores).select("id_vendedor").eq("id_vendedor", body.id_vendedor).eq("id_distribuidor", body.id_distribuidor).limit(1).execute()
-        if not vend_check.data:
-            raise HTTPException(status_code=400, detail="El vendedor no pertenece a la distribuidora indicada")
+    # Validar que el vendedor pertenece a la distribuidora + no es bucket
+    t_vendedores = tenant_table_name("vendedores_v2", body.id_distribuidor)
+    vend_check = sb.table(t_vendedores).select("id_vendedor, nombre_erp").eq("id_vendedor", body.id_vendedor).eq("id_distribuidor", body.id_distribuidor).limit(1).execute()
+    if not user_payload.get("is_superadmin") and not vend_check.data:
+        raise HTTPException(status_code=400, detail="El vendedor no pertenece a la distribuidora indicada")
+    if vend_check.data:
+        nombre_erp_vendedor = (vend_check.data[0].get("nombre_erp") or "").strip()
+        if is_vendedor_excluido_objetivos(nombre_erp_vendedor):
+            raise HTTPException(status_code=400, detail=f"El vendedor '{nombre_erp_vendedor}' es un bucket operativo y no puede recibir objetivos")
 
     # Validar que todos los PDV ítems pertenecen a la distribuidora
     if not user_payload.get("is_superadmin") and body.pdv_items:
@@ -2319,6 +2338,7 @@ def crear_objetivo(body: ObjetivoCreate, user_payload=Depends(verify_auth)):
                 .eq("id_distribuidor", body.id_distribuidor)
                 .eq("id_vendedor", body.id_vendedor)
                 .eq("tipo", body.tipo)
+                .eq("origen", body.origen)
                 .eq("cumplido", False)
                 .limit(1)
                 .execute()

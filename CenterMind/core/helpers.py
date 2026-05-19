@@ -616,6 +616,22 @@ def build_integrante_to_erp_name(dist_id: int) -> dict[int, str]:
         return {}
 
 
+# ── Exclusión de vendedores bucket en objetivos ───────────────────────────────
+# Subcadenas que identifican vendedores operativos que no deben recibir objetivos.
+_EXCLUIR_VENDEDOR_SUBCADENAS: tuple[str, ...] = (
+    "sin vendedor",
+    "supervisor",
+)
+
+
+def is_vendedor_excluido_objetivos(nombre_erp: str | None) -> bool:
+    """True si el nombre corresponde a un bucket operativo (sin vendedor, supervisor, etc.)."""
+    if not nombre_erp:
+        return True
+    n = nombre_erp.strip().lower()
+    return any(sub in n for sub in _EXCLUIR_VENDEDOR_SUBCADENAS)
+
+
 def load_active_vendedor_ids(dist_id: int) -> set[int]:
     """
     Devuelve el set de id_vendedor_v2 ACTIVOS para un distribuidor.

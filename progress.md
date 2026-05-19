@@ -1,6 +1,6 @@
 # Progress — Shelfy CenterMind (Lean)
 
-**Ultima actualizacion:** 11 de Mayo, 2026  
+**Ultima actualizacion:** 18 de Mayo, 2026  
 **Objetivo:** estado operativo actual, riesgos y prioridades.  
 **Historial largo:** `docs/changelog/archive/2026-05.md`.
 
@@ -37,6 +37,7 @@
 12. Objetivos: anti-spam Telegram en progreso (se mantienen altas/cierres y eventos de exhibición; se silencian mensajes "en marcha" del resto).
 13. Tickets portal superadmin: filtros server-side (estado/categoría/dist/texto), export JSON enriquecido y endpoint de pre-resolución IA (Gemini opcional + fallback por reglas).
 14. Supervision-v2: router incluido en api.py; eliminado filtro valid_sellers que causaba pérdida de datos; altas calculadas desde clientes_pdv_v2 via rutas_v2; Drawer de vendedor y comprobante 100% funcionales.
+15. Objetivos FDV: helper `is_vendedor_excluido_objetivos` central (helpers.py); backend filtra buckets en lista y en crear_objetivo (400 si bucket); frontend filtra `vendedoresFiltrados`. Switch FDV reemplaza checkbox. Resumen "Objetivo generado" movido al final del modal. `buildPhrase` acepta vendorName explícito para bulk FDV. `tasa_pendientes` condicional (solo con PDVs explícitos, no FDV bulk). Exhibición lógica: módulo `core/exhibicion_aggregate.py`; `supervision_clientes.total_exhibiciones` usa dedup lógico; bot elimina fallback RPC legacy.
 
 ## Riesgos y Guardrails Activos
 

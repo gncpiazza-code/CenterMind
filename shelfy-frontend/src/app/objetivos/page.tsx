@@ -75,6 +75,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { DatePicker } from "@/components/ui/date-picker";
 import { toast } from "sonner";
 
@@ -1195,9 +1196,15 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
     }
   }, [modalSucursales, modalSucursal]);
 
-  const vendedoresFiltrados = modalSucursal
+  const isVendedorBucket = (nombre: string) => {
+    const n = nombre.toLowerCase();
+    return n.includes("sin vendedor") || n.includes("supervisor");
+  };
+
+  const vendedoresFiltrados = (modalSucursal
     ? vendedores.filter(v => v.sucursal_nombre === modalSucursal)
-    : vendedores;
+    : vendedores
+  ).filter(v => !isVendedorBucket(v.nombre_erp));
   const mustSelectSucursalFirst = modalSucursales.length > 1 && !modalSucursal;
   const vendedoresCascada = mustSelectSucursalFirst ? [] : vendedoresFiltrados;
 
@@ -1224,6 +1231,19 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
     [rutas]
   );
   const selectedDayGroups = rutasPorDia.filter((g) => selectedDias.has(g.dayKey));
+
+  const showTasaPendientes =
+    !paraTodosFDV &&
+    (
+      (tipo === "conversion_estado" && activacionMode === "por_pdv" && selectedPdvIds.size > 0) ||
+      (tipo === "exhibicion" && exhibicionMode === "por_pdv" && selectedPdvIds.size > 0) ||
+      (tipo === "ruteo" && selectedPdvIds.size > 0) ||
+      (tipo === "ruteo_alteo" && alteoMode === "por_dia" && selectedDias.size > 0)
+    );
+
+  useEffect(() => {
+    if (!showTasaPendientes) setTasaPendientes("");
+  }, [showTasaPendientes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function resetCtx() {
     setRutas([]);
@@ -1333,8 +1353,9 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
     }
   }, [vendedorId, tipo]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  function buildPhrase(): string {
-    if (!vendedorNombre) return "[ Vendedor ] …";
+  function buildPhrase(overrideVendorName?: string): string {
+    const name = overrideVendorName ?? (paraTodosFDV ? "Cada vendedor de la FDV" : vendedorNombre);
+    if (!name) return "[ Vendedor ] …";
     let diasCalendario: number | null = null;
     if (fecha) {
       const parts = fecha.slice(0, 10).split("-").map(Number);
@@ -1358,49 +1379,48 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
     if (tipo === "ruteo_alteo") {
       const qty = cantidadAlteo ? Number(cantidadAlteo) : null;
       if (alteoMode === "por_dia" && selectedDayGroups.length > 0) {
-        const diasCount = selectedDayGroups.length;
         const defaultQty = selectedDayGroups.reduce((acc, g) => acc + g.totalPdvs, 0);
         const meta = qty ?? defaultQty;
         const diasTxt = selectedDayGroups.map((g) => g.day).join(", ");
-        return `${vendedorNombre} debe altear en sus días asignados (${diasTxt}) y sumar ${meta} PDVs nuevos ${fechaLabel}. Progreso esperado: ${meta} altas válidas en el período.${diasLabel}`;
+        return `${name} debe altear en sus días asignados (${diasTxt}) y sumar ${meta} PDVs nuevos ${fechaLabel}. Progreso esperado: ${meta} altas válidas en el período.${diasLabel}`;
       }
       if (qty) {
-        return `${vendedorNombre} debe altear ${qty} PDVs nuevos ${fechaLabel}. Progreso esperado: ${qty} altas válidas.${diasLabel}`;
+        return `${name} debe altear ${qty} PDVs nuevos ${fechaLabel}. Progreso esperado: ${qty} altas válidas.${diasLabel}`;
       }
-      return `${vendedorNombre} debe altear nuevos PDVs ${fechaLabel}.`;
+      return `${name} debe altear nuevos PDVs ${fechaLabel}.`;
     }
     if (tipo === "cobranza" && selectedDeudor) {
       const monto = cobranzaMode === "parcial" && cobranzaMonto ? cobranzaMonto : selectedDeudor.deuda_total;
-      return `${vendedorNombre} deberá cobrar $${Number(monto).toLocaleString("es-AR")} del cliente ${selectedDeudor.cliente_nombre} ${fechaLabel}. Progreso esperado: registrar ese monto cobrado.`;
+      return `${name} deberá cobrar $${Number(monto).toLocaleString("es-AR")} del cliente ${selectedDeudor.cliente_nombre} ${fechaLabel}. Progreso esperado: registrar ese monto cobrado.`;
     }
     if (tipo === "conversion_estado") {
       if (activacionMode === "general" && cantidadActivacion) {
-        return `${vendedorNombre} deberá activar ${cantidadActivacion} PDV${Number(cantidadActivacion) !== 1 ? "s" : ""} inactivos ${fechaLabel}. Progreso esperado: ${cantidadActivacion} reactivaciones.${diasLabel}`;
+        return `${name} deberá activar ${cantidadActivacion} PDV${Number(cantidadActivacion) !== 1 ? "s" : ""} inactivos ${fechaLabel}. Progreso esperado: ${cantidadActivacion} reactivaciones.${diasLabel}`;
       }
       if (selectedPdvIds.size > 0) {
         const metaN = cantidadActivacion !== "" ? Number(cantidadActivacion) : selectedPdvIds.size;
         const total = selectedPdvIds.size;
         if (metaN < total) {
-          return `${vendedorNombre} deberá activar ${metaN} de ${total} PDVs seleccionados ${fechaLabel}. Progreso esperado: ${metaN} activaciones válidas.${diasLabel}`;
+          return `${name} deberá activar ${metaN} de ${total} PDVs seleccionados ${fechaLabel}. Progreso esperado: ${metaN} activaciones válidas.${diasLabel}`;
         }
-        return `${vendedorNombre} deberá activar ${total} PDV${total !== 1 ? "s" : ""} seleccionados ${fechaLabel}. Progreso esperado: completar todos los PDVs asignados.${diasLabel}`;
+        return `${name} deberá activar ${total} PDV${total !== 1 ? "s" : ""} seleccionados ${fechaLabel}. Progreso esperado: completar todos los PDVs asignados.${diasLabel}`;
       }
-      return `${vendedorNombre} debe activar clientes inactivos ${fechaLabel}.`;
+      return `${name} debe activar clientes inactivos ${fechaLabel}.`;
     }
     if (tipo === "exhibicion") {
       const qty = exhibicionMode === "general" && cantidadExhibicion ? cantidadExhibicion : selectedPdvIds.size || null;
       return qty
-        ? `${vendedorNombre} debe realizar ${qty} exhibición${Number(qty) !== 1 ? "es" : ""} ${fechaLabel}. Progreso esperado: ${qty} exhibiciones aprobadas.${diasLabel}`
-        : `${vendedorNombre} debe exhibir en PDVs ${fechaLabel}.`;
+        ? `${name} debe realizar ${qty} exhibición${Number(qty) !== 1 ? "es" : ""} ${fechaLabel}. Progreso esperado: ${qty} exhibiciones aprobadas.${diasLabel}`
+        : `${name} debe exhibir en PDVs ${fechaLabel}.`;
     }
     if (tipo === "ruteo") {
       const total = selectedPdvIds.size;
       if (total > 0) {
-        return `${vendedorNombre} debe ejecutar acciones de ruteo sobre ${total} PDV${total !== 1 ? "s" : ""} ${fechaLabel}. Progreso esperado: completar cambios de ruta y/o bajas definidas.`;
+        return `${name} debe ejecutar acciones de ruteo sobre ${total} PDV${total !== 1 ? "s" : ""} ${fechaLabel}. Progreso esperado: completar cambios de ruta y/o bajas definidas.`;
       }
-      return `${vendedorNombre} debe reasignar PDVs ${fechaLabel}.`;
+      return `${name} debe reasignar PDVs ${fechaLabel}.`;
     }
-    return `${vendedorNombre} — objetivo ${TIPO_CONFIG[tipo]?.label ?? tipo} ${fechaLabel}.`;
+    return `${name} — objetivo ${TIPO_CONFIG[tipo]?.label ?? tipo} ${fechaLabel}.`;
   }
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -1636,12 +1656,6 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
             </div>
           )}
 
-          {/* Live phrase preview */}
-          <div className="rounded-xl bg-[var(--shelfy-bg)] border border-[var(--shelfy-accent)]/20 p-3">
-            <p className="text-[11px] text-[var(--shelfy-muted)] mb-1 uppercase tracking-wider font-medium">Objetivo generado</p>
-            <p className="text-sm text-[var(--shelfy-text)] leading-relaxed">{buildPhrase()}</p>
-          </div>
-
           {/* Sucursal → Vendedor cascade */}
           {modalSucursales.length > 1 && (
             <div>
@@ -1685,18 +1699,24 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
               <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--shelfy-muted)] pointer-events-none" />
             </div>
             {vendedoresFiltrados.length > 0 && (
-              <label className="flex items-center gap-2 mt-2 cursor-pointer w-fit">
-                <input 
-                  type="checkbox" 
+              <div className="flex items-center gap-2.5 mt-2">
+                <Switch
+                  id="para-todos-fdv"
                   checked={paraTodosFDV}
-                  onChange={(e) => {
-                    setParaTodosFDV(e.target.checked);
-                    if (e.target.checked) setVendedorId("");
+                  onCheckedChange={(checked) => {
+                    setParaTodosFDV(checked);
+                    if (checked) setVendedorId("");
                   }}
-                  className="rounded border-[var(--shelfy-border)] text-orange-500 focus:ring-orange-500 bg-[var(--shelfy-bg)]"
+                  aria-labelledby="para-todos-fdv-label"
                 />
-                <span className="text-[11px] font-medium text-[var(--shelfy-text)]">¿Objetivo general para la FDV?</span>
-              </label>
+                <label
+                  id="para-todos-fdv-label"
+                  htmlFor="para-todos-fdv"
+                  className="text-[11px] font-medium text-[var(--shelfy-text)] cursor-pointer select-none"
+                >
+                  {paraTodosFDV ? "Toda la FDV" : "Por vendedor"} — {paraTodosFDV ? `${vendedoresFiltrados.length} vendedores` : "¿Objetivo general para la FDV?"}
+                </label>
+              </div>
             )}
           </div>
 
@@ -2400,23 +2420,25 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
             </div>
           )}
 
-          {/* Tasa de pendientes — ubicar debajo del bloque contextual y antes de fecha límite */}
-          <div>
-            <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1">
-              Tasa de pendientes <span className="normal-case font-normal">(opcional)</span>
-            </label>
-            <input
-              type="number"
-              min={0}
-              placeholder="0"
-              className="h-9 w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
-              value={tasaPendientes}
-              onChange={e => setTasaPendientes(e.target.value !== "" ? Number(e.target.value) : "")}
-            />
-            <p className="text-[10px] text-[var(--shelfy-muted)] mt-1">
-              Número de ítems con margen de tolerancia. Los ítems pendientes siguen visibles hasta el cierre aunque se alcance la meta.
-            </p>
-          </div>
+          {/* Tasa de pendientes — solo cuando hay PDVs asignados y no es FDV bulk */}
+          {showTasaPendientes && (
+            <div>
+              <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1">
+                Tasa de pendientes <span className="normal-case font-normal">(opcional)</span>
+              </label>
+              <input
+                type="number"
+                min={0}
+                placeholder="0"
+                className="h-9 w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                value={tasaPendientes}
+                onChange={e => setTasaPendientes(e.target.value !== "" ? Number(e.target.value) : "")}
+              />
+              <p className="text-[10px] text-[var(--shelfy-muted)] mt-1">
+                Aplica cuando el objetivo tiene PDVs asignados: podés cerrar la meta dejando hasta N ítems pendientes.
+              </p>
+            </div>
+          )}
 
           {/* Fecha límite — bloqueada hasta que vendedor Y tipo estén seleccionados. Oculta en modo compañía (el mes define el período) */}
           {origenMode !== "compania" && (
@@ -2467,6 +2489,16 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
               value={desc}
               onChange={e => setDesc(e.target.value)}
             />
+          </div>
+
+          {/* Resumen — Objetivo generado */}
+          <div className="rounded-xl bg-[var(--shelfy-bg)] border border-[var(--shelfy-accent)]/20 p-3">
+            <p className="text-[11px] text-[var(--shelfy-muted)] mb-1 uppercase tracking-wider font-medium">
+              {desc ? "Descripción personalizada activa" : "Objetivo generado"}
+            </p>
+            <p className="text-sm text-[var(--shelfy-text)] leading-relaxed">
+              {desc || buildPhrase()}
+            </p>
           </div>
 
           <div className="flex gap-2 pt-2">

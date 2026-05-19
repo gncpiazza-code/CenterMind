@@ -849,12 +849,13 @@ class Database:
             return ranking[:100]
 
         except Exception as e:
-            # Fallback al RPC original si algo falla en Python (aunque probablemente también falle)
-            try:
-                res = self.sb.rpc("fn_dashboard_ranking", {"p_dist_id": distribuidor_id, "p_periodo": periodo, "p_top": 100}).execute()
-                return res.data or []
-            except:
-                raise e
+            # fn_dashboard_ranking (RPC legacy) fue deprecado — ver arquitectura.md §exhibicion_logica.
+            # No hacer fallback al RPC: su lógica no garantiza dedup lógico y puede dar rankings distintos.
+            self.logger.error(
+                f"get_ranking_periodo dist={distribuidor_id} periodo={periodo} falló: {e}. "
+                "RPC fn_dashboard_ranking no se usa como fallback (deprecado)."
+            )
+            raise
 
     def get_historial_cliente(
         self, distribuidor_id: int, chat_id: int, nro_cliente: str, limit: int = 5

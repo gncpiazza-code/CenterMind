@@ -75,7 +75,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import { DatePicker } from "@/components/ui/date-picker";
 import { toast } from "sonner";
 
@@ -1008,6 +1007,9 @@ function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado, onOpenR
           </div>
         )}
 
+        {/* Prorrateo mensual siempre visible (solo compañía) */}
+        <CompaniaProrrateo obj={obj} visualActual={shownActual} />
+
         {/* Expandable: descripcion + items list */}
         <AnimatePresence>
           {expanded && (
@@ -1022,7 +1024,6 @@ function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado, onOpenR
                 {obj.descripcion && (
                   <p className="text-xs text-[var(--shelfy-muted)] leading-relaxed">{obj.descripcion}</p>
                 )}
-                <CompaniaProrrateo obj={obj} visualActual={shownActual} />
                 {obj.items && obj.items.length > 0 && obj.tipo === "ruteo_alteo" && obj.items[0].id_ruta_destino ? (
                   <RuteoAlteoItemsTree obj={obj} />
                 ) : obj.items && obj.items.length > 0 ? (
@@ -1699,23 +1700,29 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
               <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--shelfy-muted)] pointer-events-none" />
             </div>
             {vendedoresFiltrados.length > 0 && (
-              <div className="flex items-center gap-2.5 mt-2">
-                <Switch
-                  id="para-todos-fdv"
-                  checked={paraTodosFDV}
-                  onCheckedChange={(checked) => {
-                    setParaTodosFDV(checked);
-                    if (checked) setVendedorId("");
-                  }}
-                  aria-labelledby="para-todos-fdv-label"
-                />
-                <label
-                  id="para-todos-fdv-label"
-                  htmlFor="para-todos-fdv"
-                  className="text-[11px] font-medium text-[var(--shelfy-text)] cursor-pointer select-none"
+              <div className="flex gap-1 mt-2 p-0.5 bg-[var(--shelfy-bg)] rounded-lg border border-[var(--shelfy-border)]">
+                <button
+                  type="button"
+                  onClick={() => setParaTodosFDV(false)}
+                  className={`flex-1 py-1.5 rounded-md text-[11px] font-medium transition-all ${
+                    !paraTodosFDV
+                      ? "bg-[var(--shelfy-accent)] text-white shadow-sm"
+                      : "text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
+                  }`}
                 >
-                  {paraTodosFDV ? "Toda la FDV" : "Por vendedor"} — {paraTodosFDV ? `${vendedoresFiltrados.length} vendedores` : "¿Objetivo general para la FDV?"}
-                </label>
+                  Por vendedor
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setParaTodosFDV(true); setVendedorId(""); }}
+                  className={`flex-1 py-1.5 rounded-md text-[11px] font-medium transition-all ${
+                    paraTodosFDV
+                      ? "bg-[var(--shelfy-accent)] text-white shadow-sm"
+                      : "text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
+                  }`}
+                >
+                  Toda la FDV · {vendedoresFiltrados.length}
+                </button>
               </div>
             )}
           </div>

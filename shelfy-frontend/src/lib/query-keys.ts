@@ -124,6 +124,10 @@ export const supervisionPanelKeys = {
     ['supervision-panel', 'cuentas', distId, sucursal ?? null] as const,
   syncStatus: (distId: number) =>
     ['supervision-panel', 'sync-status', distId] as const,
+  vendedores: (distId: number) =>
+    ['supervision-panel', 'vendedores', distId] as const,
+  altas: (distId: number, vendedorId: number | null, mes: string) =>
+    ['supervision-panel', 'altas', distId, vendedorId ?? null, mes] as const,
 };
 
 // ── Admin Dashboard (motor runs) ──────────────────────────────────────────────

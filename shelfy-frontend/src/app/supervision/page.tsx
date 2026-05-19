@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
@@ -45,6 +45,7 @@ import {
 import {
   CreditCard, Users, Clock, Map as MapIcon, Printer,
   ArrowUpDown, Hash, Target, TrendingUp, ShoppingCart,
+  LayoutList, Store, ArrowUpFromLine,
 } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
@@ -189,6 +190,17 @@ export default function SupervisionPage() {
   const padronLastUpdated = syncStatus?.padron?.last_updated ?? null;
   const ccLastUpdated = syncStatus?.cuentas_corrientes?.last_updated ?? null;
 
+  // Tab de filtro para el panel derecho
+  type AltasTab = "todos" | "alta" | "comprador";
+  const [altasTab, setAltasTab] = useState<AltasTab>("todos");
+
+  const itemsFiltrados = useMemo(() => {
+    const items = altasData?.items ?? [];
+    if (altasTab === "alta") return items.filter((i) => i.categoria === "alta");
+    if (altasTab === "comprador") return items.filter((i) => i.categoria === "activacion");
+    return items;
+  }, [altasData, altasTab]);
+
   // Deep link href para "Ver Mapa"
   const mapHref = selectedVendedorId
     ? `/modo-mapa?vendedorId=${selectedVendedorId}${selectedSucursal !== "__all__" ? `&sucursal=${encodeURIComponent(selectedSucursal)}` : ""}`
@@ -267,7 +279,7 @@ export default function SupervisionPage() {
             <div className="p-4 md:p-6 flex flex-col gap-5">
 
               {/* ── NIVEL 3: KPIs globales (4 cards animadas) ─────────────── */}
-              <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 <AnimatedKpiCard
                   label="Deuda Total"
                   value={deudaTotal}
@@ -304,7 +316,7 @@ export default function SupervisionPage() {
               </div>
 
               {/* ── NIVEL 4: Paneles 50/50 ───────────────────────────────── */}
-              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
 
                 {/* ── Izquierda: Cuentas Corrientes ──────────────────────── */}
                 <div className="flex flex-col gap-4">
@@ -437,7 +449,7 @@ export default function SupervisionPage() {
                 </div>
 
                 {/* ── Derecha: Altas y Compradores ───────────────────────── */}
-                <div className="rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden shadow-sm flex flex-col min-h-[400px]">
+                <div className="rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden shadow-sm flex flex-col">
 
                   {/* Panel header */}
                   <div className="flex items-center justify-between px-5 py-3.5 border-b border-[var(--shelfy-border)]/50">
@@ -445,7 +457,7 @@ export default function SupervisionPage() {
                       <Target size={14} className="text-violet-500" />
                       <span className="text-sm font-bold text-[var(--shelfy-text)]">Altas y Compradores</span>
                     </div>
-                    <Select value={altasMes} onValueChange={setAltasMes}>
+                    <Select value={altasMes} onValueChange={(v) => { setAltasMes(v); setAltasTab("todos"); }}>
                       <SelectTrigger className="h-7 text-xs w-44 border-[var(--shelfy-border)]">
                         <SelectValue />
                       </SelectTrigger>
@@ -466,7 +478,7 @@ export default function SupervisionPage() {
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
                         transition={{ duration: 0.2 }}
-                        className="flex-1 flex flex-col items-center justify-center py-14 gap-3 text-center px-6"
+                        className="flex flex-col items-center justify-center py-16 gap-3 text-center px-6"
                       >
                         <div className="size-12 rounded-2xl bg-violet-500/8 flex items-center justify-center">
                           <Target size={22} className="text-violet-500" />
@@ -474,7 +486,7 @@ export default function SupervisionPage() {
                         <div>
                           <p className="text-sm font-semibold text-[var(--shelfy-text)]">Seleccioná un vendedor</p>
                           <p className="text-xs text-[var(--shelfy-muted)] mt-0.5">
-                            Elegí un vendedor para ver sus altas y compradores
+                            Elegí un vendedor para ver sus altas y compradores del mes
                           </p>
                         </div>
                       </motion.div>
@@ -487,8 +499,8 @@ export default function SupervisionPage() {
                         transition={{ duration: 0.15 }}
                         className="p-4 flex flex-col gap-2"
                       >
-                        {Array.from({ length: 5 }).map((_, i) => (
-                          <Skeleton key={i} className="h-12 w-full rounded-lg" />
+                        {Array.from({ length: 6 }).map((_, i) => (
+                          <Skeleton key={i} className="h-14 w-full rounded-lg" />
                         ))}
                       </motion.div>
                     ) : !altasData?.items?.length ? (
@@ -498,7 +510,7 @@ export default function SupervisionPage() {
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
                         transition={{ duration: 0.2 }}
-                        className="flex-1 flex items-center justify-center py-10 text-sm text-[var(--shelfy-muted)]"
+                        className="flex items-center justify-center py-12 text-sm text-[var(--shelfy-muted)]"
                       >
                         Sin altas ni compradores en {altasMes}
                       </motion.div>
@@ -509,25 +521,89 @@ export default function SupervisionPage() {
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
                         transition={{ duration: 0.2 }}
-                        className="flex-1 overflow-y-auto"
+                        className="flex flex-col"
                       >
-                        {/* Summary counts */}
-                        <div className="grid grid-cols-2 divide-x divide-[var(--shelfy-border)]/40 border-b border-[var(--shelfy-border)]/30">
-                          <div className="px-4 py-2.5">
-                            <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-0.5">Altas</p>
-                            <p className="text-base font-bold text-emerald-500 tabular-nums">{altasData.total_altas}</p>
+                        {/* KPI counts + tabs */}
+                        <div className="border-b border-[var(--shelfy-border)]/40">
+                          {/* Conteos */}
+                          <div className="grid grid-cols-2 divide-x divide-[var(--shelfy-border)]/30">
+                            <div className="px-5 py-3">
+                              <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-0.5 flex items-center gap-1">
+                                <ArrowUpFromLine size={9} className="text-emerald-500" />
+                                Altas en {altasMes.slice(5)}
+                              </p>
+                              <p className="text-xl font-black text-emerald-500 tabular-nums leading-none">{altasData.total_altas}</p>
+                            </div>
+                            <div className="px-5 py-3">
+                              <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-0.5 flex items-center gap-1">
+                                <Store size={9} className="text-violet-500" />
+                                Compradores en {altasMes.slice(5)}
+                              </p>
+                              <p className="text-xl font-black text-violet-500 tabular-nums leading-none">{altasData.total_activaciones}</p>
+                            </div>
                           </div>
-                          <div className="px-4 py-2.5">
-                            <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-0.5">Compradores</p>
-                            <p className="text-base font-bold text-blue-500 tabular-nums">{altasData.total_activaciones}</p>
+
+                          {/* Tabs filtro */}
+                          <div className="flex gap-1 px-4 pb-2.5 pt-1">
+                            {([
+                              { key: "todos", label: "Todos", icon: LayoutList, count: altasData.items.length },
+                              { key: "alta", label: "Altas", icon: ArrowUpFromLine, count: altasData.total_altas },
+                              { key: "comprador", label: "Compradores", icon: Store, count: altasData.total_activaciones },
+                            ] as const).map(({ key, label, icon: Icon, count }) => (
+                              <button
+                                key={key}
+                                onClick={() => setAltasTab(key)}
+                                className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold transition-all ${
+                                  altasTab === key
+                                    ? key === "alta"
+                                      ? "bg-emerald-500 text-white"
+                                      : key === "comprador"
+                                      ? "bg-violet-500 text-white"
+                                      : "bg-[var(--shelfy-text)] text-white"
+                                    : "bg-black/5 text-muted-foreground hover:bg-black/8"
+                                }`}
+                              >
+                                <Icon size={10} />
+                                {label}
+                                <span className={`text-[10px] font-mono ${altasTab === key ? "opacity-80" : "opacity-60"}`}>
+                                  {count}
+                                </span>
+                              </button>
+                            ))}
                           </div>
                         </div>
 
-                        {/* Lista con stagger via PdvMovimientoCard */}
-                        <div className="divide-y divide-[var(--shelfy-border)]/30">
-                          {altasData.items.map((item, i) => (
-                            <PdvMovimientoCard key={`${item.id_cliente_erp ?? i}-${i}`} item={item} index={i} />
-                          ))}
+                        {/* Lista con stagger */}
+                        <div className="overflow-y-auto max-h-[500px]">
+                          <AnimatePresence mode="wait">
+                            {itemsFiltrados.length === 0 ? (
+                              <motion.p
+                                key="empty-tab"
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                className="text-center text-xs text-muted-foreground py-8"
+                              >
+                                Sin registros en esta categoría
+                              </motion.p>
+                            ) : (
+                              <motion.div
+                                key={altasTab}
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                transition={{ duration: 0.15 }}
+                              >
+                                {itemsFiltrados.map((item, i) => (
+                                  <PdvMovimientoCard
+                                    key={`${item.id_cliente_erp ?? i}-${altasTab}-${i}`}
+                                    item={item}
+                                    index={i}
+                                  />
+                                ))}
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
                         </div>
                       </motion.div>
                     )}

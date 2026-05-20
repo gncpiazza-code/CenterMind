@@ -107,6 +107,31 @@ def _norm_name(s) -> str:
     return s
 
 
+def _norm_erp_cliente_id(erp_id: object | None) -> str | None:
+    """Normaliza id_cliente_erp: quita .0 de float y ceros a la izquierda."""
+    if erp_id is None:
+        return None
+    s = str(erp_id).strip()
+    if not s:
+        return None
+    if s.endswith(".0"):
+        s = s[:-2]
+    return (s.lstrip("0") or "0").upper()
+
+
+def _parse_cc_cliente_label(cliente_nombre: str | None) -> tuple[str | None, str | None]:
+    """
+    CHESS/CC: '050014 - GABRIELA INGALINA' → (erp '50014', nombre_norm 'GABRIELA INGALINA').
+    """
+    raw = (cliente_nombre or "").strip()
+    if not raw:
+        return None, None
+    if " - " in raw:
+        code_part, name_part = raw.split(" - ", 1)
+        return _norm_erp_cliente_id(code_part), _norm_name(name_part)
+    return None, _norm_name(raw)
+
+
 def _dedupe_pdvs_latest_by_erp(rows: list[dict]) -> list[dict]:
     """
     Una fila por id_cliente_erp. Prioriza la fila con fecha_ultima_compra **no nula**
@@ -1674,15 +1699,6 @@ def supervision_cuentas(
         id_cliente_map: dict = {}   # nombre_norm → id_cliente (PK)
         erp_to_id_cliente: dict = {} # normalized erp_id → id_cliente (PK)
 
-        def _norm_erp(erp_id) -> str | None:
-            """Normaliza ERP IDs para matching robusto: elimina .0 de float, ceros a la izquierda."""
-            if not erp_id:
-                return None
-            s = str(erp_id).strip()
-            if s.endswith(".0"):
-                s = s[:-2]
-            s = s.lstrip("0") or "0"
-            return s.upper()
         try:
             pdv_offset = 0
             while True:
@@ -1698,7 +1714,7 @@ def supervision_cuentas(
                     erp_id    = p.get("id_cliente_erp")
                     fuc       = p.get("fecha_ultima_compra")
                     pk        = p.get("id_cliente")
-                    erp_norm  = _norm_erp(erp_id)
+                    erp_norm  = _norm_erp_cliente_id(erp_id)
                     for key in [p.get("nombre_fantasia"), p.get("nombre_razon_social")]:
                         if key:
                             # Index bajo clave raw-upper Y bajo clave normalizada (sin acentos ni puntuación)
@@ -1739,24 +1755,42 @@ def supervision_cuentas(
             deuda = float(item.get("deuda_total") or 0)
             vd["deuda_total"]     += deuda
             vd["cantidad_clientes"] += 1
-            # Lookup usando clave normalizada (sin acentos ni puntuación) para tolerancia inter-ERP
+            # Lookup: CC trae "050014 - RAZON SOCIAL"; padrón indexa por nombre_fantasia/razón y erp 50014.
             nombre_norm = _norm_name(item.get("cliente_nombre"))
             nombre_raw_upper = (item.get("cliente_nombre") or "").strip().upper()
-            # Prefer ERP ID from clientes_pdv_v2 so format matches map pins
-            erp_id = erp_id_map.get(nombre_norm) or erp_id_map.get(nombre_raw_upper) or item.get("id_cliente_erp")
-            # Prefer id_cliente already resolved at ingestion time; fall back to runtime lookup
+            erp_label, name_label = _parse_cc_cliente_label(item.get("cliente_nombre"))
+            erp_resolved = (
+                item.get("id_cliente_erp")
+                or (erp_label if erp_label else None)
+                or erp_id_map.get(name_label or "")
+                or erp_id_map.get(nombre_norm)
+                or erp_id_map.get(nombre_raw_upper)
+            )
+            erp_norm_resolved = _norm_erp_cliente_id(erp_resolved)
             id_cliente_pk = item.get("id_cliente")
             if not id_cliente_pk:
-                id_cliente_pk = id_cliente_map.get(nombre_norm) or id_cliente_map.get(nombre_raw_upper)
-                if not id_cliente_pk and erp_id:
-                    id_cliente_pk = erp_to_id_cliente.get(_norm_erp(erp_id))
+                id_cliente_pk = (
+                    (erp_to_id_cliente.get(erp_label) if erp_label else None)
+                    or (id_cliente_map.get(name_label) if name_label else None)
+                    or id_cliente_map.get(nombre_norm)
+                    or id_cliente_map.get(nombre_raw_upper)
+                    or (erp_to_id_cliente.get(erp_norm_resolved) if erp_norm_resolved else None)
+                )
+            fuc = (
+                (erp_fuc_map.get(_norm_erp_cliente_id(item.get("id_cliente_erp"))) if item.get("id_cliente_erp") else None)
+                or (erp_fuc_map.get(erp_label) if erp_label else None)
+                or (erp_fuc_map.get(erp_norm_resolved) if erp_norm_resolved else None)
+                or (fecha_uc_map.get(name_label) if name_label else None)
+                or fecha_uc_map.get(nombre_norm)
+                or fecha_uc_map.get(nombre_raw_upper)
+            )
             vd["clientes"].append({
-                "cliente": item.get("cliente_nombre"), "id_cliente_erp": erp_id,
+                "cliente": item.get("cliente_nombre"), "id_cliente_erp": erp_resolved,
                 "id_cliente": id_cliente_pk,
                 "sucursal": item.get("sucursal_nombre"), "deuda_total": deuda,
                 "antiguedad": item.get("antiguedad_dias"), "rango_antiguedad": item.get("rango_antiguedad"),
                 "cantidad_comprobantes": item.get("cantidad_comprobantes"),
-                "fecha_ultima_compra": erp_fuc_map.get(_norm_erp(item.get("id_cliente_erp"))) or fecha_uc_map.get(nombre_norm) or fecha_uc_map.get(nombre_raw_upper),
+                "fecha_ultima_compra": fuc,
             })
 
         for vd in vendors.values():
@@ -1780,18 +1814,6 @@ def supervision_cuentas(
     except Exception as e:
         logger.error(f"Error en supervision_cuentas: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
-
-def _norm_erp_cliente_id(erp_id: object | None) -> str | None:
-    """Normaliza id_cliente_erp para matching padrón ↔ ventas_enriched (ceros, .0 float)."""
-    if erp_id is None:
-        return None
-    s = str(erp_id).strip()
-    if not s:
-        return None
-    if s.endswith(".0"):
-        s = s[:-2]
-    return (s.lstrip("0") or "0").upper()
 
 
 def _supervision_parse_mes(mes: str) -> tuple[int, int, int, str, str]:

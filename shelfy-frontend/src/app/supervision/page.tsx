@@ -20,6 +20,7 @@ import {
 import { openCuentasCorrientesPrintWindow } from "@/lib/printCuentasCorrientes";
 import {
   ccRowMatchesVendedor,
+  formatRangoBadgeLabel,
   rangoBadgeClass,
   sortClientesCC,
   mesEnLetras,
@@ -436,7 +437,7 @@ export default function SupervisionPage() {
                                 >
                                   Últ. Compra <CCSortIndicator active={ccSort === "ultima_compra"} dir={ccSortDir} />
                                 </TableHead>
-                                <TableHead className="text-right pr-5 w-[72px]">Rango</TableHead>
+                                <TableHead className="text-right pr-5 min-w-[4.25rem] w-[4.25rem]">Rango</TableHead>
                               </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -459,12 +460,13 @@ export default function SupervisionPage() {
                                       ? new Date(c.fecha_ultima_compra + "T12:00:00Z").toLocaleDateString("es-AR")
                                       : "—"}
                                   </TableCell>
-                                  <TableCell className="text-right pr-5">
+                                  <TableCell className="text-right pr-5 align-middle">
                                     {c.rango_antiguedad ? (
                                       <span
-                                        className={`inline-flex text-[10px] px-1.5 py-0.5 rounded border font-medium ${rangoBadgeClass(c.rango_antiguedad)}`}
+                                        title={c.rango_antiguedad}
+                                        className={`inline-flex shrink-0 whitespace-nowrap items-center justify-center text-[10px] leading-none px-1.5 py-1 rounded border font-semibold tabular-nums ${rangoBadgeClass(c.rango_antiguedad)}`}
                                       >
-                                        {c.rango_antiguedad}
+                                        {formatRangoBadgeLabel(c.rango_antiguedad)}
                                       </span>
                                     ) : "—"}
                                   </TableCell>

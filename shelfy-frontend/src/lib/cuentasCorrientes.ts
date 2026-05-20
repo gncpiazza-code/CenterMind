@@ -15,6 +15,14 @@ export function rangoBadgeClass(rango: string | null | undefined): string {
   );
 }
 
+/** Etiqueta compacta para la columna Rango (evita cortes en tablas angostas). */
+export function formatRangoBadgeLabel(rango: string): string {
+  const t = rango.trim();
+  const m = t.match(/^(\+?\d+(?:-\d+)?)\s+D[ií]as$/i);
+  if (m) return `${m[1]}d`;
+  return t;
+}
+
 /** Nombre legible desde cc_detalle.vendedor_nombre ("CODE - NOMBRE"). */
 export function extractCCVendedorName(vendedor: string): string {
   const idx = vendedor.indexOf(" - ");

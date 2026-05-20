@@ -507,6 +507,25 @@ _EXH_QA_VENDEDOR_V2_BY_DIST: dict[int, frozenset[int]] = {
     3: frozenset({157, 76}),
 }
 
+# Cuentas Center / test: ocultar exhibiciones en todos los distribuidores.
+_EXH_QA_TELEGRAM_USER_IDS: frozenset[int] = frozenset({
+    2037005531,  # Nacho Piazza (test)
+    9001156,
+    9000166,
+    6823099488,
+    9000005,
+    9000202,
+})
+
+# Solo identidades QA explícitas — NO el alias Telegram suelto "Nacho" (p. ej. IGNACIO LERF).
+_EXH_QA_INTEGRANTE_NAMES: frozenset[str] = frozenset({
+    "nacho piazza",
+    "test nacho",
+    "jesus grimaldi",
+})
+
+_EXH_QA_DISPLAY_NAMES: frozenset[str] = _EXH_QA_INTEGRANTE_NAMES
+
 
 def _norm_exhib_vendor_label(s: str | None) -> str:
     if not s:
@@ -517,23 +536,33 @@ def _norm_exhib_vendor_label(s: str | None) -> str:
 
 
 def should_apply_exhibicion_qa_filter(dist_id: int, user_payload: dict | None) -> bool:
-    """True si debemos ocultar filas QA (dist con reglas y usuario no superadmin)."""
+    """True si debemos ocultar filas QA (cuentas test / Center; usuario no superadmin)."""
     if not user_payload or user_payload.get("is_superadmin"):
         return False
-    return dist_id in _EXH_QA_VENDEDOR_V2_BY_DIST
+    return True
+
+
+def is_exhibicion_qa_integrante_name(nombre_integrante: str | None) -> bool:
+    """Nombre Telegram de integrante usado solo para pruebas / QA."""
+    n = _norm_exhib_vendor_label(nombre_integrante)
+    if not n:
+        return False
+    if n in _EXH_QA_INTEGRANTE_NAMES:
+        return True
+    if "grimaldi" in n:
+        return True
+    return False
 
 
 def is_exhibicion_qa_display_for_dist(dist_id: int, display_label: str | None) -> bool:
     """
-    Etiqueta ya resuelta (Telegram o ERP) que identifica cuentas de QA en Tabaco.
-    Incluye 'nacho' suelto por histórico de ranking cuando el mapa no enlaza a NACHO PIAZZA.
+    Etiqueta ERP o nombre completo de cuenta QA (NACHO PIAZZA, JESUS GRIMALDI).
+    No oculta alias ambiguos tipo "Nacho" ni vendedores activos (p. ej. IGNACIO LERF).
     """
-    if dist_id not in _EXH_QA_VENDEDOR_V2_BY_DIST:
-        return False
     n = _norm_exhib_vendor_label(display_label)
     if not n:
         return False
-    if n in ("nacho piazza", "jesus grimaldi", "nacho"):
+    if n in _EXH_QA_DISPLAY_NAMES:
         return True
     if "grimaldi" in n:
         return True
@@ -544,14 +573,12 @@ def build_qa_exhibicion_integrante_ids(dist_id: int) -> frozenset[int]:
     """
     id_integrante cuyas exhibiciones no deben verse en visor / no evaluables salvo superadmin.
     """
-    qa_v = _EXH_QA_VENDEDOR_V2_BY_DIST.get(dist_id)
-    if not qa_v:
-        return frozenset()
+    qa_v = _EXH_QA_VENDEDOR_V2_BY_DIST.get(dist_id, frozenset())
     ids: set[int] = set()
     try:
         res = (
             sb.table("integrantes_grupo")
-            .select("id_integrante,nombre_integrante,id_vendedor_v2")
+            .select("id_integrante,nombre_integrante,id_vendedor_v2,telegram_user_id,estado_mapeo")
             .eq("id_distribuidor", dist_id)
             .execute()
         )
@@ -559,12 +586,27 @@ def build_qa_exhibicion_integrante_ids(dist_id: int) -> frozenset[int]:
             iid = row.get("id_integrante")
             if not iid:
                 continue
+            try:
+                iid_i = int(iid)
+            except (TypeError, ValueError):
+                continue
             v2 = row.get("id_vendedor_v2")
-            ni = _norm_exhib_vendor_label(row.get("nombre_integrante"))
-            if v2 in qa_v:
-                ids.add(iid)
-            if ni in ("nacho piazza", "jesus grimaldi") or "grimaldi" in ni:
-                ids.add(iid)
+            tg_uid = row.get("telegram_user_id")
+            is_qa_vendor_v2 = v2 is not None and v2 in qa_v
+            if is_qa_vendor_v2:
+                ids.add(iid_i)
+                continue
+            # Vendedor ERP activo (v2 fuera de QA): no ocultar por alias "Nacho" ni fusionado.
+            if v2 is not None and v2 not in qa_v:
+                continue
+            if is_exhibicion_qa_integrante_name(row.get("nombre_integrante")):
+                ids.add(iid_i)
+            if tg_uid is not None:
+                try:
+                    if int(tg_uid) in _EXH_QA_TELEGRAM_USER_IDS:
+                        ids.add(iid_i)
+                except (TypeError, ValueError):
+                    pass
     except Exception as e:
         logger.warning(f"build_qa_exhibicion_integrante_ids dist={dist_id}: {e}")
     return frozenset(ids)

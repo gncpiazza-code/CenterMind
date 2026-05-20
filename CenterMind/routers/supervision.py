@@ -418,8 +418,9 @@ def get_pendientes(id_distribuidor: int, payload=Depends(verify_auth)):
 
         hide_qa = should_apply_exhibicion_qa_filter(id_distribuidor, payload)
         qa_ids = build_qa_exhibicion_integrante_ids(id_distribuidor) if hide_qa else frozenset()
+        erp_name_map = _get_erp_name_map(id_distribuidor)
         ex_to_int: dict[int, int | None] = {}
-        if rows and hide_qa and qa_ids:
+        if rows and hide_qa:
             ex_ids = [r.get("id_exhibicion") for r in rows if r.get("id_exhibicion")]
             if ex_ids:
                 try:
@@ -437,11 +438,24 @@ def get_pendientes(id_distribuidor: int, payload=Depends(verify_auth)):
                 except Exception as _e_map:
                     logger.warning(f"[pendientes] map id_integrante QA: {_e_map}")
 
-        if hide_qa and qa_ids and ex_to_int:
-            rows = [
-                r for r in rows
-                if ex_to_int.get(r.get("id_exhibicion")) not in qa_ids
-            ]
+            def _row_is_qa_exhibicion(row: dict) -> bool:
+                ex_id = row.get("id_exhibicion")
+                iid = ex_to_int.get(ex_id)
+                if iid is not None:
+                    try:
+                        if int(iid) in qa_ids:
+                            return True
+                    except (TypeError, ValueError):
+                        pass
+                tg_v = (row.get("vendedor") or "").strip()
+                disp = erp_name_map.get(tg_v.lower(), tg_v)
+                if is_exhibicion_qa_display_for_dist(id_distribuidor, tg_v):
+                    return True
+                if is_exhibicion_qa_display_for_dist(id_distribuidor, disp):
+                    return True
+                return False
+
+            rows = [r for r in rows if not _row_is_qa_exhibicion(r)]
 
         pendientes_sin_nro = [r.get("id_exhibicion") for r in rows if r.get("id_exhibicion") and (not r.get("nro_cliente") or r.get("nro_cliente") == "0")]
         if pendientes_sin_nro:
@@ -473,7 +487,6 @@ def get_pendientes(id_distribuidor: int, payload=Depends(verify_auth)):
             except Exception as enrich_err:
                 logger.error(f"Error en enriquecimiento nro_cliente: {enrich_err}")
 
-        erp_name_map = _get_erp_name_map(id_distribuidor)
         vendedor_sucursal_map: dict[str, str] = {}
         inactive_vendor_names: set[str] = set()
         try:
@@ -659,7 +672,12 @@ def get_pendientes(id_distribuidor: int, payload=Depends(verify_auth)):
                 continue
             tg_vendedor = (d.get("vendedor") or "S/V").strip()
             vendedor_display = erp_name_map.get(tg_vendedor.lower(), tg_vendedor)
-            
+            if hide_qa and (
+                is_exhibicion_qa_display_for_dist(id_distribuidor, tg_vendedor)
+                or is_exhibicion_qa_display_for_dist(id_distribuidor, vendedor_display)
+            ):
+                continue
+
             ts = (d.get("fecha_hora") or "")[:10]
             cli = str(d.get("nro_cliente") or d.get("cliente_sombra_codigo") or "0").strip()
             
@@ -726,7 +744,10 @@ def get_vendedores(id_distribuidor: int, payload=Depends(verify_auth)):
         for r in result.data or []:
             tg_name = (r.get("nombre_integrante") or "").strip()
             display = erp_name_map.get(tg_name.lower(), tg_name)
-            if hide_qa and is_exhibicion_qa_display_for_dist(id_distribuidor, display):
+            if hide_qa and (
+                is_exhibicion_qa_display_for_dist(id_distribuidor, display)
+                or is_exhibicion_qa_display_for_dist(id_distribuidor, tg_name)
+            ):
                 continue
             if display and display not in seen:
                 nombres.append(display)

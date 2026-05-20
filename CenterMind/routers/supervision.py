@@ -19,6 +19,7 @@ from core.helpers import (
     _get_erp_name_map,
     _enrich_and_store_cc,
     build_qa_exhibicion_integrante_ids,
+    cc_row_matches_vendedor_erp,
     is_exhibicion_qa_display_for_dist,
     should_apply_exhibicion_qa_filter,
     is_vendedor_excluido_objetivos,
@@ -985,7 +986,7 @@ def supervision_vendedores(dist_id: int, user_payload=Depends(verify_auth)):
 
         vend_res = (
             sb.table(t_vendedores)
-            .select("id_vendedor,nombre_erp,id_sucursal")
+            .select("id_vendedor,id_vendedor_erp,nombre_erp,id_sucursal")
             .eq("id_distribuidor", dist_id)
             .execute()
         )
@@ -1121,6 +1122,7 @@ def supervision_vendedores(dist_id: int, user_payload=Depends(verify_auth)):
             rows.append(
                 {
                     "id_vendedor": vid,
+                    "id_vendedor_erp": v.get("id_vendedor_erp"),
                     "nombre_vendedor": v.get("nombre_erp") or "Sin vendedor",
                     "sucursal_nombre": suc_map.get(sid_int, "Sin sucursal"),
                     "total_rutas": len(rutas_ids),
@@ -1533,6 +1535,7 @@ def supervision_cuentas(
     sucursal: Optional[str] = Query(None),
     fecha: Optional[str] = Query(None),
     vendedor: Optional[str] = Query(None),
+    id_vendedor: Optional[int] = Query(None, description="Filtrar por PK vendedores_v2 (más fiable que nombre)"),
     user_payload=Depends(verify_auth),
 ):
     check_dist_permission(user_payload, dist_id)
@@ -1620,19 +1623,47 @@ def supervision_cuentas(
                 ]
 
         # Filtrar por vendedor (server-side).
-        # cc_detalle.vendedor_nombre viene de CHESS con formato "CODE CODE2 - NOMBRE".
-        # selectedVendedor viene de vendedores_v2.nombre_erp (solo el nombre).
-        if vendedor:
-            def _extract_cc_name(vn: str) -> str:
-                """Extrae nombre de 'CODE CODE2 - NOMBRE' → 'NOMBRE'."""
-                if " - " in vn:
-                    return vn.split(" - ", 1)[1].strip().upper()
-                return vn.strip().upper()
+        # cc_detalle.vendedor_nombre viene de CHESS ("717 0717 - LUCIANO GONZALEZ");
+        # vendedores_v2.nombre_erp puede diferir ("LUCIANO AID") — matchear por id_vendedor_erp / id_vendedor.
+        if id_vendedor is not None or vendedor:
+            vend_row: dict | None = None
+            try:
+                t_vend_filter = tenant_table_name("vendedores_v2", d_id)
+                vend_lookup = (
+                    sb.table(t_vend_filter)
+                    .select("id_vendedor, id_vendedor_erp, nombre_erp")
+                    .eq("id_distribuidor", d_id)
+                    .execute()
+                )
+                if id_vendedor is not None:
+                    for vr in vend_lookup.data or []:
+                        try:
+                            if int(vr.get("id_vendedor")) == int(id_vendedor):
+                                vend_row = vr
+                                break
+                        except (TypeError, ValueError):
+                            continue
+                if not vend_row and vendedor:
+                    target = _norm_name(vendedor)
+                    for vr in vend_lookup.data or []:
+                        if _norm_name(vr.get("nombre_erp") or "") == target:
+                            vend_row = vr
+                            break
+            except Exception as e:
+                logger.warning(f"[supervision_cuentas] lookup vendedor dist={d_id}: {e}")
 
-            vendedor_filter = _norm_name(vendedor)
+            nombre_filtro = (vend_row or {}).get("nombre_erp") or vendedor or ""
+            vid_filtro = (vend_row or {}).get("id_vendedor") or id_vendedor
+            erp_filtro = (vend_row or {}).get("id_vendedor_erp")
             rows = [
                 r for r in rows
-                if _norm_name(_extract_cc_name(r.get("vendedor_nombre") or "")) == vendedor_filter
+                if cc_row_matches_vendedor_erp(
+                    r.get("vendedor_nombre") or "",
+                    r.get("id_vendedor"),
+                    nombre_filtro,
+                    id_vendedor=vid_filtro,
+                    id_vendedor_erp=erp_filtro,
+                )
             ]
 
         # Cache PDV info for extra metadata (last purchase date)

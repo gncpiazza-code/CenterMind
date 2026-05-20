@@ -19,8 +19,7 @@ import {
 } from "@/lib/api";
 import { openCuentasCorrientesPrintWindow } from "@/lib/printCuentasCorrientes";
 import {
-  extractCCVendedorName,
-  normVendorName,
+  ccRowMatchesVendedor,
   rangoBadgeClass,
   sortClientesCC,
   mesEnLetras,
@@ -136,9 +135,21 @@ export default function SupervisionPage() {
     queryKey: [
       ...supervisionPanelKeys.cuentas(distId, sucursalParam),
       selectedVendedorNombre ?? "__none__",
+      selectedVendedorId ?? "__none__",
     ] as const,
-    queryFn: () =>
-      fetchCuentasSupervision(distId, sucursalParam, undefined, selectedVendedorNombre ?? undefined),
+    queryFn: async () => {
+      const scoped = await fetchCuentasSupervision(
+        distId,
+        sucursalParam,
+        undefined,
+        selectedVendedorNombre ?? undefined,
+        selectedVendedorId,
+      );
+      const hasClientes = (scoped.vendedores ?? []).some((v) => (v.clientes?.length ?? 0) > 0);
+      if (hasClientes || !selectedVendedorId) return scoped;
+      // API legacy filtraba solo por nombre (AID ≠ GONZALEZ en CHESS): traer sucursal completa
+      return fetchCuentasSupervision(distId, sucursalParam);
+    },
     enabled: !!distId && !!selectedVendedorNombre,
     staleTime: 5 * 60_000,
   });
@@ -160,8 +171,6 @@ export default function SupervisionPage() {
   });
 
   // ── Derived ─────────────────────────────────────────────────────────────────
-  const deudaTotal       = cuentasData?.metadatos?.total_deuda ?? 0;
-  const clientesDeudores = cuentasData?.metadatos?.clientes_deudores ?? 0;
   const totalAltas       = altasData?.total_altas ?? 0;
   const totalCompradores = altasData?.total_compradores ?? 0;
 
@@ -188,14 +197,27 @@ export default function SupervisionPage() {
   }, [cuentasData]);
 
   const clientesOrdenados = useMemo(() => {
-    const target = normVendorName(selectedVendedorNombre || "");
-    const vendor =
-      cuentasFiltradas.find(
-        (v) => normVendorName(extractCCVendedorName(v.vendedor)) === target,
-      ) ?? cuentasFiltradas[0];
-    const clientes = vendor?.clientes ?? [];
+    const nombre = selectedVendedorNombre || "";
+    const idV = selectedVendedorObj?.id_vendedor;
+    const erp = selectedVendedorObj?.id_vendedor_erp;
+    const clientes = cuentasFiltradas.flatMap((v) =>
+      ccRowMatchesVendedor(v.vendedor, v.id_vendedor, nombre, idV, erp)
+        ? (v.clientes ?? [])
+        : [],
+    );
     return sortClientesCC(clientes, ccSort, ccSortDir);
-  }, [cuentasFiltradas, selectedVendedorNombre, ccSort, ccSortDir]);
+  }, [cuentasFiltradas, selectedVendedorNombre, selectedVendedorObj, ccSort, ccSortDir]);
+
+  const deudaFromClientes = useMemo(
+    () => clientesOrdenados.reduce((s, c) => s + (c.deuda_total ?? 0), 0),
+    [clientesOrdenados],
+  );
+  const deudaTotalDisplay =
+    clientesOrdenados.length > 0 ? deudaFromClientes : (cuentasData?.metadatos?.total_deuda ?? 0);
+  const clientesDeudoresDisplay =
+    clientesOrdenados.length > 0
+      ? clientesOrdenados.length
+      : (cuentasData?.metadatos?.clientes_deudores ?? 0);
 
   const padronLastUpdated = syncStatus?.padron?.last_updated ?? null;
   const ccLastUpdated = syncStatus?.cuentas_corrientes?.last_updated ?? null;
@@ -293,7 +315,7 @@ export default function SupervisionPage() {
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 <AnimatedKpiCard
                   label="Deuda Total"
-                  value={deudaTotal}
+                  value={deudaTotalDisplay}
                   formatter={fmt$$}
                   icon={CreditCard}
                   color="rose"
@@ -302,7 +324,7 @@ export default function SupervisionPage() {
                 />
                 <AnimatedKpiCard
                   label="Clientes Deudores"
-                  value={clientesDeudores}
+                  value={clientesDeudoresDisplay}
                   icon={Users}
                   color="amber"
                   loading={loadingCuentas && !!selectedVendedorNombre}

@@ -21,6 +21,48 @@ export function extractCCVendedorName(vendedor: string): string {
   return idx >= 0 ? vendedor.slice(idx + 3).trim() : vendedor.trim();
 }
 
+/** Tokens numéricos del prefijo CHESS en vendedor_nombre de CC. */
+export function ccVendorCodeTokens(vendedorNombre: string): string[] {
+  const head = (vendedorNombre || "").split(" - ")[0]?.trim() ?? "";
+  const out: string[] = [];
+  for (const m of head.matchAll(/\d+/g)) {
+    const raw = m[0];
+    const norm = raw.replace(/^0+/, "") || "0";
+    for (const tok of [raw, norm]) {
+      if (tok && !out.includes(tok)) out.push(tok);
+    }
+  }
+  return out;
+}
+
+/** True si la fila CC corresponde al vendedor del padrón (nombre o código ERP). */
+export function ccRowMatchesVendedor(
+  ccVendedor: string,
+  ccIdVendedor: number | null | undefined,
+  nombreErp: string,
+  idVendedor?: number | null,
+  idVendedorErp?: string | null,
+): boolean {
+  const vn = (ccVendedor || "").trim();
+  if (!vn || !nombreErp) return false;
+  if (
+    idVendedor != null &&
+    ccIdVendedor != null &&
+    Number(ccIdVendedor) === Number(idVendedor)
+  ) {
+    return true;
+  }
+  if (normVendorName(extractCCVendedorName(vn)) === normVendorName(nombreErp)) {
+    return true;
+  }
+  if (!idVendedorErp) return false;
+  const erp = String(idVendedorErp).trim();
+  const erpNorm = erp.replace(/^0+/, "") || "0";
+  return ccVendorCodeTokens(vn).some(
+    (tok) => tok === erp || tok === erpNorm || erp.endsWith(tok) || erpNorm.endsWith(tok),
+  );
+}
+
 /** Normaliza nombres para matching (sin acentos, puntuación). */
 export function normVendorName(s: string): string {
   return s

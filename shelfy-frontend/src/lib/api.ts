@@ -1428,6 +1428,7 @@ export async function saveBulkHierarchy(distId: number, mappings: { id_integrant
 
 export interface VendedorSupervision {
   id_vendedor: number;
+  id_vendedor_erp?: string | null;
   nombre_vendedor: string;
   sucursal_nombre: string;
   total_rutas: number;
@@ -1633,11 +1634,18 @@ export async function fetchSyncStatus(distId: number): Promise<SyncStatus> {
   return apiFetch<SyncStatus>(`/api/supervision/sync-status/${distId}`);
 }
 
-export async function fetchCuentasSupervision(distId: number, sucursal?: string, fecha?: string, vendedor?: string): Promise<CuentasSupervision> {
+export async function fetchCuentasSupervision(
+  distId: number,
+  sucursal?: string,
+  fecha?: string,
+  vendedor?: string,
+  idVendedor?: number | null,
+): Promise<CuentasSupervision> {
   const qp = new URLSearchParams();
   if (sucursal) qp.set("sucursal", sucursal);
   if (fecha) qp.set("fecha", fecha);
   if (vendedor) qp.set("vendedor", vendedor);
+  if (idVendedor != null) qp.set("id_vendedor", String(idVendedor));
   const params = qp.toString() ? `?${qp.toString()}` : "";
   const data = await apiFetch<CuentasSupervision & { vendedores?: Record<string, unknown>[] }>(
     `/api/supervision/cuentas/${distId}${params}`

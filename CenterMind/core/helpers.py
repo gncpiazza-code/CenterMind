@@ -42,6 +42,61 @@ def _norm_name(s) -> str:
     return s
 
 
+def _extract_cc_vendedor_display_name(vendedor_nombre: str) -> str:
+    """'717 0717 - LUCIANO GONZALEZ' → 'LUCIANO GONZALEZ'; '0085 - X' → 'X'."""
+    vn = (vendedor_nombre or "").strip()
+    if " - " in vn:
+        return vn.split(" - ", 1)[1].strip()
+    return vn
+
+
+def _cc_vendor_code_tokens(vendedor_nombre: str) -> list[str]:
+    """Tokens numéricos del prefijo CHESS en cc_detalle.vendedor_nombre."""
+    head = (vendedor_nombre or "").split(" - ", 1)[0].strip()
+    out: list[str] = []
+    for m in re.finditer(r"\d+", head):
+        raw = m.group(0)
+        norm = raw.lstrip("0") or "0"
+        for tok in (raw, norm):
+            if tok and tok not in out:
+                out.append(tok)
+    return out
+
+
+def _erp_codes_match_cc_vendor(cc_vendedor_nombre: str, id_vendedor_erp: str | None) -> bool:
+    """
+    Relaciona códigos CHESS (p. ej. 0717 en '717 0717 - …') con id_vendedor_erp del padrón (10717).
+    """
+    if not id_vendedor_erp:
+        return False
+    erp_s = str(id_vendedor_erp).strip()
+    erp_norm = erp_s.lstrip("0") or "0"
+    for tok in _cc_vendor_code_tokens(cc_vendedor_nombre):
+        if tok == erp_norm or tok == erp_s:
+            return True
+        if len(tok) >= 2 and (erp_s.endswith(tok) or erp_norm.endswith(tok)):
+            return True
+    return False
+
+
+def cc_row_matches_vendedor_erp(
+    cc_vendedor_nombre: str,
+    cc_id_vendedor: int | None,
+    nombre_erp: str,
+    id_vendedor: int | None = None,
+    id_vendedor_erp: str | None = None,
+) -> bool:
+    """True si la fila CC pertenece al vendedor del padrón (nombre o código ERP)."""
+    vn = (cc_vendedor_nombre or "").strip()
+    if not vn or not nombre_erp:
+        return False
+    if id_vendedor is not None and cc_id_vendedor is not None and int(cc_id_vendedor) == int(id_vendedor):
+        return True
+    if _norm_name(_extract_cc_vendedor_display_name(vn)) == _norm_name(nombre_erp):
+        return True
+    return _erp_codes_match_cc_vendor(vn, id_vendedor_erp)
+
+
 def _looks_like_full_name(s: str | None) -> bool:
     """
     True cuando el label parece 'nombre + apellido' (>=2 tokens).
@@ -253,7 +308,7 @@ def _enrich_and_store_cc(dist_id: int, fecha_snapshot: str, rows: list) -> int:
     t_sucursales = tenant_table_name("sucursales_v2", int(dist_id))
     vend_res = (
         sb.table(t_vendedores)
-        .select("id_vendedor, nombre_erp, id_sucursal")
+        .select("id_vendedor, id_vendedor_erp, nombre_erp, id_sucursal")
         .eq("id_distribuidor", int(dist_id))
         .execute()
     )
@@ -272,6 +327,7 @@ def _enrich_and_store_cc(dist_id: int, fecha_snapshot: str, rows: list) -> int:
     }
 
     vend_map: dict = {}
+    vend_erp_map: dict[str, dict] = {}
     for v in vend_res.data or []:
         nombre = (v.get("nombre_erp") or "").strip().lower()
         if not nombre:
@@ -285,6 +341,13 @@ def _enrich_and_store_cc(dist_id: int, fecha_snapshot: str, rows: list) -> int:
         name_only = re.sub(r"^\d+\s*-\s*", "", nombre).strip()
         if name_only and name_only != nombre:
             vend_map.setdefault(name_only, info)
+        erp_raw = str(v.get("id_vendedor_erp") or "").strip()
+        if erp_raw:
+            erp_norm = erp_raw.lstrip("0") or "0"
+            for key in (erp_raw, erp_norm):
+                vend_erp_map[key] = info
+            if len(erp_raw) > 3:
+                vend_erp_map[erp_raw[-3:]] = info
 
     records = []
     for row in rows:
@@ -295,6 +358,11 @@ def _enrich_and_store_cc(dist_id: int, fecha_snapshot: str, rows: list) -> int:
             stripped = re.sub(r"^\d+[\s\d]*-\s*", "", v_nombre_raw, flags=re.IGNORECASE).strip().lower()
             if stripped and stripped != v_lower:
                 enrichment = vend_map.get(stripped)
+        if not enrichment:
+            for tok in _cc_vendor_code_tokens(v_nombre_raw):
+                enrichment = vend_erp_map.get(tok)
+                if enrichment:
+                    break
 
         deuda_raw = row.get("deuda_total")
         if deuda_raw is None:

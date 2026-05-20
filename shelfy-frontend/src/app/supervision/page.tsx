@@ -231,7 +231,9 @@ export default function SupervisionPage() {
   const itemsFiltrados = useMemo(() => {
     const items = altasData?.items ?? [];
     if (altasTab === "alta") return items.filter((i) => i.categoria === "alta");
-    if (altasTab === "comprador") return items.filter((i) => i.categoria === "comprador");
+    if (altasTab === "comprador") {
+      return items.filter((i) => i.categoria === "comprador" || i.es_comprador_mes);
+    }
     return items;
   }, [altasData, altasTab]);
 

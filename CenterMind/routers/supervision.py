@@ -1988,6 +1988,8 @@ def supervision_pdvs_movimiento(
 
         items = []
         seen_ids: set[int] = set()
+        item_index_by_cid: dict[int, int] = {}
+        comprador_ids: Set[int] = set()
 
         route_ids = _supervision_route_ids(dist_id, id_vendedor)
 
@@ -2047,9 +2049,11 @@ def supervision_pdvs_movimiento(
                     "categoria": "alta",
                     "exhibido": exhibido,
                     "fecha_evento": r.get("fecha_alta"),
+                    "es_comprador_mes": False,
                 })
                 if isinstance(id_cl, int):
                     seen_ids.add(id_cl)
+                    item_index_by_cid[id_cl] = len(items) - 1
 
         if "activacion" in cats:
             rows = _fetch_client_rows(
@@ -2125,9 +2129,11 @@ def supervision_pdvs_movimiento(
                     "categoria": "activacion",
                     "exhibido": exhibido,
                     "fecha_evento": fuc,
+                    "es_comprador_mes": False,
                 })
                 if isinstance(id_cl, int):
                     seen_ids.add(id_cl)
+                    item_index_by_cid[id_cl] = len(items) - 1
 
         if "comprador" in cats:
             client_by_id = _supervision_clients_by_route(
@@ -2142,7 +2148,13 @@ def supervision_pdvs_movimiento(
                 fecha_fin,
             )
             for id_cl in sorted(comprador_ids):
+                f_compra = ultima_compra_mes.get(id_cl)
                 if id_cl in seen_ids:
+                    idx = item_index_by_cid.get(id_cl)
+                    if idx is not None:
+                        items[idx]["es_comprador_mes"] = True
+                        if f_compra:
+                            items[idx]["fecha_compra_mes"] = f_compra
                     continue
                 r = client_by_id.get(id_cl) or {}
                 items.append({
@@ -2153,13 +2165,15 @@ def supervision_pdvs_movimiento(
                     "localidad": r.get("localidad", ""),
                     "categoria": "comprador",
                     "exhibido": _supervision_exhibido_en_mes(dist_id, id_cl, fecha_inicio, fecha_fin),
-                    "fecha_evento": ultima_compra_mes.get(id_cl),
+                    "fecha_evento": f_compra,
+                    "es_comprador_mes": True,
                 })
                 seen_ids.add(id_cl)
+                item_index_by_cid[id_cl] = len(items) - 1
 
         total_altas = sum(1 for i in items if i["categoria"] == "alta")
         total_activaciones = sum(1 for i in items if i["categoria"] == "activacion")
-        total_compradores = sum(1 for i in items if i["categoria"] == "comprador")
+        total_compradores = len(comprador_ids)
         return {
             "items": items,
             "total_altas": total_altas,

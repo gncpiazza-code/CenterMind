@@ -2649,7 +2649,11 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
               {/* Items by category (Altas izquierda / Compradores derecha) */}
               <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-[var(--shelfy-border)]/30">
                 {(["alta", "comprador"] as const).map((cat) => {
-                  const rows = altasData.items.filter((i: PdvsMovimientoItem) => i.categoria === cat);
+                  const rows = altasData.items.filter((i: PdvsMovimientoItem) =>
+                    cat === "comprador"
+                      ? i.categoria === "comprador" || i.es_comprador_mes === true
+                      : i.categoria === cat,
+                  );
                   return (
                     <div key={cat} className="min-h-[220px]">
                       <div className="px-4 py-2 border-b border-[var(--shelfy-border)]/30">

@@ -2723,6 +2723,9 @@ export interface PdvsMovimientoItem {
   categoria: "alta" | "activacion" | "comprador";
   exhibido: boolean;
   fecha_evento: string | null;
+  /** Alta/activación que también compró en el mes (no duplica fila en lista). */
+  es_comprador_mes?: boolean;
+  fecha_compra_mes?: string | null;
 }
 
 export interface PdvsMovimientoResponse {

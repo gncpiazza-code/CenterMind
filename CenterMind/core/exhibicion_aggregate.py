@@ -154,12 +154,61 @@ def aggregate_exhibicion_counts_vendor_scope(rows: list[dict]) -> dict[str, int]
     return counts
 
 
+def integrante_ids_for_erp_vendors(
+    seed_iids: list[int],
+    iid_to_erp: dict[int, str],
+) -> list[int]:
+    """
+    Todos los id_integrante que comparten nombre ERP con los integrantes semilla.
+    Un vendedor puede tener varios grupos Telegram (varios id_integrante) con el mismo ERP.
+    """
+    names: set[str] = set()
+    for raw in seed_iids:
+        try:
+            iid = int(raw)
+        except (TypeError, ValueError):
+            continue
+        name = (iid_to_erp.get(iid) or "").strip()
+        if name and name != "Desconocido":
+            names.add(name)
+    if not names:
+        out: list[int] = []
+        seen: set[int] = set()
+        for raw in seed_iids:
+            try:
+                iid = int(raw)
+            except (TypeError, ValueError):
+                continue
+            if iid not in seen:
+                seen.add(iid)
+                out.append(iid)
+        return out
+    result: list[int] = []
+    seen: set[int] = set()
+    for iid, name in iid_to_erp.items():
+        if name in names and iid not in seen:
+            seen.add(iid)
+            result.append(iid)
+    return result
+
+
+def _ranking_logic_key(row: dict, vendor: str) -> str:
+    """Clave de dedup a nivel vendedor ERP (cliente + día), con prefijo si no hay cliente/día."""
+    client_key = resolve_client_key(row)
+    day_key = resolve_day_key(row)
+    base = vendor_logic_key(row)
+    if client_key and day_key:
+        return base
+    return f"{vendor}_{base}"
+
+
 def aggregate_ranking_by_vendor(
     rows: list[dict],
     iid_to_erp: dict[int, str],
 ) -> dict[str, dict[str, int]]:
     """
-    Ranking por nombre ERP: dedup lógico + puntos (aprobada +1, destacada +2).
+    Ranking por nombre ERP: dedup lógico por vendedor (cliente + día, sin separar integrante)
+    + puntos (aprobada +1, destacada +2). Mismo criterio que objetivos y stats Telegram.
     """
     best: dict[str, dict] = {}
     for row in rows:
@@ -170,16 +219,15 @@ def aggregate_ranking_by_vendor(
             iid = int(iid_raw)
         except (TypeError, ValueError):
             continue
-        client_key = resolve_client_key(row)
-        day_key = resolve_day_key(row)
-        key = build_logic_key(iid, client_key, day_key, row)
+        vendor = iid_to_erp.get(iid, "Desconocido")
+        key = _ranking_logic_key(row, vendor)
         estado = (row.get("estado") or "")
         score = exhibicion_score(estado)
         if key not in best or score > best[key]["score"]:
             best[key] = {
                 "estado": estado,
                 "score": score,
-                "vendedor": iid_to_erp.get(iid, "Desconocido"),
+                "vendedor": vendor,
             }
 
     stats: dict[str, dict[str, int]] = defaultdict(

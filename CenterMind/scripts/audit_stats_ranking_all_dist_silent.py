@@ -17,7 +17,10 @@ from collections import defaultdict
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-from core.exhibicion_aggregate import aggregate_exhibicion_counts
+from core.exhibicion_aggregate import (
+    aggregate_exhibicion_counts_vendor_scope,
+    aggregate_ranking_by_vendor,
+)
 from core.helpers import build_integrante_to_erp_name, build_qa_exhibicion_integrante_ids, is_exhibicion_qa_display_for_dist
 from db import sb
 
@@ -104,14 +107,14 @@ def _parse_ts(ts: str) -> datetime:
         return datetime.min.replace(tzinfo=AR_TZ)
 
 
-def _ranking_logical(
-    exhibiciones: list[dict],
+def _filter_exhibiciones_mes(
+    ex_actual: list[dict],
     dist_id: int,
     iid_to_erp: dict[int, str],
     qa_ids: frozenset[int],
-) -> dict[str, dict]:
-    best: dict[str, dict] = {}
-    for e in exhibiciones:
+) -> list[dict]:
+    filtered: list[dict] = []
+    for e in ex_actual:
         iid_raw = e.get("id_integrante")
         if iid_raw is None:
             continue
@@ -124,62 +127,17 @@ def _ranking_logical(
         vendedor = iid_to_erp.get(iid, "Desconocido")
         if is_exhibicion_qa_display_for_dist(dist_id, vendedor):
             continue
-        ts = (e.get("timestamp_subida") or "").strip()
-        day_key = ts[:10] if len(ts) >= 10 else ""
-        ck_raw = e.get("id_cliente_pdv") or e.get("id_cliente") or e.get("cliente_sombra_codigo")
-        client_key = str(ck_raw).strip() if ck_raw is not None else ""
-        est = (e.get("estado") or "").lower()
-        score = 0
-        if "destacad" in est:
-            score = 3
-        elif "aprobad" in est:
-            score = 2
-        elif "rechaz" in est:
-            score = 1
-        if day_key and client_key:
-            logic_key = f"{iid}_{client_key}_{day_key}"
-        else:
-            url = e.get("url_foto_drive")
-            if url:
-                logic_key = f"url_{url}"
-            elif e.get("telegram_msg_id") is not None:
-                logic_key = f"msg_{e.get('telegram_chat_id')}_{e.get('telegram_msg_id')}"
-            else:
-                logic_key = f"id_{e.get('id_exhibicion')}"
-        if logic_key not in best or score > best[logic_key]["score"]:
-            best[logic_key] = {"est": est, "score": score, "vendedor": vendedor}
-
-    stats: dict[str, dict] = defaultdict(
-        lambda: {"aprobadas": 0, "destacadas": 0, "rechazadas": 0, "puntos": 0}
-    )
-    for v in best.values():
-        est = v["est"]
-        vn = v["vendedor"]
-        if "aprobad" in est:
-            stats[vn]["aprobadas"] += 1
-            stats[vn]["puntos"] += 1
-        elif "destacad" in est:
-            stats[vn]["destacadas"] += 1
-            stats[vn]["puntos"] += 2
-        elif "rechaz" in est:
-            stats[vn]["rechazadas"] += 1
-    return dict(stats)
+        filtered.append(e)
+    return filtered
 
 
-def _stats_by_integrante_logical(
+def _vendor_scope_logical(
     ex_actual: list[dict],
     iids: list[int],
-) -> dict[int, dict]:
-    by_iid_rows: dict[int, list[dict]] = defaultdict(list)
+) -> dict[str, int]:
     iid_set = set(iids)
-    for e in ex_actual:
-        iid_raw = e.get("id_integrante")
-        if iid_raw is None:
-            continue
-        iid = int(iid_raw)
-        if iid in iid_set:
-            by_iid_rows[iid].append(e)
-    return {iid: aggregate_exhibicion_counts(rows) for iid, rows in by_iid_rows.items()}
+    rows = [e for e in ex_actual if int(e.get("id_integrante") or 0) in iid_set]
+    return aggregate_exhibicion_counts_vendor_scope(rows)
 
 
 def _rpc_stats_mes_actual(dist_id: int, iid: int) -> dict | None:
@@ -204,7 +162,8 @@ def audit_dist(dist_id: int, dist_name: str, start_prev: datetime, start_actual:
     integrantes = _fetch_integrantes(dist_id)
     iid_to_erp = build_integrante_to_erp_name(dist_id)
     qa_ids = build_qa_exhibicion_integrante_ids(dist_id)
-    ranking_by_erp = _ranking_logical(ex_actual, dist_id, iid_to_erp, qa_ids)
+    filtered_ex = _filter_exhibiciones_mes(ex_actual, dist_id, iid_to_erp, qa_ids)
+    ranking_by_erp = aggregate_ranking_by_vendor(filtered_ex, iid_to_erp)
 
     # Agrupar integrantes por ERP name (puede haber varios TUID → mismo vendedor ERP)
     erp_to_iids: dict[str, list[int]] = defaultdict(list)
@@ -215,10 +174,6 @@ def audit_dist(dist_id: int, dist_name: str, start_prev: datetime, start_actual:
         iid = int(iid)
         erp = iid_to_erp.get(iid) or (ig.get("nombre_integrante") or f"iid_{iid}")
         erp_to_iids[erp].append(iid)
-
-    logical_by_iid = _stats_by_integrante_logical(
-        ex_actual, [int(i["id_integrante"]) for i in integrantes if i.get("id_integrante")]
-    )
 
     # Multi-foto: filas extra por dist
     multi_keys = 0
@@ -244,31 +199,23 @@ def audit_dist(dist_id: int, dist_name: str, start_prev: datetime, start_actual:
     for erp_name, iids in erp_to_iids.items():
         if is_exhibicion_qa_display_for_dist(dist_id, erp_name):
             continue
-        # Sum logical across all integrantes for this ERP (como ranking agrupa por nombre)
-        logical_sum = {
-            "aprobadas": 0,
-            "puntos": 0,
-            "total_logicas": 0,
-        }
-        rpc_sum_aprob = 0
-        rpc_sum_total = 0
-        for iid in iids:
-            lg = logical_by_iid.get(iid, {})
-            logical_sum["aprobadas"] += lg.get("aprobadas", 0)
-            logical_sum["puntos"] += lg.get("puntos", 0)
-            logical_sum["total_logicas"] += lg.get("total_logicas", 0)
-            rpc_row = _rpc_stats_mes_actual(dist_id, iid)
-            if rpc_row is None:
-                rpc_errors += 1
-            else:
-                rpc_sum_aprob += int(rpc_row.get("aprobadas") or 0)
-                rpc_sum_total += int(rpc_row.get("total") or 0)
+        logical_sum = _vendor_scope_logical(filtered_ex, iids)
+        rpc_row = _rpc_stats_mes_actual(dist_id, iids[0])
+        if rpc_row is None:
+            rpc_errors += 1
+            rpc_sum_aprob = 0
+            rpc_sum_puntos = 0
+            rpc_sum_total = 0
+        else:
+            rpc_sum_aprob = int(rpc_row.get("aprobadas") or 0)
+            rpc_sum_puntos = int(rpc_row.get("puntos") or 0)
+            rpc_sum_total = int(rpc_row.get("total") or 0)
 
         rank_entry = ranking_by_erp.get(erp_name, {})
         rank_pts = int(rank_entry.get("puntos") or 0)
         rank_aprob = int(rank_entry.get("aprobadas") or 0)
 
-        delta_rpc_vs_logical = rpc_sum_aprob - logical_sum["aprobadas"]
+        delta_rpc_vs_logical = rpc_sum_puntos - logical_sum["puntos"]
         delta_rank_vs_logical = rank_pts - logical_sum["puntos"]
 
         if delta_rpc_vs_logical != 0 or delta_rank_vs_logical != 0:
@@ -277,6 +224,7 @@ def audit_dist(dist_id: int, dist_name: str, start_prev: datetime, start_actual:
                     "vendedor": erp_name,
                     "integrantes": iids,
                     "rpc_aprobadas": rpc_sum_aprob,
+                    "rpc_puntos": rpc_sum_puntos,
                     "rpc_total": rpc_sum_total,
                     "logical_aprobadas": logical_sum["aprobadas"],
                     "logical_puntos": logical_sum["puntos"],

@@ -45,8 +45,9 @@ import html
 from core.helpers import build_qa_exhibicion_integrante_ids, is_exhibicion_qa_display_for_dist, build_integrante_to_erp_name
 from core.exhibicion_aggregate import (
     EXHIBICION_ROW_COLS,
-    aggregate_exhibicion_counts,
+    aggregate_exhibicion_counts_vendor_scope,
     aggregate_ranking_by_vendor,
+    integrante_ids_for_erp_vendors,
 )
 from core.tenant_tables import tenant_table_name
 
@@ -683,9 +684,13 @@ class Database:
         if telegram_group_id is not None:
             ig_q = ig_q.eq("telegram_group_id", telegram_group_id)
         ig_res = ig_q.execute()
-        iids = [r["id_integrante"] for r in (ig_res.data or [])]
-        if not iids:
+        seed_iids = [r["id_integrante"] for r in (ig_res.data or [])]
+        if not seed_iids:
             return None
+
+        iid_to_erp = build_integrante_to_erp_name(distribuidor_id)
+        iids = integrante_ids_for_erp_vendors(seed_iids, iid_to_erp)
+        qa_ids = build_qa_exhibicion_integrante_ids(distribuidor_id)
 
         now = datetime.now(AR_TZ)
         start_mes_actual = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
@@ -701,17 +706,35 @@ class Database:
             integrante_ids=iids,
         )
 
-        ex_actual = [
+        def _filter_vendor_rows(ex_rows: list[dict]) -> list[dict]:
+            out: list[dict] = []
+            for e in ex_rows:
+                iid_raw = e.get("id_integrante")
+                if iid_raw is None:
+                    continue
+                try:
+                    iid = int(iid_raw)
+                except (TypeError, ValueError):
+                    continue
+                if iid in qa_ids:
+                    continue
+                vendedor = iid_to_erp.get(iid, "Desconocido")
+                if is_exhibicion_qa_display_for_dist(distribuidor_id, vendedor):
+                    continue
+                out.append(e)
+            return out
+
+        ex_actual = _filter_vendor_rows([
             e for e in all_ex
             if self._parse_exhibicion_ts(e.get("timestamp_subida", "")) >= start_mes_actual
-        ]
-        ex_prev = [
+        ])
+        ex_prev = _filter_vendor_rows([
             e for e in all_ex
             if start_mes_prev <= self._parse_exhibicion_ts(e.get("timestamp_subida", "")) < start_mes_actual
-        ]
+        ])
 
-        counts_actual = aggregate_exhibicion_counts(ex_actual)
-        counts_prev = aggregate_exhibicion_counts(ex_prev)
+        counts_actual = aggregate_exhibicion_counts_vendor_scope(ex_actual)
+        counts_prev = aggregate_exhibicion_counts_vendor_scope(ex_prev)
 
         def _pack(c: dict[str, int]) -> dict:
             return {

@@ -23,7 +23,7 @@ export function PdvMovimientoCard({ item, index }: PdvMovimientoCardProps) {
   const [expanded, setExpanded] = useState(false);
 
   const isAlta = item.categoria === "alta";
-  const isComprador = item.categoria === "comprador";
+  const isComprador = item.categoria === "comprador" || item.es_comprador_mes === true;
   const delay = Math.min(index * 0.04, 0.4);
 
   const infoLine = [item.localidad, item.direccion].filter(Boolean).join(" · ");
@@ -39,17 +39,23 @@ export function PdvMovimientoCard({ item, index }: PdvMovimientoCardProps) {
         onClick={() => setExpanded((v) => !v)}
       >
         {/* Categoria badge */}
-        <span
-          className={`mt-0.5 shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full border select-none ${
-            isAlta
-              ? "bg-emerald-500/15 border-emerald-500/30 text-emerald-600"
-              : isComprador
-                ? "bg-violet-500/15 border-violet-500/30 text-violet-600"
-                : "bg-blue-500/15 border-blue-500/30 text-blue-600"
-          }`}
-        >
-          {isAlta ? "Alta" : isComprador ? "Comp." : "Act."}
-        </span>
+        <div className="mt-0.5 shrink-0 flex flex-col gap-0.5">
+          {isAlta && (
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border select-none bg-emerald-500/15 border-emerald-500/30 text-emerald-600">
+              Alta
+            </span>
+          )}
+          {isComprador && (
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border select-none bg-violet-500/15 border-violet-500/30 text-violet-600">
+              Comp.
+            </span>
+          )}
+          {!isAlta && !isComprador && (
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border select-none bg-blue-500/15 border-blue-500/30 text-blue-600">
+              Act.
+            </span>
+          )}
+        </div>
 
         {/* Content */}
         <div className="flex-1 min-w-0">
@@ -84,6 +90,11 @@ export function PdvMovimientoCard({ item, index }: PdvMovimientoCardProps) {
             <p className="text-[10px] text-[var(--shelfy-muted)] mt-0.5">
               <span className="font-medium">{isAlta ? "Alta:" : "Compra:"}</span>{" "}
               {fmtDate(item.fecha_evento)}
+            </p>
+          )}
+          {isAlta && item.fecha_compra_mes && (
+            <p className="text-[10px] text-[var(--shelfy-muted)] mt-0.5">
+              <span className="font-medium">Compra:</span> {fmtDate(item.fecha_compra_mes)}
             </p>
           )}
 

@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import html
 import logging
+import os
 import re
 import unicodedata
 import requests
@@ -23,6 +24,16 @@ from db import sb
 from core.tenant_tables import tenant_table_name
 
 logger = logging.getLogger("ObjetivosNotification")
+
+
+def objetivos_telegram_seguimiento_enabled() -> bool:
+    """
+    Mensajes Telegram de seguimiento (progreso, cumplido, fallido, recordatorio diario).
+    Por defecto desactivado: solo se envía notificación al asignar un objetivo.
+    Activar con OBJETIVOS_TELEGRAM_SEGUIMIENTO=1 en el entorno del backend/bot.
+    """
+    raw = (os.getenv("OBJETIVOS_TELEGRAM_SEGUIMIENTO") or "0").strip().lower()
+    return raw in ("1", "true", "yes", "on")
 
 
 def _row_usable_telegram_group(row: dict[str, Any]) -> bool:
@@ -908,6 +919,8 @@ class ObjetivosNotificationService:
         Envía un mensaje al grupo Telegram del vendedor indicando que un
         evento de objetivo fue detectado (progreso).
         """
+        if not objetivos_telegram_seguimiento_enabled():
+            return
         try:
             token = self._get_bot_token(dist_id)
             if not token:
@@ -988,6 +1001,8 @@ class ObjetivosNotificationService:
         obj_data: dict[str, Any] | None = None,
     ) -> None:
         """Notifica al vendedor que su objetivo fue marcado como CUMPLIDO."""
+        if not objetivos_telegram_seguimiento_enabled():
+            return
         try:
             token = self._get_bot_token(dist_id)
             if not token:
@@ -1051,6 +1066,8 @@ class ObjetivosNotificationService:
         obj_data: dict[str, Any] | None = None,
     ) -> None:
         """Notifica al vendedor que su objetivo fue cerrado como FALLIDO (no cumplido)."""
+        if not objetivos_telegram_seguimiento_enabled():
+            return
         try:
             token = self._get_bot_token(dist_id)
             if not token:

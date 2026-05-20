@@ -2952,6 +2952,11 @@ class BotWorker:
         Recordatorio diario 08:00 AR para vendedores con objetivos activos.
         Resume progreso y fecha límite para impulsar ejecución diaria.
         """
+        from services.objetivos_notification_service import objetivos_telegram_seguimiento_enabled
+
+        if not objetivos_telegram_seguimiento_enabled():
+            return
+
         dist_id = self.distribuidor_id
         try:
             rows = await asyncio.to_thread(
@@ -3153,12 +3158,14 @@ class BotWorker:
         # Jobs periódicos
         app.job_queue.run_repeating(self.sync_evaluaciones_job, interval=30, first=10)
         app.job_queue.run_repeating(self.cleanup_sessions_job,  interval=300, first=60)
-        app.job_queue.run_daily(
-            self.objetivos_daily_reminder_job,
-            time=dt_time(hour=8, minute=0, tzinfo=AR_TZ),
-            days=(0, 1, 2, 3, 4, 5),  # Lunes a Sábado, excluye Domingo (6)
-            name=f"objetivos_daily_reminder_{self.distribuidor_id}",
-        )
+        from services.objetivos_notification_service import objetivos_telegram_seguimiento_enabled
+        if objetivos_telegram_seguimiento_enabled():
+            app.job_queue.run_daily(
+                self.objetivos_daily_reminder_job,
+                time=dt_time(hour=8, minute=0, tzinfo=AR_TZ),
+                days=(0, 1, 2, 3, 4, 5),  # Lunes a Sábado, excluye Domingo (6)
+                name=f"objetivos_daily_reminder_{self.distribuidor_id}",
+            )
 
 
         app.post_init = self.post_init

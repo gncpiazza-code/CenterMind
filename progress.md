@@ -28,13 +28,13 @@
 3. Objetivos alteo: cumplimiento por `fecha_alta` de padrón (no por cambio de ruta), con corte temporal por timestamp del objetivo.
 4. Objetivos activacion: corte temporal por timestamp completo para evitar avances previos del mismo dia.
 5. Tickets portal (Topbar): fix de envío (adjuntos por `/attachments` + mensaje JSON) para eliminar `Failed to fetch`.
-6. Bot Telegram: recordatorio diario 08:00 AR para vendedores con objetivos activos + mensaje de alta mas accionable.
+6. Bot Telegram objetivos: solo mensaje al asignar (seguimiento/cumplido/fallido/recordatorio 08:00 desactivados por defecto; `OBJETIVOS_TELEGRAM_SEGUIMIENTO=1` para reactivar).
 7. Objetivos: prorrateo compania semanal/diario visible en card (semanas y dias del mes).
 8. Objetivos: identificacion PDV estandar (`#id_cliente_erp + nombre`).
 9. Padron: soporte anulados (`padron_anulado`) y ocultamiento en supervision.
 10. Difusion CC: preview de envios + guardrails de conflicto.
 11. Objetivos exhibicion compañía: watcher robusto para retroactividad mensual (normaliza origen y aplica fallback de mes cuando falta `mes_referencia`).
-12. Objetivos: anti-spam Telegram en progreso (se mantienen altas/cierres y eventos de exhibición; se silencian mensajes "en marcha" del resto).
+12. Objetivos Telegram: seguimiento apagado por defecto (`objetivos_notification_service`); watcher y `/objetivos` siguen actualizando progreso en app.
 13. Tickets portal superadmin: filtros server-side (estado/categoría/dist/texto), export JSON enriquecido y endpoint de pre-resolución IA (Gemini opcional + fallback por reglas).
 14. Supervision-v2: router incluido en api.py; eliminado filtro valid_sellers que causaba pérdida de datos; altas calculadas desde clientes_pdv_v2 via rutas_v2; Drawer de vendedor y comprobante 100% funcionales.
 15. Objetivos FDV: helper `is_vendedor_excluido_objetivos` central (helpers.py); backend filtra buckets en lista y en crear_objetivo (400 si bucket); frontend filtra `vendedoresFiltrados`. Switch FDV reemplaza checkbox. Resumen "Objetivo generado" movido al final del modal. `buildPhrase` acepta vendorName explícito para bulk FDV. `tasa_pendientes` condicional (solo con PDVs explícitos, no FDV bulk). Exhibición lógica: módulo `core/exhibicion_aggregate.py`; `supervision_clientes.total_exhibiciones` usa dedup lógico; bot elimina fallback RPC legacy.

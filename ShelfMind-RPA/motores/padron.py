@@ -71,7 +71,7 @@ from playwright.async_api import (
 
 from lib.logger import get_logger
 from lib.hash_guard import es_duplicado, guardar_hash
-from lib.api_client import subir_padron
+from lib.api_client import subir_padron, registrar_padron_sin_cambios
 from lib.vault_client import get_secret
 
 # ─────────────────────────────────────────────────────────────────
@@ -928,6 +928,7 @@ async def _procesar_tenant(browser: Browser, tenant: dict, usuario: str, passwor
 
         if es_duplicado(hash_key, str(archivo)):
             logger.info(f"  ⏭️  Archivo idéntico al anterior — sin cambios")
+            await registrar_padron_sin_cambios(tenant["id_dist"])
             resumen["sin_cambios"] += 1
             return resumen
 

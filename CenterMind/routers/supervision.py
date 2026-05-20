@@ -69,7 +69,7 @@ def _padron_global_last_ts_for_dist(dist_id: int) -> str | None:
             .eq("motor", "padron_global")
             .eq("estado", "ok")
             .order("finalizado_en", desc=True)
-            .limit(40)
+            .limit(80)
             .execute()
         )
         for row in res_g.data or []:
@@ -3510,7 +3510,7 @@ def supervision_sync_status(dist_id: int, user_payload=Depends(verify_auth)):
             # ── Timestamps de frescura ──────────────────────────────────────────
             run_ok = (
                 sb.table("motor_runs")
-                .select("finalizado_en,iniciado_en,estado")
+                .select("finalizado_en,iniciado_en,estado,registros")
                 .eq("motor", "padron")
                 .eq("dist_id", dist_id)
                 .eq("estado", "ok")
@@ -3520,8 +3520,19 @@ def supervision_sync_status(dist_id: int, user_payload=Depends(verify_auth)):
             )
             run_ts: str | None = None
             if run_ok.data:
-                run_ts = run_ok.data[0].get("finalizado_en") or run_ok.data[0].get("iniciado_en")
-                padron_data["last_run_estado"] = "ok"
+                row = run_ok.data[0]
+                run_ts = row.get("finalizado_en") or row.get("iniciado_en")
+                regs = row.get("registros")
+                if isinstance(regs, str):
+                    try:
+                        regs = json.loads(regs)
+                    except Exception:
+                        regs = None
+                padron_data["last_run_estado"] = (
+                    "sin_cambios"
+                    if isinstance(regs, dict) and regs.get("sin_cambios")
+                    else "ok"
+                )
 
             res_p = (
                 sb.table(t_clientes)

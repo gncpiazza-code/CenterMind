@@ -18,13 +18,19 @@ import {
   type PdvsMovimientoResponse,
 } from "@/lib/api";
 import { openCuentasCorrientesPrintWindow } from "@/lib/printCuentasCorrientes";
+import {
+  extractCCVendedorName,
+  normVendorName,
+  rangoBadgeClass,
+  sortClientesCC,
+  mesEnLetras,
+} from "@/lib/cuentasCorrientes";
 import { supervisionPanelKeys } from "@/lib/query-keys";
 import { useSupervisionPanelStore } from "@/store/useSupervisionPanelStore";
 import { AnimatedKpiCard } from "@/components/supervision/AnimatedKpiCard";
 import { SyncStatusBadges } from "@/components/supervision/SyncStatusBadges";
 import { PdvMovimientoCard } from "@/components/supervision/PdvMovimientoCard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -43,8 +49,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
-  CreditCard, Users, Clock, Map as MapIcon, Printer,
-  ArrowUpDown, Hash, Target, TrendingUp, ShoppingCart,
+  CreditCard, Users, Map as MapIcon, Printer,
+  Hash, Target, TrendingUp, ShoppingCart,
   LayoutList, Store, ArrowUpFromLine,
 } from "lucide-react";
 import Link from "next/link";
@@ -73,6 +79,17 @@ function buildMesOptions(count = 12): { value: string; label: string }[] {
 }
 
 const MES_OPTIONS = buildMesOptions(12);
+
+function CCSortIndicator({
+  active,
+  dir,
+}: {
+  active: boolean;
+  dir: "asc" | "desc";
+}) {
+  if (!active) return <span className="opacity-30">↕</span>;
+  return <span className="text-foreground">{dir === "desc" ? "↓" : "↑"}</span>;
+}
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function SupervisionPage() {
@@ -171,24 +188,18 @@ export default function SupervisionPage() {
   }, [cuentasData]);
 
   const clientesOrdenados = useMemo(() => {
-    const extractCCName = (nombre: string) => {
-      const idx = nombre.indexOf(" - ");
-      return idx >= 0 ? nombre.slice(idx + 3).trim().toUpperCase() : nombre.trim().toUpperCase();
-    };
-    const vendedorUpper = (selectedVendedorNombre || "").trim().toUpperCase();
+    const target = normVendorName(selectedVendedorNombre || "");
     const vendor =
-      cuentasFiltradas.find((v) => extractCCName(v.vendedor) === vendedorUpper) ??
-      cuentasFiltradas[0];
+      cuentasFiltradas.find(
+        (v) => normVendorName(extractCCVendedorName(v.vendedor)) === target,
+      ) ?? cuentasFiltradas[0];
     const clientes = vendor?.clientes ?? [];
-    return [...clientes].sort((a, b) => {
-      const dir = ccSortDir === "desc" ? -1 : 1;
-      if (ccSort === "deuda") return dir * (b.deuda_total - a.deuda_total);
-      return dir * ((b.antiguedad ?? 0) - (a.antiguedad ?? 0));
-    });
+    return sortClientesCC(clientes, ccSort, ccSortDir);
   }, [cuentasFiltradas, selectedVendedorNombre, ccSort, ccSortDir]);
 
   const padronLastUpdated = syncStatus?.padron?.last_updated ?? null;
   const ccLastUpdated = syncStatus?.cuentas_corrientes?.last_updated ?? null;
+  const altasMesLabel = mesEnLetras(altasMes);
 
   // Tab de filtro para el panel derecho
   type AltasTab = "todos" | "alta" | "comprador";
@@ -298,7 +309,7 @@ export default function SupervisionPage() {
                   delay={0.06}
                 />
                 <AnimatedKpiCard
-                  label={`Altas en ${altasMes}`}
+                  label={`Altas en ${altasMesLabel}`}
                   value={totalAltas}
                   icon={TrendingUp}
                   color="emerald"
@@ -306,7 +317,7 @@ export default function SupervisionPage() {
                   delay={0.12}
                 />
                 <AnimatedKpiCard
-                  label={`Compradores en ${altasMes}`}
+                  label={`Compradores en ${altasMesLabel}`}
                   value={totalCompradores}
                   icon={ShoppingCart}
                   color="blue"
@@ -328,30 +339,6 @@ export default function SupervisionPage() {
                           Cuentas Corrientes
                         </CardTitle>
                         <div className="flex items-center gap-1.5 flex-wrap">
-                          {cuentasData?.fecha && (
-                            <Badge variant="outline" className="text-[10px] gap-1 border-[var(--shelfy-border)]">
-                              <Clock size={9} />
-                              {new Date(cuentasData.fecha).toLocaleDateString("es-AR")}
-                            </Badge>
-                          )}
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-7 text-[10px] px-2 gap-1"
-                            onClick={() => toggleCCSort("deuda")}
-                          >
-                            <ArrowUpDown size={10} />
-                            Deuda
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-7 text-[10px] px-2 gap-1"
-                            onClick={() => toggleCCSort("antiguedad")}
-                          >
-                            <ArrowUpDown size={10} />
-                            Antigüedad
-                          </Button>
                           <Button
                             variant="outline"
                             size="sm"
@@ -400,15 +387,34 @@ export default function SupervisionPage() {
                             <TableHeader>
                               <TableRow className="text-[10px]">
                                 <TableHead className="pl-5 w-[36%]">Cliente</TableHead>
-                                <TableHead className="text-right">Deuda</TableHead>
-                                <TableHead className="text-right">Antig.</TableHead>
-                                <TableHead className="text-right">
-                                  <span className="flex items-center justify-end gap-0.5">
-                                    <Hash size={9} />Cbtés.
+                                <TableHead
+                                  className="text-right cursor-pointer select-none hover:text-foreground"
+                                  onClick={() => toggleCCSort("deuda")}
+                                >
+                                  Deuda <CCSortIndicator active={ccSort === "deuda"} dir={ccSortDir} />
+                                </TableHead>
+                                <TableHead
+                                  className="text-right cursor-pointer select-none hover:text-foreground"
+                                  onClick={() => toggleCCSort("antiguedad")}
+                                >
+                                  Antig. <CCSortIndicator active={ccSort === "antiguedad"} dir={ccSortDir} />
+                                </TableHead>
+                                <TableHead
+                                  className="text-right cursor-pointer select-none hover:text-foreground"
+                                  onClick={() => toggleCCSort("comprobantes")}
+                                >
+                                  <span className="inline-flex items-center justify-end gap-0.5">
+                                    <Hash size={9} />
+                                    Cbtés. <CCSortIndicator active={ccSort === "comprobantes"} dir={ccSortDir} />
                                   </span>
                                 </TableHead>
-                                <TableHead className="text-right">Últ. Compra</TableHead>
-                                <TableHead className="text-right pr-5">Rango</TableHead>
+                                <TableHead
+                                  className="text-right cursor-pointer select-none hover:text-foreground pr-5"
+                                  onClick={() => toggleCCSort("ultima_compra")}
+                                >
+                                  Últ. Compra <CCSortIndicator active={ccSort === "ultima_compra"} dir={ccSortDir} />
+                                </TableHead>
+                                <TableHead className="text-right pr-5 w-[72px]">Rango</TableHead>
                               </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -433,9 +439,11 @@ export default function SupervisionPage() {
                                   </TableCell>
                                   <TableCell className="text-right pr-5">
                                     {c.rango_antiguedad ? (
-                                      <Badge variant="outline" className="text-[10px]">
+                                      <span
+                                        className={`inline-flex text-[10px] px-1.5 py-0.5 rounded border font-medium ${rangoBadgeClass(c.rango_antiguedad)}`}
+                                      >
                                         {c.rango_antiguedad}
-                                      </Badge>
+                                      </span>
                                     ) : "—"}
                                   </TableCell>
                                 </TableRow>
@@ -512,7 +520,7 @@ export default function SupervisionPage() {
                         transition={{ duration: 0.2 }}
                         className="flex items-center justify-center py-12 text-sm text-[var(--shelfy-muted)]"
                       >
-                        Sin altas ni compradores en {altasMes}
+                        Sin altas ni compradores en {altasMesLabel}
                       </motion.div>
                     ) : (
                       <motion.div
@@ -530,14 +538,14 @@ export default function SupervisionPage() {
                             <div className="px-5 py-3">
                               <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-0.5 flex items-center gap-1">
                                 <ArrowUpFromLine size={9} className="text-emerald-500" />
-                                Altas en {altasMes.slice(5)}
+                                Altas en {altasMesLabel}
                               </p>
                               <p className="text-xl font-black text-emerald-500 tabular-nums leading-none">{altasData.total_altas}</p>
                             </div>
                             <div className="px-5 py-3">
                               <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-0.5 flex items-center gap-1">
                                 <Store size={9} className="text-violet-500" />
-                                Compradores en {altasMes.slice(5)}
+                                Compradores en {altasMesLabel}
                               </p>
                               <p className="text-xl font-black text-violet-500 tabular-nums leading-none">{altasData.total_compradores}</p>
                             </div>

@@ -66,7 +66,11 @@ export function SyncStatusBadges({ padronLastUpdated, ccLastUpdated }: SyncStatu
       <Badge
         variant="outline"
         className={`text-[10px] gap-1 ${padronStyle.className}`}
-        title={padronLastUpdated ? `Padrón: ${new Date(padronLastUpdated).toLocaleString("es-AR", { timeZone: "America/Argentina/Buenos_Aires" })}` : "Sin datos de padrón"}
+        title={
+          padronLastUpdated
+            ? `Padrón (última corrida/verificación): ${new Date(padronLastUpdated).toLocaleString("es-AR", { timeZone: "America/Argentina/Buenos_Aires" })}`
+            : "Sin datos de padrón"
+        }
         style={padronState === "processing" ? processingStyle : undefined}
       >
         <PadronIcon size={10} />

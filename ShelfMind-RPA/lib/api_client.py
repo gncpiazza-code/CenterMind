@@ -294,6 +294,32 @@ async def subir_padron(archivo_path, id_distribuidor: int) -> bool:
         return False
 
 
+async def registrar_padron_sin_cambios(id_distribuidor: int) -> bool:
+    """
+    Registra en motor_runs una verificación RPA sin cambios (Hash Guard).
+    Mantiene el badge de sync-status al día aunque no haya re-ingesta.
+    """
+    url = f"{_url()}/api/v1/sync/erp-padrón/sin-cambios"
+    try:
+        timeout = httpx.Timeout(connect=15.0, read=30.0, write=15.0, pool=10.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.post(
+                url,
+                headers=_headers(),
+                params={"id_distribuidor": str(id_distribuidor)},
+            )
+        if resp.status_code in (200, 201):
+            logger.info(f"  ✅ Padrón sin cambios registrado (dist={id_distribuidor})")
+            return True
+        logger.warning(
+            f"  ⚠️ API padrón sin-cambios HTTP {resp.status_code}: {(resp.text or '')[:200]}"
+        )
+        return False
+    except Exception as e:
+        logger.warning(f"  ⚠️ No se pudo registrar padrón sin cambios dist={id_distribuidor}: {e}")
+        return False
+
+
 async def subir_ventas_enriched(archivo_path, tenant_id: str) -> bool:
     """
     Sube un Excel de Informe de Ventas (Reporteador Genérico) a

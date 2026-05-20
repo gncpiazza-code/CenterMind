@@ -329,6 +329,20 @@ class PadronIngestionService:
             "error_msg": error_msg,
         }).eq("id", run_id).execute()
 
+    def record_sin_cambios_run(self, dist_id: int, source: str = "rpa_hash_guard") -> int:
+        """
+        Registra corrida sin ingesta (p. ej. RPA: archivo idéntico al anterior).
+        Permite que sync-status refleje verificación reciente aunque no haya upsert.
+        motor_runs.estado solo admite ok|error|en_curso; sin_cambios va en registros.
+        """
+        run_id = self._start_run(dist_id)
+        self._finish_run(
+            run_id,
+            "ok",
+            registros={"sin_cambios": True, "skipped": True, "reason": source},
+        )
+        return run_id
+
     def _start_global_padron_run(self) -> int:
         """Un solo motor_run para toda la ingesta multi-tenant (panel superadmin)."""
         res = sb.table("motor_runs").insert({

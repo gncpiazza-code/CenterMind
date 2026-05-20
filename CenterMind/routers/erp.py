@@ -181,6 +181,32 @@ async def erp_sync_padron(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post(
+    "/api/v1/sync/erp-padrón/sin-cambios",
+    tags=["ERP Push"],
+    summary="Registrar verificación RPA sin cambios en el Excel de padrón",
+)
+async def erp_sync_padron_sin_cambios(
+    id_distribuidor: int = Query(...),
+    _=Depends(verify_key),
+):
+    """
+    ShelfMind-RPA llama esto cuando Hash Guard detecta el mismo archivo que ayer.
+    No re-ingesta, pero deja constancia en motor_runs para el badge de sync-status.
+    """
+    try:
+        run_id = padron_service.record_sin_cambios_run(id_distribuidor)
+        return {
+            "status": "ok",
+            "run_id": run_id,
+            "message": f"Padrón sin cambios registrado para dist {id_distribuidor}.",
+            "timestamp": datetime.now().isoformat(),
+        }
+    except Exception as e:
+        logger.error(f"Error registrando padrón sin cambios dist={id_distribuidor}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ─── ERP: contexto cliente y ROI ──────────────────────────────────────────────
 
 @router.get("/api/erp/contexto-cliente/{id_distribuidor}/{nro_cliente}", summary="Datos ERP del cliente al evaluar")

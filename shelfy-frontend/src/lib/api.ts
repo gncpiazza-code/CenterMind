@@ -1619,7 +1619,7 @@ export interface SyncStatusEntry {
   activos?: number;
   anulados?: number;
   ausentes?: number;
-  last_run_estado?: "ok" | "error" | "en_curso" | null;
+  last_run_estado?: "ok" | "sin_cambios" | "error" | "en_curso" | null;
   has_zombie?: boolean;
 }
 

@@ -8,15 +8,15 @@ interface SupervisionPanelStore {
   altasMes: string;                    // YYYY-MM
 
   // Sorting CC
-  ccSort: 'deuda' | 'antiguedad';
+  ccSort: 'deuda' | 'antiguedad' | 'comprobantes' | 'ultima_compra';
   ccSortDir: 'desc' | 'asc';
 
   // Actions
   setSelectedSucursal: (s: string) => void;
   setSelectedVendedorNombre: (n: string | null) => void;
   setAltasMes: (m: string) => void;
-  setCCSort: (sort: 'deuda' | 'antiguedad', dir: 'desc' | 'asc') => void;
-  toggleCCSort: (sort: 'deuda' | 'antiguedad') => void;
+  setCCSort: (sort: 'deuda' | 'antiguedad' | 'comprobantes' | 'ultima_compra', dir: 'desc' | 'asc') => void;
+  toggleCCSort: (sort: 'deuda' | 'antiguedad' | 'comprobantes' | 'ultima_compra') => void;
 }
 
 function currentMes(): string {

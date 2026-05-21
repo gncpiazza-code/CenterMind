@@ -80,6 +80,7 @@ import {
   useAltasCompradoresQuery,
   usePrefetchAltasCompradores,
 } from "@/hooks/useAltasCompradores";
+import { useInView } from "@/hooks/useInView";
 import { useSupervisionPanelStore } from "@/store/useSupervisionPanelStore";
 
 // ── Map: SSR off ──────────────────────────────────────────────────────────────
@@ -489,8 +490,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
   const [ccSort, setCcSort] = useState<{ col: "dias" | "deuda"; asc: boolean }>({ col: "dias", asc: false });
 
   // ── Exhibiciones ──────────────────────────────────────────────────────────
-  const [exhibiciones, setExhibiciones] = useState<any[]>([]);
-  const [loadingExhib, setLoadingExhib] = useState(false);
+  const { ref: exhibSectionRef, inView: exhibSectionInView } = useInView<HTMLDivElement>();
   const [exhibFilter, setExhibFilter] = useState<string>("Todos");
   const [exhibSearch, setExhibSearch] = useState("");
   const [exhibPeriodo, setExhibPeriodo] = useState<"hoy" | "7d" | "historico">("hoy");
@@ -658,8 +658,9 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
     queryKey: ['supervision-vendedores', selectedDist],
     queryFn: () => fetchVendedoresSupervision(selectedDist),
     enabled: !!selectedDist,
-    staleTime: 2 * 60 * 1000, // 2 minutes - vendedores don't change often
-    placeholderData: (prev) => prev, // Keep previous data while refetching
+    staleTime: 10 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    placeholderData: keepPreviousData,
   });
 
   const error = vendedoresError ? (vendedoresError instanceof Error ? vendedoresError.message : "Error cargando datos") : null;
@@ -686,9 +687,10 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
   const { data: cuentasData = null, isLoading: loadingCuentas } = useQuery({
     queryKey: ['supervision-cuentas', selectedDist, selectedSucursal],
     queryFn: () => fetchCuentasSupervision(selectedDist!, selectedSucursal!),
-    enabled: !!selectedDist && !!selectedSucursal,
+    enabled: !!selectedDist && !!selectedSucursal && !mapOnly && !loading,
     placeholderData: keepPreviousData,
-    staleTime: 60_000,
+    staleTime: 5 * 60_000,
+    gcTime: 15 * 60_000,
   });
 
   const { data: syncStatus = null } = useQuery<SyncStatus>({
@@ -713,8 +715,9 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
     selectedDist ?? 0,
     selectedVendedorId,
     altasMes,
+    { enabled: !mapOnly },
   );
-  usePrefetchAltasCompradores(selectedDist ?? 0, selectedVendedorId, altasMes);
+  usePrefetchAltasCompradores(selectedDist ?? 0, selectedVendedorId, altasMes, !mapOnly);
 
   const { data: kpiMapa } = useQuery({
     queryKey: ['vendedor-kpi-mapa', selectedDist, openVend, altasMes],
@@ -754,29 +757,37 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
     setMapStatsTick((x) => x + 1);
   }, [syncStatus?.padron?.last_updated, selectedDist, queryClient]);
 
-  // ── Exhibiciones fetch ──────────────────────────────────────────────────
-  useEffect(() => {
-    if (!selectedDist) return;
-    let cancelled = false;
-    setLoadingExhib(true);
+  const exhibFechas = useMemo(() => {
     const now = new Date();
     const offsetMs = now.getTimezoneOffset() * 60 * 1000;
     const localToday = new Date(now.getTime() - offsetMs).toISOString().split("T")[0];
-
     let fechaDesde = localToday;
     if (exhibPeriodo === "7d") {
-      const sevenDaysAgo = new Date(now.getTime() - (6 * 86_400_000));
+      const sevenDaysAgo = new Date(now.getTime() - 6 * 86_400_000);
       fechaDesde = new Date(sevenDaysAgo.getTime() - offsetMs).toISOString().split("T")[0];
     } else if (exhibPeriodo === "historico") {
       fechaDesde = "2000-01-01";
     }
+    return { fechaDesde, fechaHasta: localToday };
+  }, [exhibPeriodo]);
 
-    fetchReporteExhibiciones(selectedDist, { fecha_desde: fechaDesde, fecha_hasta: localToday })
-      .then((res: any) => { if (!cancelled) setExhibiciones(Array.isArray(res) ? res : []); })
-      .catch(() => { if (!cancelled) setExhibiciones([]); })
-      .finally(() => { if (!cancelled) setLoadingExhib(false); });
-    return () => { cancelled = true; };
-  }, [selectedDist, exhibPeriodo]);
+  const { data: exhibiciones = [], isLoading: loadingExhib } = useQuery({
+    queryKey: [
+      "supervision-exhibiciones",
+      selectedDist,
+      exhibPeriodo,
+      exhibFechas.fechaDesde,
+      exhibFechas.fechaHasta,
+    ],
+    queryFn: async () => {
+      const res = await fetchReporteExhibiciones(selectedDist!, exhibFechas);
+      return Array.isArray(res) ? res : [];
+    },
+    enabled: !!selectedDist && !mapOnly && exhibSectionInView,
+    staleTime: 2 * 60_000,
+    gcTime: 10 * 60_000,
+    placeholderData: keepPreviousData,
+  });
 
   // ── Derived & Filtered ────────────────────────────────────────────────────
   const sucursales = useMemo(() =>
@@ -1797,10 +1808,10 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
         <div className={`${mapOnly ? "flex flex-1 min-h-0 lg:col-span-3" : `${mobileView === 'mapa' ? "flex min-h-[350px]" : "hidden"} lg:flex lg:col-span-3`} flex-col rounded-2xl overflow-hidden border border-[var(--shelfy-border)] relative bg-[var(--shelfy-panel)]`}>
           <MapLayerControls />
           <div className="flex-1 relative">
-            {loading ? (
-              <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-[var(--shelfy-muted)]">
-                <Loader2 className="w-6 h-6 animate-spin" />
-                <p className="text-sm">Cargando...</p>
+            {loading && pines.length === 0 ? (
+              <div className="w-full h-full flex flex-col items-center justify-center gap-3 bg-[var(--shelfy-bg)]/40 animate-pulse">
+                <Loader2 className="w-6 h-6 animate-spin text-amber-400/70" />
+                <p className="text-sm text-[var(--shelfy-muted)]">Preparando mapa…</p>
               </div>
             ) : pines.length === 0 ? (
               <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-[var(--shelfy-muted)]">
@@ -1856,6 +1867,17 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
 
           {/* Scrollable vendor list */}
           <div className="flex-1 overflow-y-auto min-h-0">
+            {loading && (
+              <div className="p-3 space-y-2">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div
+                    key={i}
+                    className="h-12 rounded-lg bg-white/5 animate-pulse border border-[var(--shelfy-border)]/30"
+                    style={{ animationDelay: `${i * 80}ms` }}
+                  />
+                ))}
+              </div>
+            )}
             {!selectedSucursal && !loading && (
               <div className="flex flex-col items-center justify-center h-full gap-2 text-[var(--shelfy-muted)] py-12">
                 <Building2 className="w-8 h-8 opacity-20" />
@@ -2635,7 +2657,10 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
       </div>}
 
       {/* ── SECCIÓN EXHIBICIONES ────────────────────────────────────────────── */}
-      {!mapOnly && <div className="rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden shadow-sm">
+      {!mapOnly && <div
+        ref={exhibSectionRef}
+        className="rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden shadow-sm"
+      >
         {/* Header */}
         <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-[var(--shelfy-border)]/50 flex-wrap">
           <div className="flex items-center gap-2">

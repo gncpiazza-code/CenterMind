@@ -41,6 +41,7 @@
 16. Stats Telegram alineados a ranking: `get_stats_vendedor` deja `fn_bot_stats_vendedor` (fotos) y usa `aggregate_exhibicion_counts`; `/stats`, post-carga y dashboard comparten dedup lógico. SQL `2026-05-19_fn_bot_stats_vendedor_logical.sql` para RPC legacy.
 17. Retroactividad objetivos compañía (exhibición): watcher usa `aggregate_exhibicion_counts_vendor_scope` (cliente+día por vendedor, claves sombra/ERP); deja de inflar por `id_exhibicion` cuando falta PDV.
 18. Regla de ranking documentada en `CLAUDE.md` §5/§9 y `arquitectura.md`: obligatorio **vendedor ERP + cliente + día** via `exhibicion_aggregate.py` en todas las metricas de ranking/KPI/stats.
+19. Supervision UX perf: carga progresiva (vendedores → KPIs/paneles), `keepPreviousData`, exhibiciones diferidas al scroll, modo-mapa sin fetch CC/altas/exhib, skeletons + stagger.
 
 ## Riesgos y Guardrails Activos
 

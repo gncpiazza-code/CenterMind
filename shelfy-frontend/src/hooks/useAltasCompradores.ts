@@ -47,10 +47,12 @@ export function useAltasCompradoresQuery(
   distId: number,
   vendedorId: number | null,
   mes: string,
+  options?: { enabled?: boolean },
 ) {
+  const baseEnabled = !!distId && !!vendedorId && !!mes;
   return useQuery<PdvsMovimientoResponse>({
     ...altasCompradoresQueryOptions(distId, vendedorId!, mes),
-    enabled: !!distId && !!vendedorId && !!mes,
+    enabled: baseEnabled && (options?.enabled ?? true),
     placeholderData: keepPreviousData,
   });
 }
@@ -60,13 +62,14 @@ export function usePrefetchAltasCompradores(
   distId: number,
   vendedorId: number | null,
   mes: string,
+  enabled = true,
 ) {
   const qc = useQueryClient();
   useEffect(() => {
-    if (!distId || !vendedorId || !mes) return;
+    if (!enabled || !distId || !vendedorId || !mes) return;
     void prefetchAltasCompradores(qc, distId, vendedorId, mes);
     void prefetchAltasCompradores(qc, distId, vendedorId, prevMes(mes));
-  }, [distId, vendedorId, mes, qc]);
+  }, [enabled, distId, vendedorId, mes, qc]);
 }
 
 export type AltasTab = "todos" | "alta" | "comprador";

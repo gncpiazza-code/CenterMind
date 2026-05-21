@@ -2,18 +2,13 @@
 
 import { useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
+import { motion } from "framer-motion";
+import { Loader2 } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { BottomNav } from "@/components/layout/BottomNav";
 import { Topbar } from "@/components/layout/Topbar";
 import { useAuth } from "@/hooks/useAuth";
-import {
-  fetchCuentasSupervision,
-  fetchSyncStatus,
-  fetchVendedoresSupervision,
-  type VendedorSupervision,
-  type VendedorCuentas,
-} from "@/lib/api";
+import type { VendedorCuentas } from "@/lib/api";
 import { openCuentasCorrientesPrintWindow } from "@/lib/printCuentasCorrientes";
 import {
   ccRowMatchesVendedor,
@@ -26,14 +21,14 @@ import {
 } from "@/lib/cuentasCorrientes";
 import { CcDeudaResumenPanel } from "@/components/supervision/CcDeudaResumenPanel";
 import { AltasCompradoresPanel } from "@/components/supervision/AltasCompradoresPanel";
-import { supervisionPanelKeys } from "@/lib/query-keys";
 import { useSupervisionPanelStore } from "@/store/useSupervisionPanelStore";
-import {
-  useAltasCompradoresQuery,
-  usePrefetchAltasCompradores,
-} from "@/hooks/useAltasCompradores";
+import { useSupervisionPanelData } from "@/hooks/useSupervisionPanelData";
 import { AnimatedKpiCard } from "@/components/supervision/AnimatedKpiCard";
 import { SyncStatusBadges } from "@/components/supervision/SyncStatusBadges";
+import {
+  SupervisionPageLoadingShell,
+} from "@/components/supervision/SupervisionPanelSkeleton";
+import { SupervisionReveal, SupervisionRevealItem } from "@/components/supervision/SupervisionReveal";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
@@ -106,64 +101,26 @@ export default function SupervisionPage() {
     if (user && !isAllowed) router.replace("/dashboard");
   }, [user, isAllowed, router]);
 
-  // ── TanStack Query ───────────────────────────────────────────────────────────
-  const { data: vendedores = [] } = useQuery<VendedorSupervision[]>({
-    queryKey: supervisionPanelKeys.vendedores(distId),
-    queryFn: () => fetchVendedoresSupervision(distId),
-    enabled: !!distId,
-    staleTime: 10 * 60_000,
-  });
-
   const sucursalParam = selectedSucursal === "__all__" ? undefined : selectedSucursal;
 
-  const selectedVendedorObj = useMemo(
-    () => vendedores.find((v) => v.nombre_vendedor === selectedVendedorNombre) ?? null,
-    [vendedores, selectedVendedorNombre],
-  );
-  const selectedVendedorId = selectedVendedorObj?.id_vendedor ?? null;
-
-  const { data: cuentasData, isLoading: loadingCuentas } = useQuery({
-    queryKey: [
-      ...supervisionPanelKeys.cuentas(distId, sucursalParam),
-      selectedVendedorNombre ?? "__none__",
-      selectedVendedorId ?? "__none__",
-    ] as const,
-    queryFn: async () => {
-      const scoped = await fetchCuentasSupervision(
-        distId,
-        sucursalParam,
-        undefined,
-        selectedVendedorNombre ?? undefined,
-        selectedVendedorId,
-      );
-      const hasClientes = (scoped.vendedores ?? []).some((v) => (v.clientes?.length ?? 0) > 0);
-      if (hasClientes || !selectedVendedorId) return scoped;
-      // API legacy filtraba solo por nombre (AID ≠ GONZALEZ en CHESS): traer sucursal completa
-      return fetchCuentasSupervision(distId, sucursalParam);
-    },
-    enabled: !!distId && !!selectedVendedorNombre,
-    staleTime: 5 * 60_000,
-  });
-
-  const { data: syncStatus } = useQuery({
-    queryKey: supervisionPanelKeys.syncStatus(distId),
-    queryFn: () => fetchSyncStatus(distId),
-    enabled: !!distId,
-    staleTime: 2 * 60_000,
-    refetchOnWindowFocus: true,
-    refetchInterval: 60_000,
-  });
-
-  const { data: altasData, isLoading: loadingAltas } = useAltasCompradoresQuery(
-    distId,
+  const {
+    vendedores,
+    vendedoresLoading,
+    vendedoresFetching,
+    selectedVendedorObj,
     selectedVendedorId,
-    altasMes,
-  );
-  usePrefetchAltasCompradores(distId, selectedVendedorId, altasMes);
+    cuentasData,
+    loadingCuentas,
+    fetchingCuentas,
+    syncStatus,
+    altasData,
+    loadingAltas,
+    fetchingAltas,
+  } = useSupervisionPanelData(distId, selectedSucursal, selectedVendedorNombre, altasMes);
 
-  // ── Derived ─────────────────────────────────────────────────────────────────
-  const totalAltas       = altasData?.total_altas ?? 0;
+  const totalAltas = altasData?.total_altas ?? 0;
   const totalCompradores = altasData?.total_compradores ?? 0;
+  const isRefreshing = vendedoresFetching || fetchingCuentas || fetchingAltas;
 
   const sucursales = useMemo(() => {
     const seen = new Set<string>();
@@ -253,8 +210,11 @@ export default function SupervisionPage() {
             <div className="sticky top-0 z-20 bg-[var(--shelfy-bg)]/90 backdrop-blur-md border-b border-[var(--shelfy-border)] px-4 md:px-6 py-3">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div className="flex flex-col gap-1">
-                  <h2 className="text-sm font-black text-[var(--shelfy-text)] tracking-tight">
+                  <h2 className="text-sm font-black text-[var(--shelfy-text)] tracking-tight flex items-center gap-2">
                     Panel Analítico
+                    {isRefreshing && (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--shelfy-muted)]" />
+                    )}
                   </h2>
                   {syncStatus && (
                     <SyncStatusBadges
@@ -307,7 +267,12 @@ export default function SupervisionPage() {
 
             <div className="p-4 md:p-6 flex flex-col gap-5">
 
+              {vendedoresLoading ? (
+                <SupervisionPageLoadingShell />
+              ) : (
+              <SupervisionReveal animate={!fetchingCuentas || !!cuentasData}>
               {/* ── NIVEL 3: KPIs globales (4 cards animadas) ─────────────── */}
+              <SupervisionRevealItem>
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 <div className="flex flex-col gap-0 min-w-0">
                   <AnimatedKpiCard
@@ -358,8 +323,10 @@ export default function SupervisionPage() {
                   delay={0.18}
                 />
               </div>
+              </SupervisionRevealItem>
 
               {/* ── NIVEL 4: Paneles 50/50 ───────────────────────────────── */}
+              <SupervisionRevealItem>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
 
                 {/* ── Izquierda: Cuentas Corrientes ──────────────────────── */}
@@ -497,6 +464,10 @@ export default function SupervisionPage() {
                 />
 
               </div>
+              </SupervisionRevealItem>
+              </SupervisionReveal>
+              )}
+
             </div>
           </div>
         </main>

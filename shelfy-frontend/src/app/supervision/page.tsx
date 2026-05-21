@@ -96,6 +96,8 @@ export default function SupervisionPage() {
     setSelectedSucursal,
     setSelectedVendedorNombre,
     toggleCCSort,
+    ccResumenExpanded,
+    toggleCcResumen,
   } = useSupervisionPanelStore();
 
   const isAllowed = !!user && ALLOWED_ROLES.includes(user.rol);
@@ -217,6 +219,13 @@ export default function SupervisionPage() {
     [clientesOrdenados],
   );
 
+  const showCcResumen =
+    !!selectedVendedorNombre &&
+    !loadingCuentas &&
+    clientesOrdenados.length > 0 &&
+    (deudaPorAntiguedad.some((r) => r.monto > 0) ||
+      deudaPorSaldoBuckets.some((r) => r.monto > 0));
+
   const padronLastUpdated = syncStatus?.padron?.last_updated ?? null;
   const ccLastUpdated = syncStatus?.cuentas_corrientes?.last_updated ?? null;
   const altasMesLabel = mesEnLetras(altasMes);
@@ -300,15 +309,30 @@ export default function SupervisionPage() {
 
               {/* ── NIVEL 3: KPIs globales (4 cards animadas) ─────────────── */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                <AnimatedKpiCard
-                  label="Deuda Total"
-                  value={deudaTotalDisplay}
-                  formatter={fmt$$}
-                  icon={CreditCard}
-                  color="rose"
-                  loading={loadingCuentas && !!selectedVendedorNombre}
-                  delay={0}
-                />
+                <div className="flex flex-col gap-0 min-w-0">
+                  <AnimatedKpiCard
+                    label="Deuda Total"
+                    value={deudaTotalDisplay}
+                    formatter={fmt$$}
+                    icon={CreditCard}
+                    color="rose"
+                    loading={loadingCuentas && !!selectedVendedorNombre}
+                    delay={0}
+                    expandable={showCcResumen}
+                    expanded={ccResumenExpanded}
+                    onToggle={toggleCcResumen}
+                    expandHint="Ver desglose por antigüedad y vencimiento"
+                  />
+                  {showCcResumen && (
+                    <CcDeudaResumenPanel
+                      headerless
+                      variant="rose"
+                      antiguedad={deudaPorAntiguedad}
+                      saldo={deudaPorSaldoBuckets}
+                      className="-mt-px"
+                    />
+                  )}
+                </div>
                 <AnimatedKpiCard
                   label="Clientes Deudores"
                   value={clientesDeudoresDisplay}
@@ -334,17 +358,6 @@ export default function SupervisionPage() {
                   delay={0.18}
                 />
               </div>
-
-              {/* Resumen buckets CC (columna izq., debajo KPIs — como PDF difusión) */}
-              {selectedVendedorNombre && !loadingCuentas && clientesOrdenados.length > 0 && (
-                <div className="w-full lg:max-w-[calc(50%-0.5rem)]">
-                  <CcDeudaResumenPanel
-                    variant="rose"
-                    antiguedad={deudaPorAntiguedad}
-                    saldo={deudaPorSaldoBuckets}
-                  />
-                </div>
-              )}
 
               {/* ── NIVEL 4: Paneles 50/50 ───────────────────────────────── */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">

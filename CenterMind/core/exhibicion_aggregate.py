@@ -1,14 +1,22 @@
 """
 Definición canónica de exhibición lógica única para Shelfy.
 
-Una exhibición lógica = máximo un conteo por:
-    (id_integrante, cliente_key, calendar_day_AR)
+REGLA DE ORO (ranking, KPIs, stats bot, objetivos compañía exhibición):
+    máximo 1 conteo por (vendedor_erp, cliente_key, calendar_day_AR)
+
+Usar aggregate_ranking_by_vendor / aggregate_exhibicion_counts_vendor_scope.
+NO contar filas crudas ni fotos. NO usar fn_dashboard_ranking.
+
+Por integrante (casos no-ranking):
+    (id_integrante, cliente_key, calendar_day_AR) via build_logic_key.
 
 - cliente_key: id_cliente_pdv → id_cliente → cliente_sombra_codigo
 - calendar_day_AR: primeros 10 chars de timestamp_subida (TZ AR)
 - Si faltan cliente o día: fallback url → (chat, msg) → id_exhibicion
 - Si hay varias filas con la misma clave: ganador por score
   (Destacado 3 > Aprobado 2 > Rechazado 1 > Pendiente 0)
+
+Documentación: CLAUDE.md §5/§9, arquitectura.md § Invariantes.
 """
 from __future__ import annotations
 

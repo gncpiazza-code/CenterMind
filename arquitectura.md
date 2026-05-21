@@ -74,14 +74,33 @@ Claves:
 
 ## Invariantes Operativas
 
-- KPI/ranking: contar exhibicion logica unica (no fotos duplicadas).
-  - Definicion canonica: 1 conteo por (id_integrante, cliente_key, calendar_day_AR).
-  - Modulo: `core/exhibicion_aggregate.py` — `build_logic_key`, `aggregate_exhibicion_counts`, `aggregate_exhibicion_counts_vendor_scope` (objetivos compañía), `aggregate_ranking_by_vendor`, `aggregate_kpi_totals`.
-  - Fallback: url_foto_drive → (telegram_chat_id, msg_id) → id_exhibicion.
-  - Ganador por score: Destacado 3 > Aprobado 2 > Rechazado 1 > Pendiente 0.
-  - Bot Telegram: `get_stats_vendedor`, `/stats`, mensaje post-carga y `get_ranking_periodo` usan el mismo modulo (no `fn_bot_stats_vendedor` legacy).
-  - RPC `fn_dashboard_ranking` deprecado: no usar como fallback.
-  - RPC `fn_bot_stats_vendedor`: migracion `sql/2026-05-19_fn_bot_stats_vendedor_logical.sql` alinea SQL si algo lo invoca directo.
+### Exhibicion logica — ranking y KPIs (regla de oro)
+
+**Toda llamada** que exponga ranking, puntos de exhibicion, stats de vendedor o avance de objetivos compania (exhibicion) debe aplicar:
+
+> **1 conteo maximo por (vendedor_erp, cliente_key, calendar_day_AR)**
+
+No por foto. No por fila SQL. No por integrante Telegram aislado si comparten el mismo nombre ERP.
+
+| Dimension | Regla |
+|-----------|--------|
+| Vendedor | Nombre ERP (`iid_to_erp`); expandir todos los `id_integrante` del mismo ERP via `integrante_ids_for_erp_vendors` |
+| Cliente | `id_cliente_pdv` → `id_cliente` → `cliente_sombra_codigo` |
+| Dia | `timestamp_subida[:10]` (AR) |
+| Colision | Mayor `exhibicion_score` gana |
+
+**Modulo canonico:** `core/exhibicion_aggregate.py`
+
+- Ranking / dashboard / bot `/ranking`: `aggregate_ranking_by_vendor`
+- Stats bot, post-carga, objetivos compania exhibicion: `aggregate_exhibicion_counts_vendor_scope` + `vendor_logic_key`
+- Por integrante (no ranking): `aggregate_exhibicion_counts` con `build_logic_key(iid, cliente, dia)`
+- Supervision totales por PDV: `count_logical_per_client`
+
+**Prohibido en codigo nuevo:** `COUNT(*)` sobre `exhibiciones` sin dedup; fallback a `fn_dashboard_ranking`; ranking por `id_exhibicion` cuando hay cliente+dia.
+
+**Consumidores alineados (2026-05):** `routers/reportes.py`, `bot_worker.py` (`get_ranking_periodo`, `get_stats_vendedor`), `services/objetivos_watcher_service.py`, `routers/supervision.py` (parcial via `count_logical_per_client`).
+
+**Tests:** `test_exhibicion_aggregate_vendor_scope.py`. **SQL legacy:** `sql/2026-05-19_fn_bot_stats_vendedor_logical.sql` si RPC directo.
 - Objetivos: vendedores bucket (sin vendedor, supervisor) nunca reciben objetivos.
   - Helper: `core/helpers.is_vendedor_excluido_objetivos(nombre_erp)`.
   - Aplicado en: lista API vendedores, endpoint POST crear_objetivo, frontend.

@@ -1,6 +1,6 @@
 # Progress — Shelfy CenterMind (Lean)
 
-**Ultima actualizacion:** 19 de Mayo, 2026  
+**Ultima actualizacion:** 20 de Mayo, 2026  
 **Objetivo:** estado operativo actual, riesgos y prioridades.  
 **Historial largo:** `docs/changelog/archive/2026-05.md`.
 
@@ -40,6 +40,7 @@
 15. Objetivos FDV: helper `is_vendedor_excluido_objetivos` central (helpers.py); backend filtra buckets en lista y en crear_objetivo (400 si bucket); frontend filtra `vendedoresFiltrados`. Switch FDV reemplaza checkbox. Resumen "Objetivo generado" movido al final del modal. `buildPhrase` acepta vendorName explícito para bulk FDV. `tasa_pendientes` condicional (solo con PDVs explícitos, no FDV bulk). Exhibición lógica: módulo `core/exhibicion_aggregate.py`; `supervision_clientes.total_exhibiciones` usa dedup lógico; bot elimina fallback RPC legacy.
 16. Stats Telegram alineados a ranking: `get_stats_vendedor` deja `fn_bot_stats_vendedor` (fotos) y usa `aggregate_exhibicion_counts`; `/stats`, post-carga y dashboard comparten dedup lógico. SQL `2026-05-19_fn_bot_stats_vendedor_logical.sql` para RPC legacy.
 17. Retroactividad objetivos compañía (exhibición): watcher usa `aggregate_exhibicion_counts_vendor_scope` (cliente+día por vendedor, claves sombra/ERP); deja de inflar por `id_exhibicion` cuando falta PDV.
+18. Regla de ranking documentada en `CLAUDE.md` §5/§9 y `arquitectura.md`: obligatorio **vendedor ERP + cliente + día** via `exhibicion_aggregate.py` en todas las metricas de ranking/KPI/stats.
 
 ## Riesgos y Guardrails Activos
 
@@ -47,6 +48,7 @@
 - Multi-tenant: no omitir `id_distribuidor`.
 - QA Tabaco: cuentas de prueba fuera de ranking/visor para no-superadmin.
 - CC: validaciones previas al reemplazo de snapshot.
+- **Ranking/KPI exhibicion (CRITICO):** nunca contar fotos ni filas crudas; siempre `core/exhibicion_aggregate.py` con dedup **(vendedor_erp, cliente_key, calendar_day_AR)**. Prohibido `fn_dashboard_ranking` y fallback RPC en bot. Ver `test_exhibicion_aggregate_vendor_scope.py` antes de tocar ranking.
 
 ## Proximos Pasos Prioritarios
 

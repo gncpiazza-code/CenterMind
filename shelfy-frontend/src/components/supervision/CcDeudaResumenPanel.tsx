@@ -1,6 +1,5 @@
 "use client";
 
-import { useMemo } from "react";
 import { ChevronDown } from "lucide-react";
 import type { CcResumenRow, CcSaldoBucketRow } from "@/lib/cuentasCorrientes";
 import { formatRangoBadgeLabel, rangoBadgeClass } from "@/lib/cuentasCorrientes";
@@ -34,7 +33,7 @@ const VARIANT_STYLES: Record<
     accent: "text-rose-600",
     headerBg: "bg-rose-500/5",
     money: "text-rose-600",
-    border: "border-rose-500/20",
+    border: "border-rose-200/60",
   },
 };
 
@@ -44,6 +43,8 @@ type Props = {
   variant?: Variant;
   /** Dentro del panel CC del mapa (sin card exterior). */
   embedded?: boolean;
+  /** Sin barra propia: el toggle vive en la KPI «Deuda Total». */
+  headerless?: boolean;
   /** Override badges de antigüedad (p. ej. tema oscuro del mapa). */
   rangoBadgeClassFn?: (label: string) => string;
   /** Permite colapsar el bloque (persistido en Zustand). */
@@ -124,6 +125,7 @@ export function CcDeudaResumenPanel({
   saldo,
   variant = "amber",
   embedded = false,
+  headerless = false,
   rangoBadgeClassFn,
   collapsible = true,
   className = "",
@@ -136,11 +138,6 @@ export function CcDeudaResumenPanel({
   const showAntig = antiguedad.some((r) => r.monto > 0);
   const showSaldo = saldo.some((r) => r.monto > 0);
   if (!showAntig && !showSaldo) return null;
-
-  const totalDeuda = useMemo(
-    () => antiguedad.reduce((a, r) => a + r.monto, 0),
-    [antiguedad],
-  );
 
   const inner = (
     <>
@@ -170,38 +167,6 @@ export function CcDeudaResumenPanel({
     </>
   );
 
-  const toggleBtn = collapsible ? (
-    <button
-      type="button"
-      onClick={toggleCcResumen}
-      className={`w-full flex items-center justify-between gap-3 text-left transition-colors hover:bg-white/[0.03] ${
-        embedded ? "px-5 py-3" : "px-4 py-3"
-      } border-b border-[var(--shelfy-border)]/40 ${v.headerBg}`}
-      aria-expanded={expanded}
-    >
-      <div className="min-w-0">
-        <p className={`text-[10px] font-bold uppercase tracking-wide ${v.accent}`}>
-          Resumen de deuda
-        </p>
-        {!expanded && totalDeuda > 0 && (
-          <p className={`text-xs font-mono font-semibold tabular-nums mt-0.5 ${v.money}`}>
-            {fmtMoney(totalDeuda)}
-          </p>
-        )}
-        {expanded && (
-          <p className="text-[10px] text-[var(--shelfy-muted)] mt-0.5">
-            Antigüedad y vencimiento · como PDF difusión
-          </p>
-        )}
-      </div>
-      <ChevronDown
-        className={`w-4 h-4 shrink-0 ${v.accent} transition-transform duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] ${
-          expanded ? "rotate-180" : "rotate-0"
-        }`}
-      />
-    </button>
-  ) : null;
-
   const animatedBody = (
     <div
       className="grid transition-[grid-template-rows] duration-[380ms] ease-[cubic-bezier(0.4,0,0.2,1)]"
@@ -216,6 +181,42 @@ export function CcDeudaResumenPanel({
       </div>
     </div>
   );
+
+  if (headerless) {
+    if (!expanded) return null;
+    return (
+      <div
+        className={`rounded-b-xl border border-t-0 bg-card shadow-sm overflow-hidden ${v.border} ${className}`}
+      >
+        {animatedBody}
+      </div>
+    );
+  }
+
+  const toggleBtn = collapsible ? (
+    <button
+      type="button"
+      onClick={toggleCcResumen}
+      className={`w-full flex items-center justify-between gap-3 text-left transition-colors hover:bg-white/[0.03] ${
+        embedded ? "px-5 py-3" : "px-4 py-3"
+      } border-b border-[var(--shelfy-border)]/40 ${v.headerBg}`}
+      aria-expanded={expanded}
+    >
+      <div className="min-w-0">
+        <p className={`text-[10px] font-bold uppercase tracking-wide ${v.accent}`}>
+          Resumen de deuda
+        </p>
+        <p className="text-[10px] text-[var(--shelfy-muted)] mt-0.5">
+          {expanded ? "Antigüedad y vencimiento · como PDF difusión" : "Tocá para ver desglose"}
+        </p>
+      </div>
+      <ChevronDown
+        className={`w-4 h-4 shrink-0 ${v.accent} transition-transform duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] ${
+          expanded ? "rotate-180" : "rotate-0"
+        }`}
+      />
+    </button>
+  ) : null;
 
   if (embedded) {
     return (

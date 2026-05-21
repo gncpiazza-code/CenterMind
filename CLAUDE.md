@@ -48,7 +48,29 @@ while True:
 
 ## 5) Invariantes de negocio
 
-- KPI y ranking deben usar exhibicion logica unica (no contar fotos duplicadas). Bot: `get_stats_vendedor` / post-carga / `/stats` usan `core/exhibicion_aggregate.py` (no RPC legacy por foto).
+### Exhibicion logica — ranking y KPIs (NO NEGOCIABLE)
+
+Toda metrica de **ranking**, **KPIs de exhibicion**, **stats Telegram** (`/stats`, post-carga) y **objetivos compania tipo exhibicion** debe contar con dedup obligatorio:
+
+**1 exhibicion logica = maximo 1 conteo por (vendedor_erp, cliente_key, calendar_day_AR)**
+
+- `cliente_key`: `id_cliente_pdv` → `id_cliente` → `cliente_sombra_codigo`
+- `calendar_day_AR`: primeros 10 chars de `timestamp_subida` (fecha AR)
+- Varios `id_integrante` / grupos Telegram del mismo vendedor ERP: **no sumar de nuevo** la misma visita (mismo cliente + mismo dia)
+- Varias fotos del mismo cliente el mismo dia: **1 sola**; gana la de mayor score (Destacado 3 > Aprobado 2 > Rechazado 1 > Pendiente 0)
+
+**Modulo unico obligatorio:** `CenterMind/core/exhibicion_aggregate.py`
+
+| Uso | Funcion |
+|-----|---------|
+| Ranking dashboard / bot `/ranking` | `aggregate_ranking_by_vendor` |
+| Stats bot, post-carga, KPIs agregados | `aggregate_exhibicion_counts_vendor_scope` |
+| Conteo por integrante (casos puntuales) | `aggregate_exhibicion_counts` — **no** usar para ranking ni objetivos compania |
+| Supervision `total_exhibiciones` por cliente | `count_logical_per_client` |
+
+**Tests de regresion:** `CenterMind/test_exhibicion_aggregate_vendor_scope.py` (dos integrantes, mismo cliente/dia → 1 punto).
+
+**Auditoria:** `CenterMind/scripts/audit_ranking_abril_tabaco.py`, `audit_stats_ranking_all_dist_silent.py`.
 - `cc_detalle` es fuente autoritativa para cuentas corrientes.
 - `url_foto_drive` apunta a Supabase Storage (nombre legacy).
 - En objetivos operativos: rutas con jerarquia **Dia -> Ruta**.
@@ -84,6 +106,14 @@ while True:
 - No modificar `erp_*_raw` manualmente.
 - No escribir queries sin paginacion en tablas grandes.
 - No romper aislamiento tenant en frontend ni backend.
+
+### Exhibicion / ranking — errores que NO se pueden repetir
+
+- **NO** contar filas crudas de `exhibiciones` (`COUNT(*)`, `len(rows)`) para ranking, KPIs visibles ni stats de vendedor.
+- **NO** usar RPC `fn_dashboard_ranking` ni fallback a RPC legacy en bot (`bot_worker.get_ranking_periodo`).
+- **NO** contar por `id_exhibicion` ni por foto cuando existen `cliente_key` + `calendar_day_AR`.
+- **NO** deduplicar ranking solo por `id_integrante` (dos grupos del mismo vendedor ERP duplicarian puntos).
+- **NO** agregar un endpoint o job nuevo de ranking/stats sin pasar por `exhibicion_aggregate.py` y test de vendor-scope.
 
 ## 9.1) Objetivos + Telegram (convenciones nuevas)
 

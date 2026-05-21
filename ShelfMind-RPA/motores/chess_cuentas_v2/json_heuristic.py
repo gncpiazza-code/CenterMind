@@ -42,6 +42,11 @@ EXCEL_HEADERS = (
     "Cant Cbte",
     "Saldo Total",
     "Antiguedad",
+    "A 7 Dias",
+    "A 15 Dias",
+    "A 30 Dias",
+    "A 60 Dias",
+    "+60 Dias",
 )
 
 
@@ -50,7 +55,8 @@ def _norm(s: str) -> str:
         ch for ch in unicodedata.normalize("NFKD", str(s)) if not unicodedata.combining(ch)
     )
     s = s.lower().strip()
-    s = re.sub(r"[\W_]+", " ", s)
+    # Conservar '+' (bucket +60); el resto de no-alfanumérico pasa a espacio.
+    s = re.sub(r"[^\w\s+]+", " ", s, flags=re.UNICODE)
     return re.sub(r"\s+", " ", s).strip()
 
 
@@ -134,6 +140,11 @@ def _map_row_to_excel_dict(row: dict) -> dict[str, Any]:
             "Cant Cbte": row.get("cntcbte"),
             "Saldo Total": row.get("saltot"),
             "Antiguedad": row.get("diasdeu"),
+            "A 7 Dias": row.get("saldo7"),
+            "A 15 Dias": row.get("saldo15"),
+            "A 30 Dias": row.get("saldo30"),
+            "A 60 Dias": row.get("saldo60"),
+            "+60 Dias": row.get("saldomas"),
         }
 
     nk = {_norm(k): v for k, v in row.items()}
@@ -156,6 +167,11 @@ def _map_row_to_excel_dict(row: dict) -> dict[str, Any]:
     cant = pick("cant cbte", "cantidad comprobantes", "comprobantes", "cantidad")
     saldo = pick("saldo total", "saldo", "deuda", "balance", "importe")
     anti = pick("antiguedad deuda", "antiguedad", "antigüedad", "dias", "days", "aging")
+    s7 = pick("saldo7", "saldo 7", "a 7 dias", "7 dias")
+    s15 = pick("saldo15", "saldo 15", "a 15 dias", "15 dias")
+    s30 = pick("saldo30", "saldo 30", "a 30 dias", "30 dias")
+    s60 = pick("saldo60", "saldo 60", "a 60 dias", "60 dias")
+    smas = pick("saldomas", "saldo mas", "+60 dias", "a mas de 60")
 
     return {
         "Sucursal": "" if suc is None else str(suc).strip(),
@@ -165,6 +181,11 @@ def _map_row_to_excel_dict(row: dict) -> dict[str, Any]:
         "Cant Cbte": cant,
         "Saldo Total": saldo,
         "Antiguedad": anti,
+        "A 7 Dias": s7,
+        "A 15 Dias": s15,
+        "A 30 Dias": s30,
+        "A 60 Dias": s60,
+        "+60 Dias": smas,
     }
 
 

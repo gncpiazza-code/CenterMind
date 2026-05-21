@@ -13,14 +13,31 @@ def _strip_accents(text: str) -> str:
 
 def _norm(s: str) -> str:
     s = _strip_accents(str(s)).lower().strip()
-    s = re.sub(r"[\W_]+", " ", s)
-    return re.sub(r"\s+", " ", s)
+    # Conservar '+' (bucket +60); el resto de no-alfanumérico pasa a espacio.
+    s = re.sub(r"[^\w\s+]+", " ", s, flags=re.UNICODE)
+    return re.sub(r"\s+", " ", s).strip()
 
-def _first_match(colnames, patterns):
+def _pattern_matches_column(nc: str, pattern: str) -> bool:
+    """Evita falsos positivos (ej. patrón 'a +60' dentro de columna 'a 60 dias')."""
+    if nc == pattern:
+        return True
+    if "+" in pattern and "+" not in nc:
+        return False
+    if "+" in nc and "+" not in pattern:
+        return False
+    if pattern.startswith("a ") and not nc.startswith("a "):
+        return False
+    return pattern in nc
+
+
+def _first_match(colnames, patterns, *, exclude_if: list[str] | None = None):
     norm_map = {c: _norm(c) for c in colnames}
     norm_patterns = [_norm(p) for p in patterns]
+    excludes = [_norm(x) for x in (exclude_if or [])]
     for c, nc in norm_map.items():
-        if any(p in nc for p in norm_patterns):
+        if excludes and any(ex in nc for ex in excludes):
+            continue
+        if any(_pattern_matches_column(nc, p) for p in norm_patterns):
             return c
     return None
 
@@ -39,12 +56,47 @@ CANONICAL = {
     "deuda_mas_60_dias": ["a +60", "a + 60", "a mas de 60", "a mas de", "a +60 dias", "a +60 días", "+60 dias", "+60 días"],
 }
 
+# Orden de mapeo: rangos más específicos primero (+60 antes que 60).
+_COLUMN_MAP_ORDER = (
+    "sucursal",
+    "vendedor",
+    "cliente",
+    "cod_cliente",
+    "antiguedad",
+    "cant_cbte",
+    "saldo_total",
+    "deuda_mas_60_dias",
+    "deuda_7_dias",
+    "deuda_15_dias",
+    "deuda_30_dias",
+    "deuda_60_dias",
+)
+
+
 def _map_columns(df: pd.DataFrame):
     cols = list(df.columns)
-    mapping = {}
-    for key, patterns in CANONICAL.items():
-        found = _first_match(cols, patterns)
+    mapping: dict[str, str | None] = {}
+    used: set[str] = set()
+    remaining = lambda: [c for c in cols if c not in used]
+
+    for key in _COLUMN_MAP_ORDER:
+        patterns = CANONICAL[key]
+        exclude_if = None
+        if key == "deuda_60_dias":
+            # Evita que "+60 Días" se mapee como bucket de 60 (substring "60 dias").
+            exclude_if = ["+60", "mas de 60", "mas 60", "a mas"]
+        found = _first_match(remaining(), patterns, exclude_if=exclude_if)
         mapping[key] = found
+        if found:
+            used.add(found)
+
+    for key, patterns in CANONICAL.items():
+        if key in mapping:
+            continue
+        found = _first_match(remaining(), patterns)
+        mapping[key] = found
+        if found:
+            used.add(found)
     return mapping
 
 def leer_excel_robusto(file_path: str) -> pd.DataFrame:

@@ -20,11 +20,14 @@ import {
 import { openCuentasCorrientesPrintWindow } from "@/lib/printCuentasCorrientes";
 import {
   ccRowMatchesVendedor,
+  computeDeudaPorAntiguedad,
+  computeDeudaPorSaldoBuckets,
   formatRangoBadgeLabel,
   rangoBadgeClass,
   sortClientesCC,
   mesEnLetras,
 } from "@/lib/cuentasCorrientes";
+import { CcDeudaResumenPanel } from "@/components/supervision/CcDeudaResumenPanel";
 import { supervisionPanelKeys } from "@/lib/query-keys";
 import { useSupervisionPanelStore } from "@/store/useSupervisionPanelStore";
 import { AnimatedKpiCard } from "@/components/supervision/AnimatedKpiCard";
@@ -220,6 +223,15 @@ export default function SupervisionPage() {
       ? clientesOrdenados.length
       : (cuentasData?.metadatos?.clientes_deudores ?? 0);
 
+  const deudaPorAntiguedad = useMemo(
+    () => computeDeudaPorAntiguedad(clientesOrdenados),
+    [clientesOrdenados],
+  );
+  const deudaPorSaldoBuckets = useMemo(
+    () => computeDeudaPorSaldoBuckets(clientesOrdenados),
+    [clientesOrdenados],
+  );
+
   const padronLastUpdated = syncStatus?.padron?.last_updated ?? null;
   const ccLastUpdated = syncStatus?.cuentas_corrientes?.last_updated ?? null;
   const altasMesLabel = mesEnLetras(altasMes);
@@ -350,6 +362,17 @@ export default function SupervisionPage() {
                   delay={0.18}
                 />
               </div>
+
+              {/* Resumen buckets CC (columna izq., debajo KPIs — como PDF difusión) */}
+              {selectedVendedorNombre && !loadingCuentas && clientesOrdenados.length > 0 && (
+                <div className="w-full lg:max-w-[calc(50%-0.5rem)]">
+                  <CcDeudaResumenPanel
+                    variant="rose"
+                    antiguedad={deudaPorAntiguedad}
+                    saldo={deudaPorSaldoBuckets}
+                  />
+                </div>
+              )}
 
               {/* ── NIVEL 4: Paneles 50/50 ───────────────────────────────── */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">

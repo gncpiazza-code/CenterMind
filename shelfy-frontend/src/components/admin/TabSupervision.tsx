@@ -72,6 +72,11 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import { uploadCCForDist, fetchCCStatus } from "@/lib/api";
+import {
+  computeDeudaPorAntiguedad,
+  computeDeudaPorSaldoBuckets,
+} from "@/lib/cuentasCorrientes";
+import { CcDeudaResumenPanel } from "@/components/supervision/CcDeudaResumenPanel";
 
 // ── Map: SSR off ──────────────────────────────────────────────────────────────
 const MapaRutas = dynamic(() => import("./MapaRutas"), {
@@ -842,6 +847,20 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
 
   // Backend ya filtra por sucursal — cuentasData llega pre-filtrado
   const cuentasFiltradas = cuentasData ?? null;
+
+  const ccClientesFlat = useMemo(() => {
+    if (!cuentasFiltradas?.vendedores.length) return [];
+    return cuentasFiltradas.vendedores.flatMap((v: { clientes: unknown[] }) => v.clientes);
+  }, [cuentasFiltradas]);
+
+  const ccDeudaPorAntiguedad = useMemo(
+    () => computeDeudaPorAntiguedad(ccClientesFlat as Parameters<typeof computeDeudaPorAntiguedad>[0]),
+    [ccClientesFlat],
+  );
+  const ccDeudaPorSaldo = useMemo(
+    () => computeDeudaPorSaldoBuckets(ccClientesFlat as Parameters<typeof computeDeudaPorSaldoBuckets>[0]),
+    [ccClientesFlat],
+  );
 
   const exhibicionesFiltradas = useMemo(() => {
     let filtered = exhibiciones;
@@ -2442,6 +2461,19 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                   <p className="text-base font-bold text-[var(--shelfy-text)]">{Math.round(cuentasFiltradas.metadatos.promedio_dias_retraso??0)} días</p>
                 </div>
               </div>
+            )}
+
+            {cuentasFiltradas && cuentasFiltradas.vendedores.length > 0 && selectedSucursal && (
+              <CcDeudaResumenPanel
+                embedded
+                variant="amber"
+                antiguedad={ccDeudaPorAntiguedad}
+                saldo={ccDeudaPorSaldo}
+                rangoBadgeClassFn={(label) =>
+                  RANGO_COLORS[label] ??
+                  "bg-white/5 text-[var(--shelfy-muted)] border-[var(--shelfy-border)]"
+                }
+              />
             )}
 
             {/* Sin sucursal seleccionada */}

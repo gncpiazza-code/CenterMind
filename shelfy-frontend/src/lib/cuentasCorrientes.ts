@@ -127,6 +127,111 @@ export function sortClientesCC<
   });
 }
 
+/** Rangos de antigüedad (mismo criterio que PDF / cuentas_parser). */
+export const CC_ANTIGUEDAD_LABELS = [
+  "1-7 Días",
+  "8-15 Días",
+  "16-21 Días",
+  "22-30 Días",
+  "+30 Días",
+] as const;
+
+export function antiguedadRangoLabel(dias: number | null | undefined): string {
+  const d = Number(dias ?? 0);
+  if (d <= 7) return "1-7 Días";
+  if (d <= 15) return "8-15 Días";
+  if (d <= 21) return "16-21 Días";
+  if (d <= 30) return "22-30 Días";
+  return "+30 Días";
+}
+
+function normalizeAntiguedadLabel(raw: string | null | undefined): string {
+  const t = (raw || "").trim();
+  if (!t) return "";
+  for (const lab of CC_ANTIGUEDAD_LABELS) {
+    if (t.toLowerCase() === lab.toLowerCase()) return lab;
+  }
+  return t;
+}
+
+export interface CcResumenRow {
+  label: string;
+  monto: number;
+  pct: number;
+  clientes: number;
+}
+
+/** Distribución por antigüedad del cliente (como PDF «Distribución de deuda por antigüedad»). */
+export function computeDeudaPorAntiguedad(
+  clientes: Array<{
+    antiguedad?: number | null;
+    deuda_total?: number;
+    rango_antiguedad?: string | null;
+  }>,
+): CcResumenRow[] {
+  const buckets: Record<string, { monto: number; clientes: number }> = {};
+  for (const lab of CC_ANTIGUEDAD_LABELS) {
+    buckets[lab] = { monto: 0, clientes: 0 };
+  }
+  for (const c of clientes) {
+    const lab =
+      normalizeAntiguedadLabel(c.rango_antiguedad) ||
+      antiguedadRangoLabel(c.antiguedad);
+    const key = buckets[lab] !== undefined ? lab : antiguedadRangoLabel(c.antiguedad);
+    const amt = Number(c.deuda_total ?? 0);
+    buckets[key].monto += amt;
+    buckets[key].clientes += 1;
+  }
+  const total = Object.values(buckets).reduce((a, b) => a + b.monto, 0) || 1;
+  return CC_ANTIGUEDAD_LABELS.map((label) => ({
+    label,
+    monto: buckets[label].monto,
+    pct: (100 * buckets[label].monto) / total,
+    clientes: buckets[label].clientes,
+  }));
+}
+
+/** Buckets de saldo CHESS (misma nomenclatura que PDF / cc_detalle). */
+export const CC_SALDO_BUCKET_KEYS = [
+  { key: "deuda_7_dias", label: "7 días" },
+  { key: "deuda_15_dias", label: "15 días" },
+  { key: "deuda_30_dias", label: "30 días" },
+  { key: "deuda_60_dias", label: "60 días" },
+  { key: "deuda_mas_60_dias", label: "+60 días" },
+] as const;
+
+export type CcSaldoBucketKey = (typeof CC_SALDO_BUCKET_KEYS)[number]["key"];
+
+export interface CcSaldoBucketRow {
+  label: string;
+  monto: number;
+  pct: number;
+}
+
+export function computeDeudaPorSaldoBuckets(
+  clientes: Array<Partial<Record<CcSaldoBucketKey, number | null | undefined>>>,
+): CcSaldoBucketRow[] {
+  const sums: Record<CcSaldoBucketKey, number> = {
+    deuda_7_dias: 0,
+    deuda_15_dias: 0,
+    deuda_30_dias: 0,
+    deuda_60_dias: 0,
+    deuda_mas_60_dias: 0,
+  };
+  for (const c of clientes) {
+    for (const { key } of CC_SALDO_BUCKET_KEYS) {
+      sums[key] += Number(c[key] ?? 0);
+    }
+  }
+  const totalBuckets = Object.values(sums).reduce((a, b) => a + b, 0);
+  const denom = totalBuckets > 0 ? totalBuckets : 1;
+  return CC_SALDO_BUCKET_KEYS.map(({ key, label }) => ({
+    label,
+    monto: sums[key],
+    pct: (100 * sums[key]) / denom,
+  }));
+}
+
 /** "2026-05" → "Mayo" (es-AR). */
 export function mesEnLetras(yyyyMm: string): string {
   const [y, m] = yyyyMm.split("-").map(Number);

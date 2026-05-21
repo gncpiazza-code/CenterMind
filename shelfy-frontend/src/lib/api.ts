@@ -1587,6 +1587,11 @@ export interface ClienteCuenta {
   cliente: string | null;
   sucursal: string | null;
   deuda_total: number;
+  deuda_7_dias?: number;
+  deuda_15_dias?: number;
+  deuda_30_dias?: number;
+  deuda_60_dias?: number;
+  deuda_mas_60_dias?: number;
   antiguedad: number | null;
   rango_antiguedad: string | null;
   cantidad_comprobantes: number | null;

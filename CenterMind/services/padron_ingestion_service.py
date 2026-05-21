@@ -215,6 +215,35 @@ def _franchise_erp_keys_from_rows(
     return keys
 
 
+def _fuc_iso_max(a: str | None, b: str | None) -> str | None:
+    """Conserva la fecha ISO más reciente (evita pisar con fila vieja del Excel)."""
+    if not a:
+        return b
+    if not b:
+        return a
+    aa, bb = str(a)[:10], str(b)[:10]
+    return bb if bb > aa else aa
+
+
+def _estado_cliente_desde_padron(
+    row: pd.Series, cols: dict[str, str | None], fuc_raw: str | None
+) -> tuple[str, str | None, str | None]:
+    """(estado, motivo_inactivo, fecha_inactivacion iso) según anulado + última compra."""
+    _now_ts = datetime.now(timezone.utc).isoformat()
+    if _row_padron_anulado_si(row, cols):
+        return "inactivo", "padron_anulado", _now_ts
+    if fuc_raw is None:
+        return "inactivo", "sin_compra_null", _now_ts
+    try:
+        fuc_date = date.fromisoformat(fuc_raw)
+        _thirty_ago = datetime.now(timezone.utc).date() - timedelta(days=30)
+        if fuc_date < _thirty_ago:
+            return "inactivo", "sin_compra_30d", _now_ts
+        return "activo", None, None
+    except ValueError:
+        return "activo", None, None
+
+
 def _safe_date(val: Any) -> str | None:
     """Parsea fechas del Excel del padrón. Conservador con NaN; no devolver basura."""
     if val is None:
@@ -321,6 +350,9 @@ class PadronIngestionService:
         estado: str,
         registros: dict | None = None,
         error_msg: str | None = None,
+        *,
+        dist_id: int | None = None,
+        notify_ops: bool = True,
     ) -> None:
         sb.table("motor_runs").update({
             "estado": estado,
@@ -328,6 +360,12 @@ class PadronIngestionService:
             "registros": registros,
             "error_msg": error_msg,
         }).eq("id", run_id).execute()
+        if notify_ops and dist_id is not None:
+            try:
+                from services.motor_ops_notification_service import on_padron_run_finished
+                on_padron_run_finished(dist_id, run_id, estado, registros, error_msg)
+            except Exception as e_ops:
+                logger.debug("[Padrón] notify ops omitido: %s", e_ops)
 
     def record_sin_cambios_run(self, dist_id: int, source: str = "rpa_hash_guard") -> int:
         """
@@ -340,6 +378,7 @@ class PadronIngestionService:
             run_id,
             "ok",
             registros={"sin_cambios": True, "skipped": True, "reason": source},
+            dist_id=dist_id,
         )
         return run_id
 
@@ -383,6 +422,18 @@ class PadronIngestionService:
             "registros": registros,
             "error_msg": error_msg,
         }).eq("id", run_id).execute()
+        if estado == "error" and error_msg:
+            try:
+                from services.motor_ops_notification_service import notify_padron_global_finished
+                notify_padron_global_finished([], estado, error_msg)
+            except Exception as e_ops:
+                logger.debug("[Padrón] notify global error omitido: %s", e_ops)
+        elif estado == "ok" and resultados:
+            try:
+                from services.motor_ops_notification_service import notify_padron_global_finished
+                notify_padron_global_finished(resultados, estado)
+            except Exception as e_ops:
+                logger.debug("[Padrón] notify global ok omitido: %s", e_ops)
 
     # ── Parseo del Excel ──────────────────────────────────────────────────────
 
@@ -740,9 +791,10 @@ class PadronIngestionService:
         faltó mapear (vendedor/código inconsistente temporal).
         """
         BATCH = 300
-        records = []
+        by_erp: dict[str, dict] = {}
         skip_no_id = 0
         skip_no_ruta = 0
+        dup_erp_merged = 0
 
         # Recolectar todos los id_erp del padrón para el paso de adopción
         erp_ids_en_padron: dict[str, dict] = {}
@@ -801,33 +853,7 @@ class PadronIngestionService:
             latitud, longitud = _parse_latlng(lat_raw, lng_raw)
 
             fuc_raw = _safe_date(row.get(cols["fecha_ultima_compra"]) if cols.get("fecha_ultima_compra") else None)
-
-            # Regla de negocio: anulado en Consolido tiene prioridad; luego última compra.
             _now_ts = datetime.now(timezone.utc).isoformat()
-            if _row_padron_anulado_si(row, cols):
-                _estado = "inactivo"
-                _motivo = "padron_anulado"
-                _fecha_inact = _now_ts
-            elif fuc_raw is None:
-                _estado = "inactivo"
-                _motivo = "sin_compra_null"
-                _fecha_inact = _now_ts
-            else:
-                try:
-                    fuc_date = date.fromisoformat(fuc_raw)
-                    _thirty_ago = datetime.now(timezone.utc).date() - timedelta(days=30)
-                    if fuc_date < _thirty_ago:
-                        _estado = "inactivo"
-                        _motivo = "sin_compra_30d"
-                        _fecha_inact = _now_ts
-                    else:
-                        _estado = "activo"
-                        _motivo = None
-                        _fecha_inact = None
-                except ValueError:
-                    _estado = "activo"
-                    _motivo = None
-                    _fecha_inact = None
 
             payload = {
                 "id_ruta":             id_ruta,
@@ -844,18 +870,41 @@ class PadronIngestionService:
                 "latitud":             latitud,
                 "longitud":            longitud,
                 "es_limbo":            False,
-                "estado":              _estado,
-                "motivo_inactivo":     _motivo,
-                "fecha_inactivacion":  _fecha_inact,
                 "updated_at":          _now_ts,
             }
-            # No pisar fecha existente en DB si esta corrida no pudo parsear la celda (mantiene valor previo del upsert merge).
             if fuc_raw is not None:
                 payload["fecha_ultima_compra"] = fuc_raw
-            records.append(payload)
-            erp_ids_en_padron[id_erp] = payload
 
-        logger.info(f"[Padrón] Clientes: {len(records)} a procesar, {skip_no_id} sin id_erp, {skip_no_ruta} sin ruta mapeada")
+            erp_key = str(id_erp).strip()
+            prev = by_erp.get(erp_key)
+            if prev:
+                dup_erp_merged += 1
+                merged_fuc = _fuc_iso_max(prev.get("fecha_ultima_compra"), payload.get("fecha_ultima_compra"))
+                merged = {**payload}
+                if merged_fuc:
+                    merged["fecha_ultima_compra"] = merged_fuc
+                elif "fecha_ultima_compra" in prev and "fecha_ultima_compra" not in merged:
+                    merged["fecha_ultima_compra"] = prev["fecha_ultima_compra"]
+                _estado, _motivo, _fecha_inact = _estado_cliente_desde_padron(row, cols, merged_fuc)
+                merged["estado"] = _estado
+                merged["motivo_inactivo"] = _motivo
+                merged["fecha_inactivacion"] = _fecha_inact
+                payload = merged
+            else:
+                _estado, _motivo, _fecha_inact = _estado_cliente_desde_padron(row, cols, fuc_raw)
+                payload["estado"] = _estado
+                payload["motivo_inactivo"] = _motivo
+                payload["fecha_inactivacion"] = _fecha_inact
+
+            by_erp[erp_key] = payload
+            erp_ids_en_padron[erp_key] = payload
+
+        records = list(by_erp.values())
+        if dup_erp_merged:
+            logger.info(
+                f"[Padrón] Clientes: {dup_erp_merged} filas duplicadas por id_cliente_erp fusionadas (FUC = más reciente)"
+            )
+        logger.info(f"[Padrón] Clientes: {len(records)} únicos a procesar, {skip_no_id} sin id_erp, {skip_no_ruta} sin ruta mapeada")
 
         if not records:
             return 0, {}, set(), frozenset(erp_seen_in_sheet)
@@ -907,15 +956,17 @@ class PadronIngestionService:
         #   ERP ya existentes en el dist; luego hacemos upsert de los nuevos por
         #   (id_ruta,id_cliente_erp).
         total = 0
+        fuc_downgrade_skipped = 0
         for i in range(0, len(records), BATCH):
             batch = records[i:i + BATCH]
             erp_ids = [str((it.get("id_cliente_erp") or "")).strip() for it in batch if it.get("id_cliente_erp")]
             existing_by_erp: dict[str, int] = {}
+            existing_fuc_by_erp: dict[str, str] = {}
             if erp_ids:
                 try:
                     existing_res = (
                         sb.table(cli_table)
-                        .select("id_cliente,id_cliente_erp")
+                        .select("id_cliente,id_cliente_erp,fecha_ultima_compra")
                         .eq("id_distribuidor", dist_id)
                         .in_("id_cliente_erp", list(dict.fromkeys(erp_ids)))
                         .execute()
@@ -925,6 +976,11 @@ class PadronIngestionService:
                         pk = row.get("id_cliente")
                         if erp and pk is not None:
                             existing_by_erp[erp] = int(pk)
+                            prev_fuc = row.get("fecha_ultima_compra")
+                            if prev_fuc:
+                                existing_fuc_by_erp[erp] = _fuc_iso_max(
+                                    existing_fuc_by_erp.get(erp), str(prev_fuc)[:10]
+                                ) or str(prev_fuc)[:10]
                 except Exception as e_lookup:
                     logger.warning(f"[Padrón] Lookup existentes batch {i//BATCH} falló: {e_lookup}")
 
@@ -936,6 +992,21 @@ class PadronIngestionService:
                 if existing_pk is not None:
                     upd = dict(item)
                     upd["id_cliente"] = existing_pk
+                    db_fuc = existing_fuc_by_erp.get(erp)
+                    new_fuc = upd.get("fecha_ultima_compra")
+                    if db_fuc and new_fuc and str(new_fuc)[:10] < str(db_fuc)[:10]:
+                        fuc_downgrade_skipped += 1
+                        upd["fecha_ultima_compra"] = str(db_fuc)[:10]
+                    elif db_fuc and not new_fuc:
+                        upd["fecha_ultima_compra"] = str(db_fuc)[:10]
+                    if upd.get("motivo_inactivo") != "padron_anulado":
+                        merged = upd.get("fecha_ultima_compra")
+                        est, mot, finact = _estado_cliente_desde_padron(
+                            pd.Series({}), cols, str(merged)[:10] if merged else None
+                        )
+                        upd["estado"] = est
+                        upd["motivo_inactivo"] = mot
+                        upd["fecha_inactivacion"] = finact
                     to_update.append(upd)
                 else:
                     to_upsert.append(item)
@@ -972,6 +1043,10 @@ class PadronIngestionService:
             if (i // BATCH) % 10 == 0:
                 logger.info(f"[Padrón] Clientes procesados: {total}/{len(records)}...")
 
+        if fuc_downgrade_skipped:
+            logger.warning(
+                f"[Padrón] {fuc_downgrade_skipped} clientes: Excel traía FUC más vieja que DB; se conservó la más reciente"
+            )
         logger.info(f"[Padrón] Clientes upserted: {total} (adoptados del limbo: {adopted})")
         return total, erp_to_ruta, rutas_en_archivo, frozenset(erp_seen_in_sheet)
 
@@ -1991,14 +2066,18 @@ class PadronIngestionService:
                 "rutas_obsoletas_borradas": rutas_obsoletas_borradas,
                 "exhib_vinculadas": exhib_linked,
             }
-            self._finish_run(run_id, "ok", registros=registros)
+            self._finish_run(
+                run_id, "ok", registros=registros, dist_id=dist_id, notify_ops=True,
+            )
             logger.info(f"[Padrón] Run #{run_id} dist {dist_id} OK en {duracion:.1f}s → {registros}")
 
             return {"dist_id": dist_id, "run_id": run_id, "duracion_seg": round(duracion, 2), **registros}
 
         except Exception as e:
             logger.error(f"[Padrón] Run #{run_id} dist {dist_id} ERROR: {e}")
-            self._finish_run(run_id, "error", error_msg=str(e))
+            self._finish_run(
+                run_id, "error", error_msg=str(e), dist_id=dist_id, notify_ops=True,
+            )
             raise
 
 

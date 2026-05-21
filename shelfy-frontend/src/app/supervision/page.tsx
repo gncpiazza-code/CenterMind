@@ -35,6 +35,7 @@ import {
 import { AnimatedKpiCard } from "@/components/supervision/AnimatedKpiCard";
 import { SyncStatusBadges } from "@/components/supervision/SyncStatusBadges";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import {
   Select,

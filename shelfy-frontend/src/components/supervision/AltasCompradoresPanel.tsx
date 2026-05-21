@@ -27,7 +27,6 @@ import {
 } from "@/hooks/useAltasCompradores";
 import { useSupervisionPanelStore } from "@/store/useSupervisionPanelStore";
 import { mesEnLetras } from "@/lib/cuentasCorrientes";
-import { SUPERVISION_PANEL_SCROLL_MIN_H } from "@/components/supervision/supervisionLayout";
 import { cn } from "@/lib/utils";
 import type { PdvsMovimientoItem } from "@/lib/api";
 
@@ -40,6 +39,7 @@ type Props = {
   vendedorId: number | null;
   layout?: Layout;
   className?: string;
+  bodyScrollClassName?: string;
 };
 
 function SplitRow({ item, index }: { item: PdvsMovimientoItem; index: number }) {
@@ -71,6 +71,7 @@ export function AltasCompradoresPanel({
   vendedorId,
   layout = "tabs",
   className = "",
+  bodyScrollClassName = "flex-1 min-h-0 overflow-y-auto overscroll-contain",
 }: Props) {
   const { altasMes, altasTab, setAltasMes, setAltasTab } = useSupervisionPanelStore();
   const { data: altasData, isLoading, isFetching } = useAltasCompradoresQuery(
@@ -303,7 +304,7 @@ export function AltasCompradoresPanel({
                 ))}
               </div>
             </div>
-            <div className={cn("flex-1 min-h-0 overflow-y-auto", SUPERVISION_PANEL_SCROLL_MIN_H)}>
+            <div className={bodyScrollClassName}>
               <AnimatePresence mode="wait">
                 {itemsFiltrados.length === 0 ? (
                   <motion.p

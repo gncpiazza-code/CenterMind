@@ -13,6 +13,7 @@ import { openCuentasCorrientesPrintWindow } from "@/lib/printCuentasCorrientes";
 import {
   ccRowMatchesVendedor,
   computeDeudaPorAntiguedad,
+  formatFechaPadron,
   formatRangoBadgeLabel,
   rangoBadgeClass,
   sortClientesCC,
@@ -54,8 +55,10 @@ import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
 import {
-  SUPERVISION_PANEL_SCROLL_MIN_H,
-  SUPERVISION_SPLIT_PANEL_MIN_H,
+  SUPERVISION_PANEL_BODY_SCROLL_CLASS,
+  SUPERVISION_PANEL_COLUMN_CLASS,
+  SUPERVISION_PANELS_ROW_CLASS,
+  SUPERVISION_PANELS_VIEWPORT_CLASS,
 } from "@/components/supervision/supervisionLayout";
 
 const ALLOWED_ROLES = ["superadmin", "admin", "supervisor", "directorio"];
@@ -202,8 +205,8 @@ export default function SupervisionPage() {
       <div className="flex flex-col flex-1 min-w-0">
         <Topbar title="Supervisión" />
 
-        <main className="flex-1 overflow-auto pb-24 md:pb-8">
-          <div className="max-w-[1400px] mx-auto flex flex-col gap-0">
+        <main className="flex-1 flex flex-col min-h-0 overflow-hidden pb-24 md:pb-8">
+          <div className="max-w-[1400px] mx-auto flex flex-col flex-1 min-h-0 w-full gap-0">
 
             {/* ── NIVEL 1: Sticky subheader ─────────────────────────────────── */}
             <div className="sticky top-0 z-20 bg-[var(--shelfy-bg)]/90 backdrop-blur-md border-b border-[var(--shelfy-border)] px-4 md:px-6 py-3">
@@ -264,18 +267,17 @@ export default function SupervisionPage() {
               </div>
             </div>
 
-            <div className="p-4 md:p-6 flex flex-col gap-5">
+            <div className="p-4 md:p-6 flex flex-col flex-1 min-h-0 gap-5 overflow-hidden">
 
               {vendedoresLoading ? (
                 <SupervisionPageLoadingShell />
               ) : (
-              <SupervisionReveal animate={!fetchingCuentas || !!cuentasData}>
-              {/* ── NIVEL 3: KPIs globales (4 cards animadas) ─────────────── */}
-              <SupervisionRevealItem
-                className={cn(
-                  showCcResumen && ccResumenExpanded && "mb-5 lg:mb-7",
-                )}
+              <SupervisionReveal
+                className="flex flex-col flex-1 min-h-0 gap-5 overflow-hidden"
+                animate={!fetchingCuentas || !!cuentasData}
               >
+              {/* ── NIVEL 3: KPIs globales (4 cards animadas) ─────────────── */}
+              <SupervisionRevealItem className="shrink-0">
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 <div className="flex flex-col min-w-0">
                   <AnimatedKpiCard
@@ -328,12 +330,12 @@ export default function SupervisionPage() {
               </SupervisionRevealItem>
 
               {/* ── NIVEL 4: Paneles 50/50 ───────────────────────────────── */}
-              <SupervisionRevealItem>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-stretch">
+              <SupervisionRevealItem className={SUPERVISION_PANELS_VIEWPORT_CLASS}>
+              <div className={SUPERVISION_PANELS_ROW_CLASS}>
 
                 {/* ── Izquierda: Cuentas Corrientes ──────────────────────── */}
-                <div className={cn("flex flex-col h-full", SUPERVISION_SPLIT_PANEL_MIN_H)}>
-                  <Card className="flex flex-col flex-1 min-h-0 h-full rounded-2xl shadow-sm border">
+                <div className={SUPERVISION_PANEL_COLUMN_CLASS}>
+                  <Card className="flex flex-col flex-1 min-h-0 h-full rounded-2xl shadow-sm border overflow-hidden">
                     <CardHeader className="pb-3 pt-4 px-5">
                       <div className="flex items-center justify-between gap-2 flex-wrap">
                         <CardTitle className="text-sm font-bold flex items-center gap-2">
@@ -362,7 +364,7 @@ export default function SupervisionPage() {
                     <Separator />
                     <CardContent className="p-0 flex flex-col flex-1 min-h-0">
                       {!selectedVendedorNombre ? (
-                        <div className="flex flex-1 flex-col items-center justify-center py-14 gap-3 text-center px-6 min-h-[420px]">
+                        <div className="flex flex-1 flex-col items-center justify-center py-14 gap-3 text-center px-6 min-h-0">
                           <div className="size-12 rounded-2xl bg-rose-500/8 flex items-center justify-center">
                             <CreditCard size={22} className="text-rose-500" />
                           </div>
@@ -374,17 +376,17 @@ export default function SupervisionPage() {
                           </div>
                         </div>
                       ) : loadingCuentas ? (
-                        <div className={cn("p-4 flex flex-col gap-2 flex-1", SUPERVISION_PANEL_SCROLL_MIN_H)}>
+                        <div className="p-4 flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto">
                           {Array.from({ length: 6 }).map((_, i) => (
                             <Skeleton key={i} className="h-9 w-full rounded" />
                           ))}
                         </div>
                       ) : clientesOrdenados.length === 0 ? (
-                        <p className={cn("text-center text-xs text-muted-foreground py-8 flex-1 flex items-center justify-center", SUPERVISION_PANEL_SCROLL_MIN_H)}>
+                        <p className="text-center text-xs text-muted-foreground py-8 flex-1 flex items-center justify-center min-h-0">
                           Sin datos de CC disponibles
                         </p>
                       ) : (
-                        <div className={cn("flex-1 min-h-0 overflow-auto", SUPERVISION_PANEL_SCROLL_MIN_H)}>
+                        <div className={SUPERVISION_PANEL_BODY_SCROLL_CLASS}>
                           <Table>
                             <TableHeader>
                               <TableRow className="text-[10px]">
@@ -397,9 +399,10 @@ export default function SupervisionPage() {
                                 </TableHead>
                                 <TableHead
                                   className="text-right cursor-pointer select-none hover:text-foreground"
+                                  title="Días de atraso de la deuda (dato CC / ERP)"
                                   onClick={() => toggleCCSort("antiguedad")}
                                 >
-                                  Antig. <CCSortIndicator active={ccSort === "antiguedad"} dir={ccSortDir} />
+                                  Mora <CCSortIndicator active={ccSort === "antiguedad"} dir={ccSortDir} />
                                 </TableHead>
                                 <TableHead
                                   className="text-right cursor-pointer select-none hover:text-foreground"
@@ -412,9 +415,10 @@ export default function SupervisionPage() {
                                 </TableHead>
                                 <TableHead
                                   className="text-right cursor-pointer select-none hover:text-foreground pr-5"
+                                  title="Fecha última compra según padrón Shelfy"
                                   onClick={() => toggleCCSort("ultima_compra")}
                                 >
-                                  Últ. Compra <CCSortIndicator active={ccSort === "ultima_compra"} dir={ccSortDir} />
+                                  Últ. compra <CCSortIndicator active={ccSort === "ultima_compra"} dir={ccSortDir} />
                                 </TableHead>
                                 <TableHead className="text-right pr-5 min-w-[4.25rem] w-[4.25rem]">Rango</TableHead>
                               </TableRow>
@@ -435,9 +439,7 @@ export default function SupervisionPage() {
                                     {c.cantidad_comprobantes ?? "—"}
                                   </TableCell>
                                   <TableCell className="text-right text-muted-foreground text-[10px] whitespace-nowrap">
-                                    {c.fecha_ultima_compra
-                                      ? new Date(c.fecha_ultima_compra + "T12:00:00Z").toLocaleDateString("es-AR")
-                                      : "—"}
+                                    {formatFechaPadron(c.fecha_ultima_compra)}
                                   </TableCell>
                                   <TableCell className="text-right pr-5 align-middle">
                                     {c.rango_antiguedad ? (
@@ -463,7 +465,8 @@ export default function SupervisionPage() {
                   distId={distId}
                   vendedorId={selectedVendedorId}
                   layout="tabs"
-                  className={cn("h-full", SUPERVISION_SPLIT_PANEL_MIN_H)}
+                  className={SUPERVISION_PANEL_COLUMN_CLASS}
+                  bodyScrollClassName={SUPERVISION_PANEL_BODY_SCROLL_CLASS}
                 />
 
               </div>

@@ -1672,16 +1672,37 @@ def _fetch_cc_detalle_rows(
     return rows
 
 
-def _build_pdv_metadata_maps(d_id: int, cc_rows: list[dict]) -> tuple[dict, dict, dict, dict, dict]:
+def _fuc_iso_key(fuc) -> str:
+    if not fuc:
+        return ""
+    return str(fuc).strip()[:10]
+
+
+def _merge_fuc_latest(existing, new):
+    """Conserva la fecha_ultima_compra más reciente (misma regla que dedupe padrón)."""
+    if not new:
+        return existing
+    if not existing:
+        return new
+    en, nn = _fuc_iso_key(existing), _fuc_iso_key(new)
+    if bool(nn) != bool(en):
+        return new if nn else existing
+    if en and nn and nn != en:
+        return new if nn > en else existing
+    return existing
+
+
+def _build_pdv_metadata_maps(d_id: int, cc_rows: list[dict]) -> tuple[dict, dict, dict, dict, dict, dict]:
     """
     Maps para enriquecer CC: solo PDVs referenciados en filas CC (no scan completo).
-    Retorna: fecha_uc_map, erp_fuc_map, erp_id_map, id_cliente_map, erp_to_id_cliente
+    Retorna: fecha_uc_map, erp_fuc_map, erp_id_map, id_cliente_map, erp_to_id_cliente, id_cliente_fuc_map
     """
     fecha_uc_map: dict = {}
     erp_fuc_map: dict = {}
     erp_id_map: dict = {}
     id_cliente_map: dict = {}
     erp_to_id_cliente: dict = {}
+    id_cliente_fuc_map: dict = {}
 
     erp_values: set[str] = set()
     id_clientes: set[int] = set()
@@ -1697,7 +1718,7 @@ def _build_pdv_metadata_maps(d_id: int, cc_rows: list[dict]) -> tuple[dict, dict
                 pass
 
     if not erp_values and not id_clientes:
-        return fecha_uc_map, erp_fuc_map, erp_id_map, id_cliente_map, erp_to_id_cliente
+        return fecha_uc_map, erp_fuc_map, erp_id_map, id_cliente_map, erp_to_id_cliente, id_cliente_fuc_map
 
     t_clientes = tenant_table_name("clientes_pdv_v2", d_id)
 
@@ -1706,21 +1727,27 @@ def _build_pdv_metadata_maps(d_id: int, cc_rows: list[dict]) -> tuple[dict, dict
         fuc = p.get("fecha_ultima_compra")
         pk = p.get("id_cliente")
         erp_norm = _norm_erp_cliente_id(erp_id)
+        if pk is not None and fuc:
+            try:
+                ipk = int(pk)
+                id_cliente_fuc_map[ipk] = _merge_fuc_latest(id_cliente_fuc_map.get(ipk), fuc)
+            except (TypeError, ValueError):
+                pass
         for key in [p.get("nombre_fantasia"), p.get("nombre_razon_social")]:
             if key:
                 for norm_key in {key.strip().upper(), _norm_name(key)}:
                     if not norm_key:
                         continue
-                    if fuc and norm_key not in fecha_uc_map:
-                        fecha_uc_map[norm_key] = fuc
+                    if fuc:
+                        fecha_uc_map[norm_key] = _merge_fuc_latest(fecha_uc_map.get(norm_key), fuc)
                     if erp_id and norm_key not in erp_id_map:
                         erp_id_map[norm_key] = str(erp_id).strip()
                     if pk and norm_key not in id_cliente_map:
                         id_cliente_map[norm_key] = pk
         if erp_norm and pk and erp_norm not in erp_to_id_cliente:
             erp_to_id_cliente[erp_norm] = pk
-        if erp_norm and fuc and erp_norm not in erp_fuc_map:
-            erp_fuc_map[erp_norm] = fuc
+        if erp_norm and fuc:
+            erp_fuc_map[erp_norm] = _merge_fuc_latest(erp_fuc_map.get(erp_norm), fuc)
 
     def _fetch_by_erp_chunk(chunk: list[str]) -> None:
         offset = 0
@@ -1760,7 +1787,7 @@ def _build_pdv_metadata_maps(d_id: int, cc_rows: list[dict]) -> tuple[dict, dict
     for i in range(0, len(id_list), 400):
         _fetch_by_id_chunk(id_list[i : i + 400])
 
-    return fecha_uc_map, erp_fuc_map, erp_id_map, id_cliente_map, erp_to_id_cliente
+    return fecha_uc_map, erp_fuc_map, erp_id_map, id_cliente_map, erp_to_id_cliente, id_cliente_fuc_map
 
 
 def _exhibido_cliente_ids_en_mes(
@@ -1895,12 +1922,12 @@ def supervision_cuentas(
             ]
 
         try:
-            fecha_uc_map, erp_fuc_map, erp_id_map, id_cliente_map, erp_to_id_cliente = _build_pdv_metadata_maps(
+            fecha_uc_map, erp_fuc_map, erp_id_map, id_cliente_map, erp_to_id_cliente, id_cliente_fuc_map = _build_pdv_metadata_maps(
                 d_id, rows
             )
         except Exception as e:
             logger.warning(f"[supervision_cuentas] PDV metadata scoped error dist={d_id}: {e}")
-            fecha_uc_map, erp_fuc_map, erp_id_map, id_cliente_map, erp_to_id_cliente = {}, {}, {}, {}, {}
+            fecha_uc_map, erp_fuc_map, erp_id_map, id_cliente_map, erp_to_id_cliente, id_cliente_fuc_map = {}, {}, {}, {}, {}, {}
 
         vendors: dict = {}
         for item in rows:
@@ -1940,14 +1967,21 @@ def supervision_cuentas(
                     or id_cliente_map.get(nombre_raw_upper)
                     or (erp_to_id_cliente.get(erp_norm_resolved) if erp_norm_resolved else None)
                 )
-            fuc = (
-                (erp_fuc_map.get(_norm_erp_cliente_id(item.get("id_cliente_erp"))) if item.get("id_cliente_erp") else None)
-                or (erp_fuc_map.get(erp_label) if erp_label else None)
-                or (erp_fuc_map.get(erp_norm_resolved) if erp_norm_resolved else None)
-                or (fecha_uc_map.get(name_label) if name_label else None)
-                or fecha_uc_map.get(nombre_norm)
-                or fecha_uc_map.get(nombre_raw_upper)
-            )
+            fuc = None
+            if id_cliente_pk is not None:
+                try:
+                    fuc = id_cliente_fuc_map.get(int(id_cliente_pk))
+                except (TypeError, ValueError):
+                    fuc = None
+            if not fuc:
+                fuc = (
+                    (erp_fuc_map.get(_norm_erp_cliente_id(item.get("id_cliente_erp"))) if item.get("id_cliente_erp") else None)
+                    or (erp_fuc_map.get(erp_label) if erp_label else None)
+                    or (erp_fuc_map.get(erp_norm_resolved) if erp_norm_resolved else None)
+                    or (fecha_uc_map.get(name_label) if name_label else None)
+                    or fecha_uc_map.get(nombre_norm)
+                    or fecha_uc_map.get(nombre_raw_upper)
+                )
             vd["clientes"].append({
                 "cliente": item.get("cliente_nombre"), "id_cliente_erp": erp_resolved,
                 "id_cliente": id_cliente_pk,

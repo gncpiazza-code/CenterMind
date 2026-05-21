@@ -258,6 +258,22 @@ export function computeDeudaPorSaldoBuckets(
   }));
 }
 
+/** Formatea fecha del padrón (ISO YYYY-MM-DD). Evita parse ambiguo de strings no ISO. */
+export function formatFechaPadron(fecha: string | null | undefined): string {
+  if (!fecha) return "—";
+  const raw = String(fecha).trim();
+  const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) {
+    const d = new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
+    if (!Number.isNaN(d.getTime())) {
+      return d.toLocaleDateString("es-AR");
+    }
+  }
+  const parsed = new Date(raw.includes("T") ? raw : `${raw}T12:00:00`);
+  if (Number.isNaN(parsed.getTime())) return raw;
+  return parsed.toLocaleDateString("es-AR");
+}
+
 /** "2026-05" → "Mayo" (es-AR). */
 export function mesEnLetras(yyyyMm: string): string {
   const [y, m] = yyyyMm.split("-").map(Number);

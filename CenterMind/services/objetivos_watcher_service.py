@@ -159,17 +159,6 @@ class ObjetivosWatcherService:
                         updates["resultado_final"] = "exito"
                         updates["completed_at"] = ahora.isoformat()
                         cumplidos += 1
-                        try:
-                            from services.objetivos_notification_service import objetivos_notification
-                            objetivos_notification.notify_objetivo_cumplido(
-                                dist_id=dist_id,
-                                id_vendedor=obj.get("id_vendedor"),
-                                tipo=obj.get("tipo"),
-                                nombre_pdv=obj.get("nombre_pdv"),
-                                obj_data=obj,
-                            )
-                        except Exception as e_notif:
-                            logger.warning(f"[Watcher] Notif cumplido omitida obj={obj.get('id')}: {e_notif}")
 
                     # ── Expiración automática (fecha_objetivo vencida) ─────────
                     elif not updates.get("cumplido"):
@@ -190,29 +179,6 @@ class ObjetivosWatcherService:
                                     logger.info(
                                         f"[Watcher] Objetivo {obj.get('id')} expirado → resultado={resultado}"
                                     )
-                                    if resultado == "exito":
-                                        try:
-                                            from services.objetivos_notification_service import objetivos_notification
-                                            objetivos_notification.notify_objetivo_cumplido(
-                                                dist_id=dist_id,
-                                                id_vendedor=obj.get("id_vendedor"),
-                                                tipo=obj.get("tipo"),
-                                                nombre_pdv=obj.get("nombre_pdv"),
-                                            )
-                                        except Exception as e_notif:
-                                            logger.warning(f"[Watcher] Notif expirado omitida obj={obj.get('id')}: {e_notif}")
-                                    else:
-                                        try:
-                                            from services.objetivos_notification_service import objetivos_notification
-                                            objetivos_notification.notify_objetivo_fallido(
-                                                dist_id=dist_id,
-                                                id_vendedor=obj.get("id_vendedor"),
-                                                tipo=obj.get("tipo"),
-                                                nombre_pdv=obj.get("nombre_pdv"),
-                                                obj_data=obj,
-                                            )
-                                        except Exception as e_notif:
-                                            logger.warning(f"[Watcher] Notif fallido omitida obj={obj.get('id')}: {e_notif}")
                             except (ValueError, TypeError) as e_fecha:
                                 logger.warning(f"[Watcher] fecha_objetivo inválida obj={obj.get('id')}: {e_fecha}")
 
@@ -245,39 +211,6 @@ class ObjetivosWatcherService:
                                     )
                                     updates["completed_at"] = ahora.isoformat()
                                     cumplidos += 1
-                                    if n_falla == 0:
-                                        try:
-                                            from services.objetivos_notification_service import (
-                                                objetivos_notification,
-                                            )
-                                            objetivos_notification.notify_objetivo_cumplido(
-                                                dist_id=dist_id,
-                                                id_vendedor=obj.get("id_vendedor"),
-                                                tipo=obj.get("tipo"),
-                                                nombre_pdv=obj.get("nombre_pdv"),
-                                            )
-                                        except Exception as e_notif:
-                                            logger.warning(
-                                                f"[Watcher] Notif cierre exhibición omitida "
-                                                f"obj={obj.get('id')}: {e_notif}"
-                                            )
-                                    else:
-                                        try:
-                                            from services.objetivos_notification_service import (
-                                                objetivos_notification,
-                                            )
-                                            objetivos_notification.notify_objetivo_fallido(
-                                                dist_id=dist_id,
-                                                id_vendedor=obj.get("id_vendedor"),
-                                                tipo=obj.get("tipo"),
-                                                nombre_pdv=obj.get("nombre_pdv"),
-                                                obj_data=obj,
-                                            )
-                                        except Exception as e_notif:
-                                            logger.warning(
-                                                f"[Watcher] Notif cierre exhibición falla omitida "
-                                                f"obj={obj.get('id')}: {e_notif}"
-                                            )
                         except Exception as e_te:
                             logger.warning(
                                 f"[Watcher] Cierre terminal exhibición obj={obj.get('id')}: {e_te}"
@@ -1045,11 +978,9 @@ class ObjetivosWatcherService:
         obj_created_at: str | None = None,
     ) -> None:
         """
-        Inserta registros nuevos en objetivos_tracking y dispara notificaciones.
-        Usa upsert con on_conflict para evitar duplicados en race conditions.
+        Inserta registros nuevos en objetivos_tracking (sin Telegram ni WS).
+        El único mensaje al vendedor es al asignar el objetivo (notify_new_objective_telegram).
         """
-        from services.objetivos_notification_service import objetivos_notification
-
         rows = [
             {
                 "id_objetivo": obj_id,
@@ -1073,70 +1004,6 @@ class ObjetivosWatcherService:
             )
         except Exception as e:
             logger.warning(f"[Watcher] upsert tracking: {e}")
-            return
-
-        # Notificar por cada evento nuevo
-        # Para exhibición, evitar spam por múltiples fotos del mismo PDV:
-        # se notifica una sola vez por PDV y por tipo de evento.
-        notif_tipo_evento = None
-        notificados_pdv: set[str] = set()
-        if tipo_evento in {"exhibicion", "exhibicion_pendiente"}:
-            notif_tipo_evento = f"{tipo_evento}_notif_pdv"
-            notificados_pdv = self._get_tracked_refs(obj_id, notif_tipo_evento)
-
-        for item in items:
-            try:
-                if notif_tipo_evento:
-                    pdv_ref = str(item.get("id_cliente_pdv") or "").strip()
-                    if pdv_ref:
-                        if pdv_ref in notificados_pdv:
-                            continue
-                        try:
-                            sb.table("objetivos_tracking").upsert(
-                                {
-                                    "id_objetivo": obj_id,
-                                    "id_referencia": pdv_ref,
-                                    "tipo_evento": notif_tipo_evento,
-                                    "metadata": {"source_event": tipo_evento},
-                                },
-                                on_conflict="id_objetivo,id_referencia,tipo_evento",
-                            ).execute()
-                            notificados_pdv.add(pdv_ref)
-                        except Exception as e_notif_track:
-                            logger.warning(
-                                f"[Watcher] tracking notif dedupe obj={obj_id} pdv={pdv_ref}: {e_notif_track}"
-                            )
-                            continue
-
-                # Anti-spam: solo notificar progreso por Telegram en exhibición.
-                # Los demás tipos ya notifican alta/cierre y el detalle vive en /objetivos.
-                if tipo_evento in {"exhibicion", "exhibicion_pendiente"}:
-                    # Anti-spam: Silenciar eventos retroactivos
-                    is_retroactive = False
-                    if obj_created_at:
-                        event_ts = item.get("timestamp_subida") or item.get("fecha_alta") or item.get("fecha_ultima_compra") or item.get("created_at")
-                        if event_ts and str(event_ts) < str(obj_created_at):
-                            is_retroactive = True
-
-                    if not is_retroactive:
-                        objetivos_notification.notify_vendor_telegram(
-                            dist_id=dist_id,
-                            id_objetivo=obj_id,
-                            id_vendedor=id_vendedor,
-                            tipo_evento=tipo_evento,
-                            pdv_data=item,
-                        )
-                # WebSocket al supervisor
-                objetivos_notification.notify_supervisor_ws(
-                    dist_id=dist_id,
-                    event_data={
-                        "tipo_evento": tipo_evento,
-                        "id_objetivo": obj_id,
-                        "pdv": item,
-                    },
-                )
-            except Exception as e:
-                logger.warning(f"[Watcher] Notificación fallida para item={item}: {e}")
 
 
 # Singleton

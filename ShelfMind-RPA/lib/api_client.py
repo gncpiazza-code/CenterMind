@@ -320,6 +320,42 @@ async def registrar_padron_sin_cambios(id_distribuidor: int) -> bool:
         return False
 
 
+async def enviar_digest_motor(
+    motor: str,
+    resumen: dict | None = None,
+    detalle: list | None = None,
+    since_hours: float = 8,
+) -> bool:
+    """
+    Pide al backend un resumen Telegram para el admin (motor_runs + delta + logs RPA).
+    Llamar al final de job_padron / job_cuentas en scheduler.py.
+    """
+    url = f"{_url()}/api/v1/ops/motor-digest"
+    payload = {
+        "motor": motor,
+        "since_hours": since_hours,
+        "resumen": resumen or {},
+        "detalle": detalle or [],
+    }
+    try:
+        timeout = httpx.Timeout(connect=15.0, read=45.0, write=15.0, pool=10.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.post(url, headers=_headers(), json=payload)
+        if resp.status_code in (200, 201):
+            data = resp.json() if resp.content else {}
+            logger.info(
+                f"  ✅ Digest Telegram motor={motor} enviado={data.get('telegram_sent', '?')}"
+            )
+            return True
+        logger.warning(
+            f"  ⚠️ Digest motor HTTP {resp.status_code}: {(resp.text or '')[:200]}"
+        )
+        return False
+    except Exception as e:
+        logger.warning(f"  ⚠️ No se pudo enviar digest motor={motor}: {e}")
+        return False
+
+
 async def subir_ventas_enriched(archivo_path, tenant_id: str) -> bool:
     """
     Sube un Excel de Informe de Ventas (Reporteador Genérico) a

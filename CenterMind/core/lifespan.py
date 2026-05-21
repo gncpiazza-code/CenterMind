@@ -129,8 +129,29 @@ async def lifespan(app: FastAPI):
             logger.error(f"❌ Error iniciando bot {d_id}: {e}")
 
     scheduler.add_job(erp_automatic_sync, "cron", hour=4, minute=0)
+
+    def _digest_padron():
+        try:
+            from services.motor_ops_notification_service import send_motor_digest
+            send_motor_digest("PADRÓN", since_hours=10)
+        except Exception as e:
+            logger.warning("Digest padrón programado omitido: %s", e)
+
+    def _digest_cc():
+        try:
+            from services.motor_ops_notification_service import send_motor_digest
+            send_motor_digest("CUENTAS CORRIENTES", since_hours=12)
+        except Exception as e:
+            logger.warning("Digest CC programado omitido: %s", e)
+
+    # Respaldo si el RPA no llamó a /api/v1/ops/motor-digest (horarios AR aprox. post-corrida)
+    for h, m in ((9, 0), (12, 0), (16, 0), (19, 0)):
+        scheduler.add_job(_digest_padron, "cron", hour=h, minute=m, id=f"digest_padron_{h:02d}{m:02d}")
+    for h, m in ((8, 0), (15, 30)):
+        scheduler.add_job(_digest_cc, "cron", hour=h, minute=m, id=f"digest_cc_{h:02d}{m:02d}")
+
     scheduler.start()
-    logger.info("📅 Scheduler iniciado (ERP Sync programado 04:00 AM)")
+    logger.info("📅 Scheduler iniciado (ERP Sync 04:00 + digest motores)")
 
     yield
 

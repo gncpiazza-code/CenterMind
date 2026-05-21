@@ -193,6 +193,17 @@ def ingest_detallado(tenant_id: str, file_bytes: bytes) -> dict:
 
     logger.info(f"[VentasDetalle] Upserted: {upserted}, errores: {errores}")
 
+    # Registrar en motor_runs
+    try:
+        sb.table("motor_runs").insert({
+            "dist_id": dist_id,
+            "motor": "ventas_detalle",
+            "estado": "ok",
+            "registros": {"registros": upserted, "errores": errores}
+        }).execute()
+    except Exception as e:
+        logger.warning(f"[VentasDetalle] No se pudo registrar en motor_runs: {e}")
+
     return {
         "registros": upserted,
         "errores": errores,

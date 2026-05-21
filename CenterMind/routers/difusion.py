@@ -219,11 +219,11 @@ def difusion_list_vendedores(dist_id: int, sucursal: Optional[str] = None, user_
         suc_rows = _fetch_all_rows(t_suc, "id_sucursal, nombre_erp", dist_id)
         suc_map = {s["id_sucursal"]: s["nombre_erp"] for s in suc_rows}
 
-        # Filtrar vendedores inactivos
+        # Filtrar vendedores inactivos y genericos
         active_ids = load_active_vendedor_ids(dist_id)
         n_all = len(vend_rows)
-        vend_rows = [v for v in vend_rows if v.get("id_vendedor") in active_ids]
-        logger.info(f"[difusion] list_vendedores dist={dist_id}: {len(vend_rows)} active vendors (excluded {n_all - len(vend_rows)} inactive)")
+        vend_rows = [v for v in vend_rows if v.get("id_vendedor") in active_ids and "sin vendedor" not in (v.get("nombre_erp") or "").lower() and "supervisor" not in (v.get("nombre_erp") or "").lower()]
+        logger.info(f"[difusion] list_vendedores dist={dist_id}: {len(vend_rows)} active vendors")
 
         # Filtrar por sucursal si se pide
         if sucursal:

@@ -185,6 +185,17 @@ def persistir_analisis_comprobantes(
         n_z,
     )
 
+    # Registrar en motor_runs
+    try:
+        sb.table("motor_runs").insert({
+            "dist_id": dist_id,
+            "motor": "ventas_analytics",
+            "estado": "ok",
+            "registros": {"run_id": run_id, "vendedor": n_v, "articulo": n_a, "cliente": n_c, "canal": n_k, "subcanal": n_z}
+        }).execute()
+    except Exception as e:
+        logger.warning(f"[VentasAnalytics] No se pudo registrar en motor_runs: {e}")
+
     return {
         "run_id": run_id,
         "id_distribuidor": dist_id,

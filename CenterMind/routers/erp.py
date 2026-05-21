@@ -34,6 +34,13 @@ from services.rendimiento_calle_analytics_service import (
     persistir_analisis_rendimiento_calle,
 )
 from services.ventas_analytics_service import persistir_analisis_comprobantes
+from services.motor_ops_notification_service import send_motor_digest
+from services.cc_motor_tracking import (
+    start_cc_motor_run,
+    finish_cc_motor_run,
+    build_cc_registros_from_rows,
+    record_cc_sin_cambios,
+)
 
 logger = logging.getLogger("ShelfyAPI")
 router = APIRouter()
@@ -638,6 +645,7 @@ async def motor_cuentas(
     file_bytes = await file.read()
     if not file_bytes:
         raise HTTPException(status_code=400, detail="Archivo vacío")
+    run_id = start_cc_motor_run(dist_id)
     try:
         import datetime as _dt
         with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
@@ -649,12 +657,17 @@ async def motor_cuentas(
             os.unlink(tmp_path)
         rows_cc = json_data.get("detalle_cuentas", []) if json_data else []
         saved = 0
+        fecha_str = _dt.datetime.now().strftime("%Y-%m-%d")
+        regs = build_cc_registros_from_rows(rows_cc, fecha_str)
         if rows_cc:
-            fecha_str = _dt.datetime.now().strftime("%Y-%m-%d")
             saved = _enrich_and_store_cc(dist_id, fecha_str, rows_cc)
-        return {"ok": True, "registros": saved, "id_distribuidor": dist_id, "tenant_id": tenant_id}
+            regs = build_cc_registros_from_rows(rows_cc, fecha_str)
+            regs["registros_cc"] = saved
+        finish_cc_motor_run(run_id, dist_id, "ok", regs, source="motor_cuentas")
+        return {"ok": True, "registros": saved, "id_distribuidor": dist_id, "tenant_id": tenant_id, "run_id": run_id}
     except Exception as e:
         logger.error(f"Error en motor_cuentas ({tenant_id}): {e}")
+        finish_cc_motor_run(run_id, dist_id, "error", error_msg=str(e)[:500])
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -759,6 +772,7 @@ async def sync_cuentas_corrientes(
     id_distribuidor: int = Query(...),
     user_key: str = Depends(verify_key),
 ):
+    run_id = start_cc_motor_run(id_distribuidor)
     try:
         payload = await request.json()
         tenant_id = payload.get("tenant_id")
@@ -776,12 +790,55 @@ async def sync_cuentas_corrientes(
 
         rows_cc = datos.get("detalle_cuentas", [])
         saved = 0
+        regs = build_cc_registros_from_rows(rows_cc, fecha_str)
         if rows_cc:
             saved = _enrich_and_store_cc(id_distribuidor, fecha_str, rows_cc)
-        return {"ok": True, "message": "Datos sincronizados", "registros_cc_detalle": saved}
+            regs = build_cc_registros_from_rows(rows_cc, fecha_str)
+            regs["registros_cc"] = saved
+            regs["tenant_id"] = tenant_id
+        finish_cc_motor_run(
+            run_id, id_distribuidor, "ok", regs, source="sync_cuentas_corrientes",
+        )
+        return {
+            "ok": True,
+            "message": "Datos sincronizados",
+            "registros_cc_detalle": saved,
+            "run_id": run_id,
+        }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error sync cuentas corrientes dist={id_distribuidor}: {e}")
+        finish_cc_motor_run(run_id, id_distribuidor, "error", error_msg=str(e)[:500])
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post(
+    "/api/v1/ops/motor-digest",
+    tags=["Ops"],
+    summary="Enviar resumen Telegram al admin (RPA post-corrida)",
+)
+async def ops_motor_digest(request: Request, _=Depends(verify_key)):
+    """
+    ShelfMind-RPA llama al terminar job_padron / job_cuentas.
+    Combina resumen RPA (Railway logs) con motor_runs y delta en Supabase.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    motor = str(body.get("motor") or "motores").strip()
+    since_hours = float(body.get("since_hours") or 8)
+    rpa_resumen = body.get("resumen") if isinstance(body.get("resumen"), dict) else None
+    detalle = body.get("detalle") if isinstance(body.get("detalle"), list) else None
+    label = "PADRÓN" if motor.lower().startswith("pad") else "CUENTAS CORRIENTES"
+    sent = send_motor_digest(
+        label,
+        since_hours=since_hours,
+        rpa_resumen=rpa_resumen,
+        rpa_detalle=detalle,
+    )
+    return {"ok": True, "telegram_sent": sent, "motor": motor}
 
 
 @router.get("/api/cuentas-corrientes/{id_distribuidor}", summary="Obtener Cuentas Corrientes")

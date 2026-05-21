@@ -1,22 +1,30 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import type { AltasTab } from '@/hooks/useAltasCompradores';
 
 interface SupervisionPanelStore {
   // Filtros
   selectedSucursal: string;            // "__all__" = todas
   selectedVendedorNombre: string | null;
   altasMes: string;                    // YYYY-MM
+  altasTab: AltasTab;
 
   // Sorting CC
   ccSort: 'deuda' | 'antiguedad' | 'comprobantes' | 'ultima_compra';
   ccSortDir: 'desc' | 'asc';
 
+  // UI
+  ccResumenExpanded: boolean;
+
   // Actions
   setSelectedSucursal: (s: string) => void;
   setSelectedVendedorNombre: (n: string | null) => void;
   setAltasMes: (m: string) => void;
+  setAltasTab: (t: AltasTab) => void;
   setCCSort: (sort: 'deuda' | 'antiguedad' | 'comprobantes' | 'ultima_compra', dir: 'desc' | 'asc') => void;
   toggleCCSort: (sort: 'deuda' | 'antiguedad' | 'comprobantes' | 'ultima_compra') => void;
+  setCcResumenExpanded: (open: boolean) => void;
+  toggleCcResumen: () => void;
 }
 
 function currentMes(): string {
@@ -29,15 +37,19 @@ export const useSupervisionPanelStore = create<SupervisionPanelStore>()(
       selectedSucursal: '__all__',
       selectedVendedorNombre: null,
       altasMes: currentMes(),
+      altasTab: 'todos',
       ccSort: 'antiguedad',
       ccSortDir: 'desc',
+      ccResumenExpanded: true,
 
       setSelectedSucursal: (s) =>
         set({ selectedSucursal: s, selectedVendedorNombre: null }),
 
       setSelectedVendedorNombre: (n) => set({ selectedVendedorNombre: n }),
 
-      setAltasMes: (m) => set({ altasMes: m }),
+      setAltasMes: (m) => set({ altasMes: m, altasTab: 'todos' }),
+
+      setAltasTab: (t) => set({ altasTab: t }),
 
       setCCSort: (sort, dir) => set({ ccSort: sort, ccSortDir: dir }),
 
@@ -49,6 +61,11 @@ export const useSupervisionPanelStore = create<SupervisionPanelStore>()(
           set({ ccSortDir: ccSortDir === 'desc' ? 'asc' : 'desc' });
         }
       },
+
+      setCcResumenExpanded: (open) => set({ ccResumenExpanded: open }),
+
+      toggleCcResumen: () =>
+        set({ ccResumenExpanded: !get().ccResumenExpanded }),
     }),
     {
       name: 'supervision-panel-store',
@@ -56,8 +73,10 @@ export const useSupervisionPanelStore = create<SupervisionPanelStore>()(
         selectedSucursal: state.selectedSucursal,
         selectedVendedorNombre: state.selectedVendedorNombre,
         altasMes: state.altasMes,
+        altasTab: state.altasTab,
         ccSort: state.ccSort,
         ccSortDir: state.ccSortDir,
+        ccResumenExpanded: state.ccResumenExpanded,
       }),
     }
   )

@@ -43,9 +43,7 @@ import {
   type ClienteContacto,
   type ObjetivoCreate,
   type ObjetivoTipo,
-  fetchPdvsMovimiento,
   fetchVendedorKpiMapa,
-  type PdvsMovimientoItem,
 } from "@/lib/api";
 import { openCuentasCorrientesPrintWindow } from "@/lib/printCuentasCorrientes";
 import type { PinCliente, VendedorKpis } from "./MapaRutas";
@@ -77,6 +75,12 @@ import {
   computeDeudaPorSaldoBuckets,
 } from "@/lib/cuentasCorrientes";
 import { CcDeudaResumenPanel } from "@/components/supervision/CcDeudaResumenPanel";
+import { AltasCompradoresPanel } from "@/components/supervision/AltasCompradoresPanel";
+import {
+  useAltasCompradoresQuery,
+  usePrefetchAltasCompradores,
+} from "@/hooks/useAltasCompradores";
+import { useSupervisionPanelStore } from "@/store/useSupervisionPanelStore";
 
 // ── Map: SSR off ──────────────────────────────────────────────────────────────
 const MapaRutas = dynamic(() => import("./MapaRutas"), {
@@ -697,18 +701,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
     refetchOnReconnect: true,
   });
 
-  // ── Altas y Compradores state ─────────────────────────────────────────────
-  const currentMes = new Date().toISOString().slice(0, 7);
-  const [altasMes, setAltasMes] = useState(currentMes);
-  const mesOptions = useMemo(() => {
-    const opts: string[] = [];
-    const d = new Date();
-    for (let i = 0; i < 6; i++) {
-      opts.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
-      d.setMonth(d.getMonth() - 1);
-    }
-    return opts;
-  }, []);
+  const { altasMes } = useSupervisionPanelStore();
 
   const selectedVendedorId = useMemo(() => {
     if (!openVend) return null;
@@ -716,12 +709,12 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
     return v?.id_vendedor ?? null;
   }, [openVend, vendedores]);
 
-  const { data: altasData, isLoading: loadingAltas } = useQuery({
-    queryKey: ['pdvs-movimiento', selectedDist, selectedVendedorId, altasMes],
-    queryFn: () => fetchPdvsMovimiento(selectedDist!, selectedVendedorId!, altasMes, "alta,comprador"),
-    enabled: !!selectedDist && !!selectedVendedorId && !!altasMes,
-    staleTime: 5 * 60_000,
-  });
+  const { data: altasData } = useAltasCompradoresQuery(
+    selectedDist ?? 0,
+    selectedVendedorId,
+    altasMes,
+  );
+  usePrefetchAltasCompradores(selectedDist ?? 0, selectedVendedorId, altasMes);
 
   const { data: kpiMapa } = useQuery({
     queryKey: ['vendedor-kpi-mapa', selectedDist, openVend, altasMes],
@@ -2633,99 +2626,11 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
         )}
         </div>{/* fin columna CC */}
 
-        {/* Columna derecha: Altas y Compradores */}
-        <div className="rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden shadow-sm flex flex-col">
-          {/* Header */}
-          <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-[var(--shelfy-border)]/50">
-            <div className="flex items-center gap-2">
-              <Target className="w-4 h-4 text-emerald-400" />
-              <h3 className="text-sm font-bold text-[var(--shelfy-text)]">Altas y Compradores</h3>
-            </div>
-            <select
-              value={altasMes}
-              onChange={e => setAltasMes(e.target.value)}
-              className="text-xs bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-2 py-1 text-[var(--shelfy-text)] focus:outline-none"
-            >
-              {mesOptions.map(m => (
-                <option key={m} value={m}>{m}</option>
-              ))}
-            </select>
-          </div>
-
-          {!openVend ? (
-            <div className="flex-1 flex flex-col items-center justify-center py-10 text-center px-6">
-              <Target className="w-8 h-8 text-[var(--shelfy-muted)]/30 mb-2" />
-              <p className="text-sm text-[var(--shelfy-muted)]">Seleccioná un vendedor para ver altas y compradores</p>
-            </div>
-          ) : loadingAltas ? (
-            <div className="flex items-center justify-center py-10">
-              <Loader2 className="w-5 h-5 animate-spin text-[var(--shelfy-muted)]" />
-            </div>
-          ) : !altasData?.items.length ? (
-            <div className="flex-1 flex flex-col items-center justify-center py-10 text-center px-6">
-              <p className="text-sm text-[var(--shelfy-muted)]">Sin altas ni compradores en {altasMes}</p>
-            </div>
-          ) : (
-            <div className="flex-1 overflow-y-auto">
-              {/* KPI strip */}
-              <div className="grid grid-cols-2 divide-x divide-[var(--shelfy-border)]/40 border-b border-[var(--shelfy-border)]/30">
-                <div className="px-4 py-2.5">
-                  <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-0.5">Altas</p>
-                  <p className="text-base font-bold text-emerald-400">{altasData.total_altas}</p>
-                </div>
-                <div className="px-4 py-2.5">
-                  <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-0.5">Compradores</p>
-                  <p className="text-base font-bold text-violet-400">{altasData.total_compradores}</p>
-                </div>
-              </div>
-              {/* Items by category (Altas izquierda / Compradores derecha) */}
-              <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-[var(--shelfy-border)]/30">
-                {(["alta", "comprador"] as const).map((cat) => {
-                  const rows = altasData.items.filter((i: PdvsMovimientoItem) =>
-                    cat === "comprador"
-                      ? i.categoria === "comprador" || i.es_comprador_mes === true
-                      : i.categoria === cat,
-                  );
-                  return (
-                    <div key={cat} className="min-h-[220px]">
-                      <div className="px-4 py-2 border-b border-[var(--shelfy-border)]/30">
-                        <p className={`text-[11px] font-bold uppercase tracking-wide ${
-                          cat === "alta" ? "text-emerald-400" : "text-violet-400"
-                        }`}>
-                          {cat === "alta" ? "Altas" : "Compradores"}
-                        </p>
-                      </div>
-                      {!rows.length ? (
-                        <div className="px-4 py-6 text-[11px] text-[var(--shelfy-muted)]">Sin datos</div>
-                      ) : (
-                        <div className="divide-y divide-[var(--shelfy-border)]/30">
-                          {rows.map((item: PdvsMovimientoItem, i: number) => (
-                            <div key={`${cat}-${i}`} className="px-4 py-2.5 flex items-start gap-2 hover:bg-white/5 transition-colors">
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center justify-between gap-2">
-                                  <p className="text-xs font-bold text-black truncate">{item.nombre || "—"}</p>
-                                  <span className="text-[10px] text-[var(--shelfy-muted)] shrink-0">
-                                    {item.fecha_evento ? String(item.fecha_evento).slice(0, 10) : "—"}
-                                  </span>
-                                </div>
-                                <p className="text-[10px] text-[var(--shelfy-muted)] truncate">
-                                  {item.id_cliente_erp ?? "Sin código ERP"} · {(item.razon_social || "Sin razón social")}
-                                </p>
-                              </div>
-                              {item.exhibido && (
-                                <span title="Exhibido este mes" className="text-[10px] text-violet-400 font-bold shrink-0">★</span>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </div>{/* fin columna Altas */}
+        <AltasCompradoresPanel
+          distId={selectedDist!}
+          vendedorId={selectedVendedorId}
+          layout="split"
+        />
 
       </div>}
 

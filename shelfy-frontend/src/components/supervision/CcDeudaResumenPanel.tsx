@@ -1,7 +1,10 @@
 "use client";
 
+import { useMemo } from "react";
+import { ChevronDown } from "lucide-react";
 import type { CcResumenRow, CcSaldoBucketRow } from "@/lib/cuentasCorrientes";
 import { formatRangoBadgeLabel, rangoBadgeClass } from "@/lib/cuentasCorrientes";
+import { useSupervisionPanelStore } from "@/store/useSupervisionPanelStore";
 
 function fmtPct(n: number): string {
   return `${n.toLocaleString("es-AR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
@@ -19,17 +22,19 @@ type Variant = "amber" | "rose";
 
 const VARIANT_STYLES: Record<
   Variant,
-  { accent: string; headerBg: string; money: string }
+  { accent: string; headerBg: string; money: string; border: string }
 > = {
   amber: {
     accent: "text-amber-400",
     headerBg: "bg-amber-500/5",
     money: "text-amber-400",
+    border: "border-amber-500/20",
   },
   rose: {
     accent: "text-rose-600",
     headerBg: "bg-rose-500/5",
     money: "text-rose-600",
+    border: "border-rose-500/20",
   },
 };
 
@@ -41,6 +46,8 @@ type Props = {
   embedded?: boolean;
   /** Override badges de antigüedad (p. ej. tema oscuro del mapa). */
   rangoBadgeClassFn?: (label: string) => string;
+  /** Permite colapsar el bloque (persistido en Zustand). */
+  collapsible?: boolean;
   className?: string;
 };
 
@@ -68,7 +75,7 @@ function ResumenTable({
   const px = embedded ? "px-5" : "px-4";
 
   return (
-    <div className={embedded ? "border-b border-[var(--shelfy-border)]/30 last:border-b-0" : ""}>
+    <div className={embedded ? "border-b border-[var(--shelfy-border)]/30 last:border-b-0" : "border-b border-[var(--shelfy-border)]/40 last:border-b-0"}>
       <div className={`${px} py-2.5 border-b border-[var(--shelfy-border)]/40 ${v.headerBg}`}>
         <p className={`text-[10px] font-bold uppercase tracking-wide ${v.accent}`}>{title}</p>
         <p className="text-[10px] text-[var(--shelfy-muted)] mt-0.5">{subtitle}</p>
@@ -111,19 +118,29 @@ function ResumenTable({
   );
 }
 
-/** Resumen CC: antigüedad + tramos de vencimiento (como PDF difusión). */
+/** Resumen CC colapsable: antigüedad + tramos de vencimiento (como PDF difusión). */
 export function CcDeudaResumenPanel({
   antiguedad,
   saldo,
   variant = "amber",
   embedded = false,
   rangoBadgeClassFn,
+  collapsible = true,
   className = "",
 }: Props) {
+  const { ccResumenExpanded, toggleCcResumen } = useSupervisionPanelStore();
+  const expanded = collapsible ? ccResumenExpanded : true;
   const badgeClass = rangoBadgeClassFn ?? rangoBadgeClass;
+  const v = VARIANT_STYLES[variant];
+
   const showAntig = antiguedad.some((r) => r.monto > 0);
   const showSaldo = saldo.some((r) => r.monto > 0);
   if (!showAntig && !showSaldo) return null;
+
+  const totalDeuda = useMemo(
+    () => antiguedad.reduce((a, r) => a + r.monto, 0),
+    [antiguedad],
+  );
 
   const inner = (
     <>
@@ -153,15 +170,68 @@ export function CcDeudaResumenPanel({
     </>
   );
 
+  const toggleBtn = collapsible ? (
+    <button
+      type="button"
+      onClick={toggleCcResumen}
+      className={`w-full flex items-center justify-between gap-3 text-left transition-colors hover:bg-white/[0.03] ${
+        embedded ? "px-5 py-3" : "px-4 py-3"
+      } border-b border-[var(--shelfy-border)]/40 ${v.headerBg}`}
+      aria-expanded={expanded}
+    >
+      <div className="min-w-0">
+        <p className={`text-[10px] font-bold uppercase tracking-wide ${v.accent}`}>
+          Resumen de deuda
+        </p>
+        {!expanded && totalDeuda > 0 && (
+          <p className={`text-xs font-mono font-semibold tabular-nums mt-0.5 ${v.money}`}>
+            {fmtMoney(totalDeuda)}
+          </p>
+        )}
+        {expanded && (
+          <p className="text-[10px] text-[var(--shelfy-muted)] mt-0.5">
+            Antigüedad y vencimiento · como PDF difusión
+          </p>
+        )}
+      </div>
+      <ChevronDown
+        className={`w-4 h-4 shrink-0 ${v.accent} transition-transform duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] ${
+          expanded ? "rotate-180" : "rotate-0"
+        }`}
+      />
+    </button>
+  ) : null;
+
+  const animatedBody = (
+    <div
+      className="grid transition-[grid-template-rows] duration-[380ms] ease-[cubic-bezier(0.4,0,0.2,1)]"
+      style={{ gridTemplateRows: expanded ? "1fr" : "0fr" }}
+    >
+      <div
+        className={`overflow-hidden min-h-0 transition-opacity duration-300 ${
+          expanded ? "opacity-100" : "opacity-0"
+        }`}
+      >
+        {inner}
+      </div>
+    </div>
+  );
+
   if (embedded) {
-    return <div className={className}>{inner}</div>;
+    return (
+      <div className={`border-b border-[var(--shelfy-border)]/30 ${className}`}>
+        {toggleBtn}
+        {animatedBody}
+      </div>
+    );
   }
 
   return (
     <div
-      className={`rounded-xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] shadow-sm overflow-hidden ${className}`}
+      className={`rounded-xl border bg-[var(--shelfy-panel)] shadow-sm overflow-hidden ${v.border} ${className}`}
     >
-      {inner}
+      {toggleBtn}
+      {animatedBody}
     </div>
   );
 }

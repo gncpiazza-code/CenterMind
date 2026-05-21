@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { AnimatePresence, motion } from "framer-motion";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { BottomNav } from "@/components/layout/BottomNav";
 import { Topbar } from "@/components/layout/Topbar";
@@ -12,10 +11,8 @@ import {
   fetchCuentasSupervision,
   fetchSyncStatus,
   fetchVendedoresSupervision,
-  fetchPdvsMovimiento,
   type VendedorSupervision,
   type VendedorCuentas,
-  type PdvsMovimientoResponse,
 } from "@/lib/api";
 import { openCuentasCorrientesPrintWindow } from "@/lib/printCuentasCorrientes";
 import {
@@ -28,13 +25,16 @@ import {
   mesEnLetras,
 } from "@/lib/cuentasCorrientes";
 import { CcDeudaResumenPanel } from "@/components/supervision/CcDeudaResumenPanel";
+import { AltasCompradoresPanel } from "@/components/supervision/AltasCompradoresPanel";
 import { supervisionPanelKeys } from "@/lib/query-keys";
 import { useSupervisionPanelStore } from "@/store/useSupervisionPanelStore";
+import {
+  useAltasCompradoresQuery,
+  usePrefetchAltasCompradores,
+} from "@/hooks/useAltasCompradores";
 import { AnimatedKpiCard } from "@/components/supervision/AnimatedKpiCard";
 import { SyncStatusBadges } from "@/components/supervision/SyncStatusBadges";
-import { PdvMovimientoCard } from "@/components/supervision/PdvMovimientoCard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import {
   Select,
@@ -53,8 +53,7 @@ import {
 } from "@/components/ui/table";
 import {
   CreditCard, Users, Map as MapIcon, Printer,
-  Hash, Target, TrendingUp, ShoppingCart,
-  LayoutList, Store, ArrowUpFromLine,
+  Hash, TrendingUp, ShoppingCart,
 } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
@@ -68,20 +67,6 @@ function fmt$$(n: number): string {
     maximumFractionDigits: 0,
   }).format(n);
 }
-
-// Genera los últimos N meses como opciones YYYY-MM
-function buildMesOptions(count = 12): { value: string; label: string }[] {
-  return Array.from({ length: count }, (_, i) => {
-    const d = new Date();
-    d.setDate(1);
-    d.setMonth(d.getMonth() - i);
-    const value = d.toISOString().slice(0, 7);
-    const label = d.toLocaleDateString("es-AR", { month: "long", year: "numeric" });
-    return { value, label: label.charAt(0).toUpperCase() + label.slice(1) };
-  });
-}
-
-const MES_OPTIONS = buildMesOptions(12);
 
 function CCSortIndicator({
   active,
@@ -109,7 +94,6 @@ export default function SupervisionPage() {
     ccSortDir,
     setSelectedSucursal,
     setSelectedVendedorNombre,
-    setAltasMes,
     toggleCCSort,
   } = useSupervisionPanelStore();
 
@@ -167,12 +151,12 @@ export default function SupervisionPage() {
     refetchInterval: 60_000,
   });
 
-  const { data: altasData, isLoading: loadingAltas } = useQuery<PdvsMovimientoResponse>({
-    queryKey: supervisionPanelKeys.altas(distId, selectedVendedorId, altasMes),
-    queryFn: () => fetchPdvsMovimiento(distId!, selectedVendedorId!, altasMes, "alta,comprador"),
-    enabled: !!distId && !!selectedVendedorId,
-    staleTime: 5 * 60_000,
-  });
+  const { data: altasData, isLoading: loadingAltas } = useAltasCompradoresQuery(
+    distId,
+    selectedVendedorId,
+    altasMes,
+  );
+  usePrefetchAltasCompradores(distId, selectedVendedorId, altasMes);
 
   // ── Derived ─────────────────────────────────────────────────────────────────
   const totalAltas       = altasData?.total_altas ?? 0;
@@ -235,19 +219,6 @@ export default function SupervisionPage() {
   const padronLastUpdated = syncStatus?.padron?.last_updated ?? null;
   const ccLastUpdated = syncStatus?.cuentas_corrientes?.last_updated ?? null;
   const altasMesLabel = mesEnLetras(altasMes);
-
-  // Tab de filtro para el panel derecho
-  type AltasTab = "todos" | "alta" | "comprador";
-  const [altasTab, setAltasTab] = useState<AltasTab>("todos");
-
-  const itemsFiltrados = useMemo(() => {
-    const items = altasData?.items ?? [];
-    if (altasTab === "alta") return items.filter((i) => i.categoria === "alta");
-    if (altasTab === "comprador") {
-      return items.filter((i) => i.categoria === "comprador" || i.es_comprador_mes);
-    }
-    return items;
-  }, [altasData, altasTab]);
 
   // Deep link href para "Ver Mapa"
   const mapHref = selectedVendedorId
@@ -505,167 +476,11 @@ export default function SupervisionPage() {
                   </Card>
                 </div>
 
-                {/* ── Derecha: Altas y Compradores ───────────────────────── */}
-                <div className="rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden shadow-sm flex flex-col">
-
-                  {/* Panel header */}
-                  <div className="flex items-center justify-between px-5 py-3.5 border-b border-[var(--shelfy-border)]/50">
-                    <div className="flex items-center gap-2">
-                      <Target size={14} className="text-violet-500" />
-                      <span className="text-sm font-bold text-[var(--shelfy-text)]">Altas y Compradores</span>
-                    </div>
-                    <Select value={altasMes} onValueChange={(v) => { setAltasMes(v); setAltasTab("todos"); }}>
-                      <SelectTrigger className="h-7 text-xs w-44 border-[var(--shelfy-border)]">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {MES_OPTIONS.map(({ value, label }) => (
-                          <SelectItem key={value} value={value}>{label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {/* Panel body con crossfade al cambiar mes/vendedor */}
-                  <AnimatePresence mode="wait">
-                    {!selectedVendedorId ? (
-                      <motion.div
-                        key="empty-vendor"
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        transition={{ duration: 0.2 }}
-                        className="flex flex-col items-center justify-center py-16 gap-3 text-center px-6"
-                      >
-                        <div className="size-12 rounded-2xl bg-violet-500/8 flex items-center justify-center">
-                          <Target size={22} className="text-violet-500" />
-                        </div>
-                        <div>
-                          <p className="text-sm font-semibold text-[var(--shelfy-text)]">Seleccioná un vendedor</p>
-                          <p className="text-xs text-[var(--shelfy-muted)] mt-0.5">
-                            Elegí un vendedor para ver sus altas y compradores del mes
-                          </p>
-                        </div>
-                      </motion.div>
-                    ) : loadingAltas ? (
-                      <motion.div
-                        key="loading-altas"
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        transition={{ duration: 0.15 }}
-                        className="p-4 flex flex-col gap-2"
-                      >
-                        {Array.from({ length: 6 }).map((_, i) => (
-                          <Skeleton key={i} className="h-14 w-full rounded-lg" />
-                        ))}
-                      </motion.div>
-                    ) : !altasData?.items?.length ? (
-                      <motion.div
-                        key={`empty-${altasMes}-${selectedVendedorId}`}
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        transition={{ duration: 0.2 }}
-                        className="flex items-center justify-center py-12 text-sm text-[var(--shelfy-muted)]"
-                      >
-                        Sin altas ni compradores en {altasMesLabel}
-                      </motion.div>
-                    ) : (
-                      <motion.div
-                        key={`data-${altasMes}-${selectedVendedorId}`}
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        transition={{ duration: 0.2 }}
-                        className="flex flex-col"
-                      >
-                        {/* KPI counts + tabs */}
-                        <div className="border-b border-[var(--shelfy-border)]/40">
-                          {/* Conteos */}
-                          <div className="grid grid-cols-2 divide-x divide-[var(--shelfy-border)]/30">
-                            <div className="px-5 py-3">
-                              <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-0.5 flex items-center gap-1">
-                                <ArrowUpFromLine size={9} className="text-emerald-500" />
-                                Altas en {altasMesLabel}
-                              </p>
-                              <p className="text-xl font-black text-emerald-500 tabular-nums leading-none">{altasData.total_altas}</p>
-                            </div>
-                            <div className="px-5 py-3">
-                              <p className="text-[10px] text-[var(--shelfy-muted)] uppercase tracking-wide mb-0.5 flex items-center gap-1">
-                                <Store size={9} className="text-violet-500" />
-                                Compradores en {altasMesLabel}
-                              </p>
-                              <p className="text-xl font-black text-violet-500 tabular-nums leading-none">{altasData.total_compradores}</p>
-                            </div>
-                          </div>
-
-                          {/* Tabs filtro */}
-                          <div className="flex gap-1 px-4 pb-2.5 pt-1">
-                            {([
-                              { key: "todos", label: "Todos", icon: LayoutList, count: altasData.items.length },
-                              { key: "alta", label: "Altas", icon: ArrowUpFromLine, count: altasData.total_altas },
-                              { key: "comprador", label: "Compradores", icon: Store, count: altasData.total_compradores },
-                            ] as const).map(({ key, label, icon: Icon, count }) => (
-                              <button
-                                key={key}
-                                onClick={() => setAltasTab(key)}
-                                className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold transition-all ${
-                                  altasTab === key
-                                    ? key === "alta"
-                                      ? "bg-emerald-500 text-white"
-                                      : key === "comprador"
-                                      ? "bg-violet-500 text-white"
-                                      : "bg-[var(--shelfy-text)] text-white"
-                                    : "bg-black/5 text-muted-foreground hover:bg-black/8"
-                                }`}
-                              >
-                                <Icon size={10} />
-                                {label}
-                                <span className={`text-[10px] font-mono ${altasTab === key ? "opacity-80" : "opacity-60"}`}>
-                                  {count}
-                                </span>
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-
-                        {/* Lista con stagger */}
-                        <div className="overflow-y-auto max-h-[500px]">
-                          <AnimatePresence mode="wait">
-                            {itemsFiltrados.length === 0 ? (
-                              <motion.p
-                                key="empty-tab"
-                                initial={{ opacity: 0 }}
-                                animate={{ opacity: 1 }}
-                                exit={{ opacity: 0 }}
-                                className="text-center text-xs text-muted-foreground py-8"
-                              >
-                                Sin registros en esta categoría
-                              </motion.p>
-                            ) : (
-                              <motion.div
-                                key={altasTab}
-                                initial={{ opacity: 0 }}
-                                animate={{ opacity: 1 }}
-                                exit={{ opacity: 0 }}
-                                transition={{ duration: 0.15 }}
-                              >
-                                {itemsFiltrados.map((item, i) => (
-                                  <PdvMovimientoCard
-                                    key={`${item.id_cliente_erp ?? i}-${altasTab}-${i}`}
-                                    item={item}
-                                    index={i}
-                                  />
-                                ))}
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
+                <AltasCompradoresPanel
+                  distId={distId}
+                  vendedorId={selectedVendedorId}
+                  layout="tabs"
+                />
 
               </div>
             </div>

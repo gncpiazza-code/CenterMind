@@ -13,7 +13,7 @@ import { openCuentasCorrientesPrintWindow } from "@/lib/printCuentasCorrientes";
 import {
   ccRowMatchesVendedor,
   computeDeudaPorAntiguedad,
-  formatFechaPadron,
+  formatUltimaCompraCC,
   formatRangoBadgeLabel,
   rangoBadgeClass,
   sortClientesCC,
@@ -399,10 +399,10 @@ export default function SupervisionPage() {
                                 </TableHead>
                                 <TableHead
                                   className="text-right cursor-pointer select-none hover:text-foreground"
-                                  title="Días de atraso de la deuda (dato CC / ERP)"
+                                  title="Días de atraso de la deuda en CC (CHESS). Con deuda reciente debería haber compra reciente en padrón."
                                   onClick={() => toggleCCSort("antiguedad")}
                                 >
-                                  Mora <CCSortIndicator active={ccSort === "antiguedad"} dir={ccSortDir} />
+                                  Mora CC <CCSortIndicator active={ccSort === "antiguedad"} dir={ccSortDir} />
                                 </TableHead>
                                 <TableHead
                                   className="text-right cursor-pointer select-none hover:text-foreground"
@@ -438,8 +438,23 @@ export default function SupervisionPage() {
                                   <TableCell className="text-right text-muted-foreground font-mono text-[11px]">
                                     {c.cantidad_comprobantes ?? "—"}
                                   </TableCell>
-                                  <TableCell className="text-right text-muted-foreground text-[10px] whitespace-nowrap">
-                                    {formatFechaPadron(c.fecha_ultima_compra)}
+                                  <TableCell
+                                    className={`text-right text-[10px] whitespace-nowrap max-w-[7.5rem] truncate ${
+                                      c.padron_cc_alerta
+                                        ? "text-amber-600 font-medium"
+                                        : "text-muted-foreground"
+                                    }`}
+                                    title={
+                                      c.padron_cc_alerta
+                                        ? "Mora baja en CC pero la última compra del padrón es mucho más antigua: revisá el código ERP del cliente."
+                                        : undefined
+                                    }
+                                  >
+                                    {formatUltimaCompraCC(
+                                      c.fecha_ultima_compra,
+                                      c.dias_desde_ultima_compra,
+                                      c.padron_cc_alerta,
+                                    )}
                                   </TableCell>
                                   <TableCell className="text-right pr-5 align-middle">
                                     {c.rango_antiguedad ? (

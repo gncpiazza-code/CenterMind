@@ -258,6 +258,24 @@ export function computeDeudaPorSaldoBuckets(
   }));
 }
 
+/** Texto auxiliar para última compra + coherencia con mora CC. */
+export function formatUltimaCompraCC(
+  fecha: string | null | undefined,
+  diasDesde: number | null | undefined,
+  padronAlerta?: boolean,
+): string {
+  if (padronAlerta) {
+    const dias = diasDesde != null ? ` (padrón hace ${diasDesde}d)` : "";
+    return `Revisar ERP${dias}`;
+  }
+  if (!fecha) return "—";
+  const f = formatFechaPadron(fecha);
+  if (diasDesde != null && diasDesde >= 0) {
+    return `${f} · hace ${diasDesde}d`;
+  }
+  return f;
+}
+
 /** Formatea fecha del padrón (ISO YYYY-MM-DD). Evita parse ambiguo de strings no ISO. */
 export function formatFechaPadron(fecha: string | null | undefined): string {
   if (!fecha) return "—";

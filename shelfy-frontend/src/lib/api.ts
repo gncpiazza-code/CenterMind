@@ -1602,6 +1602,10 @@ export interface ClienteCuenta {
   rango_antiguedad: string | null;
   cantidad_comprobantes: number | null;
   fecha_ultima_compra: string | null;
+  /** Días entre fecha_ultima_compra y snapshot CC (referencia padrón). */
+  dias_desde_ultima_compra?: number | null;
+  /** Mora CC baja pero última compra padrón demasiado antigua → revisar vínculo ERP. */
+  padron_cc_alerta?: boolean;
   id_cliente_erp?: string | null;
   id_cliente?: number | null;
 }

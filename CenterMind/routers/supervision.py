@@ -10,7 +10,7 @@ import math
 import re
 import tempfile
 import unicodedata
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Optional, Set
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
@@ -1672,6 +1672,74 @@ def _fetch_cc_detalle_rows(
     return rows
 
 
+def _parse_fecha_iso(s) -> date | None:
+    if not s:
+        return None
+    try:
+        return datetime.strptime(str(s).strip()[:10], "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def _dias_desde_fecha(fecha_ref, hasta: date | None = None) -> int | None:
+    f = _parse_fecha_iso(fecha_ref)
+    if not f:
+        return None
+    ref = hasta or datetime.now().date()
+    return max(0, (ref - f).days)
+
+
+def _resolve_cc_fecha_ultima_compra(
+    item: dict,
+    *,
+    id_cliente_pk,
+    erp_label: str | None,
+    erp_norm_resolved: str | None,
+    name_label: str | None,
+    nombre_norm: str,
+    nombre_raw_upper: str,
+    id_cliente_fuc_map: dict,
+    erp_fuc_map: dict,
+    fecha_uc_map: dict,
+) -> str | None:
+    """
+    FUC del padrón para fila CC. Si hay ERP, solo por id_cliente / ERP (nunca por nombre homónimo).
+    """
+    fuc = None
+    if id_cliente_pk is not None:
+        try:
+            fuc = id_cliente_fuc_map.get(int(id_cliente_pk))
+        except (TypeError, ValueError):
+            fuc = None
+    erp_key = (
+        _norm_erp_cliente_id(item.get("id_cliente_erp"))
+        or erp_norm_resolved
+        or (_norm_erp_cliente_id(erp_label) if erp_label else None)
+    )
+    if not fuc and erp_key:
+        fuc = erp_fuc_map.get(erp_key)
+    if not fuc and not erp_key:
+        fuc = (
+            (fecha_uc_map.get(name_label) if name_label else None)
+            or fecha_uc_map.get(nombre_norm)
+            or fecha_uc_map.get(nombre_raw_upper)
+        )
+    return fuc
+
+
+def _cc_padron_incoherente(deuda: float, antiguedad_dias: int, dias_desde_compra: int | None) -> bool:
+    """
+    Deuda con mora baja en CC implica facturación reciente; si el padrón marca compra mucho más
+    antigua, el vínculo ERP/nombre probablemente es incorrecto o el padrón está desactualizado.
+    """
+    if deuda <= 0 or dias_desde_compra is None:
+        return False
+    antig = int(antiguedad_dias or 0)
+    if antig > 7:
+        return False
+    return dias_desde_compra > max(antig + 7, 10)
+
+
 def _fuc_iso_key(fuc) -> str:
     if not fuc:
         return ""
@@ -1967,21 +2035,22 @@ def supervision_cuentas(
                     or id_cliente_map.get(nombre_raw_upper)
                     or (erp_to_id_cliente.get(erp_norm_resolved) if erp_norm_resolved else None)
                 )
-            fuc = None
-            if id_cliente_pk is not None:
-                try:
-                    fuc = id_cliente_fuc_map.get(int(id_cliente_pk))
-                except (TypeError, ValueError):
-                    fuc = None
-            if not fuc:
-                fuc = (
-                    (erp_fuc_map.get(_norm_erp_cliente_id(item.get("id_cliente_erp"))) if item.get("id_cliente_erp") else None)
-                    or (erp_fuc_map.get(erp_label) if erp_label else None)
-                    or (erp_fuc_map.get(erp_norm_resolved) if erp_norm_resolved else None)
-                    or (fecha_uc_map.get(name_label) if name_label else None)
-                    or fecha_uc_map.get(nombre_norm)
-                    or fecha_uc_map.get(nombre_raw_upper)
-                )
+            fuc = _resolve_cc_fecha_ultima_compra(
+                item,
+                id_cliente_pk=id_cliente_pk,
+                erp_label=erp_label,
+                erp_norm_resolved=erp_norm_resolved,
+                name_label=name_label,
+                nombre_norm=nombre_norm,
+                nombre_raw_upper=nombre_raw_upper,
+                id_cliente_fuc_map=id_cliente_fuc_map,
+                erp_fuc_map=erp_fuc_map,
+                fecha_uc_map=fecha_uc_map,
+            )
+            ref_cc = _parse_fecha_iso(fecha_snapshot) or datetime.now().date()
+            dias_uc = _dias_desde_fecha(fuc, ref_cc) if fuc else None
+            antig_cc = int(item.get("antiguedad_dias") or 0)
+            incoherente = _cc_padron_incoherente(deuda, antig_cc, dias_uc)
             vd["clientes"].append({
                 "cliente": item.get("cliente_nombre"), "id_cliente_erp": erp_resolved,
                 "id_cliente": id_cliente_pk,
@@ -1991,9 +2060,11 @@ def supervision_cuentas(
                 "deuda_30_dias": float(item.get("deuda_30_dias") or 0),
                 "deuda_60_dias": float(item.get("deuda_60_dias") or 0),
                 "deuda_mas_60_dias": float(item.get("deuda_mas_60_dias") or 0),
-                "antiguedad": item.get("antiguedad_dias"), "rango_antiguedad": item.get("rango_antiguedad"),
+                "antiguedad": antig_cc, "rango_antiguedad": item.get("rango_antiguedad"),
                 "cantidad_comprobantes": item.get("cantidad_comprobantes"),
-                "fecha_ultima_compra": fuc,
+                "fecha_ultima_compra": None if incoherente else fuc,
+                "dias_desde_ultima_compra": dias_uc,
+                "padron_cc_alerta": incoherente,
             })
 
         for vd in vendors.values():

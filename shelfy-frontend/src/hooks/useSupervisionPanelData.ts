@@ -6,7 +6,6 @@ import {
   fetchCuentasSupervision,
   fetchSyncStatus,
   fetchVendedoresSupervision,
-  type VendedorSupervision,
 } from "@/lib/api";
 import { supervisionPanelKeys } from "@/lib/query-keys";
 import {
@@ -26,17 +25,26 @@ export function useSupervisionPanelData(
 ) {
   const sucursalParam = selectedSucursal === "__all__" ? undefined : selectedSucursal;
 
-  const vendedoresQuery = useQuery<VendedorSupervision[]>({
+  const vendedoresLiteQuery = useQuery({
+    queryKey: supervisionPanelKeys.vendedoresLite(distId),
+    queryFn: () => fetchVendedoresSupervision(distId, { lite: true }),
+    enabled: !!distId,
+    staleTime: VENDEDORES_STALE,
+    gcTime: 30 * 60_000,
+  });
+
+  const vendedoresFullQuery = useQuery({
     queryKey: supervisionPanelKeys.vendedores(distId),
     queryFn: () => fetchVendedoresSupervision(distId),
-    enabled: !!distId,
+    enabled: !!distId && vendedoresLiteQuery.isSuccess,
     staleTime: VENDEDORES_STALE,
     gcTime: 30 * 60_000,
     placeholderData: keepPreviousData,
   });
 
-  const vendedores = vendedoresQuery.data ?? [];
-  const vendedoresReady = !vendedoresQuery.isLoading || vendedores.length > 0;
+  const vendedores = vendedoresFullQuery.data ?? vendedoresLiteQuery.data ?? [];
+  const vendedoresLoading =
+    vendedoresLiteQuery.isLoading && !vendedoresLiteQuery.data?.length;
 
   const selectedVendedorObj = useMemo(
     () => vendedores.find((v) => v.nombre_vendedor === selectedVendedorNombre) ?? null,
@@ -47,7 +55,7 @@ export function useSupervisionPanelData(
   const syncQuery = useQuery({
     queryKey: supervisionPanelKeys.syncStatus(distId),
     queryFn: () => fetchSyncStatus(distId),
-    enabled: !!distId && vendedoresReady,
+    enabled: !!distId,
     staleTime: SYNC_STALE,
     refetchOnWindowFocus: true,
     refetchInterval: 60_000,
@@ -59,34 +67,28 @@ export function useSupervisionPanelData(
       selectedVendedorNombre ?? "__none__",
       selectedVendedorId ?? "__none__",
     ] as const,
-    queryFn: async () => {
-      const scoped = await fetchCuentasSupervision(
+    queryFn: () =>
+      fetchCuentasSupervision(
         distId,
         sucursalParam,
         undefined,
         selectedVendedorNombre ?? undefined,
         selectedVendedorId,
-      );
-      const hasClientes = (scoped.vendedores ?? []).some(
-        (v) => (v.clientes?.length ?? 0) > 0,
-      );
-      if (hasClientes || !selectedVendedorId) return scoped;
-      return fetchCuentasSupervision(distId, sucursalParam);
-    },
-    enabled: !!distId && !!selectedVendedorNombre && vendedoresReady,
+      ),
+    enabled: !!distId && !!selectedVendedorNombre && !!selectedVendedorId,
     staleTime: CUENTAS_STALE,
     gcTime: 15 * 60_000,
     placeholderData: keepPreviousData,
   });
 
   const altasQuery = useAltasCompradoresQuery(distId, selectedVendedorId, altasMes);
-  usePrefetchAltasCompradores(distId, selectedVendedorId, altasMes);
+  usePrefetchAltasCompradores(distId, selectedVendedorId, altasMes, true);
 
   return {
     vendedores,
-    vendedoresReady,
-    vendedoresLoading: vendedoresQuery.isLoading && !vendedores.length,
-    vendedoresFetching: vendedoresQuery.isFetching,
+    vendedoresLoading,
+    vendedoresFetching: vendedoresLiteQuery.isFetching || vendedoresFullQuery.isFetching,
+    vendedoresStatsPending: !vendedoresFullQuery.data && vendedoresLiteQuery.isSuccess,
     selectedVendedorObj,
     selectedVendedorId,
     cuentasData: cuentasQuery.data,

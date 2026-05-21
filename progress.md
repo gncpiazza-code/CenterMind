@@ -42,6 +42,7 @@
 17. Retroactividad objetivos compañía (exhibición): watcher usa `aggregate_exhibicion_counts_vendor_scope` (cliente+día por vendedor, claves sombra/ERP); deja de inflar por `id_exhibicion` cuando falta PDV.
 18. Regla de ranking documentada en `CLAUDE.md` §5/§9 y `arquitectura.md`: obligatorio **vendedor ERP + cliente + día** via `exhibicion_aggregate.py` en todas las metricas de ranking/KPI/stats.
 19. Supervision UX perf: carga progresiva (vendedores → KPIs/paneles), `keepPreviousData`, exhibiciones diferidas al scroll, modo-mapa sin fetch CC/altas/exhib, skeletons + stagger.
+20. Supervision perf backend: `vendedores?lite=1` (sin scan exhibiciones 30d), CC filtrada en SQL por sucursal/vendedor, PDV metadata solo ERPs de filas CC, `pdvs-movimiento` batch exhibido (sin N+1).
 
 ## Riesgos y Guardrails Activos
 

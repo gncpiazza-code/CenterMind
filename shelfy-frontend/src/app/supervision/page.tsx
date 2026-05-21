@@ -107,6 +107,7 @@ export default function SupervisionPage() {
     vendedores,
     vendedoresLoading,
     vendedoresFetching,
+    vendedoresStatsPending,
     selectedVendedorObj,
     selectedVendedorId,
     cuentasData,

@@ -1023,7 +1023,11 @@ def _vendor_display_names_for_sucursal_erp(dist_id: int, sucursal_param: Optiona
 
 
 @router.get("/api/supervision/vendedores/{dist_id}", tags=["Supervisión"])
-def supervision_vendedores(dist_id: int, user_payload=Depends(verify_auth)):
+def supervision_vendedores(
+    dist_id: int,
+    lite: bool = Query(False, description="Omite scan de exhibiciones 30d (carga inicial rápida)"),
+    user_payload=Depends(verify_auth),
+):
     check_dist_permission(user_payload, dist_id)
     try:
         t_vendedores = tenant_table_name("vendedores_v2", dist_id)
@@ -1077,38 +1081,39 @@ def supervision_vendedores(dist_id: int, user_payload=Depends(verify_auth)):
             vend_por_ruta[rid] = vid
             rutas_por_vend.setdefault(vid, []).append(rid)
 
-        # Pre-compute exhibición stats in a single pass before the vendor loop.
-        exh_since = (datetime.now() - timedelta(days=30)).isoformat()
-        all_exh: list[dict] = []
-        exh_offset = 0
-        while True:
-            exh_batch = (
-                sb.table("exhibiciones")
-                .select("id_cliente_pdv,timestamp_subida")
-                .eq("id_distribuidor", dist_id)
-                .gte("timestamp_subida", exh_since)
-                .range(exh_offset, exh_offset + PAGE - 1)
-                .execute()
-            ).data or []
-            all_exh.extend(exh_batch)
-            if len(exh_batch) < PAGE:
-                break
-            exh_offset += PAGE
         exhibidos_30d: set[int] = set()
-        primera_exhibicion: dict[int, str] = {}
-        for exh in all_exh:
-            cid = exh.get("id_cliente_pdv")
-            if cid is None:
-                continue
-            cid_int = int(cid)
-            exhibidos_30d.add(cid_int)
-            ts = exh.get("timestamp_subida") or ""
-            if cid_int not in primera_exhibicion or ts < primera_exhibicion[cid_int]:
-                primera_exhibicion[cid_int] = ts
-        threshold_7d_iso = (datetime.now() - timedelta(days=7)).isoformat()
-        primera_exhibicion_7d: set[int] = {
-            cid for cid, ts in primera_exhibicion.items() if ts >= threshold_7d_iso
-        }
+        primera_exhibicion_7d: set[int] = set()
+        if not lite:
+            exh_since = (datetime.now() - timedelta(days=30)).isoformat()
+            all_exh: list[dict] = []
+            exh_offset = 0
+            while True:
+                exh_batch = (
+                    sb.table("exhibiciones")
+                    .select("id_cliente_pdv,timestamp_subida")
+                    .eq("id_distribuidor", dist_id)
+                    .gte("timestamp_subida", exh_since)
+                    .range(exh_offset, exh_offset + PAGE - 1)
+                    .execute()
+                ).data or []
+                all_exh.extend(exh_batch)
+                if len(exh_batch) < PAGE:
+                    break
+                exh_offset += PAGE
+            primera_exhibicion: dict[int, str] = {}
+            for exh in all_exh:
+                cid = exh.get("id_cliente_pdv")
+                if cid is None:
+                    continue
+                cid_int = int(cid)
+                exhibidos_30d.add(cid_int)
+                ts = exh.get("timestamp_subida") or ""
+                if cid_int not in primera_exhibicion or ts < primera_exhibicion[cid_int]:
+                    primera_exhibicion[cid_int] = ts
+            threshold_7d_iso = (datetime.now() - timedelta(days=7)).isoformat()
+            primera_exhibicion_7d = {
+                cid for cid, ts in primera_exhibicion.items() if ts >= threshold_7d_iso
+            }
 
         # Contar PDVs igual que el mapa: deduplicar por id_cliente_erp y
         # usar regla de 30 días sin compra para clasificar activo/inactivo.
@@ -1575,6 +1580,225 @@ def supervision_ventas(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+_CC_DETALLE_COLS = (
+    "id_vendedor, vendedor_nombre, sucursal_nombre, cliente_nombre, id_cliente_erp, "
+    "id_cliente, deuda_total, deuda_7_dias, deuda_15_dias, deuda_30_dias, "
+    "deuda_60_dias, deuda_mas_60_dias, antiguedad_dias, rango_antiguedad, "
+    "cantidad_comprobantes, alerta_credito"
+)
+
+
+def _paginate_supabase(query_fn, page_size: int = 1000) -> list[dict]:
+    rows: list[dict] = []
+    offset = 0
+    while True:
+        batch = query_fn(offset, page_size).execute().data or []
+        rows.extend(batch)
+        if len(batch) < page_size:
+            break
+        offset += page_size
+    return rows
+
+
+def _resolve_sucursal_vendedor_ids(d_id: int, sucursal: str) -> tuple[set[int], str]:
+    """id_vendedor válidos para una sucursal (nombre_erp en sucursales_v2)."""
+    t_sucursales = tenant_table_name("sucursales_v2", d_id)
+    t_vendedores = tenant_table_name("vendedores_v2", d_id)
+    sucursal_exact = sucursal.strip()
+    suc_q = (
+        sb.table(t_sucursales)
+        .select("id_sucursal")
+        .eq("id_distribuidor", d_id)
+        .ilike("nombre_erp", sucursal_exact)
+        .execute()
+    )
+    valid_suc_ids = {s["id_sucursal"] for s in (suc_q.data or [])}
+    valid_vend_ids: set[int] = set()
+    if valid_suc_ids:
+        vend_q = (
+            sb.table(t_vendedores)
+            .select("id_vendedor")
+            .eq("id_distribuidor", d_id)
+            .in_("id_sucursal", list(valid_suc_ids))
+            .execute()
+        )
+        valid_vend_ids = {int(v["id_vendedor"]) for v in (vend_q.data or []) if v.get("id_vendedor") is not None}
+    return valid_vend_ids, sucursal_exact.upper()
+
+
+def _fetch_cc_detalle_rows(
+    d_id: int,
+    fecha_snapshot: str,
+    *,
+    id_vendedor: int | None = None,
+    valid_vend_ids: set[int] | None = None,
+    sucursal_norm_upper: str | None = None,
+) -> list[dict]:
+    """Lee cc_detalle con filtros en SQL (evita cargar todo el snapshot)."""
+
+    def _base():
+        return (
+            sb.table("cc_detalle")
+            .select(_CC_DETALLE_COLS)
+            .eq("id_distribuidor", d_id)
+            .eq("fecha_snapshot", fecha_snapshot)
+        )
+
+    rows: list[dict] = []
+    if id_vendedor is not None:
+        rows = _paginate_supabase(
+            lambda o, p: _base().eq("id_vendedor", int(id_vendedor)).range(o, o + p - 1)
+        )
+    elif valid_vend_ids:
+        vend_list = list(valid_vend_ids)
+        for i in range(0, len(vend_list), 200):
+            chunk = vend_list[i : i + 200]
+            rows.extend(
+                _paginate_supabase(
+                    lambda o, p, ch=chunk: _base().in_("id_vendedor", ch).range(o, o + p - 1)
+                )
+            )
+        if sucursal_norm_upper:
+            orphans = _paginate_supabase(
+                lambda o, p: _base().is_("id_vendedor", "null").range(o, o + p - 1)
+            )
+            rows.extend(
+                r
+                for r in orphans
+                if (r.get("sucursal_nombre") or "").strip().upper() == sucursal_norm_upper
+            )
+    else:
+        rows = _paginate_supabase(lambda o, p: _base().range(o, o + p - 1))
+    return rows
+
+
+def _build_pdv_metadata_maps(d_id: int, cc_rows: list[dict]) -> tuple[dict, dict, dict, dict, dict]:
+    """
+    Maps para enriquecer CC: solo PDVs referenciados en filas CC (no scan completo).
+    Retorna: fecha_uc_map, erp_fuc_map, erp_id_map, id_cliente_map, erp_to_id_cliente
+    """
+    fecha_uc_map: dict = {}
+    erp_fuc_map: dict = {}
+    erp_id_map: dict = {}
+    id_cliente_map: dict = {}
+    erp_to_id_cliente: dict = {}
+
+    erp_values: set[str] = set()
+    id_clientes: set[int] = set()
+    for item in cc_rows:
+        erp_norm = _norm_erp_cliente_id(item.get("id_cliente_erp"))
+        if erp_norm:
+            erp_values.add(erp_norm)
+        pk = item.get("id_cliente")
+        if pk is not None:
+            try:
+                id_clientes.add(int(pk))
+            except (TypeError, ValueError):
+                pass
+
+    if not erp_values and not id_clientes:
+        return fecha_uc_map, erp_fuc_map, erp_id_map, id_cliente_map, erp_to_id_cliente
+
+    t_clientes = tenant_table_name("clientes_pdv_v2", d_id)
+
+    def _ingest_pdv(p: dict) -> None:
+        erp_id = p.get("id_cliente_erp")
+        fuc = p.get("fecha_ultima_compra")
+        pk = p.get("id_cliente")
+        erp_norm = _norm_erp_cliente_id(erp_id)
+        for key in [p.get("nombre_fantasia"), p.get("nombre_razon_social")]:
+            if key:
+                for norm_key in {key.strip().upper(), _norm_name(key)}:
+                    if not norm_key:
+                        continue
+                    if fuc and norm_key not in fecha_uc_map:
+                        fecha_uc_map[norm_key] = fuc
+                    if erp_id and norm_key not in erp_id_map:
+                        erp_id_map[norm_key] = str(erp_id).strip()
+                    if pk and norm_key not in id_cliente_map:
+                        id_cliente_map[norm_key] = pk
+        if erp_norm and pk and erp_norm not in erp_to_id_cliente:
+            erp_to_id_cliente[erp_norm] = pk
+        if erp_norm and fuc and erp_norm not in erp_fuc_map:
+            erp_fuc_map[erp_norm] = fuc
+
+    def _fetch_by_erp_chunk(chunk: list[str]) -> None:
+        offset = 0
+        while True:
+            batch = (
+                sb.table(t_clientes)
+                .select("id_cliente, nombre_fantasia, nombre_razon_social, id_cliente_erp, fecha_ultima_compra")
+                .eq("id_distribuidor", d_id)
+                .in_("id_cliente_erp", chunk)
+                .range(offset, offset + 999)
+                .execute()
+                .data or []
+            )
+            for p in batch:
+                _ingest_pdv(p)
+            if len(batch) < 1000:
+                break
+            offset += 1000
+
+    def _fetch_by_id_chunk(chunk: list[int]) -> None:
+        batch = (
+            sb.table(t_clientes)
+            .select("id_cliente, nombre_fantasia, nombre_razon_social, id_cliente_erp, fecha_ultima_compra")
+            .eq("id_distribuidor", d_id)
+            .in_("id_cliente", chunk)
+            .execute()
+            .data or []
+        )
+        for p in batch:
+            _ingest_pdv(p)
+
+    erp_list = sorted(erp_values)
+    for i in range(0, len(erp_list), 400):
+        _fetch_by_erp_chunk(erp_list[i : i + 400])
+
+    id_list = sorted(id_clientes)
+    for i in range(0, len(id_list), 400):
+        _fetch_by_id_chunk(id_list[i : i + 400])
+
+    return fecha_uc_map, erp_fuc_map, erp_id_map, id_cliente_map, erp_to_id_cliente
+
+
+def _exhibido_cliente_ids_en_mes(
+    dist_id: int,
+    client_ids: list[int],
+    fecha_inicio: str,
+    fecha_fin: str,
+) -> set[int]:
+    """Una o pocas queries batch en lugar de N× limit(1)."""
+    if not client_ids:
+        return set()
+    out: set[int] = set()
+    uniq = list({int(c) for c in client_ids})
+    for i in range(0, len(uniq), 400):
+        chunk = uniq[i : i + 400]
+        offset = 0
+        while True:
+            batch = (
+                sb.table("exhibiciones")
+                .select("id_cliente_pdv")
+                .eq("id_distribuidor", dist_id)
+                .in_("id_cliente_pdv", chunk)
+                .gte("timestamp_subida", fecha_inicio)
+                .lte("timestamp_subida", fecha_fin)
+                .range(offset, offset + 999)
+                .execute()
+                .data or []
+            )
+            for row in batch:
+                cid = row.get("id_cliente_pdv")
+                if cid is not None:
+                    out.add(int(cid))
+            if len(batch) < 1000:
+                break
+            offset += 1000
+    return out
+
+
 @router.get("/api/supervision/cuentas/{dist_id}", tags=["Supervisión"])
 def supervision_cuentas(
     dist_id: int,
@@ -1605,70 +1829,28 @@ def supervision_cuentas(
 
         fecha_snapshot = snap_res.data[0]["fecha_snapshot"]
 
-        # sucursal viene del frontend como sucursales_v2.nombre_erp — usar directamente
         sucursal_norm = sucursal
-
-        # Load all rows without sucursal filter (filter in Python to handle unmatched enrichments)
-        def build_query():
-            return (
-                sb.table("cc_detalle")
-                .select("id_vendedor, vendedor_nombre, sucursal_nombre, cliente_nombre, id_cliente_erp, id_cliente, deuda_total, antiguedad_dias, rango_antiguedad, cantidad_comprobantes, alerta_credito")
-                .eq("id_distribuidor", d_id)
-                .eq("fecha_snapshot", fecha_snapshot)
-            )
-
-        rows = []
-        page_size, page_offset = 1000, 0
-        while True:
-            batch = (build_query().range(page_offset, page_offset + page_size - 1).execute().data or [])
-            rows.extend(batch)
-            if len(batch) < page_size:
-                break
-            page_offset += page_size
-
-        # Filtrar por sucursal: primero por id_vendedor (más confiable), luego por sucursal_nombre exacto.
-        # selectedSucursal = sucursales_v2.nombre_erp; cc_detalle.sucursal_nombre también viene de nombre_erp.
+        valid_vend_ids: set[int] | None = None
+        sucursal_upper: str | None = None
         if sucursal_norm:
-            t_sucursales = tenant_table_name("sucursales_v2", d_id)
-            t_vendedores = tenant_table_name("vendedores_v2", d_id)
-            sucursal_exact = sucursal_norm.strip()
-            suc_q = (
-                sb.table(t_sucursales)
-                .select("id_sucursal")
-                .eq("id_distribuidor", d_id)
-                .ilike("nombre_erp", sucursal_exact)  # exact case-insensitive, sin wildcards
-                .execute()
-            )
-            valid_suc_ids = {s["id_sucursal"] for s in (suc_q.data or [])}
-            valid_vend_ids: set = set()
-            if valid_suc_ids:
-                vend_q = (
-                    sb.table(t_vendedores)
-                    .select("id_vendedor")
-                    .eq("id_distribuidor", d_id)
-                    .in_("id_sucursal", list(valid_suc_ids))
-                    .execute()
-                )
-                valid_vend_ids = {v["id_vendedor"] for v in (vend_q.data or [])}
+            valid_vend_ids, sucursal_upper = _resolve_sucursal_vendedor_ids(d_id, sucursal_norm)
 
-            norm_filter = sucursal_exact.upper()
-            if valid_vend_ids:
-                # Strict: keep rows whose vendor is in the resolved set.
-                # Rows with NULL id_vendedor are kept only if sucursal_nombre also matches
-                # (they're enrichment-incomplete but belong to this branch).
-                rows = [
-                    r for r in rows
-                    if r.get("id_vendedor") in valid_vend_ids
-                    or (not r.get("id_vendedor") and (r.get("sucursal_nombre") or "").strip().upper() == norm_filter)
-                ]
-            else:
-                # No vendors resolved for this sucursal (edge case): fall back to name-only.
-                rows = [
-                    r for r in rows
-                    if (r.get("sucursal_nombre") or "").strip().upper() == norm_filter
-                ]
+        vid_filtro_sql: int | None = None
+        if id_vendedor is not None:
+            try:
+                vid_filtro_sql = int(id_vendedor)
+            except (TypeError, ValueError):
+                vid_filtro_sql = None
 
-        # Filtrar por vendedor (server-side).
+        rows = _fetch_cc_detalle_rows(
+            d_id,
+            fecha_snapshot,
+            id_vendedor=vid_filtro_sql,
+            valid_vend_ids=valid_vend_ids if sucursal_norm and not vid_filtro_sql else None,
+            sucursal_norm_upper=sucursal_upper if sucursal_norm and not vid_filtro_sql else None,
+        )
+
+        # Filtrar por vendedor (nombre legacy cuando no hay id_vendedor en query).
         # cc_detalle.vendedor_nombre viene de CHESS ("717 0717 - LUCIANO GONZALEZ");
         # vendedores_v2.nombre_erp puede diferir ("LUCIANO AID") — matchear por id_vendedor_erp / id_vendedor.
         if id_vendedor is not None or vendedor:
@@ -1712,52 +1894,13 @@ def supervision_cuentas(
                 )
             ]
 
-        # Cache PDV info for extra metadata (last purchase date)
-        _t_clientes_meta = tenant_table_name("clientes_pdv_v2", d_id)
-        fecha_uc_map: dict = {}
-        erp_fuc_map: dict = {}      # normalized erp_id → fecha_ultima_compra
-        erp_id_map:   dict = {}
-        id_cliente_map: dict = {}   # nombre_norm → id_cliente (PK)
-        erp_to_id_cliente: dict = {} # normalized erp_id → id_cliente (PK)
-
         try:
-            pdv_offset = 0
-            while True:
-                pdv_res = (
-                    sb.table(_t_clientes_meta)
-                    .select("id_cliente, nombre_fantasia, nombre_razon_social, id_cliente_erp, fecha_ultima_compra")
-                    .eq("id_distribuidor", d_id)
-                    .range(pdv_offset, pdv_offset + 999)
-                    .execute()
-                )
-                pdv_batch = pdv_res.data or []
-                for p in pdv_batch:
-                    erp_id    = p.get("id_cliente_erp")
-                    fuc       = p.get("fecha_ultima_compra")
-                    pk        = p.get("id_cliente")
-                    erp_norm  = _norm_erp_cliente_id(erp_id)
-                    for key in [p.get("nombre_fantasia"), p.get("nombre_razon_social")]:
-                        if key:
-                            # Index bajo clave raw-upper Y bajo clave normalizada (sin acentos ni puntuación)
-                            # para tolerar diferencias entre CHESS ERP (CC) y Consolido (padrón).
-                            for norm_key in {key.strip().upper(), _norm_name(key)}:
-                                if not norm_key:
-                                    continue
-                                if fuc and norm_key not in fecha_uc_map:
-                                    fecha_uc_map[norm_key] = fuc
-                                if erp_id and norm_key not in erp_id_map:
-                                    erp_id_map[norm_key] = str(erp_id).strip()
-                                if pk and norm_key not in id_cliente_map:
-                                    id_cliente_map[norm_key] = pk
-                    if erp_norm and pk and erp_norm not in erp_to_id_cliente:
-                        erp_to_id_cliente[erp_norm] = pk
-                    if erp_norm and fuc and erp_norm not in erp_fuc_map:
-                        erp_fuc_map[erp_norm] = fuc
-                if len(pdv_batch) < 1000:
-                    break
-                pdv_offset += 1000
+            fecha_uc_map, erp_fuc_map, erp_id_map, id_cliente_map, erp_to_id_cliente = _build_pdv_metadata_maps(
+                d_id, rows
+            )
         except Exception as e:
-            logger.warning(f"[supervision_cuentas] PDV metadata cache error dist={d_id}: {e}")
+            logger.warning(f"[supervision_cuentas] PDV metadata scoped error dist={d_id}: {e}")
+            fecha_uc_map, erp_fuc_map, erp_id_map, id_cliente_map, erp_to_id_cliente = {}, {}, {}, {}, {}
 
         vendors: dict = {}
         for item in rows:
@@ -1809,6 +1952,11 @@ def supervision_cuentas(
                 "cliente": item.get("cliente_nombre"), "id_cliente_erp": erp_resolved,
                 "id_cliente": id_cliente_pk,
                 "sucursal": item.get("sucursal_nombre"), "deuda_total": deuda,
+                "deuda_7_dias": float(item.get("deuda_7_dias") or 0),
+                "deuda_15_dias": float(item.get("deuda_15_dias") or 0),
+                "deuda_30_dias": float(item.get("deuda_30_dias") or 0),
+                "deuda_60_dias": float(item.get("deuda_60_dias") or 0),
+                "deuda_mas_60_dias": float(item.get("deuda_mas_60_dias") or 0),
                 "antiguedad": item.get("antiguedad_dias"), "rango_antiguedad": item.get("rango_antiguedad"),
                 "cantidad_comprobantes": item.get("cantidad_comprobantes"),
                 "fecha_ultima_compra": fuc,
@@ -2039,6 +2187,8 @@ def supervision_pdvs_movimiento(
                 offset += PAGE
             return all_rows
 
+        pending_exhib: list[tuple[int, int]] = []
+
         if "alta" in cats:
             rows = _fetch_client_rows(
                 "id_cliente, id_cliente_erp, nombre_fantasia, nombre_razon_social, domicilio, localidad, fecha_alta, id_ruta",
@@ -2048,19 +2198,9 @@ def supervision_pdvs_movimiento(
                 id_cl = r.get("id_cliente")
                 if isinstance(id_cl, int) and id_cl in seen_ids:
                     continue
-                exhibido = False
-                if id_cl:
-                    ex = (
-                        sb.table(t_exhib)
-                        .select("id_exhibicion")
-                        .eq("id_distribuidor", dist_id)
-                        .eq("id_cliente_pdv", id_cl)
-                        .gte("timestamp_subida", fecha_inicio)
-                        .lte("timestamp_subida", fecha_fin)
-                        .limit(1)
-                        .execute()
-                    )
-                    exhibido = bool(ex.data)
+                idx = len(items)
+                if isinstance(id_cl, int):
+                    pending_exhib.append((int(id_cl), idx))
                 items.append({
                     "id_cliente_erp": r.get("id_cliente_erp"),
                     "nombre": (r.get("nombre_fantasia") or r.get("nombre_razon_social") or "").strip(),
@@ -2068,7 +2208,7 @@ def supervision_pdvs_movimiento(
                     "direccion": r.get("domicilio", ""),
                     "localidad": r.get("localidad", ""),
                     "categoria": "alta",
-                    "exhibido": exhibido,
+                    "exhibido": False,
                     "fecha_evento": r.get("fecha_alta"),
                     "es_comprador_mes": False,
                 })
@@ -2128,19 +2268,9 @@ def supervision_pdvs_movimiento(
                 prev_f = prev_last_by_id.get(id_cl) if isinstance(id_cl, int) else None
                 if prev_f and prev_f > threshold_prev:
                     continue
-                exhibido = False
-                if id_cl:
-                    ex = (
-                        sb.table(t_exhib)
-                        .select("id_exhibicion")
-                        .eq("id_distribuidor", dist_id)
-                        .eq("id_cliente_pdv", id_cl)
-                        .gte("timestamp_subida", fecha_inicio)
-                        .lte("timestamp_subida", fecha_fin)
-                        .limit(1)
-                        .execute()
-                    )
-                    exhibido = bool(ex.data)
+                idx = len(items)
+                if isinstance(id_cl, int):
+                    pending_exhib.append((int(id_cl), idx))
                 items.append({
                     "id_cliente_erp": r.get("id_cliente_erp"),
                     "nombre": (r.get("nombre_fantasia") or r.get("nombre_razon_social") or "").strip(),
@@ -2148,7 +2278,7 @@ def supervision_pdvs_movimiento(
                     "direccion": r.get("domicilio", ""),
                     "localidad": r.get("localidad", ""),
                     "categoria": "activacion",
-                    "exhibido": exhibido,
+                    "exhibido": False,
                     "fecha_evento": fuc,
                     "es_comprador_mes": False,
                 })
@@ -2168,6 +2298,9 @@ def supervision_pdvs_movimiento(
                 fecha_inicio,
                 fecha_fin,
             )
+            comprador_exhib = _exhibido_cliente_ids_en_mes(
+                dist_id, list(comprador_ids), fecha_inicio, fecha_fin
+            )
             for id_cl in sorted(comprador_ids):
                 f_compra = ultima_compra_mes.get(id_cl)
                 if id_cl in seen_ids:
@@ -2185,12 +2318,23 @@ def supervision_pdvs_movimiento(
                     "direccion": r.get("domicilio", ""),
                     "localidad": r.get("localidad", ""),
                     "categoria": "comprador",
-                    "exhibido": _supervision_exhibido_en_mes(dist_id, id_cl, fecha_inicio, fecha_fin),
+                    "exhibido": id_cl in comprador_exhib,
                     "fecha_evento": f_compra,
                     "es_comprador_mes": True,
                 })
                 seen_ids.add(id_cl)
                 item_index_by_cid[id_cl] = len(items) - 1
+
+        if pending_exhib:
+            exhib_ids = _exhibido_cliente_ids_en_mes(
+                dist_id,
+                [cid for cid, _ in pending_exhib],
+                fecha_inicio,
+                fecha_fin,
+            )
+            for cid, idx in pending_exhib:
+                if cid in exhib_ids:
+                    items[idx]["exhibido"] = True
 
         total_altas = sum(1 for i in items if i["categoria"] == "alta")
         total_activaciones = sum(1 for i in items if i["categoria"] == "activacion")

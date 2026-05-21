@@ -648,22 +648,45 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
     return vendorColorOverrides[key] ?? defaultVendorColor(idx);
   }, [selectedDist, vendorColorOverrides]);
 
-  // ── TanStack Query: Vendedores ────────────────────────────────────────────
+  const { ref: ccSectionRef, inView: ccSectionInView } = useInView<HTMLDivElement>();
+  const { ref: ccMobileRef, inView: ccMobileInView } = useInView<HTMLDivElement>();
+  const ccPanelVisible = ccSectionInView || ccMobileInView;
+
+  // ── TanStack Query: Vendedores (lite → full en background) ─────────────────
   const {
-    data: vendedores = [],
-    isLoading: loading,
-    error: vendedoresError,
+    data: vendedoresLite = [],
+    isLoading: loadingLite,
+    error: vendedoresLiteError,
+  } = useQuery({
+    queryKey: ["supervision-vendedores-lite", selectedDist],
+    queryFn: () => fetchVendedoresSupervision(selectedDist, { lite: true }),
+    enabled: !!selectedDist,
+    staleTime: 10 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+  });
+
+  const {
+    data: vendedoresFull,
+    isFetching: fetchingVendedoresFull,
+    error: vendedoresFullError,
     refetch: refetchVendedores,
   } = useQuery({
-    queryKey: ['supervision-vendedores', selectedDist],
+    queryKey: ["supervision-vendedores", selectedDist],
     queryFn: () => fetchVendedoresSupervision(selectedDist),
-    enabled: !!selectedDist,
+    enabled: !!selectedDist && !loadingLite,
     staleTime: 10 * 60 * 1000,
     gcTime: 30 * 60 * 1000,
     placeholderData: keepPreviousData,
   });
 
-  const error = vendedoresError ? (vendedoresError instanceof Error ? vendedoresError.message : "Error cargando datos") : null;
+  const vendedores = vendedoresFull ?? vendedoresLite;
+  const loading = loadingLite && vendedores.length === 0;
+  const vendedoresError = vendedoresFullError ?? vendedoresLiteError;
+  const error = vendedoresError
+    ? vendedoresError instanceof Error
+      ? vendedoresError.message
+      : "Error cargando datos"
+    : null;
 
   // Auto-select sucursal if only one exists
   useEffect(() => {
@@ -685,9 +708,9 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
   }, [selectedDist, clearAll, queryClient]);
 
   const { data: cuentasData = null, isLoading: loadingCuentas } = useQuery({
-    queryKey: ['supervision-cuentas', selectedDist, selectedSucursal],
+    queryKey: ["supervision-cuentas", selectedDist, selectedSucursal],
     queryFn: () => fetchCuentasSupervision(selectedDist!, selectedSucursal!),
-    enabled: !!selectedDist && !!selectedSucursal && !mapOnly && !loading,
+    enabled: !!selectedDist && !!selectedSucursal && !mapOnly && ccPanelVisible,
     placeholderData: keepPreviousData,
     staleTime: 5 * 60_000,
     gcTime: 15 * 60_000,
@@ -2303,7 +2326,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
         </div>
 
         {/* ── MOBILE CC — debajo de rutas en mobile (lg:hidden) ──────────── */}
-        {!mapOnly && <div className="lg:hidden flex flex-col rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-y-auto min-h-[300px]">
+        {!mapOnly && <div ref={ccMobileRef} className="lg:hidden flex flex-col rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-y-auto min-h-[300px]">
           <div className="flex items-center gap-2 px-3 py-2.5 border-b border-[var(--shelfy-border)]/50 shrink-0">
             <CreditCard className="w-3.5 h-3.5 text-amber-400" />
             <span className="text-xs font-bold text-[var(--shelfy-text)]">Cuentas</span>
@@ -2386,7 +2409,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
       </div>
 
       {/* ── SECCIÓN CUENTAS CORRIENTES — solo desktop (lg+) ─────────────────── */}
-      {!mapOnly && <div className="hidden lg:grid lg:grid-cols-2 gap-4">
+      {!mapOnly && <div ref={ccSectionRef} className="hidden lg:grid lg:grid-cols-2 gap-4">
 
         {/* Columna izquierda: CC */}
         <div className="rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden shadow-sm">

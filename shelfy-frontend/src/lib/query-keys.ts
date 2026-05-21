@@ -126,6 +126,8 @@ export const supervisionPanelKeys = {
     ['supervision-panel', 'sync-status', distId] as const,
   vendedores: (distId: number) =>
     ['supervision-panel', 'vendedores', distId] as const,
+  vendedoresLite: (distId: number) =>
+    ['supervision-panel', 'vendedores-lite', distId] as const,
   altas: (distId: number, vendedorId: number | null, mes: string) =>
     ['supervision-panel', 'altas', distId, vendedorId ?? null, mes] as const,
 };

@@ -1470,8 +1470,14 @@ export interface ClienteSupervision {
   estado?: string | null;
 }
 
-export async function fetchVendedoresSupervision(distId: number): Promise<VendedorSupervision[]> {
-  const rows = await apiFetch<Record<string, unknown>[]>(`/api/supervision/vendedores/${distId}`);
+export async function fetchVendedoresSupervision(
+  distId: number,
+  options?: { lite?: boolean },
+): Promise<VendedorSupervision[]> {
+  const q = options?.lite ? "?lite=1" : "";
+  const rows = await apiFetch<Record<string, unknown>[]>(
+    `/api/supervision/vendedores/${distId}${q}`,
+  );
   return rows.map((row) => ({
     ...(row as unknown as VendedorSupervision),
     nombre_vendedor:

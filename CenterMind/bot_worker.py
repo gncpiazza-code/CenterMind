@@ -1254,6 +1254,58 @@ class BotWorker:
             reply_markup=InlineKeyboardMarkup(buttons)
         )
 
+    def _resolve_vendedor_v2_for_objetivos(self, dist_id: int, uid: int, chat_id: int) -> dict:
+        """
+        Vendedor para /objetivos: usuario+grupo → cualquier integrante del grupo → ERP en tabla grupos.
+        """
+        res_uid = (
+            self.db.sb.table("integrantes_grupo")
+            .select("id_vendedor_v2, nombre_integrante")
+            .eq("id_distribuidor", dist_id)
+            .eq("telegram_group_id", chat_id)
+            .eq("telegram_user_id", uid)
+            .limit(1)
+            .execute()
+        )
+        if res_uid.data and res_uid.data[0].get("id_vendedor_v2"):
+            return res_uid.data[0]
+
+        res_grp = (
+            self.db.sb.table("integrantes_grupo")
+            .select("id_vendedor_v2, nombre_integrante")
+            .eq("id_distribuidor", dist_id)
+            .eq("telegram_group_id", chat_id)
+            .not_.is_("id_vendedor_v2", "null")
+            .limit(1)
+            .execute()
+        )
+        if res_grp.data and res_grp.data[0].get("id_vendedor_v2"):
+            return res_grp.data[0]
+
+        g_res = (
+            self.db.sb.table("grupos")
+            .select("id_vendedor_erp")
+            .eq("telegram_chat_id", chat_id)
+            .limit(1)
+            .execute()
+        )
+        erp = (g_res.data or [{}])[0].get("id_vendedor_erp") if g_res.data else None
+        if erp:
+            v_res = (
+                self.db.sb.table(tenant_table_name("vendedores_v2", dist_id))
+                .select("id_vendedor, nombre_erp")
+                .eq("id_distribuidor", dist_id)
+                .eq("id_vendedor_erp", str(erp).strip())
+                .limit(1)
+                .execute()
+            )
+            if v_res.data:
+                return {
+                    "id_vendedor_v2": v_res.data[0]["id_vendedor"],
+                    "nombre_integrante": v_res.data[0].get("nombre_erp"),
+                }
+        return {}
+
     async def cmd_objetivos(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not update.message:
             return
@@ -1267,17 +1319,9 @@ class BotWorker:
         dist_id = self.distribuidor_id
 
         try:
-            # Resolver vendedor en contexto del grupo para evitar cruces entre sucursales/tenants.
-            res_ig = await asyncio.to_thread(
-                self.db.sb.table("integrantes_grupo")
-                .select("id_vendedor_v2, nombre_integrante")
-                .eq("id_distribuidor", dist_id)
-                .eq("telegram_user_id", uid)
-                .eq("telegram_group_id", chat_id)
-                .limit(1)
-                .execute
+            row_ig = await asyncio.to_thread(
+                self._resolve_vendedor_v2_for_objetivos, dist_id, uid, chat_id
             )
-            row_ig = (res_ig.data or [{}])[0] if res_ig.data else {}
             id_vendedor = row_ig.get("id_vendedor_v2")
             vendedor_nombre = row_ig.get("nombre_integrante") or (m.from_user.first_name or "Vendedor")
 
@@ -1298,8 +1342,6 @@ class BotWorker:
                 )
                 .eq("id_distribuidor", dist_id)
                 .eq("id_vendedor", id_vendedor)
-                .order("cumplido")
-                .order("fecha_objetivo", desc=False)
                 .order("created_at", desc=True)
                 .limit(40)
                 .execute
@@ -1318,17 +1360,19 @@ class BotWorker:
             obj_ids = [str(o["id"]) for o in objetivos if o.get("id")]
             items_map: dict[str, list[int]] = defaultdict(list)
             if obj_ids:
-                items_res = await asyncio.to_thread(
-                    self.db.sb.table("objetivo_items")
-                    .select("id_objetivo, id_cliente_pdv")
-                    .in_("id_objetivo", obj_ids)
-                    .execute
-                )
-                for it in items_res.data or []:
-                    oid = str(it.get("id_objetivo") or "")
-                    cid = it.get("id_cliente_pdv")
-                    if oid and cid:
-                        items_map[oid].append(int(cid))
+                for i in range(0, len(obj_ids), 80):
+                    chunk_ids = obj_ids[i : i + 80]
+                    items_res = await asyncio.to_thread(
+                        self.db.sb.table("objetivo_items")
+                        .select("id_objetivo, id_cliente_pdv")
+                        .in_("id_objetivo", chunk_ids)
+                        .execute
+                    )
+                    for it in items_res.data or []:
+                        oid = str(it.get("id_objetivo") or "")
+                        cid = it.get("id_cliente_pdv")
+                        if oid and cid:
+                            items_map[oid].append(int(cid))
 
             pdv_ids: set[int] = set()
             for o in objetivos:
@@ -1340,15 +1384,20 @@ class BotWorker:
 
             pdv_map: dict[int, dict[str, Any]] = {}
             if pdv_ids:
-                pdv_res = await asyncio.to_thread(
-                    self.db.sb.table(tenant_table_name("clientes_pdv_v2", dist_id))
-                    .select("id_cliente, id_cliente_erp, id_ruta, nombre_fantasia, nombre_cliente, nombre_razon_social")
-                    .in_("id_cliente", list(pdv_ids))
-                    .eq("id_distribuidor", dist_id)
-                    .execute
-                )
-                for r in pdv_res.data or []:
-                    pdv_map[int(r["id_cliente"])] = r
+                pdv_list = list(pdv_ids)
+                for i in range(0, len(pdv_list), 200):
+                    chunk_pdv = pdv_list[i : i + 200]
+                    pdv_res = await asyncio.to_thread(
+                        self.db.sb.table(tenant_table_name("clientes_pdv_v2", dist_id))
+                        .select(
+                            "id_cliente, id_cliente_erp, id_ruta, nombre_fantasia, nombre_razon_social"
+                        )
+                        .in_("id_cliente", chunk_pdv)
+                        .eq("id_distribuidor", dist_id)
+                        .execute
+                    )
+                    for r in pdv_res.data or []:
+                        pdv_map[int(r["id_cliente"])] = r
 
             ruta_ids = set()
             for r in pdv_map.values():
@@ -1522,12 +1571,15 @@ class BotWorker:
                         chunks.append(current)
                         current = line
                     else:
-                        current += line
+                        current += ("\n" if current else "") + line
                 chunks.append(current)
                 for chunk in chunks:
                     await m.reply_text(chunk, parse_mode=ParseMode.HTML)
         except Exception as e:
-            self.logger.error(f"[objetivos] Error uid={uid} dist={dist_id}: {e}", exc_info=True)
+            self.logger.error(
+                f"[objetivos] Error uid={uid} chat={chat_id} dist={dist_id}: {type(e).__name__}: {e}",
+                exc_info=True,
+            )
             await m.reply_text("❌ No pude consultar tus objetivos en este momento.")
 
     async def cmd_cadenaone(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

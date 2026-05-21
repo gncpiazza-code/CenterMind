@@ -185,6 +185,8 @@ export function ccDeudaCliente(c: {
 export function computeDeudaPorAntiguedad(
   clientes: Array<{
     antiguedad?: number | null;
+    antiguedad_cc?: number | null;
+    antiguedad_desde_padron?: boolean;
     deuda_total?: number | null;
     rango_antiguedad?: string | null;
     deuda_7_dias?: number | null;
@@ -201,10 +203,11 @@ export function computeDeudaPorAntiguedad(
   for (const c of clientes) {
     const amt = ccDeudaCliente(c);
     if (amt <= 0) continue;
+    const dias = Number(c.antiguedad ?? 0);
     const lab =
       normalizeAntiguedadLabel(c.rango_antiguedad) ||
-      antiguedadRangoLabel(c.antiguedad);
-    const key = buckets[lab] !== undefined ? lab : antiguedadRangoLabel(c.antiguedad);
+      antiguedadRangoLabel(dias);
+    const key = buckets[lab] !== undefined ? lab : antiguedadRangoLabel(dias);
     buckets[key].monto += amt;
     buckets[key].clientes += 1;
   }

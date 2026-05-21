@@ -399,10 +399,10 @@ export default function SupervisionPage() {
                                 </TableHead>
                                 <TableHead
                                   className="text-right cursor-pointer select-none hover:text-foreground"
-                                  title="Días de atraso de la deuda en CC (CHESS). Con deuda reciente debería haber compra reciente en padrón."
+                                  title="Días desde la última compra (padrón) o mora CC si no hay fecha"
                                   onClick={() => toggleCCSort("antiguedad")}
                                 >
-                                  Mora CC <CCSortIndicator active={ccSort === "antiguedad"} dir={ccSortDir} />
+                                  Antig. <CCSortIndicator active={ccSort === "antiguedad"} dir={ccSortDir} />
                                 </TableHead>
                                 <TableHead
                                   className="text-right cursor-pointer select-none hover:text-foreground"
@@ -432,8 +432,19 @@ export default function SupervisionPage() {
                                   <TableCell className="text-right font-mono text-[11px] text-rose-600 font-semibold">
                                     {fmt$$(c.deuda_total)}
                                   </TableCell>
-                                  <TableCell className="text-right text-muted-foreground">
-                                    {c.antiguedad != null ? `${c.antiguedad}d` : "—"}
+                                  <TableCell
+                                    className="text-right text-muted-foreground tabular-nums"
+                                    title={
+                                      c.antiguedad_desde_padron && c.antiguedad_cc != null
+                                        ? `CHESS reportaba ${c.antiguedad_cc}d de mora; mostramos días desde última compra (padrón).`
+                                        : undefined
+                                    }
+                                  >
+                                    {c.antiguedad != null ? (
+                                      <span className={c.antiguedad_desde_padron ? "text-amber-700 font-medium" : ""}>
+                                        {c.antiguedad}d
+                                      </span>
+                                    ) : "—"}
                                   </TableCell>
                                   <TableCell className="text-right text-muted-foreground font-mono text-[11px]">
                                     {c.cantidad_comprobantes ?? "—"}

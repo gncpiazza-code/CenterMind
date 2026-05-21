@@ -1672,13 +1672,59 @@ def _fetch_cc_detalle_rows(
     return rows
 
 
+def _today_ar() -> date:
+    try:
+        from zoneinfo import ZoneInfo
+
+        return datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")).date()
+    except Exception:
+        return datetime.now().date()
+
+
 def _parse_fecha_iso(s) -> date | None:
     if not s:
         return None
-    try:
-        return datetime.strptime(str(s).strip()[:10], "%Y-%m-%d").date()
-    except ValueError:
+    raw = str(s).strip()
+    if not raw:
         return None
+    try:
+        return datetime.strptime(raw[:10], "%Y-%m-%d").date()
+    except ValueError:
+        pass
+    for fmt in ("%d/%m/%Y", "%d-%m-%Y"):
+        try:
+            return datetime.strptime(raw[:10], fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _antiguedad_rango_label(dias: int) -> str:
+    d = max(0, int(dias or 0))
+    if d <= 7:
+        return "1-7 Días"
+    if d <= 15:
+        return "8-15 Días"
+    if d <= 21:
+        return "16-21 Días"
+    if d <= 30:
+        return "22-30 Días"
+    return "+30 Días"
+
+
+def _antiguedad_supervision_display(
+    antig_cc: int, dias_uc: int | None, deuda: float
+) -> tuple[int, str, bool]:
+    """
+    Antigüedad mostrada en supervisión.
+    Si CHESS marca 0d pero el padrón tiene compra más antigua, usamos días desde última compra.
+    """
+    antig_cc = int(antig_cc or 0)
+    if deuda <= 0 or dias_uc is None:
+        return antig_cc, _antiguedad_rango_label(antig_cc), False
+    if dias_uc > antig_cc:
+        return dias_uc, _antiguedad_rango_label(dias_uc), True
+    return antig_cc, _antiguedad_rango_label(antig_cc), False
 
 
 def _dias_desde_fecha(fecha_ref, hasta: date | None = None) -> int | None:
@@ -2047,10 +2093,18 @@ def supervision_cuentas(
                 erp_fuc_map=erp_fuc_map,
                 fecha_uc_map=fecha_uc_map,
             )
-            ref_cc = _parse_fecha_iso(fecha_snapshot) or datetime.now().date()
-            dias_uc = _dias_desde_fecha(fuc, ref_cc) if fuc else None
+            hoy_ar = _today_ar()
+            dias_uc = _dias_desde_fecha(fuc, hoy_ar) if fuc else None
             antig_cc = int(item.get("antiguedad_dias") or 0)
-            incoherente = _cc_padron_incoherente(deuda, antig_cc, dias_uc)
+            antig_show, rango_show, desde_padron = _antiguedad_supervision_display(
+                antig_cc, dias_uc, deuda
+            )
+            erp_cc = (
+                _norm_erp_cliente_id(item.get("id_cliente_erp"))
+                or erp_norm_resolved
+                or (_norm_erp_cliente_id(erp_label) if erp_label else None)
+            )
+            incoherente = _cc_padron_incoherente(deuda, antig_cc, dias_uc) and not erp_cc
             vd["clientes"].append({
                 "cliente": item.get("cliente_nombre"), "id_cliente_erp": erp_resolved,
                 "id_cliente": id_cliente_pk,
@@ -2060,9 +2114,12 @@ def supervision_cuentas(
                 "deuda_30_dias": float(item.get("deuda_30_dias") or 0),
                 "deuda_60_dias": float(item.get("deuda_60_dias") or 0),
                 "deuda_mas_60_dias": float(item.get("deuda_mas_60_dias") or 0),
-                "antiguedad": antig_cc, "rango_antiguedad": item.get("rango_antiguedad"),
+                "antiguedad": antig_show,
+                "antiguedad_cc": antig_cc,
+                "antiguedad_desde_padron": desde_padron,
+                "rango_antiguedad": rango_show,
                 "cantidad_comprobantes": item.get("cantidad_comprobantes"),
-                "fecha_ultima_compra": None if incoherente else fuc,
+                "fecha_ultima_compra": fuc,
                 "dias_desde_ultima_compra": dias_uc,
                 "padron_cc_alerta": incoherente,
             })

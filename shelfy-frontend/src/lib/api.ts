@@ -1599,6 +1599,9 @@ export interface ClienteCuenta {
   deuda_60_dias?: number;
   deuda_mas_60_dias?: number;
   antiguedad: number | null;
+  /** Valor crudo CHESS (puede ser 0 aunque la compra sea más antigua). */
+  antiguedad_cc?: number | null;
+  antiguedad_desde_padron?: boolean;
   rango_antiguedad: string | null;
   cantidad_comprobantes: number | null;
   fecha_ultima_compra: string | null;

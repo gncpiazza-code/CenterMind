@@ -166,7 +166,7 @@ def _map_row_to_excel_dict(row: dict) -> dict[str, Any]:
     cod = pick("cod cliente", "codigo cliente", "nro cliente", "id cliente", "codcli", "idcliente")
     cant = pick("cant cbte", "cantidad comprobantes", "comprobantes", "cantidad")
     saldo = pick("saldo total", "saldo", "deuda", "balance", "importe")
-    anti = pick("antiguedad deuda", "antiguedad", "antigüedad", "dias", "days", "aging")
+    anti = pick("diasdeu", "dias deu", "antiguedad deuda", "antiguedad", "antigüedad", "aging")
     s7 = pick("saldo7", "saldo 7", "a 7 dias", "7 dias")
     s15 = pick("saldo15", "saldo 15", "a 15 dias", "15 dias")
     s30 = pick("saldo30", "saldo 30", "a 30 dias", "30 dias")

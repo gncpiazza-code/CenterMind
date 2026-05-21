@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronDown } from "lucide-react";
-import type { CcResumenRow, CcSaldoBucketRow } from "@/lib/cuentasCorrientes";
+import type { CcResumenRow } from "@/lib/cuentasCorrientes";
 import { formatRangoBadgeLabel, rangoBadgeClass } from "@/lib/cuentasCorrientes";
 import { useSupervisionPanelStore } from "@/store/useSupervisionPanelStore";
 
@@ -39,7 +39,6 @@ const VARIANT_STYLES: Record<
 
 type Props = {
   antiguedad: CcResumenRow[];
-  saldo: CcSaldoBucketRow[];
   variant?: Variant;
   /** Dentro del panel CC del mapa (sin card exterior). */
   embedded?: boolean;
@@ -70,7 +69,7 @@ function ResumenTable({
   renderLabel?: (label: string) => React.ReactNode;
 }) {
   const v = VARIANT_STYLES[variant];
-  const hasData = rows.some((r) => r.monto > 0);
+  const hasData = rows.some((r) => r.monto > 0 || (r.clientes ?? 0) > 0);
   if (!hasData) return null;
 
   const px = embedded ? "px-5" : "px-4";
@@ -119,10 +118,9 @@ function ResumenTable({
   );
 }
 
-/** Resumen CC colapsable: antigüedad + tramos de vencimiento (como PDF difusión). */
+/** Resumen CC colapsable: distribución por antigüedad (como PDF difusión). */
 export function CcDeudaResumenPanel({
   antiguedad,
-  saldo,
   variant = "amber",
   embedded = false,
   headerless = false,
@@ -136,35 +134,24 @@ export function CcDeudaResumenPanel({
   const v = VARIANT_STYLES[variant];
 
   const showAntig = antiguedad.some((r) => r.monto > 0);
-  const showSaldo = saldo.some((r) => r.monto > 0);
-  if (!showAntig && !showSaldo) return null;
+  if (!showAntig) return null;
 
   const inner = (
-    <>
-      <ResumenTable
-        title="Distribución por antigüedad"
-        subtitle="Deuda total agrupada por días de atraso del cliente"
-        headers={["Rango", "Deuda", "%", "Clientes"]}
-        rows={antiguedad}
-        variant={variant}
-        embedded={embedded}
-        renderLabel={(label) => (
-          <span
-            className={`inline-flex items-center text-[10px] px-1.5 py-0.5 rounded border font-semibold ${badgeClass(label)}`}
-          >
-            {formatRangoBadgeLabel(label)}
-          </span>
-        )}
-      />
-      <ResumenTable
-        title="Deuda por vencimiento"
-        subtitle="Saldo en cada tramo (7 / 15 / 30 / 60 / +60 días)"
-        headers={["Tramo", "Deuda", "%"]}
-        rows={saldo}
-        variant={variant}
-        embedded={embedded}
-      />
-    </>
+    <ResumenTable
+      title="Distribución por antigüedad"
+      subtitle="Deuda total agrupada por días de atraso del cliente"
+      headers={["Rango", "Deuda", "%", "Clientes"]}
+      rows={antiguedad.filter((r) => r.monto > 0)}
+      variant={variant}
+      embedded={embedded}
+      renderLabel={(label) => (
+        <span
+          className={`inline-flex items-center text-[10px] px-1.5 py-0.5 rounded border font-semibold ${badgeClass(label)}`}
+        >
+          {formatRangoBadgeLabel(label)}
+        </span>
+      )}
+    />
   );
 
   const animatedBody = (
@@ -207,7 +194,7 @@ export function CcDeudaResumenPanel({
           Resumen de deuda
         </p>
         <p className="text-[10px] text-[var(--shelfy-muted)] mt-0.5">
-          {expanded ? "Antigüedad y vencimiento · como PDF difusión" : "Tocá para ver desglose"}
+          {expanded ? "Distribución por antigüedad · como PDF difusión" : "Tocá para ver desglose"}
         </p>
       </div>
       <ChevronDown

@@ -161,12 +161,37 @@ export interface CcResumenRow {
   clientes: number;
 }
 
+/** Deuda efectiva: saldo_total o suma de tramos CHESS si el total viene en 0. */
+export function ccDeudaCliente(c: {
+  deuda_total?: number | null;
+  deuda_7_dias?: number | null;
+  deuda_15_dias?: number | null;
+  deuda_30_dias?: number | null;
+  deuda_60_dias?: number | null;
+  deuda_mas_60_dias?: number | null;
+}): number {
+  const total = Number(c.deuda_total ?? 0);
+  if (total > 0) return total;
+  return (
+    Number(c.deuda_7_dias ?? 0) +
+    Number(c.deuda_15_dias ?? 0) +
+    Number(c.deuda_30_dias ?? 0) +
+    Number(c.deuda_60_dias ?? 0) +
+    Number(c.deuda_mas_60_dias ?? 0)
+  );
+}
+
 /** Distribución por antigüedad del cliente (como PDF «Distribución de deuda por antigüedad»). */
 export function computeDeudaPorAntiguedad(
   clientes: Array<{
     antiguedad?: number | null;
-    deuda_total?: number;
+    deuda_total?: number | null;
     rango_antiguedad?: string | null;
+    deuda_7_dias?: number | null;
+    deuda_15_dias?: number | null;
+    deuda_30_dias?: number | null;
+    deuda_60_dias?: number | null;
+    deuda_mas_60_dias?: number | null;
   }>,
 ): CcResumenRow[] {
   const buckets: Record<string, { monto: number; clientes: number }> = {};
@@ -174,11 +199,12 @@ export function computeDeudaPorAntiguedad(
     buckets[lab] = { monto: 0, clientes: 0 };
   }
   for (const c of clientes) {
+    const amt = ccDeudaCliente(c);
+    if (amt <= 0) continue;
     const lab =
       normalizeAntiguedadLabel(c.rango_antiguedad) ||
       antiguedadRangoLabel(c.antiguedad);
     const key = buckets[lab] !== undefined ? lab : antiguedadRangoLabel(c.antiguedad);
-    const amt = Number(c.deuda_total ?? 0);
     buckets[key].monto += amt;
     buckets[key].clientes += 1;
   }

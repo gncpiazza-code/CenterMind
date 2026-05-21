@@ -27,6 +27,8 @@ import {
 } from "@/hooks/useAltasCompradores";
 import { useSupervisionPanelStore } from "@/store/useSupervisionPanelStore";
 import { mesEnLetras } from "@/lib/cuentasCorrientes";
+import { SUPERVISION_PANEL_SCROLL_MIN_H } from "@/components/supervision/supervisionLayout";
+import { cn } from "@/lib/utils";
 import type { PdvsMovimientoItem } from "@/lib/api";
 
 const MES_OPTIONS = buildMesOptions(12);
@@ -120,7 +122,10 @@ export function AltasCompradoresPanel({
 
   return (
     <div
-      className={`rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden shadow-sm flex flex-col ${className}`}
+      className={cn(
+        "rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] overflow-hidden shadow-sm flex flex-col flex-1 min-h-0",
+        className,
+      )}
     >
       <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-[var(--shelfy-border)]/50">
         <div className="flex items-center gap-2 min-w-0">
@@ -242,7 +247,7 @@ export function AltasCompradoresPanel({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="flex flex-col"
+            className="flex flex-col flex-1 min-h-0"
           >
             <div className="border-b border-[var(--shelfy-border)]/40">
               <div className="grid grid-cols-2 divide-x divide-[var(--shelfy-border)]/30">
@@ -298,7 +303,7 @@ export function AltasCompradoresPanel({
                 ))}
               </div>
             </div>
-            <div className="overflow-y-auto max-h-[500px]">
+            <div className={cn("flex-1 min-h-0 overflow-y-auto", SUPERVISION_PANEL_SCROLL_MIN_H)}>
               <AnimatePresence mode="wait">
                 {itemsFiltrados.length === 0 ? (
                   <motion.p

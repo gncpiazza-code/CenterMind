@@ -72,7 +72,6 @@ import { toast } from "sonner";
 import { uploadCCForDist, fetchCCStatus } from "@/lib/api";
 import {
   computeDeudaPorAntiguedad,
-  computeDeudaPorSaldoBuckets,
 } from "@/lib/cuentasCorrientes";
 import { CcDeudaResumenPanel } from "@/components/supervision/CcDeudaResumenPanel";
 import { AltasCompradoresPanel } from "@/components/supervision/AltasCompradoresPanel";
@@ -884,11 +883,6 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
     () => computeDeudaPorAntiguedad(ccClientesFlat as Parameters<typeof computeDeudaPorAntiguedad>[0]),
     [ccClientesFlat],
   );
-  const ccDeudaPorSaldo = useMemo(
-    () => computeDeudaPorSaldoBuckets(ccClientesFlat as Parameters<typeof computeDeudaPorSaldoBuckets>[0]),
-    [ccClientesFlat],
-  );
-
   const exhibicionesFiltradas = useMemo(() => {
     let filtered = exhibiciones;
     if (selectedSucursal) {
@@ -2506,7 +2500,6 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                 embedded
                 variant="amber"
                 antiguedad={ccDeudaPorAntiguedad}
-                saldo={ccDeudaPorSaldo}
                 rangoBadgeClassFn={(label) =>
                   RANGO_COLORS[label] ??
                   "bg-white/5 text-[var(--shelfy-muted)] border-[var(--shelfy-border)]"

@@ -13,7 +13,6 @@ import { openCuentasCorrientesPrintWindow } from "@/lib/printCuentasCorrientes";
 import {
   ccRowMatchesVendedor,
   computeDeudaPorAntiguedad,
-  computeDeudaPorSaldoBuckets,
   formatRangoBadgeLabel,
   rangoBadgeClass,
   sortClientesCC,
@@ -53,6 +52,11 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
+import { cn } from "@/lib/utils";
+import {
+  SUPERVISION_PANEL_SCROLL_MIN_H,
+  SUPERVISION_SPLIT_PANEL_MIN_H,
+} from "@/components/supervision/supervisionLayout";
 
 const ALLOWED_ROLES = ["superadmin", "admin", "supervisor", "directorio"];
 
@@ -172,17 +176,11 @@ export default function SupervisionPage() {
     () => computeDeudaPorAntiguedad(clientesOrdenados),
     [clientesOrdenados],
   );
-  const deudaPorSaldoBuckets = useMemo(
-    () => computeDeudaPorSaldoBuckets(clientesOrdenados),
-    [clientesOrdenados],
-  );
-
   const showCcResumen =
     !!selectedVendedorNombre &&
     !loadingCuentas &&
     clientesOrdenados.length > 0 &&
-    (deudaPorAntiguedad.some((r) => r.monto > 0) ||
-      deudaPorSaldoBuckets.some((r) => r.monto > 0));
+    deudaPorAntiguedad.some((r) => r.monto > 0);
 
   const padronLastUpdated = syncStatus?.padron?.last_updated ?? null;
   const ccLastUpdated = syncStatus?.cuentas_corrientes?.last_updated ?? null;
@@ -273,9 +271,13 @@ export default function SupervisionPage() {
               ) : (
               <SupervisionReveal animate={!fetchingCuentas || !!cuentasData}>
               {/* ── NIVEL 3: KPIs globales (4 cards animadas) ─────────────── */}
-              <SupervisionRevealItem>
+              <SupervisionRevealItem
+                className={cn(
+                  showCcResumen && ccResumenExpanded && "mb-5 lg:mb-7",
+                )}
+              >
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                <div className="flex flex-col gap-0 min-w-0">
+                <div className="flex flex-col min-w-0">
                   <AnimatedKpiCard
                     label="Deuda Total"
                     value={deudaTotalDisplay}
@@ -287,15 +289,14 @@ export default function SupervisionPage() {
                     expandable={showCcResumen}
                     expanded={ccResumenExpanded}
                     onToggle={toggleCcResumen}
-                    expandHint="Ver desglose por antigüedad y vencimiento"
+                    expandHint="Ver desglose por antigüedad"
                   />
                   {showCcResumen && (
                     <CcDeudaResumenPanel
                       headerless
                       variant="rose"
                       antiguedad={deudaPorAntiguedad}
-                      saldo={deudaPorSaldoBuckets}
-                      className="-mt-px"
+                      className="mt-1"
                     />
                   )}
                 </div>
@@ -328,11 +329,11 @@ export default function SupervisionPage() {
 
               {/* ── NIVEL 4: Paneles 50/50 ───────────────────────────────── */}
               <SupervisionRevealItem>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-stretch">
 
                 {/* ── Izquierda: Cuentas Corrientes ──────────────────────── */}
-                <div className="flex flex-col gap-4">
-                  <Card>
+                <div className={cn("flex flex-col h-full", SUPERVISION_SPLIT_PANEL_MIN_H)}>
+                  <Card className="flex flex-col flex-1 min-h-0 h-full rounded-2xl shadow-sm border">
                     <CardHeader className="pb-3 pt-4 px-5">
                       <div className="flex items-center justify-between gap-2 flex-wrap">
                         <CardTitle className="text-sm font-bold flex items-center gap-2">
@@ -359,9 +360,9 @@ export default function SupervisionPage() {
                       </div>
                     </CardHeader>
                     <Separator />
-                    <CardContent className="p-0">
+                    <CardContent className="p-0 flex flex-col flex-1 min-h-0">
                       {!selectedVendedorNombre ? (
-                        <div className="flex flex-col items-center justify-center py-14 gap-3 text-center px-6">
+                        <div className="flex flex-1 flex-col items-center justify-center py-14 gap-3 text-center px-6 min-h-[420px]">
                           <div className="size-12 rounded-2xl bg-rose-500/8 flex items-center justify-center">
                             <CreditCard size={22} className="text-rose-500" />
                           </div>
@@ -373,17 +374,17 @@ export default function SupervisionPage() {
                           </div>
                         </div>
                       ) : loadingCuentas ? (
-                        <div className="p-4 flex flex-col gap-2">
-                          {Array.from({ length: 5 }).map((_, i) => (
+                        <div className={cn("p-4 flex flex-col gap-2 flex-1", SUPERVISION_PANEL_SCROLL_MIN_H)}>
+                          {Array.from({ length: 6 }).map((_, i) => (
                             <Skeleton key={i} className="h-9 w-full rounded" />
                           ))}
                         </div>
                       ) : clientesOrdenados.length === 0 ? (
-                        <p className="text-center text-xs text-muted-foreground py-8">
+                        <p className={cn("text-center text-xs text-muted-foreground py-8 flex-1 flex items-center justify-center", SUPERVISION_PANEL_SCROLL_MIN_H)}>
                           Sin datos de CC disponibles
                         </p>
                       ) : (
-                        <div className="overflow-auto max-h-[480px]">
+                        <div className={cn("flex-1 min-h-0 overflow-auto", SUPERVISION_PANEL_SCROLL_MIN_H)}>
                           <Table>
                             <TableHeader>
                               <TableRow className="text-[10px]">
@@ -462,6 +463,7 @@ export default function SupervisionPage() {
                   distId={distId}
                   vendedorId={selectedVendedorId}
                   layout="tabs"
+                  className={cn("h-full", SUPERVISION_SPLIT_PANEL_MIN_H)}
                 />
 
               </div>

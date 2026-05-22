@@ -253,13 +253,13 @@ export default function DashboardPage() {
             </Alert>
           )}
 
-          {/* Fila superior 50/50: carrusel | ranking */}
-          <div className="relative">
-            <div className="hidden xl:block absolute left-1/2 top-0 bottom-0 w-px -translate-x-1/2 bg-gradient-to-b from-transparent via-slate-200/60 to-transparent pointer-events-none" />
+          {/* Fila superior 50/50: carrusel (izq) | ranking (der) */}
+          <div className="relative w-full">
+            <div className="hidden md:block absolute left-1/2 top-0 bottom-0 w-px -translate-x-1/2 bg-gradient-to-b from-transparent via-slate-200/60 to-transparent pointer-events-none z-10" />
 
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 xl:min-h-[min(72vh,720px)]">
+            <div className="flex flex-col md:flex-row md:items-stretch gap-6 w-full md:min-h-[min(68vh,640px)]">
               <motion.div
-                className="relative min-h-[360px] xl:min-h-0 xl:h-full"
+                className="relative w-full md:w-1/2 md:min-w-0 flex flex-col min-h-[340px] sm:min-h-[400px] md:min-h-0 md:h-auto"
                 variants={sectionVariants}
                 initial="hidden"
                 animate="show"
@@ -271,18 +271,18 @@ export default function DashboardPage() {
                   </div>
                 )}
                 {loading && ultimas.length === 0 ? (
-                  <Card className="h-full min-h-[360px] flex items-center justify-center p-12 bg-white rounded-[2.5rem]">
+                  <Card className="flex-1 flex items-center justify-center p-12 bg-white rounded-[2.5rem] min-h-[340px]">
                     <Skeleton className="h-8 w-full" />
                   </Card>
                 ) : (
-                  <div className="h-full min-h-[360px] xl:min-h-[520px]">
+                  <div className="flex-1 min-h-[340px] sm:min-h-[400px] md:min-h-[480px] h-full">
                     <HeroCarousel items={ultimas} />
                   </div>
                 )}
               </motion.div>
 
               <motion.div
-                className="relative min-h-[400px] xl:min-h-0 xl:h-full flex flex-col"
+                className="relative w-full md:w-1/2 md:min-w-0 flex flex-col min-h-[380px] md:min-h-0 md:h-auto"
                 variants={sectionVariants}
                 initial="hidden"
                 animate="show"
@@ -293,7 +293,7 @@ export default function DashboardPage() {
                     <div className="w-4 h-4 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
                   </div>
                 )}
-                <div className="flex-1 min-h-[400px] xl:min-h-0">
+                <div className="flex-1 min-h-[380px] md:min-h-[480px] h-full">
                   <RankingTable
                     ranking={rankingFiltrado}
                     periodo={periodo}

@@ -21,6 +21,7 @@ import {
   createObjetivo,
   updateObjetivo,
   deleteObjetivo,
+  lanzarObjetivo,
   fetchVendedoresSupervision,
   fetchRutasSupervision,
   fetchCuentasSupervision,
@@ -35,6 +36,7 @@ import {
   type ObjetivoTimeline,
   type PDVCatalogItem,
 } from "@/lib/api";
+import { LanzarObjetivoDialog } from "@/components/objetivos/LanzarObjetivoDialog";
 import {
   Target,
   Plus,
@@ -61,6 +63,8 @@ import {
   GitBranch,
   Activity,
   Crown,
+  Rocket,
+  CalendarDays,
 } from "lucide-react";
 import {
   Dialog,
@@ -530,7 +534,9 @@ function ObjetivoPhrase({ obj }: { obj: Objetivo }) {
 
 // ── Kanban phase resolver ─────────────────────────────────────────────────────
 
-function getObjectiveKanbanPhase(obj: Objetivo): 'pendiente' | 'en_progreso' | 'terminado' {
+function getObjectiveKanbanPhase(obj: Objetivo): 'planificado' | 'pendiente' | 'en_progreso' | 'terminado' {
+  // Planificado: aún no lanzado (Telegram no enviado)
+  if (!obj.lanzado_at && obj.kanban_phase !== "terminado" && !obj.cumplido) return 'planificado';
   if (obj.cumplido) return 'terminado';
   if (obj.kanban_phase === "terminado") return "terminado";
   if (obj.kanban_phase === "en_progreso") return "en_progreso";
@@ -853,12 +859,13 @@ function RuteoAlteoItemsTree({ obj }: { obj: Objetivo }) {
 
 // ── Kanban card ───────────────────────────────────────────────────────────────
 
-function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado, onOpenRuteoPdf }: {
+function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado, onOpenRuteoPdf, onLanzar }: {
   obj: Objetivo;
   onDelete: () => void;
   onReagendar: (obj: Objetivo) => void;
   onDownloadCertificado: (obj: Objetivo) => void;
   onOpenRuteoPdf: (obj: Objetivo) => void;
+  onLanzar?: (obj: Objetivo) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const daysLeft = daysUntil(obj.fecha_objetivo);
@@ -871,14 +878,17 @@ function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado, onOpenR
     ? (obj.valor_actual ?? 0) + pendingEvidenceCount
     : (obj.valor_actual ?? 0);
 
+  const phase = getObjectiveKanbanPhase(obj);
   const leftBorderClass =
     obj.resultado_final === "exito"
       ? "border-l-4 border-l-emerald-500"
       : obj.resultado_final === "falla"
         ? "border-l-4 border-l-red-500"
-        : getObjectiveKanbanPhase(obj) === "en_progreso"
-          ? "border-l-4 border-l-violet-500"
-          : "border-l-4 border-l-[var(--shelfy-border)]";
+        : phase === "planificado"
+          ? "border-l-4 border-l-slate-400"
+          : phase === "en_progreso"
+            ? "border-l-4 border-l-violet-500"
+            : "border-l-4 border-l-[var(--shelfy-border)]";
 
   return (
     <motion.div
@@ -1092,6 +1102,14 @@ function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado, onOpenR
                 <RefreshCw className="w-3 h-3" /> Re-agendar
               </button>
             )}
+            {onLanzar && !obj.lanzado_at && !obj.cumplido && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onLanzar(obj); }}
+                className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border border-violet-500/30 text-violet-600 hover:bg-violet-500/10 transition-all"
+              >
+                <Rocket className="w-3 h-3" /> Lanzar ahora
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -1165,6 +1183,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
   const [paraTodosFDV, setParaTodosFDV] = useState(false);
   const [tipo, setTipo] = useState<ObjetivoTipo>("ruteo_alteo");
   const [fecha, setFecha] = useState<string>("");
+  const [fechaInicio, setFechaInicio] = useState<string>("");
   const [desc, setDesc] = useState<string>("");
 
   const [rutas, setRutas] = useState<RutaSupervision[]>([]);
@@ -1437,6 +1456,14 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
       toast.error("La fecha límite es obligatoria.");
       return;
     }
+    if (!desc || desc.trim().length < 5) {
+      toast.error("La descripción del objetivo es obligatoria (mínimo 5 caracteres).");
+      return;
+    }
+    if (fechaInicio && fecha && fechaInicio > fecha) {
+      toast.error("La fecha de inicio no puede ser posterior a la fecha límite.");
+      return;
+    }
 
     const creates: ObjetivoCreate[] = [];
     const targets = paraTodosFDV ? vendedoresFiltrados : [{ id_vendedor: Number(vendedorId), nombre_erp: vendedorNombre }];
@@ -1453,6 +1480,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
         origen: origenMode,
         ...(origenMode === "compania" && mesReferencia ? { mes_referencia: `${mesReferencia}-01` } : {}),
         ...(tasaPendientes !== "" ? { tasa_pendientes: Number(tasaPendientes) } : {}),
+        ...(fechaInicio ? { fecha_inicio: fechaInicio } : {}),
       };
 
       if (tipo === "ruteo_alteo") {
@@ -1465,7 +1493,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
             base.estado_inicial = selectedDayGroups.map((g) => g.day.toUpperCase()).join(", ");
           }
         }
-        base.descripcion = desc || buildPhrase(target.nombre_erp);
+        base.descripcion = desc;
         creates.push(base);
         continue;
       }
@@ -1476,7 +1504,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
             ? Number(cobranzaMonto)
             : selectedDeudor.deuda_total;
         }
-        base.descripcion = desc || buildPhrase(target.nombre_erp);
+        base.descripcion = desc;
         creates.push(base);
         continue;
       }
@@ -1484,7 +1512,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
       if (tipo === "conversion_estado") {
         if (activacionMode === "general" || paraTodosFDV) {
           base.valor_objetivo = cantidadActivacion !== "" ? Number(cantidadActivacion) : undefined;
-          base.descripcion = desc || buildPhrase(target.nombre_erp);
+          base.descripcion = desc;
           creates.push(base);
           continue;
         }
@@ -1503,11 +1531,11 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
           });
           base.pdv_items = pdvItems;
           base.valor_objetivo = cantidadActivacion !== "" ? Number(cantidadActivacion) : pdvItems.length;
-          base.descripcion = desc || buildPhrase(target.nombre_erp);
+          base.descripcion = desc;
           creates.push(base);
           continue;
         }
-        base.descripcion = desc || buildPhrase(target.nombre_erp);
+        base.descripcion = desc;
         creates.push(base);
         continue;
       }
@@ -1516,7 +1544,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
         if (exhibicionMode === "general" || paraTodosFDV) {
           const qty = cantidadExhibicion ? Number(cantidadExhibicion) : undefined;
           base.valor_objetivo = qty;
-          base.descripcion = desc || buildPhrase(target.nombre_erp);
+          base.descripcion = desc;
           creates.push(base);
           continue;
         }
@@ -1536,14 +1564,14 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
           const count = pdvItems.length;
           base.pdv_items = pdvItems;
           base.valor_objetivo = count;
-          base.descripcion = desc || `Lograr exhibición en ${count} PDV${count > 1 ? 's' : ''}`;
+          base.descripcion = desc || `Exhibición en ${count} PDV${count > 1 ? 's' : ''}`;
           creates.push(base);
           continue;
         }
         // por_pdv with nothing selected or paraTodosFDV — fallthrough to generic
         const qty = cantidadExhibicion ? Number(cantidadExhibicion) : undefined;
         base.valor_objetivo = qty;
-        base.descripcion = desc || buildPhrase(target.nombre_erp);
+        base.descripcion = desc;
         creates.push(base);
         continue;
       }
@@ -1554,7 +1582,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
           return;
         }
         base.valor_objetivo = Number(cantidadCompradores);
-        base.descripcion = desc || `Lograr ${cantidadCompradores} comprador${Number(cantidadCompradores) !== 1 ? "es" : ""} distintos en el período`;
+        base.descripcion = desc || `${cantidadCompradores} comprador${Number(cantidadCompradores) !== 1 ? "es" : ""} distintos`;
         creates.push(base);
         continue;
       }
@@ -1562,7 +1590,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
       if (tipo === "ruteo") {
         const selected = Array.from(selectedPdvIds);
         if (selected.length === 0 || paraTodosFDV) {
-          base.descripcion = desc || buildPhrase(target.nombre_erp);
+          base.descripcion = desc;
           creates.push(base);
           continue;
         }
@@ -1595,7 +1623,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
         });
         base.pdv_items = pdvItems;
         base.valor_objetivo = selected.length;
-        base.descripcion = desc || buildPhrase(target.nombre_erp);
+        base.descripcion = desc;
         creates.push(base);
         continue;
       }
@@ -2526,27 +2554,39 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
           )}
 
           {/* Descripción */}
+          {/* Fecha de inicio (planificación) */}
+          {origenMode !== "compania" && (
+            <div>
+              <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">
+                Fecha de inicio <span className="normal-case font-normal">(opcional — deja vacío para lanzar hoy)</span>
+              </label>
+              <DatePicker
+                value={fechaInicio}
+                onChange={(v) => setFechaInicio(v)}
+                placeholder="Seleccionar fecha de inicio..."
+              />
+              {fechaInicio && (
+                <p className="text-[10px] text-slate-500 mt-1">
+                  El objetivo quedará en <b>Planificados</b> hasta el {fechaInicio} a las 08:00 AR.
+                </p>
+              )}
+            </div>
+          )}
+
           <div>
             <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">
-              Descripción <span className="normal-case font-normal">(deja vacío para usar la frase generada)</span>
+              Mensaje para el vendedor <span className="text-red-500">*</span>
             </label>
             <textarea
-              rows={2}
-              placeholder="Descripción personalizada..."
+              rows={3}
+              placeholder="Describí el objetivo y la acción requerida (mínimo 5 caracteres)..."
               className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-[var(--shelfy-text)] placeholder-[var(--shelfy-muted)]/60 focus:outline-none focus:border-[var(--shelfy-accent)]/60 resize-none"
               value={desc}
               onChange={e => setDesc(e.target.value)}
             />
-          </div>
-
-          {/* Resumen — Objetivo generado */}
-          <div className="rounded-xl bg-[var(--shelfy-bg)] border border-[var(--shelfy-accent)]/20 p-3">
-            <p className="text-[11px] text-[var(--shelfy-muted)] mb-1 uppercase tracking-wider font-medium">
-              {desc ? "Descripción personalizada activa" : "Objetivo generado"}
-            </p>
-            <p className="text-sm text-[var(--shelfy-text)] leading-relaxed">
-              {desc || buildPhrase()}
-            </p>
+            {desc && desc.trim().length < 5 && (
+              <p className="text-[10px] text-red-500 mt-1">Mínimo 5 caracteres</p>
+            )}
           </div>
 
           <div className="flex gap-2 pt-2">
@@ -3042,6 +3082,7 @@ export default function ObjetivosPage() {
     filterTipo, filterCumplido, searchText, viewMode,
     setFilterTipo, setFilterCumplido, setSearchText, setViewMode,
     filterVendedores, filterKanbanPhase, setFilterKanbanPhase,
+    filterFechaDesde, filterFechaHasta, setFilterFechaDesde, setFilterFechaHasta,
   } = useObjetivosStore();
 
   const distId = user?.id_distribuidor ?? 0;
@@ -3229,11 +3270,25 @@ export default function ObjetivosPage() {
       }
     }
 
+    // Filtro por rango de fechas (sobre fecha_inicio y fecha_objetivo)
+    if (filterFechaDesde) {
+      list = list.filter(o => {
+        const ref = o.fecha_inicio ?? o.fecha_objetivo ?? o.created_at;
+        return ref && ref.slice(0, 10) >= filterFechaDesde;
+      });
+    }
+    if (filterFechaHasta) {
+      list = list.filter(o => {
+        const ref = o.fecha_objetivo ?? o.fecha_inicio ?? o.created_at;
+        return ref && ref.slice(0, 10) <= filterFechaHasta;
+      });
+    }
+
     // Nota: filterKanbanPhase NO se aplica al `filtered` global.
     // Lo aplica internamente KanbanOrListaView por columna para preservar los conteos reales.
 
     return list;
-  }, [objetivos, searchText, selectedSucursal, selectedVendedorId, vendedorNamesEnSucursal, vendedores, user?.is_superadmin]);
+  }, [objetivos, searchText, selectedSucursal, selectedVendedorId, vendedorNamesEnSucursal, vendedores, user?.is_superadmin, filterFechaDesde, filterFechaHasta]);
 
   // ── Stats ─────────────────────────────────────────────────────────────────
 
@@ -3250,10 +3305,32 @@ export default function ObjetivosPage() {
   // ── Kanban groups ─────────────────────────────────────────────────────────
 
   const kanbanGroups = useMemo(() => ({
+    planificado: filtered.filter(o => getObjectiveKanbanPhase(o) === 'planificado'),
     pendiente:   filtered.filter(o => getObjectiveKanbanPhase(o) === 'pendiente'),
     en_progreso: filtered.filter(o => getObjectiveKanbanPhase(o) === 'en_progreso'),
     terminado:   filtered.filter(o => getObjectiveKanbanPhase(o) === 'terminado'),
   }), [filtered]);
+
+  // ── Lanzar objetivo state ─────────────────────────────────────────────────
+
+  const [lanzarObj, setLanzarObj] = useState<Objetivo | null>(null);
+  const [lanzandoLoading, setLanzandoLoading] = useState(false);
+
+  const handleLanzarConfirm = async () => {
+    if (!lanzarObj) return;
+    setLanzandoLoading(true);
+    try {
+      await lanzarObjetivo(lanzarObj.id);
+      toast.success("Objetivo lanzado — Telegram enviado.");
+      qc.invalidateQueries({ queryKey: ["objetivos", distId] });
+      setLanzarObj(null);
+    } catch (err) {
+      toast.error("Error al lanzar el objetivo. Revisá los logs.");
+      console.error(err);
+    } finally {
+      setLanzandoLoading(false);
+    }
+  };
 
   // ── Re-agendar state ──────────────────────────────────────────────────────
 
@@ -3402,6 +3479,35 @@ export default function ObjetivosPage() {
                   <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-[var(--shelfy-muted)] pointer-events-none" />
                 </div>
 
+                {/* Rango de fechas */}
+                <div className="flex items-center gap-1.5">
+                  <Calendar className="w-3.5 h-3.5 text-[var(--shelfy-muted)] shrink-0" />
+                  <input
+                    type="date"
+                    title="Desde"
+                    value={filterFechaDesde ?? ""}
+                    onChange={e => setFilterFechaDesde(e.target.value || null)}
+                    className="bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-lg px-2 py-2 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                  />
+                  <span className="text-[var(--shelfy-muted)] text-xs">—</span>
+                  <input
+                    type="date"
+                    title="Hasta"
+                    value={filterFechaHasta ?? ""}
+                    onChange={e => setFilterFechaHasta(e.target.value || null)}
+                    className="bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-lg px-2 py-2 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-[var(--shelfy-accent)]/60"
+                  />
+                  {(filterFechaDesde || filterFechaHasta) && (
+                    <button
+                      type="button"
+                      onClick={() => { setFilterFechaDesde(null); setFilterFechaHasta(null); }}
+                      className="w-6 h-6 flex items-center justify-center rounded text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)]"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+
               </div>
 
               {/* Cascading sucursal → vendedor filter */}
@@ -3505,6 +3611,7 @@ export default function ObjetivosPage() {
                   onReagendar={(o) => { setReagendarObj(o); setFechaReagendar(""); setObservacionReagendar(""); }}
                   onDownloadCertificado={handleDownloadCertificado}
                   onOpenRuteoPdf={handleOpenRuteoPdf}
+                  onLanzar={(o) => setLanzarObj(o)}
                   filterKanbanPhase={filterKanbanPhase}
                   setFilterKanbanPhase={setFilterKanbanPhase}
                 />
@@ -3530,6 +3637,15 @@ export default function ObjetivosPage() {
           isSuperadmin={user?.is_superadmin}
         />
       )}
+
+      {/* Dialog Lanzar objetivo */}
+      <LanzarObjetivoDialog
+        objetivo={lanzarObj}
+        open={!!lanzarObj}
+        loading={lanzandoLoading}
+        onConfirm={handleLanzarConfirm}
+        onCancel={() => setLanzarObj(null)}
+      />
 
       {/* Dialog Re-agendar */}
       <Dialog open={!!reagendarObj} onOpenChange={(open) => { if (!open) setReagendarObj(null); }}>
@@ -3643,29 +3759,32 @@ function KanbanOrListaView({
   onReagendar,
   onDownloadCertificado,
   onOpenRuteoPdf,
+  onLanzar,
   filterKanbanPhase,
   setFilterKanbanPhase,
 }: {
-  kanbanGroups: { pendiente: Objetivo[]; en_progreso: Objetivo[]; terminado: Objetivo[] };
+  kanbanGroups: { planificado: Objetivo[]; pendiente: Objetivo[]; en_progreso: Objetivo[]; terminado: Objetivo[] };
   onDelete: (id: string) => void;
   onReagendar: (obj: Objetivo) => void;
   onDownloadCertificado: (obj: Objetivo) => void;
   onOpenRuteoPdf: (obj: Objetivo) => void;
-  filterKanbanPhase: 'pendiente' | 'en_progreso' | 'terminado' | null;
-  setFilterKanbanPhase: (phase: 'pendiente' | 'en_progreso' | 'terminado' | null) => void;
+  onLanzar: (obj: Objetivo) => void;
+  filterKanbanPhase: 'planificado' | 'pendiente' | 'en_progreso' | 'terminado' | null;
+  setFilterKanbanPhase: (phase: 'planificado' | 'pendiente' | 'en_progreso' | 'terminado' | null) => void;
 }) {
   const COLUMNS = [
-    { key: "pendiente" as const,   label: "Pendiente",   Icon: Clock,        headerClass: "text-[var(--shelfy-muted)]",  borderClass: "border-t-2 border-t-slate-300" },
-    { key: "en_progreso" as const, label: "En progreso", Icon: TrendingUp,   headerClass: "text-violet-600",              borderClass: "border-t-2 border-t-violet-500" },
-    { key: "terminado" as const,   label: "Terminado",   Icon: CheckCircle2, headerClass: "text-emerald-600",             borderClass: "border-t-2 border-t-emerald-500" },
+    { key: "planificado" as const, label: "Planificados", Icon: CalendarDays, headerClass: "text-slate-500",              borderClass: "border-t-2 border-t-slate-400" },
+    { key: "pendiente" as const,   label: "Pendiente",    Icon: Clock,        headerClass: "text-[var(--shelfy-muted)]",  borderClass: "border-t-2 border-t-slate-300" },
+    { key: "en_progreso" as const, label: "En progreso",  Icon: TrendingUp,   headerClass: "text-violet-600",              borderClass: "border-t-2 border-t-violet-500" },
+    { key: "terminado" as const,   label: "Terminado",    Icon: CheckCircle2, headerClass: "text-emerald-600",             borderClass: "border-t-2 border-t-emerald-500" },
   ];
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
       {COLUMNS.map(col => {
         const isActive = filterKanbanPhase === col.key;
-        // Cuando hay un filtro de fase activo, dimear las columnas no activas (pero siempre mostrar todas)
         const isDimmed = filterKanbanPhase !== null && !isActive;
+        const isPlanificado = col.key === "planificado";
         return (
         <div
           key={col.key}
@@ -3697,6 +3816,17 @@ function KanbanOrListaView({
                   </p>
                 );
               }
+              const renderCard = (obj: Objetivo) => (
+                <KanbanCard
+                  key={obj.id}
+                  obj={obj}
+                  onDelete={() => onDelete(obj.id)}
+                  onReagendar={onReagendar}
+                  onDownloadCertificado={onDownloadCertificado}
+                  onOpenRuteoPdf={onOpenRuteoPdf}
+                  onLanzar={isPlanificado ? onLanzar : undefined}
+                />
+              );
               return (
                 <>
                   {compania.length > 0 && (
@@ -3705,16 +3835,7 @@ function KanbanOrListaView({
                         Objetivos de Compañía
                       </p>
                       <AnimatePresence mode="popLayout">
-                        {compania.map(obj => (
-                          <KanbanCard
-                            key={obj.id}
-                            obj={obj}
-                            onDelete={() => onDelete(obj.id)}
-                            onReagendar={onReagendar}
-                            onDownloadCertificado={onDownloadCertificado}
-                            onOpenRuteoPdf={onOpenRuteoPdf}
-                          />
-                        ))}
+                        {compania.map(renderCard)}
                       </AnimatePresence>
                     </div>
                   )}
@@ -3729,16 +3850,7 @@ function KanbanOrListaView({
                         </p>
                       )}
                       <AnimatePresence mode="popLayout">
-                        {distribuidora.map(obj => (
-                          <KanbanCard
-                            key={obj.id}
-                            obj={obj}
-                            onDelete={() => onDelete(obj.id)}
-                            onReagendar={onReagendar}
-                            onDownloadCertificado={onDownloadCertificado}
-                            onOpenRuteoPdf={onOpenRuteoPdf}
-                          />
-                        ))}
+                        {distribuidora.map(renderCard)}
                       </AnimatePresence>
                     </div>
                   )}

@@ -879,6 +879,133 @@ class ObjetivosNotificationService:
             logger.error(f"[Notif] Error en notify_new_objective_telegram: {e}")
             return None
 
+    def build_new_objective_message(
+        self,
+        dist_id: int,
+        obj_data: dict,
+        obj_id: str | None = None,
+    ) -> str:
+        """
+        Construye el texto HTML del mensaje Telegram para un nuevo objetivo (sin enviarlo).
+        Usado por el endpoint de preview y por notify_new_objective_telegram.
+        Para drafts (obj_id=None), los PDVs no se buscan en DB.
+        """
+        tipo = obj_data.get("tipo") or ""
+        emoji = TIPO_EMOJI.get(tipo, "🎯")
+        tipo_label = {
+            "ruteo":             "Ruteo (cambio / baja)",
+            "ruteo_alteo":       "Alteo por día",
+            "conversion_estado": "Activación",
+            "exhibicion":        "Exhibición",
+            "cobranza":          "Cobranza",
+            "alteo":             "Alteo",
+            "activacion":        "Activación",
+            "compradores":       "Compradores",
+        }.get(tipo, str(tipo or "").replace("_", " ").title() or "General")
+
+        origen = obj_data.get("origen", "distribuidora")
+        origen_label = "Compañía" if origen == "compania" else "Distribuidora"
+        origen_str = f"\n🏢 <b>Origen:</b> {origen_label}"
+
+        mes_ref = obj_data.get("mes_referencia")
+        mes_str = ""
+        if mes_ref:
+            try:
+                from datetime import date as _date_cls
+                mes_d = _date_cls.fromisoformat(str(mes_ref)[:10])
+                meses_es = ["Enero","Febrero","Marzo","Abril","Mayo","Junio",
+                            "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"]
+                mes_str = f"\n📅 <b>Mes:</b> {meses_es[mes_d.month - 1]} {mes_d.year}"
+            except Exception:
+                mes_str = f"\n📅 <b>Mes:</b> {mes_ref}"
+
+        tasa_p = obj_data.get("tasa_pendientes")
+        tasa_str = f"\n⚖️ <b>Tasa pendientes (P):</b> {tasa_p}" if tasa_p is not None else ""
+
+        created = obj_data.get("created_at")
+        inicio_fmt = self._format_fecha_dd_mm_yyyy(created)
+        inicio_str = f"\n📆 <b>Inicio del objetivo:</b> {inicio_fmt}" if inicio_fmt else ""
+
+        sup = obj_data.get("asignado_por_usuario") or obj_data.get("supervisor")
+        sup_esc = html.escape(str(sup), quote=False) if sup else ""
+        supervisor_str = f"\n👤 <b>Supervisor:</b> {sup_esc}" if sup_esc else ""
+
+        fecha = obj_data.get("fecha_objetivo")
+        desc = obj_data.get("descripcion")
+        desc_str = ""
+        if desc:
+            desc_s = str(desc).strip()
+            desc_s = re.sub(
+                r"\s*Tenés\s+0\s+días?\s+para\s+cumplir\s+el\s+objetivo\.?",
+                "",
+                desc_s,
+                flags=re.IGNORECASE,
+            ).strip()
+            if desc_s:
+                desc_esc = html.escape(desc_s, quote=False)
+                desc_str = f"\n📝 <b>Detalle:</b> <i>{desc_esc}</i>"
+
+        dias_str = ""
+        if fecha:
+            try:
+                from datetime import date as _date
+                hoy = _date.today()
+                fecha_limite = _date.fromisoformat(str(fecha)[:10])
+                dias = (fecha_limite - hoy).days
+                if dias > 0:
+                    dias_str = f"\n⏰ <b>Tenés {dias} día{'s' if dias != 1 else ''} para realizarlo.</b>"
+                elif dias == 0:
+                    dias_str = "\n⏰ <b>¡Vence hoy!</b>"
+                else:
+                    dias_str = f"\n⏰ <i>Venció hace {abs(dias)} día{'s' if abs(dias) != 1 else ''}.</i>"
+            except Exception:
+                pass
+        limite_fmt = self._format_fecha_dd_mm_yyyy(fecha) if fecha else ""
+        limite_str = f"\n📅 <b>Fecha límite:</b> {limite_fmt or fecha}{dias_str}" if fecha else ""
+
+        valor = obj_data.get("valor_objetivo")
+        valor_str = ""
+        if tipo == "compradores" and valor:
+            valor_str = f"\n🎯 <b>Meta:</b> {int(float(valor))} comprador{'es' if float(valor) != 1 else ''} distintos"
+        elif tipo in ("ruteo_alteo", "cobranza") and valor:
+            valor_str = f"\n🎯 <b>Meta:</b> {valor}"
+
+        accion_labels = {
+            "ruteo":             "Gestión de cambio/baja en ruta",
+            "ruteo_alteo":       "Alteo en la ruta indicada",
+            "conversion_estado": "Activación de cliente(s)",
+            "exhibicion":        "Exhibición en PDV(s) objetivo",
+            "cobranza":          "Cobranza",
+            "compradores":       "Ventas a clientes distintos en el período",
+        }
+        accion_block = f"\n⚙️ <b>Acción a realizar:</b> {accion_labels.get(tipo, tipo_label)}"
+
+        instrucciones_map = {
+            "exhibicion": "🧭 <b>Qué tenés que hacer:</b> ejecutá la acción indicada y subí la foto de evidencia al bot.\n",
+            "conversion_estado": "🧭 <b>Qué tenés que hacer:</b> realizá una venta al cliente para activarlo. El progreso se actualizará automáticamente con la facturación.\n",
+            "ruteo_alteo": "🧭 <b>Qué tenés que hacer:</b> da de alta al cliente en tu ruta. El progreso se actualizará automáticamente con el padrón.\n",
+            "cobranza": "🧭 <b>Qué tenés que hacer:</b> gestioná el cobro de la deuda. El progreso se actualizará automáticamente con los recibos.\n",
+            "compradores": "🧭 <b>Qué tenés que hacer:</b> realizá ventas a clientes distintos en el período. El progreso se actualizará automáticamente con la facturación.\n",
+        }
+        instrucciones_txt = instrucciones_map.get(tipo, "🧭 <b>Qué tenés que hacer:</b> ejecutá la acción indicada para cumplir el objetivo.\n")
+
+        return (
+            f"🚀 <b>¡Nuevo objetivo asignado!</b>\n"
+            f"{inicio_str}"
+            f"{supervisor_str}"
+            f"{origen_str}"
+            f"{mes_str}"
+            f"\n\n🎯 <b>Tipo:</b> {tipo_label} {emoji}"
+            f"{tasa_str}"
+            f"{valor_str}"
+            f"{accion_block}"
+            f"{limite_str}"
+            f"{desc_str}\n\n"
+            f"{instrucciones_txt}"
+            f"📲 <b>Tip:</b> usá <code>/objetivos</code> para ver el detalle de los clientes y el progreso en tiempo real.\n\n"
+            f"¡Éxitos con la gestión! 💪"
+        )
+
     def delete_objective_telegram_message(
         self,
         dist_id: int,

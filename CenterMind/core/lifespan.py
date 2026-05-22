@@ -150,8 +150,31 @@ async def lifespan(app: FastAPI):
     for h, m in ((8, 0), (15, 30)):
         scheduler.add_job(_digest_cc, "cron", hour=h, minute=m, id=f"digest_cc_{h:02d}{m:02d}")
 
+    def _lanzar_objetivos_programados():
+        """08:00 AR: lanzar objetivos planificados con fecha_inicio = hoy."""
+        try:
+            from services.objetivos_launch_service import lanzar_programados_fecha
+            result = lanzar_programados_fecha()
+            if result["lanzados"] or result["errores"]:
+                logger.info(
+                    f"[Objetivos] Lanzamiento 08:00: lanzados={result['lanzados']} "
+                    f"errores={result['errores']} total={result['total']}"
+                )
+        except Exception as e:
+            logger.warning(f"[Objetivos] Lanzamiento programado omitido: {e}")
+
+    from zoneinfo import ZoneInfo as _ZoneInfoL
+    scheduler.add_job(
+        _lanzar_objetivos_programados,
+        "cron",
+        hour=8,
+        minute=0,
+        timezone=_ZoneInfoL("America/Argentina/Buenos_Aires"),
+        id="lanzar_objetivos_0800",
+    )
+
     scheduler.start()
-    logger.info("📅 Scheduler iniciado (ERP Sync 04:00 + digest motores)")
+    logger.info("📅 Scheduler iniciado (ERP Sync 04:00 + digest motores + Lanzar Objetivos 08:00 AR)")
 
     yield
 

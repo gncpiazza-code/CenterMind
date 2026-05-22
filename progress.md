@@ -1,6 +1,6 @@
 # Progress — Shelfy CenterMind (Lean)
 
-**Ultima actualizacion:** 22 de Mayo, 2026 (v2)  
+**Ultima actualizacion:** 22 de Mayo, 2026 (v3)  
 **Objetivo:** estado operativo actual, riesgos y prioridades.  
 **Historial largo:** `docs/changelog/archive/2026-05.md`.
 
@@ -47,6 +47,8 @@
 21. Re-evaluación Compañía (2026-05-22): tabla `exhibicion_reevaluacion_compania` (append-only); router `/api/compania/reevaluar`; overlay `apply_compania_estado_overlay` en `exhibicion_aggregate.py`; ranking paralelo `GET /api/dashboard/ranking-compania/{dist_id}` solo para roles Compañía. Galería timeline enriquece con historial de re-evaluaciones. Frontend: `SlideToConfirm`, `ReevaluarCompaniaSheet`, `RankingCompaniaCompare`. Tests: 8/8. Ranking oficial del distribuidor **sin cambios**.
 
 22. Tipo objetivo COMPRADORES (2026-05-22): nuevo tipo end-to-end. `core/objetivos_compradores.py` — módulo compartido `compradores_en_periodo` + `periodo_desde_hasta_objetivo`. Watcher: `_diff_compradores` con retroactividad mensual para compañía (patrón exhibición). Supervisión: `_supervision_compradores_mes` delega al core. Backend: `TIPOS_VALIDOS` += compradores; validación `valor_objetivo >= 1`. Bot + notificación: label 🛒 "Compradores". Frontend: badge teal, texto educativo, campo N en modal, disponible para distribuidora y compañía. Tests: `test_objetivos_compradores.py`. Restricción invariante: **NO** modifica activación ni `conversion_estado`.
+
+23. Objetivos Planificados + Kanban 4 columnas (2026-05-22): columna `planificado` (objetivos con `fecha_inicio` futura o `lanzado_at IS NULL`). DB: columnas `fecha_inicio DATE` y `lanzado_at TIMESTAMPTZ` (migración `20260521_objetivos_fecha_inicio_lanzado.sql`). `services/objetivos_launch_service.py`: `lanzar_un_objetivo` (idempotente, sets `lanzado_at`, envía Telegram) + `lanzar_programados_fecha` (batch). Cron APScheduler 08:00 AR en `lifespan.py`. Endpoints: `POST /objetivos/{id}/lanzar` y `POST /objetivos/preview-telegram`. Watcher: salta objetivos con `lanzado_at IS NULL`. Frontend: kanban 4 cols (planificado|pendiente|en_progreso|terminado), `LanzarObjetivoDialog`, `fecha_inicio` picker en modal, `descripcion` obligatoria ≥5 chars, filtros de fecha (desde/hasta). **SQL migration pendiente ejecutar en Supabase.**
 
 ## Riesgos y Guardrails Activos
 

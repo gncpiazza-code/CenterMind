@@ -80,6 +80,10 @@ class ObjetivosWatcherService:
 
             for obj in objetivos:
                 try:
+                    # Skip objetivos planificados aún no lanzados — sin avance antes del lanzamiento
+                    if not obj.get("lanzado_at"):
+                        continue
+
                     result = self._process_objetivo(obj, dist_id)
                     if result is None:
                         continue  # tipo general o sin datos base

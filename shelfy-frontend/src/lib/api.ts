@@ -1875,6 +1875,8 @@ export interface Objetivo {
   valor_actual: number;
   cumplido: boolean;
   fecha_objetivo?: string | null;
+  fecha_inicio?: string | null;
+  lanzado_at?: string | null;
   created_at: string;
   updated_at: string;
   completed_at?: string | null;
@@ -1882,7 +1884,7 @@ export interface Objetivo {
   id_objetivo_padre?: string | null;
   resultado_final?: 'exito' | 'falla' | null;
   observacion_revision?: string | null;
-  kanban_phase?: 'pendiente' | 'en_progreso' | 'terminado';
+  kanban_phase?: 'planificado' | 'pendiente' | 'en_progreso' | 'terminado';
   items?: ObjetivoItem[];
   items_count?: number;
   items_cumplidos?: number;
@@ -1970,6 +1972,8 @@ export interface ObjetivoCreate {
   mes_referencia?: string;
   /** Margen de completud: cuántos ítems pueden quedar pendientes y el objetivo igual se considera cumplido */
   tasa_pendientes?: number;
+  /** Fecha de inicio planificada (YYYY-MM-DD). Si > hoy, el objetivo queda en Planificados sin Telegram */
+  fecha_inicio?: string;
 }
 
 export interface ObjetivoUpdate {
@@ -2016,6 +2020,31 @@ export async function updateObjetivo(id: string, data: ObjetivoUpdate): Promise<
 
 export async function deleteObjetivo(id: string): Promise<void> {
   return apiFetch<void>(`/api/supervision/objetivos/${id}`, { method: 'DELETE' });
+}
+
+export async function lanzarObjetivo(id: string): Promise<{ ok: boolean; already_launched?: boolean }> {
+  return apiFetch<{ ok: boolean; already_launched?: boolean }>(
+    `/api/supervision/objetivos/${id}/lanzar`,
+    { method: 'POST' }
+  );
+}
+
+export async function previewObjetivoTelegram(data: {
+  id_distribuidor: number;
+  id_vendedor: number;
+  tipo: string;
+  descripcion?: string;
+  fecha_objetivo?: string;
+  fecha_inicio?: string;
+  valor_objetivo?: number;
+  origen?: string;
+  mes_referencia?: string;
+  nombre_vendedor?: string;
+}): Promise<{ preview_html: string }> {
+  return apiFetch<{ preview_html: string }>('/api/supervision/objetivos/preview-telegram', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
 }
 
 export async function fetchObjetivosTimeline(

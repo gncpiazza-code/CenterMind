@@ -178,6 +178,21 @@ class ObjetivoCreate(BaseModel):
     origen: Literal['compania', 'distribuidora'] = 'distribuidora'
     mes_referencia: Optional[date] = None
     tasa_pendientes: Optional[int] = None
+    # Planificación: inicio del objetivo (default = hoy → lanzado inmediatamente)
+    fecha_inicio: Optional[str] = None   # DATE string YYYY-MM-DD
+
+
+class ObjetivoPreviewTelegramIn(BaseModel):
+    id_distribuidor: int
+    id_vendedor: int
+    tipo: str
+    descripcion: Optional[str] = None
+    fecha_objetivo: Optional[str] = None
+    fecha_inicio: Optional[str] = None
+    valor_objetivo: Optional[float] = None
+    origen: str = "distribuidora"
+    mes_referencia: Optional[str] = None
+    nombre_vendedor: Optional[str] = None
 
 
 class ObjetivoUpdate(BaseModel):

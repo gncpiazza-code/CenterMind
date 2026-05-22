@@ -55,11 +55,23 @@ Tokens clave:
 
 - Modos por tipo con dualidad general vs universo explicito.
 - Compania: periodo mensual con prorrateo semanal/diario.
-- Kanban + timeline + stats + print.
+- Kanban 4 columnas: `planificado | pendiente | en_progreso | terminado`.
+- `planificado` = `lanzado_at IS NULL && !cumplido`; color slate, icono `CalendarDays`, botón "Lanzar ahora" en card.
+- Timeline + stats + print.
 - En el modal de alta, `fecha limite` es obligatoria para origen distribuidora.
+- `fecha_inicio` (DATE): si > hoy, objetivo queda planificado sin notificación Telegram al crearlo.
+- `descripcion` es obligatoria ≥5 chars; `buildPhrase()` eliminado del flujo.
 - `Tasa de pendientes` se muestra debajo del bloque contextual del tipo y antes del selector de fecha.
 - La card de compania muestra avance semanal y diario en todas las semanas/dias del mes (no solo futuros).
 - El progreso mostrado en card y desglose de compañía usa el mismo `visualActual` para evitar desfasajes entre barras.
+- Filtros de fecha: `filterFechaDesde` / `filterFechaHasta` en Zustand store, aplicados sobre `fecha_inicio ?? fecha_objetivo`.
+
+### `objetivos/LanzarObjetivoDialog.tsx`
+
+- `Dialog` (no AlertDialog) con props: `objetivo, open, loading, onConfirm, onCancel`.
+- Muestra: vendedor, tipo, fecha_inicio programada, aviso Telegram.
+- Botones: Cancelar (autoFocus) / Confirmar y enviar (violet, `Rocket` icon).
+- Aviso ámbar: "Se enviará un mensaje al grupo de Telegram del vendedor de forma inmediata."
 
 ### `visor/page.tsx`
 

@@ -18,6 +18,7 @@ Documento de referencia tecnica estable para agentes y desarrolladores.
 - `CenterMind/core/helpers.py`: enrichment y utilidades tenant-safe (incl. `is_vendedor_excluido_objetivos`).
 - `CenterMind/core/exhibicion_aggregate.py`: definicion canonica de exhibicion logica unica.
 - `CenterMind/core/objetivos_compradores.py`: medicion canonica de compradores en periodo (fuente unica para watcher y supervision). **No tocar activacion ni conversion_estado desde este modulo.**
+- `CenterMind/services/objetivos_launch_service.py`: lanzamiento de objetivos planificados (auto y manual). Funciones: `lanzar_un_objetivo(obj_id, dist_id)`, `lanzar_programados_fecha(dist_id?)`. Llamado por cron 08:00 AR (lifespan.py) y por endpoint `POST /api/supervision/objetivos/{id}/lanzar`.
 - `shelfy-frontend/src/lib/api.ts`: contrato unico de fetch/tipos.
 - `ShelfMind-RPA/motores/`: padron, cuentas, ventas, sigo.
 
@@ -83,6 +84,7 @@ Claves:
 - WS: `/api/ws/exhibiciones/{dist_id}`, `/api/ws/superadmin`
 - Tickets portal: `/api/portal-feedback/messages` (filtros), `/api/portal-feedback/messages/export` (JSON), `/api/portal-feedback/messages/{id}/pre-resolucion` (IA opcional)
 - Revisión Compañía: `POST /api/compania/reevaluar`, `GET /api/compania/reevaluaciones/{id_exhibicion}`, `GET /api/dashboard/ranking-compania/{dist_id}` (solo roles Compañía)
+- Objetivos planificados: `POST /api/supervision/objetivos/{id}/lanzar` (lanzar manualmente), `POST /api/supervision/objetivos/preview-telegram` (preview mensaje)
 
 ## Invariantes Operativas
 

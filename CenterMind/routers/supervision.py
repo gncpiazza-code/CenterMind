@@ -35,7 +35,7 @@ from core.tenant_tables import (
     find_dist_by_ruta,
 )
 from db import sb
-from models.schemas import EvaluarRequest, ObjetivoCreate, ObjetivoItemCreate, ObjetivoUpdate, ObjetivoTimeline, ObjetivoTimelineEvent, RevertirRequest
+from models.schemas import EvaluarRequest, ObjetivoCreate, ObjetivoItemCreate, ObjetivoPreviewTelegramIn, ObjetivoUpdate, ObjetivoTimeline, ObjetivoTimelineEvent, RevertirRequest
 
 logger = logging.getLogger("ShelfyAPI")
 router = APIRouter()
@@ -2662,8 +2662,12 @@ def pdvs_cercanos(
 def _compute_kanban_phase(obj: dict) -> str:
     """
     Deriva la columna Kanban de un objetivo a partir de su estado y sus ítems.
-    Retorna: 'pendiente' | 'en_progreso' | 'terminado'
+    Retorna: 'planificado' | 'pendiente' | 'en_progreso' | 'terminado'
     """
+    # Planificado: aún no lanzado (Telegram no enviado)
+    if not obj.get("lanzado_at"):
+        return "planificado"
+
     if obj.get("cumplido"):
         return "terminado"
 
@@ -2883,6 +2887,11 @@ def crear_objetivo(body: ObjetivoCreate, user_payload=Depends(verify_auth)):
         if body.pdv_items and body.tipo in TIPOS_MULTI_PDV and not valor_objetivo:
             valor_objetivo = float(len(body.pdv_items))
 
+        from zoneinfo import ZoneInfo as _ZoneInfo
+        hoy_ar_str = datetime.now(_ZoneInfo("America/Argentina/Buenos_Aires")).date().isoformat()
+        fecha_inicio_str = (body.fecha_inicio or hoy_ar_str) or hoy_ar_str
+        es_planificado = fecha_inicio_str > hoy_ar_str if fecha_inicio_str else False
+
         payload = {
             "id_distribuidor": body.id_distribuidor, "id_vendedor": body.id_vendedor,
             "tipo": body.tipo, "id_target_pdv": body.id_target_pdv, "id_target_ruta": body.id_target_ruta,
@@ -2892,6 +2901,7 @@ def crear_objetivo(body: ObjetivoCreate, user_payload=Depends(verify_auth)):
             "origen": body.origen,
             "mes_referencia": body.mes_referencia.isoformat() if body.mes_referencia else None,
             "tasa_pendientes": body.tasa_pendientes,
+            "fecha_inicio": fecha_inicio_str,
         }
         res = sb.table("objetivos").insert(payload).execute()
         rows = res.data or []
@@ -2959,7 +2969,8 @@ def crear_objetivo(body: ObjetivoCreate, user_payload=Depends(verify_auth)):
 
         # Telegram Notification for NEW objective (enriched: supervisor + timestamps)
         # Regla de negocio: objetivos de tipo ruteo NO se notifican por Telegram.
-        if body.tipo != "ruteo":
+        # Regla de planificación: si fecha_inicio > hoy, NO notificar — lanzamiento diferido.
+        if body.tipo != "ruteo" and not es_planificado:
             try:
                 from services.objetivos_notification_service import objetivos_notification
                 notify_payload = {
@@ -2973,6 +2984,11 @@ def crear_objetivo(body: ObjetivoCreate, user_payload=Depends(verify_auth)):
                 )
                 if notif_meta and notif_meta.get("chat_id") and notif_meta.get("message_id"):
                     try:
+                        from datetime import timezone as _tz
+                        # Marcar lanzado_at inmediatamente al notificar
+                        sb.table("objetivos").update(
+                            {"lanzado_at": datetime.now(_tz.utc).isoformat()}
+                        ).eq("id", obj_id).execute()
                         sb.table("objetivos_tracking").upsert(
                             {
                                 "id_objetivo": obj_id,
@@ -3027,6 +3043,57 @@ def crear_objetivo(body: ObjetivoCreate, user_payload=Depends(verify_auth)):
                 },
             )
         logger.error(f"Error en crear_objetivo: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/supervision/objetivos/{obj_id}/lanzar", tags=["Supervisión"])
+def lanzar_objetivo_now(obj_id: str, user_payload=Depends(verify_auth)):
+    """Lanza manualmente un objetivo planificado: envía Telegram y setea lanzado_at."""
+    dist_id = user_payload.get("id_distribuidor")
+    if not dist_id and not user_payload.get("is_superadmin"):
+        raise HTTPException(status_code=403, detail="Sin distribuidora asignada")
+    # Resolver dist_id desde el objetivo si es superadmin
+    if not dist_id:
+        obj_res = sb.table("objetivos").select("id_distribuidor").eq("id", obj_id).limit(1).execute()
+        if not obj_res.data:
+            raise HTTPException(status_code=404, detail="Objetivo no encontrado")
+        dist_id = obj_res.data[0]["id_distribuidor"]
+    check_dist_permission(user_payload, dist_id)
+    try:
+        from services.objetivos_launch_service import lanzar_un_objetivo
+        result = lanzar_un_objetivo(obj_id, int(dist_id), asignado_por=user_payload.get("sub"))
+        if not result.get("ok"):
+            raise HTTPException(status_code=400, detail=result.get("error", "No se pudo lanzar"))
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[lanzar_objetivo_now] {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/supervision/objetivos/preview-telegram", tags=["Supervisión"])
+def preview_telegram_objetivo(body: ObjetivoPreviewTelegramIn, user_payload=Depends(verify_auth)):
+    """Retorna el texto HTML del mensaje Telegram que se enviaría para un objetivo (draft)."""
+    check_dist_permission(user_payload, body.id_distribuidor)
+    try:
+        from services.objetivos_notification_service import objetivos_notification
+        obj_data = {
+            "id_distribuidor": body.id_distribuidor,
+            "id_vendedor": body.id_vendedor,
+            "tipo": body.tipo,
+            "descripcion": body.descripcion,
+            "fecha_objetivo": body.fecha_objetivo,
+            "fecha_inicio": body.fecha_inicio,
+            "valor_objetivo": body.valor_objetivo,
+            "origen": body.origen,
+            "mes_referencia": body.mes_referencia,
+            "nombre_vendedor": body.nombre_vendedor,
+        }
+        text = objetivos_notification.build_new_objective_message(body.id_distribuidor, obj_data, obj_id=None)
+        return {"preview_html": text}
+    except Exception as e:
+        logger.error(f"[preview_telegram] {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

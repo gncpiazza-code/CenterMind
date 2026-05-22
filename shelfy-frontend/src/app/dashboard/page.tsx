@@ -230,9 +230,9 @@ export default function DashboardPage() {
         {/* Mejora #4: live prop en el Topbar */}
         <Topbar title="Dashboard" live />
 
-        <main className="flex-1 p-4 md:p-6 pb-24 md:pb-6 overflow-y-auto w-full max-w-[1800px] mx-auto z-10 custom-scrollbar">
+        <main className="flex-1 flex flex-col min-h-0 overflow-hidden p-4 md:p-6 pb-20 md:pb-4 w-full max-w-[1800px] mx-auto z-10">
 
-          <motion.div variants={sectionVariants} initial="hidden" animate="show" custom={0}>
+          <motion.div className="shrink-0" variants={sectionVariants} initial="hidden" animate="show" custom={0}>
             <FiltrosBar
               year={year} month={month} day={day}
               sucursalFiltro={sucursalFiltro} sucursales={sucursales}
@@ -245,7 +245,7 @@ export default function DashboardPage() {
           </motion.div>
 
           {error && (
-            <Alert variant="destructive" className="mb-6 rounded-3xl">
+            <Alert variant="destructive" className="shrink-0 mb-3 rounded-3xl">
               <XCircle className="size-4" />
               <AlertDescription className="text-sm font-black">
                 Falló la conexión de red con el servidor ({error instanceof Error ? error.message : "Error al cargar"}). Asegúrese de encender el backend de la API e intente nuevamente.
@@ -253,77 +253,19 @@ export default function DashboardPage() {
             </Alert>
           )}
 
-          {/* Fila superior 50/50: carrusel (izq) | ranking (der) */}
-          <div className="relative w-full">
-            <div className="hidden md:block absolute left-1/2 top-0 bottom-0 w-px -translate-x-1/2 bg-gradient-to-b from-transparent via-slate-200/60 to-transparent pointer-events-none z-10" />
-
-            <div className="flex flex-col md:flex-row md:items-stretch gap-6 w-full md:min-h-[min(68vh,640px)]">
-              <motion.div
-                className="relative w-full md:w-1/2 md:min-w-0 flex flex-col min-h-[340px] sm:min-h-[400px] md:min-h-0 md:h-auto"
-                variants={sectionVariants}
-                initial="hidden"
-                animate="show"
-                custom={1}
-              >
-                {isFetchingLeft && (
-                  <div className="absolute inset-0 bg-white/30 rounded-[2rem] backdrop-blur-[1px] z-50 flex items-center justify-center pointer-events-none">
-                    <div className="w-4 h-4 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
-                  </div>
-                )}
-                {loading && ultimas.length === 0 ? (
-                  <Card className="flex-1 flex items-center justify-center p-12 bg-white rounded-[2.5rem] min-h-[340px]">
-                    <Skeleton className="h-8 w-full" />
-                  </Card>
-                ) : (
-                  <div className="flex-1 min-h-[340px] sm:min-h-[400px] md:min-h-[480px] h-full">
-                    <HeroCarousel items={ultimas} />
-                  </div>
-                )}
-              </motion.div>
-
-              <motion.div
-                className="relative w-full md:w-1/2 md:min-w-0 flex flex-col min-h-[380px] md:min-h-0 md:h-auto"
-                variants={sectionVariants}
-                initial="hidden"
-                animate="show"
-                custom={2}
-              >
-                {isFetchingRight && (
-                  <div className="absolute inset-0 bg-white/30 rounded-[2rem] backdrop-blur-[1px] z-50 flex items-center justify-center pointer-events-none">
-                    <div className="w-4 h-4 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
-                  </div>
-                )}
-                <div className="flex-1 min-h-[380px] md:min-h-[480px] h-full">
-                  <RankingTable
-                    ranking={rankingFiltrado}
-                    periodo={periodo}
-                    periodoLabel={formatPeriodoLabel(periodo)}
-                    sucursalFiltro={sucursalFiltro}
-                    sucursales={sucursales}
-                    kpis={kpis ?? null}
-                    evolucion={evolucion}
-                    distId={distId}
-                    nombreEmpresa={user?.nombre_empresa || "Distribuidora"}
-                    isCompania={isCompania}
-                  />
-                </div>
-              </motion.div>
-            </div>
-          </div>
-
-          {/* Debajo: KPIs + gráficos (Evolución / Sucursales / Vendedores) */}
+          {/* KPIs generales — arriba, altura fija */}
           <motion.section
-            className="mt-6 flex flex-col gap-4"
+            className="shrink-0 mb-3"
             variants={sectionVariants}
             initial="hidden"
             animate="show"
-            custom={3}
+            custom={1}
           >
             {kpis ? (
               <div className="relative">
-                <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center justify-between mb-1.5">
                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                    Indicadores del período
+                    KPI generales
                   </p>
                   <div className="flex items-center gap-1.5">
                     {[0, 1].map((g) => (
@@ -341,42 +283,114 @@ export default function DashboardPage() {
                 <AnimatePresence mode="wait">
                   <motion.div
                     key={kpiGroup}
-                    initial={{ opacity: 0, y: 8 }}
+                    initial={{ opacity: 0, y: 6 }}
                     animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -8 }}
-                    transition={{ duration: 0.25 }}
-                    className="grid grid-cols-1 sm:grid-cols-3 gap-3"
+                    exit={{ opacity: 0, y: -6 }}
+                    transition={{ duration: 0.2 }}
+                    className="grid grid-cols-3 gap-2 md:gap-3"
                   >
                     {kpiGroup === 0 ? (
                       <>
-                        <KpiCard label="Pendientes" value={kpis.pendientes} icon={<Clock size={18} />} colorName="amber" bgColor="bg-white" />
-                        <KpiCard label="Aprobadas" value={kpis.aprobadas} icon={<CheckCircle size={18} />} colorName="emerald" bgColor="bg-white" total={kpis.aprobadas + kpis.rechazadas} />
-                        <KpiCard label="Destacadas" value={kpis.destacadas} icon={<Star size={18} />} colorName="violet" bgColor="bg-gradient-to-br from-violet-50/60 to-fuchsia-50/40" />
+                        <KpiCard label="Pendientes" value={kpis.pendientes} icon={<Clock size={16} />} colorName="amber" bgColor="bg-white" />
+                        <KpiCard label="Aprobadas" value={kpis.aprobadas} icon={<CheckCircle size={16} />} colorName="emerald" bgColor="bg-white" total={kpis.aprobadas + kpis.rechazadas} />
+                        <KpiCard label="Destacadas" value={kpis.destacadas} icon={<Star size={16} />} colorName="violet" bgColor="bg-gradient-to-br from-violet-50/60 to-fuchsia-50/40" />
                       </>
                     ) : (
                       <>
-                        <KpiCard label="Rechazadas" value={kpis.rechazadas} icon={<XCircle size={18} />} colorName="red" bgColor="bg-white" />
-                        <KpiCard label="Tasa Aprob." value={tasaAprobacion ?? 0} icon={<TrendingUp size={18} />} colorName="blue" bgColor="bg-white" subtitle={`de ${kpis.aprobadas + kpis.rechazadas} eval.`} />
-                        <KpiCard label="Total" value={kpis.total} icon={<BarChart2 size={18} />} colorName="slate" bgColor="bg-white" subtitle="del período" />
+                        <KpiCard label="Rechazadas" value={kpis.rechazadas} icon={<XCircle size={16} />} colorName="red" bgColor="bg-white" />
+                        <KpiCard label="Tasa Aprob." value={tasaAprobacion ?? 0} icon={<TrendingUp size={16} />} colorName="blue" bgColor="bg-white" subtitle={`de ${kpis.aprobadas + kpis.rechazadas} eval.`} />
+                        <KpiCard label="Total" value={kpis.total} icon={<BarChart2 size={16} />} colorName="slate" bgColor="bg-white" subtitle="del período" />
                       </>
                     )}
                   </motion.div>
                 </AnimatePresence>
               </div>
             ) : loadingKpis ? (
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-3 gap-2 md:gap-3">
                 {[0, 1, 2].map((i) => (
-                  <Skeleton key={i} className="h-20 w-full rounded-[2rem]" />
+                  <Skeleton key={i} className="h-[4.5rem] w-full rounded-2xl" />
                 ))}
               </div>
             ) : null}
+          </motion.section>
 
-            <ChartCarousel
-              sucursales={sucursales}
-              evolucion={evolucion}
-              ranking={rankingFiltrado}
-              autoRotate
-            />
+          {/* First view: carrusel + ranking — ocupa el alto disponible, sin scroll de página */}
+          <div className="relative flex-1 min-h-0 w-full">
+            <div className="hidden md:block absolute left-1/2 top-0 bottom-0 w-px -translate-x-1/2 bg-gradient-to-b from-transparent via-slate-200/60 to-transparent pointer-events-none z-10" />
+
+            <div className="flex flex-col md:flex-row md:items-stretch gap-4 h-full min-h-0 overflow-hidden">
+              <motion.div
+                className="relative w-full md:w-1/2 md:min-w-0 flex flex-col min-h-0 flex-1 md:flex-none md:h-full"
+                variants={sectionVariants}
+                initial="hidden"
+                animate="show"
+                custom={2}
+              >
+                {isFetchingLeft && (
+                  <div className="absolute inset-0 bg-white/30 rounded-[2rem] backdrop-blur-[1px] z-50 flex items-center justify-center pointer-events-none">
+                    <div className="w-4 h-4 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
+                  </div>
+                )}
+                {loading && ultimas.length === 0 ? (
+                  <Card className="h-full min-h-0 flex items-center justify-center p-12 bg-white rounded-[2.5rem]">
+                    <Skeleton className="h-8 w-full" />
+                  </Card>
+                ) : (
+                  <div className="h-full min-h-0 flex-1 overflow-hidden">
+                    <HeroCarousel items={ultimas} />
+                  </div>
+                )}
+              </motion.div>
+
+              <motion.div
+                className="relative w-full md:w-1/2 md:min-w-0 flex flex-col min-h-0 flex-1 md:flex-none md:h-full overflow-hidden"
+                variants={sectionVariants}
+                initial="hidden"
+                animate="show"
+                custom={3}
+              >
+                {isFetchingRight && (
+                  <div className="absolute inset-0 bg-white/30 rounded-[2rem] backdrop-blur-[1px] z-50 flex items-center justify-center pointer-events-none">
+                    <div className="w-4 h-4 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
+                  </div>
+                )}
+                <div className="h-full min-h-0 overflow-hidden">
+                  <RankingTable
+                    ranking={rankingFiltrado}
+                    periodo={periodo}
+                    periodoLabel={formatPeriodoLabel(periodo)}
+                    sucursalFiltro={sucursalFiltro}
+                    sucursales={sucursales}
+                    kpis={kpis ?? null}
+                    evolucion={evolucion}
+                    distId={distId}
+                    nombreEmpresa={user?.nombre_empresa || "Distribuidora"}
+                    isCompania={isCompania}
+                  />
+                </div>
+              </motion.div>
+            </div>
+          </div>
+
+          {/* Gráficos: panel inferior con scroll propio (no scroll de toda la página) */}
+          <motion.section
+            className="shrink-0 mt-3 flex flex-col min-h-[180px] max-h-[min(40vh,400px)] border-t border-slate-200/50 pt-3 overflow-hidden"
+            variants={sectionVariants}
+            initial="hidden"
+            animate="show"
+            custom={4}
+          >
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2 shrink-0">
+              Análisis — Evolución / Sucursales / Vendedores
+            </p>
+            <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-0.5 -mr-0.5">
+              <ChartCarousel
+                sucursales={sucursales}
+                evolucion={evolucion}
+                ranking={rankingFiltrado}
+                autoRotate
+              />
+            </div>
           </motion.section>
 
         </main>

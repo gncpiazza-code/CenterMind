@@ -69,7 +69,7 @@ export function HeroCarousel({ items }: HeroCarouselProps) {
 
   // Mejora #13: Empty state mejorado
   if (items.length === 0) return (
-    <Card className="h-full flex flex-col items-center justify-center bg-slate-50 border-slate-200 border-dashed border-2 shadow-inner min-h-[500px] gap-4">
+    <Card className="h-full min-h-0 flex flex-col items-center justify-center bg-slate-50 border-slate-200 border-dashed border-2 shadow-inner gap-4">
       <div className="w-20 h-20 bg-violet-50 rounded-full flex items-center justify-center">
         <Activity size={32} className="text-violet-300 animate-pulse" />
       </div>

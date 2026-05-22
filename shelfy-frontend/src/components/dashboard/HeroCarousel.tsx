@@ -10,6 +10,7 @@ import Link from 'next/link';
 
 interface HeroCarouselProps {
   items: UltimaEvaluada[];
+  compact?: boolean;
 }
 
 const AUTOPLAY_MS = 8000;
@@ -32,7 +33,7 @@ function getStatusColor(estado: string) {
   return "from-emerald-600 to-teal-500";
 }
 
-export function HeroCarousel({ items }: HeroCarouselProps) {
+export function HeroCarousel({ items, compact = false }: HeroCarouselProps) {
   const [ci, setCi] = useState(0);
   const [imgErr, setImgErr] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -133,7 +134,7 @@ export function HeroCarousel({ items }: HeroCarouselProps) {
       </AnimatePresence>
 
       {/* DETALLES */}
-      <div className="absolute bottom-0 left-0 right-0 p-6 md:p-10 z-20">
+      <div className={`absolute bottom-0 left-0 right-0 ${compact ? 'p-4' : 'p-6 md:p-10'} z-20`}>
         <AnimatePresence mode="wait">
           <motion.div
             key={`info-${ci}`}
@@ -142,7 +143,7 @@ export function HeroCarousel({ items }: HeroCarouselProps) {
             exit={{ y: -10, opacity: 0 }}
             transition={{ duration: 0.5, delay: 0.1 }}
           >
-            <div className="flex items-center gap-3 mb-4">
+            <div className={`flex items-center gap-3 ${compact ? 'mb-2' : 'mb-4'}`}>
               <span className={`px-5 py-1.5 rounded-full text-[10px] font-black tracking-[0.2em] text-white uppercase shadow-lg bg-gradient-to-r ${getStatusColor(item.estado)}`}>
                 {item.estado}
               </span>
@@ -152,7 +153,7 @@ export function HeroCarousel({ items }: HeroCarouselProps) {
               </span>
             </div>
 
-            <h2 className="text-3xl md:text-5xl font-black text-white leading-[1.1] mb-3 drop-shadow-2xl tracking-tighter line-clamp-1">
+            <h2 className={`${compact ? 'text-2xl' : 'text-3xl md:text-5xl'} font-black text-white leading-[1.1] mb-3 drop-shadow-2xl tracking-tighter line-clamp-1`}>
               {item.vendedor}
             </h2>
 

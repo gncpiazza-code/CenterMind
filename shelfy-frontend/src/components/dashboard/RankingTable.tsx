@@ -30,6 +30,7 @@ interface RankingTableProps {
   distId?: number;
   nombreEmpresa?: string;
   isCompania?: boolean;
+  dense?: boolean;
 }
 
 function downloadHTML(html: string, filename: string) {
@@ -65,7 +66,7 @@ const TOP3_STYLES = [
 
 export function RankingTable({
   ranking, periodo, periodoLabel, sucursalFiltro, sucursales,
-  kpis, evolucion = [], distId = 0, nombreEmpresa = 'Distribuidora', isCompania = false,
+  kpis, evolucion = [], distId = 0, nombreEmpresa = 'Distribuidora', isCompania = false, dense = false,
 }: RankingTableProps) {
   const { savedReport, generating, sizeWarning, setGenerating, saveReport, clearSizeWarning } = useReportStore();
 
@@ -138,7 +139,7 @@ export function RankingTable({
       <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-violet-500 via-indigo-400 to-violet-500 z-20" />
 
       {/* Mejora #6: header más compacto (p-8 → p-5 px-6) */}
-      <div className="pt-7 px-6 pb-4 border-b border-slate-50 flex items-center justify-between sticky top-0 bg-white/80 backdrop-blur-xl z-20 gap-3 shadow-sm">
+      <div className={cn("border-b border-slate-50 flex items-center justify-between sticky top-0 bg-white/80 backdrop-blur-xl z-20 gap-3 shadow-sm", dense ? "pt-5 px-4 pb-3" : "pt-7 px-6 pb-4")}>
         <div className="shrink-0">
           <div className="flex items-center gap-2.5">
             <h3 className="text-slate-900 font-black text-xl tracking-tighter">Ranking en Vivo</h3>
@@ -215,7 +216,7 @@ export function RankingTable({
                       style?.row ?? "bg-white border border-slate-100/50 hover:bg-slate-50/60"
                     )}
                   >
-                    <td className="py-2.5 px-3 first:rounded-l-2xl">
+                    <td className={cn("px-3 first:rounded-l-2xl", dense ? "py-2" : "py-2.5")}>
                       <div className={cn(
                         "w-7 h-7 flex items-center justify-center text-[11px] font-black rounded-xl shadow-md transition-all group-hover:scale-110",
                         style?.badge ?? "bg-slate-100 text-slate-500 shadow-sm"
@@ -224,7 +225,7 @@ export function RankingTable({
                       </div>
                     </td>
 
-                    <td className="py-2.5 px-2">
+                    <td className={cn("px-2", dense ? "py-2" : "py-2.5")}>
                       <div className="flex flex-col min-w-0">
                         <span
                           className={cn(
@@ -253,14 +254,14 @@ export function RankingTable({
                       </div>
                     </td>
 
-                    <td className="py-2.5 px-2 text-right">
+                    <td className={cn("px-2 text-right", dense ? "py-2" : "py-2.5")}>
                       <span className="inline-flex items-center justify-center bg-emerald-50 text-emerald-600 text-[10px] font-black px-2 py-0.5 rounded-lg border border-emerald-100/50">
                         {v.aprobadas}
                       </span>
                     </td>
 
                     {/* Mejora #25: rechazadas */}
-                    <td className="py-2.5 px-2 text-right">
+                    <td className={cn("px-2 text-right", dense ? "py-2" : "py-2.5")}>
                       <span className={cn(
                         "inline-flex items-center justify-center text-[10px] font-black px-2 py-0.5 rounded-lg border",
                         v.rechazadas > 0
@@ -271,13 +272,13 @@ export function RankingTable({
                       </span>
                     </td>
 
-                    <td className="py-2.5 px-2 text-right">
+                    <td className={cn("px-2 text-right", dense ? "py-2" : "py-2.5")}>
                       <span className="inline-flex items-center justify-center bg-amber-50 text-amber-600 text-[10px] font-black px-2 py-0.5 rounded-lg border border-amber-100/50">
                         {v.destacadas || 0}
                       </span>
                     </td>
 
-                    <td className={`py-2.5 px-4 text-right ${!showCompaniaLens ? 'last:rounded-r-2xl' : ''}`}>
+                    <td className={cn("px-4 text-right", dense ? "py-2" : "py-2.5", !showCompaniaLens ? 'last:rounded-r-2xl' : '')}>
                       <div className="flex flex-col items-end">
                         <span className={cn("font-black text-base tracking-tighter", style?.pts ?? "text-slate-800")}>
                           {v.puntos}
@@ -290,7 +291,7 @@ export function RankingTable({
                       const delta = cr ? cr.delta_puntos : 0;
                       return (
                         <>
-                          <td className="py-2.5 px-2 text-right">
+                          <td className={cn("px-2 text-right", dense ? "py-2" : "py-2.5")}>
                             <div className="flex flex-col items-end">
                               <span className="font-black text-sm tracking-tighter text-violet-600">
                                 {cr ? cr.puntos_compania : v.puntos}
@@ -298,7 +299,7 @@ export function RankingTable({
                               <span className="text-[7px] font-black text-violet-400 uppercase tracking-widest -mt-0.5">Cía</span>
                             </div>
                           </td>
-                          <td className="py-2.5 px-3 text-right last:rounded-r-2xl">
+                          <td className={cn("px-3 text-right last:rounded-r-2xl", dense ? "py-2" : "py-2.5")}>
                             <span className={`text-[11px] font-black px-1.5 py-0.5 rounded-lg border ${
                               delta > 0
                                 ? 'bg-emerald-50 text-emerald-600 border-emerald-100/50'
@@ -323,7 +324,7 @@ export function RankingTable({
       {/* Mejora #7: botones de reporte en footer separado */}
       <div className="shrink-0 border-t border-slate-50">
         <Separator className="opacity-50" />
-        <div className="px-5 py-3 flex items-center gap-2">
+        <div className={cn("px-5 flex items-center gap-2", dense ? "py-2" : "py-3")}>
           {sizeWarning && (
             <span className="text-[9px] font-black text-amber-600 uppercase tracking-wider mr-auto">
               Informe demasiado grande

@@ -15,8 +15,9 @@ import {
 import type {
   KPIs, VendedorRanking, UltimaEvaluada, SucursalStats, EvolucionTiempo,
 } from "@/lib/api";
-import { Clock, CheckCircle, Star, XCircle, TrendingUp, BarChart2 } from "lucide-react";
+import { Clock, CheckCircle, Star, XCircle, TrendingUp, BarChart2, ChevronDown } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
 import { KpiCard } from "@/components/dashboard/KpiCard";
@@ -96,6 +97,9 @@ export default function DashboardPage() {
 
   // Mejora #17: estado de refresh manual
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
+
+  // Panel de análisis (gráficos) colapsado por defecto — First View sin scroll de página
+  const [chartsExpanded, setChartsExpanded] = useState(false);
 
   // KPI rotating groups: 0 = grupo A (Pendientes/Aprobadas/Destacadas), 1 = grupo B (Rechazadas/Tasa/Total)
   const [kpiGroup, setKpiGroup] = useState(0);
@@ -291,15 +295,15 @@ export default function DashboardPage() {
                   >
                     {kpiGroup === 0 ? (
                       <>
-                        <KpiCard label="Pendientes" value={kpis.pendientes} icon={<Clock size={16} />} colorName="amber" bgColor="bg-white" />
-                        <KpiCard label="Aprobadas" value={kpis.aprobadas} icon={<CheckCircle size={16} />} colorName="emerald" bgColor="bg-white" total={kpis.aprobadas + kpis.rechazadas} />
-                        <KpiCard label="Destacadas" value={kpis.destacadas} icon={<Star size={16} />} colorName="violet" bgColor="bg-gradient-to-br from-violet-50/60 to-fuchsia-50/40" />
+                        <KpiCard variant="compact" label="Pendientes" value={kpis.pendientes} icon={<Clock size={16} />} colorName="amber" bgColor="bg-white" />
+                        <KpiCard variant="compact" label="Aprobadas" value={kpis.aprobadas} icon={<CheckCircle size={16} />} colorName="emerald" bgColor="bg-white" total={kpis.aprobadas + kpis.rechazadas} />
+                        <KpiCard variant="compact" label="Destacadas" value={kpis.destacadas} icon={<Star size={16} />} colorName="violet" bgColor="bg-gradient-to-br from-violet-50/60 to-fuchsia-50/40" />
                       </>
                     ) : (
                       <>
-                        <KpiCard label="Rechazadas" value={kpis.rechazadas} icon={<XCircle size={16} />} colorName="red" bgColor="bg-white" />
-                        <KpiCard label="Tasa Aprob." value={tasaAprobacion ?? 0} icon={<TrendingUp size={16} />} colorName="blue" bgColor="bg-white" subtitle={`de ${kpis.aprobadas + kpis.rechazadas} eval.`} />
-                        <KpiCard label="Total" value={kpis.total} icon={<BarChart2 size={16} />} colorName="slate" bgColor="bg-white" subtitle="del período" />
+                        <KpiCard variant="compact" label="Rechazadas" value={kpis.rechazadas} icon={<XCircle size={16} />} colorName="red" bgColor="bg-white" />
+                        <KpiCard variant="compact" label="Tasa Aprob." value={tasaAprobacion ?? 0} icon={<TrendingUp size={16} />} colorName="blue" bgColor="bg-white" subtitle={`de ${kpis.aprobadas + kpis.rechazadas} eval.`} />
+                        <KpiCard variant="compact" label="Total" value={kpis.total} icon={<BarChart2 size={16} />} colorName="slate" bgColor="bg-white" subtitle="del período" />
                       </>
                     )}
                   </motion.div>
@@ -308,7 +312,7 @@ export default function DashboardPage() {
             ) : loadingKpis ? (
               <div className="grid grid-cols-3 gap-2 md:gap-3">
                 {[0, 1, 2].map((i) => (
-                  <Skeleton key={i} className="h-[4.5rem] w-full rounded-2xl" />
+                  <Skeleton key={i} className="h-16 w-full rounded-2xl" />
                 ))}
               </div>
             ) : null}
@@ -337,7 +341,7 @@ export default function DashboardPage() {
                   </Card>
                 ) : (
                   <div className="h-full min-h-0 flex-1 overflow-hidden">
-                    <HeroCarousel items={ultimas} />
+                    <HeroCarousel items={ultimas} compact />
                   </div>
                 )}
               </motion.div>
@@ -356,6 +360,7 @@ export default function DashboardPage() {
                 )}
                 <div className="h-full min-h-0 overflow-hidden">
                   <RankingTable
+                    dense
                     ranking={rankingFiltrado}
                     periodo={periodo}
                     periodoLabel={formatPeriodoLabel(periodo)}
@@ -372,26 +377,45 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Gráficos: panel inferior con scroll propio (no scroll de toda la página) */}
-          <motion.section
-            className="shrink-0 mt-3 flex flex-col min-h-[180px] max-h-[min(40vh,400px)] border-t border-slate-200/50 pt-3 overflow-hidden"
-            variants={sectionVariants}
-            initial="hidden"
-            animate="show"
-            custom={4}
-          >
-            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2 shrink-0">
-              Análisis — Evolución / Sucursales / Vendedores
-            </p>
-            <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-0.5 -mr-0.5">
-              <ChartCarousel
-                sucursales={sucursales}
-                evolucion={evolucion}
-                ranking={rankingFiltrado}
-                autoRotate
+          {/* Panel análisis colapsable — colapsado por defecto para maximizar First View */}
+          <div className="shrink-0 mt-2">
+            <button
+              type="button"
+              onClick={() => setChartsExpanded(v => !v)}
+              className="w-full flex items-center justify-between px-4 py-2.5 rounded-2xl border border-slate-200/50 bg-white/60 backdrop-blur-sm hover:bg-white/90 transition-all duration-200 text-slate-500 hover:text-slate-700 group shadow-sm"
+            >
+              <div className="flex items-center gap-2">
+                <BarChart2 size={13} className="text-slate-400 group-hover:text-violet-500 transition-colors" />
+                <span className="text-[10px] font-black uppercase tracking-widest">
+                  Análisis — Evolución / Sucursales / Vendedores
+                </span>
+              </div>
+              <ChevronDown
+                size={14}
+                className={cn(
+                  "text-slate-400 transition-transform duration-300 ease-in-out",
+                  chartsExpanded && "rotate-180"
+                )}
               />
+            </button>
+
+            <div
+              className={cn(
+                "overflow-hidden transition-[max-height] duration-300 ease-in-out",
+                chartsExpanded ? "max-h-[38vh]" : "max-h-0"
+              )}
+            >
+              <div className="h-[38vh] pt-2 overflow-y-auto custom-scrollbar">
+                <ChartCarousel
+                  sucursales={sucursales}
+                  evolucion={evolucion}
+                  ranking={rankingFiltrado}
+                  autoRotate={chartsExpanded}
+                  fillHeight
+                />
+              </div>
             </div>
-          </motion.section>
+          </div>
 
         </main>
       </div>

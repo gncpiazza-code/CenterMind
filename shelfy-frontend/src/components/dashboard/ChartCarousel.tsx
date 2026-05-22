@@ -25,6 +25,8 @@ interface ChartCarouselProps {
   ranking: VendedorRanking[];
   /** Rotación automática entre pestañas con datos (cada ~8s) */
   autoRotate?: boolean;
+  /** Hace que el Card ocupe el alto disponible del contenedor padre en lugar de imponer min-h-[320px] */
+  fillHeight?: boolean;
 }
 
 type ChartTab = "evolucion" | "sucursales" | "vendedores";
@@ -90,6 +92,7 @@ export function ChartCarousel({
   sucursales,
   ranking,
   autoRotate = true,
+  fillHeight = false,
 }: ChartCarouselProps) {
   const [isMounted, setIsMounted] = useState(false);
   const [activeChart, setActiveChart] = useState<ChartTab>("evolucion");
@@ -153,7 +156,7 @@ export function ChartCarousel({
 
   if (!isMounted) {
     return (
-      <Card className="p-5 border-slate-200/60 shadow-sm overflow-hidden min-h-[320px] flex flex-col bg-white rounded-[2rem]">
+      <Card className={cn("p-5 border-slate-200/60 shadow-sm overflow-hidden flex flex-col bg-white rounded-[2rem]", fillHeight ? "min-h-0 h-full" : "min-h-[320px]")}>
         <ChartSkeleton />
       </Card>
     );
@@ -162,7 +165,7 @@ export function ChartCarousel({
   const chartProps = { margin: { top: 5, right: 10, bottom: 0, left: -25 } };
 
   return (
-    <Card className="p-5 border-slate-200/60 shadow-sm overflow-hidden min-h-[320px] flex flex-col bg-white rounded-[2rem]">
+    <Card className={cn("p-5 border-slate-200/60 shadow-sm overflow-hidden flex flex-col bg-white rounded-[2rem]", fillHeight ? "min-h-0 h-full" : "min-h-[320px]")}>
       <div className="flex items-center justify-between gap-3 mb-2 shrink-0">
         <div className="flex items-center gap-1.5 flex-wrap">
           {(["evolucion", "sucursales", "vendedores"] as ChartTab[]).map((key) => {
@@ -214,7 +217,7 @@ export function ChartCarousel({
         )}
       />
 
-      <div className="flex-1 min-h-[240px] relative">
+      <div className={cn("flex-1 relative", fillHeight ? "min-h-0" : "min-h-[240px]")}>
         {tabsWithData.length === 0 ? (
           <EmptyChart message="Sin datos para gráficos en este período" />
         ) : (

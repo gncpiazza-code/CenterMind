@@ -27,6 +27,8 @@ interface FiltrosBarProps {
   isRefreshing?: boolean;
   /** Mejora #18: última actualización exitosa */
   lastUpdated?: Date | null;
+  /** Permite al caller sobreescribir el espaciado u otras clases del contenedor */
+  className?: string;
 }
 
 // Mejora #5: presets de fecha simplificados
@@ -72,6 +74,7 @@ export function FiltrosBar({
   onDateChange, onSucursal, onRefresh,
   isRefreshing = false,
   lastUpdated = null,
+  className,
 }: FiltrosBarProps) {
   const currentYear  = new Date().getFullYear();
   const years        = [currentYear - 1, currentYear, currentYear + 1];
@@ -99,7 +102,7 @@ export function FiltrosBar({
   ];
 
   return (
-    <div className="flex flex-wrap items-center gap-3 bg-white/80 backdrop-blur-xl p-3 px-4 rounded-[1.5rem] border border-slate-200/50 shadow-sm mt-2 mb-6 w-full relative z-30 transition-all hover:shadow-md">
+    <div className={cn("flex flex-wrap items-center gap-3 bg-white/80 backdrop-blur-xl p-3 px-4 rounded-[1.5rem] border border-slate-200/50 shadow-sm mt-2 mb-3 w-full relative z-30 transition-all hover:shadow-md", className)}>
 
       {/* Mejora #23: Indicador "En vivo" con ring animation */}
       <div className="flex items-center gap-2 shrink-0">

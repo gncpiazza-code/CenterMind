@@ -31,6 +31,8 @@ interface KpiCardProps {
   total?: number;
   /** Subtítulo debajo del label — ej. porcentaje de tasa */
   subtitle?: string;
+  /** Layout variant. 'compact' renders a slim horizontal row (~56–64px tall). Default: 'default'. */
+  variant?: 'default' | 'compact';
 }
 
 // Mejora #1: Contador animado easeOut
@@ -67,7 +69,8 @@ function useAnimatedCounter(target: number, duration = 800) {
   return display;
 }
 
-export function KpiCard({ label, value, icon, colorName, color, bgColor = "bg-white", delta, total, subtitle }: KpiCardProps) {
+export function KpiCard({ label, value, icon, colorName, color, bgColor = "bg-white", delta, total, subtitle, variant = 'default' }: KpiCardProps) {
+  const isCompact = variant === 'compact';
   const animatedValue = useAnimatedCounter(value);
 
   // Mejora #14: resolver color desde nombre semántico o fallback a hex
@@ -104,69 +107,93 @@ export function KpiCard({ label, value, icon, colorName, color, bgColor = "bg-wh
     >
       <Card
         className={cn(
-          "p-5 rounded-[2rem] border-slate-200/60 shadow-sm overflow-hidden relative group h-full transition-shadow duration-300",
+          "rounded-[2rem] border-slate-200/60 shadow-sm overflow-hidden relative group h-full transition-shadow duration-300",
+          isCompact ? "p-2.5 md:p-3" : "p-5",
           bgColor,
           flashing && `ring-2 ${ringClass}`
         )}
       >
-        {/* Decorative background circle */}
-        <div
-          className="absolute -right-4 -top-4 w-24 h-24 rounded-full opacity-[0.06] group-hover:scale-150 group-hover:opacity-[0.08] transition-all duration-700"
-          style={{ backgroundColor: hexColor }}
-        />
+        {/* Decorative background circle — hidden in compact */}
+        {!isCompact && (
+          <div
+            className="absolute -right-4 -top-4 w-24 h-24 rounded-full opacity-[0.06] group-hover:scale-150 group-hover:opacity-[0.08] transition-all duration-700"
+            style={{ backgroundColor: hexColor }}
+          />
+        )}
 
-        <CardContent className="p-0 flex flex-col justify-between h-full">
-          <div className="flex items-start justify-between relative z-10">
-            <div className={cn("p-2.5 rounded-2xl text-white shadow-lg ring-4 ring-white/10 shrink-0", bgClass)}>
+        {isCompact ? (
+          /* ── Compact layout: horizontal row ── */
+          <CardContent className="p-0 flex flex-row items-center gap-3 h-full">
+            <div className={cn("p-2 rounded-xl text-white shadow-lg ring-4 ring-white/10 shrink-0", bgClass)}>
               {icon}
             </div>
-          </div>
-
-          {/* Valor con contador animado — debajo del icono, siempre visible */}
-          <div className="mt-2 relative z-10">
-            <div
-              className={cn("font-black tracking-tighter leading-none", valueFontClass)}
-              style={{ color: hexColor }}
-            >
-              {animatedValue}
-            </div>
-          </div>
-
-          <div className="mt-2 relative z-10">
-            {/* Mejora #15: jerarquía tipográfica — label más legible */}
-            <div className="text-[11px] font-black uppercase tracking-[0.12em] text-slate-500 group-hover:text-slate-700 transition-colors">
-              {label}
-            </div>
-
-            {/* Subtítulo opcional (ej. tasa de aprobación) */}
-            {subtitle && (
-              <div className="text-[10px] font-bold text-slate-400 mt-0.5 tracking-wide">{subtitle}</div>
-            )}
-
-            {/* Mejora #2: Delta badge */}
-            {delta !== undefined && (
-              <span className={cn(
-                "inline-block mt-1 text-[9px] font-black px-2 py-0.5 rounded-full border",
-                delta >= 0 ? badgeClass.replace(badgeClass.split(" ")[0], "bg-emerald-50").replace(badgeClass.split(" ")[1], "text-emerald-600").replace(badgeClass.split(" ")[2], "border-emerald-200/60") : "bg-red-50 text-red-500 border-red-200/60"
-              )}>
-                {delta >= 0 ? "+" : ""}{delta}%
-              </span>
-            )}
-
-            {/* Mejora #9: barra de progreso real solo si hay total */}
-            {progressPct !== null && (
-              <div className="h-1.5 w-full rounded-full bg-slate-100 mt-2.5 overflow-hidden">
-                <motion.div
-                  className="h-1.5 rounded-full"
-                  style={{ backgroundColor: hexColor }}
-                  initial={{ width: 0 }}
-                  animate={{ width: `${progressPct}%` }}
-                  transition={{ duration: 0.9, ease: "easeOut" }}
-                />
+            <div className="flex flex-col min-w-0">
+              <div
+                className="font-black tracking-tighter leading-none text-xl md:text-2xl"
+                style={{ color: hexColor }}
+              >
+                {animatedValue}
               </div>
-            )}
-          </div>
-        </CardContent>
+              <div className="text-[11px] font-black uppercase tracking-[0.12em] text-slate-500 group-hover:text-slate-700 transition-colors truncate">
+                {label}
+              </div>
+            </div>
+          </CardContent>
+        ) : (
+          /* ── Default layout: vertical card ── */
+          <CardContent className="p-0 flex flex-col justify-between h-full">
+            <div className="flex items-start justify-between relative z-10">
+              <div className={cn("p-2.5 rounded-2xl text-white shadow-lg ring-4 ring-white/10 shrink-0", bgClass)}>
+                {icon}
+              </div>
+            </div>
+
+            {/* Valor con contador animado — debajo del icono, siempre visible */}
+            <div className="mt-2 relative z-10">
+              <div
+                className={cn("font-black tracking-tighter leading-none", valueFontClass)}
+                style={{ color: hexColor }}
+              >
+                {animatedValue}
+              </div>
+            </div>
+
+            <div className="mt-2 relative z-10">
+              {/* Mejora #15: jerarquía tipográfica — label más legible */}
+              <div className="text-[11px] font-black uppercase tracking-[0.12em] text-slate-500 group-hover:text-slate-700 transition-colors">
+                {label}
+              </div>
+
+              {/* Subtítulo opcional (ej. tasa de aprobación) */}
+              {subtitle && (
+                <div className="text-[10px] font-bold text-slate-400 mt-0.5 tracking-wide">{subtitle}</div>
+              )}
+
+              {/* Mejora #2: Delta badge */}
+              {delta !== undefined && (
+                <span className={cn(
+                  "inline-block mt-1 text-[9px] font-black px-2 py-0.5 rounded-full border",
+                  delta >= 0 ? badgeClass.replace(badgeClass.split(" ")[0], "bg-emerald-50").replace(badgeClass.split(" ")[1], "text-emerald-600").replace(badgeClass.split(" ")[2], "border-emerald-200/60") : "bg-red-50 text-red-500 border-red-200/60"
+                )}>
+                  {delta >= 0 ? "+" : ""}{delta}%
+                </span>
+              )}
+
+              {/* Mejora #9: barra de progreso real solo si hay total */}
+              {progressPct !== null && (
+                <div className="h-1.5 w-full rounded-full bg-slate-100 mt-2.5 overflow-hidden">
+                  <motion.div
+                    className="h-1.5 rounded-full"
+                    style={{ backgroundColor: hexColor }}
+                    initial={{ width: 0 }}
+                    animate={{ width: `${progressPct}%` }}
+                    transition={{ duration: 0.9, ease: "easeOut" }}
+                  />
+                </div>
+              )}
+            </div>
+          </CardContent>
+        )}
       </Card>
     </motion.div>
   );

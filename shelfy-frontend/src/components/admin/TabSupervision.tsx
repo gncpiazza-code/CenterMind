@@ -23,6 +23,7 @@ import {
   Search,
   Target,
   HelpCircle,
+  MessageSquare,
 } from "lucide-react";
 import {
   fetchVendedoresSupervision,
@@ -2890,7 +2891,8 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
       {selectedPDVsForObjective.length > 0 && hasPermiso("action_edit_objetivos") && (
         <div className="fixed bottom-6 right-6 z-[10050] flex flex-col items-end gap-3">
           {objMenuOpen && (
-            <div className="w-96 rounded-2xl border border-white/10 bg-white/90 dark:bg-[#1a1a2e]/95 backdrop-blur-xl shadow-[0_8px_32px_rgba(0,0,0,0.25)] overflow-hidden"
+            <div className="flex flex-row items-stretch gap-2 max-h-[min(85vh,720px)]">
+            <div className="w-96 max-w-[calc(100vw-2rem)] rounded-2xl border border-white/10 bg-white/90 dark:bg-[#1a1a2e]/95 backdrop-blur-xl shadow-[0_8px_32px_rgba(0,0,0,0.25)] overflow-hidden flex flex-col min-h-0"
               style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.22), 0 0 0 0.5px rgba(255,255,255,0.12)' }}>
               {/* Header */}
               <div className="flex items-center justify-between px-4 py-3 border-b border-black/8 dark:border-white/10 bg-gradient-to-r from-[var(--shelfy-accent)]/10 to-violet-500/5">
@@ -2932,8 +2934,8 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                 </div>
               </div>
 
-              {/* Form */}
-              <div className="px-4 pb-4 space-y-3 border-t border-black/8 dark:border-white/8 pt-3 mt-1">
+              {/* Form — scroll independiente del mensaje */}
+              <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 space-y-3 border-t border-black/8 dark:border-white/8 pt-3 mt-1 custom-scrollbar">
                 {/* Tipo — pill buttons */}
                 <div>
                   <p className="text-[9px] font-bold uppercase tracking-widest text-[var(--shelfy-muted)] mb-2">Tipo de objetivo</p>
@@ -3377,17 +3379,22 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                   </div>
                 )}
 
-                {/* Descripción */}
-                <div>
-                  <label className="text-[10px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1">Descripción</label>
-                  <textarea
-                    rows={2}
-                    placeholder="Qué debe lograr el vendedor..."
-                    className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-1.5 text-sm text-[var(--shelfy-text)] placeholder-[var(--shelfy-muted)]/60 focus:outline-none focus:border-[var(--shelfy-accent)]/60 resize-none"
-                    value={objDesc}
-                    onChange={e => setObjDesc(e.target.value)}
-                  />
-                </div>
+                {objTipo === "ruteo" ? (
+                  <p className="text-[10px] text-purple-600/90 bg-purple-500/5 border border-purple-500/15 rounded-lg px-2.5 py-2 leading-relaxed">
+                    Guía de cambio de ruta: uso interno en portal/PDF. No se envía mensaje por Telegram.
+                  </p>
+                ) : (
+                  <div className="sm:hidden space-y-1">
+                    <label className="text-[10px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block">Mensaje al vendedor</label>
+                    <textarea
+                      rows={4}
+                      placeholder="Qué debe lograr el vendedor..."
+                      className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-[var(--shelfy-text)] placeholder-[var(--shelfy-muted)]/60 focus:outline-none focus:border-[var(--shelfy-accent)]/60 resize-none leading-relaxed"
+                      value={objDesc}
+                      onChange={e => setObjDesc(e.target.value)}
+                    />
+                  </div>
+                )}
 
                 {/* Fecha límite — solo cuando origen === distribuidora */}
                 {objOrigen === 'distribuidora' && (
@@ -3434,6 +3441,31 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                   </button>
                 </div>
               </div>
+            </div>
+
+            {objTipo !== "ruteo" && (
+              <div
+                className="w-[min(340px,38vw)] shrink-0 rounded-2xl border border-white/10 bg-white/90 dark:bg-[#1a1a2e]/95 backdrop-blur-xl shadow-[0_8px_32px_rgba(0,0,0,0.25)] flex flex-col overflow-hidden hidden sm:flex"
+                style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.22), 0 0 0 0.5px rgba(255,255,255,0.12)' }}
+              >
+                <div className="px-4 py-3 border-b border-black/8 dark:border-white/10 flex items-center gap-2 shrink-0">
+                  <MessageSquare className="w-3.5 h-3.5 text-[var(--shelfy-accent)] shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-[var(--shelfy-text)] leading-none">Mensaje al vendedor</p>
+                    <p className="text-[10px] text-[var(--shelfy-muted)] mt-0.5">Vista previa Telegram — editá antes de crear</p>
+                  </div>
+                </div>
+                <div className="flex-1 min-h-0 p-3 flex flex-col">
+                  <textarea
+                    rows={16}
+                    placeholder="Qué debe lograr el vendedor..."
+                    className="flex-1 w-full min-h-[240px] bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-xl px-3 py-2.5 text-sm text-[var(--shelfy-text)] placeholder-[var(--shelfy-muted)]/60 focus:outline-none focus:border-[var(--shelfy-accent)]/60 resize-none leading-relaxed"
+                    value={objDesc}
+                    onChange={e => setObjDesc(e.target.value)}
+                  />
+                </div>
+              </div>
+            )}
             </div>
           )}
 

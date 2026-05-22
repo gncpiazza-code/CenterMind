@@ -122,6 +122,7 @@ Toda metrica de **ranking**, **KPIs de exhibicion**, **stats Telegram** (`/stats
 - Retroactividad solo para objetivos de compania tipo `exhibicion`: calcular avance desde `mes_referencia`.
 - En retroactividad de compania, normalizar `origen` y aplicar fallback de mes (`fecha_objetivo`/`created_at`) si falta `mes_referencia`.
 - Evitar spam de progreso por Telegram: reservar notificaciones de avance para exhibicion; resto usa alta/cierre.
+- Tipo `ruteo` (guía de cambio de ruta): **solo uso interno** (portal/PDF); **no** enviar mensaje Telegram, **no** preview Telegram en UI.
 - En `ruteo_alteo`, el cumplimiento debe evaluarse por `fecha_alta` de padrón; no usar cambio de ruta como señal.
 
 ## 9.2) Tickets de portal (operativo)

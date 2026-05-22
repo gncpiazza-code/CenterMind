@@ -66,6 +66,7 @@ import {
   Crown,
   Rocket,
   CalendarDays,
+  MessageSquare,
 } from "lucide-react";
 import {
   Dialog,
@@ -100,6 +101,7 @@ const TIPO_EDUCATIVO: Partial<Record<ObjetivoTipo, string>> = {
   conversion_estado: "Reactivar PDVs inactivos (sin compra hace más de 30 días). Meta: volver a comprar.",
   exhibicion:        "Registrar foto de exhibición en PDV. Meta: cobertura de exhibiciones por ruta.",
   compradores:       "En el período, el vendedor debe registrar ventas a N clientes distintos. Cada cliente cuenta una sola vez sin importar cuántas facturas emita.",
+  ruteo:             "Guía interna de cambio de ruta o baja de PDVs. No envía mensaje por Telegram al vendedor.",
 };
 
 const DIA_ORDER: Record<string, number> = {
@@ -1402,24 +1404,44 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
     }
   }, [vendedorId, tipo]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-fill description textarea with Telegram preview message
+  // Ruteo = guía interna; limpiar texto estilo Telegram si venía de otro tipo
   useEffect(() => {
-    if (!vendedorId || !distId) return;
-    if (tipo === 'ruteo') return; // ruteo never notified via Telegram
+    if (tipo === "ruteo" && descWasAutoFilled.current) {
+      setDesc("");
+      descWasAutoFilled.current = false;
+    }
+  }, [tipo]);
+
+  // Auto-fill panel derecho con preview Telegram (nunca para tipo ruteo)
+  useEffect(() => {
+    if (!distId) return;
+    if (tipo === "ruteo") return;
+    if (!paraTodosFDV && !vendedorId) return;
+
+    const previewVendorId = paraTodosFDV
+      ? vendedoresFiltrados[0]?.id_vendedor
+      : Number(vendedorId);
+    const previewVendorName = paraTodosFDV
+      ? "Cada vendedor de la FDV"
+      : (vendedores.find(v => v.id_vendedor === vendedorId)?.nombre_erp ?? "");
 
     if (previewDebounceRef.current) clearTimeout(previewDebounceRef.current);
     previewDebounceRef.current = setTimeout(async () => {
+      if (!previewVendorId) {
+        setDesc(buildPhrase("Cada vendedor de la FDV"));
+        descWasAutoFilled.current = true;
+        return;
+      }
       try {
-        const vendedor = vendedores.find(v => v.id_vendedor === vendedorId);
         const preview = await previewObjetivoTelegram({
           id_distribuidor: distId,
-          id_vendedor: Number(vendedorId),
+          id_vendedor: Number(previewVendorId),
           tipo,
           fecha_objetivo: fecha || undefined,
           fecha_inicio: fechaInicio || undefined,
           origen: origenMode,
-          mes_referencia: origenMode === 'compania' ? mesReferencia || undefined : undefined,
-          nombre_vendedor: vendedor?.nombre_erp,
+          mes_referencia: origenMode === "compania" ? mesReferencia || undefined : undefined,
+          nombre_vendedor: previewVendorName,
         });
         if (preview?.preview_html) {
           const stripped = stripTelegramHtml(preview.preview_html);
@@ -1427,13 +1449,14 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
           descWasAutoFilled.current = true;
         }
       } catch {
-        // silently fail — user can type manually
+        setDesc(buildPhrase(previewVendorName));
+        descWasAutoFilled.current = true;
       }
     }, 600);
     return () => {
       if (previewDebounceRef.current) clearTimeout(previewDebounceRef.current);
     };
-  }, [vendedorId, tipo, fecha, fechaInicio, distId, origenMode, mesReferencia]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [vendedorId, paraTodosFDV, tipo, fecha, fechaInicio, distId, origenMode, mesReferencia, vendedoresFiltrados.length, modalSucursal]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function buildPhrase(overrideVendorName?: string): string {
     const name = overrideVendorName ?? (paraTodosFDV ? "Cada vendedor de la FDV" : vendedorNombre);
@@ -1512,8 +1535,8 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
       toast.error("La fecha límite es obligatoria.");
       return;
     }
-    if (!desc || desc.trim().length < 5) {
-      toast.error("La descripción del objetivo es obligatoria (mínimo 5 caracteres).");
+    if (tipo !== "ruteo" && (!desc || desc.trim().length < 5)) {
+      toast.error("El mensaje para el vendedor es obligatorio (mínimo 5 caracteres).");
       return;
     }
     if (fechaInicio && fecha && fechaInicio > fecha) {
@@ -1645,8 +1668,11 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
 
       if (tipo === "ruteo") {
         const selected = Array.from(selectedPdvIds);
+        const descGuia =
+          desc?.trim() ||
+          `Guía de cambio de ruta${selected.length > 0 ? ` — ${selected.length} PDV${selected.length !== 1 ? "s" : ""}` : ""}`;
         if (selected.length === 0 || paraTodosFDV) {
-          base.descripcion = desc;
+          base.descripcion = descGuia;
           creates.push(base);
           continue;
         }
@@ -1679,7 +1705,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
         });
         base.pdv_items = pdvItems;
         base.valor_objetivo = selected.length;
-        base.descripcion = desc;
+        base.descripcion = descGuia;
         creates.push(base);
         continue;
       }
@@ -1697,21 +1723,25 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
     ? ["ruteo_alteo", "conversion_estado", "exhibicion", "compradores"]
     : ["ruteo_alteo", "conversion_estado", "exhibicion", "compradores", "ruteo"];
 
+  const showTelegramMessage = tipo !== "ruteo";
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-md rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between mb-5">
+      <div className="relative w-full max-w-4xl lg:max-w-5xl rounded-2xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] shadow-2xl max-h-[90vh] flex flex-col overflow-hidden">
+        <div className="flex items-center justify-between shrink-0 px-6 pt-6 pb-4 border-b border-[var(--shelfy-border)]/60">
           <div className="flex items-center gap-2">
             <Target className="w-4 h-4 text-[var(--shelfy-accent)]" />
             <h2 className="text-sm font-semibold text-[var(--shelfy-text)]">Nuevo objetivo</h2>
           </div>
-          <button onClick={onClose} className="w-6 h-6 flex items-center justify-center rounded text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] transition-colors">
+          <button type="button" onClick={onClose} className="w-6 h-6 flex items-center justify-center rounded text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] transition-colors">
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+          <div className="flex flex-1 min-h-0 flex-col lg:flex-row">
+            <div className="flex-1 min-w-0 overflow-y-auto px-6 py-4 space-y-4 custom-scrollbar">
           {/* Origen selector — solo visible para directorio/superadmin */}
           {canCrearCompania && (
             <div className="flex gap-1.5 p-1 bg-[var(--shelfy-bg)] rounded-xl border border-[var(--shelfy-border)]">
@@ -1840,7 +1870,13 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
                   key={t}
                   type="button"
                   disabled={!vendedorId && !paraTodosFDV}
-                  onClick={() => setTipo(t)}
+                  onClick={() => {
+                    setTipo(t);
+                    if (t === "ruteo" && descWasAutoFilled.current) {
+                      setDesc("");
+                      descWasAutoFilled.current = false;
+                    }
+                  }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
                     tipo === t
                       ? "border-[var(--shelfy-accent)] bg-[var(--shelfy-accent)]/10 text-[var(--shelfy-accent)]"
@@ -2609,7 +2645,6 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
             </div>
           )}
 
-          {/* Descripción */}
           {/* Fecha de inicio (planificación) */}
           {origenMode !== "compania" && (
             <div>
@@ -2629,26 +2664,51 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
             </div>
           )}
 
-          <div>
-            <label className="text-[11px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1.5">
-              Mensaje para el vendedor <span className="text-red-500">*</span>
-            </label>
-            <textarea
-              rows={3}
-              placeholder="Describí el objetivo y la acción requerida (mínimo 5 caracteres)..."
-              className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-2 text-sm text-[var(--shelfy-text)] placeholder-[var(--shelfy-muted)]/60 focus:outline-none focus:border-[var(--shelfy-accent)]/60 resize-none"
-              value={desc}
-              onChange={e => setDesc(e.target.value)}
-            />
-            {desc && desc.trim().length < 5 && (
-              <p className="text-[10px] text-red-500 mt-1">Mínimo 5 caracteres</p>
+            </div>
+
+            {showTelegramMessage && (
+              <aside className="shrink-0 w-full lg:w-[min(400px,42%)] border-t lg:border-t-0 lg:border-l border-[var(--shelfy-border)] bg-[var(--shelfy-bg)]/40 flex flex-col min-h-[220px] lg:min-h-0 lg:max-h-none">
+                <div className="shrink-0 px-4 pt-4 pb-2 flex items-center gap-2">
+                  <MessageSquare className="w-4 h-4 text-[var(--shelfy-accent)] shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-semibold text-[var(--shelfy-text)] leading-tight">
+                      Mensaje para el vendedor <span className="text-red-500">*</span>
+                    </p>
+                    <p className="text-[10px] text-[var(--shelfy-muted)] mt-0.5">
+                      Vista previa Telegram — editá antes de crear.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex-1 min-h-[200px] lg:min-h-0 flex flex-col px-4 pb-4">
+                  <textarea
+                    rows={14}
+                    placeholder="Seleccioná vendedor y tipo para generar el mensaje, o escribí uno propio (mín. 5 caracteres)..."
+                    className="flex-1 w-full min-h-[200px] bg-[var(--shelfy-panel)] border border-[var(--shelfy-border)] rounded-xl px-3 py-3 text-sm text-[var(--shelfy-text)] placeholder-[var(--shelfy-muted)]/60 focus:outline-none focus:border-[var(--shelfy-accent)]/60 resize-none leading-relaxed"
+                    value={desc}
+                    onChange={e => {
+                      setDesc(e.target.value);
+                      descWasAutoFilled.current = false;
+                    }}
+                  />
+                  {desc && desc.trim().length < 5 && (
+                    <p className="text-[10px] text-red-500 mt-1.5 shrink-0">Mínimo 5 caracteres</p>
+                  )}
+                  {!vendedorId && !paraTodosFDV && (
+                    <p className="text-[10px] text-amber-600/90 mt-1.5 shrink-0">
+                      Elegí un vendedor para autocompletar el mensaje.
+                    </p>
+                  )}
+                  {paraTodosFDV && vendedoresFiltrados.length === 0 && (
+                    <p className="text-[10px] text-amber-600/90 mt-1.5 shrink-0">
+                      No hay vendedores en la sucursal seleccionada.
+                    </p>
+                  )}
+                </div>
+              </aside>
             )}
-            <p className="text-[10px] text-[var(--shelfy-muted)]/70 mt-0.5">
-              Previsualización del mensaje Telegram — podés editarlo antes de crear.
-            </p>
           </div>
 
-          <div className="flex gap-2 pt-2">
+          <div className="shrink-0 flex gap-2 px-6 py-4 border-t border-[var(--shelfy-border)]/60 bg-[var(--shelfy-panel)]">
             <button type="button" onClick={onClose}
               className="flex-1 py-2 rounded-lg border border-[var(--shelfy-border)] text-sm text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] transition-colors">
               Cancelar

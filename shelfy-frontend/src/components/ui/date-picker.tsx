@@ -48,6 +48,7 @@ export function DatePicker({
   // Controlled month: ensures navigation persists across renders and parent
   // state changes that would otherwise cause DayPicker to reset to today.
   const [month, setMonth] = React.useState<Date>(() => selectedDate ?? new Date())
+  const [open, setOpen] = React.useState(false)
 
   // Sync displayed month when a date is selected or cleared from outside
   React.useEffect(() => {
@@ -56,7 +57,7 @@ export function DatePicker({
 
   return (
     <div className={cn("flex items-center gap-2", className)}>
-      <Popover>
+      <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <Button
             type="button"
@@ -84,6 +85,7 @@ export function DatePicker({
               const m = String(date.getMonth() + 1).padStart(2, "0")
               const d = String(date.getDate()).padStart(2, "0")
               onChange(`${y}-${m}-${d}`)
+              setOpen(false)
             }}
             timeZone={timeZone}
           />

@@ -6,7 +6,7 @@ SET lanzado_at = COALESCE(
     (
         SELECT MIN(ot.created_at)
         FROM objetivos_tracking ot
-        WHERE ot.id_objetivo = o.id::text
+        WHERE ot.id_objetivo = o.id
           AND ot.tipo_evento = 'telegram_objetivo_asignado'
     ),
     o.created_at
@@ -16,7 +16,7 @@ WHERE o.lanzado_at IS NULL
   AND EXISTS (
       SELECT 1
       FROM objetivos_tracking ot
-      WHERE ot.id_objetivo = o.id::text
+      WHERE ot.id_objetivo = o.id
         AND ot.tipo_evento = 'telegram_objetivo_asignado'
   );
 

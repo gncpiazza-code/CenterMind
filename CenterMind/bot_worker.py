@@ -1337,22 +1337,24 @@ class BotWorker:
                 self.db.sb.table("objetivos")
                 .select(
                     "id, tipo, descripcion, fecha_objetivo, valor_actual, valor_objetivo, "
-                    "cumplido, id_target_pdv, created_at, origen, mes_referencia, "
+                    "cumplido, id_target_pdv, created_at, lanzado_at, origen, mes_referencia, "
                     "tasa_pendientes, desglose_cache"
                 )
                 .eq("id_distribuidor", dist_id)
                 .eq("id_vendedor", id_vendedor)
-                .order("created_at", desc=True)
+                .order("fecha_objetivo", desc=False)
                 .limit(40)
                 .execute
             )
-            # Filtrar objetivos de ruteo (uso interno de supervisores)
-            objetivos = [o for o in (objetivos_res.data or []) if str(o.get("tipo") or "") != "ruteo"]
-            objetivos = objetivos[:20]
+            # Filtrar: solo activos por fecha (excluye vencidos, ruteo y planificados sin lanzar)
+            from core.objetivos_filters import objetivo_activo_para_vendedor, hoy_ar
+            hoy = hoy_ar()
+            objetivos = [o for o in (objetivos_res.data or []) if objetivo_activo_para_vendedor(o, hoy)]
 
             if not objetivos:
                 await m.reply_text(
-                    "🎯 <b>No tenés objetivos asignados en este momento.</b>",
+                    "🎯 <b>No tenés objetivos activos en este momento.</b>\n"
+                    "<i>Los objetivos vencidos o aún no lanzados no se muestran aquí.</i>",
                     parse_mode=ParseMode.HTML,
                 )
                 return

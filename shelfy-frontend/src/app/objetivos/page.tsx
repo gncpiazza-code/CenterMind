@@ -38,6 +38,7 @@ import {
   type PDVCatalogItem,
 } from "@/lib/api";
 import { LanzarObjetivoDialog } from "@/components/objetivos/LanzarObjetivoDialog";
+import { ObjetivoDetalleModal } from "@/components/objetivos/ObjetivoDetalleModal";
 import {
   Target,
   Plus,
@@ -872,15 +873,11 @@ function RuteoAlteoItemsTree({ obj }: { obj: Objetivo }) {
 
 // ── Kanban card ───────────────────────────────────────────────────────────────
 
-function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado, onOpenRuteoPdf, onLanzar }: {
+function KanbanCard({ obj, onDelete, onOpenDetalle }: {
   obj: Objetivo;
   onDelete: () => void;
-  onReagendar: (obj: Objetivo) => void;
-  onDownloadCertificado: (obj: Objetivo) => void;
-  onOpenRuteoPdf: (obj: Objetivo) => void;
-  onLanzar?: (obj: Objetivo) => void;
+  onOpenDetalle: (obj: Objetivo) => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
   const daysLeft = daysUntil(obj.fecha_objetivo);
   const pendingEvidenceCount = useMemo(() => {
     const itemPending = (obj.items ?? []).filter((it) => it.estado_item === "foto_subida").length;
@@ -911,7 +908,7 @@ function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado, onOpenR
       exit={{ opacity: 0, scale: 0.97 }}
       transition={{ duration: 0.25, ease: "easeOut" }}
       className={`rounded-xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] group cursor-pointer ${leftBorderClass}`}
-      onClick={() => setExpanded(e => !e)}
+      onClick={() => onOpenDetalle(obj)}
     >
       <div className="p-3 space-y-2">
         {/* Header */}
@@ -921,7 +918,7 @@ function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado, onOpenR
             <OrigenBadge origen={obj.origen} />
             {daysLeft !== null && (
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-700 font-semibold border border-violet-500/20">
-                {daysLeft < 0 ? "Vencido" : `${daysLeft} días restantes`}
+                {daysLeft < 0 ? "Vencido" : `${daysLeft}d`}
               </span>
             )}
             {obj.resultado_final === "exito" && (
@@ -946,7 +943,7 @@ function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado, onOpenR
         {/* Vendedor */}
         <div className="flex items-center gap-1.5">
           <User className="w-3 h-3 text-[var(--shelfy-muted)] shrink-0" />
-          <span className="text-xs font-medium text-[var(--shelfy-text)]">{obj.nombre_vendedor ?? `ID ${obj.id_vendedor}`}</span>
+          <span className="text-xs font-medium text-[var(--shelfy-text)] truncate">{obj.nombre_vendedor ?? `ID ${obj.id_vendedor}`}</span>
         </div>
 
         {/* PDV */}
@@ -954,7 +951,7 @@ function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado, onOpenR
           <div className="flex items-center gap-1.5 flex-wrap">
             <MapPin className="w-3 h-3 text-[var(--shelfy-muted)] shrink-0" />
             {obj.id_cliente_erp && <span className="text-[10px] text-[var(--shelfy-muted)]/80 font-mono">#{obj.id_cliente_erp}</span>}
-            <span className="text-xs text-[var(--shelfy-text)]">{obj.nombre_pdv}</span>
+            <span className="text-xs text-[var(--shelfy-text)] truncate">{obj.nombre_pdv}</span>
           </div>
         )}
 
@@ -963,17 +960,6 @@ function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado, onOpenR
           <div onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between text-[10px] text-[var(--shelfy-muted)] mb-1 tabular-nums">
               <span>{shownActual} / {Math.round(obj.valor_objetivo)}</span>
-              {obj.tasa_pendientes != null && (
-                <span className="text-[var(--shelfy-muted)]/70">
-                  Tasa pendientes: {obj.tasa_pendientes}
-                  {obj.desglose_cache != null
-                    ? (obj.desglose_cache.pendientes_count ?? 0) > 0
-                      ? <span className="ml-1">· {obj.desglose_cache.pendientes_count} pendiente{obj.desglose_cache.pendientes_count !== 1 ? "s" : ""}</span>
-                      : null
-                    : <span className="ml-1">· –</span>
-                  }
-                </span>
-              )}
             </div>
             <ProgressBar
               actual={obj.valor_actual}
@@ -1011,119 +997,11 @@ function KanbanCard({ obj, onDelete, onReagendar, onDownloadCertificado, onOpenR
           </div>
         )}
 
-        {/* ERP quick IDs para reconocimiento rápido en Kanban */}
-        {!!obj.items && obj.items.length > 0 && (
-          <div className="flex items-center gap-1 flex-wrap text-[10px]">
-            {obj.items
-              .map((it) => getObjetivoItemClientCode(it))
-              .filter((v): v is string => Boolean(v))
-              .slice(0, 4)
-              .map((erp) => (
-                <span
-                  key={erp}
-                  className="px-1.5 py-0.5 rounded border border-[var(--shelfy-border)] text-[var(--shelfy-muted)] font-mono"
-                >
-                  ERP #{erp}
-                </span>
-              ))}
-            {obj.items.length > 4 && (
-              <span className="text-[var(--shelfy-muted)]/70">+{obj.items.length - 4}</span>
-            )}
-          </div>
-        )}
-
-        {/* Prorrateo mensual siempre visible (solo compañía) */}
-        <CompaniaProrrateo obj={obj} visualActual={shownActual} />
-
-        {/* Expandable: descripcion + items list */}
-        <AnimatePresence>
-          {expanded && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: "auto", opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              className="overflow-hidden"
-            >
-              <div className="pt-1 border-t border-[var(--shelfy-border)] space-y-2">
-                {obj.descripcion && (
-                  <p className="text-xs text-[var(--shelfy-muted)] leading-relaxed">{obj.descripcion}</p>
-                )}
-                {obj.items && obj.items.length > 0 && obj.tipo === "ruteo_alteo" && obj.items[0].id_ruta_destino ? (
-                  <RuteoAlteoItemsTree obj={obj} />
-                ) : obj.items && obj.items.length > 0 ? (
-                  <div className="space-y-0.5 max-h-32 overflow-y-auto">
-                    {obj.items.map(it => (
-                      <div key={it.id_cliente_pdv} className="flex items-center gap-2 text-[11px]">
-                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                          it.estado_item === 'cumplido' ? 'bg-emerald-500' :
-                          it.estado_item === 'foto_subida' ? 'bg-yellow-400' :
-                          it.estado_item === 'falla' ? 'bg-red-500' :
-                          'bg-[var(--shelfy-muted)]/30'
-                        }`} />
-                        {getObjetivoItemClientCode(it) && (
-                          <span className="text-[10px] text-[var(--shelfy-muted)]/70 font-mono shrink-0">
-                            ERP #{getObjetivoItemClientCode(it)}
-                          </span>
-                        )}
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[var(--shelfy-text)] truncate">{getObjetivoItemDisplayName(it)}</p>
-                          {getObjetivoItemSecondaryName(it) && (
-                            <p className="text-[10px] text-[var(--shelfy-muted)] truncate">{getObjetivoItemSecondaryName(it)}</p>
-                          )}
-                        </div>
-                        <span className="text-[var(--shelfy-muted)] shrink-0 capitalize">{it.estado_item.replace('_', ' ')}</span>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Footer */}
-        <div className="flex items-center justify-between pt-1 gap-1.5 flex-wrap" onClick={(e) => e.stopPropagation()}>
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <DateBadge date={obj.created_at} label="Inicio" type="start" />
-            <DateBadge date={obj.fecha_objetivo} label="Fin" type="end" />
-            {obj.cumplido && <DateBadge date={obj.completed_at || obj.updated_at} label="Cumplido" type="done" />}
-          </div>
-          <div className="flex items-center gap-1 print-hidden">
-            {obj.tipo === "ruteo" && (
-              <button
-                type="button"
-                onClick={(e) => { e.stopPropagation(); onOpenRuteoPdf(obj); }}
-                className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border border-purple-500/30 text-purple-600 hover:bg-purple-500/10 transition-all"
-              >
-                <FileDown className="w-3 h-3" /> PDF Ruteo
-              </button>
-            )}
-            {obj.cumplido && (
-              <button
-                onClick={() => onDownloadCertificado(obj)}
-                className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-accent)] hover:border-[var(--shelfy-accent)]/40 transition-all"
-              >
-                <FileDown className="w-3 h-3" /> PDF
-              </button>
-            )}
-            {obj.resultado_final === "falla" && (
-              <button
-                onClick={() => onReagendar(obj)}
-                className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border border-orange-500/30 text-orange-500 hover:bg-orange-500/10 transition-all"
-              >
-                <RefreshCw className="w-3 h-3" /> Re-agendar
-              </button>
-            )}
-            {onLanzar && !obj.lanzado_at && !obj.cumplido && (
-              <button
-                onClick={(e) => { e.stopPropagation(); onLanzar(obj); }}
-                className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border border-violet-500/30 text-violet-600 hover:bg-violet-500/10 transition-all"
-              >
-                <Rocket className="w-3 h-3" /> Lanzar ahora
-              </button>
-            )}
-          </div>
+        {/* Footer fechas */}
+        <div className="flex items-center gap-1.5 flex-wrap pt-1" onClick={(e) => e.stopPropagation()}>
+          <DateBadge date={obj.created_at} label="Inicio" type="start" />
+          <DateBadge date={obj.fecha_objetivo} label="Fin" type="end" />
+          {obj.cumplido && <DateBadge date={obj.completed_at || obj.updated_at} label="Cumplido" type="done" />}
         </div>
       </div>
     </motion.div>
@@ -3598,6 +3476,10 @@ export default function ObjetivosPage() {
     terminado:   filtered.filter(o => getObjectiveKanbanPhase(o) === 'terminado'),
   }), [filtered]);
 
+  // ── Detalle objetivo (modal) ──────────────────────────────────────────────
+
+  const [detalleObj, setDetalleObj] = useState<Objetivo | null>(null);
+
   // ── Lanzar objetivo state ─────────────────────────────────────────────────
 
   const [lanzarObj, setLanzarObj] = useState<Objetivo | null>(null);
@@ -3893,6 +3775,7 @@ export default function ObjetivosPage() {
                   onDownloadCertificado={handleDownloadCertificado}
                   onOpenRuteoPdf={handleOpenRuteoPdf}
                   onLanzar={(o) => setLanzarObj(o)}
+                  onOpenDetalle={(o) => setDetalleObj(o)}
                   filterKanbanPhase={filterKanbanPhase}
                   setFilterKanbanPhase={setFilterKanbanPhase}
                 />
@@ -3905,6 +3788,16 @@ export default function ObjetivosPage() {
         </main>
       </div>
       <BottomNav />
+
+      {/* Modal detalle objetivo */}
+      <ObjetivoDetalleModal
+        obj={detalleObj}
+        onClose={() => setDetalleObj(null)}
+        onLanzar={(o) => { setDetalleObj(null); setLanzarObj(o); }}
+        onReagendar={(o) => { setDetalleObj(null); setReagendarObj(o); setFechaReagendar(""); setObservacionReagendar(""); }}
+        onDownloadCertificado={handleDownloadCertificado}
+        onOpenRuteoPdf={handleOpenRuteoPdf}
+      />
 
       {/* Modal nuevo objetivo */}
       {modalOpen && (
@@ -4041,6 +3934,7 @@ function KanbanOrListaView({
   onDownloadCertificado,
   onOpenRuteoPdf,
   onLanzar,
+  onOpenDetalle,
   filterKanbanPhase,
   setFilterKanbanPhase,
 }: {
@@ -4050,6 +3944,7 @@ function KanbanOrListaView({
   onDownloadCertificado: (obj: Objetivo) => void;
   onOpenRuteoPdf: (obj: Objetivo) => void;
   onLanzar: (obj: Objetivo) => void;
+  onOpenDetalle: (obj: Objetivo) => void;
   filterKanbanPhase: 'planificado' | 'pendiente' | 'en_progreso' | 'terminado' | null;
   setFilterKanbanPhase: (phase: 'planificado' | 'pendiente' | 'en_progreso' | 'terminado' | null) => void;
 }) {
@@ -4102,10 +3997,7 @@ function KanbanOrListaView({
                   key={obj.id}
                   obj={obj}
                   onDelete={() => onDelete(obj.id)}
-                  onReagendar={onReagendar}
-                  onDownloadCertificado={onDownloadCertificado}
-                  onOpenRuteoPdf={onOpenRuteoPdf}
-                  onLanzar={isPlanificado ? onLanzar : undefined}
+                  onOpenDetalle={onOpenDetalle}
                 />
               );
               return (

@@ -125,6 +125,24 @@ Toda metrica de **ranking**, **KPIs de exhibicion**, **stats Telegram** (`/stats
 - Tipo `ruteo` (guía de cambio de ruta): **solo uso interno** (portal/PDF); **no** enviar mensaje Telegram, **no** preview Telegram en UI.
 - En `ruteo_alteo`, el cumplimiento debe evaluarse por `fecha_alta` de padrón; no usar cambio de ruta como señal.
 
+### Filtro `/objetivos` bot (implementado 2026-05-22)
+
+- Helper canonico: `CenterMind/core/objetivos_filters.py` → `objetivo_activo_para_vendedor(obj, hoy)`.
+- Activo = tipo != ruteo AND fecha_objetivo >= hoy_AR AND lanzado_at IS NOT NULL.
+- `cumplido=true` NO excluye (mostrar 125/100).
+- Planificados sin `lanzado_at` se excluyen (el vendedor aun no recibio el objetivo).
+- Query ordena por `fecha_objetivo asc` (antes era `created_at desc`).
+
+### UX modal objetivos portal (implementado 2026-05-22)
+
+- `KanbanCard` es minimalista: badges tipo/origen, dias restantes, vendedor, barra progreso, fechas inicio/fin.
+- Click en card abre `ObjetivoDetalleModal` (Dialog shadcn centrado con overlay).
+- El modal contiene: `ObjetivoResumen` (campos estructurados, sin descripcion Telegram cruda), barra progreso real, `ObjetivoProrrateoCalendario` (grilla lun-sab), lista PDVs y acciones.
+- `isTelegramObjectiveMessage(desc)` detecta payloads Telegram crudos — no renderizarlos directo.
+- Prorrateo distribuidora: rango max(fecha_inicio, lanzado_at, created_at) → fecha_objetivo; **sin retroactividad**.
+- Componentes en `shelfy-frontend/src/components/objetivos/`: `ObjetivoDetalleModal.tsx`, `ObjetivoResumen.tsx`, `ObjetivoProrrateoCalendario.tsx`.
+- Utils en `shelfy-frontend/src/lib/objetivo-utils.ts`: `isTelegramObjectiveMessage`, `periodoProrrateo`, `DiaHabil`.
+
 ## 9.2) Tickets de portal (operativo)
 
 - Superadmin debe poder filtrar tickets por estado, categoria, distribuidora y texto.

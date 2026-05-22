@@ -54,17 +54,40 @@ Tokens clave:
 ### `objetivos/page.tsx`
 
 - Modos por tipo con dualidad general vs universo explicito.
-- Compania: periodo mensual con prorrateo semanal/diario.
 - Kanban 4 columnas: `planificado | pendiente | en_progreso | terminado`.
-- `planificado` = `lanzado_at IS NULL && !cumplido`; color slate, icono `CalendarDays`, botón "Lanzar ahora" en card.
+- `planificado` = `lanzado_at IS NULL && !cumplido`; color slate, icono `CalendarDays`.
 - Timeline + stats + print.
 - En el modal de alta, `fecha limite` es obligatoria para origen distribuidora.
 - `fecha_inicio` (DATE): si > hoy, objetivo queda planificado sin notificación Telegram al crearlo.
 - `descripcion` es obligatoria ≥5 chars; `buildPhrase()` eliminado del flujo.
 - `Tasa de pendientes` se muestra debajo del bloque contextual del tipo y antes del selector de fecha.
-- La card de compania muestra avance semanal y diario en todas las semanas/dias del mes (no solo futuros).
-- El progreso mostrado en card y desglose de compañía usa el mismo `visualActual` para evitar desfasajes entre barras.
 - Filtros de fecha: `filterFechaDesde` / `filterFechaHasta` en Zustand store, aplicados sobre `fecha_inicio ?? fecha_objetivo`.
+
+**KanbanCard (2026-05-22):** minimalista — solo badges tipo/origen, dias restantes, nombre vendedor, barra progreso, fechas inicio/fin. Sin `descripcion`, sin accordion, sin prorrateo inline. Click → `ObjetivoDetalleModal`.
+
+### `componentes/objetivos/ObjetivoDetalleModal.tsx` (nuevo 2026-05-22)
+
+- Dialog shadcn centrado, overlay oscuro, ESC/click-fuera cierra.
+- Contiene: `ObjetivoResumen` + barra progreso + `ObjetivoProrrateoCalendario` + lista PDVs + acciones (Lanzar/PDF/reagendar).
+- Recibe `onLanzar`, `onReagendar`, `onDownloadCertificado`, `onOpenRuteoPdf` como props.
+
+### `componentes/objetivos/ObjetivoResumen.tsx` (nuevo 2026-05-22)
+
+- Muestra tipo, origen, meta, fechas, instrucción por tipo.
+- Si `descripcion` es payload Telegram crudo (`isTelegramObjectiveMessage`), no la renderiza.
+
+### `componentes/objetivos/ObjetivoProrrateoCalendario.tsx` (nuevo 2026-05-22)
+
+- Grilla lun-sáb por semana. Celda: pasado=avance/meta con color, futuro=meta esperada, pre-inicio=N/A.
+- **Compañía:** mes_referencia; alteo/activación sin retro (startEffective desde created_at).
+- **Distribuidora:** rango max(fecha_inicio, lanzado_at, created_at) → fecha_objetivo; sin retroactividad.
+- Fuente de datos: `desglose_cache.progreso_diario` si existe; fallback promedio uniforme.
+
+### `lib/objetivo-utils.ts` (nuevo 2026-05-22)
+
+- `isTelegramObjectiveMessage(desc)`: detecta payload Telegram crudo.
+- `periodoProrrateo(obj)`: calcula `DiaHabil[]` para compañía y distribuidora.
+- No tiene efectos secundarios; reutilizable en cualquier componente.
 
 ### `objetivos/LanzarObjetivoDialog.tsx`
 

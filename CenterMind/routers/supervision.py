@@ -2226,62 +2226,25 @@ def _supervision_compradores_mes(
     PDVs compradores en mes calendario:
     1) ventas_enriched_v2 (Informe de Ventas Consolido), si hay ingesta.
     2) Fallback padrón: fecha_ultima_compra en el mes (distribuidoras sin motor ventas).
-    """
-    comprador_ids: Set[int] = set()
-    ultima_compra_mes: dict[int, str] = {}
-    if not client_by_id:
-        return comprador_ids, ultima_compra_mes
 
+    Delega el cálculo del conjunto a core/objetivos_compradores.py y construye
+    localmente ultima_compra_mes (necesario para el panel de supervisión).
+    """
+    from core.objetivos_compradores import compradores_en_periodo_for_clients
+
+    comprador_ids: Set[int] = compradores_en_periodo_for_clients(
+        dist_id, client_by_id, fecha_desde, fecha_hasta
+    )
+
+    # Construir ultima_compra_mes para el panel (info extra que supervision necesita)
+    ultima_compra_mes: dict[int, str] = {}
     desde = fecha_desde[:10]
     hasta = fecha_hasta[:10]
-
-    erp_norm_to_id: dict[str, int] = {}
-    for cid, row in client_by_id.items():
-        n = _norm_erp_cliente_id(row.get("id_cliente_erp"))
-        if n:
-            erp_norm_to_id[n] = int(cid)
-
-    if erp_norm_to_id:
-        t_ventas = tenant_table_name("ventas_enriched_v2", dist_id)
-        PAGE = 1000
-        offset = 0
-        while True:
-            batch = (
-                sb.table(t_ventas)
-                .select("id_cliente_erp,fecha_factura,importe_final")
-                .eq("id_distribuidor", dist_id)
-                .eq("anulado", False)
-                .gte("fecha_factura", desde)
-                .lte("fecha_factura", hasta)
-                .range(offset, offset + PAGE - 1)
-                .execute()
-                .data or []
-            )
-            for row in batch:
-                if float(row.get("importe_final") or 0) < 0:
-                    continue
-                n = _norm_erp_cliente_id(row.get("id_cliente_erp"))
-                cid = erp_norm_to_id.get(n) if n else None
-                if cid is None:
-                    continue
-                f = str(row.get("fecha_factura") or "")[:10]
-                if not f:
-                    continue
-                comprador_ids.add(cid)
-                prev = ultima_compra_mes.get(cid)
-                if not prev or f > prev:
-                    ultima_compra_mes[cid] = f
-            if len(batch) < PAGE:
-                break
-            offset += PAGE
-
-    for cid, row in client_by_id.items():
+    for cid in comprador_ids:
+        row = client_by_id.get(cid) or {}
         fuc = str(row.get("fecha_ultima_compra") or "")[:10]
         if len(fuc) >= 10 and desde <= fuc <= hasta:
-            comprador_ids.add(int(cid))
-            prev = ultima_compra_mes.get(cid)
-            if not prev or fuc > prev:
-                ultima_compra_mes[cid] = fuc
+            ultima_compra_mes[int(cid)] = fuc
 
     return comprador_ids, ultima_compra_mes
 
@@ -2758,9 +2721,14 @@ def _compute_kanban_phase(obj: dict) -> str:
 @router.post("/api/supervision/objetivos", tags=["Supervisión"])
 def crear_objetivo(body: ObjetivoCreate, user_payload=Depends(verify_auth)):
     check_dist_permission(user_payload, body.id_distribuidor)
-    TIPOS_VALIDOS = {"conversion_estado", "cobranza", "ruteo_alteo", "exhibicion", "ruteo"}
+    TIPOS_VALIDOS = {"conversion_estado", "cobranza", "ruteo_alteo", "exhibicion", "ruteo", "compradores"}
     if body.tipo not in TIPOS_VALIDOS:
         raise HTTPException(status_code=400, detail=f"tipo inválido. Valores permitidos: {sorted(TIPOS_VALIDOS)}")
+
+    # Para tipo compradores: valor_objetivo (N PDVs) es obligatorio y >= 1
+    if body.tipo == "compradores":
+        if not body.valor_objetivo or float(body.valor_objetivo) < 1:
+            raise HTTPException(status_code=422, detail="tipo 'compradores' requiere valor_objetivo >= 1 (cantidad de PDVs distintos)")
 
     # Para tipo ruteo: pdv_items es obligatorio y cada ítem debe tener accion_ruteo válida
     if body.tipo == "ruteo":

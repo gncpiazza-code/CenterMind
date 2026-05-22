@@ -1435,6 +1435,7 @@ class BotWorker:
                 "cobranza": "Cobranza",
                 "ruteo": "Ruteo",
                 "ruteo_alteo": "Alteo",
+                "compradores": "Compradores",
             }
 
             from datetime import date as _date_cls, timezone as _tz_cls
@@ -3062,6 +3063,7 @@ class BotWorker:
                 "cobranza": "Cobranza",
                 "ruteo": "Ruteo",
                 "ruteo_alteo": "Alteo",
+                "compradores": "Compradores",
             }
             hoy = datetime.now(AR_TZ).date()
             sent = 0

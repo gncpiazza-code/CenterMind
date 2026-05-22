@@ -17,6 +17,7 @@ Documento de referencia tecnica estable para agentes y desarrolladores.
 - `CenterMind/routers/`: auth, supervision, admin, reportes, difusion, erp.
 - `CenterMind/core/helpers.py`: enrichment y utilidades tenant-safe (incl. `is_vendedor_excluido_objetivos`).
 - `CenterMind/core/exhibicion_aggregate.py`: definicion canonica de exhibicion logica unica.
+- `CenterMind/core/objetivos_compradores.py`: medicion canonica de compradores en periodo (fuente unica para watcher y supervision). **No tocar activacion ni conversion_estado desde este modulo.**
 - `shelfy-frontend/src/lib/api.ts`: contrato unico de fetch/tipos.
 - `ShelfMind-RPA/motores/`: padron, cuentas, ventas, sigo.
 

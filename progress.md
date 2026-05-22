@@ -1,6 +1,6 @@
 # Progress — Shelfy CenterMind (Lean)
 
-**Ultima actualizacion:** 22 de Mayo, 2026  
+**Ultima actualizacion:** 22 de Mayo, 2026 (v2)  
 **Objetivo:** estado operativo actual, riesgos y prioridades.  
 **Historial largo:** `docs/changelog/archive/2026-05.md`.
 
@@ -45,6 +45,8 @@
 20. Supervision perf backend: `vendedores?lite=1` (sin scan exhibiciones 30d), CC filtrada en SQL por sucursal/vendedor, PDV metadata solo ERPs de filas CC, `pdvs-movimiento` batch exhibido (sin N+1).
 
 21. Re-evaluación Compañía (2026-05-22): tabla `exhibicion_reevaluacion_compania` (append-only); router `/api/compania/reevaluar`; overlay `apply_compania_estado_overlay` en `exhibicion_aggregate.py`; ranking paralelo `GET /api/dashboard/ranking-compania/{dist_id}` solo para roles Compañía. Galería timeline enriquece con historial de re-evaluaciones. Frontend: `SlideToConfirm`, `ReevaluarCompaniaSheet`, `RankingCompaniaCompare`. Tests: 8/8. Ranking oficial del distribuidor **sin cambios**.
+
+22. Tipo objetivo COMPRADORES (2026-05-22): nuevo tipo end-to-end. `core/objetivos_compradores.py` — módulo compartido `compradores_en_periodo` + `periodo_desde_hasta_objetivo`. Watcher: `_diff_compradores` con retroactividad mensual para compañía (patrón exhibición). Supervisión: `_supervision_compradores_mes` delega al core. Backend: `TIPOS_VALIDOS` += compradores; validación `valor_objetivo >= 1`. Bot + notificación: label 🛒 "Compradores". Frontend: badge teal, texto educativo, campo N en modal, disponible para distribuidora y compañía. Tests: `test_objetivos_compradores.py`. Restricción invariante: **NO** modifica activación ni `conversion_estado`.
 
 ## Riesgos y Guardrails Activos
 

@@ -1856,7 +1856,7 @@ export async function postDifusionCCTelegramPreview(body: {
 
 // ── Objetivos ──────────────────────────────────────────────────────────────
 
-export type ObjetivoTipo = 'conversion_estado' | 'cobranza' | 'ruteo_alteo' | 'exhibicion' | 'ruteo';
+export type ObjetivoTipo = 'conversion_estado' | 'cobranza' | 'ruteo_alteo' | 'exhibicion' | 'ruteo' | 'compradores';
 
 export interface Objetivo {
   id: string;

@@ -82,10 +82,11 @@ import { toast } from "sonner";
 
 const TIPO_CONFIG: Record<ObjetivoTipo, { label: string; color: string; bg: string }> = {
   conversion_estado: { label: "Activación",                color: "text-blue-500",    bg: "bg-blue-500/10 border-blue-500/20" },
-  // cobranza:          { label: "Cobranza",                  color: "text-orange-500",  bg: "bg-orange-500/10 border-orange-500/20" }, // OCULTO A PETICION (No mostrar objetivos de cobranza)
+  cobranza:          { label: "Cobranza",                  color: "text-orange-500",  bg: "bg-orange-500/10 border-orange-500/20" },
   ruteo_alteo:       { label: "Alteo",                     color: "text-violet-600",  bg: "bg-violet-500/10 border-violet-500/20" },
   exhibicion:        { label: "Exhibición",                color: "text-emerald-600", bg: "bg-emerald-500/10 border-emerald-500/20" },
   ruteo:             { label: "Guía de cambio de ruta",    color: "text-purple-600",  bg: "bg-purple-500/10 border-purple-500/20" },
+  compradores:       { label: "Compradores",               color: "text-teal-600",    bg: "bg-teal-500/10 border-teal-500/20" },
 };
 
 // Descripciones educativas por tipo (mostradas en wizard lateral)
@@ -93,6 +94,7 @@ const TIPO_EDUCATIVO: Partial<Record<ObjetivoTipo, string>> = {
   ruteo_alteo:       "Alta de nuevo PDV en tu ruta. Meta: incorporar PDVs nuevos que nunca compraron.",
   conversion_estado: "Reactivar PDVs inactivos (sin compra hace más de 30 días). Meta: volver a comprar.",
   exhibicion:        "Registrar foto de exhibición en PDV. Meta: cobertura de exhibiciones por ruta.",
+  compradores:       "En el período, el vendedor debe registrar ventas a N clientes distintos. Cada cliente cuenta una sola vez sin importar cuántas facturas emita.",
 };
 
 const DIA_ORDER: Record<string, number> = {
@@ -1219,6 +1221,9 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
   const [exhibicionMode, setExhibicionMode] = useState<"general" | "por_pdv">("general");
   const [cantidadExhibicion, setCantidadExhibicion] = useState<number | "">("");
 
+  // Compradores: cantidad de PDVs distintos (N)
+  const [cantidadCompradores, setCantidadCompradores] = useState<number | "">("");
+
   // Ruteo per-PDV actions
   type RuteoAccion = 'cambio_ruta' | 'baja';
   const [ruteoAccionGlobal, setRuteoAccionGlobal] = useState<RuteoAccion>('cambio_ruta');
@@ -1264,6 +1269,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
     setPdvCatalogHasMore(false);
     setExhibicionMode("general");
     setCantidadExhibicion("");
+    setCantidadCompradores("");
     setRuteoAccionGlobal('cambio_ruta');
     setRuteoItemsMap({});
   }
@@ -1542,6 +1548,17 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
         continue;
       }
 
+      if (tipo === "compradores") {
+        if (!cantidadCompradores || Number(cantidadCompradores) < 1) {
+          toast.error("Ingresá la cantidad de compradores objetivo (mínimo 1).");
+          return;
+        }
+        base.valor_objetivo = Number(cantidadCompradores);
+        base.descripcion = desc || `Lograr ${cantidadCompradores} comprador${Number(cantidadCompradores) !== 1 ? "es" : ""} distintos en el período`;
+        creates.push(base);
+        continue;
+      }
+
       if (tipo === "ruteo") {
         const selected = Array.from(selectedPdvIds);
         if (selected.length === 0 || paraTodosFDV) {
@@ -1593,8 +1610,8 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
 
   // cobranza oculto en UI — no se crea desde el formulario
   const TIPOS_DISPONIBLES: ObjetivoTipo[] = origenMode === "compania"
-    ? ["ruteo_alteo", "conversion_estado", "exhibicion"]
-    : ["ruteo_alteo", "conversion_estado", "exhibicion", "ruteo"];
+    ? ["ruteo_alteo", "conversion_estado", "exhibicion", "compradores"]
+    : ["ruteo_alteo", "conversion_estado", "exhibicion", "compradores", "ruteo"];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -1925,6 +1942,30 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
                   )}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Contextual: Compradores */}
+          {tipo === "compradores" && (
+            <div className="space-y-2 rounded-xl bg-[var(--shelfy-bg)] border border-teal-500/20 p-3">
+              <p className="text-[10px] font-semibold text-teal-600 uppercase tracking-wider">Meta de compradores</p>
+              <div>
+                <label className="text-[10px] font-medium text-[var(--shelfy-muted)] uppercase tracking-wider block mb-1">
+                  Compradores objetivo (N PDVs distintos)
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  required
+                  placeholder="Ej: 10"
+                  className="w-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] rounded-lg px-3 py-1.5 text-sm text-[var(--shelfy-text)] focus:outline-none focus:border-teal-500/60"
+                  value={cantidadCompradores}
+                  onChange={e => setCantidadCompradores(e.target.value ? Number(e.target.value) : "")}
+                />
+                <p className="text-[10px] text-[var(--shelfy-muted)] mt-1">
+                  Cada cliente distinto con al menos una venta en el período cuenta como 1 comprador.
+                </p>
+              </div>
             </div>
           )}
 

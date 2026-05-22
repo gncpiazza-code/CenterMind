@@ -379,6 +379,7 @@ TIPO_EMOJI = {
     "ruteo":             "🗺️",
     "ruteo_alteo":       "📍",
     "conversion_estado": "🟢",
+    "compradores":       "🛒",
 }
 
 
@@ -473,6 +474,7 @@ class ObjetivosNotificationService:
                 "cobranza":          "Cobranza",
                 "alteo":             "Alteo",
                 "activacion":        "Activación",
+                "compradores":       "Compradores",
             }.get(
                 tipo,
                 str(tipo or "").replace("_", " ").title() or "General",
@@ -796,6 +798,8 @@ class ObjetivosNotificationService:
                 instrucciones_txt = "🧭 <b>Qué tenés que hacer:</b> gestioná el cobro de la deuda. El progreso se actualizará automáticamente con los recibos.\n"
             elif tipo == "ruteo":
                 instrucciones_txt = "🧭 <b>Qué tenés que hacer:</b> gestioná el cambio en la ruta. El progreso se actualizará automáticamente con el padrón.\n"
+            elif tipo == "compradores":
+                instrucciones_txt = "🧭 <b>Qué tenés que hacer:</b> realizá ventas a clientes distintos en el período. El progreso se actualizará automáticamente con la facturación.\n"
             else:
                 instrucciones_txt = "🧭 <b>Qué tenés que hacer:</b> ejecutá la acción indicada para cumplir el objetivo.\n"
 

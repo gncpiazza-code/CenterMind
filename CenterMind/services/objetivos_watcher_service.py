@@ -289,6 +289,26 @@ class ObjetivosWatcherService:
                         f"[Watcher] Retroactividad compañía inválida obj={obj.get('id')}: {e_retro}"
                     )
             return self._diff_exhibicion(obj, id_vendedor, dist_id, since)
+        if tipo == "compradores":
+            from core.objetivos_compradores import compradores_en_periodo, periodo_desde_hasta_objetivo
+            desde, hasta = periodo_desde_hasta_objetivo(obj)
+            if origen == "compania":
+                # Retroactividad: desde día 1 del mes_referencia (igual que exhibicion compañía)
+                try:
+                    from datetime import date as _date_cls
+                    base_raw = (
+                        str(mes_referencia)[:10]
+                        if mes_referencia
+                        else str(obj.get("fecha_objetivo") or obj.get("created_at") or "")[:10]
+                    )
+                    if base_raw:
+                        mes_dt = _date_cls.fromisoformat(base_raw)
+                        first_day = mes_dt.replace(day=1)
+                        desde = first_day.isoformat()
+                except Exception as e_retro:
+                    logger.warning(f"[Watcher] compradores retro compañía obj={obj.get('id')}: {e_retro}")
+            return self._diff_compradores(obj, id_vendedor, dist_id, desde, hasta)
+
         if tipo == "cobranza":
             valor = self._compute_cobranza(obj, dist_id)
             if valor is None:
@@ -842,6 +862,54 @@ class ObjetivosWatcherService:
         except Exception as e:
             logger.error(f"[Watcher] exhibicion vend={id_vendedor_v2}: {e}")
             return (float(obj.get("valor_actual") or 0), 0)
+
+    # ── Compradores ───────────────────────────────────────────────────────────
+
+    def _diff_compradores(
+        self,
+        obj: dict,
+        id_vendedor: int,
+        dist_id: int,
+        desde: str,
+        hasta: str,
+    ) -> tuple[float, int, float, dict]:
+        """
+        Detecta PDVs compradores nuevos en [desde, hasta] que no estén en tracking.
+
+        Un PDV cuenta como comprador si realizó >= 1 venta (importe >= 0) en el período,
+        o si fecha_ultima_compra del padrón cae en el rango (fallback sin motor ventas).
+
+        Regla de dedup: un id_cliente = 1 comprador, sin importar cuántas facturas emitió.
+        """
+        obj_id = obj["id"]
+        try:
+            from core.objetivos_compradores import compradores_en_periodo
+
+            comprador_ids = compradores_en_periodo(dist_id, id_vendedor, desde, hasta)
+
+            ya_trackeados = self._get_tracked_refs(obj_id, "comprador")
+            nuevos_ids = [cid for cid in comprador_ids if str(cid) not in ya_trackeados]
+
+            progreso_diario: dict = {}
+
+            if nuevos_ids:
+                items = [{"id_cliente": cid} for cid in nuevos_ids]
+                self._insert_tracking_batch(
+                    obj_id,
+                    "comprador",
+                    items,
+                    id_llave="id_cliente",
+                    dist_id=dist_id,
+                    id_vendedor=id_vendedor,
+                    obj_created_at=obj.get("created_at"),
+                )
+
+            valor_actual = float(len(comprador_ids))
+            return (valor_actual, len(nuevos_ids), valor_actual, progreso_diario)
+
+        except Exception as e:
+            logger.warning(f"[Watcher] compradores vend={id_vendedor} obj={obj.get('id')}: {e}")
+            return (float(obj.get("valor_actual") or 0), 0, float(obj.get("valor_actual") or 0), {})
 
     # ── Cobranza ──────────────────────────────────────────────────────────────
 

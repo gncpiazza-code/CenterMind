@@ -2793,6 +2793,15 @@ def crear_objetivo(body: ObjetivoCreate, user_payload=Depends(verify_auth)):
         if not body.fecha_objetivo:
             raise HTTPException(status_code=422, detail="fecha_objetivo es obligatoria")
 
+    if body.fecha_objetivo and body.fecha_inicio:
+        fi = str(body.fecha_inicio)[:10]
+        ff = str(body.fecha_objetivo)[:10]
+        if fi > ff:
+            raise HTTPException(
+                status_code=422,
+                detail=f"fecha_inicio ({fi}) no puede ser posterior a fecha_objetivo ({ff})",
+            )
+
     # Validar que el vendedor pertenece a la distribuidora + no es bucket
     t_vendedores = tenant_table_name("vendedores_v2", body.id_distribuidor)
     vend_check = sb.table(t_vendedores).select("id_vendedor, nombre_erp").eq("id_vendedor", body.id_vendedor).eq("id_distribuidor", body.id_distribuidor).limit(1).execute()
@@ -2931,11 +2940,13 @@ def crear_objetivo(body: ObjetivoCreate, user_payload=Depends(verify_auth)):
                     "nombre_pdv": item.nombre_pdv,
                     "estado_item": "pendiente",
                 }
+                md_ruteo = dict(item.metadata_ruteo or {})
+                if item.id_cliente_erp:
+                    md_ruteo["id_cliente_erp"] = item.id_cliente_erp
+                if item.dia_visita:
+                    md_ruteo["dia_visita"] = item.dia_visita
                 # Campos de ruteo (solo para tipo='ruteo')
                 if body.tipo == "ruteo":
-                    md_ruteo = dict(item.metadata_ruteo or {})
-                    if item.id_cliente_erp:
-                        md_ruteo["id_cliente_erp"] = item.id_cliente_erp
                     # Persistir metadata del modo "Armar Ruta" (selección por polígono)
                     if item.group_id:
                         md_ruteo["group_id"] = item.group_id
@@ -2948,6 +2959,8 @@ def crear_objetivo(body: ObjetivoCreate, user_payload=Depends(verify_auth)):
                     row["motivo_baja"]     = item.motivo_baja
                     row["orden_sugerido"]  = item.orden_sugerido if item.orden_sugerido is not None else idx + 1
                     row["metadata_ruteo"]  = md_ruteo if md_ruteo else None
+                elif md_ruteo:
+                    row["metadata_ruteo"] = md_ruteo
                 item_rows.append(row)
             try:
                 sb.table("objetivo_items").upsert(
@@ -3097,6 +3110,7 @@ def preview_telegram_objetivo(body: ObjetivoPreviewTelegramIn, user_payload=Depe
             "fecha_objetivo": body.fecha_objetivo,
             "fecha_inicio": body.fecha_inicio,
             "valor_objetivo": body.valor_objetivo,
+            "estado_inicial": body.estado_inicial,
             "origen": body.origen,
             "mes_referencia": body.mes_referencia,
             "nombre_vendedor": body.nombre_vendedor,
@@ -3345,7 +3359,10 @@ def get_pdvs_catalog(
                 return []
             clients_res = (
                 sb.table(t_clientes)
-                .select("id_cliente, nombre_fantasia, nombre_razon_social, id_cliente_erp, domicilio, estado, fecha_ultima_compra, updated_at")
+                .select(
+                    "id_cliente, nombre_fantasia, nombre_razon_social, id_cliente_erp, "
+                    "domicilio, estado, fecha_ultima_compra, updated_at, id_ruta"
+                )
                 .in_("id_ruta", route_ids)
                 .eq("id_distribuidor", dist_id)
             )
@@ -3354,12 +3371,30 @@ def get_pdvs_catalog(
             t_clientes = tenant_table_name("clientes_pdv_v2", dist_id)
             clients_res = (
                 sb.table(t_clientes)
-                .select("id_cliente, nombre_fantasia, nombre_razon_social, id_cliente_erp, domicilio, estado, fecha_ultima_compra, updated_at")
+                .select(
+                    "id_cliente, nombre_fantasia, nombre_razon_social, id_cliente_erp, "
+                    "domicilio, estado, fecha_ultima_compra, updated_at, id_ruta"
+                )
                 .eq("id_distribuidor", dist_id)
             )
             clients_data = _fetch_clients_paginated(clients_res)
         # Objetivos must be able to target active and inactive PDVs.
         clients = _dedupe_pdvs_latest_by_erp(clients_data or [])
+
+        ruta_dia_map: dict[int, str] = {}
+        ruta_ids = list({int(c["id_ruta"]) for c in clients if c.get("id_ruta") is not None})
+        if ruta_ids:
+            t_rutas = tenant_table_name("rutas_v2", dist_id)
+            rutas_res = (
+                sb.table(t_rutas)
+                .select("id_ruta, dia_semana")
+                .in_("id_ruta", ruta_ids)
+                .execute()
+            )
+            for r in (rutas_res.data or []):
+                rid = r.get("id_ruta")
+                if rid is not None:
+                    ruta_dia_map[int(rid)] = (r.get("dia_semana") or "").strip()
 
         # Obtener la exhibición más reciente por nro_cliente (id_cliente_erp)
         fecha_map: dict[str, str] = {}
@@ -3385,11 +3420,14 @@ def get_pdvs_catalog(
         for c in clients:
             erp = c.get("id_cliente_erp")
             fecha = fecha_map.get(erp) if erp else None
+            id_ruta = c.get("id_ruta")
+            dia_visita = ruta_dia_map.get(int(id_ruta)) if id_ruta is not None else None
             enriched.append({
                 "id_cliente": c["id_cliente"],
                 "nombre_cliente": c.get("nombre_fantasia") or c.get("nombre_razon_social"),
                 "nombre_razon_social": c.get("nombre_razon_social"),
                 "id_cliente_erp": erp,
+                "dia_visita": dia_visita or None,
                 "domicilio": c.get("domicilio"),
                 "estado": c.get("estado"),
                 "fecha_ultima_compra": c.get("fecha_ultima_compra"),

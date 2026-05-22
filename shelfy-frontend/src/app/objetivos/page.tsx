@@ -109,6 +109,11 @@ const DIA_ORDER: Record<string, number> = {
   "viernes": 4, "sabado": 5, "sábado": 5, "domingo": 6,
 };
 
+/** Fecha local YYYY-MM-DD (evita desfase de toISOString() en AR). */
+function formatLocalISODate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 function normDia(dia?: string | null): string {
   return (dia ?? "Sin día").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
@@ -1204,7 +1209,16 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
   const [cobranzaMode, setCobranzaMode] = useState<"total" | "parcial">("total");
   const [cobranzaMonto, setCobranzaMonto] = useState<number | "">("");
 
-  const [activacionPdvs, setActivacionPdvs] = useState<{ id: number; nombre: string; idClienteErp: string | null; razonSocial: string | null; fechaCompra: string | null; diasSinCompra: number | null; estado: string | null }[]>([]);
+  const [activacionPdvs, setActivacionPdvs] = useState<{
+    id: number;
+    nombre: string;
+    idClienteErp: string | null;
+    razonSocial: string | null;
+    fechaCompra: string | null;
+    diasSinCompra: number | null;
+    estado: string | null;
+    diaVisita: string | null;
+  }[]>([]);
   const [selectedPdvIds, setSelectedPdvIds] = useState<Set<number>>(new Set());
   const [activacionMode, setActivacionMode] = useState<"general" | "por_pdv">("general");
   const [cantidadActivacion, setCantidadActivacion] = useState<number | "">("");
@@ -1387,6 +1401,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
                 fechaCompra,
                 diasSinCompra,
                 estado: pdv.estado ?? null,
+                diaVisita: pdv.dia_visita ?? null,
               };
             })
             .filter((pdv) => (pdv.estado ?? "").toLowerCase() === "inactivo" || pdv.diasSinCompra === null || (pdv.diasSinCompra ?? 0) > 30)
@@ -1433,12 +1448,16 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
         return;
       }
       try {
+        const pdvPreview = buildPreviewPdvItems();
         const preview = await previewObjetivoTelegram({
           id_distribuidor: distId,
           id_vendedor: Number(previewVendorId),
           tipo,
           fecha_objetivo: fecha || undefined,
           fecha_inicio: fechaInicio || undefined,
+          valor_objetivo: resolvePreviewValor(),
+          estado_inicial: resolvePreviewEstadoInicial(),
+          pdv_items: pdvPreview,
           origen: origenMode,
           mes_referencia: origenMode === "compania" ? mesReferencia || undefined : undefined,
           nombre_vendedor: previewVendorName,
@@ -1456,11 +1475,136 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
     return () => {
       if (previewDebounceRef.current) clearTimeout(previewDebounceRef.current);
     };
-  }, [vendedorId, paraTodosFDV, tipo, fecha, fechaInicio, distId, origenMode, mesReferencia, vendedoresFiltrados.length, modalSucursal]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [
+    vendedorId,
+    paraTodosFDV,
+    tipo,
+    fecha,
+    fechaInicio,
+    cantidadCompradores,
+    cantidadExhibicion,
+    cantidadActivacion,
+    cantidadAlteo,
+    exhibicionMode,
+    activacionMode,
+    alteoMode,
+    selectedPdvIds.size,
+    selectedDayGroups.length,
+    selectedDeudor?.cliente_nombre,
+    cobranzaMode,
+    cobranzaMonto,
+    distId,
+    origenMode,
+    mesReferencia,
+    vendedoresFiltrados.length,
+    modalSucursal,
+    activacionPdvs.length,
+    pdvCatalogAll.length,
+  ]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Si la fecha límite quedó antes del inicio, alinear (evita error al crear)
+  useEffect(() => {
+    if (fechaInicio && fecha && fecha < fechaInicio) {
+      setFecha(fechaInicio);
+    }
+  }, [fechaInicio, fecha]);
+
+  function resolvePreviewValor(): number | undefined {
+    if (tipo === "compradores" && cantidadCompradores !== "") {
+      return Number(cantidadCompradores);
+    }
+    if (tipo === "exhibicion") {
+      if (exhibicionMode === "general" && cantidadExhibicion !== "") return Number(cantidadExhibicion);
+      if (selectedPdvIds.size > 0) {
+        return cantidadExhibicion !== "" ? Number(cantidadExhibicion) : selectedPdvIds.size;
+      }
+      if (cantidadExhibicion !== "") return Number(cantidadExhibicion);
+    }
+    if (tipo === "conversion_estado") {
+      if (activacionMode === "general" && cantidadActivacion !== "") return Number(cantidadActivacion);
+      if (selectedPdvIds.size > 0) {
+        return cantidadActivacion !== "" ? Number(cantidadActivacion) : selectedPdvIds.size;
+      }
+      if (cantidadActivacion !== "") return Number(cantidadActivacion);
+    }
+    if (tipo === "ruteo_alteo") {
+      if (alteoMode === "general" && cantidadAlteo !== "") return Number(cantidadAlteo);
+      if (alteoMode === "por_dia" && selectedDayGroups.length > 0) {
+        const defaultQty = selectedDayGroups.reduce((acc, g) => acc + g.totalPdvs, 0);
+        return cantidadAlteo !== "" ? Number(cantidadAlteo) : defaultQty;
+      }
+      if (cantidadAlteo !== "") return Number(cantidadAlteo);
+    }
+    if (tipo === "cobranza" && selectedDeudor) {
+      return cobranzaMode === "parcial" && cobranzaMonto
+        ? Number(cobranzaMonto)
+        : selectedDeudor.deuda_total;
+    }
+    return undefined;
+  }
+
+  function resolvePreviewEstadoInicial(): string | undefined {
+    if (tipo === "ruteo_alteo" && alteoMode === "por_dia" && selectedDayGroups.length > 0) {
+      return selectedDayGroups.map((g) => g.day.toUpperCase()).join(", ");
+    }
+    return undefined;
+  }
+
+  function catalogDiaVisita(clienteId: number): string | undefined {
+    const d = pdvCatalogAll.find((p) => p.id_cliente === clienteId)?.dia_visita;
+    return d?.trim() ? d.trim() : undefined;
+  }
+
+  function buildPreviewPdvItems():
+    | { nombre_pdv: string; id_cliente_erp?: string; dia_visita?: string }[]
+    | undefined {
+    if (paraTodosFDV) return undefined;
+
+    if (tipo === "conversion_estado" && activacionMode === "por_pdv" && selectedPdvIds.size > 0) {
+      return Array.from(selectedPdvIds).map((id) => {
+        const fromAct = activacionPdvs.find((p) => p.id === id);
+        const dia = fromAct?.diaVisita?.trim() || catalogDiaVisita(id);
+        return {
+          nombre_pdv: fromAct?.nombre ?? `PDV #${id}`,
+          id_cliente_erp: fromAct?.idClienteErp ?? undefined,
+          dia_visita: dia,
+        };
+      });
+    }
+    if (tipo === "exhibicion" && exhibicionMode === "por_pdv" && selectedPdvIds.size > 0) {
+      return Array.from(selectedPdvIds).map((id) => {
+        const pdv = pdvCatalogAll.find((p) => p.id_cliente === id);
+        return {
+          nombre_pdv: pdv?.nombre_cliente ?? `PDV #${id}`,
+          id_cliente_erp: pdv?.id_cliente_erp ?? undefined,
+          dia_visita: catalogDiaVisita(id),
+        };
+      });
+    }
+    if (tipo === "cobranza" && selectedDeudor) {
+      return [{ nombre_pdv: selectedDeudor.cliente_nombre }];
+    }
+    return undefined;
+  }
+
+  function formatPdvListLocal(
+    items: { nombre_pdv: string; id_cliente_erp?: string; dia_visita?: string }[]
+  ): string {
+    const MAX = 10;
+    const lines = items.slice(0, MAX).map((it) => {
+      const erp = it.id_cliente_erp ? ` (ERP ${it.id_cliente_erp})` : "";
+      const dia = it.dia_visita ? ` · Día visita: ${it.dia_visita}` : "";
+      return `• ${it.nombre_pdv}${erp}${dia}`;
+    });
+    if (items.length > MAX) lines.push(`… y ${items.length - MAX} PDV${items.length - MAX !== 1 ? "s" : ""} más`);
+    return `\n\nPDVs incluidos:\n${lines.join("\n")}`;
+  }
 
   function buildPhrase(overrideVendorName?: string): string {
     const name = overrideVendorName ?? (paraTodosFDV ? "Cada vendedor de la FDV" : vendedorNombre);
     if (!name) return "[ Vendedor ] …";
+    const pdvItems = buildPreviewPdvItems();
+    const pdvSuffix = pdvItems?.length ? formatPdvListLocal(pdvItems) : "";
     let diasCalendario: number | null = null;
     if (fecha) {
       const parts = fecha.slice(0, 10).split("-").map(Number);
@@ -1506,16 +1650,16 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
         const metaN = cantidadActivacion !== "" ? Number(cantidadActivacion) : selectedPdvIds.size;
         const total = selectedPdvIds.size;
         if (metaN < total) {
-          return `${name} deberá activar ${metaN} de ${total} PDVs seleccionados ${fechaLabel}. Progreso esperado: ${metaN} activaciones válidas.${diasLabel}`;
+          return `${name} deberá activar ${metaN} de ${total} PDVs seleccionados ${fechaLabel}. Progreso esperado: ${metaN} activaciones válidas.${diasLabel}${pdvSuffix}`;
         }
-        return `${name} deberá activar ${total} PDV${total !== 1 ? "s" : ""} seleccionados ${fechaLabel}. Progreso esperado: completar todos los PDVs asignados.${diasLabel}`;
+        return `${name} deberá activar ${total} PDV${total !== 1 ? "s" : ""} seleccionados ${fechaLabel}. Progreso esperado: completar todos los PDVs asignados.${diasLabel}${pdvSuffix}`;
       }
       return `${name} debe activar clientes inactivos ${fechaLabel}.`;
     }
     if (tipo === "exhibicion") {
       const qty = exhibicionMode === "general" && cantidadExhibicion ? cantidadExhibicion : selectedPdvIds.size || null;
       return qty
-        ? `${name} debe realizar ${qty} exhibición${Number(qty) !== 1 ? "es" : ""} ${fechaLabel}. Progreso esperado: ${qty} exhibiciones aprobadas.${diasLabel}`
+        ? `${name} debe realizar ${qty} exhibición${Number(qty) !== 1 ? "es" : ""} ${fechaLabel}. Progreso esperado: ${qty} exhibiciones aprobadas.${diasLabel}${pdvSuffix}`
         : `${name} debe exhibir en PDVs ${fechaLabel}.`;
     }
     if (tipo === "ruteo") {
@@ -1525,7 +1669,15 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
       }
       return `${name} debe reasignar PDVs ${fechaLabel}.`;
     }
-    return `${name} — objetivo ${TIPO_CONFIG[tipo]?.label ?? tipo} ${fechaLabel}.`;
+    if (tipo === "compradores") {
+      const n = cantidadCompradores !== "" ? Number(cantidadCompradores) : null;
+      if (!n || n < 1) {
+        return `${name} debe conseguir compradores distintos en el período${fechaLabel}.${diasLabel}`;
+      }
+      return `${name} debe registrar ventas a ${n} comprador${n !== 1 ? "es" : ""} distintos${fechaLabel}. Cada cliente con al menos una venta en el período cuenta una vez.${diasLabel}`;
+    }
+
+    return `${name} — objetivo ${TIPO_CONFIG[tipo]?.label ?? tipo} ${fechaLabel}.${diasLabel}${pdvSuffix}`;
   }
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -1540,7 +1692,9 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
       return;
     }
     if (fechaInicio && fecha && fechaInicio > fecha) {
-      toast.error("La fecha de inicio no puede ser posterior a la fecha límite.");
+      toast.error(
+        `La fecha de inicio (${fechaInicio}) no puede ser posterior a la fecha límite (${fecha}).`,
+      );
       return;
     }
 
@@ -1598,13 +1752,16 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
         if (selectedPdvIds.size > 0 && !paraTodosFDV) {
           const pdvItems = Array.from(selectedPdvIds).map((pdvId) => {
             const pdv = pdvCatalogAll.find((p) => p.id_cliente === pdvId);
+            const dia = catalogDiaVisita(pdvId);
             return {
               id_cliente_pdv: pdvId,
               id_cliente_erp: pdv?.id_cliente_erp ?? undefined,
               nombre_pdv: pdv?.nombre_cliente,
+              dia_visita: dia,
               metadata_ruteo: {
                 nombre_fantasia: pdv?.nombre_cliente ?? null,
                 nombre_razon_social: pdv?.nombre_razon_social ?? null,
+                ...(dia ? { dia_visita: dia } : {}),
               },
             };
           });
@@ -1630,13 +1787,16 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
         if (selectedPdvIds.size > 0 && !paraTodosFDV) {
           const pdvItems = Array.from(selectedPdvIds).map(pdvId => {
             const pdv = pdvCatalogAll.find(p => p.id_cliente === pdvId);
+            const dia = catalogDiaVisita(pdvId);
             return {
               id_cliente_pdv: pdvId,
               id_cliente_erp: pdv?.id_cliente_erp ?? undefined,
               nombre_pdv: pdv?.nombre_cliente,
+              dia_visita: dia,
               metadata_ruteo: {
                 nombre_fantasia: pdv?.nombre_cliente ?? null,
                 nombre_razon_social: pdv?.nombre_razon_social ?? null,
+                ...(dia ? { dia_visita: dia } : {}),
               },
             };
           });
@@ -1689,10 +1849,12 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
         const pdvItems = selected.map((pdvId, idx) => {
           const pdv = pdvCatalogAll.find(p => p.id_cliente === pdvId);
           const item = ruteoItemsMap[pdvId] ?? { accion: ruteoAccionGlobal };
+          const dia = catalogDiaVisita(pdvId);
           return {
             id_cliente_pdv: pdvId,
             id_cliente_erp: pdv?.id_cliente_erp ?? undefined,
             nombre_pdv: pdv?.nombre_cliente,
+            dia_visita: dia,
             accion_ruteo: item.accion,
             ...(item.accion === 'cambio_ruta' && item.id_ruta_destino ? { id_ruta_destino: item.id_ruta_destino } : {}),
             ...(item.accion === 'baja' && item.motivo_baja ? { motivo_baja: item.motivo_baja } : {}),
@@ -1700,6 +1862,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
             metadata_ruteo: {
               nombre_fantasia: pdv?.nombre_cliente ?? null,
               nombre_razon_social: pdv?.nombre_razon_social ?? null,
+              ...(dia ? { dia_visita: dia } : {}),
             },
           };
         });
@@ -2618,7 +2781,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
                 {([{ label: "Hoy", days: 0 }, { label: "+7d", days: 7 }, { label: "+15d", days: 15 }, { label: "+30d", days: 30 }] as const).map(({ label, days }) => {
                   const d = new Date();
                   d.setDate(d.getDate() + days);
-                  const iso = d.toISOString().split("T")[0];
+                  const iso = formatLocalISODate(d);
                   return (
                     <button
                       key={label}
@@ -2639,6 +2802,7 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
                     value={fecha}
                     onChange={setFecha}
                     placeholder="Fecha límite"
+                    minDate={fechaInicio || undefined}
                   />
                 </div>
               </div>
@@ -2653,8 +2817,9 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
               </label>
               <DatePicker
                 value={fechaInicio}
-                onChange={(v) => setFechaInicio(v)}
+                onChange={setFechaInicio}
                 placeholder="Seleccionar fecha de inicio..."
+                maxDate={fecha || undefined}
               />
               {fechaInicio && (
                 <p className="text-[10px] text-slate-500 mt-1">
@@ -3254,11 +3419,12 @@ export default function ObjetivosPage() {
       toast.success("Objetivo creado correctamente");
     },
     onError: (err: unknown) => {
-      // Manejar 409 duplicado con mensaje accionable
-      const apiErr = err as { status?: number; detail?: { code?: string; mensaje?: string } | string };
+      const apiErr = err as { status?: number; message?: string; detail?: { code?: string; mensaje?: string } | string };
       const detail = typeof apiErr.detail === "object" ? apiErr.detail : null;
       if (apiErr.status === 409 && detail?.code === "OBJETIVO_DUPLICADO") {
         toast.warning(detail.mensaje ?? "Ya existe un objetivo activo similar. Editá el existente.");
+      } else if (err instanceof Error && err.message) {
+        toast.error(err.message);
       } else {
         toast.error("Error al crear el objetivo");
       }

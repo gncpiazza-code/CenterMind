@@ -143,6 +143,7 @@ class ObjetivoItemCreate(BaseModel):
     id_cliente_pdv: int
     id_cliente_erp: Optional[str] = None
     nombre_pdv: Optional[str] = None
+    dia_visita: Optional[str] = None  # día asignado en padrón (ruta_v2.dia_semana)
     # Campos de ruteo (solo para tipo='ruteo')
     accion_ruteo: Optional[str] = None       # 'cambio_ruta' | 'baja'
     id_ruta_destino: Optional[int] = None    # FK rutas_v2.id_ruta (requerido si cambio_ruta)
@@ -196,6 +197,7 @@ class ObjetivoPreviewTelegramIn(BaseModel):
     fecha_objetivo: Optional[str] = None
     fecha_inicio: Optional[str] = None
     valor_objetivo: Optional[float] = None
+    estado_inicial: Optional[str] = None
     origen: str = "distribuidora"
     mes_referencia: Optional[str] = None
     nombre_vendedor: Optional[str] = None

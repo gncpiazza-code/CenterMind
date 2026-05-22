@@ -2038,9 +2038,11 @@ export async function previewObjetivoTelegram(data: {
   fecha_objetivo?: string;
   fecha_inicio?: string;
   valor_objetivo?: number;
+  estado_inicial?: string;
   origen?: string;
   mes_referencia?: string;
   nombre_vendedor?: string;
+  pdv_items?: { nombre_pdv: string; id_cliente_erp?: string; dia_visita?: string }[];
 }): Promise<{ preview_html: string }> {
   return apiFetch<{ preview_html: string }>('/api/supervision/objetivos/preview-telegram', {
     method: 'POST',
@@ -2195,6 +2197,8 @@ export interface PDVCatalogItem {
   nombre_cliente: string;
   nombre_razon_social?: string | null;
   id_cliente_erp: string | null;
+  /** Día de visita asignado en padrón (ruta_v2.dia_semana) */
+  dia_visita?: string | null;
   domicilio: string | null;
   estado?: string | null;
   fecha_ultima_compra?: string | null;

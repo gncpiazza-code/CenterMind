@@ -51,6 +51,136 @@ def _row_operational(row: dict[str, Any]) -> bool:
     return True
 
 
+def _resolve_valor_numerico(obj_data: dict) -> float | None:
+    """Meta numérica explícita o cantidad de PDVs en el payload."""
+    valor = obj_data.get("valor_objetivo")
+    if valor is not None and valor != "":
+        try:
+            return float(valor)
+        except (TypeError, ValueError):
+            pass
+    items = obj_data.get("pdv_items")
+    if items and isinstance(items, list) and len(items) > 0:
+        return float(len(items))
+    return None
+
+
+def _format_monto_ar(valor: float) -> str:
+    if valor == int(valor):
+        return f"${int(valor):,}".replace(",", ".")
+    return f"${valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def _format_valor_meta_line(tipo: str, obj_data: dict) -> str:
+    v = _resolve_valor_numerico(obj_data)
+    if v is None:
+        return ""
+    tipo = (tipo or "").strip()
+    if tipo == "cobranza":
+        return f"\n🎯 <b>Meta:</b> {_format_monto_ar(v)} a cobrar"
+    n = int(v) if v == int(v) else v
+    labels: dict[str, tuple[str, str]] = {
+        "compradores": ("comprador distinto", "compradores distintos"),
+        "exhibicion": ("exhibición", "exhibiciones"),
+        "conversion_estado": ("activación", "activaciones"),
+        "activacion": ("activación", "activaciones"),
+        "ruteo_alteo": ("PDV nuevo", "PDVs nuevos"),
+        "alteo": ("PDV nuevo", "PDVs nuevos"),
+    }
+    if tipo in labels:
+        sing, plur = labels[tipo]
+        unit = plur if isinstance(n, int) and n != 1 else sing
+        return f"\n🎯 <b>Meta:</b> {n} {unit}"
+    return f"\n🎯 <b>Meta:</b> {n}"
+
+
+def _format_dia_visita_label(raw: str | None) -> str:
+    if not raw:
+        return ""
+    return str(raw).strip().title()
+
+
+def _dia_visita_from_item(it: dict, ruta_dia_map: dict[int, str] | None = None) -> str:
+    """Día de visita del padrón: payload, metadata_ruteo o ruta_v2."""
+    direct = it.get("dia_visita")
+    if direct:
+        return _format_dia_visita_label(str(direct))
+    md = it.get("metadata_ruteo")
+    if isinstance(md, dict) and md.get("dia_visita"):
+        return _format_dia_visita_label(str(md["dia_visita"]))
+    id_ruta = it.get("id_ruta")
+    if ruta_dia_map and id_ruta is not None:
+        return _format_dia_visita_label(ruta_dia_map.get(int(id_ruta), ""))
+    return ""
+
+
+def _format_pdv_preview_block(obj_data: dict, max_items: int = 15) -> str:
+    payload_items = obj_data.get("pdv_items")
+    if not payload_items or not isinstance(payload_items, list):
+        return ""
+    shown = payload_items[:max_items]
+    remainder = len(payload_items) - max_items
+    lines_pdv = []
+    for it in shown:
+        nombre = it.get("nombre_pdv") or it.get("nombre") or ""
+        erp = it.get("id_cliente_erp") or ""
+        dia = it.get("dia_visita") or ""
+        line_parts = [html.escape(str(nombre), quote=False)]
+        if erp:
+            line_parts.append(f"ERP {html.escape(str(erp), quote=False)}")
+        dia_label = _format_dia_visita_label(dia) if dia else ""
+        if dia_label:
+            line_parts.append(f"Día visita: {html.escape(dia_label, quote=False)}")
+        lines_pdv.append(f"  • {' · '.join(line_parts)}")
+    if remainder > 0:
+        lines_pdv.append(f"  … y {remainder} PDV{'s' if remainder != 1 else ''} más")
+    return "\n📋 <b>PDVs incluidos:</b>\n" + "\n".join(lines_pdv)
+
+
+def _instrucciones_por_tipo(tipo: str, valor: float | None) -> str:
+    n: int | float | None = None
+    if valor is not None and valor >= 1:
+        n = int(valor) if valor == int(valor) else valor
+    if tipo == "exhibicion" and n:
+        ex_label = "exhibiciones" if n != 1 else "exhibición"
+        return (
+            f"🧭 <b>Qué tenés que hacer:</b> realizá "
+            f"<b>{n} {ex_label}</b> en los PDV(s) indicados y subí la foto de evidencia al bot.\n"
+        )
+    if tipo in ("conversion_estado", "activacion") and n:
+        return (
+            f"🧭 <b>Qué tenés que hacer:</b> activá "
+            f"<b>{n} cliente{'s' if n != 1 else ''}</b> con venta en el período. "
+            f"El progreso se actualizará automáticamente con la facturación.\n"
+        )
+    if tipo in ("ruteo_alteo", "alteo") and n:
+        return (
+            f"🧭 <b>Qué tenés que hacer:</b> dá de alta "
+            f"<b>{n} PDV{'s' if n != 1 else ''} nuevo{'s' if n != 1 else ''}</b> en tu ruta. "
+            f"El progreso se actualizará automáticamente con el padrón.\n"
+        )
+    if tipo == "compradores" and n:
+        return (
+            f"🧭 <b>Qué tenés que hacer:</b> registrá ventas a "
+            f"<b>{n} comprador{'es' if n != 1 else ''} distintos</b> en el período. "
+            f"Cada cliente cuenta una sola vez.\n"
+        )
+    if tipo == "cobranza":
+        return (
+            "🧭 <b>Qué tenés que hacer:</b> gestioná el cobro de la deuda indicada. "
+            "El progreso se actualizará automáticamente con los recibos.\n"
+        )
+    base = {
+        "exhibicion": "🧭 <b>Qué tenés que hacer:</b> ejecutá la acción indicada y subí la foto de evidencia al bot.\n",
+        "conversion_estado": "🧭 <b>Qué tenés que hacer:</b> realizá una venta al cliente para activarlo. El progreso se actualizará automáticamente con la facturación.\n",
+        "activacion": "🧭 <b>Qué tenés que hacer:</b> realizá una venta al cliente para activarlo. El progreso se actualizará automáticamente con la facturación.\n",
+        "ruteo_alteo": "🧭 <b>Qué tenés que hacer:</b> da de alta al cliente en tu ruta. El progreso se actualizará automáticamente con el padrón.\n",
+        "alteo": "🧭 <b>Qué tenés que hacer:</b> da de alta al cliente en tu ruta. El progreso se actualizará automáticamente con el padrón.\n",
+        "compradores": "🧭 <b>Qué tenés que hacer:</b> realizá ventas a clientes distintos en el período. El progreso se actualizará automáticamente con la facturación.\n",
+    }
+    return base.get(tipo, "🧭 <b>Qué tenés que hacer:</b> ejecutá la acción indicada para cumplir el objetivo.\n")
+
+
 def _norm_name(value: str | None) -> str:
     if not value:
         return ""
@@ -563,7 +693,7 @@ class ObjetivosNotificationService:
             try:
                 obj_id_s = str(obj_id).strip() if obj_id else ""
                 if obj_id_s and tipo in TIPOS_MULTI_PDV:
-                    cols = "id_cliente_pdv, nombre_pdv"
+                    cols = "id_cliente_pdv, nombre_pdv, metadata_ruteo"
                     if tipo == "ruteo":
                         cols += ", accion_ruteo, id_ruta_destino, motivo_baja"
                     items: list[dict[str, Any]] = []
@@ -631,6 +761,29 @@ class ObjetivosNotificationService:
                                 for r in (erp_res.data or [])
                             }
 
+                        ruta_dia_map: dict[int, str] = {}
+                        ruta_ids_notify = list(
+                            {
+                                int(info["id_ruta"])
+                                for info in erp_map.values()
+                                if info.get("id_ruta") is not None
+                            }
+                        )
+                        if ruta_ids_notify:
+                            try:
+                                rutas_res = (
+                                    sb.table(tenant_table_name("rutas_v2", dist_id))
+                                    .select("id_ruta, dia_semana")
+                                    .in_("id_ruta", ruta_ids_notify)
+                                    .execute()
+                                )
+                                for r in (rutas_res.data or []):
+                                    rid = r.get("id_ruta")
+                                    if rid is not None:
+                                        ruta_dia_map[int(rid)] = (r.get("dia_semana") or "").strip()
+                            except Exception:
+                                pass
+
                         dest_rutas: dict[int, str] = {}
                         if tipo == "ruteo":
                             dest_ids = list(
@@ -663,6 +816,13 @@ class ObjetivosNotificationService:
                                 
                             nombre = html.escape(nombre_raw, quote=False)
                             nro_txt = html.escape(str(erp), quote=False) if erp else "S/N"
+                            it_with_ruta = {**it, "id_ruta": info.get("id_ruta")}
+                            dia_visita = _dia_visita_from_item(it_with_ruta, ruta_dia_map)
+                            dia_part = (
+                                f" · <b>Día visita:</b> {html.escape(dia_visita, quote=False)}"
+                                if dia_visita
+                                else ""
+                            )
                             ruta_actual = self._ruta_label(info.get("id_ruta"), dist_id)
                             ruta_part = f" · <b>Ruta:</b> {ruta_actual}" if ruta_actual else " · <b>Ruta:</b> S/N"
 
@@ -682,7 +842,7 @@ class ObjetivosNotificationService:
                                     accion_resumen.append("Baja de ruta")
 
                             lineas.append(
-                                f"  • <b>#{nro_txt}</b> - {nombre}{ruta_part}{extra}"
+                                f"  • <b>#{nro_txt}</b> - {nombre}{dia_part}{ruta_part}{extra}"
                             )
 
                         n_items = len(items)
@@ -787,21 +947,8 @@ class ObjetivosNotificationService:
             if not accion_block and tipo:
                 accion_block = f"\n⚙️ <b>Acción a realizar:</b> {tipo_label}"
 
-            instrucciones_txt = ""
-            if tipo == "exhibicion":
-                instrucciones_txt = "🧭 <b>Qué tenés que hacer:</b> ejecutá la acción indicada y subí la foto de evidencia al bot.\n"
-            elif tipo in ("conversion_estado", "activacion"):
-                instrucciones_txt = "🧭 <b>Qué tenés que hacer:</b> realizá una venta al cliente para activarlo. El progreso se actualizará automáticamente con la facturación.\n"
-            elif tipo == "ruteo_alteo":
-                instrucciones_txt = "🧭 <b>Qué tenés que hacer:</b> da de alta al cliente en tu ruta. El progreso se actualizará automáticamente con el padrón.\n"
-            elif tipo == "cobranza":
-                instrucciones_txt = "🧭 <b>Qué tenés que hacer:</b> gestioná el cobro de la deuda. El progreso se actualizará automáticamente con los recibos.\n"
-            elif tipo == "ruteo":
-                instrucciones_txt = "🧭 <b>Qué tenés que hacer:</b> gestioná el cambio en la ruta. El progreso se actualizará automáticamente con el padrón.\n"
-            elif tipo == "compradores":
-                instrucciones_txt = "🧭 <b>Qué tenés que hacer:</b> realizá ventas a clientes distintos en el período. El progreso se actualizará automáticamente con la facturación.\n"
-            else:
-                instrucciones_txt = "🧭 <b>Qué tenés que hacer:</b> ejecutá la acción indicada para cumplir el objetivo.\n"
+            valor_str = _format_valor_meta_line(tipo, obj_data)
+            instrucciones_txt = _instrucciones_por_tipo(tipo, _resolve_valor_numerico(obj_data))
 
             text = (
                 f"🚀 <b>¡Nuevo objetivo asignado!</b>\n"
@@ -811,6 +958,7 @@ class ObjetivosNotificationService:
                 f"{mes_str}"
                 f"\n\n🎯 <b>Tipo:</b> {tipo_label} {emoji}"
                 f"{tasa_str}"
+                f"{valor_str}"
                 f"{accion_block}"
                 f"{pdv_lines}"
                 f"{ruta_str}"
@@ -963,12 +1111,14 @@ class ObjetivosNotificationService:
         limite_fmt = self._format_fecha_dd_mm_yyyy(fecha) if fecha else ""
         limite_str = f"\n📅 <b>Fecha límite:</b> {limite_fmt or fecha}{dias_str}" if fecha else ""
 
-        valor = obj_data.get("valor_objetivo")
-        valor_str = ""
-        if tipo == "compradores" and valor:
-            valor_str = f"\n🎯 <b>Meta:</b> {int(float(valor))} comprador{'es' if float(valor) != 1 else ''} distintos"
-        elif tipo in ("ruteo_alteo", "cobranza") and valor:
-            valor_str = f"\n🎯 <b>Meta:</b> {valor}"
+        valor_str = _format_valor_meta_line(tipo, obj_data)
+
+        estado_ini = obj_data.get("estado_inicial")
+        dias_visita_str = ""
+        if tipo in ("ruteo_alteo", "alteo") and estado_ini:
+            dias_visita_str = (
+                f"\n📅 <b>Días de visita:</b> {html.escape(str(estado_ini), quote=False)}"
+            )
 
         accion_labels = {
             "ruteo":             "Gestión de cambio/baja en ruta",
@@ -980,36 +1130,9 @@ class ObjetivosNotificationService:
         }
         accion_block = f"\n⚙️ <b>Acción a realizar:</b> {accion_labels.get(tipo, tipo_label)}"
 
-        instrucciones_map = {
-            "exhibicion": "🧭 <b>Qué tenés que hacer:</b> ejecutá la acción indicada y subí la foto de evidencia al bot.\n",
-            "conversion_estado": "🧭 <b>Qué tenés que hacer:</b> realizá una venta al cliente para activarlo. El progreso se actualizará automáticamente con la facturación.\n",
-            "ruteo_alteo": "🧭 <b>Qué tenés que hacer:</b> da de alta al cliente en tu ruta. El progreso se actualizará automáticamente con el padrón.\n",
-            "cobranza": "🧭 <b>Qué tenés que hacer:</b> gestioná el cobro de la deuda. El progreso se actualizará automáticamente con los recibos.\n",
-            "compradores": "🧭 <b>Qué tenés que hacer:</b> realizá ventas a clientes distintos en el período. El progreso se actualizará automáticamente con la facturación.\n",
-        }
-        instrucciones_txt = instrucciones_map.get(tipo, "🧭 <b>Qué tenés que hacer:</b> ejecutá la acción indicada para cumplir el objetivo.\n")
-
-        # PDV preview block (draft mode with explicit pdv_items)
-        pdv_preview_str = ""
-        payload_items = obj_data.get("pdv_items")
-        if payload_items and isinstance(payload_items, list):
-            MAX_PDV_PREVIEW = 15
-            shown = payload_items[:MAX_PDV_PREVIEW]
-            remainder = len(payload_items) - MAX_PDV_PREVIEW
-            lines_pdv = []
-            for it in shown:
-                nombre = it.get("nombre_pdv") or it.get("nombre") or ""
-                erp = it.get("id_cliente_erp") or ""
-                dia = it.get("dia_visita") or ""
-                line_parts = [html.escape(nombre, quote=False)]
-                if erp:
-                    line_parts.append(f"ERP {html.escape(str(erp), quote=False)}")
-                if dia:
-                    line_parts.append(dia)
-                lines_pdv.append(f"  • {' · '.join(line_parts)}")
-            if remainder > 0:
-                lines_pdv.append(f"  … y {remainder} PDV{'s' if remainder != 1 else ''} más")
-            pdv_preview_str = "\n📋 <b>PDVs incluidos:</b>\n" + "\n".join(lines_pdv)
+        valor_num = _resolve_valor_numerico(obj_data)
+        instrucciones_txt = _instrucciones_por_tipo(tipo, valor_num)
+        pdv_preview_str = _format_pdv_preview_block(obj_data)
 
         return (
             f"🚀 <b>¡Nuevo objetivo asignado!</b>\n"
@@ -1020,6 +1143,7 @@ class ObjetivosNotificationService:
             f"\n\n🎯 <b>Tipo:</b> {tipo_label} {emoji}"
             f"{tasa_str}"
             f"{valor_str}"
+            f"{dias_visita_str}"
             f"{accion_block}"
             f"{limite_str}"
             f"{desc_str}"

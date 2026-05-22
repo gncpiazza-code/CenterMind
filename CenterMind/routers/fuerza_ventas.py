@@ -23,7 +23,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 
-from core.security import verify_auth, check_dist_permission
+from core.security import verify_auth, check_dist_permission, require_compania_role
 from core.tenant_tables import tenant_table_name, load_dist_ids, find_dist_by_vendedor
 from core.helpers import (
     should_apply_exhibicion_qa_filter,
@@ -39,6 +39,7 @@ from models.schemas import (
     GaleriaClienteCard,
     GaleriaTimelineItem,
     GaleriaTimelineResponse,
+    GaleriaReevaluacionItem,
 )
 
 logger = logging.getLogger("ShelfyAPI")
@@ -1539,6 +1540,48 @@ def galeria_timeline_cliente(
                 if _safe_int(r.get("id_integrante")) not in qa_iids
             ]
 
+        # Enriquecer con re-evaluaciones de compañía si el usuario es Compañía
+        is_compania = (
+            payload.get("is_superadmin")
+            or (payload.get("rol") or "").lower() in ("superadmin", "directorio")
+        )
+        reevaluaciones_by_ex: dict[int, list[GaleriaReevaluacionItem]] = {}
+        if is_compania and page_rows:
+            from routers.compania_revision import _TABLE as _REEVAL_TABLE
+            PAGE_REEV = 1000
+            ex_ids_page = [int(r["id_exhibicion"]) for r in page_rows if r.get("id_exhibicion") is not None]
+            reev_rows: list[dict] = []
+            reev_offset = 0
+            while True:
+                chunk = (
+                    sb.table(_REEVAL_TABLE)
+                    .select("id,id_exhibicion,estado_anterior,estado_nuevo,motivo,nombre_usuario,rol_usuario,created_at")
+                    .eq("id_distribuidor", dist_id)
+                    .in_("id_exhibicion", ex_ids_page)
+                    .order("created_at", desc=True)
+                    .range(reev_offset, reev_offset + PAGE_REEV - 1)
+                    .execute()
+                    .data
+                    or []
+                )
+                reev_rows.extend(chunk)
+                if len(chunk) < PAGE_REEV:
+                    break
+                reev_offset += PAGE_REEV
+            for rr in reev_rows:
+                ex_id = int(rr["id_exhibicion"])
+                reevaluaciones_by_ex.setdefault(ex_id, []).append(
+                    GaleriaReevaluacionItem(
+                        id=str(rr["id"]),
+                        estado_anterior=rr["estado_anterior"],
+                        estado_nuevo=rr["estado_nuevo"],
+                        motivo=rr["motivo"],
+                        nombre_usuario=rr["nombre_usuario"],
+                        rol_usuario=rr.get("rol_usuario"),
+                        created_at=str(rr["created_at"]),
+                    )
+                )
+
         return GaleriaTimelineResponse(
             items=[
                 GaleriaTimelineItem(
@@ -1550,6 +1593,7 @@ def galeria_timeline_cliente(
                     supervisor=ex.get("supervisor_nombre"),
                     comentario=ex.get("comentario_evaluacion"),
                     tipo_pdv=ex.get("tipo_pdv"),
+                    reevaluaciones=reevaluaciones_by_ex.get(int(ex["id_exhibicion"]), []),
                 )
                 for ex in page_rows
             ],

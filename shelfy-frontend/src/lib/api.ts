@@ -788,6 +788,16 @@ export interface GaleriaClienteCard {
   exhibiciones_directas?: GaleriaTimelineItem[];
 }
 
+export interface GaleriaReevaluacionItem {
+  id: string;
+  estado_anterior: string;
+  estado_nuevo: string;
+  motivo: string;
+  nombre_usuario: string;
+  rol_usuario: string | null;
+  created_at: string;
+}
+
 export interface GaleriaTimelineItem {
   id_exhibicion: number;
   url_foto: string;
@@ -797,6 +807,7 @@ export interface GaleriaTimelineItem {
   supervisor: string | null;
   comentario: string | null;
   tipo_pdv: string | null;
+  reevaluaciones?: GaleriaReevaluacionItem[];
 }
 
 export interface GaleriaTimelineResponse {
@@ -853,6 +864,68 @@ export async function fetchGaleriaTimelineCliente(
   if (typeof params?.limit === "number") qs.set("limit", String(params.limit));
   if (typeof params?.idVendedor === "number") qs.set("id_vendedor", String(params.idVendedor));
   return apiFetch<GaleriaTimelineResponse>(`/api/galeria/cliente/${idClientePdv}/timeline?${qs.toString()}`);
+}
+
+// ── Revisión Compañía ────────────────────────────────────────────────────────
+
+export type EstadoCompania = "Aprobada" | "Rechazada" | "Destacada";
+
+export interface ReevaluacionCompaniaOut {
+  id: string;
+  id_exhibicion: number;
+  id_distribuidor: number;
+  estado_anterior: string;
+  estado_nuevo: string;
+  motivo: string;
+  id_usuario: number | null;
+  nombre_usuario: string;
+  rol_usuario: string | null;
+  created_at: string;
+}
+
+export interface RankingCompaniaRow {
+  vendedor: string;
+  puntos_compania: number;
+  aprobadas_compania: number;
+  destacadas_compania: number;
+  rechazadas_compania: number;
+  puntos_oficial: number;
+  aprobadas_oficial: number;
+  destacadas_oficial: number;
+  rechazadas_oficial: number;
+  delta_puntos: number;
+}
+
+export async function reevaluarExhibicionCompania(body: {
+  id_exhibicion: number;
+  estado_nuevo: EstadoCompania;
+  motivo: string;
+}): Promise<ReevaluacionCompaniaOut> {
+  return apiFetch<ReevaluacionCompaniaOut>("/api/compania/reevaluar", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function fetchReevaluacionesExhibicion(
+  idExhibicion: number,
+): Promise<GaleriaReevaluacionItem[]> {
+  return apiFetch<GaleriaReevaluacionItem[]>(`/api/compania/reevaluaciones/${idExhibicion}`);
+}
+
+export async function fetchRankingCompania(
+  distId: number,
+  periodo: string = "mes",
+  sucursalId?: string,
+  top?: number,
+): Promise<RankingCompaniaRow[]> {
+  const qs = new URLSearchParams({ periodo });
+  if (sucursalId) qs.set("sucursal_id", sucursalId);
+  if (top) qs.set("top", String(top));
+  return apiFetch<RankingCompaniaRow[]>(
+    `/api/dashboard/ranking-compania/${distId}?${qs.toString()}`,
+  );
 }
 
 // ── Admin: Distribuidoras (superadmin only) ──────────────────────────────────

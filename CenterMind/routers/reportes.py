@@ -18,8 +18,12 @@ from core.helpers import (
     resolve_vendedor_v2_for_integrante,
     should_apply_exhibicion_qa_filter,
 )
-from core.exhibicion_aggregate import aggregate_kpi_totals, aggregate_ranking_by_vendor
-from core.security import verify_auth, check_dist_permission
+from core.exhibicion_aggregate import (
+    aggregate_kpi_totals,
+    aggregate_ranking_by_vendor,
+    aggregate_ranking_by_vendor_compania,
+)
+from core.security import verify_auth, check_dist_permission, require_compania_role
 from db import sb
 from models.schemas import BonusConfigPayload, ReporteQuery
 
@@ -377,6 +381,80 @@ def dashboard_ranking(distribuidor_id: int, periodo: str = "mes", top: int = 999
     }
 
     sorted_rows = sorted(aggregated.values(), key=lambda x: x.get("puntos") or 0, reverse=True)
+    return sorted_rows[:top]
+
+
+@router.get("/api/dashboard/ranking-compania/{distribuidor_id}", summary="Ranking paralelo de Compañía (overlay re-evaluaciones)")
+def dashboard_ranking_compania(
+    distribuidor_id: int,
+    periodo: str = "mes",
+    top: int = 999,
+    sucursal_id: int = Query(None),
+    payload=Depends(verify_auth),
+):
+    """
+    Ranking de compañía: aplica overlay de re-evaluaciones sobre el ranking oficial.
+    Solo visible para roles Compañía (superadmin / directorio).
+    El ranking oficial del distribuidor NO se modifica.
+    """
+    require_compania_role(payload)
+    check_dist_permission(payload, distribuidor_id)
+
+    start_iso, end_iso = _resolve_period_bounds(periodo)
+    allowed_integrantes = _allowed_integrantes_for_sucursal(distribuidor_id, sucursal_id)
+    ex_rows = _fetch_exhibiciones_periodo(distribuidor_id, start_iso, end_iso)
+
+    iid_to_erp = build_integrante_to_erp_name(distribuidor_id)
+    hide_qa = should_apply_exhibicion_qa_filter(distribuidor_id, payload)
+
+    filtered: list[dict] = []
+    for ex in ex_rows:
+        iid = ex.get("id_integrante")
+        if iid is None:
+            continue
+        try:
+            iid_i = int(iid)
+        except (TypeError, ValueError):
+            continue
+        if allowed_integrantes is not None and iid_i not in allowed_integrantes:
+            continue
+        vendedor = iid_to_erp.get(iid_i, "Desconocido")
+        if hide_qa and is_exhibicion_qa_display_for_dist(distribuidor_id, vendedor):
+            continue
+        filtered.append(ex)
+
+    # Obtener últimas re-evaluaciones de compañía para el período
+    ex_ids = [int(r["id_exhibicion"]) for r in filtered if r.get("id_exhibicion") is not None]
+    from routers.compania_revision import fetch_latest_reevaluaciones_for_dist
+    latest_by_ex_id = fetch_latest_reevaluaciones_for_dist(distribuidor_id, ex_ids)
+
+    stats_compania = aggregate_ranking_by_vendor_compania(filtered, iid_to_erp, latest_by_ex_id)
+
+    # También obtener el ranking oficial para calcular Δ puntos
+    stats_oficial = aggregate_ranking_by_vendor(filtered, iid_to_erp)
+
+    all_vendors = sorted(
+        set(list(stats_compania.keys()) + list(stats_oficial.keys()))
+    )
+
+    result = []
+    for vendedor in all_vendors:
+        sc = stats_compania.get(vendedor, {"aprobadas": 0, "destacadas": 0, "rechazadas": 0, "puntos": 0})
+        so = stats_oficial.get(vendedor, {"aprobadas": 0, "destacadas": 0, "rechazadas": 0, "puntos": 0})
+        result.append({
+            "vendedor": vendedor,
+            "puntos_compania": sc["puntos"],
+            "aprobadas_compania": sc["aprobadas"],
+            "destacadas_compania": sc["destacadas"],
+            "rechazadas_compania": sc["rechazadas"],
+            "puntos_oficial": so["puntos"],
+            "aprobadas_oficial": so["aprobadas"],
+            "destacadas_oficial": so["destacadas"],
+            "rechazadas_oficial": so["rechazadas"],
+            "delta_puntos": sc["puntos"] - so["puntos"],
+        })
+
+    sorted_rows = sorted(result, key=lambda x: x["puntos_compania"], reverse=True)
     return sorted_rows[:top]
 
 

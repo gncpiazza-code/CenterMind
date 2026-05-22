@@ -1,6 +1,6 @@
 # Progress — Shelfy CenterMind (Lean)
 
-**Ultima actualizacion:** 20 de Mayo, 2026  
+**Ultima actualizacion:** 22 de Mayo, 2026  
 **Objetivo:** estado operativo actual, riesgos y prioridades.  
 **Historial largo:** `docs/changelog/archive/2026-05.md`.
 
@@ -43,6 +43,8 @@
 18. Regla de ranking documentada en `CLAUDE.md` §5/§9 y `arquitectura.md`: obligatorio **vendedor ERP + cliente + día** via `exhibicion_aggregate.py` en todas las metricas de ranking/KPI/stats.
 19. Supervision UX perf: carga progresiva (vendedores → KPIs/paneles), `keepPreviousData`, exhibiciones diferidas al scroll, modo-mapa sin fetch CC/altas/exhib, skeletons + stagger.
 20. Supervision perf backend: `vendedores?lite=1` (sin scan exhibiciones 30d), CC filtrada en SQL por sucursal/vendedor, PDV metadata solo ERPs de filas CC, `pdvs-movimiento` batch exhibido (sin N+1).
+
+21. Re-evaluación Compañía (2026-05-22): tabla `exhibicion_reevaluacion_compania` (append-only); router `/api/compania/reevaluar`; overlay `apply_compania_estado_overlay` en `exhibicion_aggregate.py`; ranking paralelo `GET /api/dashboard/ranking-compania/{dist_id}` solo para roles Compañía. Galería timeline enriquece con historial de re-evaluaciones. Frontend: `SlideToConfirm`, `ReevaluarCompaniaSheet`, `RankingCompaniaCompare`. Tests: 8/8. Ranking oficial del distribuidor **sin cambios**.
 
 ## Riesgos y Guardrails Activos
 

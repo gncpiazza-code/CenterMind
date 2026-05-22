@@ -247,6 +247,18 @@ class AutocompletarVendedorResponse(BaseModel):
     campos_sugeridos: dict
 
 
+# ── Revisión Compañía (base) ──────────────────────────────────────────────────
+
+class GaleriaReevaluacionItem(BaseModel):
+    id: str
+    estado_anterior: str
+    estado_nuevo: str
+    motivo: str
+    nombre_usuario: str
+    rol_usuario: Optional[str] = None
+    created_at: str
+
+
 # ── Galería de Exhibiciones ───────────────────────────────────────────────────
 
 class GaleriaVendedorStats(BaseModel):
@@ -285,6 +297,7 @@ class GaleriaTimelineItem(BaseModel):
     supervisor: Optional[str] = None
     comentario: Optional[str] = None
     tipo_pdv: Optional[str] = None
+    reevaluaciones: List["GaleriaReevaluacionItem"] = []
 
 
 class GaleriaTimelineResponse(BaseModel):
@@ -292,6 +305,27 @@ class GaleriaTimelineResponse(BaseModel):
     offset: int
     limit: int
     has_more: bool
+
+
+# ── Revisión Compañía (request/response) ─────────────────────────────────────
+
+class ReevaluarCompaniaRequest(BaseModel):
+    id_exhibicion: int
+    estado_nuevo: Literal["Aprobada", "Rechazada", "Destacada"]
+    motivo: str = Field(..., min_length=20)
+
+
+class ReevaluacionCompaniaOut(BaseModel):
+    id: str
+    id_exhibicion: int
+    id_distribuidor: int
+    estado_anterior: str
+    estado_nuevo: str
+    motivo: str
+    id_usuario: Optional[int] = None
+    nombre_usuario: str
+    rol_usuario: Optional[str] = None
+    created_at: str
 
 
 class VentasComprobantesAnalyticsIn(BaseModel):

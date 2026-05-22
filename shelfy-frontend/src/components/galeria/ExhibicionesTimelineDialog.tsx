@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { CheckCircle2, XCircle, Flame, Clock, ExternalLink, Loader2, Images, X } from "lucide-react";
+import { CheckCircle2, XCircle, Flame, Clock, ExternalLink, Loader2, Images, X, Building2, RotateCcw } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -20,6 +20,7 @@ import {
   type GaleriaTimelineItem,
   type GaleriaTimelineResponse,
 } from "@/lib/api";
+import { ReevaluarCompaniaSheet } from "./ReevaluarCompaniaSheet";
 
 interface Props {
   idClientePdv: number | null;
@@ -31,6 +32,7 @@ interface Props {
   pageSize?: number;
   open: boolean;
   onClose: () => void;
+  canReevaluarCompania?: boolean;
 }
 
 const ESTADO_CONFIG: Record<string, { icon: React.ElementType; color: string; bg: string; border: string }> = {
@@ -82,21 +84,46 @@ type TimelineGroup = {
   items: GaleriaTimelineItem[];
 };
 
+const REEVAL_ESTADO_CONFIG: Record<string, { color: string; bg: string }> = {
+  Aprobada:  { color: "text-green-700",  bg: "bg-green-50" },
+  Rechazada: { color: "text-red-700",    bg: "bg-red-50" },
+  Destacada: { color: "text-amber-700",  bg: "bg-amber-50" },
+};
+
+function formatDateTimeShort(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString("es-AR", {
+      day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
+    });
+  } catch {
+    return iso;
+  }
+}
+
 function TimelineGroupCard({
   group,
   index,
   total,
   onOpenImage,
+  canReevaluarCompania,
+  distId,
 }: {
   group: TimelineGroup;
   index: number;
   total: number;
   onOpenImage: (url: string, exhibicionId: number) => void;
+  canReevaluarCompania?: boolean;
+  distId: number;
 }) {
   const first = group.items[0];
   const cfg = ESTADO_CONFIG[first?.estado] ?? ESTADO_CONFIG.Pendiente;
   const Icon = cfg.icon;
   const isLast = index === total - 1;
+
+  // Re-evaluaciones del primer item de este grupo (el que tiene el estado definitivo)
+  const reevaluaciones = first?.reevaluaciones ?? [];
+  const [reevalSheetOpen, setReevalSheetOpen] = useState(false);
+  const puedeReevaluar = canReevaluarCompania && first?.estado !== "Pendiente";
 
   return (
     <div className="flex gap-3">
@@ -178,8 +205,60 @@ function TimelineGroupCard({
               "{first.comentario}"
             </p>
           )}
+
+          {/* Historial de re-evaluaciones compañía */}
+          {reevaluaciones.length > 0 && (
+            <div className="mt-2 border-t pt-2" style={{ borderColor: "var(--shelfy-border)" }}>
+              <div className="flex items-center gap-1 mb-1.5">
+                <Building2 size={11} style={{ color: "var(--shelfy-muted)" }} />
+                <span className="text-[10px] font-semibold" style={{ color: "var(--shelfy-muted)" }}>
+                  Revisión Compañía
+                </span>
+              </div>
+              <div className="space-y-1">
+                {reevaluaciones.map((rev) => {
+                  const rCfg = REEVAL_ESTADO_CONFIG[rev.estado_nuevo] ?? { color: "text-slate-600", bg: "bg-slate-50" };
+                  return (
+                    <div key={rev.id} className={cn("flex items-start gap-1.5 rounded-lg px-2 py-1.5", rCfg.bg)}>
+                      <span className={cn("text-[10px] font-bold shrink-0", rCfg.color)}>{rev.estado_nuevo}</span>
+                      <span className="text-[9px] text-slate-400 shrink-0">·</span>
+                      <span className="text-[10px] text-slate-500 flex-1 leading-tight">{rev.motivo}</span>
+                      <span className="text-[9px] text-slate-400 shrink-0 ml-auto">
+                        {rev.nombre_usuario} · {formatDateTimeShort(rev.created_at)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Botón re-evaluar compañía */}
+          {puedeReevaluar && (
+            <div className="mt-2 pt-2 border-t" style={{ borderColor: "var(--shelfy-border)" }}>
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full text-[11px] gap-1.5 h-8"
+                onClick={() => setReevalSheetOpen(true)}
+              >
+                <RotateCcw size={12} />
+                Re-evaluar (Compañía)
+              </Button>
+            </div>
+          )}
         </div>
       </div>
+
+      {puedeReevaluar && (
+        <ReevaluarCompaniaSheet
+          open={reevalSheetOpen}
+          onClose={() => setReevalSheetOpen(false)}
+          idExhibicion={first.id_exhibicion}
+          estadoActual={first.estado}
+          distId={distId}
+        />
+      )}
     </div>
   );
 }
@@ -194,6 +273,7 @@ export function ExhibicionesTimelineDialog({
   pageSize = 30,
   open,
   onClose,
+  canReevaluarCompania = false,
 }: Props) {
   const [zoomedImage, setZoomedImage] = useState<{ url: string; id: number } | null>(null);
   const isDirectMode = (directItems?.length ?? 0) > 0;
@@ -209,7 +289,7 @@ export function ExhibicionesTimelineDialog({
     initialPageParam: 0,
     queryFn: ({ pageParam }) =>
       fetchGaleriaTimelineCliente(idClientePdv!, distId, {
-        offset: pageParam,
+        offset: pageParam as number,
         limit: pageSize,
         idVendedor,
       }),
@@ -307,6 +387,8 @@ export function ExhibicionesTimelineDialog({
                   index={idx}
                   total={groupedTimeline.length}
                   onOpenImage={(url, exhibicionId) => setZoomedImage({ url, id: exhibicionId })}
+                  canReevaluarCompania={canReevaluarCompania}
+                  distId={distId}
                 />
               ))}
               {hasNextPage && (

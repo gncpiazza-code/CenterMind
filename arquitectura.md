@@ -62,6 +62,16 @@ Claves:
 - El watcher normaliza `origen` (p.ej. `compañia`/`compania`) y usa fallback de mes (`fecha_objetivo` o `created_at`) para no perder retroactividad.
 - Notificaciones Telegram de progreso quedaron acotadas a eventos de exhibicion para evitar spam operativo.
 
+## Re-evaluación Compañía (overlay paralelo)
+
+- Tabla global: `exhibicion_reevaluacion_compania` (no por tenant, con `id_distribuidor`).
+- Roles: `superadmin` / `directorio` únicamente.
+- El estado del distribuidor (`exhibiciones.estado`) **nunca se modifica**.
+- Ranking compañía = `apply_compania_estado_overlay` + `aggregate_ranking_by_vendor` via `routers/compania_revision.py`.
+- Endpoint: `GET /api/dashboard/ranking-compania/{dist_id}` devuelve `puntos_compania`, `puntos_oficial`, `delta_puntos` por vendedor.
+- Galería: `galeria_timeline_cliente` enriquece items con `reevaluaciones[]` cuando el usuario es Compañía.
+- Tests: `test_exhibicion_aggregate_compania_overlay.py` (8/8).
+
 ## Endpoints Nucleares
 
 - Supervision: `/api/supervision/*`, `/api/pendientes/*`
@@ -71,6 +81,7 @@ Claves:
 - Auth: `/auth/login`, `/auth/switch-context/{dist_id}`
 - WS: `/api/ws/exhibiciones/{dist_id}`, `/api/ws/superadmin`
 - Tickets portal: `/api/portal-feedback/messages` (filtros), `/api/portal-feedback/messages/export` (JSON), `/api/portal-feedback/messages/{id}/pre-resolucion` (IA opcional)
+- Revisión Compañía: `POST /api/compania/reevaluar`, `GET /api/compania/reevaluaciones/{id_exhibicion}`, `GET /api/dashboard/ranking-compania/{dist_id}` (solo roles Compañía)
 
 ## Invariantes Operativas
 

@@ -255,6 +255,37 @@ def aggregate_ranking_by_vendor(
     return dict(stats)
 
 
+def apply_compania_estado_overlay(
+    rows: list[dict],
+    latest_by_ex_id: dict[int, str],
+) -> list[dict]:
+    """
+    Devuelve una copia de las filas con `estado` reemplazado por la última
+    re-evaluación de compañía cuando existe. No muta las filas originales.
+    latest_by_ex_id: {id_exhibicion -> estado_nuevo} (sólo la fila más reciente).
+    """
+    result = []
+    for row in rows:
+        ex_id = row.get("id_exhibicion")
+        if ex_id is not None and int(ex_id) in latest_by_ex_id:
+            row = {**row, "estado": latest_by_ex_id[int(ex_id)]}
+        result.append(row)
+    return result
+
+
+def aggregate_ranking_by_vendor_compania(
+    rows: list[dict],
+    iid_to_erp: dict[int, str],
+    latest_by_ex_id: dict[int, str],
+) -> dict[str, dict[str, int]]:
+    """
+    Ranking paralelo compañía: aplica overlay de re-evaluaciones y luego
+    reutiliza aggregate_ranking_by_vendor con dedup estándar.
+    """
+    overlaid = apply_compania_estado_overlay(rows, latest_by_ex_id)
+    return aggregate_ranking_by_vendor(overlaid, iid_to_erp)
+
+
 def aggregate_kpi_totals(rows: list[dict]) -> dict[str, int]:
     """KPIs globales del periodo con dedup lógico (misma clave que ranking)."""
     counts = aggregate_exhibicion_counts(rows)

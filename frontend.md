@@ -67,6 +67,19 @@ Tokens clave:
 - Atajos de teclado para evaluar/navegar.
 - Filtro por sucursal y foco en imagen.
 
+### `galeria/ReevaluarCompaniaSheet.tsx` + `SlideToConfirm.tsx`
+
+- Solo visible si `canReevaluarCompania` (superadmin / directorio).
+- `SlideToConfirm`: control drag-to-confirm con pointer events y fill track animado.
+- `ReevaluarCompaniaSheet`: Sheet bottom, selector de estado (3 opciones), textarea motivo mín 20 chars, slide-to-confirm, invalidate query `galeria-timeline` y `ranking-compania`.
+- `ExhibicionesTimelineDialog` recibe prop `canReevaluarCompania` y renderiza historial + botón por card.
+
+### `dashboard/RankingCompaniaCompare.tsx`
+
+- Tabla dual: puntos compañía vs oficial, delta con `TrendingUp`/`TrendingDown`.
+- Solo se monta en `dashboard/page.tsx` si `isCompania` (superadmin / directorio).
+- Query key: `["ranking-compania", distId, periodo, sucursalId]`.
+
 ### `admin/tickets/page.tsx`
 
 - Centro de tickets superadmin estilo tabla (usuario, asunto, dist, categoría, criticidad automática, estado, fecha).

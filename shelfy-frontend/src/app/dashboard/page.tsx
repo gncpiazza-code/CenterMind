@@ -25,6 +25,7 @@ import { ChartCarousel } from "@/components/dashboard/ChartCarousel";
 import { RankingTable } from "@/components/dashboard/RankingTable";
 import { FiltrosBar } from "@/components/dashboard/FiltrosBar";
 import { CCDifusionGuiaDialog } from "@/components/onboarding/CCDifusionGuiaDialog";
+import { RankingCompaniaCompare } from "@/components/dashboard/RankingCompaniaCompare";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -92,6 +93,10 @@ export default function DashboardPage() {
   const distId = effectiveDistribuidorId ?? 0;
   const isSuper = user?.is_superadmin;
   const enabled = !!user && distId > 0;
+  const isCompania =
+    isSuper ||
+    (user?.rol ?? "").toLowerCase() === "directorio" ||
+    (user?.rol ?? "").toLowerCase() === "superadmin";
 
   // Mejora #17: estado de refresh manual
   const [isManualRefreshing, setIsManualRefreshing] = useState(false);
@@ -371,6 +376,26 @@ export default function DashboardPage() {
                 />
               </div>
             </motion.div>
+
+            {/* Ranking Compañía — solo visible para superadmin / directorio */}
+            {isCompania && (
+              <motion.div
+                key="ranking-compania"
+                className="col-span-12 lg:col-span-5"
+                variants={sectionVariants}
+                initial="hidden"
+                animate="show"
+                custom={5}
+              >
+                <div className="rounded-2xl border p-4" style={{ background: "var(--shelfy-panel)", borderColor: "var(--shelfy-border)" }}>
+                  <RankingCompaniaCompare
+                    distId={distId}
+                    periodo={periodo}
+                    sucursalId={sucursalFiltro || undefined}
+                  />
+                </div>
+              </motion.div>
+            )}
 
           </div>
 

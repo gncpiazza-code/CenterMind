@@ -37,6 +37,10 @@ import { Topbar } from "@/components/layout/Topbar";
 export default function GaleriaExhibicionesPage() {
   const { user } = useAuth();
   const distId = user?.id_distribuidor ?? 0;
+  const canReevaluarCompania =
+    user?.is_superadmin ||
+    (user?.rol ?? "").toLowerCase() === "directorio" ||
+    (user?.rol ?? "").toLowerCase() === "superadmin";
   const [lastDistId, setLastDistId] = useState<number>(distId);
 
   // Navegación: vendedor seleccionado
@@ -492,6 +496,7 @@ export default function GaleriaExhibicionesPage() {
         pageSize={timelinePageSize}
         open={timelineOpen}
         onClose={() => { setTimelineOpen(false); setTimelineCliente(null); }}
+        canReevaluarCompania={canReevaluarCompania}
       />
         </main>
         <BottomNav />

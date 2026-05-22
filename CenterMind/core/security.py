@@ -69,6 +69,16 @@ def check_distributor_status(dist_id: int, user_payload: dict):
             raise HTTPException(status_code=403, detail=f"Distribuidora bloqueada: {motivo}")
 
 
+def require_compania_role(payload: dict):
+    """Lanza 403 si el usuario no es superadmin ni directorio (roles de Compañía)."""
+    if payload.get("is_superadmin"):
+        return
+    rol = (payload.get("rol") or "").lower()
+    if rol in ("superadmin", "directorio"):
+        return
+    raise HTTPException(status_code=403, detail="Solo usuarios de Compañía pueden realizar esta acción")
+
+
 def check_dist_permission(payload: dict, required_dist_id: int):
     """Lanza 403 si el usuario no tiene acceso a la distribuidora solicitada."""
     if payload.get("is_superadmin"):

@@ -989,6 +989,28 @@ class ObjetivosNotificationService:
         }
         instrucciones_txt = instrucciones_map.get(tipo, "🧭 <b>Qué tenés que hacer:</b> ejecutá la acción indicada para cumplir el objetivo.\n")
 
+        # PDV preview block (draft mode with explicit pdv_items)
+        pdv_preview_str = ""
+        payload_items = obj_data.get("pdv_items")
+        if payload_items and isinstance(payload_items, list):
+            MAX_PDV_PREVIEW = 15
+            shown = payload_items[:MAX_PDV_PREVIEW]
+            remainder = len(payload_items) - MAX_PDV_PREVIEW
+            lines_pdv = []
+            for it in shown:
+                nombre = it.get("nombre_pdv") or it.get("nombre") or ""
+                erp = it.get("id_cliente_erp") or ""
+                dia = it.get("dia_visita") or ""
+                line_parts = [html.escape(nombre, quote=False)]
+                if erp:
+                    line_parts.append(f"ERP {html.escape(str(erp), quote=False)}")
+                if dia:
+                    line_parts.append(dia)
+                lines_pdv.append(f"  • {' · '.join(line_parts)}")
+            if remainder > 0:
+                lines_pdv.append(f"  … y {remainder} PDV{'s' if remainder != 1 else ''} más")
+            pdv_preview_str = "\n📋 <b>PDVs incluidos:</b>\n" + "\n".join(lines_pdv)
+
         return (
             f"🚀 <b>¡Nuevo objetivo asignado!</b>\n"
             f"{inicio_str}"
@@ -1000,7 +1022,8 @@ class ObjetivosNotificationService:
             f"{valor_str}"
             f"{accion_block}"
             f"{limite_str}"
-            f"{desc_str}\n\n"
+            f"{desc_str}"
+            f"{pdv_preview_str}\n\n"
             f"{instrucciones_txt}"
             f"📲 <b>Tip:</b> usá <code>/objetivos</code> para ver el detalle de los clientes y el progreso en tiempo real.\n\n"
             f"¡Éxitos con la gestión! 💪"
@@ -1332,6 +1355,88 @@ class ObjetivosNotificationService:
             return asyncio.get_running_loop()
         except RuntimeError:
             return None
+
+    def notify_reevaluacion_compania_telegram(
+        self,
+        dist_id: int,
+        id_exhibicion: int,
+        id_integrante: int,
+        estado_anterior: str,
+        estado_nuevo: str,
+        motivo: str,
+        nombre_usuario: str,
+    ) -> bool:
+        """
+        Notifica al vendedor de una re-evaluación de Compañía sobre su exhibición.
+        Retorna True si el mensaje se envió, False en cualquier error.
+        """
+        try:
+            token = self._get_bot_token(dist_id)
+            if not token:
+                logger.warning(
+                    f"[Notif] reevaluar cía: distribuidor {dist_id} sin token_bot"
+                )
+                return False
+
+            # Obtener telegram_group_id desde integrantes_grupo
+            rows = (
+                sb.table("integrantes_grupo")
+                .select("telegram_group_id")
+                .eq("id_distribuidor", dist_id)
+                .eq("id_integrante", id_integrante)
+                .limit(1)
+                .execute()
+                .data
+                or []
+            )
+            if not rows or not rows[0].get("telegram_group_id"):
+                logger.warning(
+                    f"[Notif] reevaluar cía: sin telegram_group_id para "
+                    f"id_integrante={id_integrante} dist={dist_id}"
+                )
+                return False
+
+            chat_id = rows[0]["telegram_group_id"]
+
+            from datetime import datetime, timezone, timedelta
+            fecha_ar = datetime.now(timezone(timedelta(hours=-3))).strftime("%d/%m/%Y %H:%M")
+            nombre_esc = html.escape(str(nombre_usuario), quote=False)
+            motivo_esc = html.escape(str(motivo), quote=False)
+
+            text = (
+                f"🏢 <b>Revisión Compañía — Exhibición #{id_exhibicion}</b>\n\n"
+                f"👤 <b>Revisado por:</b> {nombre_esc}\n"
+                f"📋 <b>Estado anterior:</b> {estado_anterior}\n"
+                f"✅ <b>Nuevo estado Cía:</b> {estado_nuevo}\n"
+                f"📝 <b>Motivo:</b> <i>{motivo_esc}</i>\n"
+                f"📆 <b>Fecha:</b> {fecha_ar} (AR)\n\n"
+                f"ℹ️ Este cambio es solo visible para Compañía. "
+                f"Usá <code>/objetivos</code> para ver tus objetivos activos."
+            )
+
+            resp = requests.post(
+                TELEGRAM_API.format(token=token),
+                json={
+                    "chat_id": int(chat_id),
+                    "text": text,
+                    "parse_mode": "HTML",
+                    "disable_web_page_preview": True,
+                },
+                timeout=10,
+            )
+            if resp.ok:
+                logger.info(
+                    f"[Notif] reevaluar cía enviado: id_exhibicion={id_exhibicion} "
+                    f"chat={chat_id} dist={dist_id}"
+                )
+                return True
+            logger.warning(
+                f"[Notif] reevaluar cía error Telegram: {resp.status_code} {resp.text[:120]}"
+            )
+            return False
+        except Exception as e:
+            logger.error(f"[Notif] reevaluar cía exception: {e}")
+            return False
 
 
 # Singleton

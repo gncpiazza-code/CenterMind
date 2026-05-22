@@ -900,6 +900,7 @@ export async function reevaluarExhibicionCompania(body: {
   id_exhibicion: number;
   estado_nuevo: EstadoCompania;
   motivo: string;
+  anunciar_telegram?: boolean;
 }): Promise<ReevaluacionCompaniaOut> {
   return apiFetch<ReevaluacionCompaniaOut>("/api/compania/reevaluar", {
     method: "POST",

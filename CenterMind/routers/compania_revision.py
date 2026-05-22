@@ -132,6 +132,36 @@ def reevaluar_exhibicion_compania(
         raise HTTPException(status_code=500, detail="Error al registrar re-evaluación")
 
     row = ins_r.data[0]
+
+    # Opcional: notificar al vendedor por Telegram
+    if body.anunciar_telegram:
+        try:
+            # Obtener id_integrante de la exhibición
+            integ_r = (
+                sb.table("exhibiciones")
+                .select("id_integrante")
+                .eq("id_exhibicion", body.id_exhibicion)
+                .limit(1)
+                .execute()
+            )
+            id_integrante = None
+            if integ_r.data:
+                id_integrante = integ_r.data[0].get("id_integrante")
+
+            if id_integrante:
+                from services.objetivos_notification_service import objetivos_notification
+                objetivos_notification.notify_reevaluacion_compania_telegram(
+                    dist_id=dist_id,
+                    id_exhibicion=body.id_exhibicion,
+                    id_integrante=int(id_integrante),
+                    estado_anterior=estado_actual,
+                    estado_nuevo=body.estado_nuevo,
+                    motivo=body.motivo,
+                    nombre_usuario=str(nombre_usuario),
+                )
+        except Exception as e_tg:
+            logger.warning(f"[reevaluar_compania] Telegram optional failed: {e_tg}")
+
     return ReevaluacionCompaniaOut(
         id=str(row["id"]),
         id_exhibicion=int(row["id_exhibicion"]),

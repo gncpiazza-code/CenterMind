@@ -12,8 +12,7 @@ interface ObjetivosStore {
   filterCumplido: boolean | null;
   filterKanbanPhase: KanbanPhase;
   filterSucursal: string | null;
-  filterFechaDesde: string | null;
-  filterFechaHasta: string | null;
+  filterMes: string | null;  // "YYYY-MM" format
   searchText: string;
 
   // View
@@ -30,8 +29,7 @@ interface ObjetivosStore {
   setFilterCumplido: (val: boolean | null) => void;
   setFilterKanbanPhase: (phase: KanbanPhase) => void;
   setFilterSucursal: (suc: string | null) => void;
-  setFilterFechaDesde: (date: string | null) => void;
-  setFilterFechaHasta: (date: string | null) => void;
+  setFilterMes: (mes: string | null) => void;
   setSearchText: (text: string) => void;
   setViewMode: (mode: ViewMode) => void;
   setSelectedTenantId: (id: number | null) => void;
@@ -45,8 +43,7 @@ export const useObjetivosStore = create<ObjetivosStore>((set) => ({
   filterCumplido: null,
   filterKanbanPhase: null,
   filterSucursal: null,
-  filterFechaDesde: null,
-  filterFechaHasta: null,
+  filterMes: null,
   searchText: '',
   viewMode: 'kanban',
   selectedTenantId: null,
@@ -62,8 +59,7 @@ export const useObjetivosStore = create<ObjetivosStore>((set) => ({
   setFilterCumplido: (val) => set({ filterCumplido: val }),
   setFilterKanbanPhase: (phase) => set({ filterKanbanPhase: phase }),
   setFilterSucursal: (suc) => set({ filterSucursal: suc }),
-  setFilterFechaDesde: (date) => set({ filterFechaDesde: date }),
-  setFilterFechaHasta: (date) => set({ filterFechaHasta: date }),
+  setFilterMes: (mes) => set({ filterMes: mes }),
   setSearchText: (text) => set({ searchText: text }),
   setViewMode: (mode) => set({ viewMode: mode }),
   setSelectedTenantId: (id) => set({ selectedTenantId: id }),
@@ -74,8 +70,7 @@ export const useObjetivosStore = create<ObjetivosStore>((set) => ({
     filterCumplido: null,
     filterKanbanPhase: null,
     filterSucursal: null,
-    filterFechaDesde: null,
-    filterFechaHasta: null,
+    filterMes: null,
     searchText: '',
   }),
 }));

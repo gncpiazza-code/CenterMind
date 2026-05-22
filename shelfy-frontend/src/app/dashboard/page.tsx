@@ -25,7 +25,6 @@ import { ChartCarousel } from "@/components/dashboard/ChartCarousel";
 import { RankingTable } from "@/components/dashboard/RankingTable";
 import { FiltrosBar } from "@/components/dashboard/FiltrosBar";
 import { CCDifusionGuiaDialog } from "@/components/onboarding/CCDifusionGuiaDialog";
-import { RankingCompaniaCompare } from "@/components/dashboard/RankingCompaniaCompare";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -373,29 +372,11 @@ export default function DashboardPage() {
                   evolucion={evolucion}
                   distId={distId}
                   nombreEmpresa={user?.nombre_empresa || "Distribuidora"}
+                  isCompania={isCompania}
                 />
               </div>
             </motion.div>
 
-            {/* Ranking Compañía — solo visible para superadmin / directorio */}
-            {isCompania && (
-              <motion.div
-                key="ranking-compania"
-                className="col-span-12 lg:col-span-5"
-                variants={sectionVariants}
-                initial="hidden"
-                animate="show"
-                custom={5}
-              >
-                <div className="rounded-2xl border p-4" style={{ background: "var(--shelfy-panel)", borderColor: "var(--shelfy-border)" }}>
-                  <RankingCompaniaCompare
-                    distId={distId}
-                    periodo={periodo}
-                    sucursalId={sucursalFiltro || undefined}
-                  />
-                </div>
-              </motion.div>
-            )}
 
           </div>
 

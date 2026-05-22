@@ -390,6 +390,7 @@ def dashboard_ranking_compania(
     periodo: str = "mes",
     top: int = 999,
     sucursal_id: int = Query(None),
+    solo_cambios: bool = Query(False),
     payload=Depends(verify_auth),
 ):
     """
@@ -455,6 +456,8 @@ def dashboard_ranking_compania(
         })
 
     sorted_rows = sorted(result, key=lambda x: x["puntos_compania"], reverse=True)
+    if solo_cambios:
+        sorted_rows = [r for r in sorted_rows if r["delta_puntos"] != 0]
     return sorted_rows[:top]
 
 

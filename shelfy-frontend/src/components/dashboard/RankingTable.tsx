@@ -1,8 +1,9 @@
 "use client";
 
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Award, FileText, Download, Loader2, RefreshCw, MoreHorizontal } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import { Card } from '@/components/ui/Card';
 import {
   DropdownMenu,
@@ -12,8 +13,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/Button';
 import { Separator } from '@/components/ui/separator';
-import { fetchRanking, fetchRankingHistorico } from '@/lib/api';
-import type { VendedorRanking, SucursalStats, KPIs, EvolucionTiempo } from '@/lib/api';
+import { fetchRanking, fetchRankingHistorico, fetchRankingCompania } from '@/lib/api';
+import type { VendedorRanking, SucursalStats, KPIs, EvolucionTiempo, RankingCompaniaRow } from '@/lib/api';
 import { generateRankingHTML, reportFileName } from '@/lib/generateRankingHTML';
 import { useReportStore } from '@/store/useReportStore';
 import { cn } from '@/lib/utils';
@@ -28,6 +29,7 @@ interface RankingTableProps {
   evolucion?: EvolucionTiempo[];
   distId?: number;
   nombreEmpresa?: string;
+  isCompania?: boolean;
 }
 
 function downloadHTML(html: string, filename: string) {
@@ -63,9 +65,23 @@ const TOP3_STYLES = [
 
 export function RankingTable({
   ranking, periodo, periodoLabel, sucursalFiltro, sucursales,
-  kpis, evolucion = [], distId = 0, nombreEmpresa = 'Distribuidora',
+  kpis, evolucion = [], distId = 0, nombreEmpresa = 'Distribuidora', isCompania = false,
 }: RankingTableProps) {
   const { savedReport, generating, sizeWarning, setGenerating, saveReport, clearSizeWarning } = useReportStore();
+
+  const [showCompaniaLens, setShowCompaniaLens] = useState(false);
+
+  const { data: companiaData } = useQuery({
+    queryKey: ['ranking-compania-lens', distId, periodo, sucursalFiltro],
+    queryFn: () => fetchRankingCompania(distId, periodo, sucursalFiltro || undefined),
+    enabled: isCompania && showCompaniaLens && !!distId,
+    staleTime: 60_000,
+  });
+
+  const companiaByVendedor = useMemo(() => {
+    if (!companiaData) return new Map<string, RankingCompaniaRow>();
+    return new Map(companiaData.map(r => [r.vendedor, r]));
+  }, [companiaData]);
 
   const sucursalLabel = sucursalFiltro
     ? (sucursales.find(s => s.location_id === sucursalFiltro)?.sucursal ?? sucursalFiltro)
@@ -132,15 +148,29 @@ export function RankingTable({
           </p>
         </div>
 
-        {sucursalLabel && (
-          <motion.span
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="shrink-0 text-[10px] font-black tracking-[0.15em] uppercase text-blue-600 bg-blue-50/50 px-3 py-1.5 rounded-2xl border border-blue-100/50 shadow-sm"
-          >
-            {sucursalLabel}
-          </motion.span>
-        )}
+        <div className="flex items-center gap-2 shrink-0">
+          {sucursalLabel && (
+            <motion.span
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="text-[10px] font-black tracking-[0.15em] uppercase text-blue-600 bg-blue-50/50 px-3 py-1.5 rounded-2xl border border-blue-100/50 shadow-sm"
+            >
+              {sucursalLabel}
+            </motion.span>
+          )}
+          {isCompania && (
+            <button
+              onClick={() => setShowCompaniaLens(v => !v)}
+              className={`shrink-0 text-[9px] font-black tracking-[0.12em] uppercase px-3 py-1.5 rounded-2xl border transition-all ${
+                showCompaniaLens
+                  ? 'bg-violet-600 text-white border-violet-600 shadow-sm'
+                  : 'text-violet-600 border-violet-200 bg-violet-50/50 hover:bg-violet-50'
+              }`}
+            >
+              {showCompaniaLens ? '✦ Vista Cía' : '◇ Vista Cía'}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Tabla de ranking */}
@@ -156,6 +186,12 @@ export function RankingTable({
               <th className="py-3 px-2 text-right font-black uppercase tracking-[0.2em] text-[9px] text-red-400">Rec</th>
               <th className="py-3 px-2 text-right font-black uppercase tracking-[0.2em] text-[9px] text-amber-500">Dst</th>
               <th className="py-3 px-4 text-right font-black uppercase tracking-[0.2em] text-[9px] text-slate-950">Pts</th>
+              {showCompaniaLens && (
+                <>
+                  <th className="py-3 px-2 text-right font-black uppercase tracking-[0.2em] text-[9px] text-violet-500">Cía</th>
+                  <th className="py-3 px-2 text-right font-black uppercase tracking-[0.2em] text-[9px] text-slate-400">Δ</th>
+                </>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -241,7 +277,7 @@ export function RankingTable({
                       </span>
                     </td>
 
-                    <td className="py-2.5 px-4 text-right last:rounded-r-2xl">
+                    <td className={`py-2.5 px-4 text-right ${!showCompaniaLens ? 'last:rounded-r-2xl' : ''}`}>
                       <div className="flex flex-col items-end">
                         <span className={cn("font-black text-base tracking-tighter", style?.pts ?? "text-slate-800")}>
                           {v.puntos}
@@ -249,6 +285,33 @@ export function RankingTable({
                         <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest -mt-0.5">Pts</span>
                       </div>
                     </td>
+                    {showCompaniaLens && (() => {
+                      const cr = companiaByVendedor.get(v.vendedor);
+                      const delta = cr ? cr.delta_puntos : 0;
+                      return (
+                        <>
+                          <td className="py-2.5 px-2 text-right">
+                            <div className="flex flex-col items-end">
+                              <span className="font-black text-sm tracking-tighter text-violet-600">
+                                {cr ? cr.puntos_compania : v.puntos}
+                              </span>
+                              <span className="text-[7px] font-black text-violet-400 uppercase tracking-widest -mt-0.5">Cía</span>
+                            </div>
+                          </td>
+                          <td className="py-2.5 px-3 text-right last:rounded-r-2xl">
+                            <span className={`text-[11px] font-black px-1.5 py-0.5 rounded-lg border ${
+                              delta > 0
+                                ? 'bg-emerald-50 text-emerald-600 border-emerald-100/50'
+                                : delta < 0
+                                  ? 'bg-red-50 text-red-500 border-red-100/50'
+                                  : 'bg-slate-50 text-slate-400 border-slate-100/50'
+                            }`}>
+                              {delta > 0 ? `+${delta}` : delta}
+                            </span>
+                          </td>
+                        </>
+                      );
+                    })()}
                   </motion.tr>
                 );
               })}

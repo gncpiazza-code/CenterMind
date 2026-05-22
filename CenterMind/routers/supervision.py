@@ -2664,9 +2664,20 @@ def _compute_kanban_phase(obj: dict) -> str:
     Deriva la columna Kanban de un objetivo a partir de su estado y sus ítems.
     Retorna: 'planificado' | 'pendiente' | 'en_progreso' | 'terminado'
     """
-    # Planificado: aún no lanzado (Telegram no enviado)
-    if not obj.get("lanzado_at"):
-        return "planificado"
+    # Planificado solo si: sin lanzar AND fecha_inicio aún en futuro AR AND no cumplido
+    if not obj.get("lanzado_at") and not obj.get("cumplido"):
+        from datetime import datetime, timezone, timedelta
+        _tz_ar = timezone(timedelta(hours=-3))
+        hoy_ar = datetime.now(_tz_ar).date().isoformat()
+        fecha_inicio = obj.get("fecha_inicio")
+        if fecha_inicio:
+            fecha_inicio_str = str(fecha_inicio)[:10]
+            if fecha_inicio_str > hoy_ar:
+                return "planificado"
+        else:
+            # sin fecha_inicio → legacy, tratar como ya activo
+            pass
+        # lanzado_at NULL pero fecha_inicio <= hoy: tratar como activo (caen al bloque siguiente)
 
     if obj.get("cumplido"):
         return "terminado"
@@ -3089,6 +3100,7 @@ def preview_telegram_objetivo(body: ObjetivoPreviewTelegramIn, user_payload=Depe
             "origen": body.origen,
             "mes_referencia": body.mes_referencia,
             "nombre_vendedor": body.nombre_vendedor,
+            "pdv_items": [item.model_dump() for item in body.pdv_items] if body.pdv_items else None,
         }
         text = objetivos_notification.build_new_objective_message(body.id_distribuidor, obj_data, obj_id=None)
         return {"preview_html": text}
@@ -3399,6 +3411,7 @@ def listar_objetivos(
     cumplido: Optional[bool]   = Query(None),
     tipo: Optional[str]        = Query(None),
     sucursal_nombre: Optional[str] = Query(None),
+    mes: Optional[str]             = Query(None),     # YYYY-MM — filtro aplicado client-side en frontend
     user_payload=Depends(verify_auth),
 ):
     check_dist_permission(user_payload, dist_id)

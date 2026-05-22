@@ -14,7 +14,8 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
-import { SlideToConfirm } from "./SlideToConfirm";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import { reevaluarExhibicionCompania, type EstadoCompania } from "@/lib/api";
 import { toast } from "sonner";
 
@@ -46,10 +47,12 @@ export function ReevaluarCompaniaSheet({
   const queryClient = useQueryClient();
   const [selectedEstado, setSelectedEstado] = useState<EstadoCompania | null>(null);
   const [motivo, setMotivo] = useState("");
-  const [confirmed, setConfirmed] = useState(false);
+  const [confirmChecked, setConfirmChecked] = useState(false);
+  const [anunciarTelegram, setAnunciarTelegram] = useState(false);
 
   const motivoValido = motivo.trim().length >= MIN_MOTIVO;
   const canConfirm = !!selectedEstado && motivoValido;
+  const canSubmit = canConfirm && confirmChecked;
 
   const mutation = useMutation({
     mutationFn: () =>
@@ -57,6 +60,7 @@ export function ReevaluarCompaniaSheet({
         id_exhibicion: idExhibicion,
         estado_nuevo: selectedEstado!,
         motivo: motivo.trim(),
+        anunciar_telegram: anunciarTelegram,
       }),
     onSuccess: () => {
       toast.success("Re-evaluación registrada correctamente");
@@ -68,7 +72,7 @@ export function ReevaluarCompaniaSheet({
     onError: (err: unknown) => {
       const msg = err instanceof Error ? err.message : "Error al re-evaluar";
       toast.error(msg);
-      setConfirmed(false);
+      setConfirmChecked(false);
     },
   });
 
@@ -76,14 +80,9 @@ export function ReevaluarCompaniaSheet({
     if (mutation.isPending) return;
     setSelectedEstado(null);
     setMotivo("");
-    setConfirmed(false);
+    setConfirmChecked(false);
+    setAnunciarTelegram(false);
     onClose();
-  }
-
-  function handleConfirm() {
-    if (!canConfirm || mutation.isPending) return;
-    setConfirmed(true);
-    mutation.mutate();
   }
 
   return (
@@ -164,20 +163,58 @@ export function ReevaluarCompaniaSheet({
           </Alert>
         )}
 
-        {/* Slide to confirm */}
-        <div className="mt-2">
-          {canConfirm ? (
-            <SlideToConfirm
-              label="Deslizá para confirmar revisión"
-              onConfirm={handleConfirm}
-              disabled={mutation.isPending || confirmed}
+        {/* Checkboxes de confirmación */}
+        <div className="space-y-3 mt-4">
+          {/* Anunciar por Telegram (siempre visible, desmarcado por defecto) */}
+          <div className="flex items-start gap-3 p-3 rounded-xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)]">
+            <Checkbox
+              id="anunciar-telegram"
+              checked={anunciarTelegram}
+              onCheckedChange={(v) => setAnunciarTelegram(!!v)}
+              disabled={mutation.isPending}
             />
-          ) : (
-            <div className="h-12 rounded-full flex items-center justify-center text-[13px] font-semibold opacity-40" style={{ background: "var(--shelfy-border)", color: "var(--shelfy-muted)" }}>
-              Completá los campos para confirmar
+            <div className="grid gap-1">
+              <Label htmlFor="anunciar-telegram" className="text-[12px] font-semibold cursor-pointer" style={{ color: "var(--shelfy-text)" }}>
+                Anunciar por Telegram
+              </Label>
+              <p className="text-[11px]" style={{ color: "var(--shelfy-muted)" }}>
+                Notificará al vendedor con el estado, motivo y quién realizó la revisión.
+              </p>
             </div>
-          )}
+          </div>
+
+          {/* Confirmar re-evaluación (requerido para habilitar el botón) */}
+          <div className="flex items-center gap-3 p-3 rounded-xl border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)]">
+            <Checkbox
+              id="confirm-reeval"
+              checked={confirmChecked}
+              onCheckedChange={(v) => setConfirmChecked(!!v)}
+              disabled={mutation.isPending || !canConfirm}
+            />
+            <Label htmlFor="confirm-reeval" className="text-[12px] font-semibold cursor-pointer" style={{ color: "var(--shelfy-text)" }}>
+              Confirmo la re-evaluación
+            </Label>
+          </div>
         </div>
+
+        <Button
+          onClick={() => {
+            if (!canConfirm || !confirmChecked || mutation.isPending) return;
+            mutation.mutate();
+          }}
+          disabled={!canConfirm || !confirmChecked || mutation.isPending}
+          className="w-full mt-4 font-black uppercase tracking-wider text-[11px]"
+        >
+          {mutation.isPending ? (
+            <span className="flex items-center gap-2">
+              <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                <circle cx="12" cy="12" r="10" strokeOpacity={0.25} />
+                <path d="M12 2a10 10 0 0 1 10 10" />
+              </svg>
+              Procesando...
+            </span>
+          ) : "Confirmar re-evaluación"}
+        </Button>
 
         <Button
           variant="ghost"

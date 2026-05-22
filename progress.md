@@ -1,6 +1,6 @@
 # Progress — Shelfy CenterMind (Lean)
 
-**Ultima actualizacion:** 22 de Mayo, 2026 (v3)  
+**Ultima actualizacion:** 22 de Mayo, 2026 (v4)  
 **Objetivo:** estado operativo actual, riesgos y prioridades.  
 **Historial largo:** `docs/changelog/archive/2026-05.md`.
 
@@ -49,6 +49,8 @@
 22. Tipo objetivo COMPRADORES (2026-05-22): nuevo tipo end-to-end. `core/objetivos_compradores.py` — módulo compartido `compradores_en_periodo` + `periodo_desde_hasta_objetivo`. Watcher: `_diff_compradores` con retroactividad mensual para compañía (patrón exhibición). Supervisión: `_supervision_compradores_mes` delega al core. Backend: `TIPOS_VALIDOS` += compradores; validación `valor_objetivo >= 1`. Bot + notificación: label 🛒 "Compradores". Frontend: badge teal, texto educativo, campo N en modal, disponible para distribuidora y compañía. Tests: `test_objetivos_compradores.py`. Restricción invariante: **NO** modifica activación ni `conversion_estado`.
 
 23. Objetivos Planificados + Kanban 4 columnas (2026-05-22): columna `planificado` (objetivos con `fecha_inicio` futura o `lanzado_at IS NULL`). DB: columnas `fecha_inicio DATE` y `lanzado_at TIMESTAMPTZ` (migración `20260521_objetivos_fecha_inicio_lanzado.sql`). `services/objetivos_launch_service.py`: `lanzar_un_objetivo` (idempotente, sets `lanzado_at`, envía Telegram) + `lanzar_programados_fecha` (batch). Cron APScheduler 08:00 AR en `lifespan.py`. Endpoints: `POST /objetivos/{id}/lanzar` y `POST /objetivos/preview-telegram`. Watcher: salta objetivos con `lanzado_at IS NULL`. Frontend: kanban 4 cols (planificado|pendiente|en_progreso|terminado), `LanzarObjetivoDialog`, `fecha_inicio` picker en modal, `descripcion` obligatoria ≥5 chars, filtros de fecha (desde/hasta). **SQL migration pendiente ejecutar en Supabase.**
+
+24. Re-evaluación + Kanban UX + Ranking Lente + Preview Objetivo (2026-05-22): (F) Backfill `lanzado_at` v2 (`20260522_objetivos_lanzado_at_backfill_v2.sql`); `_compute_kanban_phase` + `getObjectiveKanbanPhase` corregidos — solo planificado si `fecha_inicio > hoy_AR`. (E) Kanban 4 cols horizontal (`flex overflow-x-auto`), filtro por mes `YYYY-MM`, select de fase kanban. (B) Toggle "Vista Cía" en `RankingTable` con cols Pts Cía y Δ por vendedor; se elimina panel `RankingCompaniaCompare` suelto; backend param `solo_cambios`. (C+A) `SlideToConfirm` → dos Checkboxes (Confirmar + Anunciar por Telegram, desmarcado por defecto); `notify_reevaluacion_compania_telegram` en servicio de notificaciones. (D) `previewObjetivoTelegram` con debounce 600ms precarga textarea del modal; backend `ObjetivoPreviewTelegramIn` acepta `pdv_items` y los lista en el mensaje. Tests: 16/16 (8 kanban + 8 overlay). **SQL migration pendiente ejecutar en Supabase.**
 
 ## Riesgos y Guardrails Activos
 

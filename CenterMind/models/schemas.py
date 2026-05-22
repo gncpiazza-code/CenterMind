@@ -182,6 +182,12 @@ class ObjetivoCreate(BaseModel):
     fecha_inicio: Optional[str] = None   # DATE string YYYY-MM-DD
 
 
+class PdvPreviewItem(BaseModel):
+    nombre_pdv: str
+    id_cliente_erp: Optional[str] = None
+    dia_visita: Optional[str] = None
+
+
 class ObjetivoPreviewTelegramIn(BaseModel):
     id_distribuidor: int
     id_vendedor: int
@@ -193,6 +199,7 @@ class ObjetivoPreviewTelegramIn(BaseModel):
     origen: str = "distribuidora"
     mes_referencia: Optional[str] = None
     nombre_vendedor: Optional[str] = None
+    pdv_items: Optional[List["PdvPreviewItem"]] = None
 
 
 class ObjetivoUpdate(BaseModel):
@@ -328,6 +335,7 @@ class ReevaluarCompaniaRequest(BaseModel):
     id_exhibicion: int
     estado_nuevo: Literal["Aprobada", "Rechazada", "Destacada"]
     motivo: str = Field(..., min_length=20)
+    anunciar_telegram: bool = False
 
 
 class ReevaluacionCompaniaOut(BaseModel):

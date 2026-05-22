@@ -27,7 +27,7 @@ logger = get_logger("API_CLIENT")
 
 # Compat: lectura perezosa; dev local: export API_URL o SHELFY_API_URL
 TIMEOUT = 120  # segundos
-PADRON_MAX_DIRECT_UPLOAD_BYTES = 18 * 1024 * 1024  # 18MB (margen conservador ante límites/proxies)
+PADRON_MAX_DIRECT_UPLOAD_BYTES = 10 * 1024 * 1024  # 10MB — por encima, compactar (evita ReadError en proxy)
 
 def _url() -> str:
     return get_shelfy_base_url()
@@ -248,8 +248,9 @@ async def subir_padron(archivo_path, id_distribuidor: int) -> bool:
                     "  ⚠️ No se pudo reducir tamaño del padrón; se sube archivo original."
                 )
 
-        # Padrón puede tardar bastante en backend (ingesta+normalización), usar timeout más amplio y reintentos.
-        timeout = httpx.Timeout(connect=20.0, read=240.0, write=120.0, pool=20.0)
+        # Padrón: timeout amplio; si falla por tamaño/proxy, reintenta con Excel compacto.
+        timeout = httpx.Timeout(connect=20.0, read=240.0, write=180.0, pool=20.0)
+        compacted_attempted = payload_name.endswith("_compacto.xlsx")
         for intento in range(1, 4):
             try:
                 async with httpx.AsyncClient(timeout=timeout) as client:
@@ -283,6 +284,20 @@ async def subir_padron(archivo_path, id_distribuidor: int) -> bool:
                     f"  ⚠️ Error subiendo padrón intento {intento}/3 dist={id_distribuidor}: "
                     f"{type(e).__name__}: {repr(e)}"
                 )
+                if (
+                    not compacted_attempted
+                    and type(e).__name__ in ("ReadError", "ConnectError", "WriteError", "RemoteProtocolError")
+                ):
+                    compacted = _compactar_excel_para_upload(file_bytes)
+                    if compacted and len(compacted) < len(payload_bytes):
+                        payload_bytes = compacted
+                        payload_name = f"{archivo_path.stem}_compacto.xlsx"
+                        compacted_attempted = True
+                        logger.info(
+                            f"  ℹ️ Reintento con Excel compacto "
+                            f"({len(file_bytes) / (1024 * 1024):.1f} MB -> "
+                            f"{len(payload_bytes) / (1024 * 1024):.1f} MB)"
+                        )
 
             if intento < 3:
                 await asyncio.sleep(4)

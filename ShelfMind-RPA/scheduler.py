@@ -19,10 +19,12 @@ Inicio: python scheduler.py
 import asyncio
 import logging
 import os
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.date import DateTrigger
 import time
 
 # ── Logging ──────────────────────────────────────────────────────────────────
@@ -66,21 +68,60 @@ def job_padron():
 
 async def _run_cuentas():
     from motores.cuentas_corrientes import run
+    from lib.api_client import enviar_digest_motor
+
     resumen = await run()
     logger.info(
         f"CUENTAS completo — ok={resumen.get('ok', '?')}, "
         f"errores={resumen.get('errores', '?')}"
     )
+    detalle = []
+    for r in resumen.get("detalle") or []:
+        detalle.append({
+            "tenant": r.get("tenant_id") or r.get("tenant"),
+            "estado": r.get("estado"),
+            "error": r.get("error"),
+            "registros": r.get("registros"),
+        })
+    try:
+        await enviar_digest_motor(
+            "cuentas_corrientes",
+            resumen={
+                "ok": resumen.get("ok"),
+                "errores": resumen.get("errores"),
+                "sin_cambios": resumen.get("sin_cambios"),
+                "duracion_min": resumen.get("duracion_min"),
+            },
+            detalle=detalle,
+            since_hours=10,
+        )
+    except Exception as e:
+        logger.warning(f"Digest Telegram CC omitido: {e}")
 
 
 async def _run_padron():
     from motores.padron import run
+    from lib.api_client import enviar_digest_motor
+
     resumen = await run()
     logger.info(
         f"PADRÓN completo — ok={resumen.get('ok', '?')}, "
         f"errores={resumen.get('errores', '?')}, "
         f"sin_cambios={resumen.get('sin_cambios', '?')}"
     )
+    try:
+        await enviar_digest_motor(
+            "padron",
+            resumen={
+                "ok": resumen.get("ok"),
+                "errores": resumen.get("errores"),
+                "sin_cambios": resumen.get("sin_cambios"),
+            },
+            detalle=[],
+            since_hours=10,
+        )
+    except Exception as e:
+        logger.warning(f"Digest Telegram padrón omitido: {e}")
 
 
 async def _run_ventas():
@@ -99,6 +140,96 @@ def job_ventas():
         asyncio.run(_run_ventas())
     except Exception as e:
         logger.error(f"Error en job_ventas: {e}")
+
+
+def _hours_since_last_motor_run(motors: list[str]) -> float | None:
+    """Edad en horas del último motor_run iniciado (padron / padron_global)."""
+    url = (
+        os.environ.get("SUPABASE_URL")
+        or os.environ.get("supabase_url")
+        or ""
+    ).strip()
+    key = (
+        os.environ.get("SUPABASE_SERVICE_KEY")
+        or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+        or os.environ.get("SUPABASE_KEY")
+        or ""
+    ).strip()
+    if not url or not key:
+        return None
+    try:
+        from supabase import create_client
+
+        sb = create_client(url, key)
+        latest: str | None = None
+        for motor in motors:
+            res = (
+                sb.table("motor_runs")
+                .select("iniciado_en")
+                .eq("motor", motor)
+                .order("iniciado_en", desc=True)
+                .limit(1)
+                .execute()
+            )
+            row = (res.data or [{}])[0]
+            ts = row.get("iniciado_en")
+            if ts and (latest is None or str(ts) > str(latest)):
+                latest = str(ts)
+        if not latest:
+            return None
+        s = latest.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - dt).total_seconds() / 3600
+    except Exception as e:
+        logger.warning("No se pudo consultar motor_runs para catch-up: %s", e)
+        return None
+
+
+def _maybe_schedule_stale_catchup(scheduler: BackgroundScheduler) -> None:
+    """
+    Si el servicio RPA estuvo caído y se perdieron slots cron, dispara catch-up al arranque.
+    """
+    if os.environ.get("RPA_DISABLE_STARTUP_CATCHUP", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    ):
+        return
+
+    padron_h = float(os.environ.get("RPA_PADRON_CATCHUP_HOURS", "10"))
+    cc_h = float(os.environ.get("RPA_CC_CATCHUP_HOURS", "20"))
+
+    age_padron = _hours_since_last_motor_run(["padron", "padron_global"])
+    if age_padron is not None and age_padron >= padron_h:
+        logger.warning(
+            "Padrón desactualizado %.1fh (umbral %.1fh) — catch-up al iniciar scheduler",
+            age_padron,
+            padron_h,
+        )
+        scheduler.add_job(
+            job_padron,
+            DateTrigger(run_date=datetime.now(AR_TZ) + timedelta(seconds=45)),
+            id="padron_catchup_startup",
+            replace_existing=True,
+            max_instances=1,
+        )
+
+    age_cc = _hours_since_last_motor_run(["cuentas_corrientes"])
+    if age_cc is not None and age_cc >= cc_h:
+        logger.warning(
+            "CC desactualizadas %.1fh (umbral %.1fh) — catch-up al iniciar scheduler",
+            age_cc,
+            cc_h,
+        )
+        scheduler.add_job(
+            job_cuentas,
+            DateTrigger(run_date=datetime.now(AR_TZ) + timedelta(minutes=3)),
+            id="cuentas_catchup_startup",
+            replace_existing=True,
+            max_instances=1,
+        )
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -169,6 +300,7 @@ def main():
         )
 
     scheduler.start()
+    _maybe_schedule_stale_catchup(scheduler)
 
     logger.info("Scheduler activo. Jobs programados (orden por próxima ejecución):")
     jobs = sorted(

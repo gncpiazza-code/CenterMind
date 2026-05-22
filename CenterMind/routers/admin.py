@@ -1162,6 +1162,21 @@ def motor_runs_by_dist(dist_id: int, motor: Optional[str] = None, limit: int = 2
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/api/admin/ops/sync-erp-identity", tags=["Admin"])
+def sync_erp_identity(user_payload=Depends(verify_auth)):
+    """
+    Sincroniza distribuidores.id_empresa_erp desde rpa_consolido_tenants
+    y completa erp_empresa_mapping (Beltrocco, franquicias, etc.).
+    """
+    if not user_payload.get("is_superadmin"):
+        raise HTTPException(status_code=403, detail="Exclusivo para SuperAdmins")
+    try:
+        from services.erp_identity_sync_service import sync_from_consolido_tenants
+        return sync_from_consolido_tenants()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/api/admin/ops/empresa-motor-snapshot", tags=["Admin"])
 def empresa_motor_snapshot(user_payload=Depends(verify_auth)):
     """Snapshot operativo multi-tenant: mapeo ERP + última corrida por motor por distribuidor."""
@@ -1169,7 +1184,7 @@ def empresa_motor_snapshot(user_payload=Depends(verify_auth)):
         raise HTTPException(status_code=403, detail="Exclusivo para SuperAdmins")
     try:
         dists = sb.table("distribuidores").select(
-            "id_distribuidor, nombre_empresa, id_erp, estado"
+            "id_distribuidor, nombre_empresa, id_erp, id_empresa_erp, estado"
         ).order("nombre_empresa").execute().data or []
 
         mappings = sb.table("erp_empresa_mapping").select("nombre_erp, id_distribuidor").execute().data or []

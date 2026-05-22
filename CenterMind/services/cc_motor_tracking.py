@@ -25,7 +25,12 @@ def build_cc_registros_from_rows(rows: list[dict], fecha_snapshot: str) -> dict[
     pseudo = [
         {
             "vendedor_nombre": (r.get("vendedor") or r.get("Vendedor") or "").strip(),
-            "deuda_total": r.get("saldo_total") or r.get("Saldo Total") or 0,
+            "deuda_total": (
+                r.get("deuda_total")
+                or r.get("saldo_total")
+                or r.get("Saldo Total")
+                or 0
+            ),
             "alerta_credito": r.get("alerta_credito") or r.get("Alerta de Crédito") or "",
         }
         for r in rows

@@ -10,10 +10,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   fetchKPIs, fetchRanking, fetchUltimasEvaluadas, fetchPorSucursal,
-  fetchEvolucionTiempo, fetchRendimientoCiudad, fetchPorEmpresa, getWSUrl,
+  fetchEvolucionTiempo, getWSUrl,
 } from "@/lib/api";
 import type {
-  KPIs, VendedorRanking, UltimaEvaluada, SucursalStats, EvolucionTiempo, RendimientoCiudad,
+  KPIs, VendedorRanking, UltimaEvaluada, SucursalStats, EvolucionTiempo,
 } from "@/lib/api";
 import { Clock, CheckCircle, Star, XCircle, TrendingUp, BarChart2 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -60,9 +60,6 @@ function formatPeriodoLabel(periodo: string): string {
   }
   return periodo;
 }
-
-const kpiVariants     = { hidden: {}, show: { transition: { staggerChildren: 0.08 } } };
-const kpiItemVariants = { hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0, transition: { duration: 0.3 } } };
 
 const sectionVariants = {
   hidden: { opacity: 0, y: 24 },
@@ -145,18 +142,6 @@ export default function DashboardPage() {
     queryKey: ["dashboard","evolucion",distId,periodo,sucursalFiltro],
     queryFn: () => fetchEvolucionTiempo(distId, periodo, sucursalFiltro),
     enabled, placeholderData: (prev: unknown) => prev as EvolucionTiempo[] | undefined, refetchInterval: 90_000,
-  });
-
-  const { data: ciudades = [] } = useQuery<RendimientoCiudad[]>({
-    queryKey: ["dashboard","ciudades",distId,periodo,sucursalFiltro],
-    queryFn: () => fetchRendimientoCiudad(distId, periodo, sucursalFiltro),
-    enabled, placeholderData: (prev: unknown) => prev as RendimientoCiudad[] | undefined, refetchInterval: 90_000,
-  });
-
-  const { data: empresas = [] } = useQuery<RendimientoCiudad[]>({
-    queryKey: ["dashboard","empresas",periodo,sucursalFiltro],
-    queryFn: () => isSuper ? fetchPorEmpresa(periodo, sucursalFiltro) : Promise.resolve([]),
-    enabled, placeholderData: (prev: unknown) => prev as RendimientoCiudad[] | undefined, refetchInterval: 90_000,
   });
 
   const loading = loadingKpis || loadingRanking || loadingUltimas || loadingSucursales;
@@ -268,117 +253,131 @@ export default function DashboardPage() {
             </Alert>
           )}
 
-          {/* Mejora #3: grid con separador visual entre columnas */}
-          <div className="grid grid-cols-1 xl:grid-cols-[3fr_2fr] gap-6 h-auto xl:h-[calc(100vh-200px)] min-h-[850px]">
+          {/* Fila superior 50/50: carrusel | ranking */}
+          <div className="relative">
+            <div className="hidden xl:block absolute left-1/2 top-0 bottom-0 w-px -translate-x-1/2 bg-gradient-to-b from-transparent via-slate-200/60 to-transparent pointer-events-none" />
 
-            {/* LADO IZQUIERDO */}
-            <motion.div
-              className="flex flex-col gap-5 xl:h-full relative"
-              variants={sectionVariants} initial="hidden" animate="show" custom={1}
-            >
-              {isFetchingLeft && (
-                <div className="absolute inset-0 bg-white/30 rounded-[2rem] backdrop-blur-[1px] z-50 flex items-center justify-center pointer-events-none">
-                  <div className="w-4 h-4 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
-                </div>
-              )}
-
-              <div className="shrink-0 h-[380px] md:h-[420px]">
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 xl:min-h-[min(72vh,720px)]">
+              <motion.div
+                className="relative min-h-[360px] xl:min-h-0 xl:h-full"
+                variants={sectionVariants}
+                initial="hidden"
+                animate="show"
+                custom={1}
+              >
+                {isFetchingLeft && (
+                  <div className="absolute inset-0 bg-white/30 rounded-[2rem] backdrop-blur-[1px] z-50 flex items-center justify-center pointer-events-none">
+                    <div className="w-4 h-4 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
+                  </div>
+                )}
                 {loading && ultimas.length === 0 ? (
-                  <Card className="h-full flex items-center justify-center p-12 bg-white rounded-[2.5rem]">
+                  <Card className="h-full min-h-[360px] flex items-center justify-center p-12 bg-white rounded-[2.5rem]">
                     <Skeleton className="h-8 w-full" />
                   </Card>
                 ) : (
-                  <HeroCarousel items={ultimas} />
+                  <div className="h-full min-h-[360px] xl:min-h-[520px]">
+                    <HeroCarousel items={ultimas} />
+                  </div>
                 )}
-              </div>
+              </motion.div>
 
-              <div className="shrink-0">
-                <ChartCarousel
-                  sucursales={sucursales}
-                  evolucion={evolucion}
-                  ciudades={ciudades}
-                  empresas={empresas}
-                />
-              </div>
-            </motion.div>
-
-            {/* Mejora #3: separador visual vertical (solo xl) */}
-            <div className="hidden xl:block absolute left-[60%] top-0 bottom-0 w-px bg-gradient-to-b from-transparent via-slate-200/60 to-transparent pointer-events-none" />
-
-            {/* LADO DERECHO */}
-            <motion.div
-              className="flex flex-col gap-5 xl:h-full relative"
-              variants={sectionVariants} initial="hidden" animate="show" custom={2}
-            >
-              {isFetchingRight && (
-                <div className="absolute inset-0 bg-white/30 rounded-[2rem] backdrop-blur-[1px] z-50 flex items-center justify-center pointer-events-none">
-                  <div className="w-4 h-4 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
+              <motion.div
+                className="relative min-h-[400px] xl:min-h-0 xl:h-full flex flex-col"
+                variants={sectionVariants}
+                initial="hidden"
+                animate="show"
+                custom={2}
+              >
+                {isFetchingRight && (
+                  <div className="absolute inset-0 bg-white/30 rounded-[2rem] backdrop-blur-[1px] z-50 flex items-center justify-center pointer-events-none">
+                    <div className="w-4 h-4 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
+                  </div>
+                )}
+                <div className="flex-1 min-h-[400px] xl:min-h-0">
+                  <RankingTable
+                    ranking={rankingFiltrado}
+                    periodo={periodo}
+                    periodoLabel={formatPeriodoLabel(periodo)}
+                    sucursalFiltro={sucursalFiltro}
+                    sucursales={sucursales}
+                    kpis={kpis ?? null}
+                    evolucion={evolucion}
+                    distId={distId}
+                    nombreEmpresa={user?.nombre_empresa || "Distribuidora"}
+                    isCompania={isCompania}
+                  />
                 </div>
-              )}
+              </motion.div>
+            </div>
+          </div>
 
-              {/* KPIs — 6 tarjetas en rotación 2 grupos de 3 */}
-              {kpis ? (
-                <div className="relative shrink-0">
-                  {/* Indicador de grupo */}
-                  <div className="flex items-center justify-end gap-1.5 mb-2">
-                    {[0, 1].map(g => (
+          {/* Debajo: KPIs + gráficos (Evolución / Sucursales / Vendedores) */}
+          <motion.section
+            className="mt-6 flex flex-col gap-4"
+            variants={sectionVariants}
+            initial="hidden"
+            animate="show"
+            custom={3}
+          >
+            {kpis ? (
+              <div className="relative">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                    Indicadores del período
+                  </p>
+                  <div className="flex items-center gap-1.5">
+                    {[0, 1].map((g) => (
                       <button
                         key={g}
+                        type="button"
                         onClick={() => setKpiGroup(g)}
-                        className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${kpiGroup === g ? "bg-violet-500 w-3" : "bg-slate-300"}`}
+                        className={`h-1.5 rounded-full transition-all duration-300 ${
+                          kpiGroup === g ? "bg-violet-500 w-4" : "w-1.5 bg-slate-300"
+                        }`}
                       />
                     ))}
                   </div>
-                  <AnimatePresence mode="wait">
-                    <motion.div
-                      key={kpiGroup}
-                      initial={{ opacity: 0, x: kpiGroup === 0 ? -10 : 10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0, x: kpiGroup === 0 ? 10 : -10 }}
-                      transition={{ duration: 0.3 }}
-                      className="grid grid-cols-3 gap-3"
-                    >
-                      {kpiGroup === 0 ? (
-                        <>
-                          <KpiCard label="Pendientes" value={kpis.pendientes} icon={<Clock size={18} />} colorName="amber" bgColor="bg-white" />
-                          <KpiCard label="Aprobadas" value={kpis.aprobadas} icon={<CheckCircle size={18} />} colorName="emerald" bgColor="bg-white" total={kpis.aprobadas + kpis.rechazadas} />
-                          <KpiCard label="Destacadas" value={kpis.destacadas} icon={<Star size={18} />} colorName="violet" bgColor="bg-gradient-to-br from-violet-50/60 to-fuchsia-50/40" />
-                        </>
-                      ) : (
-                        <>
-                          <KpiCard label="Rechazadas" value={kpis.rechazadas} icon={<XCircle size={18} />} colorName="red" bgColor="bg-white" />
-                          <KpiCard label="Tasa Aprob." value={tasaAprobacion ?? 0} icon={<TrendingUp size={18} />} colorName="blue" bgColor="bg-white" subtitle={`de ${kpis.aprobadas + kpis.rechazadas} eval.`} />
-                          <KpiCard label="Total" value={kpis.total} icon={<BarChart2 size={18} />} colorName="slate" bgColor="bg-white" subtitle="del período" />
-                        </>
-                      )}
-                    </motion.div>
-                  </AnimatePresence>
                 </div>
-              ) : loadingKpis ? (
-                <div className="grid grid-cols-3 gap-3 shrink-0">
-                  {[0,1,2].map(i => <Skeleton key={i} className="h-24 w-full rounded-[2rem]" />)}
-                </div>
-              ) : null}
-
-              {/* RANKING */}
-              <div className="flex-1 min-h-0">
-                <RankingTable
-                  ranking={rankingFiltrado}
-                  periodo={periodo}
-                  periodoLabel={formatPeriodoLabel(periodo)}
-                  sucursalFiltro={sucursalFiltro}
-                  sucursales={sucursales}
-                  kpis={kpis ?? null}
-                  evolucion={evolucion}
-                  distId={distId}
-                  nombreEmpresa={user?.nombre_empresa || "Distribuidora"}
-                  isCompania={isCompania}
-                />
+                <AnimatePresence mode="wait">
+                  <motion.div
+                    key={kpiGroup}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -8 }}
+                    transition={{ duration: 0.25 }}
+                    className="grid grid-cols-1 sm:grid-cols-3 gap-3"
+                  >
+                    {kpiGroup === 0 ? (
+                      <>
+                        <KpiCard label="Pendientes" value={kpis.pendientes} icon={<Clock size={18} />} colorName="amber" bgColor="bg-white" />
+                        <KpiCard label="Aprobadas" value={kpis.aprobadas} icon={<CheckCircle size={18} />} colorName="emerald" bgColor="bg-white" total={kpis.aprobadas + kpis.rechazadas} />
+                        <KpiCard label="Destacadas" value={kpis.destacadas} icon={<Star size={18} />} colorName="violet" bgColor="bg-gradient-to-br from-violet-50/60 to-fuchsia-50/40" />
+                      </>
+                    ) : (
+                      <>
+                        <KpiCard label="Rechazadas" value={kpis.rechazadas} icon={<XCircle size={18} />} colorName="red" bgColor="bg-white" />
+                        <KpiCard label="Tasa Aprob." value={tasaAprobacion ?? 0} icon={<TrendingUp size={18} />} colorName="blue" bgColor="bg-white" subtitle={`de ${kpis.aprobadas + kpis.rechazadas} eval.`} />
+                        <KpiCard label="Total" value={kpis.total} icon={<BarChart2 size={18} />} colorName="slate" bgColor="bg-white" subtitle="del período" />
+                      </>
+                    )}
+                  </motion.div>
+                </AnimatePresence>
               </div>
-            </motion.div>
+            ) : loadingKpis ? (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {[0, 1, 2].map((i) => (
+                  <Skeleton key={i} className="h-20 w-full rounded-[2rem]" />
+                ))}
+              </div>
+            ) : null}
 
-
-          </div>
+            <ChartCarousel
+              sucursales={sucursales}
+              evolucion={evolucion}
+              ranking={rankingFiltrado}
+              autoRotate
+            />
+          </motion.section>
 
         </main>
       </div>

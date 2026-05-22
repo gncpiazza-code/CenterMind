@@ -166,6 +166,8 @@ async def erp_sync_padron(
         raise HTTPException(status_code=400, detail="Se requiere un archivo .xlsx o .xls")
     try:
         content = await file.read()
+        if not content:
+            raise HTTPException(status_code=400, detail="Archivo vacío")
 
         def _padron_sync_rpa_background(dist_id: int, file_bytes: bytes) -> None:
             try:
@@ -177,10 +179,17 @@ async def erp_sync_padron(
                     exc,
                 )
 
-        background_tasks.add_task(_padron_sync_rpa_background, id_distribuidor, content)
+        # threading: no depender del pool de BackgroundTasks bajo carga concurrente RPA
+        import threading
+
+        threading.Thread(
+            target=_padron_sync_rpa_background,
+            args=(id_distribuidor, content),
+            daemon=True,
+        ).start()
         return {
             "status": "accepted",
-            "message": f"Padrón recibido para dist {id_distribuidor}. Procesando en segundo plano.",
+            "message": f"Padrón recibido para dist {id_distribuidor} ({len(content):,} bytes). Procesando en segundo plano.",
             "timestamp": datetime.now().isoformat(),
         }
     except Exception as e:

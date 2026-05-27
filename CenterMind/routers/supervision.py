@@ -174,6 +174,42 @@ def _dedupe_pdvs_latest_by_erp(rows: list[dict]) -> list[dict]:
     return list(chosen_by_erp.values()) + no_erp_rows
 
 
+def _enrich_objetivos_nombre_vendedor(dist_id: int, items: list[dict]) -> None:
+    """nombre_vendedor en objetivos es snapshot al crear; refrescar desde vendedores_v2."""
+    if not items:
+        return
+    vids = list({int(o["id_vendedor"]) for o in items if o.get("id_vendedor") is not None})
+    if not vids:
+        return
+    t_v = tenant_table_name("vendedores_v2", dist_id)
+    vend_map: dict[int, str] = {}
+    PAGE = 1000
+    for offset in range(0, len(vids), PAGE):
+        batch_ids = vids[offset : offset + PAGE]
+        try:
+            res = (
+                sb.table(t_v)
+                .select("id_vendedor, nombre_erp")
+                .eq("id_distribuidor", dist_id)
+                .in_("id_vendedor", batch_ids)
+                .execute()
+            )
+        except Exception as e:
+            logger.warning(f"[objetivos] enrich nombre_vendedor dist={dist_id}: {e}")
+            return
+        for row in res.data or []:
+            vid = row.get("id_vendedor")
+            name = (row.get("nombre_erp") or "").strip()
+            if vid is not None and name:
+                vend_map[int(vid)] = name
+    for obj in items:
+        vid = obj.get("id_vendedor")
+        if vid is not None:
+            fresh = vend_map.get(int(vid))
+            if fresh:
+                obj["nombre_vendedor"] = fresh
+
+
 def _objetivo_belongs_to_dist(obj_id: str, dist_id: int) -> bool:
     """True si el objetivo existe y pertenece al distribuidor (tenant-safe)."""
     try:
@@ -3126,14 +3162,20 @@ def preview_telegram_objetivo(body: ObjetivoPreviewTelegramIn, user_payload=Depe
 @router.get("/api/supervision/objetivos/vendedor/{vendedor_id}", tags=["Supervisión"])
 def objetivos_por_vendedor(vendedor_id: int, user_payload=Depends(verify_auth)):
     try:
+        dist_for_enrich: int | None = None
         q = sb.table("objetivos").select("*").eq("id_vendedor", vendedor_id)
         if not user_payload.get("is_superadmin"):
-            dist_id = user_payload.get("id_distribuidor")
-            if not dist_id:
+            dist_for_enrich = user_payload.get("id_distribuidor")
+            if not dist_for_enrich:
                 raise HTTPException(status_code=403, detail="Sin distribuidora asignada")
-            q = q.eq("id_distribuidor", dist_id)
+            q = q.eq("id_distribuidor", dist_for_enrich)
         res = q.order("created_at", desc=True).execute()
-        return res.data or []
+        items = res.data or []
+        if dist_for_enrich is None and items:
+            dist_for_enrich = items[0].get("id_distribuidor")
+        if dist_for_enrich is not None:
+            _enrich_objetivos_nombre_vendedor(int(dist_for_enrich), items)
+        return items
     except HTTPException:
         raise
     except Exception as e:
@@ -3154,6 +3196,7 @@ def resumen_supervisor_objetivos(dist_id: int, user_payload=Depends(verify_auth)
             "id_vendedor, nombre_vendedor, tipo, valor_objetivo, valor_actual, cumplido, fecha_objetivo, descripcion, estado_inicial, estado_objetivo"
         ).eq("id_distribuidor", dist_id).eq("cumplido", False).execute()
         rows = res.data or []
+        _enrich_objetivos_nombre_vendedor(dist_id, rows)
 
         # Aggregate by vendedor
         vendedores_map: dict = {}
@@ -3257,6 +3300,7 @@ def objetivos_timeline(
             q = q.eq("id_vendedor", vendedor_id)
         res = q.order("created_at", desc=True).execute()
         obj_list = res.data or []
+        _enrich_objetivos_nombre_vendedor(dist_id, obj_list)
 
         if not obj_list:
             return []
@@ -3484,6 +3528,7 @@ def listar_objetivos(
         if tipo       is not None: q = q.eq("tipo", tipo)
         res = q.order("created_at", desc=True).execute()
         items = res.data or []
+        _enrich_objetivos_nombre_vendedor(dist_id, items)
 
         # Enrich with id_cliente_erp from clientes_pdv_v2
         pdv_ids = list({o["id_target_pdv"] for o in items if o.get("id_target_pdv")})

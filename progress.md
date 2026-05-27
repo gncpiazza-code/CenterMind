@@ -1,6 +1,6 @@
 # Progress — Shelfy CenterMind (Lean)
 
-**Ultima actualizacion:** 22 de Mayo, 2026 (v4)  
+**Ultima actualizacion:** 27 de Mayo, 2026 (v4)  
 **Objetivo:** estado operativo actual, riesgos y prioridades.  
 **Historial largo:** `docs/changelog/archive/2026-05.md`.
 
@@ -23,10 +23,12 @@
 
 ## Cambios Recientes (resumen ejecutivo)
 
-1. Objetivos: fecha limite obligatoria (UI + validacion backend) y tasa de pendientes reubicada antes del bloque de fecha.
-2. Objetivos compania (exhibicion): retroactividad mensual activa desde `mes_referencia` para calcular avance inicial.
-3. Objetivos alteo: cumplimiento por `fecha_alta` de padrón (no por cambio de ruta), con corte temporal por timestamp del objetivo.
-4. Objetivos activacion: corte temporal por timestamp completo para evitar avances previos del mismo dia.
+1. Modal objetivos: calendario prorrateo (`buildProrrateoGrid`) muestra avance diario; texto alteo sin referencia a compra.
+2. Objetivos LAG: `nombre_vendedor` de Luciano Gonzalez (ex LUCIANO AID) corregido en BD; API enriquece desde `vendedores_v2`; filtros panel por `id_vendedor`.
+2. Objetivos: fecha limite obligatoria (UI + validacion backend) y tasa de pendientes reubicada antes del bloque de fecha.
+3. Objetivos compania (exhibicion): retroactividad mensual activa desde `mes_referencia` para calcular avance inicial.
+4. Objetivos alteo: cumplimiento por `fecha_alta` de padrón (no por cambio de ruta), con corte temporal por timestamp del objetivo.
+5. Objetivos activacion: corte temporal por timestamp completo para evitar avances previos del mismo dia.
 5. Tickets portal (Topbar): fix de envío (adjuntos por `/attachments` + mensaje JSON) para eliminar `Failed to fetch`.
 6. Bot Telegram objetivos: solo mensaje al asignar (seguimiento/cumplido/fallido/recordatorio 08:00 desactivados por defecto; `OBJETIVOS_TELEGRAM_SEGUIMIENTO=1` para reactivar).
 7. Objetivos: prorrateo compania semanal/diario visible en card (semanas y dias del mes).

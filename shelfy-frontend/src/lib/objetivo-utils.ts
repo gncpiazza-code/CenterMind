@@ -33,17 +33,44 @@ export interface PeriodoProrrateo {
   today: Date;
 }
 
+export interface CeldaProrrateo {
+  dia: DiaHabil;
+  metaDia: number;
+  avanceDia: number;
+  pct: number;
+  isPastOrToday: boolean;
+}
+
+export interface SemanaProrrateo {
+  key: string;
+  label: string;
+  celdas: (CeldaProrrateo | "pre" | null)[];
+  weekMeta: number;
+  weekAvance: number;
+  weekPct: number;
+  aplicable: boolean;
+}
+
+export interface ProrrateoGridData {
+  semanas: SemanaProrrateo[];
+  metaDiariaFutura: number;
+  restante: number;
+  futuros: number;
+  diasValidos: number;
+  label: string;
+}
+
 function addDays(d: Date, n: number): Date {
   const r = new Date(d);
   r.setDate(r.getDate() + n);
   return r;
 }
 
-function parseLocalDate(iso: string): Date {
+export function parseLocalDate(iso: string): Date {
   return new Date(iso.substring(0, 10) + "T00:00:00");
 }
 
-function isoDate(d: Date): string {
+export function isoDate(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
@@ -55,15 +82,41 @@ function monthEnd(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth() + 1, 0);
 }
 
+function parseMesReferencia(mesRef: string): Date | null {
+  const ym = mesRef.slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(ym)) return null;
+  const d = parseLocalDate(`${ym}-01`);
+  return isNaN(d.getTime()) ? null : d;
+}
+
 /** Lunes=1 … Sábado=6; Domingo=0 → excluido */
 function isBusinessDay(d: Date): boolean {
   const wd = d.getDay();
   return wd >= 1 && wd <= 6;
 }
 
-function todayLocal(): Date {
+export function todayLocal(): Date {
   const now = new Date();
   return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+}
+
+/** Lun=0 … Sáb=5; domingo u otro → -1 */
+function columnaDiaHabil(d: Date): number {
+  const wd = d.getDay();
+  if (wd < 1 || wd > 6) return -1;
+  return wd - 1;
+}
+
+function inicioEfectivoNoRetro(obj: Objetivo, monthStartDate: Date): Date {
+  const src =
+    obj.fecha_inicio ||
+    obj.lanzado_at ||
+    obj.created_at ||
+    obj.fecha_objetivo ||
+    obj.mes_referencia;
+  let startEffective = src ? parseLocalDate(src) : monthStartDate;
+  if (startEffective < monthStartDate) startEffective = monthStartDate;
+  return startEffective;
 }
 
 /**
@@ -71,7 +124,7 @@ function todayLocal(): Date {
  *
  * Compañía: mes_referencia; lun–sáb del mes completo.
  *   - Exhibición/compradores: retroactividad desde día 1 del mes.
- *   - Alteo/activación: sin retro; meta arranca desde created_at o fecha_objetivo.
+ *   - Alteo/activación: sin retro; meta arranca desde fecha_inicio / lanzado_at.
  *
  * Distribuidora: sin retroactividad; rango max(fecha_inicio, lanzado_at|created_at) → fecha_objetivo.
  */
@@ -80,8 +133,8 @@ export function periodoProrrateo(obj: Objetivo): PeriodoProrrateo | null {
 
   if (obj.origen === "compania") {
     if (!obj.mes_referencia || !obj.valor_objetivo) return null;
-    const mesRef = parseLocalDate(`${obj.mes_referencia}-01`);
-    if (isNaN(mesRef.getTime())) return null;
+    const mesRef = parseMesReferencia(obj.mes_referencia);
+    if (!mesRef) return null;
 
     const start = monthStart(mesRef);
     const end = monthEnd(mesRef);
@@ -89,17 +142,9 @@ export function periodoProrrateo(obj: Objetivo): PeriodoProrrateo | null {
     const isNoRetro =
       obj.tipo === "ruteo_alteo" || obj.tipo === "conversion_estado";
 
-    let startEffective: Date;
-    if (isNoRetro) {
-      const srcStr = obj.created_at || obj.fecha_objetivo || obj.mes_referencia;
-      startEffective = srcStr
-        ? parseLocalDate(srcStr)
-        : start;
-      // No puede ser antes del inicio del mes
-      if (startEffective < start) startEffective = start;
-    } else {
-      startEffective = start;
-    }
+    const startEffective = isNoRetro
+      ? inicioEfectivoNoRetro(obj, start)
+      : start;
 
     return buildPeriod(start, end, startEffective, today);
   }
@@ -110,7 +155,6 @@ export function periodoProrrateo(obj: Objetivo): PeriodoProrrateo | null {
   const fechaFin = parseLocalDate(obj.fecha_objetivo);
   if (isNaN(fechaFin.getTime())) return null;
 
-  // startEffective = max(fecha_inicio, lanzado_at, created_at)
   const candidatos: Date[] = [];
   if (obj.fecha_inicio) {
     const d = parseLocalDate(obj.fecha_inicio);
@@ -130,7 +174,6 @@ export function periodoProrrateo(obj: Objetivo): PeriodoProrrateo | null {
       ? candidatos.reduce((a, b) => (a > b ? a : b))
       : fechaFin;
 
-  // Grid: desde startEffective hasta fechaFin (sin pre-inicio)
   return buildPeriod(startEffective, fechaFin, startEffective, today);
 }
 
@@ -142,17 +185,18 @@ function buildPeriod(
 ): PeriodoProrrateo {
   const todosDias: DiaHabil[] = [];
   const diasValidos: DiaHabil[] = [];
+  const startEffIso = isoDate(startEffective);
 
   let cur = new Date(start);
   while (cur <= end) {
     if (isBusinessDay(cur)) {
       const iso = isoDate(cur);
-      const isPreStart = cur < startEffective;
-      const isPast = cur <= today;
-      const isToday = isoDate(cur) === isoDate(today);
+      const isPreStart = iso < startEffIso;
+      const isPast = cur < today;
+      const isToday = iso === isoDate(today);
       const isFuture = cur > today;
       const dia: DiaHabil = {
-        date: new Date(cur),
+        date: new Date(cur.getFullYear(), cur.getMonth(), cur.getDate()),
         iso,
         isPast,
         isToday,
@@ -166,4 +210,114 @@ function buildPeriod(
   }
 
   return { start, end, startEffective, diasValidos, todosDias, today };
+}
+
+/**
+ * Grilla semanal (lun–sáb) con avance diario para el modal de detalle.
+ */
+export function buildProrrateoGrid(
+  obj: Objetivo,
+  visualActual?: number
+): ProrrateoGridData | null {
+  const periodo = periodoProrrateo(obj);
+  if (!periodo || obj.valor_objetivo == null) return null;
+
+  const meta = Number(obj.valor_objetivo);
+  if (!meta || meta <= 0) return null;
+
+  const actual = Math.max(Number(obj.valor_actual ?? 0), visualActual ?? 0);
+  const progresoDiario: Record<string, number> =
+    (obj.desglose_cache as { progreso_diario?: Record<string, number> })
+      ?.progreso_diario ?? {};
+  const hasReal = Object.keys(progresoDiario).length > 0;
+
+  const { diasValidos, todosDias } = periodo;
+  const pasados = diasValidos.filter((d) => d.isPast || d.isToday);
+  const futuros = diasValidos.filter((d) => d.isFuture);
+
+  const metaDiariaOriginal =
+    diasValidos.length > 0 ? meta / diasValidos.length : 0;
+  const restante = Math.max(0, meta - actual);
+  const metaDiariaFutura =
+    futuros.length > 0 ? restante / futuros.length : 0;
+  const avgPasado =
+    pasados.length > 0 ? actual / pasados.length : 0;
+
+  const semanasMap = new Map<string, DiaHabil[]>();
+  for (const dia of todosDias) {
+    const dt = dia.date;
+    const weekIdx = Math.floor((dt.getDate() - 1) / 7) + 1;
+    const key = `s${weekIdx}`;
+    if (!semanasMap.has(key)) semanasMap.set(key, []);
+    semanasMap.get(key)!.push(dia);
+  }
+
+  const semanas: SemanaProrrateo[] = Array.from(semanasMap.entries()).map(
+    ([key, dias]) => {
+      const weekNum = key.replace("s", "");
+      const celdas: (CeldaProrrateo | "pre" | null)[] = Array(6).fill(null);
+      const aplicables = dias.filter((d) => !d.isPreStart);
+
+      for (const dia of dias) {
+        const col = columnaDiaHabil(dia.date);
+        if (col < 0) continue;
+
+        if (dia.isPreStart) {
+          celdas[col] = "pre";
+          continue;
+        }
+
+        const isPastOrToday = dia.isPast || dia.isToday;
+        const metaDia = isPastOrToday ? metaDiariaOriginal : metaDiariaFutura;
+        const avanceDia = isPastOrToday
+          ? hasReal
+            ? progresoDiario[dia.iso] ?? 0
+            : avgPasado
+          : 0;
+        const pct =
+          metaDia > 0
+            ? Math.min(100, Math.round((avanceDia / metaDia) * 100))
+            : avanceDia > 0
+              ? 100
+              : 0;
+
+        celdas[col] = { dia, metaDia, avanceDia, pct, isPastOrToday };
+      }
+
+      const weekMeta = celdas.reduce(
+        (s, c) => s + (c && c !== "pre" ? c.metaDia : 0),
+        0
+      );
+      const weekAvance = celdas.reduce(
+        (s, c) => s + (c && c !== "pre" ? c.avanceDia : 0),
+        0
+      );
+      const weekPct =
+        weekMeta > 0
+          ? Math.min(100, Math.round((weekAvance / weekMeta) * 100))
+          : 0;
+
+      return {
+        key,
+        label: `Semana ${weekNum}`,
+        celdas,
+        weekMeta,
+        weekAvance,
+        weekPct,
+        aplicable: aplicables.length > 0,
+      };
+    }
+  );
+
+  return {
+    semanas,
+    metaDiariaFutura,
+    restante,
+    futuros: futuros.length,
+    diasValidos: diasValidos.length,
+    label:
+      obj.origen === "compania"
+        ? "Prorrateo mensual (lun–sáb)"
+        : "Prorrateo por período (lun–sáb)",
+  };
 }

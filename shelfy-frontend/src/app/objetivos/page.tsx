@@ -98,7 +98,7 @@ const TIPO_CONFIG: Record<ObjetivoTipo, { label: string; color: string; bg: stri
 
 // Descripciones educativas por tipo (mostradas en wizard lateral)
 const TIPO_EDUCATIVO: Partial<Record<ObjetivoTipo, string>> = {
-  ruteo_alteo:       "Alta de nuevo PDV en tu ruta. Meta: incorporar PDVs nuevos que nunca compraron.",
+  ruteo_alteo:       "Alta de nuevo PDV en tu ruta. Meta: incorporar PDVs nuevos (altas de padrón).",
   conversion_estado: "Reactivar PDVs inactivos (sin compra hace más de 30 días). Meta: volver a comprar.",
   exhibicion:        "Registrar foto de exhibición en PDV. Meta: cobertura de exhibiciones por ruta.",
   compradores:       "En el período, el vendedor debe registrar ventas a N clientes distintos. Cada cliente cuenta una sola vez sin importar cuántas facturas emita.",
@@ -3389,8 +3389,8 @@ export default function ObjetivosPage() {
     return vendedores.filter(v => v.sucursal_nombre === selectedSucursal);
   }, [vendedores, selectedSucursal]);
 
-  const vendedorNamesEnSucursal = useMemo(
-    () => new Set(vendedoresEnSucursal.map(v => v.nombre_erp.toLowerCase())),
+  const vendedorIdsEnSucursal = useMemo(
+    () => new Set(vendedoresEnSucursal.map(v => v.id_vendedor)),
     [vendedoresEnSucursal],
   );
 
@@ -3420,17 +3420,11 @@ export default function ObjetivosPage() {
     }
 
     if (selectedSucursal) {
-      list = list.filter(o =>
-        vendedorNamesEnSucursal.has((o.nombre_vendedor ?? "").toLowerCase())
-      );
+      list = list.filter(o => vendedorIdsEnSucursal.has(o.id_vendedor));
     }
 
     if (selectedVendedorId !== null) {
-      const target = vendedores.find(v => v.id_vendedor === selectedVendedorId);
-      if (target) {
-        const name = target.nombre_erp.toLowerCase();
-        list = list.filter(o => (o.nombre_vendedor ?? "").toLowerCase() === name);
-      }
+      list = list.filter(o => o.id_vendedor === selectedVendedorId);
     }
 
     // Filtro por mes (YYYY-MM) — usa mes_referencia para compañía, fecha_inicio o fecha_objetivo para distribuidora
@@ -3453,7 +3447,7 @@ export default function ObjetivosPage() {
     // Lo aplica internamente KanbanOrListaView por columna para preservar los conteos reales.
 
     return list;
-  }, [objetivos, searchText, selectedSucursal, selectedVendedorId, vendedorNamesEnSucursal, vendedores, user?.is_superadmin, filterMes]);
+  }, [objetivos, searchText, selectedSucursal, selectedVendedorId, vendedorIdsEnSucursal, user?.is_superadmin, filterMes]);
 
   // ── Stats ─────────────────────────────────────────────────────────────────
 

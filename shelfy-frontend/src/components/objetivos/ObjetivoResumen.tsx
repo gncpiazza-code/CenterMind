@@ -18,7 +18,7 @@ const TIPO_CONFIG: Record<ObjetivoTipo, { label: string; color: string; bg: stri
 const INSTRUCCION_TIPO: Partial<Record<ObjetivoTipo, string>> = {
   exhibicion:        "Registrar foto de exhibición en el PDV.",
   conversion_estado: "Reactivar PDVs inactivos — lograr que vuelvan a comprar.",
-  ruteo_alteo:       "Incorporar PDVs nuevos que nunca compraron a la ruta.",
+  ruteo_alteo:       "Dar de alta PDVs nuevos en la ruta (altas de padrón, sin compra previa).",
   cobranza:          "Cobrar el monto objetivo dentro del período.",
   compradores:       "Registrar ventas a N clientes distintos en el período.",
 };

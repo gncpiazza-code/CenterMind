@@ -162,9 +162,9 @@ export default function DashboardPage() {
     };
   }, [distId, queryClient]);
 
-  // Filtro local de ranking por sucursal (fallback defensivo)
-  const rankingFiltrado = sucursalFiltro && ranking.some(v => v.location_id != null)
-    ? ranking.filter(v => String(v.location_id ?? "") === String(sucursalFiltro))
+  // Filtro local de ranking (el backend ya filtra; esto alinea si location_id viene en la fila)
+  const rankingFiltrado = sucursalFiltro
+    ? ranking.filter((v) => String(v.location_id ?? "") === String(sucursalFiltro))
     : ranking;
 
   return (

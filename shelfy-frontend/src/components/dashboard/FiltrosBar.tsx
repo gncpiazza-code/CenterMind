@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { Calendar, GitBranch, RefreshCw, X, SlidersHorizontal, ChevronDown } from 'lucide-react';
-import { type SucursalStats } from '@/lib/api';
+import { type SucursalStats, sucursalFilterKey } from '@/lib/api';
 import { Badge } from '@/components/ui/badge';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -83,7 +83,7 @@ export function FiltrosBar({
 
   const activePreset      = detectPreset(year, month, day);
   const activeSucursalLabel = sucursalFiltro
-    ? (sucursales.find(s => s.location_id === sucursalFiltro)?.sucursal ?? sucursalFiltro)
+    ? (sucursales.find((s) => sucursalFilterKey(s) === sucursalFiltro)?.sucursal ?? sucursalFiltro)
     : null;
 
   // Mejora #22: collapse de filtros custom en mobile
@@ -218,7 +218,7 @@ export function FiltrosBar({
               <SelectContent>
                 <SelectItem value="__all__" className="text-[11px] font-black uppercase tracking-widest">Todas las sucursales</SelectItem>
                 {sucursales.map(s => (
-                  <SelectItem key={s.location_id} value={s.location_id} className="text-[11px] font-black uppercase tracking-widest">{s.sucursal}</SelectItem>
+                  <SelectItem key={sucursalFilterKey(s)} value={sucursalFilterKey(s)} className="text-[11px] font-black uppercase tracking-widest">{s.sucursal}</SelectItem>
                 ))}
               </SelectContent>
             </Select>

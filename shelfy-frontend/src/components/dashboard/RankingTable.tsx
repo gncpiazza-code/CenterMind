@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState, useRef, useEffect, useCallback } from 'react';
+import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Award, Pause, Play, Check, X, Flame } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
@@ -8,6 +8,7 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { fetchRankingCompania } from '@/lib/api';
 import type { VendedorRanking, SucursalStats, KPIs, EvolucionTiempo, RankingCompaniaRow } from '@/lib/api';
+import { sucursalFilterKey } from '@/lib/api';
 import { DashboardFullscreenButton } from './DashboardFullscreenButton';
 import { cn } from '@/lib/utils';
 
@@ -48,7 +49,8 @@ const TOP3_STYLES = [
   },
 ];
 
-const SCROLL_SPEED = 0.6; // px per tick (~30ms)
+const SCROLL_INTERVAL_MS = 32;
+const SCROLL_STEP_PX = 1;
 
 export function RankingTable({
   ranking, periodo, periodoLabel, sucursalFiltro, sucursales,
@@ -59,7 +61,6 @@ export function RankingTable({
   const [showCompaniaLens, setShowCompaniaLens] = useState(false);
   const [autoScrollPaused, setAutoScrollPaused] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const scrollAnimRef = useRef<number | null>(null);
   const pauseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { data: companiaData } = useQuery({
@@ -74,32 +75,31 @@ export function RankingTable({
     return new Map(companiaData.map(r => [r.vendedor, r]));
   }, [companiaData]);
 
-  // Auto-scroll suave
-  const doScroll = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el || autoScrollPaused) {
-      scrollAnimRef.current = requestAnimationFrame(doScroll);
-      return;
-    }
-    const { scrollTop, scrollHeight, clientHeight } = el;
-    if (scrollHeight <= clientHeight) {
-      scrollAnimRef.current = requestAnimationFrame(doScroll);
-      return;
-    }
-    if (scrollTop + clientHeight >= scrollHeight - 4) {
-      el.scrollTop = 0;
-    } else {
-      el.scrollTop += SCROLL_SPEED;
-    }
-    scrollAnimRef.current = requestAnimationFrame(doScroll);
-  }, [autoScrollPaused]);
+  const displayRows = useMemo(() => {
+    const base = ranking.slice(0, 30);
+    return base.length > 6 ? [...base, ...base] : base;
+  }, [ranking]);
 
+  // Auto-scroll: interval estable (el rAF previo no avanzaba si el contenedor no tenía overflow medible)
   useEffect(() => {
-    scrollAnimRef.current = requestAnimationFrame(doScroll);
-    return () => {
-      if (scrollAnimRef.current) cancelAnimationFrame(scrollAnimRef.current);
+    const el = scrollRef.current;
+    if (!el || ranking.length === 0) return;
+
+    const tick = () => {
+      if (autoScrollPaused) return;
+      const { scrollTop, scrollHeight, clientHeight } = el;
+      if (scrollHeight <= clientHeight + 4) return;
+      const half = scrollHeight / 2;
+      if (scrollTop >= half - 2) {
+        el.scrollTop = 0;
+      } else {
+        el.scrollTop += SCROLL_STEP_PX;
+      }
     };
-  }, [doScroll]);
+
+    const id = window.setInterval(tick, SCROLL_INTERVAL_MS);
+    return () => window.clearInterval(id);
+  }, [ranking.length, displayRows.length, autoScrollPaused]);
 
   // Pause on hover
   function handleMouseEnter() {
@@ -111,7 +111,7 @@ export function RankingTable({
   }
 
   const sucursalLabel = sucursalFiltro
-    ? (sucursales.find(s => s.location_id === sucursalFiltro)?.sucursal ?? sucursalFiltro)
+    ? (sucursales.find((s) => sucursalFilterKey(s) === sucursalFiltro)?.sucursal ?? sucursalFiltro)
     : null;
 
   if (ranking.length === 0) {
@@ -187,7 +187,7 @@ export function RankingTable({
       {/* Tabla con autoscroll */}
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto custom-scrollbar px-5 pb-4 pt-1"
+        className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden custom-scrollbar px-5 pb-4 pt-1"
         style={{ scrollbarWidth: "none" }}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
@@ -217,9 +217,10 @@ export function RankingTable({
           </thead>
           <tbody>
             <AnimatePresence initial={false}>
-              {ranking.slice(0, 30).map((v, i) => {
-                const isTop3 = i < 3;
-                const style  = isTop3 ? TOP3_STYLES[i] : null;
+              {displayRows.map((v, i) => {
+                const rankIndex = i % Math.min(ranking.length, 30);
+                const isTop3 = rankIndex < 3;
+                const style  = isTop3 ? TOP3_STYLES[rankIndex] : null;
                 const ratio  = v.aprobadas + v.rechazadas > 0
                   ? Math.round((v.aprobadas / (v.aprobadas + v.rechazadas)) * 100)
                   : null;
@@ -227,7 +228,7 @@ export function RankingTable({
 
                 return (
                   <motion.tr
-                    key={`${v.vendedor}-${i}`}
+                    key={`${v.vendedor}-${rankIndex}-${i}`}
                     layout
                     initial={{ opacity: 0, y: 12 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -242,7 +243,7 @@ export function RankingTable({
                         "w-7 h-7 flex items-center justify-center text-[11px] font-black rounded-xl shadow-md transition-all group-hover:scale-110",
                         style?.badge ?? "bg-slate-100 text-slate-500 shadow-sm",
                       )}>
-                        {i + 1}
+                        {rankIndex + 1}
                       </div>
                     </td>
 

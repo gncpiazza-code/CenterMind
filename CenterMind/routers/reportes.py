@@ -133,8 +133,60 @@ def _build_ciudad_dominante_map(distribuidor_id: int) -> dict[str, str]:
     return result
 
 
+def _resolve_sucursal_pk(distribuidor_id: int, sucursal_param: str | int | None) -> int | None:
+    """Resuelve filtro de sucursal: acepta id_sucursal (PK) o id_sucursal_erp (location_id del dashboard)."""
+    if sucursal_param is None:
+        return None
+    raw = str(sucursal_param).strip()
+    if not raw:
+        return None
+
+    t_sucursales = tenant_table_name("sucursales_v2", distribuidor_id)
+
+    if raw.isdigit():
+        sid = int(raw)
+        chk = (
+            sb.table(t_sucursales)
+            .select("id_sucursal")
+            .eq("id_distribuidor", distribuidor_id)
+            .eq("id_sucursal", sid)
+            .limit(1)
+            .execute()
+        )
+        if chk.data:
+            return sid
+
+    for erp_key in (raw, raw.lstrip("0") or "0"):
+        res = (
+            sb.table(t_sucursales)
+            .select("id_sucursal")
+            .eq("id_distribuidor", distribuidor_id)
+            .eq("id_sucursal_erp", erp_key)
+            .limit(1)
+            .execute()
+        )
+        if res.data:
+            return int(res.data[0]["id_sucursal"])
+
+    try:
+        res_legacy = (
+            sb.table("sucursales")
+            .select("id_sucursal")
+            .eq("id_distribuidor", distribuidor_id)
+            .eq("id_sucursal_erp", raw)
+            .limit(1)
+            .execute()
+        )
+        if res_legacy.data:
+            return int(res_legacy.data[0]["id_sucursal"])
+    except Exception:
+        pass
+
+    return None
+
+
 def _enrich_ultimas_with_razon_social(rows: list[dict], distribuidor_id: int) -> list[dict]:
-    """Agrega razon_social a cada fila buscando en clientes_pdv_v2 por id_cliente_erp."""
+    """Agrega razon_social y ciudad desde clientes_pdv_v2 por id_cliente_erp."""
     if not rows:
         return rows
     nro_clientes = list({str(r.get("nro_cliente", "")) for r in rows if r.get("nro_cliente")})
@@ -147,7 +199,7 @@ def _enrich_ultimas_with_razon_social(rows: list[dict], distribuidor_id: int) ->
     while True:
         chunk = (
             sb.table(t_clientes)
-            .select("id_cliente_erp,nombre_razon_social,nombre_fantasia")
+            .select("id_cliente_erp,nombre_razon_social,nombre_fantasia,localidad")
             .in_("id_cliente_erp", nro_clientes)
             .range(offset, offset + PAGE - 1)
             .execute()
@@ -157,13 +209,92 @@ def _enrich_ultimas_with_razon_social(rows: list[dict], distribuidor_id: int) ->
         if len(chunk) < PAGE:
             break
         offset += PAGE
-    rs_map = {
-        str(c["id_cliente_erp"]): (c.get("nombre_razon_social") or c.get("nombre_fantasia") or "")
-        for c in clientes if c.get("id_cliente_erp")
-    }
+    rs_map: dict[str, str] = {}
+    ciudad_map: dict[str, str] = {}
+    for c in clientes:
+        erp_id = str(c.get("id_cliente_erp") or "").strip()
+        if not erp_id:
+            continue
+        rs_map[erp_id] = (c.get("nombre_razon_social") or c.get("nombre_fantasia") or "")
+        loc = (c.get("localidad") or "").strip()
+        if loc:
+            ciudad_map[erp_id] = loc
     for row in rows:
-        row["razon_social"] = rs_map.get(str(row.get("nro_cliente", "")), "")
+        nc = str(row.get("nro_cliente", ""))
+        row["razon_social"] = rs_map.get(nc, row.get("razon_social") or "")
+        if not (row.get("ciudad") or "").strip():
+            row["ciudad"] = ciudad_map.get(nc, row.get("ciudad") or "")
     return rows
+
+
+def _enrich_ultimas_dashboard_rows(rows: list[dict], distribuidor_id: int) -> list[dict]:
+    """Enriquece últimas evaluadas: razón social, ciudad y nombre ERP del vendedor."""
+    if not rows:
+        return rows
+    rows = _enrich_ultimas_with_razon_social(rows, distribuidor_id)
+    iid_to_erp = build_integrante_to_erp_name(distribuidor_id)
+    for row in rows:
+        iid = row.get("id_integrante")
+        erp_name = None
+        if iid is not None:
+            try:
+                erp_name = iid_to_erp.get(int(iid))
+            except (TypeError, ValueError):
+                erp_name = None
+        if erp_name:
+            row["vendedor_erp"] = erp_name
+    return rows
+
+
+def _filter_ultimas_by_sucursal(rows: list[dict], allowed_integrantes: set[int] | None) -> list[dict]:
+    if allowed_integrantes is None:
+        return rows
+    out: list[dict] = []
+    for row in rows:
+        iid = row.get("id_integrante")
+        if iid is None:
+            continue
+        try:
+            if int(iid) in allowed_integrantes:
+                out.append(row)
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def _enrich_por_sucursal_rows(rows: list[dict], distribuidor_id: int) -> list[dict]:
+    """Agrega id_sucursal (PK) para que el filtro del dashboard use la misma clave que el backend."""
+    if not rows:
+        return rows
+    t_sucursales = tenant_table_name("sucursales_v2", distribuidor_id)
+    suc_rows = (
+        sb.table(t_sucursales)
+        .select("id_sucursal,id_sucursal_erp,nombre_erp")
+        .eq("id_distribuidor", distribuidor_id)
+        .execute()
+        .data
+        or []
+    )
+    erp_to_pk: dict[str, int] = {}
+    nombre_to_pk: dict[str, int] = {}
+    for s in suc_rows:
+        pk = s.get("id_sucursal")
+        if pk is None:
+            continue
+        erp_code = str(s.get("id_sucursal_erp") or "").strip()
+        if erp_code:
+            erp_to_pk[erp_code] = int(pk)
+            erp_to_pk[erp_code.lstrip("0") or "0"] = int(pk)
+        nombre = (s.get("nombre_erp") or "").strip().upper()
+        if nombre:
+            nombre_to_pk[nombre] = int(pk)
+    enriched: list[dict] = []
+    for row in rows:
+        loc = str(row.get("location_id") or "").strip()
+        suc_name = (row.get("sucursal") or "").strip().upper()
+        pk = erp_to_pk.get(loc) or erp_to_pk.get(loc.lstrip("0") or "0") or nombre_to_pk.get(suc_name)
+        enriched.append({**row, "id_sucursal": pk})
+    return enriched
 
 
 def _resolve_period_bounds(periodo: str) -> tuple[str, str]:
@@ -454,10 +585,16 @@ def report_auditoria_sigo(dist_id: int, desde: str = Query(...), hasta: str = Qu
 # ─── Dashboard ────────────────────────────────────────────────────────────────
 
 @router.get("/api/dashboard/kpis/{distribuidor_id}", summary="KPIs del dashboard por período")
-def dashboard_kpis(distribuidor_id: int, periodo: str = "mes", sucursal_id: int = Query(None), payload=Depends(verify_auth)):
+def dashboard_kpis(
+    distribuidor_id: int,
+    periodo: str = "mes",
+    sucursal_id: Optional[str] = Query(None),
+    payload=Depends(verify_auth),
+):
     check_dist_permission(payload, distribuidor_id)
     start_iso, end_iso = _resolve_period_bounds(periodo)
-    allowed_integrantes = _allowed_integrantes_for_sucursal(distribuidor_id, sucursal_id)
+    suc_pk = _resolve_sucursal_pk(distribuidor_id, sucursal_id)
+    allowed_integrantes = _allowed_integrantes_for_sucursal(distribuidor_id, suc_pk)
     ex_rows = _fetch_exhibiciones_periodo(distribuidor_id, start_iso, end_iso)
 
     hide_qa = should_apply_exhibicion_qa_filter(distribuidor_id, payload)
@@ -493,10 +630,17 @@ def dashboard_kpis(distribuidor_id: int, periodo: str = "mes", sucursal_id: int 
 
 
 @router.get("/api/dashboard/ranking/{distribuidor_id}", summary="Ranking de vendedores por período")
-def dashboard_ranking(distribuidor_id: int, periodo: str = "mes", top: int = 999, sucursal_id: int = Query(None), payload=Depends(verify_auth)):
+def dashboard_ranking(
+    distribuidor_id: int,
+    periodo: str = "mes",
+    top: int = 999,
+    sucursal_id: Optional[str] = Query(None),
+    payload=Depends(verify_auth),
+):
     check_dist_permission(payload, distribuidor_id)
     start_iso, end_iso = _resolve_period_bounds(periodo)
-    allowed_integrantes = _allowed_integrantes_for_sucursal(distribuidor_id, sucursal_id)
+    suc_pk = _resolve_sucursal_pk(distribuidor_id, sucursal_id)
+    allowed_integrantes = _allowed_integrantes_for_sucursal(distribuidor_id, suc_pk)
     ex_rows = _fetch_exhibiciones_periodo(distribuidor_id, start_iso, end_iso)
 
     iid_to_erp = build_integrante_to_erp_name(distribuidor_id)
@@ -520,6 +664,21 @@ def dashboard_ranking(distribuidor_id: int, periodo: str = "mes", top: int = 999
 
     stats = aggregate_ranking_by_vendor(filtered, iid_to_erp)
     erp_to_sucursal = _build_erp_sucursal_map(distribuidor_id)
+    t_vendedores = tenant_table_name("vendedores_v2", distribuidor_id)
+    vend_rows = (
+        sb.table(t_vendedores)
+        .select("nombre_erp,id_sucursal")
+        .eq("id_distribuidor", distribuidor_id)
+        .execute()
+        .data
+        or []
+    )
+    erp_to_suc_pk: dict[str, int] = {}
+    for v in vend_rows:
+        nombre = (v.get("nombre_erp") or "").strip()
+        sid = v.get("id_sucursal")
+        if nombre and sid is not None:
+            erp_to_suc_pk[nombre] = int(sid)
     unique_sucursales = {s for s in erp_to_sucursal.values() if s}
     is_mono = len(unique_sucursales) <= 1
     try:
@@ -535,7 +694,7 @@ def dashboard_ranking(distribuidor_id: int, periodo: str = "mes", top: int = 999
             "destacadas": s["destacadas"],
             "rechazadas": s["rechazadas"],
             "puntos": s["puntos"],
-            "location_id": None,
+            "location_id": str(erp_to_suc_pk[vendedor]) if vendedor in erp_to_suc_pk else None,
             "sucursal": "" if is_mono else erp_to_sucursal.get(vendedor, ""),
             "ciudad_dominante": ciudad_map.get(vendedor) if is_mono else None,
         }
@@ -551,7 +710,7 @@ def dashboard_ranking_compania(
     distribuidor_id: int,
     periodo: str = "mes",
     top: int = 999,
-    sucursal_id: int = Query(None),
+    sucursal_id: Optional[str] = Query(None),
     solo_cambios: bool = Query(False),
     payload=Depends(verify_auth),
 ):
@@ -564,7 +723,8 @@ def dashboard_ranking_compania(
     check_dist_permission(payload, distribuidor_id)
 
     start_iso, end_iso = _resolve_period_bounds(periodo)
-    allowed_integrantes = _allowed_integrantes_for_sucursal(distribuidor_id, sucursal_id)
+    suc_pk = _resolve_sucursal_pk(distribuidor_id, sucursal_id)
+    allowed_integrantes = _allowed_integrantes_for_sucursal(distribuidor_id, suc_pk)
     ex_rows = _fetch_exhibiciones_periodo(distribuidor_id, start_iso, end_iso)
 
     iid_to_erp = build_integrante_to_erp_name(distribuidor_id)
@@ -689,56 +849,97 @@ def dashboard_ranking_historico(distribuidor_id: int, sucursal_id: int = Query(N
 
 
 @router.get("/api/dashboard/evolucion-tiempo/{distribuidor_id}", summary="Evolución temporal de exhibiciones")
-def dashboard_evolucion(distribuidor_id: int, periodo: str = "mes", sucursal_id: int = Query(None), payload=Depends(verify_auth)):
+def dashboard_evolucion(
+    distribuidor_id: int,
+    periodo: str = "mes",
+    sucursal_id: Optional[str] = Query(None),
+    payload=Depends(verify_auth),
+):
     check_dist_permission(payload, distribuidor_id)
-    res = sb.rpc("fn_dashboard_evolucion_tiempo", {"p_dist_id": distribuidor_id, "p_periodo": periodo, "p_sucursal_id": sucursal_id}).execute()
+    suc_pk = _resolve_sucursal_pk(distribuidor_id, sucursal_id)
+    res = sb.rpc(
+        "fn_dashboard_evolucion_tiempo",
+        {"p_dist_id": distribuidor_id, "p_periodo": periodo, "p_sucursal_id": suc_pk},
+    ).execute()
     return res.data or []
 
 
 @router.get("/api/dashboard/por-ciudad/{distribuidor_id}", summary="Rendimiento agrupado por ciudad")
-def dashboard_por_ciudad(distribuidor_id: int, periodo: str = "mes", sucursal_id: int = Query(None), payload=Depends(verify_auth)):
+def dashboard_por_ciudad(
+    distribuidor_id: int,
+    periodo: str = "mes",
+    sucursal_id: Optional[str] = Query(None),
+    payload=Depends(verify_auth),
+):
     check_dist_permission(payload, distribuidor_id)
-    res = sb.rpc("fn_dashboard_por_ciudad", {"p_dist_id": distribuidor_id, "p_periodo": periodo, "p_sucursal_id": sucursal_id}).execute()
+    suc_pk = _resolve_sucursal_pk(distribuidor_id, sucursal_id)
+    res = sb.rpc(
+        "fn_dashboard_por_ciudad",
+        {"p_dist_id": distribuidor_id, "p_periodo": periodo, "p_sucursal_id": suc_pk},
+    ).execute()
     return res.data or []
 
 
 @router.get("/api/dashboard/por-empresa", summary="Rendimiento por empresa (Superadmin)")
-def dashboard_por_empresa(periodo: str = "mes", sucursal_id: int = Query(None), payload=Depends(verify_auth)):
+def dashboard_por_empresa(
+    periodo: str = "mes",
+    sucursal_id: Optional[str] = Query(None),
+    payload=Depends(verify_auth),
+):
     if not payload.get("is_superadmin"):
         raise HTTPException(status_code=403, detail="Acceso solo para Superadmins")
-    res = sb.rpc("fn_dashboard_por_empresa", {"p_periodo": periodo, "p_sucursal_id": sucursal_id}).execute()
+    suc_pk = _resolve_sucursal_pk(0, sucursal_id) if sucursal_id else None
+    res = sb.rpc("fn_dashboard_por_empresa", {"p_periodo": periodo, "p_sucursal_id": suc_pk}).execute()
     return res.data or []
 
 
 @router.get("/api/dashboard/por-sucursal/{distribuidor_id}", summary="Exhibiciones agrupadas por sucursal")
-def dashboard_por_sucursal(distribuidor_id: int, periodo: str = "mes", sucursal_id: int = Query(None), payload=Depends(verify_auth)):
+def dashboard_por_sucursal(
+    distribuidor_id: int,
+    periodo: str = "mes",
+    sucursal_id: Optional[str] = Query(None),
+    payload=Depends(verify_auth),
+):
     check_dist_permission(payload, distribuidor_id)
     res = sb.rpc("fn_dashboard_por_sucursal", {"p_dist_id": distribuidor_id, "p_periodo": periodo}).execute()
-    return res.data or []
+    return _enrich_por_sucursal_rows(res.data or [], distribuidor_id)
 
 
 @router.get("/api/dashboard/ultimas-evaluadas/{distribuidor_id}", summary="Últimas fotos evaluadas")
-def dashboard_ultimas(distribuidor_id: int, n: int = 8, payload=Depends(verify_auth)):
+def dashboard_ultimas(
+    distribuidor_id: int,
+    n: int = 8,
+    sucursal_id: Optional[str] = Query(None),
+    payload=Depends(verify_auth),
+):
     check_dist_permission(payload, distribuidor_id)
+    suc_pk = _resolve_sucursal_pk(distribuidor_id, sucursal_id)
+    allowed_integrantes = _allowed_integrantes_for_sucursal(distribuidor_id, suc_pk)
     ar_today = (datetime.utcnow() - timedelta(hours=3)).date()
     hide_qa = should_apply_exhibicion_qa_filter(distribuidor_id, payload)
     qa_ids = build_qa_exhibicion_integrante_ids(distribuidor_id) if hide_qa else frozenset()
     erp_name_map = _get_erp_name_map(distribuidor_id) if hide_qa else {}
-    for days_back in range(90):
-        fecha  = (ar_today - timedelta(days=days_back)).isoformat()
-        result = sb.rpc("fn_ultimas_evaluadas", {"p_dist_id": distribuidor_id, "p_fecha": fecha, "p_limit": n}).execute()
-        if result.data:
-            def _safe_enrich(rows: list[dict]) -> list[dict]:
-                try:
-                    return _enrich_ultimas_with_razon_social(rows, distribuidor_id)
-                except Exception as e:
-                    logger.warning(f"[ultimas] razon_social enrich fallback dist={distribuidor_id}: {e}")
-                    return rows
 
-            if not hide_qa:
-                return _safe_enrich(result.data)
-            out = []
-            for row in result.data:
+    def _safe_enrich(rows: list[dict]) -> list[dict]:
+        try:
+            return _enrich_ultimas_dashboard_rows(rows, distribuidor_id)
+        except Exception as e:
+            logger.warning(f"[ultimas] enrich fallback dist={distribuidor_id}: {e}")
+            return rows
+
+    for days_back in range(90):
+        fecha = (ar_today - timedelta(days=days_back)).isoformat()
+        result = sb.rpc(
+            "fn_ultimas_evaluadas",
+            {"p_dist_id": distribuidor_id, "p_fecha": fecha, "p_limit": n},
+        ).execute()
+        if not result.data:
+            continue
+
+        rows = result.data
+        if hide_qa:
+            out: list[dict] = []
+            for row in rows:
                 iid = row.get("id_integrante")
                 tg = (row.get("vendedor") or "").strip()
                 erp = erp_name_map.get(tg.lower(), tg) if tg else ""
@@ -747,8 +948,11 @@ def dashboard_ultimas(distribuidor_id: int, n: int = 8, payload=Depends(verify_a
                 if is_exhibicion_qa_display_for_dist(distribuidor_id, erp):
                     continue
                 out.append(row)
-            if out:
-                return _safe_enrich(out)
+            rows = out
+
+        rows = _filter_ultimas_by_sucursal(rows, allowed_integrantes)
+        if rows:
+            return _safe_enrich(rows)
     return []
 
 

@@ -7,6 +7,7 @@ import {
 } from "@/components/ui/select";
 import { DashboardPeriodPills } from "./DashboardPeriodPills";
 import type { SucursalStats } from "@/lib/api";
+import { sucursalFilterKey } from "@/lib/api";
 import type { PeriodPreset } from "@/lib/dashboard-period";
 import { resolvePeriodBounds } from "@/lib/dashboard-period";
 import { cn } from "@/lib/utils";
@@ -34,7 +35,7 @@ export function DashboardToolbar({
 }: DashboardToolbarProps) {
   const bounds = resolvePeriodBounds(periodPreset, customYear, customMonth);
   const activeSucursalLabel = sucursalFiltro
-    ? (sucursales.find((s) => s.location_id === sucursalFiltro)?.sucursal ?? sucursalFiltro)
+    ? (sucursales.find((s) => sucursalFilterKey(s) === sucursalFiltro)?.sucursal ?? sucursalFiltro)
     : null;
 
   return (
@@ -60,8 +61,8 @@ export function DashboardToolbar({
                 </SelectItem>
                 {sucursales.map((s) => (
                   <SelectItem
-                    key={s.location_id}
-                    value={s.location_id}
+                    key={sucursalFilterKey(s)}
+                    value={sucursalFilterKey(s)}
                     className="text-[11px] font-black uppercase tracking-widest"
                   >
                     {s.sucursal}

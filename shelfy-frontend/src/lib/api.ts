@@ -94,6 +94,7 @@ export interface UltimaEvaluada {
   tipo_pdv: string;
   nro_cliente: string;
   vendedor: string;
+  vendedor_erp?: string;
   timestamp_subida: string;
   fecha_evaluacion?: string;
   ciudad?: string;
@@ -116,9 +117,17 @@ export interface RendimientoCiudad {
 export interface SucursalStats {
   sucursal: string;
   location_id: string;
+  /** PK en sucursales_v2 — usar para filtrar (sucursal_id en API). */
+  id_sucursal?: number;
   aprobadas: number;
   rechazadas: number;
   total: number;
+}
+
+/** Clave de filtro de sucursal alineada con backend (id_sucursal PK). */
+export function sucursalFilterKey(s: SucursalStats): string {
+  if (s.id_sucursal != null) return String(s.id_sucursal);
+  return s.location_id;
 }
 
 export interface FotoGrupo {
@@ -447,13 +456,32 @@ export async function fetchRankingHistorico(distId: number, sucursalId?: number)
 export async function fetchUltimasEvaluadas(distribuidorId: number, n: number = 8, sucursalId?: string): Promise<UltimaEvaluada[]> {
   const q = new URLSearchParams({ n: n.toString() });
   if (sucursalId) q.append("sucursal_id", sucursalId);
-  return apiFetch<UltimaEvaluada[]>(`/api/dashboard/ultimas-evaluadas/${distribuidorId}?${q.toString()}`);
+  const rows = await apiFetch<Record<string, unknown>[]>(
+    `/api/dashboard/ultimas-evaluadas/${distribuidorId}?${q.toString()}`,
+  );
+  return rows.map((row) => {
+    const erp =
+      resolveVendorERPName(row, ["vendedor_erp", "nombre_erp", "vendedor"]) ??
+      toNonEmptyString(row.vendedor) ??
+      "Sin vendedor";
+    return {
+      ...(row as unknown as UltimaEvaluada),
+      vendedor: erp,
+      vendedor_erp: erp,
+      razon_social: toNonEmptyString(row.razon_social) ?? undefined,
+      ciudad: toNonEmptyString(row.ciudad) ?? undefined,
+    };
+  });
 }
 
 export async function fetchPorSucursal(distribuidorId: number, periodo: string = "mes", sucursalId?: string): Promise<SucursalStats[]> {
   const q = new URLSearchParams({ periodo });
   if (sucursalId) q.append("sucursal_id", sucursalId);
-  return apiFetch<SucursalStats[]>(`/api/dashboard/por-sucursal/${distribuidorId}?${q.toString()}`);
+  const rows = await apiFetch<SucursalStats[]>(`/api/dashboard/por-sucursal/${distribuidorId}?${q.toString()}`);
+  return rows.map((row) => ({
+    ...row,
+    id_sucursal: row.id_sucursal ?? undefined,
+  }));
 }
 
 export async function fetchEvolucionTiempo(distribuidorId: number, periodo: string = "mes", sucursalId?: string): Promise<EvolucionTiempo[]> {

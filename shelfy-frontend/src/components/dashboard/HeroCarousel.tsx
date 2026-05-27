@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ImageOff, MapPin, ChevronLeft, ChevronRight, Activity, Hash, User, Clock } from 'lucide-react';
+import { ImageOff, MapPin, ChevronLeft, ChevronRight, Activity, Hash, Clock } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { resolveImageUrl, type UltimaEvaluada } from '@/lib/api';
@@ -99,6 +99,8 @@ export function HeroCarousel({ items, compact = false }: HeroCarouselProps) {
   const safeIdx = Math.min(ci, filtered.length - 1);
   const item    = filtered[safeIdx];
   const imgSrc  = resolveImageUrl(item.drive_link, item.id_exhibicion);
+  const vendedorErp = (item.vendedor_erp || item.vendedor || "Sin vendedor").trim();
+  const pdvNombre = (item.razon_social || "").trim();
 
   return (
     <div className="relative w-full h-full rounded-[2.5rem] overflow-hidden shadow-2xl ring-1 ring-slate-200/50 flex flex-col bg-slate-950 group">
@@ -158,47 +160,48 @@ export function HeroCarousel({ items, compact = false }: HeroCarouselProps) {
             exit={{ y: -6, opacity: 0 }}
             transition={{ duration: 0.35, delay: 0.1 }}
           >
-            {/* ── 3 badges en UNA fila (nowrap) ── */}
-            <div className="flex items-center gap-1.5 mb-2 overflow-hidden">
-              {/* Badge 1: Vendedor */}
-              <span className="flex items-center gap-1 bg-white/20 backdrop-blur-sm border border-white/25 text-white font-black text-[9px] uppercase tracking-wider px-2 py-1 rounded-lg shrink-0 min-w-0 max-w-[100px]">
-                <User size={9} className="text-white/60 shrink-0" />
-                <span className="truncate">{item.vendedor}</span>
-              </span>
-
-              {/* Badge 2: Estado */}
-              <span className={cn(
-                "text-[9px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg shrink-0 whitespace-nowrap",
-                estadoBadgeStyle(item.estado),
-              )}>
-                {estadoLabel(item.estado)}
-              </span>
-
-              {/* Badge 3: Tiempo */}
-              <span className="flex items-center gap-1 bg-black/35 backdrop-blur-sm border border-white/10 text-white/75 font-bold text-[9px] uppercase tracking-wide px-2 py-1 rounded-lg shrink-0 whitespace-nowrap">
-                <Clock size={9} className="text-white/45 shrink-0" />
-                {formatTimeText(item.fecha_evaluacion || item.timestamp_subida)}
-              </span>
+            {/* Vendedor ERP + estado + tiempo */}
+            <div className="flex items-start justify-between gap-2 mb-2">
+              <div className="min-w-0 flex-1">
+                <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-white/50 mb-0.5">Vendedor</p>
+                <p className="text-white font-black text-sm uppercase tracking-tight leading-tight truncate" title={vendedorErp}>
+                  {vendedorErp}
+                </p>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <span className={cn(
+                  "text-[9px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg whitespace-nowrap",
+                  estadoBadgeStyle(item.estado),
+                )}>
+                  {estadoLabel(item.estado)}
+                </span>
+                <span className="flex items-center gap-1 bg-black/35 backdrop-blur-sm border border-white/10 text-white/75 font-bold text-[9px] uppercase tracking-wide px-2 py-1 rounded-lg whitespace-nowrap">
+                  <Clock size={9} className="text-white/45 shrink-0" />
+                  {formatTimeText(item.fecha_evaluacion || item.timestamp_subida)}
+                </span>
+              </div>
             </div>
 
-            {/* ── PDV info ── */}
-            <div className="flex items-center gap-2 overflow-hidden">
-              {/* ID + razón social en un solo chip */}
-              <div className="flex items-center gap-1 bg-white/10 backdrop-blur-sm px-2 py-1 rounded-lg border border-white/15 min-w-0">
-                <Hash size={9} className="text-white/45 shrink-0" />
-                <span className="text-white font-black text-[9px] tracking-wide shrink-0">#{item.nro_cliente}</span>
-                {item.razon_social && (
-                  <span className="text-white/60 font-bold text-[9px] truncate">· {item.razon_social}</span>
-                )}
+            {/* PDV: ID ERP, razón social, ciudad */}
+            <div className="space-y-1 bg-white/10 backdrop-blur-sm rounded-xl border border-white/15 px-2.5 py-2">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <Hash size={10} className="text-white/45 shrink-0" />
+                <span className="text-[9px] font-bold uppercase tracking-wider text-white/55">ID ERP</span>
+                <span className="text-white font-black text-xs tabular-nums truncate">
+                  {item.nro_cliente || "—"}
+                </span>
               </div>
-
-              {/* Ciudad */}
-              {item.ciudad && (
-                <div className="flex items-center gap-1 text-white/55 shrink-0">
-                  <MapPin size={9} className="text-white/35" />
-                  <span className="text-[9px] font-bold uppercase tracking-wide whitespace-nowrap">{item.ciudad}</span>
+              {pdvNombre ? (
+                <p className="text-[11px] font-semibold text-white/90 leading-snug line-clamp-2" title={pdvNombre}>
+                  {pdvNombre}
+                </p>
+              ) : null}
+              {item.ciudad ? (
+                <div className="flex items-center gap-1 text-white/70">
+                  <MapPin size={10} className="text-white/40 shrink-0" />
+                  <span className="text-[10px] font-bold uppercase tracking-wide truncate">{item.ciudad}</span>
                 </div>
-              )}
+              ) : null}
             </div>
           </motion.div>
         </AnimatePresence>

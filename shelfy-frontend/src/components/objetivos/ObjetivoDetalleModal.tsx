@@ -16,6 +16,7 @@ import {
   Rocket,
   MapPin,
   CheckCircle2,
+  ChevronDown,
 } from "lucide-react";
 
 function ProgressSection({
@@ -107,12 +108,18 @@ function ItemsSection({ obj }: { obj: Objetivo }) {
     pendiente: "Pendiente",
   };
 
+  const cumplidos = obj.items.filter((it) => it.estado_item === "cumplido").length;
+
   return (
-    <div className="space-y-1">
-      <p className="text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wide">
-        PDVs ({obj.items.length})
-      </p>
-      <div className="space-y-0.5 max-h-36 overflow-y-auto pr-1">
+    <details className="group rounded-md border border-[var(--shelfy-border)] bg-[var(--shelfy-panel)]">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-xs font-medium text-[var(--shelfy-text)] hover:bg-[var(--shelfy-bg)]/50 [&::-webkit-details-marker]:hidden">
+        <span>Detalle de PDVs ({obj.items.length})</span>
+        <span className="flex items-center gap-2 text-[10px] font-normal text-[var(--shelfy-muted)]">
+          {cumplidos} cumplidos
+          <ChevronDown className="w-3.5 h-3.5 shrink-0 transition-transform group-open:rotate-180" />
+        </span>
+      </summary>
+      <div className="border-t border-[var(--shelfy-border)] px-2 py-1.5 max-h-40 overflow-y-auto">
         {obj.items.map((it) => {
           const code =
             it.id_cliente_erp ??
@@ -132,7 +139,7 @@ function ItemsSection({ obj }: { obj: Objetivo }) {
           return (
             <div
               key={it.id_cliente_pdv}
-              className="flex items-center gap-1.5 text-[10px] py-0.5 border-b border-[var(--shelfy-border)]/30 last:border-0"
+              className="flex items-center gap-1.5 text-[10px] py-1 border-b border-[var(--shelfy-border)]/30 last:border-0"
             >
               <span
                 className={`w-1.5 h-1.5 rounded-full shrink-0 ${colorDot[it.estado_item] ?? "bg-slate-300"}`}
@@ -151,7 +158,7 @@ function ItemsSection({ obj }: { obj: Objetivo }) {
           );
         })}
       </div>
-    </div>
+    </details>
   );
 }
 

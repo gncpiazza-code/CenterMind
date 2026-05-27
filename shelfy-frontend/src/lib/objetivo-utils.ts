@@ -107,6 +107,28 @@ function columnaDiaHabil(d: Date): number {
   return wd - 1;
 }
 
+/** Lunes de la semana calendario (lun–dom) que contiene `d`. */
+function lunesDeSemana(d: Date): Date {
+  const r = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const wd = r.getDay() || 7;
+  r.setDate(r.getDate() - (wd - 1));
+  return r;
+}
+
+function formatDiaCorto(d: Date): string {
+  return `${d.getDate()}/${d.getMonth() + 1}`;
+}
+
+function labelSemanaCalendario(dias: DiaHabil[]): string {
+  const enSemana = dias.filter((d) => isBusinessDay(d.date));
+  if (enSemana.length === 0) return "Semana";
+  const first = enSemana[0]!.date;
+  const last = enSemana[enSemana.length - 1]!.date;
+  const a = formatDiaCorto(first);
+  const b = formatDiaCorto(last);
+  return a === b ? a : `${a} – ${b}`;
+}
+
 function inicioEfectivoNoRetro(obj: Objetivo, monthStartDate: Date): Date {
   const src =
     obj.fecha_inicio ||
@@ -245,16 +267,14 @@ export function buildProrrateoGrid(
 
   const semanasMap = new Map<string, DiaHabil[]>();
   for (const dia of todosDias) {
-    const dt = dia.date;
-    const weekIdx = Math.floor((dt.getDate() - 1) / 7) + 1;
-    const key = `s${weekIdx}`;
+    const key = isoDate(lunesDeSemana(dia.date));
     if (!semanasMap.has(key)) semanasMap.set(key, []);
     semanasMap.get(key)!.push(dia);
   }
 
-  const semanas: SemanaProrrateo[] = Array.from(semanasMap.entries()).map(
-    ([key, dias]) => {
-      const weekNum = key.replace("s", "");
+  const semanas: SemanaProrrateo[] = Array.from(semanasMap.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, dias]) => {
       const celdas: (CeldaProrrateo | "pre" | null)[] = Array(6).fill(null);
       const aplicables = dias.filter((d) => !d.isPreStart);
 
@@ -299,15 +319,14 @@ export function buildProrrateoGrid(
 
       return {
         key,
-        label: `Semana ${weekNum}`,
+        label: labelSemanaCalendario(dias),
         celdas,
         weekMeta,
         weekAvance,
         weekPct,
         aplicable: aplicables.length > 0,
       };
-    }
-  );
+    });
 
   return {
     semanas,

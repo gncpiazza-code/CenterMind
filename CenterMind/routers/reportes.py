@@ -280,47 +280,42 @@ def _build_integrante_vendor_name_map(distribuidor_id: int) -> dict[int, str]:
     return out
 
 
+_EXHIBICION_SNAPSHOT_SELECT = (
+    "id_exhibicion,id_integrante,id_cliente,id_cliente_pdv,cliente_sombra_codigo,tipo_pdv"
+)
+
+
 def _exhibition_snapshot_from_row(row: dict) -> dict:
     """Campos de exhibición embebidos en fila de últimas (RPC o query directa)."""
+    shadow = _ultimas_safe_text(row.get("cliente_sombra_codigo")).strip()
+    nro = _ultimas_safe_text(row.get("nro_cliente")).strip()
     return {
         "id_exhibicion": row.get("id_exhibicion"),
         "id_integrante": row.get("id_integrante"),
         "id_cliente": row.get("id_cliente"),
         "id_cliente_pdv": row.get("id_cliente_pdv"),
-        "numero_cliente_local": row.get("numero_cliente_local") or row.get("nro_cliente"),
-        "cliente_sombra_codigo": row.get("cliente_sombra_codigo"),
+        "cliente_sombra_codigo": shadow or nro or None,
     }
 
 
-def _enrich_ultimas_dashboard_rows(rows: list[dict], distribuidor_id: int) -> list[dict]:
-    """Enriquece últimas evaluadas: PDV (ID ERP, razón social, ciudad) y nombre ERP del vendedor."""
-    if not rows:
-        return rows
-
+def _hydrate_exhibiciones_map(rows: list[dict], distribuidor_id: int) -> dict[int, dict]:
+    """Carga exhibiciones por id_exhibicion (RPC no trae id_integrante ni cliente)."""
     ex_map: dict[int, dict] = {}
     for row in rows:
         eid = _ultimas_safe_int(row.get("id_exhibicion"))
-        if eid is None:
-            continue
-        ex_map[eid] = _exhibition_snapshot_from_row(row)
+        if eid is not None:
+            ex_map[eid] = _exhibition_snapshot_from_row(row)
 
-    missing_ids = [
-        eid
-        for eid in {
-            _ultimas_safe_int(r.get("id_exhibicion"))
-            for r in rows
-            if _ultimas_safe_int(r.get("id_exhibicion")) is not None
-        }
-        if eid is not None and not ex_map.get(eid, {}).get("id_integrante")
-    ]
-    if missing_ids:
+    ex_ids = list(ex_map.keys())
+    if not ex_ids:
+        return ex_map
+
+    for i in range(0, len(ex_ids), 200):
+        chunk = ex_ids[i : i + 200]
         ex_res = (
             sb.table("exhibiciones")
-            .select(
-                "id_exhibicion, id_integrante, id_cliente, id_cliente_pdv, "
-                "numero_cliente_local, cliente_sombra_codigo"
-            )
-            .in_("id_exhibicion", missing_ids)
+            .select(_EXHIBICION_SNAPSHOT_SELECT)
+            .in_("id_exhibicion", chunk)
             .eq("id_distribuidor", distribuidor_id)
             .execute()
         )
@@ -328,6 +323,15 @@ def _enrich_ultimas_dashboard_rows(rows: list[dict], distribuidor_id: int) -> li
             eid = _ultimas_safe_int(ex.get("id_exhibicion"))
             if eid is not None:
                 ex_map[eid] = ex
+    return ex_map
+
+
+def _enrich_ultimas_dashboard_rows(rows: list[dict], distribuidor_id: int) -> list[dict]:
+    """Enriquece últimas evaluadas: PDV (ID ERP, razón social, ciudad) y nombre ERP del vendedor."""
+    if not rows:
+        return rows
+
+    ex_map = _hydrate_exhibiciones_map(rows, distribuidor_id)
 
     erp_keys: set[str] = set()
     cliente_pks: set[int] = set()
@@ -338,7 +342,6 @@ def _enrich_ultimas_dashboard_rows(rows: list[dict], distribuidor_id: int) -> li
             erp_keys.add(_ultimas_normalize_erp_code(nc))
         ex = ex_map.get(_ultimas_safe_int(row.get("id_exhibicion")) or -1, {})
         for key in (
-            ex.get("numero_cliente_local"),
             ex.get("cliente_sombra_codigo"),
             row.get("nro_cliente"),
         ):
@@ -413,33 +416,35 @@ def _enrich_ultimas_dashboard_rows(rows: list[dict], distribuidor_id: int) -> li
             by_pk[pk] = c
 
     def _cliente_for_row(row: dict) -> dict | None:
-        nc = _ultimas_safe_text(row.get("nro_cliente")).strip()
-        if nc:
-            hit = by_erp.get(nc) or by_erp.get(_ultimas_normalize_erp_code(nc))
-            if hit:
-                return hit
         ex = ex_map.get(_ultimas_safe_int(row.get("id_exhibicion")) or -1, {})
         for pk_field in ("id_cliente_pdv", "id_cliente"):
             pk = _ultimas_safe_int(ex.get(pk_field))
             if pk is not None and pk in by_pk:
                 return by_pk[pk]
-        for key in (ex.get("numero_cliente_local"), ex.get("cliente_sombra_codigo")):
-            s = _ultimas_safe_text(key).strip()
-            if not s:
-                continue
-            hit = by_erp.get(s) or by_erp.get(_ultimas_normalize_erp_code(s))
+        nc = _ultimas_safe_text(row.get("nro_cliente")).strip()
+        if nc:
+            hit = by_erp.get(nc) or by_erp.get(_ultimas_normalize_erp_code(nc))
+            if hit:
+                return hit
+        shadow = _ultimas_safe_text(ex.get("cliente_sombra_codigo")).strip()
+        if shadow:
+            hit = by_erp.get(shadow) or by_erp.get(_ultimas_normalize_erp_code(shadow))
             if hit:
                 return hit
         return None
 
     vendor_map = _build_integrante_vendor_name_map(distribuidor_id)
     fallback_vendor = build_integrante_to_erp_name(distribuidor_id)
+    erp_name_map = _get_erp_name_map(distribuidor_id)
 
     for row in rows:
+        ex = ex_map.get(_ultimas_safe_int(row.get("id_exhibicion")) or -1, {})
         if not _ultimas_safe_text(row.get("nro_cliente")).strip():
-            tp = _ultimas_safe_text(row.get("tipo_pdv")).strip()
-            if tp:
-                row["nro_cliente"] = tp
+            shadow = _ultimas_safe_text(ex.get("cliente_sombra_codigo")).strip()
+            if shadow:
+                row["nro_cliente"] = shadow
+        if row.get("id_integrante") is None and ex.get("id_integrante") is not None:
+            row["id_integrante"] = ex.get("id_integrante")
 
         cliente = _cliente_for_row(row)
         if cliente:
@@ -468,13 +473,14 @@ def _enrich_ultimas_dashboard_rows(rows: list[dict], distribuidor_id: int) -> li
             row["vendedor_erp"] = erp_name
             row["vendedor"] = erp_name
         elif tg_vendedor:
-            row["vendedor_erp"] = tg_vendedor
-            row["vendedor"] = tg_vendedor
+            mapped = erp_name_map.get(tg_vendedor.lower(), tg_vendedor)
+            row["vendedor_erp"] = mapped
+            row["vendedor"] = mapped
 
     return rows
 
 
-_ULTIMAS_ESTADOS = ("Aprobado", "Destacado")
+_ULTIMAS_ESTADOS = ("Aprobado", "Destacado", "Destacada")
 
 
 def _fetch_ultimas_evaluadas_rows(distribuidor_id: int, n: int) -> list[dict]:
@@ -494,7 +500,7 @@ def _fetch_ultimas_evaluadas_rows(distribuidor_id: int, n: int) -> list[dict]:
                 sb.table("exhibiciones")
                 .select(
                     "id_exhibicion,id_integrante,estado,url_foto_drive,timestamp_subida,evaluated_at,"
-                    "numero_cliente_local,tipo_pdv,id_cliente_pdv,id_cliente,cliente_sombra_codigo"
+                    "tipo_pdv,id_cliente_pdv,id_cliente,cliente_sombra_codigo"
                 )
                 .eq("id_distribuidor", distribuidor_id)
                 .in_("estado", list(_ULTIMAS_ESTADOS))
@@ -521,8 +527,7 @@ def _fetch_ultimas_evaluadas_rows(distribuidor_id: int, n: int) -> list[dict]:
                     "drive_link": _ultimas_safe_text(ex.get("url_foto_drive")),
                     "estado": _ultimas_safe_text(ex.get("estado")),
                     "tipo_pdv": _ultimas_safe_text(ex.get("tipo_pdv")),
-                    "nro_cliente": _ultimas_safe_text(ex.get("numero_cliente_local")).strip(),
-                    "numero_cliente_local": ex.get("numero_cliente_local"),
+                    "nro_cliente": _ultimas_safe_text(ex.get("cliente_sombra_codigo")).strip(),
                     "id_integrante": ex.get("id_integrante"),
                     "id_cliente_pdv": ex.get("id_cliente_pdv"),
                     "id_cliente": ex.get("id_cliente"),

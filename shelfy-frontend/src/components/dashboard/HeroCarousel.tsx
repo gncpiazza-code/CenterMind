@@ -183,7 +183,7 @@ export function HeroCarousel({ items, compact = false }: HeroCarouselProps) {
             </div>
 
             {/* PDV: ID ERP, razón social, ciudad — siempre visibles */}
-            <div className="space-y-1 bg-white/10 backdrop-blur-sm rounded-xl border border-white/15 px-2.5 py-2">
+            <div className="space-y-1 bg-white/10 backdrop-blur-sm rounded-2xl border border-white/15 px-2.5 py-2 mx-0.5 mb-0.5">
               <div className="flex items-center gap-1.5 min-w-0">
                 <Hash size={10} className="text-white/45 shrink-0" />
                 <span className="text-[9px] font-bold uppercase tracking-wider text-white/55">ID ERP</span>

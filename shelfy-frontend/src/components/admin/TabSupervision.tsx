@@ -345,6 +345,70 @@ function groupRouteLikeByDay<T extends RouteLike>(rutas: T[]) {
     }));
 }
 
+type ObjVendedorRouteRow = import("@/store/useObjetivosMenuStore").ObjVendedorRoute;
+
+function mapRutasSupervisionToObjRoutes(
+  rutas: RutaSupervision[],
+  idVendedor: number,
+  nombreVendedor: string,
+): ObjVendedorRouteRow[] {
+  return [...rutas]
+    .sort(
+      (a, b) =>
+        (DIA_ORDER[a.dia_semana?.toLowerCase() ?? ""] ?? 9) -
+        (DIA_ORDER[b.dia_semana?.toLowerCase() ?? ""] ?? 9),
+    )
+    .map((r) => ({
+      id_ruta: r.id_ruta,
+      nro_ruta: r.nombre_ruta ?? String(r.id_ruta),
+      dia_semana: r.dia_semana ?? "",
+      total_pdv: r.total_pdv ?? 0,
+      id_vendedor: idVendedor,
+      nombre_vendedor: nombreVendedor,
+    }));
+}
+
+/** Agrupa rutas por vendedor y día cuando hay selección multi-vendedor en el mapa. */
+function groupRoutesForRuteoSelect(rutas: ObjVendedorRouteRow[]) {
+  const vendorIds = new Set(
+    rutas.map((r) => r.id_vendedor).filter((v): v is number => v != null),
+  );
+  if (vendorIds.size <= 1) {
+    return groupRouteLikeByDay(rutas).map((g) => ({
+      ...g,
+      vendorLabel: null as string | null,
+    }));
+  }
+  const byVendor = new Map<number, ObjVendedorRouteRow[]>();
+  for (const r of rutas) {
+    const vid = r.id_vendedor ?? 0;
+    if (!byVendor.has(vid)) byVendor.set(vid, []);
+    byVendor.get(vid)!.push(r);
+  }
+  const out: Array<{
+    vendorLabel: string | null;
+    day: string;
+    routes: ObjVendedorRouteRow[];
+    totalPdvs: number;
+  }> = [];
+  for (const routes of byVendor.values()) {
+    const vendorLabel = routes[0]?.nombre_vendedor ?? null;
+    for (const g of groupRouteLikeByDay(routes)) {
+      out.push({ vendorLabel, ...g });
+    }
+  }
+  return out;
+}
+
+function routesForPinVendor(
+  allRoutes: ObjVendedorRouteRow[],
+  idVendedor: number | undefined,
+): ObjVendedorRouteRow[] {
+  if (!idVendedor) return allRoutes;
+  const filtered = allRoutes.filter((r) => r.id_vendedor === idVendedor);
+  return filtered.length > 0 ? filtered : allRoutes;
+}
+
 // ── Vendor avatar ─────────────────────────────────────────────────────────────
 const RANGO_COLORS: Record<string, string> = {
   "1-7 Días":   "bg-green-500/15 text-green-400 border-green-500/25",
@@ -1174,6 +1238,17 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
     return dedupePinsByClienteErp(result);
   }, [vendedores, visibleVends, visibleRutas, visibleClientes, cuentasData, queryClient, mapStatsTick]);
 
+  const selectedVendorIdsKey = useMemo(() => {
+    const ids = [
+      ...new Set(
+        selectedPDVsForObjective
+          .map((id) => pines.find((p) => p.id === id)?.id_vendedor)
+          .filter((v): v is number => v != null),
+      ),
+    ].sort((a, b) => a - b);
+    return ids.join(",");
+  }, [selectedPDVsForObjective, pines]);
+
   // ── Floating Objetivos: contextual data loader ───────────────────────────
   useEffect(() => {
     const firstPin = pines.find(p => selectedPDVsForObjective.includes(p.id) && p.id_vendedor);
@@ -1187,16 +1262,15 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
     if (objTipo === "ruteo_alteo") {
       setObjLoadingContext(true);
       fetchRutasSupervision(vendedorId)
-        .then(rutas => setObjVendedorRoutes(
-          [...rutas]
-            .sort((a, b) => (DIA_ORDER[a.dia_semana?.toLowerCase() ?? ""] ?? 9) - (DIA_ORDER[b.dia_semana?.toLowerCase() ?? ""] ?? 9))
-            .map((r: RutaSupervision) => ({
-              id_ruta: r.id_ruta,
-              nro_ruta: r.nombre_ruta ?? String(r.id_ruta),
-              dia_semana: r.dia_semana ?? "",
-              total_pdv: r.total_pdv ?? 0,
-            }))
-        ))
+        .then((rutas) =>
+          setObjVendedorRoutes(
+            mapRutasSupervisionToObjRoutes(
+              rutas,
+              vendedorId,
+              firstPin.vendedor ?? vendedores.find((v) => v.id_vendedor === vendedorId)?.nombre_vendedor ?? "",
+            ),
+          ),
+        )
         .catch(() => setObjVendedorRoutes([]))
         .finally(() => setObjLoadingContext(false));
     } else if (objTipo === "cobranza") {
@@ -1221,18 +1295,29 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
         .catch(() => setObjDebtList([]))
         .finally(() => setObjLoadingContext(false));
     } else if (objTipo === "ruteo") {
+      const vendorIds = selectedVendorIdsKey
+        ? selectedVendorIdsKey
+            .split(",")
+            .map((s) => Number(s))
+            .filter((n) => Number.isFinite(n) && n > 0)
+        : [];
+      if (vendorIds.length === 0) {
+        setObjVendedorRoutes([]);
+        return;
+      }
       setObjLoadingContext(true);
-      fetchRutasSupervision(vendedorId)
-        .then(rutas => setObjVendedorRoutes(
-          [...rutas]
-            .sort((a, b) => (DIA_ORDER[a.dia_semana?.toLowerCase() ?? ""] ?? 9) - (DIA_ORDER[b.dia_semana?.toLowerCase() ?? ""] ?? 9))
-            .map((r: RutaSupervision) => ({
-              id_ruta: r.id_ruta,
-              nro_ruta: r.nombre_ruta ?? String(r.id_ruta),
-              dia_semana: r.dia_semana ?? "",
-              total_pdv: r.total_pdv ?? 0,
-            }))
-        ))
+      Promise.all(
+        vendorIds.map(async (vId) => {
+          const rutas = await fetchRutasSupervision(vId);
+          const vend = vendedores.find((v) => v.id_vendedor === vId);
+          return mapRutasSupervisionToObjRoutes(
+            rutas,
+            vId,
+            vend?.nombre_vendedor ?? `Vendedor ${vId}`,
+          );
+        }),
+      )
+        .then((groups) => setObjVendedorRoutes(groups.flat()))
         .catch(() => setObjVendedorRoutes([]))
         .finally(() => setObjLoadingContext(false));
     } else if (objTipo === "conversion_estado" || objTipo === "exhibicion") {
@@ -1243,7 +1328,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
       );
       setObjInactivePdvCount(inactive.length);
     }
-  }, [objTipo, selectedPDVsForObjective.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [objTipo, selectedVendorIdsKey, selectedPDVsForObjective.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Objective phrase builder ─────────────────────────────────────────────
   function buildObjectivePhrase(
@@ -1298,6 +1383,14 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
     setObjSubmitting(true);
     try {
       if (objTipo === "ruteo") {
+        if (objOrigen === "distribuidora" && !objFecha) {
+          toast.error("Indicá la fecha límite del objetivo");
+          return;
+        }
+        if (objOrigen === "compania" && !objMesReferencia) {
+          toast.error("Indicá el mes de referencia");
+          return;
+        }
         if (objRuteoConfigMode === "global") {
           if (objRuteoAccionGlobal === "cambio_ruta" && !objRuteoGlobalDestinoId) {
             toast.error("Seleccioná la ruta destino");
@@ -1308,15 +1401,36 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
             return;
           }
         }
-        // For ruteo: group all selected PDVs into a single objetivo with pdv_items
-        const firstPin = pines.find(p => selectedPDVsForObjective.includes(p.id) && p.id_vendedor);
-        if (firstPin?.id_vendedor) {
-          const autoDesc = objDesc || buildObjectivePhrase(objTipo, firstPin.vendedor, [], objFecha);
-          const globalDestinoRuta = objVendedorRoutes.find(r => r.id_ruta === objRuteoGlobalDestinoId) ?? null;
-          const pdvItems = selectedPDVsForObjective.map((pdvId, idx) => {
-            const pin = pines.find(p => p.id === pdvId);
+
+        const byVendedor = new Map<number, { vendedor: string; pdvIds: number[] }>();
+        for (const pdvId of selectedPDVsForObjective) {
+          const pin = pines.find((p) => p.id === pdvId);
+          if (!pin?.id_vendedor) continue;
+          if (!byVendedor.has(pin.id_vendedor)) {
+            byVendedor.set(pin.id_vendedor, { vendedor: pin.vendedor, pdvIds: [] });
+          }
+          byVendedor.get(pin.id_vendedor)!.pdvIds.push(pdvId);
+        }
+        if (byVendedor.size === 0) {
+          toast.error("Los PDVs seleccionados no tienen vendedor asignado");
+          return;
+        }
+
+        const hasValidPolygon =
+          routeBuildEnabled &&
+          !!activePolygonGeoJson &&
+          Array.isArray(activePolygonGeoJson.geometry?.coordinates) &&
+          Array.isArray(activePolygonGeoJson.geometry.coordinates[0]) &&
+          activePolygonGeoJson.geometry.coordinates[0].length >= 4;
+        const groupId = hasValidPolygon ? crypto.randomUUID() : undefined;
+
+        const buildRuteoPdvItems = (pdvIds: number[]) =>
+          pdvIds.map((pdvId, idx) => {
+            const pin = pines.find((p) => p.id === pdvId);
             if (objRuteoConfigMode === "global") {
               const acc = objRuteoAccionGlobal;
+              const globalDestinoRuta =
+                objVendedorRoutes.find((r) => r.id_ruta === objRuteoGlobalDestinoId) ?? null;
               return {
                 id_cliente_pdv: pdvId,
                 nombre_pdv: pin?.nombre,
@@ -1337,12 +1451,13 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
               };
             }
             const item = objRuteoItemsMap[pdvId] ?? { accion: objRuteoAccionGlobal };
-            const destinoRuta = objVendedorRoutes.find(r => r.id_ruta === item.id_ruta_destino) ?? null;
+            const destinoRuta =
+              objVendedorRoutes.find((r) => r.id_ruta === item.id_ruta_destino) ?? null;
             return {
               id_cliente_pdv: pdvId,
               nombre_pdv: pin?.nombre,
               accion_ruteo: item.accion,
-              ...(item.accion === 'cambio_ruta' && item.id_ruta_destino
+              ...(item.accion === "cambio_ruta" && item.id_ruta_destino
                 ? {
                     id_ruta_destino: item.id_ruta_destino,
                     metadata_ruteo: {
@@ -1351,43 +1466,95 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                     },
                   }
                 : {}),
-              ...(item.accion === 'baja' && item.motivo_baja ? { motivo_baja: item.motivo_baja } : {}),
+              ...(item.accion === "baja" && item.motivo_baja
+                ? { motivo_baja: item.motivo_baja }
+                : {}),
               orden_sugerido: idx + 1,
             };
           });
-          // Si "Armar Ruta" está activo, enriquecer items con metadata de polígono
-          const hasValidPolygon =
-            routeBuildEnabled &&
-            !!activePolygonGeoJson &&
-            Array.isArray(activePolygonGeoJson.geometry?.coordinates) &&
-            Array.isArray(activePolygonGeoJson.geometry.coordinates[0]) &&
-            activePolygonGeoJson.geometry.coordinates[0].length >= 4;
-          const groupId = hasValidPolygon
-            ? crypto.randomUUID()
-            : undefined;
-          const enrichedPdvItems = pdvItems.map(item => ({
+
+        const enrichItems = (items: ReturnType<typeof buildRuteoPdvItems>) =>
+          items.map((item) => ({
             ...item,
-            ...(groupId && activePolygonGeoJson ? {
-              group_id: groupId,
-              group_name: 'Polígono de ruteo',
-              polygon_geojson: activePolygonGeoJson as Record<string, unknown>,
-            } : {}),
+            ...(groupId && activePolygonGeoJson
+              ? {
+                  group_id: groupId,
+                  group_name: "Polígono de ruteo",
+                  polygon_geojson: activePolygonGeoJson as Record<string, unknown>,
+                }
+              : {}),
           }));
+
+        const globalDestinoRuta =
+          objVendedorRoutes.find((r) => r.id_ruta === objRuteoGlobalDestinoId) ?? null;
+        const multiVendor = byVendedor.size > 1;
+        const useSingleCrossVendorGuide =
+          multiVendor &&
+          objRuteoConfigMode === "global" &&
+          objRuteoAccionGlobal === "cambio_ruta" &&
+          !!objRuteoGlobalDestinoId;
+
+        let created = 0;
+
+        if (useSingleCrossVendorGuide) {
+          const cabeceraVendId =
+            globalDestinoRuta?.id_vendedor ??
+            [...byVendedor.keys()][0];
+          const cabeceraNombre =
+            vendedores.find((v) => v.id_vendedor === cabeceraVendId)?.nombre_vendedor ??
+            globalDestinoRuta?.nombre_vendedor ??
+            [...byVendedor.values()][0]?.vendedor ??
+            "";
+          const allPdvIds = selectedPDVsForObjective;
+          const autoDesc =
+            objDesc ||
+            buildObjectivePhrase(objTipo, cabeceraNombre, [], objFecha);
           await createObjetivo({
             id_distribuidor: selectedDist,
-            id_vendedor: firstPin.id_vendedor,
+            id_vendedor: cabeceraVendId,
             tipo: objTipo,
-            nombre_vendedor: firstPin.vendedor,
+            nombre_vendedor: cabeceraNombre,
             descripcion: autoDesc || undefined,
-            fecha_objetivo: objOrigen === 'distribuidora' ? (objFecha || undefined) : undefined,
-            valor_objetivo: selectedPDVsForObjective.length,
-            pdv_items: enrichedPdvItems,
-            ruteo_build_mode: hasValidPolygon ? 'polygon' : 'manual',
+            fecha_objetivo: objOrigen === "distribuidora" ? objFecha : undefined,
+            valor_objetivo: allPdvIds.length,
+            pdv_items: enrichItems(buildRuteoPdvItems(allPdvIds)),
+            ruteo_build_mode: hasValidPolygon ? "polygon" : "manual",
             origen: objOrigen,
-            mes_referencia: objOrigen === 'compania' ? (objMesReferencia || undefined) : undefined,
-            tasa_pendientes: objTasaPendientes !== '' ? Number(objTasaPendientes) : undefined,
+            mes_referencia:
+              objOrigen === "compania" ? objMesReferencia || undefined : undefined,
+            tasa_pendientes:
+              objTasaPendientes !== "" ? Number(objTasaPendientes) : undefined,
           } as ObjetivoCreate);
+          created = 1;
+        } else {
+          for (const [vendedorId, { vendedor, pdvIds }] of byVendedor) {
+            const autoDesc =
+              objDesc || buildObjectivePhrase(objTipo, vendedor, [], objFecha);
+            await createObjetivo({
+              id_distribuidor: selectedDist,
+              id_vendedor: vendedorId,
+              tipo: objTipo,
+              nombre_vendedor: vendedor,
+              descripcion: autoDesc || undefined,
+              fecha_objetivo: objOrigen === "distribuidora" ? objFecha : undefined,
+              valor_objetivo: pdvIds.length,
+              pdv_items: enrichItems(buildRuteoPdvItems(pdvIds)),
+              ruteo_build_mode: hasValidPolygon ? "polygon" : "manual",
+              origen: objOrigen,
+              mes_referencia:
+                objOrigen === "compania" ? objMesReferencia || undefined : undefined,
+              tasa_pendientes:
+                objTasaPendientes !== "" ? Number(objTasaPendientes) : undefined,
+            } as ObjetivoCreate);
+            created += 1;
+          }
         }
+
+        toast.success(
+          created === 1
+            ? "Guía de ruteo creada con PDF"
+            : `${created} guías de ruteo creadas (una por vendedor)`,
+        );
       } else {
         // Agrupar PDVs por vendedor → un solo objetivo por vendedor con pdv_items
         const byVendedor = new Map<number, { vendedor: string; pdvs: typeof pines }>();
@@ -1453,6 +1620,10 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
       setObjMenuOpen(false);
       // Limpiar estado de Armar Ruta tras submit exitoso
       if (routeBuildEnabled) clearRouteBuildState();
+    } catch (err) {
+      const msg =
+        err instanceof Error ? err.message : "No se pudo crear el objetivo";
+      toast.error(msg);
     } finally {
       setObjSubmitting(false);
     }
@@ -3125,20 +3296,25 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                 {/* Contextual section: Ruteo */}
                 {objTipo === "ruteo" && (
                   <div className="space-y-2">
+                    {selectedVendorIdsKey.includes(",") && (
+                      <p className="text-[10px] text-violet-400/95 bg-violet-500/10 border border-violet-500/20 rounded-lg px-2.5 py-1.5 leading-relaxed">
+                        Varias zonas/vendedores: se cargan todas las rutas. Con cambio de ruta global se genera una guía unificada; con baja o config por PDV, una guía por vendedor.
+                      </p>
+                    )}
                     {objLoadingContext ? (
                       <div className="flex items-center gap-1.5 text-xs text-[var(--shelfy-muted)]">
-                        <Loader2 className="w-3 h-3 animate-spin" /> Cargando rutas del vendedor...
+                        <Loader2 className="w-3 h-3 animate-spin" /> Cargando rutas...
                       </div>
                     ) : objVendedorRoutes.length === 0 ? (
-                      <p className="text-xs text-amber-500/90">No hay rutas cargadas para este vendedor.</p>
+                      <p className="text-xs text-amber-500/90">No hay rutas cargadas para los vendedores seleccionados.</p>
                     ) : (
                       <div className="rounded-lg border border-[var(--shelfy-border)] bg-[var(--shelfy-bg)] p-2 max-h-28 overflow-y-auto">
-                        <p className="text-[9px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider mb-1">Rutas asignadas al vendedor</p>
+                        <p className="text-[9px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider mb-1">Rutas de los vendedores seleccionados</p>
                         <div className="space-y-1">
-                          {groupRouteLikeByDay(objVendedorRoutes).map(({ day, routes, totalPdvs }) => (
-                            <details key={day} className="rounded border border-[var(--shelfy-border)]/60 bg-[var(--shelfy-panel)] px-2 py-1">
+                          {groupRoutesForRuteoSelect(objVendedorRoutes).map(({ day, routes, totalPdvs, vendorLabel }) => (
+                            <details key={`${vendorLabel ?? ""}-${day}`} className="rounded border border-[var(--shelfy-border)]/60 bg-[var(--shelfy-panel)] px-2 py-1">
                               <summary className="cursor-pointer text-[10px] font-semibold text-[var(--shelfy-text)] uppercase">
-                                {day} · {totalPdvs} PDVs
+                                {vendorLabel ? `${vendorLabel} · ` : ""}{day} · {totalPdvs} PDVs
                               </summary>
                               <ul className="text-[11px] text-[var(--shelfy-text)] space-y-0.5 mt-1">
                                 {routes.map(r => (
@@ -3223,10 +3399,10 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                                 <SelectValue placeholder="Elegir ruta destino..." />
                               </SelectTrigger>
                               <SelectContent className="max-h-60 z-[10060]">
-                                {groupRouteLikeByDay(objVendedorRoutes).map(({ day, routes, totalPdvs }) => (
-                                  <div key={day}>
+                                {groupRoutesForRuteoSelect(objVendedorRoutes).map(({ day, routes, totalPdvs, vendorLabel }) => (
+                                  <div key={`${vendorLabel ?? ""}-${day}`}>
                                     <div className="px-2 py-1 text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase">
-                                      {day} · {totalPdvs} PDVs
+                                      {vendorLabel ? `${vendorLabel} · ` : ""}{day} · {totalPdvs} PDVs
                                     </div>
                                     {routes.map(r => (
                                       <SelectItem key={r.id_ruta} value={String(r.id_ruta)}>
@@ -3296,10 +3472,12 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                                     <SelectValue placeholder="Ruta destino..." />
                                   </SelectTrigger>
                                   <SelectContent className="max-h-52 z-[10060]">
-                                    {groupRouteLikeByDay(objVendedorRoutes).map(({ day, routes, totalPdvs }) => (
-                                      <div key={`${pdvId}-${day}`}>
+                                    {groupRoutesForRuteoSelect(
+                                      routesForPinVendor(objVendedorRoutes, pin.id_vendedor),
+                                    ).map(({ day, routes, totalPdvs, vendorLabel }) => (
+                                      <div key={`${pdvId}-${vendorLabel ?? ""}-${day}`}>
                                         <div className="px-2 py-1 text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase">
-                                          {day} · {totalPdvs} PDVs
+                                          {vendorLabel ? `${vendorLabel} · ` : ""}{day} · {totalPdvs} PDVs
                                         </div>
                                         {routes.map(r => (
                                           <SelectItem key={`${pdvId}-${r.id_ruta}`} value={String(r.id_ruta)}>

@@ -32,6 +32,9 @@ export interface ObjVendedorRoute {
   nro_ruta: string;
   dia_semana: string;
   total_pdv: number;
+  /** Presente cuando se cargan rutas de varios vendedores en el mapa. */
+  id_vendedor?: number;
+  nombre_vendedor?: string;
 }
 
 interface ObjetivosMenuStore {

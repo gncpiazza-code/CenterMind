@@ -182,26 +182,27 @@ export function HeroCarousel({ items, compact = false }: HeroCarouselProps) {
               </div>
             </div>
 
-            {/* PDV: ID ERP, razón social, ciudad */}
+            {/* PDV: ID ERP, razón social, ciudad — siempre visibles */}
             <div className="space-y-1 bg-white/10 backdrop-blur-sm rounded-xl border border-white/15 px-2.5 py-2">
               <div className="flex items-center gap-1.5 min-w-0">
                 <Hash size={10} className="text-white/45 shrink-0" />
                 <span className="text-[9px] font-bold uppercase tracking-wider text-white/55">ID ERP</span>
                 <span className="text-white font-black text-xs tabular-nums truncate">
-                  {item.nro_cliente || "—"}
+                  {(item.nro_cliente || "").trim() || "—"}
                 </span>
               </div>
-              {pdvNombre ? (
-                <p className="text-[11px] font-semibold text-white/90 leading-snug line-clamp-2" title={pdvNombre}>
-                  {pdvNombre}
-                </p>
-              ) : null}
-              {item.ciudad ? (
-                <div className="flex items-center gap-1 text-white/70">
-                  <MapPin size={10} className="text-white/40 shrink-0" />
-                  <span className="text-[10px] font-bold uppercase tracking-wide truncate">{item.ciudad}</span>
-                </div>
-              ) : null}
+              <p
+                className="text-[11px] font-semibold text-white/90 leading-snug line-clamp-2"
+                title={pdvNombre || undefined}
+              >
+                {pdvNombre || "Sin razón social"}
+              </p>
+              <div className="flex items-center gap-1 text-white/70 min-w-0">
+                <MapPin size={10} className="text-white/40 shrink-0" />
+                <span className="text-[10px] font-bold uppercase tracking-wide truncate">
+                  {(item.ciudad || "").trim() || "Sin ciudad"}
+                </span>
+              </div>
             </div>
           </motion.div>
         </AnimatePresence>

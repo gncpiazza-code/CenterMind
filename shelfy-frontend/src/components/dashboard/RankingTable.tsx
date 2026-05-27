@@ -49,8 +49,9 @@ const TOP3_STYLES = [
   },
 ];
 
-const SCROLL_INTERVAL_MS = 32;
-const SCROLL_STEP_PX = 1;
+/** px/ms — ~36 px/s a 60fps */
+const SCROLL_SPEED_PX_PER_MS = 0.036;
+const HOVER_RESUME_MS = 400;
 
 export function RankingTable({
   ranking, periodo, periodoLabel, sucursalFiltro, sucursales,
@@ -80,25 +81,35 @@ export function RankingTable({
     return base.length > 6 ? [...base, ...base] : base;
   }, [ranking]);
 
-  // Auto-scroll: interval estable (el rAF previo no avanzaba si el contenedor no tenía overflow medible)
+  // Auto-scroll continuo (rAF + delta) — evita saltos bruscos del setInterval + reset a 0
   useEffect(() => {
     const el = scrollRef.current;
     if (!el || ranking.length === 0) return;
 
-    const tick = () => {
-      if (autoScrollPaused) return;
-      const { scrollTop, scrollHeight, clientHeight } = el;
-      if (scrollHeight <= clientHeight + 4) return;
-      const half = scrollHeight / 2;
-      if (scrollTop >= half - 2) {
-        el.scrollTop = 0;
-      } else {
-        el.scrollTop += SCROLL_STEP_PX;
+    let rafId = 0;
+    let lastTs = performance.now();
+
+    const step = (now: number) => {
+      const dt = Math.min(now - lastTs, 48);
+      lastTs = now;
+
+      if (!autoScrollPaused) {
+        const { scrollTop, scrollHeight, clientHeight } = el;
+        if (scrollHeight > clientHeight + 4) {
+          const half = scrollHeight / 2;
+          let next = scrollTop + SCROLL_SPEED_PX_PER_MS * dt;
+          if (next >= half) {
+            next -= half;
+          }
+          el.scrollTop = next;
+        }
       }
+
+      rafId = requestAnimationFrame(step);
     };
 
-    const id = window.setInterval(tick, SCROLL_INTERVAL_MS);
-    return () => window.clearInterval(id);
+    rafId = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(rafId);
   }, [ranking.length, displayRows.length, autoScrollPaused]);
 
   // Pause on hover
@@ -107,7 +118,7 @@ export function RankingTable({
     setAutoScrollPaused(true);
   }
   function handleMouseLeave() {
-    pauseTimeoutRef.current = setTimeout(() => setAutoScrollPaused(false), 1500);
+    pauseTimeoutRef.current = setTimeout(() => setAutoScrollPaused(false), HOVER_RESUME_MS);
   }
 
   const sucursalLabel = sucursalFiltro

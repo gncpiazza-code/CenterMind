@@ -461,13 +461,13 @@ export async function fetchUltimasEvaluadas(distribuidorId: number, n: number = 
   );
   return rows.map((row) => {
     const erp =
-      resolveVendorERPName(row, ["vendedor_erp", "nombre_erp", "vendedor"]) ??
-      toNonEmptyString(row.vendedor) ??
+      resolveVendorERPName(row, ["vendedor_erp", "nombre_erp"]) ??
       "Sin vendedor";
     return {
       ...(row as unknown as UltimaEvaluada),
       vendedor: erp,
       vendedor_erp: erp,
+      nro_cliente: toNonEmptyString(row.nro_cliente) ?? "",
       razon_social: toNonEmptyString(row.razon_social) ?? undefined,
       ciudad: toNonEmptyString(row.ciudad) ?? undefined,
     };

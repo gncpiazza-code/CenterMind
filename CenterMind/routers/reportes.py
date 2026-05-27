@@ -185,64 +185,241 @@ def _resolve_sucursal_pk(distribuidor_id: int, sucursal_param: str | int | None)
     return None
 
 
-def _enrich_ultimas_with_razon_social(rows: list[dict], distribuidor_id: int) -> list[dict]:
-    """Agrega razon_social y ciudad desde clientes_pdv_v2 por id_cliente_erp."""
-    if not rows:
-        return rows
-    nro_clientes = list({str(r.get("nro_cliente", "")) for r in rows if r.get("nro_cliente")})
-    if not nro_clientes:
-        return rows
-    t_clientes = tenant_table_name("clientes_pdv_v2", distribuidor_id)
-    PAGE = 1000
-    offset = 0
-    clientes: list[dict] = []
-    while True:
-        chunk = (
-            sb.table(t_clientes)
-            .select("id_cliente_erp,nombre_razon_social,nombre_fantasia,localidad")
-            .in_("id_cliente_erp", nro_clientes)
-            .range(offset, offset + PAGE - 1)
-            .execute()
-            .data or []
-        )
-        clientes.extend(chunk)
-        if len(chunk) < PAGE:
-            break
-        offset += PAGE
-    rs_map: dict[str, str] = {}
-    ciudad_map: dict[str, str] = {}
-    for c in clientes:
-        erp_id = str(c.get("id_cliente_erp") or "").strip()
-        if not erp_id:
+def _ultimas_safe_text(value: Any) -> str:
+    if value is None:
+        return ""
+    return value if isinstance(value, str) else str(value)
+
+
+def _ultimas_safe_int(value: Any) -> Optional[int]:
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _ultimas_normalize_erp_code(value: Any) -> str:
+    raw = _ultimas_safe_text(value).strip()
+    if not raw:
+        return ""
+    return raw.lstrip("0") or "0"
+
+
+def _build_integrante_vendor_name_map(distribuidor_id: int) -> dict[int, str]:
+    """Resuelve nombre ERP por id_integrante (binding → id_vendedor_v2 → id_vendedor_erp)."""
+    t_vendedores = tenant_table_name("vendedores_v2", distribuidor_id)
+    vendedores_res = (
+        sb.table(t_vendedores)
+        .select("id_vendedor, nombre_erp, id_vendedor_erp")
+        .eq("id_distribuidor", distribuidor_id)
+        .execute()
+    )
+    vendedores = vendedores_res.data or []
+    vend_ids = {
+        _ultimas_safe_int(v.get("id_vendedor"))
+        for v in vendedores
+        if _ultimas_safe_int(v.get("id_vendedor")) is not None
+    }
+    vend_erp_to_id: dict[str, int] = {}
+    vend_id_to_name: dict[int, str] = {}
+    for v in vendedores:
+        vid = _ultimas_safe_int(v.get("id_vendedor"))
+        if vid is None:
             continue
-        rs_map[erp_id] = (c.get("nombre_razon_social") or c.get("nombre_fantasia") or "")
-        loc = (c.get("localidad") or "").strip()
-        if loc:
-            ciudad_map[erp_id] = loc
-    for row in rows:
-        nc = str(row.get("nro_cliente", ""))
-        row["razon_social"] = rs_map.get(nc, row.get("razon_social") or "")
-        if not (row.get("ciudad") or "").strip():
-            row["ciudad"] = ciudad_map.get(nc, row.get("ciudad") or "")
-    return rows
+        vend_id_to_name[vid] = _ultimas_safe_text(v.get("nombre_erp")).strip()
+        id_erp = _ultimas_safe_text(v.get("id_vendedor_erp")).strip()
+        if id_erp and id_erp not in vend_erp_to_id:
+            vend_erp_to_id[id_erp] = vid
+        norm = _ultimas_normalize_erp_code(id_erp)
+        if norm and norm not in vend_erp_to_id:
+            vend_erp_to_id[norm] = vid
+
+    binding_by_tg_user: dict[int, int] = {}
+    try:
+        bind_r = (
+            sb.table("vendedores_telegram_binding")
+            .select("id_vendedor_v2, telegram_user_id")
+            .eq("id_distribuidor", distribuidor_id)
+            .execute()
+        )
+        for b in (bind_r.data or []):
+            vid = _ultimas_safe_int(b.get("id_vendedor_v2"))
+            tg_uid = _ultimas_safe_int(b.get("telegram_user_id"))
+            if vid is not None and tg_uid is not None and vid in vend_ids:
+                binding_by_tg_user[tg_uid] = vid
+    except Exception:
+        pass
+
+    integrantes_res = (
+        sb.table("integrantes_grupo")
+        .select("id_integrante, telegram_user_id, nombre_integrante, id_vendedor_v2, id_vendedor_erp")
+        .eq("id_distribuidor", distribuidor_id)
+        .execute()
+    )
+    out: dict[int, str] = {}
+    for ig in integrantes_res.data or []:
+        iid = _ultimas_safe_int(ig.get("id_integrante"))
+        if iid is None:
+            continue
+        vid = None
+        tg_uid = _ultimas_safe_int(ig.get("telegram_user_id"))
+        if tg_uid is not None and tg_uid in binding_by_tg_user:
+            vid = binding_by_tg_user[tg_uid]
+        if vid is None:
+            v2 = _ultimas_safe_int(ig.get("id_vendedor_v2"))
+            if v2 is not None and v2 in vend_ids:
+                vid = v2
+        if vid is None:
+            erp = _ultimas_safe_text(ig.get("id_vendedor_erp")).strip()
+            if erp:
+                vid = vend_erp_to_id.get(erp) or vend_erp_to_id.get(_ultimas_normalize_erp_code(erp))
+        if vid is not None and vid in vend_id_to_name:
+            name = vend_id_to_name[vid]
+            if name:
+                out[iid] = name
+    return out
 
 
 def _enrich_ultimas_dashboard_rows(rows: list[dict], distribuidor_id: int) -> list[dict]:
-    """Enriquece últimas evaluadas: razón social, ciudad y nombre ERP del vendedor."""
+    """Enriquece últimas evaluadas: PDV (ID ERP, razón social, ciudad) y nombre ERP del vendedor."""
     if not rows:
         return rows
-    rows = _enrich_ultimas_with_razon_social(rows, distribuidor_id)
-    iid_to_erp = build_integrante_to_erp_name(distribuidor_id)
+
+    ex_ids = list(
+        {
+            _ultimas_safe_int(r.get("id_exhibicion"))
+            for r in rows
+            if _ultimas_safe_int(r.get("id_exhibicion")) is not None
+        }
+    )
+    ex_map: dict[int, dict] = {}
+    if ex_ids:
+        ex_res = (
+            sb.table("exhibiciones")
+            .select(
+                "id_exhibicion, id_integrante, id_cliente, id_cliente_pdv, "
+                "numero_cliente_local, cliente_sombra_codigo"
+            )
+            .in_("id_exhibicion", ex_ids)
+            .eq("id_distribuidor", distribuidor_id)
+            .execute()
+        )
+        for ex in ex_res.data or []:
+            eid = _ultimas_safe_int(ex.get("id_exhibicion"))
+            if eid is not None:
+                ex_map[eid] = ex
+
+    erp_keys: set[str] = set()
+    cliente_pks: set[int] = set()
     for row in rows:
-        iid = row.get("id_integrante")
-        erp_name = None
-        if iid is not None:
-            try:
-                erp_name = iid_to_erp.get(int(iid))
-            except (TypeError, ValueError):
-                erp_name = None
+        nc = _ultimas_safe_text(row.get("nro_cliente")).strip()
+        if nc:
+            erp_keys.add(nc)
+            erp_keys.add(_ultimas_normalize_erp_code(nc))
+        ex = ex_map.get(_ultimas_safe_int(row.get("id_exhibicion")) or -1, {})
+        for key in (
+            ex.get("numero_cliente_local"),
+            ex.get("cliente_sombra_codigo"),
+            row.get("nro_cliente"),
+        ):
+            s = _ultimas_safe_text(key).strip()
+            if s:
+                erp_keys.add(s)
+                erp_keys.add(_ultimas_normalize_erp_code(s))
+        for pk_field in ("id_cliente_pdv", "id_cliente"):
+            pk = _ultimas_safe_int(ex.get(pk_field))
+            if pk is not None:
+                cliente_pks.add(pk)
+
+    t_clientes = tenant_table_name("clientes_pdv_v2", distribuidor_id)
+    clientes: list[dict] = []
+    erp_list = [k for k in erp_keys if k]
+    if erp_list:
+        for i in range(0, len(erp_list), 200):
+            chunk_keys = erp_list[i : i + 200]
+            clientes.extend(
+                sb.table(t_clientes)
+                .select("id_cliente,id_cliente_erp,nombre_razon_social,nombre_fantasia,localidad")
+                .eq("id_distribuidor", distribuidor_id)
+                .in_("id_cliente_erp", chunk_keys)
+                .execute()
+                .data
+                or []
+            )
+    if cliente_pks:
+        pk_list = list(cliente_pks)
+        for i in range(0, len(pk_list), 200):
+            clientes.extend(
+                sb.table(t_clientes)
+                .select("id_cliente,id_cliente_erp,nombre_razon_social,nombre_fantasia,localidad")
+                .eq("id_distribuidor", distribuidor_id)
+                .in_("id_cliente", pk_list[i : i + 200])
+                .execute()
+                .data
+                or []
+            )
+
+    by_erp: dict[str, dict] = {}
+    by_pk: dict[int, dict] = {}
+    for c in clientes:
+        erp_id = _ultimas_safe_text(c.get("id_cliente_erp")).strip()
+        if erp_id:
+            by_erp[erp_id] = c
+            by_erp[_ultimas_normalize_erp_code(erp_id)] = c
+        pk = _ultimas_safe_int(c.get("id_cliente"))
+        if pk is not None:
+            by_pk[pk] = c
+
+    def _cliente_for_row(row: dict) -> dict | None:
+        nc = _ultimas_safe_text(row.get("nro_cliente")).strip()
+        if nc:
+            hit = by_erp.get(nc) or by_erp.get(_ultimas_normalize_erp_code(nc))
+            if hit:
+                return hit
+        ex = ex_map.get(_ultimas_safe_int(row.get("id_exhibicion")) or -1, {})
+        for pk_field in ("id_cliente_pdv", "id_cliente"):
+            pk = _ultimas_safe_int(ex.get(pk_field))
+            if pk is not None and pk in by_pk:
+                return by_pk[pk]
+        for key in (ex.get("numero_cliente_local"), ex.get("cliente_sombra_codigo")):
+            s = _ultimas_safe_text(key).strip()
+            if not s:
+                continue
+            hit = by_erp.get(s) or by_erp.get(_ultimas_normalize_erp_code(s))
+            if hit:
+                return hit
+        return None
+
+    vendor_map = _build_integrante_vendor_name_map(distribuidor_id)
+    fallback_vendor = build_integrante_to_erp_name(distribuidor_id)
+
+    for row in rows:
+        cliente = _cliente_for_row(row)
+        if cliente:
+            erp_id = _ultimas_safe_text(cliente.get("id_cliente_erp")).strip()
+            if erp_id:
+                row["nro_cliente"] = erp_id
+            row["razon_social"] = (
+                _ultimas_safe_text(cliente.get("nombre_razon_social")).strip()
+                or _ultimas_safe_text(cliente.get("nombre_fantasia")).strip()
+                or row.get("razon_social")
+                or ""
+            )
+            loc = _ultimas_safe_text(cliente.get("localidad")).strip()
+            if loc:
+                row["ciudad"] = loc
+
+        iid = _ultimas_safe_int(row.get("id_integrante"))
+        if iid is None:
+            ex = ex_map.get(_ultimas_safe_int(row.get("id_exhibicion")) or -1, {})
+            iid = _ultimas_safe_int(ex.get("id_integrante"))
+        erp_name = vendor_map.get(iid) if iid is not None else None
+        if not erp_name and iid is not None:
+            erp_name = fallback_vendor.get(iid)
         if erp_name:
             row["vendedor_erp"] = erp_name
+            row["vendedor"] = erp_name
+
     return rows
 
 

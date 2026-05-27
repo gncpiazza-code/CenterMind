@@ -1,22 +1,14 @@
 "use client";
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Award, FileText, Download, Loader2, RefreshCw, MoreHorizontal } from 'lucide-react';
+import { Award, Pause, Play, Check, X, Flame } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { Card } from '@/components/ui/Card';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/Button';
-import { Separator } from '@/components/ui/separator';
-import { fetchRanking, fetchRankingHistorico, fetchRankingCompania } from '@/lib/api';
+import { fetchRankingCompania } from '@/lib/api';
 import type { VendedorRanking, SucursalStats, KPIs, EvolucionTiempo, RankingCompaniaRow } from '@/lib/api';
-import { generateRankingHTML, reportFileName } from '@/lib/generateRankingHTML';
-import { useReportStore } from '@/store/useReportStore';
+import { DashboardFullscreenButton } from './DashboardFullscreenButton';
 import { cn } from '@/lib/utils';
 
 interface RankingTableProps {
@@ -31,32 +23,24 @@ interface RankingTableProps {
   nombreEmpresa?: string;
   isCompania?: boolean;
   dense?: boolean;
+  isImmersive?: boolean;
+  onToggleImmersive?: () => void;
 }
 
-function downloadHTML(html: string, filename: string) {
-  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
-  a.href = url; a.download = filename;
-  document.body.appendChild(a); a.click();
-  setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
-}
-
-// Mejora #16: Paleta oro/plata/bronce semánticamente correcta
 const TOP3_STYLES = [
-  { // Oro
+  {
     row:    "bg-gradient-to-r from-amber-50/80 to-white border-2 border-amber-200/50",
     badge:  "bg-amber-400 text-white shadow-amber-200/60",
     avatar: "bg-amber-100 text-amber-700",
     pts:    "text-amber-600",
   },
-  { // Plata
+  {
     row:    "bg-slate-50/60 border border-slate-200/40",
     badge:  "bg-slate-400 text-white shadow-slate-200/60",
     avatar: "bg-slate-100 text-slate-600",
     pts:    "text-slate-600",
   },
-  { // Bronce
+  {
     row:    "bg-orange-50/40 border border-orange-200/30",
     badge:  "bg-orange-400 text-white shadow-orange-200/60",
     avatar: "bg-orange-100 text-orange-700",
@@ -64,13 +48,19 @@ const TOP3_STYLES = [
   },
 ];
 
+const SCROLL_SPEED = 0.6; // px per tick (~30ms)
+
 export function RankingTable({
   ranking, periodo, periodoLabel, sucursalFiltro, sucursales,
-  kpis, evolucion = [], distId = 0, nombreEmpresa = 'Distribuidora', isCompania = false, dense = false,
+  kpis, evolucion = [], distId = 0, nombreEmpresa = 'Distribuidora',
+  isCompania = false, dense = false,
+  isImmersive = false, onToggleImmersive,
 }: RankingTableProps) {
-  const { savedReport, generating, sizeWarning, setGenerating, saveReport, clearSizeWarning } = useReportStore();
-
   const [showCompaniaLens, setShowCompaniaLens] = useState(false);
+  const [autoScrollPaused, setAutoScrollPaused] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollAnimRef = useRef<number | null>(null);
+  const pauseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { data: companiaData } = useQuery({
     queryKey: ['ranking-compania-lens', distId, periodo, sucursalFiltro],
@@ -84,43 +74,45 @@ export function RankingTable({
     return new Map(companiaData.map(r => [r.vendedor, r]));
   }, [companiaData]);
 
+  // Auto-scroll suave
+  const doScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el || autoScrollPaused) {
+      scrollAnimRef.current = requestAnimationFrame(doScroll);
+      return;
+    }
+    const { scrollTop, scrollHeight, clientHeight } = el;
+    if (scrollHeight <= clientHeight) {
+      scrollAnimRef.current = requestAnimationFrame(doScroll);
+      return;
+    }
+    if (scrollTop + clientHeight >= scrollHeight - 4) {
+      el.scrollTop = 0;
+    } else {
+      el.scrollTop += SCROLL_SPEED;
+    }
+    scrollAnimRef.current = requestAnimationFrame(doScroll);
+  }, [autoScrollPaused]);
+
+  useEffect(() => {
+    scrollAnimRef.current = requestAnimationFrame(doScroll);
+    return () => {
+      if (scrollAnimRef.current) cancelAnimationFrame(scrollAnimRef.current);
+    };
+  }, [doScroll]);
+
+  // Pause on hover
+  function handleMouseEnter() {
+    if (pauseTimeoutRef.current) clearTimeout(pauseTimeoutRef.current);
+    setAutoScrollPaused(true);
+  }
+  function handleMouseLeave() {
+    pauseTimeoutRef.current = setTimeout(() => setAutoScrollPaused(false), 1500);
+  }
+
   const sucursalLabel = sucursalFiltro
     ? (sucursales.find(s => s.location_id === sucursalFiltro)?.sucursal ?? sucursalFiltro)
     : null;
-
-  const hasSavedReport = savedReport !== null && savedReport.distId === distId && savedReport.periodo === periodo;
-
-  async function handleGenerateReport() {
-    if (!kpis || !distId) return;
-    setGenerating(true);
-    try {
-      const label = periodoLabel ?? periodo;
-      const [fullRanking, historico] = await Promise.all([
-        fetchRanking(distId, periodo, sucursalFiltro || undefined, 999),
-        fetchRankingHistorico(distId),
-      ]);
-      const html = generateRankingHTML({ distId, nombreEmpresa, periodo, periodoLabel: label, ranking: fullRanking, kpis, evolucion, sucursales, rankingHistorico: historico });
-      saveReport({ distId, nombreEmpresa, periodo, html, generadoEn: new Date().toISOString() });
-      downloadHTML(html, reportFileName(nombreEmpresa, periodo));
-    } finally { setGenerating(false); }
-  }
-
-  async function handlePrintReport() {
-    if (!kpis || !distId) return;
-    const label = periodoLabel ?? periodo;
-    const [fullRanking, historico] = await Promise.all([
-      fetchRanking(distId, periodo, sucursalFiltro || undefined, 999),
-      fetchRankingHistorico(distId),
-    ]);
-    const html = generateRankingHTML({ distId, nombreEmpresa, periodo, periodoLabel: label, ranking: fullRanking, kpis, evolucion, sucursales, rankingHistorico: historico });
-    const win = window.open('', '_blank');
-    if (win) { win.document.write(html); win.document.close(); setTimeout(() => win.print(), 300); }
-  }
-
-  function handleDownloadSaved() {
-    if (!savedReport) return;
-    downloadHTML(savedReport.html, reportFileName(savedReport.nombreEmpresa, savedReport.periodo));
-  }
 
   if (ranking.length === 0) {
     return (
@@ -128,7 +120,9 @@ export function RankingTable({
         <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4">
           <Award className="text-slate-300" size={32} />
         </div>
-        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] text-center mb-3">No hay actividad para el ranking todavía</p>
+        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] text-center mb-3">
+          No hay actividad para el ranking todavía
+        </p>
       </Card>
     );
   }
@@ -138,27 +132,35 @@ export function RankingTable({
       {/* Barra superior violet */}
       <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-violet-500 via-indigo-400 to-violet-500 z-20" />
 
-      {/* Mejora #6: header más compacto (p-8 → p-5 px-6) */}
-      <div className={cn("border-b border-slate-50 flex items-center justify-between sticky top-0 bg-white/80 backdrop-blur-xl z-20 gap-3 shadow-sm", dense ? "pt-5 px-4 pb-3" : "pt-7 px-6 pb-4")}>
-        <div className="shrink-0">
-          <div className="flex items-center gap-2.5">
-            <h3 className="text-slate-900 font-black text-xl tracking-tighter">Ranking en Vivo</h3>
-          </div>
-          <p className="text-[10px] text-slate-400 font-black uppercase tracking-[0.18em] mt-1 opacity-70">
-            Líderes de rendimiento
-          </p>
+      {/* Header */}
+      <div className={cn(
+        "border-b border-slate-50 flex items-center justify-between sticky top-0 bg-white/80 backdrop-blur-xl z-20 gap-3 shadow-sm",
+        dense ? "pt-5 px-4 pb-3" : "pt-7 px-6 pb-4",
+      )}>
+        {/* Título centrado */}
+        <div className="flex-1 text-center">
+          <h3 className="text-slate-900 font-black text-base tracking-tighter uppercase">
+            Ranking {nombreEmpresa}
+          </h3>
+          {sucursalLabel && (
+            <p className="text-[9px] font-black uppercase tracking-[0.15em] text-blue-500 mt-0.5">{sucursalLabel}</p>
+          )}
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
-          {sucursalLabel && (
-            <motion.span
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              className="text-[10px] font-black tracking-[0.15em] uppercase text-blue-600 bg-blue-50/50 px-3 py-1.5 rounded-2xl border border-blue-100/50 shadow-sm"
-            >
-              {sucursalLabel}
-            </motion.span>
-          )}
+        {/* Controles derecha */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {/* Pausa autoscroll */}
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => setAutoScrollPaused(v => !v)}
+            title={autoScrollPaused ? "Reanudar scroll" : "Pausar scroll"}
+            className="h-8 w-8 rounded-xl border-slate-200 text-slate-400 hover:text-slate-700"
+          >
+            {autoScrollPaused ? <Play size={13} /> : <Pause size={13} />}
+          </Button>
+
+          {/* Vista Cía */}
           {isCompania && (
             <button
               onClick={() => setShowCompaniaLens(v => !v)}
@@ -168,24 +170,42 @@ export function RankingTable({
                   : 'text-violet-600 border-violet-200 bg-violet-50/50 hover:bg-violet-50'
               }`}
             >
-              {showCompaniaLens ? '✦ Vista Cía' : '◇ Vista Cía'}
+              {showCompaniaLens ? '✦ Cía' : '◇ Cía'}
             </button>
+          )}
+
+          {/* Fullscreen */}
+          {onToggleImmersive && (
+            <DashboardFullscreenButton
+              isImmersive={isImmersive}
+              onToggle={onToggleImmersive}
+            />
           )}
         </div>
       </div>
 
-      {/* Tabla de ranking */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar px-5 pb-4 pt-1">
+      {/* Tabla con autoscroll */}
+      <div
+        ref={scrollRef}
+        className="flex-1 overflow-y-auto custom-scrollbar px-5 pb-4 pt-1"
+        style={{ scrollbarWidth: "none" }}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+      >
         <table className="w-full text-sm border-separate border-spacing-y-1.5">
-          {/* Mejora #22: thead sticky compacto */}
           <thead className="sticky top-0 bg-white/95 backdrop-blur-md z-10">
             <tr className="text-left">
               <th className="py-3 px-3 font-black uppercase tracking-[0.2em] text-[9px] text-slate-400 w-12">Pos</th>
-              <th className="py-3 px-2 font-black uppercase tracking-[0.2em] text-[9px] text-slate-400">Integrante</th>
-              <th className="py-3 px-2 text-right font-black uppercase tracking-[0.2em] text-[9px] text-emerald-500">Apb</th>
-              {/* Mejora #25: columna rechazadas */}
-              <th className="py-3 px-2 text-right font-black uppercase tracking-[0.2em] text-[9px] text-red-400">Rec</th>
-              <th className="py-3 px-2 text-right font-black uppercase tracking-[0.2em] text-[9px] text-amber-500">Dst</th>
+              <th className="py-3 px-2 font-black uppercase tracking-[0.2em] text-[9px] text-slate-400">Vendedor</th>
+              <th className="py-3 px-2 text-right font-black uppercase tracking-[0.2em] text-[9px] text-emerald-500" title="Aprobadas">
+                <Check size={11} className="inline" />
+              </th>
+              <th className="py-3 px-2 text-right font-black uppercase tracking-[0.2em] text-[9px] text-red-400" title="Rechazadas">
+                <X size={11} className="inline" />
+              </th>
+              <th className="py-3 px-2 text-right font-black uppercase tracking-[0.2em] text-[9px] text-amber-500" title="Destacadas">
+                <Flame size={11} className="inline" />
+              </th>
               <th className="py-3 px-4 text-right font-black uppercase tracking-[0.2em] text-[9px] text-slate-950">Pts</th>
               {showCompaniaLens && (
                 <>
@@ -197,29 +217,30 @@ export function RankingTable({
           </thead>
           <tbody>
             <AnimatePresence initial={false}>
-              {ranking.slice(0, 20).map((v, i) => {
-                const isTop3  = i < 3;
-                const style   = isTop3 ? TOP3_STYLES[i] : null;
-                const ratio   = v.aprobadas + v.rechazadas > 0
+              {ranking.slice(0, 30).map((v, i) => {
+                const isTop3 = i < 3;
+                const style  = isTop3 ? TOP3_STYLES[i] : null;
+                const ratio  = v.aprobadas + v.rechazadas > 0
                   ? Math.round((v.aprobadas / (v.aprobadas + v.rechazadas)) * 100)
                   : null;
+                const subtitulo = v.sucursal || v.ciudad_dominante || null;
 
                 return (
                   <motion.tr
-                    key={`${v.vendedor}-${v.sucursal}-${i}`}
+                    key={`${v.vendedor}-${i}`}
                     layout
                     initial={{ opacity: 0, y: 12 }}
                     animate={{ opacity: 1, y: 0 }}
                     whileHover={{ x: 4, transition: { duration: 0.15 } }}
                     className={cn(
                       "relative group rounded-2xl overflow-hidden transition-all cursor-default",
-                      style?.row ?? "bg-white border border-slate-100/50 hover:bg-slate-50/60"
+                      style?.row ?? "bg-white border border-slate-100/50 hover:bg-slate-50/60",
                     )}
                   >
                     <td className={cn("px-3 first:rounded-l-2xl", dense ? "py-2" : "py-2.5")}>
                       <div className={cn(
                         "w-7 h-7 flex items-center justify-center text-[11px] font-black rounded-xl shadow-md transition-all group-hover:scale-110",
-                        style?.badge ?? "bg-slate-100 text-slate-500 shadow-sm"
+                        style?.badge ?? "bg-slate-100 text-slate-500 shadow-sm",
                       )}>
                         {i + 1}
                       </div>
@@ -230,22 +251,24 @@ export function RankingTable({
                         <span
                           className={cn(
                             "font-black text-[13px] tracking-tight whitespace-nowrap",
-                            isTop3 ? "text-slate-900" : "text-slate-700"
+                            isTop3 ? "text-slate-900" : "text-slate-700",
                           )}
                           title={v.vendedor}
                         >
                           {v.vendedor}
                         </span>
                         <div className="flex items-center gap-1.5">
-                          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider whitespace-nowrap" title={v.sucursal || "General"}>
-                            {v.sucursal || "General"}
-                          </span>
+                          {subtitulo && (
+                            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider whitespace-nowrap">
+                              {subtitulo}
+                            </span>
+                          )}
                           {ratio !== null && (
                             <span className={cn(
                               "text-[8px] font-black px-1 py-0 rounded-md",
                               ratio >= 80 ? "bg-emerald-50 text-emerald-600" :
                               ratio >= 60 ? "bg-amber-50 text-amber-600" :
-                                            "bg-red-50 text-red-500"
+                                            "bg-red-50 text-red-500",
                             )}>
                               {ratio}%
                             </span>
@@ -260,13 +283,12 @@ export function RankingTable({
                       </span>
                     </td>
 
-                    {/* Mejora #25: rechazadas */}
                     <td className={cn("px-2 text-right", dense ? "py-2" : "py-2.5")}>
                       <span className={cn(
                         "inline-flex items-center justify-center text-[10px] font-black px-2 py-0.5 rounded-lg border",
                         v.rechazadas > 0
                           ? "bg-red-50 text-red-500 border-red-100/50"
-                          : "bg-slate-50 text-slate-300 border-slate-100/50"
+                          : "bg-slate-50 text-slate-300 border-slate-100/50",
                       )}>
                         {v.rechazadas ?? 0}
                       </span>
@@ -286,8 +308,9 @@ export function RankingTable({
                         <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest -mt-0.5">Pts</span>
                       </div>
                     </td>
+
                     {showCompaniaLens && (() => {
-                      const cr = companiaByVendedor.get(v.vendedor);
+                      const cr    = companiaByVendedor.get(v.vendedor);
                       const delta = cr ? cr.delta_puntos : 0;
                       return (
                         <>
@@ -319,55 +342,6 @@ export function RankingTable({
             </AnimatePresence>
           </tbody>
         </table>
-      </div>
-
-      {/* Mejora #7: botones de reporte en footer separado */}
-      <div className="shrink-0 border-t border-slate-50">
-        <Separator className="opacity-50" />
-        <div className={cn("px-5 flex items-center gap-2", dense ? "py-2" : "py-3")}>
-          {sizeWarning && (
-            <span className="text-[9px] font-black text-amber-600 uppercase tracking-wider mr-auto">
-              Informe demasiado grande
-              <button onClick={clearSizeWarning} className="ml-1 underline opacity-70 hover:opacity-100">OK</button>
-            </span>
-          )}
-
-          <div className="flex items-center gap-2 ml-auto">
-            <Button
-              size="sm"
-              onClick={handleGenerateReport}
-              disabled={generating || !kpis}
-              className="text-[10px] font-black uppercase tracking-wider bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 rounded-xl h-auto"
-            >
-              {generating
-                ? <Loader2 size={11} className="animate-spin mr-1.5" />
-                : <FileText size={11} className="mr-1.5" />
-              }
-              {hasSavedReport ? "Actualizar" : "Generar Informe"}
-            </Button>
-
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="icon" className="h-8 w-8 rounded-xl border-slate-200">
-                  <MoreHorizontal size={13} />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="rounded-xl shadow-xl border-slate-100 text-[11px]">
-                {hasSavedReport && (
-                  <DropdownMenuItem onClick={handleDownloadSaved} className="font-black uppercase tracking-wider text-[10px] cursor-pointer">
-                    <Download size={11} className="mr-2" /> Descargar último
-                  </DropdownMenuItem>
-                )}
-                <DropdownMenuItem onClick={handlePrintReport} disabled={!kpis} className="font-black uppercase tracking-wider text-[10px] cursor-pointer">
-                  <FileText size={11} className="mr-2" /> Imprimir PDF
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleGenerateReport} disabled={generating || !kpis} className="font-black uppercase tracking-wider text-[10px] cursor-pointer">
-                  <RefreshCw size={11} className="mr-2" /> Actualizar
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        </div>
       </div>
     </Card>
   );

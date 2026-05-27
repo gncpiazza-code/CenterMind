@@ -22,6 +22,7 @@ from core.exhibicion_aggregate import (
     aggregate_kpi_totals,
     aggregate_ranking_by_vendor,
     aggregate_ranking_by_vendor_compania,
+    count_active_vendors,
 )
 from core.security import verify_auth, check_dist_permission, require_compania_role
 from db import sb
@@ -29,6 +30,35 @@ from models.schemas import BonusConfigPayload, ReporteQuery
 
 logger = logging.getLogger("ShelfyAPI")
 router = APIRouter()
+
+
+def _build_erp_sucursal_map(distribuidor_id: int) -> dict[str, str]:
+    """Devuelve {nombre_erp_vendedor: sucursal_nombre} para el distribuidor."""
+    t_vendedores = tenant_table_name("vendedores_v2", distribuidor_id)
+    t_sucursales = tenant_table_name("sucursales_v2", distribuidor_id)
+    suc_rows = (
+        sb.table(t_sucursales)
+        .select("id_sucursal,nombre_erp")
+        .eq("id_distribuidor", distribuidor_id)
+        .execute()
+        .data or []
+    )
+    suc_map = {s["id_sucursal"]: (s.get("nombre_erp") or "") for s in suc_rows}
+    vend_rows = (
+        sb.table(t_vendedores)
+        .select("nombre_erp,id_sucursal")
+        .eq("id_distribuidor", distribuidor_id)
+        .execute()
+        .data or []
+    )
+    result: dict[str, str] = {}
+    for v in vend_rows:
+        nombre = (v.get("nombre_erp") or "").strip()
+        id_suc = v.get("id_sucursal")
+        if nombre and id_suc is not None:
+            result[nombre] = suc_map.get(id_suc, "")
+    return result
+
 
 def _resolve_period_bounds(periodo: str) -> tuple[str, str]:
     try:
@@ -40,6 +70,11 @@ def _resolve_period_bounds(periodo: str) -> tuple[str, str]:
     if p == "hoy":
         start_dt = datetime(ar_now.year, ar_now.month, ar_now.day)
         end_dt = start_dt + timedelta(days=1)
+    elif p == "semana":
+        # Lunes 00:00 → domingo 23:59:59 de la semana corriente en AR
+        weekday = ar_now.weekday()  # 0=lunes, 6=domingo
+        start_dt = datetime(ar_now.year, ar_now.month, ar_now.day) - timedelta(days=weekday)
+        end_dt = start_dt + timedelta(days=7)
     elif p == "mes":
         start_dt = datetime(ar_now.year, ar_now.month, 1)
         if ar_now.month == 12:
@@ -338,7 +373,17 @@ def dashboard_kpis(distribuidor_id: int, periodo: str = "mes", sucursal_id: int 
             continue
         filtered.append(ex)
 
-    return aggregate_kpi_totals(filtered)
+    kpi_totals = aggregate_kpi_totals(filtered)
+    vendedores_activos = count_active_vendors(filtered, iid_to_erp)
+    total_logicas = kpi_totals["total"]
+    exhibiciones_por_vendedor = (
+        round(total_logicas / vendedores_activos, 1) if vendedores_activos > 0 else 0.0
+    )
+    return {
+        **kpi_totals,
+        "vendedores_activos": vendedores_activos,
+        "exhibiciones_por_vendedor": exhibiciones_por_vendedor,
+    }
 
 
 @router.get("/api/dashboard/ranking/{distribuidor_id}", summary="Ranking de vendedores por período")
@@ -368,6 +413,7 @@ def dashboard_ranking(distribuidor_id: int, periodo: str = "mes", top: int = 999
         filtered.append(ex)
 
     stats = aggregate_ranking_by_vendor(filtered, iid_to_erp)
+    erp_to_sucursal = _build_erp_sucursal_map(distribuidor_id)
     aggregated: dict[str, dict[str, Any]] = {
         vendedor: {
             "vendedor": vendedor,
@@ -376,6 +422,8 @@ def dashboard_ranking(distribuidor_id: int, periodo: str = "mes", top: int = 999
             "rechazadas": s["rechazadas"],
             "puntos": s["puntos"],
             "location_id": None,
+            "sucursal": erp_to_sucursal.get(vendedor, ""),
+            "ciudad_dominante": None,
         }
         for vendedor, s in stats.items()
     }

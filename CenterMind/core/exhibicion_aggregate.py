@@ -273,6 +273,32 @@ def apply_compania_estado_overlay(
     return result
 
 
+def count_active_vendors(rows: list[dict], iid_to_erp: dict[int, str]) -> int:
+    """
+    Cuenta vendedores ERP distintos con ≥1 exhibición lógica en el conjunto de filas.
+    Usa el mismo criterio de dedup que aggregate_ranking_by_vendor (cliente + día, vendor-scope).
+    Un vendedor con solo rechazos cuenta (tiene exhibición lógica).
+    NO contar integrantes ni fotos; deduplicar a nivel ERP.
+    """
+    vendors_with_logical: set[str] = set()
+    seen_keys: set[str] = set()
+    for row in rows:
+        iid_raw = row.get("id_integrante")
+        if iid_raw is None:
+            continue
+        try:
+            iid = int(iid_raw)
+        except (TypeError, ValueError):
+            continue
+        vendor = iid_to_erp.get(iid, "Desconocido")
+        key = _ranking_logic_key(row, vendor)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        vendors_with_logical.add(vendor)
+    return len(vendors_with_logical)
+
+
 def aggregate_ranking_by_vendor_compania(
     rows: list[dict],
     iid_to_erp: dict[int, str],

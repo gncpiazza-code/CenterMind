@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { Card, CardContent } from "@/components/ui/Card";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 // Mejora #14: mapa semántico de color → CSS variable / tailwind class
@@ -33,6 +34,12 @@ interface KpiCardProps {
   subtitle?: string;
   /** Layout variant. 'compact' renders a slim horizontal row (~56–64px tall). Default: 'default'. */
   variant?: 'default' | 'compact';
+  /** Texto del tooltip para la definición del KPI */
+  tooltip?: string;
+  /** Sufijo después del valor (ej. "%") */
+  suffix?: string;
+  /** Si true, formatea el valor con 1 decimal (para promedios) */
+  isDecimal?: boolean;
 }
 
 // Mejora #1: Contador animado easeOut
@@ -69,7 +76,7 @@ function useAnimatedCounter(target: number, duration = 800) {
   return display;
 }
 
-export function KpiCard({ label, value, icon, colorName, color, bgColor = "bg-white", delta, total, subtitle, variant = 'default' }: KpiCardProps) {
+export function KpiCard({ label, value, icon, colorName, color, bgColor = "bg-white", delta, total, subtitle, variant = 'default', tooltip, suffix, isDecimal }: KpiCardProps) {
   const isCompact = variant === 'compact';
   const animatedValue = useAnimatedCounter(value);
 
@@ -132,11 +139,25 @@ export function KpiCard({ label, value, icon, colorName, color, bgColor = "bg-wh
                 className="font-black tracking-tighter leading-none text-xl md:text-2xl"
                 style={{ color: hexColor }}
               >
-                {animatedValue}
+                {isDecimal ? value.toFixed(1).replace(".", ",") : animatedValue}
+                {suffix && <span className="text-base ml-0.5">{suffix}</span>}
               </div>
-              <div className="text-[11px] font-black uppercase tracking-[0.12em] text-slate-500 group-hover:text-slate-700 transition-colors truncate">
-                {label}
-              </div>
+              {tooltip ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="text-[11px] font-black uppercase tracking-[0.12em] text-slate-500 group-hover:text-slate-700 transition-colors truncate cursor-help underline decoration-dashed decoration-slate-300">
+                      {label}
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="max-w-[200px] text-xs font-bold">
+                    {tooltip}
+                  </TooltipContent>
+                </Tooltip>
+              ) : (
+                <div className="text-[11px] font-black uppercase tracking-[0.12em] text-slate-500 group-hover:text-slate-700 transition-colors truncate">
+                  {label}
+                </div>
+              )}
             </div>
           </CardContent>
         ) : (

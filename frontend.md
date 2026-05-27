@@ -38,6 +38,27 @@ Tokens clave:
 
 ## Componentes Criticos
 
+### Dashboard rediseño v2 (2026-05-27)
+
+Componentes en `components/dashboard/`:
+
+- `DashboardKpiCarousel.tsx` — 3 slides: [0] Estados (Pend/Apro/Dest/Rec), [1] Gráficos rotativos (evolución | top vendedores), [2] Rendimiento (PDVs exhibidos, Tasa aprob, Vend activos, Exhib/vendedor). Props: `kpis`, `ranking`, `evolucion`, `loading`.
+- `DashboardToolbar.tsx` — Sucursal (izquierda) + PeriodPills + hint fechas (derecha). Solo muestra sucursal si `sucursales.length > 1`.
+- `DashboardPeriodPills.tsx` — ToggleGroup `Hoy|Semana|Mes` + Popover `Mes ▾` con año/mes selector.
+- `DashboardFullscreenButton.tsx` — Fullscreen via `requestFullscreen` + toggle `isImmersive` en page. Escape cierra.
+
+Util: `lib/dashboard-period.ts` — `PeriodPreset`, `resolvePeriodBounds()`, `formatDateRangeAR()`. Argentina UTC-3 hardcoded.
+
+Shadcn instalados: `toggle-group` (toggle.tsx + toggle-group.tsx).
+
+`KpiCard.tsx` extendido: props `tooltip`, `suffix`, `isDecimal`.
+
+`HeroCarousel.tsx`: filtra rechazadas antes de mostrar (`/rechaz/i`); 3 badges estado (Pendiente/Aprobado/Destacado); PDV info con iconos Hash/Building2/MapPin.
+
+`RankingTable.tsx`: sin footer de informe; autoscroll suave (`requestAnimationFrame`); pausa al hover (1.5s delay); botones Pause/Play + Fullscreen en header; título centrado `RANKING {empresa}`.
+
+`page.tsx`: layout 25% hero / 75% ranking (`md:w-1/4` + `md:w-3/4`); sin FiltrosBar ni chartsExpanded; WS invalida: kpis, ranking, ultimas, evolucion, sucursales; `refetchInterval` = 300_000.
+
 ### `TabSupervision.tsx`
 
 - Tabs: mapa, ventas, cuentas.

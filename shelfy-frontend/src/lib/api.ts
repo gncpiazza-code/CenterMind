@@ -62,6 +62,10 @@ export interface KPIs {
   aprobadas: number;
   rechazadas: number;
   destacadas: number;
+  /** Conteo de vendedores ERP distintos con ≥1 exhibición lógica en el período */
+  vendedores_activos?: number;
+  /** Promedio de exhibiciones lógicas por vendedor activo (1 decimal) */
+  exhibiciones_por_vendedor?: number;
 }
 
 export interface StatsHoy {
@@ -75,6 +79,7 @@ export interface StatsHoy {
 export interface VendedorRanking {
   vendedor: string;
   sucursal?: string;
+  ciudad_dominante?: string | null;
   puntos: number;
   aprobadas: number;
   destacadas: number;

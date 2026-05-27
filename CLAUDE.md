@@ -143,6 +143,19 @@ Toda metrica de **ranking**, **KPIs de exhibicion**, **stats Telegram** (`/stats
 - Componentes en `shelfy-frontend/src/components/objetivos/`: `ObjetivoDetalleModal.tsx`, `ObjetivoResumen.tsx`, `ObjetivoProrrateoCalendario.tsx`.
 - Utils en `shelfy-frontend/src/lib/objetivo-utils.ts`: `isTelegramObjectiveMessage`, `periodoProrrateo`, `DiaHabil`.
 
+## 9.3) Dashboard rediseñado (2026-05-27)
+
+- Layout: `DashboardKpiCarousel` (slides 0/1/2) sobre `DashboardToolbar`, luego 25% `HeroCarousel` / 75% `RankingTable`.
+- Período: `PeriodPreset` = `"hoy"|"semana"|"mes"|"mes-custom"` via `resolvePeriodBounds()` en `dashboard-period.ts`. Backend acepta `semana` en `_resolve_period_bounds`.
+- KPIs extendidos: `vendedores_activos` (via `count_active_vendors`) y `exhibiciones_por_vendedor` (`total_logicas / vendedores_activos`).
+- Slide 2 del carousel: gráfico único rotativo (evolucion | top vendedores), sin layout 2×2.
+- HeroCarousel filtra rechazadas. Badges triple (Pendiente/Aprobado/Destacado), iconos PDV (Hash, Building2, MapPin).
+- RankingTable: autoscroll + pause; botón fullscreen (`DashboardFullscreenButton`); sin footer de informe.
+- WS invalida queries: kpis, ranking, ultimas, evolucion, sucursales.
+- Componentes nuevos en `components/dashboard/`: `DashboardKpiCarousel`, `DashboardToolbar`, `DashboardPeriodPills`, `DashboardFullscreenButton`.
+- Util nuevo: `lib/dashboard-period.ts`.
+- FiltrosBar y ChartCarousel conservados pero NO usados en `page.tsx` (pueden eliminarse en limpieza futura).
+
 ## 9.2) Tickets de portal (operativo)
 
 - Superadmin debe poder filtrar tickets por estado, categoria, distribuidora y texto.

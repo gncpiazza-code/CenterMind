@@ -2,10 +2,11 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ImageOff, Clock, MapPin, ChevronLeft, ChevronRight, Activity } from 'lucide-react';
+import { ImageOff, Clock, MapPin, ChevronLeft, ChevronRight, Activity, Hash, Building2 } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { resolveImageUrl, type UltimaEvaluada } from '@/lib/api';
+import { cn } from '@/lib/utils';
 import Link from 'next/link';
 
 interface HeroCarouselProps {
@@ -33,7 +34,40 @@ function getStatusColor(estado: string) {
   return "from-emerald-600 to-teal-500";
 }
 
+const ESTADOS_BADGE = ["Pendiente", "Aprobado", "Destacado"] as const;
+
+function StatusBadges({ estado }: { estado: string }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      {ESTADOS_BADGE.map((e) => {
+        const active = estado.toLowerCase().includes(e.toLowerCase().replace("ado", "").replace("iente", "ient"));
+        const exactMatch = estado.toLowerCase().startsWith(e.toLowerCase().slice(0, 5));
+        const isActive = exactMatch || estado === e;
+        return (
+          <span
+            key={e}
+            className={cn(
+              "px-3 py-1 rounded-full text-[9px] font-black tracking-[0.15em] uppercase transition-all",
+              isActive
+                ? e === "Pendiente"
+                  ? "bg-amber-500 text-white shadow-md"
+                  : e === "Aprobado"
+                  ? "bg-emerald-500 text-white shadow-md"
+                  : "bg-violet-500 text-white shadow-md"
+                : "bg-white/15 text-white/50 border border-white/20",
+            )}
+          >
+            {e}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 export function HeroCarousel({ items, compact = false }: HeroCarouselProps) {
+  // Filtrar rechazadas — plan §7
+  const filtered = items.filter((e) => !/rechaz/i.test(e.estado));
   const [ci, setCi] = useState(0);
   const [imgErr, setImgErr] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -44,9 +78,9 @@ export function HeroCarousel({ items, compact = false }: HeroCarouselProps) {
 
   function resetTimer() {
     if (timerRef.current) clearInterval(timerRef.current);
-    if (items.length <= 1) return;
+    if (filtered.length <= 1) return;
     timerRef.current = setInterval(() => {
-      setCi(curr => (curr + 1) % items.length);
+      setCi(curr => (curr + 1) % filtered.length);
       setImgErr(false);
       setLoaded(false);
       setProgressKey(k => k + 1);
@@ -56,7 +90,7 @@ export function HeroCarousel({ items, compact = false }: HeroCarouselProps) {
   useEffect(() => {
     resetTimer();
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [items.length]);
+  }, [filtered.length]);
 
   function goTo(idx: number) {
     setCi(idx);
@@ -65,11 +99,10 @@ export function HeroCarousel({ items, compact = false }: HeroCarouselProps) {
     setProgressKey(k => k + 1);
     resetTimer();
   }
-  const prev = () => goTo(ci === 0 ? items.length - 1 : ci - 1);
-  const next = () => goTo(ci === items.length - 1 ? 0 : ci + 1);
+  const prev = () => goTo(ci === 0 ? filtered.length - 1 : ci - 1);
+  const next = () => goTo(ci === filtered.length - 1 ? 0 : ci + 1);
 
-  // Mejora #13: Empty state mejorado
-  if (items.length === 0) return (
+  if (filtered.length === 0) return (
     <Card className="h-full min-h-0 flex flex-col items-center justify-center bg-slate-50 border-slate-200 border-dashed border-2 shadow-inner gap-4">
       <div className="w-20 h-20 bg-violet-50 rounded-full flex items-center justify-center">
         <Activity size={32} className="text-violet-300 animate-pulse" />
@@ -84,8 +117,9 @@ export function HeroCarousel({ items, compact = false }: HeroCarouselProps) {
     </Card>
   );
 
-  const item   = items[ci];
-  const imgSrc = resolveImageUrl(item.drive_link, item.id_exhibicion);
+  const safeIdx = Math.min(ci, filtered.length - 1);
+  const item    = filtered[safeIdx];
+  const imgSrc  = resolveImageUrl(item.drive_link, item.id_exhibicion);
 
   return (
     <div className="relative w-full h-full rounded-[2.5rem] overflow-hidden shadow-2xl ring-1 ring-slate-200/50 flex flex-col bg-slate-950 group">
@@ -143,35 +177,43 @@ export function HeroCarousel({ items, compact = false }: HeroCarouselProps) {
             exit={{ y: -10, opacity: 0 }}
             transition={{ duration: 0.5, delay: 0.1 }}
           >
-            <div className={`flex items-center gap-3 ${compact ? 'mb-2' : 'mb-4'}`}>
-              <span className={`px-5 py-1.5 rounded-full text-[10px] font-black tracking-[0.2em] text-white uppercase shadow-lg bg-gradient-to-r ${getStatusColor(item.estado)}`}>
-                {item.estado}
-              </span>
-              <span className="text-white/60 text-xs font-bold flex items-center gap-1.5 backdrop-blur-md bg-white/5 py-1.5 px-3 rounded-full border border-white/10 uppercase tracking-widest">
-                <Clock size={12} className="text-white/40" />
+            {/* 3 badges de estado — plan §6 */}
+            <div className={`${compact ? 'mb-2' : 'mb-3'}`}>
+              <StatusBadges estado={item.estado} />
+            </div>
+
+            {/* Tiempo */}
+            <div className="flex items-center gap-1.5 mb-2">
+              <span className="text-white/50 text-[10px] font-bold flex items-center gap-1 backdrop-blur-md bg-white/5 py-1 px-2.5 rounded-full border border-white/10 uppercase tracking-widest">
+                <Clock size={10} className="text-white/30" />
                 {formatTimeText(item.fecha_evaluacion || item.timestamp_subida)}
               </span>
             </div>
 
-            <h2 className={`${compact ? 'text-2xl' : 'text-3xl md:text-5xl'} font-black text-white leading-[1.1] mb-3 drop-shadow-2xl tracking-tighter line-clamp-1`}>
+            <h2 className={`${compact ? 'text-xl' : 'text-3xl md:text-5xl'} font-black text-white leading-[1.1] mb-2.5 drop-shadow-2xl tracking-tighter line-clamp-1`}>
               {item.vendedor}
             </h2>
 
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="flex items-center gap-2.5 bg-white/10 backdrop-blur-xl px-4 py-2 rounded-2xl border border-white/20 shadow-xl hover:bg-white/20 transition-all cursor-default">
-                <div className="w-2 h-2 rounded-full bg-blue-400" />
-                <span className="text-white font-black text-sm uppercase tracking-wider">
-                  Cliente #{item.nro_cliente}
-                </span>
-                <span className="text-white/40 text-xs font-bold">{item.tipo_pdv}</span>
+            {/* PDV info con iconos — plan §6 */}
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1.5 bg-white/10 backdrop-blur-sm px-3 py-1.5 rounded-xl border border-white/20">
+                <Hash size={11} className="text-white/50" />
+                <span className="text-white font-black text-[11px] tracking-wider">{item.nro_cliente}</span>
               </div>
 
-              {item.ciudad && (
-                <div className="flex items-center gap-2 text-white/50 text-xs font-black uppercase tracking-[0.15em]">
-                  <MapPin size={13} className="text-white/30" /> {item.ciudad}
+              {item.tipo_pdv && (
+                <div className="flex items-center gap-1.5 bg-white/10 backdrop-blur-sm px-3 py-1.5 rounded-xl border border-white/20">
+                  <Building2 size={11} className="text-white/50" />
+                  <span className="text-white/80 text-[10px] font-bold">{item.tipo_pdv}</span>
                 </div>
               )}
 
+              {item.ciudad && (
+                <div className="flex items-center gap-1.5 text-white/50">
+                  <MapPin size={11} className="text-white/30" />
+                  <span className="text-[10px] font-bold uppercase tracking-wider">{item.ciudad}</span>
+                </div>
+              )}
             </div>
           </motion.div>
         </AnimatePresence>

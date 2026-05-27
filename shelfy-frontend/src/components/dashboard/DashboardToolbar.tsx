@@ -5,7 +5,6 @@ import { GitBranch, X } from "lucide-react";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
 import { DashboardPeriodPills } from "./DashboardPeriodPills";
 import type { SucursalStats } from "@/lib/api";
 import type { PeriodPreset } from "@/lib/dashboard-period";
@@ -39,27 +38,25 @@ export function DashboardToolbar({
     : null;
 
   return (
-    <div
-      className={cn(
-        "flex items-center justify-between gap-3 px-4 py-2.5 rounded-2xl border border-slate-200/50 bg-white/80 backdrop-blur-xl shadow-sm relative z-20",
-        className,
-      )}
-    >
-      {/* Sucursal — izquierda */}
-      <div className="flex items-center gap-2 min-w-0">
+    <div className={cn(
+      "flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl border border-slate-100/80 bg-white/60 backdrop-blur-sm relative z-20",
+      className,
+    )}>
+      {/* Sucursal — izquierda, solo si hay >1 */}
+      <div className="flex items-center gap-1.5 min-w-0">
         {sucursales.length > 1 && (
-          <div className="flex items-center gap-1.5 bg-slate-50/60 px-3 py-1.5 rounded-xl border border-slate-100 hover:bg-white hover:border-slate-200 transition-all group">
-            <GitBranch size={13} className="text-slate-400 group-hover:text-emerald-500 transition-colors shrink-0" />
+          <div className="flex items-center gap-1 group">
+            <GitBranch size={11} className="text-slate-400 shrink-0" />
             <Select
               value={sucursalFiltro || "__all__"}
               onValueChange={(val) => onSucursal(val === "__all__" ? "" : val)}
             >
-              <SelectTrigger className="bg-transparent text-[11px] font-black uppercase tracking-widest border-none shadow-none focus:ring-0 h-auto py-0 px-0 gap-1 text-slate-700 hover:text-slate-900">
+              <SelectTrigger className="bg-transparent text-[10px] font-black uppercase tracking-widest border-none shadow-none focus:ring-0 h-auto py-0 px-0 gap-1 text-slate-500 hover:text-slate-800 w-auto">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__all__" className="text-[11px] font-black uppercase tracking-widest">
-                  Todas las sucursales
+                  Todas
                 </SelectItem>
                 {sucursales.map((s) => (
                   <SelectItem
@@ -76,34 +73,27 @@ export function DashboardToolbar({
         )}
 
         {activeSucursalLabel && (
-          <Badge
-            variant="secondary"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest bg-violet-50 text-violet-700 border border-violet-200/60 cursor-pointer hover:bg-violet-100 transition-colors"
+          <button
             onClick={() => onSucursal("")}
+            className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-violet-600 bg-violet-50 border border-violet-200/60 px-2 py-0.5 rounded-md hover:bg-violet-100 transition-colors"
           >
             {activeSucursalLabel}
-            <X size={10} className="opacity-60" />
-          </Badge>
-        )}
-
-        {sucursales.length <= 1 && (
-          <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 hidden sm:block">
-            Filtros
-          </span>
+            <X size={9} className="opacity-60" />
+          </button>
         )}
       </div>
 
       {/* Período + hint — derecha */}
-      <div className="flex flex-col items-end gap-0.5">
+      <div className="flex items-center gap-2 shrink-0">
+        <span className="text-[9px] font-bold text-slate-400 tracking-wide hidden sm:block">
+          {bounds.hint}
+        </span>
         <DashboardPeriodPills
           value={periodPreset}
           customYear={customYear}
           customMonth={customMonth}
           onChange={onPeriodChange}
         />
-        <span className="text-[9px] font-bold text-slate-400 tracking-wide pr-0.5">
-          {bounds.hint}
-        </span>
       </div>
     </div>
   );

@@ -216,7 +216,7 @@ export default function DashboardPage() {
 
           {/* Toolbar: Sucursal + Período + Hint */}
           <motion.div
-            className="shrink-0 mb-3"
+            className="shrink-0 mb-2"
             variants={sectionVariants}
             initial="hidden"
             animate="show"

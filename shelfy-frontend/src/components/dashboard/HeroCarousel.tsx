@@ -148,62 +148,55 @@ export function HeroCarousel({ items, compact = false }: HeroCarouselProps) {
       {/* OVERLAY INFERIOR */}
       <div className={cn(
         "absolute bottom-0 left-0 right-0 z-20",
-        compact ? "p-4" : "p-6 md:p-8",
+        compact ? "p-3" : "p-5 md:p-7",
       )}>
         <AnimatePresence mode="wait">
           <motion.div
             key={`info-${ci}`}
-            initial={{ y: 24, opacity: 0 }}
+            initial={{ y: 20, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
-            exit={{ y: -8, opacity: 0 }}
-            transition={{ duration: 0.4, delay: 0.1 }}
+            exit={{ y: -6, opacity: 0 }}
+            transition={{ duration: 0.35, delay: 0.1 }}
           >
-            {/* ── 3 badges en fila: Vendedor | Estado | Tiempo ── */}
-            <div className={cn(
-              "flex flex-wrap items-center gap-1.5",
-              compact ? "mb-2.5" : "mb-3",
-            )}>
+            {/* ── 3 badges en UNA fila (nowrap) ── */}
+            <div className="flex items-center gap-1.5 mb-2 overflow-hidden">
               {/* Badge 1: Vendedor */}
-              <span className="flex items-center gap-1.5 bg-white/15 backdrop-blur-sm border border-white/20 text-white font-black text-[10px] uppercase tracking-widest px-3 py-1.5 rounded-full shadow-md max-w-[130px] truncate">
-                <User size={10} className="text-white/60 shrink-0" />
+              <span className="flex items-center gap-1 bg-white/20 backdrop-blur-sm border border-white/25 text-white font-black text-[9px] uppercase tracking-wider px-2 py-1 rounded-lg shrink-0 min-w-0 max-w-[100px]">
+                <User size={9} className="text-white/60 shrink-0" />
                 <span className="truncate">{item.vendedor}</span>
               </span>
 
               {/* Badge 2: Estado */}
               <span className={cn(
-                "text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-full shadow-md",
+                "text-[9px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg shrink-0 whitespace-nowrap",
                 estadoBadgeStyle(item.estado),
               )}>
                 {estadoLabel(item.estado)}
               </span>
 
               {/* Badge 3: Tiempo */}
-              <span className="flex items-center gap-1 bg-black/30 backdrop-blur-sm border border-white/10 text-white/80 font-bold text-[10px] uppercase tracking-wider px-3 py-1.5 rounded-full">
-                <Clock size={10} className="text-white/50 shrink-0" />
+              <span className="flex items-center gap-1 bg-black/35 backdrop-blur-sm border border-white/10 text-white/75 font-bold text-[9px] uppercase tracking-wide px-2 py-1 rounded-lg shrink-0 whitespace-nowrap">
+                <Clock size={9} className="text-white/45 shrink-0" />
                 {formatTimeText(item.fecha_evaluacion || item.timestamp_subida)}
               </span>
             </div>
 
             {/* ── PDV info ── */}
-            <div className="flex flex-wrap items-center gap-2">
-              {/* ID cliente */}
-              <div className="flex items-center gap-1.5 bg-white/10 backdrop-blur-sm px-3 py-1.5 rounded-xl border border-white/15">
-                <Hash size={10} className="text-white/50 shrink-0" />
-                <span className="text-white font-black text-[11px] tracking-wider">#{item.nro_cliente}</span>
+            <div className="flex items-center gap-2 overflow-hidden">
+              {/* ID + nombre en un solo chip */}
+              <div className="flex items-center gap-1 bg-white/10 backdrop-blur-sm px-2 py-1 rounded-lg border border-white/15 min-w-0">
+                <Hash size={9} className="text-white/45 shrink-0" />
+                <span className="text-white font-black text-[9px] tracking-wide shrink-0">#{item.nro_cliente}</span>
+                {item.tipo_pdv && (
+                  <span className="text-white/60 font-bold text-[9px] truncate">· {item.tipo_pdv}</span>
+                )}
               </div>
-
-              {/* Nombre / Razón social (tipo_pdv como fallback) */}
-              {item.tipo_pdv && (
-                <div className="flex items-center gap-1.5 bg-white/10 backdrop-blur-sm px-3 py-1.5 rounded-xl border border-white/15 max-w-[140px]">
-                  <span className="text-white/80 font-bold text-[10px] truncate">{item.tipo_pdv}</span>
-                </div>
-              )}
 
               {/* Ciudad */}
               {item.ciudad && (
-                <div className="flex items-center gap-1.5 text-white/60">
-                  <MapPin size={10} className="text-white/40 shrink-0" />
-                  <span className="text-[10px] font-bold uppercase tracking-wider">{item.ciudad}</span>
+                <div className="flex items-center gap-1 text-white/55 shrink-0">
+                  <MapPin size={9} className="text-white/35" />
+                  <span className="text-[9px] font-bold uppercase tracking-wide whitespace-nowrap">{item.ciudad}</span>
                 </div>
               )}
             </div>

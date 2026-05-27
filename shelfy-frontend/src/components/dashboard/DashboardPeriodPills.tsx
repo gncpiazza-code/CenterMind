@@ -2,7 +2,6 @@
 
 import React, { useState } from "react";
 import { ChevronDown } from "lucide-react";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/Button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -39,62 +38,44 @@ export function DashboardPeriodPills({
   const [open, setOpen]         = useState(false);
 
   const currentYear = now.getFullYear();
-  const years = [currentYear - 1, currentYear];
+  const years       = [currentYear - 1, currentYear];
+  const isCustom    = value === "mes-custom";
 
   function applyCustom() {
     onChange("mes-custom", popYear, popMonth);
     setOpen(false);
   }
 
-  const isCustomActive = value === "mes-custom";
+  const pillBase = "h-6 px-2.5 text-[9px] font-black uppercase tracking-widest rounded-lg border transition-all duration-150";
+  const pillOn   = "bg-slate-800 text-white border-slate-800";
+  const pillOff  = "bg-white/0 text-slate-500 border-slate-200/60 hover:bg-slate-50 hover:text-slate-800 hover:border-slate-300";
 
   return (
-    <div className={cn("flex items-center gap-1.5", className)}>
-      <ToggleGroup
-        type="single"
-        value={isCustomActive ? "" : value}
-        onValueChange={(v) => {
-          if (v && v !== "mes-custom") onChange(v as PeriodPreset);
-        }}
-        className="gap-1"
-      >
-        {PERIOD_PRESETS.map((p) => (
-          <ToggleGroupItem
-            key={p.key}
-            value={p.key}
-            aria-label={p.label}
-            className={cn(
-              "h-8 px-3.5 text-[10px] font-black uppercase tracking-widest rounded-xl border transition-all",
-              "data-[state=on]:bg-slate-900 data-[state=on]:text-white data-[state=on]:border-slate-900",
-              "data-[state=off]:bg-white data-[state=off]:text-slate-500 data-[state=off]:border-slate-200",
-              "hover:bg-slate-50 hover:text-slate-800"
-            )}
-          >
-            {p.label}
-          </ToggleGroupItem>
-        ))}
-      </ToggleGroup>
+    <div className={cn("flex items-center gap-1", className)}>
+      {PERIOD_PRESETS.map((p) => (
+        <button
+          key={p.key}
+          type="button"
+          onClick={() => onChange(p.key)}
+          className={cn(pillBase, value === p.key && !isCustom ? pillOn : pillOff)}
+        >
+          {p.label}
+        </button>
+      ))}
 
       {/* Seleccionar mes — popover */}
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <button
             type="button"
-            className={cn(
-              "flex items-center gap-1 h-8 px-3.5 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all",
-              isCustomActive
-                ? "bg-slate-900 text-white border-slate-900"
-                : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50 hover:text-slate-800"
-            )}
+            className={cn(pillBase, "flex items-center gap-0.5", isCustom ? pillOn : pillOff)}
           >
-            {isCustomActive
-              ? `${MESES[popMonth - 1]} ${popYear}`.slice(0, 8) + (MESES[popMonth - 1].length > 5 ? "…" : "")
-              : "Mes ▾"}
-            <ChevronDown size={11} className={cn("transition-transform", open && "rotate-180")} />
+            {isCustom ? `${MESES[popMonth - 1].slice(0, 3)} ${popYear}` : "Mes"}
+            <ChevronDown size={9} className={cn("transition-transform", open && "rotate-180")} />
           </button>
         </PopoverTrigger>
-        <PopoverContent align="end" className="w-56 p-3 rounded-2xl shadow-xl border-slate-100">
-          <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-2">Seleccionar mes</p>
+        <PopoverContent align="end" className="w-52 p-3 rounded-2xl shadow-xl border-slate-100">
+          <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-2">Mes histórico</p>
           <div className="flex flex-col gap-2">
             <Select value={String(popYear)} onValueChange={(v) => setPopYear(Number(v))}>
               <SelectTrigger className="h-8 rounded-xl text-[11px] font-black">

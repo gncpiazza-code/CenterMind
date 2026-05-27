@@ -2,9 +2,7 @@
 
 import type { Objetivo, ObjetivoTipo } from "@/lib/api";
 import { isTelegramObjectiveMessage } from "@/lib/objetivo-utils";
-import { Crown, Calendar, User, Target, MapPin } from "lucide-react";
-
-// ── config (espejo de page.tsx para evitar prop drilling) ─────────────────────
+import { Crown, User } from "lucide-react";
 
 const TIPO_CONFIG: Record<ObjetivoTipo, { label: string; color: string; bg: string }> = {
   conversion_estado: { label: "Activación",             color: "text-blue-500",    bg: "bg-blue-500/10 border-blue-500/20" },
@@ -44,9 +42,13 @@ function daysUntil(d: string | null | undefined): number | null {
   return Math.ceil(diff / 86400000);
 }
 
-// ── componente ────────────────────────────────────────────────────────────────
-
-export function ObjetivoResumen({ obj }: { obj: Objetivo }) {
+export function ObjetivoResumen({
+  obj,
+  compact = false,
+}: {
+  obj: Objetivo;
+  compact?: boolean;
+}) {
   const cfg = TIPO_CONFIG[obj.tipo] ?? {
     label: obj.tipo,
     color: "text-slate-500",
@@ -64,15 +66,105 @@ export function ObjetivoResumen({ obj }: { obj: Objetivo }) {
     return `${MESES_ES[m - 1]} ${y}`;
   })();
 
-  // Descripción: si es payload Telegram crudo, no renderizar
   const descripcionVisible =
     obj.descripcion && !isTelegramObjectiveMessage(obj.descripcion)
       ? obj.descripcion
       : null;
 
+  const metaLabel =
+    obj.valor_objetivo != null
+      ? obj.tipo === "cobranza"
+        ? `$${obj.valor_objetivo.toLocaleString("es-AR")}`
+        : String(Math.round(obj.valor_objetivo))
+      : null;
+
+  if (compact) {
+    return (
+      <div className="space-y-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span
+            className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold border ${cfg.bg} ${cfg.color}`}
+          >
+            {cfg.label}
+          </span>
+          {isCompania && (
+            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-500/10 border border-amber-500/30 text-amber-600">
+              <Crown className="w-3 h-3" />
+              Compañía
+            </span>
+          )}
+          {obj.cumplido && (
+            <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/10 border border-emerald-500/20 text-emerald-600">
+              Cumplido
+            </span>
+          )}
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--shelfy-text)] ml-0.5">
+            <User className="w-3 h-3 text-[var(--shelfy-muted)] shrink-0" />
+            {obj.nombre_vendedor ?? `ID ${obj.id_vendedor}`}
+          </span>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-[var(--shelfy-muted)]">
+          {metaLabel != null && (
+            <span>
+              Meta <span className="font-semibold text-[var(--shelfy-text)]">{metaLabel}</span>
+            </span>
+          )}
+          {isCompania && mesRefLabel && (
+            <>
+              <span className="text-[var(--shelfy-border)]">·</span>
+              <span>{mesRefLabel}</span>
+            </>
+          )}
+          {obj.fecha_inicio && (
+            <>
+              <span className="text-[var(--shelfy-border)]">·</span>
+              <span className="text-blue-600">
+                Inicio {formatDate(obj.fecha_inicio)}
+              </span>
+            </>
+          )}
+          {obj.fecha_objetivo && (
+            <>
+              <span className="text-[var(--shelfy-border)]">·</span>
+              <span
+                className={
+                  dias !== null && dias <= 0
+                    ? "text-red-600"
+                    : dias !== null && dias <= 3
+                      ? "text-orange-600"
+                      : "text-orange-600/90"
+                }
+              >
+                Vence {formatDate(obj.fecha_objetivo)}
+                {dias !== null && (
+                  <span className="font-normal">
+                    {dias < 0
+                      ? ` (hace ${Math.abs(dias)}d)`
+                      : dias === 0
+                        ? " (hoy)"
+                        : ` (${dias}d)`}
+                  </span>
+                )}
+              </span>
+            </>
+          )}
+        </div>
+
+        {instruccion && (
+          <p className="text-[10px] text-[var(--shelfy-muted)] leading-snug">{instruccion}</p>
+        )}
+        {descripcionVisible && (
+          <p className="text-[10px] text-[var(--shelfy-muted)] leading-snug line-clamp-2">
+            {descripcionVisible}
+          </p>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-3">
-      {/* Badges tipo + origen */}
       <div className="flex flex-wrap items-center gap-2">
         <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold border ${cfg.bg} ${cfg.color}`}>
           {cfg.label}
@@ -90,86 +182,52 @@ export function ObjetivoResumen({ obj }: { obj: Objetivo }) {
         )}
       </div>
 
-      {/* Vendedor */}
       <div className="flex items-center gap-2 text-sm text-[var(--shelfy-text)]">
         <User className="w-4 h-4 text-[var(--shelfy-muted)] shrink-0" />
         <span className="font-medium">{obj.nombre_vendedor ?? `Vendedor ID ${obj.id_vendedor}`}</span>
       </div>
 
-      {/* PDV si aplica */}
       {obj.nombre_pdv && (
-        <div className="flex items-center gap-2 text-sm text-[var(--shelfy-text)]">
-          <MapPin className="w-4 h-4 text-[var(--shelfy-muted)] shrink-0" />
-          {obj.id_cliente_erp && (
-            <span className="text-xs text-[var(--shelfy-muted)] font-mono shrink-0">#{obj.id_cliente_erp}</span>
-          )}
-          <span>{obj.nombre_pdv}</span>
-        </div>
+        <p className="text-xs text-[var(--shelfy-text)] pl-6">{obj.nombre_pdv}</p>
       )}
 
-      {/* Meta */}
-      {obj.valor_objetivo != null && (
-        <div className="flex items-center gap-2 text-sm">
-          <Target className="w-4 h-4 text-[var(--shelfy-muted)] shrink-0" />
-          <span className="text-[var(--shelfy-muted)]">Meta:</span>
-          <span className="font-semibold text-[var(--shelfy-text)]">
-            {obj.tipo === "cobranza"
-              ? `$${obj.valor_objetivo.toLocaleString("es-AR")}`
-              : Math.round(obj.valor_objetivo)}
-          </span>
-          {obj.tipo === "cobranza" && obj.valor_actual > 0 && (
-            <span className="text-emerald-600 text-xs">
-              · Cobrado: ${obj.valor_actual.toLocaleString("es-AR")}
-            </span>
-          )}
-        </div>
+      {metaLabel != null && (
+        <p className="text-sm text-[var(--shelfy-muted)]">
+          Meta: <span className="font-semibold text-[var(--shelfy-text)]">{metaLabel}</span>
+        </p>
       )}
 
-      {/* Mes referencia (compañía) */}
       {isCompania && mesRefLabel && (
-        <div className="flex items-center gap-2 text-sm text-[var(--shelfy-muted)]">
-          <Calendar className="w-4 h-4 shrink-0" />
-          <span>Mes de referencia: <span className="font-medium text-[var(--shelfy-text)]">{mesRefLabel}</span></span>
-        </div>
+        <p className="text-sm text-[var(--shelfy-muted)]">
+          Mes de referencia:{" "}
+          <span className="font-medium text-[var(--shelfy-text)]">{mesRefLabel}</span>
+        </p>
       )}
 
-      {/* Fechas */}
-      <div className="flex flex-wrap gap-3">
+      <div className="flex flex-wrap gap-2">
         {obj.fecha_inicio && (
-          <div className="flex flex-col gap-0.5 px-2.5 py-1.5 rounded border bg-blue-500/5 border-blue-500/20">
-            <span className="text-[9px] font-semibold uppercase tracking-wider text-blue-600/70">Inicio</span>
-            <span className="text-xs font-medium text-blue-700">{formatDate(obj.fecha_inicio)}</span>
+          <div className="px-2 py-1 rounded border bg-blue-500/5 border-blue-500/20 text-[10px]">
+            <span className="text-blue-600/70 uppercase font-semibold">Inicio </span>
+            <span className="font-medium text-blue-700">{formatDate(obj.fecha_inicio)}</span>
           </div>
         )}
         {obj.fecha_objetivo && (
-          <div className={`flex flex-col gap-0.5 px-2.5 py-1.5 rounded border ${
-            dias !== null && dias <= 0
-              ? "bg-red-500/5 border-red-500/20"
-              : dias !== null && dias <= 3
-              ? "bg-orange-500/5 border-orange-500/20"
-              : "bg-orange-500/5 border-orange-500/20"
-          }`}>
-            <span className="text-[9px] font-semibold uppercase tracking-wider text-orange-600/70">Vencimiento</span>
-            <span className="text-xs font-medium text-orange-700">
+          <div className="px-2 py-1 rounded border bg-orange-500/5 border-orange-500/20 text-[10px]">
+            <span className="text-orange-600/70 uppercase font-semibold">Vence </span>
+            <span className="font-medium text-orange-700">
               {formatDate(obj.fecha_objetivo)}
-              {dias !== null && (
-                <span className="ml-1 text-[10px] font-normal">
-                  {dias < 0 ? `(vencido hace ${Math.abs(dias)}d)` : dias === 0 ? "(vence hoy)" : `(${dias}d)`}
-                </span>
-              )}
+              {dias !== null &&
+                (dias < 0 ? ` (${Math.abs(dias)}d vencido)` : dias === 0 ? " (hoy)" : ` (${dias}d)`)}
             </span>
           </div>
         )}
       </div>
 
-      {/* Instrucción por tipo */}
       {instruccion && (
-        <p className="text-xs text-[var(--shelfy-muted)] leading-snug border-l-2 border-[var(--shelfy-border)] pl-3">
+        <p className="text-xs text-[var(--shelfy-muted)] leading-snug border-l-2 border-[var(--shelfy-border)] pl-2">
           {instruccion}
         </p>
       )}
-
-      {/* Descripción libre (no Telegram) */}
       {descripcionVisible && (
         <p className="text-xs text-[var(--shelfy-muted)] leading-relaxed">{descripcionVisible}</p>
       )}

@@ -24,14 +24,14 @@ function textColorClase(pct: number, isPast: boolean): string {
   return "text-red-600";
 }
 
-function CeldaDia({ celda }: { celda: CeldaProrrateo }) {
+function CeldaDia({ celda, dense }: { celda: CeldaProrrateo; dense?: boolean }) {
   const { dia, metaDia, avanceDia, pct, isPastOrToday } = celda;
   const bg = colorClase(pct, isPastOrToday);
   const txt = textColorClase(pct, isPastOrToday);
 
   return (
     <div
-      className={`rounded border p-1 min-h-[44px] flex flex-col justify-between ${bg} ${
+      className={`rounded border p-0.5 flex flex-col justify-between ${dense ? "min-h-[34px]" : "min-h-[44px]"} ${bg} ${
         dia.isToday ? "ring-1 ring-violet-400" : ""
       }`}
       title={`${dia.iso} — ${
@@ -59,9 +59,11 @@ function CeldaDia({ celda }: { celda: CeldaProrrateo }) {
 export function ObjetivoProrrateoCalendario({
   obj,
   visualActual,
+  compact = false,
 }: {
   obj: Objetivo;
   visualActual?: number;
+  compact?: boolean;
 }) {
   const data = useMemo(
     () => buildProrrateoGrid(obj, visualActual),
@@ -70,79 +72,74 @@ export function ObjetivoProrrateoCalendario({
 
   if (!data) return null;
 
+  const semanasActivas = data.semanas.filter((s) => s.aplicable);
+  const semanasInactivas = data.semanas.filter((s) => !s.aplicable);
+  const cellMinH = compact ? "min-h-[34px]" : "min-h-[44px]";
+
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <p className="text-xs font-semibold text-amber-700">{data.label}</p>
-        <span className="text-[10px] text-amber-700/70">
+    <div className={compact ? "space-y-2" : "space-y-3"}>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[10px] font-semibold text-amber-700">{data.label}</p>
+        <span className="text-[10px] text-amber-700/70 shrink-0">
           {data.futuros} día{data.futuros !== 1 ? "s" : ""} restante
           {data.futuros !== 1 ? "s" : ""}
         </span>
       </div>
 
-      <div className="grid grid-cols-6 gap-1 text-[10px] text-center text-[var(--shelfy-muted)] font-medium">
+      {semanasInactivas.length > 0 && (
+        <p className="text-[9px] text-[var(--shelfy-muted)] italic">
+          {semanasInactivas.length === 1
+            ? `${semanasInactivas[0].label}: sin objetivo activo`
+            : `${semanasInactivas[0].label}–${semanasInactivas[semanasInactivas.length - 1].label}: sin objetivo activo (antes del inicio)`}
+        </p>
+      )}
+
+      <div className="grid grid-cols-6 gap-0.5 text-[9px] text-center text-[var(--shelfy-muted)] font-medium">
         {DIAS_CORTOS.map((d) => (
           <div key={d}>{d}</div>
         ))}
       </div>
 
       <div className="space-y-1">
-        {data.semanas.map((semana) => {
-          if (!semana.aplicable) {
-            return (
-              <div
-                key={semana.key}
-                className="rounded border border-dashed border-[var(--shelfy-border)]/40 bg-slate-50/50 px-2 py-1.5 opacity-60"
-              >
-                <div className="flex items-center justify-between text-[10px] text-[var(--shelfy-muted)]">
-                  <span>{semana.label}</span>
-                  <span>Sin objetivo activo</span>
-                </div>
-              </div>
-            );
-          }
-
-          return (
-            <div key={semana.key} className="space-y-0.5">
-              <div className="grid grid-cols-6 gap-1">
-                {semana.celdas.map((celda, colIdx) => {
-                  if (celda === null) {
-                    return (
-                      <div
-                        key={colIdx}
-                        className="rounded border border-dashed border-[var(--shelfy-border)]/30 bg-slate-50/50 p-1 min-h-[44px] flex items-center justify-center"
-                      >
-                        <span className="text-[9px] text-[var(--shelfy-muted)]/40">
-                          —
-                        </span>
-                      </div>
-                    );
-                  }
-                  if (celda === "pre") {
-                    return (
-                      <div
-                        key={colIdx}
-                        className="rounded border border-dashed border-[var(--shelfy-border)]/30 bg-slate-50/30 p-1 min-h-[44px] flex items-center justify-center"
-                        title="Antes del inicio del objetivo"
-                      >
-                        <span className="text-[8px] text-[var(--shelfy-muted)]/50">
-                          N/A
-                        </span>
-                      </div>
-                    );
-                  }
-                  return <CeldaDia key={colIdx} celda={celda} />;
-                })}
-              </div>
-              <div className="flex items-center gap-2 px-0.5">
-                <Progress value={semana.weekPct} className="flex-1 h-1" />
-                <span className="text-[9px] text-[var(--shelfy-muted)] tabular-nums whitespace-nowrap">
-                  {Math.round(semana.weekAvance)}/{Math.round(semana.weekMeta)}
-                </span>
-              </div>
+        {semanasActivas.map((semana) => (
+          <div key={semana.key} className="space-y-0.5">
+            <p className="text-[9px] font-medium text-[var(--shelfy-muted)] px-0.5">
+              {semana.label}
+            </p>
+            <div className="grid grid-cols-6 gap-0.5">
+              {semana.celdas.map((celda, colIdx) => {
+                if (celda === null) {
+                  return (
+                    <div
+                      key={colIdx}
+                      className={`rounded border border-dashed border-[var(--shelfy-border)]/30 bg-slate-50/50 p-0.5 ${cellMinH} flex items-center justify-center`}
+                    >
+                      <span className="text-[8px] text-[var(--shelfy-muted)]/40">—</span>
+                    </div>
+                  );
+                }
+                if (celda === "pre") {
+                  return (
+                    <div
+                      key={colIdx}
+                      className={`rounded border border-dashed border-[var(--shelfy-border)]/30 bg-slate-50/30 p-0.5 ${cellMinH} flex items-center justify-center`}
+                      title="Antes del inicio del objetivo"
+                    >
+                      <span className="text-[7px] text-[var(--shelfy-muted)]/50">N/A</span>
+                    </div>
+                  );
+                }
+                return <CeldaDia key={colIdx} celda={celda} dense={compact} />;
+              })}
             </div>
-          );
-        })}
+            <div className="flex items-center gap-2 px-0.5">
+              <Progress value={semana.weekPct} className="flex-1 h-1" />
+              <span className="text-[9px] text-[var(--shelfy-muted)] tabular-nums whitespace-nowrap">
+                {Math.round(semana.weekAvance)}/{Math.round(semana.weekMeta)}
+              </span>
+            </div>
+          </div>
+        ))}
       </div>
 
       {data.restante > 0 && data.futuros > 0 && (

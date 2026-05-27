@@ -83,7 +83,6 @@ def _build_ciudad_dominante_map(distribuidor_id: int) -> dict[str, str]:
     ruta_rows = (
         sb.table(t_rutas)
         .select("id_vendedor,id_ruta")
-        .eq("id_distribuidor", distribuidor_id)
         .execute()
         .data or []
     )
@@ -523,7 +522,11 @@ def dashboard_ranking(distribuidor_id: int, periodo: str = "mes", top: int = 999
     erp_to_sucursal = _build_erp_sucursal_map(distribuidor_id)
     unique_sucursales = {s for s in erp_to_sucursal.values() if s}
     is_mono = len(unique_sucursales) <= 1
-    ciudad_map = _build_ciudad_dominante_map(distribuidor_id) if is_mono else {}
+    try:
+        ciudad_map = _build_ciudad_dominante_map(distribuidor_id) if is_mono else {}
+    except Exception as e:
+        logger.warning(f"[ranking] ciudad_dominante fallback dist={distribuidor_id}: {e}")
+        ciudad_map = {}
 
     aggregated: dict[str, dict[str, Any]] = {
         vendedor: {
@@ -725,8 +728,15 @@ def dashboard_ultimas(distribuidor_id: int, n: int = 8, payload=Depends(verify_a
         fecha  = (ar_today - timedelta(days=days_back)).isoformat()
         result = sb.rpc("fn_ultimas_evaluadas", {"p_dist_id": distribuidor_id, "p_fecha": fecha, "p_limit": n}).execute()
         if result.data:
+            def _safe_enrich(rows: list[dict]) -> list[dict]:
+                try:
+                    return _enrich_ultimas_with_razon_social(rows, distribuidor_id)
+                except Exception as e:
+                    logger.warning(f"[ultimas] razon_social enrich fallback dist={distribuidor_id}: {e}")
+                    return rows
+
             if not hide_qa:
-                return _enrich_ultimas_with_razon_social(result.data, distribuidor_id)
+                return _safe_enrich(result.data)
             out = []
             for row in result.data:
                 iid = row.get("id_integrante")
@@ -738,7 +748,7 @@ def dashboard_ultimas(distribuidor_id: int, n: int = 8, payload=Depends(verify_a
                     continue
                 out.append(row)
             if out:
-                return _enrich_ultimas_with_razon_social(out, distribuidor_id)
+                return _safe_enrich(out)
     return []
 
 

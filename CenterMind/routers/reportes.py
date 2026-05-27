@@ -280,27 +280,47 @@ def _build_integrante_vendor_name_map(distribuidor_id: int) -> dict[int, str]:
     return out
 
 
+def _exhibition_snapshot_from_row(row: dict) -> dict:
+    """Campos de exhibición embebidos en fila de últimas (RPC o query directa)."""
+    return {
+        "id_exhibicion": row.get("id_exhibicion"),
+        "id_integrante": row.get("id_integrante"),
+        "id_cliente": row.get("id_cliente"),
+        "id_cliente_pdv": row.get("id_cliente_pdv"),
+        "numero_cliente_local": row.get("numero_cliente_local") or row.get("nro_cliente"),
+        "cliente_sombra_codigo": row.get("cliente_sombra_codigo"),
+    }
+
+
 def _enrich_ultimas_dashboard_rows(rows: list[dict], distribuidor_id: int) -> list[dict]:
     """Enriquece últimas evaluadas: PDV (ID ERP, razón social, ciudad) y nombre ERP del vendedor."""
     if not rows:
         return rows
 
-    ex_ids = list(
-        {
+    ex_map: dict[int, dict] = {}
+    for row in rows:
+        eid = _ultimas_safe_int(row.get("id_exhibicion"))
+        if eid is None:
+            continue
+        ex_map[eid] = _exhibition_snapshot_from_row(row)
+
+    missing_ids = [
+        eid
+        for eid in {
             _ultimas_safe_int(r.get("id_exhibicion"))
             for r in rows
             if _ultimas_safe_int(r.get("id_exhibicion")) is not None
         }
-    )
-    ex_map: dict[int, dict] = {}
-    if ex_ids:
+        if eid is not None and not ex_map.get(eid, {}).get("id_integrante")
+    ]
+    if missing_ids:
         ex_res = (
             sb.table("exhibiciones")
             .select(
                 "id_exhibicion, id_integrante, id_cliente, id_cliente_pdv, "
                 "numero_cliente_local, cliente_sombra_codigo"
             )
-            .in_("id_exhibicion", ex_ids)
+            .in_("id_exhibicion", missing_ids)
             .eq("id_distribuidor", distribuidor_id)
             .execute()
         )
@@ -337,27 +357,49 @@ def _enrich_ultimas_dashboard_rows(rows: list[dict], distribuidor_id: int) -> li
     if erp_list:
         for i in range(0, len(erp_list), 200):
             chunk_keys = erp_list[i : i + 200]
-            clientes.extend(
-                sb.table(t_clientes)
-                .select("id_cliente,id_cliente_erp,nombre_razon_social,nombre_fantasia,localidad")
-                .eq("id_distribuidor", distribuidor_id)
-                .in_("id_cliente_erp", chunk_keys)
-                .execute()
-                .data
-                or []
-            )
+            try:
+                batch = (
+                    sb.table(t_clientes)
+                    .select("id_cliente,id_cliente_erp,nombre_razon_social,nombre_fantasia,localidad")
+                    .eq("id_distribuidor", distribuidor_id)
+                    .in_("id_cliente_erp", chunk_keys)
+                    .execute()
+                    .data
+                    or []
+                )
+            except Exception:
+                batch = (
+                    sb.table(t_clientes)
+                    .select("id_cliente,id_cliente_erp,nombre_razon_social,nombre_fantasia,localidad")
+                    .in_("id_cliente_erp", chunk_keys)
+                    .execute()
+                    .data
+                    or []
+                )
+            clientes.extend(batch)
     if cliente_pks:
         pk_list = list(cliente_pks)
         for i in range(0, len(pk_list), 200):
-            clientes.extend(
-                sb.table(t_clientes)
-                .select("id_cliente,id_cliente_erp,nombre_razon_social,nombre_fantasia,localidad")
-                .eq("id_distribuidor", distribuidor_id)
-                .in_("id_cliente", pk_list[i : i + 200])
-                .execute()
-                .data
-                or []
-            )
+            try:
+                batch = (
+                    sb.table(t_clientes)
+                    .select("id_cliente,id_cliente_erp,nombre_razon_social,nombre_fantasia,localidad")
+                    .eq("id_distribuidor", distribuidor_id)
+                    .in_("id_cliente", pk_list[i : i + 200])
+                    .execute()
+                    .data
+                    or []
+                )
+            except Exception:
+                batch = (
+                    sb.table(t_clientes)
+                    .select("id_cliente,id_cliente_erp,nombre_razon_social,nombre_fantasia,localidad")
+                    .in_("id_cliente", pk_list[i : i + 200])
+                    .execute()
+                    .data
+                    or []
+                )
+            clientes.extend(batch)
 
     by_erp: dict[str, dict] = {}
     by_pk: dict[int, dict] = {}
@@ -394,6 +436,11 @@ def _enrich_ultimas_dashboard_rows(rows: list[dict], distribuidor_id: int) -> li
     fallback_vendor = build_integrante_to_erp_name(distribuidor_id)
 
     for row in rows:
+        if not _ultimas_safe_text(row.get("nro_cliente")).strip():
+            tp = _ultimas_safe_text(row.get("tipo_pdv")).strip()
+            if tp:
+                row["nro_cliente"] = tp
+
         cliente = _cliente_for_row(row)
         if cliente:
             erp_id = _ultimas_safe_text(cliente.get("id_cliente_erp")).strip()
@@ -416,11 +463,82 @@ def _enrich_ultimas_dashboard_rows(rows: list[dict], distribuidor_id: int) -> li
         erp_name = vendor_map.get(iid) if iid is not None else None
         if not erp_name and iid is not None:
             erp_name = fallback_vendor.get(iid)
+        tg_vendedor = _ultimas_safe_text(row.get("vendedor")).strip()
         if erp_name:
             row["vendedor_erp"] = erp_name
             row["vendedor"] = erp_name
+        elif tg_vendedor:
+            row["vendedor_erp"] = tg_vendedor
+            row["vendedor"] = tg_vendedor
 
     return rows
+
+
+_ULTIMAS_ESTADOS = ("Aprobado", "Destacado")
+
+
+def _fetch_ultimas_evaluadas_rows(distribuidor_id: int, n: int) -> list[dict]:
+    """Últimas exhibiciones evaluadas desde tabla exhibiciones (fuente con id_integrante y cliente)."""
+    ar_today = (datetime.utcnow() - timedelta(hours=3)).date()
+    pool: list[dict] = []
+    seen_ex: set[int] = set()
+
+    for days_back in range(90):
+        if len(pool) >= n:
+            break
+        fecha = ar_today - timedelta(days=days_back)
+        start_iso = f"{fecha.isoformat()}T03:00:00"
+        end_iso = f"{(fecha + timedelta(days=1)).isoformat()}T03:00:00"
+        try:
+            chunk = (
+                sb.table("exhibiciones")
+                .select(
+                    "id_exhibicion,id_integrante,estado,url_foto_drive,timestamp_subida,evaluated_at,"
+                    "numero_cliente_local,tipo_pdv,id_cliente_pdv,id_cliente,cliente_sombra_codigo"
+                )
+                .eq("id_distribuidor", distribuidor_id)
+                .in_("estado", list(_ULTIMAS_ESTADOS))
+                .gte("timestamp_subida", start_iso)
+                .lt("timestamp_subida", end_iso)
+                .order("timestamp_subida", desc=True)
+                .limit(max(n * 2, 16))
+                .execute()
+                .data
+                or []
+            )
+        except Exception as e:
+            logger.warning(f"[ultimas] query exhibiciones dist={distribuidor_id} fecha={fecha}: {e}")
+            continue
+
+        for ex in chunk:
+            eid = _ultimas_safe_int(ex.get("id_exhibicion"))
+            if eid is None or eid in seen_ex:
+                continue
+            seen_ex.add(eid)
+            pool.append(
+                {
+                    "id_exhibicion": eid,
+                    "drive_link": _ultimas_safe_text(ex.get("url_foto_drive")),
+                    "estado": _ultimas_safe_text(ex.get("estado")),
+                    "tipo_pdv": _ultimas_safe_text(ex.get("tipo_pdv")),
+                    "nro_cliente": _ultimas_safe_text(ex.get("numero_cliente_local")).strip(),
+                    "numero_cliente_local": ex.get("numero_cliente_local"),
+                    "id_integrante": ex.get("id_integrante"),
+                    "id_cliente_pdv": ex.get("id_cliente_pdv"),
+                    "id_cliente": ex.get("id_cliente"),
+                    "cliente_sombra_codigo": ex.get("cliente_sombra_codigo"),
+                    "timestamp_subida": ex.get("timestamp_subida"),
+                    "fecha_evaluacion": ex.get("evaluated_at"),
+                }
+            )
+
+    pool.sort(
+        key=lambda r: (
+            _ultimas_safe_text(r.get("fecha_evaluacion")) or _ultimas_safe_text(r.get("timestamp_subida"))
+        ),
+        reverse=True,
+    )
+    return pool[:n]
 
 
 def _filter_ultimas_by_sucursal(rows: list[dict], allowed_integrantes: set[int] | None) -> list[dict]:
@@ -521,9 +639,12 @@ def _resolve_period_bounds(periodo: str) -> tuple[str, str]:
 
 
 def _allowed_integrantes_for_sucursal(distribuidor_id: int, sucursal_id: int | None) -> set[int] | None:
+    if sucursal_id is None:
+        return None
+
     integ_rows = (
         sb.table("integrantes_grupo")
-        .select("id_integrante,id_vendedor_v2,telegram_user_id,telegram_group_id")
+        .select("id_integrante,id_vendedor_v2,id_vendedor_erp,telegram_user_id,telegram_group_id")
         .eq("id_distribuidor", distribuidor_id)
         .execute()
         .data
@@ -537,24 +658,11 @@ def _allowed_integrantes_for_sucursal(distribuidor_id: int, sucursal_id: int | N
         .data
         or []
     )
-    id_int_to_v2: dict[int, int | None] = {}
-    for ig in integ_rows:
-        iid = ig.get("id_integrante")
-        if iid is None:
-            continue
-        try:
-            iid_i = int(iid)
-        except (TypeError, ValueError):
-            continue
-        id_int_to_v2[iid_i] = resolve_vendedor_v2_for_integrante(ig, bindings_rows)
-
-    if sucursal_id is None:
-        return None
 
     t_vendedores = tenant_table_name("vendedores_v2", distribuidor_id)
     vend_rows = (
         sb.table(t_vendedores)
-        .select("id_vendedor,id_sucursal")
+        .select("id_vendedor,id_sucursal,id_vendedor_erp")
         .eq("id_distribuidor", distribuidor_id)
         .execute()
         .data
@@ -565,7 +673,41 @@ def _allowed_integrantes_for_sucursal(distribuidor_id: int, sucursal_id: int | N
         for v in vend_rows
         if v.get("id_vendedor") is not None and int(v.get("id_sucursal") or 0) == int(sucursal_id)
     }
-    return {iid for iid, vid in id_int_to_v2.items() if vid is not None and int(vid) in vend_ids_suc}
+    vend_erp_to_id: dict[str, int] = {}
+    for v in vend_rows:
+        vid = _ultimas_safe_int(v.get("id_vendedor"))
+        if vid is None:
+            continue
+        erp = _ultimas_safe_text(v.get("id_vendedor_erp")).strip()
+        if erp:
+            vend_erp_to_id[erp] = vid
+            vend_erp_to_id[_ultimas_normalize_erp_code(erp)] = vid
+
+    allowed: set[int] = set()
+    for ig in integ_rows:
+        iid = _ultimas_safe_int(ig.get("id_integrante"))
+        if iid is None:
+            continue
+        vid = None
+        tg_uid = _ultimas_safe_int(ig.get("telegram_user_id"))
+        binding_by_tg = {
+            _ultimas_safe_int(b.get("telegram_user_id")): _ultimas_safe_int(b.get("id_vendedor_v2"))
+            for b in bindings_rows
+            if _ultimas_safe_int(b.get("telegram_user_id")) is not None
+        }
+        if tg_uid is not None and tg_uid in binding_by_tg:
+            vid = binding_by_tg[tg_uid]
+        if vid is None:
+            v2 = _ultimas_safe_int(ig.get("id_vendedor_v2"))
+            if v2 is not None:
+                vid = v2
+        if vid is None:
+            erp = _ultimas_safe_text(ig.get("id_vendedor_erp")).strip()
+            if erp:
+                vid = vend_erp_to_id.get(erp) or vend_erp_to_id.get(_ultimas_normalize_erp_code(erp))
+        if vid is not None and int(vid) in vend_ids_suc:
+            allowed.add(iid)
+    return allowed
 
 
 def _fetch_exhibiciones_periodo(distribuidor_id: int, start_iso: str, end_iso: str) -> list[dict[str, Any]]:
@@ -1101,9 +1243,31 @@ def dashboard_ultimas(
         try:
             return _enrich_ultimas_dashboard_rows(rows, distribuidor_id)
         except Exception as e:
-            logger.warning(f"[ultimas] enrich fallback dist={distribuidor_id}: {e}")
+            logger.exception(f"[ultimas] enrich dist={distribuidor_id}: {e}")
             return rows
 
+    fetch_n = max(n * 4, 24)
+    rows = _fetch_ultimas_evaluadas_rows(distribuidor_id, fetch_n)
+
+    if hide_qa:
+        filtered_qa: list[dict] = []
+        for row in rows:
+            iid = _ultimas_safe_int(row.get("id_integrante"))
+            if iid is not None and iid in qa_ids:
+                continue
+            tg = _ultimas_safe_text(row.get("vendedor")).strip()
+            erp = erp_name_map.get(tg.lower(), tg) if tg else ""
+            if is_exhibicion_qa_display_for_dist(distribuidor_id, erp):
+                continue
+            filtered_qa.append(row)
+        rows = filtered_qa
+
+    rows = _filter_ultimas_by_sucursal(rows, allowed_integrantes)
+    rows = rows[:n]
+    if rows:
+        return _safe_enrich(rows)
+
+    # Fallback RPC si la query directa no devolvió filas (esquema legacy)
     for days_back in range(90):
         fecha = (ar_today - timedelta(days=days_back)).isoformat()
         result = sb.rpc(
@@ -1112,24 +1276,20 @@ def dashboard_ultimas(
         ).execute()
         if not result.data:
             continue
-
-        rows = result.data
+        rpc_rows = result.data
         if hide_qa:
-            out: list[dict] = []
-            for row in rows:
-                iid = row.get("id_integrante")
-                tg = (row.get("vendedor") or "").strip()
-                erp = erp_name_map.get(tg.lower(), tg) if tg else ""
-                if iid in qa_ids:
-                    continue
-                if is_exhibicion_qa_display_for_dist(distribuidor_id, erp):
-                    continue
-                out.append(row)
-            rows = out
-
-        rows = _filter_ultimas_by_sucursal(rows, allowed_integrantes)
-        if rows:
-            return _safe_enrich(rows)
+            rpc_rows = [
+                r
+                for r in rpc_rows
+                if _ultimas_safe_int(r.get("id_integrante")) not in qa_ids
+                and not is_exhibicion_qa_display_for_dist(
+                    distribuidor_id,
+                    erp_name_map.get((_ultimas_safe_text(r.get("vendedor")).strip().lower()), ""),
+                )
+            ]
+        rpc_rows = _filter_ultimas_by_sucursal(rpc_rows, allowed_integrantes)
+        if rpc_rows:
+            return _safe_enrich(rpc_rows[:n])
     return []
 
 

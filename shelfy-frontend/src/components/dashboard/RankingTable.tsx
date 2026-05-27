@@ -127,7 +127,7 @@ export function RankingTable({
 
   if (ranking.length === 0) {
     return (
-      <Card className="flex flex-col items-center justify-center p-12 border-slate-200 border-dashed border-2 h-full bg-slate-50/50 rounded-[2rem]">
+      <Card className="flex flex-col items-center justify-center p-12 border-slate-200 border-dashed border-2 h-full bg-slate-50/50 rounded-3xl">
         <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4">
           <Award className="text-slate-300" size={32} />
         </div>
@@ -139,7 +139,7 @@ export function RankingTable({
   }
 
   return (
-    <Card className="border-slate-200/60 shadow-xl overflow-hidden flex flex-col h-full bg-white relative rounded-[2rem]">
+    <Card className="border-slate-200/60 shadow-lg overflow-hidden flex flex-col h-full bg-white relative rounded-3xl isolate">
       {/* Barra superior violet */}
       <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-violet-500 via-indigo-400 to-violet-500 z-20" />
 

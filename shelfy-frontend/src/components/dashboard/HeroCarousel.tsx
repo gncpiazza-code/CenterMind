@@ -82,7 +82,7 @@ export function HeroCarousel({ items, compact = false }: HeroCarouselProps) {
   const next = () => goTo(ci === filtered.length - 1 ? 0 : ci + 1);
 
   if (filtered.length === 0) return (
-    <Card className="h-full min-h-0 flex flex-col items-center justify-center bg-slate-50 border-slate-200 border-dashed border-2 shadow-inner gap-4">
+    <Card className="h-full min-h-0 flex flex-col items-center justify-center bg-slate-50 border-slate-200 border-dashed border-2 shadow-inner gap-4 rounded-3xl">
       <div className="w-20 h-20 bg-violet-50 rounded-full flex items-center justify-center">
         <Activity size={32} className="text-violet-300 animate-pulse" />
       </div>
@@ -103,7 +103,7 @@ export function HeroCarousel({ items, compact = false }: HeroCarouselProps) {
   const pdvNombre = (item.razon_social || "").trim();
 
   return (
-    <div className="relative w-full h-full rounded-[2.5rem] overflow-hidden shadow-2xl ring-1 ring-slate-200/50 flex flex-col bg-slate-950 group">
+    <div className="relative w-full h-full rounded-3xl overflow-hidden flex flex-col bg-slate-950 group">
 
       {/* Barra de progreso autoplay */}
       <div className="absolute top-0 left-0 right-0 h-0.5 bg-white/20 z-30">

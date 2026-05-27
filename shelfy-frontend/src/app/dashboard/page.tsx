@@ -247,16 +247,16 @@ export default function DashboardPage() {
                 custom={2}
               >
                 {isFetchingLeft && (
-                  <div className="absolute inset-0 bg-white/30 rounded-[2rem] backdrop-blur-[1px] z-50 flex items-center justify-center pointer-events-none">
+                  <div className="absolute inset-0 bg-white/30 rounded-3xl backdrop-blur-[1px] z-50 flex items-center justify-center pointer-events-none">
                     <div className="w-4 h-4 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
                   </div>
                 )}
                 {loading && ultimas.length === 0 ? (
-                  <Card className="h-full min-h-0 flex items-center justify-center p-12 bg-white rounded-[2.5rem]">
-                    <Skeleton className="h-8 w-full" />
+                  <Card className="h-full min-h-0 flex items-center justify-center p-12 bg-white rounded-3xl">
+                    <Skeleton className="h-8 w-full rounded-2xl" />
                   </Card>
                 ) : (
-                  <div className="h-full min-h-[280px] md:min-h-0 flex-1 overflow-hidden">
+                  <div className="h-full min-h-[280px] md:min-h-0 flex-1 rounded-3xl overflow-hidden ring-1 ring-slate-200/80 shadow-lg bg-slate-950">
                     <HeroCarousel items={ultimas} compact />
                   </div>
                 )}
@@ -271,11 +271,11 @@ export default function DashboardPage() {
                 custom={3}
               >
                 {isFetchingRight && (
-                  <div className="absolute inset-0 bg-white/30 rounded-[2rem] backdrop-blur-[1px] z-50 flex items-center justify-center pointer-events-none">
+                  <div className="absolute inset-0 bg-white/30 rounded-3xl backdrop-blur-[1px] z-50 flex items-center justify-center pointer-events-none">
                     <div className="w-4 h-4 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
                   </div>
                 )}
-                <div className="h-full min-h-0 overflow-hidden">
+                <div className="h-full min-h-0 overflow-hidden rounded-3xl">
                   <RankingTable
                     dense
                     ranking={rankingFiltrado}

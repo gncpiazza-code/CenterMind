@@ -40,7 +40,7 @@ export function DashboardToolbar({
 
   return (
     <div className={cn(
-      "flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl border border-slate-100/80 bg-white/60 backdrop-blur-sm relative z-20",
+      "flex items-center justify-between gap-2 px-3 py-2 rounded-2xl border border-violet-200/50 bg-white/75 backdrop-blur-md shadow-sm shadow-violet-500/5 ring-1 ring-violet-500/10 relative z-20",
       className,
     )}>
       {/* Sucursal — izquierda, solo si hay >1 */}

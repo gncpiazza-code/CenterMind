@@ -333,22 +333,10 @@ def _enrich_ultimas_dashboard_rows(rows: list[dict], distribuidor_id: int) -> li
 
     ex_map = _hydrate_exhibiciones_map(rows, distribuidor_id)
 
-    erp_keys: set[str] = set()
+    # Padrón: solo por PK de cliente al momento de la exhibición (id_cliente_pdv / id_cliente).
     cliente_pks: set[int] = set()
     for row in rows:
-        nc = _ultimas_safe_text(row.get("nro_cliente")).strip()
-        if nc:
-            erp_keys.add(nc)
-            erp_keys.add(_ultimas_normalize_erp_code(nc))
         ex = ex_map.get(_ultimas_safe_int(row.get("id_exhibicion")) or -1, {})
-        for key in (
-            ex.get("cliente_sombra_codigo"),
-            row.get("nro_cliente"),
-        ):
-            s = _ultimas_safe_text(key).strip()
-            if s:
-                erp_keys.add(s)
-                erp_keys.add(_ultimas_normalize_erp_code(s))
         for pk_field in ("id_cliente_pdv", "id_cliente"):
             pk = _ultimas_safe_int(ex.get(pk_field))
             if pk is not None:
@@ -356,30 +344,6 @@ def _enrich_ultimas_dashboard_rows(rows: list[dict], distribuidor_id: int) -> li
 
     t_clientes = tenant_table_name("clientes_pdv_v2", distribuidor_id)
     clientes: list[dict] = []
-    erp_list = [k for k in erp_keys if k]
-    if erp_list:
-        for i in range(0, len(erp_list), 200):
-            chunk_keys = erp_list[i : i + 200]
-            try:
-                batch = (
-                    sb.table(t_clientes)
-                    .select("id_cliente,id_cliente_erp,nombre_razon_social,nombre_fantasia,localidad")
-                    .eq("id_distribuidor", distribuidor_id)
-                    .in_("id_cliente_erp", chunk_keys)
-                    .execute()
-                    .data
-                    or []
-                )
-            except Exception:
-                batch = (
-                    sb.table(t_clientes)
-                    .select("id_cliente,id_cliente_erp,nombre_razon_social,nombre_fantasia,localidad")
-                    .in_("id_cliente_erp", chunk_keys)
-                    .execute()
-                    .data
-                    or []
-                )
-            clientes.extend(batch)
     if cliente_pks:
         pk_list = list(cliente_pks)
         for i in range(0, len(pk_list), 200):
@@ -404,33 +368,18 @@ def _enrich_ultimas_dashboard_rows(rows: list[dict], distribuidor_id: int) -> li
                 )
             clientes.extend(batch)
 
-    by_erp: dict[str, dict] = {}
     by_pk: dict[int, dict] = {}
     for c in clientes:
-        erp_id = _ultimas_safe_text(c.get("id_cliente_erp")).strip()
-        if erp_id:
-            by_erp[erp_id] = c
-            by_erp[_ultimas_normalize_erp_code(erp_id)] = c
         pk = _ultimas_safe_int(c.get("id_cliente"))
         if pk is not None:
             by_pk[pk] = c
 
-    def _cliente_for_row(row: dict) -> dict | None:
-        ex = ex_map.get(_ultimas_safe_int(row.get("id_exhibicion")) or -1, {})
+    def _cliente_padron_from_exhibicion(ex: dict) -> dict | None:
+        """Cliente del padrón vinculado al id_cliente_pdv/id_cliente de la exhibición."""
         for pk_field in ("id_cliente_pdv", "id_cliente"):
             pk = _ultimas_safe_int(ex.get(pk_field))
             if pk is not None and pk in by_pk:
                 return by_pk[pk]
-        nc = _ultimas_safe_text(row.get("nro_cliente")).strip()
-        if nc:
-            hit = by_erp.get(nc) or by_erp.get(_ultimas_normalize_erp_code(nc))
-            if hit:
-                return hit
-        shadow = _ultimas_safe_text(ex.get("cliente_sombra_codigo")).strip()
-        if shadow:
-            hit = by_erp.get(shadow) or by_erp.get(_ultimas_normalize_erp_code(shadow))
-            if hit:
-                return hit
         return None
 
     vendor_map = _build_integrante_vendor_name_map(distribuidor_id)
@@ -439,27 +388,27 @@ def _enrich_ultimas_dashboard_rows(rows: list[dict], distribuidor_id: int) -> li
 
     for row in rows:
         ex = ex_map.get(_ultimas_safe_int(row.get("id_exhibicion")) or -1, {})
-        if not _ultimas_safe_text(row.get("nro_cliente")).strip():
-            shadow = _ultimas_safe_text(ex.get("cliente_sombra_codigo")).strip()
-            if shadow:
-                row["nro_cliente"] = shadow
+        row["razon_social"] = ""
+        row["ciudad"] = ""
         if row.get("id_integrante") is None and ex.get("id_integrante") is not None:
             row["id_integrante"] = ex.get("id_integrante")
 
-        cliente = _cliente_for_row(row)
+        pk_pdv = _ultimas_safe_int(ex.get("id_cliente_pdv"))
+        pk_cli = _ultimas_safe_int(ex.get("id_cliente"))
+        if pk_pdv is not None:
+            row["id_cliente_pdv"] = pk_pdv
+        if pk_cli is not None:
+            row["id_cliente"] = pk_cli
+
+        cliente = _cliente_padron_from_exhibicion(ex)
         if cliente:
             erp_id = _ultimas_safe_text(cliente.get("id_cliente_erp")).strip()
-            if erp_id:
-                row["nro_cliente"] = erp_id
+            row["nro_cliente"] = erp_id or row.get("nro_cliente") or ""
             row["razon_social"] = (
                 _ultimas_safe_text(cliente.get("nombre_razon_social")).strip()
                 or _ultimas_safe_text(cliente.get("nombre_fantasia")).strip()
-                or row.get("razon_social")
-                or ""
             )
-            loc = _ultimas_safe_text(cliente.get("localidad")).strip()
-            if loc:
-                row["ciudad"] = loc
+            row["ciudad"] = _ultimas_safe_text(cliente.get("localidad")).strip()
 
         iid = _ultimas_safe_int(row.get("id_integrante"))
         if iid is None:

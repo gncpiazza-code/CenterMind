@@ -102,7 +102,7 @@ export function DashboardKpiCarousel({
     <div className="shrink-0">
       {/* Slide nav dots */}
       <div className="flex items-center justify-between mb-2">
-        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+        <p className="text-[10px] font-black uppercase tracking-widest text-violet-600/80">
           {SLIDE_LABELS[slide]}
         </p>
         <div className="flex items-center gap-1.5">
@@ -132,10 +132,10 @@ export function DashboardKpiCarousel({
             transition={{ duration: 0.25 }}
             className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3"
           >
-            <KpiCard variant="compact" label="Pendientes"  value={kpis.pendientes}  icon={<Clock size={16} />}        colorName="amber"   bgColor="bg-white" />
-            <KpiCard variant="compact" label="Aprobadas"   value={kpis.aprobadas}   icon={<CheckCircle size={16} />}  colorName="emerald" bgColor="bg-white" />
-            <KpiCard variant="compact" label="Destacadas"  value={kpis.destacadas}  icon={<Star size={16} />}         colorName="violet"  bgColor="bg-gradient-to-br from-violet-50/60 to-fuchsia-50/40" />
-            <KpiCard variant="compact" label="Rechazadas"  value={kpis.rechazadas}  icon={<XCircle size={16} />}      colorName="red"     bgColor="bg-white" />
+            <KpiCard variant="compact" label="Pendientes"  value={kpis.pendientes}  icon={<Clock size={16} />}        colorName="amber"   bgColor="bg-gradient-to-br from-amber-50/90 to-white" />
+            <KpiCard variant="compact" label="Aprobadas"   value={kpis.aprobadas}   icon={<CheckCircle size={16} />}  colorName="emerald" bgColor="bg-gradient-to-br from-emerald-50/90 to-white" />
+            <KpiCard variant="compact" label="Destacadas"  value={kpis.destacadas}  icon={<Star size={16} />}         colorName="violet"  bgColor="bg-gradient-to-br from-violet-100/80 to-fuchsia-50/50" />
+            <KpiCard variant="compact" label="Rechazadas"  value={kpis.rechazadas}  icon={<XCircle size={16} />}      colorName="red"     bgColor="bg-gradient-to-br from-red-50/80 to-white" />
           </motion.div>
         )}
 
@@ -147,7 +147,7 @@ export function DashboardKpiCarousel({
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -20 }}
             transition={{ duration: 0.25 }}
-            className="h-[140px] bg-white rounded-2xl border border-slate-200/60 shadow-sm p-3 relative overflow-hidden"
+            className="h-[140px] bg-gradient-to-br from-white via-violet-50/30 to-indigo-50/40 rounded-2xl border border-violet-200/40 shadow-sm shadow-violet-500/5 p-3 relative overflow-hidden"
           >
             {/* Chart rotation dots */}
             <div className="absolute top-2.5 right-3 flex items-center gap-1 z-10">
@@ -240,7 +240,7 @@ export function DashboardKpiCarousel({
               value={kpis.total}
               icon={<Store size={16} />}
               colorName="blue"
-              bgColor="bg-white"
+              bgColor="bg-gradient-to-br from-blue-50/90 to-white"
               tooltip="Total de puntos de venta con ≥1 exhibición lógica en el período"
             />
             <KpiCard
@@ -249,7 +249,7 @@ export function DashboardKpiCarousel({
               value={tasaAprobacion ?? 0}
               icon={<TrendingUp size={16} />}
               colorName="emerald"
-              bgColor="bg-white"
+              bgColor="bg-gradient-to-br from-emerald-50/90 to-white"
               suffix="%"
               tooltip="Aprobadas / (Aprobadas + Rechazadas)"
             />
@@ -259,7 +259,7 @@ export function DashboardKpiCarousel({
               value={kpis.vendedores_activos ?? 0}
               icon={<Users size={16} />}
               colorName="violet"
-              bgColor="bg-gradient-to-br from-violet-50/60 to-fuchsia-50/40"
+              bgColor="bg-gradient-to-br from-violet-100/80 to-fuchsia-50/50"
               tooltip="Vendedores ERP con ≥1 exhibición lógica en el período"
             />
             <KpiCard
@@ -268,7 +268,7 @@ export function DashboardKpiCarousel({
               value={kpis.exhibiciones_por_vendedor ?? 0}
               icon={<BarChart2 size={16} />}
               colorName="amber"
-              bgColor="bg-white"
+              bgColor="bg-gradient-to-br from-amber-50/80 to-white"
               isDecimal
               tooltip="Promedio de exhibiciones lógicas por vendedor activo"
             />

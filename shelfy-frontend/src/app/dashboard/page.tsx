@@ -171,16 +171,20 @@ export default function DashboardPage() {
     <div className={cn(
       "flex h-screen overflow-hidden font-sans",
       isImmersive && "fixed inset-0 z-50 bg-slate-950",
-    )} style={{ background: isImmersive ? "#020617" : "var(--shelfy-bg)" }}>
+    )} style={{
+      background: isImmersive
+        ? "#020617"
+        : "linear-gradient(145deg, #f8f7ff 0%, #f1f5f9 42%, #eef2ff 100%)",
+    }}>
       {!isImmersive && <Sidebar />}
       {!isImmersive && <BottomNav />}
 
       <div className="flex flex-col flex-1 min-w-0 relative h-full">
 
         {/* Blobs decorativos */}
-        <div className="absolute top-[-15%] right-[-8%] w-[45%] h-[45%] rounded-full bg-violet-500/[0.10] blur-[120px] pointer-events-none" />
-        <div className="absolute bottom-[-10%] left-[-8%] w-[35%] h-[35%] rounded-full bg-indigo-500/[0.08] blur-[100px] pointer-events-none" />
-        <div className="absolute top-[40%] left-[30%] w-[25%] h-[25%] rounded-full bg-fuchsia-500/[0.05] blur-[80px] pointer-events-none" />
+        <div className="absolute top-[-15%] right-[-8%] w-[45%] h-[45%] rounded-full bg-violet-400/20 blur-[120px] pointer-events-none" />
+        <div className="absolute bottom-[-10%] left-[-8%] w-[35%] h-[35%] rounded-full bg-indigo-400/15 blur-[100px] pointer-events-none" />
+        <div className="absolute top-[35%] left-[20%] w-[30%] h-[30%] rounded-full bg-emerald-400/10 blur-[90px] pointer-events-none" />
 
         {!isImmersive && <Topbar title="Dashboard" live />}
 
@@ -235,7 +239,7 @@ export default function DashboardPage() {
 
           {/* Layout 25% hero / 75% ranking */}
           <div className="relative flex-1 min-h-0 w-full">
-            <div className="hidden md:block absolute left-[25%] top-0 bottom-0 w-px -translate-x-1/2 bg-gradient-to-b from-transparent via-slate-200/60 to-transparent pointer-events-none z-10" />
+            <div className="hidden md:block absolute left-[25%] top-0 bottom-0 w-px -translate-x-1/2 bg-gradient-to-b from-transparent via-violet-300/50 to-transparent pointer-events-none z-10" />
 
             <div className="flex flex-col md:flex-row md:items-stretch gap-4 h-full min-h-0 overflow-hidden">
               {/* HeroCarousel — 25% */}
@@ -256,7 +260,7 @@ export default function DashboardPage() {
                     <Skeleton className="h-8 w-full rounded-2xl" />
                   </Card>
                 ) : (
-                  <div className="h-full min-h-[280px] md:min-h-0 flex-1 rounded-3xl overflow-hidden ring-1 ring-slate-200/80 shadow-lg bg-slate-950">
+                  <div className="h-full min-h-[280px] md:min-h-0 flex-1 rounded-3xl overflow-hidden ring-1 ring-violet-500/20 shadow-lg shadow-violet-500/10 bg-slate-950">
                     <HeroCarousel items={ultimas} compact />
                   </div>
                 )}

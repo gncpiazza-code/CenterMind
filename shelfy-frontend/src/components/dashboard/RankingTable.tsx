@@ -139,13 +139,13 @@ export function RankingTable({
   }
 
   return (
-    <Card className="border-slate-200/60 shadow-lg overflow-hidden flex flex-col h-full bg-white relative rounded-3xl isolate">
+    <Card className="border-violet-200/50 shadow-lg shadow-violet-500/5 overflow-hidden flex flex-col h-full bg-gradient-to-b from-white via-white to-violet-50/30 relative rounded-3xl isolate ring-1 ring-violet-500/10">
       {/* Barra superior violet */}
-      <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-violet-500 via-indigo-400 to-violet-500 z-20" />
+      <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-violet-500 via-fuchsia-400 to-indigo-500 z-20" />
 
       {/* Header */}
       <div className={cn(
-        "border-b border-slate-50 flex items-center justify-between sticky top-0 bg-white/80 backdrop-blur-xl z-20 gap-3 shadow-sm",
+        "border-b border-violet-100/60 flex items-center justify-between sticky top-0 bg-white/85 backdrop-blur-xl z-20 gap-3 shadow-sm",
         dense ? "pt-5 px-4 pb-3" : "pt-7 px-6 pb-4",
       )}>
         {/* Título centrado */}

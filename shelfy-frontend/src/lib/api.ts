@@ -97,6 +97,7 @@ export interface UltimaEvaluada {
   timestamp_subida: string;
   fecha_evaluacion?: string;
   ciudad?: string;
+  razon_social?: string;
 }
 
 export interface EvolucionTiempo {

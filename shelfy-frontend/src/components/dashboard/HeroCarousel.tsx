@@ -183,12 +183,12 @@ export function HeroCarousel({ items, compact = false }: HeroCarouselProps) {
 
             {/* ── PDV info ── */}
             <div className="flex items-center gap-2 overflow-hidden">
-              {/* ID + nombre en un solo chip */}
+              {/* ID + razón social en un solo chip */}
               <div className="flex items-center gap-1 bg-white/10 backdrop-blur-sm px-2 py-1 rounded-lg border border-white/15 min-w-0">
                 <Hash size={9} className="text-white/45 shrink-0" />
                 <span className="text-white font-black text-[9px] tracking-wide shrink-0">#{item.nro_cliente}</span>
-                {item.tipo_pdv && (
-                  <span className="text-white/60 font-bold text-[9px] truncate">· {item.tipo_pdv}</span>
+                {item.razon_social && (
+                  <span className="text-white/60 font-bold text-[9px] truncate">· {item.razon_social}</span>
                 )}
               </div>
 

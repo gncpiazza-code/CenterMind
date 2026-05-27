@@ -60,6 +60,113 @@ def _build_erp_sucursal_map(distribuidor_id: int) -> dict[str, str]:
     return result
 
 
+def _build_ciudad_dominante_map(distribuidor_id: int) -> dict[str, str]:
+    """Devuelve {nombre_erp_vendedor: ciudad_dominante} para distribuidores mono-sucursal.
+    Cadena: vendedores_v2 → rutas_v2 (id_vendedor) → clientes_pdv_v2 (id_ruta) → localidad."""
+    from collections import Counter
+    t_vendedores = tenant_table_name("vendedores_v2", distribuidor_id)
+    t_rutas = tenant_table_name("rutas_v2", distribuidor_id)
+    t_clientes = tenant_table_name("clientes_pdv_v2", distribuidor_id)
+
+    vend_rows = (
+        sb.table(t_vendedores)
+        .select("id_vendedor,nombre_erp")
+        .eq("id_distribuidor", distribuidor_id)
+        .execute()
+        .data or []
+    )
+    vid_to_erp = {
+        str(v["id_vendedor"]): (v.get("nombre_erp") or "").strip()
+        for v in vend_rows if v.get("id_vendedor")
+    }
+
+    ruta_rows = (
+        sb.table(t_rutas)
+        .select("id_vendedor,id_ruta")
+        .eq("id_distribuidor", distribuidor_id)
+        .execute()
+        .data or []
+    )
+    vid_to_rutas: dict[str, list[str]] = {}
+    for r in ruta_rows:
+        vid = str(r.get("id_vendedor", ""))
+        rid = str(r.get("id_ruta", ""))
+        if vid and rid:
+            vid_to_rutas.setdefault(vid, []).append(rid)
+
+    all_ruta_ids = list({rid for rids in vid_to_rutas.values() for rid in rids})
+    if not all_ruta_ids:
+        return {}
+
+    PAGE = 1000
+    offset = 0
+    cliente_rows: list[dict] = []
+    while True:
+        chunk = (
+            sb.table(t_clientes)
+            .select("id_ruta,localidad")
+            .in_("id_ruta", all_ruta_ids)
+            .range(offset, offset + PAGE - 1)
+            .execute()
+            .data or []
+        )
+        cliente_rows.extend(chunk)
+        if len(chunk) < PAGE:
+            break
+        offset += PAGE
+
+    ruta_to_localidades: dict[str, list[str]] = {}
+    for c in cliente_rows:
+        rid = str(c.get("id_ruta", ""))
+        loc = (c.get("localidad") or "").strip()
+        if rid and loc:
+            ruta_to_localidades.setdefault(rid, []).append(loc)
+
+    result: dict[str, str] = {}
+    for vid, erp in vid_to_erp.items():
+        if not erp:
+            continue
+        localidades: list[str] = []
+        for rid in vid_to_rutas.get(vid, []):
+            localidades.extend(ruta_to_localidades.get(rid, []))
+        if localidades:
+            result[erp] = Counter(localidades).most_common(1)[0][0]
+    return result
+
+
+def _enrich_ultimas_with_razon_social(rows: list[dict], distribuidor_id: int) -> list[dict]:
+    """Agrega razon_social a cada fila buscando en clientes_pdv_v2 por id_cliente_erp."""
+    if not rows:
+        return rows
+    nro_clientes = list({str(r.get("nro_cliente", "")) for r in rows if r.get("nro_cliente")})
+    if not nro_clientes:
+        return rows
+    t_clientes = tenant_table_name("clientes_pdv_v2", distribuidor_id)
+    PAGE = 1000
+    offset = 0
+    clientes: list[dict] = []
+    while True:
+        chunk = (
+            sb.table(t_clientes)
+            .select("id_cliente_erp,nombre_razon_social,nombre_fantasia")
+            .in_("id_cliente_erp", nro_clientes)
+            .range(offset, offset + PAGE - 1)
+            .execute()
+            .data or []
+        )
+        clientes.extend(chunk)
+        if len(chunk) < PAGE:
+            break
+        offset += PAGE
+    rs_map = {
+        str(c["id_cliente_erp"]): (c.get("nombre_razon_social") or c.get("nombre_fantasia") or "")
+        for c in clientes if c.get("id_cliente_erp")
+    }
+    for row in rows:
+        row["razon_social"] = rs_map.get(str(row.get("nro_cliente", "")), "")
+    return rows
+
+
 def _resolve_period_bounds(periodo: str) -> tuple[str, str]:
     try:
         ar_offset_hours = float(AR_OFFSET)
@@ -414,6 +521,10 @@ def dashboard_ranking(distribuidor_id: int, periodo: str = "mes", top: int = 999
 
     stats = aggregate_ranking_by_vendor(filtered, iid_to_erp)
     erp_to_sucursal = _build_erp_sucursal_map(distribuidor_id)
+    unique_sucursales = {s for s in erp_to_sucursal.values() if s}
+    is_mono = len(unique_sucursales) <= 1
+    ciudad_map = _build_ciudad_dominante_map(distribuidor_id) if is_mono else {}
+
     aggregated: dict[str, dict[str, Any]] = {
         vendedor: {
             "vendedor": vendedor,
@@ -422,8 +533,8 @@ def dashboard_ranking(distribuidor_id: int, periodo: str = "mes", top: int = 999
             "rechazadas": s["rechazadas"],
             "puntos": s["puntos"],
             "location_id": None,
-            "sucursal": erp_to_sucursal.get(vendedor, ""),
-            "ciudad_dominante": None,
+            "sucursal": "" if is_mono else erp_to_sucursal.get(vendedor, ""),
+            "ciudad_dominante": ciudad_map.get(vendedor) if is_mono else None,
         }
         for vendedor, s in stats.items()
     }
@@ -615,7 +726,7 @@ def dashboard_ultimas(distribuidor_id: int, n: int = 8, payload=Depends(verify_a
         result = sb.rpc("fn_ultimas_evaluadas", {"p_dist_id": distribuidor_id, "p_fecha": fecha, "p_limit": n}).execute()
         if result.data:
             if not hide_qa:
-                return result.data
+                return _enrich_ultimas_with_razon_social(result.data, distribuidor_id)
             out = []
             for row in result.data:
                 iid = row.get("id_integrante")
@@ -627,7 +738,7 @@ def dashboard_ultimas(distribuidor_id: int, n: int = 8, payload=Depends(verify_a
                     continue
                 out.append(row)
             if out:
-                return out
+                return _enrich_ultimas_with_razon_social(out, distribuidor_id)
     return []
 
 

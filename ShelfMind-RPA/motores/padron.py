@@ -410,6 +410,69 @@ async def _set_incluir_anulados(page: Page) -> None:
     raise RuntimeError("No se encontró opción SI/NO para Incluir Anulados")
 
 
+async def seleccionar_proceso_reporteador(
+    page: Page,
+    *,
+    must_include: tuple[str, ...],
+    must_exclude: tuple[str, ...] = (),
+    descripcion: str = "proceso",
+) -> str:
+    """
+    Elige un proceso en el select idproceso sin regex (Playwright en Railway no acepta re.Pattern).
+    """
+    def _norm(s: str) -> str:
+        return (s or "").lower()
+
+    def _matches(text: str) -> bool:
+        n = _norm(text)
+        return all(k in n for k in must_include) and not any(e in n for e in must_exclude)
+
+    proc_sel = page.locator('select[formcontrolname="idproceso"]').first
+    await proc_sel.wait_for(state="visible", timeout=COMBO_TIMEOUT_MS)
+    opts = proc_sel.locator("option")
+    n = await opts.count()
+    for i in range(n):
+        text = (await opts.nth(i).text_content() or "").strip()
+        if not text or not _matches(text):
+            continue
+        val = await opts.nth(i).get_attribute("value")
+        if val:
+            await proc_sel.select_option(value=val)
+        else:
+            await opts.nth(i).click()
+        logger.info(f"  ✅ {descripcion} seleccionado (option): {text}")
+        return text
+
+    inc = ",".join(must_include)
+    exc = ",".join(must_exclude)
+    selected = await page.evaluate(
+        f"""
+        () => {{
+          const mustInc = {list(must_include)!r}.map(s => s.toLowerCase());
+          const mustExc = {list(must_exclude)!r}.map(s => s.toLowerCase());
+          const norm = (s) => (s || '').toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g, '');
+          const match = (t) => mustInc.every(k => t.includes(k)) && !mustExc.some(e => t.includes(e));
+          for (const s of document.querySelectorAll('select')) {{
+            for (const o of Array.from(s.options || [])) {{
+              const t = norm(o.textContent);
+              if (!match(t)) continue;
+              s.value = o.value;
+              s.dispatchEvent(new Event('input', {{ bubbles: true }}));
+              s.dispatchEvent(new Event('change', {{ bubbles: true }}));
+              return {{ ok: true, selected: (o.textContent || '').trim() || o.value }};
+            }}
+          }}
+          return {{ ok: false }};
+        }}
+        """
+    )
+    if not (selected and selected.get("ok")):
+        raise RuntimeError(f"No se pudo seleccionar {descripcion} en Reporteador")
+    label = selected.get("selected") or descripcion
+    logger.info(f"  ✅ {descripcion} seleccionado (JS): {label}")
+    return label
+
+
 async def _set_empresa_padron(page: Page, tenant: dict) -> None:
     id_emp = str(tenant["id_empresa"])
     logger.info(f"    - Empresa objetivo: ({id_emp}) {tenant['nombre']}")
@@ -517,41 +580,11 @@ async def _seleccionar_reporte_padron(page: Page) -> None:
         logger.warning(f"  ⚠️ Timeout esperando elementos, continuando: {e}")
         # Continuar de todas formas — la página probablemente está lista aunque los selectores específicos no aparezcan
 
-    selected_label = None
-    proc_sel = page.locator('select[formcontrolname="idproceso"]').first
-    try:
-        await proc_sel.wait_for(state="visible", timeout=COMBO_TIMEOUT_MS)
-        await proc_sel.select_option(label=re.compile(r"padron", re.I))
-        selected_label = await proc_sel.evaluate(
-            "el => el.options[el.selectedIndex]?.textContent?.trim() || ''"
-        )
-        logger.info(f"  ✅ Reporte Padrón seleccionado (select): {selected_label}")
-    except Exception as e:
-        logger.warning(f"  select_option Padrón falló ({type(e).__name__}); probando JS...")
-        selected = await page.evaluate(
-            """
-            () => {
-              const selects = Array.from(document.querySelectorAll('select'));
-              const norm = (s) => (s || '').toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g, '');
-
-              for (const s of selects) {
-                const opts = Array.from(s.options || []);
-                const target = opts.find(o => norm(o.textContent).includes('padron'));
-                if (target) {
-                  s.value = target.value;
-                  s.dispatchEvent(new Event('input', { bubbles: true }));
-                  s.dispatchEvent(new Event('change', { bubbles: true }));
-                  return { ok: true, selected: target.textContent?.trim() || target.value };
-                }
-              }
-              return { ok: false };
-            }
-            """
-        )
-        if not (selected and selected.get("ok")):
-            raise RuntimeError("No se pudo seleccionar reporte Padrón de clientes")
-        selected_label = selected.get("selected")
-        logger.info(f"  ✅ Reporte Padrón seleccionado (JS): {selected_label}")
+    selected_label = await seleccionar_proceso_reporteador(
+        page,
+        must_include=("padron",),
+        descripcion="Padrón de clientes",
+    )
 
     await page.wait_for_timeout(1200)
     await _esperar_comboboxes_parametros(page, min_count=1)

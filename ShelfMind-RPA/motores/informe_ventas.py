@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import re
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -34,6 +33,7 @@ from motores.padron import (
     _cerrar_overlays,
     _esperar_comboboxes_parametros,
     _set_empresa_padron,
+    seleccionar_proceso_reporteador,
     ADMIN_PROCESOS_URL,
     HEADLESS,
     COMBO_TIMEOUT_MS,
@@ -124,42 +124,12 @@ async def _abrir_reporteador_y_seleccionar_informe(page: Page) -> None:
     except Exception as e:
         logger.warning(f"  Timeout esperando heading reporteador: {e}")
 
-    selected_label = None
-    proc_sel = page.locator('select[formcontrolname="idproceso"]').first
-    try:
-        await proc_sel.wait_for(state="visible", timeout=COMBO_TIMEOUT_MS)
-        await proc_sel.select_option(label=re.compile(r"informe de ventas", re.I))
-        selected_label = await proc_sel.evaluate(
-            "el => el.options[el.selectedIndex]?.textContent?.trim() || ''"
-        )
-        logger.info(f"  ✅ Reporte seleccionado (select): {selected_label}")
-    except Exception as e:
-        logger.warning(f"  select_option Informe Ventas falló ({type(e).__name__}); probando JS...")
-        selected = await page.evaluate(
-            """
-            () => {
-              const norm = (s) => (s || '').toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g, '');
-              const selects = Array.from(document.querySelectorAll('select'));
-              for (const s of selects) {
-                const opts = Array.from(s.options || []);
-                const target = opts.find(o => {
-                  const t = norm(o.textContent);
-                  return t.includes('informe de ventas') || (t.includes('ventas') && !t.includes('padron'));
-                });
-                if (!target) continue;
-                s.value = target.value;
-                s.dispatchEvent(new Event('input', { bubbles: true }));
-                s.dispatchEvent(new Event('change', { bubbles: true }));
-                return { ok: true, selected: target.textContent?.trim() || target.value };
-              }
-              return { ok: false };
-            }
-            """
-        )
-        if not (selected and selected.get("ok")):
-            raise RuntimeError("No se pudo seleccionar 'Informe de Ventas' en Reporteador")
-        selected_label = selected.get("selected")
-        logger.info(f"  ✅ Reporte seleccionado (JS): {selected_label}")
+    selected_label = await seleccionar_proceso_reporteador(
+        page,
+        must_include=("informe", "ventas"),
+        must_exclude=("padron",),
+        descripcion="Informe de Ventas",
+    )
 
     await page.wait_for_timeout(1200)
     await _esperar_panel_informe_ventas(page)

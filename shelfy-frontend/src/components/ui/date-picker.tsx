@@ -16,6 +16,7 @@ type DatePickerProps = {
   className?: string
   contentClassName?: string
   minDate?: string
+  maxDate?: string
   disabled?: boolean
 }
 
@@ -33,10 +34,12 @@ export function DatePicker({
   className,
   contentClassName,
   minDate,
+  maxDate,
   disabled = false,
 }: DatePickerProps) {
   const selectedDate = parseIsoDate(value)
   const min = parseIsoDate(minDate)
+  const max = parseIsoDate(maxDate)
 
   // Resolve once synchronously — avoids Calendar resetting its internal month
   // state when the timezone updates asynchronously via useEffect.
@@ -78,7 +81,17 @@ export function DatePicker({
             selected={selectedDate}
             month={month}
             onMonthChange={setMonth}
-            disabled={disabled ? true : min ? { before: min } : undefined}
+            disabled={
+              disabled
+                ? true
+                : min && max
+                  ? { before: min, after: max }
+                  : min
+                    ? { before: min }
+                    : max
+                      ? { after: max }
+                      : undefined
+            }
             onSelect={(date) => {
               if (!date) return
               const y = date.getFullYear()

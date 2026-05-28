@@ -28,15 +28,8 @@ from db import sb
 
 logger = logging.getLogger("VentasIngestion")
 
-# Mapeo tenant_id (RPA) → id_distribuidor en Supabase
-TENANT_DIST_MAP = {
-    "tabaco": 3,
-    "aloma":  4,
-    "liver":  5,
-    "real":   2,
-    "extra":  6,
-    "beltrocco": 11,
-}
+# Mapeo tenant_id (RPA) → id_distribuidor — fuente: core/rpa_tenant_registry.py
+from core.rpa_tenant_registry import TENANT_DIST_MAP
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
 

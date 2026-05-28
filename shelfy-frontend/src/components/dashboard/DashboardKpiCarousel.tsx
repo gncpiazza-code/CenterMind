@@ -132,10 +132,10 @@ export function DashboardKpiCarousel({
             transition={{ duration: 0.25 }}
             className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3"
           >
-            <KpiCard variant="compact" label="Pendientes"  value={kpis.pendientes}  icon={<Clock size={16} />}        colorName="amber"   bgColor="bg-gradient-to-br from-amber-50/90 to-white" />
-            <KpiCard variant="compact" label="Aprobadas"   value={kpis.aprobadas}   icon={<CheckCircle size={16} />}  colorName="emerald" bgColor="bg-gradient-to-br from-emerald-50/90 to-white" />
-            <KpiCard variant="compact" label="Destacadas"  value={kpis.destacadas}  icon={<Star size={16} />}         colorName="violet"  bgColor="bg-gradient-to-br from-violet-100/80 to-fuchsia-50/50" />
-            <KpiCard variant="compact" label="Rechazadas"  value={kpis.rechazadas}  icon={<XCircle size={16} />}      colorName="red"     bgColor="bg-gradient-to-br from-red-50/80 to-white" />
+            <KpiCard variant="compact" label="Pendientes"  value={kpis.pendientes}  icon={<Clock size={18} />}        colorName="amber"   bgColor="bg-gradient-to-br from-amber-100/70 via-amber-50/50 to-white" />
+            <KpiCard variant="compact" label="Aprobadas"   value={kpis.aprobadas}   icon={<CheckCircle size={18} />}  colorName="emerald" bgColor="bg-gradient-to-br from-emerald-100/70 via-emerald-50/50 to-white" />
+            <KpiCard variant="compact" label="Destacadas"  value={kpis.destacadas}  icon={<Star size={18} />}         colorName="violet"  bgColor="bg-gradient-to-br from-violet-200/60 via-fuchsia-50/40 to-white" />
+            <KpiCard variant="compact" label="Rechazadas"  value={kpis.rechazadas}  icon={<XCircle size={18} />}      colorName="red"     bgColor="bg-gradient-to-br from-red-100/60 via-red-50/40 to-white" />
           </motion.div>
         )}
 
@@ -147,7 +147,7 @@ export function DashboardKpiCarousel({
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -20 }}
             transition={{ duration: 0.25 }}
-            className="h-[140px] bg-gradient-to-br from-white via-violet-50/30 to-indigo-50/40 rounded-2xl border border-violet-200/40 shadow-sm shadow-violet-500/5 p-3 relative overflow-hidden"
+            className="h-[140px] bg-gradient-to-br from-violet-100/50 via-white to-indigo-100/40 rounded-2xl border-2 border-violet-200/60 shadow-md shadow-violet-500/10 p-3 relative overflow-hidden"
           >
             {/* Chart rotation dots */}
             <div className="absolute top-2.5 right-3 flex items-center gap-1 z-10">
@@ -238,18 +238,18 @@ export function DashboardKpiCarousel({
               variant="compact"
               label="PDVs exhibidos"
               value={kpis.total}
-              icon={<Store size={16} />}
+              icon={<Store size={18} />}
               colorName="blue"
-              bgColor="bg-gradient-to-br from-blue-50/90 to-white"
+              bgColor="bg-gradient-to-br from-blue-100/70 via-blue-50/50 to-white"
               tooltip="Total de puntos de venta con ≥1 exhibición lógica en el período"
             />
             <KpiCard
               variant="compact"
               label="Tasa aprob."
               value={tasaAprobacion ?? 0}
-              icon={<TrendingUp size={16} />}
+              icon={<TrendingUp size={18} />}
               colorName="emerald"
-              bgColor="bg-gradient-to-br from-emerald-50/90 to-white"
+              bgColor="bg-gradient-to-br from-emerald-100/70 via-emerald-50/50 to-white"
               suffix="%"
               tooltip="Aprobadas / (Aprobadas + Rechazadas)"
             />
@@ -257,18 +257,18 @@ export function DashboardKpiCarousel({
               variant="compact"
               label="Vend. activos"
               value={kpis.vendedores_activos ?? 0}
-              icon={<Users size={16} />}
+              icon={<Users size={18} />}
               colorName="violet"
-              bgColor="bg-gradient-to-br from-violet-100/80 to-fuchsia-50/50"
+              bgColor="bg-gradient-to-br from-violet-200/60 via-fuchsia-50/40 to-white"
               tooltip="Vendedores ERP con ≥1 exhibición lógica en el período"
             />
             <KpiCard
               variant="compact"
               label="Exhib./vendedor"
               value={kpis.exhibiciones_por_vendedor ?? 0}
-              icon={<BarChart2 size={16} />}
+              icon={<BarChart2 size={18} />}
               colorName="amber"
-              bgColor="bg-gradient-to-br from-amber-50/80 to-white"
+              bgColor="bg-gradient-to-br from-amber-100/70 via-amber-50/50 to-white"
               isDecimal
               tooltip="Promedio de exhibiciones lógicas por vendedor activo"
             />

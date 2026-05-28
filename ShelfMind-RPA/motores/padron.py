@@ -7,10 +7,10 @@ Motor 1: Padrón de Clientes — Consolido/Nextbyn Reporteador Genérico
 ¿Qué hace este archivo?
 -----------------------
 Cada día a las 04:00 y 14:00:
-  1. Para cada uno de los 5 tenants de Consolido (tabaco, aloma, liver, real, extra):
+  1. Para cada tenant activo en `rpa_consolido_tenants` (tabaco, aloma, liver, real, extra, …):
      a. Abre un navegador invisible
      b. Navega a consolido.nextbyn.com
-     c. Hace login con las credenciales del tenant
+     c. Login con UN usuario/password Consolido (Vault: consolido_usuario/password)
      d. Accede al módulo REPORTEADOR GENÉRICO
      e. Selecciona el reporte "Padrón de Clientes"
      f. Configura parámetros: "Incluyí Anulados" = SI (env PADRON_INCLUIR_ANULADOS=false para NO), "Empresas" = tenant actual
@@ -27,7 +27,7 @@ TENANTS (verificados contra Consolido — valores reales de IDEMPRESA):
   - aloma     : ALOMA DISTRIBUIDORES OFICIALES    → (a confirmar ID)
   - liver     : LIVER SRL                         → (a confirmar ID)
   - real      : REAL TABACALERA DE SANTIAGO S.A.  → (a confirmar ID)
-  - extra     : GYG DISTRIBUCIÓN (credenciales pending)
+  - extra     : GYG DISTRIBUCIÓN (misma credencial Consolido; empresa en checkbox)
 
 ESTRUCTURA DEL EXCEL DESCARGADO:
   IDEMPRESA, DSEMPRESA, IDSUCUR, DSSUCUR, IDFUERZAVENTAS, DESFUERZAVENTAS,
@@ -107,44 +107,32 @@ ADMIN_PROCESOS_URL = "https://consolido.nextbyn.com/#/parametrizaciones/reportes
 # Fuente nueva recomendada: tabla Supabase `rpa_consolido_tenants`.
 # ─────────────────────────────────────────────────────────────────
 
-TENANTS_LEGACY = [
-    {
-        "id":         "tabaco",
-        "nombre":     "Tabaco & Hnos S.R.L.",
-        "id_empresa": "3154",  # ✅ VERIFICADO en vivo el 27/04/2026
-        "id_dist":    3,
-    },
-    {
-        "id":         "liver",
-        "nombre":     "Liver SRL",
-        "id_empresa": "3534",  # ✅ VISTO en lista Consolido el 27/04/2026
-        "id_dist":    5,
-    },
-    {
-        "id":         "extra",
-        "nombre":     "GyG (Gomez Marcos Ariel)",
-        "id_empresa": "3562",  # ✅ VISTO en lista Consolido el 27/04/2026
-        "id_dist":    6,
-    },
-    {
-        "id":         "aloma",
-        "nombre":     "Aloma Distribuidores Oficiales",
-        "id_empresa": "3442",  # ✅ CONFIRMADO por usuario
-        "id_dist":    4,
-    },
-    {
-        "id":         "real",
-        "nombre":     "Real Tabacalera de Santiago S.A.",
-        "id_empresa": "5597",  # ✅ CONFIRMADO — contiene franquiciados (split en backend)
-        "id_dist":    2,
-    },
-    {
-        "id":         "beltrocco",
-        "nombre":     "SILVINA RIBERO",
-        "id_empresa": "3559",
-        "id_dist":    11,
-    },
-]
+def _tenants_legacy_fallback() -> list[dict]:
+    """Fallback si Supabase no responde — mantener alineado con core/rpa_tenant_registry.py."""
+    try:
+        import sys
+        from pathlib import Path
+
+        cm_root = Path(__file__).resolve().parents[2] / "CenterMind"
+        if str(cm_root) not in sys.path:
+            sys.path.insert(0, str(cm_root))
+        from core.rpa_tenant_registry import consolido_tenants_legacy_format
+
+        return consolido_tenants_legacy_format()
+    except Exception:
+        pass
+    return [
+        {"id": "tabaco", "nombre": "Tabaco & Hnos S.R.L.", "id_empresa": "3154", "id_dist": 3},
+        {"id": "real", "nombre": "Real Tabacalera de Santiago S.A.", "id_empresa": "5597", "id_dist": 2},
+        {"id": "aloma", "nombre": "Aloma Distribuidores Oficiales", "id_empresa": "3442", "id_dist": 4},
+        {"id": "liver", "nombre": "Liver SRL", "id_empresa": "3534", "id_dist": 5},
+        {"id": "extra", "nombre": "GyG (Gomez Marcos Ariel)", "id_empresa": "3562", "id_dist": 6},
+        {"id": "beltrocco", "nombre": "SILVINA RIBERO", "id_empresa": "3559", "id_dist": 11},
+        {"id": "hugo_cena", "nombre": "CENA HUGO MARIO", "id_empresa": "3561", "id_dist": 12},
+    ]
+
+
+TENANTS_LEGACY = _tenants_legacy_fallback()
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -269,10 +257,10 @@ def _filtrar_tenants_para_debug(tenants: list[dict]) -> list[dict]:
 
 async def _navegar_y_login(page: Page, tenant: dict, usuario: str, password: str) -> None:
     """
-    Navega a Consolido y hace login.
+    Navega a Consolido y hace login (mismas credenciales para todos los tenants).
 
-    URL base: https://consolido.nextbyn.com
-    Lee credenciales de Supabase Vault.
+    La empresa/distribuidora se elige después en el checkbox «Empresas» del reporteador
+    (igual que en Informe de Ventas). `tenant` solo se usa para logging/screenshots.
     """
     url_base = "https://consolido.nextbyn.com"
     logger.info(f"  Navegando a {url_base}")
@@ -823,7 +811,8 @@ async def _descargar_excel(page: Page, tenant: dict) -> Optional[Path]:
         logger.info("    ⏳ Esperando a que se complete la descarga...")
         download: Download = await download_info.value
         fecha = datetime.now(AR_TZ).strftime("%Y%m%d_%H%M%S")
-        nuevo_nombre = f"padron_{tenant['id']}_{fecha}.xlsx"
+        # tenant['id'] debe traer el prefijo deseado (ej. padron_tabaco, ventas_enriched_tabaco).
+        nuevo_nombre = f"{tenant['id']}_{fecha}.xlsx"
         ruta_final = DOWNLOADS_DIR / nuevo_nombre
 
         logger.info(f"    💾 Guardando archivo como: {nuevo_nombre}")
@@ -908,7 +897,7 @@ async def _procesar_tenant(browser: Browser, tenant: dict, usuario: str, passwor
 
         # PASO 5: Descargar
         try:
-            archivo = await _descargar_excel(page, tenant)
+            archivo = await _descargar_excel(page, {**tenant, "id": f"padron_{tenant['id']}"})
             if not archivo:
                 resumen["errores"] += 1
                 await context.close()

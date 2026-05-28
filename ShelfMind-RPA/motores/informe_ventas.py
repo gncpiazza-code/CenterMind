@@ -3,8 +3,9 @@
 Motor: Informe de Ventas (Consolido / Reporteador Genérico)
 
 Reglas clave:
-- Reutiliza el MISMO split/tenants que padrón.
-- Un solo login por corrida (sin re-login por tenant).
+- Reutiliza tenants de `rpa_consolido_tenants` (mismo modelo que padrón).
+- Consolido: UN usuario/password; por tenant solo cambia el checkbox «Empresas» (id_empresa).
+- Un solo login por corrida (sin re-login entre tenants).
 - Siempre consulta día anterior (fecha desde = fecha hasta = ayer).
 """
 
@@ -203,7 +204,9 @@ async def run() -> dict:
                 await _set_fechas_ayer(page)
                 await _set_empresa_single(page, tenant)
                 await _ejecutar_reporte(page)
-                archivo = await _descargar_excel(page, {"id": f"ventas_enriched_{tenant['id']}"})
+                archivo = await _descargar_excel(
+                    page, {"id": f"ventas_enriched_{tenant['id']}"}
+                )
                 if not archivo:
                     raise RuntimeError("No se pudo descargar excel de informe de ventas")
 

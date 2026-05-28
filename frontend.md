@@ -58,8 +58,12 @@ Shadcn instalados: `toggle-group` (toggle.tsx + toggle-group.tsx).
 `HeroCarousel.tsx`: filtra rechazadas antes de mostrar (`/rechaz/i`); 3 badges estado (Pendiente/Aprobado/Destacado); PDV info con iconos Hash/Building2/MapPin.
 - Nombre de vendedor en card: `line-clamp-2` (sin truncado duro en una sola línea).
 
-`RankingTable.tsx`: sin footer de informe; autoscroll suave (`requestAnimationFrame`); pausa al hover (1.5s delay); botones Pause/Play + Fullscreen en header; título centrado `RANKING {empresa}`.
+`RankingTable.tsx`: sin footer de informe; autoscroll suave (`requestAnimationFrame`); pausa al hover (400ms resume); botones Pause/Play + Fullscreen en header; título centrado `RANKING {empresa}`.
 - Loop de autoscroll: duplicación de filas para cualquier ranking con más de 1 vendedor (evita pausas/interrupciones intermitentes).
+- Safari: pausa autoscroll ~2.8s ante wheel/touch/scroll manual + `-webkit-overflow-scrolling: touch`; sin `layout` en filas (menos jank).
+- Iconos estado (✓/✗/fuego) 16px en header y 14px en celdas; filas alternadas violet/indigo; card con gradiente violeta.
+
+`KpiCard` compact: borde lateral de color semántico, gradientes más saturados en carousel.
 
 `DashboardKpiCarousel.tsx`: slide 0 mantiene dots de navegación pero sin etiqueta visible "Estados" en la esquina superior izquierda.
 

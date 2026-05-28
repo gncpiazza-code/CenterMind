@@ -120,6 +120,7 @@ _VENTAS_SUCURSAL = {
     "real": "UEQUIN RODRIGO",
     "extra": None,
     "beltrocco": None,
+    "hugo_cena": None,
 }
 
 

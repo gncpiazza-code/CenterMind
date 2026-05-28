@@ -166,6 +166,24 @@ def _safe_str(val: Any, default: str = "") -> str:
     return default if s.lower() in ("nan", "none", "null", "") else s
 
 
+def _phone_str(row: pd.Series, cols: dict[str, str | None], logical_key: str) -> str | None:
+    """Normaliza teléfono/celular del Excel (evita perder .0 de floats)."""
+    col = cols.get(logical_key)
+    if not col:
+        return None
+    s = _safe_str(row.get(col), "")
+    if not s:
+        return None
+    if s.endswith(".0"):
+        s = s[:-2]
+    # 3512345678.0 → 3512345678
+    if "." in s:
+        left, _, right = s.partition(".")
+        if right.isdigit() and set(right) <= {"0"}:
+            s = left
+    return s
+
+
 def _row_padron_anulado_si(row: pd.Series, cols: dict[str, str | None]) -> bool:
     """True si Consolido marca el cliente como anulado en el Excel (columna opcional)."""
     key = cols.get("anulado")
@@ -483,6 +501,8 @@ class PadronIngestionService:
             # Dirección — se escribe como domicilio en Supabase
             "domicilio":        _flexible_col(df, ["domicli", "direccion", "domicilio"]),
             "localidad":        _flexible_col(df, ["descloca", "localidad"]),
+            "telefono":         _flexible_col(df, ["telefos", "telefono", "tel", "telefono1"]),
+            "celular":          _flexible_col(df, ["movil", "celular", "telefono_movil", "cel"]),
             "provincia":        _flexible_col(df, ["desprovincia", "provincia"]),
             "canal":            _flexible_col(df, ["descanal", "canal", "canal_venta"]),
             # Fecha última compra y fecha de alta
@@ -864,6 +884,8 @@ class PadronIngestionService:
                 "nombre_razon_social": _safe_str(row.get(cols["nombre_cliente"]) if cols.get("nombre_cliente") else None, "").upper(),
                 "domicilio":           _safe_str(row.get(cols["domicilio"]) if cols.get("domicilio") else None, "").upper(),
                 "localidad":           _safe_str(row.get(cols["localidad"]) if cols.get("localidad") else None, "").upper(),
+                "telefono":            _phone_str(row, cols, "telefono"),
+                "celular":             _phone_str(row, cols, "celular"),
                 "provincia":           _safe_str(row.get(cols["provincia"]) if cols.get("provincia") else None, "").upper(),
                 "canal":               _safe_str(row.get(cols["canal"]) if cols.get("canal") else None, "").upper(),
                 "fecha_alta":          _safe_date(row.get(cols["fecha_alta"]) if cols.get("fecha_alta") else None),
@@ -885,6 +907,8 @@ class PadronIngestionService:
                     merged["fecha_ultima_compra"] = merged_fuc
                 elif "fecha_ultima_compra" in prev and "fecha_ultima_compra" not in merged:
                     merged["fecha_ultima_compra"] = prev["fecha_ultima_compra"]
+                for pk in ("telefono", "celular"):
+                    merged[pk] = payload.get(pk) or prev.get(pk)
                 _estado, _motivo, _fecha_inact = _estado_cliente_desde_padron(row, cols, merged_fuc)
                 merged["estado"] = _estado
                 merged["motivo_inactivo"] = _motivo

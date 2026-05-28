@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState, useRef, useEffect } from 'react';
+import React, { useMemo, useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Award, Pause, Play, Check, X, Flame } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
@@ -52,6 +52,11 @@ const TOP3_STYLES = [
 /** px/ms — ~36 px/s a 60fps */
 const SCROLL_SPEED_PX_PER_MS = 0.036;
 const HOVER_RESUME_MS = 400;
+/** Tras scroll manual (Safari pelea con rAF si reanudamos al instante) */
+const USER_SCROLL_COOLDOWN_MS = 2800;
+
+const STAT_ICON_CLASS = "shrink-0 stroke-[2.5]";
+const STAT_ICON_SIZE = 16;
 
 export function RankingTable({
   ranking, periodo, periodoLabel, sucursalFiltro, sucursales,
@@ -63,6 +68,9 @@ export function RankingTable({
   const [autoScrollPaused, setAutoScrollPaused] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const pauseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const userInteractingRef = useRef(false);
+  const userScrollResumeRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const programmaticScrollRef = useRef(false);
 
   const { data: companiaData } = useQuery({
     queryKey: ['ranking-compania-lens', distId, periodo, sucursalFiltro],
@@ -83,7 +91,46 @@ export function RankingTable({
     [baseRows, isLoopDuplicated],
   );
 
-  // Auto-scroll continuo (rAF + delta) — evita saltos bruscos del setInterval + reset a 0
+  const markUserScrolling = useCallback(() => {
+    userInteractingRef.current = true;
+    if (userScrollResumeRef.current) clearTimeout(userScrollResumeRef.current);
+    userScrollResumeRef.current = setTimeout(() => {
+      userInteractingRef.current = false;
+    }, USER_SCROLL_COOLDOWN_MS);
+  }, []);
+
+  // Pausar autoscroll mientras el usuario hace wheel/touch/scroll (crítico en Safari)
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const onWheel = () => markUserScrolling();
+    const onTouch = () => markUserScrolling();
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "].includes(e.key)) {
+        markUserScrolling();
+      }
+    };
+    const onScroll = () => {
+      if (!programmaticScrollRef.current) markUserScrolling();
+    };
+
+    el.addEventListener("wheel", onWheel, { passive: true });
+    el.addEventListener("touchstart", onTouch, { passive: true });
+    el.addEventListener("touchmove", onTouch, { passive: true });
+    el.addEventListener("scroll", onScroll, { passive: true });
+    el.addEventListener("keydown", onKeyDown);
+    return () => {
+      el.removeEventListener("wheel", onWheel);
+      el.removeEventListener("touchstart", onTouch);
+      el.removeEventListener("touchmove", onTouch);
+      el.removeEventListener("scroll", onScroll);
+      el.removeEventListener("keydown", onKeyDown);
+      if (userScrollResumeRef.current) clearTimeout(userScrollResumeRef.current);
+    };
+  }, [markUserScrolling, ranking.length]);
+
+  // Auto-scroll continuo (rAF + delta) — no compite con scroll nativo del usuario
   useEffect(() => {
     const el = scrollRef.current;
     if (!el || ranking.length === 0) return;
@@ -95,15 +142,19 @@ export function RankingTable({
       const dt = Math.min(now - lastTs, 48);
       lastTs = now;
 
-      if (!autoScrollPaused) {
+      if (!autoScrollPaused && !userInteractingRef.current) {
         const { scrollTop, scrollHeight, clientHeight } = el;
         if (scrollHeight > clientHeight + 4) {
           const loopHeight = isLoopDuplicated ? scrollHeight / 2 : scrollHeight;
           let next = scrollTop + SCROLL_SPEED_PX_PER_MS * dt;
           if (next >= loopHeight) {
-            next = 0;
+            next -= loopHeight;
           }
+          programmaticScrollRef.current = true;
           el.scrollTop = next;
+          requestAnimationFrame(() => {
+            programmaticScrollRef.current = false;
+          });
         }
       }
 
@@ -141,7 +192,7 @@ export function RankingTable({
   }
 
   return (
-    <Card className="border-violet-200/50 shadow-lg shadow-violet-500/5 overflow-hidden flex flex-col h-full bg-gradient-to-b from-white via-white to-violet-50/30 relative rounded-3xl isolate ring-1 ring-violet-500/10">
+    <Card className="border-violet-200/70 shadow-lg shadow-violet-500/10 overflow-hidden flex flex-col h-full bg-gradient-to-br from-violet-50/40 via-white to-indigo-50/30 relative rounded-3xl ring-1 ring-violet-400/20">
       {/* Barra superior violet */}
       <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-violet-500 via-fuchsia-400 to-indigo-500 z-20" />
 
@@ -200,8 +251,12 @@ export function RankingTable({
       {/* Tabla con autoscroll */}
       <div
         ref={scrollRef}
-        className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden custom-scrollbar px-5 pb-4 pt-1"
-        style={{ scrollbarWidth: "none" }}
+        tabIndex={0}
+        className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden custom-scrollbar px-5 pb-4 pt-1 [overscroll-behavior:contain] focus:outline-none"
+        style={{
+          scrollbarWidth: "none",
+          WebkitOverflowScrolling: "touch",
+        }}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
       >
@@ -210,14 +265,20 @@ export function RankingTable({
             <tr className="text-left">
               <th className="py-3 px-3 font-black uppercase tracking-[0.2em] text-[9px] text-slate-400 w-12">Pos</th>
               <th className="py-3 px-2 font-black uppercase tracking-[0.2em] text-[9px] text-slate-400">Vendedor</th>
-              <th className="py-3 px-2 text-right font-black uppercase tracking-[0.2em] text-[9px] text-emerald-500" title="Aprobadas">
-                <Check size={11} className="inline" />
+              <th className="py-3 px-2 text-right font-black uppercase tracking-[0.2em] text-[9px] text-emerald-600" title="Aprobadas">
+                <span className="inline-flex items-center justify-end gap-1 rounded-lg bg-emerald-100/80 px-2 py-1 ring-1 ring-emerald-200/60">
+                  <Check size={STAT_ICON_SIZE} className={cn(STAT_ICON_CLASS, "text-emerald-600")} />
+                </span>
               </th>
-              <th className="py-3 px-2 text-right font-black uppercase tracking-[0.2em] text-[9px] text-red-400" title="Rechazadas">
-                <X size={11} className="inline" />
+              <th className="py-3 px-2 text-right font-black uppercase tracking-[0.2em] text-[9px] text-red-500" title="Rechazadas">
+                <span className="inline-flex items-center justify-end gap-1 rounded-lg bg-red-100/80 px-2 py-1 ring-1 ring-red-200/60">
+                  <X size={STAT_ICON_SIZE} className={cn(STAT_ICON_CLASS, "text-red-500")} />
+                </span>
               </th>
-              <th className="py-3 px-2 text-right font-black uppercase tracking-[0.2em] text-[9px] text-amber-500" title="Destacadas">
-                <Flame size={11} className="inline" />
+              <th className="py-3 px-2 text-right font-black uppercase tracking-[0.2em] text-[9px] text-amber-600" title="Destacadas">
+                <span className="inline-flex items-center justify-end gap-1 rounded-lg bg-amber-100/80 px-2 py-1 ring-1 ring-amber-200/60">
+                  <Flame size={STAT_ICON_SIZE} className={cn(STAT_ICON_CLASS, "text-amber-600")} />
+                </span>
               </th>
               <th className="py-3 px-4 text-right font-black uppercase tracking-[0.2em] text-[9px] text-slate-950">Pts</th>
               {showCompaniaLens && (
@@ -242,13 +303,16 @@ export function RankingTable({
                 return (
                   <motion.tr
                     key={`${v.vendedor}-${rankIndex}-${i}`}
-                    layout
                     initial={{ opacity: 0, y: 12 }}
                     animate={{ opacity: 1, y: 0 }}
                     whileHover={{ x: 4, transition: { duration: 0.15 } }}
                     className={cn(
-                      "relative group rounded-2xl overflow-hidden transition-all cursor-default",
-                      style?.row ?? "bg-white border border-slate-100/50 hover:bg-slate-50/60",
+                      "relative group rounded-2xl overflow-hidden transition-colors cursor-default",
+                      style?.row ?? (
+                        rankIndex % 2 === 0
+                          ? "bg-white/90 border border-violet-100/60 hover:bg-violet-50/50"
+                          : "bg-indigo-50/35 border border-indigo-100/40 hover:bg-indigo-50/55"
+                      ),
                     )}
                   >
                     <td className={cn("px-3 first:rounded-l-2xl", dense ? "py-2" : "py-2.5")}>
@@ -292,24 +356,27 @@ export function RankingTable({
                     </td>
 
                     <td className={cn("px-2 text-right", dense ? "py-2" : "py-2.5")}>
-                      <span className="inline-flex items-center justify-center bg-emerald-50 text-emerald-600 text-[10px] font-black px-2 py-0.5 rounded-lg border border-emerald-100/50">
+                      <span className="inline-flex items-center justify-end gap-1.5 min-w-[3.25rem] bg-emerald-50 text-emerald-700 text-xs font-black px-2.5 py-1 rounded-xl border border-emerald-200/60 shadow-sm shadow-emerald-500/5">
+                        <Check size={14} className={cn(STAT_ICON_CLASS, "text-emerald-600")} />
                         {v.aprobadas}
                       </span>
                     </td>
 
                     <td className={cn("px-2 text-right", dense ? "py-2" : "py-2.5")}>
                       <span className={cn(
-                        "inline-flex items-center justify-center text-[10px] font-black px-2 py-0.5 rounded-lg border",
+                        "inline-flex items-center justify-end gap-1.5 min-w-[3.25rem] text-xs font-black px-2.5 py-1 rounded-xl border shadow-sm",
                         v.rechazadas > 0
-                          ? "bg-red-50 text-red-500 border-red-100/50"
-                          : "bg-slate-50 text-slate-300 border-slate-100/50",
+                          ? "bg-red-50 text-red-600 border-red-200/60 shadow-red-500/5"
+                          : "bg-slate-50 text-slate-400 border-slate-200/50",
                       )}>
+                        <X size={14} className={cn(STAT_ICON_CLASS, v.rechazadas > 0 ? "text-red-500" : "text-slate-300")} />
                         {v.rechazadas ?? 0}
                       </span>
                     </td>
 
                     <td className={cn("px-2 text-right", dense ? "py-2" : "py-2.5")}>
-                      <span className="inline-flex items-center justify-center bg-amber-50 text-amber-600 text-[10px] font-black px-2 py-0.5 rounded-lg border border-amber-100/50">
+                      <span className="inline-flex items-center justify-end gap-1.5 min-w-[3.25rem] bg-amber-50 text-amber-700 text-xs font-black px-2.5 py-1 rounded-xl border border-amber-200/60 shadow-sm shadow-amber-500/5">
+                        <Flame size={14} className={cn(STAT_ICON_CLASS, "text-amber-600")} />
                         {v.destacadas || 0}
                       </span>
                     </td>

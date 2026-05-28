@@ -114,11 +114,21 @@ export function KpiCard({ label, value, icon, colorName, color, bgColor = "bg-wh
     >
       <Card
         className={cn(
-          "rounded-[2rem] border-slate-200/60 shadow-sm overflow-hidden relative group h-full transition-shadow duration-300",
-          isCompact ? "p-2.5 md:p-3" : "p-5",
+          "rounded-[2rem] shadow-sm overflow-hidden relative group h-full transition-shadow duration-300",
+          isCompact
+            ? "p-2.5 md:p-3 border-2 shadow-md"
+            : "p-5 border border-slate-200/60",
+          isCompact && colorName === "amber" && "border-amber-200/70 shadow-amber-500/10",
+          isCompact && colorName === "emerald" && "border-emerald-200/70 shadow-emerald-500/10",
+          isCompact && colorName === "violet" && "border-violet-200/70 shadow-violet-500/15",
+          isCompact && colorName === "red" && "border-red-200/70 shadow-red-500/10",
+          isCompact && colorName === "blue" && "border-blue-200/70 shadow-blue-500/10",
+          isCompact && colorName === "slate" && "border-slate-200/70",
+          !isCompact && "border-slate-200/60",
           bgColor,
-          flashing && `ring-2 ${ringClass}`
+          flashing && `ring-2 ${ringClass}`,
         )}
+        style={isCompact ? { borderLeftWidth: 4, borderLeftColor: hexColor } : undefined}
       >
         {/* Decorative background circle — hidden in compact */}
         {!isCompact && (
@@ -131,7 +141,7 @@ export function KpiCard({ label, value, icon, colorName, color, bgColor = "bg-wh
         {isCompact ? (
           /* ── Compact layout: horizontal row ── */
           <CardContent className="p-0 flex flex-row items-center gap-3 h-full">
-            <div className={cn("p-2 rounded-xl text-white shadow-lg ring-4 ring-white/10 shrink-0", bgClass)}>
+            <div className={cn("p-2.5 rounded-xl text-white shadow-lg shadow-black/10 ring-4 ring-white/20 shrink-0", bgClass)}>
               {icon}
             </div>
             <div className="flex flex-col min-w-0">

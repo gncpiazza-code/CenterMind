@@ -1,5 +1,6 @@
--- Tabla nueva para configuración de descargas de padrón por distribuidor.
--- Mantiene compatibilidad con esquema legacy porque NO reemplaza tablas existentes.
+-- Catálogo Consolido (padrón + informe ventas) ↔ id_distribuidor Shelfy.
+-- Mantener alineado con CenterMind/core/rpa_tenant_registry.py
+-- Tras editar: python scripts/sync_rpa_tenant_registry.py --apply
 
 CREATE TABLE IF NOT EXISTS public.rpa_consolido_tenants (
     id BIGSERIAL PRIMARY KEY,
@@ -22,11 +23,13 @@ CREATE INDEX IF NOT EXISTS idx_rpa_consolido_tenants_dist
 INSERT INTO public.rpa_consolido_tenants
     (tenant_id, nombre, id_empresa, id_distribuidor, activo, orden)
 VALUES
-    ('tabaco', 'Tabaco & Hnos S.R.L.', '3154', 3, TRUE, 10),
-    ('real',   'Real Tabacalera de Santiago S.A.', '5597', 2, TRUE, 20),
-    ('aloma',  'Aloma Distribuidores Oficiales', '3442', 4, TRUE, 30),
-    ('liver',  'Liver SRL', '3534', 5, TRUE, 40),
-    ('extra',  'GyG (Gomez Marcos Ariel)', '3562', 6, TRUE, 50)
+    ('tabaco',    'Tabaco & Hnos S.R.L.',              '3154', 3,  TRUE, 10),
+    ('real',      'Real Tabacalera de Santiago S.A.',  '5597', 2,  TRUE, 20),
+    ('aloma',     'Aloma Distribuidores Oficiales',    '3442', 4,  TRUE, 30),
+    ('liver',     'Liver SRL',                         '3534', 5,  TRUE, 40),
+    ('extra',     'GyG (Gomez Marcos Ariel)',          '3562', 6,  TRUE, 50),
+    ('beltrocco', 'SILVINA RIBERO',                    '3559', 11, TRUE, 60),
+    ('hugo_cena', 'CENA HUGO MARIO',                   '3561', 12, TRUE, 70)
 ON CONFLICT (tenant_id) DO UPDATE SET
     nombre = EXCLUDED.nombre,
     id_empresa = EXCLUDED.id_empresa,

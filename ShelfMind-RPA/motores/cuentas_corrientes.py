@@ -74,77 +74,9 @@ def _norm_txt(value: Any) -> str:
     return re.sub(r"\s+", " ", txt).strip()
 
 # ─────────────────────────────────────────────────────────────────
-# TENANTS
+# TENANTS CHESS (fuente: lib/chess_tenants_config.py)
 # ─────────────────────────────────────────────────────────────────
-TENANTS = [
-    {
-        "id":         "tabaco",
-        "nombre":     "Tabaco & Hnos S.R.L.",
-        "url_base":   "https://tabacohermanos.chesserp.com/AR1149",
-        "vault_user": "chess_tabaco_usuario",
-        "vault_pass": "chess_tabaco_password",
-        "id_dist":    3,
-        "activo":     True,
-    },
-    {
-        "id":         "aloma",
-        "nombre":     "Aloma Distribuidores Oficiales",
-        "url_base":   "https://alomasrl.chesserp.com/AR1252",
-        "vault_user": "chess_aloma_usuario",
-        "vault_pass": "chess_aloma_password",
-        "id_dist":    4,
-        "activo":     True,
-    },
-    {
-        "id":         "liver",
-        "nombre":     "Liver SRL",
-        "url_base":   "https://liversrl.chesserp.com/AR1274",
-        "vault_user": "chess_liver_usuario",
-        "vault_pass": "chess_liver_password",
-        "id_dist":    5,
-        "activo":     True,
-    },
-    {
-        "id":         "real",
-        "nombre":     "Real Tabacalera de Santiago S.A.",
-        "url_base":   "https://realtabacalera.chesserp.com/AR1272",
-        "vault_user": "chess_real_usuario",
-        "vault_pass": "chess_real_password",
-        "id_dist":    2,
-        "sucursales": ["UEQUIN RODRIGO", "OSCAR ONDARRETA", "GONZALEZ LUIS ANTONIO", "JOSE IGNACIO BIAVA"],
-        # Split operativo solicitado:
-        # - UEQUIN RODRIGO  -> La Magica
-        # - OSCAR ONDARRETA -> Bolivar Distribuiciones
-        # - JOSE IGNACIO BIAVA -> Caramele - San Luis
-        # - GONZALEZ LUIS ANTONIO -> LAG Distribuidora - Tucuman
-        # Los id_dist se resuelven dinámicamente por nombre de distribuidor.
-        "split_por_sucursal": {
-            "uequin rodrigo": "La Magica - Santiago del Estero",
-            "oscar ondarreta": "Bolivar Distribuciones",
-            "gonzalez luis antonio": "LAG Distribuidora - Tucuman",
-            "jose ignacio biava": "CARAMELE - SAN LUIS",
-        },
-        "activo":     True,
-    },
-    {
-        "id":         "extra",
-        "nombre":     "Tenant Extra (credenciales pendientes)",
-        "url_base":   "",   # ← completar cuando lleguen las credenciales
-        "vault_user": "chess_extra_usuario",
-        "vault_pass": "chess_extra_password",
-        "id_dist":    6,  # GyG Distribucion
-        "activo":     False,  # ← activar cuando estén las credenciales
-    },
-    {
-        "id":         "beltrocco",
-        "nombre":     "Beltrocco - Rafaela",
-        "url_base":   "https://silvinaribero.chesserp.com/AR1283",
-        "vault_user": "chess_beltrocco_usuario",
-        "vault_pass": "chess_beltrocco_password",
-        "id_dist":    11,
-        "activo":     True,
-    },
-]
+from lib.chess_tenants_config import CHESS_TENANTS as TENANTS
 
 
 # ─────────────────────────────────────────────────────────────────

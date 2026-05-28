@@ -335,6 +335,33 @@ async def registrar_padron_sin_cambios(id_distribuidor: int) -> bool:
         return False
 
 
+async def notificar_error_motor(motor: str, dist_id: int, error_msg: str) -> bool:
+    """
+    Alerta Telegram inmediata al admin cuando falla un motor RPA en Railway
+    (antes de llegar a motor_runs / ingesta API).
+    """
+    url = f"{_url()}/api/v1/ops/motor-error"
+    payload = {
+        "motor": motor,
+        "dist_id": dist_id,
+        "error_msg": (error_msg or "error")[:500],
+    }
+    try:
+        timeout = httpx.Timeout(connect=15.0, read=30.0, write=15.0, pool=10.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.post(url, headers=_headers(), json=payload)
+        if resp.status_code in (200, 201):
+            logger.info(f"  ✅ Alerta Telegram motor={motor} dist={dist_id}")
+            return True
+        logger.warning(
+            f"  ⚠️ motor-error HTTP {resp.status_code}: {(resp.text or '')[:200]}"
+        )
+        return False
+    except Exception as e:
+        logger.warning(f"  ⚠️ No se pudo notificar error motor={motor} dist={dist_id}: {e}")
+        return False
+
+
 async def enviar_digest_motor(
     motor: str,
     resumen: dict | None = None,

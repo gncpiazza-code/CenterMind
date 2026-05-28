@@ -849,6 +849,34 @@ async def ops_motor_digest(request: Request, _=Depends(verify_key)):
     return {"ok": True, "telegram_sent": sent, "motor": motor}
 
 
+@router.post(
+    "/api/v1/ops/motor-error",
+    tags=["Ops"],
+    summary="Alerta Telegram inmediata por fallo de motor RPA",
+)
+async def ops_motor_error(request: Request, _=Depends(verify_key)):
+    """ShelfMind-RPA llama cuando un tenant falla antes/durante la corrida (sin motor_run)."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    motor = str(body.get("motor") or "motor").strip()
+    try:
+        dist_id = int(body.get("dist_id") or 0)
+    except (TypeError, ValueError):
+        dist_id = 0
+    error_msg = str(body.get("error_msg") or "error desconocido")
+    run_id = body.get("run_id")
+    try:
+        run_id = int(run_id) if run_id is not None else None
+    except (TypeError, ValueError):
+        run_id = None
+    from services.motor_ops_notification_service import notify_run_error
+
+    notify_run_error(motor, dist_id, error_msg, run_id)
+    return {"ok": True, "motor": motor, "dist_id": dist_id}
+
+
 @router.get("/api/cuentas-corrientes/{id_distribuidor}", summary="Obtener Cuentas Corrientes")
 async def get_cuentas_corrientes(id_distribuidor: int, user_payload: dict = Depends(verify_auth)):
     check_dist_permission(user_payload, id_distribuidor)

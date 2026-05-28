@@ -52,6 +52,7 @@ def job_cuentas():
         asyncio.run(_run_cuentas())
     except Exception as e:
         logger.error(f"Error en job_cuentas: {e}")
+        asyncio.run(_notify_motor_crash("cuentas_corrientes", f"job_cuentas crash: {e}"))
 
 
 def job_padron_tenant(tenant_id: str):
@@ -61,6 +62,13 @@ def job_padron_tenant(tenant_id: str):
         asyncio.run(_run_padron_tenant(tenant_id))
     except Exception as e:
         logger.error("Error en job_padron_tenant %s: %s", tenant_id, e)
+        asyncio.run(
+            _notify_motor_crash(
+                "padron",
+                f"job_padron_tenant {tenant_id} crash: {e}",
+                _dist_for_padron_tenant(tenant_id),
+            )
+        )
 
 
 def job_padron_catchup():
@@ -70,6 +78,7 @@ def job_padron_catchup():
         asyncio.run(_run_padron_catchup(wave=True))
     except Exception as e:
         logger.error(f"Error en job_padron_catchup: {e}")
+        asyncio.run(_notify_motor_crash("padron", f"job_padron_catchup crash: {e}"))
 
 
 def job_padron_startup_catchup():
@@ -79,6 +88,7 @@ def job_padron_startup_catchup():
         asyncio.run(_run_padron_catchup(wave=False))
     except Exception as e:
         logger.error(f"Error en job_padron_startup_catchup: {e}")
+        asyncio.run(_notify_motor_crash("padron", f"job_padron_startup_catchup crash: {e}"))
 
 
 def job_padron():
@@ -88,9 +98,33 @@ def job_padron():
         asyncio.run(_run_padron())
     except Exception as e:
         logger.error(f"Error en job_padron: {e}")
+        asyncio.run(_notify_motor_crash("padron", f"job_padron crash: {e}"))
 
 
 # ── Runners async ─────────────────────────────────────────────────────────────
+
+
+async def _notify_motor_crash(motor: str, error_msg: str, dist_id: int = 0) -> None:
+    from lib.api_client import notificar_error_motor
+
+    try:
+        await notificar_error_motor(motor, dist_id, error_msg[:500])
+    except Exception as e:
+        logger.warning("No se pudo notificar crash motor=%s: %s", motor, e)
+
+
+def _dist_for_padron_tenant(tenant_id: str) -> int:
+    try:
+        from motores.padron import cargar_tenants_activos
+
+        tid = (tenant_id or "").strip().lower()
+        t = next(
+            (x for x in cargar_tenants_activos() if str(x.get("id", "")).lower() == tid),
+            None,
+        )
+        return int(t["id_dist"]) if t else 0
+    except Exception:
+        return 0
 
 
 async def _run_cuentas():
@@ -209,6 +243,7 @@ def job_ventas():
         asyncio.run(_run_ventas())
     except Exception as e:
         logger.error(f"Error en job_ventas: {e}")
+        asyncio.run(_notify_motor_crash("ventas_enriched", f"job_ventas crash: {e}"))
 
 
 def _hours_since_last_motor_run(motors: list[str]) -> float | None:

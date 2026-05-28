@@ -225,6 +225,17 @@ async def run() -> dict:
             except Exception as e:
                 logger.error(f"  ❌ Error tenant {tenant.get('id')}: {e}")
                 resumen["errores"] += 1
+                from lib.api_client import notificar_error_motor
+
+                dist = int(tenant.get("id_dist") or tenant.get("id_distribuidor") or 0)
+                try:
+                    await notificar_error_motor(
+                        "ventas_enriched",
+                        dist,
+                        str(e)[:500],
+                    )
+                except Exception as notify_exc:
+                    logger.warning("No se pudo notificar error ventas dist=%s: %s", dist, notify_exc)
             await asyncio.sleep(2)
 
         await context.close()

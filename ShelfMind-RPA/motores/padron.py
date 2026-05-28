@@ -62,6 +62,7 @@ PARTICULARIDADES VERIFICADAS EN VIVO (27/04/2026):
 
 import asyncio
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -73,7 +74,7 @@ from playwright.async_api import (
 
 from lib.logger import get_logger
 from lib.hash_guard import es_duplicado, guardar_hash
-from lib.api_client import subir_padron, registrar_padron_sin_cambios
+from lib.api_client import subir_padron, registrar_padron_sin_cambios, notificar_error_motor
 from lib.padron_schedule import (
     DEFAULT_MAX_AGE_HOURS,
     list_stale_tenant_ids,
@@ -107,6 +108,7 @@ PADRON_INCLUIR_ANULADOS = os.environ.get("PADRON_INCLUIR_ANULADOS", "true").lowe
 
 # Timeout general (ms)
 TIMEOUT_MS = 120_000  # Consolido puede ser lento (aumentado a 2 min porque reportes grandes tardan >1 min)
+COMBO_TIMEOUT_MS = int(os.environ.get("RPA_COMBO_TIMEOUT_MS", "15000"))
 ADMIN_PROCESOS_URL = "https://consolido.nextbyn.com/#/parametrizaciones/reportes/administrador-de-procesos"
 
 # ─────────────────────────────────────────────────────────────────
@@ -346,6 +348,105 @@ async def _navegar_y_login(page: Page, tenant: dict, usuario: str, password: str
 
 
 # ─────────────────────────────────────────────────────────────────
+# UI Angular Material (Consolido Reporteador)
+# ─────────────────────────────────────────────────────────────────
+
+
+async def _cerrar_overlays(page: Page) -> None:
+    try:
+        backdrops = page.locator(".cdk-overlay-backdrop.cdk-overlay-backdrop-showing")
+        n = await backdrops.count()
+        for i in range(n):
+            await backdrops.nth(i).click(force=True)
+            await page.wait_for_timeout(120)
+    except Exception:
+        pass
+    try:
+        await page.keyboard.press("Escape")
+    except Exception:
+        pass
+    await page.wait_for_timeout(150)
+
+
+async def _esperar_comboboxes_parametros(page: Page, min_count: int = 1) -> None:
+    """Espera a que Angular renderice los mat-select del panel de parámetros."""
+    await _cerrar_overlays(page)
+    await page.wait_for_function(
+        f"() => document.querySelectorAll('[role=\"combobox\"]').length >= {min_count}",
+        timeout=COMBO_TIMEOUT_MS,
+    )
+    await page.wait_for_timeout(600)
+
+
+async def _set_incluir_anulados(page: Page) -> None:
+    want_si = PADRON_INCLUIR_ANULADOS
+    logger.info(f"    - Incluí Anulados: {'SI' if want_si else 'NO'}")
+    await _cerrar_overlays(page)
+    comboboxes = page.locator('[role="combobox"]')
+    if await comboboxes.count() < 1:
+        raise RuntimeError("No hay combobox para Incluir Anulados (panel de parámetros vacío)")
+    await comboboxes.first.click(timeout=COMBO_TIMEOUT_MS)
+    await page.wait_for_timeout(800)
+
+    options = page.locator('[role="option"]')
+    count = await options.count()
+    logger.info(f"      📊 Opciones Incluir Anulados: {count}")
+
+    def _matches(text_upper: str) -> bool:
+        if want_si:
+            return text_upper in ("SI", "SÍ", "YES", "TRUE", "S", "1")
+        return text_upper == "NO"
+
+    for i in range(count):
+        option = options.nth(i)
+        option_text = (await option.text_content() or "").strip().upper()
+        if _matches(option_text):
+            await option.click(timeout=COMBO_TIMEOUT_MS, force=True)
+            await page.wait_for_timeout(400)
+            logger.info(f"      ✅ Incluir Anulados = {option_text}")
+            await _cerrar_overlays(page)
+            return
+    await _cerrar_overlays(page)
+    raise RuntimeError("No se encontró opción SI/NO para Incluir Anulados")
+
+
+async def _set_empresa_padron(page: Page, tenant: dict) -> None:
+    id_emp = str(tenant["id_empresa"])
+    logger.info(f"    - Empresa objetivo: ({id_emp}) {tenant['nombre']}")
+    await _cerrar_overlays(page)
+
+    comboboxes = page.locator('[role="combobox"]')
+    n = await comboboxes.count()
+    if n < 1:
+        raise RuntimeError("No hay combobox para Empresas")
+    target = comboboxes.last if n > 1 else comboboxes.first
+    await target.click(timeout=COMBO_TIMEOUT_MS)
+    await page.wait_for_timeout(800)
+    logger.info("      ✅ Dropdown de Empresas abierto")
+
+    options = page.locator('[role="option"]')
+    count = await options.count()
+    logger.info(f"      📊 Total de opciones encontradas: {count}")
+
+    for i in range(count):
+        option = options.nth(i)
+        option_text = (await option.text_content() or "").strip()
+        is_selected = (await option.get_attribute("aria-selected")) == "true"
+        logger.info(f"      [{i}] {option_text} [selected={is_selected}]")
+        if f"({id_emp})" not in option_text:
+            continue
+        if not is_selected:
+            await option.click(timeout=COMBO_TIMEOUT_MS, force=True)
+            await page.wait_for_timeout(500)
+        logger.info(f"      ✅ Empresa {id_emp} seleccionada")
+        await _cerrar_overlays(page)
+        return
+
+    await _cerrar_overlays(page)
+    raise RuntimeError(f"Empresa ({id_emp}) NO ENCONTRADA en selector de Empresas")
+
+
+# ─────────────────────────────────────────────────────────────────
 # PASO 2: NAVEGAR AL REPORTEADOR Y SELECCIONAR PADRÓN
 # ─────────────────────────────────────────────────────────────────
 
@@ -416,33 +517,45 @@ async def _seleccionar_reporte_padron(page: Page) -> None:
         logger.warning(f"  ⚠️ Timeout esperando elementos, continuando: {e}")
         # Continuar de todas formas — la página probablemente está lista aunque los selectores específicos no aparezcan
 
-    # Intentar seleccionar proceso "Padrón de clientes" usando JavaScript
-    # No insistir en esperar selectores específicos
-    selected = await page.evaluate(
-        """
-        () => {
-          const selects = Array.from(document.querySelectorAll('select'));
-          const norm = (s) => (s || '').toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g, '');
+    selected_label = None
+    proc_sel = page.locator('select[formcontrolname="idproceso"]').first
+    try:
+        await proc_sel.wait_for(state="visible", timeout=COMBO_TIMEOUT_MS)
+        await proc_sel.select_option(label=re.compile(r"padron", re.I))
+        selected_label = await proc_sel.evaluate(
+            "el => el.options[el.selectedIndex]?.textContent?.trim() || ''"
+        )
+        logger.info(f"  ✅ Reporte Padrón seleccionado (select): {selected_label}")
+    except Exception as e:
+        logger.warning(f"  select_option Padrón falló ({type(e).__name__}); probando JS...")
+        selected = await page.evaluate(
+            """
+            () => {
+              const selects = Array.from(document.querySelectorAll('select'));
+              const norm = (s) => (s || '').toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g, '');
 
-          for (const s of selects) {
-            const opts = Array.from(s.options || []);
-            const target = opts.find(o => norm(o.textContent).includes('padron'));
-            if (target) {
-              s.value = target.value;
-              s.dispatchEvent(new Event('input', { bubbles: true }));
-              s.dispatchEvent(new Event('change', { bubbles: true }));
-              return { ok: true, selected: target.textContent?.trim() || target.value };
+              for (const s of selects) {
+                const opts = Array.from(s.options || []);
+                const target = opts.find(o => norm(o.textContent).includes('padron'));
+                if (target) {
+                  s.value = target.value;
+                  s.dispatchEvent(new Event('input', { bubbles: true }));
+                  s.dispatchEvent(new Event('change', { bubbles: true }));
+                  return { ok: true, selected: target.textContent?.trim() || target.value };
+                }
+              }
+              return { ok: false };
             }
-          }
-          return { ok: false };
-        }
-        """
-    )
+            """
+        )
+        if not (selected and selected.get("ok")):
+            raise RuntimeError("No se pudo seleccionar reporte Padrón de clientes")
+        selected_label = selected.get("selected")
+        logger.info(f"  ✅ Reporte Padrón seleccionado (JS): {selected_label}")
 
-    if selected and selected.get("ok"):
-        logger.info(f"  ✅ Reporte Padrón seleccionado: {selected.get('selected')}")
-    else:
-        logger.warning("  ⚠️ No se encontró select de proceso con opción Padrón; se continúa con valor actual.")
+    await page.wait_for_timeout(1200)
+    await _esperar_comboboxes_parametros(page, min_count=1)
+    logger.info(f"  ✅ Panel de parámetros listo para {selected_label}")
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -454,141 +567,11 @@ async def _configurar_parametros(page: Page, tenant: dict) -> None:
     Configura los parámetros del reporte:
       1. "Incluyí Anulados" = SI por defecto (mat-select Angular Material)
       2. "Empresas" = seleccionar solo IDEMPRESA del tenant (mat-select Angular Material)
-
-    Ambos son dropdowns Angular Material con [role="option"].
     """
     logger.info(f"  Configurando parámetros para {tenant['nombre']}")
-
-    # ─────────────────────────────────────────────────────────────────
-    # PASO 0: SELECCIONAR "INCLUIR ANULADOS" (SI = default; rollback env PADRON_INCLUIR_ANULADOS)
-    # ─────────────────────────────────────────────────────────────────
-    want_si = PADRON_INCLUIR_ANULADOS
-    logger.info(f"    - Incluí Anulados: {'SI' if want_si else 'NO'}")
-
-    try:
-        # Abrir el dropdown de "Incluir Anulados"
-        incluir_anulados_combobox = page.locator('[role="combobox"]').first
-        await incluir_anulados_combobox.click(timeout=5000)
-        await page.wait_for_timeout(1000)
-        logger.info("      ✅ Dropdown de Incluir Anulados abierto")
-
-        # Buscar y clickear SI o NO según configuración
-        options = page.locator('[role="option"]')
-        count = await options.count()
-        logger.info(f"      📊 Opciones encontradas: {count}")
-
-        def _matches_anulados_choice(text_upper: str) -> bool:
-            if want_si:
-                return text_upper in ("SI", "SÍ", "YES", "TRUE", "S", "1")
-            return text_upper == "NO"
-
-        for i in range(count):
-            option = options.nth(i)
-            try:
-                option_text = await option.text_content()
-                option_text = (option_text.strip() if option_text else "").upper()
-                logger.info(f"      [{i}] {option_text}")
-
-                if _matches_anulados_choice(option_text):
-                    logger.info(f"      ✨ Opción {'SI' if want_si else 'NO'} encontrada")
-                    await option.click(timeout=5000, force=True)
-                    await page.wait_for_timeout(500)
-                    logger.info(f"      ✅ Opción seleccionada")
-                    break
-            except Exception as e:
-                logger.warning(f"      [{i}] Error: {e}")
-                continue
-
-        # Cerrar el overlay presionando Escape
-        await page.keyboard.press("Escape")
-        await page.wait_for_timeout(500)
-        logger.info("      ✅ Overlay cerrado")
-
-    except Exception as e:
-        logger.warning(f"      ⚠️ Error en Incluir Anulados: {type(e).__name__}: {str(e)[:100]}")
-        # Continuar de todas formas
-
-    logger.info(f"    - Empresa objetivo: ({tenant['id_empresa']}) {tenant['nombre']}")
-
-    # PASO 1: Abrir el dropdown de Empresas (combobox Angular Material)
-    try:
-        # Hacer clic en el combobox de Empresas para abrirlo
-        empresas_combobox = page.locator('[role="combobox"]')
-        await empresas_combobox.last.click(timeout=5000)
-        await page.wait_for_timeout(1000)
-        logger.info("      ✅ Dropdown de Empresas abierto")
-    except Exception as e:
-        logger.warning(f"      Error abriendo dropdown de Empresas: {e}")
-
-    # PASO 2: Seleccionar la empresa correcta
-    # IMPORTANTE: Los items del dropdown son <option role="option">, NO <input type="checkbox">
-    try:
-        id_empresa_str = str(tenant["id_empresa"])
-        logger.info(f"      🔍 Buscando opción para empresa: ({id_empresa_str})")
-
-        # Los items del dropdown son [role="option"]
-        options = page.locator('[role="option"]')
-        count = await options.count()
-        logger.info(f"      📊 Total de opciones encontradas: {count}")
-
-        empresa_encontrada = False
-        for i in range(count):
-            option = options.nth(i)
-            try:
-                # Obtener el texto de la opción
-                option_text = await option.text_content()
-                option_text = option_text.strip() if option_text else ""
-
-                # Verificar si está seleccionada (tiene aria-selected="true")
-                is_selected = await option.get_attribute("aria-selected")
-                is_selected = is_selected == "true" if is_selected else False
-
-                logger.info(f"      [{i}] {option_text} [selected={is_selected}]")
-
-                # Buscar la opción que contiene el ID de empresa
-                if f"({id_empresa_str})" in option_text:
-                    logger.info(f"      ✨ ¡Opción encontrada! ({id_empresa_str})")
-                    empresa_encontrada = True
-
-                    # Si no está seleccionada, clickearla
-                    if not is_selected:
-                        logger.info(f"      🔲 Clickeando opción para {id_empresa_str}...")
-                        await option.click(timeout=5000, force=True)
-                        await page.wait_for_timeout(500)
-
-                        # Verificar que se seleccionó correctamente
-                        is_selected_after = await option.get_attribute("aria-selected")
-                        is_selected_after = is_selected_after == "true" if is_selected_after else False
-                        logger.info(f"      ✅ Post-click: aria-selected = {is_selected_after}")
-
-                        if is_selected_after:
-                            logger.info(f"      ✅ Empresa {id_empresa_str} seleccionada correctamente")
-                        else:
-                            logger.error(f"      ❌ Opción no se seleccionó después del click")
-                    else:
-                        logger.info(f"      ✅ Empresa {id_empresa_str} ya estaba seleccionada")
-                    break
-            except Exception as e:
-                logger.warning(f"      [{i}] Error procesando opción: {type(e).__name__}: {e}")
-                continue
-
-        if not empresa_encontrada:
-            logger.error(f"      ❌ Empresa ({id_empresa_str}) NO ENCONTRADA en las opciones disponibles")
-
-        await page.wait_for_timeout(500)
-
-    except Exception as e:
-        logger.warning(f"      Error seleccionando empresa: {type(e).__name__}: {e}")
-
-    # PASO 3: CRÍTICO — Cerrar el overlay del combobox
-    # El overlay Angular bloquea clicks posteriores si queda abierto
-    try:
-        logger.info("      Cerrando overlay del combobox...")
-        await page.keyboard.press("Escape")
-        await page.wait_for_timeout(500)
-        logger.info("      ✅ Overlay cerrado")
-    except Exception as e:
-        logger.warning(f"      Error cerrando overlay: {e}")
+    await _esperar_comboboxes_parametros(page, min_count=1)
+    await _set_incluir_anulados(page)
+    await _set_empresa_padron(page, tenant)
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -854,7 +837,7 @@ async def _procesar_tenant(browser: Browser, tenant: dict, usuario: str, passwor
 
     Devuelve dict con resultado: {ok: 0|1, error: str|None, archivo: Path|None}
     """
-    resumen = {"ok": 0, "errores": 0, "sin_cambios": 0}
+    resumen = {"ok": 0, "errores": 0, "sin_cambios": 0, "error_msg": None}
 
     try:
         logger.info(f"\n  ┌─ Procesando tenant: {tenant['nombre']}")
@@ -870,6 +853,7 @@ async def _procesar_tenant(browser: Browser, tenant: dict, usuario: str, passwor
             logger.error(f"  Error en login: {e}")
             await _screenshot_error(page, tenant["id"], "login")
             resumen["errores"] += 1
+            resumen["error_msg"] = f"login: {e}"[:500]
             await context.close()
             return resumen
 
@@ -880,6 +864,7 @@ async def _procesar_tenant(browser: Browser, tenant: dict, usuario: str, passwor
             logger.error(f"  Error seleccionando Padrón: {e}")
             await _screenshot_error(page, tenant["id"], "seleccionar_padron")
             resumen["errores"] += 1
+            resumen["error_msg"] = f"seleccionar_padron: {e}"[:500]
             await context.close()
             return resumen
 
@@ -890,6 +875,7 @@ async def _procesar_tenant(browser: Browser, tenant: dict, usuario: str, passwor
             logger.error(f"  Error configurando parámetros: {e}")
             await _screenshot_error(page, tenant["id"], "parametros")
             resumen["errores"] += 1
+            resumen["error_msg"] = f"parametros: {e}"[:500]
             await context.close()
             return resumen
 
@@ -900,6 +886,7 @@ async def _procesar_tenant(browser: Browser, tenant: dict, usuario: str, passwor
             logger.error(f"  Error ejecutando reporte: {e}")
             await _screenshot_error(page, tenant["id"], "ejecutar")
             resumen["errores"] += 1
+            resumen["error_msg"] = f"ejecutar: {e}"[:500]
             await context.close()
             return resumen
 
@@ -908,12 +895,14 @@ async def _procesar_tenant(browser: Browser, tenant: dict, usuario: str, passwor
             archivo = await _descargar_excel(page, {**tenant, "id": f"padron_{tenant['id']}"})
             if not archivo:
                 resumen["errores"] += 1
+                resumen["error_msg"] = "descargar: Excel no obtenido"
                 await context.close()
                 return resumen
         except Exception as e:
             logger.error(f"  Error descargando: {e}")
             await _screenshot_error(page, tenant["id"], "descargar")
             resumen["errores"] += 1
+            resumen["error_msg"] = f"descargar: {e}"[:500]
             await context.close()
             return resumen
 
@@ -941,6 +930,7 @@ async def _procesar_tenant(browser: Browser, tenant: dict, usuario: str, passwor
         except Exception as e:
             logger.error(f"  Error subiendo a API: {e}")
             resumen["errores"] += 1
+            resumen["error_msg"] = f"upload: {e}"[:500]
 
         logger.info(f"  └─ Tenant {tenant['nombre']} finalizado\n")
         return resumen
@@ -948,6 +938,7 @@ async def _procesar_tenant(browser: Browser, tenant: dict, usuario: str, passwor
     except Exception as e:
         logger.error(f"  ❌ Error inesperado en tenant {tenant['id']}: {e}")
         resumen["errores"] += 1
+        resumen["error_msg"] = str(e)[:500]
         return resumen
 
 
@@ -990,6 +981,10 @@ async def run_tenant(tenant_id: str) -> dict:
     tenant = next((t for t in tenants if str(t.get("id", "")).lower() == tenant_id), None)
     if not tenant:
         logger.error("Tenant padrón desconocido o inactivo: %s", tenant_id)
+        try:
+            await notificar_error_motor("padron", 0, f"tenant desconocido o inactivo: {tenant_id}")
+        except Exception as e:
+            logger.warning("No se pudo notificar tenant desconocido: %s", e)
         return {"ok": 0, "errores": 1, "sin_cambios": 0, "tenant_id": tenant_id}
 
     resumen = {"ok": 0, "errores": 0, "sin_cambios": 0, "tenant_id": tenant_id}
@@ -1002,8 +997,15 @@ async def run_tenant(tenant_id: str) -> dict:
                 resumen["ok"] = r.get("ok", 0)
                 resumen["errores"] = r.get("errores", 0)
                 resumen["sin_cambios"] = r.get("sin_cambios", 0)
+                resumen["error_msg"] = r.get("error_msg")
             finally:
                 await browser.close()
+    if resumen.get("errores", 0) > 0:
+        msg = resumen.get("error_msg") or f"RPA padrón falló tenant={tenant_id}"
+        try:
+            await notificar_error_motor("padron", int(tenant.get("id_dist", 0)), msg)
+        except Exception as e:
+            logger.warning("No se pudo notificar error padrón dist=%s: %s", tenant.get("id_dist"), e)
     return resumen
 
 

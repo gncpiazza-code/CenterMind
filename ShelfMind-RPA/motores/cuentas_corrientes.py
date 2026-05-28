@@ -997,6 +997,18 @@ async def run() -> dict:
         logger.info(f"  {tenant['nombre']}: {iconos.get(r['estado'], '?')} {r['estado']}")
         if r.get("error"):
             logger.error(f"    → {r['error']}")
+        if r.get("estado") == "error":
+            from lib.api_client import notificar_error_motor
+
+            dist = int(tenant.get("id_dist") or tenant.get("id_distribuidor") or 0)
+            try:
+                await notificar_error_motor(
+                    "cuentas_corrientes",
+                    dist,
+                    str(r.get("error") or "error CC")[:500],
+                )
+            except Exception as notify_exc:
+                logger.warning("No se pudo notificar error CC dist=%s: %s", dist, notify_exc)
 
     fin = datetime.now(AR_TZ)
     duracion = (fin - inicio).total_seconds() / 60

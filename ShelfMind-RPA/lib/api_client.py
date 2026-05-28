@@ -408,28 +408,85 @@ async def subir_ventas_enriched(archivo_path, tenant_id: str) -> bool:
         archivo_path = Path(archivo_path)
         with open(archivo_path, "rb") as f:
             file_bytes = f.read()
-        timeout = httpx.Timeout(connect=20.0, read=240.0, write=120.0, pool=20.0)
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(
-                url,
-                headers=_headers(),
-                data={"tenant_id": tenant_id},
-                files={"file": (archivo_path.name, file_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
-            )
-        if resp.status_code in (200, 201):
-            try:
-                data = resp.json()
-            except Exception:
-                data = {}
+
+        payload_name = archivo_path.name
+        payload_bytes = file_bytes
+        original_size = len(file_bytes)
+        compacted_attempted = False
+
+        if original_size > PADRON_MAX_DIRECT_UPLOAD_BYTES:
             logger.info(
-                f"  ✅ Ventas enriched subido — rows={data.get('rows', '?')} "
-                f"upserted={data.get('upserted', '?')} dist={data.get('dist_id', '?')}"
+                f"  ℹ️ Ventas enriched grande ({original_size / (1024 * 1024):.1f} MB). "
+                "Compactando antes de upload..."
             )
-            return True
-        logger.error(f"  ❌ API ventas-enriched {resp.status_code}: {resp.text[:260]}")
+            compacted = _compactar_excel_para_upload(file_bytes)
+            if compacted and len(compacted) < original_size:
+                payload_bytes = compacted
+                payload_name = f"{archivo_path.stem}_compacto.xlsx"
+                compacted_attempted = True
+                logger.info(
+                    f"  ✅ Compactado: {original_size / (1024 * 1024):.1f} MB -> "
+                    f"{len(payload_bytes) / (1024 * 1024):.1f} MB"
+                )
+
+        timeout = httpx.Timeout(connect=20.0, read=240.0, write=180.0, pool=20.0)
+        for intento in range(1, 4):
+            try:
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    resp = await client.post(
+                        url,
+                        headers=_headers(),
+                        data={"tenant_id": tenant_id},
+                        files={
+                            "file": (
+                                payload_name,
+                                payload_bytes,
+                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            )
+                        },
+                    )
+                if resp.status_code in (200, 201):
+                    try:
+                        data = resp.json()
+                    except Exception:
+                        data = {}
+                    logger.info(
+                        f"  ✅ Ventas enriched subido — rows={data.get('rows', '?')} "
+                        f"upserted={data.get('upserted', '?')} dist={data.get('dist_id', '?')} "
+                        f"(intento {intento}/3)"
+                    )
+                    return True
+                logger.warning(
+                    f"  ⚠️ API ventas-enriched HTTP {resp.status_code} intento {intento}/3: "
+                    f"{(resp.text or '')[:260]}"
+                )
+            except Exception as e:
+                logger.warning(
+                    f"  ⚠️ Error subiendo ventas-enriched intento {intento}/3 "
+                    f"({tenant_id}): {type(e).__name__}: {repr(e)}"
+                )
+                if (
+                    not compacted_attempted
+                    and type(e).__name__
+                    in ("ReadError", "ConnectError", "WriteError", "RemoteProtocolError", "SSLError")
+                ):
+                    compacted = _compactar_excel_para_upload(file_bytes)
+                    if compacted and len(compacted) < len(payload_bytes):
+                        payload_bytes = compacted
+                        payload_name = f"{archivo_path.stem}_compacto.xlsx"
+                        compacted_attempted = True
+                        logger.info("  ℹ️ Reintento ventas-enriched con Excel compacto")
+
+            if intento < 3:
+                await asyncio.sleep(4)
+
+        logger.error(f"  ❌ Upload ventas-enriched agotó reintentos ({tenant_id}).")
         return False
     except Exception as e:
-        logger.error(f"  ❌ Error subiendo ventas-enriched ({tenant_id}): {e}")
+        logger.error(
+            f"  ❌ Error preparando upload ventas-enriched ({tenant_id}): "
+            f"{type(e).__name__}: {repr(e)}"
+        )
         return False
 
 

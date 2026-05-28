@@ -75,10 +75,10 @@ def _build_ciudad_dominante_map(distribuidor_id: int) -> dict[int, str]:
         .data or []
     )
 
+    # Tablas tenant rutas_v2_* no tienen id_distribuidor (aislamiento por sufijo).
     ruta_rows = (
         sb.table(t_rutas)
         .select("id_vendedor,id_ruta")
-        .eq("id_distribuidor", distribuidor_id)
         .execute()
         .data or []
     )
@@ -239,7 +239,6 @@ def _build_ruta_to_vendedor_map(distribuidor_id: int) -> dict[int, int]:
     rows = (
         sb.table(t_rutas)
         .select("id_ruta,id_vendedor")
-        .eq("id_distribuidor", distribuidor_id)
         .execute()
         .data
         or []

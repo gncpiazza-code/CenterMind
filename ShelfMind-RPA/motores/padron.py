@@ -62,6 +62,7 @@ PARTICULARIDADES VERIFICADAS EN VIVO (27/04/2026):
 
 import asyncio
 import os
+import unicodedata
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -420,7 +421,9 @@ async def seleccionar_proceso_reporteador(
     Elige un proceso en el select idproceso sin regex (Playwright en Railway no acepta re.Pattern).
     """
     def _norm(s: str) -> str:
-        return (s or "").lower()
+        s = unicodedata.normalize("NFD", s or "")
+        s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+        return s.lower()
 
     def _matches(text: str) -> bool:
         n = _norm(text)
@@ -468,12 +471,17 @@ async def seleccionar_proceso_reporteador(
     if picked:
         return picked
 
-    # Fallback: p.ej. "Informe de Ventas" si el label varía en Consolido
-    if must_include != ("ventas",):
+    # Fallback según tipo de reporte (nunca cruzar padrón ↔ ventas)
+    if "padron" in must_include or "padr" in "".join(must_include):
+        logger.warning(f"  Reintentando {descripcion} con matcher amplio (clientes)...")
+        picked = await _pick_from_options(("cliente",), must_exclude)
+        if picked:
+            return picked
+    elif must_include != ("ventas",):
         logger.warning(f"  Reintentando {descripcion} con matcher amplio (ventas)...")
         picked = await _pick_from_options(
             ("ventas",),
-            must_exclude + ("padron", "cliente", "cuenta", "corriente", "padr"),
+            must_exclude + ("padron", "cliente", "cuenta", "corriente"),
         )
         if picked:
             return picked

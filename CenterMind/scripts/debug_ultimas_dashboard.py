@@ -13,11 +13,11 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
 
 from db import sb
+from core.tenant_tables import tenant_table_name
 from routers.reportes import (
     _enrich_ultimas_dashboard_rows,
     _fetch_ultimas_evaluadas_rows,
     _build_integrante_vendor_name_map,
-    tenant_table_name,
 )
 
 
@@ -25,7 +25,11 @@ def main() -> None:
     dist_id = int(sys.argv[1]) if len(sys.argv) > 1 else 3
     n = int(sys.argv[2]) if len(sys.argv) > 2 else 3
 
-    print(f"=== dist={dist_id} n={n} ===\n")
+    print(f"=== dist={dist_id} n={n} ===")
+    for base in ("clientes_pdv_v2", "rutas_v2", "vendedores_v2"):
+        print(f"  tenant {base} -> {tenant_table_name(base, dist_id)}")
+    print()
+
 
     raw = _fetch_ultimas_evaluadas_rows(dist_id, n)
     print(f"fetch_ultimas: {len(raw)} rows")

@@ -11,6 +11,10 @@ PARTITIONED_BASES = {
     "ventas_enriched_v2",
 }
 
+# Tablas *_d{dist} sin columna id_distribuidor (el tenant es el sufijo _dN).
+# No usar sb.table("rutas_v2") en runtime: siempre tenant_table_name("rutas_v2", dist_id).
+TENANT_TABLES_WITHOUT_DISTRIBUIDOR_COLUMN = frozenset({"rutas_v2"})
+
 # Tablas base a clonar cuando se da de alta un nuevo tenant.
 TENANT_TABLE_BLUEPRINTS = {
     "sucursales_v2": "sucursales_v2",
@@ -23,13 +27,23 @@ TENANT_TABLE_BLUEPRINTS = {
 
 def tenant_table_name(base_table: str, dist_id: int | None) -> str:
     """
-    Resuelve el nombre de tabla por tenant.
+    Resuelve el nombre de tabla por tenant (NUNCA la tabla base legacy en lecturas de padrón).
+
     Ej:
-      clientes_pdv_v2 + dist=3 -> clientes_pdv_v2_d3
+      tenant_table_name("rutas_v2", 3) -> "rutas_v2_d3"
+      tenant_table_name("clientes_pdv_v2", 3) -> "clientes_pdv_v2_d3"
+
+    Las tablas base sin sufijo (rutas_v2, vendedores_v2, …) solo las usa la ingesta RPA
+    como blueprint/serial; el portal, dashboard y bots deben pasar siempre dist_id aquí.
     """
     if dist_id is None or base_table not in PARTITIONED_BASES:
         return base_table
     return f"{base_table}_d{int(dist_id)}"
+
+
+def tenant_table_supports_distribuidor_filter(base_table: str) -> bool:
+    """False para rutas_v2_* (no tienen id_distribuidor)."""
+    return base_table not in TENANT_TABLES_WITHOUT_DISTRIBUIDOR_COLUMN
 
 
 def load_dist_ids(sb) -> list[int]:
@@ -99,21 +113,39 @@ def find_dist_by_ruta(sb, id_ruta: int, dist_ids: Iterable[int]) -> int | None:
     return None
 
 
+def build_tenant_tables_sql(dist_id: int, dist_nombre: str | None = None) -> str:
+    """
+    SQL manual para Supabase cuando exec_sql no está disponible.
+    Copia de esquema (LIKE), NO particiones PostgreSQL (las tablas base no son PARTITIONED).
+    """
+    did = int(dist_id)
+    if dist_nombre:
+        header = f"-- Tenant: {dist_nombre.strip()} (ID: {did})"
+    else:
+        header = f"-- Tenant ID: {did}"
+    lines = [
+        f"-- Ejecutar en el SQL Editor de Supabase",
+        header,
+        "-- Crea tablas *_d{N} clonando el esquema de las tablas blueprint.",
+        "-- NO usar: CREATE TABLE ... PARTITION OF ... (error 42P17: tabla no particionada).",
+        "",
+    ]
+    for base, blueprint in TENANT_TABLE_BLUEPRINTS.items():
+        target = tenant_table_name(base, did)
+        lines.append(
+            f"CREATE TABLE IF NOT EXISTS public.{target} "
+            f"(LIKE public.{blueprint} INCLUDING ALL);"
+        )
+    lines.append("")
+    return "\n".join(lines)
+
+
 def ensure_tenant_partition_tables(sb, dist_id: int) -> None:
     """
     Crea tablas tenant *_d{dist} si no existen, clonando el esquema
     desde un tenant blueprint conocido.
     """
-    did = int(dist_id)
-    statements: list[str] = []
-    for base, blueprint in TENANT_TABLE_BLUEPRINTS.items():
-        target = tenant_table_name(base, did)
-        statements.append(
-            f"CREATE TABLE IF NOT EXISTS public.{target} "
-            f"(LIKE public.{blueprint} INCLUDING ALL);"
-        )
-
-    sql = " ".join(statements)
+    sql = build_tenant_tables_sql(dist_id).replace("\n", " ")
     last_err: Exception | None = None
     for payload in ({"sql": sql}, {"p_sql": sql}):
         try:

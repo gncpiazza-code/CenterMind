@@ -294,7 +294,6 @@ def get_erp_contexto(id_distribuidor: int, nro_cliente: str, user_payload=Depend
                 ruta_res = (
                     sb.table(t_rutas)
                     .select("id_ruta_erp,dia_semana")
-                    .eq("id_distribuidor", id_distribuidor)
                     .eq("id_ruta", id_ruta)
                     .limit(1)
                     .execute()

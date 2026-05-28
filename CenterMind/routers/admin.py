@@ -23,6 +23,7 @@ from core.tenant_tables import (
     load_dist_ids,
     find_dist_by_ruta,
     ensure_tenant_partition_tables,
+    build_tenant_tables_sql,
 )
 from db import sb
 from models.schemas import (
@@ -580,6 +581,35 @@ def create_distribuidor(data: dict, user_payload=Depends(verify_auth)):
         if res.data:
             ensure_tenant_partition_tables(sb, res.data[0]["id_distribuidor"])
         return res.data[0]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/admin/distribuidoras/{dist_id}/tenant-tables-sql", tags=["Admin"])
+@router.get("/api/admin/distribuidores/{dist_id}/tenant-tables-sql", tags=["Admin"])
+def get_distribuidor_tenant_tables_sql(dist_id: int, user_payload=Depends(verify_auth)):
+    """SQL para crear tablas tenant *_d{dist} en Supabase (manual si exec_sql no existe)."""
+    if not user_payload.get("is_superadmin"):
+        raise HTTPException(status_code=403, detail="SuperAdmin only")
+    try:
+        res = (
+            sb.table("distribuidores")
+            .select("id_distribuidor,nombre_empresa")
+            .eq("id_distribuidor", dist_id)
+            .limit(1)
+            .execute()
+        )
+        if not res.data:
+            raise HTTPException(status_code=404, detail="Distribuidor no encontrado")
+        row = res.data[0]
+        nombre = (row.get("nombre_empresa") or "").strip()
+        return {
+            "dist_id": dist_id,
+            "nombre": nombre,
+            "sql": build_tenant_tables_sql(dist_id, nombre),
+        }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

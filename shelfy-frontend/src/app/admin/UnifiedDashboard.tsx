@@ -7,6 +7,7 @@ import {
     Building2, MapPin, Users, RefreshCw, Save, Plus, ChevronDown, ChevronRight, AlertCircle, Database, Shield, Link as LinkIcon, Check
 } from "lucide-react";
 import { fetchUnifiedDashboard, UnifiedDistributor, editarDistribuidora, crearDistribuidora, saveERPMapping, editarIntegranteAdmin } from "@/lib/api";
+import { SqlModal } from "@/components/admin/SqlModal";
 import toast from "react-hot-toast";
 
 export default function UnifiedDashboard({ isSuperadmin, currentDistId }: { isSuperadmin: boolean, currentDistId: number }) {
@@ -24,6 +25,11 @@ export default function UnifiedDashboard({ isSuperadmin, currentDistId }: { isSu
     // New Distributor forms
     const [showNewDist, setShowNewDist] = useState(false);
     const [newDistForm, setNewDistForm] = useState({ nombre: "", token: "" });
+    const [sqlModalDist, setSqlModalDist] = useState<{
+        id: number;
+        nombre: string;
+        requireConfirm?: boolean;
+    } | null>(null);
 
     // Selections for unmapped users
     const [unmappedSelections, setUnmappedSelections] = useState<Record<number, string>>({});
@@ -149,12 +155,24 @@ export default function UnifiedDashboard({ isSuperadmin, currentDistId }: { isSu
     const handleCrearDistribuidor = async (e: React.FormEvent) => {
         e.preventDefault();
         setSaving(true);
+        const nombreAlta = newDistForm.nombre;
         try {
-            await crearDistribuidora({ nombre: newDistForm.nombre, token: newDistForm.token });
-            toast.success("Distribuidor creado exitosamente");
+            const created = (await crearDistribuidora({
+                nombre: nombreAlta,
+                token: newDistForm.token,
+            })) as Record<string, unknown>;
+            const newId = Number(created?.id_distribuidor ?? created?.id ?? 0);
+            toast.success("Distribuidor creado — ejecutá el SQL de tablas tenant");
             setShowNewDist(false);
             setNewDistForm({ nombre: "", token: "" });
             loadData();
+            if (newId > 0) {
+                setSqlModalDist({
+                    id: newId,
+                    nombre: String(created?.nombre_empresa ?? created?.nombre ?? nombreAlta),
+                    requireConfirm: true,
+                });
+            }
         } catch (e) {
             toast.error("Error creando el distribuidor");
         } finally {
@@ -436,6 +454,15 @@ export default function UnifiedDashboard({ isSuperadmin, currentDistId }: { isSu
                 )}
 
             </div>
+
+            {sqlModalDist && (
+                <SqlModal
+                    distId={sqlModalDist.id}
+                    distNombre={sqlModalDist.nombre}
+                    requireConfirm={sqlModalDist.requireConfirm}
+                    onClose={() => setSqlModalDist(null)}
+                />
+            )}
         </div>
     );
 }

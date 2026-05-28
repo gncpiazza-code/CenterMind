@@ -29,7 +29,11 @@ export default function TabDistribuidoras() {
   });
   const [saving, setSaving] = useState(false);
   const [soloActivas, setSoloActivas] = useState(false);
-  const [sqlModalDist, setSqlModalDist] = useState<{id: number, nombre: string} | null>(null);
+  const [sqlModalDist, setSqlModalDist] = useState<{
+    id: number;
+    nombre: string;
+    requireConfirm?: boolean;
+  } | null>(null);
 
   const load = () => {
     setLoading(true);
@@ -46,7 +50,7 @@ export default function TabDistribuidoras() {
     setSaving(true);
     setError(null);
     try {
-      await crearDistribuidora({
+      const created = (await crearDistribuidora({
         ...form,
         franquicia_tenant_matriz_id: form.franquicia_tenant_matriz_id
           ? Number(form.franquicia_tenant_matriz_id)
@@ -54,8 +58,19 @@ export default function TabDistribuidoras() {
         franquicia_idsucur_origen: form.franquicia_idsucur_origen
           ? Number(form.franquicia_idsucur_origen)
           : null,
-      });
+      })) as Record<string, unknown>;
+      const newId = Number(created?.id_distribuidor ?? created?.id ?? 0);
+      const newNombre = String(
+        created?.nombre_empresa ?? created?.nombre ?? form.nombre,
+      );
       setShowForm(false);
+      if (newId > 0) {
+        setSqlModalDist({
+          id: newId,
+          nombre: newNombre,
+          requireConfirm: true,
+        });
+      }
       setForm({
         nombre: "",
         token: "",
@@ -270,10 +285,11 @@ export default function TabDistribuidoras() {
       )}
 
       {sqlModalDist && (
-        <SqlModal 
-          distId={sqlModalDist.id} 
-          distNombre={sqlModalDist.nombre} 
-          onClose={() => setSqlModalDist(null)} 
+        <SqlModal
+          distId={sqlModalDist.id}
+          distNombre={sqlModalDist.nombre}
+          requireConfirm={sqlModalDist.requireConfirm}
+          onClose={() => setSqlModalDist(null)}
         />
       )}
     </div>

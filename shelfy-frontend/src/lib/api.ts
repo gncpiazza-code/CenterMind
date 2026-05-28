@@ -1025,6 +1025,10 @@ export async function toggleDistribuidora(id: number, estado: "activo" | "inacti
   return apiFetch(`/api/admin/distribuidoras/${id}/estado`, { method: "PATCH", body: JSON.stringify({ estado }) });
 }
 
+export async function fetchTenantTablesSql(distId: number): Promise<{ sql: string; dist_id: number; nombre: string }> {
+  return apiFetch(`/api/admin/distribuidoras/${distId}/tenant-tables-sql`);
+}
+
 // ── Admin: Integrantes Telegram ──────────────────────────────────────────────
 
 export interface Integrante {

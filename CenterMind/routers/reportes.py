@@ -234,7 +234,7 @@ def _ultimas_normalize_erp_code(value: Any) -> str:
 
 
 def _build_ruta_to_vendedor_map(distribuidor_id: int) -> dict[int, int]:
-    """Mapa id_ruta → id_vendedor (padrón operativo)."""
+    """Mapa id_ruta → id_vendedor desde rutas_v2_d{dist} (tabla tenant, no rutas_v2 base)."""
     t_rutas = tenant_table_name("rutas_v2", distribuidor_id)
     rows = (
         sb.table(t_rutas)
@@ -437,7 +437,7 @@ def _hydrate_exhibiciones_map(rows: list[dict], distribuidor_id: int) -> dict[in
 
 
 def _enrich_ultimas_dashboard_rows(rows: list[dict], distribuidor_id: int) -> list[dict]:
-    """Enriquece últimas evaluadas: PDV (ID ERP, razón social, ciudad) y nombre ERP del vendedor."""
+    """Enriquece últimas evaluadas con padrón tenant (clientes_pdv_v2_d*, rutas_v2_d*, vendedores_v2_d*)."""
     if not rows:
         return rows
 

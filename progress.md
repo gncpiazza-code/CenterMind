@@ -19,6 +19,7 @@
 - 🟢 Reporteria v2: tabs por fuente + detalle por vendedor.
 - 🟢 Bot Telegram: carga exhibiciones, comando `/objetivos`, reglas QA.
 - 🟢 RPA: padron y cuentas corrientes en scheduler operativo.
+- 🟢 Padrón RPA (2026-05-28): scheduler con **1 job por tenant** (escalonado 8 min), lock Consolido, catch-up por `motor_runs`; orden chicos→tabaco/aloma. Ver `ShelfMind-RPA/lib/padron_schedule.py`.
 - 🟡 Pendiente: tenant `extra`, clusters en mapa para zoom out masivo.
 
 ## Cambios Recientes (resumen ejecutivo)

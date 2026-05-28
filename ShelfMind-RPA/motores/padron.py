@@ -6,7 +6,9 @@ Motor 1: Padrón de Clientes — Consolido/Nextbyn Reporteador Genérico
 
 ¿Qué hace este archivo?
 -----------------------
-Cada día a las 04:00 y 14:00:
+Programación vía `scheduler.py`: un job APScheduler **por tenant** (escalonado) + catch-up.
+Chicos primero (beltrocco, …), tabaco/aloma al final; lock exclusivo Consolido.
+
   1. Para cada tenant activo en `rpa_consolido_tenants` (tabaco, aloma, liver, real, extra, …):
      a. Abre un navegador invisible
      b. Navega a consolido.nextbyn.com
@@ -72,6 +74,12 @@ from playwright.async_api import (
 from lib.logger import get_logger
 from lib.hash_guard import es_duplicado, guardar_hash
 from lib.api_client import subir_padron, registrar_padron_sin_cambios
+from lib.padron_schedule import (
+    DEFAULT_MAX_AGE_HOURS,
+    list_stale_tenant_ids,
+    ordenar_tenants_para_corrida,
+    padron_consolido_lock,
+)
 from lib.vault_client import get_secret
 
 # ─────────────────────────────────────────────────────────────────
@@ -944,54 +952,114 @@ async def _procesar_tenant(browser: Browser, tenant: dict, usuario: str, passwor
 
 
 # ─────────────────────────────────────────────────────────────────
-# PUNTO DE ENTRADA: run()
+# PUNTO DE ENTRADA: run() / run_tenant() / run_catchup_stale()
 # ─────────────────────────────────────────────────────────────────
+
+
+def cargar_tenants_activos() -> list[dict]:
+    """Tenants activos en orden de corrida (chicos primero, tabaco/aloma al final)."""
+    tenants = ordenar_tenants_para_corrida(_cargar_tenants_desde_supabase())
+    return _filtrar_tenants_para_debug(tenants)
+
+
+async def _procesar_tenant_con_reintentos(
+    browser: Browser, tenant: dict, usuario: str, password: str
+) -> dict:
+    resumen_tenant = {"ok": 0, "errores": 1, "sin_cambios": 0}
+    for intento in range(1, TENANT_RETRY_MAX + 2):
+        if intento > 1:
+            logger.warning(
+                f"🔁 Reintentando tenant {tenant['id']} "
+                f"({intento - 1}/{TENANT_RETRY_MAX})..."
+            )
+        resumen_tenant = await _procesar_tenant(browser, tenant, usuario, password)
+        if resumen_tenant.get("ok", 0) > 0 or resumen_tenant.get("sin_cambios", 0) > 0:
+            break
+        if intento < (TENANT_RETRY_MAX + 1):
+            await asyncio.sleep(TENANT_RETRY_BACKOFF_SEC)
+    return resumen_tenant
+
+
+async def run_tenant(tenant_id: str) -> dict:
+    """
+    Un solo tenant (scheduler: job por distribuidor).
+    Usa lock de archivo: si otro tenant está en Consolido, espera a que termine.
+    """
+    tenant_id = (tenant_id or "").strip().lower()
+    tenants = cargar_tenants_activos()
+    tenant = next((t for t in tenants if str(t.get("id", "")).lower() == tenant_id), None)
+    if not tenant:
+        logger.error("Tenant padrón desconocido o inactivo: %s", tenant_id)
+        return {"ok": 0, "errores": 1, "sin_cambios": 0, "tenant_id": tenant_id}
+
+    resumen = {"ok": 0, "errores": 0, "sin_cambios": 0, "tenant_id": tenant_id}
+    with padron_consolido_lock():
+        usuario, password = _resolver_credenciales_consolido()
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=HEADLESS)
+            try:
+                r = await _procesar_tenant_con_reintentos(browser, tenant, usuario, password)
+                resumen["ok"] = r.get("ok", 0)
+                resumen["errores"] = r.get("errores", 0)
+                resumen["sin_cambios"] = r.get("sin_cambios", 0)
+            finally:
+                await browser.close()
+    return resumen
+
+
+async def run_catchup_stale(max_age_hours: float | None = None) -> dict:
+    """
+    Corre solo tenants sin motor_run padron reciente.
+    Scheduler de ola usa ~2.5h; arranque del servicio usa PADRON_MAX_AGE_HOURS (11h).
+    """
+    hours = DEFAULT_MAX_AGE_HOURS if max_age_hours is None else max_age_hours
+    tenants = cargar_tenants_activos()
+    stale_ids = list_stale_tenant_ids(tenants, max_age_hours=hours)
+    resumen_total = {
+        "ok": 0,
+        "errores": 0,
+        "sin_cambios": 0,
+        "catchup": True,
+        "stale": stale_ids,
+        "procesados": [],
+    }
+    if not stale_ids:
+        logger.info("Catch-up padrón: todos los tenants están al día (%.1fh)", hours)
+        return resumen_total
+
+    logger.warning("Catch-up padrón: %d tenant(s) pendientes: %s", len(stale_ids), stale_ids)
+    for tid in stale_ids:
+        r = await run_tenant(tid)
+        resumen_total["procesados"].append({"tenant_id": tid, **r})
+        resumen_total["ok"] += r.get("ok", 0)
+        resumen_total["errores"] += r.get("errores", 0)
+        resumen_total["sin_cambios"] += r.get("sin_cambios", 0)
+    still = list_stale_tenant_ids(tenants, max_age_hours=hours)
+    if still:
+        logger.error("Catch-up padrón incompleto — siguen stale: %s", still)
+        resumen_total["errores"] += len(still)
+    return resumen_total
+
 
 async def run() -> dict:
     """
-    Punto de entrada del Motor Padrón.
-
-    Itera sobre todos los tenants y devuelve un resumen consolidado.
+    Punto de entrada legacy: todos los tenants en serie + catch-up final.
+    Preferir jobs por tenant en scheduler.py.
     """
     resumen_total = {"ok": 0, "errores": 0, "sin_cambios": 0}
-    tenants = _cargar_tenants_desde_supabase()
-    tenants = _filtrar_tenants_para_debug(tenants)
-    usuario, password = _resolver_credenciales_consolido()
+    tenants = cargar_tenants_activos()
 
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=HEADLESS)
+    for tenant in tenants:
+        r = await run_tenant(str(tenant["id"]))
+        resumen_total["ok"] += r.get("ok", 0)
+        resumen_total["errores"] += r.get("errores", 0)
+        resumen_total["sin_cambios"] += r.get("sin_cambios", 0)
+        await asyncio.sleep(2)
 
-        for tenant in tenants:
-            try:
-                # Reintento por tenant fallido: no repite tenants que ya salieron OK/sin cambios.
-                resumen_tenant = {"ok": 0, "errores": 1, "sin_cambios": 0}
-                for intento in range(1, TENANT_RETRY_MAX + 2):
-                    if intento > 1:
-                        logger.warning(
-                            f"🔁 Reintentando tenant {tenant['id']} "
-                            f"({intento - 1}/{TENANT_RETRY_MAX})..."
-                        )
-                    # Credenciales únicas de Consolido para todos los tenants.
-                    resumen_tenant = await _procesar_tenant(browser, tenant, usuario, password)
-
-                    tenant_ok = resumen_tenant.get("ok", 0) > 0
-                    tenant_sin_cambios = resumen_tenant.get("sin_cambios", 0) > 0
-                    if tenant_ok or tenant_sin_cambios:
-                        break
-
-                    if intento < (TENANT_RETRY_MAX + 1):
-                        await asyncio.sleep(TENANT_RETRY_BACKOFF_SEC)
-
-                resumen_total["ok"] += resumen_tenant.get("ok", 0)
-                resumen_total["errores"] += resumen_tenant.get("errores", 0)
-                resumen_total["sin_cambios"] += resumen_tenant.get("sin_cambios", 0)
-            except Exception as e:
-                logger.error(f"  Error procesando tenant {tenant['id']}: {e}")
-                resumen_total["errores"] += 1
-
-            # Esperar entre tenants para no sobrecargar
-            await asyncio.sleep(5)
-
-        await browser.close()
-
+    catch = await run_catchup_stale()
+    resumen_total["ok"] += catch.get("ok", 0)
+    resumen_total["errores"] += catch.get("errores", 0)
+    resumen_total["sin_cambios"] += catch.get("sin_cambios", 0)
+    if catch.get("stale"):
+        resumen_total["catchup_stale_after"] = list_stale_tenant_ids(tenants)
     return resumen_total

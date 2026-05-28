@@ -7,11 +7,11 @@ Proceso siempre activo para ejecutar motores RPA en horario Argentina.
 Zona: America/Argentina/Buenos_Aires (independiente de la región del host, ej. us-west).
 
 Horarios productivos (AR):
-  - Padrón: 08:30, 11:30, 15:30, 18:30
+  - Padrón: 08:30, 11:30, 15:30, 18:30 — **un job por tenant** (escalonado) + catch-up
   - Cuentas corrientes: 07:00, 14:30
   - Informe de ventas enriquecido: 09:30, 13:00, 17:00, 21:00 (cierre)
 
-Monitorear CPU/RAM y “Accesos concurrentes” en CHESS según uso real.
+Padrón: lock de archivo serializa Consolido; tenants chicos primero; catch-up si falta motor_run.
 
 Inicio: python scheduler.py
 """
@@ -54,9 +54,36 @@ def job_cuentas():
         logger.error(f"Error en job_cuentas: {e}")
 
 
+def job_padron_tenant(tenant_id: str):
+    """Un distribuidor por disparo (espera lock si otro tenant está en Consolido)."""
+    logger.info("⏰ Trigger PADRÓN tenant=%s", tenant_id)
+    try:
+        asyncio.run(_run_padron_tenant(tenant_id))
+    except Exception as e:
+        logger.error("Error en job_padron_tenant %s: %s", tenant_id, e)
+
+
+def job_padron_catchup():
+    """Cierra la ola: tenants que no corrieron en las últimas ~2.5 h."""
+    logger.info("⏰ Trigger PADRÓN catch-up de ola")
+    try:
+        asyncio.run(_run_padron_catchup(wave=True))
+    except Exception as e:
+        logger.error(f"Error en job_padron_catchup: {e}")
+
+
+def job_padron_startup_catchup():
+    """Arranque del servicio: cualquier tenant con padrón viejo (>11 h)."""
+    logger.info("⏰ Trigger PADRÓN catch-up de arranque")
+    try:
+        asyncio.run(_run_padron_catchup(wave=False))
+    except Exception as e:
+        logger.error(f"Error en job_padron_startup_catchup: {e}")
+
+
 def job_padron():
-    """Ejecuta el motor local de padrón."""
-    logger.info("⏰ Trigger PADRÓN")
+    """Legacy / arranque: todos los tenants + catch-up."""
+    logger.info("⏰ Trigger PADRÓN (ciclo completo)")
     try:
         asyncio.run(_run_padron())
     except Exception as e:
@@ -97,6 +124,48 @@ async def _run_cuentas():
         )
     except Exception as e:
         logger.warning(f"Digest Telegram CC omitido: {e}")
+
+
+async def _run_padron_tenant(tenant_id: str):
+    from motores.padron import run_tenant
+
+    resumen = await run_tenant(tenant_id)
+    logger.info(
+        "PADRÓN tenant=%s — ok=%s errores=%s sin_cambios=%s",
+        tenant_id,
+        resumen.get("ok"),
+        resumen.get("errores"),
+        resumen.get("sin_cambios"),
+    )
+
+
+async def _run_padron_catchup(*, wave: bool = True):
+    from motores.padron import run_catchup_stale
+    from lib.api_client import enviar_digest_motor
+    from lib.padron_schedule import DEFAULT_MAX_AGE_HOURS, WAVE_CATCHUP_MAX_AGE_HOURS
+
+    hours = WAVE_CATCHUP_MAX_AGE_HOURS if wave else DEFAULT_MAX_AGE_HOURS
+    resumen = await run_catchup_stale(max_age_hours=hours)
+    logger.info(
+        "PADRÓN catch-up — ok=%s errores=%s stale_inicial=%s",
+        resumen.get("ok"),
+        resumen.get("errores"),
+        resumen.get("stale"),
+    )
+    try:
+        await enviar_digest_motor(
+            "padron",
+            resumen={
+                "ok": resumen.get("ok"),
+                "errores": resumen.get("errores"),
+                "sin_cambios": resumen.get("sin_cambios"),
+                "catchup": True,
+            },
+            detalle=[{"tenant": t, "tipo": "catchup"} for t in (resumen.get("stale") or [])],
+            since_hours=10,
+        )
+    except Exception as e:
+        logger.warning(f"Digest Telegram padrón catch-up omitido: {e}")
 
 
 async def _run_padron():
@@ -187,9 +256,63 @@ def _hours_since_last_motor_run(motors: list[str]) -> float | None:
         return None
 
 
+def _register_padron_per_tenant_jobs(scheduler: BackgroundScheduler) -> int:
+    """
+    Por cada slot AR y cada tenant activo: job escalonado + catch-up al cierre.
+    """
+    from lib.padron_schedule import catchup_delay_minutes, stagger_minutes
+    from motores.padron import cargar_tenants_activos
+
+    tenants = cargar_tenants_activos()
+    if not tenants:
+        logger.error("No hay tenants activos para programar padrón")
+        return 0
+
+    stagger = stagger_minutes()
+    padron_job_defaults = {
+        "coalesce": True,
+        "max_instances": 1,
+        "misfire_grace_time": 60 * 90,
+    }
+    n = 0
+
+    for hi, mi in _SLOTS_PADRON:
+        base = datetime(2000, 1, 1, hi, mi, tzinfo=AR_TZ)
+        for idx, tenant in enumerate(tenants):
+            tid = str(tenant["id"])
+            run_at = base + timedelta(minutes=stagger * idx)
+            scheduler.add_job(
+                job_padron_tenant,
+                CronTrigger(hour=run_at.hour, minute=run_at.minute, timezone=AR_TZ),
+                args=[tid],
+                id=f"padron_{tid}_{hi:02d}{mi:02d}",
+                **padron_job_defaults,
+            )
+            n += 1
+
+        catch_at = base + timedelta(minutes=catchup_delay_minutes(len(tenants)))
+        scheduler.add_job(
+            job_padron_catchup,
+            CronTrigger(hour=catch_at.hour, minute=catch_at.minute, timezone=AR_TZ),
+            id=f"padron_catchup_{hi:02d}{mi:02d}",
+            **padron_job_defaults,
+        )
+        n += 1
+
+    logger.info(
+        "Padrón programado: %d tenants × %d slots + catch-up (stagger=%d min, orden=chicos→grandes)",
+        len(tenants),
+        len(_SLOTS_PADRON),
+        stagger,
+    )
+    for i, t in enumerate(tenants):
+        logger.info("  [%d] %s (dist %s)", i + 1, t["id"], t.get("id_dist"))
+    return n
+
+
 def _maybe_schedule_stale_catchup(scheduler: BackgroundScheduler) -> None:
     """
-    Si el servicio RPA estuvo caído y se perdieron slots cron, dispara catch-up al arranque.
+    Si el servicio RPA estuvo caído, dispara catch-up de padrón (todos los tenants pendientes).
     """
     if os.environ.get("RPA_DISABLE_STARTUP_CATCHUP", "").strip().lower() in (
         "1",
@@ -209,7 +332,7 @@ def _maybe_schedule_stale_catchup(scheduler: BackgroundScheduler) -> None:
             padron_h,
         )
         scheduler.add_job(
-            job_padron,
+            job_padron_startup_catchup,
             DateTrigger(run_date=datetime.now(AR_TZ) + timedelta(seconds=45)),
             id="padron_catchup_startup",
             replace_existing=True,
@@ -275,13 +398,7 @@ def main():
         "misfire_grace_time": 60 * 20,
     }
 
-    for hi, mi in _SLOTS_PADRON:
-        scheduler.add_job(
-            job_padron,
-            CronTrigger(hour=hi, minute=mi, timezone=AR_TZ),
-            id=f"padron_{hi:02d}{mi:02d}",
-            **job_defaults,
-        )
+    _register_padron_per_tenant_jobs(scheduler)
 
     for hi, mi in _SLOTS_CUENTAS:
         scheduler.add_job(

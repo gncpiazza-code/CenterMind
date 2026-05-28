@@ -1,6 +1,6 @@
 # Progress — Shelfy CenterMind (Lean)
 
-**Ultima actualizacion:** 27 de Mayo, 2026 (v5)  
+**Ultima actualizacion:** 28 de Mayo, 2026 (v6)  
 **Objetivo:** estado operativo actual, riesgos y prioridades.  
 **Historial largo:** `docs/changelog/archive/2026-05.md`.
 
@@ -63,6 +63,7 @@
 - **Ranking/KPI exhibicion (CRITICO):** nunca contar fotos ni filas crudas; siempre `core/exhibicion_aggregate.py` con dedup **(vendedor_erp, cliente_key, calendar_day_AR)**. Prohibido `fn_dashboard_ranking` y fallback RPC en bot. Ver `test_exhibicion_aggregate_vendor_scope.py` antes de tocar ranking.
 
 25. Dashboard Rediseño v2 (2026-05-27): eliminada FiltrosBar y colapsable análisis; layout 25% HeroCarousel / 75% RankingTable; `DashboardKpiCarousel` (3 slides: Estados | Gráficos rotativos | Rendimiento); `DashboardToolbar` (sucursal + período + hint DD/MM/AA-DD/MM/AA); período `semana` backend en `_resolve_period_bounds`; `count_active_vendors` en `exhibicion_aggregate.py`; KPIs enriquecidos con `vendedores_activos` y `exhibiciones_por_vendedor`; ranking enriquecido con `sucursal` y `ciudad_dominante`; HeroCarousel filtra rechazadas + 3 badges estado + PDV info con iconos; RankingTable con autoscroll + pause + fullscreen integrado; WS invalida todas las queries (kpis|ranking|ultimas|evolucion|sucursales); shadcn `toggle-group` instalado. Tests 6/6.
+26. Dashboard hotfix UX/data (2026-05-28): `HeroCarousel` deja de truncar nombre de vendedor (2 líneas); `RankingTable` estabiliza autoscroll continuo; `DashboardKpiCarousel` sin etiqueta "Estados"; backend `reportes.py` valida PDV por ruta del vendedor (`id_ruta`→`id_vendedor`, flag `pdv_asignado_vendedor`) y ciudad dominante por `id_vendedor` (sin cruce homónimos ERP); frontend `dashboard-ultimas.ts` filtra cards incoherentes (ej. Córdoba vs Resistencia).
 
 ## Proximos Pasos Prioritarios
 

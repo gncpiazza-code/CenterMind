@@ -30,6 +30,7 @@ import {
   type PeriodPreset,
   resolvePeriodBounds,
 } from "@/lib/dashboard-period";
+import { filterUltimasCoherentes } from "@/lib/dashboard-ultimas";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -167,6 +168,8 @@ export default function DashboardPage() {
     ? ranking.filter((v) => String(v.location_id ?? "") === String(sucursalFiltro))
     : ranking;
 
+  const ultimasCoherentes = filterUltimasCoherentes(ultimas, rankingFiltrado);
+
   return (
     <div className={cn(
       "flex h-screen overflow-hidden font-sans",
@@ -261,7 +264,7 @@ export default function DashboardPage() {
                   </Card>
                 ) : (
                   <div className="h-full min-h-[280px] md:min-h-0 flex-1 rounded-3xl overflow-hidden ring-1 ring-violet-500/20 shadow-lg shadow-violet-500/10 bg-slate-950">
-                    <HeroCarousel items={ultimas} compact />
+                    <HeroCarousel items={ultimasCoherentes} compact />
                   </div>
                 )}
               </motion.div>

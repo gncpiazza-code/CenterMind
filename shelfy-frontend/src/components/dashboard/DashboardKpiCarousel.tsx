@@ -23,7 +23,7 @@ interface DashboardKpiCarouselProps {
 }
 
 type SlideKey = 0 | 1 | 2;
-const SLIDE_LABELS = ["Estados", "Gráficos", "Rendimiento"];
+const SLIDE_LABELS = ["", "Gráficos", "Rendimiento"];
 const CHART_ROTATE_MS = 8000;
 
 function CustomTooltip({ active, payload, label }: {
@@ -102,8 +102,8 @@ export function DashboardKpiCarousel({
     <div className="shrink-0">
       {/* Slide nav dots */}
       <div className="flex items-center justify-between mb-2">
-        <p className="text-[10px] font-black uppercase tracking-widest text-violet-600/80">
-          {SLIDE_LABELS[slide]}
+        <p className="text-[10px] font-black uppercase tracking-widest text-violet-600/80 min-h-4">
+          {SLIDE_LABELS[slide] || ""}
         </p>
         <div className="flex items-center gap-1.5">
           {([0, 1, 2] as SlideKey[]).map((s) => (

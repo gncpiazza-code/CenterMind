@@ -49,13 +49,19 @@ Componentes en `components/dashboard/`:
 
 Util: `lib/dashboard-period.ts` — `PeriodPreset`, `resolvePeriodBounds()`, `formatDateRangeAR()`. Argentina UTC-3 hardcoded.
 
+Util: `lib/dashboard-ultimas.ts` — `filterUltimasCoherentes()` / `isUltimaCoherenteConVendedor()` descartan cards con `pdv_asignado_vendedor=false` o ciudad PDV distinta a `ciudad_dominante` del ranking.
+
 Shadcn instalados: `toggle-group` (toggle.tsx + toggle-group.tsx).
 
 `KpiCard.tsx` extendido: props `tooltip`, `suffix`, `isDecimal`.
 
 `HeroCarousel.tsx`: filtra rechazadas antes de mostrar (`/rechaz/i`); 3 badges estado (Pendiente/Aprobado/Destacado); PDV info con iconos Hash/Building2/MapPin.
+- Nombre de vendedor en card: `line-clamp-2` (sin truncado duro en una sola línea).
 
 `RankingTable.tsx`: sin footer de informe; autoscroll suave (`requestAnimationFrame`); pausa al hover (1.5s delay); botones Pause/Play + Fullscreen en header; título centrado `RANKING {empresa}`.
+- Loop de autoscroll: duplicación de filas para cualquier ranking con más de 1 vendedor (evita pausas/interrupciones intermitentes).
+
+`DashboardKpiCarousel.tsx`: slide 0 mantiene dots de navegación pero sin etiqueta visible "Estados" en la esquina superior izquierda.
 
 `page.tsx`: layout 25% hero / 75% ranking (`md:w-1/4` + `md:w-3/4`); sin FiltrosBar ni chartsExpanded; WS invalida: kpis, ranking, ultimas, evolucion, sucursales; `refetchInterval` = 300_000.
 

@@ -150,7 +150,10 @@ Toda metrica de **ranking**, **KPIs de exhibicion**, **stats Telegram** (`/stats
 - KPIs extendidos: `vendedores_activos` (via `count_active_vendors`) y `exhibiciones_por_vendedor` (`total_logicas / vendedores_activos`).
 - Slide 2 del carousel: gráfico único rotativo (evolucion | top vendedores), sin layout 2×2.
 - HeroCarousel filtra rechazadas. Badges triple (Pendiente/Aprobado/Destacado), iconos PDV (Hash, Building2, MapPin).
+- HeroCarousel: nombre de vendedor permitido en 2 líneas (`line-clamp-2`), sin truncado rígido a 1 línea.
 - RankingTable: autoscroll + pause; botón fullscreen (`DashboardFullscreenButton`); sin footer de informe.
+- RankingTable: autoscroll en loop estable para listas >1 vendedor (duplicación de filas para evitar cortes).
+- DashboardKpiCarousel: slide 0 sin texto visible "Estados" (solo dots de navegación).
 - WS invalida queries: kpis, ranking, ultimas, evolucion, sucursales.
 - Componentes nuevos en `components/dashboard/`: `DashboardKpiCarousel`, `DashboardToolbar`, `DashboardPeriodPills`, `DashboardFullscreenButton`.
 - Util nuevo: `lib/dashboard-period.ts`.

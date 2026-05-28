@@ -95,6 +95,9 @@ export interface UltimaEvaluada {
   nro_cliente: string;
   vendedor: string;
   vendedor_erp?: string;
+  id_vendedor?: number;
+  /** True si el PDV del padrón está en ruta del vendedor que subió la exhibición */
+  pdv_asignado_vendedor?: boolean;
   timestamp_subida: string;
   fecha_evaluacion?: string;
   ciudad?: string;
@@ -463,10 +466,14 @@ export async function fetchUltimasEvaluadas(distribuidorId: number, n: number = 
     const erp =
       resolveVendorERPName(row, ["vendedor_erp", "nombre_erp"]) ??
       "Sin vendedor";
+    const pdvAsignado = row.pdv_asignado_vendedor;
     return {
       ...(row as unknown as UltimaEvaluada),
       vendedor: erp,
       vendedor_erp: erp,
+      id_vendedor: typeof row.id_vendedor === "number" ? row.id_vendedor : undefined,
+      pdv_asignado_vendedor:
+        typeof pdvAsignado === "boolean" ? pdvAsignado : undefined,
       nro_cliente: toNonEmptyString(row.nro_cliente) ?? "",
       razon_social: toNonEmptyString(row.razon_social) ?? undefined,
       ciudad: toNonEmptyString(row.ciudad) ?? undefined,

@@ -60,9 +60,8 @@ def _build_erp_sucursal_map(distribuidor_id: int) -> dict[str, str]:
     return result
 
 
-def _build_ciudad_dominante_map(distribuidor_id: int) -> dict[str, str]:
-    """Devuelve {nombre_erp_vendedor: ciudad_dominante} para distribuidores mono-sucursal.
-    Cadena: vendedores_v2 → rutas_v2 (id_vendedor) → clientes_pdv_v2 (id_ruta) → localidad."""
+def _build_ciudad_dominante_map(distribuidor_id: int) -> dict[int, str]:
+    """Devuelve {id_vendedor: ciudad_dominante} según rutas del vendedor (sin cruzar homónimos ERP)."""
     from collections import Counter
     t_vendedores = tenant_table_name("vendedores_v2", distribuidor_id)
     t_rutas = tenant_table_name("rutas_v2", distribuidor_id)
@@ -75,62 +74,91 @@ def _build_ciudad_dominante_map(distribuidor_id: int) -> dict[str, str]:
         .execute()
         .data or []
     )
-    vid_to_erp = {
-        str(v["id_vendedor"]): (v.get("nombre_erp") or "").strip()
-        for v in vend_rows if v.get("id_vendedor")
-    }
 
     ruta_rows = (
         sb.table(t_rutas)
         .select("id_vendedor,id_ruta")
+        .eq("id_distribuidor", distribuidor_id)
         .execute()
         .data or []
     )
-    vid_to_rutas: dict[str, list[str]] = {}
+    vid_to_rutas: dict[int, list[int]] = {}
+    all_ruta_ids: set[int] = set()
     for r in ruta_rows:
-        vid = str(r.get("id_vendedor", ""))
-        rid = str(r.get("id_ruta", ""))
-        if vid and rid:
-            vid_to_rutas.setdefault(vid, []).append(rid)
+        vid = _ultimas_safe_int(r.get("id_vendedor"))
+        rid = _ultimas_safe_int(r.get("id_ruta"))
+        if vid is None or rid is None:
+            continue
+        vid_to_rutas.setdefault(vid, []).append(rid)
+        all_ruta_ids.add(rid)
 
-    all_ruta_ids = list({rid for rids in vid_to_rutas.values() for rid in rids})
     if not all_ruta_ids:
         return {}
 
     PAGE = 1000
     offset = 0
     cliente_rows: list[dict] = []
+    all_ruta_ids_list = list(all_ruta_ids)
     while True:
         chunk = (
             sb.table(t_clientes)
             .select("id_ruta,localidad")
-            .in_("id_ruta", all_ruta_ids)
+            .eq("id_distribuidor", distribuidor_id)
+            .in_("id_ruta", all_ruta_ids_list)
             .range(offset, offset + PAGE - 1)
             .execute()
-            .data or []
+            .data
+            or []
         )
         cliente_rows.extend(chunk)
         if len(chunk) < PAGE:
             break
         offset += PAGE
 
-    ruta_to_localidades: dict[str, list[str]] = {}
+    ruta_to_localidades: dict[int, list[str]] = {}
     for c in cliente_rows:
-        rid = str(c.get("id_ruta", ""))
+        rid = _ultimas_safe_int(c.get("id_ruta"))
         loc = (c.get("localidad") or "").strip()
-        if rid and loc:
+        if rid is not None and loc:
             ruta_to_localidades.setdefault(rid, []).append(loc)
 
-    result: dict[str, str] = {}
-    for vid, erp in vid_to_erp.items():
-        if not erp:
+    result: dict[int, str] = {}
+    for vid in {_ultimas_safe_int(v.get("id_vendedor")) for v in vend_rows}:
+        if vid is None:
             continue
         localidades: list[str] = []
         for rid in vid_to_rutas.get(vid, []):
             localidades.extend(ruta_to_localidades.get(rid, []))
         if localidades:
-            result[erp] = Counter(localidades).most_common(1)[0][0]
+            result[vid] = Counter(localidades).most_common(1)[0][0]
     return result
+
+
+def _resolve_ciudad_dominante_for_nombre(
+    nombre_erp: str,
+    vend_rows: list[dict],
+    ciudad_by_vid: dict[int, str],
+) -> str | None:
+    """Ciudad dominante para un nombre ERP; None si hay homónimos en ciudades distintas."""
+    nombre = nombre_erp.strip()
+    if not nombre:
+        return None
+    cities: list[str] = []
+    for v in vend_rows:
+        if (v.get("nombre_erp") or "").strip() != nombre:
+            continue
+        vid = _ultimas_safe_int(v.get("id_vendedor"))
+        if vid is None:
+            continue
+        city = (ciudad_by_vid.get(vid) or "").strip()
+        if city:
+            cities.append(city)
+    if not cities:
+        return None
+    unique = set(cities)
+    if len(unique) == 1:
+        return cities[0]
+    return None
 
 
 def _resolve_sucursal_pk(distribuidor_id: int, sucursal_param: str | int | None) -> int | None:
@@ -205,8 +233,83 @@ def _ultimas_normalize_erp_code(value: Any) -> str:
     return raw.lstrip("0") or "0"
 
 
-def _build_integrante_vendor_name_map(distribuidor_id: int) -> dict[int, str]:
-    """Resuelve nombre ERP por id_integrante (binding → id_vendedor_v2 → id_vendedor_erp)."""
+def _build_ruta_to_vendedor_map(distribuidor_id: int) -> dict[int, int]:
+    """Mapa id_ruta → id_vendedor (padrón operativo)."""
+    t_rutas = tenant_table_name("rutas_v2", distribuidor_id)
+    rows = (
+        sb.table(t_rutas)
+        .select("id_ruta,id_vendedor")
+        .eq("id_distribuidor", distribuidor_id)
+        .execute()
+        .data
+        or []
+    )
+    out: dict[int, int] = {}
+    for r in rows:
+        rid = _ultimas_safe_int(r.get("id_ruta"))
+        vid = _ultimas_safe_int(r.get("id_vendedor"))
+        if rid is not None and vid is not None:
+            out[rid] = vid
+    return out
+
+
+def _cliente_vendedor_id(cliente: dict, ruta_to_vendedor: dict[int, int]) -> int | None:
+    rid = _ultimas_safe_int(cliente.get("id_ruta"))
+    if rid is None:
+        return None
+    return ruta_to_vendedor.get(rid)
+
+
+def _fetch_cliente_padron_for_vendor(
+    distribuidor_id: int,
+    erp_code: str,
+    id_vendedor: int,
+    ruta_to_vendedor: dict[int, int],
+) -> dict | None:
+    """Busca cliente por código ERP solo si su ruta pertenece al vendedor de la exhibición."""
+    if not erp_code or id_vendedor is None:
+        return None
+    t_clientes = tenant_table_name("clientes_pdv_v2", distribuidor_id)
+    candidates = [erp_code.strip()]
+    norm = _ultimas_normalize_erp_code(erp_code)
+    if norm and norm not in candidates:
+        candidates.append(norm)
+    for code in candidates:
+        if not code:
+            continue
+        try:
+            batch = (
+                sb.table(t_clientes)
+                .select(
+                    "id_cliente,id_cliente_erp,nombre_razon_social,nombre_fantasia,localidad,id_ruta"
+                )
+                .eq("id_distribuidor", distribuidor_id)
+                .eq("id_cliente_erp", code)
+                .limit(5)
+                .execute()
+                .data
+                or []
+            )
+        except Exception:
+            batch = (
+                sb.table(t_clientes)
+                .select(
+                    "id_cliente,id_cliente_erp,nombre_razon_social,nombre_fantasia,localidad,id_ruta"
+                )
+                .eq("id_cliente_erp", code)
+                .limit(5)
+                .execute()
+                .data
+                or []
+            )
+        for c in batch:
+            if _cliente_vendedor_id(c, ruta_to_vendedor) == id_vendedor:
+                return c
+    return None
+
+
+def _build_integrante_vendor_maps(distribuidor_id: int) -> tuple[dict[int, str], dict[int, int]]:
+    """Resuelve nombre ERP e id_vendedor por id_integrante (binding → id_vendedor_v2)."""
     t_vendedores = tenant_table_name("vendedores_v2", distribuidor_id)
     vendedores_res = (
         sb.table(t_vendedores)
@@ -256,7 +359,8 @@ def _build_integrante_vendor_name_map(distribuidor_id: int) -> dict[int, str]:
         .eq("id_distribuidor", distribuidor_id)
         .execute()
     )
-    out: dict[int, str] = {}
+    name_out: dict[int, str] = {}
+    id_out: dict[int, int] = {}
     for ig in integrantes_res.data or []:
         iid = _ultimas_safe_int(ig.get("id_integrante"))
         if iid is None:
@@ -274,10 +378,17 @@ def _build_integrante_vendor_name_map(distribuidor_id: int) -> dict[int, str]:
             if erp:
                 vid = vend_erp_to_id.get(erp) or vend_erp_to_id.get(_ultimas_normalize_erp_code(erp))
         if vid is not None and vid in vend_id_to_name:
+            id_out[iid] = vid
             name = vend_id_to_name[vid]
             if name:
-                out[iid] = name
-    return out
+                name_out[iid] = name
+    return name_out, id_out
+
+
+def _build_integrante_vendor_name_map(distribuidor_id: int) -> dict[int, str]:
+    """Resuelve nombre ERP por id_integrante (binding → id_vendedor_v2 → id_vendedor_erp)."""
+    name_map, _ = _build_integrante_vendor_maps(distribuidor_id)
+    return name_map
 
 
 _EXHIBICION_SNAPSHOT_SELECT = (
@@ -350,7 +461,9 @@ def _enrich_ultimas_dashboard_rows(rows: list[dict], distribuidor_id: int) -> li
             try:
                 batch = (
                     sb.table(t_clientes)
-                    .select("id_cliente,id_cliente_erp,nombre_razon_social,nombre_fantasia,localidad")
+                    .select(
+                        "id_cliente,id_cliente_erp,nombre_razon_social,nombre_fantasia,localidad,id_ruta"
+                    )
                     .eq("id_distribuidor", distribuidor_id)
                     .in_("id_cliente", pk_list[i : i + 200])
                     .execute()
@@ -360,7 +473,10 @@ def _enrich_ultimas_dashboard_rows(rows: list[dict], distribuidor_id: int) -> li
             except Exception:
                 batch = (
                     sb.table(t_clientes)
-                    .select("id_cliente,id_cliente_erp,nombre_razon_social,nombre_fantasia,localidad")
+                    .select(
+                        "id_cliente,id_cliente_erp,nombre_razon_social,nombre_fantasia,localidad,id_ruta"
+                    )
+                    .eq("id_distribuidor", distribuidor_id)
                     .in_("id_cliente", pk_list[i : i + 200])
                     .execute()
                     .data
@@ -374,22 +490,38 @@ def _enrich_ultimas_dashboard_rows(rows: list[dict], distribuidor_id: int) -> li
         if pk is not None:
             by_pk[pk] = c
 
-    def _cliente_padron_from_exhibicion(ex: dict) -> dict | None:
-        """Cliente del padrón vinculado al id_cliente_pdv/id_cliente de la exhibición."""
-        for pk_field in ("id_cliente_pdv", "id_cliente"):
-            pk = _ultimas_safe_int(ex.get(pk_field))
-            if pk is not None and pk in by_pk:
-                return by_pk[pk]
-        return None
-
-    vendor_map = _build_integrante_vendor_name_map(distribuidor_id)
+    ruta_to_vendedor = _build_ruta_to_vendedor_map(distribuidor_id)
+    vendor_map, vendor_id_map = _build_integrante_vendor_maps(distribuidor_id)
     fallback_vendor = build_integrante_to_erp_name(distribuidor_id)
     erp_name_map = _get_erp_name_map(distribuidor_id)
+
+    def _resolve_cliente_asignado(ex: dict, ex_vendor_id: int | None) -> tuple[dict | None, bool]:
+        """PDV del padrón solo si la ruta del cliente pertenece al vendedor que subió la foto."""
+        if ex_vendor_id is None:
+            return None, False
+        for pk_field in ("id_cliente_pdv", "id_cliente"):
+            pk = _ultimas_safe_int(ex.get(pk_field))
+            if pk is None:
+                continue
+            cliente = by_pk.get(pk)
+            if cliente and _cliente_vendedor_id(cliente, ruta_to_vendedor) == ex_vendor_id:
+                return cliente, True
+        for erp_field in ("cliente_sombra_codigo", "nro_cliente"):
+            erp = _ultimas_safe_text(ex.get(erp_field)).strip()
+            if not erp:
+                continue
+            cliente = _fetch_cliente_padron_for_vendor(
+                distribuidor_id, erp, ex_vendor_id, ruta_to_vendedor
+            )
+            if cliente:
+                return cliente, True
+        return None, False
 
     for row in rows:
         ex = ex_map.get(_ultimas_safe_int(row.get("id_exhibicion")) or -1, {})
         row["razon_social"] = ""
         row["ciudad"] = ""
+        row["pdv_asignado_vendedor"] = False
         if row.get("id_integrante") is None and ex.get("id_integrante") is not None:
             row["id_integrante"] = ex.get("id_integrante")
 
@@ -400,7 +532,15 @@ def _enrich_ultimas_dashboard_rows(rows: list[dict], distribuidor_id: int) -> li
         if pk_cli is not None:
             row["id_cliente"] = pk_cli
 
-        cliente = _cliente_padron_from_exhibicion(ex)
+        iid = _ultimas_safe_int(row.get("id_integrante"))
+        if iid is None:
+            iid = _ultimas_safe_int(ex.get("id_integrante"))
+        ex_vendor_id = vendor_id_map.get(iid) if iid is not None else None
+
+        cliente, asignado = _resolve_cliente_asignado(ex, ex_vendor_id)
+        row["pdv_asignado_vendedor"] = asignado
+        if ex_vendor_id is not None:
+            row["id_vendedor"] = ex_vendor_id
         if cliente:
             erp_id = _ultimas_safe_text(cliente.get("id_cliente_erp")).strip()
             row["nro_cliente"] = erp_id or row.get("nro_cliente") or ""
@@ -410,10 +550,6 @@ def _enrich_ultimas_dashboard_rows(rows: list[dict], distribuidor_id: int) -> li
             )
             row["ciudad"] = _ultimas_safe_text(cliente.get("localidad")).strip()
 
-        iid = _ultimas_safe_int(row.get("id_integrante"))
-        if iid is None:
-            ex = ex_map.get(_ultimas_safe_int(row.get("id_exhibicion")) or -1, {})
-            iid = _ultimas_safe_int(ex.get("id_integrante"))
         erp_name = vendor_map.get(iid) if iid is not None else None
         if not erp_name and iid is not None:
             erp_name = fallback_vendor.get(iid)
@@ -955,10 +1091,10 @@ def dashboard_ranking(
     unique_sucursales = {s for s in erp_to_sucursal.values() if s}
     is_mono = len(unique_sucursales) <= 1
     try:
-        ciudad_map = _build_ciudad_dominante_map(distribuidor_id) if is_mono else {}
+        ciudad_by_vid = _build_ciudad_dominante_map(distribuidor_id) if is_mono else {}
     except Exception as e:
         logger.warning(f"[ranking] ciudad_dominante fallback dist={distribuidor_id}: {e}")
-        ciudad_map = {}
+        ciudad_by_vid = {}
 
     aggregated: dict[str, dict[str, Any]] = {
         vendedor: {
@@ -969,7 +1105,9 @@ def dashboard_ranking(
             "puntos": s["puntos"],
             "location_id": str(erp_to_suc_pk[vendedor]) if vendedor in erp_to_suc_pk else None,
             "sucursal": "" if is_mono else erp_to_sucursal.get(vendedor, ""),
-            "ciudad_dominante": ciudad_map.get(vendedor) if is_mono else None,
+            "ciudad_dominante": (
+                _resolve_ciudad_dominante_for_nombre(vendedor, vend_rows, ciudad_by_vid) if is_mono else None
+            ),
         }
         for vendedor, s in stats.items()
     }

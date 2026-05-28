@@ -6,6 +6,7 @@ import { ImageOff, MapPin, ChevronLeft, ChevronRight, Activity, Hash, Clock } fr
 import { Card } from '@/components/ui/Card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { resolveImageUrl, type UltimaEvaluada } from '@/lib/api';
+import { isUltimaCoherenteConVendedor } from '@/lib/dashboard-ultimas';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
 
@@ -111,7 +112,10 @@ function HeroSlide({
         <div className="flex items-start justify-between gap-2 mb-2">
           <div className="min-w-0 flex-1">
             <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-white/50 mb-0.5">Vendedor</p>
-            <p className="text-white font-black text-sm uppercase tracking-tight leading-tight truncate" title={vendedorErp}>
+            <p
+              className="text-white font-black text-sm uppercase tracking-tight leading-tight line-clamp-2 break-words"
+              title={vendedorErp}
+            >
               {vendedorErp}
             </p>
           </div>
@@ -156,7 +160,9 @@ function HeroSlide({
 }
 
 export function HeroCarousel({ items, compact = false }: HeroCarouselProps) {
-  const filtered = items.filter((e) => !/rechaz/i.test(e.estado));
+  const filtered = items.filter(
+    (e) => !/rechaz/i.test(e.estado) && isUltimaCoherenteConVendedor(e),
+  );
   const [ci, setCi] = useState(0);
   const [progressKey, setProgressKey] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);

@@ -64,6 +64,13 @@ Claves:
 - El watcher normaliza `origen` (p.ej. `compañia`/`compania`) y usa fallback de mes (`fecha_objetivo` o `created_at`) para no perder retroactividad.
 - Notificaciones Telegram de progreso quedaron acotadas a eventos de exhibicion para evitar spam operativo.
 
+### Dashboard (ranking + últimas)
+
+- `routers/reportes.py` es la fuente única de composición para `/api/dashboard/ranking/*` y `/api/dashboard/ultimas-evaluadas/*`.
+- `ciudad_dominante` se calcula con `rutas_v2` + `clientes_pdv_v2` filtrando siempre por `id_distribuidor` para evitar cruces cross-tenant.
+- En `ultimas-evaluadas`, el PDV se muestra solo si `clientes_pdv_v2.id_ruta` pertenece al `id_vendedor` del integrante que subió la foto (`pdv_asignado_vendedor`). Fallback ERP sin validación de ruta queda deshabilitado.
+- `ciudad_dominante` en ranking se calcula por `id_vendedor` (no por nombre ERP) y se omite si hay homónimos en ciudades distintas.
+
 ## Re-evaluación Compañía (overlay paralelo)
 
 - Tabla global: `exhibicion_reevaluacion_compania` (no por tenant, con `id_distribuidor`).

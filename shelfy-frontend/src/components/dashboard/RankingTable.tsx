@@ -76,10 +76,12 @@ export function RankingTable({
     return new Map(companiaData.map(r => [r.vendedor, r]));
   }, [companiaData]);
 
-  const displayRows = useMemo(() => {
-    const base = ranking.slice(0, 30);
-    return base.length > 6 ? [...base, ...base] : base;
-  }, [ranking]);
+  const baseRows = useMemo(() => ranking.slice(0, 30), [ranking]);
+  const isLoopDuplicated = baseRows.length > 1;
+  const displayRows = useMemo(
+    () => (isLoopDuplicated ? [...baseRows, ...baseRows] : baseRows),
+    [baseRows, isLoopDuplicated],
+  );
 
   // Auto-scroll continuo (rAF + delta) — evita saltos bruscos del setInterval + reset a 0
   useEffect(() => {
@@ -96,10 +98,10 @@ export function RankingTable({
       if (!autoScrollPaused) {
         const { scrollTop, scrollHeight, clientHeight } = el;
         if (scrollHeight > clientHeight + 4) {
-          const half = scrollHeight / 2;
+          const loopHeight = isLoopDuplicated ? scrollHeight / 2 : scrollHeight;
           let next = scrollTop + SCROLL_SPEED_PX_PER_MS * dt;
-          if (next >= half) {
-            next -= half;
+          if (next >= loopHeight) {
+            next = 0;
           }
           el.scrollTop = next;
         }
@@ -110,7 +112,7 @@ export function RankingTable({
 
     rafId = requestAnimationFrame(step);
     return () => cancelAnimationFrame(rafId);
-  }, [ranking.length, displayRows.length, autoScrollPaused]);
+  }, [ranking.length, displayRows.length, autoScrollPaused, isLoopDuplicated]);
 
   // Pause on hover
   function handleMouseEnter() {

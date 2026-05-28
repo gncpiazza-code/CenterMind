@@ -25,7 +25,14 @@ from typing import Any, Dict, List, Optional, Tuple, DefaultDict
 from collections import defaultdict
 import io
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, BotCommand
+from telegram import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    LinkPreviewOptions,
+    ReplyParameters,
+    Update,
+    BotCommand,
+)
 from telegram.constants import ParseMode
 from telegram.error import BadRequest
 from telegram.ext import (
@@ -43,6 +50,58 @@ import json
 import html
 
 from core.helpers import build_qa_exhibicion_integrante_ids, is_exhibicion_qa_display_for_dist, build_integrante_to_erp_name
+
+# Sin preview del enlace .jpg en «Ver foto»
+_NO_LINK_PREVIEW = LinkPreviewOptions(is_disabled=True)
+
+
+def _reply_to_photo(chat_id: int, photo_message_id: int) -> ReplyParameters:
+    """Reply a la foto del vendedor (sin quote: emoji solo dispara Quote_text_invalid)."""
+    return ReplyParameters(
+        message_id=photo_message_id,
+        chat_id=chat_id,
+    )
+
+
+async def _send_summary_reply_photo(
+    bot,
+    chat_id: int,
+    text: str,
+    photo_message_id: int,
+    *,
+    registrando_message_id: int | None = None,
+    logger=None,
+) -> int:
+    """Resumen final: reply a la foto, sin preview del .jpg; borra «Registrando…» solo si envió OK."""
+    sent_msg_id = None
+    for use_reply in (True, False):
+        try:
+            kwargs: Dict[str, Any] = {
+                "chat_id": chat_id,
+                "text": text,
+                "parse_mode": ParseMode.HTML,
+                "link_preview_options": _NO_LINK_PREVIEW,
+            }
+            if use_reply:
+                kwargs["reply_parameters"] = _reply_to_photo(chat_id, photo_message_id)
+            sent = await bot.send_message(**kwargs)
+            sent_msg_id = sent.message_id
+            break
+        except BadRequest as e:
+            if use_reply and logger:
+                logger.warning(f"Resumen con reply falló ({e}), reintento sin reply")
+            elif not use_reply:
+                raise
+
+    if registrando_message_id is not None:
+        try:
+            await bot.delete_message(chat_id=chat_id, message_id=registrando_message_id)
+        except Exception:
+            pass
+    return sent_msg_id
+from core.bot_cliente_cartera import cliente_en_cartera_vendedor
+
+BOT_VALIDACION_CARTERA = os.getenv("BOT_VALIDACION_CARTERA", "0") == "1"
 from core.exhibicion_aggregate import (
     EXHIBICION_ROW_COLS,
     aggregate_exhibicion_counts_vendor_scope,
@@ -83,6 +142,67 @@ PDV_TYPES: List[str] = [
     "Comercio sin Ingreso",
     "Comercio con Ingreso",
 ]
+
+# Etiquetas cortas para botones Telegram (el texto largo se trunca en pantalla)
+PDV_TYPE_BUTTON_LABELS: dict[str, str] = {
+    "Comercio sin Ingreso": "Sin ingreso",
+    "Comercio con Ingreso": "Con ingreso",
+}
+
+
+def _pdv_type_button_label(tipo: str) -> str:
+    return PDV_TYPE_BUTTON_LABELS.get(tipo, tipo[:28])
+
+
+def build_pdv_type_keyboard(user_id: int) -> InlineKeyboardMarkup:
+    """Un botón por fila; callback TYPEIDX_{i}_{user_id} (evita parseo frágil)."""
+    rows = [
+        [
+            InlineKeyboardButton(
+                _pdv_type_button_label(t),
+                callback_data=f"TYPEIDX_{i}_{user_id}",
+            )
+        ]
+        for i, t in enumerate(PDV_TYPES)
+    ]
+    return InlineKeyboardMarkup(rows)
+
+
+def build_cartera_blocked_keyboard(user_id: int) -> InlineKeyboardMarkup:
+    """Botones de cartera: una acción por fila, texto corto."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔄 Corregir NRO", callback_data=f"RETRY_CLIENTE_{user_id}")],
+        [InlineKeyboardButton("✅ PDV nuevo", callback_data=f"PDV_NUEVO_{user_id}")],
+    ])
+
+
+def parse_type_callback(data: str) -> tuple[str, int] | None:
+    """Resuelve (tipo_pdv, telegram_user_id) desde TYPEIDX_ o TYPE_ legacy."""
+    if data.startswith("TYPEIDX_"):
+        parts = data.split("_")
+        if len(parts) != 3:
+            return None
+        try:
+            idx = int(parts[1])
+            uid = int(parts[2])
+        except ValueError:
+            return None
+        if idx < 0 or idx >= len(PDV_TYPES):
+            return None
+        return PDV_TYPES[idx], uid
+    if data.startswith("TYPE_"):
+        try:
+            prefix, uid_str = data.rsplit("_", 1)
+            uid = int(uid_str)
+            clean_code = prefix[5:]
+        except (ValueError, IndexError):
+            return None
+        for t in PDV_TYPES:
+            if "".join(c for c in t if c.isalnum()).upper() == clean_code:
+                return t, uid
+    return None
+
+
 # ============================================================
 
 # ─────────────────────────────────────────────
@@ -980,8 +1100,9 @@ class BotWorker:
     Instanciar con el distribuidor_id y llamar a run().
     """
 
-    STAGE_WAITING_ID   = "WAITING_ID"
-    STAGE_WAITING_TYPE = "WAITING_TYPE"
+    STAGE_WAITING_ID         = "WAITING_ID"
+    STAGE_WAITING_ID_BLOCKED = "WAITING_ID_BLOCKED"
+    STAGE_WAITING_TYPE       = "WAITING_TYPE"
 
     # Diccionario manual para evitar problemas de locale en diferentes SO
     MESES = {
@@ -1053,6 +1174,39 @@ class BotWorker:
         if self.admin_telegram_id and str(user_id) == str(self.admin_telegram_id):
             return True
         return False
+
+    def _can_reset_session(self, user_id: int) -> bool:
+        """Admin siempre; en dist Test + validación cartera cualquier vendedor (QA local)."""
+        if self._is_admin(user_id):
+            return True
+        if BOT_VALIDACION_CARTERA and self.distribuidor_id == 1:
+            return True
+        return False
+
+    async def _registrar_pdv_pendiente_aviso(
+        self,
+        session: dict,
+        ex_id: int,
+        nro_cliente: str,
+        chat_id: int,
+        uploader_id: int,
+    ) -> None:
+        if not session.get("pdv_nuevo_declarado"):
+            return
+        try:
+            await asyncio.to_thread(
+                self.db.sb.table("bot_pdv_pendiente_aviso").insert({
+                    "id_distribuidor": self.distribuidor_id,
+                    "id_exhibicion": ex_id,
+                    "id_cliente_erp": nro_cliente,
+                    "id_vendedor_v2": session.get("_vendedor_v2_id"),
+                    "telegram_chat_id": chat_id,
+                    "telegram_user_id": uploader_id,
+                }).execute
+            )
+            self.logger.info(f"[PDVNuevo] Pendiente aviso creado para exhibición {ex_id}")
+        except Exception as e_pend:
+            self.logger.warning(f"[PDVNuevo] No se pudo insertar pendiente aviso: {e_pend}")
 
     async def _ensure_ready(self, bot) -> None:
         try:
@@ -1616,18 +1770,19 @@ class BotWorker:
     async def cmd_reset(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not update.message:
             return
-        if not self._is_admin(update.message.from_user.id):
+        uid = update.message.from_user.id
+        if not self._can_reset_session(uid):
             await update.message.reply_text("❌ Solo el administrador puede usar /reset")
             return
         self.upload_sessions.clear()
         self.active_msgs.clear()
         await update.message.reply_text("✅ Memoria limpiada (reset suave)")
-        self.logger.info("Reset ejecutado por admin")
+        self.logger.info(f"Reset ejecutado por uid={uid}")
 
     async def cmd_hardreset(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not update.message:
             return
-        if not self._is_admin(update.message.from_user.id):
+        if not self._can_reset_session(update.message.from_user.id):
             await update.message.reply_text("❌ Solo el administrador puede usar /hardreset")
             return
         await update.message.reply_text("🔄 Reiniciando bot...")
@@ -1791,6 +1946,12 @@ class BotWorker:
         if not session:
             return
 
+        if session.get("stage") == self.STAGE_WAITING_ID_BLOCKED:
+            await update.message.reply_text(
+                "⚠️ Usá los botones de la pantalla anterior para continuar.",
+                parse_mode=ParseMode.HTML,
+            )
+            return
         if session.get("stage") != self.STAGE_WAITING_ID:
             return
 
@@ -1806,6 +1967,36 @@ class BotWorker:
 
         # Quitar ceros a la izquierda (ej: "00194" -> "194"), evitando que quede vacío si envían "0"
         clean = clean.lstrip("0") or "0"
+
+        # ── Validación de cartera (BOT_VALIDACION_CARTERA=1) ──────────────
+        if BOT_VALIDACION_CARTERA:
+            row_v = await asyncio.to_thread(
+                self._resolve_vendedor_v2_for_objetivos,
+                self.distribuidor_id, user_id, chat_id
+            )
+            id_vendedor_v2 = row_v.get("id_vendedor_v2")
+            if id_vendedor_v2:
+                en_cartera = await asyncio.to_thread(
+                    cliente_en_cartera_vendedor,
+                    self.distribuidor_id, id_vendedor_v2, clean, self.db.sb
+                )
+                if not en_cartera:
+                    session["nro_cliente"] = clean
+                    session["stage"] = self.STAGE_WAITING_ID_BLOCKED
+                    session["_vendedor_v2_id"] = id_vendedor_v2
+                    kb = build_cartera_blocked_keyboard(user_id)
+                    try:
+                        await update.message.reply_text(
+                            f"⚠️ El cliente <code>{clean}</code> no se encontró en tu cartera.\n\n"
+                            f"¿Fue un error de tipeo o es un PDV nuevo?",
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=kb,
+                            reply_to_message_id=msg_id,
+                        )
+                    except Exception as e_kb:
+                        self.logger.error(f"Error enviando botones cartera: {e_kb}")
+                    return
+                session["_vendedor_v2_id"] = id_vendedor_v2
 
         session["nro_cliente"] = clean
         session["stage"] = self.STAGE_WAITING_TYPE
@@ -1842,19 +2033,12 @@ class BotWorker:
         except Exception:
             pdv_name_display = ""
 
-        # Botones de tipo PDV (de la lista editable)
-        botones = [
-            InlineKeyboardButton(t, callback_data=f"TYPE_{''.join(c for c in t if c.isalnum()).upper()}_{user_id}")
-            for t in PDV_TYPES
-        ]
-        keyboard = [botones[i:i+2] for i in range(0, len(botones), 2)]
-
         try:
             await update.message.reply_text(
                 f"✅ NRO CLIENTE: <code>{clean}</code>{pdv_name_display}\n\n"
                 f"Seleccioná el <b>tipo de PDV</b>:",
                 parse_mode=ParseMode.HTML,
-                reply_markup=InlineKeyboardMarkup(keyboard),
+                reply_markup=build_pdv_type_keyboard(user_id),
             )
         except Exception as e:
             self.logger.error(f"Error enviando botones: {e}")
@@ -1901,6 +2085,7 @@ class BotWorker:
                     ),
                     parse_mode=ParseMode.HTML,
                     reply_markup=None,
+                    link_preview_options=_NO_LINK_PREVIEW,
                 )
             else:
                 await context.bot.send_message(
@@ -1911,7 +2096,7 @@ class BotWorker:
                         f"⏳ Registrando {_pics_str}..."
                     ),
                     parse_mode=ParseMode.HTML,
-                    reply_to_message_id=status_reply_to or (photos[0]["message_id"] if photos else None),
+                    link_preview_options=_NO_LINK_PREVIEW,
                 )
         except Exception:
             pass
@@ -1987,6 +2172,10 @@ class BotWorker:
                             self.logger.info(f"✅ Exhibición registrada: ID {ex_id} | Estado: {estado_final}")
                             exhibicion_ids.append({"id": ex_id, "estado": estado_final})
                             procesadas += 1
+                            if session and session.get("pdv_nuevo_declarado"):
+                                await self._registrar_pdv_pendiente_aviso(
+                                    session, ex_id, nro_cliente, chat_id, uploader_id
+                                )
                         else:
                             self.logger.warning(f"❌ Falló registro RPC: {rpc_result.get('error')}")
                             fallidas += 1
@@ -2018,35 +2207,53 @@ class BotWorker:
                 f"📍 <b>Tipo:</b> {tipo_pdv}\n"
                 f"📸 <b>Fotos:</b> {procesadas}"
             )
-            sent_msg = await context.bot.send_message(
-                chat_id=chat_id,
-                text=msg_text,
-                parse_mode=ParseMode.HTML,
-                reply_to_message_id=photos[0]["message_id"],
-            )
+            photo_msg_id = photos[0]["message_id"] if photos else None
+            if photo_msg_id:
+                sent_msg_id = await _send_summary_reply_photo(
+                    context.bot,
+                    chat_id,
+                    msg_text,
+                    photo_msg_id,
+                    logger=self.logger,
+                )
+            else:
+                sent = await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=msg_text,
+                    parse_mode=ParseMode.HTML,
+                    link_preview_options=_NO_LINK_PREVIEW,
+                )
+                sent_msg_id = sent.message_id
 
             for ex_data in exhibicion_ids:
                 await asyncio.to_thread(
                     self.db.update_telegram_refs,
-                    ex_data["id"], sent_msg.message_id, chat_id
+                    ex_data["id"], sent_msg_id, chat_id
                 )
             if en_cuarentena_flag:
                 self.logger.info(
                     f"[Cuarentena] exhibición en revisión silenciosa "
                     f"dist={self.distribuidor_id} chat={chat_id} uploader={uploader_id}"
                 )
-            self.active_msgs[sent_msg.message_id] = {
+            self.active_msgs[sent_msg_id] = {
                 "exhibicion_id": primera_id,
                 "uploader_id": uploader_id,
                 "ref_msg": photos[0]["message_id"],
             }
             if fallidas > 0:
+                fail_kw: Dict[str, Any] = {}
+                if photo_msg_id:
+                    fail_kw["reply_parameters"] = _reply_to_photo(chat_id, photo_msg_id)
                 await context.bot.send_message(
                     chat_id=chat_id,
                     text=f"⚠️ {fallidas} foto(s) no pudieron registrarse. Si falta alguna, reenviala.",
+                    link_preview_options=_NO_LINK_PREVIEW,
+                    **fail_kw,
                 )
         else:
-            first_msg = photos[0]["message_id"] if photos else None
+            err_kw: Dict[str, Any] = {}
+            if photos:
+                err_kw["reply_parameters"] = _reply_to_photo(chat_id, photos[0]["message_id"])
             await context.bot.send_message(
                 chat_id=chat_id,
                 text=(
@@ -2055,7 +2262,8 @@ class BotWorker:
                     "Por favor <b>reenviá la foto</b>."
                 ),
                 parse_mode=ParseMode.HTML,
-                reply_to_message_id=first_msg,
+                link_preview_options=_NO_LINK_PREVIEW,
+                **err_kw,
             )
 
         self.upload_sessions.pop(uploader_id, None)
@@ -2126,16 +2334,67 @@ class BotWorker:
                 await q.edit_message_text("❌ Error al obtener el ranking.")
             return
 
-        if not data.startswith("TYPE_"):
+        # ── RETRY_CLIENTE_: volver a pedir NRO ───────────────────────────────
+        if data.startswith("RETRY_CLIENTE_"):
+            try:
+                target_uid = int(data.split("_", 2)[2])
+            except (ValueError, IndexError):
+                return
+            if uid != target_uid:
+                await q.answer("❌ Esta no es tu sesión.", show_alert=True)
+                return
+            sess = self.upload_sessions.get(target_uid)
+            if not sess:
+                await q.answer("⚠️ Sesión expirada. Enviá la foto de nuevo.", show_alert=True)
+                return
+            sess["stage"] = self.STAGE_WAITING_ID
+            sess.pop("nro_cliente", None)
+            sess.pop("_vendedor_v2_id", None)
+            try:
+                await q.edit_message_text(
+                    "📋 Enviá el <b>NRO CLIENTE</b> nuevamente.",
+                    parse_mode=ParseMode.HTML,
+                )
+            except Exception:
+                pass
             return
 
-        parts = data.split("_")
-        if len(parts) < 3:
-            await q.answer("⚠️ Datos inválidos.", show_alert=True)
+        # ── PDV_NUEVO_: declarar PDV nuevo y avanzar a tipo PDV ──────────────
+        if data.startswith("PDV_NUEVO_"):
+            try:
+                target_uid = int(data.split("_", 2)[2])
+            except (ValueError, IndexError):
+                return
+            if uid != target_uid:
+                await q.answer("❌ Esta no es tu sesión.", show_alert=True)
+                return
+            sess = self.upload_sessions.get(target_uid)
+            if not sess:
+                await q.answer("⚠️ Sesión expirada. Enviá la foto de nuevo.", show_alert=True)
+                return
+            nro = sess.get("nro_cliente") or ""
+            if not nro:
+                await q.answer("⚠️ Sin NRO de cliente. Usá «Corregir NRO».", show_alert=True)
+                return
+            sess["pdv_nuevo_declarado"] = True
+            sess["stage"] = self.STAGE_WAITING_TYPE
+            try:
+                await q.edit_message_text(
+                    f"✅ PDV nuevo: <code>{nro}</code>\n\n"
+                    f"Seleccioná el <b>tipo de PDV</b>:",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=build_pdv_type_keyboard(target_uid),
+                )
+            except Exception:
+                pass
             return
 
-        clean_code   = parts[1]
-        uploader_id  = int(parts[2])
+        parsed = parse_type_callback(data)
+        if not parsed:
+            return
+
+        tipo_pdv, uploader_id = parsed
+        clean_code = "".join(c for c in tipo_pdv if c.isalnum()).upper()
 
         if uid != uploader_id:
             await q.answer("❌ Esta no es tu sesión.", show_alert=True)
@@ -2146,12 +2405,9 @@ class BotWorker:
             await q.answer("⚠️ Sesión expirada.", show_alert=True)
             return
 
-        # Recuperar nombre legible del tipo de PDV
-        tipo_pdv = clean_code
-        for t in PDV_TYPES:
-            if "".join(c for c in t if c.isalnum()).upper() == clean_code:
-                tipo_pdv = t
-                break
+        if not session.get("nro_cliente"):
+            await q.answer("⚠️ Falta el NRO de cliente. Enviá /reset y la foto de nuevo.", show_alert=True)
+            return
 
         session["tipo_pdv"] = tipo_pdv
         nro_cliente    = session["nro_cliente"]
@@ -2174,6 +2430,7 @@ class BotWorker:
                 ),
                 parse_mode=ParseMode.HTML,
                 reply_markup=None,
+                link_preview_options=_NO_LINK_PREVIEW,
             )
         except Exception:
             # Si falla el edit de texto, al menos intentar quitar el markup
@@ -2265,7 +2522,10 @@ class BotWorker:
                             self.logger.info(f"✅ Exhibición registrada: ID {ex_id} | Estado: {estado_final}")
                             exhibicion_ids.append({"id": ex_id, "estado": estado_final})
                             procesadas += 1
-                            
+                            await self._registrar_pdv_pendiente_aviso(
+                                session, ex_id, nro_cliente, chat_id, uploader_id
+                            )
+
                             # ── NUEVO: Matchear identidad y datos del PDV para real-time ──
                             lat, lon = 0.0, 0.0
                             cliente_nombre = "Punto de Venta"
@@ -2775,34 +3035,34 @@ class BotWorker:
                 except Exception as _e_wpost:
                     self.logger.warning(f"[Watcher] No se pudo disparar post-interceptor: {_e_wpost}")
 
-            # Suprimir enlace de foto cuando hay badge de objetivo para evitar
-            # que Telegram genere un segundo preview de imagen en el mismo mensaje.
-            foto_line_efectivo = "" if objetivo_badge else foto_line
             msg_text = (
                 f"📋 <b>Exhibición registrada</b>\n\n"
                 f"{fotos_text}"
                 f"👤 <b>Vendedor:</b> {uploader_name}\n"
                 f"🏪 <b>Cliente:</b> {nro_cliente} - {cliente_nombre}\n"
                 f"📍 <b>Tipo:</b> {tipo_pdv}\n"
-                f"{foto_line_efectivo}"
+                f"{foto_line}"
                 f"{estado_label}"
                 f"{objetivo_badge}"
                 f"{stats_text}"
                 f"{historial_text}"
             )
 
-            sent_msg = await context.bot.send_message(
-                chat_id=chat_id,
-                text=msg_text,
-                parse_mode=ParseMode.HTML,
-                reply_to_message_id=photos[0]["message_id"],
+            photo_msg_id = photos[0]["message_id"]
+            sent_msg_id = await _send_summary_reply_photo(
+                context.bot,
+                chat_id,
+                msg_text,
+                photo_msg_id,
+                registrando_message_id=q.message.message_id,
+                logger=self.logger,
             )
 
             # Guardar referencias Telegram en todas las exhibiciones
             for ex_data in exhibicion_ids:
                 await asyncio.to_thread(
                     self.db.update_telegram_refs,
-                    ex_data["id"], sent_msg.message_id, chat_id
+                    ex_data["id"], sent_msg_id, chat_id
                 )
 
             # PASO 6: Cuarentena silenciosa (sin notificación al chat)
@@ -2813,7 +3073,7 @@ class BotWorker:
                 )
 
             # Cache local para sync
-            self.active_msgs[sent_msg.message_id] = {
+            self.active_msgs[sent_msg_id] = {
                 "exhibicion_id": primera_id,
                 "uploader_id":   uploader_id,
                 "ref_msg":       photos[0]["message_id"],
@@ -2823,10 +3083,10 @@ class BotWorker:
                 await context.bot.send_message(
                     chat_id=chat_id,
                     text=f"⚠️ {fallidas} foto(s) no pudieron registrarse. Si falta alguna, reenviala.",
+                    link_preview_options=_NO_LINK_PREVIEW,
                 )
         else:
             # Todas fallaron
-            first_msg = photos[0]["message_id"] if photos else None
             await context.bot.send_message(
                 chat_id=chat_id,
                 text=(
@@ -2835,7 +3095,7 @@ class BotWorker:
                     "Por favor <b>reenviá la foto</b>."
                 ),
                 parse_mode=ParseMode.HTML,
-                reply_to_message_id=first_msg,
+                link_preview_options=_NO_LINK_PREVIEW,
             )
 
         del self.upload_sessions[uploader_id]

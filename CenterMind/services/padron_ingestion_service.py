@@ -1293,8 +1293,10 @@ class PadronIngestionService:
             updated = 0
             if isinstance(res.data, dict):
                 updated = res.data.get("updated", 0)
+            elif isinstance(res.data, (int, float)):
+                updated = int(res.data)
             elif isinstance(res.data, list) and res.data:
-                updated = res.data[0].get("updated", 0)
+                updated = res.data[0].get("updated", 0) if isinstance(res.data[0], dict) else int(res.data[0] or 0)
             if updated:
                 logger.info(f"[Padrón] Reconciliación: {updated} exhibiciones vinculadas a clientes_pdv")
             return updated
@@ -2072,6 +2074,14 @@ class PadronIngestionService:
                 except Exception as e_prune:
                     logger.warning(f"[Padrón] Poda rutas obsoletas omitida dist={dist_id}: {e_prune}")
             exhib_linked         = self._reconcile_exhibiciones(dist_id)
+
+            # Avisos PDV nuevo (vendedores que declararon cliente fuera de cartera)
+            try:
+                from services.bot_pdv_aviso_service import procesar_pendientes
+                aviso_stats = procesar_pendientes(dist_id)
+                logger.info(f"[Padrón] Avisos PDV nuevo dist={dist_id}: {aviso_stats}")
+            except Exception as e_aviso:
+                logger.warning(f"[Padrón] Avisos PDV nuevo omitidos dist={dist_id}: {e_aviso}")
 
             # Actualizar progreso de objetivos activos
             try:

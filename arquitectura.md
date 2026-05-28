@@ -18,6 +18,8 @@ Documento de referencia tecnica estable para agentes y desarrolladores.
 - `CenterMind/core/helpers.py`: enrichment y utilidades tenant-safe (incl. `is_vendedor_excluido_objetivos`).
 - `CenterMind/core/exhibicion_aggregate.py`: definicion canonica de exhibicion logica unica.
 - `CenterMind/core/objetivos_compradores.py`: medicion canonica de compradores en periodo (fuente unica para watcher y supervision). **No tocar activacion ni conversion_estado desde este modulo.**
+- `CenterMind/core/bot_cliente_cartera.py`: validacion de cartera del vendedor para el bot. `normalize_erp`, `cliente_en_cartera_vendedor(dist, vendedor_v2, erp, sb)`, `get_pdv_display_row`. **Fail-open**: error de infra → False (no bloquear al vendedor).
+- `CenterMind/services/bot_pdv_aviso_service.py`: avisos post-padron para PDVs nuevos declarados en el bot. `procesar_pendientes(dist_id)` — llamado al final de `_ingest_for_dist` tras reconcile.
 - `CenterMind/services/objetivos_launch_service.py`: lanzamiento de objetivos planificados (auto y manual). Funciones: `lanzar_un_objetivo(obj_id, dist_id)`, `lanzar_programados_fecha(dist_id?)`. Llamado por cron 08:00 AR (lifespan.py) y por endpoint `POST /api/supervision/objetivos/{id}/lanzar`.
 - `shelfy-frontend/src/lib/api.ts`: contrato unico de fetch/tipos.
 - `ShelfMind-RPA/motores/`: padron, cuentas, ventas, sigo.

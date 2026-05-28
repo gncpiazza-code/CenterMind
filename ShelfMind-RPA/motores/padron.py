@@ -62,7 +62,6 @@ PARTICULARIDADES VERIFICADAS EN VIVO (27/04/2026):
 
 import asyncio
 import os
-import re
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -429,22 +428,56 @@ async def seleccionar_proceso_reporteador(
 
     proc_sel = page.locator('select[formcontrolname="idproceso"]').first
     await proc_sel.wait_for(state="visible", timeout=COMBO_TIMEOUT_MS)
-    opts = proc_sel.locator("option")
-    n = await opts.count()
-    for i in range(n):
-        text = (await opts.nth(i).text_content() or "").strip()
-        if not text or not _matches(text):
-            continue
-        val = await opts.nth(i).get_attribute("value")
-        if val:
-            await proc_sel.select_option(value=val)
-        else:
-            await opts.nth(i).click()
-        logger.info(f"  ✅ {descripcion} seleccionado (option): {text}")
-        return text
+    await page.wait_for_function(
+        """
+        () => {
+          const s = document.querySelector('select[formcontrolname="idproceso"]');
+          return s && s.options && s.options.length > 1;
+        }
+        """,
+        timeout=COMBO_TIMEOUT_MS,
+    )
 
-    inc = ",".join(must_include)
-    exc = ",".join(must_exclude)
+    async def _pick_from_options(include: tuple[str, ...], exclude: tuple[str, ...]) -> str | None:
+        def _m(text: str) -> bool:
+            n = _norm(text)
+            return all(k in n for k in include) and not any(e in n for e in exclude)
+
+        opts = proc_sel.locator("option")
+        n = await opts.count()
+        available: list[str] = []
+        for i in range(n):
+            text = (await opts.nth(i).text_content() or "").strip()
+            if text:
+                available.append(text)
+            if not text or not _m(text):
+                continue
+            val = await opts.nth(i).get_attribute("value")
+            if val:
+                await proc_sel.select_option(value=val)
+            else:
+                await opts.nth(i).click()
+            logger.info(f"  ✅ {descripcion} seleccionado (option): {text}")
+            return text
+        logger.warning(
+            f"  Opciones idproceso ({n}): {available[:20]}"
+        )
+        return None
+
+    picked = await _pick_from_options(must_include, must_exclude)
+    if picked:
+        return picked
+
+    # Fallback: p.ej. "Informe de Ventas" si el label varía en Consolido
+    if must_include != ("ventas",):
+        logger.warning(f"  Reintentando {descripcion} con matcher amplio (ventas)...")
+        picked = await _pick_from_options(
+            ("ventas",),
+            must_exclude + ("padron", "cliente", "cuenta", "corriente", "padr"),
+        )
+        if picked:
+            return picked
+
     selected = await page.evaluate(
         f"""
         () => {{
@@ -467,7 +500,13 @@ async def seleccionar_proceso_reporteador(
         """
     )
     if not (selected and selected.get("ok")):
-        raise RuntimeError(f"No se pudo seleccionar {descripcion} en Reporteador")
+        opts_txt = await proc_sel.evaluate(
+            "el => Array.from(el.options || []).map(o => (o.textContent || '').trim()).filter(Boolean)"
+        )
+        raise RuntimeError(
+            f"No se pudo seleccionar {descripcion} en Reporteador. "
+            f"Opciones visibles: {opts_txt[:25]}"
+        )
     label = selected.get("selected") or descripcion
     logger.info(f"  ✅ {descripcion} seleccionado (JS): {label}")
     return label

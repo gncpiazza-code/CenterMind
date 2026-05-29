@@ -3091,6 +3091,8 @@ export interface VendorCartaResumen {
   radar_ideal_dist?: RadarKPI;
   score: number;
   raw_kpis: VendorRawKpis;
+  has_ideal_compania?: boolean;
+  has_ideal_distribuidora?: boolean;
 }
 
 export interface VendorDetalle {

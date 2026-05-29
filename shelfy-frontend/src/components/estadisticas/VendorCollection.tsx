@@ -46,7 +46,7 @@ export function VendorCollection({ vendors, distId, meses }: VendorCollectionPro
     : vendors;
 
   // Windowing for large lists
-  const CARD_W = 192; // 180 + 12 gap
+  const CARD_W = 200; // 188 + 12 gap
   const windowedStart = Math.max(0, scrollCenter - WINDOW_BUFFER);
   const windowedEnd   = Math.min(filtered.length, scrollCenter + WINDOW_BUFFER);
   const useWindowing  = filtered.length > 40;
@@ -99,8 +99,8 @@ export function VendorCollection({ vendors, distId, meses }: VendorCollectionPro
           scrollSnapType: "x mandatory",
           WebkitOverflowScrolling: "touch",
           transition: "opacity 0.2s ease",
-          opacity: activeVendorId ? 0.55 : 1,
-          pointerEvents: activeVendorId ? "none" : "auto",
+          opacity: activeVendorId ? 0.65 : 1,
+          pointerEvents: "auto",
         }}
         className="estadisticas-scroll-strip"
       >

@@ -151,6 +151,18 @@ export default function EstadisticasPage() {
     staleTime: 1000 * 60 * 3,
   });
 
+  // Activar overlay ideal por defecto la primera vez que hay config
+  const overlayInitRef = React.useRef(false);
+  React.useEffect(() => {
+    if (overlayInitRef.current || vendors.length === 0 || overlayMode !== "none") return;
+    const hasComp = vendors.some((v) => v.has_ideal_compania);
+    const hasDist = vendors.some((v) => v.has_ideal_distribuidora);
+    if (hasComp && hasDist) setOverlayMode("ambos");
+    else if (hasComp) setOverlayMode("compania");
+    else if (hasDist) setOverlayMode("distribuidor");
+    overlayInitRef.current = true;
+  }, [vendors, overlayMode, setOverlayMode]);
+
   // Derive sucursales list for filter chips
   const sucursales = useMemo<string[]>(() => {
     const all = vendors.map((v) => v.sucursal).filter(Boolean) as string[];

@@ -159,12 +159,13 @@ def test_score_vendedor_ponderado_exacto():
 # build_radar_normalized
 # ---------------------------------------------------------------------------
 
-def test_build_radar_normalized_meta_cero():
+def test_build_radar_normalized_meta_cero_usa_fallback_visual():
     real = {"pdvs": 10, "altas": 5, "exhibiciones": 20, "compradores": 3,
             "bultos": 100, "cobertura_pct": 50, "objetivos_pct": 75}
     meta = {k: 0 for k in KPI_KEYS}
     radar = build_radar_normalized(real, meta)
-    assert all(v == 0 for v in radar.values())
+    assert all(v > 0 for v in radar.values())
+    assert all(v <= 100 for v in radar.values())
 
 
 def test_build_radar_normalized_cap_100():

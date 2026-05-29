@@ -69,20 +69,61 @@ def score_vendedor(radar: dict, pesos: dict) -> int:
     return min(100, round(total / 100))
 
 
-def build_radar_normalized(real_kpis: dict, meta_kpis: dict) -> dict:
+def radar_ideal_target() -> dict:
+    """Polígono de referencia del ideal (100 % en cada eje)."""
+    return {k: 100 for k in KPI_KEYS}
+
+
+def resolve_scoring_ideal(ideal_dist: dict | None, ideal_comp: dict | None) -> tuple[dict | None, dict]:
+    """Meta y pesos: prioriza ideal distribuidora; si no hay, compañía."""
+    default_pesos = {
+        "pdvs": 15, "altas": 15, "exhibiciones": 15, "compradores": 15,
+        "bultos": 15, "cobertura": 15, "objetivos": 10,
+    }
+    if ideal_dist:
+        return ideal_dist, ideal_dist.get("pesos") or default_pesos
+    if ideal_comp:
+        return ideal_comp, ideal_comp.get("pesos") or default_pesos
+    return None, default_pesos
+
+
+def _display_meta(meta_kpis: dict, batch_caps: dict | None) -> dict:
+    """Si meta del ideal es 0 en un eje, usa techo del batch para poder dibujar el radar."""
+    caps = batch_caps or {}
+    out: dict[str, float] = {}
+    for k in KPI_KEYS:
+        m = float(meta_kpis.get(k, 0))
+        if m <= 0:
+            cap = float(caps.get(k, 0))
+            m = max(cap * 1.05, 1.0) if cap > 0 else 1.0
+        out[k] = m
+    return out
+
+
+def build_radar_normalized(
+    real_kpis: dict,
+    meta_kpis: dict,
+    ideal: dict | None = None,
+    batch_caps: dict | None = None,
+) -> dict:
     """
-    Build normalized radar dict (keys = KPI_KEYS, values 0-100).
-    real_kpis: {pdvs, altas, exhibiciones, compradores, bultos, cobertura_pct, objetivos_pct}
-    meta_kpis: {pdvs, altas, exhibiciones, compradores, bultos, cobertura, objetivos} — period totals
+    Radar 0–100: cumplimiento vs meta del ideal (con fallback visual si meta=0).
+    real_kpis usa cobertura_pct / objetivos_pct; meta_kpis usa cobertura / objetivos.
     """
+    dm = _display_meta(meta_kpis, batch_caps)
+    altas_meta = float(dm.get("altas", 0))
+    if ideal and float(ideal.get("meta_pdvs_total") or 0) > 0:
+        faltante = max(1.0, float(ideal["meta_pdvs_total"]) - float(real_kpis.get("pdvs", 0)))
+        altas_meta = faltante
+
     return {
-        "pdvs":         normalize_kpi(real_kpis.get("pdvs", 0),         meta_kpis.get("pdvs", 0)),
-        "altas":        normalize_kpi(real_kpis.get("altas", 0),        meta_kpis.get("altas", 0)),
-        "exhibiciones": normalize_kpi(real_kpis.get("exhibiciones", 0), meta_kpis.get("exhibiciones", 0)),
-        "compradores":  normalize_kpi(real_kpis.get("compradores", 0),  meta_kpis.get("compradores", 0)),
-        "bultos":       normalize_kpi(real_kpis.get("bultos", 0),       meta_kpis.get("bultos", 0)),
-        "cobertura":    normalize_kpi(real_kpis.get("cobertura_pct", 0), meta_kpis.get("cobertura", 0)),
-        "objetivos":    normalize_kpi(real_kpis.get("objetivos_pct", 0), meta_kpis.get("objetivos", 0)),
+        "pdvs": normalize_kpi(real_kpis.get("pdvs", 0), dm.get("pdvs", 0)),
+        "altas": normalize_kpi(real_kpis.get("altas", 0), altas_meta),
+        "exhibiciones": normalize_kpi(real_kpis.get("exhibiciones", 0), dm.get("exhibiciones", 0)),
+        "compradores": normalize_kpi(real_kpis.get("compradores", 0), dm.get("compradores", 0)),
+        "bultos": normalize_kpi(real_kpis.get("bultos", 0), dm.get("bultos", 0)),
+        "cobertura": normalize_kpi(real_kpis.get("cobertura_pct", 0), dm.get("cobertura", 0)),
+        "objetivos": normalize_kpi(real_kpis.get("objetivos_pct", 0), dm.get("objetivos", 0)),
     }
 
 

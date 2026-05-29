@@ -12,7 +12,13 @@ from core.exhibicion_aggregate import (
 from core.objetivos_filters import objetivo_activo_para_vendedor
 from core.helpers import is_exhibicion_qa_display_for_dist
 from core.estadisticas_ideal import (
-    meta_periodo_kpi, build_radar_normalized, score_vendedor, diff_ideal, KPI_KEYS
+    meta_periodo_kpi,
+    build_radar_normalized,
+    score_vendedor,
+    diff_ideal,
+    KPI_KEYS,
+    radar_ideal_target,
+    resolve_scoring_ideal,
 )
 
 logger = logging.getLogger("estadisticas_service")
@@ -340,13 +346,208 @@ def _build_meta_kpis(ideal: dict | None, n_meses: int) -> dict:
     n = max(1, n_meses)
     return {
         "pdvs": meta_periodo_kpi(ideal, "pdvs", n_meses),
-        "altas": meta_periodo_kpi(ideal, "altas", n_meses),
+        "altas": max(1.0, float(ideal.get("meta_pdvs_total", 0))),
         "exhibiciones": float(km.get("exhibiciones", 0)) * n,
         "compradores": float(km.get("pdvs_compradores", 0)) * n,
         "bultos": float(km.get("bultos", 0)) * n,
         "cobertura": float(km.get("cobertura_pct", 0)),
         "objetivos": float(km.get("objetivos_pct", 0)),
     }
+
+
+def _batch_caps_from_raw(all_raw: dict[str, dict]) -> dict[str, float]:
+    caps: dict[str, float] = {k: 0.0 for k in KPI_KEYS}
+    for raw in all_raw.values():
+        caps["pdvs"] = max(caps["pdvs"], float(raw.get("pdvs", 0)))
+        caps["altas"] = max(caps["altas"], float(raw.get("altas", 0)))
+        caps["exhibiciones"] = max(caps["exhibiciones"], float(raw.get("exhibiciones", 0)))
+        caps["compradores"] = max(caps["compradores"], float(raw.get("compradores", 0)))
+        caps["bultos"] = max(caps["bultos"], float(raw.get("bultos", 0)))
+        caps["cobertura"] = max(caps["cobertura"], float(raw.get("cobertura_pct", 0)))
+        caps["objetivos"] = max(caps["objetivos"], float(raw.get("objetivos_pct", 0)))
+    return caps
+
+
+def _aggregate_kpis_all_vendors(dist_id: int, meses: list[str]) -> dict[str, dict]:
+    """Una pasada por tenant: evita N× consultas por vendedor (~20s → pocos segundos)."""
+    meses_set = set(meses)
+    fecha_desde, fecha_hasta = _get_fecha_bounds(meses)
+
+    t_rutas = tenant_table_name("rutas_v2", dist_id)
+
+    def rutas_q(offset):
+        return sb.table(t_rutas).select("id_ruta,id_vendedor")
+
+    ruta_to_vend: dict[int, int] = {}
+    for r in _paginate(rutas_q):
+        rid, vid = r.get("id_ruta"), r.get("id_vendedor")
+        if rid is None or vid is None:
+            continue
+        ruta_to_vend[int(rid)] = int(vid)
+
+    pdvs_by_vend: dict[int, set] = defaultdict(set)
+    altas_by_vend: dict[int, int] = defaultdict(int)
+    t_pdv = tenant_table_name("clientes_pdv_v2", dist_id)
+
+    def pdv_q(offset):
+        return (
+            sb.table(t_pdv)
+            .select("id_ruta,id_cliente_erp,fecha_alta")
+            .eq("id_distribuidor", dist_id)
+            .or_(_PADRON_VISIBLE_OR)
+        )
+
+    for row in _paginate(pdv_q):
+        rid = row.get("id_ruta")
+        if rid is None:
+            continue
+        vid = ruta_to_vend.get(int(rid))
+        if vid is None:
+            continue
+        eid = row.get("id_cliente_erp")
+        if eid:
+            pdvs_by_vend[vid].add(str(eid))
+        if _in_meses(row.get("fecha_alta", ""), meses_set):
+            altas_by_vend[vid] += 1
+
+    int_res = (
+        sb.table("integrantes_grupo")
+        .select("id_integrante,id_vendedor_v2")
+        .eq("id_distribuidor", dist_id)
+        .execute()
+    )
+    int_to_vend: dict[int, int] = {}
+    for r in int_res.data or []:
+        try:
+            int_to_vend[int(r["id_integrante"])] = int(r["id_vendedor_v2"])
+        except (TypeError, ValueError):
+            continue
+
+    ex_by_vend: dict[int, list] = defaultdict(list)
+    t_ex = tenant_table_name("exhibiciones", dist_id)
+
+    def ex_q(offset):
+        return (
+            sb.table(t_ex)
+            .select(EXHIBICION_ROW_COLS)
+            .eq("id_distribuidor", dist_id)
+            .gte("timestamp_subida", fecha_desde)
+            .lte("timestamp_subida", fecha_hasta + "T23:59:59")
+        )
+
+    for row in _paginate(ex_q):
+        if not _in_meses(row.get("timestamp_subida", ""), meses_set):
+            continue
+        try:
+            vid = int_to_vend.get(int(row.get("id_integrante")))
+        except (TypeError, ValueError):
+            vid = None
+        if vid is not None:
+            ex_by_vend[vid].append(row)
+
+    ex_logicas_by_vend: dict[int, int] = {}
+    ex_pdvs_unique_by_vend: dict[int, int] = {}
+    for vid, rows in ex_by_vend.items():
+        stats = aggregate_exhibicion_counts_vendor_scope(rows)
+        ex_logicas_by_vend[vid] = int(stats.get("total_logicas", 0))
+        keys: set[str] = set()
+        for er in rows:
+            ck = er.get("id_cliente_pdv") or er.get("id_cliente") or er.get("cliente_sombra_codigo")
+            if ck:
+                keys.add(str(ck))
+        ex_pdvs_unique_by_vend[vid] = len(keys)
+
+    t_vend = tenant_table_name("vendedores_v2", dist_id)
+    vend_rows = (
+        sb.table(t_vend)
+        .select("id_vendedor,id_vendedor_erp,nombre_erp")
+        .eq("id_distribuidor", dist_id)
+        .execute()
+        .data
+        or []
+    )
+    codigo_to_vid: dict[str, int] = {}
+    nombre_to_vid: dict[str, int] = {}
+    for v in vend_rows:
+        try:
+            vid = int(v["id_vendedor"])
+        except (TypeError, ValueError):
+            continue
+        erp = str(v.get("id_vendedor_erp") or "").strip()
+        if erp:
+            codigo_to_vid[erp] = vid
+        nom = (v.get("nombre_erp") or "").strip().upper()
+        if nom:
+            nombre_to_vid[nom] = vid
+
+    t_v = tenant_table_name("ventas_enriched_v2", dist_id)
+    bultos_by_vend: dict[int, float] = defaultdict(float)
+    compradores_by_vend: dict[int, set] = defaultdict(set)
+
+    def venta_q(offset):
+        return (
+            sb.table(t_v)
+            .select(
+                "codigo_vendedor,nombre_vendedor,id_cliente_erp,tipo_documento,"
+                "importe_final,fecha_factura,bultos_total,anulado"
+            )
+            .eq("id_distribuidor", dist_id)
+            .gte("fecha_factura", fecha_desde)
+            .lte("fecha_factura", fecha_hasta)
+            .eq("anulado", False)
+        )
+
+    for row in _paginate(venta_q):
+        if not _in_meses(row.get("fecha_factura", ""), meses_set):
+            continue
+        tipo = row.get("tipo_documento")
+        imp = float(row.get("importe_final") or 0)
+        if _es_recaudacion(tipo) or _es_devolucion(tipo, imp):
+            continue
+        cod = str(row.get("codigo_vendedor") or "").strip()
+        vid = codigo_to_vid.get(cod)
+        if vid is None:
+            nom = (row.get("nombre_vendedor") or "").strip().upper()
+            for en, v in nombre_to_vid.items():
+                if en and nom and (en in nom or nom in en):
+                    vid = v
+                    break
+        if vid is None:
+            continue
+        bultos_by_vend[vid] += float(row.get("bultos_total") or 0)
+        ceid = row.get("id_cliente_erp")
+        if ceid:
+            compradores_by_vend[vid].add(str(ceid))
+
+    hoy = date.today()
+    obj_by_vend: dict[int, list] = defaultdict(list)
+    for o in sb.table("objetivos").select("*").eq("id_distribuidor", dist_id).execute().data or []:
+        if objetivo_activo_para_vendedor(o, hoy):
+            try:
+                obj_by_vend[int(o["id_vendedor"])].append(o)
+            except (TypeError, ValueError):
+                continue
+
+    out: dict[str, dict] = {}
+    for vid, pdv_set in pdvs_by_vend.items():
+        if not pdv_set:
+            continue
+        pdvs = len(pdv_set)
+        objs = obj_by_vend.get(vid, [])
+        cumplidos = sum(1 for o in objs if o.get("cumplido"))
+        obj_pct = (cumplidos / len(objs) * 100) if objs else 0.0
+        ex_u = ex_pdvs_unique_by_vend.get(vid, 0)
+        cob = min(100.0, ex_u / pdvs * 100) if pdvs else 0.0
+        out[str(vid)] = {
+            "pdvs": pdvs,
+            "altas": altas_by_vend.get(vid, 0),
+            "exhibiciones": ex_logicas_by_vend.get(vid, 0),
+            "compradores": len(compradores_by_vend.get(vid) or []),
+            "bultos": round(bultos_by_vend.get(vid, 0)),
+            "cobertura_pct": round(cob, 1),
+            "objetivos_pct": round(obj_pct, 1),
+        }
+    return out
 
 
 def build_carta_resumen(dist_id: int, meses: list[str], sucursal: str | None = None) -> list[dict]:
@@ -363,16 +564,14 @@ def build_carta_resumen(dist_id: int, meses: list[str], sucursal: str | None = N
     vend_res = sb.table(t_vend).select("id_vendedor,nombre_erp,id_sucursal").eq("id_distribuidor", dist_id).execute()
 
     ideal_dist = _get_ideal(dist_id, "distribuidora")
-    ideal_comp = _get_ideal(None, "compania")  # global compañía (id_distribuidor NULL)
+    ideal_comp = _get_ideal(None, "compania")
     n_meses = len(meses)
 
-    meta_dist = _build_meta_kpis(ideal_dist, n_meses)
-    meta_comp = _build_meta_kpis(ideal_comp, n_meses)
+    scoring_ideal, active_pesos = resolve_scoring_ideal(ideal_dist, ideal_comp)
+    meta_score = _build_meta_kpis(scoring_ideal, n_meses) if scoring_ideal else {k: 0 for k in KPI_KEYS}
 
-    pesos_dist = ideal_dist.get("pesos", {}) if ideal_dist else {}
-    pesos_comp = ideal_comp.get("pesos", {}) if ideal_comp else {}
-    default_pesos = {"pdvs": 15, "altas": 15, "exhibiciones": 15, "compradores": 15, "bultos": 15, "cobertura": 15, "objetivos": 10}
-    active_pesos = pesos_dist or pesos_comp or default_pesos
+    all_raw = _aggregate_kpis_all_vendors(dist_id, meses)
+    batch_caps = _batch_caps_from_raw(all_raw)
 
     cards = []
     for v in (vend_res.data or []):
@@ -388,17 +587,14 @@ def build_carta_resumen(dist_id: int, meses: list[str], sucursal: str | None = N
         if sucursal and suc_nombre.lower() != sucursal.lower():
             continue
 
-        try:
-            raw = aggregate_kpis_vendedor(dist_id, vid, meses)
-        except Exception as e:
-            logger.warning(f"Error KPIs vendedor {vid}: {e}")
+        raw = all_raw.get(vid)
+        if not raw or raw.get("pdvs", 0) == 0:
             continue
 
-        if raw["pdvs"] == 0:
-            continue
-
-        radar = build_radar_normalized(raw, meta_dist or meta_comp or {k: 0 for k in KPI_KEYS})
-        score = score_vendedor(radar, active_pesos)
+        radar = build_radar_normalized(
+            raw, meta_score, ideal=scoring_ideal, batch_caps=batch_caps
+        )
+        score = score_vendedor(radar, active_pesos) if scoring_ideal else 0
 
         card: dict = {
             "id_vendedor": vid,
@@ -407,14 +603,14 @@ def build_carta_resumen(dist_id: int, meses: list[str], sucursal: str | None = N
             "radar": radar,
             "score": score,
             "raw_kpis": raw,
+            "has_ideal_compania": bool(ideal_comp),
+            "has_ideal_distribuidora": bool(ideal_dist),
         }
 
         if ideal_comp:
-            radar_comp = build_radar_normalized(raw, meta_comp)
-            card["radar_ideal_compania"] = radar_comp
+            card["radar_ideal_compania"] = radar_ideal_target()
         if ideal_dist:
-            radar_dist = build_radar_normalized(raw, meta_dist)
-            card["radar_ideal_dist"] = radar_dist
+            card["radar_ideal_dist"] = radar_ideal_target()
 
         cards.append(card)
 

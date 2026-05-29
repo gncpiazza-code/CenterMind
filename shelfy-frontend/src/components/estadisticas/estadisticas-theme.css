@@ -1,0 +1,79 @@
+/* Estadísticas — tema claro/oscuro (comparte storage con dashboard) */
+
+.estadisticas-page--dark {
+  --est-modal-bg: #1e293b;
+  --est-modal-border: rgba(148, 163, 184, 0.2);
+  --est-ideal-banner-bg: rgba(30, 41, 59, 0.9);
+  --est-ideal-banner-border: rgba(148, 163, 184, 0.25);
+  --est-panel-muted: rgba(15, 23, 42, 0.5);
+  --est-btn-surface: #334155;
+  --est-btn-surface-border: rgba(148, 163, 184, 0.35);
+  --est-overlay-refresh: rgba(15, 23, 42, 0.72);
+  --est-chip-bg: #334155;
+  --est-fifa-detail-btn-bg: #0f172a;
+  --est-fifa-detail-btn-text: #c4b5fd;
+  --est-fifa-detail-btn-hover-bg: #1e293b;
+  --est-fifa-detail-btn-hover-text: #e9d5ff;
+}
+
+.estadisticas-page:not(.estadisticas-page--dark) {
+  --est-modal-bg: #fffef8;
+  --est-modal-border: rgba(93, 84, 38, 0.12);
+  --est-ideal-banner-bg: rgba(255, 235, 59, 0.12);
+  --est-ideal-banner-border: rgba(198, 166, 0, 0.28);
+  --est-panel-muted: rgba(93, 84, 38, 0.06);
+  --est-btn-surface: #ffffff;
+  --est-btn-surface-border: rgba(168, 85, 247, 0.25);
+  --est-overlay-refresh: rgba(255, 255, 255, 0.55);
+  --est-chip-bg: #ffffff;
+  --est-fifa-detail-btn-bg: #0f172a;
+  --est-fifa-detail-btn-text: #c4b5fd;
+  --est-fifa-detail-btn-hover-bg: #1e293b;
+  --est-fifa-detail-btn-hover-text: #e9d5ff;
+}
+
+.estadisticas-page--dark .estadisticas-control-btn {
+  background: var(--est-btn-surface) !important;
+  border-color: var(--est-btn-surface-border) !important;
+  color: #e2e8f0 !important;
+}
+
+.estadisticas-page--dark .estadisticas-overlay-dropdown {
+  background: #1e293b !important;
+  border-color: rgba(148, 163, 184, 0.25) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45) !important;
+}
+
+.estadisticas-page--dark .estadisticas-refresh-chip {
+  background: #334155 !important;
+  border-color: rgba(148, 163, 184, 0.3) !important;
+  color: #e9d5ff !important;
+}
+
+.estadisticas-page--dark .vendor-detalle-shell {
+  background: var(--est-modal-bg) !important;
+}
+
+.estadisticas-page--dark .vendor-detalle-ideal-banner {
+  background: var(--est-ideal-banner-bg) !important;
+  border-bottom-color: var(--est-ideal-banner-border) !important;
+}
+
+.estadisticas-page--dark .vendor-detalle-sidebar {
+  background: linear-gradient(180deg, #334155 0%, #1e293b 100%) !important;
+  border-right-color: var(--est-modal-border) !important;
+}
+
+.estadisticas-page--dark .vendor-detalle-tab-btn {
+  color: #cbd5e1 !important;
+}
+
+.estadisticas-page--dark .vendor-detalle-tabs {
+  background: var(--est-modal-bg) !important;
+  border-bottom-color: var(--est-modal-border) !important;
+}
+
+.estadisticas-page--dark .vendor-detalle-tab-btn--active {
+  color: #fde68a !important;
+  border-bottom-color: #c6a600 !important;
+}

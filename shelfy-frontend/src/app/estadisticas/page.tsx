@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import "./estadisticas-page.css";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/hooks/useAuth";
 import { useRouter } from "next/navigation";
@@ -22,6 +23,8 @@ import {
 } from "@/hooks/useEstadisticasQueries";
 import { mesActual } from "@/lib/estadisticas-period";
 import { VENDEDOR_IDEAL_HELP } from "@/lib/estadisticas-kpi-help";
+import { loadDashboardTheme, saveDashboardTheme } from "@/lib/dashboard-theme";
+import { DashboardThemeToggle } from "@/components/dashboard/DashboardThemeToggle";
 import {
   Settings2,
   TrendingUp,
@@ -53,6 +56,19 @@ export default function EstadisticasPage() {
   } = useEstadisticasStore();
 
   const [showIdealModal, setShowIdealModal] = useState(false);
+  const [isDark, setIsDark] = useState(false);
+
+  useEffect(() => {
+    setIsDark(loadDashboardTheme() === "dark");
+  }, []);
+
+  const toggleTheme = useCallback(() => {
+    setIsDark((prev) => {
+      const next = !prev;
+      saveDashboardTheme(next ? "dark" : "light");
+      return next;
+    });
+  }, []);
 
   // Auth guard
   useEffect(() => {
@@ -125,10 +141,11 @@ export default function EstadisticasPage() {
 
   return (
     <div
+      className={isDark ? "estadisticas-page estadisticas-page--dark" : "estadisticas-page"}
       style={{
         display: "flex",
         minHeight: "100vh",
-        background: "var(--shelfy-bg)",
+        background: isDark ? "#0f172a" : "var(--shelfy-bg)",
         color: "var(--shelfy-text)",
       }}
     >
@@ -211,11 +228,14 @@ export default function EstadisticasPage() {
 
             {/* Action buttons */}
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <DashboardThemeToggle isDark={isDark} onToggle={toggleTheme} />
               {/* Overlay mode */}
-              <OverlayPill mode={overlayMode} onChange={setOverlayMode} />
+              <OverlayPill mode={overlayMode} onChange={setOverlayMode} isDark={isDark} />
 
               {/* Config ideal button */}
               <button
+                type="button"
+                className="estadisticas-control-btn"
                 onClick={() => setShowIdealModal(true)}
                 title="Configurar metas y pesos del vendedor ideal"
                 style={{
@@ -352,7 +372,7 @@ export default function EstadisticasPage() {
                         position: "absolute",
                         inset: 0,
                         zIndex: 20,
-                        background: "rgba(255,255,255,0.55)",
+                        background: "var(--est-overlay-refresh, rgba(255,255,255,0.55))",
                         backdropFilter: "blur(2px)",
                         display: "flex",
                         alignItems: "flex-start",
@@ -362,6 +382,7 @@ export default function EstadisticasPage() {
                       }}
                     >
                       <motion.div
+                        className="estadisticas-refresh-chip"
                         animate={{ opacity: [0.7, 1, 0.7] }}
                         transition={{ repeat: Infinity, duration: 1.2 }}
                         style={{
@@ -419,9 +440,11 @@ type OverlayMode = "none" | "compania" | "distribuidor" | "ambos";
 function OverlayPill({
   mode,
   onChange,
+  isDark = false,
 }: {
   mode: OverlayMode;
   onChange: (m: OverlayMode) => void;
+  isDark?: boolean;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -437,12 +460,14 @@ function OverlayPill({
   return (
     <div style={{ position: "relative" }}>
       <button
+        type="button"
+        className="estadisticas-control-btn"
         onClick={() => setOpen((v) => !v)}
         style={{
           display: "flex", alignItems: "center", gap: 6,
           padding: "8px 12px", borderRadius: 10,
           border: `1px solid ${active.color}33`,
-          background: mode !== "none" ? `${active.color}12` : "white",
+          background: mode !== "none" ? `${active.color}12` : isDark ? "var(--est-chip-bg)" : "white",
           fontSize: 12, fontWeight: 600, color: active.color,
           cursor: "pointer",
         }}
@@ -460,6 +485,7 @@ function OverlayPill({
       <AnimatePresence>
         {open && (
           <motion.div
+            className="estadisticas-overlay-dropdown"
             initial={{ opacity: 0, y: 6, scale: 0.96 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 4, scale: 0.96 }}

@@ -2,6 +2,7 @@
 import pytest
 
 from core.ventas_bultos_rules import (
+    bultos_desglose_decimal,
     bultos_efectivos,
     classify_volumen,
     is_encendedor,
@@ -33,3 +34,9 @@ def test_mix_exhibidores_25():
 def test_otro_producto_usa_excel():
     b = bultos_efectivos("BEBIDAS", "COCA 2L", "", 12.0, 3.5)
     assert b == pytest.approx(3.5)
+
+
+def test_desglose_42_37_bultos_250():
+    enteros, resto = bultos_desglose_decimal(42.37, 250)
+    assert enteros == 42
+    assert resto == 92

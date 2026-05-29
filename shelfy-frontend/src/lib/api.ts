@@ -3140,7 +3140,12 @@ export interface VendorDetalle {
     pendientes: number;
     puntos: number;
   };
-  bultos_top: { articulo: string; bultos: number; unidades?: number }[];
+  bultos_top: {
+    articulo: string;
+    bultos: number;
+    bultos_enteros?: number;
+    unidades_resto?: number;
+  }[];
   compradores: { id_cliente_erp: string; razon_social: string }[];
 }
 

@@ -28,8 +28,10 @@ from core.estadisticas_franchise import (
     resolve_estadisticas_ventas_fetch,
 )
 from core.ventas_bultos_rules import (
+    bultos_desglose_decimal,
     bultos_display_2dec,
     classify_volumen,
+    unidades_por_bulto,
     volumen_es_convertido,
 )
 from core.estadisticas_tabaco_rollup import (
@@ -1127,8 +1129,8 @@ def build_detalle_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) -> 
     if not (vctx.get("codigos_vendedor") or vctx.get("codigo_vendedor")):
         ventas_det = [r for r in ventas_det if _venta_matches_vendor(r, vctx)]
 
-    bultos_by_art: dict[str, dict[str, float]] = defaultdict(
-        lambda: {"bultos": 0.0, "unidades": 0.0}
+    bultos_by_art: dict[str, dict] = defaultdict(
+        lambda: {"bultos": 0.0, "kind": None}
     )
     comp_map: dict[str, str] = {}
     for r in ventas_det:
@@ -1149,23 +1151,23 @@ def build_detalle_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) -> 
             "",
         )
         if volumen_es_convertido(kind):
-            bucket["unidades"] += float(r.get("unidades_total") or 0)
+            bucket["kind"] = kind
         eid = str(r.get("id_cliente_erp") or "")
         if eid and eid not in comp_map:
             comp_map[eid] = r.get("nombre_cliente") or eid
 
-    bultos_top = sorted(
-        [
-            {
-                "articulo": k,
-                "bultos": bultos_display_2dec(v["bultos"]),
-                "unidades": bultos_display_2dec(v["unidades"]),
-            }
-            for k, v in bultos_by_art.items()
-        ],
-        key=lambda x: x["bultos"],
-        reverse=True,
-    )[:20]
+    bultos_top_rows: list[dict] = []
+    for k, v in bultos_by_art.items():
+        b = bultos_display_2dec(v["bultos"])
+        row: dict = {"articulo": k, "bultos": b}
+        kind = v.get("kind")
+        if kind and volumen_es_convertido(kind):
+            factor = unidades_por_bulto(kind) or 250.0
+            enteros, resto = bultos_desglose_decimal(b, factor)
+            row["bultos_enteros"] = enteros
+            row["unidades_resto"] = resto
+        bultos_top_rows.append(row)
+    bultos_top = sorted(bultos_top_rows, key=lambda x: x["bultos"], reverse=True)[:20]
 
     compradores = [{"id_cliente_erp": k, "razon_social": v} for k, v in comp_map.items()]
 

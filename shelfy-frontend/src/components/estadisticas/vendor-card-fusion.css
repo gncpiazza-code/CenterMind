@@ -1,7 +1,19 @@
 /* Animaciones carta FIFA — un solo archivo evita duplicar <style> por card */
 
+.vendor-fifa-card-shell {
+  border-radius: 16px;
+  overflow: hidden;
+  isolation: isolate;
+}
+
 .vendor-fifa-card {
   --fifa-glow: rgba(255, 235, 59, 0.45);
+  border-radius: 16px;
+  overflow: hidden;
+  isolation: isolate;
+  transform: translateZ(0);
+  -webkit-mask-image: -webkit-radial-gradient(white, black);
+  mask-image: radial-gradient(white, black);
 }
 
 .vendor-fifa-card:not(.vendor-fifa-card--paused) {
@@ -72,18 +84,20 @@
 @keyframes vendor-fifa-glow {
   0%,
   100% {
-    filter: brightness(1);
     box-shadow: var(--fifa-card-shadow);
   }
   50% {
-    filter: brightness(1.06);
     box-shadow: var(--fifa-card-shadow), 0 0 26px var(--fifa-glow);
   }
 }
 
+.vendor-fifa-ver-detalle {
+  border-radius: 10px;
+}
+
 .vendor-fifa-ver-detalle:hover:not(:disabled) {
-  background: #1e293b !important;
-  color: #e9d5ff !important;
+  background: var(--est-fifa-detail-btn-hover-bg, #1e293b) !important;
+  color: var(--est-fifa-detail-btn-hover-text, #e9d5ff) !important;
 }
 
 @media (prefers-reduced-motion: reduce) {

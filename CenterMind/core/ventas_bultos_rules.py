@@ -113,3 +113,26 @@ def bultos_efectivos(
 def bultos_display_2dec(value: float) -> float:
     """Dos decimales para UI/API (sin redondear a entero)."""
     return round(float(value or 0), 2)
+
+
+def bultos_desglose_decimal(
+    bultos: float,
+    unidades_por_bulto_factor: float,
+) -> tuple[int, int]:
+    """
+    Parte el bulto decimal en entero + unidades restantes (para leer 42,37 → 42 + 92 u).
+    Usa el factor de conversión (250 / 100 / 25), no el total histórico de unidades.
+    """
+    b = float(bultos or 0)
+    factor = int(unidades_por_bulto_factor or 250)
+    if factor <= 0:
+        return int(b), 0
+    sign = -1 if b < 0 else 1
+    b_abs = abs(b)
+    enteros = int(b_abs)
+    fraccion = round(b_abs - enteros, 4)
+    resto = int(round(fraccion * factor))
+    if resto >= factor:
+        enteros += resto // factor
+        resto = resto % factor
+    return sign * enteros, resto

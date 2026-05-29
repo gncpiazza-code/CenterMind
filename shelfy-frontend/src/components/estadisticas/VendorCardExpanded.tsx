@@ -33,7 +33,7 @@ import {
   Loader2,
 } from "lucide-react";
 import type { VendorCartaResumen, VendorDetalle } from "@/lib/api";
-import { fmtBultos, fmtUnidades } from "@/lib/estadisticas-format";
+import { fmtBultos, fmtBultosUnidadesDesglose } from "@/lib/estadisticas-format";
 import { VendorCardRadar } from "./VendorCardRadar";
 import { VENDOR_CARD_LAYOUT_TRANSITION } from "./VendorCardFusion";
 import { useEstadisticasStore } from "@/store/useEstadisticasStore";
@@ -176,6 +176,7 @@ export function VendorCardExpanded({
         {/* Card */}
         <motion.div
           layoutId={`vendor-card-${vendor.id_vendedor}`}
+          className="vendor-detalle-shell"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -188,7 +189,7 @@ export function VendorCardExpanded({
             maxHeight: "88vh",
             borderRadius: 20,
             overflow: "hidden",
-            background: "#fffef8",
+            background: "var(--est-modal-bg, #fffef8)",
             boxShadow: F.shadow,
             display: "flex",
             flexDirection: "column",
@@ -207,6 +208,7 @@ export function VendorCardExpanded({
 
           {/* Vendedor ideal — fuera del panel lateral */}
           <div
+            className="vendor-detalle-ideal-banner"
             style={{
               flexShrink: 0,
               padding: "8px 20px",
@@ -228,6 +230,7 @@ export function VendorCardExpanded({
           <div style={{ display: "flex", flex: 1, overflow: "hidden", minHeight: 0 }}>
             {/* Left column */}
             <div
+              className="vendor-detalle-sidebar"
               style={{
                 width: 260,
                 flexShrink: 0,
@@ -352,17 +355,24 @@ export function VendorCardExpanded({
             <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
               {/* Tab bar */}
               <div
+                className="vendor-detalle-tabs"
                 style={{
                   display: "flex",
                   borderBottom: `1px solid ${F.panelBorderLight}`,
                   padding: "0 20px",
                   flexShrink: 0,
-                  background: "#fffef8",
+                  background: "var(--est-modal-bg, #fffef8)",
                 }}
               >
                 {TABS.map((tab) => (
                   <button
                     key={tab.key}
+                    type="button"
+                    className={
+                      activeTab === tab.key
+                        ? "vendor-detalle-tab-btn vendor-detalle-tab-btn--active"
+                        : "vendor-detalle-tab-btn"
+                    }
                     onClick={() => setActiveTab(tab.key)}
                     style={{
                       display: "flex",
@@ -840,7 +850,7 @@ function TabBultos({ detalle }: { detalle: VendorDetalle }) {
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="show" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       <p style={{ fontSize: 11, color: "var(--shelfy-muted)", margin: 0 }}>
-        Top {top.length} artículos — bultos (2 dec.) y unidades en líneas convertidas
+        Top {top.length} artículos — bultos con 2 dec.; debajo, entero + unidades del decimal
       </p>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {top.map((item, i) => (
@@ -891,11 +901,11 @@ function TabBultos({ detalle }: { detalle: VendorDetalle }) {
               </div>
               <div style={{ flexShrink: 0, textAlign: "right" }}>
                 <span style={{ display: "block", fontSize: 14, fontWeight: 800, color: ESTADISTICAS_FIFA.accentDark }}>
-                  {fmtBultos(item.bultos)} blt
+                  {fmtBultos(item.bultos)} bultos
                 </span>
-                {(item.unidades ?? 0) > 0 && (
-                  <span style={{ display: "block", fontSize: 10, fontWeight: 600, color: "var(--shelfy-muted)" }}>
-                    {fmtUnidades(item.unidades ?? 0)} un
+                {item.bultos_enteros != null && item.unidades_resto != null && (
+                  <span style={{ display: "block", fontSize: 10, fontWeight: 600, color: "var(--shelfy-muted)", lineHeight: 1.35 }}>
+                    {fmtBultosUnidadesDesglose(item.bultos_enteros, item.unidades_resto)}
                   </span>
                 )}
               </div>

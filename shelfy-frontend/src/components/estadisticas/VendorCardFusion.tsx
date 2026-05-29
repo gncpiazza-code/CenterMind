@@ -89,6 +89,7 @@ export function VendorCardFusion({
         flexDirection: "column",
       }}
     >
+      <div className="vendor-fifa-card-shell" style={{ width: "100%" }}>
       <motion.div
         className={`vendor-fifa-card vendor-fifa-card--${tier}${animationPaused ? " vendor-fifa-card--paused" : ""}`}
         whileHover={{ y: -4, scale: 1.01 }}
@@ -100,9 +101,7 @@ export function VendorCardFusion({
           width: "100%",
           height: VENDOR_CARD_FACE_H,
           cursor: previewMode ? "default" : "pointer",
-          borderRadius: 16,
           position: "relative",
-          overflow: "hidden",
           background: theme.faceGradient,
           boxShadow: theme.shadow,
           ["--fifa-card-shadow" as string]: theme.shadow,
@@ -224,6 +223,7 @@ export function VendorCardFusion({
           </p>
         </div>
       </motion.div>
+      </div>
 
       <button
         type="button"
@@ -235,10 +235,9 @@ export function VendorCardFusion({
           marginTop: 8,
           width: "100%",
           padding: "9px 12px",
-          borderRadius: 10,
           border: "none",
-          background: "#0f172a",
-          color: "#c4b5fd",
+          background: "var(--est-fifa-detail-btn-bg, #0f172a)",
+          color: "var(--est-fifa-detail-btn-text, #c4b5fd)",
           fontSize: 11,
           fontWeight: 800,
           cursor: previewMode ? "not-allowed" : "pointer",

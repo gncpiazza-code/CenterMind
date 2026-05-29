@@ -1,16 +1,22 @@
 from __future__ import annotations
 import logging
+import time
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime
 from collections import defaultdict
+from threading import Lock
 
 from db import sb
 from core.tenant_tables import tenant_table_name, tenant_table_supports_distribuidor_filter
 from core.exhibicion_aggregate import (
-    aggregate_exhibicion_counts_vendor_scope,
     EXHIBICION_ROW_COLS,
+    exhibicion_score,
+    vendor_logic_key,
+    resolve_client_key,
 )
 from core.objetivos_filters import objetivo_activo_para_vendedor
-from core.helpers import is_exhibicion_qa_display_for_dist
+from core.helpers import is_exhibicion_qa_display_for_dist, build_integrante_to_erp_name
 from core.estadisticas_ideal import (
     meta_periodo_kpi,
     build_radar_normalized,
@@ -25,6 +31,10 @@ logger = logging.getLogger("estadisticas_service")
 
 PAGE = 1000
 _PADRON_VISIBLE_OR = "motivo_inactivo.is.null,motivo_inactivo.not.in.(padron_absent,padron_anulado)"
+_CARTA_CACHE: dict[str, tuple[float, list]] = {}
+_CARTA_CACHE_LOCK = Lock()
+_CARTA_TTL_SEC = 90
+_POOL = ThreadPoolExecutor(max_workers=10, thread_name_prefix="estad-stats")
 
 
 def _paginate(query_fn):
@@ -355,6 +365,57 @@ def _build_meta_kpis(ideal: dict | None, n_meses: int) -> dict:
     }
 
 
+def _carta_cache_key(dist_id: int, meses: list[str], sucursal: str | None) -> str:
+    return f"{dist_id}|{','.join(sorted(meses))}|{(sucursal or '').lower()}"
+
+
+def _exhibiciones_por_vendedor(
+    ex_rows: list[dict],
+    iid_to_erp: dict[int, str],
+    erp_to_vid: dict[str, int],
+) -> tuple[dict[int, int], dict[int, int]]:
+    """Una pasada: lógicas vendor-scope + PDVs únicos exhibidos por id_vendedor."""
+    best: dict[tuple[int, str], dict] = {}
+    unique_pdvs: dict[int, set] = defaultdict(set)
+
+    for row in ex_rows:
+        try:
+            iid = int(row.get("id_integrante"))
+        except (TypeError, ValueError):
+            continue
+        erp = (iid_to_erp.get(iid) or "").strip().upper()
+        vid = erp_to_vid.get(erp)
+        if vid is None:
+            continue
+        lk = vendor_logic_key(row)
+        key = (vid, lk)
+        estado = row.get("estado") or ""
+        score = exhibicion_score(estado)
+        if key not in best or score > best[key]["score"]:
+            best[key] = {"score": score}
+        ck = resolve_client_key(row)
+        if ck:
+            unique_pdvs[vid].add(ck)
+
+    logicas: dict[int, int] = defaultdict(int)
+    for vid, _lk in best:
+        logicas[vid] += 1
+    return dict(logicas), {vid: len(s) for vid, s in unique_pdvs.items()}
+
+
+def _run_parallel(tasks: dict[str, Callable[[], object]]) -> dict[str, object]:
+    out: dict[str, object] = {}
+    futures = {_POOL.submit(fn): name for name, fn in tasks.items()}
+    for fut in as_completed(futures):
+        name = futures[fut]
+        try:
+            out[name] = fut.result()
+        except Exception as e:
+            logger.error("[estadisticas] parallel task %s: %s", name, e)
+            out[name] = [] if name != "integrantes" else []
+    return out
+
+
 def _batch_caps_from_raw(all_raw: dict[str, dict]) -> dict[str, float]:
     caps: dict[str, float] = {k: 0.0 for k in KPI_KEYS}
     for raw in all_raw.values():
@@ -368,26 +429,18 @@ def _batch_caps_from_raw(all_raw: dict[str, dict]) -> dict[str, float]:
     return caps
 
 
-def _aggregate_kpis_all_vendors(dist_id: int, meses: list[str]) -> dict[str, dict]:
-    """Una pasada por tenant: evita N× consultas por vendedor (~20s → pocos segundos)."""
-    meses_set = set(meses)
+def _fetch_carta_source_rows(dist_id: int, meses: list[str]) -> dict[str, object]:
+    """Una sola ronda paralela de lecturas (sin anidar el pool)."""
     fecha_desde, fecha_hasta = _get_fecha_bounds(meses)
-
     t_rutas = tenant_table_name("rutas_v2", dist_id)
+    t_pdv = tenant_table_name("clientes_pdv_v2", dist_id)
+    t_ex = tenant_table_name("exhibiciones", dist_id)
+    t_v = tenant_table_name("ventas_enriched_v2", dist_id)
+    t_vend = tenant_table_name("vendedores_v2", dist_id)
+    t_suc = tenant_table_name("sucursales_v2", dist_id)
 
     def rutas_q(offset):
         return sb.table(t_rutas).select("id_ruta,id_vendedor")
-
-    ruta_to_vend: dict[int, int] = {}
-    for r in _paginate(rutas_q):
-        rid, vid = r.get("id_ruta"), r.get("id_vendedor")
-        if rid is None or vid is None:
-            continue
-        ruta_to_vend[int(rid)] = int(vid)
-
-    pdvs_by_vend: dict[int, set] = defaultdict(set)
-    altas_by_vend: dict[int, int] = defaultdict(int)
-    t_pdv = tenant_table_name("clientes_pdv_v2", dist_id)
 
     def pdv_q(offset):
         return (
@@ -397,7 +450,78 @@ def _aggregate_kpis_all_vendors(dist_id: int, meses: list[str]) -> dict[str, dic
             .or_(_PADRON_VISIBLE_OR)
         )
 
-    for row in _paginate(pdv_q):
+    def ex_q(offset):
+        return (
+            sb.table(t_ex)
+            .select(EXHIBICION_ROW_COLS)
+            .eq("id_distribuidor", dist_id)
+            .gte("timestamp_subida", fecha_desde)
+            .lte("timestamp_subida", fecha_hasta + "T23:59:59")
+        )
+
+    def venta_q(offset):
+        return (
+            sb.table(t_v)
+            .select(
+                "codigo_vendedor,nombre_vendedor,id_cliente_erp,tipo_documento,"
+                "importe_final,fecha_factura,bultos_total"
+            )
+            .eq("id_distribuidor", dist_id)
+            .gte("fecha_factura", fecha_desde)
+            .lte("fecha_factura", fecha_hasta)
+            .eq("anulado", False)
+        )
+
+    return _run_parallel(
+        {
+            "rutas": lambda: _paginate(rutas_q),
+            "pdv": lambda: _paginate(pdv_q),
+            "ex": lambda: _paginate(ex_q),
+            "ventas": lambda: _paginate(venta_q),
+            "vendedores": lambda: (
+                sb.table(t_vend)
+                .select("id_vendedor,id_vendedor_erp,nombre_erp,id_sucursal")
+                .eq("id_distribuidor", dist_id)
+                .execute()
+                .data
+                or []
+            ),
+            "objetivos": lambda: (
+                sb.table("objetivos")
+                .select("id_vendedor,cumplido,tipo,fecha_objetivo,lanzado_at")
+                .eq("id_distribuidor", dist_id)
+                .execute()
+                .data
+                or []
+            ),
+            "integrantes": lambda: build_integrante_to_erp_name(dist_id),
+            "suc": lambda: (
+                sb.table(t_suc)
+                .select("id_sucursal,nombre_erp")
+                .eq("id_distribuidor", dist_id)
+                .execute()
+                .data
+                or []
+            ),
+            "ideal_dist": lambda: _get_ideal(dist_id, "distribuidora"),
+            "ideal_comp": lambda: _get_ideal(None, "compania"),
+        }
+    )
+
+
+def _aggregate_kpis_from_rows(parallel: dict[str, object], meses: list[str]) -> dict[str, dict]:
+    """Agrega KPIs por vendedor a partir de filas ya cargadas."""
+    meses_set = set(meses)
+
+    ruta_to_vend: dict[int, int] = {}
+    for r in parallel.get("rutas") or []:
+        rid, vid = r.get("id_ruta"), r.get("id_vendedor")
+        if rid is not None and vid is not None:
+            ruta_to_vend[int(rid)] = int(vid)
+
+    pdvs_by_vend: dict[int, set] = defaultdict(set)
+    altas_by_vend: dict[int, int] = defaultdict(int)
+    for row in parallel.get("pdv") or []:
         rid = row.get("id_ruta")
         if rid is None:
             continue
@@ -410,64 +534,10 @@ def _aggregate_kpis_all_vendors(dist_id: int, meses: list[str]) -> dict[str, dic
         if _in_meses(row.get("fecha_alta", ""), meses_set):
             altas_by_vend[vid] += 1
 
-    int_res = (
-        sb.table("integrantes_grupo")
-        .select("id_integrante,id_vendedor_v2")
-        .eq("id_distribuidor", dist_id)
-        .execute()
-    )
-    int_to_vend: dict[int, int] = {}
-    for r in int_res.data or []:
-        try:
-            int_to_vend[int(r["id_integrante"])] = int(r["id_vendedor_v2"])
-        except (TypeError, ValueError):
-            continue
-
-    ex_by_vend: dict[int, list] = defaultdict(list)
-    t_ex = tenant_table_name("exhibiciones", dist_id)
-
-    def ex_q(offset):
-        return (
-            sb.table(t_ex)
-            .select(EXHIBICION_ROW_COLS)
-            .eq("id_distribuidor", dist_id)
-            .gte("timestamp_subida", fecha_desde)
-            .lte("timestamp_subida", fecha_hasta + "T23:59:59")
-        )
-
-    for row in _paginate(ex_q):
-        if not _in_meses(row.get("timestamp_subida", ""), meses_set):
-            continue
-        try:
-            vid = int_to_vend.get(int(row.get("id_integrante")))
-        except (TypeError, ValueError):
-            vid = None
-        if vid is not None:
-            ex_by_vend[vid].append(row)
-
-    ex_logicas_by_vend: dict[int, int] = {}
-    ex_pdvs_unique_by_vend: dict[int, int] = {}
-    for vid, rows in ex_by_vend.items():
-        stats = aggregate_exhibicion_counts_vendor_scope(rows)
-        ex_logicas_by_vend[vid] = int(stats.get("total_logicas", 0))
-        keys: set[str] = set()
-        for er in rows:
-            ck = er.get("id_cliente_pdv") or er.get("id_cliente") or er.get("cliente_sombra_codigo")
-            if ck:
-                keys.add(str(ck))
-        ex_pdvs_unique_by_vend[vid] = len(keys)
-
-    t_vend = tenant_table_name("vendedores_v2", dist_id)
-    vend_rows = (
-        sb.table(t_vend)
-        .select("id_vendedor,id_vendedor_erp,nombre_erp")
-        .eq("id_distribuidor", dist_id)
-        .execute()
-        .data
-        or []
-    )
+    vend_rows = parallel.get("vendedores") or []
     codigo_to_vid: dict[str, int] = {}
     nombre_to_vid: dict[str, int] = {}
+    erp_to_vid: dict[str, int] = {}
     for v in vend_rows:
         try:
             vid = int(v["id_vendedor"])
@@ -479,25 +549,21 @@ def _aggregate_kpis_all_vendors(dist_id: int, meses: list[str]) -> dict[str, dic
         nom = (v.get("nombre_erp") or "").strip().upper()
         if nom:
             nombre_to_vid[nom] = vid
+            erp_to_vid[nom] = vid
 
-    t_v = tenant_table_name("ventas_enriched_v2", dist_id)
+    iid_to_erp = parallel.get("integrantes") or {}
+    ex_rows = [
+        r
+        for r in (parallel.get("ex") or [])
+        if _in_meses(r.get("timestamp_subida", ""), meses_set)
+    ]
+    ex_logicas_by_vend, ex_pdvs_unique_by_vend = _exhibiciones_por_vendedor(
+        ex_rows, iid_to_erp, erp_to_vid
+    )
+
     bultos_by_vend: dict[int, float] = defaultdict(float)
     compradores_by_vend: dict[int, set] = defaultdict(set)
-
-    def venta_q(offset):
-        return (
-            sb.table(t_v)
-            .select(
-                "codigo_vendedor,nombre_vendedor,id_cliente_erp,tipo_documento,"
-                "importe_final,fecha_factura,bultos_total,anulado"
-            )
-            .eq("id_distribuidor", dist_id)
-            .gte("fecha_factura", fecha_desde)
-            .lte("fecha_factura", fecha_hasta)
-            .eq("anulado", False)
-        )
-
-    for row in _paginate(venta_q):
+    for row in parallel.get("ventas") or []:
         if not _in_meses(row.get("fecha_factura", ""), meses_set):
             continue
         tipo = row.get("tipo_documento")
@@ -521,7 +587,7 @@ def _aggregate_kpis_all_vendors(dist_id: int, meses: list[str]) -> dict[str, dic
 
     hoy = date.today()
     obj_by_vend: dict[int, list] = defaultdict(list)
-    for o in sb.table("objetivos").select("*").eq("id_distribuidor", dist_id).execute().data or []:
+    for o in parallel.get("objetivos") or []:
         if objetivo_activo_para_vendedor(o, hoy):
             try:
                 obj_by_vend[int(o["id_vendedor"])].append(o)
@@ -550,31 +616,31 @@ def _aggregate_kpis_all_vendors(dist_id: int, meses: list[str]) -> dict[str, dic
     return out
 
 
-def build_carta_resumen(dist_id: int, meses: list[str], sucursal: str | None = None) -> list[dict]:
-    """
-    Build collection of vendor cards with radar 0-100 and score.
-    Returns list sorted by score desc.
-    """
-    t_vend = tenant_table_name("vendedores_v2", dist_id)
-    t_suc = tenant_table_name("sucursales_v2", dist_id)
+def _aggregate_kpis_all_vendors(dist_id: int, meses: list[str]) -> dict[str, dict]:
+    """Compat: fetch + aggregate (usado por tests/scripts)."""
+    rows = _fetch_carta_source_rows(dist_id, meses)
+    return _aggregate_kpis_from_rows(rows, meses)
 
-    suc_res = sb.table(t_suc).select("id_sucursal,nombre_erp").eq("id_distribuidor", dist_id).execute()
-    suc_map = {str(r["id_sucursal"]): r.get("nombre_erp", "") for r in (suc_res.data or [])}
 
-    vend_res = sb.table(t_vend).select("id_vendedor,nombre_erp,id_sucursal").eq("id_distribuidor", dist_id).execute()
-
-    ideal_dist = _get_ideal(dist_id, "distribuidora")
-    ideal_comp = _get_ideal(None, "compania")
+def _build_carta_resumen_impl(dist_id: int, meses: list[str], sucursal: str | None) -> list[dict]:
     n_meses = len(meses)
+    source = _fetch_carta_source_rows(dist_id, meses)
+    all_raw = _aggregate_kpis_from_rows(source, meses)
+
+    suc_map = {
+        str(r["id_sucursal"]): r.get("nombre_erp", "")
+        for r in (source.get("suc") or [])
+    }
+    vend_rows = source.get("vendedores") or []
+    ideal_dist = source.get("ideal_dist")
+    ideal_comp = source.get("ideal_comp")
 
     scoring_ideal, active_pesos = resolve_scoring_ideal(ideal_dist, ideal_comp)
     meta_score = _build_meta_kpis(scoring_ideal, n_meses) if scoring_ideal else {k: 0 for k in KPI_KEYS}
-
-    all_raw = _aggregate_kpis_all_vendors(dist_id, meses)
     batch_caps = _batch_caps_from_raw(all_raw)
 
     cards = []
-    for v in (vend_res.data or []):
+    for v in vend_rows:
         vid = str(v.get("id_vendedor") or "").strip()
         nombre = (v.get("nombre_erp") or "").strip()
         sid = str(v.get("id_sucursal") or "").strip()
@@ -615,6 +681,21 @@ def build_carta_resumen(dist_id: int, meses: list[str], sucursal: str | None = N
         cards.append(card)
 
     return sorted(cards, key=lambda c: c["score"], reverse=True)
+
+
+def build_carta_resumen(dist_id: int, meses: list[str], sucursal: str | None = None) -> list[dict]:
+    """Cartas con caché en memoria (90s) para repetición rápida."""
+    key = _carta_cache_key(dist_id, meses, sucursal)
+    now = time.time()
+    with _CARTA_CACHE_LOCK:
+        hit = _CARTA_CACHE.get(key)
+        if hit and now - hit[0] < _CARTA_TTL_SEC:
+            return hit[1]
+
+    cards = _build_carta_resumen_impl(dist_id, meses, sucursal)
+    with _CARTA_CACHE_LOCK:
+        _CARTA_CACHE[key] = (now, cards)
+    return cards
 
 
 def build_detalle_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) -> dict:

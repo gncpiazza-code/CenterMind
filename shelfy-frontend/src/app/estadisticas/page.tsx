@@ -10,6 +10,7 @@ import { BottomNav } from "@/components/layout/BottomNav";
 import { Topbar } from "@/components/layout/Topbar";
 import { PeriodSelector } from "@/components/estadisticas/PeriodSelector";
 import { VendorCollection } from "@/components/estadisticas/VendorCollection";
+import { EstadisticasLoadingStrip } from "@/components/estadisticas/EstadisticasLoadingStrip";
 import { IdealConfigModal } from "@/components/estadisticas/IdealConfigModal";
 import { useEstadisticasStore } from "@/store/useEstadisticasStore";
 import {
@@ -38,47 +39,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
-
 // ── Animation variants ──────────────────────────────────────────────────────
 
 const pageVariants = {
   hidden: { opacity: 0, y: 20 },
   show:   { opacity: 1, y: 0, transition: { duration: 0.4 } },
 };
-
-const skeletonVariants = {
-  hidden: {},
-  show: { transition: { staggerChildren: 0.06 } },
-};
-const skeletonCard = {
-  hidden: { opacity: 0, scale: 0.88 },
-  show:   { opacity: 1, scale: 1, transition: { type: "spring" as const, stiffness: 260, damping: 24 } },
-};
-
-// ── Skeleton cards ──────────────────────────────────────────────────────────
-
-function SkeletonCards() {
-  return (
-    <motion.div
-      variants={skeletonVariants}
-      initial="hidden"
-      animate="show"
-      style={{ display: "flex", gap: 12, padding: "12px 20px", overflowX: "auto" }}
-    >
-      {Array.from({ length: 6 }).map((_, i) => (
-        <motion.div key={i} variants={skeletonCard} style={{ flexShrink: 0 }}>
-          <Skeleton
-            style={{
-              width: 180, height: 250, borderRadius: 16,
-              background: "linear-gradient(135deg, rgba(168,85,247,0.08) 0%, rgba(168,85,247,0.04) 100%)",
-            }}
-          />
-        </motion.div>
-      ))}
-    </motion.div>
-  );
-}
 
 // ── Main page ───────────────────────────────────────────────────────────────
 
@@ -144,12 +110,18 @@ export default function EstadisticasPage() {
   }, [mesesDisponibles, mesesSeleccionados, setMesesSeleccionados]);
 
   // Vendor cards
-  const { data: vendors = [], isLoading: loadingCards, isFetching } = useQuery({
+  const { data: vendors = [], isLoading: loadingCards, isFetching, isPlaceholderData } = useQuery({
     queryKey: ["estadisticas-cartas", distId, mesesSeleccionados, filterSucursal],
     queryFn: () => fetchEstadisticasCartas(distId, mesesSeleccionados, filterSucursal),
     enabled: !!distId && mesesSeleccionados.length > 0,
-    staleTime: 1000 * 60 * 3,
+    staleTime: 1000 * 60 * 2,
+    placeholderData: (prev) => prev,
   });
+
+  const showLoadingStrip =
+    (loadingCards && vendors.length === 0) ||
+    (isFetching && isPlaceholderData && vendors.length === 0);
+  const showRefreshingOverlay = isFetching && vendors.length > 0;
 
   // Activar overlay ideal por defecto la primera vez que hay config
   const overlayInitRef = React.useRef(false);
@@ -171,7 +143,7 @@ export default function EstadisticasPage() {
 
   // Detect potentially empty data
   const hasVendors = vendors.length > 0;
-  const isLoading = loadingMeses || loadingCards;
+  const isLoading = loadingMeses || showLoadingStrip;
 
   if (authLoading || !user) {
     return (
@@ -401,10 +373,9 @@ export default function EstadisticasPage() {
           {/* ── Main content area ── */}
           <div style={{ flex: 1, marginTop: 12 }}>
             <AnimatePresence mode="wait">
-              {/* Loading skeleton */}
-              {isLoading && (
+              {showLoadingStrip && (
                 <motion.div key="loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                  <SkeletonCards />
+                  <EstadisticasLoadingStrip />
                 </motion.div>
               )}
 
@@ -463,14 +434,52 @@ export default function EstadisticasPage() {
               )}
 
               {/* Vendor collection */}
-              {!isLoading && hasVendors && (
+              {!showLoadingStrip && hasVendors && (
                 <motion.div
                   key="collection"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
+                  style={{ position: "relative" }}
                 >
-                  {/* Missing ideal config banner */}
+                  {showRefreshingOverlay && (
+                    <div
+                      style={{
+                        position: "absolute",
+                        inset: 0,
+                        zIndex: 20,
+                        background: "rgba(255,255,255,0.55)",
+                        backdropFilter: "blur(2px)",
+                        display: "flex",
+                        alignItems: "flex-start",
+                        justifyContent: "center",
+                        paddingTop: 48,
+                        pointerEvents: "none",
+                      }}
+                    >
+                      <motion.div
+                        animate={{ opacity: [0.7, 1, 0.7] }}
+                        transition={{ repeat: Infinity, duration: 1.2 }}
+                        style={{
+                          padding: "10px 18px",
+                          borderRadius: 12,
+                          background: "white",
+                          border: "1px solid rgba(168,85,247,0.3)",
+                          boxShadow: "0 8px 24px rgba(124,58,237,0.2)",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                          fontSize: 13,
+                          fontWeight: 700,
+                          color: "#7C3AED",
+                        }}
+                      >
+                        <Loader2 size={16} className="animate-spin" />
+                        Actualizando cartas…
+                      </motion.div>
+                    </div>
+                  )}
+
                   <MissingIdealBanner onConfigure={() => setShowIdealModal(true)} vendors={vendors} />
 
                   <VendorCollection

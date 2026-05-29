@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/hooks/useAuth";
 import { useRouter } from "next/navigation";
@@ -8,6 +8,7 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { BottomNav } from "@/components/layout/BottomNav";
 import { Topbar } from "@/components/layout/Topbar";
 import { PeriodSelector } from "@/components/estadisticas/PeriodSelector";
+import { SucursalSelector } from "@/components/estadisticas/SucursalSelector";
 import { VendorCollection } from "@/components/estadisticas/VendorCollection";
 import { EstadisticasLoadingStrip } from "@/components/estadisticas/EstadisticasLoadingStrip";
 import { IdealConfigModal } from "@/components/estadisticas/IdealConfigModal";
@@ -17,6 +18,7 @@ import type { VendorCartaResumen } from "@/lib/api";
 import {
   useEstadisticasCartas,
   useEstadisticasMeses,
+  useEstadisticasSucursales,
 } from "@/hooks/useEstadisticasQueries";
 import { mesActual } from "@/lib/estadisticas-period";
 import { VENDEDOR_IDEAL_HELP } from "@/lib/estadisticas-kpi-help";
@@ -27,8 +29,6 @@ import {
   AlertTriangle,
   Users,
   Loader2,
-  Layers,
-  X,
 } from "lucide-react";
 // ── Animation variants ──────────────────────────────────────────────────────
 
@@ -64,6 +64,8 @@ export default function EstadisticasPage() {
   const { data: mesesDisponibles = [], isLoading: loadingMeses } =
     useEstadisticasMeses(distId);
 
+  const { data: sucursales = [] } = useEstadisticasSucursales(distId);
+
   // Auto-select current month on first load
   useEffect(() => {
     if (mesesSeleccionados.length === 0 && mesesDisponibles.length > 0) {
@@ -98,11 +100,11 @@ export default function EstadisticasPage() {
     overlayInitRef.current = true;
   }, [vendors, overlayMode, setOverlayMode]);
 
-  // Derive sucursales list for filter chips
-  const sucursales = useMemo<string[]>(() => {
-    const all = vendors.map((v) => v.sucursal).filter(Boolean) as string[];
-    return Array.from(new Set(all)).sort();
-  }, [vendors]);
+  useEffect(() => {
+    if (filterSucursal && sucursales.length > 0 && !sucursales.includes(filterSucursal)) {
+      setFilterSucursal(null);
+    }
+  }, [filterSucursal, sucursales, setFilterSucursal]);
 
   // Detect potentially empty data
   const hasVendors = vendors.length > 0;
@@ -237,8 +239,8 @@ export default function EstadisticasPage() {
               padding: "16px 24px 0",
             }}
           >
-            {/* Period selector */}
             <PeriodSelector mesesDisponibles={mesesDisponibles} />
+            <SucursalSelector sucursales={sucursales} />
 
             {/* Fetching indicator */}
             {isFetching && !isLoading && (
@@ -248,52 +250,6 @@ export default function EstadisticasPage() {
               </div>
             )}
           </div>
-
-          {/* ── Sucursal filter chips ── */}
-          {sucursales.length > 1 && (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                flexWrap: "wrap",
-                gap: 6,
-                padding: "10px 24px 0",
-              }}
-            >
-              <Layers size={13} color="var(--shelfy-muted)" />
-              <button
-                onClick={() => setFilterSucursal(null)}
-                style={{
-                  padding: "4px 10px", borderRadius: 7, fontSize: 11, fontWeight: 700,
-                  cursor: "pointer",
-                  border: `1px solid ${!filterSucursal ? "#a855f7" : "rgba(168,85,247,0.2)"}`,
-                  background: !filterSucursal ? "rgba(168,85,247,0.1)" : "transparent",
-                  color: !filterSucursal ? "#7C3AED" : "var(--shelfy-muted)",
-                }}
-              >
-                Todas
-              </button>
-              {sucursales.map((suc) => (
-                <button
-                  key={suc}
-                  onClick={() => setFilterSucursal(suc === filterSucursal ? null : suc)}
-                  style={{
-                    padding: "4px 10px", borderRadius: 7, fontSize: 11, fontWeight: 600,
-                    cursor: "pointer",
-                    border: `1px solid ${filterSucursal === suc ? "#a855f7" : "rgba(168,85,247,0.2)"}`,
-                    background: filterSucursal === suc ? "rgba(168,85,247,0.1)" : "transparent",
-                    color: filterSucursal === suc ? "#7C3AED" : "var(--shelfy-muted)",
-                    transition: "all 0.14s ease",
-                  }}
-                >
-                  {suc}
-                  {filterSucursal === suc && (
-                    <X size={10} style={{ marginLeft: 4, display: "inline", verticalAlign: "middle" }} />
-                  )}
-                </button>
-              ))}
-            </div>
-          )}
 
           {/* ── Vendor count summary ── */}
           {!isLoading && hasVendors && (

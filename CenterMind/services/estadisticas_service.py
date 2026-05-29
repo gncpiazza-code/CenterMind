@@ -97,6 +97,26 @@ def _paginate_meses(dist_id: int, table_base: str, field: str) -> set[str]:
     return meses
 
 
+def fetch_sucursales_disponibles(dist_id: int) -> list[str]:
+    """Sucursales del tenant (catálogo ERP), independiente del filtro de cartas."""
+    t_suc = tenant_table_name("sucursales_v2", dist_id)
+    res = (
+        sb.table(t_suc)
+        .select("nombre_erp")
+        .eq("id_distribuidor", dist_id)
+        .execute()
+    )
+    names = sorted(
+        {
+            (r.get("nombre_erp") or "").strip()
+            for r in (res.data or [])
+            if (r.get("nombre_erp") or "").strip()
+        },
+        key=lambda s: s.lower(),
+    )
+    return names
+
+
 def fetch_meses_disponibles(dist_id: int) -> list[str]:
     """
     Returns sorted desc list of "YYYY-MM" months that have at least one event

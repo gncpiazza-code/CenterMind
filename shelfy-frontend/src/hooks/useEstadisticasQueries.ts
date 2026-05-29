@@ -10,6 +10,7 @@ import {
 import {
   fetchEstadisticasCartas,
   fetchEstadisticasMeses,
+  fetchEstadisticasSucursales,
   fetchEstadisticasVendedorDetalle,
 } from "@/lib/api";
 import { estadisticasKeys } from "@/lib/estadisticas-query-keys";
@@ -18,6 +19,16 @@ export const ESTADISTICAS_MESES_STALE = 15 * 60_000;
 export const ESTADISTICAS_CARTAS_STALE = 10 * 60_000;
 export const ESTADISTICAS_DETALLE_STALE = 15 * 60_000;
 export const ESTADISTICAS_GC_MS = 45 * 60_000;
+
+export function sucursalesQueryOptions(distId: number) {
+  return {
+    queryKey: estadisticasKeys.sucursales(distId),
+    queryFn: () => fetchEstadisticasSucursales(distId),
+    enabled: distId > 0,
+    staleTime: ESTADISTICAS_MESES_STALE,
+    gcTime: ESTADISTICAS_GC_MS,
+  } as const;
+}
 
 export function mesesQueryOptions(distId: number) {
   return {
@@ -60,6 +71,10 @@ export function detalleQueryOptions(
 
 export function useEstadisticasMeses(distId: number) {
   return useQuery(mesesQueryOptions(distId));
+}
+
+export function useEstadisticasSucursales(distId: number) {
+  return useQuery(sucursalesQueryOptions(distId));
 }
 
 export function useEstadisticasCartas(

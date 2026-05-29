@@ -9,6 +9,7 @@ from core.security import verify_auth, check_dist_permission
 from core.estadisticas_ideal import validate_pesos, repartir_pesos, KPI_KEYS
 from services.estadisticas_service import (
     fetch_meses_disponibles,
+    fetch_sucursales_disponibles,
     build_carta_resumen,
     build_detalle_vendedor,
     get_ideal,
@@ -51,6 +52,16 @@ def estadisticas_meses(dist_id: int, user_payload=Depends(verify_auth)):
         return {"meses": fetch_meses_disponibles(dist_id)}
     except Exception as e:
         logger.error(f"Error meses {dist_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/estadisticas/sucursales/{dist_id}", tags=["Estadísticas"])
+def estadisticas_sucursales(dist_id: int, user_payload=Depends(verify_auth)):
+    check_dist_permission(user_payload, dist_id)
+    try:
+        return {"sucursales": fetch_sucursales_disponibles(dist_id)}
+    except Exception as e:
+        logger.error(f"Error sucursales {dist_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

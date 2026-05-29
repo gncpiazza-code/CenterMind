@@ -3189,6 +3189,11 @@ export async function fetchEstadisticasMeses(distId: number): Promise<string[]> 
   return data.meses;
 }
 
+export async function fetchEstadisticasSucursales(distId: number): Promise<string[]> {
+  const data = await apiFetch<{ sucursales: string[] }>(`/api/estadisticas/sucursales/${distId}`);
+  return data.sucursales ?? [];
+}
+
 export async function fetchEstadisticasCartas(
   distId: number,
   meses: string[],

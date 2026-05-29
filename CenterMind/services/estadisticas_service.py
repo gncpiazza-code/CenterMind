@@ -17,7 +17,16 @@ from core.exhibicion_aggregate import (
     aggregate_exhibicion_counts_vendor_scope,
 )
 from core.objetivos_filters import objetivo_activo_para_vendedor
-from core.helpers import is_exhibicion_qa_display_for_dist, build_integrante_to_erp_name
+from core.helpers import (
+    is_exhibicion_qa_display_for_dist,
+    is_vendedor_excluido_objetivos,
+    build_integrante_to_erp_name,
+    _get_erp_name_map,
+)
+from core.estadisticas_franchise import (
+    FRANCHISE_VENTAS_SOURCE_DIST,
+    resolve_estadisticas_ventas_fetch,
+)
 from core.estadisticas_tabaco_rollup import (
     TABACO_DIST_ID,
     apply_tabaco_rollups,
@@ -170,6 +179,42 @@ def _in_meses(date_str: str, meses: set[str]) -> bool:
     return bool(date_str) and date_str[:7] in meses
 
 
+def _carta_tiene_actividad_comercial(raw: dict) -> bool:
+    """Evita cartas solo-padrón (PDVs en ruta sin ventas ni exhibiciones)."""
+    return (
+        float(raw.get("compradores") or 0) > 0
+        or float(raw.get("bultos") or 0) > 0
+        or float(raw.get("exhibiciones") or 0) > 0
+    )
+
+
+def _ventas_select_cols() -> str:
+    return (
+        "codigo_vendedor,nombre_vendedor,id_cliente_erp,tipo_documento,"
+        "importe_final,fecha_factura,bultos_total"
+    )
+
+
+def _apply_ventas_scope(
+    q,
+    ventas_ctx: dict[str, object],
+    vendor_codigos: list[str] | None = None,
+):
+    """
+    Franquicia: lee tabla Real; batch usa todos los códigos ERP del dist,
+    detalle por vendedor usa solo los códigos de ese vendedor.
+    """
+    codigos = vendor_codigos
+    if not codigos:
+        raw = ventas_ctx.get("codigos")
+        codigos = list(raw) if raw else None
+    if not codigos:
+        return q
+    if len(codigos) == 1:
+        return q.eq("codigo_vendedor", codigos[0])
+    return q.in_("codigo_vendedor", codigos)
+
+
 def _vendor_context(dist_id: int, id_vendedor: str) -> dict:
     """id_vendedor ERP, código Consolido e integrantes Telegram del vendedor."""
     try:
@@ -228,21 +273,114 @@ def _vendor_context(dist_id: int, id_vendedor: str) -> dict:
             if cod_v and _is_ivan_wutrich(nom_v) and cod_v not in codigos:
                 codigos.append(cod_v)
 
+    t_vend_all = tenant_table_name("vendedores_v2", dist_id)
+    all_v = (
+        sb.table(t_vend_all)
+        .select("id_vendedor,id_vendedor_erp,nombre_erp")
+        .eq("id_distribuidor", dist_id)
+        .execute()
+        .data
+        or []
+    )
+
     return {
+        "id_vendedor": vid,
         "integrante_ids": int_ids,
         "codigo_vendedor": codigos[0] if codigos else "",
         "codigos_vendedor": codigos,
         "nombre_erp": nombre,
+        "match_indexes": _build_vendor_match_indexes(all_v, dist_id),
+        "ventas_ctx": resolve_estadisticas_ventas_fetch(dist_id, all_v),
     }
 
 
+def _build_vendor_match_indexes(
+    vend_rows: list[dict], dist_id: int
+) -> dict[str, object]:
+    """Índices para asignar filas Consolido → id_vendedor (cartas batch)."""
+    codigo_to_vid: dict[str, int] = {}
+    nombre_to_vid: dict[str, int] = {}
+    erp_to_vid: dict[str, int] = {}
+    for v in vend_rows:
+        try:
+            vid = int(v["id_vendedor"])
+        except (TypeError, ValueError):
+            continue
+        erp = str(v.get("id_vendedor_erp") or "").strip()
+        if erp:
+            codigo_to_vid[erp] = vid
+            stripped = erp.lstrip("0") or erp
+            if stripped != erp:
+                codigo_to_vid[stripped] = vid
+        nom = (v.get("nombre_erp") or "").strip().upper()
+        if nom:
+            nombre_to_vid[nom] = vid
+            erp_to_vid[nom] = vid
+
+    consolido_to_vid: dict[str, int] = {}
+    for _key, erp_name in (_get_erp_name_map(dist_id) or {}).items():
+        erp_u = (erp_name or "").strip().upper()
+        vid = erp_to_vid.get(erp_u)
+        if vid is not None:
+            consolido_to_vid[_key] = vid
+
+    return {
+        "codigo_to_vid": codigo_to_vid,
+        "nombre_to_vid": nombre_to_vid,
+        "consolido_to_vid": consolido_to_vid,
+    }
+
+
+def _resolve_vid_from_venta_row(row: dict, idx: dict[str, object]) -> int | None:
+    codigo_to_vid: dict[str, int] = idx.get("codigo_to_vid") or {}
+    nombre_to_vid: dict[str, int] = idx.get("nombre_to_vid") or {}
+    consolido_to_vid: dict[str, int] = idx.get("consolido_to_vid") or {}
+
+    cod = str(row.get("codigo_vendedor") or "").strip()
+    if cod:
+        vid = codigo_to_vid.get(cod)
+        if vid is None:
+            stripped = cod.lstrip("0") or cod
+            vid = codigo_to_vid.get(stripped)
+        if vid is not None:
+            return vid
+
+    raw_nom = (row.get("nombre_vendedor") or "").strip()
+    if raw_nom:
+        vid = consolido_to_vid.get(raw_nom.lower())
+        if vid is not None:
+            return vid
+        nom = raw_nom.upper()
+        vid = nombre_to_vid.get(nom)
+        if vid is not None:
+            return vid
+        for en, v in nombre_to_vid.items():
+            if en and nom and (en in nom or nom in en):
+                return v
+    return None
+
+
 def _venta_matches_vendor(row: dict, ctx: dict) -> bool:
+    try:
+        target_vid = int(ctx["id_vendedor"])
+    except (TypeError, ValueError, KeyError):
+        target_vid = None
+    idx = ctx.get("match_indexes")
+    if idx and target_vid is not None:
+        resolved = _resolve_vid_from_venta_row(row, idx)
+        if resolved is not None:
+            return resolved == target_vid
+
     cod = str(row.get("codigo_vendedor") or "").strip()
     codigos = ctx.get("codigos_vendedor") or (
         [ctx["codigo_vendedor"]] if ctx.get("codigo_vendedor") else []
     )
-    if cod and cod in codigos:
-        return True
+    if cod:
+        if cod in codigos:
+            return True
+        stripped = cod.lstrip("0") or cod
+        if stripped in codigos:
+            return True
     nom = (row.get("nombre_vendedor") or "").strip().upper()
     erp_nom = (ctx.get("nombre_erp") or "").strip().upper()
     if erp_nom and nom and (erp_nom in nom or nom in erp_nom):
@@ -322,7 +460,16 @@ def aggregate_kpis_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) ->
     exhibiciones_logicas = ex_counts.get("total_logicas", 0)
 
   # PDVs compradores + bultos (ventas_enriched_v2: codigo_vendedor / nombre_vendedor)
-    t_v = tenant_table_name("ventas_enriched_v2", dist_id)
+    vend_all = (
+        sb.table(tenant_table_name("vendedores_v2", dist_id))
+        .select("id_vendedor,id_vendedor_erp,nombre_erp")
+        .eq("id_distribuidor", dist_id)
+        .execute()
+        .data
+        or []
+    )
+    ventas_ctx = resolve_estadisticas_ventas_fetch(dist_id, vend_all)
+    t_v = tenant_table_name("ventas_enriched_v2", int(ventas_ctx["table_dist"]))
     compradores: set = set()
 
     def venta_q(offset):
@@ -332,17 +479,13 @@ def aggregate_kpis_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) ->
                 "id_cliente_erp,codigo_vendedor,nombre_vendedor,tipo_documento,"
                 "importe_final,fecha_factura,anulado,bultos_total,descripcion_articulo"
             )
-            .eq("id_distribuidor", dist_id)
+            .eq("id_distribuidor", int(ventas_ctx["filter_dist"]))
             .gte("fecha_factura", fecha_desde)
             .lte("fecha_factura", fecha_hasta)
             .eq("anulado", False)
         )
         codigos = vctx.get("codigos_vendedor") or []
-        if len(codigos) == 1:
-            q = q.eq("codigo_vendedor", codigos[0])
-        elif len(codigos) > 1:
-            q = q.in_("codigo_vendedor", codigos)
-        return q
+        return _apply_ventas_scope(q, ventas_ctx, codigos or None)
 
     venta_rows = _paginate(venta_q)
     if not vctx.get("codigos_vendedor") and not vctx.get("codigo_vendedor"):
@@ -498,9 +641,23 @@ def _fetch_carta_source_rows(dist_id: int, meses: list[str]) -> dict[str, object
     t_rutas = tenant_table_name("rutas_v2", dist_id)
     t_pdv = tenant_table_name("clientes_pdv_v2", dist_id)
     t_ex = tenant_table_name("exhibiciones", dist_id)
-    t_v = tenant_table_name("ventas_enriched_v2", dist_id)
     t_vend = tenant_table_name("vendedores_v2", dist_id)
     t_suc = tenant_table_name("sucursales_v2", dist_id)
+
+    vend_prescan: list[dict] = []
+    if dist_id in FRANCHISE_VENTAS_SOURCE_DIST:
+        vend_prescan = (
+            sb.table(t_vend)
+            .select("id_vendedor,id_vendedor_erp,nombre_erp")
+            .eq("id_distribuidor", dist_id)
+            .execute()
+            .data
+            or []
+        )
+    ventas_ctx = resolve_estadisticas_ventas_fetch(
+        dist_id, vend_prescan if vend_prescan else None
+    )
+    t_v = tenant_table_name("ventas_enriched_v2", int(ventas_ctx["table_dist"]))
 
     def rutas_q(offset):
         return sb.table(t_rutas).select("id_ruta,id_vendedor")
@@ -523,19 +680,17 @@ def _fetch_carta_source_rows(dist_id: int, meses: list[str]) -> dict[str, object
         )
 
     def venta_q(offset):
-        return (
+        q = (
             sb.table(t_v)
-            .select(
-                "codigo_vendedor,nombre_vendedor,id_cliente_erp,tipo_documento,"
-                "importe_final,fecha_factura,bultos_total"
-            )
-            .eq("id_distribuidor", dist_id)
+            .select(_ventas_select_cols())
+            .eq("id_distribuidor", int(ventas_ctx["filter_dist"]))
             .gte("fecha_factura", fecha_desde)
             .lte("fecha_factura", fecha_hasta)
             .eq("anulado", False)
         )
+        return _apply_ventas_scope(q, ventas_ctx)
 
-    return _run_parallel(
+    parallel = _run_parallel(
         {
             "rutas": lambda: _paginate(rutas_q),
             "pdv": lambda: _paginate(pdv_q),
@@ -570,6 +725,25 @@ def _fetch_carta_source_rows(dist_id: int, meses: list[str]) -> dict[str, object
             "ideal_comp": lambda: _get_ideal(None, "compania"),
         }
     )
+    ventas_rows = parallel.get("ventas") or []
+    if not ventas_rows and ((parallel.get("ex") or []) or (parallel.get("pdv") or [])):
+        if dist_id in FRANCHISE_VENTAS_SOURCE_DIST:
+            logger.warning(
+                "[estadisticas] sin ventas franquicia dist=%s (fuente real=%s codigos=%s) meses=%s",
+                dist_id,
+                ventas_ctx.get("filter_dist"),
+                ventas_ctx.get("codigos"),
+                meses,
+            )
+        else:
+            logger.warning(
+                "[estadisticas] ventas_enriched vacío dist=%s meses=%s — compradores/bultos quedarán en 0",
+                dist_id,
+                meses,
+            )
+    parallel["dist_id"] = dist_id
+    parallel["ventas_ctx"] = ventas_ctx
+    return parallel
 
 
 def _aggregate_kpis_from_rows(parallel: dict[str, object], meses: list[str]) -> dict[str, dict]:
@@ -598,21 +772,9 @@ def _aggregate_kpis_from_rows(parallel: dict[str, object], meses: list[str]) -> 
             altas_by_vend[vid] += 1
 
     vend_rows = parallel.get("vendedores") or []
-    codigo_to_vid: dict[str, int] = {}
-    nombre_to_vid: dict[str, int] = {}
-    erp_to_vid: dict[str, int] = {}
-    for v in vend_rows:
-        try:
-            vid = int(v["id_vendedor"])
-        except (TypeError, ValueError):
-            continue
-        erp = str(v.get("id_vendedor_erp") or "").strip()
-        if erp:
-            codigo_to_vid[erp] = vid
-        nom = (v.get("nombre_erp") or "").strip().upper()
-        if nom:
-            nombre_to_vid[nom] = vid
-            erp_to_vid[nom] = vid
+    dist_id = int(parallel.get("dist_id") or 0)
+    match_indexes = _build_vendor_match_indexes(vend_rows, dist_id) if dist_id else {}
+    erp_to_vid: dict[str, int] = (match_indexes.get("nombre_to_vid") or {})  # type: ignore[assignment]
 
     iid_to_erp = parallel.get("integrantes") or {}
     ex_rows = [
@@ -633,14 +795,7 @@ def _aggregate_kpis_from_rows(parallel: dict[str, object], meses: list[str]) -> 
         imp = float(row.get("importe_final") or 0)
         if _es_recaudacion(tipo) or _es_devolucion(tipo, imp):
             continue
-        cod = str(row.get("codigo_vendedor") or "").strip()
-        vid = codigo_to_vid.get(cod)
-        if vid is None:
-            nom = (row.get("nombre_vendedor") or "").strip().upper()
-            for en, v in nombre_to_vid.items():
-                if en and nom and (en in nom or nom in en):
-                    vid = v
-                    break
+        vid = _resolve_vid_from_venta_row(row, match_indexes)
         if vid is None:
             continue
         bultos_by_vend[vid] += float(row.get("bultos_total") or 0)
@@ -716,11 +871,15 @@ def _build_carta_resumen_impl(dist_id: int, meses: list[str], sucursal: str | No
             continue
         if is_exhibicion_qa_display_for_dist(dist_id, nombre):
             continue
+        if is_vendedor_excluido_objetivos(nombre):
+            continue
         if sucursal and suc_nombre.lower() != sucursal.lower():
             continue
 
         raw = all_raw.get(vid)
         if not raw or raw.get("pdvs", 0) == 0:
+            continue
+        if not _carta_tiene_actividad_comercial(raw):
             continue
 
         radar = build_radar_normalized(
@@ -914,7 +1073,8 @@ def build_detalle_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) -> 
     ex_counts = aggregate_exhibicion_counts_vendor_scope(ex_rows)
 
     # Bultos top 20
-    t_vb = tenant_table_name("ventas_enriched_v2", dist_id)
+    ventas_ctx = vctx.get("ventas_ctx") or resolve_estadisticas_ventas_fetch(dist_id, None)
+    t_vb = tenant_table_name("ventas_enriched_v2", int(ventas_ctx["table_dist"]))
 
     def ventas_detalle_q(offset):
         q = (
@@ -924,20 +1084,16 @@ def build_detalle_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) -> 
                 "fecha_factura,codigo_vendedor,nombre_vendedor,id_cliente_erp,"
                 "nombre_cliente,anulado"
             )
-            .eq("id_distribuidor", dist_id)
+            .eq("id_distribuidor", int(ventas_ctx["filter_dist"]))
             .gte("fecha_factura", fecha_desde)
             .lte("fecha_factura", fecha_hasta)
             .eq("anulado", False)
         )
         codigos = vctx.get("codigos_vendedor") or []
-        if len(codigos) == 1:
-            q = q.eq("codigo_vendedor", codigos[0])
-        elif len(codigos) > 1:
-            q = q.in_("codigo_vendedor", codigos)
-        return q
+        return _apply_ventas_scope(q, ventas_ctx, codigos or None)
 
     ventas_det = _paginate(ventas_detalle_q)
-    if not vctx.get("codigos_vendedor") and not vctx.get("codigo_vendedor"):
+    if not (vctx.get("codigos_vendedor") or vctx.get("codigo_vendedor")):
         ventas_det = [r for r in ventas_det if _venta_matches_vendor(r, vctx)]
 
     bultos_by_art: dict[str, float] = defaultdict(float)

@@ -203,6 +203,19 @@ def _ventas_select_cols() -> str:
     )
 
 
+def _count_compradores_en_cartera(
+    compradores_ids: set[str],
+    pdv_cartera_ids: set[str],
+) -> int:
+    """
+    Compradores = PDVs del padrón (rutas del vendedor) con al menos una venta en el período.
+    No cuenta clientes del informe de ventas que no están en la cartera asignada.
+    """
+    if not compradores_ids or not pdv_cartera_ids:
+        return 0
+    return len(compradores_ids & pdv_cartera_ids)
+
+
 def _acumular_bultos_unidades(
     row: dict,
     bultos_acc: float,
@@ -563,7 +576,7 @@ def aggregate_kpis_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) ->
         "pdvs": pdvs_activos,
         "altas": altas,
         "exhibiciones": exhibiciones_logicas,
-        "compradores": len(compradores),
+        "compradores": _count_compradores_en_cartera(compradores, pdvs_unicos),
         "bultos": bultos_display_2dec(bultos_total),
         "unidades_cigarrillos": bultos_display_2dec(unidades_cig),
         "cobertura_pct": round(cobertura_pct, 1),
@@ -858,7 +871,10 @@ def _aggregate_kpis_from_rows(parallel: dict[str, object], meses: list[str]) -> 
             "pdvs": pdvs,
             "altas": altas_by_vend.get(vid, 0),
             "exhibiciones": ex_logicas_by_vend.get(vid, 0),
-            "compradores": len(compradores_by_vend.get(vid) or []),
+            "compradores": _count_compradores_en_cartera(
+                compradores_by_vend.get(vid) or set(),
+                pdv_set,
+            ),
             "bultos": bultos_display_2dec(bultos_by_vend.get(vid, 0)),
             "unidades_cigarrillos": bultos_display_2dec(unidades_cig_by_vend.get(vid, 0)),
             "cobertura_pct": round(cob, 1),

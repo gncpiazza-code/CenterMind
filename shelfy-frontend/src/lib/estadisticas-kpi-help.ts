@@ -38,7 +38,7 @@ export const ESTADISTICAS_KPI_HELP: EstadisticasKpiHelpItem[] = [
     key: "compradores",
     label: "Compradores",
     description:
-      "PDVs distintos que compraron al menos una vez en el período. Se excluyen recaudaciones, devoluciones y comprobantes anulados.",
+      "PDVs de tu cartera (padrón en tus rutas) que compraron al menos una vez en el período. No incluye clientes del informe de ventas que no estén en tu padrón asignado.",
   },
   {
     key: "bultos",

@@ -3,7 +3,10 @@ from core.estadisticas_franchise import (
     FRANCHISE_VENTAS_SOURCE_DIST,
     resolve_estadisticas_ventas_fetch,
 )
-from services.estadisticas_service import _carta_tiene_actividad_comercial
+from services.estadisticas_service import (
+    _carta_tiene_actividad_comercial,
+    _count_compradores_en_cartera,
+)
 
 
 def test_franchise_maps_to_real_consolido():
@@ -22,6 +25,12 @@ def test_franchise_codigos_from_vendedores():
     assert ctx["table_dist"] == 2
     assert ctx["filter_dist"] == 2
     assert set(ctx["codigos"]) == {"7702", "7715"}
+
+
+def test_compradores_no_superan_pdvs_cartera():
+    assert _count_compradores_en_cartera({"1", "2", "9"}, {"1", "2", "3"}) == 2
+    assert _count_compradores_en_cartera({"9"}, {"1", "2"}) == 0
+    assert _count_compradores_en_cartera({"1"}, set()) == 0
 
 
 def test_carta_actividad_requires_ventas_o_exhibiciones():

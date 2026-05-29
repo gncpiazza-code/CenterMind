@@ -1,5 +1,7 @@
 "use client";
 
+import { useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { createPortal } from "react-dom";
 import {
   RadarChart,
   Radar,
@@ -21,6 +23,9 @@ interface VendorCardRadarProps {
   radar: RadarKPI;
   radarCompania?: RadarKPI;
   radarDist?: RadarKPI;
+  /** Valores meta del ideal (absolutos), para tooltips fusion. */
+  idealMetaCompania?: RadarKPI;
+  idealMetaDist?: RadarKPI;
   size?: "sm" | "fusion" | "md" | "lg";
   onDarkPanel?: boolean;
   axesMode?: "full" | "fusion";
@@ -51,6 +56,8 @@ type ChartRow = {
   vendedor: number;
   compania?: number;
   dist?: number;
+  idealCompania?: number;
+  idealDist?: number;
 };
 
 function buildData(
@@ -58,6 +65,8 @@ function buildData(
   radar: RadarKPI,
   radarCompania?: RadarKPI,
   radarDist?: RadarKPI,
+  idealMetaCompania?: RadarKPI,
+  idealMetaDist?: RadarKPI,
 ): ChartRow[] {
   return axes.map(({ key, label }) => ({
     axis: label,
@@ -67,57 +76,107 @@ function buildData(
       ? Math.min(100, Math.max(0, radarCompania[key] ?? 0))
       : undefined,
     dist: radarDist ? Math.min(100, Math.max(0, radarDist[key] ?? 0)) : undefined,
+    idealCompania: idealMetaCompania?.[key],
+    idealDist: idealMetaDist?.[key],
   }));
 }
+
+const FUSION_RADAR_TOOLTIP_MIN_W = 268;
+
+type FusionRadarTooltipProps = {
+  active?: boolean;
+  payload?: { payload?: ChartRow }[];
+  coordinate?: { x?: number; y?: number };
+  chartAnchorRef: RefObject<HTMLDivElement | null>;
+};
 
 function FusionRadarTooltipContent({
   active,
   payload,
-}: {
-  active?: boolean;
-  payload?: { payload?: ChartRow }[];
-}) {
-  if (!active || !payload?.length) return null;
-  const row = payload[0]?.payload;
-  if (!row) return null;
+  coordinate,
+  chartAnchorRef,
+}: FusionRadarTooltipProps) {
+  const [fixedPos, setFixedPos] = useState<{ left: number; top: number } | null>(
+    null,
+  );
+
+  const row = active && payload?.length ? payload[0]?.payload : undefined;
+  const cx = coordinate?.x ?? 0;
+  const cy = coordinate?.y ?? 0;
+
+  useLayoutEffect(() => {
+    if (!active || !row || !chartAnchorRef.current) {
+      setFixedPos(null);
+      return;
+    }
+    const rect = chartAnchorRef.current.getBoundingClientRect();
+    const offsetX = 14;
+    const offsetY = -36;
+    let left = rect.left + cx + offsetX;
+    const top = rect.top + cy + offsetY;
+    const maxLeft =
+      typeof window !== "undefined"
+        ? window.innerWidth - FUSION_RADAR_TOOLTIP_MIN_W - 12
+        : left;
+    if (left > maxLeft) {
+      left = Math.max(8, rect.left + cx - FUSION_RADAR_TOOLTIP_MIN_W - 8);
+    }
+    setFixedPos({ left, top });
+  }, [active, row, chartAnchorRef, cx, cy]);
+
+  if (!active || !row || !fixedPos || typeof document === "undefined") {
+    return null;
+  }
+
   const meta = fusionAxisMeta(row.axisKey);
   const idealName = fusionIdealAxisLabel(meta);
 
-  return (
+  return createPortal(
     <div
+      role="tooltip"
       style={{
+        position: "fixed",
+        left: fixedPos.left,
+        top: fixedPos.top,
+        zIndex: 10000,
+        minWidth: FUSION_RADAR_TOOLTIP_MIN_W,
+        width: "max-content",
+        maxWidth: "min(320px, calc(100vw - 16px))",
         background: "#0f172a",
         border: "1px solid rgba(148,163,184,0.35)",
         borderRadius: 8,
-        padding: "8px 10px",
+        padding: "8px 12px",
         fontSize: 10,
         fontWeight: 600,
-        lineHeight: 1.45,
-        maxWidth: 280,
+        lineHeight: 1.4,
         boxShadow: "0 6px 16px rgba(0,0,0,0.35)",
         pointerEvents: "none",
       }}
     >
-      <div style={{ color: "#f59e0b" }}>
-        {idealName} ideal Compañía: {formatFusionIdealValue(meta, row.compania)}
-      </div>
-      <div style={{ color: "#a855f7", marginTop: 4 }}>
-        {idealName} ideal Distribuidora: {formatFusionIdealValue(meta, row.dist)}
-      </div>
+      <p style={{ margin: 0, color: "#f59e0b", whiteSpace: "nowrap" }}>
+        {idealName} ideal Compañía:{" "}
+        {formatFusionIdealValue(meta, row.idealCompania)}
+      </p>
+      <p style={{ margin: "4px 0 0", color: "#a855f7", whiteSpace: "nowrap" }}>
+        {idealName} ideal Distribuidora:{" "}
+        {formatFusionIdealValue(meta, row.idealDist)}
+      </p>
       {meta.key === "altas" && (
-        <div
+        <p
           style={{
+            margin: "6px 0 0",
             color: "#94a3b8",
-            marginTop: 6,
             fontSize: 9,
             fontWeight: 500,
             lineHeight: 1.35,
+            whiteSpace: "normal",
           }}
         >
           {FUSION_ALTAS_IDEAL_HINT}
-        </div>
+        </p>
       )}
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -150,18 +209,28 @@ export function VendorCardRadar({
   radar,
   radarCompania,
   radarDist,
+  idealMetaCompania,
+  idealMetaDist,
   size = "md",
   onDarkPanel = false,
   axesMode = "full",
   showOverlayCompania = false,
   showOverlayDist = false,
 }: VendorCardRadarProps) {
+  const chartAnchorRef = useRef<HTMLDivElement>(null);
   const { height, outerRadius, fontSize, dotR, stroke } = SIZE_MAP[size];
   const axes =
     axesMode === "fusion"
       ? FUSION_RADAR_AXES.map((a) => ({ key: a.key, label: a.tick }))
       : AXES_FULL;
-  const data = buildData(axes, radar, radarCompania, radarDist);
+  const data = buildData(
+    axes,
+    radar,
+    radarCompania,
+    radarDist,
+    idealMetaCompania,
+    idealMetaDist,
+  );
   const hasVendorShape = data.some((d) => d.vendedor > 0);
   const tickFill = onDarkPanel ? "#f8fafc" : "#94a3b8";
   const gridStroke = onDarkPanel
@@ -170,12 +239,14 @@ export function VendorCardRadar({
 
   return (
     <div
+      ref={chartAnchorRef}
       style={{
         width: "100%",
         height,
         minHeight: height,
         flexShrink: 0,
         position: "relative",
+        overflow: axesMode === "fusion" ? "visible" : "hidden",
       }}
     >
       <ResponsiveContainer width="100%" height={height}>
@@ -202,11 +273,22 @@ export function VendorCardRadar({
 
           {axesMode === "fusion" && (
             <RechartsTooltip
-              content={<FusionRadarTooltipContent />}
+              content={(props) => (
+                <FusionRadarTooltipContent
+                  {...props}
+                  chartAnchorRef={chartAnchorRef}
+                />
+              )}
               cursor={false}
               shared={false}
               allowEscapeViewBox={{ x: true, y: true }}
-              wrapperStyle={{ zIndex: 250, outline: "none", pointerEvents: "none" }}
+              wrapperStyle={{
+                visibility: "hidden",
+                width: 0,
+                height: 0,
+                overflow: "visible",
+                pointerEvents: "none",
+              }}
               isAnimationActive={false}
             />
           )}

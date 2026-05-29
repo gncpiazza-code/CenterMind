@@ -13,6 +13,7 @@ from core.estadisticas_ideal import (
     repartir_pesos,
     score_vendedor,
     build_radar_normalized,
+    ideal_meta_display_values,
     meta_periodo_kpi,
     normalize_kpi,
     KPI_KEYS,
@@ -256,3 +257,44 @@ def test_normalize_kpi_parcial():
 def test_normalize_kpi_fraccion_redondeo():
     # 1/3 * 100 = 33.33 → 33
     assert normalize_kpi(1, 3) == 33
+
+
+# ---------------------------------------------------------------------------
+# ideal_meta_display_values (tooltips carta)
+# ---------------------------------------------------------------------------
+
+def test_ideal_meta_display_values_periodo_y_pdvs():
+    ideal = {
+        "meta_pdvs_total": 250,
+        "kpis_mensuales": {
+            "exhibiciones": 100,
+            "pdvs_compradores": 220,
+            "bultos": 40,
+            "cobertura_pct": 80,
+            "objetivos_pct": 90,
+        },
+    }
+    meta = ideal_meta_display_values(ideal, 1)
+    assert meta["pdvs"] == 250.0
+    assert meta["exhibiciones"] == 100.0
+    assert meta["compradores"] == 220.0
+    assert meta["bultos"] == 40.0
+    assert meta["cobertura"] == 80.0
+    assert meta["objetivos"] == 90.0
+
+
+def test_ideal_meta_display_values_altas_faltante_pdvs():
+    ideal = {"meta_pdvs_total": 250, "kpis_mensuales": {}}
+    meta = ideal_meta_display_values(ideal, 1, {"pdvs": 100})
+    assert meta["altas"] == 150.0
+
+
+def test_ideal_meta_display_values_tres_meses():
+    ideal = {
+        "meta_pdvs_total": 100,
+        "kpis_mensuales": {"exhibiciones": 10, "pdvs_compradores": 5, "bultos": 2},
+    }
+    meta = ideal_meta_display_values(ideal, 3)
+    assert meta["exhibiciones"] == 30.0
+    assert meta["compradores"] == 15.0
+    assert meta["bultos"] == 6.0

@@ -284,6 +284,8 @@ export function VendorCardExpanded({
                   radar={vendor.radar}
                   radarCompania={vendor.radar_ideal_compania}
                   radarDist={vendor.radar_ideal_dist}
+                  idealMetaCompania={vendor.ideal_meta_compania}
+                  idealMetaDist={vendor.ideal_meta_dist}
                   size="fusion"
                   axesMode="fusion"
                   showOverlayCompania={overlayMode === "compania" || overlayMode === "ambos"}

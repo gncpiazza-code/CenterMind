@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/Card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useCountUp } from "./useCountUp";
 import type { CcKpiDelta } from "@/lib/api";
+import { formatCcKpiTrendLabel } from "@/lib/supervision-cc-trend";
 
 const COLOR_MAP = {
   violet:  { bg: "bg-violet-500/8",  icon: "text-violet-600",  border: "border-violet-200/60" },
@@ -24,8 +25,10 @@ interface AnimatedKpiCardProps {
   color: keyof typeof COLOR_MAP;
   loading?: boolean;
   delay?: number;
-  /** Flecha de tendencia (delta vs snapshot anterior). */
+  /** Flecha de tendencia (delta vs corrida CC anterior). */
   trend?: CcKpiDelta | null;
+  /** Formato de la diferencia absoluta cuando no hay % (p. ej. moneda). */
+  trendFormatAbs?: (n: number) => string;
   /** Card clickeable que despliega contenido debajo (p. ej. resumen CC). */
   expandable?: boolean;
   expanded?: boolean;
@@ -43,6 +46,7 @@ export function AnimatedKpiCard({
   loading = false,
   delay = 0,
   trend,
+  trendFormatAbs,
   expandable = false,
   expanded = false,
   onToggle,
@@ -62,7 +66,7 @@ export function AnimatedKpiCard({
       ) : (
         <TrendingDown size={11} strokeWidth={2.5} />
       )}
-      {trend.pct != null ? `${Math.abs(trend.pct)}%` : ""}
+      {formatCcKpiTrendLabel(trend, trendFormatAbs)}
     </span>
   ) : null;
 

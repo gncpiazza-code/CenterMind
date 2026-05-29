@@ -16,6 +16,7 @@ import {
   rangoBadgeClass,
   sortClientesCC,
 } from "@/lib/cuentasCorrientes";
+import { formatCcKpiTrendLabel } from "@/lib/supervision-cc-trend";
 import { useSupervisionPanelStore } from "@/store/useSupervisionPanelStore";
 import {
   useSupervisionPanelQueries,
@@ -401,9 +402,7 @@ export default function SupervisionPage() {
                                     ) : (
                                       <TrendingDown size={11} strokeWidth={2.5} />
                                     )}
-                                    {deltas.total_deuda.pct != null
-                                      ? `${Math.abs(deltas.total_deuda.pct)}%`
-                                      : ""}
+                                    {formatCcKpiTrendLabel(deltas.total_deuda, fmt$$)}
                                   </span>
                                 )}
                               </div>

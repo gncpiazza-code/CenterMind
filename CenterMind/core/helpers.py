@@ -510,7 +510,7 @@ def _enrich_and_store_cc(dist_id: int, fecha_snapshot: str, rows: list) -> int:
 
 
 def _upsert_cc_kpi_snapshot(dist_id: int, records: list[dict], fecha_snapshot: str) -> None:
-    """Calcula KPIs agregados por vendedor y los upserta en cc_kpi_snapshot."""
+    """Calcula KPIs agregados por vendedor e inserta una fila por corrida (historial para deltas)."""
     from collections import defaultdict
 
     by_vendor: dict[int | None, list[dict]] = defaultdict(list)
@@ -536,11 +536,20 @@ def _upsert_cc_kpi_snapshot(dist_id: int, records: list[dict], fecha_snapshot: s
             "dias_promedio_atraso": dias_prom,
         })
 
-    for row in snapshot_rows:
-        sb.table("cc_kpi_snapshot").upsert(
-            row,
-            on_conflict="id_distribuidor,id_vendedor,fecha_snapshot",
-        ).execute()
+    if snapshot_rows:
+        sb.table("cc_kpi_snapshot").insert(snapshot_rows).execute()
+
+
+def cc_kpi_delta(actual: dict, anterior: dict | None, campo: str) -> dict | None:
+    """Delta entre dos filas de cc_kpi_snapshot (última vs corrida anterior)."""
+    if not anterior:
+        return None
+    a = float(actual.get(campo) or 0)
+    p = float(anterior.get(campo) or 0)
+    diff = round(a - p, 2)
+    pct = round(diff / p * 100, 1) if p else None
+    dir_ = "up" if diff > 0 else ("down" if diff < 0 else "neutral")
+    return {"diff": diff, "pct": pct, "dir": dir_}
 
 
 # ─── Exhibiciones de prueba (Tabaco & Hnos): ranking + evaluación ───────────

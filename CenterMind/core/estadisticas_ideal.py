@@ -74,6 +74,33 @@ def radar_ideal_target() -> dict:
     return {k: 100 for k in KPI_KEYS}
 
 
+def ideal_meta_display_values(
+    ideal: dict,
+    n_meses: int,
+    real_kpis: dict | None = None,
+) -> dict[str, float]:
+    """
+    Metas absolutas del ideal para tooltips/UI (no porcentajes 0–100).
+    Altas: faltante de PDVs vs meta_pdvs_total, igual que build_radar_normalized.
+    """
+    km = ideal.get("kpis_mensuales") or {}
+    n = max(1, n_meses)
+    meta_pdvs = float(ideal.get("meta_pdvs_total", 0))
+    altas_meta = meta_pdvs
+    if real_kpis is not None and meta_pdvs > 0:
+        altas_meta = max(1.0, meta_pdvs - float(real_kpis.get("pdvs", 0)))
+
+    return {
+        "pdvs": meta_pdvs,
+        "altas": altas_meta,
+        "exhibiciones": float(km.get("exhibiciones", 0)) * n,
+        "compradores": float(km.get("pdvs_compradores", 0)) * n,
+        "bultos": float(km.get("bultos", 0)) * n,
+        "cobertura": float(km.get("cobertura_pct", 0)),
+        "objetivos": float(km.get("objetivos_pct", 0)),
+    }
+
+
 def resolve_scoring_ideal(ideal_dist: dict | None, ideal_comp: dict | None) -> tuple[dict | None, dict]:
     """Meta y pesos: prioriza ideal distribuidora; si no hay, compañía."""
     default_pesos = {

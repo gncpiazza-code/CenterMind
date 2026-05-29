@@ -27,6 +27,7 @@ from core.estadisticas_tabaco_rollup import (
     _is_matias_wutrich,
 )
 from core.estadisticas_ideal import (
+    ideal_meta_display_values,
     meta_periodo_kpi,
     build_radar_normalized,
     score_vendedor,
@@ -740,8 +741,14 @@ def _build_carta_resumen_impl(dist_id: int, meses: list[str], sucursal: str | No
 
         if ideal_comp:
             card["radar_ideal_compania"] = radar_ideal_target()
+            card["ideal_meta_compania"] = ideal_meta_display_values(
+                ideal_comp, n_meses, raw
+            )
         if ideal_dist:
             card["radar_ideal_dist"] = radar_ideal_target()
+            card["ideal_meta_dist"] = ideal_meta_display_values(
+                ideal_dist, n_meses, raw
+            )
 
         cards.append(card)
 

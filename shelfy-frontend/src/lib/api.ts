@@ -3089,6 +3089,9 @@ export interface VendorCartaResumen {
   radar: RadarKPI;
   radar_ideal_compania?: RadarKPI;
   radar_ideal_dist?: RadarKPI;
+  /** Metas absolutas del ideal (tooltips); no son % del radar. */
+  ideal_meta_compania?: RadarKPI;
+  ideal_meta_dist?: RadarKPI;
   score: number;
   raw_kpis: VendorRawKpis;
   has_ideal_compania?: boolean;

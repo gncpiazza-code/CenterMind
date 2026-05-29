@@ -2283,16 +2283,19 @@ def supervision_cc_kpis(
     user_payload=Depends(verify_auth),
 ):
     """
-    Retorna KPIs del último snapshot CC y deltas vs el snapshot anterior.
+    Retorna KPIs de la última corrida CC y deltas vs la corrida anterior (created_at).
     Flechas: delta>0 → roja (deuda subió); delta<0 → verde (deuda bajó).
     """
     check_dist_permission(user_payload, dist_id)
     try:
         q = (
             sb.table("cc_kpi_snapshot")
-            .select("fecha_snapshot, total_deuda, clientes_deudores, pdvs_atraso_15, dias_promedio_atraso")
+            .select(
+                "fecha_snapshot, created_at, total_deuda, clientes_deudores, "
+                "pdvs_atraso_15, dias_promedio_atraso"
+            )
             .eq("id_distribuidor", int(dist_id))
-            .order("fecha_snapshot", desc=True)
+            .order("created_at", desc=True)
             .limit(2)
         )
         if id_vendedor is not None:
@@ -2305,19 +2308,10 @@ def supervision_cc_kpis(
         if not rows:
             return {"kpis": None, "deltas": None}
 
+        from core.helpers import cc_kpi_delta
+
         actual = rows[0]
         anterior = rows[1] if len(rows) >= 2 else None
-
-        def _delta(campo: str):
-            if not anterior:
-                return None
-            a = float(actual.get(campo) or 0)
-            p = float(anterior.get(campo) or 0)
-            diff = round(a - p, 2)
-            pct = round(diff / p * 100, 1) if p else None
-            # Para deuda/deudores/atraso: subir es malo (rojo ↑), bajar es bueno (verde ↓)
-            dir_ = "up" if diff > 0 else ("down" if diff < 0 else "neutral")
-            return {"diff": diff, "pct": pct, "dir": dir_}
 
         return {
             "kpis": {
@@ -2328,9 +2322,9 @@ def supervision_cc_kpis(
                 "fecha_snapshot": actual.get("fecha_snapshot"),
             },
             "deltas": {
-                "total_deuda": _delta("total_deuda"),
-                "clientes_deudores": _delta("clientes_deudores"),
-                "pdvs_atraso_15": _delta("pdvs_atraso_15"),
+                "total_deuda": cc_kpi_delta(actual, anterior, "total_deuda"),
+                "clientes_deudores": cc_kpi_delta(actual, anterior, "clientes_deudores"),
+                "pdvs_atraso_15": cc_kpi_delta(actual, anterior, "pdvs_atraso_15"),
             },
         }
     except Exception as e:

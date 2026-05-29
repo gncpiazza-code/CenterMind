@@ -1,6 +1,6 @@
 -- Snapshot diario de KPIs de cuentas corrientes por vendedor.
 -- Escrito por _enrich_and_store_cc tras cada sync de CC (07:00 / 14:30 AR).
--- Upsert idempotente: si corre 2× el mismo día, sobreescribe con el último estado.
+-- Historial por corrida: ver 2026-05-29_cc_kpi_snapshot_per_corrida.sql (insert por sync, no upsert diario).
 
 CREATE TABLE IF NOT EXISTS cc_kpi_snapshot (
     id               BIGSERIAL PRIMARY KEY,

@@ -32,15 +32,6 @@ import {
   Search,
   Loader2,
 } from "lucide-react";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  ResponsiveContainer,
-  Tooltip,
-  Cell,
-} from "recharts";
 import { fetchEstadisticasVendedorDetalle } from "@/lib/api";
 import type { VendorCartaResumen, VendorDetalle } from "@/lib/api";
 import { VendorCardRadar } from "./VendorCardRadar";
@@ -52,6 +43,7 @@ import {
   OVERLAY_IDEAL_HELP,
   OVERLAY_MODE_HELP,
 } from "@/lib/estadisticas-kpi-help";
+import { groupRutasByDia, formatFechaAR } from "@/lib/estadisticas-utils";
 
 type TabKey = "pdvs" | "altas" | "exhibiciones" | "bultos" | "compradores";
 
@@ -551,150 +543,161 @@ function TabPDVs({ detalle }: { detalle: VendorDetalle }) {
     );
   }
 
+  const grupos = groupRutasByDia(detalle.rutas);
   const totalPdvs = detalle.rutas.reduce((n, r) => n + (r.total_pdvs ?? r.pdvs?.length ?? 0), 0);
 
   return (
-    <motion.div variants={containerVariants} initial="hidden" animate="show" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      <p style={{ fontSize: 11, color: "var(--shelfy-muted)", margin: "0 0 8px" }}>
-        {detalle.rutas.length} ruta{detalle.rutas.length !== 1 ? "s" : ""} · {totalPdvs} PDVs NO anulados
+    <motion.div variants={containerVariants} initial="hidden" animate="show" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <p style={{ fontSize: 11, color: "var(--shelfy-muted)", margin: 0 }}>
+        {detalle.rutas.length} ruta{detalle.rutas.length !== 1 ? "s" : ""} · {totalPdvs} PDVs
       </p>
-      {detalle.rutas.map((r) => {
-        const pdvs = r.pdvs ?? [];
-        const isOpen = openRutaId === r.id_ruta;
-        return (
-          <motion.div
-            key={r.id_ruta}
-            variants={itemVariants}
+
+      {grupos.map(({ dia, rutas, totalPdvs: pdvsDia }) => (
+        <div key={dia} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div
             style={{
-              borderRadius: 10,
-              background: "rgba(168,85,247,0.05)",
-              border: "1px solid rgba(168,85,247,0.12)",
-              overflow: "hidden",
+              display: "flex",
+              alignItems: "baseline",
+              justifyContent: "space-between",
+              gap: 8,
+              padding: "0 2px",
             }}
           >
-            <button
-              type="button"
-              onClick={() => setOpenRutaId(isOpen ? null : r.id_ruta)}
-              style={{
-                width: "100%",
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                gap: 8,
-                padding: "10px 12px",
-                background: isOpen ? "rgba(168,85,247,0.08)" : "transparent",
-                border: "none",
-                cursor: "pointer",
-                textAlign: "left",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                <MapPin size={14} color="#a855f7" style={{ flexShrink: 0 }} />
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: "var(--shelfy-text)" }}>
-                    {r.nombre}
-                  </div>
-                  <div style={{ fontSize: 10, color: "var(--shelfy-muted)", marginTop: 2 }}>
-                    {pdvs.length} PDV{pdvs.length !== 1 ? "s" : ""} NO anulados
-                  </div>
-                </div>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-                <span
-                  style={{
-                    fontSize: 10,
-                    fontWeight: 700,
-                    padding: "2px 8px",
-                    borderRadius: 6,
-                    background: "rgba(168,85,247,0.12)",
-                    color: "#7C3AED",
-                  }}
-                >
-                  {r.dia || "—"}
-                </span>
-                <ChevronDown
-                  size={16}
-                  color="#7C3AED"
-                  style={{
-                    transform: isOpen ? "rotate(180deg)" : "rotate(0deg)",
-                    transition: "transform 0.2s ease",
-                  }}
-                />
-              </div>
-            </button>
+            <h3 style={{ margin: 0, fontSize: 13, fontWeight: 800, color: "#7C3AED", textTransform: "capitalize" }}>
+              {dia}
+            </h3>
+            <span style={{ fontSize: 10, color: "var(--shelfy-muted)", fontWeight: 600 }}>
+              {rutas.length} ruta{rutas.length !== 1 ? "s" : ""} · {pdvsDia} PDVs
+            </span>
+          </div>
 
-            <AnimatePresence initial={false}>
-              {isOpen && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: "auto", opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={{ duration: 0.2 }}
-                  style={{ overflow: "hidden" }}
+          {rutas.map((r) => {
+            const pdvs = r.pdvs ?? [];
+            const isOpen = openRutaId === r.id_ruta;
+            return (
+              <motion.div
+                key={r.id_ruta}
+                variants={itemVariants}
+                style={{
+                  borderRadius: 10,
+                  background: "rgba(168,85,247,0.05)",
+                  border: "1px solid rgba(168,85,247,0.12)",
+                  overflow: "hidden",
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setOpenRutaId(isOpen ? null : r.id_ruta)}
+                  style={{
+                    width: "100%",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: 8,
+                    padding: "10px 12px",
+                    background: isOpen ? "rgba(168,85,247,0.08)" : "transparent",
+                    border: "none",
+                    cursor: "pointer",
+                    textAlign: "left",
+                  }}
                 >
-                  <div
-                    style={{
-                      padding: "0 10px 10px",
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: 6,
-                      borderTop: "1px solid rgba(168,85,247,0.1)",
-                    }}
-                  >
-                    {pdvs.length === 0 ? (
-                      <p style={{ fontSize: 12, color: "var(--shelfy-muted)", margin: "8px 4px 4px" }}>
-                        Sin PDVs en esta ruta
-                      </p>
-                    ) : (
-                      pdvs.map((pdv) => {
-                        const nombre = pdv.razon_social || pdv.nombre_fantasia || "Sin nombre";
-                        const tel = [pdv.telefono, pdv.celular].filter(Boolean).join(" · ");
-                        return (
-                          <div
-                            key={pdv.id_cliente_erp || nombre}
-                            style={{
-                              padding: "8px 10px",
-                              borderRadius: 8,
-                              background: "white",
-                              border: "1px solid rgba(168,85,247,0.08)",
-                              fontSize: 11,
-                            }}
-                          >
-                            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-                              <span style={{ fontWeight: 700, color: "var(--shelfy-text)" }}>{nombre}</span>
-                              <span style={{ fontFamily: "monospace", color: "var(--shelfy-muted)", fontSize: 10 }}>
-                                ERP {pdv.id_cliente_erp || "—"}
-                              </span>
-                            </div>
-                            {pdv.nombre_fantasia && pdv.razon_social && pdv.nombre_fantasia !== pdv.razon_social && (
-                              <div style={{ color: "var(--shelfy-muted)", marginTop: 3 }}>
-                                Fantasía: {pdv.nombre_fantasia}
-                              </div>
-                            )}
-                            {tel && (
-                              <div style={{ color: "var(--shelfy-muted)", marginTop: 3 }}>Tel: {tel}</div>
-                            )}
-                            {(pdv.direccion || pdv.domicilio) && (
-                              <div style={{ color: "var(--shelfy-muted)", marginTop: 3 }}>
-                                Dir: {pdv.direccion || pdv.domicilio}
-                              </div>
-                            )}
-                            {pdv.fecha_alta && (
-                              <div style={{ color: "var(--shelfy-muted)", marginTop: 3 }}>
-                                Alta: {pdv.fecha_alta.slice(0, 10)}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })
-                    )}
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                    <MapPin size={14} color="#a855f7" style={{ flexShrink: 0 }} />
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: "var(--shelfy-text)" }}>
+                        Ruta {r.nombre}
+                      </div>
+                      <div style={{ fontSize: 10, color: "var(--shelfy-muted)", marginTop: 2 }}>
+                        {pdvs.length} PDV{pdvs.length !== 1 ? "s" : ""}
+                      </div>
+                    </div>
                   </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </motion.div>
-        );
-      })}
+                  <ChevronDown
+                    size={16}
+                    color="#7C3AED"
+                    style={{
+                      flexShrink: 0,
+                      transform: isOpen ? "rotate(180deg)" : "rotate(0deg)",
+                      transition: "transform 0.2s ease",
+                    }}
+                  />
+                </button>
+
+                <AnimatePresence initial={false}>
+                  {isOpen && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.2 }}
+                      style={{ overflow: "hidden" }}
+                    >
+                      <div
+                        style={{
+                          padding: "0 10px 10px",
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 8,
+                          borderTop: "1px solid rgba(168,85,247,0.1)",
+                        }}
+                      >
+                        {pdvs.length === 0 ? (
+                          <p style={{ fontSize: 12, color: "var(--shelfy-muted)", margin: "8px 4px 4px" }}>
+                            Sin PDVs en esta ruta
+                          </p>
+                        ) : (
+                          pdvs.map((pdv) => {
+                            const nombre = pdv.razon_social || pdv.nombre_fantasia || "Sin nombre";
+                            const tel = [pdv.telefono, pdv.celular].filter(Boolean).join(" · ");
+                            return (
+                              <div
+                                key={pdv.id_cliente_erp || nombre}
+                                style={{
+                                  padding: "10px 12px",
+                                  borderRadius: 8,
+                                  background: "white",
+                                  border: "1px solid rgba(168,85,247,0.08)",
+                                  fontSize: 11,
+                                  lineHeight: 1.45,
+                                }}
+                              >
+                                <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                                  <span style={{ fontWeight: 700, color: "var(--shelfy-text)" }}>{nombre}</span>
+                                  <span style={{ fontFamily: "monospace", color: "var(--shelfy-muted)", fontSize: 10 }}>
+                                    ERP {pdv.id_cliente_erp || "—"}
+                                  </span>
+                                </div>
+                                {pdv.nombre_fantasia && pdv.razon_social && pdv.nombre_fantasia !== pdv.razon_social && (
+                                  <div style={{ color: "var(--shelfy-muted)", marginTop: 4 }}>
+                                    Fantasía: {pdv.nombre_fantasia}
+                                  </div>
+                                )}
+                                {tel && (
+                                  <div style={{ color: "var(--shelfy-muted)", marginTop: 4 }}>Tel: {tel}</div>
+                                )}
+                                {(pdv.direccion || pdv.domicilio) && (
+                                  <div style={{ color: "var(--shelfy-muted)", marginTop: 4 }}>
+                                    Dir: {pdv.direccion || pdv.domicilio}
+                                  </div>
+                                )}
+                                {pdv.fecha_alta && (
+                                  <div style={{ color: "var(--shelfy-muted)", marginTop: 4 }}>
+                                    Alta: {formatFechaAR(pdv.fecha_alta)}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </motion.div>
+            );
+          })}
+        </div>
+      ))}
     </motion.div>
   );
 }
@@ -747,7 +750,7 @@ function TabAltas({ detalle }: { detalle: VendorDetalle }) {
                 }}
               >
                 <td style={{ padding: "7px 12px", color: "var(--shelfy-muted)", whiteSpace: "nowrap" }}>
-                  {a.fecha_alta?.slice(0, 10) ?? "-"}
+                  {formatFechaAR(a.fecha_alta)}
                 </td>
                 <td style={{ padding: "7px 12px", fontWeight: 600, color: "var(--shelfy-text)" }}>
                   {a.razon_social || a.nombre_fantasia || "-"}
@@ -813,37 +816,84 @@ function TabBultos({ detalle }: { detalle: VendorDetalle }) {
       </p>
     );
   }
-  const top20 = detalle.bultos_top.slice(0, 20);
-  const maxBultos = Math.max(...top20.map((b) => b.bultos));
+  const top = detalle.bultos_top.slice(0, 20);
+  const maxBultos = Math.max(...top.map((b) => b.bultos), 1);
 
   return (
-    <motion.div variants={containerVariants} initial="hidden" animate="show" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      <p style={{ fontSize: 11, color: "var(--shelfy-muted)", margin: "0 0 8px" }}>
-        Top {top20.length} artículos
+    <motion.div variants={containerVariants} initial="hidden" animate="show" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <p style={{ fontSize: 11, color: "var(--shelfy-muted)", margin: 0 }}>
+        Top {top.length} artículos por bultos vendidos
       </p>
-      <div style={{ height: Math.min(top20.length * 28 + 40, 360) }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={top20} layout="vertical" margin={{ top: 4, right: 48, bottom: 4, left: 4 }}>
-            <XAxis type="number" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
-            <YAxis
-              type="category" dataKey="articulo" width={140}
-              tick={{ fontSize: 10, fill: "var(--shelfy-muted)" }}
-              axisLine={false} tickLine={false}
-            />
-            <Tooltip
-              formatter={(v: number | undefined) => [`${v ?? 0} bultos`, "Cantidad"]}
-              contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid rgba(168,85,247,0.2)" }}
-            />
-            <Bar dataKey="bultos" radius={[0, 4, 4, 0]} isAnimationActive={true} animationDuration={600}>
-              {top20.map((entry, i) => (
-                <Cell
-                  key={entry.articulo}
-                  fill={`hsl(${270 - i * (60 / top20.length)}, 70%, ${55 + (entry.bultos / maxBultos) * 10}%)`}
-                />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {top.map((item, i) => (
+          <motion.div
+            key={`${item.articulo}-${i}`}
+            variants={itemVariants}
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 6,
+              padding: "10px 12px",
+              borderRadius: 10,
+              background: "rgba(168,85,247,0.04)",
+              border: "1px solid rgba(168,85,247,0.1)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+              <div style={{ display: "flex", gap: 10, minWidth: 0, flex: 1 }}>
+                <span
+                  style={{
+                    flexShrink: 0,
+                    width: 22,
+                    height: 22,
+                    borderRadius: 6,
+                    background: "rgba(124,58,237,0.12)",
+                    color: "#7C3AED",
+                    fontSize: 11,
+                    fontWeight: 800,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  {i + 1}
+                </span>
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: "var(--shelfy-text)",
+                    lineHeight: 1.45,
+                    wordBreak: "break-word",
+                  }}
+                >
+                  {item.articulo}
+                </p>
+              </div>
+              <span style={{ flexShrink: 0, fontSize: 14, fontWeight: 800, color: "#7C3AED" }}>
+                {item.bultos}
+              </span>
+            </div>
+            <div
+              style={{
+                height: 6,
+                borderRadius: 99,
+                background: "rgba(168,85,247,0.12)",
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  height: "100%",
+                  width: `${Math.max(8, (item.bultos / maxBultos) * 100)}%`,
+                  borderRadius: 99,
+                  background: "linear-gradient(90deg, #a855f7, #7C3AED)",
+                }}
+              />
+            </div>
+          </motion.div>
+        ))}
       </div>
     </motion.div>
   );

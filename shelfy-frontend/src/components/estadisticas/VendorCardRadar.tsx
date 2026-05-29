@@ -1,13 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
 import {
   RadarChart,
   Radar,
   PolarGrid,
   PolarAngleAxis,
+  ResponsiveContainer,
 } from "recharts";
-import { motion } from "framer-motion";
 import type { RadarKPI } from "@/lib/api";
 
 interface VendorCardRadarProps {
@@ -30,9 +29,9 @@ const AXES: { key: keyof RadarKPI; label: string }[] = [
 ];
 
 const SIZE_MAP = {
-  sm: { height: 148, fontSize: 8, dotR: 3, stroke: 1.8 },
-  md: { height: 168, fontSize: 9, dotR: 3.5, stroke: 1.8 },
-  lg: { height: 210, fontSize: 10, dotR: 4.5, stroke: 2 },
+  sm: { height: 148, outerRadius: "62%", fontSize: 8, dotR: 3, stroke: 1.8 },
+  md: { height: 168, outerRadius: "64%", fontSize: 9, dotR: 3.5, stroke: 1.8 },
+  lg: { height: 210, outerRadius: "66%", fontSize: 10, dotR: 4.5, stroke: 2 },
 };
 
 type ChartRow = {
@@ -89,54 +88,27 @@ export function VendorCardRadar({
   showOverlayCompania = false,
   showOverlayDist = false,
 }: VendorCardRadarProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [chartWidth, setChartWidth] = useState(0);
-  const [mounted, setMounted] = useState(false);
-
-  const { height, fontSize, dotR, stroke } = SIZE_MAP[size];
+  const { height, outerRadius, fontSize, dotR, stroke } = SIZE_MAP[size];
   const data = buildData(radar, radarCompania, radarDist);
   const hasVendorShape = data.some((d) => d.vendedor > 0);
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-
-    const measure = () => {
-      const w = Math.floor(el.getBoundingClientRect().width);
-      if (w > 0) setChartWidth(w);
-    };
-
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [size]);
-
   return (
-    <motion.div
-      ref={containerRef}
-      initial={{ opacity: 0 }}
-      animate={{ opacity: mounted ? 1 : 0 }}
-      transition={{ duration: 0.25, delay: 0.04 }}
+    <div
       style={{
         width: "100%",
         height,
         minHeight: height,
         flexShrink: 0,
         position: "relative",
-        overflow: "visible",
       }}
     >
-      {chartWidth > 0 && (
+      <ResponsiveContainer width="100%" height={height}>
         <RadarChart
-          width={chartWidth}
-          height={height}
           data={data}
-          margin={{ top: 12, right: 18, bottom: 12, left: 18 }}
+          cx="50%"
+          cy="50%"
+          outerRadius={outerRadius}
+          margin={{ top: 14, right: 22, bottom: 14, left: 22 }}
         >
           <PolarGrid stroke="rgba(148,163,184,0.35)" strokeWidth={1} gridType="polygon" />
           <PolarAngleAxis
@@ -156,8 +128,7 @@ export function VendorCardRadar({
               fill="#F59E0B"
               fillOpacity={0.12}
               dot={false}
-              isAnimationActive
-              animationDuration={500}
+              isAnimationActive={false}
             />
           )}
 
@@ -171,8 +142,7 @@ export function VendorCardRadar({
               fill="#7C3AED"
               fillOpacity={0.1}
               dot={false}
-              isAnimationActive
-              animationDuration={500}
+              isAnimationActive={false}
             />
           )}
 
@@ -184,13 +154,10 @@ export function VendorCardRadar({
             fill={hasVendorShape ? "#22d3ee" : "#a855f7"}
             fillOpacity={0.45}
             dot={{ r: dotR, fill: "#e0f2fe", stroke: "#0891b2", strokeWidth: 1 }}
-            isAnimationActive
-            animationBegin={80}
-            animationDuration={650}
-            animationEasing="ease-out"
+            isAnimationActive={false}
           />
         </RadarChart>
-      )}
-    </motion.div>
+      </ResponsiveContainer>
+    </div>
   );
 }

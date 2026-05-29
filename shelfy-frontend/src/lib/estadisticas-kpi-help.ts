@@ -20,7 +20,7 @@ export const ESTADISTICAS_KPI_HELP: EstadisticasKpiHelpItem[] = [
     key: "pdvs",
     label: "PDVs",
     description:
-      "Cantidad de PDVs NO anulados en padrón asignados a las rutas del vendedor. Son los puntos de venta que tiene en cartera hoy (sin contar anulados del ERP).",
+      "Cantidad de PDVs en padrón asignados a las rutas del vendedor (excluye anulados del ERP).",
   },
   {
     key: "altas",
@@ -50,7 +50,7 @@ export const ESTADISTICAS_KPI_HELP: EstadisticasKpiHelpItem[] = [
     key: "cobertura",
     label: "Cobertura",
     description:
-      "Porcentaje de PDVs NO anulados del vendedor que tuvieron al menos una exhibición lógica en el período. Mide qué parte de la cartera fue exhibida.",
+      "Porcentaje de PDVs del vendedor que tuvieron al menos una exhibición lógica en el período.",
   },
   {
     key: "objetivos",

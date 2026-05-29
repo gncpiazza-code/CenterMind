@@ -159,8 +159,16 @@ export function VendorCard({ vendor, isActive, overlayMode, variants, compact = 
           )}
         </div>
 
-        {/* Radar */}
-        <div style={{ flex: 1, padding: "0 6px", minHeight: 0, position: "relative", zIndex: 1 }}>
+        {/* Radar — altura fija (Chrome colapsa con flex:1 + ResponsiveContainer %) */}
+        <div
+          style={{
+            padding: "0 6px",
+            flexShrink: 0,
+            minHeight: 148,
+            position: "relative",
+            zIndex: 1,
+          }}
+        >
           <VendorCardRadar
             radar={vendor.radar}
             radarCompania={vendor.radar_ideal_compania}

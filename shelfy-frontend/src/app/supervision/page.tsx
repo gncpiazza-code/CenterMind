@@ -556,7 +556,7 @@ export default function SupervisionPage() {
                                   >
                                     <span className="inline-flex items-center gap-0.5">
                                       Antig.
-                                      <ColumnHelp text="Días desde la última compra según padrón. Si no hay fecha de compra, se usa la mora reportada por CHESS." />
+                                      <ColumnHelp text="Antigüedad de la deuda en días, según el reporte de cuentas corrientes (CHESS). Indica hace cuánto está impago el saldo del cliente." />
                                       <CCSortIndicator active={ccSort === "antiguedad"} dir={ccSortDir} />
                                     </span>
                                   </TableHead>

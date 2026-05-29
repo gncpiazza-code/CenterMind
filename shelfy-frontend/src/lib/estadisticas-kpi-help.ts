@@ -20,7 +20,7 @@ export const ESTADISTICAS_KPI_HELP: EstadisticasKpiHelpItem[] = [
     key: "pdvs",
     label: "PDVs",
     description:
-      "Cantidad de clientes activos en padrón asignados a las rutas del vendedor. Son los puntos de venta que tiene en cartera hoy.",
+      "Cantidad de PDVs NO anulados en padrón asignados a las rutas del vendedor. Son los puntos de venta que tiene en cartera hoy (sin contar anulados del ERP).",
   },
   {
     key: "altas",
@@ -50,13 +50,13 @@ export const ESTADISTICAS_KPI_HELP: EstadisticasKpiHelpItem[] = [
     key: "cobertura",
     label: "Cobertura",
     description:
-      "Porcentaje de PDVs activos del vendedor que tuvieron al menos una exhibición lógica en el período. Mide qué parte de la cartera fue exhibida.",
+      "Porcentaje de PDVs NO anulados del vendedor que tuvieron al menos una exhibición lógica en el período. Mide qué parte de la cartera fue exhibida.",
   },
   {
     key: "objetivos",
     label: "Objetivos",
     description:
-      "Porcentaje de objetivos activos cumplidos del vendedor en el período. Solo cuenta objetivos ya lanzados y vigentes (fecha objetivo ≥ hoy).",
+      "Porcentaje de objetivos vigentes cumplidos del vendedor en el período. Solo cuenta objetivos ya lanzados (fecha objetivo ≥ hoy).",
   },
 ];
 

@@ -19,6 +19,7 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   MapPin,
   ShoppingBag,
   Star,
@@ -197,6 +198,25 @@ export function VendorCardExpanded({
             }}
           />
 
+          {/* Vendedor ideal — fuera del panel lateral */}
+          <div
+            style={{
+              flexShrink: 0,
+              padding: "8px 20px",
+              borderBottom: "1px solid rgba(168,85,247,0.1)",
+              background: "rgba(250,245,255,0.85)",
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 8,
+            }}
+          >
+            <KpiHelpTip text={VENDEDOR_IDEAL_HELP} side="bottom" size={14} />
+            <p style={{ margin: 0, fontSize: 11, lineHeight: 1.45, color: "var(--shelfy-muted)" }}>
+              <span style={{ fontWeight: 700, color: "#7C3AED" }}>Vendedor ideal: </span>
+              {VENDEDOR_IDEAL_HELP}
+            </p>
+          </div>
+
           {/* Main layout */}
           <div style={{ display: "flex", flex: 1, overflow: "hidden", minHeight: 0 }}>
             {/* Left column */}
@@ -209,7 +229,7 @@ export function VendorCardExpanded({
                 background: "linear-gradient(180deg, #faf5ff 0%, white 100%)",
                 display: "flex",
                 flexDirection: "column",
-                gap: 16,
+                gap: 12,
                 overflowY: "auto",
               }}
             >
@@ -245,39 +265,27 @@ export function VendorCardExpanded({
                 </div>
               </div>
 
-              {/* Radar */}
-              <VendorCardRadar
-                radar={vendor.radar}
-                radarCompania={vendor.radar_ideal_compania}
-                radarDist={vendor.radar_ideal_dist}
-                size="lg"
-                showOverlayCompania={overlayMode === "compania" || overlayMode === "ambos"}
-                showOverlayDist={overlayMode === "distribuidor" || overlayMode === "ambos"}
-              />
-
-              {/* Overlay toggles */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {/* Overlay toggles — arriba del radar */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
                   <p style={{ fontSize: 9, fontWeight: 700, color: "var(--shelfy-muted)", textTransform: "uppercase", letterSpacing: "0.08em", margin: 0 }}>
                     Overlay ideal
                   </p>
                   <KpiHelpTip text={OVERLAY_IDEAL_HELP} side="top" size={12} />
                 </div>
-                <div
-                  style={{
-                    padding: "8px 10px",
-                    borderRadius: 8,
-                    background: "rgba(168,85,247,0.06)",
-                    border: "1px solid rgba(168,85,247,0.12)",
-                    fontSize: 10,
-                    lineHeight: 1.45,
-                    color: "var(--shelfy-muted)",
-                  }}
-                >
-                  <span style={{ fontWeight: 700, color: "#7C3AED" }}>Vendedor ideal: </span>
-                  {VENDEDOR_IDEAL_HELP}
-                </div>
                 <OverlayToggle />
+              </div>
+
+              {/* Radar */}
+              <div style={{ flexShrink: 0, width: "100%", minHeight: 210 }}>
+                <VendorCardRadar
+                  radar={vendor.radar}
+                  radarCompania={vendor.radar_ideal_compania}
+                  radarDist={vendor.radar_ideal_dist}
+                  size="lg"
+                  showOverlayCompania={overlayMode === "compania" || overlayMode === "ambos"}
+                  showOverlayDist={overlayMode === "distribuidor" || overlayMode === "ambos"}
+                />
               </div>
 
               {/* Raw KPIs */}
@@ -533,6 +541,8 @@ function OverlayToggle() {
 // ── Tab components ────────────────────────────────────────────────────────────
 
 function TabPDVs({ detalle }: { detalle: VendorDetalle }) {
+  const [openRutaId, setOpenRutaId] = useState<number | null>(null);
+
   if (!detalle.rutas.length) {
     return (
       <p style={{ color: "var(--shelfy-muted)", fontSize: 13, textAlign: "center", marginTop: 32 }}>
@@ -540,36 +550,151 @@ function TabPDVs({ detalle }: { detalle: VendorDetalle }) {
       </p>
     );
   }
+
+  const totalPdvs = detalle.rutas.reduce((n, r) => n + (r.total_pdvs ?? r.pdvs?.length ?? 0), 0);
+
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="show" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       <p style={{ fontSize: 11, color: "var(--shelfy-muted)", margin: "0 0 8px" }}>
-        {detalle.rutas.length} ruta{detalle.rutas.length !== 1 ? "s" : ""}
+        {detalle.rutas.length} ruta{detalle.rutas.length !== 1 ? "s" : ""} · {totalPdvs} PDVs NO anulados
       </p>
-      {detalle.rutas.map((r) => (
-        <motion.div
-          key={r.id_ruta}
-          variants={itemVariants}
-          style={{
-            display: "flex", justifyContent: "space-between", alignItems: "center",
-            padding: "8px 12px", borderRadius: 10,
-            background: "rgba(168,85,247,0.05)",
-            border: "1px solid rgba(168,85,247,0.1)",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <MapPin size={14} color="#a855f7" />
-            <span style={{ fontSize: 13, fontWeight: 600, color: "var(--shelfy-text)" }}>{r.nombre}</span>
-          </div>
-          <span
+      {detalle.rutas.map((r) => {
+        const pdvs = r.pdvs ?? [];
+        const isOpen = openRutaId === r.id_ruta;
+        return (
+          <motion.div
+            key={r.id_ruta}
+            variants={itemVariants}
             style={{
-              fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 6,
-              background: "rgba(168,85,247,0.12)", color: "#7C3AED",
+              borderRadius: 10,
+              background: "rgba(168,85,247,0.05)",
+              border: "1px solid rgba(168,85,247,0.12)",
+              overflow: "hidden",
             }}
           >
-            {r.dia}
-          </span>
-        </motion.div>
-      ))}
+            <button
+              type="button"
+              onClick={() => setOpenRutaId(isOpen ? null : r.id_ruta)}
+              style={{
+                width: "100%",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: 8,
+                padding: "10px 12px",
+                background: isOpen ? "rgba(168,85,247,0.08)" : "transparent",
+                border: "none",
+                cursor: "pointer",
+                textAlign: "left",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                <MapPin size={14} color="#a855f7" style={{ flexShrink: 0 }} />
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "var(--shelfy-text)" }}>
+                    {r.nombre}
+                  </div>
+                  <div style={{ fontSize: 10, color: "var(--shelfy-muted)", marginTop: 2 }}>
+                    {pdvs.length} PDV{pdvs.length !== 1 ? "s" : ""} NO anulados
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                <span
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    padding: "2px 8px",
+                    borderRadius: 6,
+                    background: "rgba(168,85,247,0.12)",
+                    color: "#7C3AED",
+                  }}
+                >
+                  {r.dia || "—"}
+                </span>
+                <ChevronDown
+                  size={16}
+                  color="#7C3AED"
+                  style={{
+                    transform: isOpen ? "rotate(180deg)" : "rotate(0deg)",
+                    transition: "transform 0.2s ease",
+                  }}
+                />
+              </div>
+            </button>
+
+            <AnimatePresence initial={false}>
+              {isOpen && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.2 }}
+                  style={{ overflow: "hidden" }}
+                >
+                  <div
+                    style={{
+                      padding: "0 10px 10px",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 6,
+                      borderTop: "1px solid rgba(168,85,247,0.1)",
+                    }}
+                  >
+                    {pdvs.length === 0 ? (
+                      <p style={{ fontSize: 12, color: "var(--shelfy-muted)", margin: "8px 4px 4px" }}>
+                        Sin PDVs en esta ruta
+                      </p>
+                    ) : (
+                      pdvs.map((pdv) => {
+                        const nombre = pdv.razon_social || pdv.nombre_fantasia || "Sin nombre";
+                        const tel = [pdv.telefono, pdv.celular].filter(Boolean).join(" · ");
+                        return (
+                          <div
+                            key={pdv.id_cliente_erp || nombre}
+                            style={{
+                              padding: "8px 10px",
+                              borderRadius: 8,
+                              background: "white",
+                              border: "1px solid rgba(168,85,247,0.08)",
+                              fontSize: 11,
+                            }}
+                          >
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                              <span style={{ fontWeight: 700, color: "var(--shelfy-text)" }}>{nombre}</span>
+                              <span style={{ fontFamily: "monospace", color: "var(--shelfy-muted)", fontSize: 10 }}>
+                                ERP {pdv.id_cliente_erp || "—"}
+                              </span>
+                            </div>
+                            {pdv.nombre_fantasia && pdv.razon_social && pdv.nombre_fantasia !== pdv.razon_social && (
+                              <div style={{ color: "var(--shelfy-muted)", marginTop: 3 }}>
+                                Fantasía: {pdv.nombre_fantasia}
+                              </div>
+                            )}
+                            {tel && (
+                              <div style={{ color: "var(--shelfy-muted)", marginTop: 3 }}>Tel: {tel}</div>
+                            )}
+                            {(pdv.direccion || pdv.domicilio) && (
+                              <div style={{ color: "var(--shelfy-muted)", marginTop: 3 }}>
+                                Dir: {pdv.direccion || pdv.domicilio}
+                              </div>
+                            )}
+                            {pdv.fecha_alta && (
+                              <div style={{ color: "var(--shelfy-muted)", marginTop: 3 }}>
+                                Alta: {pdv.fecha_alta.slice(0, 10)}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </motion.div>
+        );
+      })}
     </motion.div>
   );
 }

@@ -3095,9 +3095,29 @@ export interface VendorCartaResumen {
   has_ideal_distribuidora?: boolean;
 }
 
+export interface VendorDetallePdv {
+  id_cliente_erp: string;
+  razon_social: string;
+  nombre_fantasia: string;
+  telefono: string;
+  celular: string;
+  domicilio: string;
+  localidad: string;
+  direccion: string;
+  fecha_alta: string;
+}
+
+export interface VendorDetalleRuta {
+  id_ruta: number;
+  nombre: string;
+  dia: string;
+  total_pdvs: number;
+  pdvs: VendorDetallePdv[];
+}
+
 export interface VendorDetalle {
   id_vendedor: string;
-  rutas: { id_ruta: number; nombre: string; dia: string }[];
+  rutas: VendorDetalleRuta[];
   altas: {
     fecha_alta: string;
     id_ruta: number;

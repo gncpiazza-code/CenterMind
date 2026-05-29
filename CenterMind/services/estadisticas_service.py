@@ -699,6 +699,49 @@ def build_carta_resumen(dist_id: int, meses: list[str], sucursal: str | None = N
     return cards
 
 
+def _normalize_dia_semana(dia: str) -> str:
+    import unicodedata
+    s = (dia or "").strip().lower()
+    return "".join(c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn")
+
+
+_DIA_SEMANA_ORDEN = {
+    "lunes": 1,
+    "martes": 2,
+    "miercoles": 3,
+    "jueves": 4,
+    "viernes": 5,
+    "sabado": 6,
+    "domingo": 7,
+    "variable": 98,
+    "": 99,
+}
+
+
+def _dia_semana_sort_key(dia: str) -> tuple[int, str]:
+    norm = _normalize_dia_semana(dia)
+    return (_DIA_SEMANA_ORDEN.get(norm, 50), norm)
+
+
+def _pdv_detalle_row(row: dict) -> dict:
+    tel = str(row.get("telefono") or "").strip()
+    cel = str(row.get("celular") or "").strip()
+    dom = str(row.get("domicilio") or "").strip()
+    loc = str(row.get("localidad") or "").strip()
+    direccion = ", ".join(x for x in (dom, loc) if x)
+    return {
+        "id_cliente_erp": str(row.get("id_cliente_erp") or ""),
+        "razon_social": row.get("nombre_razon_social") or "",
+        "nombre_fantasia": row.get("nombre_fantasia") or "",
+        "telefono": tel,
+        "celular": cel,
+        "domicilio": dom,
+        "localidad": loc,
+        "direccion": direccion,
+        "fecha_alta": (row.get("fecha_alta") or "")[:10],
+    }
+
+
 def build_detalle_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) -> dict:
     """Lazy detail for expanded card: routes/days, altas, exhibiciones, bultos, compradores."""
     meses_set = set(meses)
@@ -707,15 +750,49 @@ def build_detalle_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) -> 
     t_pdv = tenant_table_name("clientes_pdv_v2", dist_id)
 
     rutas_rows = _fetch_rutas_vendedor(dist_id, id_vendedor, "id_ruta,id_ruta_erp,dia_semana")
-    rutas = [
+    rutas_base = [
         {
             "id_ruta": r["id_ruta"],
             "nombre": str(r.get("id_ruta_erp") or f"Ruta {r.get('id_ruta')}"),
-            "dia": r.get("dia_semana", ""),
+            "dia": (r.get("dia_semana") or "").strip() or "Variable",
         }
         for r in rutas_rows
     ]
-    ruta_ids = [r["id_ruta"] for r in rutas if r["id_ruta"]]
+    ruta_ids = [r["id_ruta"] for r in rutas_base if r.get("id_ruta")]
+
+    pdvs_by_ruta: dict[int, list] = defaultdict(list)
+    if ruta_ids:
+        for i in range(0, len(ruta_ids), 50):
+            batch_ids = ruta_ids[i : i + 50]
+            q = (
+                sb.table(t_pdv)
+                .select(
+                    "id_ruta,id_cliente_erp,nombre_razon_social,nombre_fantasia,"
+                    "telefono,celular,domicilio,localidad,fecha_alta"
+                )
+                .eq("id_distribuidor", dist_id)
+                .in_("id_ruta", batch_ids)
+                .or_(_PADRON_VISIBLE_OR)
+            )
+            rows = q.execute().data or []
+            for row in rows:
+                rid = row.get("id_ruta")
+                if rid is None:
+                    continue
+                pdvs_by_ruta[int(rid)].append(_pdv_detalle_row(row))
+
+    rutas = []
+    for r in rutas_base:
+        rid = int(r["id_ruta"])
+        pdvs = sorted(
+            pdvs_by_ruta.get(rid, []),
+            key=lambda p: (
+                (p.get("razon_social") or p.get("nombre_fantasia") or p.get("id_cliente_erp") or "").lower()
+            ),
+        )
+        rutas.append({**r, "total_pdvs": len(pdvs), "pdvs": pdvs})
+
+    rutas.sort(key=lambda x: (_dia_semana_sort_key(x.get("dia", "")), x.get("nombre", "")))
 
     # Altas
     altas = []

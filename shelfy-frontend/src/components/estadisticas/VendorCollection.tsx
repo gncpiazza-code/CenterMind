@@ -1,17 +1,19 @@
 "use client";
 
-import { useRef, useEffect, useState, useCallback } from "react";
+import { useRef, useEffect, useState, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { Variants } from "framer-motion";
 import { VendorCard } from "./VendorCard";
 import { VendorCardExpanded } from "./VendorCardExpanded";
 import { useEstadisticasStore } from "@/store/useEstadisticasStore";
 import type { VendorCartaResumen } from "@/lib/api";
+import { computeStatLeadersByVendor } from "@/lib/vendor-card-fusion-kpi";
 
 interface VendorCollectionProps {
   vendors: VendorCartaResumen[];
   distId: number;
   meses: string[];
+  nombreDistribuidora?: string | null;
 }
 
 const containerVariants: Variants = {
@@ -28,9 +30,14 @@ const cardVariants: Variants = {
 };
 
 const WINDOW_BUFFER = 20;
-const CARD_W = 272; // ~260 card + gap for scroll mode
+const CARD_W = 276; // 260 card + 16 gap (scroll)
 
-export function VendorCollection({ vendors, distId, meses }: VendorCollectionProps) {
+export function VendorCollection({
+  vendors,
+  distId,
+  meses,
+  nombreDistribuidora,
+}: VendorCollectionProps) {
   const {
     activeVendorId,
     setActiveVendorId,
@@ -52,6 +59,11 @@ export function VendorCollection({ vendors, distId, meses }: VendorCollectionPro
   const visibleVendors = useScrollMode
     ? filtered.slice(windowedStart, windowedEnd)
     : filtered;
+
+  const leadersByVendor = useMemo(
+    () => computeStatLeadersByVendor(filtered),
+    [filtered],
+  );
 
   const handleScroll = useCallback(() => {
     if (scrollRef.current) {
@@ -91,7 +103,7 @@ export function VendorCollection({ vendors, distId, meses }: VendorCollectionPro
           display: useScrollMode ? "flex" : "grid",
           gridTemplateColumns: useScrollMode
             ? undefined
-            : "repeat(auto-fill, minmax(260px, 1fr))",
+            : "repeat(auto-fill, minmax(276px, 1fr))",
           gap: useScrollMode ? 16 : 20,
           overflowX: useScrollMode ? "auto" : "visible",
           overflowY: "visible",
@@ -125,6 +137,8 @@ export function VendorCollection({ vendors, distId, meses }: VendorCollectionPro
               overlayMode={overlayMode}
               variants={cardVariants}
               compact={useScrollMode}
+              nombreDistribuidora={nombreDistribuidora}
+              statLeaders={leadersByVendor.get(vendor.id_vendedor) ?? []}
             />
           </motion.div>
         ))}

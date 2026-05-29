@@ -438,6 +438,7 @@ export default function EstadisticasPage() {
                     vendors={vendors}
                     distId={distId}
                     meses={mesesSeleccionados}
+                    nombreDistribuidora={user?.nombre_empresa}
                   />
                 </motion.div>
               )}

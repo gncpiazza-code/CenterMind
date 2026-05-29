@@ -96,7 +96,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const isPublicPath = useCallback((pathname: string) => {
-    return pathname === "/login" || pathname === "/";
+    return (
+      pathname === "/login" ||
+      pathname === "/" ||
+      pathname.startsWith("/estadisticas/preview-fusion")
+    );
   }, []);
 
   useEffect(() => {

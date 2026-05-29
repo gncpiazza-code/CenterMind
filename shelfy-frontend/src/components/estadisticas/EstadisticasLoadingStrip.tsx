@@ -1,87 +1,44 @@
 "use client";
 
 import { motion } from "framer-motion";
+import { VENDOR_CARD_FACE_H, VENDOR_CARD_W } from "@/lib/vendor-card-tier";
 
 function ShimmerCard() {
   return (
-    <div
-      style={{
-        width: 188,
-        height: 268,
-        flexShrink: 0,
-        borderRadius: 18,
-        padding: 3,
-        background: "linear-gradient(145deg, #4c1d95 0%, #312e81 50%, #1e1b4b 100%)",
-        position: "relative",
-        overflow: "hidden",
-      }}
-    >
+    <div style={{ width: VENDOR_CARD_W, flexShrink: 0 }}>
       <div
         style={{
-          position: "absolute",
-          inset: 0,
-          background:
-            "linear-gradient(105deg, transparent 30%, rgba(255,255,255,0.12) 50%, transparent 70%)",
-          animation: "estad-shimmer 1.4s ease-in-out infinite",
-        }}
-      />
-      <div
-        style={{
-          height: "100%",
-          borderRadius: 15,
-          background: "linear-gradient(180deg, #1e1b4b 0%, #0f172a 100%)",
-          display: "flex",
-          flexDirection: "column",
-          padding: 10,
-          gap: 8,
+          height: VENDOR_CARD_FACE_H,
+          borderRadius: 16,
+          background: "linear-gradient(145deg, #fff176 0%, #d4a017 55%, #c6a600 100%)",
+          position: "relative",
+          overflow: "hidden",
         }}
       >
-        <div style={{ display: "flex", justifyContent: "space-between" }}>
-          <div
-            style={{
-              width: 40,
-              height: 40,
-              borderRadius: 10,
-              background: "rgba(255,255,255,0.08)",
-            }}
-          />
-          <div
-            style={{
-              width: 56,
-              height: 14,
-              borderRadius: 6,
-              background: "rgba(255,255,255,0.06)",
-            }}
-          />
-        </div>
+        <div className="estad-fifa-shimmer-beam" style={{ position: "absolute", inset: 0 }} />
         <div
           style={{
-            flex: 1,
-            borderRadius: 12,
-            background: "rgba(255,255,255,0.05)",
-            border: "1px dashed rgba(168,85,247,0.25)",
+            height: "100%",
+            padding: 12,
+            display: "grid",
+            gridTemplateRows: "auto 162px auto auto",
+            gap: 8,
           }}
-        />
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 4 }}>
-          {[0, 1, 2].map((i) => (
-            <div
-              key={i}
-              style={{
-                height: 28,
-                borderRadius: 6,
-                background: "rgba(255,255,255,0.06)",
-              }}
-            />
-          ))}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <div style={{ width: 44, height: 44, borderRadius: 8, background: "rgba(0,0,0,0.08)" }} />
+            <div style={{ width: 72, height: 20, borderRadius: 99, background: "rgba(93,84,38,0.5)" }} />
+          </div>
+          <div style={{ borderRadius: 12, background: "rgba(93,84,38,0.55)" }} />
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 5 }}>
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} style={{ height: 36, borderRadius: 8, background: "rgba(93,84,38,0.45)" }} />
+            ))}
+          </div>
+          <div style={{ height: 32, borderRadius: 10, background: "rgba(255,255,255,0.35)" }} />
         </div>
-        <div
-          style={{
-            height: 36,
-            borderRadius: 8,
-            background: "rgba(255,255,255,0.06)",
-          }}
-        />
       </div>
+      <div style={{ marginTop: 8, height: 36, borderRadius: 10, background: "#0f172a", opacity: 0.7 }} />
     </div>
   );
 }
@@ -147,12 +104,12 @@ export function EstadisticasLoadingStrip({
         animate={{ opacity: 1 }}
         style={{
           display: "flex",
-          gap: 12,
-          padding: "4px 20px 20px",
+          gap: 16,
+          padding: "4px 24px 20px",
           overflowX: "hidden",
         }}
       >
-        {Array.from({ length: 8 }).map((_, i) => (
+        {Array.from({ length: 6 }).map((_, i) => (
           <motion.div
             key={i}
             initial={{ opacity: 0, y: 12 }}
@@ -165,9 +122,29 @@ export function EstadisticasLoadingStrip({
       </motion.div>
 
       <style>{`
-        @keyframes estad-shimmer {
-          0% { transform: translateX(-100%); }
-          100% { transform: translateX(100%); }
+        .estad-fifa-shimmer-beam::after {
+          content: "";
+          position: absolute;
+          top: -40%;
+          left: -80%;
+          width: 55%;
+          height: 180%;
+          background: linear-gradient(
+            105deg,
+            transparent 38%,
+            rgba(255,255,255,0.08) 44%,
+            rgba(255,255,255,0.35) 50%,
+            rgba(255,255,255,0.08) 56%,
+            transparent 62%
+          );
+          animation: estad-fifa-sweep 2.2s ease-in-out infinite;
+          transform: skewX(-14deg);
+        }
+        @keyframes estad-fifa-sweep {
+          0%, 12% { transform: translateX(0) skewX(-14deg); opacity: 0; }
+          40% { opacity: 1; }
+          70% { transform: translateX(280%) skewX(-14deg); opacity: 1; }
+          88%, 100% { transform: translateX(280%) skewX(-14deg); opacity: 0; }
         }
       `}</style>
     </div>

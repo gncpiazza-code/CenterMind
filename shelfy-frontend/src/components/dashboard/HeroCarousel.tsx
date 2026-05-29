@@ -13,7 +13,7 @@ import Link from 'next/link';
 interface HeroCarouselProps {
   items: UltimaEvaluada[];
   compact?: boolean;
-  isImmersive?: boolean;
+  isDark?: boolean;
 }
 
 const AUTOPLAY_MS = 8000;
@@ -52,12 +52,12 @@ function HeroSlide({
   item,
   compact,
   progressKey,
-  isImmersive = false,
+  isDark = false,
 }: {
   item: UltimaEvaluada;
   compact?: boolean;
   progressKey: number;
-  isImmersive?: boolean;
+  isDark?: boolean;
 }) {
   const [imgErr, setImgErr] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -105,7 +105,7 @@ function HeroSlide({
           </div>
         )}
         <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/55 to-transparent z-10 pointer-events-none" />
-        {!isImmersive && (
+        {!isDark && (
           <div className="absolute inset-0 bg-gradient-to-b from-violet-950/25 via-transparent to-transparent z-10 pointer-events-none" />
         )}
       </div>
@@ -164,7 +164,7 @@ function HeroSlide({
   );
 }
 
-export function HeroCarousel({ items, compact = false, isImmersive = false }: HeroCarouselProps) {
+export function HeroCarousel({ items, compact = false, isDark = false }: HeroCarouselProps) {
   const filtered = items.filter(
     (e) => !/rechaz/i.test(e.estado) && isUltimaCoherenteConVendedor(e),
   );
@@ -232,7 +232,7 @@ export function HeroCarousel({ items, compact = false, isImmersive = false }: He
           item={item}
           compact={compact}
           progressKey={progressKey}
-          isImmersive={isImmersive}
+          isDark={isDark}
         />
       </AnimatePresence>
 

@@ -23,7 +23,7 @@ interface DashboardPeriodPillsProps {
   customMonth?: number;
   onChange: (preset: PeriodPreset, year?: number, month?: number) => void;
   className?: string;
-  isImmersive?: boolean;
+  isDark?: boolean;
 }
 
 export function DashboardPeriodPills({
@@ -32,7 +32,7 @@ export function DashboardPeriodPills({
   customMonth,
   onChange,
   className,
-  isImmersive = false,
+  isDark = false,
 }: DashboardPeriodPillsProps) {
   const now = new Date();
   const [popYear, setPopYear]   = useState(customYear  ?? now.getFullYear());
@@ -49,8 +49,8 @@ export function DashboardPeriodPills({
   }
 
   const pillBase = "h-6 px-2.5 text-[9px] font-black uppercase tracking-widest rounded-lg border transition-all duration-150";
-  const pillOn   = isImmersive ? "bg-slate-200 text-slate-900 border-slate-200" : "bg-slate-800 text-white border-slate-800";
-  const pillOff  = isImmersive
+  const pillOn   = isDark ? "bg-slate-200 text-slate-900 border-slate-200" : "bg-slate-800 text-white border-slate-800";
+  const pillOff  = isDark
     ? "bg-transparent text-slate-400 border-slate-600 hover:bg-slate-800 hover:text-slate-200 hover:border-slate-500"
     : "bg-white/0 text-slate-500 border-slate-200/60 hover:bg-slate-50 hover:text-slate-800 hover:border-slate-300";
 

@@ -31,6 +31,7 @@ import {
   resolvePeriodBounds,
 } from "@/lib/dashboard-period";
 import { filterUltimasCoherentes } from "@/lib/dashboard-ultimas";
+import { loadDashboardTheme, saveDashboardTheme } from "@/lib/dashboard-theme";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -56,8 +57,23 @@ export default function DashboardPage() {
   // Sucursal
   const [sucursalFiltro, setSucursalFiltro] = useState("");
 
-  // Pantalla completa
-  const [isImmersive, setIsImmersive] = useState(false);
+  // Pantalla completa + tema
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isDark, setIsDark] = useState(false);
+
+  useEffect(() => {
+    setIsDark(loadDashboardTheme() === "dark");
+  }, []);
+
+  const toggleTheme = useCallback(() => {
+    setIsDark((prev) => {
+      const next = !prev;
+      saveDashboardTheme(next ? "dark" : "light");
+      return next;
+    });
+  }, []);
+
+  const toggleFullscreen = useCallback(() => setIsFullscreen((v) => !v), []);
 
   const bounds  = resolvePeriodBounds(periodPreset, customYear, customMonth);
   const periodo = bounds.apiPeriodo;
@@ -76,8 +92,6 @@ export default function DashboardPage() {
     setCustomMonth(month);
     setSucursalFiltro("");
   }
-
-  const toggleImmersive = useCallback(() => setIsImmersive(v => !v), []);
 
   // Queries
   const { data: kpis, isLoading: loadingKpis, isFetching: fetchingKpis, error: errorKpis } = useQuery<KPIs>({
@@ -173,19 +187,20 @@ export default function DashboardPage() {
   return (
     <div className={cn(
       "flex h-screen overflow-hidden font-sans",
-      isImmersive && "fixed inset-0 z-50 bg-slate-950",
+      isFullscreen && "fixed inset-0 z-50",
+      isDark && "bg-slate-950",
     )} style={{
-      background: isImmersive
+      background: isDark
         ? "#020617"
         : "linear-gradient(145deg, #f8f7ff 0%, #f1f5f9 42%, #eef2ff 100%)",
     }}>
-      {!isImmersive && <Sidebar />}
-      {!isImmersive && <BottomNav />}
+      {!isFullscreen && <Sidebar />}
+      {!isFullscreen && <BottomNav />}
 
       <div className="flex flex-col flex-1 min-w-0 relative h-full">
 
-        {/* Blobs decorativos — ocultos en pantalla completa (proyección TV) */}
-        {!isImmersive && (
+        {/* Blobs decorativos — solo en modo claro */}
+        {!isDark && (
           <>
             <div className="absolute top-[-15%] right-[-8%] w-[45%] h-[45%] rounded-full bg-violet-400/20 blur-[120px] pointer-events-none" />
             <div className="absolute bottom-[-10%] left-[-8%] w-[35%] h-[35%] rounded-full bg-indigo-400/15 blur-[100px] pointer-events-none" />
@@ -193,11 +208,11 @@ export default function DashboardPage() {
           </>
         )}
 
-        {!isImmersive && <Topbar title="Dashboard" live />}
+        {!isFullscreen && <Topbar title="Dashboard" live />}
 
         <main className={cn(
           "flex-1 flex flex-col min-h-0 overflow-hidden p-4 md:p-6 pb-20 md:pb-4 w-full max-w-[1800px] mx-auto z-10",
-          isImmersive && "pb-4",
+          isFullscreen && "pb-4",
         )}>
 
           {error && (
@@ -221,7 +236,7 @@ export default function DashboardPage() {
               kpis={kpis}
               evolucion={evolucion}
               loading={loadingKpis}
-              isImmersive={isImmersive}
+              isDark={isDark}
             />
           </motion.div>
 
@@ -241,13 +256,14 @@ export default function DashboardPage() {
               sucursalFiltro={sucursalFiltro}
               sucursales={sucursales}
               onSucursal={setSucursalFiltro}
-              isImmersive={isImmersive}
+              isDark={isDark}
+              onToggleTheme={toggleTheme}
             />
           </motion.div>
 
           {/* Layout 25% hero / 75% ranking */}
           <div className="relative flex-1 min-h-0 w-full">
-            {!isImmersive && (
+            {!isDark && (
               <div className="hidden md:block absolute left-[25%] top-0 bottom-0 w-px -translate-x-1/2 bg-gradient-to-b from-transparent via-violet-300/50 to-transparent pointer-events-none z-10" />
             )}
 
@@ -263,24 +279,27 @@ export default function DashboardPage() {
                 {isFetchingLeft && (
                   <div className={cn(
                     "absolute inset-0 rounded-3xl z-50 flex items-center justify-center pointer-events-none",
-                    isImmersive ? "bg-slate-950/60" : "bg-white/30 backdrop-blur-[1px]",
+                    isDark ? "bg-slate-950/60" : "bg-white/30 backdrop-blur-[1px]",
                   )}>
                     <div className={cn(
                       "w-4 h-4 border-2 border-t-transparent rounded-full animate-spin",
-                      isImmersive ? "border-slate-400" : "border-violet-500",
+                      isDark ? "border-slate-400" : "border-violet-500",
                     )} />
                   </div>
                 )}
                 {loading && ultimas.length === 0 ? (
-                  <Card className="h-full min-h-0 flex items-center justify-center p-12 bg-white rounded-3xl">
+                  <Card className={cn(
+                    "h-full min-h-0 flex items-center justify-center p-12 rounded-3xl",
+                    isDark ? "bg-slate-900 border-slate-700" : "bg-white",
+                  )}>
                     <Skeleton className="h-8 w-full rounded-2xl" />
                   </Card>
                 ) : (
                   <div className={cn(
-                    "h-full min-h-[280px] md:min-h-0 flex-1 rounded-3xl overflow-hidden bg-slate-950",
-                    isImmersive ? "ring-1 ring-slate-700" : "ring-1 ring-violet-500/20 shadow-lg shadow-violet-500/10",
+                    "h-full min-h-0 flex-1 rounded-3xl overflow-hidden bg-slate-950",
+                    isDark ? "ring-1 ring-slate-700" : "ring-1 ring-violet-500/20 shadow-lg shadow-violet-500/10",
                   )}>
-                    <HeroCarousel items={ultimasCoherentes} compact isImmersive={isImmersive} />
+                    <HeroCarousel items={ultimasCoherentes} compact isDark={isDark} />
                   </div>
                 )}
               </motion.div>
@@ -296,11 +315,11 @@ export default function DashboardPage() {
                 {isFetchingRight && (
                   <div className={cn(
                     "absolute inset-0 rounded-3xl z-50 flex items-center justify-center pointer-events-none",
-                    isImmersive ? "bg-slate-950/60" : "bg-white/30 backdrop-blur-[1px]",
+                    isDark ? "bg-slate-950/60" : "bg-white/30 backdrop-blur-[1px]",
                   )}>
                     <div className={cn(
                       "w-4 h-4 border-2 border-t-transparent rounded-full animate-spin",
-                      isImmersive ? "border-slate-400" : "border-violet-500",
+                      isDark ? "border-slate-400" : "border-violet-500",
                     )} />
                   </div>
                 )}
@@ -317,8 +336,10 @@ export default function DashboardPage() {
                     distId={distId}
                     nombreEmpresa={user?.nombre_empresa || "Distribuidora"}
                     isCompania={isCompania}
-                    isImmersive={isImmersive}
-                    onToggleImmersive={toggleImmersive}
+                    isDark={isDark}
+                    isFullscreen={isFullscreen}
+                    onToggleFullscreen={toggleFullscreen}
+                    onToggleTheme={toggleTheme}
                   />
                 </div>
               </motion.div>

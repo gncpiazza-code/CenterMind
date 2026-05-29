@@ -7,12 +7,14 @@ import { cn } from "@/lib/utils";
 
 interface DashboardFullscreenButtonProps {
   isImmersive: boolean;
+  isDark?: boolean;
   onToggle: () => void;
   className?: string;
 }
 
 export function DashboardFullscreenButton({
   isImmersive,
+  isDark = false,
   onToggle,
   className,
 }: DashboardFullscreenButtonProps) {
@@ -43,7 +45,9 @@ export function DashboardFullscreenButton({
       title={isImmersive ? "Salir de pantalla completa (Esc)" : "Pantalla completa"}
       className={cn(
         "h-8 w-8 rounded-xl border-slate-200 text-slate-500 hover:text-slate-900 hover:bg-slate-50 transition-all",
-        isImmersive && "bg-slate-900 text-white border-slate-900 hover:bg-slate-800 hover:text-white",
+        isImmersive && !isDark && "bg-slate-900 text-white border-slate-900 hover:bg-slate-800 hover:text-white",
+        isImmersive && isDark && "bg-slate-100 text-slate-900 border-slate-100 hover:bg-white hover:text-slate-900",
+        !isImmersive && isDark && "border-slate-600 text-slate-400 hover:text-white hover:bg-slate-800 hover:border-slate-500",
         className,
       )}
     >

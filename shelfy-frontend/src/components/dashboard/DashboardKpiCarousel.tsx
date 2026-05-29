@@ -19,12 +19,14 @@ interface DashboardKpiCarouselProps {
   kpis: KPIs | undefined;
   evolucion: EvolucionTiempo[];
   loading?: boolean;
-  isImmersive?: boolean;
+  isDark?: boolean;
 }
 
 type SlideKey = 0 | 1 | 2;
 const SLIDE_LABELS = ["Estados", "Evolución", "Rendimiento"];
 const SLIDE_ROTATE_MS = 8000;
+/** Altura fija compartida por cards y gráfico para evitar saltos al rotar */
+const SLIDE_HEIGHT_CLASS = "h-[120px] md:h-[108px]";
 
 function CustomTooltip({ active, payload, label }: {
   active?: boolean;
@@ -48,7 +50,7 @@ export function DashboardKpiCarousel({
   kpis,
   evolucion,
   loading = false,
-  isImmersive = false,
+  isDark = false,
 }: DashboardKpiCarouselProps) {
   const [slide, setSlide] = useState<SlideKey>(0);
   const rotateRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -82,10 +84,13 @@ export function DashboardKpiCarousel({
 
   if (loading && !kpis) {
     return (
-      <div className="grid grid-cols-4 gap-2 md:gap-3 shrink-0">
-        {[0, 1, 2, 3].map((i) => (
-          <Skeleton key={i} className="h-20 w-full rounded-2xl" />
-        ))}
+      <div className="shrink-0">
+        <div className="flex items-center justify-between mb-2 min-h-4" />
+        <div className={cn("grid grid-cols-4 gap-2 md:gap-3", SLIDE_HEIGHT_CLASS)}>
+          {[0, 1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-full w-full rounded-2xl" />
+          ))}
+        </div>
       </div>
     );
   }
@@ -96,7 +101,7 @@ export function DashboardKpiCarousel({
       <div className="flex items-center justify-between mb-2">
         <p className={cn(
           "text-[10px] font-black uppercase tracking-widest min-h-4",
-          isImmersive ? "text-slate-500" : "text-violet-600/80",
+          isDark ? "text-slate-500" : "text-violet-600/80",
         )}>
           {SLIDE_LABELS[slide]}
         </p>
@@ -109,84 +114,84 @@ export function DashboardKpiCarousel({
               aria-label={SLIDE_LABELS[s]}
               className={cn(
                 "h-1.5 rounded-full transition-all duration-300",
-                slide === s ? (isImmersive ? "bg-slate-400 w-5" : "bg-violet-500 w-5") : (isImmersive ? "w-1.5 bg-slate-600 hover:bg-slate-500" : "w-1.5 bg-slate-300 hover:bg-slate-400"),
+                slide === s ? (isDark ? "bg-slate-400 w-5" : "bg-violet-500 w-5") : (isDark ? "w-1.5 bg-slate-600 hover:bg-slate-500" : "w-1.5 bg-slate-300 hover:bg-slate-400"),
               )}
             />
           ))}
         </div>
       </div>
 
-      <AnimatePresence mode="wait">
-        {/* ── Slide 0: Estados ── */}
-        {slide === 0 && kpis && (
-          <motion.div
-            key="slide-0"
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -20 }}
-            transition={{ duration: 0.25 }}
-            className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3"
-          >
-            <KpiCard variant="compact" immersive={isImmersive} label="Pendientes"  value={kpis.pendientes}  icon={<Clock size={18} />}        colorName="amber"   bgColor="bg-gradient-to-br from-amber-100/70 via-amber-50/50 to-white" />
-            <KpiCard variant="compact" immersive={isImmersive} label="Aprobadas"   value={kpis.aprobadas}   icon={<CheckCircle size={18} />}  colorName="emerald" bgColor="bg-gradient-to-br from-emerald-100/70 via-emerald-50/50 to-white" />
-            <KpiCard variant="compact" immersive={isImmersive} label="Destacadas"  value={kpis.destacadas}  icon={<Star size={18} />}         colorName="violet"  bgColor="bg-gradient-to-br from-violet-200/60 via-fuchsia-50/40 to-white" />
-            <KpiCard variant="compact" immersive={isImmersive} label="Rechazadas"  value={kpis.rechazadas}  icon={<XCircle size={18} />}      colorName="red"     bgColor="bg-gradient-to-br from-red-100/60 via-red-50/40 to-white" />
+      <div className={cn("relative overflow-hidden", SLIDE_HEIGHT_CLASS)}>
+        <AnimatePresence mode="wait">
+          {/* ── Slide 0: Estados ── */}
+          {slide === 0 && kpis && (
+            <motion.div
+              key="slide-0"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ duration: 0.25 }}
+              className="absolute inset-0 grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3 h-full min-h-0"
+            >
+            <KpiCard variant="compact" immersive={isDark} label="Pendientes"  value={kpis.pendientes}  icon={<Clock size={18} />}        colorName="amber"   bgColor="bg-gradient-to-br from-amber-100/70 via-amber-50/50 to-white" />
+            <KpiCard variant="compact" immersive={isDark} label="Aprobadas"   value={kpis.aprobadas}   icon={<CheckCircle size={18} />}  colorName="emerald" bgColor="bg-gradient-to-br from-emerald-100/70 via-emerald-50/50 to-white" />
+            <KpiCard variant="compact" immersive={isDark} label="Destacadas"  value={kpis.destacadas}  icon={<Star size={18} />}         colorName="violet"  bgColor="bg-gradient-to-br from-violet-200/60 via-fuchsia-50/40 to-white" />
+            <KpiCard variant="compact" immersive={isDark} label="Rechazadas"  value={kpis.rechazadas}  icon={<XCircle size={18} />}      colorName="red"     bgColor="bg-gradient-to-br from-red-100/60 via-red-50/40 to-white" />
           </motion.div>
-        )}
+          )}
 
-        {/* ── Slide 1: Evolución ── */}
-        {slide === 1 && (
-          <motion.div
-            key="slide-1"
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -20 }}
-            transition={{ duration: 0.25 }}
-            className={cn(
-              "h-[140px] rounded-2xl p-3 relative overflow-hidden",
-              isImmersive
-                ? "bg-slate-900 border border-slate-700"
-                : "bg-gradient-to-br from-violet-100/50 via-white to-indigo-100/40 border-2 border-violet-200/60 shadow-md shadow-violet-500/10",
-            )}
-          >
-            <p className={cn(
-              "text-[9px] font-black uppercase tracking-widest mb-1",
-              isImmersive ? "text-slate-400" : "text-slate-400",
-            )}>
-              Evolución
-            </p>
-            {hasEvolucion ? (
-              <ResponsiveContainer width="100%" height="85%">
-                <LineChart data={evolucion} margin={{ top: 0, right: 8, bottom: 0, left: -30 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isImmersive ? "#334155" : "#e2e8f0"} />
-                  <XAxis dataKey="fecha" tick={{ fill: "#94a3b8", fontSize: 9, fontWeight: 800 }} tickLine={false} axisLine={false} />
-                  <YAxis tick={{ fill: "#94a3b8", fontSize: 9 }} tickLine={false} axisLine={false} />
-                  <Tooltip content={<CustomTooltip />} />
-                  <Line type="monotone" dataKey="aprobadas" name="Aprob." stroke="#8b5cf6" strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="total" name="Total" stroke="#cbd5e1" strokeWidth={1.5} dot={false} strokeDasharray="4 4" />
-                </LineChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="flex items-center justify-center h-[85%]">
-                <span className="text-[10px] font-black uppercase tracking-widest text-slate-300">Sin datos</span>
+          {/* ── Slide 1: Evolución ── */}
+          {slide === 1 && (
+            <motion.div
+              key="slide-1"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ duration: 0.25 }}
+              className={cn(
+                "absolute inset-0 h-full min-h-0 rounded-2xl px-3 py-2 flex flex-col overflow-hidden",
+                isDark
+                  ? "bg-slate-900 border border-slate-700"
+                  : "bg-gradient-to-br from-violet-100/50 via-white to-indigo-100/40 border-2 border-violet-200/60 shadow-md shadow-violet-500/10",
+              )}
+            >
+              <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 shrink-0 leading-none mb-1">
+                Evolución
+              </p>
+              <div className="flex-1 min-h-0 w-full">
+                {hasEvolucion ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={evolucion} margin={{ top: 0, right: 8, bottom: 0, left: -30 }}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDark ? "#334155" : "#e2e8f0"} />
+                      <XAxis dataKey="fecha" tick={{ fill: "#94a3b8", fontSize: 9, fontWeight: 800 }} tickLine={false} axisLine={false} />
+                      <YAxis tick={{ fill: "#94a3b8", fontSize: 9 }} tickLine={false} axisLine={false} />
+                      <Tooltip content={<CustomTooltip />} />
+                      <Line type="monotone" dataKey="aprobadas" name="Aprob." stroke="#8b5cf6" strokeWidth={2} dot={false} />
+                      <Line type="monotone" dataKey="total" name="Total" stroke="#cbd5e1" strokeWidth={1.5} dot={false} strokeDasharray="4 4" />
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="flex items-center justify-center h-full">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-300">Sin datos</span>
+                  </div>
+                )}
               </div>
-            )}
-          </motion.div>
-        )}
+            </motion.div>
+          )}
 
-        {/* ── Slide 2: Rendimiento ── */}
-        {slide === 2 && kpis && (
-          <motion.div
-            key="slide-2"
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -20 }}
-            transition={{ duration: 0.25 }}
-            className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3"
-          >
+          {/* ── Slide 2: Rendimiento ── */}
+          {slide === 2 && kpis && (
+            <motion.div
+              key="slide-2"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ duration: 0.25 }}
+              className="absolute inset-0 grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3 h-full min-h-0"
+            >
             <KpiCard
               variant="compact"
-              immersive={isImmersive}
+              immersive={isDark}
               label="PDVs exhibidos"
               value={kpis.total}
               icon={<Store size={18} />}
@@ -196,7 +201,7 @@ export function DashboardKpiCarousel({
             />
             <KpiCard
               variant="compact"
-              immersive={isImmersive}
+              immersive={isDark}
               label="Tasa aprob."
               value={tasaAprobacion ?? 0}
               icon={<TrendingUp size={18} />}
@@ -207,7 +212,7 @@ export function DashboardKpiCarousel({
             />
             <KpiCard
               variant="compact"
-              immersive={isImmersive}
+              immersive={isDark}
               label="Vend. activos"
               value={kpis.vendedores_activos ?? 0}
               icon={<Users size={18} />}
@@ -217,7 +222,7 @@ export function DashboardKpiCarousel({
             />
             <KpiCard
               variant="compact"
-              immersive={isImmersive}
+              immersive={isDark}
               label="Exhib./vendedor"
               value={kpis.exhibiciones_por_vendedor ?? 0}
               icon={<BarChart2 size={18} />}
@@ -227,8 +232,9 @@ export function DashboardKpiCarousel({
               tooltip="Promedio de exhibiciones lógicas por vendedor activo"
             />
           </motion.div>
-        )}
-      </AnimatePresence>
+          )}
+        </AnimatePresence>
+      </div>
     </div>
   );
 }

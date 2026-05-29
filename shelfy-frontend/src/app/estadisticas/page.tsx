@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/hooks/useAuth";
@@ -124,8 +124,8 @@ export default function EstadisticasPage() {
   const showRefreshingOverlay = isFetching && vendors.length > 0;
 
   // Activar overlay ideal por defecto la primera vez que hay config
-  const overlayInitRef = React.useRef(false);
-  React.useEffect(() => {
+  const overlayInitRef = useRef(false);
+  useEffect(() => {
     if (overlayInitRef.current || vendors.length === 0 || overlayMode !== "none") return;
     const hasComp = vendors.some((v) => v.has_ideal_compania);
     const hasDist = vendors.some((v) => v.has_ideal_distribuidora);

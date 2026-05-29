@@ -2435,7 +2435,7 @@ def supervision_deuda_detalle(
         from datetime import timedelta as _td
         antiguedad_dias = int(cc_row.get("antiguedad_dias") or 0)
         hoy = _today_ar()
-        ventana_inicio = (hoy - _td(days=antiguedad_dias + 14)).isoformat()
+        ventana_inicio = (hoy - _td(days=antiguedad_dias + 42)).isoformat()
 
         t_ventas = tenant_table_name("ventas_enriched_v2", d_id)
         ventas_rows: list[dict] = []

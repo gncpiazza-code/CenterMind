@@ -350,31 +350,34 @@ export default function SupervisionPage() {
                         </div>
                       </button>
 
-                      {/* Parte derecha: desglose por antigüedad (animado) */}
+                      {/* Parte derecha: desglose por antigüedad (animado lateral) */}
                       <div
                         className={cn(
-                          "overflow-hidden transition-all duration-300 ease-out border-l border-rose-200/40",
+                          "overflow-hidden border-l border-rose-200/40",
                           ccResumenExpanded && showCcResumen ? "opacity-100" : "opacity-0 pointer-events-none",
                         )}
                         style={{
-                          width: ccResumenExpanded && showCcResumen ? "220px" : "0px",
-                          transition: "width 300ms ease-out, opacity 200ms ease-out",
+                          width: ccResumenExpanded && showCcResumen ? "270px" : "0px",
+                          minWidth: ccResumenExpanded && showCcResumen ? "270px" : "0px",
+                          transition: "width 300ms ease-out, min-width 300ms ease-out, opacity 200ms ease-out",
                         }}
                       >
-                        <div className="w-[220px] p-3 h-full">
-                          <p className="text-[9px] font-bold uppercase tracking-wide text-rose-600 mb-2">
+                        <div className="w-[270px] p-3 h-full flex flex-col justify-center">
+                          <p className="text-[9px] font-bold uppercase tracking-wide text-rose-600 mb-2 whitespace-nowrap">
                             Distribución por antigüedad
                           </p>
-                          {deudaPorAntiguedad.filter((r) => r.monto > 0).map((r) => (
-                            <div key={r.label} className="flex items-center justify-between gap-2 py-1 border-b border-rose-100/60 last:border-b-0 text-[11px]">
-                              <span className={`inline-flex text-[9px] px-1.5 py-0.5 rounded border font-semibold ${rangoBadgeClass(r.label)}`}>
-                                {formatRangoBadgeLabel(r.label)}
-                              </span>
-                              <span className="font-mono font-semibold text-rose-600 tabular-nums">
-                                {fmt$$(r.monto)}
-                              </span>
-                            </div>
-                          ))}
+                          <div className="flex flex-col divide-y divide-rose-100/50">
+                            {deudaPorAntiguedad.filter((r) => r.monto > 0).map((r) => (
+                              <div key={r.label} className="flex items-center justify-between gap-3 py-1.5">
+                                <span className={`inline-flex shrink-0 text-[9px] px-1.5 py-0.5 rounded border font-semibold ${rangoBadgeClass(r.label)}`}>
+                                  {formatRangoBadgeLabel(r.label)}
+                                </span>
+                                <span className="font-mono text-[11px] font-semibold text-rose-600 tabular-nums whitespace-nowrap">
+                                  {fmt$$(r.monto)}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       </div>
                     </div>

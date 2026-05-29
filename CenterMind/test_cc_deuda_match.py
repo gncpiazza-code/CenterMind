@@ -127,10 +127,10 @@ class TestSinComprobantes:
         assert result["estado"] == "sin_comprobantes"
 
     def test_ventas_fuera_de_ventana_temporal(self):
-        # Antigüedad = 5 días → ventana = [hoy-12, hoy]. Venta de 100 días atrás queda afuera.
-        hace_100 = (date.today() - timedelta(days=100)).isoformat()
+        # Antigüedad = 5 días → ventana = [hoy - (5+35), hoy] = hoy-40. Venta de 200 días atrás queda afuera.
+        hace_200 = (date.today() - timedelta(days=200)).isoformat()
         cc = {"deuda_total": 5000.0, "cantidad_comprobantes": 1, "antiguedad_dias": 5}
-        ventas = [_make_venta("F001", hace_100, 5000.0)]
+        ventas = [_make_venta("F001", hace_200, 5000.0)]
         result = match_deuda_comprobantes(cc, ventas)
         assert result["estado"] == "sin_comprobantes"
 

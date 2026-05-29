@@ -18,8 +18,10 @@ from typing import Any
 
 # Tolerancia de monto para considerar match "alto".
 _TOLERANCE_PCT = 0.15
-# Margen en días: los comprobantes pueden ser hasta N días más viejos que antiguedad_dias.
-_VENTANA_MARGEN_DIAS = 7
+# Margen extra sobre antiguedad_dias para la ventana de búsqueda.
+# CHESS puede reportar antiguedad_dias=0 para facturas de hasta 30 días;
+# usamos 35 días para no perder comprobantes recientes.
+_VENTANA_MARGEN_DIAS = 35
 
 
 def _ventas_es_recaudacion(tipo: str | None) -> bool:

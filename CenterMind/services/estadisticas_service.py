@@ -4,7 +4,7 @@ from datetime import date, datetime
 from collections import defaultdict
 
 from db import sb
-from core.tenant_tables import tenant_table_name
+from core.tenant_tables import tenant_table_name, tenant_table_supports_distribuidor_filter
 from core.exhibicion_aggregate import (
     aggregate_exhibicion_counts_vendor_scope,
     EXHIBICION_ROW_COLS,
@@ -46,35 +46,65 @@ def _es_devolucion(tipo: str | None, importe: float) -> bool:
     return "DEVOL" in s or ("NOTA" in s and "CRED" in s)
 
 
+def _collect_meses_from_rows(rows: list[dict], field: str) -> set[str]:
+    out: set[str] = set()
+    for r in rows:
+        f = (r.get(field) or "")[:7]
+        if f:
+            out.add(f)
+    return out
+
+
+def _paginate_meses(dist_id: int, table_base: str, field: str) -> set[str]:
+    """Meses YYYY-MM con paginación PostgREST (1000 filas)."""
+    t = tenant_table_name(table_base, dist_id)
+    meses: set[str] = set()
+    offset = 0
+    while True:
+        q = sb.table(t).select(field)
+        if tenant_table_supports_distribuidor_filter(table_base):
+            q = q.eq("id_distribuidor", dist_id)
+        batch = q.range(offset, offset + PAGE - 1).execute().data or []
+        meses |= _collect_meses_from_rows(batch, field)
+        if len(batch) < PAGE:
+            break
+        offset += PAGE
+    return meses
+
+
 def fetch_meses_disponibles(dist_id: int) -> list[str]:
     """
     Returns sorted desc list of "YYYY-MM" months that have at least one event
-    across: ventas_enriched_v2, exhibiciones, clientes_pdv_v2 (altas), objetivos.
+    across: ventas_enriched_v2, exhibiciones, clientes_pdv_v2 (altas).
     """
     meses: set[str] = set()
-
-    # ventas
-    t_v = tenant_table_name("ventas_enriched_v2", dist_id)
-    res = sb.table(t_v).select("fecha_factura").eq("id_distribuidor", dist_id).execute()
-    for r in (res.data or []):
-        f = (r.get("fecha_factura") or "")[:7]
-        if f: meses.add(f)
-
-    # exhibiciones
-    t_e = tenant_table_name("exhibiciones", dist_id)
-    res = sb.table(t_e).select("timestamp_subida").eq("id_distribuidor", dist_id).execute()
-    for r in (res.data or []):
-        f = (r.get("timestamp_subida") or "")[:7]
-        if f: meses.add(f)
-
-    # altas (clientes_pdv_v2)
-    t_p = tenant_table_name("clientes_pdv_v2", dist_id)
-    res = sb.table(t_p).select("fecha_alta").eq("id_distribuidor", dist_id).execute()
-    for r in (res.data or []):
-        f = (r.get("fecha_alta") or "")[:7]
-        if f: meses.add(f)
-
+    meses |= _paginate_meses(dist_id, "ventas_enriched_v2", "fecha_factura")
+    meses |= _paginate_meses(dist_id, "exhibiciones", "timestamp_subida")
+    meses |= _paginate_meses(dist_id, "clientes_pdv_v2", "fecha_alta")
     return sorted(meses, reverse=True)
+
+
+def _fetch_rutas_vendedor(dist_id: int, id_vendedor: str, select_cols: str = "id_ruta") -> list[dict]:
+    """
+    rutas_v2_dN no tiene id_distribuidor (el tenant es el sufijo _dN).
+    Mismo criterio que supervision._fetch_rutas_rows.
+    """
+    try:
+        vid = int(id_vendedor)
+    except (TypeError, ValueError):
+        return []
+    t_rutas = tenant_table_name("rutas_v2", dist_id)
+    try:
+        res = (
+            sb.table(t_rutas)
+            .select(select_cols)
+            .eq("id_vendedor", vid)
+            .execute()
+        )
+        return res.data or []
+    except Exception as e:
+        logger.warning("[estadisticas] rutas dist=%s vendedor=%s: %s", dist_id, vid, e)
+        return []
 
 
 def _get_fecha_bounds(meses: list[str]) -> tuple[str, str]:
@@ -154,9 +184,8 @@ def aggregate_kpis_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) ->
     fecha_desde, fecha_hasta = _get_fecha_bounds(meses)
 
     # --- PDVs activos (via rutas del vendedor) ---
-    t_rutas = tenant_table_name("rutas_v2", dist_id)
-    rutas_res = sb.table(t_rutas).select("id_ruta").eq("id_distribuidor", dist_id).eq("id_vendedor", id_vendedor).execute()
-    ruta_ids = [r["id_ruta"] for r in (rutas_res.data or []) if r.get("id_ruta")]
+    rutas_rows = _fetch_rutas_vendedor(dist_id, id_vendedor, "id_ruta")
+    ruta_ids = [r["id_ruta"] for r in rutas_rows if r.get("id_ruta")]
 
     t_pdv = tenant_table_name("clientes_pdv_v2", dist_id)
     pdvs_unicos: set = set()
@@ -291,13 +320,15 @@ def aggregate_kpis_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) ->
     }
 
 
-def _get_ideal(dist_id: int, origen: str) -> dict | None:
-    """Fetch ideal config for dist (or compania if origen='compania')."""
+def _get_ideal(dist_id: int | None, origen: str) -> dict | None:
+    """Fetch ideal config for dist (compañía = id_distribuidor NULL)."""
     q = sb.table("estadisticas_vendedor_ideal").select("*").eq("origen", origen)
     if origen == "compania":
         q = q.is_("id_distribuidor", "null")
-    else:
+    elif dist_id is not None:
         q = q.eq("id_distribuidor", dist_id)
+    else:
+        return None
     res = q.execute()
     return (res.data or [None])[0]
 
@@ -332,7 +363,7 @@ def build_carta_resumen(dist_id: int, meses: list[str], sucursal: str | None = N
     vend_res = sb.table(t_vend).select("id_vendedor,nombre_erp,id_sucursal").eq("id_distribuidor", dist_id).execute()
 
     ideal_dist = _get_ideal(dist_id, "distribuidora")
-    ideal_comp = _get_ideal(dist_id, "compania")
+    ideal_comp = _get_ideal(None, "compania")  # global compañía (id_distribuidor NULL)
     n_meses = len(meses)
 
     meta_dist = _build_meta_kpis(ideal_dist, n_meses)
@@ -395,24 +426,16 @@ def build_detalle_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) -> 
     meses_set = set(meses)
     fecha_desde, fecha_hasta = _get_fecha_bounds(meses)
 
-    # Rutas/días
-    t_rutas = tenant_table_name("rutas_v2", dist_id)
     t_pdv = tenant_table_name("clientes_pdv_v2", dist_id)
 
-    rutas_res = (
-        sb.table(t_rutas)
-        .select("id_ruta,id_ruta_erp,dia_semana")
-        .eq("id_distribuidor", dist_id)
-        .eq("id_vendedor", id_vendedor)
-        .execute()
-    )
+    rutas_rows = _fetch_rutas_vendedor(dist_id, id_vendedor, "id_ruta,id_ruta_erp,dia_semana")
     rutas = [
         {
             "id_ruta": r["id_ruta"],
             "nombre": str(r.get("id_ruta_erp") or f"Ruta {r.get('id_ruta')}"),
             "dia": r.get("dia_semana", ""),
         }
-        for r in (rutas_res.data or [])
+        for r in rutas_rows
     ]
     ruta_ids = [r["id_ruta"] for r in rutas if r["id_ruta"]]
 
@@ -513,12 +536,14 @@ def build_detalle_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) -> 
 
 
 def get_ideal(dist_id: int | None, origen: str) -> dict | None:
-    return _get_ideal(dist_id or 0, origen)
+    if origen == "compania":
+        return _get_ideal(None, origen)
+    return _get_ideal(dist_id, origen)
 
 
 def upsert_ideal(dist_id: int | None, origen: str, data: dict, user_payload: dict) -> dict:
     """Upsert ideal config and append historial entry."""
-    existing = _get_ideal(dist_id or 0, origen)
+    existing = _get_ideal(dist_id if origen == "distribuidora" else None, origen)
 
     payload = {
         "origen": origen,

@@ -1,6 +1,8 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { DeudorComprobantesList } from "./DeudorComprobantesList";
+import { DeudorMapaEstatico } from "./DeudorMapaEstatico";
+import { useDeudorDetalleQuery } from "@/hooks/useSupervisionQueries";
 import {
   User, Phone, Smartphone, MapPin, Calendar, Hash,
   CreditCard, Loader2, AlertCircle,
@@ -8,10 +10,6 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Badge } from "@/components/ui/badge";
-import { DeudorComprobantesList } from "./DeudorComprobantesList";
-import { DeudorMapaEstatico } from "./DeudorMapaEstatico";
-import { fetchDeudorDetalle } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { rangoBadgeClass, formatRangoBadgeLabel } from "@/lib/cuentasCorrientes";
 
@@ -51,13 +49,8 @@ interface DeudorProfilePanelProps {
 }
 
 export function DeudorProfilePanel({ distId, idClienteErp, className }: DeudorProfilePanelProps) {
-  const { data, isLoading, error } = useQuery({
-    queryKey: ["deudor-detalle", distId, idClienteErp],
-    queryFn: () => fetchDeudorDetalle(distId, idClienteErp!),
-    enabled: !!idClienteErp && !!distId,
-    staleTime: 3 * 60_000,
-    gcTime: 10 * 60_000,
-  });
+  const { data, isLoading, isFetching, error } = useDeudorDetalleQuery(distId, idClienteErp);
+  const showLoading = isLoading && !data;
 
   return (
     <Card className={cn("flex flex-col h-full rounded-2xl shadow-sm border overflow-hidden", className)}>
@@ -72,12 +65,12 @@ export function DeudorProfilePanel({ distId, idClienteErp, className }: DeudorPr
       <CardContent className="p-0 flex flex-col flex-1 min-h-0 overflow-y-auto overscroll-contain">
         {!idClienteErp ? (
           <EmptyState />
-        ) : isLoading ? (
+        ) : showLoading ? (
           <LoadingState />
-        ) : error ? (
+        ) : error && !data ? (
           <ErrorState />
         ) : data ? (
-          <ProfileContent data={data} />
+          <ProfileContent data={data} fetching={isFetching && !!idClienteErp} />
         ) : null}
       </CardContent>
     </Card>
@@ -123,11 +116,23 @@ function ErrorState() {
   );
 }
 
-function ProfileContent({ data }: { data: import("@/lib/api").DeudorDetalle }) {
+function ProfileContent({
+  data,
+  fetching,
+}: {
+  data: import("@/lib/api").DeudorDetalle;
+  fetching?: boolean;
+}) {
   const { perfil, deuda } = data;
 
   return (
     <div className="flex flex-col min-h-0 pb-4">
+      {fetching && (
+        <div className="px-4 py-1 bg-muted/40 border-b text-[10px] text-muted-foreground flex items-center gap-1.5">
+          <Loader2 size={10} className="animate-spin" />
+          Actualizando…
+        </div>
+      )}
       {/* ── Cabecera compacta ── */}
       <div className="px-4 py-2.5 bg-muted/25 border-b shrink-0">
         <div className="flex items-start justify-between gap-2">

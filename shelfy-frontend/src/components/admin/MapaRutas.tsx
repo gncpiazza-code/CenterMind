@@ -1,7 +1,7 @@
 "use client";
 import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { Settings } from "lucide-react";
-import { setOptions, importLibrary } from "@googlemaps/js-api-loader";
+import { loadGoogleMapsFull, getGoogleMapsApiKey } from "@/lib/googleMapsLoader";
 import type { DrawnPolygon } from "@/store/useSupervisionStore";
 import { diasCalendarioDesdeFechaCompra, normalizeFechaPadrón } from "@/lib/supervisionMapHelpers";
 import { MapLegendTooltip } from "./MapLegendTooltip";
@@ -180,21 +180,10 @@ interface MapaRutasProps {
 }
 
 // ── Google Maps API Key ───────────────────────────────────────────────────────
-const GMAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || '';
-
-let gmapsConfigured = false;
-function ensureGmapsConfigured() {
-  if (!gmapsConfigured) {
-    setOptions({ key: GMAPS_KEY, v: 'weekly' });
-    gmapsConfigured = true;
-  }
-}
+const GMAPS_KEY = getGoogleMapsApiKey();
 
 async function loadGmaps() {
-  ensureGmapsConfigured();
-  await importLibrary('maps');
-  await importLibrary('drawing');
-  await importLibrary('geometry');
+  await loadGoogleMapsFull();
 }
 
 // ── Street View Panel ─────────────────────────────────────────────────────────

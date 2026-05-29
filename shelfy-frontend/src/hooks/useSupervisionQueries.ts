@@ -1,0 +1,241 @@
+"use client";
+
+import { useEffect, useMemo } from "react";
+import {
+  keepPreviousData,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+  type UseQueryResult,
+} from "@tanstack/react-query";
+import {
+  fetchCcKpis,
+  fetchCuentasSupervision,
+  fetchDeudorDetalle,
+  fetchSyncStatus,
+  fetchVendedoresSupervision,
+  type CcKpisResponse,
+  type CuentasSupervision,
+  type DeudorDetalle,
+  type SyncStatus,
+  type VendedorSupervision,
+} from "@/lib/api";
+import { supervisionPanelKeys } from "@/lib/query-keys";
+
+export const SUPERVISION_VENDEDORES_STALE = 10 * 60_000;
+export const SUPERVISION_CUENTAS_STALE = 5 * 60_000;
+export const SUPERVISION_SYNC_STALE = 2 * 60_000;
+export const SUPERVISION_CC_KPIS_STALE = 5 * 60_000;
+export const SUPERVISION_DEUDOR_STALE = 3 * 60_000;
+export const SUPERVISION_GC_MS = 30 * 60_000;
+export const SUPERVISION_CUENTAS_GC_MS = 15 * 60_000;
+
+export function vendedoresLiteQueryOptions(distId: number) {
+  return {
+    queryKey: supervisionPanelKeys.vendedoresLite(distId),
+    queryFn: () => fetchVendedoresSupervision(distId, { lite: true }),
+    staleTime: SUPERVISION_VENDEDORES_STALE,
+    gcTime: SUPERVISION_GC_MS,
+  } as const;
+}
+
+export function vendedoresQueryOptions(distId: number) {
+  return {
+    queryKey: supervisionPanelKeys.vendedores(distId),
+    queryFn: () => fetchVendedoresSupervision(distId),
+    staleTime: SUPERVISION_VENDEDORES_STALE,
+    gcTime: SUPERVISION_GC_MS,
+  } as const;
+}
+
+export function syncStatusQueryOptions(distId: number) {
+  return {
+    queryKey: supervisionPanelKeys.syncStatus(distId),
+    queryFn: () => fetchSyncStatus(distId),
+    staleTime: SUPERVISION_SYNC_STALE,
+    gcTime: SUPERVISION_GC_MS,
+  } as const;
+}
+
+export function cuentasQueryOptions(
+  distId: number,
+  sucursal: string | undefined,
+  vendedorNombre: string,
+  vendedorId: number,
+) {
+  return {
+    queryKey: [
+      ...supervisionPanelKeys.cuentas(distId, sucursal),
+      vendedorNombre,
+      vendedorId,
+    ] as const,
+    queryFn: () =>
+      fetchCuentasSupervision(distId, sucursal, undefined, vendedorNombre, vendedorId),
+    staleTime: SUPERVISION_CUENTAS_STALE,
+    gcTime: SUPERVISION_CUENTAS_GC_MS,
+  } as const;
+}
+
+export function ccKpisQueryOptions(distId: number, vendedorId: number) {
+  return {
+    queryKey: supervisionPanelKeys.ccKpis(distId, vendedorId),
+    queryFn: () => fetchCcKpis(distId, vendedorId),
+    staleTime: SUPERVISION_CC_KPIS_STALE,
+    gcTime: SUPERVISION_CUENTAS_GC_MS,
+  } as const;
+}
+
+export function deudorDetalleQueryOptions(distId: number, idClienteErp: string) {
+  return {
+    queryKey: supervisionPanelKeys.deudorDetalle(distId, idClienteErp),
+    queryFn: () => fetchDeudorDetalle(distId, idClienteErp),
+    staleTime: SUPERVISION_DEUDOR_STALE,
+    gcTime: SUPERVISION_CUENTAS_GC_MS,
+  } as const;
+}
+
+export function prefetchDeudorDetalle(
+  qc: QueryClient,
+  distId: number,
+  idClienteErp: string | null | undefined,
+) {
+  if (!distId || !idClienteErp) return Promise.resolve();
+  return qc.prefetchQuery(deudorDetalleQueryOptions(distId, idClienteErp));
+}
+
+export function prefetchCuentasSupervision(
+  qc: QueryClient,
+  distId: number,
+  sucursal: string | undefined,
+  vendedorNombre: string,
+  vendedorId: number,
+) {
+  if (!distId || !vendedorNombre || !vendedorId) return Promise.resolve();
+  return qc.prefetchQuery(
+    cuentasQueryOptions(distId, sucursal, vendedorNombre, vendedorId),
+  );
+}
+
+export function prefetchCcKpis(
+  qc: QueryClient,
+  distId: number,
+  vendedorId: number | null | undefined,
+) {
+  if (!distId || !vendedorId) return Promise.resolve();
+  return qc.prefetchQuery(ccKpisQueryOptions(distId, vendedorId));
+}
+
+/** Perfil del deudor — cache por ERP; no mezcla datos al cambiar de fila. */
+export function useDeudorDetalleQuery(
+  distId: number,
+  idClienteErp: string | null,
+): UseQueryResult<DeudorDetalle> {
+  return useQuery({
+    ...deudorDetalleQueryOptions(distId, idClienteErp!),
+    enabled: !!distId && !!idClienteErp,
+    placeholderData: (prev, prevQuery) => {
+      if (!idClienteErp || !prevQuery) return undefined;
+      const prevErp = prevQuery.queryKey[3];
+      return prevErp === idClienteErp ? prev : undefined;
+    },
+  });
+}
+
+/** Precarga los primeros N deudores al cargar la cartera. */
+export function usePrefetchDeudoresBatch(
+  distId: number,
+  idClienteErps: string[],
+  enabled = true,
+) {
+  const qc = useQueryClient();
+  const key = idClienteErps.slice(0, 8).join("|");
+
+  useEffect(() => {
+    if (!enabled || !distId || !key) return;
+    for (const erp of idClienteErps.slice(0, 8)) {
+      void prefetchDeudorDetalle(qc, distId, erp);
+    }
+  }, [enabled, distId, key, idClienteErps, qc]);
+}
+
+export function useSupervisionPanelQueries(
+  distId: number,
+  selectedSucursal: string,
+  selectedVendedorNombre: string | null,
+) {
+  const sucursalParam = selectedSucursal === "__all__" ? undefined : selectedSucursal;
+  const qc = useQueryClient();
+
+  const vendedoresLiteQuery = useQuery<VendedorSupervision[]>({
+    ...vendedoresLiteQueryOptions(distId),
+    enabled: !!distId,
+  });
+
+  const vendedoresFullQuery = useQuery<VendedorSupervision[]>({
+    ...vendedoresQueryOptions(distId),
+    enabled: !!distId && vendedoresLiteQuery.isSuccess,
+    placeholderData: keepPreviousData,
+  });
+
+  const vendedores = vendedoresFullQuery.data ?? vendedoresLiteQuery.data ?? [];
+
+  const selectedVendedorObj = useMemo(
+    () => vendedores.find((v) => v.nombre_vendedor === selectedVendedorNombre) ?? null,
+    [vendedores, selectedVendedorNombre],
+  );
+  const selectedVendedorId = selectedVendedorObj?.id_vendedor ?? null;
+
+  const syncQuery = useQuery<SyncStatus>({
+    ...syncStatusQueryOptions(distId),
+    enabled: !!distId,
+    refetchOnWindowFocus: true,
+    refetchInterval: 60_000,
+  });
+
+  const cuentasQuery = useQuery<CuentasSupervision>({
+    ...cuentasQueryOptions(
+      distId,
+      sucursalParam,
+      selectedVendedorNombre ?? "",
+      selectedVendedorId ?? 0,
+    ),
+    enabled: !!distId && !!selectedVendedorNombre && !!selectedVendedorId,
+    placeholderData: keepPreviousData,
+  });
+
+  const ccKpisQuery = useQuery<CcKpisResponse>({
+    ...ccKpisQueryOptions(distId, selectedVendedorId ?? 0),
+    enabled: !!distId && !!selectedVendedorId,
+    placeholderData: keepPreviousData,
+  });
+
+  // Precarga KPIs + cuentas en cuanto hay vendedor (antes del render pesado)
+  useEffect(() => {
+    if (!distId || !selectedVendedorNombre || !selectedVendedorId) return;
+    void prefetchCuentasSupervision(
+      qc,
+      distId,
+      sucursalParam,
+      selectedVendedorNombre,
+      selectedVendedorId,
+    );
+    void prefetchCcKpis(qc, distId, selectedVendedorId);
+  }, [distId, sucursalParam, selectedVendedorNombre, selectedVendedorId, qc]);
+
+  return {
+    vendedores,
+    vendedoresLoading: vendedoresLiteQuery.isLoading && !vendedoresLiteQuery.data?.length,
+    vendedoresFetching: vendedoresLiteQuery.isFetching || vendedoresFullQuery.isFetching,
+    vendedoresStatsPending: !vendedoresFullQuery.data && vendedoresLiteQuery.isSuccess,
+    selectedVendedorObj,
+    selectedVendedorId,
+    cuentasData: cuentasQuery.data,
+    loadingCuentas: cuentasQuery.isLoading && !cuentasQuery.data,
+    fetchingCuentas: cuentasQuery.isFetching,
+    syncStatus: syncQuery.data,
+    ccKpisData: ccKpisQuery.data,
+    loadingCcKpis: ccKpisQuery.isLoading && !ccKpisQuery.data,
+    prefetchDeudor: (erp: string | null | undefined) =>
+      prefetchDeudorDetalle(qc, distId, erp),
+  };
+}

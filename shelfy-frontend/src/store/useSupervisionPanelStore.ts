@@ -47,9 +47,10 @@ export const useSupervisionPanelStore = create<SupervisionPanelStore>()(
       selectedClienteErp: null,
 
       setSelectedSucursal: (s) =>
-        set({ selectedSucursal: s, selectedVendedorNombre: null }),
+        set({ selectedSucursal: s, selectedVendedorNombre: null, selectedClienteErp: null }),
 
-      setSelectedVendedorNombre: (n) => set({ selectedVendedorNombre: n }),
+      setSelectedVendedorNombre: (n) =>
+        set({ selectedVendedorNombre: n, selectedClienteErp: null }),
 
       setAltasMes: (m) => set({ altasMes: m, altasTab: 'todos' }),
 

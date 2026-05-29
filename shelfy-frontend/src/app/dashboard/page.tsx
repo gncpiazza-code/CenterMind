@@ -219,7 +219,6 @@ export default function DashboardPage() {
           >
             <DashboardKpiCarousel
               kpis={kpis}
-              ranking={rankingFiltrado}
               evolucion={evolucion}
               loading={loadingKpis}
               isImmersive={isImmersive}

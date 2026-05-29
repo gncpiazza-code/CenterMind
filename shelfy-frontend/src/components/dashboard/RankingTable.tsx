@@ -288,11 +288,27 @@ export function RankingTable({
         onMouseLeave={handleMouseLeave}
       >
         <table className="w-full text-sm border-separate border-spacing-y-1.5">
-          <thead className={cn("sticky top-0 z-10", isImmersive ? "bg-slate-900" : "bg-white/95 backdrop-blur-md")}>
-            <tr className="text-left">
-              <th className={cn("py-3 px-3 font-black uppercase tracking-[0.2em] text-[9px] w-12", isImmersive ? "text-slate-500" : "text-slate-400")}>Pos</th>
-              <th className={cn("py-3 px-2 font-black uppercase tracking-[0.2em] text-[9px]", isImmersive ? "text-slate-500" : "text-slate-400")}>Vendedor</th>
-              <th className={cn("py-3 px-2 text-right font-black uppercase tracking-[0.2em] text-[9px] text-emerald-500", isImmersive && "text-emerald-400")} title="Aprobadas">
+          <thead className={cn(
+            "sticky top-0 z-20",
+            isImmersive ? "bg-slate-900" : "bg-white",
+          )}>
+            <tr className={cn(
+              "text-left",
+              isImmersive ? "shadow-[0_4px_12px_rgba(0,0,0,0.35)]" : "shadow-[0_4px_12px_rgba(255,255,255,0.95)]",
+            )}>
+              <th className={cn(
+                "py-3 px-3 font-black uppercase tracking-[0.2em] text-[9px] w-12",
+                isImmersive ? "text-slate-500 bg-slate-900" : "text-slate-400 bg-white",
+              )}>Pos</th>
+              <th className={cn(
+                "py-3 px-2 font-black uppercase tracking-[0.2em] text-[9px]",
+                isImmersive ? "text-slate-500 bg-slate-900" : "text-slate-400 bg-white",
+              )}>Vendedor</th>
+              <th className={cn(
+                "py-3 px-2 text-right font-black uppercase tracking-[0.2em] text-[9px] text-emerald-500",
+                isImmersive && "text-emerald-400",
+                isImmersive ? "bg-slate-900" : "bg-white",
+              )} title="Aprobadas">
                 <span className={cn(
                   "inline-flex items-center justify-end gap-1 rounded-lg px-2 py-1",
                   isImmersive ? "bg-emerald-950/60 ring-1 ring-emerald-800" : "bg-emerald-100/80 ring-1 ring-emerald-200/60",
@@ -300,7 +316,11 @@ export function RankingTable({
                   <Check size={STAT_ICON_SIZE} className={cn(STAT_ICON_CLASS, isImmersive ? "text-emerald-400" : "text-emerald-600")} />
                 </span>
               </th>
-              <th className={cn("py-3 px-2 text-right font-black uppercase tracking-[0.2em] text-[9px] text-red-500", isImmersive && "text-red-400")} title="Rechazadas">
+              <th className={cn(
+                "py-3 px-2 text-right font-black uppercase tracking-[0.2em] text-[9px] text-red-500",
+                isImmersive && "text-red-400",
+                isImmersive ? "bg-slate-900" : "bg-white",
+              )} title="Rechazadas">
                 <span className={cn(
                   "inline-flex items-center justify-end gap-1 rounded-lg px-2 py-1",
                   isImmersive ? "bg-red-950/60 ring-1 ring-red-800" : "bg-red-100/80 ring-1 ring-red-200/60",
@@ -308,7 +328,11 @@ export function RankingTable({
                   <X size={STAT_ICON_SIZE} className={cn(STAT_ICON_CLASS, isImmersive ? "text-red-400" : "text-red-500")} />
                 </span>
               </th>
-              <th className={cn("py-3 px-2 text-right font-black uppercase tracking-[0.2em] text-[9px] text-amber-600", isImmersive && "text-amber-400")} title="Destacadas">
+              <th className={cn(
+                "py-3 px-2 text-right font-black uppercase tracking-[0.2em] text-[9px] text-amber-600",
+                isImmersive && "text-amber-400",
+                isImmersive ? "bg-slate-900" : "bg-white",
+              )} title="Destacadas">
                 <span className={cn(
                   "inline-flex items-center justify-end gap-1 rounded-lg px-2 py-1",
                   isImmersive ? "bg-amber-950/60 ring-1 ring-amber-800" : "bg-amber-100/80 ring-1 ring-amber-200/60",
@@ -316,11 +340,14 @@ export function RankingTable({
                   <Flame size={STAT_ICON_SIZE} className={cn(STAT_ICON_CLASS, isImmersive ? "text-amber-400" : "text-amber-600")} />
                 </span>
               </th>
-              <th className={cn("py-3 px-4 text-right font-black uppercase tracking-[0.2em] text-[9px]", isImmersive ? "text-slate-300" : "text-slate-950")}>Pts</th>
+              <th className={cn(
+                "py-3 px-4 text-right font-black uppercase tracking-[0.2em] text-[9px]",
+                isImmersive ? "text-slate-300 bg-slate-900" : "text-slate-950 bg-white",
+              )}>Pts</th>
               {showCompaniaLens && (
                 <>
-                  <th className="py-3 px-2 text-right font-black uppercase tracking-[0.2em] text-[9px] text-violet-500">Cía</th>
-                  <th className="py-3 px-2 text-right font-black uppercase tracking-[0.2em] text-[9px] text-slate-400">Δ</th>
+                  <th className={cn("py-3 px-2 text-right font-black uppercase tracking-[0.2em] text-[9px] text-violet-500", isImmersive ? "bg-slate-900" : "bg-white")}>Cía</th>
+                  <th className={cn("py-3 px-2 text-right font-black uppercase tracking-[0.2em] text-[9px] text-slate-400", isImmersive ? "bg-slate-900" : "bg-white")}>Δ</th>
                 </>
               )}
             </tr>

@@ -22,6 +22,7 @@ from core.helpers import (
     is_vendedor_excluido_objetivos,
     build_integrante_to_erp_name,
     _get_erp_name_map,
+    _vendor_names_match_venta,
 )
 from core.estadisticas_franchise import (
     FRANCHISE_VENTAS_SOURCE_DIST,
@@ -394,7 +395,7 @@ def _resolve_vid_from_venta_row(row: dict, idx: dict[str, object]) -> int | None
         if vid is not None:
             return vid
         for en, v in nombre_to_vid.items():
-            if en and nom and (en in nom or nom in en):
+            if _vendor_names_match_venta(nom, en):
                 return v
     return None
 
@@ -422,7 +423,7 @@ def _venta_matches_vendor(row: dict, ctx: dict) -> bool:
             return True
     nom = (row.get("nombre_vendedor") or "").strip().upper()
     erp_nom = (ctx.get("nombre_erp") or "").strip().upper()
-    if erp_nom and nom and (erp_nom in nom or nom in erp_nom):
+    if erp_nom and nom and _vendor_names_match_venta(nom, erp_nom):
         return True
     if erp_nom and _is_matias_wutrich(erp_nom) and "WUTRICH" in nom:
         return True

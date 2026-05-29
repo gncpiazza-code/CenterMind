@@ -18,9 +18,11 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Qu
 from core.helpers import (
     _get_erp_name_map,
     _enrich_and_store_cc,
+    build_integrante_to_erp_name,
     build_qa_exhibicion_integrante_ids,
     cc_row_matches_vendedor_erp,
     is_exhibicion_qa_display_for_dist,
+    resolve_exhibicion_vendedor_display,
     should_apply_exhibicion_qa_filter,
     is_vendedor_excluido_objetivos,
     load_active_vendedor_ids,
@@ -455,8 +457,9 @@ def get_pendientes(id_distribuidor: int, payload=Depends(verify_auth)):
         hide_qa = should_apply_exhibicion_qa_filter(id_distribuidor, payload)
         qa_ids = build_qa_exhibicion_integrante_ids(id_distribuidor) if hide_qa else frozenset()
         erp_name_map = _get_erp_name_map(id_distribuidor)
+        integrante_to_erp = build_integrante_to_erp_name(id_distribuidor)
         ex_to_int: dict[int, int | None] = {}
-        if rows and hide_qa:
+        if rows:
             ex_ids = [r.get("id_exhibicion") for r in rows if r.get("id_exhibicion")]
             if ex_ids:
                 try:
@@ -472,19 +475,25 @@ def get_pendientes(id_distribuidor: int, payload=Depends(verify_auth)):
                         for r in (ex_map_res.data or [])
                     }
                 except Exception as _e_map:
-                    logger.warning(f"[pendientes] map id_integrante QA: {_e_map}")
+                    logger.warning(f"[pendientes] map id_integrante: {_e_map}")
 
             def _row_is_qa_exhibicion(row: dict) -> bool:
                 ex_id = row.get("id_exhibicion")
                 iid = ex_to_int.get(ex_id)
+                tg_v = (row.get("vendedor") or "").strip()
+                disp = resolve_exhibicion_vendedor_display(
+                    id_distribuidor,
+                    iid,
+                    tg_v,
+                    integrante_to_erp=integrante_to_erp,
+                    erp_name_map=erp_name_map,
+                )
                 if iid is not None:
                     try:
                         if int(iid) in qa_ids:
                             return True
                     except (TypeError, ValueError):
                         pass
-                tg_v = (row.get("vendedor") or "").strip()
-                disp = erp_name_map.get(tg_v.lower(), tg_v)
                 if is_exhibicion_qa_display_for_dist(id_distribuidor, tg_v):
                     return True
                 if is_exhibicion_qa_display_for_dist(id_distribuidor, disp):
@@ -707,7 +716,14 @@ def get_pendientes(id_distribuidor: int, payload=Depends(verify_auth)):
             if not ex_id:
                 continue
             tg_vendedor = (d.get("vendedor") or "S/V").strip()
-            vendedor_display = erp_name_map.get(tg_vendedor.lower(), tg_vendedor)
+            iid_row = ex_to_int.get(ex_id)
+            vendedor_display = resolve_exhibicion_vendedor_display(
+                id_distribuidor,
+                iid_row,
+                tg_vendedor,
+                integrante_to_erp=integrante_to_erp,
+                erp_name_map=erp_name_map,
+            )
             if hide_qa and (
                 is_exhibicion_qa_display_for_dist(id_distribuidor, tg_vendedor)
                 or is_exhibicion_qa_display_for_dist(id_distribuidor, vendedor_display)
@@ -772,14 +788,70 @@ def get_stats(id_distribuidor: int, payload=Depends(verify_auth)):
 def get_vendedores(id_distribuidor: int, payload=Depends(verify_auth)):
     check_dist_permission(payload, id_distribuidor)
     try:
-        result = sb.rpc("fn_vendedores_pendientes", {"p_dist_id": id_distribuidor}).execute()
         erp_name_map = _get_erp_name_map(id_distribuidor)
+        integrante_to_erp = build_integrante_to_erp_name(id_distribuidor)
         hide_qa = should_apply_exhibicion_qa_filter(id_distribuidor, payload)
+        qa_ids = build_qa_exhibicion_integrante_ids(id_distribuidor) if hide_qa else frozenset()
+        pend_states_db = (
+            "Pendiente", "pendiente",
+            "Revisión", "revisión", "Revisión B", "revisión b", "Revisión A", "revisión a",
+        )
+        int_ids: set[int] = set()
+        offset = 0
+        page = 1000
+        while True:
+            chunk = (
+                sb.table("exhibiciones")
+                .select("id_integrante")
+                .eq("id_distribuidor", id_distribuidor)
+                .in_("estado", list(pend_states_db))
+                .range(offset, offset + page - 1)
+                .execute()
+                .data
+                or []
+            )
+            for row in chunk:
+                iid = row.get("id_integrante")
+                if iid is None:
+                    continue
+                try:
+                    int_ids.add(int(iid))
+                except (TypeError, ValueError):
+                    continue
+            if len(chunk) < page:
+                break
+            offset += page
+
+        ig_names: dict[int, str] = {}
+        if int_ids:
+            ig_list = list(int_ids)
+            for i in range(0, len(ig_list), 200):
+                batch = ig_list[i : i + 200]
+                ig_res = (
+                    sb.table("integrantes_grupo")
+                    .select("id_integrante, nombre_integrante")
+                    .eq("id_distribuidor", id_distribuidor)
+                    .in_("id_integrante", batch)
+                    .execute()
+                )
+                for ig in ig_res.data or []:
+                    iid = ig.get("id_integrante")
+                    if iid is not None:
+                        ig_names[int(iid)] = (ig.get("nombre_integrante") or "").strip()
+
         nombres = []
         seen = set()
-        for r in result.data or []:
-            tg_name = (r.get("nombre_integrante") or "").strip()
-            display = erp_name_map.get(tg_name.lower(), tg_name)
+        for iid in sorted(int_ids):
+            if hide_qa and iid in qa_ids:
+                continue
+            tg_name = ig_names.get(iid, "")
+            display = resolve_exhibicion_vendedor_display(
+                id_distribuidor,
+                iid,
+                tg_name,
+                integrante_to_erp=integrante_to_erp,
+                erp_name_map=erp_name_map,
+            )
             if hide_qa and (
                 is_exhibicion_qa_display_for_dist(id_distribuidor, display)
                 or is_exhibicion_qa_display_for_dist(id_distribuidor, tg_name)
@@ -788,7 +860,7 @@ def get_vendedores(id_distribuidor: int, payload=Depends(verify_auth)):
             if display and display not in seen:
                 nombres.append(display)
                 seen.add(display)
-        return nombres
+        return sorted(nombres)
     except Exception as e:
         logger.error(f"Error en get_vendedores dist={id_distribuidor}: {e}")
         raise HTTPException(status_code=500, detail=str(e))

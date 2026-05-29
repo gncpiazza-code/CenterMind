@@ -108,6 +108,81 @@ def _looks_like_full_name(s: str | None) -> bool:
     return len([p for p in n.split(" ") if p]) >= 2
 
 
+def _qa_test_vendor_erp_name(
+    dist_id: int, vend_id_to_name: dict[int, str]
+) -> str | None:
+    """Nombre ERP de la cuenta TEST (p. ej. NACHO PIAZZA) para el tenant."""
+    qa_vids = _EXH_QA_VENDEDOR_V2_BY_DIST.get(dist_id, frozenset())
+    for vid in qa_vids:
+        name = vend_id_to_name.get(vid)
+        if name and "piazza" in name.lower():
+            return name
+    for vid in qa_vids:
+        name = vend_id_to_name.get(vid)
+        if name:
+            return name
+    return None
+
+
+def _vendor_names_match_venta(raw_nom: str, erp_nom: str) -> bool:
+    """
+    Match ventas Consolido → ERP: exacto, prefijo numérico, o intersección de tokens
+    con al menos 2 tokens en el nombre corto (nombre+apellido). Sin alias sueltos.
+    """
+    if not raw_nom or not erp_nom:
+        return False
+    a = raw_nom.upper().strip()
+    b = erp_nom.upper().strip()
+    if a == b:
+        return True
+    if "-" in a:
+        parts = a.split("-", 1)
+        if len(parts) == 2 and parts[1].strip():
+            a = parts[1].strip()
+            if a == b:
+                return True
+    ta = [t for t in a.split() if t]
+    tb = [t for t in b.split() if t]
+    if len(ta) < 2 or len(tb) < 2:
+        return False
+    sa, sb = set(ta), set(tb)
+    short, long = (sa, sb) if len(sa) <= len(sb) else (sb, sa)
+    return len(short) >= 2 and short.issubset(long)
+
+
+def resolve_exhibicion_vendedor_display(
+    dist_id: int,
+    id_integrante: int | None,
+    nombre_integrante: str | None,
+    *,
+    integrante_to_erp: dict[int, str] | None = None,
+    erp_name_map: dict[str, str] | None = None,
+) -> str:
+    """
+    Etiqueta de vendedor para visor / pendientes.
+
+    Prioridad: id_integrante → build_integrante_to_erp_name; luego mapa ERP solo
+    con nombre+apellido. Nunca alias global tipo 'nacho' (cruce LERF ↔ PIAZZA).
+    """
+    tg = (nombre_integrante or "").strip()
+    if id_integrante is not None:
+        i2e = integrante_to_erp
+        if i2e is None:
+            i2e = build_integrante_to_erp_name(dist_id)
+        try:
+            erp = i2e.get(int(id_integrante))
+        except (TypeError, ValueError):
+            erp = None
+        if erp:
+            return erp
+    em = erp_name_map if erp_name_map is not None else _get_erp_name_map(dist_id)
+    if tg and _looks_like_full_name(tg):
+        mapped = em.get(tg.lower())
+        if mapped:
+            return mapped
+    return tg or "S/V"
+
+
 def resolve_vendedor_v2_for_integrante(
     ig: dict[str, Any],
     binding_rows: list[dict[str, Any]] | None,
@@ -262,15 +337,10 @@ def _get_erp_name_map(dist_id: int) -> dict:
                     )
                     continue
                 current = name_map.get(tg_key)
-                # Regla de seguridad: solo mapear por nombre cuando hay nombre+apellido
-                # o id_vendedor_v2 explícito. Sin binding ni v2 directo, exigir nombre completo
-                # para evitar cruces por alias ambiguos ("Romina", "Ricardo", "Luciano").
-                has_direct_v2 = ig.get("id_vendedor_v2") is not None
-                if not has_binding_override and not has_direct_v2 and not _looks_like_full_name(tg_name):
+                # Solo nombre+apellido en el mapa global (nunca alias "Nacho" suelto).
+                if not _looks_like_full_name(tg_name):
                     continue
-                if current and current != nombre_erp and not has_binding_override and not has_direct_v2:
-                    # Evita que nombres ambiguos (ej: "Nacho") pisen un mapping ya resuelto
-                    # por una fila más confiable.
+                if current and current != nombre_erp:
                     continue
                 name_map[tg_key] = nombre_erp
                 legacy_erp_name = (ig.get("id_vendedor_erp") or "").strip()
@@ -734,6 +804,7 @@ def build_integrante_to_erp_name(dist_id: int) -> dict[int, str]:
                 continue
             iid = int(iid)
             tg_name = (ig.get("nombre_integrante") or "").strip()
+            tg_uid_raw = ig.get("telegram_user_id")
 
             vid = resolve_vendedor_v2_for_integrante(ig, bindings_rows_b)
 
@@ -748,7 +819,6 @@ def build_integrante_to_erp_name(dist_id: int) -> dict[int, str]:
                     # Safety net: usuarios de 1 solo grupo con nombre completo que
                     # coincide exactamente con otro vendedor ERP → el id_vendedor_v2
                     # está cruzado en BD. Usamos el vendedor del nombre.
-                    tg_uid_raw = ig.get("telegram_user_id")
                     is_single_group = (
                         tg_uid_raw is None
                         or int(tg_uid_raw) not in multi_group_uids
@@ -767,6 +837,15 @@ def build_integrante_to_erp_name(dist_id: int) -> dict[int, str]:
                                 continue
                     result[iid] = nombre_erp
                     continue
+
+            qa_erp = _qa_test_vendor_erp_name(dist_id, vend_id_to_name)
+            if qa_erp and tg_uid_raw is not None:
+                try:
+                    if int(tg_uid_raw) in _EXH_QA_TELEGRAM_USER_IDS:
+                        result[iid] = qa_erp
+                        continue
+                except (TypeError, ValueError):
+                    pass
 
             if tg_name:
                 result[iid] = tg_name

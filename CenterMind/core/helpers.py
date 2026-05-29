@@ -494,11 +494,53 @@ def _enrich_and_store_cc(dist_id: int, fecha_snapshot: str, rows: list) -> int:
         sb.table("cc_detalle").delete().eq("id_distribuidor", int(dist_id)).execute()
         sb.table("cc_detalle").insert(records).execute()
 
+        # Upsert KPI snapshot por vendedor (y fila global) para flechas de tendencia.
+        try:
+            from datetime import date as _date
+            snap_date = fecha_snapshot if len(fecha_snapshot) == 10 else str(_date.today())
+            _upsert_cc_kpi_snapshot(int(dist_id), records, snap_date)
+        except Exception as _e:
+            logger.warning(f"_enrich_and_store_cc: fallo al guardar cc_kpi_snapshot dist={dist_id}: {_e}")
+
     logger.info(
         f"_enrich_and_store_cc dist={dist_id}: {len(records)} registros guardados "
         f"en cc_detalle (snapshot {fecha_snapshot})"
     )
     return len(records)
+
+
+def _upsert_cc_kpi_snapshot(dist_id: int, records: list[dict], fecha_snapshot: str) -> None:
+    """Calcula KPIs agregados por vendedor y los upserta en cc_kpi_snapshot."""
+    from collections import defaultdict
+
+    by_vendor: dict[int | None, list[dict]] = defaultdict(list)
+    for r in records:
+        by_vendor[r.get("id_vendedor")].append(r)
+    # Fila global (None = toda la distribuidora)
+    by_vendor[None] = records
+
+    snapshot_rows = []
+    for vid, rows in by_vendor.items():
+        total_deuda = sum(float(r.get("deuda_total") or 0) for r in rows)
+        clientes_deudores = len(rows)
+        pdvs_atraso_15 = sum(1 for r in rows if int(r.get("antiguedad_dias") or 0) > 15)
+        dias_vals = [int(r.get("antiguedad_dias") or 0) for r in rows if r.get("antiguedad_dias")]
+        dias_prom = round(sum(dias_vals) / len(dias_vals), 1) if dias_vals else 0.0
+        snapshot_rows.append({
+            "id_distribuidor": dist_id,
+            "id_vendedor": vid,
+            "fecha_snapshot": fecha_snapshot,
+            "total_deuda": round(total_deuda, 2),
+            "clientes_deudores": clientes_deudores,
+            "pdvs_atraso_15": pdvs_atraso_15,
+            "dias_promedio_atraso": dias_prom,
+        })
+
+    for row in snapshot_rows:
+        sb.table("cc_kpi_snapshot").upsert(
+            row,
+            on_conflict="id_distribuidor,id_vendedor,fecha_snapshot",
+        ).execute()
 
 
 # ─── Exhibiciones de prueba (Tabaco & Hnos): ranking + evaluación ───────────

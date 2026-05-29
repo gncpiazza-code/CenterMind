@@ -6,6 +6,7 @@ import {
   fetchCuentasSupervision,
   fetchSyncStatus,
   fetchVendedoresSupervision,
+  fetchCcKpis,
 } from "@/lib/api";
 import { supervisionPanelKeys } from "@/lib/query-keys";
 import {
@@ -84,6 +85,15 @@ export function useSupervisionPanelData(
   const altasQuery = useAltasCompradoresQuery(distId, selectedVendedorId, altasMes);
   usePrefetchAltasCompradores(distId, selectedVendedorId, altasMes, true);
 
+  const ccKpisQuery = useQuery({
+    queryKey: supervisionPanelKeys.ccKpis(distId, selectedVendedorId ?? null),
+    queryFn: () => fetchCcKpis(distId, selectedVendedorId),
+    enabled: !!distId && !!selectedVendedorId,
+    staleTime: 5 * 60_000,
+    gcTime: 15 * 60_000,
+    placeholderData: keepPreviousData,
+  });
+
   return {
     vendedores,
     vendedoresLoading,
@@ -98,5 +108,7 @@ export function useSupervisionPanelData(
     altasData: altasQuery.data,
     loadingAltas: altasQuery.isLoading && !altasQuery.data,
     fetchingAltas: altasQuery.isFetching,
+    ccKpisData: ccKpisQuery.data,
+    loadingCcKpis: ccKpisQuery.isLoading,
   };
 }

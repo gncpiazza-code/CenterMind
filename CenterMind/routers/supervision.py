@@ -2164,6 +2164,12 @@ def supervision_cuentas(
             vd["clientes"].sort(key=lambda x: x["antiguedad"] or 0, reverse=True)
         result = sorted(vendors.values(), key=lambda x: x["deuda_total"], reverse=True)
 
+        # Enriquecer clientes con telefono/celular/dia_visita/ruta (best-effort).
+        try:
+            _enrich_clientes_contact(d_id, result)
+        except Exception as _ce:
+            logger.warning(f"[supervision_cuentas] contact enrich error dist={d_id}: {_ce}")
+
         all_clientes = [c for v in result for c in v["clientes"]]
         total_deuda  = sum(v["deuda_total"] for v in result)
         total_cli    = sum(v["cantidad_clientes"] for v in result)
@@ -2180,6 +2186,310 @@ def supervision_cuentas(
         }
     except Exception as e:
         logger.error(f"Error en supervision_cuentas: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def _enrich_clientes_contact(d_id: int, vendors_result: list[dict]) -> None:
+    """
+    Agrega telefono, celular, dia_visita, ruta_nombre al dict de cada cliente.
+    Requiere que el cliente ya tenga id_cliente (PK clientes_pdv_v2) o id_cliente_erp.
+    """
+    # Recolectar id_cliente únicos
+    id_clientes: list[int] = []
+    cli_by_id: dict[int, list[dict]] = {}
+    for vd in vendors_result:
+        for c in vd.get("clientes", []):
+            pk = c.get("id_cliente")
+            if pk is not None:
+                try:
+                    ipk = int(pk)
+                except (TypeError, ValueError):
+                    continue
+                if ipk not in cli_by_id:
+                    cli_by_id[ipk] = []
+                    id_clientes.append(ipk)
+                cli_by_id[ipk].append(c)
+
+    if not id_clientes:
+        return
+
+    t_clientes = tenant_table_name("clientes_pdv_v2", d_id)
+    t_rutas = tenant_table_name("rutas_v2", d_id)
+
+    # Fetch contact + ruta del cliente
+    pdv_contact: dict[int, dict] = {}
+    PAGE = 1000
+    for i in range(0, len(id_clientes), 400):
+        chunk = id_clientes[i: i + 400]
+        offset = 0
+        while True:
+            batch = (
+                sb.table(t_clientes)
+                .select("id_cliente, telefono, celular, id_ruta, domicilio, latitud, longitud")
+                .eq("id_distribuidor", d_id)
+                .in_("id_cliente", chunk)
+                .range(offset, offset + PAGE - 1)
+                .execute()
+                .data or []
+            )
+            for r in batch:
+                pk = r.get("id_cliente")
+                if pk is not None:
+                    pdv_contact[int(pk)] = r
+            if len(batch) < PAGE:
+                break
+            offset += PAGE
+
+    # Fetch info de rutas para los id_ruta encontrados
+    ruta_ids = list({r.get("id_ruta") for r in pdv_contact.values() if r.get("id_ruta")})
+    ruta_info: dict[int, dict] = {}
+    if ruta_ids:
+        for i in range(0, len(ruta_ids), 400):
+            chunk = ruta_ids[i: i + 400]
+            batch = (
+                sb.table(t_rutas)
+                .select("id_ruta, id_ruta_erp, dia_semana")
+                .eq("id_distribuidor", d_id)
+                .in_("id_ruta", chunk)
+                .execute()
+                .data or []
+            )
+            for r in batch:
+                rid = r.get("id_ruta")
+                if rid is not None:
+                    ruta_info[int(rid)] = r
+
+    # Aplicar al dict de cada cliente
+    for ipk, c_list in cli_by_id.items():
+        contact = pdv_contact.get(ipk, {})
+        rid = contact.get("id_ruta")
+        ruta = ruta_info.get(int(rid)) if rid else {}
+        for c in c_list:
+            c["telefono"] = contact.get("telefono")
+            c["celular"] = contact.get("celular")
+            c["domicilio"] = contact.get("domicilio")
+            c["latitud"] = contact.get("latitud")
+            c["longitud"] = contact.get("longitud")
+            c["dia_visita"] = ruta.get("dia_semana")
+            c["ruta_numero"] = str(ruta.get("id_ruta_erp") or "") or None
+            c["ruta_nombre"] = str(ruta.get("id_ruta_erp") or "") or None
+
+
+# ── Nuevo endpoint: KPIs CC con deltas por vendedor ──────────────────────────
+
+@router.get("/api/supervision/cc-kpis/{dist_id}", tags=["Supervisión"])
+def supervision_cc_kpis(
+    dist_id: int,
+    id_vendedor: Optional[int] = Query(None, description="PK vendedor; None = global distribuidora"),
+    user_payload=Depends(verify_auth),
+):
+    """
+    Retorna KPIs del último snapshot CC y deltas vs el snapshot anterior.
+    Flechas: delta>0 → roja (deuda subió); delta<0 → verde (deuda bajó).
+    """
+    check_dist_permission(user_payload, dist_id)
+    try:
+        q = (
+            sb.table("cc_kpi_snapshot")
+            .select("fecha_snapshot, total_deuda, clientes_deudores, pdvs_atraso_15, dias_promedio_atraso")
+            .eq("id_distribuidor", int(dist_id))
+            .order("fecha_snapshot", desc=True)
+            .limit(2)
+        )
+        if id_vendedor is not None:
+            q = q.eq("id_vendedor", int(id_vendedor))
+        else:
+            q = q.is_("id_vendedor", "null")
+
+        rows = q.execute().data or []
+
+        if not rows:
+            return {"kpis": None, "deltas": None}
+
+        actual = rows[0]
+        anterior = rows[1] if len(rows) >= 2 else None
+
+        def _delta(campo: str):
+            if not anterior:
+                return None
+            a = float(actual.get(campo) or 0)
+            p = float(anterior.get(campo) or 0)
+            diff = round(a - p, 2)
+            pct = round(diff / p * 100, 1) if p else None
+            # Para deuda/deudores/atraso: subir es malo (rojo ↑), bajar es bueno (verde ↓)
+            dir_ = "up" if diff > 0 else ("down" if diff < 0 else "neutral")
+            return {"diff": diff, "pct": pct, "dir": dir_}
+
+        return {
+            "kpis": {
+                "total_deuda": float(actual.get("total_deuda") or 0),
+                "clientes_deudores": int(actual.get("clientes_deudores") or 0),
+                "pdvs_atraso_15": int(actual.get("pdvs_atraso_15") or 0),
+                "dias_promedio_atraso": float(actual.get("dias_promedio_atraso") or 0),
+                "fecha_snapshot": actual.get("fecha_snapshot"),
+            },
+            "deltas": {
+                "total_deuda": _delta("total_deuda"),
+                "clientes_deudores": _delta("clientes_deudores"),
+                "pdvs_atraso_15": _delta("pdvs_atraso_15"),
+            },
+        }
+    except Exception as e:
+        logger.error(f"supervision_cc_kpis: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Nuevo endpoint: perfil del deudor + comprobantes matcheados ───────────────
+
+@router.get("/api/supervision/cliente/{dist_id}/{id_cliente_erp}/deuda-detalle", tags=["Supervisión"])
+def supervision_deuda_detalle(
+    dist_id: int,
+    id_cliente_erp: str,
+    user_payload=Depends(verify_auth),
+):
+    """
+    Perfil del deudor: cabecera (contacto + ruta), deuda de cc_detalle y comprobantes
+    matcheados desde ventas_enriched_v2.
+    """
+    from core.cc_deuda_match import match_deuda_comprobantes
+
+    check_dist_permission(user_payload, dist_id)
+    try:
+        d_id = int(dist_id)
+        erp_raw = str(id_cliente_erp).strip()
+
+        # ── 1. Fila cc_detalle del cliente ────────────────────────────────────
+        cc_rows = (
+            sb.table("cc_detalle")
+            .select("id_cliente, id_cliente_erp, cliente_nombre, deuda_total, "
+                    "deuda_7_dias, deuda_15_dias, deuda_30_dias, deuda_60_dias, "
+                    "deuda_mas_60_dias, antiguedad_dias, rango_antiguedad, "
+                    "cantidad_comprobantes, vendedor_nombre, id_vendedor")
+            .eq("id_distribuidor", d_id)
+            .eq("id_cliente_erp", erp_raw)
+            .limit(1)
+            .execute()
+            .data or []
+        )
+        if not cc_rows:
+            raise HTTPException(status_code=404, detail="Cliente no encontrado en CC")
+        cc_row = cc_rows[0]
+
+        id_cliente_pk = cc_row.get("id_cliente")
+
+        # ── 2. Perfil del cliente (contacto + ruta) ───────────────────────────
+        t_clientes = tenant_table_name("clientes_pdv_v2", d_id)
+        t_rutas = tenant_table_name("rutas_v2", d_id)
+
+        perfil: dict = {
+            "nombre_fantasia": cc_row.get("cliente_nombre"),
+            "razon_social": None,
+            "telefono": None,
+            "celular": None,
+            "domicilio": None,
+            "latitud": None,
+            "longitud": None,
+            "dia_visita": None,
+            "ruta_numero": None,
+            "ruta_nombre": None,
+            "id_cliente_erp": erp_raw,
+        }
+
+        if id_cliente_pk:
+            pdv_res = (
+                sb.table(t_clientes)
+                .select("id_cliente, nombre_fantasia, nombre_razon_social, "
+                        "telefono, celular, domicilio, latitud, longitud, id_ruta")
+                .eq("id_distribuidor", d_id)
+                .eq("id_cliente", int(id_cliente_pk))
+                .limit(1)
+                .execute()
+                .data or []
+            )
+            if pdv_res:
+                p = pdv_res[0]
+                perfil["nombre_fantasia"] = p.get("nombre_fantasia") or cc_row.get("cliente_nombre")
+                perfil["razon_social"] = p.get("nombre_razon_social")
+                perfil["telefono"] = p.get("telefono")
+                perfil["celular"] = p.get("celular")
+                perfil["domicilio"] = p.get("domicilio")
+                perfil["latitud"] = p.get("latitud")
+                perfil["longitud"] = p.get("longitud")
+                id_ruta = p.get("id_ruta")
+                if id_ruta:
+                    ruta_res = (
+                        sb.table(t_rutas)
+                        .select("id_ruta, id_ruta_erp, dia_semana")
+                        .eq("id_distribuidor", d_id)
+                        .eq("id_ruta", int(id_ruta))
+                        .limit(1)
+                        .execute()
+                        .data or []
+                    )
+                    if ruta_res:
+                        r = ruta_res[0]
+                        perfil["dia_visita"] = r.get("dia_semana")
+                        perfil["ruta_numero"] = str(r.get("id_ruta_erp") or "")
+                        perfil["ruta_nombre"] = str(r.get("id_ruta_erp") or "")
+
+        # ── 3. Ventas del cliente en ventana (para matcheo) ───────────────────
+        from datetime import timedelta as _td
+        antiguedad_dias = int(cc_row.get("antiguedad_dias") or 0)
+        hoy = _today_ar()
+        ventana_inicio = (hoy - _td(days=antiguedad_dias + 14)).isoformat()
+
+        t_ventas = tenant_table_name("ventas_enriched_v2", d_id)
+        ventas_rows: list[dict] = []
+        PAGE = 1000
+        offset = 0
+        while True:
+            batch = (
+                sb.table(t_ventas)
+                .select("fecha_factura, tipo_documento, numero_documento, "
+                        "cod_articulo, descripcion_articulo, bultos_total, "
+                        "importe_final, anulado")
+                .eq("id_distribuidor", d_id)
+                .eq("id_cliente_erp", erp_raw)
+                .gte("fecha_factura", ventana_inicio)
+                .order("fecha_factura", desc=True)
+                .range(offset, offset + PAGE - 1)
+                .execute()
+                .data or []
+            )
+            ventas_rows.extend(batch)
+            if len(batch) < PAGE:
+                break
+            offset += PAGE
+
+        # ── 4. Matchear ────────────────────────────────────────────────────────
+        match = match_deuda_comprobantes(cc_row, ventas_rows)
+
+        # ── 5. Desglose por antigüedad ─────────────────────────────────────────
+        desglose = [
+            {"rango": "1-7d",  "monto": float(cc_row.get("deuda_7_dias") or 0)},
+            {"rango": "8-15d", "monto": float(cc_row.get("deuda_15_dias") or 0)},
+            {"rango": "16-30d","monto": float(cc_row.get("deuda_30_dias") or 0)},
+            {"rango": "31-60d","monto": float(cc_row.get("deuda_60_dias") or 0)},
+            {"rango": "+60d",  "monto": float(cc_row.get("deuda_mas_60_dias") or 0)},
+        ]
+
+        return {
+            "perfil": perfil,
+            "deuda": {
+                "total_deuda": match["total_deuda"],
+                "antiguedad_dias": antiguedad_dias,
+                "rango_antiguedad": cc_row.get("rango_antiguedad"),
+                "cantidad_comprobantes": int(cc_row.get("cantidad_comprobantes") or 0),
+                "desglose_antiguedad": desglose,
+            },
+            "estado": match["estado"],
+            "confianza": match["confianza"],
+            "comprobantes": match["comprobantes"],
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"supervision_deuda_detalle: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -15,6 +15,8 @@ interface SupervisionPanelStore {
 
   // UI
   ccResumenExpanded: boolean;
+  /** ERP ID del cliente seleccionado en el panel izquierdo → perfil del deudor */
+  selectedClienteErp: string | null;
 
   // Actions
   setSelectedSucursal: (s: string) => void;
@@ -25,6 +27,7 @@ interface SupervisionPanelStore {
   toggleCCSort: (sort: 'deuda' | 'antiguedad' | 'comprobantes' | 'ultima_compra') => void;
   setCcResumenExpanded: (open: boolean) => void;
   toggleCcResumen: () => void;
+  setSelectedClienteErp: (erp: string | null) => void;
 }
 
 function currentMes(): string {
@@ -41,6 +44,7 @@ export const useSupervisionPanelStore = create<SupervisionPanelStore>()(
       ccSort: 'antiguedad',
       ccSortDir: 'desc',
       ccResumenExpanded: true,
+      selectedClienteErp: null,
 
       setSelectedSucursal: (s) =>
         set({ selectedSucursal: s, selectedVendedorNombre: null }),
@@ -66,6 +70,8 @@ export const useSupervisionPanelStore = create<SupervisionPanelStore>()(
 
       toggleCcResumen: () =>
         set({ ccResumenExpanded: !get().ccResumenExpanded }),
+
+      setSelectedClienteErp: (erp) => set({ selectedClienteErp: erp }),
     }),
     {
       name: 'supervision-panel-store',

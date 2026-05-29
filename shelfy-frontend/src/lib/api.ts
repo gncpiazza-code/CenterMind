@@ -1730,14 +1730,112 @@ export interface ClienteCuenta {
   padron_cc_alerta?: boolean;
   id_cliente_erp?: string | null;
   id_cliente?: number | null;
+  // Campos de contacto/ruta (enriquecidos en backend)
+  telefono?: string | null;
+  celular?: string | null;
+  domicilio?: string | null;
+  latitud?: number | null;
+  longitud?: number | null;
+  dia_visita?: string | null;
+  ruta_numero?: string | null;
+  ruta_nombre?: string | null;
 }
 
 export interface VendedorCuentas {
   vendedor: string;
   id_vendedor?: number | null;
+  sucursal?: string | null;
   deuda_total: number;
   cantidad_clientes: number;
   clientes: ClienteCuenta[];
+}
+
+// ── CC KPIs con deltas (para flechas de tendencia) ────────────────────────
+
+export interface CcKpiDelta {
+  diff: number;
+  pct: number | null;
+  /** "up" = subió (rojo), "down" = bajó (verde), "neutral" */
+  dir: "up" | "down" | "neutral";
+}
+
+export interface CcKpis {
+  total_deuda: number;
+  clientes_deudores: number;
+  pdvs_atraso_15: number;
+  dias_promedio_atraso: number;
+  fecha_snapshot: string | null;
+}
+
+export interface CcKpisResponse {
+  kpis: CcKpis | null;
+  deltas: {
+    total_deuda: CcKpiDelta | null;
+    clientes_deudores: CcKpiDelta | null;
+    pdvs_atraso_15: CcKpiDelta | null;
+  } | null;
+}
+
+// ── Deudor detalle (perfil + comprobantes matcheados) ─────────────────────
+
+export interface DeudorPerfil {
+  nombre_fantasia: string | null;
+  razon_social: string | null;
+  telefono: string | null;
+  celular: string | null;
+  domicilio: string | null;
+  latitud: number | null;
+  longitud: number | null;
+  dia_visita: string | null;
+  ruta_numero: string | null;
+  ruta_nombre: string | null;
+  id_cliente_erp: string;
+}
+
+export interface DeudorArticulo {
+  cod_articulo: string;
+  descripcion: string;
+  bultos_total: number;
+  importe_final: number;
+}
+
+export interface DeudorComprobante {
+  numero: string;
+  fecha: string;
+  importe_total: number;
+  articulos: DeudorArticulo[];
+  match_status?: "matched" | "estimado";
+}
+
+export interface DeudorDetalle {
+  perfil: DeudorPerfil;
+  deuda: {
+    total_deuda: number;
+    antiguedad_dias: number;
+    rango_antiguedad: string | null;
+    cantidad_comprobantes: number;
+    desglose_antiguedad: Array<{ rango: string; monto: number }>;
+  };
+  estado: "matched" | "partial" | "sin_comprobantes";
+  confianza: "alta" | "baja" | null;
+  comprobantes: DeudorComprobante[];
+}
+
+export async function fetchCcKpis(
+  distId: number,
+  idVendedor?: number | null,
+): Promise<CcKpisResponse> {
+  const params = idVendedor != null ? `?id_vendedor=${idVendedor}` : "";
+  return apiFetch<CcKpisResponse>(`/api/supervision/cc-kpis/${distId}${params}`);
+}
+
+export async function fetchDeudorDetalle(
+  distId: number,
+  idClienteErp: string,
+): Promise<DeudorDetalle> {
+  return apiFetch<DeudorDetalle>(
+    `/api/supervision/cliente/${distId}/${encodeURIComponent(idClienteErp)}/deuda-detalle`,
+  );
 }
 
 export interface CuentasSupervision {

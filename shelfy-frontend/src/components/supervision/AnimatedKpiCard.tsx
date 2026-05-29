@@ -1,10 +1,11 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, TrendingUp, TrendingDown } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useCountUp } from "./useCountUp";
+import type { CcKpiDelta } from "@/lib/api";
 
 const COLOR_MAP = {
   violet:  { bg: "bg-violet-500/8",  icon: "text-violet-600",  border: "border-violet-200/60" },
@@ -23,6 +24,8 @@ interface AnimatedKpiCardProps {
   color: keyof typeof COLOR_MAP;
   loading?: boolean;
   delay?: number;
+  /** Flecha de tendencia (delta vs snapshot anterior). */
+  trend?: CcKpiDelta | null;
   /** Card clickeable que despliega contenido debajo (p. ej. resumen CC). */
   expandable?: boolean;
   expanded?: boolean;
@@ -39,6 +42,7 @@ export function AnimatedKpiCard({
   color,
   loading = false,
   delay = 0,
+  trend,
   expandable = false,
   expanded = false,
   onToggle,
@@ -46,6 +50,21 @@ export function AnimatedKpiCard({
 }: AnimatedKpiCardProps) {
   const animated = useCountUp(value);
   const { bg, icon: iconColor, border } = COLOR_MAP[color];
+
+  const trendEl = trend && trend.dir !== "neutral" ? (
+    <span
+      className={`inline-flex items-center gap-0.5 text-[10px] font-semibold tabular-nums ${
+        trend.dir === "up" ? "text-rose-600" : "text-emerald-600"
+      }`}
+    >
+      {trend.dir === "up" ? (
+        <TrendingUp size={11} strokeWidth={2.5} />
+      ) : (
+        <TrendingDown size={11} strokeWidth={2.5} />
+      )}
+      {trend.pct != null ? `${Math.abs(trend.pct)}%` : ""}
+    </span>
+  ) : null;
 
   const card = (
     <Card
@@ -66,16 +85,19 @@ export function AnimatedKpiCard({
             {loading ? (
               <Skeleton className="mt-1 h-7 w-24 rounded" />
             ) : (
-              <p className="mt-1 text-2xl font-black text-foreground tracking-tight leading-none tabular-nums">
-                {formatter(animated)}
-              </p>
+              <div className="flex items-baseline gap-2">
+                <p className="mt-1 text-2xl font-black text-foreground tracking-tight leading-none tabular-nums">
+                  {formatter(animated)}
+                </p>
+                {trendEl && <span className="mt-1">{trendEl}</span>}
+              </div>
             )}
             {expandable && !loading && (
               <p className="mt-1 text-[10px] text-muted-foreground">
                 {expanded ? "Ocultar desglose" : expandHint}
               </p>
             )}
-            {subtext && !loading && !expandable && (
+            {subtext && !loading && !expandable && !trendEl && (
               <p className="mt-1 text-[10px] text-muted-foreground">{subtext}</p>
             )}
           </div>

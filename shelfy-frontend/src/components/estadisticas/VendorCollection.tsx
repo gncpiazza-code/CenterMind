@@ -1,8 +1,8 @@
 "use client";
 
-import { useRef, useEffect, useState, useCallback, useMemo } from "react";
+import { useRef, useEffect, useCallback, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import type { Variants } from "framer-motion";
 import { VendorCard } from "./VendorCard";
 import { VendorCardExpanded } from "./VendorCardExpanded";
@@ -28,15 +28,22 @@ const containerVariants: Variants = {
 };
 
 const cardVariants: Variants = {
-  hidden: { opacity: 0, scale: 0.85, y: 20 },
+  hidden: { opacity: 0, scale: 0.92, y: 16 },
   show: {
-    opacity: 1, scale: 1, y: 0,
-    transition: { type: "spring" as const, stiffness: 300, damping: 25 },
+    opacity: 1,
+    scale: 1,
+    y: 0,
+    transition: { duration: 0.4, ease: [0.25, 0.1, 0.25, 1] },
   },
 };
 
-const WINDOW_BUFFER = 20;
-const CARD_W = 276; // 260 card + 16 gap (scroll)
+const CARD_DIMMED = { scale: 0.96, opacity: 0.62 };
+const CARD_FOCUSED = { scale: 1, opacity: 1 };
+const CARD_FOCUS_TRANSITION = { duration: 0.45, ease: [0.32, 0.72, 0, 1] as const };
+
+/** Altura aprox. carta + gap para scroll-into-view en listas largas */
+const CARD_ROW_H = 472;
+const SCROLL_CONTAINER_MAX_H = "calc(100vh - 220px)";
 
 export function VendorCollection({
   vendors,
@@ -53,47 +60,41 @@ export function VendorCollection({
 
   const queryClient = useQueryClient();
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [scrollCenter, setScrollCenter] = useState(0);
+  const [detailVisible, setDetailVisible] = useState(false);
+  const detailVisibleRef = useRef(false);
+
+  useEffect(() => {
+    if (activeVendorId) setDetailVisible(true);
+  }, [activeVendorId]);
+
+  useEffect(() => {
+    detailVisibleRef.current = detailVisible;
+  }, [detailVisible]);
 
   const filtered = filterSucursal
     ? vendors.filter((v) => v.sucursal === filterSucursal)
     : vendors;
 
-  const useScrollMode = filtered.length > 40;
-  const windowedStart = Math.max(0, scrollCenter - WINDOW_BUFFER);
-  const windowedEnd = Math.min(filtered.length, scrollCenter + WINDOW_BUFFER);
-
-  const visibleVendors = useScrollMode
-    ? filtered.slice(windowedStart, windowedEnd)
-    : filtered;
+  const useContainedScroll = filtered.length > 12;
+  const visibleVendors = filtered;
 
   const leadersByVendor = useMemo(
     () => computeStatLeadersByVendor(filtered),
     [filtered],
   );
 
-  const handleScroll = useCallback(() => {
-    if (scrollRef.current) {
-      const x = scrollRef.current.scrollLeft;
-      setScrollCenter(Math.round(x / CARD_W));
-    }
-  }, []);
-
   useEffect(() => {
-    if (!useScrollMode) return;
-    const el = scrollRef.current;
-    if (!el) return;
-    el.addEventListener("scroll", handleScroll, { passive: true });
-    return () => el.removeEventListener("scroll", handleScroll);
-  }, [handleScroll, useScrollMode]);
-
-  useEffect(() => {
-    if (!activeVendorId || !scrollRef.current || !useScrollMode) return;
+    if (!activeVendorId || !scrollRef.current || !useContainedScroll) return;
     const idx = filtered.findIndex((v) => v.id_vendedor === activeVendorId);
     if (idx < 0) return;
-    const target = idx * CARD_W - scrollRef.current.clientWidth / 2 + CARD_W / 2;
-    scrollRef.current.scrollTo({ left: Math.max(0, target), behavior: "smooth" });
-  }, [activeVendorId, filtered, useScrollMode]);
+    const cols = Math.max(
+      1,
+      Math.floor(scrollRef.current.clientWidth / 276),
+    );
+    const row = Math.floor(idx / cols);
+    const target = row * CARD_ROW_H - 24;
+    scrollRef.current.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
+  }, [activeVendorId, filtered, useContainedScroll]);
 
   const activeVendor = activeVendorId
     ? vendors.find((v) => v.id_vendedor === activeVendorId) ?? null
@@ -122,75 +123,78 @@ export function VendorCollection({
   );
 
   return (
-    <div style={{ position: "relative", width: "100%" }}>
+    <LayoutGroup id="estadisticas-vendor-cards">
+    <div
+      style={{
+        position: "relative",
+        width: "100%",
+        flex: useContainedScroll ? 1 : undefined,
+        minHeight: useContainedScroll ? 0 : undefined,
+        display: useContainedScroll ? "flex" : "block",
+        flexDirection: "column",
+      }}
+    >
       <motion.div
         ref={scrollRef}
         variants={containerVariants}
         initial="hidden"
         animate="show"
         style={{
-          display: useScrollMode ? "flex" : "grid",
-          gridTemplateColumns: useScrollMode
-            ? undefined
-            : "repeat(auto-fill, minmax(276px, 1fr))",
-          gap: useScrollMode ? 16 : 20,
-          overflowX: useScrollMode ? "auto" : "visible",
-          overflowY: "visible",
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(276px, 1fr))",
+          gap: 20,
+          alignContent: "start",
+          overflowX: "hidden",
+          overflowY: useContainedScroll ? "auto" : "visible",
+          maxHeight: useContainedScroll ? SCROLL_CONTAINER_MAX_H : undefined,
           padding: "12px 24px 24px",
-          scrollSnapType: useScrollMode ? "x mandatory" : undefined,
           WebkitOverflowScrolling: "touch",
-          transition: "opacity 0.2s ease",
-          opacity: activeVendorId ? 0.65 : 1,
-          overflow: "visible",
+          transition: "opacity 0.4s cubic-bezier(0.32, 0.72, 0, 1)",
+          opacity: activeVendorId ? 0.78 : 1,
         }}
         className="estadisticas-scroll-strip"
       >
-        {useScrollMode && windowedStart > 0 && (
-          <div style={{ width: windowedStart * CARD_W, flexShrink: 0 }} aria-hidden="true" />
-        )}
-
         {visibleVendors.map((vendor) => (
           <motion.div
             key={vendor.id_vendedor}
-            layout
             variants={cardVariants}
-            style={useScrollMode ? { flexShrink: 0, width: 260 } : { minWidth: 0 }}
+            style={{ minWidth: 0 }}
             animate={
-              activeVendorId && vendor.id_vendedor !== activeVendorId
-                ? { scale: 0.82, opacity: 0.45 }
+              activeVendorId
+                ? vendor.id_vendedor === activeVendorId
+                  ? CARD_FOCUSED
+                  : CARD_DIMMED
                 : "show"
             }
-            transition={{ type: "spring", stiffness: 280, damping: 26 }}
+            transition={CARD_FOCUS_TRANSITION}
           >
             <VendorCard
               vendor={vendor}
               isActive={vendor.id_vendedor === activeVendorId}
               overlayMode={overlayMode}
-              compact={useScrollMode}
+              compact={false}
               nombreDistribuidora={nombreDistribuidora}
               statLeaders={leadersByVendor.get(vendor.id_vendedor) ?? []}
               onPrefetchDetalle={() => handlePrefetchDetalle(vendor.id_vendedor)}
             />
           </motion.div>
         ))}
-
-        {useScrollMode && windowedEnd < filtered.length && (
-          <div
-            style={{ width: (filtered.length - windowedEnd) * CARD_W, flexShrink: 0 }}
-            aria-hidden="true"
-          />
-        )}
       </motion.div>
 
-      <AnimatePresence>
-        {activeVendor && (
+      <AnimatePresence
+        mode="popLayout"
+        onExitComplete={() => {
+          if (!detailVisibleRef.current) setActiveVendorId(null);
+        }}
+      >
+        {detailVisible && activeVendor && (
           <VendorCardExpanded
             key={activeVendor.id_vendedor}
             vendor={activeVendor}
             vendors={filtered}
             distId={distId}
             meses={meses}
-            onClose={() => setActiveVendorId(null)}
+            onClose={() => setDetailVisible(false)}
           />
         )}
       </AnimatePresence>
@@ -201,7 +205,7 @@ export function VendorCollection({
           scrollbar-color: ${ESTADISTICAS_FIFA.panelBorder} transparent;
         }
         .estadisticas-scroll-strip::-webkit-scrollbar {
-          height: 4px;
+          width: 6px;
         }
         .estadisticas-scroll-strip::-webkit-scrollbar-track {
           background: transparent;
@@ -212,12 +216,11 @@ export function VendorCollection({
         }
         @media (max-width: 640px) {
           .estadisticas-scroll-strip {
-            display: grid !important;
             grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-            overflow-x: hidden !important;
           }
         }
-      `}</style>
+      `}      </style>
     </div>
+    </LayoutGroup>
   );
 }

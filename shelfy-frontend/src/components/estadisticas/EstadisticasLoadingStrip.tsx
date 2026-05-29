@@ -103,8 +103,9 @@ export function EstadisticasLoadingStrip({
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         style={{
-          display: "flex",
-          gap: 16,
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(276px, 1fr))",
+          gap: 20,
           padding: "4px 24px 20px",
           overflowX: "hidden",
         }}
@@ -115,6 +116,7 @@ export function EstadisticasLoadingStrip({
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: i * 0.06, duration: 0.35 }}
+            style={{ minWidth: 0 }}
           >
             <ShimmerCard />
           </motion.div>

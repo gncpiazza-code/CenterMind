@@ -270,7 +270,15 @@ export default function EstadisticasPage() {
           )}
 
           {/* ── Main content area ── */}
-          <div style={{ flex: 1, marginTop: 12 }}>
+          <div
+            style={{
+              flex: 1,
+              marginTop: 12,
+              minHeight: 0,
+              display: "flex",
+              flexDirection: "column",
+            }}
+          >
             <AnimatePresence mode="wait">
               {showLoadingStrip && (
                 <motion.div key="loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
@@ -339,7 +347,13 @@ export default function EstadisticasPage() {
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
-                  style={{ position: "relative" }}
+                  style={{
+                    position: "relative",
+                    flex: 1,
+                    minHeight: 0,
+                    display: "flex",
+                    flexDirection: "column",
+                  }}
                 >
                   {showRefreshingOverlay && (
                     <div

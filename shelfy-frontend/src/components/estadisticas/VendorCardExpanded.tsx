@@ -34,6 +34,7 @@ import {
 } from "lucide-react";
 import type { VendorCartaResumen, VendorDetalle } from "@/lib/api";
 import { VendorCardRadar } from "./VendorCardRadar";
+import { VENDOR_CARD_LAYOUT_TRANSITION } from "./VendorCardFusion";
 import { useEstadisticasStore } from "@/store/useEstadisticasStore";
 import {
   detalleQueryOptions,
@@ -156,7 +157,7 @@ export function VendorCardExpanded({
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        transition={{ duration: 0.2 }}
+        transition={{ duration: 0.28, ease: [0.4, 0, 0.2, 1] }}
         onClick={handleBackdropClick}
         style={{
           position: "fixed",
@@ -174,10 +175,13 @@ export function VendorCardExpanded({
         {/* Card */}
         <motion.div
           layoutId={`vendor-card-${vendor.id_vendedor}`}
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          exit={{ opacity: 0, scale: 0.9 }}
-          transition={{ type: "spring", stiffness: 300, damping: 30 }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{
+            opacity: { duration: 0.22, ease: [0.4, 0, 0.2, 1] },
+            ...VENDOR_CARD_LAYOUT_TRANSITION,
+          }}
           style={{
             width: "min(90vw, 860px)",
             maxHeight: "88vh",

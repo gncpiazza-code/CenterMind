@@ -15,6 +15,16 @@ import {
 } from "@/lib/vendor-card-tier";
 import type { VendorStatLeaderKey } from "@/lib/vendor-card-fusion-kpi";
 
+/** Morph carta ↔ modal (compartido con VendorCardExpanded). */
+export const VENDOR_CARD_LAYOUT_TRANSITION = {
+  layout: {
+    type: "spring" as const,
+    stiffness: 200,
+    damping: 30,
+    mass: 0.85,
+  },
+};
+
 export interface VendorCardFusionProps {
   vendor: VendorCartaResumen;
   isActive: boolean;
@@ -50,19 +60,20 @@ export function VendorCardFusion({
     setActiveVendorId(vendor.id_vendedor);
   };
 
-  if (isActive) {
+  if (isActive && !previewMode) {
     return (
-      <div style={{ width: compact ? VENDOR_CARD_W : "100%", flexShrink: 0 }} aria-hidden>
-        <div
-          style={{
-            height: VENDOR_CARD_FACE_H,
-            borderRadius: 16,
-            border: "2px dashed rgba(168,85,247,0.35)",
-            background: "rgba(15,23,42,0.04)",
-          }}
-        />
-        <div style={{ height: 40 }} />
-      </div>
+      <motion.div
+        layoutId={`vendor-card-${vendor.id_vendedor}`}
+        transition={VENDOR_CARD_LAYOUT_TRANSITION}
+        aria-hidden
+        style={{
+          width: compact ? VENDOR_CARD_W : "100%",
+          flexShrink: 0,
+          height: VENDOR_CARD_FACE_H + 48,
+          opacity: 0,
+          pointerEvents: "none",
+        }}
+      />
     );
   }
 
@@ -70,6 +81,7 @@ export function VendorCardFusion({
     <motion.div
       layout={!previewMode}
       layoutId={previewMode ? undefined : `vendor-card-${vendor.id_vendedor}`}
+      transition={VENDOR_CARD_LAYOUT_TRANSITION}
       style={{
         width: compact ? VENDOR_CARD_W : "100%",
         flexShrink: 0,

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/hooks/useAuth";
 import { useRouter } from "next/navigation";
@@ -14,11 +13,11 @@ import { EstadisticasLoadingStrip } from "@/components/estadisticas/Estadisticas
 import { IdealConfigModal } from "@/components/estadisticas/IdealConfigModal";
 import { KpiHelpTip } from "@/components/estadisticas/KpiHelpTip";
 import { useEstadisticasStore } from "@/store/useEstadisticasStore";
+import type { VendorCartaResumen } from "@/lib/api";
 import {
-  fetchEstadisticasMeses,
-  fetchEstadisticasCartas,
-  type VendorCartaResumen,
-} from "@/lib/api";
+  useEstadisticasCartas,
+  useEstadisticasMeses,
+} from "@/hooks/useEstadisticasQueries";
 import { mesActual } from "@/lib/estadisticas-period";
 import { VENDEDOR_IDEAL_HELP } from "@/lib/estadisticas-kpi-help";
 import {
@@ -62,13 +61,8 @@ export default function EstadisticasPage() {
 
   const distId: number = user?.id_distribuidor ?? 0;
 
-  // Meses disponibles
-  const { data: mesesDisponibles = [], isLoading: loadingMeses } = useQuery<string[]>({
-    queryKey: ["estadisticas-meses", distId],
-    queryFn: () => fetchEstadisticasMeses(distId),
-    enabled: !!distId,
-    staleTime: 1000 * 60 * 5,
-  });
+  const { data: mesesDisponibles = [], isLoading: loadingMeses } =
+    useEstadisticasMeses(distId);
 
   // Auto-select current month on first load
   useEffect(() => {
@@ -81,19 +75,16 @@ export default function EstadisticasPage() {
     }
   }, [mesesDisponibles, mesesSeleccionados, setMesesSeleccionados]);
 
-  // Vendor cards
-  const { data: vendors = [], isLoading: loadingCards, isFetching, isPlaceholderData } = useQuery({
-    queryKey: ["estadisticas-cartas", distId, mesesSeleccionados, filterSucursal],
-    queryFn: () => fetchEstadisticasCartas(distId, mesesSeleccionados, filterSucursal),
-    enabled: !!distId && mesesSeleccionados.length > 0,
-    staleTime: 1000 * 60 * 2,
-    placeholderData: (prev) => prev,
-  });
+  const {
+    data: vendors = [],
+    isLoading: loadingCards,
+    isFetching,
+    isPlaceholderData,
+  } = useEstadisticasCartas(distId, mesesSeleccionados, filterSucursal);
 
-  const showLoadingStrip =
-    (loadingCards && vendors.length === 0) ||
-    (isFetching && isPlaceholderData && vendors.length === 0);
-  const showRefreshingOverlay = isFetching && vendors.length > 0;
+  const showLoadingStrip = loadingCards && vendors.length === 0;
+  const showRefreshingOverlay =
+    isFetching && isPlaceholderData && vendors.length > 0;
 
   // Activar overlay ideal por defecto la primera vez que hay config
   const overlayInitRef = useRef(false);

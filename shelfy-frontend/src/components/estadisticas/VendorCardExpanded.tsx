@@ -14,7 +14,7 @@ import {
   useTransform,
 } from "framer-motion";
 import type { Variants } from "framer-motion";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   X,
   ChevronLeft,
@@ -32,10 +32,17 @@ import {
   Search,
   Loader2,
 } from "lucide-react";
-import { fetchEstadisticasVendedorDetalle } from "@/lib/api";
 import type { VendorCartaResumen, VendorDetalle } from "@/lib/api";
 import { VendorCardRadar } from "./VendorCardRadar";
 import { useEstadisticasStore } from "@/store/useEstadisticasStore";
+import {
+  detalleQueryOptions,
+  useEstadisticasWarmCache,
+} from "@/hooks/useEstadisticasQueries";
+import {
+  ESTADISTICAS_FIFA,
+  detalleThemeForScore,
+} from "@/lib/vendor-card-detalle-theme";
 import { KpiHelpTip } from "./KpiHelpTip";
 import {
   ESTADISTICAS_KPI_HELP,
@@ -96,20 +103,27 @@ export function VendorCardExpanded({
   onClose,
 }: VendorCardExpandedProps) {
   const { overlayMode, setActiveVendorId } = useEstadisticasStore();
+  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<TabKey>("pdvs");
   const [searchCompradores, setSearchCompradores] = useState("");
   const backdropRef = useRef<HTMLDivElement>(null);
+
+  const tierTheme = detalleThemeForScore(vendor.score);
+  const F = ESTADISTICAS_FIFA;
 
   const vendorIdx = vendors.findIndex((v) => v.id_vendedor === vendor.id_vendedor);
   const prevVendor = vendors[vendorIdx - 1] ?? null;
   const nextVendor = vendors[vendorIdx + 1] ?? null;
 
-  const { data: detalle, isLoading, isError, refetch } = useQuery({
-    queryKey: ["estadisticas-detalle", distId, vendor.id_vendedor, meses],
-    queryFn: () => fetchEstadisticasVendedorDetalle(distId, vendor.id_vendedor, meses),
-    enabled: !!vendor,
-    staleTime: 1000 * 60 * 5,
-  });
+  const neighborIds = [
+    prevVendor?.id_vendedor,
+    nextVendor?.id_vendedor,
+  ].filter(Boolean) as string[];
+  useEstadisticasWarmCache(queryClient, distId, meses, null, neighborIds);
+
+  const { data: detalle, isLoading, isError, refetch } = useQuery(
+    detalleQueryOptions(distId, vendor.id_vendedor, meses),
+  );
 
   const handleBackdropClick = useCallback(
     (e: React.MouseEvent) => { if (e.target === backdropRef.current) onClose(); },
@@ -125,9 +139,6 @@ export function VendorCardExpanded({
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [onClose, prevVendor, nextVendor, setActiveVendorId]);
-
-  const scoreColor =
-    vendor.score >= 80 ? "#10B981" : vendor.score >= 50 ? "#F59E0B" : "#EF4444";
 
   const filteredCompradores =
     detalle?.compradores.filter(
@@ -150,7 +161,7 @@ export function VendorCardExpanded({
         style={{
           position: "fixed",
           inset: 0,
-          background: "rgba(15,23,42,0.65)",
+          background: F.backdrop,
           backdropFilter: "blur(4px)",
           WebkitBackdropFilter: "blur(4px)",
           zIndex: 200,
@@ -172,9 +183,8 @@ export function VendorCardExpanded({
             maxHeight: "88vh",
             borderRadius: 20,
             overflow: "hidden",
-            background: "white",
-            boxShadow:
-              "0 24px 64px rgba(168,85,247,0.25), 0 4px 16px rgba(0,0,0,0.12)",
+            background: "#fffef8",
+            boxShadow: F.shadow,
             display: "flex",
             flexDirection: "column",
             zIndex: 201,
@@ -185,7 +195,7 @@ export function VendorCardExpanded({
           <div
             style={{
               height: 6,
-              background: "linear-gradient(90deg, #a855f7 0%, #7C3AED 50%, #5B21B6 100%)",
+              background: tierTheme.faceGradient,
               flexShrink: 0,
             }}
           />
@@ -195,8 +205,8 @@ export function VendorCardExpanded({
             style={{
               flexShrink: 0,
               padding: "8px 20px",
-              borderBottom: "1px solid rgba(168,85,247,0.1)",
-              background: "rgba(250,245,255,0.85)",
+              borderBottom: `1px solid ${F.idealBannerBorder}`,
+              background: F.idealBannerBg,
               display: "flex",
               alignItems: "flex-start",
               gap: 8,
@@ -204,7 +214,7 @@ export function VendorCardExpanded({
           >
             <KpiHelpTip text={VENDEDOR_IDEAL_HELP} side="bottom" size={14} />
             <p style={{ margin: 0, fontSize: 11, lineHeight: 1.45, color: "var(--shelfy-muted)" }}>
-              <span style={{ fontWeight: 700, color: "#7C3AED" }}>Vendedor ideal: </span>
+              <span style={{ fontWeight: 700, color: F.accentDark }}>Vendedor ideal: </span>
               {VENDEDOR_IDEAL_HELP}
             </p>
           </div>
@@ -217,8 +227,8 @@ export function VendorCardExpanded({
                 width: 260,
                 flexShrink: 0,
                 padding: "20px 16px 20px 20px",
-                borderRight: "1px solid rgba(168,85,247,0.12)",
-                background: "linear-gradient(180deg, #faf5ff 0%, white 100%)",
+                borderRight: `1px solid ${F.panelBorderLight}`,
+                background: tierTheme.nameBar,
                 display: "flex",
                 flexDirection: "column",
                 gap: 12,
@@ -232,21 +242,21 @@ export function VendorCardExpanded({
                     width: 56,
                     height: 56,
                     borderRadius: "50%",
-                    background: scoreColor,
+                    background: tierTheme.faceGradient,
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    boxShadow: `0 4px 16px ${scoreColor}55`,
+                    boxShadow: tierTheme.shadow,
                     flexShrink: 0,
                   }}
                 >
-                  <span style={{ fontSize: 20, fontWeight: 900, color: "white" }}>
+                  <span style={{ fontSize: 20, fontWeight: 900, color: tierTheme.text }}>
                     <CountUp target={Math.round(vendor.score)} />
                   </span>
                 </div>
                 <div>
                   <p style={{ fontSize: 9, fontWeight: 700, color: "var(--shelfy-muted)", textTransform: "uppercase", letterSpacing: "0.08em", margin: 0 }}>Score</p>
-                  <p style={{ fontSize: 18, fontWeight: 800, color: "var(--shelfy-text)", margin: 0, lineHeight: 1.2 }}>
+                  <p style={{ fontSize: 18, fontWeight: 800, color: F.textOnLight, margin: 0, lineHeight: 1.2 }}>
                     {vendor.nombre}
                   </p>
                   {vendor.sucursal && (
@@ -274,7 +284,8 @@ export function VendorCardExpanded({
                   radar={vendor.radar}
                   radarCompania={vendor.radar_ideal_compania}
                   radarDist={vendor.radar_ideal_dist}
-                  size="lg"
+                  size="fusion"
+                  axesMode="fusion"
                   showOverlayCompania={overlayMode === "compania" || overlayMode === "ambos"}
                   showOverlayDist={overlayMode === "distribuidor" || overlayMode === "ambos"}
                 />
@@ -336,10 +347,10 @@ export function VendorCardExpanded({
               <div
                 style={{
                   display: "flex",
-                  borderBottom: "1px solid rgba(168,85,247,0.12)",
+                  borderBottom: `1px solid ${F.panelBorderLight}`,
                   padding: "0 20px",
                   flexShrink: 0,
-                  background: "white",
+                  background: "#fffef8",
                 }}
               >
                 {TABS.map((tab) => (
@@ -353,13 +364,13 @@ export function VendorCardExpanded({
                       padding: "12px 14px",
                       fontSize: 12,
                       fontWeight: activeTab === tab.key ? 700 : 500,
-                      color: activeTab === tab.key ? "#a855f7" : "var(--shelfy-muted)",
-                      borderBottom: activeTab === tab.key ? "2px solid #a855f7" : "2px solid transparent",
+                      color: activeTab === tab.key ? F.accent : "var(--shelfy-muted)",
+                      borderBottom: activeTab === tab.key ? `2px solid ${F.accent}` : "2px solid transparent",
                       background: "none",
                       border: "none",
                       borderBottomWidth: 2,
                       borderBottomStyle: "solid",
-                      borderBottomColor: activeTab === tab.key ? "#a855f7" : "transparent",
+                      borderBottomColor: activeTab === tab.key ? F.accent : "transparent",
                       cursor: "pointer",
                       transition: "all 0.18s ease",
                       whiteSpace: "nowrap",
@@ -373,9 +384,9 @@ export function VendorCardExpanded({
 
               {/* Tab content */}
               <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }}>
-                {isLoading ? (
+                {isLoading && !detalle ? (
                   <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: 200 }}>
-                    <Loader2 size={28} className="animate-spin" style={{ color: "#a855f7" }} />
+                    <Loader2 size={28} className="animate-spin" style={{ color: F.accent }} />
                   </div>
                 ) : isError ? (
                   <div style={{ textAlign: "center", padding: "48px 16px" }}>
@@ -388,9 +399,9 @@ export function VendorCardExpanded({
                       style={{
                         padding: "8px 16px",
                         borderRadius: 8,
-                        border: "1px solid rgba(168,85,247,0.3)",
-                        background: "rgba(168,85,247,0.08)",
-                        color: "#7C3AED",
+                        border: `1px solid ${F.panelBorder}`,
+                        background: F.panelBg,
+                        color: F.accentDark,
                         fontSize: 12,
                         fontWeight: 700,
                         cursor: "pointer",
@@ -442,8 +453,8 @@ export function VendorCardExpanded({
               justifyContent: "space-between",
               alignItems: "center",
               padding: "10px 20px",
-              borderTop: "1px solid rgba(168,85,247,0.1)",
-              background: "#faf5ff",
+              borderTop: `1px solid ${F.panelBorderLight}`,
+              background: F.footerBg,
               flexShrink: 0,
             }}
           >
@@ -452,7 +463,7 @@ export function VendorCardExpanded({
               disabled={!prevVendor}
               style={{
                 display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600,
-                color: prevVendor ? "#a855f7" : "var(--shelfy-muted)",
+                color: prevVendor ? F.accent : "var(--shelfy-muted)",
                 background: "none", border: "none", cursor: prevVendor ? "pointer" : "default",
                 opacity: prevVendor ? 1 : 0.4,
               }}
@@ -465,8 +476,8 @@ export function VendorCardExpanded({
               style={{
                 display: "flex", alignItems: "center", gap: 5,
                 padding: "6px 14px", borderRadius: 8,
-                background: "rgba(168,85,247,0.1)", border: "1px solid rgba(168,85,247,0.2)",
-                fontSize: 12, fontWeight: 600, color: "#a855f7", cursor: "pointer",
+                background: F.panelBg, border: `1px solid ${F.panelBorder}`,
+                fontSize: 12, fontWeight: 600, color: F.accentDark, cursor: "pointer",
               }}
             >
               <X size={14} />
@@ -477,7 +488,7 @@ export function VendorCardExpanded({
               disabled={!nextVendor}
               style={{
                 display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600,
-                color: nextVendor ? "#a855f7" : "var(--shelfy-muted)",
+                color: nextVendor ? F.accent : "var(--shelfy-muted)",
                 background: "none", border: "none", cursor: nextVendor ? "pointer" : "default",
                 opacity: nextVendor ? 1 : 0.4,
               }}
@@ -500,8 +511,8 @@ function OverlayToggle() {
   const options: { label: string; value: "none" | "compania" | "distribuidor" | "ambos"; color: string }[] = [
     { label: "Ninguno",      value: "none",        color: "#64748B" },
     { label: "Compañía",     value: "compania",    color: "#F59E0B" },
-    { label: "Distribuidora",value: "distribuidor",color: "#7C3AED" },
-    { label: "Ambos",        value: "ambos",       color: "#a855f7" },
+    { label: "Distribuidora",value: "distribuidor",color: ESTADISTICAS_FIFA.panel },
+    { label: "Ambos",        value: "ambos",       color: ESTADISTICAS_FIFA.accent },
   ];
 
   return (
@@ -563,7 +574,7 @@ function TabPDVs({ detalle }: { detalle: VendorDetalle }) {
               padding: "0 2px",
             }}
           >
-            <h3 style={{ margin: 0, fontSize: 13, fontWeight: 800, color: "#7C3AED", textTransform: "capitalize" }}>
+            <h3 style={{ margin: 0, fontSize: 13, fontWeight: 800, color: ESTADISTICAS_FIFA.accentDark, textTransform: "capitalize" }}>
               {dia}
             </h3>
             <span style={{ fontSize: 10, color: "var(--shelfy-muted)", fontWeight: 600 }}>
@@ -580,8 +591,8 @@ function TabPDVs({ detalle }: { detalle: VendorDetalle }) {
                 variants={itemVariants}
                 style={{
                   borderRadius: 10,
-                  background: "rgba(168,85,247,0.05)",
-                  border: "1px solid rgba(168,85,247,0.12)",
+                  background: ESTADISTICAS_FIFA.panelBg,
+                  border: `1px solid ${ESTADISTICAS_FIFA.panelBorderLight}`,
                   overflow: "hidden",
                 }}
               >
@@ -595,14 +606,14 @@ function TabPDVs({ detalle }: { detalle: VendorDetalle }) {
                     alignItems: "center",
                     gap: 8,
                     padding: "10px 12px",
-                    background: isOpen ? "rgba(168,85,247,0.08)" : "transparent",
+                    background: isOpen ? ESTADISTICAS_FIFA.panelBgHover : "transparent",
                     border: "none",
                     cursor: "pointer",
                     textAlign: "left",
                   }}
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                    <MapPin size={14} color="#a855f7" style={{ flexShrink: 0 }} />
+                    <MapPin size={14} color={ESTADISTICAS_FIFA.accent} style={{ flexShrink: 0 }} />
                     <div style={{ minWidth: 0 }}>
                       <div style={{ fontSize: 13, fontWeight: 700, color: "var(--shelfy-text)" }}>
                         Ruta {r.nombre}
@@ -614,7 +625,7 @@ function TabPDVs({ detalle }: { detalle: VendorDetalle }) {
                   </div>
                   <ChevronDown
                     size={16}
-                    color="#7C3AED"
+                    color={ESTADISTICAS_FIFA.accentDark}
                     style={{
                       flexShrink: 0,
                       transform: isOpen ? "rotate(180deg)" : "rotate(0deg)",
@@ -638,7 +649,7 @@ function TabPDVs({ detalle }: { detalle: VendorDetalle }) {
                           display: "flex",
                           flexDirection: "column",
                           gap: 8,
-                          borderTop: "1px solid rgba(168,85,247,0.1)",
+                          borderTop: `1px solid ${ESTADISTICAS_FIFA.panelBorderLight}`,
                         }}
                       >
                         {pdvs.length === 0 ? (
@@ -656,7 +667,7 @@ function TabPDVs({ detalle }: { detalle: VendorDetalle }) {
                                   padding: "10px 12px",
                                   borderRadius: 8,
                                   background: "white",
-                                  border: "1px solid rgba(168,85,247,0.08)",
+                                  border: `1px solid ${ESTADISTICAS_FIFA.panelBorderLight}`,
                                   fontSize: 11,
                                   lineHeight: 1.45,
                                 }}
@@ -719,12 +730,12 @@ function TabAltas({ detalle }: { detalle: VendorDetalle }) {
         style={{
           overflowX: "auto",
           borderRadius: 10,
-          border: "1px solid rgba(168,85,247,0.1)",
+          border: `1px solid ${ESTADISTICAS_FIFA.panelBorderLight}`,
         }}
       >
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
           <thead>
-            <tr style={{ background: "rgba(168,85,247,0.06)" }}>
+            <tr style={{ background: ESTADISTICAS_FIFA.panelBg }}>
               {["Fecha", "Razón Social", "ID ERP", "Localidad"].map((h) => (
                 <th
                   key={h}
@@ -746,7 +757,7 @@ function TabAltas({ detalle }: { detalle: VendorDetalle }) {
                 key={i}
                 variants={itemVariants}
                 style={{
-                  borderTop: "1px solid rgba(168,85,247,0.06)",
+                  borderTop: `1px solid ${ESTADISTICAS_FIFA.panelBorderLight}`,
                 }}
               >
                 <td style={{ padding: "7px 12px", color: "var(--shelfy-muted)", whiteSpace: "nowrap" }}>
@@ -773,12 +784,12 @@ function TabAltas({ detalle }: { detalle: VendorDetalle }) {
 function TabExhibiciones({ detalle }: { detalle: VendorDetalle }) {
   const r = detalle.exhibiciones_resumen;
   const stats = [
-    { label: "Total Lógicas", value: r.total_logicas, icon: <Target size={16} />, color: "#a855f7", bg: "rgba(168,85,247,0.1)" },
+    { label: "Total Lógicas", value: r.total_logicas, icon: <Target size={16} />, color: ESTADISTICAS_FIFA.accent, bg: ESTADISTICAS_FIFA.panelBg },
     { label: "Destacadas",    value: r.destacadas,    icon: <Star size={16} />,   color: "#F59E0B", bg: "rgba(245,158,11,0.1)" },
     { label: "Aprobadas",     value: r.aprobadas,     icon: <CheckCircle2 size={16} />, color: "#10B981", bg: "rgba(16,185,129,0.1)" },
     { label: "Pendientes",    value: r.pendientes,    icon: <Clock size={16} />,  color: "#64748B", bg: "rgba(100,116,139,0.1)" },
     { label: "Rechazadas",    value: r.rechazadas,    icon: <XCircle size={16} />, color: "#EF4444", bg: "rgba(239,68,68,0.1)" },
-    { label: "Puntos",        value: r.puntos,        icon: <Star size={16} />,   color: "#7C3AED", bg: "rgba(124,58,237,0.1)" },
+    { label: "Puntos",        value: r.puntos,        icon: <Star size={16} />,   color: ESTADISTICAS_FIFA.accentDark, bg: ESTADISTICAS_FIFA.panelBgHover },
   ];
 
   return (
@@ -835,8 +846,8 @@ function TabBultos({ detalle }: { detalle: VendorDetalle }) {
               gap: 6,
               padding: "10px 12px",
               borderRadius: 10,
-              background: "rgba(168,85,247,0.04)",
-              border: "1px solid rgba(168,85,247,0.1)",
+              background: ESTADISTICAS_FIFA.panelBg,
+              border: `1px solid ${ESTADISTICAS_FIFA.panelBorderLight}`,
             }}
           >
             <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
@@ -847,8 +858,8 @@ function TabBultos({ detalle }: { detalle: VendorDetalle }) {
                     width: 22,
                     height: 22,
                     borderRadius: 6,
-                    background: "rgba(124,58,237,0.12)",
-                    color: "#7C3AED",
+                    background: ESTADISTICAS_FIFA.panelBgHover,
+                    color: ESTADISTICAS_FIFA.accentDark,
                     fontSize: 11,
                     fontWeight: 800,
                     display: "flex",
@@ -871,7 +882,7 @@ function TabBultos({ detalle }: { detalle: VendorDetalle }) {
                   {item.articulo}
                 </p>
               </div>
-              <span style={{ flexShrink: 0, fontSize: 14, fontWeight: 800, color: "#7C3AED" }}>
+              <span style={{ flexShrink: 0, fontSize: 14, fontWeight: 800, color: ESTADISTICAS_FIFA.accentDark }}>
                 {item.bultos}
               </span>
             </div>
@@ -879,7 +890,7 @@ function TabBultos({ detalle }: { detalle: VendorDetalle }) {
               style={{
                 height: 6,
                 borderRadius: 99,
-                background: "rgba(168,85,247,0.12)",
+                background: ESTADISTICAS_FIFA.panelBgHover,
                 overflow: "hidden",
               }}
             >
@@ -888,7 +899,7 @@ function TabBultos({ detalle }: { detalle: VendorDetalle }) {
                   height: "100%",
                   width: `${Math.max(8, (item.bultos / maxBultos) * 100)}%`,
                   borderRadius: 99,
-                  background: "linear-gradient(90deg, #a855f7, #7C3AED)",
+                  background: `linear-gradient(90deg, ${ESTADISTICAS_FIFA.accent}, ${ESTADISTICAS_FIFA.accentDark})`,
                 }}
               />
             </div>
@@ -916,8 +927,8 @@ function TabCompradores({
         <div
           style={{
             display: "flex", alignItems: "center", gap: 6, flex: 1,
-            border: "1px solid rgba(168,85,247,0.2)", borderRadius: 8,
-            padding: "6px 10px", background: "rgba(168,85,247,0.03)",
+            border: `1px solid ${ESTADISTICAS_FIFA.panelBorder}`, borderRadius: 8,
+            padding: "6px 10px", background: ESTADISTICAS_FIFA.panelBg,
           }}
         >
           <Search size={13} color="var(--shelfy-muted)" />
@@ -949,8 +960,8 @@ function TabCompradores({
               style={{
                 display: "flex", justifyContent: "space-between", alignItems: "center",
                 padding: "7px 12px", borderRadius: 8,
-                background: "rgba(168,85,247,0.04)",
-                border: "1px solid rgba(168,85,247,0.08)",
+                background: ESTADISTICAS_FIFA.panelBg,
+                border: `1px solid ${ESTADISTICAS_FIFA.panelBorderLight}`,
               }}
             >
               <span style={{ fontSize: 12, fontWeight: 600, color: "var(--shelfy-text)" }}>

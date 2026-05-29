@@ -141,6 +141,9 @@ export const adminDashboardKeys = {
   motorRuns: (tipo?: string) => ['admin-dashboard', 'motor-runs', tipo ?? 'all'] as const,
 };
 
+// ── Estadísticas (cartas vendedor) ───────────────────────────────────────────
+export { estadisticasKeys } from './estadisticas-query-keys';
+
 // ── Reportería ─────────────────────────────────────────────────────────────────
 export const reporteriaKeys = {
   all: ['reporteria'] as const,

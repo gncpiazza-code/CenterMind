@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 
 type OverlayMode = 'none' | 'compania' | 'distribuidor' | 'ambos';
 
@@ -20,25 +21,37 @@ interface EstadisticasStore {
   setSelectedTenantId: (id: number | null) => void;
 }
 
-export const useEstadisticasStore = create<EstadisticasStore>((set) => ({
-  mesesSeleccionados: [],
-  setMesesSeleccionados: (meses) => set({ mesesSeleccionados: meses }),
-  toggleMes: (mes) =>
-    set((s) => ({
-      mesesSeleccionados: s.mesesSeleccionados.includes(mes)
-        ? s.mesesSeleccionados.filter((m) => m !== mes)
-        : [...s.mesesSeleccionados, mes],
-    })),
+export const useEstadisticasStore = create<EstadisticasStore>()(
+  persist(
+    (set) => ({
+      mesesSeleccionados: [],
+      setMesesSeleccionados: (meses) => set({ mesesSeleccionados: meses }),
+      toggleMes: (mes) =>
+        set((s) => ({
+          mesesSeleccionados: s.mesesSeleccionados.includes(mes)
+            ? s.mesesSeleccionados.filter((m) => m !== mes)
+            : [...s.mesesSeleccionados, mes],
+        })),
 
-  filterSucursal: null,
-  setFilterSucursal: (filterSucursal) => set({ filterSucursal }),
+      filterSucursal: null,
+      setFilterSucursal: (filterSucursal) => set({ filterSucursal }),
 
-  activeVendorId: null,
-  setActiveVendorId: (activeVendorId) => set({ activeVendorId }),
+      activeVendorId: null,
+      setActiveVendorId: (activeVendorId) => set({ activeVendorId }),
 
-  overlayMode: 'none',
-  setOverlayMode: (overlayMode) => set({ overlayMode }),
+      overlayMode: 'none',
+      setOverlayMode: (overlayMode) => set({ overlayMode }),
 
-  selectedTenantId: null,
-  setSelectedTenantId: (selectedTenantId) => set({ selectedTenantId }),
-}));
+      selectedTenantId: null,
+      setSelectedTenantId: (selectedTenantId) => set({ selectedTenantId }),
+    }),
+    {
+      name: 'estadisticas-store',
+      partialize: (s) => ({
+        mesesSeleccionados: s.mesesSeleccionados,
+        filterSucursal: s.filterSucursal,
+        overlayMode: s.overlayMode,
+      }),
+    },
+  ),
+);

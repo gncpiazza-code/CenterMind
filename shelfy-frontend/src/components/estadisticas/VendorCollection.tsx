@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useEffect, useState, useCallback, useMemo } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import type { Variants } from "framer-motion";
 import { VendorCard } from "./VendorCard";
@@ -8,6 +9,11 @@ import { VendorCardExpanded } from "./VendorCardExpanded";
 import { useEstadisticasStore } from "@/store/useEstadisticasStore";
 import type { VendorCartaResumen } from "@/lib/api";
 import { computeStatLeadersByVendor } from "@/lib/vendor-card-fusion-kpi";
+import {
+  prefetchEstadisticasDetalle,
+  useEstadisticasWarmCache,
+} from "@/hooks/useEstadisticasQueries";
+import { ESTADISTICAS_FIFA } from "@/lib/vendor-card-detalle-theme";
 
 interface VendorCollectionProps {
   vendors: VendorCartaResumen[];
@@ -45,6 +51,7 @@ export function VendorCollection({
     overlayMode,
   } = useEstadisticasStore();
 
+  const queryClient = useQueryClient();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [scrollCenter, setScrollCenter] = useState(0);
 
@@ -91,6 +98,28 @@ export function VendorCollection({
   const activeVendor = activeVendorId
     ? vendors.find((v) => v.id_vendedor === activeVendorId) ?? null
     : null;
+
+  const activeIdx = activeVendor
+    ? filtered.findIndex((v) => v.id_vendedor === activeVendor.id_vendedor)
+    : -1;
+  const neighborIds = useMemo(() => {
+    if (activeIdx < 0) return [] as string[];
+    const ids: string[] = [];
+    const prev = filtered[activeIdx - 1];
+    const next = filtered[activeIdx + 1];
+    if (prev) ids.push(prev.id_vendedor);
+    if (next) ids.push(next.id_vendedor);
+    return ids;
+  }, [activeIdx, filtered]);
+
+  useEstadisticasWarmCache(queryClient, distId, meses, filterSucursal, neighborIds);
+
+  const handlePrefetchDetalle = useCallback(
+    (vendedorId: string) => {
+      prefetchEstadisticasDetalle(queryClient, distId, vendedorId, meses);
+    },
+    [queryClient, distId, meses],
+  );
 
   return (
     <div style={{ position: "relative", width: "100%" }}>
@@ -139,6 +168,7 @@ export function VendorCollection({
               compact={useScrollMode}
               nombreDistribuidora={nombreDistribuidora}
               statLeaders={leadersByVendor.get(vendor.id_vendedor) ?? []}
+              onPrefetchDetalle={() => handlePrefetchDetalle(vendor.id_vendedor)}
             />
           </motion.div>
         ))}
@@ -167,7 +197,7 @@ export function VendorCollection({
       <style>{`
         .estadisticas-scroll-strip {
           scrollbar-width: thin;
-          scrollbar-color: rgba(168,85,247,0.3) transparent;
+          scrollbar-color: ${ESTADISTICAS_FIFA.panelBorder} transparent;
         }
         .estadisticas-scroll-strip::-webkit-scrollbar {
           height: 4px;
@@ -176,7 +206,7 @@ export function VendorCollection({
           background: transparent;
         }
         .estadisticas-scroll-strip::-webkit-scrollbar-thumb {
-          background: rgba(168,85,247,0.3);
+          background: ${ESTADISTICAS_FIFA.panelBorder};
           border-radius: 4px;
         }
         @media (max-width: 640px) {

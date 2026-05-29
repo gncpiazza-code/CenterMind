@@ -25,6 +25,7 @@ export interface VendorCardFusionProps {
   previewMode?: boolean;
   animationPaused?: boolean;
   statLeaders?: VendorStatLeaderKey[];
+  onPrefetchDetalle?: () => void;
 }
 
 export function VendorCardFusion({
@@ -37,6 +38,7 @@ export function VendorCardFusion({
   previewMode = false,
   animationPaused = false,
   statLeaders = [],
+  onPrefetchDetalle,
 }: VendorCardFusionProps) {
   const setActiveVendorId = useEstadisticasStore((s) => s.setActiveVendorId);
   const tier = scoreToTier(vendor.score);
@@ -84,6 +86,7 @@ export function VendorCardFusion({
         whileTap={{ scale: 0.99 }}
         transition={{ type: "spring", stiffness: 400, damping: 28 }}
         onClick={openDetail}
+        onPointerEnter={onPrefetchDetalle}
         style={{
           width: "100%",
           height: VENDOR_CARD_FACE_H,
@@ -213,6 +216,7 @@ export function VendorCardFusion({
         type="button"
         className="vendor-fifa-ver-detalle"
         onClick={openDetail}
+        onPointerEnter={onPrefetchDetalle}
         disabled={previewMode}
         style={{
           marginTop: 8,

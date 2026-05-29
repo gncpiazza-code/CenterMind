@@ -20,6 +20,7 @@ interface DashboardKpiCarouselProps {
   ranking: VendedorRanking[];
   evolucion: EvolucionTiempo[];
   loading?: boolean;
+  isImmersive?: boolean;
 }
 
 type SlideKey = 0 | 1 | 2;
@@ -49,6 +50,7 @@ export function DashboardKpiCarousel({
   ranking,
   evolucion,
   loading = false,
+  isImmersive = false,
 }: DashboardKpiCarouselProps) {
   const [slide, setSlide] = useState<SlideKey>(0);
   const [chartView, setChartView] = useState<"evolucion" | "vendedores">("evolucion");
@@ -102,7 +104,10 @@ export function DashboardKpiCarousel({
     <div className="shrink-0">
       {/* Slide nav dots */}
       <div className="flex items-center justify-between mb-2">
-        <p className="text-[10px] font-black uppercase tracking-widest text-violet-600/80 min-h-4">
+        <p className={cn(
+          "text-[10px] font-black uppercase tracking-widest min-h-4",
+          isImmersive ? "text-slate-500" : "text-violet-600/80",
+        )}>
           {SLIDE_LABELS[slide] || ""}
         </p>
         <div className="flex items-center gap-1.5">
@@ -114,7 +119,7 @@ export function DashboardKpiCarousel({
               aria-label={SLIDE_LABELS[s]}
               className={cn(
                 "h-1.5 rounded-full transition-all duration-300",
-                slide === s ? "bg-violet-500 w-5" : "w-1.5 bg-slate-300 hover:bg-slate-400",
+                slide === s ? (isImmersive ? "bg-slate-400 w-5" : "bg-violet-500 w-5") : (isImmersive ? "w-1.5 bg-slate-600 hover:bg-slate-500" : "w-1.5 bg-slate-300 hover:bg-slate-400"),
               )}
             />
           ))}
@@ -132,10 +137,10 @@ export function DashboardKpiCarousel({
             transition={{ duration: 0.25 }}
             className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3"
           >
-            <KpiCard variant="compact" label="Pendientes"  value={kpis.pendientes}  icon={<Clock size={18} />}        colorName="amber"   bgColor="bg-gradient-to-br from-amber-100/70 via-amber-50/50 to-white" />
-            <KpiCard variant="compact" label="Aprobadas"   value={kpis.aprobadas}   icon={<CheckCircle size={18} />}  colorName="emerald" bgColor="bg-gradient-to-br from-emerald-100/70 via-emerald-50/50 to-white" />
-            <KpiCard variant="compact" label="Destacadas"  value={kpis.destacadas}  icon={<Star size={18} />}         colorName="violet"  bgColor="bg-gradient-to-br from-violet-200/60 via-fuchsia-50/40 to-white" />
-            <KpiCard variant="compact" label="Rechazadas"  value={kpis.rechazadas}  icon={<XCircle size={18} />}      colorName="red"     bgColor="bg-gradient-to-br from-red-100/60 via-red-50/40 to-white" />
+            <KpiCard variant="compact" immersive={isImmersive} label="Pendientes"  value={kpis.pendientes}  icon={<Clock size={18} />}        colorName="amber"   bgColor="bg-gradient-to-br from-amber-100/70 via-amber-50/50 to-white" />
+            <KpiCard variant="compact" immersive={isImmersive} label="Aprobadas"   value={kpis.aprobadas}   icon={<CheckCircle size={18} />}  colorName="emerald" bgColor="bg-gradient-to-br from-emerald-100/70 via-emerald-50/50 to-white" />
+            <KpiCard variant="compact" immersive={isImmersive} label="Destacadas"  value={kpis.destacadas}  icon={<Star size={18} />}         colorName="violet"  bgColor="bg-gradient-to-br from-violet-200/60 via-fuchsia-50/40 to-white" />
+            <KpiCard variant="compact" immersive={isImmersive} label="Rechazadas"  value={kpis.rechazadas}  icon={<XCircle size={18} />}      colorName="red"     bgColor="bg-gradient-to-br from-red-100/60 via-red-50/40 to-white" />
           </motion.div>
         )}
 
@@ -147,7 +152,12 @@ export function DashboardKpiCarousel({
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -20 }}
             transition={{ duration: 0.25 }}
-            className="h-[140px] bg-gradient-to-br from-violet-100/50 via-white to-indigo-100/40 rounded-2xl border-2 border-violet-200/60 shadow-md shadow-violet-500/10 p-3 relative overflow-hidden"
+            className={cn(
+              "h-[140px] rounded-2xl p-3 relative overflow-hidden",
+              isImmersive
+                ? "bg-slate-900 border border-slate-700"
+                : "bg-gradient-to-br from-violet-100/50 via-white to-indigo-100/40 border-2 border-violet-200/60 shadow-md shadow-violet-500/10",
+            )}
           >
             {/* Chart rotation dots */}
             <div className="absolute top-2.5 right-3 flex items-center gap-1 z-10">
@@ -158,7 +168,7 @@ export function DashboardKpiCarousel({
                   onClick={() => setChartView(v)}
                   className={cn(
                     "h-1 rounded-full transition-all duration-300",
-                    chartView === v ? "w-4 bg-violet-500" : "w-1 bg-slate-300",
+                    chartView === v ? (isImmersive ? "w-4 bg-slate-400" : "w-4 bg-violet-500") : (isImmersive ? "w-1 bg-slate-600" : "w-1 bg-slate-300"),
                   )}
                 />
               ))}
@@ -174,13 +184,13 @@ export function DashboardKpiCarousel({
                   transition={{ duration: 0.2 }}
                   className="absolute inset-0 p-3 pt-2"
                 >
-                  <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1">Evolución</p>
+                  <p className={cn("text-[9px] font-black uppercase tracking-widest mb-1", isImmersive ? "text-slate-400" : "text-slate-400")}>Evolución</p>
                   {hasEvolucion ? (
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart data={evolucion} margin={{ top: 0, right: 8, bottom: 0, left: -30 }}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                        <XAxis dataKey="fecha" tick={{ fill: "#94a3b8", fontSize: 9, fontWeight: 800 }} tickLine={false} axisLine={false} />
-                        <YAxis tick={{ fill: "#94a3b8", fontSize: 9 }} tickLine={false} axisLine={false} />
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isImmersive ? "#334155" : "#e2e8f0"} />
+                        <XAxis dataKey="fecha" tick={{ fill: isImmersive ? "#94a3b8" : "#94a3b8", fontSize: 9, fontWeight: 800 }} tickLine={false} axisLine={false} />
+                        <YAxis tick={{ fill: isImmersive ? "#94a3b8" : "#94a3b8", fontSize: 9 }} tickLine={false} axisLine={false} />
                         <Tooltip content={<CustomTooltip />} />
                         <Line type="monotone" dataKey="aprobadas" name="Aprob." stroke="#8b5cf6" strokeWidth={2} dot={false} />
                         <Line type="monotone" dataKey="total" name="Total" stroke="#cbd5e1" strokeWidth={1.5} dot={false} strokeDasharray="4 4" />
@@ -236,6 +246,7 @@ export function DashboardKpiCarousel({
           >
             <KpiCard
               variant="compact"
+              immersive={isImmersive}
               label="PDVs exhibidos"
               value={kpis.total}
               icon={<Store size={18} />}
@@ -245,6 +256,7 @@ export function DashboardKpiCarousel({
             />
             <KpiCard
               variant="compact"
+              immersive={isImmersive}
               label="Tasa aprob."
               value={tasaAprobacion ?? 0}
               icon={<TrendingUp size={18} />}
@@ -255,6 +267,7 @@ export function DashboardKpiCarousel({
             />
             <KpiCard
               variant="compact"
+              immersive={isImmersive}
               label="Vend. activos"
               value={kpis.vendedores_activos ?? 0}
               icon={<Users size={18} />}
@@ -264,6 +277,7 @@ export function DashboardKpiCarousel({
             />
             <KpiCard
               variant="compact"
+              immersive={isImmersive}
               label="Exhib./vendedor"
               value={kpis.exhibiciones_por_vendedor ?? 0}
               icon={<BarChart2 size={18} />}

@@ -184,10 +184,14 @@ export default function DashboardPage() {
 
       <div className="flex flex-col flex-1 min-w-0 relative h-full">
 
-        {/* Blobs decorativos */}
-        <div className="absolute top-[-15%] right-[-8%] w-[45%] h-[45%] rounded-full bg-violet-400/20 blur-[120px] pointer-events-none" />
-        <div className="absolute bottom-[-10%] left-[-8%] w-[35%] h-[35%] rounded-full bg-indigo-400/15 blur-[100px] pointer-events-none" />
-        <div className="absolute top-[35%] left-[20%] w-[30%] h-[30%] rounded-full bg-emerald-400/10 blur-[90px] pointer-events-none" />
+        {/* Blobs decorativos — ocultos en pantalla completa (proyección TV) */}
+        {!isImmersive && (
+          <>
+            <div className="absolute top-[-15%] right-[-8%] w-[45%] h-[45%] rounded-full bg-violet-400/20 blur-[120px] pointer-events-none" />
+            <div className="absolute bottom-[-10%] left-[-8%] w-[35%] h-[35%] rounded-full bg-indigo-400/15 blur-[100px] pointer-events-none" />
+            <div className="absolute top-[35%] left-[20%] w-[30%] h-[30%] rounded-full bg-emerald-400/10 blur-[90px] pointer-events-none" />
+          </>
+        )}
 
         {!isImmersive && <Topbar title="Dashboard" live />}
 
@@ -218,6 +222,7 @@ export default function DashboardPage() {
               ranking={rankingFiltrado}
               evolucion={evolucion}
               loading={loadingKpis}
+              isImmersive={isImmersive}
             />
           </motion.div>
 
@@ -237,12 +242,15 @@ export default function DashboardPage() {
               sucursalFiltro={sucursalFiltro}
               sucursales={sucursales}
               onSucursal={setSucursalFiltro}
+              isImmersive={isImmersive}
             />
           </motion.div>
 
           {/* Layout 25% hero / 75% ranking */}
           <div className="relative flex-1 min-h-0 w-full">
-            <div className="hidden md:block absolute left-[25%] top-0 bottom-0 w-px -translate-x-1/2 bg-gradient-to-b from-transparent via-violet-300/50 to-transparent pointer-events-none z-10" />
+            {!isImmersive && (
+              <div className="hidden md:block absolute left-[25%] top-0 bottom-0 w-px -translate-x-1/2 bg-gradient-to-b from-transparent via-violet-300/50 to-transparent pointer-events-none z-10" />
+            )}
 
             <div className="flex flex-col md:flex-row md:items-stretch gap-4 h-full min-h-0 overflow-hidden">
               {/* HeroCarousel — 25% */}
@@ -254,8 +262,14 @@ export default function DashboardPage() {
                 custom={2}
               >
                 {isFetchingLeft && (
-                  <div className="absolute inset-0 bg-white/30 rounded-3xl backdrop-blur-[1px] z-50 flex items-center justify-center pointer-events-none">
-                    <div className="w-4 h-4 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
+                  <div className={cn(
+                    "absolute inset-0 rounded-3xl z-50 flex items-center justify-center pointer-events-none",
+                    isImmersive ? "bg-slate-950/60" : "bg-white/30 backdrop-blur-[1px]",
+                  )}>
+                    <div className={cn(
+                      "w-4 h-4 border-2 border-t-transparent rounded-full animate-spin",
+                      isImmersive ? "border-slate-400" : "border-violet-500",
+                    )} />
                   </div>
                 )}
                 {loading && ultimas.length === 0 ? (
@@ -263,8 +277,11 @@ export default function DashboardPage() {
                     <Skeleton className="h-8 w-full rounded-2xl" />
                   </Card>
                 ) : (
-                  <div className="h-full min-h-[280px] md:min-h-0 flex-1 rounded-3xl overflow-hidden ring-1 ring-violet-500/20 shadow-lg shadow-violet-500/10 bg-slate-950">
-                    <HeroCarousel items={ultimasCoherentes} compact />
+                  <div className={cn(
+                    "h-full min-h-[280px] md:min-h-0 flex-1 rounded-3xl overflow-hidden bg-slate-950",
+                    isImmersive ? "ring-1 ring-slate-700" : "ring-1 ring-violet-500/20 shadow-lg shadow-violet-500/10",
+                  )}>
+                    <HeroCarousel items={ultimasCoherentes} compact isImmersive={isImmersive} />
                   </div>
                 )}
               </motion.div>
@@ -278,8 +295,14 @@ export default function DashboardPage() {
                 custom={3}
               >
                 {isFetchingRight && (
-                  <div className="absolute inset-0 bg-white/30 rounded-3xl backdrop-blur-[1px] z-50 flex items-center justify-center pointer-events-none">
-                    <div className="w-4 h-4 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
+                  <div className={cn(
+                    "absolute inset-0 rounded-3xl z-50 flex items-center justify-center pointer-events-none",
+                    isImmersive ? "bg-slate-950/60" : "bg-white/30 backdrop-blur-[1px]",
+                  )}>
+                    <div className={cn(
+                      "w-4 h-4 border-2 border-t-transparent rounded-full animate-spin",
+                      isImmersive ? "border-slate-400" : "border-violet-500",
+                    )} />
                   </div>
                 )}
                 <div className="h-full min-h-0 overflow-hidden rounded-3xl">

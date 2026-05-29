@@ -49,6 +49,12 @@ const TOP3_STYLES = [
   },
 ];
 
+const TOP3_IMMERSIVE = [
+  { row: "bg-amber-950/50 border border-amber-700/50", badge: "bg-amber-500 text-white", pts: "text-amber-400" },
+  { row: "bg-slate-800 border border-slate-600", badge: "bg-slate-400 text-white", pts: "text-slate-200" },
+  { row: "bg-orange-950/40 border border-orange-700/40", badge: "bg-orange-500 text-white", pts: "text-orange-400" },
+];
+
 /** px/ms — ~36 px/s a 60fps */
 const SCROLL_SPEED_PX_PER_MS = 0.036;
 const HOVER_RESUME_MS = 400;
@@ -192,22 +198,38 @@ export function RankingTable({
   }
 
   return (
-    <Card className="border-violet-200/70 shadow-lg shadow-violet-500/10 overflow-hidden flex flex-col h-full bg-gradient-to-br from-violet-50/40 via-white to-indigo-50/30 relative rounded-3xl ring-1 ring-violet-400/20">
-      {/* Barra superior violet */}
-      <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-violet-500 via-fuchsia-400 to-indigo-500 z-20" />
+    <Card className={cn(
+      "overflow-hidden flex flex-col h-full relative rounded-3xl",
+      isImmersive
+        ? "bg-slate-900 border border-slate-700 shadow-none ring-0"
+        : "border-violet-200/70 shadow-lg shadow-violet-500/10 bg-gradient-to-br from-violet-50/40 via-white to-indigo-50/30 ring-1 ring-violet-400/20",
+    )}>
+      {/* Barra superior — sin gradiente en proyección */}
+      {!isImmersive && (
+        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-violet-500 via-fuchsia-400 to-indigo-500 z-20" />
+      )}
 
       {/* Header */}
       <div className={cn(
-        "border-b border-violet-100/60 flex items-center justify-between sticky top-0 bg-white/85 backdrop-blur-xl z-20 gap-3 shadow-sm",
+        "border-b flex items-center justify-between sticky top-0 z-20 gap-3",
+        isImmersive
+          ? "bg-slate-900 border-slate-700"
+          : "border-violet-100/60 bg-white/85 backdrop-blur-xl shadow-sm",
         dense ? "pt-5 px-4 pb-3" : "pt-7 px-6 pb-4",
       )}>
         {/* Título centrado */}
         <div className="flex-1 text-center">
-          <h3 className="text-slate-900 font-black text-base tracking-tighter uppercase">
+          <h3 className={cn(
+            "font-black text-base tracking-tighter uppercase",
+            isImmersive ? "text-white" : "text-slate-900",
+          )}>
             Ranking {nombreEmpresa}
           </h3>
           {sucursalLabel && (
-            <p className="text-[9px] font-black uppercase tracking-[0.15em] text-blue-500 mt-0.5">{sucursalLabel}</p>
+            <p className={cn(
+              "text-[9px] font-black uppercase tracking-[0.15em] mt-0.5",
+              isImmersive ? "text-slate-400" : "text-blue-500",
+            )}>{sucursalLabel}</p>
           )}
         </div>
 
@@ -219,7 +241,12 @@ export function RankingTable({
             size="icon"
             onClick={() => setAutoScrollPaused(v => !v)}
             title={autoScrollPaused ? "Reanudar scroll" : "Pausar scroll"}
-            className="h-8 w-8 rounded-xl border-slate-200 text-slate-400 hover:text-slate-700"
+            className={cn(
+              "h-8 w-8 rounded-xl transition-all",
+              isImmersive
+                ? "border-slate-600 text-slate-400 hover:text-white hover:bg-slate-800"
+                : "border-slate-200 text-slate-400 hover:text-slate-700",
+            )}
           >
             {autoScrollPaused ? <Play size={13} /> : <Pause size={13} />}
           </Button>
@@ -230,8 +257,8 @@ export function RankingTable({
               onClick={() => setShowCompaniaLens(v => !v)}
               className={`shrink-0 text-[9px] font-black tracking-[0.12em] uppercase px-3 py-1.5 rounded-2xl border transition-all ${
                 showCompaniaLens
-                  ? 'bg-violet-600 text-white border-violet-600 shadow-sm'
-                  : 'text-violet-600 border-violet-200 bg-violet-50/50 hover:bg-violet-50'
+                  ? isImmersive ? 'bg-violet-600 text-white border-violet-500' : 'bg-violet-600 text-white border-violet-600 shadow-sm'
+                  : isImmersive ? 'text-violet-400 border-violet-700 bg-violet-950/50 hover:bg-violet-950' : 'text-violet-600 border-violet-200 bg-violet-50/50 hover:bg-violet-50'
               }`}
             >
               {showCompaniaLens ? '✦ Cía' : '◇ Cía'}
@@ -261,26 +288,35 @@ export function RankingTable({
         onMouseLeave={handleMouseLeave}
       >
         <table className="w-full text-sm border-separate border-spacing-y-1.5">
-          <thead className="sticky top-0 bg-white/95 backdrop-blur-md z-10">
+          <thead className={cn("sticky top-0 z-10", isImmersive ? "bg-slate-900" : "bg-white/95 backdrop-blur-md")}>
             <tr className="text-left">
-              <th className="py-3 px-3 font-black uppercase tracking-[0.2em] text-[9px] text-slate-400 w-12">Pos</th>
-              <th className="py-3 px-2 font-black uppercase tracking-[0.2em] text-[9px] text-slate-400">Vendedor</th>
-              <th className="py-3 px-2 text-right font-black uppercase tracking-[0.2em] text-[9px] text-emerald-600" title="Aprobadas">
-                <span className="inline-flex items-center justify-end gap-1 rounded-lg bg-emerald-100/80 px-2 py-1 ring-1 ring-emerald-200/60">
-                  <Check size={STAT_ICON_SIZE} className={cn(STAT_ICON_CLASS, "text-emerald-600")} />
+              <th className={cn("py-3 px-3 font-black uppercase tracking-[0.2em] text-[9px] w-12", isImmersive ? "text-slate-500" : "text-slate-400")}>Pos</th>
+              <th className={cn("py-3 px-2 font-black uppercase tracking-[0.2em] text-[9px]", isImmersive ? "text-slate-500" : "text-slate-400")}>Vendedor</th>
+              <th className={cn("py-3 px-2 text-right font-black uppercase tracking-[0.2em] text-[9px] text-emerald-500", isImmersive && "text-emerald-400")} title="Aprobadas">
+                <span className={cn(
+                  "inline-flex items-center justify-end gap-1 rounded-lg px-2 py-1",
+                  isImmersive ? "bg-emerald-950/60 ring-1 ring-emerald-800" : "bg-emerald-100/80 ring-1 ring-emerald-200/60",
+                )}>
+                  <Check size={STAT_ICON_SIZE} className={cn(STAT_ICON_CLASS, isImmersive ? "text-emerald-400" : "text-emerald-600")} />
                 </span>
               </th>
-              <th className="py-3 px-2 text-right font-black uppercase tracking-[0.2em] text-[9px] text-red-500" title="Rechazadas">
-                <span className="inline-flex items-center justify-end gap-1 rounded-lg bg-red-100/80 px-2 py-1 ring-1 ring-red-200/60">
-                  <X size={STAT_ICON_SIZE} className={cn(STAT_ICON_CLASS, "text-red-500")} />
+              <th className={cn("py-3 px-2 text-right font-black uppercase tracking-[0.2em] text-[9px] text-red-500", isImmersive && "text-red-400")} title="Rechazadas">
+                <span className={cn(
+                  "inline-flex items-center justify-end gap-1 rounded-lg px-2 py-1",
+                  isImmersive ? "bg-red-950/60 ring-1 ring-red-800" : "bg-red-100/80 ring-1 ring-red-200/60",
+                )}>
+                  <X size={STAT_ICON_SIZE} className={cn(STAT_ICON_CLASS, isImmersive ? "text-red-400" : "text-red-500")} />
                 </span>
               </th>
-              <th className="py-3 px-2 text-right font-black uppercase tracking-[0.2em] text-[9px] text-amber-600" title="Destacadas">
-                <span className="inline-flex items-center justify-end gap-1 rounded-lg bg-amber-100/80 px-2 py-1 ring-1 ring-amber-200/60">
-                  <Flame size={STAT_ICON_SIZE} className={cn(STAT_ICON_CLASS, "text-amber-600")} />
+              <th className={cn("py-3 px-2 text-right font-black uppercase tracking-[0.2em] text-[9px] text-amber-600", isImmersive && "text-amber-400")} title="Destacadas">
+                <span className={cn(
+                  "inline-flex items-center justify-end gap-1 rounded-lg px-2 py-1",
+                  isImmersive ? "bg-amber-950/60 ring-1 ring-amber-800" : "bg-amber-100/80 ring-1 ring-amber-200/60",
+                )}>
+                  <Flame size={STAT_ICON_SIZE} className={cn(STAT_ICON_CLASS, isImmersive ? "text-amber-400" : "text-amber-600")} />
                 </span>
               </th>
-              <th className="py-3 px-4 text-right font-black uppercase tracking-[0.2em] text-[9px] text-slate-950">Pts</th>
+              <th className={cn("py-3 px-4 text-right font-black uppercase tracking-[0.2em] text-[9px]", isImmersive ? "text-slate-300" : "text-slate-950")}>Pts</th>
               {showCompaniaLens && (
                 <>
                   <th className="py-3 px-2 text-right font-black uppercase tracking-[0.2em] text-[9px] text-violet-500">Cía</th>
@@ -294,7 +330,7 @@ export function RankingTable({
               {displayRows.map((v, i) => {
                 const rankIndex = i % Math.min(ranking.length, 30);
                 const isTop3 = rankIndex < 3;
-                const style  = isTop3 ? TOP3_STYLES[rankIndex] : null;
+                const style  = isTop3 ? (isImmersive ? TOP3_IMMERSIVE[rankIndex] : TOP3_STYLES[rankIndex]) : null;
                 const ratio  = v.aprobadas + v.rechazadas > 0
                   ? Math.round((v.aprobadas / (v.aprobadas + v.rechazadas)) * 100)
                   : null;
@@ -305,20 +341,25 @@ export function RankingTable({
                     key={`${v.vendedor}-${rankIndex}-${i}`}
                     initial={{ opacity: 0, y: 12 }}
                     animate={{ opacity: 1, y: 0 }}
-                    whileHover={{ x: 4, transition: { duration: 0.15 } }}
+                    whileHover={isImmersive ? undefined : { x: 4, transition: { duration: 0.15 } }}
                     className={cn(
                       "relative group rounded-2xl overflow-hidden transition-colors cursor-default",
                       style?.row ?? (
-                        rankIndex % 2 === 0
-                          ? "bg-white/90 border border-violet-100/60 hover:bg-violet-50/50"
-                          : "bg-indigo-50/35 border border-indigo-100/40 hover:bg-indigo-50/55"
+                        isImmersive
+                          ? rankIndex % 2 === 0
+                            ? "bg-slate-800/80 border border-slate-700/80"
+                            : "bg-slate-900 border border-slate-800"
+                          : rankIndex % 2 === 0
+                            ? "bg-white/90 border border-violet-100/60 hover:bg-violet-50/50"
+                            : "bg-indigo-50/35 border border-indigo-100/40 hover:bg-indigo-50/55"
                       ),
                     )}
                   >
                     <td className={cn("px-3 first:rounded-l-2xl", dense ? "py-2" : "py-2.5")}>
                       <div className={cn(
-                        "w-7 h-7 flex items-center justify-center text-[11px] font-black rounded-xl shadow-md transition-all group-hover:scale-110",
-                        style?.badge ?? "bg-slate-100 text-slate-500 shadow-sm",
+                        "w-7 h-7 flex items-center justify-center text-[11px] font-black rounded-xl transition-all",
+                        isImmersive ? "shadow-none" : "shadow-md group-hover:scale-110",
+                        style?.badge ?? (isImmersive ? "bg-slate-700 text-slate-300" : "bg-slate-100 text-slate-500 shadow-sm"),
                       )}>
                         {rankIndex + 1}
                       </div>
@@ -328,8 +369,11 @@ export function RankingTable({
                       <div className="flex flex-col min-w-0">
                         <span
                           className={cn(
-                            "font-black text-[13px] tracking-tight whitespace-nowrap",
-                            isTop3 ? "text-slate-900" : "text-slate-700",
+                            "font-black tracking-tight whitespace-nowrap",
+                            isImmersive ? "text-[14px]" : "text-[13px]",
+                            isTop3
+                              ? isImmersive ? "text-white" : "text-slate-900"
+                              : isImmersive ? "text-slate-200" : "text-slate-700",
                           )}
                           title={v.vendedor}
                         >
@@ -337,16 +381,19 @@ export function RankingTable({
                         </span>
                         <div className="flex items-center gap-1.5">
                           {subtitulo && (
-                            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider whitespace-nowrap">
+                            <span className={cn(
+                              "text-[9px] font-bold uppercase tracking-wider whitespace-nowrap",
+                              isImmersive ? "text-slate-500" : "text-slate-400",
+                            )}>
                               {subtitulo}
                             </span>
                           )}
                           {ratio !== null && (
                             <span className={cn(
                               "text-[8px] font-black px-1 py-0 rounded-md",
-                              ratio >= 80 ? "bg-emerald-50 text-emerald-600" :
-                              ratio >= 60 ? "bg-amber-50 text-amber-600" :
-                                            "bg-red-50 text-red-500",
+                              ratio >= 80 ? (isImmersive ? "bg-emerald-950 text-emerald-400" : "bg-emerald-50 text-emerald-600") :
+                              ratio >= 60 ? (isImmersive ? "bg-amber-950 text-amber-400" : "bg-amber-50 text-amber-600") :
+                                            (isImmersive ? "bg-red-950 text-red-400" : "bg-red-50 text-red-500"),
                             )}>
                               {ratio}%
                             </span>
@@ -356,7 +403,12 @@ export function RankingTable({
                     </td>
 
                     <td className={cn("px-2 text-right", dense ? "py-2" : "py-2.5")}>
-                      <span className="inline-flex items-center justify-end gap-1.5 min-w-[3.25rem] bg-emerald-50 text-emerald-700 text-xs font-black px-2.5 py-1 rounded-xl border border-emerald-200/60 shadow-sm shadow-emerald-500/5">
+                      <span className={cn(
+                        "inline-flex items-center justify-end gap-1.5 min-w-[3.25rem] text-xs font-black px-2.5 py-1 rounded-xl border",
+                        isImmersive
+                          ? "bg-emerald-950/70 text-emerald-400 border-emerald-800"
+                          : "bg-emerald-50 text-emerald-700 border-emerald-200/60 shadow-sm shadow-emerald-500/5",
+                      )}>
                         <Check size={14} className={cn(STAT_ICON_CLASS, "text-emerald-600")} />
                         {v.aprobadas}
                       </span>
@@ -364,10 +416,14 @@ export function RankingTable({
 
                     <td className={cn("px-2 text-right", dense ? "py-2" : "py-2.5")}>
                       <span className={cn(
-                        "inline-flex items-center justify-end gap-1.5 min-w-[3.25rem] text-xs font-black px-2.5 py-1 rounded-xl border shadow-sm",
+                        "inline-flex items-center justify-end gap-1.5 min-w-[3.25rem] text-xs font-black px-2.5 py-1 rounded-xl border",
                         v.rechazadas > 0
-                          ? "bg-red-50 text-red-600 border-red-200/60 shadow-red-500/5"
-                          : "bg-slate-50 text-slate-400 border-slate-200/50",
+                          ? isImmersive
+                            ? "bg-red-950/70 text-red-400 border-red-800"
+                            : "bg-red-50 text-red-600 border-red-200/60 shadow-sm shadow-red-500/5"
+                          : isImmersive
+                            ? "bg-slate-800 text-slate-500 border-slate-700"
+                            : "bg-slate-50 text-slate-400 border-slate-200/50",
                       )}>
                         <X size={14} className={cn(STAT_ICON_CLASS, v.rechazadas > 0 ? "text-red-500" : "text-slate-300")} />
                         {v.rechazadas ?? 0}
@@ -375,7 +431,12 @@ export function RankingTable({
                     </td>
 
                     <td className={cn("px-2 text-right", dense ? "py-2" : "py-2.5")}>
-                      <span className="inline-flex items-center justify-end gap-1.5 min-w-[3.25rem] bg-amber-50 text-amber-700 text-xs font-black px-2.5 py-1 rounded-xl border border-amber-200/60 shadow-sm shadow-amber-500/5">
+                      <span className={cn(
+                        "inline-flex items-center justify-end gap-1.5 min-w-[3.25rem] text-xs font-black px-2.5 py-1 rounded-xl border",
+                        isImmersive
+                          ? "bg-amber-950/70 text-amber-400 border-amber-800"
+                          : "bg-amber-50 text-amber-700 border-amber-200/60 shadow-sm shadow-amber-500/5",
+                      )}>
                         <Flame size={14} className={cn(STAT_ICON_CLASS, "text-amber-600")} />
                         {v.destacadas || 0}
                       </span>
@@ -383,10 +444,17 @@ export function RankingTable({
 
                     <td className={cn("px-4 text-right", dense ? "py-2" : "py-2.5", !showCompaniaLens ? 'last:rounded-r-2xl' : '')}>
                       <div className="flex flex-col items-end">
-                        <span className={cn("font-black text-base tracking-tighter", style?.pts ?? "text-slate-800")}>
+                        <span className={cn(
+                          "font-black tracking-tighter",
+                          isImmersive ? "text-lg" : "text-base",
+                          style?.pts ?? (isImmersive ? "text-slate-200" : "text-slate-800"),
+                        )}>
                           {v.puntos}
                         </span>
-                        <span className="text-[7px] font-black text-slate-400 uppercase tracking-widest -mt-0.5">Pts</span>
+                        <span className={cn(
+                          "text-[7px] font-black uppercase tracking-widest -mt-0.5",
+                          isImmersive ? "text-slate-500" : "text-slate-400",
+                        )}>Pts</span>
                       </div>
                     </td>
 

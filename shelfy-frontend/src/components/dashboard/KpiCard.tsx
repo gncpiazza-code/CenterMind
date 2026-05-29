@@ -40,6 +40,8 @@ interface KpiCardProps {
   suffix?: string;
   /** Si true, formatea el valor con 1 decimal (para promedios) */
   isDecimal?: boolean;
+  /** Si true, estilo plano alto contraste para proyección TV */
+  immersive?: boolean;
 }
 
 // Mejora #1: Contador animado easeOut
@@ -76,7 +78,7 @@ function useAnimatedCounter(target: number, duration = 800) {
   return display;
 }
 
-export function KpiCard({ label, value, icon, colorName, color, bgColor = "bg-white", delta, total, subtitle, variant = 'default', tooltip, suffix, isDecimal }: KpiCardProps) {
+export function KpiCard({ label, value, icon, colorName, color, bgColor = "bg-white", delta, total, subtitle, variant = 'default', tooltip, suffix, isDecimal, immersive = false }: KpiCardProps) {
   const isCompact = variant === 'compact';
   const animatedValue = useAnimatedCounter(value);
 
@@ -114,19 +116,22 @@ export function KpiCard({ label, value, icon, colorName, color, bgColor = "bg-wh
     >
       <Card
         className={cn(
-          "rounded-[2rem] shadow-sm overflow-hidden relative group h-full transition-shadow duration-300",
+          "rounded-[2rem] overflow-hidden relative group h-full transition-shadow duration-300",
+          immersive
+            ? "bg-slate-900 border border-slate-700 shadow-none"
+            : "shadow-sm",
           isCompact
-            ? "p-2.5 md:p-3 border-2 shadow-md"
+            ? immersive ? "p-2.5 md:p-3" : "p-2.5 md:p-3 border-2 shadow-md"
             : "p-5 border border-slate-200/60",
-          isCompact && colorName === "amber" && "border-amber-200/70 shadow-amber-500/10",
-          isCompact && colorName === "emerald" && "border-emerald-200/70 shadow-emerald-500/10",
-          isCompact && colorName === "violet" && "border-violet-200/70 shadow-violet-500/15",
-          isCompact && colorName === "red" && "border-red-200/70 shadow-red-500/10",
-          isCompact && colorName === "blue" && "border-blue-200/70 shadow-blue-500/10",
-          isCompact && colorName === "slate" && "border-slate-200/70",
-          !isCompact && "border-slate-200/60",
-          bgColor,
-          flashing && `ring-2 ${ringClass}`,
+          !immersive && isCompact && colorName === "amber" && "border-amber-200/70 shadow-amber-500/10",
+          !immersive && isCompact && colorName === "emerald" && "border-emerald-200/70 shadow-emerald-500/10",
+          !immersive && isCompact && colorName === "violet" && "border-violet-200/70 shadow-violet-500/15",
+          !immersive && isCompact && colorName === "red" && "border-red-200/70 shadow-red-500/10",
+          !immersive && isCompact && colorName === "blue" && "border-blue-200/70 shadow-blue-500/10",
+          !immersive && isCompact && colorName === "slate" && "border-slate-200/70",
+          !immersive && !isCompact && "border-slate-200/60",
+          !immersive && bgColor,
+          flashing && !immersive && `ring-2 ${ringClass}`,
         )}
         style={isCompact ? { borderLeftWidth: 4, borderLeftColor: hexColor } : undefined}
       >
@@ -141,12 +146,15 @@ export function KpiCard({ label, value, icon, colorName, color, bgColor = "bg-wh
         {isCompact ? (
           /* ── Compact layout: horizontal row ── */
           <CardContent className="p-0 flex flex-row items-center gap-3 h-full">
-            <div className={cn("p-2.5 rounded-xl text-white shadow-lg shadow-black/10 ring-4 ring-white/20 shrink-0", bgClass)}>
+            <div className="p-2.5 rounded-xl text-white shadow-lg shrink-0 bg-opacity-100" style={{ backgroundColor: hexColor }}>
               {icon}
             </div>
             <div className="flex flex-col min-w-0">
               <div
-                className="font-black tracking-tighter leading-none text-xl md:text-2xl"
+                className={cn(
+                  "font-black tracking-tighter leading-none",
+                  immersive ? "text-2xl md:text-3xl" : "text-xl md:text-2xl",
+                )}
                 style={{ color: hexColor }}
               >
                 {isDecimal ? value.toFixed(1).replace(".", ",") : animatedValue}
@@ -156,7 +164,10 @@ export function KpiCard({ label, value, icon, colorName, color, bgColor = "bg-wh
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <div className="text-[11px] font-black uppercase tracking-[0.12em] text-slate-500 group-hover:text-slate-700 transition-colors truncate cursor-help underline decoration-dashed decoration-slate-300">
+                      <div className={cn(
+                        "text-[11px] font-black uppercase tracking-[0.12em] truncate",
+                        immersive ? "text-slate-400" : "text-slate-500 group-hover:text-slate-700 transition-colors cursor-help underline decoration-dashed decoration-slate-300",
+                      )}>
                         {label}
                       </div>
                     </TooltipTrigger>
@@ -166,7 +177,10 @@ export function KpiCard({ label, value, icon, colorName, color, bgColor = "bg-wh
                   </Tooltip>
                 </TooltipProvider>
               ) : (
-                <div className="text-[11px] font-black uppercase tracking-[0.12em] text-slate-500 group-hover:text-slate-700 transition-colors truncate">
+                <div className={cn(
+                  "text-[11px] font-black uppercase tracking-[0.12em] truncate",
+                  immersive ? "text-slate-400" : "text-slate-500 group-hover:text-slate-700 transition-colors",
+                )}>
                   {label}
                 </div>
               )}

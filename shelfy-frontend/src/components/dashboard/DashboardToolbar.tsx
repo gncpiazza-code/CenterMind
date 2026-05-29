@@ -21,6 +21,7 @@ interface DashboardToolbarProps {
   sucursales: SucursalStats[];
   onSucursal: (s: string) => void;
   className?: string;
+  isImmersive?: boolean;
 }
 
 export function DashboardToolbar({
@@ -32,6 +33,7 @@ export function DashboardToolbar({
   sucursales,
   onSucursal,
   className,
+  isImmersive = false,
 }: DashboardToolbarProps) {
   const bounds = resolvePeriodBounds(periodPreset, customYear, customMonth);
   const activeSucursalLabel = sucursalFiltro
@@ -40,19 +42,25 @@ export function DashboardToolbar({
 
   return (
     <div className={cn(
-      "flex items-center justify-between gap-2 px-3 py-2 rounded-2xl border border-violet-200/50 bg-white/75 backdrop-blur-md shadow-sm shadow-violet-500/5 ring-1 ring-violet-500/10 relative z-20",
+      "flex items-center justify-between gap-2 px-3 py-2 rounded-2xl border relative z-20",
+      isImmersive
+        ? "bg-slate-900 border-slate-700"
+        : "border-violet-200/50 bg-white/75 backdrop-blur-md shadow-sm shadow-violet-500/5 ring-1 ring-violet-500/10",
       className,
     )}>
       {/* Sucursal — izquierda, solo si hay >1 */}
       <div className="flex items-center gap-1.5 min-w-0">
         {sucursales.length > 1 && (
           <div className="flex items-center gap-1 group">
-            <GitBranch size={11} className="text-slate-400 shrink-0" />
+            <GitBranch size={11} className={cn("shrink-0", isImmersive ? "text-slate-500" : "text-slate-400")} />
             <Select
               value={sucursalFiltro || "__all__"}
               onValueChange={(val) => onSucursal(val === "__all__" ? "" : val)}
             >
-              <SelectTrigger className="bg-transparent text-[10px] font-black uppercase tracking-widest border-none shadow-none focus:ring-0 h-auto py-0 px-0 gap-1 text-slate-500 hover:text-slate-800 w-auto">
+              <SelectTrigger className={cn(
+                "bg-transparent text-[10px] font-black uppercase tracking-widest border-none shadow-none focus:ring-0 h-auto py-0 px-0 gap-1 w-auto",
+                isImmersive ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-800",
+              )}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -76,7 +84,12 @@ export function DashboardToolbar({
         {activeSucursalLabel && (
           <button
             onClick={() => onSucursal("")}
-            className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-violet-600 bg-violet-50 border border-violet-200/60 px-2 py-0.5 rounded-md hover:bg-violet-100 transition-colors"
+            className={cn(
+              "flex items-center gap-1 text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md transition-colors",
+              isImmersive
+                ? "text-violet-400 bg-violet-950/60 border border-violet-800 hover:bg-violet-950"
+                : "text-violet-600 bg-violet-50 border border-violet-200/60 hover:bg-violet-100",
+            )}
           >
             {activeSucursalLabel}
             <X size={9} className="opacity-60" />
@@ -86,7 +99,10 @@ export function DashboardToolbar({
 
       {/* Período + hint — derecha */}
       <div className="flex items-center gap-2 shrink-0">
-        <span className="text-[9px] font-bold text-slate-400 tracking-wide hidden sm:block">
+        <span className={cn(
+          "text-[9px] font-bold tracking-wide hidden sm:block",
+          isImmersive ? "text-slate-500" : "text-slate-400",
+        )}>
           {bounds.hint}
         </span>
         <DashboardPeriodPills
@@ -94,6 +110,7 @@ export function DashboardToolbar({
           customYear={customYear}
           customMonth={customMonth}
           onChange={onPeriodChange}
+          isImmersive={isImmersive}
         />
       </div>
     </div>

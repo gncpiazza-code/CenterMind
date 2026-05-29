@@ -27,8 +27,8 @@ const cardVariants: Variants = {
   },
 };
 
-// Simple windowing: keep ±20 cards around center visible for large lists
 const WINDOW_BUFFER = 20;
+const CARD_W = 272; // ~260 card + gap for scroll mode
 
 export function VendorCollection({ vendors, distId, meses }: VendorCollectionProps) {
   const {
@@ -45,13 +45,11 @@ export function VendorCollection({ vendors, distId, meses }: VendorCollectionPro
     ? vendors.filter((v) => v.sucursal === filterSucursal)
     : vendors;
 
-  // Windowing for large lists
-  const CARD_W = 200; // 188 + 12 gap
+  const useScrollMode = filtered.length > 40;
   const windowedStart = Math.max(0, scrollCenter - WINDOW_BUFFER);
-  const windowedEnd   = Math.min(filtered.length, scrollCenter + WINDOW_BUFFER);
-  const useWindowing  = filtered.length > 40;
+  const windowedEnd = Math.min(filtered.length, scrollCenter + WINDOW_BUFFER);
 
-  const visibleVendors = useWindowing
+  const visibleVendors = useScrollMode
     ? filtered.slice(windowedStart, windowedEnd)
     : filtered;
 
@@ -63,20 +61,20 @@ export function VendorCollection({ vendors, distId, meses }: VendorCollectionPro
   }, []);
 
   useEffect(() => {
+    if (!useScrollMode) return;
     const el = scrollRef.current;
     if (!el) return;
     el.addEventListener("scroll", handleScroll, { passive: true });
     return () => el.removeEventListener("scroll", handleScroll);
-  }, [handleScroll]);
+  }, [handleScroll, useScrollMode]);
 
-  // Scroll active card into view
   useEffect(() => {
-    if (!activeVendorId || !scrollRef.current) return;
+    if (!activeVendorId || !scrollRef.current || !useScrollMode) return;
     const idx = filtered.findIndex((v) => v.id_vendedor === activeVendorId);
     if (idx < 0) return;
     const target = idx * CARD_W - scrollRef.current.clientWidth / 2 + CARD_W / 2;
     scrollRef.current.scrollTo({ left: Math.max(0, target), behavior: "smooth" });
-  }, [activeVendorId, filtered]);
+  }, [activeVendorId, filtered, useScrollMode]);
 
   const activeVendor = activeVendorId
     ? vendors.find((v) => v.id_vendedor === activeVendorId) ?? null
@@ -84,28 +82,28 @@ export function VendorCollection({ vendors, distId, meses }: VendorCollectionPro
 
   return (
     <div style={{ position: "relative", width: "100%" }}>
-      {/* Card strip */}
       <motion.div
         ref={scrollRef}
         variants={containerVariants}
         initial="hidden"
         animate="show"
         style={{
-          display: "flex",
-          gap: 12,
-          overflowX: "auto",
+          display: useScrollMode ? "flex" : "grid",
+          gridTemplateColumns: useScrollMode
+            ? undefined
+            : "repeat(auto-fill, minmax(260px, 1fr))",
+          gap: useScrollMode ? 16 : 20,
+          overflowX: useScrollMode ? "auto" : "visible",
           overflowY: "visible",
-          padding: "12px 20px 16px",
-          scrollSnapType: "x mandatory",
+          padding: "12px 24px 24px",
+          scrollSnapType: useScrollMode ? "x mandatory" : undefined,
           WebkitOverflowScrolling: "touch",
           transition: "opacity 0.2s ease",
           opacity: activeVendorId ? 0.65 : 1,
-          pointerEvents: "auto",
         }}
         className="estadisticas-scroll-strip"
       >
-        {/* Windowing offset spacer */}
-        {useWindowing && windowedStart > 0 && (
+        {useScrollMode && windowedStart > 0 && (
           <div style={{ width: windowedStart * CARD_W, flexShrink: 0 }} aria-hidden="true" />
         )}
 
@@ -113,10 +111,11 @@ export function VendorCollection({ vendors, distId, meses }: VendorCollectionPro
           <motion.div
             key={vendor.id_vendedor}
             layout
+            style={useScrollMode ? { flexShrink: 0, width: 260 } : { minWidth: 0 }}
             animate={
               activeVendorId && vendor.id_vendedor !== activeVendorId
-                ? { scale: 0.75, opacity: 0.4 }
-                : { scale: 1,    opacity: 1 }
+                ? { scale: 0.82, opacity: 0.45 }
+                : { scale: 1, opacity: 1 }
             }
             transition={{ type: "spring", stiffness: 280, damping: 26 }}
           >
@@ -125,12 +124,12 @@ export function VendorCollection({ vendors, distId, meses }: VendorCollectionPro
               isActive={vendor.id_vendedor === activeVendorId}
               overlayMode={overlayMode}
               variants={cardVariants}
+              compact={useScrollMode}
             />
           </motion.div>
         ))}
 
-        {/* Windowing tail spacer */}
-        {useWindowing && windowedEnd < filtered.length && (
+        {useScrollMode && windowedEnd < filtered.length && (
           <div
             style={{ width: (filtered.length - windowedEnd) * CARD_W, flexShrink: 0 }}
             aria-hidden="true"
@@ -138,7 +137,6 @@ export function VendorCollection({ vendors, distId, meses }: VendorCollectionPro
         )}
       </motion.div>
 
-      {/* Expanded overlay */}
       <AnimatePresence>
         {activeVendor && (
           <VendorCardExpanded
@@ -152,7 +150,6 @@ export function VendorCollection({ vendors, distId, meses }: VendorCollectionPro
         )}
       </AnimatePresence>
 
-      {/* Scrollbar styling */}
       <style>{`
         .estadisticas-scroll-strip {
           scrollbar-width: thin;
@@ -171,9 +168,8 @@ export function VendorCollection({ vendors, distId, meses }: VendorCollectionPro
         @media (max-width: 640px) {
           .estadisticas-scroll-strip {
             display: grid !important;
-            grid-template-columns: repeat(2, 1fr) !important;
+            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
             overflow-x: hidden !important;
-            overflow-y: visible !important;
           }
         }
       `}</style>

@@ -12,6 +12,7 @@ interface VendorCardProps {
   isActive: boolean;
   overlayMode: "none" | "compania" | "distribuidor" | "ambos";
   variants?: Variants;
+  compact?: boolean;
 }
 
 function fmtKpi(n: number, pct = false) {
@@ -20,8 +21,11 @@ function fmtKpi(n: number, pct = false) {
   return String(Math.round(n));
 }
 
-export function VendorCard({ vendor, isActive, overlayMode, variants }: VendorCardProps) {
+export function VendorCard({ vendor, isActive, overlayMode, variants, compact = false }: VendorCardProps) {
   const setActiveVendorId = useEstadisticasStore((s) => s.setActiveVendorId);
+
+  const cardW = compact ? 260 : undefined;
+  const cardH = compact ? 368 : undefined;
 
   const scoreColor =
     vendor.score >= 80 ? "#10B981" : vendor.score >= 50 ? "#F59E0B" : "#EF4444";
@@ -40,9 +44,10 @@ export function VendorCard({ vendor, isActive, overlayMode, variants }: VendorCa
     return (
       <motion.div
         style={{
-          width: 188,
-          height: 268,
-          borderRadius: 18,
+          width: cardW ?? "100%",
+          height: cardH ?? undefined,
+          aspectRatio: cardH ? undefined : "260 / 368",
+          borderRadius: 20,
           background: "rgba(15,23,42,0.04)",
           border: "2px dashed rgba(168,85,247,0.35)",
           flexShrink: 0,
@@ -64,17 +69,18 @@ export function VendorCard({ vendor, isActive, overlayMode, variants }: VendorCa
       transition={{ type: "spring", stiffness: 420, damping: 26 }}
       onClick={() => setActiveVendorId(vendor.id_vendedor)}
       style={{
-        width: 188,
-        height: 268,
+        width: cardW ?? "100%",
+        height: cardH ?? undefined,
+        aspectRatio: cardH ? undefined : "260 / 368",
         flexShrink: 0,
         cursor: "pointer",
-        borderRadius: 18,
-        padding: 3,
+        borderRadius: 20,
+        padding: 4,
         background: tierBorder,
         boxShadow:
           tier === "gold"
-            ? "0 12px 32px rgba(245,158,11,0.35), 0 4px 12px rgba(0,0,0,0.15)"
-            : "0 8px 24px rgba(124,58,237,0.22), 0 2px 8px rgba(0,0,0,0.1)",
+            ? "0 14px 36px rgba(245,158,11,0.35), 0 4px 12px rgba(0,0,0,0.15)"
+            : "0 10px 28px rgba(124,58,237,0.24), 0 2px 8px rgba(0,0,0,0.1)",
         scrollSnapAlign: "start",
       }}
     >
@@ -103,20 +109,20 @@ export function VendorCard({ vendor, isActive, overlayMode, variants }: VendorCa
         {/* Header */}
         <div
           style={{
-            padding: "8px 10px 4px",
+            padding: "10px 12px 6px",
             display: "flex",
             alignItems: "flex-start",
             justifyContent: "space-between",
-            gap: 6,
+            gap: 8,
             position: "relative",
             zIndex: 1,
           }}
         >
           <div
             style={{
-              minWidth: 40,
-              height: 40,
-              borderRadius: 10,
+              minWidth: 48,
+              height: 48,
+              borderRadius: 12,
               background: scoreColor,
               border: "2px solid rgba(255,255,255,0.9)",
               display: "flex",
@@ -126,26 +132,26 @@ export function VendorCard({ vendor, isActive, overlayMode, variants }: VendorCa
               boxShadow: "0 2px 10px rgba(0,0,0,0.35)",
             }}
           >
-            <span style={{ fontSize: 8, fontWeight: 800, color: "rgba(255,255,255,0.85)", lineHeight: 1 }}>
+            <span style={{ fontSize: 9, fontWeight: 800, color: "rgba(255,255,255,0.85)", lineHeight: 1 }}>
               OVR
             </span>
-            <span style={{ fontSize: 14, fontWeight: 900, color: "#fff", lineHeight: 1 }}>
+            <span style={{ fontSize: 17, fontWeight: 900, color: "#fff", lineHeight: 1 }}>
               {vendor.score || "—"}
             </span>
           </div>
           {vendor.sucursal && (
             <span
               style={{
-                fontSize: 8,
+                fontSize: 9,
                 fontWeight: 700,
                 color: "#fde68a",
                 textTransform: "uppercase",
                 letterSpacing: "0.06em",
-                maxWidth: 72,
+                maxWidth: 96,
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
-                paddingTop: 4,
+                paddingTop: 6,
               }}
             >
               {vendor.sucursal}
@@ -154,7 +160,7 @@ export function VendorCard({ vendor, isActive, overlayMode, variants }: VendorCa
         </div>
 
         {/* Radar */}
-        <div style={{ flex: 1, padding: "0 4px", minHeight: 0, position: "relative", zIndex: 1 }}>
+        <div style={{ flex: 1, padding: "0 6px", minHeight: 0, position: "relative", zIndex: 1 }}>
           <VendorCardRadar
             radar={vendor.radar}
             radarCompania={vendor.radar_ideal_compania}
@@ -170,8 +176,8 @@ export function VendorCard({ vendor, isActive, overlayMode, variants }: VendorCa
           style={{
             display: "grid",
             gridTemplateColumns: "repeat(3, 1fr)",
-            gap: 3,
-            padding: "4px 8px 6px",
+            gap: 5,
+            padding: "6px 10px 8px",
             position: "relative",
             zIndex: 1,
           }}
@@ -186,13 +192,13 @@ export function VendorCard({ vendor, isActive, overlayMode, variants }: VendorCa
               style={{
                 textAlign: "center",
                 background: "rgba(0,0,0,0.35)",
-                borderRadius: 6,
-                padding: "3px 2px",
+                borderRadius: 8,
+                padding: "5px 3px",
                 border: "1px solid rgba(255,255,255,0.08)",
               }}
             >
-              <div style={{ fontSize: 7, color: "#94a3b8", fontWeight: 700 }}>{l}</div>
-              <div style={{ fontSize: 11, color: "#f8fafc", fontWeight: 800 }}>{fmtKpi(v)}</div>
+              <div style={{ fontSize: 8, color: "#94a3b8", fontWeight: 700 }}>{l}</div>
+              <div style={{ fontSize: 13, color: "#f8fafc", fontWeight: 800 }}>{fmtKpi(v)}</div>
             </div>
           ))}
         </div>
@@ -200,7 +206,7 @@ export function VendorCard({ vendor, isActive, overlayMode, variants }: VendorCa
         {/* Footer */}
         <div
           style={{
-            padding: "8px 10px 10px",
+            padding: "10px 12px 12px",
             borderTop: "1px solid rgba(255,255,255,0.1)",
             background: "rgba(0,0,0,0.45)",
             position: "relative",
@@ -210,13 +216,13 @@ export function VendorCard({ vendor, isActive, overlayMode, variants }: VendorCa
           <p
             style={{
               margin: 0,
-              fontSize: 12,
+              fontSize: 14,
               fontWeight: 800,
               color: "#f8fafc",
               textAlign: "center",
               letterSpacing: "0.04em",
               textTransform: "uppercase",
-              lineHeight: 1.2,
+              lineHeight: 1.25,
               overflow: "hidden",
               display: "-webkit-box",
               WebkitLineClamp: 2,
@@ -228,8 +234,8 @@ export function VendorCard({ vendor, isActive, overlayMode, variants }: VendorCa
           </p>
           <p
             style={{
-              margin: "4px 0 0",
-              fontSize: 9,
+              margin: "5px 0 0",
+              fontSize: 10,
               color: "#94a3b8",
               textAlign: "center",
               fontWeight: 600,
@@ -244,14 +250,14 @@ export function VendorCard({ vendor, isActive, overlayMode, variants }: VendorCa
               setActiveVendorId(vendor.id_vendedor);
             }}
             style={{
-              marginTop: 6,
+              marginTop: 8,
               width: "100%",
-              padding: "5px 0",
-              borderRadius: 8,
+              padding: "7px 0",
+              borderRadius: 9,
               border: "1px solid rgba(168,85,247,0.5)",
               background: "rgba(124,58,237,0.35)",
               color: "#e9d5ff",
-              fontSize: 9,
+              fontSize: 10,
               fontWeight: 700,
               cursor: "pointer",
               letterSpacing: "0.06em",

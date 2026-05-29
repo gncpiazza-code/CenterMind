@@ -12,15 +12,15 @@ import { PeriodSelector } from "@/components/estadisticas/PeriodSelector";
 import { VendorCollection } from "@/components/estadisticas/VendorCollection";
 import { EstadisticasLoadingStrip } from "@/components/estadisticas/EstadisticasLoadingStrip";
 import { IdealConfigModal } from "@/components/estadisticas/IdealConfigModal";
+import { KpiHelpTip } from "@/components/estadisticas/KpiHelpTip";
 import { useEstadisticasStore } from "@/store/useEstadisticasStore";
 import {
   fetchEstadisticasMeses,
   fetchEstadisticasCartas,
-  fetchDistribuidoras,
-  type Distribuidora,
   type VendorCartaResumen,
 } from "@/lib/api";
 import { mesActual } from "@/lib/estadisticas-period";
+import { VENDEDOR_IDEAL_HELP } from "@/lib/estadisticas-kpi-help";
 import {
   Settings2,
   TrendingUp,
@@ -28,17 +28,9 @@ import {
   AlertTriangle,
   Users,
   Loader2,
-  Building2,
   Layers,
   X,
 } from "lucide-react";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 // ── Animation variants ──────────────────────────────────────────────────────
 
 const pageVariants = {
@@ -57,8 +49,6 @@ export default function EstadisticasPage() {
     setMesesSeleccionados,
     filterSucursal,
     setFilterSucursal,
-    selectedTenantId,
-    setSelectedTenantId,
     overlayMode,
     setOverlayMode,
   } = useEstadisticasStore();
@@ -70,25 +60,7 @@ export default function EstadisticasPage() {
     if (!authLoading && !user) router.replace("/login");
   }, [authLoading, user, router]);
 
-  const isSuperadminOrDir =
-    user?.is_superadmin || user?.rol?.toLowerCase() === "directorio";
-
-  const distId: number = (selectedTenantId ?? user?.id_distribuidor ?? 0) as number;
-
-  // Cross-tenant: fetch distribuidoras list for superadmin/directorio
-  const { data: distribuidoras } = useQuery<Distribuidora[]>({
-    queryKey: ["distribuidoras"],
-    queryFn: () => fetchDistribuidoras(true),
-    enabled: !!isSuperadminOrDir,
-    staleTime: 1000 * 60 * 5,
-  });
-
-  // Init selectedTenantId if needed
-  useEffect(() => {
-    if (isSuperadminOrDir && !selectedTenantId && distribuidoras?.length) {
-      setSelectedTenantId(distribuidoras[0].id);
-    }
-  }, [isSuperadminOrDir, selectedTenantId, distribuidoras, setSelectedTenantId]);
+  const distId: number = user?.id_distribuidor ?? 0;
 
   // Meses disponibles
   const { data: mesesDisponibles = [], isLoading: loadingMeses } = useQuery<string[]>({
@@ -222,8 +194,19 @@ export default function EstadisticasPage() {
                 >
                   Estadísticas
                 </h1>
-                <p style={{ fontSize: 12, color: "var(--shelfy-muted)", margin: 0, fontWeight: 500 }}>
-                  Rendimiento por vendedor
+                <p
+                  style={{
+                    fontSize: 12,
+                    color: "var(--shelfy-muted)",
+                    margin: 0,
+                    fontWeight: 500,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 5,
+                  }}
+                >
+                  Rendimiento por vendedor vs. ideal
+                  <KpiHelpTip text={VENDEDOR_IDEAL_HELP} side="bottom" size={13} />
                 </p>
               </div>
             </div>
@@ -236,6 +219,7 @@ export default function EstadisticasPage() {
               {/* Config ideal button */}
               <button
                 onClick={() => setShowIdealModal(true)}
+                title="Configurar metas y pesos del vendedor ideal"
                 style={{
                   display: "flex", alignItems: "center", gap: 6,
                   padding: "8px 14px", borderRadius: 10,
@@ -262,38 +246,6 @@ export default function EstadisticasPage() {
               padding: "16px 24px 0",
             }}
           >
-            {/* Cross-tenant selector */}
-            {isSuperadminOrDir && distribuidoras && (
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <Building2 size={14} color="var(--shelfy-muted)" />
-                <Select
-                  value={String(selectedTenantId ?? "")}
-                  onValueChange={(v) => {
-                    setSelectedTenantId(Number(v));
-                    setMesesSeleccionados([]);
-                    setFilterSucursal(null);
-                  }}
-                >
-                  <SelectTrigger
-                    style={{
-                      width: 200, height: 36, fontSize: 13, fontWeight: 600,
-                      border: "1px solid rgba(168,85,247,0.25)",
-                      borderRadius: 10, background: "white",
-                    }}
-                  >
-                    <SelectValue placeholder="Distribuidora…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {distribuidoras.map((d) => (
-                      <SelectItem key={d.id} value={String(d.id)}>
-                        {d.nombre}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
             {/* Period selector */}
             <PeriodSelector mesesDisponibles={mesesDisponibles} />
 

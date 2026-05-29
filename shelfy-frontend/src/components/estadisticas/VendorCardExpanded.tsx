@@ -44,6 +44,13 @@ import { fetchEstadisticasVendedorDetalle } from "@/lib/api";
 import type { VendorCartaResumen, VendorDetalle } from "@/lib/api";
 import { VendorCardRadar } from "./VendorCardRadar";
 import { useEstadisticasStore } from "@/store/useEstadisticasStore";
+import { KpiHelpTip } from "./KpiHelpTip";
+import {
+  ESTADISTICAS_KPI_HELP,
+  VENDEDOR_IDEAL_HELP,
+  OVERLAY_IDEAL_HELP,
+  OVERLAY_MODE_HELP,
+} from "@/lib/estadisticas-kpi-help";
 
 type TabKey = "pdvs" | "altas" | "exhibiciones" | "bultos" | "compradores";
 
@@ -104,7 +111,7 @@ export function VendorCardExpanded({
   const prevVendor = vendors[vendorIdx - 1] ?? null;
   const nextVendor = vendors[vendorIdx + 1] ?? null;
 
-  const { data: detalle, isLoading } = useQuery({
+  const { data: detalle, isLoading, isError, refetch } = useQuery({
     queryKey: ["estadisticas-detalle", distId, vendor.id_vendedor, meses],
     queryFn: () => fetchEstadisticasVendedorDetalle(distId, vendor.id_vendedor, meses),
     enabled: !!vendor,
@@ -249,8 +256,27 @@ export function VendorCardExpanded({
               />
 
               {/* Overlay toggles */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <p style={{ fontSize: 9, fontWeight: 700, color: "var(--shelfy-muted)", textTransform: "uppercase", letterSpacing: "0.08em", margin: 0 }}>Overlay Ideal</p>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                  <p style={{ fontSize: 9, fontWeight: 700, color: "var(--shelfy-muted)", textTransform: "uppercase", letterSpacing: "0.08em", margin: 0 }}>
+                    Overlay ideal
+                  </p>
+                  <KpiHelpTip text={OVERLAY_IDEAL_HELP} side="top" size={12} />
+                </div>
+                <div
+                  style={{
+                    padding: "8px 10px",
+                    borderRadius: 8,
+                    background: "rgba(168,85,247,0.06)",
+                    border: "1px solid rgba(168,85,247,0.12)",
+                    fontSize: 10,
+                    lineHeight: 1.45,
+                    color: "var(--shelfy-muted)",
+                  }}
+                >
+                  <span style={{ fontWeight: 700, color: "#7C3AED" }}>Vendedor ideal: </span>
+                  {VENDEDOR_IDEAL_HELP}
+                </div>
                 <OverlayToggle />
               </div>
 
@@ -261,25 +287,46 @@ export function VendorCardExpanded({
                 animate="show"
                 style={{ display: "flex", flexDirection: "column", gap: 8 }}
               >
-                <p style={{ fontSize: 9, fontWeight: 700, color: "var(--shelfy-muted)", textTransform: "uppercase", letterSpacing: "0.08em", margin: 0 }}>KPIs</p>
-                {[
-                  { label: "PDVs",       value: vendor.raw_kpis.pdvs },
-                  { label: "Altas",      value: vendor.raw_kpis.altas },
-                  { label: "Exhibic.",   value: vendor.raw_kpis.exhibiciones },
-                  { label: "Compradores",value: vendor.raw_kpis.compradores },
-                  { label: "Bultos",     value: vendor.raw_kpis.bultos },
-                  { label: "Cobertura",  value: `${vendor.raw_kpis.cobertura_pct.toFixed(1)}%` },
-                  { label: "Objetivos",  value: `${vendor.raw_kpis.objetivos_pct.toFixed(1)}%` },
-                ].map(({ label, value }) => (
-                  <motion.div
-                    key={label}
-                    variants={itemVariants}
-                    style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}
-                  >
-                    <span style={{ fontSize: 11, color: "var(--shelfy-muted)" }}>{label}</span>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: "var(--shelfy-text)" }}>{value}</span>
-                  </motion.div>
-                ))}
+                <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                  <p style={{ fontSize: 9, fontWeight: 700, color: "var(--shelfy-muted)", textTransform: "uppercase", letterSpacing: "0.08em", margin: 0 }}>
+                    KPIs
+                  </p>
+                  <KpiHelpTip
+                    text="Valores reales del vendedor en el período. Pasá el cursor sobre cada ícono para ver qué mide."
+                    side="top"
+                    size={12}
+                  />
+                </div>
+                {ESTADISTICAS_KPI_HELP.map(({ key, label, description }) => {
+                  const raw = vendor.raw_kpis;
+                  const value =
+                    key === "cobertura"
+                      ? `${raw.cobertura_pct.toFixed(1)}%`
+                      : key === "objetivos"
+                        ? `${raw.objetivos_pct.toFixed(1)}%`
+                        : raw[key];
+                  return (
+                    <motion.div
+                      key={key}
+                      variants={itemVariants}
+                      style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}
+                    >
+                      <span
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 4,
+                          fontSize: 11,
+                          color: "var(--shelfy-muted)",
+                        }}
+                      >
+                        {label}
+                        <KpiHelpTip text={description} side="right" size={11} />
+                      </span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: "var(--shelfy-text)" }}>{value}</span>
+                    </motion.div>
+                  );
+                })}
               </motion.div>
             </div>
 
@@ -328,7 +375,29 @@ export function VendorCardExpanded({
               <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }}>
                 {isLoading ? (
                   <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: 200 }}>
-                    <Loader2 size={28} style={{ color: "#a855f7", animation: "spin 1s linear infinite" }} />
+                    <Loader2 size={28} className="animate-spin" style={{ color: "#a855f7" }} />
+                  </div>
+                ) : isError ? (
+                  <div style={{ textAlign: "center", padding: "48px 16px" }}>
+                    <p style={{ fontSize: 14, fontWeight: 700, color: "var(--shelfy-text)", margin: "0 0 8px" }}>
+                      No se pudo cargar el detalle
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => refetch()}
+                      style={{
+                        padding: "8px 16px",
+                        borderRadius: 8,
+                        border: "1px solid rgba(168,85,247,0.3)",
+                        background: "rgba(168,85,247,0.08)",
+                        color: "#7C3AED",
+                        fontSize: 12,
+                        fontWeight: 700,
+                        cursor: "pointer",
+                      }}
+                    >
+                      Reintentar
+                    </button>
                   </div>
                 ) : (
                   <AnimatePresence mode="wait">
@@ -441,6 +510,7 @@ function OverlayToggle() {
         <button
           key={opt.value}
           onClick={() => setOverlayMode(opt.value)}
+          title={OVERLAY_MODE_HELP[opt.value]}
           style={{
             padding: "3px 8px",
             borderRadius: 6,

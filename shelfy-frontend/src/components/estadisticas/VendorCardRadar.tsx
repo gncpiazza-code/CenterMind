@@ -31,8 +31,8 @@ const AXES: { key: keyof RadarKPI; label: string }[] = [
 ];
 
 const SIZE_MAP = {
-  sm: { height: 108, fontSize: 7, dotR: 2.5, stroke: 1.6 },
-  md: { height: 148, fontSize: 9, dotR: 3.5, stroke: 1.8 },
+  sm: { height: 148, fontSize: 8, dotR: 3, stroke: 1.8 },
+  md: { height: 168, fontSize: 9, dotR: 3.5, stroke: 1.8 },
   lg: { height: 210, fontSize: 10, dotR: 4.5, stroke: 2 },
 };
 

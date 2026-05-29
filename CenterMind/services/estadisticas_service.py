@@ -14,6 +14,7 @@ from core.exhibicion_aggregate import (
     exhibicion_score,
     vendor_logic_key,
     resolve_client_key,
+    aggregate_exhibicion_counts_vendor_scope,
 )
 from core.objetivos_filters import objetivo_activo_para_vendedor
 from core.helpers import is_exhibicion_qa_display_for_dist, build_integrante_to_erp_name
@@ -732,7 +733,15 @@ def build_detalle_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) -> 
             rows = q.execute().data or []
             for r in rows:
                 if _in_meses(r.get("fecha_alta", ""), meses_set):
-                    altas.append(r)
+                    altas.append({
+                        "fecha_alta": r.get("fecha_alta") or "",
+                        "id_ruta": r.get("id_ruta"),
+                        "id_cliente_erp": str(r.get("id_cliente_erp") or ""),
+                        "razon_social": r.get("nombre_razon_social") or "",
+                        "nombre_fantasia": r.get("nombre_fantasia") or "",
+                        "domicilio": r.get("domicilio") or "",
+                        "localidad": r.get("localidad") or "",
+                    })
     altas.sort(key=lambda x: x.get("fecha_alta", ""), reverse=True)
 
     # Exhibiciones resumen

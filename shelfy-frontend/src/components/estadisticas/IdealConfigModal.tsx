@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -21,6 +22,7 @@ import type {
   PesosIdeal,
   IdealHistorialEntry,
 } from "@/lib/api";
+import { VENDEDOR_IDEAL_HELP } from "@/lib/estadisticas-kpi-help";
 import {
   ChevronDown,
   Loader2,
@@ -193,6 +195,11 @@ export function IdealConfigModal({
             >
               Configurar Vendedor Ideal
             </DialogTitle>
+            <DialogDescription
+              style={{ fontSize: 12, lineHeight: 1.5, color: "var(--shelfy-muted)", marginTop: 6 }}
+            >
+              {VENDEDOR_IDEAL_HELP}
+            </DialogDescription>
           </DialogHeader>
 
           {/* Section tabs */}

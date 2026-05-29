@@ -13,13 +13,10 @@ import { openCuentasCorrientesPrintWindow } from "@/lib/printCuentasCorrientes";
 import {
   ccRowMatchesVendedor,
   computeDeudaPorAntiguedad,
-  formatUltimaCompraCC,
   formatRangoBadgeLabel,
   rangoBadgeClass,
   sortClientesCC,
-  mesEnLetras,
 } from "@/lib/cuentasCorrientes";
-import { CcDeudaResumenPanel } from "@/components/supervision/CcDeudaResumenPanel";
 import { useSupervisionPanelStore } from "@/store/useSupervisionPanelStore";
 import { useSupervisionPanelData } from "@/hooks/useSupervisionPanelData";
 import { AnimatedKpiCard } from "@/components/supervision/AnimatedKpiCard";
@@ -53,7 +50,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
-  CreditCard, Users, Printer, Hash, Clock, HelpCircle,
+  CreditCard, Store, AlertTriangle, CalendarClock, Printer, Hash, HelpCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
@@ -281,68 +278,147 @@ export default function SupervisionPage() {
                   className="flex flex-col flex-1 min-h-0 gap-5 overflow-hidden"
                   animate={!fetchingCuentas || !!cuentasData}
                 >
-                {/* ── NIVEL 3: 4 KPI cards CC ───────────────────────────── */}
+                {/* ── NIVEL 3: 4 KPI cards CC — Card 1 expande lateral ── */}
                 <SupervisionRevealItem className="shrink-0">
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <div className="flex flex-row gap-3 items-stretch">
 
-                  {/* Card 1: Deuda Total — expandible lateral */}
-                  <div className="flex flex-col min-w-0">
-                    <AnimatedKpiCard
-                      label="Deuda Total"
-                      value={deudaTotalDisplay}
-                      formatter={fmt$$}
-                      icon={CreditCard}
-                      color="rose"
-                      loading={loadingCuentas && !!selectedVendedorNombre}
-                      delay={0}
-                      trend={deltas?.total_deuda}
-                      expandable={showCcResumen}
-                      expanded={ccResumenExpanded}
-                      onToggle={toggleCcResumen}
-                      expandHint="Ver desglose por antigüedad"
-                    />
-                    {showCcResumen && (
-                      <CcDeudaResumenPanel
-                        headerless
-                        variant="rose"
-                        antiguedad={deudaPorAntiguedad}
-                        className="mt-1"
-                      />
-                    )}
+                  {/* Card 1: Deuda Total — expande lateralmente empujando las demás */}
+                  <div
+                    className="flex flex-col min-w-0 overflow-hidden transition-[flex-grow] duration-300 ease-out"
+                    style={{ flexGrow: ccResumenExpanded && showCcResumen ? 2 : 1 }}
+                  >
+                    {/* Card con desglose lateral inline */}
+                    <div
+                      className={cn(
+                        "flex flex-row h-full border bg-card rounded-xl overflow-hidden transition-shadow",
+                        "border-rose-200/60",
+                        showCcResumen
+                          ? ccResumenExpanded
+                            ? "shadow-md"
+                            : "hover:shadow-md cursor-pointer"
+                          : "",
+                      )}
+                    >
+                      {/* Parte izquierda: valor KPI */}
+                      <button
+                        type="button"
+                        className={cn(
+                          "flex-1 min-w-0 p-4 text-left focus:outline-none",
+                          showCcResumen ? "cursor-pointer" : "cursor-default",
+                        )}
+                        onClick={showCcResumen ? toggleCcResumen : undefined}
+                        aria-expanded={ccResumenExpanded}
+                        disabled={!showCcResumen}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide truncate">
+                              Deuda Total
+                            </p>
+                            {loadingCuentas && !!selectedVendedorNombre ? (
+                              <div className="mt-1 h-7 w-24 rounded bg-muted animate-pulse" />
+                            ) : (
+                              <div className="flex items-baseline gap-2">
+                                <p className="mt-1 text-2xl font-black text-foreground tracking-tight leading-none tabular-nums">
+                                  {fmt$$(deudaTotalDisplay)}
+                                </p>
+                                {deltas?.total_deuda && deltas.total_deuda.dir !== "neutral" && (
+                                  <span className={cn("text-[10px] font-semibold", deltas.total_deuda.dir === "up" ? "text-rose-600" : "text-emerald-600")}>
+                                    {deltas.total_deuda.dir === "up" ? "↑" : "↓"}
+                                    {deltas.total_deuda.pct != null ? ` ${Math.abs(deltas.total_deuda.pct)}%` : ""}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                            {showCcResumen && (
+                              <p className="mt-1 text-[10px] text-muted-foreground">
+                                {ccResumenExpanded ? "Ocultar desglose" : "Ver desglose por antigüedad"}
+                              </p>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {showCcResumen && (
+                              <Hash
+                                size={14}
+                                className={cn("text-rose-500 transition-transform duration-300", ccResumenExpanded ? "rotate-90" : "")}
+                              />
+                            )}
+                            <div className="size-9 rounded-xl bg-rose-500/8 flex items-center justify-center">
+                              <CreditCard size={17} className="text-rose-600" strokeWidth={2} />
+                            </div>
+                          </div>
+                        </div>
+                      </button>
+
+                      {/* Parte derecha: desglose por antigüedad (animado) */}
+                      <div
+                        className={cn(
+                          "overflow-hidden transition-all duration-300 ease-out border-l border-rose-200/40",
+                          ccResumenExpanded && showCcResumen ? "opacity-100" : "opacity-0 pointer-events-none",
+                        )}
+                        style={{
+                          width: ccResumenExpanded && showCcResumen ? "220px" : "0px",
+                          transition: "width 300ms ease-out, opacity 200ms ease-out",
+                        }}
+                      >
+                        <div className="w-[220px] p-3 h-full">
+                          <p className="text-[9px] font-bold uppercase tracking-wide text-rose-600 mb-2">
+                            Distribución por antigüedad
+                          </p>
+                          {deudaPorAntiguedad.filter((r) => r.monto > 0).map((r) => (
+                            <div key={r.label} className="flex items-center justify-between gap-2 py-1 border-b border-rose-100/60 last:border-b-0 text-[11px]">
+                              <span className={`inline-flex text-[9px] px-1.5 py-0.5 rounded border font-semibold ${rangoBadgeClass(r.label)}`}>
+                                {formatRangoBadgeLabel(r.label)}
+                              </span>
+                              <span className="font-mono font-semibold text-rose-600 tabular-nums">
+                                {fmt$$(r.monto)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
                   </div>
 
                   {/* Card 2: PDVs deudores */}
-                  <AnimatedKpiCard
-                    label="PDVs deudores"
-                    value={clientesDeudoresDisplay}
-                    icon={Users}
-                    color="amber"
-                    loading={loadingCuentas && !!selectedVendedorNombre}
-                    delay={0.06}
-                    trend={deltas?.clientes_deudores}
-                  />
+                  <div className="flex-1 min-w-0">
+                    <AnimatedKpiCard
+                      label="PDVs deudores"
+                      value={clientesDeudoresDisplay}
+                      icon={Store}
+                      color="amber"
+                      loading={loadingCuentas && !!selectedVendedorNombre}
+                      delay={0.06}
+                      trend={deltas?.clientes_deudores}
+                    />
+                  </div>
 
                   {/* Card 3: PDVs con atraso >15d */}
-                  <AnimatedKpiCard
-                    label="Atraso +15 días"
-                    value={pdvsAtraso15}
-                    icon={Clock}
-                    color="rose"
-                    loading={loadingCuentas && !!selectedVendedorNombre}
-                    delay={0.12}
-                    trend={deltas?.pdvs_atraso_15}
-                  />
+                  <div className="flex-1 min-w-0">
+                    <AnimatedKpiCard
+                      label="Atraso +15 días"
+                      value={pdvsAtraso15}
+                      icon={AlertTriangle}
+                      color="rose"
+                      loading={loadingCuentas && !!selectedVendedorNombre}
+                      delay={0.12}
+                      trend={deltas?.pdvs_atraso_15}
+                    />
+                  </div>
 
-                  {/* Card 4: Días promedio de atraso — sin flecha */}
-                  <AnimatedKpiCard
-                    label="Prom. días atraso"
-                    value={Math.round(diasPromedio)}
-                    icon={Hash}
-                    color="blue"
-                    loading={loadingCuentas && !!selectedVendedorNombre}
-                    delay={0.18}
-                    subtext="días promedio en cartera"
-                  />
+                  {/* Card 4: Días promedio — sin flecha */}
+                  <div className="flex-1 min-w-0">
+                    <AnimatedKpiCard
+                      label="Prom. días atraso"
+                      value={Math.round(diasPromedio)}
+                      icon={CalendarClock}
+                      color="blue"
+                      loading={loadingCuentas && !!selectedVendedorNombre}
+                      delay={0.18}
+                      subtext="promedio de mora"
+                    />
+                  </div>
+
                 </div>
                 </SupervisionRevealItem>
 

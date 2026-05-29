@@ -2240,7 +2240,7 @@ def _enrich_clientes_contact(d_id: int, vendors_result: list[dict]) -> None:
                 break
             offset += PAGE
 
-    # Fetch info de rutas para los id_ruta encontrados
+    # Fetch info de rutas para los id_ruta encontrados (rutas_v2 es tabla tenant, sin id_distribuidor)
     ruta_ids = list({r.get("id_ruta") for r in pdv_contact.values() if r.get("id_ruta")})
     ruta_info: dict[int, dict] = {}
     if ruta_ids:
@@ -2249,7 +2249,6 @@ def _enrich_clientes_contact(d_id: int, vendors_result: list[dict]) -> None:
             batch = (
                 sb.table(t_rutas)
                 .select("id_ruta, id_ruta_erp, dia_semana")
-                .eq("id_distribuidor", d_id)
                 .in_("id_ruta", chunk)
                 .execute()
                 .data or []
@@ -2417,10 +2416,10 @@ def supervision_deuda_detalle(
                 perfil["longitud"] = p.get("longitud")
                 id_ruta = p.get("id_ruta")
                 if id_ruta:
+                    # rutas_v2 es tabla tenant (sin id_distribuidor)
                     ruta_res = (
                         sb.table(t_rutas)
                         .select("id_ruta, id_ruta_erp, dia_semana")
-                        .eq("id_distribuidor", d_id)
                         .eq("id_ruta", int(id_ruta))
                         .limit(1)
                         .execute()

@@ -1,9 +1,16 @@
-# Railway: crear servicio con Root Directory = ShelfMind-RPA (o este archivo en la raíz del deploy).
-# Docs: https://docs.railway.com/reference/config-as-code
+# Railway — servicio `engines`
+#
+# Dashboard (Settings → Source):
+#   - Root Directory: ShelfMind-RPA
+#   - Railway config file: /ShelfMind-RPA/railway.toml
+#
+# watchPatterns: solo redeploy si cambia algo del motor RPA (paths desde / del repo).
+# Docs: https://docs.railway.com/guides/build-configuration#configure-watch-paths
 
 [build]
 builder = "dockerfile"
 dockerfilePath = "Dockerfile"
+watchPatterns = ["/ShelfMind-RPA/**"]
 
 [deploy]
 # start: ver CMD en Dockerfile (docker-entrypoint.sh, modo scheduler por defecto)

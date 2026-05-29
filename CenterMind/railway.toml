@@ -1,0 +1,11 @@
+# Railway — servicio `CenterMind` (API FastAPI)
+#
+# Dashboard (Settings → Source):
+#   - Root Directory: CenterMind
+#   - Railway config file: /CenterMind/railway.toml
+#
+# watchPatterns: no redeploy por cambios en RPA ni frontend (Vercel).
+# Paths desde la raíz del repo: https://docs.railway.com/guides/build-configuration#configure-watch-paths
+
+[build]
+watchPatterns = ["/CenterMind/**"]

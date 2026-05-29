@@ -27,6 +27,11 @@ from core.estadisticas_franchise import (
     FRANCHISE_VENTAS_SOURCE_DIST,
     resolve_estadisticas_ventas_fetch,
 )
+from core.ventas_bultos_rules import (
+    bultos_display_2dec,
+    classify_volumen,
+    volumen_es_convertido,
+)
 from core.estadisticas_tabaco_rollup import (
     TABACO_DIST_ID,
     apply_tabaco_rollups,
@@ -191,8 +196,27 @@ def _carta_tiene_actividad_comercial(raw: dict) -> bool:
 def _ventas_select_cols() -> str:
     return (
         "codigo_vendedor,nombre_vendedor,id_cliente_erp,tipo_documento,"
-        "importe_final,fecha_factura,bultos_total"
+        "importe_final,fecha_factura,bultos_total,unidades_total,"
+        "descripcion_articulo,agrupacion_art_2"
     )
+
+
+def _acumular_bultos_unidades(
+    row: dict,
+    bultos_acc: float,
+    unidades_cig_acc: float,
+) -> tuple[float, float]:
+    """Suma bultos de línea; unidades solo en líneas con conversión (cig/papelillo/mix)."""
+    b = float(row.get("bultos_total") or 0)
+    bultos_acc += b
+    kind = classify_volumen(
+        row.get("agrupacion_art_2") or "",
+        row.get("descripcion_articulo") or "",
+        "",
+    )
+    if volumen_es_convertido(kind):
+        unidades_cig_acc += float(row.get("unidades_total") or 0)
+    return bultos_acc, unidades_cig_acc
 
 
 def _apply_ventas_scope(
@@ -477,7 +501,8 @@ def aggregate_kpis_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) ->
             sb.table(t_v)
             .select(
                 "id_cliente_erp,codigo_vendedor,nombre_vendedor,tipo_documento,"
-                "importe_final,fecha_factura,anulado,bultos_total,descripcion_articulo"
+                "importe_final,fecha_factura,anulado,bultos_total,unidades_total,"
+                "descripcion_articulo,agrupacion_art_2"
             )
             .eq("id_distribuidor", int(ventas_ctx["filter_dist"]))
             .gte("fecha_factura", fecha_desde)
@@ -492,6 +517,7 @@ def aggregate_kpis_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) ->
         venta_rows = [r for r in venta_rows if _venta_matches_vendor(r, vctx)]
 
     bultos_total = 0.0
+    unidades_cig = 0.0
     for r in venta_rows:
         if not _in_meses(r.get("fecha_factura", ""), meses_set):
             continue
@@ -504,7 +530,7 @@ def aggregate_kpis_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) ->
         ceid = r.get("id_cliente_erp")
         if ceid:
             compradores.add(str(ceid))
-        bultos_total += float(r.get("bultos_total") or 0)
+        bultos_total, unidades_cig = _acumular_bultos_unidades(r, bultos_total, unidades_cig)
 
     # Cobertura exhibición = unique PDVs con exhibicion / PDVs activos
     ex_pdvs_unique: set = set()
@@ -536,7 +562,8 @@ def aggregate_kpis_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) ->
         "altas": altas,
         "exhibiciones": exhibiciones_logicas,
         "compradores": len(compradores),
-        "bultos": round(bultos_total),
+        "bultos": bultos_display_2dec(bultos_total),
+        "unidades_cigarrillos": bultos_display_2dec(unidades_cig),
         "cobertura_pct": round(cobertura_pct, 1),
         "objetivos_pct": round(objetivos_pct, 1),
     }
@@ -787,6 +814,7 @@ def _aggregate_kpis_from_rows(parallel: dict[str, object], meses: list[str]) -> 
     )
 
     bultos_by_vend: dict[int, float] = defaultdict(float)
+    unidades_cig_by_vend: dict[int, float] = defaultdict(float)
     compradores_by_vend: dict[int, set] = defaultdict(set)
     for row in parallel.get("ventas") or []:
         if not _in_meses(row.get("fecha_factura", ""), meses_set):
@@ -798,7 +826,9 @@ def _aggregate_kpis_from_rows(parallel: dict[str, object], meses: list[str]) -> 
         vid = _resolve_vid_from_venta_row(row, match_indexes)
         if vid is None:
             continue
-        bultos_by_vend[vid] += float(row.get("bultos_total") or 0)
+        bultos_by_vend[vid], unidades_cig_by_vend[vid] = _acumular_bultos_unidades(
+            row, bultos_by_vend[vid], unidades_cig_by_vend[vid]
+        )
         ceid = row.get("id_cliente_erp")
         if ceid:
             compradores_by_vend[vid].add(str(ceid))
@@ -827,7 +857,8 @@ def _aggregate_kpis_from_rows(parallel: dict[str, object], meses: list[str]) -> 
             "altas": altas_by_vend.get(vid, 0),
             "exhibiciones": ex_logicas_by_vend.get(vid, 0),
             "compradores": len(compradores_by_vend.get(vid) or []),
-            "bultos": round(bultos_by_vend.get(vid, 0)),
+            "bultos": bultos_display_2dec(bultos_by_vend.get(vid, 0)),
+            "unidades_cigarrillos": bultos_display_2dec(unidades_cig_by_vend.get(vid, 0)),
             "cobertura_pct": round(cob, 1),
             "objetivos_pct": round(obj_pct, 1),
         }
@@ -1080,9 +1111,9 @@ def build_detalle_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) -> 
         q = (
             sb.table(t_vb)
             .select(
-                "descripcion_articulo,bultos_total,tipo_documento,importe_final,"
-                "fecha_factura,codigo_vendedor,nombre_vendedor,id_cliente_erp,"
-                "nombre_cliente,anulado"
+                "descripcion_articulo,bultos_total,unidades_total,agrupacion_art_2,"
+                "tipo_documento,importe_final,fecha_factura,codigo_vendedor,"
+                "nombre_vendedor,id_cliente_erp,nombre_cliente,anulado"
             )
             .eq("id_distribuidor", int(ventas_ctx["filter_dist"]))
             .gte("fecha_factura", fecha_desde)
@@ -1096,7 +1127,9 @@ def build_detalle_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) -> 
     if not (vctx.get("codigos_vendedor") or vctx.get("codigo_vendedor")):
         ventas_det = [r for r in ventas_det if _venta_matches_vendor(r, vctx)]
 
-    bultos_by_art: dict[str, float] = defaultdict(float)
+    bultos_by_art: dict[str, dict[str, float]] = defaultdict(
+        lambda: {"bultos": 0.0, "unidades": 0.0}
+    )
     comp_map: dict[str, str] = {}
     for r in ventas_det:
         if not _in_meses(r.get("fecha_factura", ""), meses_set):
@@ -1108,12 +1141,31 @@ def build_detalle_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) -> 
         if _es_recaudacion(tipo) or _es_devolucion(tipo, imp):
             continue
         art = r.get("descripcion_articulo") or "Sin descripción"
-        bultos_by_art[art] += float(r.get("bultos_total") or 0)
+        bucket = bultos_by_art[art]
+        bucket["bultos"] += float(r.get("bultos_total") or 0)
+        kind = classify_volumen(
+            r.get("agrupacion_art_2") or "",
+            r.get("descripcion_articulo") or "",
+            "",
+        )
+        if volumen_es_convertido(kind):
+            bucket["unidades"] += float(r.get("unidades_total") or 0)
         eid = str(r.get("id_cliente_erp") or "")
         if eid and eid not in comp_map:
             comp_map[eid] = r.get("nombre_cliente") or eid
 
-    bultos_top = sorted([{"articulo": k, "bultos": round(v)} for k, v in bultos_by_art.items()], key=lambda x: x["bultos"], reverse=True)[:20]
+    bultos_top = sorted(
+        [
+            {
+                "articulo": k,
+                "bultos": bultos_display_2dec(v["bultos"]),
+                "unidades": bultos_display_2dec(v["unidades"]),
+            }
+            for k, v in bultos_by_art.items()
+        ],
+        key=lambda x: x["bultos"],
+        reverse=True,
+    )[:20]
 
     compradores = [{"id_cliente_erp": k, "razon_social": v} for k, v in comp_map.items()]
 

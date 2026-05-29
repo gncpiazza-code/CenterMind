@@ -3078,6 +3078,8 @@ export interface VendorRawKpis {
   exhibiciones: number;
   compradores: number;
   bultos: number;
+  /** Unidades vendidas en líneas con conversión (cigarrillos / papelillo / mix). */
+  unidades_cigarrillos?: number;
   cobertura_pct: number;
   objetivos_pct: number;
 }
@@ -3138,7 +3140,7 @@ export interface VendorDetalle {
     pendientes: number;
     puntos: number;
   };
-  bultos_top: { articulo: string; bultos: number }[];
+  bultos_top: { articulo: string; bultos: number; unidades?: number }[];
   compradores: { id_cliente_erp: string; razon_social: string }[];
 }
 

@@ -17,6 +17,8 @@ from typing import Any
 
 import pandas as pd
 
+from core.ventas_bultos_rules import bultos_efectivos
+
 
 def _s(v: Any) -> str:
     if v is None:
@@ -73,28 +75,18 @@ def _yn_to_bool(v: Any) -> bool:
     return s in {"SI", "S", "YES", "Y", "TRUE", "1", "ANULADO"}
 
 
-def _contains_token(value: str, token: str) -> bool:
-    return token in (value or "").upper()
-
-
 def _normalize_bultos_by_business_rule(row: "VentaEnrichedRow") -> None:
     """
-    Regla de negocio:
-    - CIGARRILLOS: 1 bulto = 250 unidades
-    - MIX EXHIBIDORES: 1 bulto = 25 unidades
+    Encendedores → bulto crudo Excel.
+    Cigarrillos / papelillos / mix exhibidores → conversión desde unidades.
     """
-    if row.unidades_total == 0:
-        return
-
-    is_cig = _contains_token(row.agrupacion_art_2, "CIGARRILLOS")
-    if not is_cig:
-        return
-
-    is_mix_exhib = _contains_token(row.descripcion_articulo, "MIX EXHIBIDORES") or _contains_token(
-        row.descripcion_articulo_comp, "MIX EXHIBIDORES"
+    row.bultos_total = bultos_efectivos(
+        row.agrupacion_art_2,
+        row.descripcion_articulo,
+        row.descripcion_articulo_comp,
+        row.unidades_total,
+        row.bultos_total,
     )
-    unidades_por_bulto = 25.0 if is_mix_exhib else 250.0
-    row.bultos_total = float(row.unidades_total) / unidades_por_bulto
 
 
 @dataclass(slots=True)

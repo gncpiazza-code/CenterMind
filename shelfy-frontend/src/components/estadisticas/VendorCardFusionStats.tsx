@@ -8,6 +8,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { ESTADISTICAS_KPI_HELP } from "@/lib/estadisticas-kpi-help";
+import { fmtBultos } from "@/lib/estadisticas-format";
 import type { VendorRawKpis } from "@/lib/api";
 import type { VendorCardTierTheme } from "@/lib/vendor-card-tier";
 import {
@@ -22,7 +23,7 @@ interface VendorCardFusionStatsProps {
 }
 
 function fmtKpi(n: number) {
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  if (n >= 1000) return `${(n / 1000).toFixed(2)}k`;
   return String(Math.round(n));
 }
 
@@ -44,7 +45,12 @@ const CELLS: {
     label: "Compradores",
     getValue: (k) => fmtKpi(k.compradores),
   },
-  { helpKey: "bultos", leaderKey: "bultos", label: "Bultos", getValue: (k) => fmtKpi(k.bultos) },
+  {
+    helpKey: "bultos",
+    leaderKey: "bultos",
+    label: "Bultos",
+    getValue: (k) => fmtBultos(k.bultos),
+  },
   { helpKey: "pdvs", leaderKey: "pdvs", label: "PDVs", getValue: (k) => fmtKpi(k.pdvs) },
   {
     helpKey: "cobertura_pct",
@@ -145,6 +151,11 @@ export function VendorCardFusionStats({
               >
                 <p className="font-semibold">{help?.label ?? label}</p>
                 <p className="text-muted-foreground mt-0.5 whitespace-normal">{help?.description}</p>
+                {leaderKey === "bultos" && (kpis.unidades_cigarrillos ?? 0) > 0 && (
+                  <p className="text-muted-foreground mt-1 text-[10px]">
+                    Unidades (cig. convertidos): {fmtKpi(kpis.unidades_cigarrillos ?? 0)}
+                  </p>
+                )}
                 {isLeader && (
                   <p className="text-amber-600 mt-1 text-[10px]">{statLeaderTooltip(leaderKey)}</p>
                 )}

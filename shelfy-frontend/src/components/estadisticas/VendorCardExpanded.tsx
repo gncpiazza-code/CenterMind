@@ -33,6 +33,7 @@ import {
   Loader2,
 } from "lucide-react";
 import type { VendorCartaResumen, VendorDetalle } from "@/lib/api";
+import { fmtBultos, fmtUnidades } from "@/lib/estadisticas-format";
 import { VendorCardRadar } from "./VendorCardRadar";
 import { VENDOR_CARD_LAYOUT_TRANSITION } from "./VendorCardFusion";
 import { useEstadisticasStore } from "@/store/useEstadisticasStore";
@@ -839,7 +840,7 @@ function TabBultos({ detalle }: { detalle: VendorDetalle }) {
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="show" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       <p style={{ fontSize: 11, color: "var(--shelfy-muted)", margin: 0 }}>
-        Top {top.length} artículos por bultos vendidos
+        Top {top.length} artículos — bultos (2 dec.) y unidades en líneas convertidas
       </p>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {top.map((item, i) => (
@@ -888,9 +889,16 @@ function TabBultos({ detalle }: { detalle: VendorDetalle }) {
                   {item.articulo}
                 </p>
               </div>
-              <span style={{ flexShrink: 0, fontSize: 14, fontWeight: 800, color: ESTADISTICAS_FIFA.accentDark }}>
-                {item.bultos}
-              </span>
+              <div style={{ flexShrink: 0, textAlign: "right" }}>
+                <span style={{ display: "block", fontSize: 14, fontWeight: 800, color: ESTADISTICAS_FIFA.accentDark }}>
+                  {fmtBultos(item.bultos)} blt
+                </span>
+                {(item.unidades ?? 0) > 0 && (
+                  <span style={{ display: "block", fontSize: 10, fontWeight: 600, color: "var(--shelfy-muted)" }}>
+                    {fmtUnidades(item.unidades ?? 0)} un
+                  </span>
+                )}
+              </div>
             </div>
             <div
               style={{

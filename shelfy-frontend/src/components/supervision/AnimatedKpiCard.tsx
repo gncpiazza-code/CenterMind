@@ -69,12 +69,8 @@ export function AnimatedKpiCard({
   const card = (
     <Card
       className={`border ${border} bg-card transition-shadow ${
-        expandable
-          ? expanded
-            ? "rounded-b-none shadow-md"
-            : "hover:shadow-md cursor-pointer"
-          : ""
-      }`}
+        expandable && !expanded ? "hover:shadow-md cursor-pointer" : ""
+      } ${expandable && expanded ? "shadow-md" : ""}`}
     >
       <CardContent className="p-4">
         <div className="flex items-start justify-between gap-3">

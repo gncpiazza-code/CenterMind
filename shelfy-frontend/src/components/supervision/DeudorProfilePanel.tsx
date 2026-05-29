@@ -127,20 +127,20 @@ function ProfileContent({ data }: { data: import("@/lib/api").DeudorDetalle }) {
   const { perfil, deuda } = data;
 
   return (
-    <div className="flex flex-col gap-0">
-      {/* ── Cabecera ── */}
-      <div className="px-4 py-3 bg-muted/25 border-b">
+    <div className="flex flex-col min-h-0 pb-4">
+      {/* ── Cabecera compacta ── */}
+      <div className="px-4 py-2.5 bg-muted/25 border-b shrink-0">
         <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <p className="text-sm font-bold text-foreground leading-tight truncate">
               {perfil.nombre_fantasia || "—"}
             </p>
             {perfil.razon_social && perfil.razon_social !== perfil.nombre_fantasia && (
-              <p className="text-[11px] text-muted-foreground truncate mt-0.5">{perfil.razon_social}</p>
+              <p className="text-[11px] text-muted-foreground truncate">{perfil.razon_social}</p>
             )}
           </div>
           <div className="shrink-0 text-right">
-            <p className="text-base font-black font-mono text-rose-600 leading-tight">
+            <p className="text-sm font-black font-mono text-rose-600 leading-tight">
               {fmt$$(deuda.total_deuda)}
             </p>
             {deuda.rango_antiguedad && (
@@ -153,42 +153,46 @@ function ProfileContent({ data }: { data: import("@/lib/api").DeudorDetalle }) {
           </div>
         </div>
 
-        {/* Info de contacto y ruta */}
-        <div className="flex flex-col gap-1 mt-2.5">
+        <div className="grid grid-cols-2 gap-x-3 gap-y-1 mt-2 text-[11px]">
           <InfoRow icon={Hash} label="ERP" value={perfil.id_cliente_erp} />
           <InfoRow icon={Phone} label="Tel" value={perfil.telefono} />
           <InfoRow icon={Smartphone} label="Cel" value={perfil.celular} />
+          <InfoRow icon={Calendar} label="Visita" value={perfil.dia_visita} />
           {(perfil.ruta_numero || perfil.ruta_nombre) && (
             <InfoRow
               icon={Hash}
               label="Ruta"
-              value={perfil.ruta_numero
-                ? `${perfil.ruta_numero}${perfil.ruta_nombre && perfil.ruta_nombre !== perfil.ruta_numero ? ` · ${perfil.ruta_nombre}` : ""}`
-                : perfil.ruta_nombre
+              value={
+                perfil.ruta_numero
+                  ? `${perfil.ruta_numero}${perfil.ruta_nombre && perfil.ruta_nombre !== perfil.ruta_numero ? ` · ${perfil.ruta_nombre}` : ""}`
+                  : perfil.ruta_nombre
               }
             />
           )}
-          <InfoRow icon={Calendar} label="Visita" value={perfil.dia_visita} />
-          <InfoRow icon={MapPin} label="Dirección" value={perfil.domicilio} />
         </div>
 
-        {/* Stats CC */}
-        <div className="flex items-center gap-3 mt-2.5 pt-2 border-t border-border/40">
-          <div className="text-center">
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Antigüedad</p>
-            <p className="text-sm font-bold tabular-nums">{deuda.antiguedad_dias}d</p>
-          </div>
-          <div className="text-center">
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Comprobantes</p>
-            <p className="text-sm font-bold tabular-nums">{deuda.cantidad_comprobantes}</p>
-          </div>
+        <div className="flex items-center gap-4 mt-2 pt-2 border-t border-border/40 text-[11px]">
+          <span>
+            <span className="text-muted-foreground">Antig. </span>
+            <span className="font-bold tabular-nums">{deuda.antiguedad_dias}d</span>
+          </span>
+          <span>
+            <span className="text-muted-foreground">Cbtes. </span>
+            <span className="font-bold tabular-nums">{deuda.cantidad_comprobantes}</span>
+          </span>
+          {perfil.domicilio && (
+            <span className="min-w-0 flex-1 truncate text-muted-foreground" title={perfil.domicilio}>
+              <MapPin size={10} className="inline mr-0.5 -mt-px" />
+              {perfil.domicilio}
+            </span>
+          )}
         </div>
       </div>
 
       {/* ── Comprobantes ── */}
-      <div className="px-4 pt-3 pb-2">
-        <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1.5">
-          <CreditCard size={11} />
+      <div className="px-4 pt-2.5 pb-2 shrink-0">
+        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1.5 flex items-center gap-1.5">
+          <CreditCard size={10} />
           Comprobantes de deuda
         </p>
         <DeudorComprobantesList
@@ -199,10 +203,10 @@ function ProfileContent({ data }: { data: import("@/lib/api").DeudorDetalle }) {
         />
       </div>
 
-      {/* ── Mapa ── */}
-      <div className="px-4 pb-4 pt-2">
-        <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1.5">
-          <MapPin size={11} />
+      {/* ── Mapa compacto ── */}
+      <div className="px-4 pt-1 shrink-0">
+        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1.5 flex items-center gap-1.5">
+          <MapPin size={10} />
           Ubicación
         </p>
         <DeudorMapaEstatico

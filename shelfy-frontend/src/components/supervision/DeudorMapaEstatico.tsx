@@ -2,7 +2,6 @@
 
 import { useEffect, useRef } from "react";
 import { MapPin } from "lucide-react";
-import { Card, CardContent } from "@/components/ui/Card";
 import { cn } from "@/lib/utils";
 
 interface DeudorMapaEstaticoProps {
@@ -35,25 +34,38 @@ export function DeudorMapaEstatico({
         container: mapRef.current,
         style: "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
         center: [longitud!, latitud!],
-        zoom: 14,
+        zoom: 15,
         attributionControl: false,
-        // panning y zoom habilitados; solo desactivamos doble-click zoom para comportamiento más controlado
+        interactive: false,
         doubleClickZoom: false,
+        scrollZoom: false,
+        boxZoom: false,
+        dragRotate: false,
+        dragPan: false,
+        keyboard: false,
+        touchZoomRotate: false,
       });
 
       mapInstanceRef.current = map;
 
       map.on("load", () => {
         if (cancelled) return;
-        // Marker rojo estándar
         new MapLibreGL.Marker({ color: "#e11d48" })
           .setLngLat([longitud!, latitud!])
           .addTo(map);
+        map.resize();
       });
     });
 
+    const el = mapRef.current;
+    const ro = new ResizeObserver(() => {
+      mapInstanceRef.current?.resize();
+    });
+    ro.observe(el);
+
     return () => {
       cancelled = true;
+      ro.disconnect();
       mapInstanceRef.current?.remove();
       mapInstanceRef.current = null;
     };
@@ -61,31 +73,27 @@ export function DeudorMapaEstatico({
   }, [latitud, longitud]);
 
   return (
-    <Card className={cn("overflow-hidden", className)}>
-      <CardContent className="p-0">
-        {hasCoords ? (
-          <div className="relative">
-            <div ref={mapRef} className="w-full h-44" />
-            {domicilio && (
-              <div className="absolute bottom-0 left-0 right-0 bg-background/88 backdrop-blur-sm px-3 py-1.5 border-t border-border/40">
-                <div className="flex items-center gap-1.5">
-                  <MapPin size={11} className="text-rose-500 shrink-0" />
-                  <p className="text-[11px] text-foreground truncate font-medium">{domicilio}</p>
-                </div>
+    <div className={cn("rounded-lg border overflow-hidden bg-muted/20", className)}>
+      {hasCoords ? (
+        <div className="relative">
+          <div ref={mapRef} className="w-full h-28" />
+          {domicilio && (
+            <div className="px-2.5 py-1.5 border-t border-border/40 bg-background/90">
+              <div className="flex items-center gap-1.5">
+                <MapPin size={11} className="text-rose-500 shrink-0" />
+                <p className="text-[11px] text-foreground truncate font-medium">{domicilio}</p>
               </div>
-            )}
-          </div>
-        ) : (
-          <div className="flex items-center gap-2.5 p-3 min-h-[3rem]">
-            <div className="size-7 rounded-lg bg-muted flex items-center justify-center shrink-0">
-              <MapPin size={14} className="text-muted-foreground" />
             </div>
-            <p className="text-xs text-muted-foreground truncate">
-              {domicilio || "Sin coordenadas disponibles"}
-            </p>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+          )}
+        </div>
+      ) : (
+        <div className="flex items-center gap-2.5 px-3 py-2.5 min-h-[2.75rem]">
+          <MapPin size={13} className="text-muted-foreground shrink-0" />
+          <p className="text-[11px] text-muted-foreground truncate">
+            {domicilio || "Sin coordenadas disponibles"}
+          </p>
+        </div>
+      )}
+    </div>
   );
 }

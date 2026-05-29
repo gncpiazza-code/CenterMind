@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { motion } from "framer-motion";
 import { Loader2 } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { BottomNav } from "@/components/layout/BottomNav";
@@ -80,6 +79,48 @@ function CCSortIndicator({
 }) {
   if (!active) return <span className="opacity-30">↕</span>;
   return <span className="text-foreground">{dir === "desc" ? "↓" : "↑"}</span>;
+}
+
+/** Desglose compacto debajo de las KPI cards (no ensancha la card de Deuda Total). */
+function CcAntiguedadBreakdownStrip({
+  rows,
+  className,
+}: {
+  rows: ReturnType<typeof computeDeudaPorAntiguedad>;
+  className?: string;
+}) {
+  const active = rows.filter((r) => r.monto > 0);
+  if (active.length === 0) return null;
+
+  return (
+    <div
+      className={cn(
+        "rounded-lg border border-rose-200/50 bg-rose-500/[0.03] px-3 py-2",
+        className,
+      )}
+    >
+      <p className="text-[9px] font-bold uppercase tracking-wide text-rose-600 mb-1.5">
+        Distribución por antigüedad
+      </p>
+      <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+        {active.map((r) => (
+          <div key={r.label} className="flex items-center gap-1.5 text-[11px]">
+            <span
+              className={`inline-flex shrink-0 text-[9px] px-1.5 py-0.5 rounded border font-semibold ${rangoBadgeClass(r.label)}`}
+            >
+              {formatRangoBadgeLabel(r.label)}
+            </span>
+            <span className="font-mono font-semibold text-rose-600 tabular-nums whitespace-nowrap">
+              {fmt$$(r.monto)}
+            </span>
+            <span className="text-muted-foreground tabular-nums text-[10px]">
+              {r.pct.toFixed(1)}%
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
@@ -278,113 +319,24 @@ export default function SupervisionPage() {
                   className="flex flex-col flex-1 min-h-0 gap-5 overflow-hidden"
                   animate={!fetchingCuentas || !!cuentasData}
                 >
-                {/* ── NIVEL 3: 4 KPI cards CC — Card 1 expande lateral ── */}
+                {/* ── NIVEL 3: 4 KPI cards CC (mismo tamaño) + desglose debajo ── */}
                 <SupervisionRevealItem className="shrink-0">
-                <div className="flex flex-row gap-3 items-stretch">
-
-                  {/* Card 1: Deuda Total — expande lateralmente empujando las demás */}
-                  <div
-                    className="flex flex-col min-w-0 overflow-hidden transition-[flex-grow] duration-300 ease-out"
-                    style={{ flexGrow: ccResumenExpanded && showCcResumen ? 2 : 1 }}
-                  >
-                    {/* Card con desglose lateral inline */}
-                    <div
-                      className={cn(
-                        "flex flex-row h-full border bg-card rounded-xl overflow-hidden transition-shadow",
-                        "border-rose-200/60",
-                        showCcResumen
-                          ? ccResumenExpanded
-                            ? "shadow-md"
-                            : "hover:shadow-md cursor-pointer"
-                          : "",
-                      )}
-                    >
-                      {/* Parte izquierda: valor KPI */}
-                      <button
-                        type="button"
-                        className={cn(
-                          "flex-1 min-w-0 p-4 text-left focus:outline-none",
-                          showCcResumen ? "cursor-pointer" : "cursor-default",
-                        )}
-                        onClick={showCcResumen ? toggleCcResumen : undefined}
-                        aria-expanded={ccResumenExpanded}
-                        disabled={!showCcResumen}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0 flex-1">
-                            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide truncate">
-                              Deuda Total
-                            </p>
-                            {loadingCuentas && !!selectedVendedorNombre ? (
-                              <div className="mt-1 h-7 w-24 rounded bg-muted animate-pulse" />
-                            ) : (
-                              <div className="flex items-baseline gap-2">
-                                <p className="mt-1 text-2xl font-black text-foreground tracking-tight leading-none tabular-nums">
-                                  {fmt$$(deudaTotalDisplay)}
-                                </p>
-                                {deltas?.total_deuda && deltas.total_deuda.dir !== "neutral" && (
-                                  <span className={cn("text-[10px] font-semibold", deltas.total_deuda.dir === "up" ? "text-rose-600" : "text-emerald-600")}>
-                                    {deltas.total_deuda.dir === "up" ? "↑" : "↓"}
-                                    {deltas.total_deuda.pct != null ? ` ${Math.abs(deltas.total_deuda.pct)}%` : ""}
-                                  </span>
-                                )}
-                              </div>
-                            )}
-                            {showCcResumen && (
-                              <p className="mt-1 text-[10px] text-muted-foreground">
-                                {ccResumenExpanded ? "Ocultar desglose" : "Ver desglose por antigüedad"}
-                              </p>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            {showCcResumen && (
-                              <Hash
-                                size={14}
-                                className={cn("text-rose-500 transition-transform duration-300", ccResumenExpanded ? "rotate-90" : "")}
-                              />
-                            )}
-                            <div className="size-9 rounded-xl bg-rose-500/8 flex items-center justify-center">
-                              <CreditCard size={17} className="text-rose-600" strokeWidth={2} />
-                            </div>
-                          </div>
-                        </div>
-                      </button>
-
-                      {/* Parte derecha: desglose por antigüedad (animado lateral) */}
-                      <div
-                        className={cn(
-                          "overflow-hidden border-l border-rose-200/40",
-                          ccResumenExpanded && showCcResumen ? "opacity-100" : "opacity-0 pointer-events-none",
-                        )}
-                        style={{
-                          width: ccResumenExpanded && showCcResumen ? "270px" : "0px",
-                          minWidth: ccResumenExpanded && showCcResumen ? "270px" : "0px",
-                          transition: "width 300ms ease-out, min-width 300ms ease-out, opacity 200ms ease-out",
-                        }}
-                      >
-                        <div className="w-[270px] p-3 h-full flex flex-col justify-center">
-                          <p className="text-[9px] font-bold uppercase tracking-wide text-rose-600 mb-2 whitespace-nowrap">
-                            Distribución por antigüedad
-                          </p>
-                          <div className="flex flex-col divide-y divide-rose-100/50">
-                            {deudaPorAntiguedad.filter((r) => r.monto > 0).map((r) => (
-                              <div key={r.label} className="flex items-center justify-between gap-3 py-1.5">
-                                <span className={`inline-flex shrink-0 text-[9px] px-1.5 py-0.5 rounded border font-semibold ${rangoBadgeClass(r.label)}`}>
-                                  {formatRangoBadgeLabel(r.label)}
-                                </span>
-                                <span className="font-mono text-[11px] font-semibold text-rose-600 tabular-nums whitespace-nowrap">
-                                  {fmt$$(r.monto)}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Card 2: PDVs deudores */}
-                  <div className="flex-1 min-w-0">
+                <div className="flex flex-col gap-2">
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                    <AnimatedKpiCard
+                      label="Deuda Total"
+                      value={deudaTotalDisplay}
+                      formatter={fmt$$}
+                      icon={CreditCard}
+                      color="rose"
+                      loading={loadingCuentas && !!selectedVendedorNombre}
+                      delay={0}
+                      trend={deltas?.total_deuda}
+                      expandable={showCcResumen}
+                      expanded={ccResumenExpanded}
+                      onToggle={toggleCcResumen}
+                      expandHint="Ver desglose por antigüedad"
+                    />
                     <AnimatedKpiCard
                       label="PDVs deudores"
                       value={clientesDeudoresDisplay}
@@ -394,10 +346,6 @@ export default function SupervisionPage() {
                       delay={0.06}
                       trend={deltas?.clientes_deudores}
                     />
-                  </div>
-
-                  {/* Card 3: PDVs con atraso >15d */}
-                  <div className="flex-1 min-w-0">
                     <AnimatedKpiCard
                       label="Atraso +15 días"
                       value={pdvsAtraso15}
@@ -407,10 +355,6 @@ export default function SupervisionPage() {
                       delay={0.12}
                       trend={deltas?.pdvs_atraso_15}
                     />
-                  </div>
-
-                  {/* Card 4: Días promedio — sin flecha */}
-                  <div className="flex-1 min-w-0">
                     <AnimatedKpiCard
                       label="Prom. días atraso"
                       value={Math.round(diasPromedio)}
@@ -422,6 +366,16 @@ export default function SupervisionPage() {
                     />
                   </div>
 
+                  <div
+                    className="grid transition-[grid-template-rows] duration-300 ease-out"
+                    style={{ gridTemplateRows: ccResumenExpanded && showCcResumen ? "1fr" : "0fr" }}
+                  >
+                    <div className="overflow-hidden min-h-0">
+                      {ccResumenExpanded && showCcResumen && (
+                        <CcAntiguedadBreakdownStrip rows={deudaPorAntiguedad} />
+                      )}
+                    </div>
+                  </div>
                 </div>
                 </SupervisionRevealItem>
 

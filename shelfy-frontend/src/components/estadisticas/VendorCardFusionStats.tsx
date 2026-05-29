@@ -138,9 +138,13 @@ export function VendorCardFusionStats({
                   </div>
                 </div>
               </TooltipTrigger>
-              <TooltipContent side="top" className="max-w-[200px] text-xs">
+              <TooltipContent
+                side="top"
+                align="center"
+                className="max-w-[260px] text-xs leading-relaxed"
+              >
                 <p className="font-semibold">{help?.label ?? label}</p>
-                <p className="text-muted-foreground mt-0.5">{help?.description}</p>
+                <p className="text-muted-foreground mt-0.5 whitespace-normal">{help?.description}</p>
                 {isLeader && (
                   <p className="text-amber-600 mt-1 text-[10px]">{statLeaderTooltip(leaderKey)}</p>
                 )}

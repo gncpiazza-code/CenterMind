@@ -141,6 +141,7 @@ export function VendorCollection({
           WebkitOverflowScrolling: "touch",
           transition: "opacity 0.2s ease",
           opacity: activeVendorId ? 0.65 : 1,
+          overflow: "visible",
         }}
         className="estadisticas-scroll-strip"
       >

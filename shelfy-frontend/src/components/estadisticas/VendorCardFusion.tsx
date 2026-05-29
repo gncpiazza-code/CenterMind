@@ -1,5 +1,6 @@
 "use client";
 
+import "./vendor-card-fusion.css";
 import { motion } from "framer-motion";
 import { VendorCardRadar } from "./VendorCardRadar";
 import { VendorCardFusionStats } from "./VendorCardFusionStats";
@@ -66,7 +67,9 @@ export function VendorCardFusion({
   }
 
   return (
-    <div
+    <motion.div
+      layout={!previewMode}
+      layoutId={previewMode ? undefined : `vendor-card-${vendor.id_vendedor}`}
       style={{
         width: compact ? VENDOR_CARD_W : "100%",
         flexShrink: 0,
@@ -74,11 +77,6 @@ export function VendorCardFusion({
         flexDirection: "column",
       }}
     >
-      <motion.div
-        layout={!previewMode}
-        layoutId={previewMode ? undefined : `vendor-card-${vendor.id_vendedor}`}
-        style={{ display: "flex", flexDirection: "column", width: "100%" }}
-      >
       <motion.div
         className={`vendor-fifa-card vendor-fifa-card--${tier}${animationPaused ? " vendor-fifa-card--paused" : ""}`}
         whileHover={{ y: -4, scale: 1.01 }}
@@ -95,6 +93,8 @@ export function VendorCardFusion({
           overflow: "hidden",
           background: theme.faceGradient,
           boxShadow: theme.shadow,
+          ["--fifa-card-shadow" as string]: theme.shadow,
+          ["--fifa-glow" as string]: theme.glow,
           display: "grid",
           gridTemplateRows: `auto ${VENDOR_CARD_RADAR_H}px auto auto`,
           padding: "14px 10px 10px",
@@ -235,57 +235,6 @@ export function VendorCardFusion({
       >
         Ver detalle
       </button>
-
-      <style>{`
-        .vendor-fifa-card--gold { --fifa-glow: ${VENDOR_CARD_TIER_THEME.gold.glow}; }
-        .vendor-fifa-card--silver { --fifa-glow: ${VENDOR_CARD_TIER_THEME.silver.glow}; }
-        .vendor-fifa-card--bronze { --fifa-glow: ${VENDOR_CARD_TIER_THEME.bronze.glow}; }
-        .vendor-fifa-shimmer {
-          position: absolute;
-          inset: 0;
-          overflow: hidden;
-          pointer-events: none;
-          z-index: 1;
-          border-radius: inherit;
-        }
-        .vendor-fifa-shimmer-beam {
-          position: absolute;
-          top: -50%;
-          left: 0;
-          width: 38%;
-          height: 200%;
-          background: linear-gradient(
-            105deg,
-            transparent 38%,
-            rgba(255,255,255,0.04) 44%,
-            rgba(255,255,255,0.18) 50%,
-            rgba(255,255,255,0.04) 56%,
-            transparent 62%
-          );
-          animation: vendor-fifa-sweep 4.2s ease-in-out infinite;
-          transform: translateX(-140%) skewX(-12deg);
-          will-change: transform;
-        }
-        .vendor-fifa-card--paused .vendor-fifa-shimmer-beam {
-          animation-play-state: paused;
-          opacity: 0;
-        }
-        @media (prefers-reduced-motion: reduce) {
-          .vendor-fifa-shimmer-beam { animation: none; opacity: 0; }
-        }
-        @keyframes vendor-fifa-sweep {
-          0%, 8% { transform: translateX(-140%) skewX(-12deg); opacity: 0; }
-          18% { opacity: 0.5; }
-          45% { opacity: 0.65; }
-          82% { transform: translateX(340%) skewX(-12deg); opacity: 0.4; }
-          92%, 100% { transform: translateX(340%) skewX(-12deg); opacity: 0; }
-        }
-        .vendor-fifa-ver-detalle:hover:not(:disabled) {
-          background: #1e293b;
-          color: #e9d5ff;
-        }
-      `}</style>
-      </motion.div>
-    </div>
+    </motion.div>
   );
 }

@@ -1,0 +1,97 @@
+/* Animaciones carta FIFA — un solo archivo evita duplicar <style> por card */
+
+.vendor-fifa-card {
+  --fifa-glow: rgba(255, 235, 59, 0.45);
+}
+
+.vendor-fifa-card:not(.vendor-fifa-card--paused) {
+  box-shadow: var(--fifa-card-shadow);
+  animation: vendor-fifa-glow 3.4s ease-in-out infinite;
+}
+
+.vendor-fifa-shimmer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 3;
+  border-radius: inherit;
+}
+
+.vendor-fifa-shimmer-beam {
+  position: absolute;
+  top: -50%;
+  left: 0;
+  width: 42%;
+  height: 200%;
+  background: linear-gradient(
+    105deg,
+    transparent 32%,
+    rgba(255, 255, 255, 0.05) 40%,
+    rgba(255, 255, 255, 0.42) 50%,
+    rgba(255, 255, 255, 0.05) 60%,
+    transparent 68%
+  );
+  animation: vendor-fifa-sweep 3.6s ease-in-out infinite;
+  transform: translateX(-130%) skewX(-14deg);
+  will-change: transform, opacity;
+}
+
+.vendor-fifa-card--paused {
+  animation: none !important;
+}
+
+.vendor-fifa-card--paused .vendor-fifa-shimmer-beam {
+  animation-play-state: paused;
+  opacity: 0;
+}
+
+@keyframes vendor-fifa-sweep {
+  0%,
+  6% {
+    transform: translateX(-130%) skewX(-14deg);
+    opacity: 0;
+  }
+  14% {
+    opacity: 0.85;
+  }
+  50% {
+    opacity: 1;
+  }
+  88% {
+    transform: translateX(320%) skewX(-14deg);
+    opacity: 0.9;
+  }
+  96%,
+  100% {
+    transform: translateX(320%) skewX(-14deg);
+    opacity: 0;
+  }
+}
+
+@keyframes vendor-fifa-glow {
+  0%,
+  100% {
+    filter: brightness(1);
+    box-shadow: var(--fifa-card-shadow);
+  }
+  50% {
+    filter: brightness(1.06);
+    box-shadow: var(--fifa-card-shadow), 0 0 26px var(--fifa-glow);
+  }
+}
+
+.vendor-fifa-ver-detalle:hover:not(:disabled) {
+  background: #1e293b !important;
+  color: #e9d5ff !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vendor-fifa-card:not(.vendor-fifa-card--paused) {
+    animation: none;
+  }
+  .vendor-fifa-shimmer-beam {
+    animation-duration: 5.5s;
+    opacity: 0.35;
+  }
+}

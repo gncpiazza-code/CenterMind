@@ -93,7 +93,7 @@ function FusionRadarTooltipContent({
         fontSize: 10,
         fontWeight: 600,
         lineHeight: 1.45,
-        maxWidth: 240,
+        maxWidth: 280,
         boxShadow: "0 6px 16px rgba(0,0,0,0.35)",
         pointerEvents: "none",
       }}
@@ -205,8 +205,8 @@ export function VendorCardRadar({
               content={<FusionRadarTooltipContent />}
               cursor={false}
               shared={false}
-              allowEscapeViewBox={{ x: false, y: false }}
-              wrapperStyle={{ zIndex: 30, outline: "none" }}
+              allowEscapeViewBox={{ x: true, y: true }}
+              wrapperStyle={{ zIndex: 250, outline: "none", pointerEvents: "none" }}
               isAnimationActive={false}
             />
           )}

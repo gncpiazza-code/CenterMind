@@ -3060,52 +3060,169 @@ export async function deleteDifusionPlantilla(id: number): Promise<void> {
   await apiFetch(`/api/difusion/plantillas/${id}`, { method: 'DELETE' });
 }
 
-export async function fetchSupervisionV2Dashboard(
-  distId: number,
-  params: {
-    dias?: number;
-    fecha_hasta?: string;
-    sucursal?: string;
-    vendedor?: string;
-  } = {}
-): Promise<any> {
-  const q = new URLSearchParams();
-  if (params.dias) q.append("dias", params.dias.toString());
-  if (params.fecha_hasta) q.append("fecha_hasta", params.fecha_hasta);
-  if (params.sucursal) q.append("sucursal", params.sucursal);
-  if (params.vendedor) q.append("vendedor", params.vendedor);
+// ── Estadísticas ──────────────────────────────────────────────────────────────
 
-  const res = await fetch(`${API_URL}/api/supervision/v2/dashboard/${distId}?${q.toString()}`, {
-    headers: {
-      Authorization: `Bearer ${localStorage.getItem(TOKEN_KEY)}`,
-    },
-  });
-  if (!res.ok) throw new Error("Error fetching supervision v2 dashboard");
-  return res.json();
+export interface RadarKPI {
+  pdvs: number;
+  altas: number;
+  exhibiciones: number;
+  compradores: number;
+  bultos: number;
+  cobertura: number;
+  objetivos: number;
 }
 
-export async function fetchSupervisionV2VendedorDetalle(
-  distId: number,
-  vendedorId: string
-): Promise<any> {
-  const res = await fetch(`${API_URL}/api/supervision/v2/vendedor/${distId}/${encodeURIComponent(vendedorId)}/detalle`, {
-    headers: {
-      Authorization: `Bearer ${localStorage.getItem(TOKEN_KEY)}`,
-    },
-  });
-  if (!res.ok) throw new Error("Error fetching vendedor detalle");
-  return res.json();
+export interface VendorRawKpis {
+  pdvs: number;
+  altas: number;
+  exhibiciones: number;
+  compradores: number;
+  bultos: number;
+  cobertura_pct: number;
+  objetivos_pct: number;
 }
 
-export async function fetchSupervisionV2VentaDetalle(
+export interface VendorCartaResumen {
+  id_vendedor: string;
+  nombre: string;
+  sucursal: string;
+  radar: RadarKPI;
+  radar_ideal_compania?: RadarKPI;
+  radar_ideal_dist?: RadarKPI;
+  score: number;
+  raw_kpis: VendorRawKpis;
+}
+
+export interface VendorDetalle {
+  id_vendedor: string;
+  rutas: { id_ruta: number; nombre: string; dia: string }[];
+  altas: {
+    fecha_alta: string;
+    id_ruta: number;
+    id_cliente_erp: string;
+    razon_social: string;
+    nombre_fantasia: string;
+    domicilio: string;
+    localidad: string;
+  }[];
+  exhibiciones_resumen: {
+    total_logicas: number;
+    aprobadas: number;
+    destacadas: number;
+    rechazadas: number;
+    pendientes: number;
+    puntos: number;
+  };
+  bultos_top: { articulo: string; bultos: number }[];
+  compradores: { id_cliente_erp: string; razon_social: string }[];
+}
+
+export interface KpisMensualesIdeal {
+  exhibiciones: number;
+  pdvs_compradores: number;
+  bultos: number;
+  cobertura_pct: number;
+  objetivos_pct: number;
+}
+
+export interface PesosIdeal {
+  pdvs: number;
+  altas: number;
+  exhibiciones: number;
+  compradores: number;
+  bultos: number;
+  cobertura: number;
+  objetivos: number;
+}
+
+export interface VendorIdeal {
+  id: string;
+  id_distribuidor: number | null;
+  origen: 'compania' | 'distribuidora';
+  meta_pdvs_total: number;
+  kpis_mensuales: KpisMensualesIdeal;
+  pesos: PesosIdeal;
+  updated_at: string;
+  updated_by_nombre: string;
+  updated_by_rol: string;
+}
+
+export interface VendorIdealInput {
+  meta_pdvs_total: number;
+  kpis_mensuales: KpisMensualesIdeal;
+  pesos: PesosIdeal;
+}
+
+export interface IdealHistorialEntry {
+  id: string;
+  config_id: string;
+  created_at: string;
+  updated_by_nombre: string;
+  updated_by_rol: string;
+  diff: Record<string, { anterior: unknown; nuevo: unknown }>;
+}
+
+export async function fetchEstadisticasMeses(distId: number): Promise<string[]> {
+  const data = await apiFetch<{ meses: string[] }>(`/api/estadisticas/meses/${distId}`);
+  return data.meses;
+}
+
+export async function fetchEstadisticasCartas(
   distId: number,
-  comprobanteId: string
-): Promise<any> {
-  const res = await fetch(`${API_URL}/api/supervision/v2/venta/${distId}/${encodeURIComponent(comprobanteId)}/detalle`, {
-    headers: {
-      Authorization: `Bearer ${localStorage.getItem(TOKEN_KEY)}`,
-    },
+  meses: string[],
+  sucursal?: string | null
+): Promise<VendorCartaResumen[]> {
+  const q = new URLSearchParams({ meses: meses.join(',') });
+  if (sucursal) q.append('sucursal', sucursal);
+  const data = await apiFetch<{ cartas: VendorCartaResumen[] }>(
+    `/api/estadisticas/cartas/${distId}?${q.toString()}`
+  );
+  return data.cartas;
+}
+
+export async function fetchEstadisticasVendedorDetalle(
+  distId: number,
+  vendedorId: string,
+  meses: string[]
+): Promise<VendorDetalle> {
+  const q = new URLSearchParams({ meses: meses.join(',') });
+  return apiFetch<VendorDetalle>(
+    `/api/estadisticas/vendedor/${distId}/${encodeURIComponent(vendedorId)}/detalle?${q.toString()}`
+  );
+}
+
+export async function fetchEstadisticasIdeal(
+  scope: number | 'compania'
+): Promise<VendorIdeal | null> {
+  const path =
+    scope === 'compania'
+      ? '/api/estadisticas/ideal/compania'
+      : `/api/estadisticas/ideal/${scope}`;
+  const data = await apiFetch<{ ideal: VendorIdeal | null }>(path);
+  return data.ideal;
+}
+
+export async function updateEstadisticasIdeal(
+  scope: number | 'compania',
+  body: VendorIdealInput
+): Promise<VendorIdeal> {
+  const path =
+    scope === 'compania'
+      ? '/api/estadisticas/ideal/compania'
+      : `/api/estadisticas/ideal/${scope}`;
+  const data = await apiFetch<{ ideal: VendorIdeal }>(path, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error("Error fetching venta detalle");
-  return res.json();
+  return data.ideal;
+}
+
+export async function fetchEstadisticasIdealHistorial(
+  configId: string
+): Promise<IdealHistorialEntry[]> {
+  const data = await apiFetch<{ historial: IdealHistorialEntry[] }>(
+    `/api/estadisticas/ideal/historial/${configId}`
+  );
+  return data.historial;
 }

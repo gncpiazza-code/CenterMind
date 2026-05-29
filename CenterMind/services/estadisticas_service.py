@@ -18,6 +18,14 @@ from core.exhibicion_aggregate import (
 )
 from core.objetivos_filters import objetivo_activo_para_vendedor
 from core.helpers import is_exhibicion_qa_display_for_dist, build_integrante_to_erp_name
+from core.estadisticas_tabaco_rollup import (
+    TABACO_DIST_ID,
+    apply_tabaco_rollups,
+    build_integrante_to_erp_name_estadisticas,
+    tabaco_rollup_integrante_ids,
+    _is_ivan_wutrich,
+    _is_matias_wutrich,
+)
 from core.estadisticas_ideal import (
     meta_periodo_kpi,
     build_radar_normalized,
@@ -178,16 +186,47 @@ def _vendor_context(dist_id: int, id_vendedor: str) -> dict:
         except (TypeError, ValueError):
             continue
 
-    return {"integrante_ids": int_ids, "codigo_vendedor": erp, "nombre_erp": nombre}
+    extra = tabaco_rollup_integrante_ids(dist_id, nombre)
+    if extra:
+        int_ids = list({*int_ids, *extra})
+
+    codigos = [erp] if erp else []
+    if dist_id == TABACO_DIST_ID and _is_matias_wutrich(nombre):
+        t_vend_all = tenant_table_name("vendedores_v2", dist_id)
+        all_v = (
+            sb.table(t_vend_all)
+            .select("id_vendedor_erp,nombre_erp")
+            .eq("id_distribuidor", dist_id)
+            .execute()
+            .data
+            or []
+        )
+        for v in all_v:
+            nom_v = (v.get("nombre_erp") or "").strip()
+            cod_v = str(v.get("id_vendedor_erp") or "").strip()
+            if cod_v and _is_ivan_wutrich(nom_v) and cod_v not in codigos:
+                codigos.append(cod_v)
+
+    return {
+        "integrante_ids": int_ids,
+        "codigo_vendedor": codigos[0] if codigos else "",
+        "codigos_vendedor": codigos,
+        "nombre_erp": nombre,
+    }
 
 
 def _venta_matches_vendor(row: dict, ctx: dict) -> bool:
     cod = str(row.get("codigo_vendedor") or "").strip()
-    if ctx.get("codigo_vendedor") and cod == ctx["codigo_vendedor"]:
+    codigos = ctx.get("codigos_vendedor") or (
+        [ctx["codigo_vendedor"]] if ctx.get("codigo_vendedor") else []
+    )
+    if cod and cod in codigos:
         return True
     nom = (row.get("nombre_vendedor") or "").strip().upper()
     erp_nom = (ctx.get("nombre_erp") or "").strip().upper()
     if erp_nom and nom and (erp_nom in nom or nom in erp_nom):
+        return True
+    if erp_nom and _is_matias_wutrich(erp_nom) and "WUTRICH" in nom:
         return True
     return False
 
@@ -277,13 +316,15 @@ def aggregate_kpis_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) ->
             .lte("fecha_factura", fecha_hasta)
             .eq("anulado", False)
         )
-        cod = vctx.get("codigo_vendedor")
-        if cod:
-            q = q.eq("codigo_vendedor", cod)
+        codigos = vctx.get("codigos_vendedor") or []
+        if len(codigos) == 1:
+            q = q.eq("codigo_vendedor", codigos[0])
+        elif len(codigos) > 1:
+            q = q.in_("codigo_vendedor", codigos)
         return q
 
     venta_rows = _paginate(venta_q)
-    if not vctx.get("codigo_vendedor"):
+    if not vctx.get("codigos_vendedor") and not vctx.get("codigo_vendedor"):
         venta_rows = [r for r in venta_rows if _venta_matches_vendor(r, vctx)]
 
     bultos_total = 0.0
@@ -495,7 +536,7 @@ def _fetch_carta_source_rows(dist_id: int, meses: list[str]) -> dict[str, object
                 .data
                 or []
             ),
-            "integrantes": lambda: build_integrante_to_erp_name(dist_id),
+            "integrantes": lambda: build_integrante_to_erp_name_estadisticas(dist_id),
             "suc": lambda: (
                 sb.table(t_suc)
                 .select("id_sucursal,nombre_erp")
@@ -627,12 +668,13 @@ def _build_carta_resumen_impl(dist_id: int, meses: list[str], sucursal: str | No
     n_meses = len(meses)
     source = _fetch_carta_source_rows(dist_id, meses)
     all_raw = _aggregate_kpis_from_rows(source, meses)
+    vend_rows = source.get("vendedores") or []
+    all_raw, hidden_vids = apply_tabaco_rollups(dist_id, all_raw, vend_rows)
 
     suc_map = {
         str(r["id_sucursal"]): r.get("nombre_erp", "")
         for r in (source.get("suc") or [])
     }
-    vend_rows = source.get("vendedores") or []
     ideal_dist = source.get("ideal_dist")
     ideal_comp = source.get("ideal_comp")
 
@@ -648,6 +690,8 @@ def _build_carta_resumen_impl(dist_id: int, meses: list[str], sucursal: str | No
         suc_nombre = suc_map.get(sid, "")
 
         if not vid:
+            continue
+        if vid in hidden_vids:
             continue
         if is_exhibicion_qa_display_for_dist(dist_id, nombre):
             continue
@@ -858,13 +902,15 @@ def build_detalle_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) -> 
             .lte("fecha_factura", fecha_hasta)
             .eq("anulado", False)
         )
-        cod = vctx.get("codigo_vendedor")
-        if cod:
-            q = q.eq("codigo_vendedor", cod)
+        codigos = vctx.get("codigos_vendedor") or []
+        if len(codigos) == 1:
+            q = q.eq("codigo_vendedor", codigos[0])
+        elif len(codigos) > 1:
+            q = q.in_("codigo_vendedor", codigos)
         return q
 
     ventas_det = _paginate(ventas_detalle_q)
-    if not vctx.get("codigo_vendedor"):
+    if not vctx.get("codigos_vendedor") and not vctx.get("codigo_vendedor"):
         ventas_det = [r for r in ventas_det if _venta_matches_vendor(r, vctx)]
 
     bultos_by_art: dict[str, float] = defaultdict(float)

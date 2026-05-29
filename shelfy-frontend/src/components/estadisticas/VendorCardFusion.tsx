@@ -1,7 +1,6 @@
 "use client";
 
 import { motion } from "framer-motion";
-import type { Variants } from "framer-motion";
 import { VendorCardRadar } from "./VendorCardRadar";
 import { VendorCardFusionStats } from "./VendorCardFusionStats";
 import { useEstadisticasStore } from "@/store/useEstadisticasStore";
@@ -19,7 +18,6 @@ export interface VendorCardFusionProps {
   vendor: VendorCartaResumen;
   isActive: boolean;
   overlayMode: "none" | "compania" | "distribuidor" | "ambos";
-  variants?: Variants;
   compact?: boolean;
   nombreDistribuidora?: string | null;
   previewMode?: boolean;
@@ -32,7 +30,6 @@ export function VendorCardFusion({
   vendor,
   isActive,
   overlayMode,
-  variants,
   compact = false,
   nombreDistribuidora,
   previewMode = false,
@@ -69,10 +66,7 @@ export function VendorCardFusion({
   }
 
   return (
-    <motion.div
-      layout={!previewMode}
-      layoutId={previewMode ? undefined : `vendor-card-${vendor.id_vendedor}`}
-      variants={variants}
+    <div
       style={{
         width: compact ? VENDOR_CARD_W : "100%",
         flexShrink: 0,
@@ -80,6 +74,11 @@ export function VendorCardFusion({
         flexDirection: "column",
       }}
     >
+      <motion.div
+        layout={!previewMode}
+        layoutId={previewMode ? undefined : `vendor-card-${vendor.id_vendedor}`}
+        style={{ display: "flex", flexDirection: "column", width: "100%" }}
+      >
       <motion.div
         className={`vendor-fifa-card vendor-fifa-card--${tier}${animationPaused ? " vendor-fifa-card--paused" : ""}`}
         whileHover={{ y: -4, scale: 1.01 }}
@@ -253,34 +252,40 @@ export function VendorCardFusion({
           position: absolute;
           top: -50%;
           left: 0;
-          width: 42%;
+          width: 38%;
           height: 200%;
           background: linear-gradient(
             105deg,
-            transparent 32%,
-            rgba(255,255,255,0.05) 40%,
-            rgba(255,255,255,0.42) 50%,
-            rgba(255,255,255,0.05) 60%,
-            transparent 68%
+            transparent 38%,
+            rgba(255,255,255,0.04) 44%,
+            rgba(255,255,255,0.18) 50%,
+            rgba(255,255,255,0.04) 56%,
+            transparent 62%
           );
-          animation: vendor-fifa-sweep 3.6s ease-in-out infinite;
-          transform: translateX(-130%) skewX(-14deg);
+          animation: vendor-fifa-sweep 4.2s ease-in-out infinite;
+          transform: translateX(-140%) skewX(-12deg);
+          will-change: transform;
         }
         .vendor-fifa-card--paused .vendor-fifa-shimmer-beam {
           animation-play-state: paused;
+          opacity: 0;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .vendor-fifa-shimmer-beam { animation: none; opacity: 0; }
         }
         @keyframes vendor-fifa-sweep {
-          0%, 6% { transform: translateX(-130%) skewX(-14deg); opacity: 0; }
-          14% { opacity: 0.85; }
-          50% { opacity: 1; }
-          88% { transform: translateX(320%) skewX(-14deg); opacity: 0.9; }
-          96%, 100% { transform: translateX(320%) skewX(-14deg); opacity: 0; }
+          0%, 8% { transform: translateX(-140%) skewX(-12deg); opacity: 0; }
+          18% { opacity: 0.5; }
+          45% { opacity: 0.65; }
+          82% { transform: translateX(340%) skewX(-12deg); opacity: 0.4; }
+          92%, 100% { transform: translateX(340%) skewX(-12deg); opacity: 0; }
         }
         .vendor-fifa-ver-detalle:hover:not(:disabled) {
           background: #1e293b;
           color: #e9d5ff;
         }
       `}</style>
-    </motion.div>
+      </motion.div>
+    </div>
   );
 }

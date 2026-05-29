@@ -152,11 +152,12 @@ export function VendorCollection({
           <motion.div
             key={vendor.id_vendedor}
             layout
+            variants={cardVariants}
             style={useScrollMode ? { flexShrink: 0, width: 260 } : { minWidth: 0 }}
             animate={
               activeVendorId && vendor.id_vendedor !== activeVendorId
                 ? { scale: 0.82, opacity: 0.45 }
-                : { scale: 1, opacity: 1 }
+                : "show"
             }
             transition={{ type: "spring", stiffness: 280, damping: 26 }}
           >
@@ -164,7 +165,6 @@ export function VendorCollection({
               vendor={vendor}
               isActive={vendor.id_vendedor === activeVendorId}
               overlayMode={overlayMode}
-              variants={cardVariants}
               compact={useScrollMode}
               nombreDistribuidora={nombreDistribuidora}
               statLeaders={leadersByVendor.get(vendor.id_vendedor) ?? []}

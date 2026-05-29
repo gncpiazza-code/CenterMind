@@ -52,7 +52,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
-  CreditCard, Store, AlertTriangle, CalendarClock, Printer, Hash, HelpCircle,
+  CreditCard, Store, AlertTriangle, CalendarClock, Printer, HelpCircle,
   TrendingUp, TrendingDown, ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -85,6 +85,31 @@ function CCSortIndicator({
   return <span className="text-foreground">{dir === "desc" ? "↓" : "↑"}</span>;
 }
 
+function ColumnHelp({ text }: { text: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex items-center justify-center rounded-full size-5 text-muted-foreground/70 hover:text-foreground hover:bg-muted/80 cursor-help transition-colors shrink-0"
+          onClick={(e) => e.stopPropagation()}
+          aria-label="Más información"
+        >
+          <HelpCircle size={13} strokeWidth={2} />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent
+        side="top"
+        align="center"
+        sideOffset={6}
+        className="max-w-[260px] text-xs leading-relaxed px-3 py-2 z-[100]"
+      >
+        {text}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 /** Panel lateral de desglose por antigüedad (dentro de la card Deuda Total). */
 function CcAntiguedadBreakdownLateral({
   rows,
@@ -101,15 +126,20 @@ function CcAntiguedadBreakdownLateral({
       </p>
       <div className="flex flex-col divide-y divide-rose-100/60">
         {active.map((r) => (
-          <div key={r.label} className="flex items-center justify-between gap-2 py-1">
+          <div key={r.label} className="flex items-center justify-between gap-1.5 py-1">
             <span
               className={`inline-flex shrink-0 text-[9px] px-1 py-0.5 rounded border font-semibold ${rangoBadgeClass(r.label)}`}
             >
               {formatRangoBadgeLabel(r.label)}
             </span>
-            <span className="font-mono text-[10px] font-semibold text-rose-600 tabular-nums whitespace-nowrap">
-              {fmt$$(r.monto)}
-            </span>
+            <div className="flex items-baseline gap-1.5 shrink-0">
+              <span className="font-mono text-[10px] font-semibold text-rose-600 tabular-nums whitespace-nowrap">
+                {fmt$$(r.monto)}
+              </span>
+              <span className="text-[9px] font-medium text-muted-foreground tabular-nums">
+                {Math.round(r.pct)}%
+              </span>
+            </div>
           </div>
         ))}
       </div>
@@ -526,15 +556,8 @@ export default function SupervisionPage() {
                                   >
                                     <span className="inline-flex items-center gap-0.5">
                                       Antig.
-                                      <Tooltip>
-                                        <TooltipTrigger asChild>
-                                          <HelpCircle size={9} className="text-muted-foreground/60" />
-                                        </TooltipTrigger>
-                                        <TooltipContent side="top" className="max-w-[200px] text-[11px]">
-                                          Días desde la última compra (padrón) o mora CHESS si no hay fecha
-                                        </TooltipContent>
-                                      </Tooltip>
-                                      {" "}<CCSortIndicator active={ccSort === "antiguedad"} dir={ccSortDir} />
+                                      <ColumnHelp text="Días desde la última compra según padrón. Si no hay fecha de compra, se usa la mora reportada por CHESS." />
+                                      <CCSortIndicator active={ccSort === "antiguedad"} dir={ccSortDir} />
                                     </span>
                                   </TableHead>
                                   <TableHead
@@ -542,17 +565,9 @@ export default function SupervisionPage() {
                                     onClick={() => toggleCCSort("comprobantes")}
                                   >
                                     <span className="inline-flex items-center justify-end gap-0.5">
-                                      <Hash size={9} />
-                                      Cbtés.
-                                      <Tooltip>
-                                        <TooltipTrigger asChild>
-                                          <HelpCircle size={9} className="text-muted-foreground/60" />
-                                        </TooltipTrigger>
-                                        <TooltipContent side="top" className="max-w-[200px] text-[11px]">
-                                          Cantidad de comprobantes impagos según CHESS
-                                        </TooltipContent>
-                                      </Tooltip>
-                                      {" "}<CCSortIndicator active={ccSort === "comprobantes"} dir={ccSortDir} />
+                                      Comprobantes
+                                      <ColumnHelp text="Cantidad de comprobantes con saldo impago, según el reporte de cuentas corrientes (CHESS)." />
+                                      <CCSortIndicator active={ccSort === "comprobantes"} dir={ccSortDir} />
                                     </span>
                                   </TableHead>
                                 </TableRow>
@@ -595,17 +610,8 @@ export default function SupervisionPage() {
                                           </span>
                                         ) : "—"}
                                       </TableCell>
-                                      <TableCell className="text-right text-muted-foreground font-mono text-[11px] pr-4">
-                                        <span className="inline-flex items-center justify-end gap-1">
-                                          {c.cantidad_comprobantes ?? "—"}
-                                          {c.rango_antiguedad && (
-                                            <span
-                                              className={`inline-flex shrink-0 items-center justify-center text-[9px] leading-none px-1 py-0.5 rounded border font-semibold ${rangoBadgeClass(c.rango_antiguedad)}`}
-                                            >
-                                              {formatRangoBadgeLabel(c.rango_antiguedad)}
-                                            </span>
-                                          )}
-                                        </span>
+                                      <TableCell className="text-right text-muted-foreground font-mono text-[11px] pr-4 tabular-nums">
+                                        {c.cantidad_comprobantes ?? "—"}
                                       </TableCell>
                                     </TableRow>
                                   );

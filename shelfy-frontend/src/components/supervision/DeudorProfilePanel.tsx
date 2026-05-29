@@ -182,7 +182,7 @@ function ProfileContent({
             <span className="font-bold tabular-nums">{deuda.antiguedad_dias}d</span>
           </span>
           <span>
-            <span className="text-muted-foreground">Cbtes. </span>
+            <span className="text-muted-foreground">Comprobantes </span>
             <span className="font-bold tabular-nums">{deuda.cantidad_comprobantes}</span>
           </span>
           {perfil.domicilio && (

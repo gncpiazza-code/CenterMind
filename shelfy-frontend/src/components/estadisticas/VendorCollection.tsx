@@ -13,7 +13,6 @@ import {
   prefetchEstadisticasDetalle,
   useEstadisticasWarmCache,
 } from "@/hooks/useEstadisticasQueries";
-import { ESTADISTICAS_FIFA } from "@/lib/vendor-card-detalle-theme";
 
 interface VendorCollectionProps {
   vendors: VendorCartaResumen[];
@@ -40,10 +39,6 @@ const cardVariants: Variants = {
 const CARD_DIMMED = { scale: 0.96, opacity: 0.62 };
 const CARD_FOCUSED = { scale: 1, opacity: 1 };
 const CARD_FOCUS_TRANSITION = { duration: 0.45, ease: [0.32, 0.72, 0, 1] as const };
-
-/** Altura aprox. carta + gap para scroll-into-view en listas largas */
-const CARD_ROW_H = 472;
-const SCROLL_CONTAINER_MAX_H = "calc(100vh - 220px)";
 
 export function VendorCollection({
   vendors,
@@ -75,7 +70,6 @@ export function VendorCollection({
     ? vendors.filter((v) => v.sucursal === filterSucursal)
     : vendors;
 
-  const useContainedScroll = filtered.length > 12;
   const visibleVendors = filtered;
 
   const leadersByVendor = useMemo(
@@ -84,17 +78,14 @@ export function VendorCollection({
   );
 
   useEffect(() => {
-    if (!activeVendorId || !scrollRef.current || !useContainedScroll) return;
-    const idx = filtered.findIndex((v) => v.id_vendedor === activeVendorId);
-    if (idx < 0) return;
-    const cols = Math.max(
-      1,
-      Math.floor(scrollRef.current.clientWidth / 276),
+    if (!activeVendorId || !scrollRef.current) return;
+    const el = scrollRef.current.querySelector(
+      `[data-vendor-id="${activeVendorId}"]`,
     );
-    const row = Math.floor(idx / cols);
-    const target = row * CARD_ROW_H - 24;
-    scrollRef.current.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
-  }, [activeVendorId, filtered, useContainedScroll]);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  }, [activeVendorId, filtered]);
 
   const activeVendor = activeVendorId
     ? vendors.find((v) => v.id_vendedor === activeVendorId) ?? null
@@ -124,39 +115,27 @@ export function VendorCollection({
 
   return (
     <LayoutGroup id="estadisticas-vendor-cards">
-    <div
-      style={{
-        position: "relative",
-        width: "100%",
-        flex: useContainedScroll ? 1 : undefined,
-        minHeight: useContainedScroll ? 0 : undefined,
-        display: useContainedScroll ? "flex" : "block",
-        flexDirection: "column",
-      }}
-    >
+    <div style={{ position: "relative", width: "100%" }}>
       <motion.div
         ref={scrollRef}
         variants={containerVariants}
         initial="hidden"
         animate="show"
+        className="estadisticas-vendor-grid"
         style={{
           display: "grid",
           gridTemplateColumns: "repeat(auto-fill, minmax(276px, 1fr))",
           gap: 20,
           alignContent: "start",
-          overflowX: "hidden",
-          overflowY: useContainedScroll ? "auto" : "visible",
-          maxHeight: useContainedScroll ? SCROLL_CONTAINER_MAX_H : undefined,
-          padding: "12px 24px 24px",
-          WebkitOverflowScrolling: "touch",
+          padding: "12px 24px 32px",
           transition: "opacity 0.4s cubic-bezier(0.32, 0.72, 0, 1)",
           opacity: activeVendorId ? 0.78 : 1,
         }}
-        className="estadisticas-scroll-strip"
       >
         {visibleVendors.map((vendor) => (
           <motion.div
             key={vendor.id_vendedor}
+            data-vendor-id={vendor.id_vendedor}
             variants={cardVariants}
             style={{ minWidth: 0 }}
             animate={
@@ -200,26 +179,12 @@ export function VendorCollection({
       </AnimatePresence>
 
       <style>{`
-        .estadisticas-scroll-strip {
-          scrollbar-width: thin;
-          scrollbar-color: ${ESTADISTICAS_FIFA.panelBorder} transparent;
-        }
-        .estadisticas-scroll-strip::-webkit-scrollbar {
-          width: 6px;
-        }
-        .estadisticas-scroll-strip::-webkit-scrollbar-track {
-          background: transparent;
-        }
-        .estadisticas-scroll-strip::-webkit-scrollbar-thumb {
-          background: ${ESTADISTICAS_FIFA.panelBorder};
-          border-radius: 4px;
-        }
         @media (max-width: 640px) {
-          .estadisticas-scroll-strip {
+          .estadisticas-vendor-grid {
             grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
           }
         }
-      `}      </style>
+      `}</style>
     </div>
     </LayoutGroup>
   );

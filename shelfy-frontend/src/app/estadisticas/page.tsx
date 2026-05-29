@@ -149,7 +149,12 @@ export default function EstadisticasPage() {
           variants={pageVariants}
           initial="hidden"
           animate="show"
-          style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}
+          style={{
+            flex: 1,
+            display: "flex",
+            flexDirection: "column",
+            background: "var(--shelfy-bg)",
+          }}
         >
           {/* ── Page header ── */}
           <div
@@ -270,15 +275,7 @@ export default function EstadisticasPage() {
           )}
 
           {/* ── Main content area ── */}
-          <div
-            style={{
-              flex: 1,
-              marginTop: 12,
-              minHeight: 0,
-              display: "flex",
-              flexDirection: "column",
-            }}
-          >
+          <div style={{ flex: 1, marginTop: 12 }}>
             <AnimatePresence mode="wait">
               {showLoadingStrip && (
                 <motion.div key="loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
@@ -347,13 +344,7 @@ export default function EstadisticasPage() {
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
-                  style={{
-                    position: "relative",
-                    flex: 1,
-                    minHeight: 0,
-                    display: "flex",
-                    flexDirection: "column",
-                  }}
+                  style={{ position: "relative" }}
                 >
                   {showRefreshingOverlay && (
                     <div

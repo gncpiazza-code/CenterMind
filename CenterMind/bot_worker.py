@@ -787,24 +787,73 @@ class Database:
         telegram_user_id: int | None = None,
         telegram_user_ids: list[int] | None = None,
         telegram_group_id: int | None = None,
+        vendor_v2_id: int | None = None,
     ) -> Dict | None:
         """Stats mes actual/anterior con dedup de exhibición lógica (alineado a ranking)."""
-        uids: list[int] = list(telegram_user_ids or [])
-        if telegram_user_id is not None and telegram_user_id not in uids:
-            uids.append(telegram_user_id)
-        if not uids:
-            return None
+        seed_iids: list[int] = []
 
-        ig_q = (
-            self.sb.table("integrantes_grupo")
-            .select("id_integrante")
-            .eq("id_distribuidor", distribuidor_id)
-            .in_("telegram_user_id", uids)
-        )
-        if telegram_group_id is not None:
-            ig_q = ig_q.eq("telegram_group_id", telegram_group_id)
-        ig_res = ig_q.execute()
-        seed_iids = [r["id_integrante"] for r in (ig_res.data or [])]
+        if vendor_v2_id is not None:
+            ig_q = (
+                self.sb.table("integrantes_grupo")
+                .select("id_integrante")
+                .eq("id_distribuidor", distribuidor_id)
+                .eq("id_vendedor_v2", vendor_v2_id)
+            )
+            if telegram_group_id is not None:
+                ig_q = ig_q.eq("telegram_group_id", telegram_group_id)
+            ig_res = ig_q.execute()
+            seed_iids = [r["id_integrante"] for r in (ig_res.data or [])]
+
+            if not seed_iids:
+                t_vend = tenant_table_name("vendedores_v2", distribuidor_id)
+                v_res = (
+                    self.sb.table(t_vend)
+                    .select("nombre_erp")
+                    .eq("id_distribuidor", distribuidor_id)
+                    .eq("id_vendedor", vendor_v2_id)
+                    .limit(1)
+                    .execute()
+                )
+                target_name = (v_res.data[0].get("nombre_erp") or "").strip() if v_res.data else ""
+                if target_name:
+                    iid_to_erp_probe = build_integrante_to_erp_name(distribuidor_id)
+                    seed_iids = [
+                        iid for iid, name in iid_to_erp_probe.items() if name == target_name
+                    ]
+                    if telegram_group_id is not None:
+                        grp_ids = {
+                            int(r["id_integrante"])
+                            for r in (
+                                self.sb.table("integrantes_grupo")
+                                .select("id_integrante")
+                                .eq("id_distribuidor", distribuidor_id)
+                                .eq("telegram_group_id", telegram_group_id)
+                                .execute()
+                                .data or []
+                            )
+                            if r.get("id_integrante") is not None
+                        }
+                        in_group = [iid for iid in seed_iids if iid in grp_ids]
+                        if in_group:
+                            seed_iids = in_group
+        else:
+            uids: list[int] = list(telegram_user_ids or [])
+            if telegram_user_id is not None and telegram_user_id not in uids:
+                uids.append(telegram_user_id)
+            if not uids:
+                return None
+
+            ig_q = (
+                self.sb.table("integrantes_grupo")
+                .select("id_integrante")
+                .eq("id_distribuidor", distribuidor_id)
+                .in_("telegram_user_id", uids)
+            )
+            if telegram_group_id is not None:
+                ig_q = ig_q.eq("telegram_group_id", telegram_group_id)
+            ig_res = ig_q.execute()
+            seed_iids = [r["id_integrante"] for r in (ig_res.data or [])]
+
         if not seed_iids:
             return None
 
@@ -1335,10 +1384,12 @@ class BotWorker:
             now = datetime.now(AR_TZ)
             prev_m = 12 if now.month == 1 else now.month - 1
 
-            # ── Group-first: si el grupo tiene un vendedor anclado, usarlo ──
+            # ── Group-first con fallback legacy si no hay stats ──
             group_vid = self._resolve_group_vendor(m.chat.id)
+            stats = None
+            display_name = "LUCIANO ITURRIA" if uid in LUCIANO_UIDS else (m.from_user.first_name or "Vendedor")
+
             if group_vid is not None:
-                # Obtener nombre ERP del vendedor
                 t_vend = f"vendedores_v2_d{self.distribuidor_id}"
                 v_info = await asyncio.to_thread(
                     lambda: self.db.sb.table(t_vend)
@@ -1347,78 +1398,35 @@ class BotWorker:
                     .limit(1)
                     .execute()
                 )
-                group_display_name = (
-                    v_info.data[0]["nombre_erp"]
-                    if v_info.data
-                    else m.from_user.first_name
+                if v_info.data:
+                    display_name = v_info.data[0]["nombre_erp"]
+                stats = await asyncio.to_thread(
+                    self.db.get_stats_vendedor,
+                    self.distribuidor_id,
+                    vendor_v2_id=group_vid,
+                    telegram_group_id=m.chat.id,
                 )
 
-                # TODO: adaptar get_stats_vendedor para vendor_v2_id group-first
-                try:
-                    stats = await asyncio.to_thread(
-                        self.db.get_stats_vendedor,
-                        self.distribuidor_id,
-                        vendor_v2_id=group_vid,
-                        telegram_group_id=m.chat.id,
-                    )
-                except TypeError:
-                    # get_stats_vendedor aún no acepta vendor_v2_id — fallback legacy
-                    stats = None
-
-                if not stats:
-                    await m.reply_text(
-                        "⚠️ Este grupo no tiene exhibiciones registradas. "
-                        "Usá /vincular para asignar un vendedor.",
-                        parse_mode=ParseMode.HTML,
-                    )
-                    return
-
-                display_name = group_display_name
-                counts_actual = {
-                    **stats["mes_actual"],
-                    "total_logicas": stats["mes_actual"]["total"],
-                }
-                counts_prev = {
-                    **stats["mes_anterior"],
-                    "total_logicas": stats["mes_anterior"]["total"],
-                }
-                total_actual = counts_actual["total_logicas"]
-                total_prev = counts_prev["total_logicas"]
-
-                msg = (
-                    f"📊 <b>Tus Estadísticas — {self.nombre_dist}</b>\n"
-                    f"👤 Identidad: {display_name}\n\n"
-                    f"🗓️ <b>Mes Actual ({self.MESES[now.month]}):</b>\n"
-                    f"   • ✅ Aprobadas:  {counts_actual['aprobadas']}\n"
-                    f"   • 🔥 Destacadas: {counts_actual['destacadas']}\n"
-                    f"   • ❌ Rechazadas: {counts_actual['rechazadas']}\n"
-                    f"   • ⏳ Pendientes: {counts_actual['pendientes']}\n"
-                    f"   • 🏆 <b>Puntos: {counts_actual['puntos']}</b>  (exhibiciones: {total_actual})\n\n"
-                    f"📅 <b>Mes Anterior ({self.MESES[prev_m]}):</b>\n"
-                    f"   • ✅ Aprobadas:  {counts_prev['aprobadas']}\n"
-                    f"   • 🔥 Destacadas: {counts_prev['destacadas']}\n"
-                    f"   • ❌ Rechazadas: {counts_prev['rechazadas']}\n"
-                    f"   • ⏳ Pendientes: {counts_prev['pendientes']}\n"
-                    f"   • 🏆 <b>Puntos: {counts_prev['puntos']}</b>  (exhibiciones: {total_prev})\n"
-                    f"<i>(Exhibiciones únicas por cliente y día)</i>"
-                )
-                await m.reply_text(msg, parse_mode=ParseMode.HTML)
-                return
-
-            # ── Fallback legacy: resolver por uid del sender ──────────────────
-            related_uids = LUCIANO_UIDS if uid in LUCIANO_UIDS else [uid]
-
-            stats = await asyncio.to_thread(
-                self.db.get_stats_vendedor,
-                self.distribuidor_id,
-                telegram_user_ids=related_uids,
-                telegram_group_id=m.chat.id,
-            )
             if not stats:
-                await m.reply_text(
-                    "⚠️ No estás registrado. Contactá al supervisor o usá /vincular en este grupo.",
-                    parse_mode=ParseMode.HTML,
+                related_uids = LUCIANO_UIDS if uid in LUCIANO_UIDS else [uid]
+                stats = await asyncio.to_thread(
+                    self.db.get_stats_vendedor,
+                    self.distribuidor_id,
+                    telegram_user_ids=related_uids,
+                    telegram_group_id=m.chat.id,
                 )
+                if uid in LUCIANO_UIDS:
+                    display_name = "LUCIANO ITURRIA"
+                elif group_vid is None:
+                    display_name = m.from_user.first_name or "Vendedor"
+
+            if not stats:
+                hint = (
+                    "Usá /vincular para asignar un vendedor a este grupo."
+                    if group_vid is not None
+                    else "Contactá al supervisor o usá /vincular en este grupo."
+                )
+                await m.reply_text(f"⚠️ No hay estadísticas disponibles. {hint}", parse_mode=ParseMode.HTML)
                 return
 
             counts_actual = {
@@ -1432,7 +1440,6 @@ class BotWorker:
             total_actual = counts_actual["total_logicas"]
             total_prev = counts_prev["total_logicas"]
 
-            display_name = "LUCIANO ITURRIA" if uid in LUCIANO_UIDS else m.from_user.first_name
             msg = (
                 f"📊 <b>Tus Estadísticas — {self.nombre_dist}</b>\n"
                 f"👤 Identidad: {display_name}\n\n"

@@ -4,8 +4,7 @@ Servicio de vigilancia de bindings Telegram ↔ Vendedor ERP.
 
 scan_distribuidor:
   1. Grupos linked/review → detect_group_drift → si hay drift: unlink + create_suggestion.
-  2. Grupos unlinked con actividad reciente y único candidato con score>=0.95 → auto-apply.
-  3. Grupos unlinked con score [0.5, 0.95) → create_suggestion.
+  2. Grupos unlinked con actividad reciente → create_suggestion (sin auto-apply en prod).
 
 scan_all_distributors: aplica scan_distribuidor a todos los tenants activos.
 """
@@ -28,7 +27,8 @@ logger = logging.getLogger("ShelfyAPI")
 
 # Score mínimo para levantar una sugerencia
 _SUGGESTION_THRESHOLD = 0.5
-# Score a partir del cual un candidato único puede ser auto-aplicado
+# Auto-apply deshabilitado en prod: directorio aprueba desde Fuerza de Ventas / Match Center
+_AUTO_APPLY_ENABLED = False
 _AUTO_APPLY_THRESHOLD = 0.95
 
 
@@ -146,10 +146,10 @@ def scan_distribuidor(dist_id: int) -> dict:
 
                 top = candidates[0]
 
-                # Paso 2: auto-aplicar si hay un único candidato con score>=0.95 activo
-                # (el capping multi-candidato garantiza que si hay >=2 con score>0.5,
-                # ninguno llega a 0.95, así que la condición de "único candidato fuerte" es segura)
-                if top["score"] >= _AUTO_APPLY_THRESHOLD:
+                if (
+                    _AUTO_APPLY_ENABLED
+                    and top["score"] >= _AUTO_APPLY_THRESHOLD
+                ):
                     apply_group_binding(
                         dist_id,
                         chat_id,
@@ -157,7 +157,6 @@ def scan_distribuidor(dist_id: int) -> dict:
                         source="cron_auto",
                         performed_by="watcher",
                     )
-                    # Marcar sugerencia existente como auto_applied si la hubiere
                     try:
                         now_iso = datetime.now(timezone.utc).isoformat()
                         sb.table("telegram_binding_suggestions").update({
@@ -177,7 +176,6 @@ def scan_distribuidor(dist_id: int) -> dict:
                     stats["auto_applied"] += 1
 
                 else:
-                    # Paso 3: crear sugerencias para candidatos plausibles
                     for c in candidates:
                         if c["score"] > _SUGGESTION_THRESHOLD:
                             create_suggestion(

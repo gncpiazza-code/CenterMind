@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Link2, Loader2, Save, Sparkles, Unlink } from "lucide-react";
+import { Link2, CheckCircle2, Loader2, Save, Sparkles, Unlink } from "lucide-react";
 
 import {
   Sheet,
@@ -77,6 +77,7 @@ export function GrupoBindingSheet({ grupo, distId, open, onClose }: Props) {
   const [suggestion, setSuggestion] = useState<GroupBindingSuggestResponse | null>(
     null,
   );
+  const [prefetchReady, setPrefetchReady] = useState(false);
   const [suggestLoading, setSuggestLoading] = useState(false);
 
   const skipVendorSuggest = useRef(false);
@@ -104,6 +105,7 @@ export function GrupoBindingSheet({ grupo, distId, open, onClose }: Props) {
       grupo.dominant_uploader_uid != null ? String(grupo.dominant_uploader_uid) : "",
     );
     setSuggestion(null);
+    setPrefetchReady(false);
     skipVendorSuggest.current = false;
     skipUidSuggest.current = false;
     initialLoadDone.current = false;
@@ -118,6 +120,7 @@ export function GrupoBindingSheet({ grupo, distId, open, onClose }: Props) {
       try {
         const result = await fetchBindingSuggest(distId, chatId, opts);
         setSuggestion(result);
+        setPrefetchReady(Boolean(result.prefetch_ready));
         return result;
       } catch {
         if (!opts?.silent) toast.error("No se pudo calcular sugerencias");
@@ -135,7 +138,7 @@ export function GrupoBindingSheet({ grupo, distId, open, onClose }: Props) {
     }
   }, [open]);
 
-  // Auto-sugerir al abrir el sheet (semi-automático)
+  // Prefetch al abrir: si el título del grupo indica vendedor, prellenar todo
   useEffect(() => {
     if (!open || chatId == null || !grupo || initialLoadDone.current) return;
 
@@ -145,18 +148,40 @@ export function GrupoBindingSheet({ grupo, distId, open, onClose }: Props) {
       if (!result) return;
 
       const isUnlinked = grupo.binding_status !== "linked";
+      if (!isUnlinked) return;
+
+      const applyPrefetch = (res: GroupBindingSuggestResponse) => {
+        let filled = false;
+        if (res.vendedor_sugerido) {
+          skipUidSuggest.current = true;
+          setVendedorId(String(res.vendedor_sugerido.id_vendedor));
+          filled = true;
+        }
+        if (res.uid_sugerido && (res.uid_sugerido.auto_fill || res.prefetch_ready)) {
+          skipVendorSuggest.current = true;
+          setTelegramUserId(String(res.uid_sugerido.telegram_user_id));
+          filled = true;
+        }
+        return filled;
+      };
+
+      if (result.prefetch_ready) {
+        applyPrefetch(result);
+        return;
+      }
+
       const hasVendor = grupo.id_vendedor_v2 != null;
       const hasUid = grupo.dominant_uploader_uid != null;
       let filled = false;
 
-      if (isUnlinked && !hasVendor && result.vendedor_sugerido?.auto_fill) {
+      if (!hasVendor && result.vendedor_sugerido?.auto_fill) {
         skipUidSuggest.current = true;
         setVendedorId(String(result.vendedor_sugerido.id_vendedor));
         filled = true;
       }
 
       if (
-        (isUnlinked || !hasUid) &&
+        !hasUid &&
         result.uid_sugerido?.auto_fill
       ) {
         skipVendorSuggest.current = true;
@@ -218,6 +243,7 @@ export function GrupoBindingSheet({ grupo, distId, open, onClose }: Props) {
   const handleVendedorChange = useCallback(
     async (value: string) => {
       setVendedorId(value);
+      setPrefetchReady(false);
       if (skipVendorSuggest.current) {
         skipVendorSuggest.current = false;
         return;
@@ -247,6 +273,7 @@ export function GrupoBindingSheet({ grupo, distId, open, onClose }: Props) {
   const handleUidSelect = useCallback(
     async (value: string) => {
       setTelegramUserId(value);
+      setPrefetchReady(false);
       if (skipUidSuggest.current) {
         skipUidSuggest.current = false;
         return;
@@ -336,25 +363,37 @@ export function GrupoBindingSheet({ grupo, distId, open, onClose }: Props) {
               </p>
             </div>
 
-            <div className="flex items-center justify-between rounded-md border border-dashed px-3 py-2 bg-amber-50/50 dark:bg-amber-950/20">
-              <p className="text-xs text-muted-foreground">
-                Al elegir vendedor o UID se completa el otro campo automáticamente.
-              </p>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => void handleRecalcular()}
-                disabled={suggestLoading}
-              >
-                {suggestLoading ? (
-                  <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                ) : (
-                  <Sparkles className="h-3 w-3 mr-1" />
-                )}
-                Recalcular
-              </Button>
-            </div>
+            {prefetchReady && suggestion?.prefetch_reason ? (
+              <div className="rounded-md border border-emerald-200 bg-emerald-50/80 dark:bg-emerald-950/30 dark:border-emerald-900 px-3 py-3 space-y-1">
+                <p className="text-sm font-medium text-emerald-900 dark:text-emerald-100 flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4 shrink-0" />
+                  Listo para confirmar
+                </p>
+                <p className="text-xs text-emerald-800/90 dark:text-emerald-200/90">
+                  {suggestion.prefetch_reason}. Revisá los campos y guardá si coincide.
+                </p>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between rounded-md border border-dashed px-3 py-2 bg-amber-50/50 dark:bg-amber-950/20">
+                <p className="text-xs text-muted-foreground">
+                  Al elegir vendedor o UID se completa el otro campo automáticamente.
+                </p>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => void handleRecalcular()}
+                  disabled={suggestLoading}
+                >
+                  {suggestLoading ? (
+                    <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                  ) : (
+                    <Sparkles className="h-3 w-3 mr-1" />
+                  )}
+                  Recalcular
+                </Button>
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label>Vendedor ERP</Label>
@@ -412,7 +451,10 @@ export function GrupoBindingSheet({ grupo, distId, open, onClose }: Props) {
                 inputMode="numeric"
                 placeholder="UID manual (ej. 8397016600)"
                 value={telegramUserId}
-                onChange={(e) => setTelegramUserId(e.target.value.replace(/\D/g, ""))}
+                onChange={(e) => {
+                  setPrefetchReady(false);
+                  setTelegramUserId(e.target.value.replace(/\D/g, ""));
+                }}
               />
               {showUidHint && (
                 <SuggestionHint
@@ -434,13 +476,16 @@ export function GrupoBindingSheet({ grupo, distId, open, onClose }: Props) {
               <Button
                 onClick={() => saveMutation.mutate()}
                 disabled={saveMutation.isPending || !vendedorId}
+                className={prefetchReady ? "bg-emerald-600 hover:bg-emerald-700" : undefined}
               >
                 {saveMutation.isPending ? (
                   <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : prefetchReady ? (
+                  <CheckCircle2 className="h-4 w-4 mr-2" />
                 ) : (
                   <Save className="h-4 w-4 mr-2" />
                 )}
-                Guardar vinculación
+                {prefetchReady ? "Confirmar vinculación" : "Guardar vinculación"}
               </Button>
               {grupo.binding_status === "linked" && (
                 <Button

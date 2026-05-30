@@ -3371,6 +3371,8 @@ export interface GroupBindingSuggestResponse {
   nombre_grupo?: string | null;
   vendedor_sugerido?: BindingGroupCandidate | null;
   uid_sugerido?: BindingUidCandidate | null;
+  prefetch_ready?: boolean;
+  prefetch_reason?: string | null;
   vendedor_candidates: BindingGroupCandidate[];
   uid_candidates: BindingUidCandidate[];
 }

@@ -466,5 +466,7 @@ class GroupBindingSuggestResponse(BaseModel):
     nombre_grupo: Optional[str] = None
     vendedor_sugerido: Optional[BindingFieldSuggestionVendor] = None
     uid_sugerido: Optional[BindingFieldSuggestionUid] = None
+    prefetch_ready: bool = False
+    prefetch_reason: Optional[str] = None
     vendedor_candidates: list[BindingFieldSuggestionVendor] = []
     uid_candidates: list[BindingFieldSuggestionUid] = []

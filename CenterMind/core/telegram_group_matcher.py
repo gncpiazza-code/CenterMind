@@ -29,6 +29,13 @@ def _normalize(text: str) -> str:
     return re.sub(r"\s+", " ", stripped.lower()).strip()
 
 
+_GROUP_NAME_NOISE = frozenset({
+    "exhibidor", "exhibidores", "exhibicion", "exhibiciones",
+    "grupo", "group", "team", "equipo", "ventas", "shelf", "shelfy",
+    "ruta", "canal", "pdv", "oficial", "test", "prueba", "chat",
+})
+
+
 def _name_coverage(vendor_name: str, group_name: str) -> float:
     """
     Fracción de tokens del nombre ERP del vendedor presentes en el nombre del grupo.
@@ -43,6 +50,42 @@ def _name_coverage(vendor_name: str, group_name: str) -> float:
         return 0.0
     hits = sum(1 for t in tokens if t in gn)
     return hits / len(tokens)
+
+
+def _group_name_tokens(group_name: str) -> list[str]:
+    gn = _normalize(group_name)
+    return [t for t in gn.split() if len(t) > 2 and t not in _GROUP_NAME_NOISE]
+
+
+def _group_name_vendor_score(vendor_name: str, group_name: str) -> tuple[float, list[str]]:
+    """
+    Score bidireccional nombre ERP ↔ título del grupo Telegram.
+    Prioriza tokens del título (ej. «Exhibidores Marcela» → «marcela»).
+    """
+    vn = _normalize(vendor_name)
+    gn = _normalize(group_name)
+    if not vn or not gn:
+        return 0.0, []
+
+    reasons: list[str] = []
+    v_tokens = [t for t in vn.split() if len(t) > 2]
+    g_tokens = _group_name_tokens(group_name)
+
+    fwd = sum(1 for t in v_tokens if t in gn) / len(v_tokens) if v_tokens else 0.0
+    rev = sum(1 for t in g_tokens if t in vn) / len(g_tokens) if g_tokens else 0.0
+
+    raw = max(fwd, rev)
+    if g_tokens and rev >= 1.0 and len(g_tokens) <= 2:
+        raw = max(raw, 0.90)
+        reasons.append("group_title_token_match")
+    elif rev > 0:
+        reasons.append(f"group_name_match:{rev:.2f}")
+    elif fwd > 0:
+        reasons.append(f"name_coverage:{fwd:.2f}")
+
+    if raw >= 0.90:
+        return round(raw, 4), reasons
+    return round(raw * 0.95, 4), reasons
 
 
 def _levenshtein_norm(a: str, b: str) -> float:
@@ -202,14 +245,17 @@ def score_group_vendor_candidates(
                 score = 1.0
                 reasons.append("erp_id_exact_match")
             else:
-                # Señal 2: cobertura de nombre
+                # Señal 2: nombre ERP ↔ título del grupo (bidireccional)
                 if grupo_nombre and v_nombre:
                     cov = _name_coverage(v_nombre, grupo_nombre)
-                    if cov > 0:
-                        # Escala lineal: cobertura 100% → 0.95, cobertura ~50% → ~0.47
-                        name_score = round(cov * 0.95, 4)
-                        if name_score > score:
-                            score = name_score
+                    legacy_score = round(cov * 0.95, 4) if cov > 0 else 0.0
+                    gn_score, gn_reasons = _group_name_vendor_score(v_nombre, grupo_nombre)
+                    name_score = max(legacy_score, gn_score)
+                    if name_score > score:
+                        score = name_score
+                        if gn_score >= legacy_score:
+                            reasons.extend(gn_reasons)
+                        elif cov > 0:
                             reasons.append(f"name_coverage:{cov:.2f}")
 
             # Señal 3: historial de binding (bonus)
@@ -225,9 +271,23 @@ def score_group_vendor_candidates(
                     "reasons": reasons,
                 })
 
-        # Señal 4: multi-candidato — si >=2 con score>0.5, capear ambos a 0.49
+        # Señal 4: multi-candidato ambiguo — capear salvo ganador claro por título
+        candidates.sort(key=lambda x: x["score"], reverse=True)
         above_half = [c for c in candidates if c["score"] > 0.5]
-        if len(above_half) >= 2:
+        clear_title_winner = False
+        if len(candidates) >= 2:
+            top, second = candidates[0], candidates[1]
+            title_reasons = {
+                "erp_id_exact_match",
+                "group_title_token_match",
+            }
+            top_from_title = any(r in title_reasons for r in top.get("reasons", [])) or any(
+                r.startswith("group_name_match:") for r in top.get("reasons", [])
+            )
+            clear_title_winner = top_from_title and (
+                top["score"] >= 0.85 or top["score"] - second["score"] >= 0.12
+            )
+        if len(above_half) >= 2 and not clear_title_winner:
             for c in candidates:
                 if c["score"] > 0.5:
                     c["score"] = 0.49
@@ -444,6 +504,45 @@ def score_uid_candidates_for_group(
 
 
 AUTO_FILL_THRESHOLD = 0.45
+PREFETCH_UID_THRESHOLD = 0.30
+
+
+def _has_group_name_signal(reasons: list[str]) -> bool:
+    if "erp_id_exact_match" in reasons or "group_title_token_match" in reasons:
+        return True
+    if any(r.startswith("group_name_match:") for r in reasons):
+        return True
+    for r in reasons:
+        if r.startswith("name_coverage:"):
+            try:
+                if float(r.split(":", 1)[1]) >= 0.5:
+                    return True
+            except ValueError:
+                pass
+    return False
+
+
+def _eval_prefetch_from_group_name(vendor_cands: list[dict]) -> tuple[bool, str]:
+    """True cuando el título del grupo apunta a un único vendedor con confianza."""
+    if not vendor_cands:
+        return False, ""
+    top = vendor_cands[0]
+    reasons = top.get("reasons") or []
+    if not _has_group_name_signal(reasons):
+        return False, ""
+
+    second_score = float(vendor_cands[1]["score"]) if len(vendor_cands) > 1 else 0.0
+    rivals = [c for c in vendor_cands if float(c.get("score") or 0) >= 0.45]
+    clear_winner = (
+        float(top.get("score") or 0) >= 0.85
+        or float(top.get("score") or 0) - second_score >= 0.12
+        or len(rivals) == 1
+    )
+    if not clear_winner:
+        return False, ""
+
+    nombre = top.get("nombre_erp") or "vendedor"
+    return True, f"El nombre del grupo sugiere «{nombre}»"
 
 
 def suggest_group_binding_fields(
@@ -578,19 +677,65 @@ def suggest_group_binding_fields(
         or (suggested_vendor.get("id_vendedor") if suggested_vendor else None),
     )
 
+    prefetch_ready = False
+    prefetch_reason = ""
+    is_initial_suggest = id_vendedor_v2 is None and telegram_user_id is None
+    if is_initial_suggest:
+        prefetch_ready, prefetch_reason = _eval_prefetch_from_group_name(vendor_cands)
+
+    if prefetch_ready:
+        if vendor_cands:
+            top = dict(vendor_cands[0])
+            top["auto_fill"] = True
+            suggested_vendor = top
+        vid_pf = (
+            id_vendedor_v2
+            or (suggested_vendor.get("id_vendedor") if suggested_vendor else None)
+        )
+        if vid_pf is not None:
+            uid_pf = score_uid_candidates_for_group(dist_id, telegram_chat_id, vid_pf)
+            uid_cands_full = uid_pf
+            if uid_pf:
+                uid_row = dict(uid_pf[0])
+                uid_row["auto_fill"] = float(uid_row.get("score") or 0) >= PREFETCH_UID_THRESHOLD
+                suggested_uid = uid_row
+            elif suggested_uid is None:
+                dominant = _fetch_dominant_uploader(dist_id, telegram_chat_id)
+                if dominant is not None:
+                    suggested_uid = {
+                        "telegram_user_id": dominant,
+                        "nombre_integrante": None,
+                        "score": 0.55,
+                        "reasons": ["dominant_uploader_prefetch"],
+                        "auto_fill": True,
+                    }
+
+    def _pack_vendor_list(items: list[dict]) -> list[dict]:
+        return [
+            {
+                **c,
+                "auto_fill": float(c.get("score") or 0) >= AUTO_FILL_THRESHOLD
+                or (prefetch_ready and items and c.get("id_vendedor") == items[0].get("id_vendedor")),
+            }
+            for c in items
+        ]
+
+    def _pack_uid_list(items: list[dict]) -> list[dict]:
+        threshold = PREFETCH_UID_THRESHOLD if prefetch_ready else AUTO_FILL_THRESHOLD
+        return [
+            {**c, "auto_fill": float(c.get("score") or 0) >= threshold}
+            for c in items
+        ]
+
     return {
         "telegram_chat_id": telegram_chat_id,
         "nombre_grupo": grupo.get("nombre_grupo") if grupo else None,
         "vendedor_sugerido": suggested_vendor,
         "uid_sugerido": suggested_uid,
-        "vendedor_candidates": [
-            {**c, "auto_fill": float(c.get("score") or 0) >= AUTO_FILL_THRESHOLD}
-            for c in vendor_cands[:8]
-        ],
-        "uid_candidates": [
-            {**c, "auto_fill": float(c.get("score") or 0) >= AUTO_FILL_THRESHOLD}
-            for c in uid_cands_full[:8]
-        ],
+        "prefetch_ready": prefetch_ready,
+        "prefetch_reason": prefetch_reason or None,
+        "vendedor_candidates": _pack_vendor_list(vendor_cands[:8]),
+        "uid_candidates": _pack_uid_list(uid_cands_full[:8]),
     }
 
 

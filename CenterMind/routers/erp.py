@@ -270,7 +270,10 @@ def get_erp_contexto(id_distribuidor: int, nro_cliente: str, user_payload=Depend
         for cand in candidates:
             res_pdv = (
                 sb.table(t_clientes)
-                .select("nombre_fantasia, nombre_razon_social, domicilio, localidad, canal, fecha_alta, id_ruta")
+                .select(
+                    "nombre_fantasia, nombre_razon_social, domicilio, localidad, canal, "
+                    "telefono, celular, fecha_alta, id_ruta, estado, motivo_inactivo, fecha_ultima_compra"
+                )
                 .eq("id_distribuidor", id_distribuidor)
                 .eq("id_cliente_erp", cand)
                 .limit(1)
@@ -287,13 +290,17 @@ def get_erp_contexto(id_distribuidor: int, nro_cliente: str, user_payload=Depend
             ctx["domicilio"]       = pdv.get("domicilio")
             ctx["localidad"]       = pdv.get("localidad")
             ctx["canal"]           = pdv.get("canal")
+            ctx["telefono"]        = pdv.get("telefono")
+            ctx["celular"]         = pdv.get("celular")
             ctx["fecha_alta"]      = pdv.get("fecha_alta")
             id_ruta = pdv.get("id_ruta")
             if id_ruta:
                 t_rutas = tenant_table_name("rutas_v2", id_distribuidor)
+                t_vendedores = tenant_table_name("vendedores_v2", id_distribuidor)
+                t_sucursales = tenant_table_name("sucursales_v2", id_distribuidor)
                 ruta_res = (
                     sb.table(t_rutas)
-                    .select("id_ruta_erp,dia_semana")
+                    .select("id_ruta_erp,dia_semana,id_vendedor")
                     .eq("id_ruta", id_ruta)
                     .limit(1)
                     .execute()
@@ -302,6 +309,30 @@ def get_erp_contexto(id_distribuidor: int, nro_cliente: str, user_payload=Depend
                     ruta_obj = ruta_res.data[0]
                     ctx["nro_ruta"] = ruta_obj.get("id_ruta_erp")
                     ctx["dia_visita"] = ruta_obj.get("dia_semana")
+                    id_vendedor = ruta_obj.get("id_vendedor")
+                    if id_vendedor and not ctx.get("vendedor_erp"):
+                        vend_res = (
+                            sb.table(t_vendedores)
+                            .select("nombre_erp,id_sucursal")
+                            .eq("id_vendedor", id_vendedor)
+                            .limit(1)
+                            .execute()
+                        )
+                        if vend_res.data:
+                            vend_row = vend_res.data[0]
+                            nombre_v = (vend_row.get("nombre_erp") or "").strip()
+                            if nombre_v:
+                                ctx["vendedor_erp"] = nombre_v
+                            if not ctx.get("sucursal_erp") and vend_row.get("id_sucursal") is not None:
+                                suc_res = (
+                                    sb.table(t_sucursales)
+                                    .select("nombre_erp")
+                                    .eq("id_sucursal", vend_row["id_sucursal"])
+                                    .limit(1)
+                                    .execute()
+                                )
+                                if suc_res.data:
+                                    ctx["sucursal_erp"] = suc_res.data[0].get("nombre_erp")
 
         # Última compra operativa (Informe Ventas); deuda CC sigue en RPC si aplica.
         erp_ventas = None
@@ -309,12 +340,14 @@ def get_erp_contexto(id_distribuidor: int, nro_cliente: str, user_payload=Depend
             if cand:
                 erp_ventas = cand
                 break
+        compra_ventas = False
         if erp_ventas:
             try:
                 from core.ultima_compra import fetch_ultima_compra_detalle_por_erp, apply_ultima_compra_enriched
 
                 detalle = fetch_ultima_compra_detalle_por_erp(id_distribuidor, erp_ventas)
                 if detalle:
+                    compra_ventas = True
                     ent = {"fecha": detalle["fecha"], "comprobante": detalle.get("comprobante")}
                     ctx["ultima_compra"] = detalle["fecha"]
                     apply_ultima_compra_enriched(ctx, ent, detalle=detalle)
@@ -324,6 +357,24 @@ def get_erp_contexto(id_distribuidor: int, nro_cliente: str, user_payload=Depend
                     id_distribuidor,
                     erp_ventas,
                     e_uc,
+                )
+
+        if pdv:
+            try:
+                from core.padron_cliente_vitalidad import apply_vitalidad_padron_row
+
+                vital = {
+                    "motivo_inactivo": pdv.get("motivo_inactivo"),
+                    "fecha_ultima_compra": ctx.get("ultima_compra") or pdv.get("fecha_ultima_compra"),
+                }
+                apply_vitalidad_padron_row(vital, compra_desde_ventas=compra_ventas)
+                ctx["padron_anulado"] = vital["padron_anulado"]
+                ctx["activo_comercial"] = vital["activo_comercial"]
+            except Exception as e_v:
+                logger.warning(
+                    "[erp contexto] vitalidad padron dist=%s: %s",
+                    id_distribuidor,
+                    e_v,
                 )
 
         return ctx

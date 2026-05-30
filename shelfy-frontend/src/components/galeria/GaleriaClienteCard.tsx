@@ -155,6 +155,11 @@ export function GaleriaClienteCard({ cliente, onClick }: Props) {
               <>
                 {formatDate(cliente.fecha_ultima_compra)}
                 {diasCompra != null && <DaysChip days={diasCompra} />}
+                {cliente.ultimo_comprobante?.label ? (
+                  <span className="text-[10px] opacity-70 truncate max-w-[140px]" title={cliente.ultimo_comprobante.label}>
+                    {cliente.ultimo_comprobante.label}
+                  </span>
+                ) : null}
               </>
             ) : (
               <span className="italic opacity-60">Sin registro</span>

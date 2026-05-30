@@ -16,6 +16,7 @@ from typing import Any, Iterable
 from db import sb
 from core.objetivos_compradores import _norm_erp
 from core.tenant_tables import tenant_table_name
+from core.ventas_bultos_rules import classify_volumen, unidades_por_bulto, volumen_es_convertido
 
 PAGE = 1000
 
@@ -26,10 +27,12 @@ _VENTAS_SELECT = (
 
 _VENTAS_SELECT_DETALLE = (
     "id_cliente_erp,fecha_factura,tipo_documento,numero_documento,serie,"
-    "importe_final,nombre_vendedor,anulado,cod_articulo,descripcion_articulo,bultos_total"
+    "importe_final,nombre_vendedor,anulado,cod_articulo,descripcion_articulo,"
+    "bultos_total,unidades_total,agrupacion_art_2"
 )
 
 _MAX_ARTICULOS_UI = 8
+_MAX_COMPROBANTES_MISMO_DIA = 5
 
 
 def comprobante_label(tipo: str | None, numero: str | None, serie: str | None = None) -> str:
@@ -43,8 +46,39 @@ def comprobante_label(tipo: str | None, numero: str | None, serie: str | None = 
     if s:
         parts.append(s)
     if n:
-        parts.append(n)
+        parts.append(f"#{n.lstrip('#')}")
     return " ".join(parts) if parts else ""
+
+
+def _unidades_linea(
+    descripcion: str,
+    bultos_total: float,
+    unidades_total: float,
+    agrupacion_art_2: str = "",
+) -> float:
+    """Unidades para UI: Consolido unidades_total o conversión desde bultos (cig)."""
+    u = float(unidades_total or 0)
+    if u > 0:
+        return u
+    b = float(bultos_total or 0)
+    if b <= 0:
+        return 0.0
+    desc = (descripcion or "").strip()
+    agr = (agrupacion_art_2 or "").strip()
+    kind = classify_volumen(agr, desc, "")
+    if volumen_es_convertido(kind):
+        factor = unidades_por_bulto(kind) or 250.0
+        return round(b * factor, 2)
+    return b
+
+
+def _fmt_unidades(value: float) -> str:
+    v = float(value or 0)
+    if v <= 0:
+        return "0 u."
+    if abs(v - round(v)) < 0.01:
+        return f"{int(round(v))} u."
+    return f"{v:.1f} u."
 
 
 def comprobante_from_venta_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -282,6 +316,54 @@ def overlay_padron_fuc_maps_from_ventas(
     return comprobante_by_erp
 
 
+def _articulos_lista_desde_map(articulos_map: dict[str, Any]) -> list[dict[str, Any]]:
+    articulos_raw = sorted(
+        articulos_map.values(),
+        key=lambda a: float(a.get("importe_final") or 0),
+        reverse=True,
+    )[:_MAX_ARTICULOS_UI]
+    out: list[dict[str, Any]] = []
+    for a in articulos_raw:
+        desc = str(a.get("descripcion") or "")
+        b = float(a.get("bultos_total") or 0)
+        u = float(a.get("unidades_total") or 0)
+        out.append(
+            {
+                "descripcion": desc,
+                "bultos_total": b,
+                "unidades_total": u,
+                "importe_final": float(a.get("importe_final") or 0),
+            }
+        )
+    return out
+
+
+def comprobantes_ultima_fecha_from_docs(
+    docs: dict[tuple[str, str, str], dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Todos los comprobantes de la fecha más reciente (mismo día), ordenados por importe desc."""
+    if not docs:
+        return []
+    max_fecha = max(str(d.get("fecha") or "")[:10] for d in docs.values())
+    if not max_fecha:
+        return []
+    items = [
+        (_k, d)
+        for _k, d in docs.items()
+        if str(d.get("fecha") or "")[:10] == max_fecha
+    ]
+    items.sort(key=lambda x: float(x[1].get("importe_total") or 0), reverse=True)
+    blocks: list[dict[str, Any]] = []
+    for _k, d in items[:_MAX_COMPROBANTES_MISMO_DIA]:
+        blocks.append(
+            {
+                "comprobante": d["comprobante"],
+                "articulos": _articulos_lista_desde_map(d.get("articulos_map") or {}),
+            }
+        )
+    return blocks
+
+
 def _doc_key_row(row: dict[str, Any]) -> tuple[str, str, str]:
     return (
         str(row.get("fecha_factura") or "")[:10],
@@ -298,8 +380,9 @@ def fetch_ultima_compra_detalle_por_erp(
     fecha_hasta: date | None = None,
 ) -> dict[str, Any] | None:
     """
-    Última compra de un ERP con líneas de artículos del comprobante ganador.
-    Retorna {fecha, comprobante, articulos, articulos_resumen} o None.
+    Última compra de un ERP con líneas por comprobante.
+    Si hay varios comprobantes el mismo día (última fecha), devuelve todos en `comprobantes`.
+    Retorna {fecha, comprobante, articulos, comprobantes, comprobantes_mismo_dia, articulos_resumen} o None.
     """
     raw = str(erp_id or "").strip()
     if not raw:
@@ -345,9 +428,21 @@ def fetch_ultima_compra_detalle_por_erp(
             doc["comprobante"]["importe_final"] = doc["importe_total"]
             desc = (row.get("descripcion_articulo") or "").strip()
             cod = (row.get("cod_articulo") or "").strip()
+            agr = (row.get("agrupacion_art_2") or "").strip()
             label = desc or cod or "Artículo"
-            prev = doc["articulos_map"].get(label, {"descripcion": label, "bultos_total": 0.0, "importe_final": 0.0})
-            prev["bultos_total"] += float(row.get("bultos_total") or 0)
+            prev = doc["articulos_map"].get(
+                label,
+                {
+                    "descripcion": label,
+                    "bultos_total": 0.0,
+                    "unidades_total": 0.0,
+                    "importe_final": 0.0,
+                },
+            )
+            b_line = float(row.get("bultos_total") or 0)
+            u_line = float(row.get("unidades_total") or 0)
+            prev["bultos_total"] += b_line
+            prev["unidades_total"] += _unidades_linea(desc, b_line, u_line, agr)
             prev["importe_final"] += imp
             doc["articulos_map"][label] = prev
         if len(batch) < PAGE:
@@ -357,26 +452,23 @@ def fetch_ultima_compra_detalle_por_erp(
     if not docs:
         return None
 
-    def _sort_doc(item: tuple[tuple[str, str, str], dict[str, Any]]) -> tuple[str, float]:
-        _k, d = item
-        return (d["fecha"], d["importe_total"])
+    blocks = comprobantes_ultima_fecha_from_docs(docs)
+    if not blocks:
+        return None
 
-    _win_key, winner = max(docs.items(), key=_sort_doc)
-    articulos = sorted(
-        winner["articulos_map"].values(),
-        key=lambda a: float(a.get("importe_final") or 0),
-        reverse=True,
-    )[:_MAX_ARTICULOS_UI]
+    winner = blocks[0]
+    articulos = winner["articulos"]
+    max_fecha = max(str(d["fecha"])[:10] for d in docs.values())
     resumen_parts = [
-        f"{a['descripcion']} ({a['bultos_total']:.0f} bts)"
-        if float(a.get("bultos_total") or 0) > 0
-        else a["descripcion"]
+        f"{a['descripcion']} ({_fmt_unidades(a['unidades_total'])})"
         for a in articulos[:3]
     ]
     return {
-        "fecha": winner["fecha"],
+        "fecha": max_fecha,
         "comprobante": winner["comprobante"],
         "articulos": articulos,
+        "comprobantes": blocks,
+        "comprobantes_mismo_dia": len(blocks),
         "articulos_resumen": " · ".join(resumen_parts) if resumen_parts else None,
     }
 
@@ -398,6 +490,8 @@ def apply_ultima_compra_enriched(
         cliente["ultimo_comprobante"] = cbte
     if detalle and detalle.get("articulos"):
         cliente["ultima_compra_articulos"] = detalle["articulos"]
+    if detalle and detalle.get("comprobantes"):
+        cliente["ultima_compra_comprobantes"] = detalle["comprobantes"]
     if detalle and detalle.get("articulos_resumen"):
         cliente["ultima_compra_articulos_resumen"] = detalle["articulos_resumen"]
 

@@ -170,6 +170,8 @@ export interface ERPContexto {
   domicilio?: string;
   localidad?: string;
   canal?: string;
+  telefono?: string | null;
+  celular?: string | null;
   fecha_alta?: string;
   ultimo_comprobante?: UltimoComprobanteResumen | null;
   ultima_compra_articulos?: UltimaCompraArticulo[] | null;
@@ -1659,6 +1661,8 @@ export interface ClienteContacto {
   localidad: string | null;
   provincia: string | null;
   canal: string | null;
+  telefono?: string | null;
+  celular?: string | null;
   latitud: number | null;
   longitud: number | null;
   fecha_ultima_compra: string | null;

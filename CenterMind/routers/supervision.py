@@ -2962,19 +2962,25 @@ def _enrich_cliente_info_ultima_compra(dist_id: int, rows: list[dict]) -> list[d
     """Última compra + artículos desde ventas_enriched (visor Evaluar)."""
     if not rows:
         return rows
-    try:
-        from core.ultima_compra import fetch_ultima_compra_detalle_por_erp, apply_ultima_compra_enriched
+    from core.padron_cliente_vitalidad import apply_vitalidad_padron_row
+    from core.ultima_compra import fetch_ultima_compra_detalle_por_erp, apply_ultima_compra_enriched
 
-        for row in rows:
-            erp = str(row.get("id_cliente_erp") or "").strip()
-            if not erp:
-                continue
-            detalle = fetch_ultima_compra_detalle_por_erp(dist_id, erp)
-            if detalle:
-                ent = {"fecha": detalle["fecha"], "comprobante": detalle.get("comprobante")}
-                apply_ultima_compra_enriched(row, ent, detalle=detalle)
-    except Exception as e_en:
-        logger.warning(f"[cliente-info] ultima compra enriched dist={dist_id}: {e_en}")
+    for row in rows:
+        compra_ventas = False
+        erp = str(row.get("id_cliente_erp") or "").strip()
+        try:
+            if erp:
+                detalle = fetch_ultima_compra_detalle_por_erp(dist_id, erp)
+                if detalle:
+                    compra_ventas = True
+                    ent = {"fecha": detalle["fecha"], "comprobante": detalle.get("comprobante")}
+                    apply_ultima_compra_enriched(row, ent, detalle=detalle)
+        except Exception as e_en:
+            logger.warning(f"[cliente-info] ultima compra enriched dist={dist_id} erp={erp}: {e_en}")
+        try:
+            apply_vitalidad_padron_row(row, compra_desde_ventas=compra_ventas)
+        except Exception as e_v:
+            logger.warning(f"[cliente-info] vitalidad padron dist={dist_id} erp={erp}: {e_v}")
     return rows
 
 
@@ -2989,7 +2995,11 @@ def supervision_cliente_info(
 
     try:
         check_dist_permission(user_payload, dist_id)
-        fields       = "id_cliente, id_cliente_erp, nombre_fantasia, nombre_razon_social, domicilio, localidad, provincia, canal, latitud, longitud, fecha_ultima_compra, estado"
+        fields       = (
+            "id_cliente, id_cliente_erp, nombre_fantasia, nombre_razon_social, domicilio, "
+            "localidad, provincia, canal, telefono, celular, latitud, longitud, "
+            "fecha_ultima_compra, estado, motivo_inactivo"
+        )
         nombre_s     = nombre.strip()
         nombre_plain = _strip_accents(nombre_s)
 

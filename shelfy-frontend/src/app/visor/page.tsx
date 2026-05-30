@@ -5,7 +5,7 @@ import { BottomNav } from "@/components/layout/BottomNav";
 import { Topbar } from "@/components/layout/Topbar";
 import { PageSpinner } from "@/components/ui/Spinner";
 import { useAuth } from "@/hooks/useAuth";
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useViewerStore } from "../../store/useViewerStore";
 import { motion, AnimatePresence } from "framer-motion";
@@ -13,25 +13,44 @@ import {
   fetchPendientes, fetchStatsHoy, fetchVendedores,
   evaluar, revertir,
   resolveImageUrl,
-  fetchERPContexto,
-  fetchClienteInfo,
-  type GrupoPendiente, type StatsHoy, type ERPContexto, type ClienteContacto,
+  type GrupoPendiente, type StatsHoy,
 } from "@/lib/api";
+import {
+  useVisorClienteContext,
+  useVisorPdvPrefetch,
+} from "@/hooks/useVisorClienteContext";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
-import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Check, X, Flame, RotateCcw, RefreshCw,
   ChevronLeft, ChevronRight, ImageOff,
-  User, Lock, ChevronUp, Store,
-  MapPin, Calendar, ShoppingCart,
-  CreditCard, Tag, CircleHelp,
+  Lock, ChevronUp, Store,
+  MessageSquarePlus,
+  Calendar, ShoppingCart,
+  Camera,
 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/Button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import { UltimaCompraRemitoCard } from "@/components/visor/UltimaCompraDetalle";
+import { VisorRemitoFocusLayout } from "@/components/visor/VisorRemitoFocusLayout";
+import { VisorMetaMinimizedBar } from "@/components/visor/VisorMetaMinimizedBar";
+import { VISOR_LAYOUT_TRANSITION } from "@/components/visor/visor-layout-motion";
+import { PdvVitalidadBadges } from "@/components/visor/PdvVitalidadBadges";
+import { VisorPdvIdentityHeader } from "@/components/visor/VisorPdvIdentityHeader";
+import { VisorEvalBar } from "@/components/visor/VisorEvalBar";
+import { VisorEvalPanel } from "@/components/visor/VisorEvalPanel";
+import { VisorObservacionesCard } from "@/components/visor/VisorObservacionesCard";
+import {
+  VisorPanelCard,
+  VisorPanelExhibicionGrid,
+  VisorPanelField,
+  VisorPanelFieldList,
+  VisorPanelLocationFields,
+  visorPanelChipClass,
+} from "@/components/visor/VisorPanelCard";
 
 const VISOR_TEMPLATE_KEY = "shelfy:visor:comment-templates";
 
@@ -262,34 +281,6 @@ function useEagerPreload(grupos: GrupoPendiente[]) {
 
 // ── Subcomponents for panels ──────────────────────────────────────────────────
 
-function InfoRow({
-  icon: Icon,
-  label,
-  value,
-  valueClass,
-}: {
-  icon: React.ElementType;
-  label: string;
-  value: React.ReactNode;
-  valueClass?: string;
-}) {
-  return (
-    <div className="flex items-start gap-2.5 py-2.5">
-      <div className="w-7 h-7 rounded-xl bg-[var(--shelfy-glow)]/80 ring-1 ring-[var(--shelfy-border)] flex items-center justify-center shrink-0 mt-0.5">
-        <Icon size={13} className="text-[var(--shelfy-primary)]" />
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider leading-none mb-0.5">
-          {label}
-        </p>
-        <p className={cn("text-xs font-semibold text-[var(--shelfy-text)] leading-snug break-words [overflow-wrap:anywhere]", valueClass)}>
-          {value}
-        </p>
-      </div>
-    </div>
-  );
-}
-
 function ShortcutItem({
   keys,
   label,
@@ -367,60 +358,76 @@ export default function VisorPage() {
   })();
 
   const grupo = filtrados[currentIndex] ?? null;
-  const nroForErp = grupo?.nro_cliente ? String(grupo.nro_cliente).trim() : "";
-  const skipErpFetch = !nroForErp || nroForErp === "S/C" || nroForErp === "0" || nroForErp === "—";
 
-  const { data: erpRaw, isFetching: loadingERP } = useQuery({
-    queryKey: ["visor", "erp-contexto", distId, nroForErp],
-    queryFn: () => fetchERPContexto(distId, nroForErp),
-    enabled: !!user?.usa_contexto_erp && distId > 0 && !skipErpFetch,
-    staleTime: 60_000,
+  useVisorPdvPrefetch(
+    distId,
+    filtrados,
+    grupos,
+    currentIndex,
+    !!user?.usa_contexto_erp,
+  );
+
+  const {
+    nroForErp,
+    skipErpFetch,
+    pdvInfo,
+    erpContext,
+    pdvLoading,
+    loadingERP,
+  } = useVisorClienteContext({
+    distId,
+    grupo,
+    usaContextoErp: !!user?.usa_contexto_erp,
   });
-
-  // PDV data from tenant table — always fetched regardless of usa_contexto_erp
-  const { data: pdvRows } = useQuery<ClienteContacto[]>({
-    queryKey: ["visor", "pdv-contacto", distId, nroForErp],
-    queryFn: () => fetchClienteInfo(distId, grupo?.vendedor ?? "", nroForErp),
-    enabled: distId > 0 && !skipErpFetch,
-    staleTime: 120_000,
-  });
-  const pdvInfo: ClienteContacto | null = pdvRows?.[0] ?? null;
-
-  const erpContext: ERPContexto | null = erpRaw
-    ? {
-        ...erpRaw,
-        nombre_fantasia: erpRaw.nombre_fantasia || erpRaw.razon_social || undefined,
-        ultima_compra: erpRaw.ultima_compra ?? undefined,
-        ultimo_comprobante: erpRaw.ultimo_comprobante ?? undefined,
-        ultima_compra_articulos: erpRaw.ultima_compra_articulos ?? undefined,
-        ultima_compra_articulos_resumen: erpRaw.ultima_compra_articulos_resumen ?? undefined,
-        promedio_factura: erpRaw.promedio_factura ?? undefined,
-        deuda_total: erpRaw.deuda_total ?? 0,
-        cant_facturas: erpRaw.cant_facturas ?? undefined,
-        domicilio: erpRaw.domicilio ?? undefined,
-        localidad: erpRaw.localidad ?? undefined,
-        nro_ruta: erpRaw.nro_ruta ?? undefined,
-        dia_visita: erpRaw.dia_visita ?? undefined,
-      }
-    : null;
 
   const ultimaCompraFuente = pdvInfo?.fecha_ultima_compra ?? erpContext?.ultima_compra;
   const ultimaCompraArticulos =
     pdvInfo?.ultima_compra_articulos ?? erpContext?.ultima_compra_articulos;
   const ultimaCompraResumen =
     pdvInfo?.ultima_compra_articulos_resumen ?? erpContext?.ultima_compra_articulos_resumen;
-  const ultimoComprobanteLabel =
-    pdvInfo?.ultimo_comprobante?.label ?? erpContext?.ultimo_comprobante?.label;
+  const ultimoComprobante =
+    pdvInfo?.ultimo_comprobante ?? erpContext?.ultimo_comprobante;
+  const ultimaCompraComprobantes =
+    pdvInfo?.ultima_compra_comprobantes ?? erpContext?.ultima_compra_comprobantes;
 
   const diasUltCompra = daysSinceIso(ultimaCompraFuente);
   const ventas30 = typeof erpContext?.total_30d === "number" && erpContext.total_30d > 0;
   const compraUltimos30 =
     ventas30 || (diasUltCompra !== null && diasUltCompra <= 30 && !!ultimaCompraFuente);
+  const activoComercial =
+    pdvInfo?.activo_comercial ?? erpContext?.activo_comercial ?? compraUltimos30;
   const conIngresoComercio =
     !!erpContext?.encontrado &&
     (ventas30 ||
       (diasUltCompra !== null && diasUltCompra < 90) ||
       (erpContext.cant_facturas != null && erpContext.cant_facturas > 0));
+
+  const vendedorExhibicion = useMemo(() => {
+    const erp = erpContext?.vendedor_erp?.trim();
+    if (erp) return erp;
+    return grupo?.vendedor?.trim() || "Sin asignar";
+  }, [erpContext?.vendedor_erp, grupo?.vendedor]);
+
+  const sucursalExhibicion = useMemo(() => {
+    const erp = erpContext?.sucursal_erp?.trim();
+    if (erp) return erp;
+    return grupo?.sucursal?.trim() || "Sin sucursal";
+  }, [erpContext?.sucursal_erp, grupo?.sucursal]);
+
+  const remitoPanelKey = `${currentIndex}-${nroForErp ?? grupo?.nro_cliente ?? ""}`;
+
+  const pdvNombreMin = (
+    pdvInfo?.nombre_fantasia ||
+    pdvInfo?.nombre_razon_social ||
+    erpContext?.nombre_fantasia ||
+    erpContext?.razon_social ||
+    "Sin nombre"
+  ).trim();
+
+  const sinContactoPdv = !(
+    (pdvInfo?.telefono ?? erpContext?.telefono)?.trim() ||
+    (pdvInfo?.celular ?? erpContext?.celular)?.trim()
+  );
 
   const totalGrupos = filtrados.length;
   const totalFotos = grupo?.fotos.length ?? 0;
@@ -845,57 +852,6 @@ export default function VisorPage() {
     </AnimatePresence>
   );
 
-  // ── Evaluation buttons (shared between desktop and mobile) ────────────────────
-
-  const evalButtons = (
-    <div className="flex items-center gap-2">
-      <button
-        type="button"
-        onClick={handleRevertir}
-        disabled={!lastEvalIds.current.length || mutationRevertir.isPending}
-        title="Revertir (Ctrl/Cmd + Z)"
-        className="size-9 flex items-center justify-center rounded-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:bg-slate-100 disabled:opacity-30 transition-all active:scale-95"
-      >
-        <RotateCcw size={15} strokeWidth={2.5} />
-      </button>
-      <button
-        type="button"
-        onClick={() => handleEvaluar("Rechazado")}
-        disabled={mutationEvaluar.isPending || !todasVistas || isValidacion}
-        title="Rechazar (Ctrl/Cmd + R)"
-        className="size-10 flex items-center justify-center rounded-full bg-[#fa5252] text-white shadow-[0_4px_14px_rgba(250,82,82,0.4)] hover:scale-110 disabled:opacity-20 transition-all active:scale-95"
-      >
-        <X size={20} strokeWidth={3.5} />
-      </button>
-      <button
-        type="button"
-        onClick={() => handleEvaluar("Destacado")}
-        disabled={mutationEvaluar.isPending || !todasVistas || isValidacion}
-        title="Destacar (Ctrl/Cmd + D)"
-        className="size-12 flex items-center justify-center rounded-full bg-[#f97316] text-white shadow-[0_4px_16px_rgba(249,115,22,0.45)] hover:scale-110 disabled:opacity-20 transition-all active:scale-95"
-      >
-        <Flame size={22} strokeWidth={3} className="fill-white/20" />
-      </button>
-      <button
-        type="button"
-        onClick={() => handleEvaluar("Aprobado")}
-        disabled={mutationEvaluar.isPending || !todasVistas || isValidacion}
-        title="Aprobar (Ctrl/Cmd + A)"
-        className="size-10 flex items-center justify-center rounded-full bg-[#10b981] text-white shadow-[0_4px_14px_rgba(16,185,129,0.4)] hover:scale-110 disabled:opacity-20 transition-all active:scale-95"
-      >
-        <Check size={20} strokeWidth={3.5} />
-      </button>
-      <button
-        type="button"
-        onClick={() => queryClient.invalidateQueries({ queryKey: ["pendientes", distId] })}
-        title="Refrescar"
-        className="size-9 flex items-center justify-center rounded-full bg-amber-100 border border-amber-200 text-amber-600 hover:bg-amber-200 transition-all active:scale-95"
-      >
-        <RefreshCw size={15} strokeWidth={2.5} />
-      </button>
-    </div>
-  );
-
   // ── Kbd shortcuts legend ──────────────────────────────────────────────────────
 
   const kbdLegend = (
@@ -934,36 +890,54 @@ export default function VisorPage() {
   const frasesPopover = (dark = false) => (
     <Popover>
       <PopoverTrigger asChild>
-        <Button
+        <button
           type="button"
-          variant="secondary"
-          size="sm"
           className={cn(
-            "h-8 w-full justify-between text-[10px]",
-            dark && "bg-white/10 border-white/15 text-white hover:bg-white/20",
+            "w-full flex items-center justify-between gap-2 rounded-md border px-2.5 py-2 text-left transition-colors",
+            dark
+              ? "border-white/20 bg-white/10 text-white hover:bg-white/15"
+              : "border-slate-200/90 bg-white/80 text-slate-700 hover:bg-white dark:bg-slate-950/40 dark:border-slate-600 dark:text-slate-200",
           )}
         >
-          Frases rápidas
-          <ChevronUp className="size-3.5 opacity-60" />
-        </Button>
+          <span className="flex items-center gap-1.5 min-w-0">
+            <MessageSquarePlus className={cn("size-3.5 shrink-0", dark ? "text-white/70" : "text-slate-500")} />
+            <span className="text-[11px] font-semibold truncate">Frases rápidas</span>
+          </span>
+          <ChevronUp className={cn("size-3.5 shrink-0 opacity-60", dark && "text-white/70")} />
+        </button>
       </PopoverTrigger>
       <PopoverContent
         side="top"
         align="end"
-        className="w-72 max-h-72 overflow-y-auto border-white/10 bg-zinc-900 text-white p-3"
+        className={cn(
+          "w-72 max-h-72 overflow-y-auto p-3",
+          dark
+            ? "border-white/10 bg-zinc-900 text-white"
+            : "border-slate-200/90 bg-white text-slate-800 shadow-lg",
+        )}
       >
-        <p className="text-[10px] font-semibold text-white/50 uppercase tracking-wider mb-2">
+        <p
+          className={cn(
+            "text-[10px] font-bold uppercase tracking-wider mb-2",
+            dark ? "text-white/50" : "text-slate-500",
+          )}
+        >
           Insertar con un clic
         </p>
         <div className="flex flex-col gap-1 mb-3">
           {commentTemplates.length === 0 ? (
-            <span className="text-xs text-white/40">No hay frases guardadas.</span>
+            <span className={cn("text-xs", dark ? "text-white/40" : "text-slate-500")}>No hay frases guardadas.</span>
           ) : (
             commentTemplates.map((t) => (
               <button
                 key={t}
                 type="button"
-                className="text-left text-xs py-1.5 px-2 rounded-md bg-white/5 hover:bg-violet-500/25 border border-white/10"
+                className={cn(
+                  "text-left text-xs py-1.5 px-2 rounded-md border",
+                  dark
+                    ? "bg-white/5 hover:bg-violet-500/25 border-white/10"
+                    : "bg-slate-50 hover:bg-violet-50 border-slate-200/80 text-slate-700",
+                )}
                 onClick={() => applyCommentTemplate(t)}
               >
                 {t}
@@ -971,7 +945,7 @@ export default function VisorPage() {
             ))
           )}
         </div>
-        <p className="text-[10px] font-semibold text-white/50 uppercase tracking-wider mb-1">
+        <p className={cn("text-[10px] font-bold uppercase tracking-wider mb-1", dark ? "text-white/50" : "text-slate-500")}>
           Nueva frase
         </p>
         <div className="flex gap-1">
@@ -981,7 +955,12 @@ export default function VisorPage() {
             onChange={(e) => setNewTemplateText(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") addCommentTemplate(); }}
             placeholder="Ej. Falta cartel con precios"
-            className="flex-1 min-w-0 rounded-md border border-white/15 bg-black/40 px-2 py-1.5 text-xs text-white placeholder:text-white/35"
+            className={cn(
+              "flex-1 min-w-0 rounded-md border px-2 py-1.5 text-xs",
+              dark
+                ? "border-white/15 bg-black/40 text-white placeholder:text-white/35"
+                : "border-slate-200 bg-white text-slate-800 placeholder:text-slate-400",
+            )}
           />
           <Button type="button" size="sm" className="shrink-0 h-8 text-xs" onClick={addCommentTemplate}>
             Guardar
@@ -1037,272 +1016,256 @@ export default function VisorPage() {
 
                 {/* ── RIGHT PANEL — Exhibición ────────────────────────────── */}
                 {/* Rendered after center canvas in DOM but visually on the right via flex order */}
-                <div className="order-last w-[22rem] shrink-0 border-l border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] flex flex-col overflow-hidden overflow-x-hidden">
-                  {/* Panel header */}
-                  <div className="px-4 pt-3 pb-2 border-b border-[var(--shelfy-border)] shrink-0">
-                    <div className="flex items-center justify-between mb-1">
-                      <h2 className="text-[11px] font-black text-[var(--shelfy-muted)] uppercase tracking-widest">
-                        Exhibición
-                      </h2>
-                      <span className="text-[11px] font-bold text-[var(--shelfy-muted)]">
-                        <span className="text-[var(--shelfy-accent)] font-black">{currentIndex + 1}</span>
-                        <span className="opacity-40">/{totalGrupos}</span>
-                      </span>
-                    </div>
-                    {/* Group navigation */}
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => { if (currentIndex > 0) { setCurrentIndex(currentIndex - 1); resetGroupState(); setComentario(""); } }}
-                        disabled={currentIndex === 0}
-                        className="flex-1 h-7 flex items-center justify-center rounded-lg border border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:bg-[var(--shelfy-bg)] disabled:opacity-30 transition-colors text-xs gap-1"
+                <div className="order-last w-[26rem] shrink-0 border-l border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] flex flex-col overflow-hidden overflow-x-hidden">
+                  {/* Panel body: tarjetas meta + remito (colapsable) */}
+                  <VisorRemitoFocusLayout
+                    resetKey={remitoPanelKey}
+                    showRemito={!!ultimaCompraFuente}
+                    meta={(remitoExpanded) => (
+                      <div
+                        className={cn(
+                          "px-3 flex flex-col min-w-0",
+                          remitoExpanded ? "py-1.5 pb-1" : "py-2 pb-3 gap-2",
+                        )}
                       >
-                        <ChevronLeft size={13} /> Anterior
-                      </button>
-                      <button
-                        onClick={() => { if (currentIndex < totalGrupos - 1) { setCurrentIndex(currentIndex + 1); resetGroupState(); setComentario(""); } }}
-                        disabled={currentIndex >= totalGrupos - 1}
-                        className="flex-1 h-7 flex items-center justify-center rounded-lg border border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:bg-[var(--shelfy-bg)] disabled:opacity-30 transition-colors text-xs gap-1"
-                      >
-                        Siguiente <ChevronRight size={13} />
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Panel body */}
-                  <div className="flex-1 overflow-y-auto overflow-x-hidden px-3 py-1">
-                    {/* Objetivo badge */}
-                    {grupo.fotos.some((f) => f.es_objetivo) && (
-                      <div className="mt-2 mb-1">
-                        <motion.div
-                          animate={{ opacity: [0.8, 1, 0.8] }}
-                          transition={{ duration: 2, repeat: Infinity }}
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-violet-100 border border-violet-200 text-violet-700 text-[10px] font-bold"
-                        >
-                          🎯 Con Objetivo
-                        </motion.div>
-                      </div>
-                    )}
-
-                    <InfoRow
-                      icon={User}
-                      label="Vendedor"
-                      value={grupo.vendedor || "Sin asignar"}
-                    />
-                    <InfoRow
-                      icon={Store}
-                      label="Sucursal"
-                      value={grupo.sucursal || "Sin sucursal"}
-                    />
-                    <InfoRow
-                      icon={Tag}
-                      label="Tipo PDV"
-                      value={grupo.tipo_pdv || "—"}
-                    />
-                    <InfoRow
-                      icon={Calendar}
-                      label="Envío"
-                      value={formatFechaAR(grupo.fecha_hora)}
-                    />
-
-                    {user?.usa_contexto_erp && !skipErpFetch && (
-                      <>
-                        <Separator className="my-2" />
-                        <div className="py-1">
-                          <p className="text-[10px] font-semibold text-[var(--shelfy-muted)] uppercase tracking-wider mb-2">
-                            Contexto ERP
-                          </p>
-                          {loadingERP ? (
-                            <div className="flex flex-col gap-1.5">
-                              <Skeleton className="h-4 w-full rounded" />
-                              <Skeleton className="h-4 w-3/4 rounded" />
-                            </div>
-                          ) : erpContext?.encontrado ? (
-                            <div className="flex flex-col gap-1">
-                              <div className="flex items-center justify-between">
-                                <span className="text-[10px] text-[var(--shelfy-muted)]">Tipo comercio</span>
-                                <span className={cn(
-                                  "text-[10px] font-bold px-1.5 py-0.5 rounded",
-                                  conIngresoComercio
-                                    ? "bg-emerald-100 text-emerald-700"
-                                    : "bg-red-100 text-red-600"
-                                )}>
-                                  {conIngresoComercio ? "Con ingreso" : "Sin ingreso"}
-                                </span>
-                              </div>
-                              <div className="flex items-center justify-between">
-                                <span className="text-[10px] text-[var(--shelfy-muted)]">Compró 30d</span>
-                                <span className={cn(
-                                  "text-[10px] font-black px-1.5 py-0.5 rounded",
-                                  compraUltimos30
-                                    ? "bg-emerald-100 text-emerald-700"
-                                    : "bg-red-100 text-red-600"
-                                )}>
-                                  {compraUltimos30 ? "SÍ" : "NO"}
-                                </span>
-                              </div>
-                            </div>
-                          ) : (
-                            <span className="text-[10px] text-amber-600 font-semibold">
-                              No encontrado en ERP
-                            </span>
-                          )}
-                        </div>
-                      </>
-                    )}
-
-                    {/* Foto ID badge — internal id, not shown to user */}
-                    <Separator className="my-2" />
-                    <div className="pb-1 rounded-xl border border-[var(--shelfy-border)]/70 bg-[var(--shelfy-bg)]/40 px-2.5 pt-2">
-                      <p className="text-[10px] font-black text-[var(--shelfy-muted)] uppercase tracking-widest mb-1.5">
-                        Info del PDV
-                      </p>
-                      <p className="text-xs font-mono font-bold text-[var(--shelfy-text-soft)] mb-1.5">
-                        {nroForErp ? `Cód. ${nroForErp}` : grupo.nro_cliente || "Sin código ERP"}
-                      </p>
-                      {pdvInfo ? (
-                        <div className="flex flex-col gap-1 pb-1.5">
-                          {(pdvInfo.nombre_fantasia || pdvInfo.nombre_razon_social) && (
-                            <p className="text-xs font-semibold text-[var(--shelfy-text)] leading-tight">
-                              {pdvInfo.nombre_fantasia || pdvInfo.nombre_razon_social}
-                            </p>
-                          )}
-                          {pdvInfo.nombre_razon_social && pdvInfo.nombre_razon_social !== pdvInfo.nombre_fantasia && (
-                            <p className="text-[10px] text-[var(--shelfy-muted)]">{pdvInfo.nombre_razon_social}</p>
-                          )}
-                          {pdvInfo.domicilio && (
-                            <p className="text-[10px] text-[var(--shelfy-muted)] flex items-start gap-1">
-                              <MapPin className="w-3 h-3 shrink-0 mt-0.5" />
-                              {pdvInfo.domicilio}{pdvInfo.localidad ? `, ${pdvInfo.localidad}` : ""}{pdvInfo.provincia ? ` (${pdvInfo.provincia})` : ""}
-                            </p>
-                          )}
-                          {pdvInfo.canal && (
-                            <p className="text-[10px] text-[var(--shelfy-muted)] flex items-center gap-1">
-                              <Tag className="w-3 h-3" />{pdvInfo.canal}
-                            </p>
-                          )}
-                          {ultimaCompraFuente && (
-                            <div className="flex flex-col gap-0.5">
-                              <p className={`text-[10px] flex items-center gap-1 font-medium ${
-                                new Date(ultimaCompraFuente) >= new Date(Date.now() - 30 * 86_400_000)
-                                  ? "text-emerald-500"
-                                  : "text-amber-500"
-                              }`}>
-                                <ShoppingCart className="w-3 h-3" />
-                                Últ. compra: {new Date(ultimaCompraFuente).toLocaleDateString("es-AR")}
-                                {ultimoComprobanteLabel ? (
-                                  <span className="font-normal opacity-80">· {ultimoComprobanteLabel}</span>
-                                ) : null}
-                              </p>
-                              {ultimaCompraResumen ? (
-                                <p className="text-[9px] text-[var(--shelfy-muted)] leading-snug pl-4">
-                                  {ultimaCompraResumen}
-                                </p>
-                              ) : ultimaCompraArticulos?.length ? (
-                                <ul className="text-[9px] text-[var(--shelfy-muted)] pl-4 list-disc leading-snug">
-                                  {ultimaCompraArticulos.slice(0, 4).map((a) => (
-                                    <li key={a.descripcion}>
-                                      {a.descripcion}
-                                      {a.bultos_total > 0 ? ` (${a.bultos_total} bts)` : ""}
-                                    </li>
-                                  ))}
-                                </ul>
-                              ) : null}
-                            </div>
-                          )}
-                          {pdvInfo.estado && pdvInfo.estado !== "activo" && (
-                            <p className="text-[10px] text-red-400 font-medium capitalize">{pdvInfo.estado}</p>
-                          )}
-                        </div>
-                      ) : (
-                        <p className="text-[10px] text-[var(--shelfy-muted)] pb-1.5 italic">Sin datos en padrón</p>
-                      )}
-                    </div>
-
-                    {user?.usa_contexto_erp && !skipErpFetch && loadingERP ? (
-                      <div className="flex flex-col gap-2 py-2">
-                        <Skeleton className="h-8 w-full rounded-lg" />
-                        <Skeleton className="h-8 w-4/5 rounded-lg" />
-                        <Skeleton className="h-8 w-full rounded-lg" />
-                        <Skeleton className="h-8 w-3/4 rounded-lg" />
-                      </div>
-                    ) : erpContext?.encontrado ? (
-                      <>
-                        {erpContext.nombre_fantasia && (
-                          <InfoRow icon={Store} label="Nombre / Fantasía" value={erpContext.nombre_fantasia} />
-                        )}
-                        {erpContext.razon_social && erpContext.razon_social !== erpContext.nombre_fantasia && (
-                          <InfoRow icon={CreditCard} label="Razón Social" value={erpContext.razon_social} valueClass="text-[var(--shelfy-text-soft)]" />
-                        )}
-                        {erpContext.localidad && (
-                          <InfoRow icon={MapPin} label="Localidad" value={erpContext.localidad} />
-                        )}
-                        {erpContext.domicilio && (
-                          <InfoRow icon={MapPin} label="Dirección" value={erpContext.domicilio} valueClass="text-[var(--shelfy-text-soft)]" />
-                        )}
-                        {ultimaCompraFuente && (
-                          <InfoRow
-                            icon={ShoppingCart}
-                            label="Última Compra"
-                            value={
-                              <span className="flex flex-col gap-0.5">
-                                <span className={cn(
-                                  diasUltCompra !== null && diasUltCompra > 60
-                                    ? "text-red-500"
-                                    : diasUltCompra !== null && diasUltCompra > 30
-                                    ? "text-amber-500"
-                                    : "text-emerald-600"
-                                )}>
-                                  {String(ultimaCompraFuente).slice(0, 10)}
-                                  {diasUltCompra !== null && (
-                                    <span className="text-[var(--shelfy-muted)] font-normal ml-1">
-                                      (hace {diasUltCompra}d)
-                                    </span>
-                                  )}
-                                  {ultimoComprobanteLabel ? (
-                                    <span className="text-[var(--shelfy-muted)] font-normal block text-[10px]">
-                                      {ultimoComprobanteLabel}
-                                    </span>
-                                  ) : null}
-                                </span>
-                                {ultimaCompraResumen ? (
-                                  <span className="text-[10px] text-[var(--shelfy-muted)] font-normal">
-                                    {ultimaCompraResumen}
-                                  </span>
-                                ) : null}
-                              </span>
+                        {remitoExpanded ? (
+                          <motion.div layout transition={VISOR_LAYOUT_TRANSITION} className="min-w-0">
+                            <VisorMetaMinimizedBar
+                              vendedor={vendedorExhibicion}
+                              pdvNombre={pdvNombreMin}
+                              codigoCliente={String(nroForErp || grupo?.nro_cliente || "")}
+                              envio={formatFechaAR(grupo?.fecha_hora ?? "")}
+                              currentIndex={currentIndex}
+                              totalGrupos={totalGrupos}
+                              sinContacto={sinContactoPdv}
+                            />
+                          </motion.div>
+                        ) : (
+                          <>
+                        <motion.div layout transition={VISOR_LAYOUT_TRANSITION}>
+                          <VisorPanelCard
+                            title="Exhibición"
+                            icon={Camera}
+                            accent="violet"
+                            headerRight={
+                              <Badge
+                                variant="outline"
+                                className={cn(
+                                  "h-5 px-2 text-[10px] font-semibold tabular-nums border",
+                                  visorPanelChipClass("violet"),
+                                )}
+                              >
+                                <span className="font-black">{currentIndex + 1}</span>
+                                <span className="opacity-60 font-normal">/{totalGrupos}</span>
+                              </Badge>
                             }
-                          />
-                        )}
-                        {(erpContext.nro_ruta || erpContext.dia_visita) && (
-                          <InfoRow
-                            icon={Calendar}
-                            label="Ruta / Visita"
-                            value={[erpContext.nro_ruta && `R${erpContext.nro_ruta}`, erpContext.dia_visita].filter(Boolean).join(" · ")}
-                          />
-                        )}
-                      </>
-                    ) : !skipErpFetch && !loadingERP && user?.usa_contexto_erp ? (
-                      <div className="py-2">
-                        <p className="text-xs text-amber-600 font-semibold">No encontrado en ERP</p>
-                        <p className="text-[10px] text-[var(--shelfy-muted)] mt-0.5">Cód. {nroForErp || "—"}</p>
-                      </div>
-                    ) : null}
+                            headerExtra={
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (currentIndex > 0) {
+                                        setCurrentIndex(currentIndex - 1);
+                                        resetGroupState();
+                                        setComentario("");
+                                      }
+                                    }}
+                                    disabled={currentIndex === 0}
+                                    className="flex-1 h-8 flex items-center justify-center rounded-md border border-slate-200/90 bg-white/80 text-slate-600 hover:bg-white disabled:opacity-30 transition-colors text-xs gap-1 dark:border-slate-600 dark:bg-slate-900/50 dark:text-slate-300"
+                                  >
+                                    <ChevronLeft size={13} /> Anterior
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (currentIndex < totalGrupos - 1) {
+                                        setCurrentIndex(currentIndex + 1);
+                                        resetGroupState();
+                                        setComentario("");
+                                      }
+                                    }}
+                                    disabled={currentIndex >= totalGrupos - 1}
+                                    className="flex-1 h-8 flex items-center justify-center rounded-md border border-slate-200/90 bg-white/80 text-slate-600 hover:bg-white disabled:opacity-30 transition-colors text-xs gap-1 dark:border-slate-600 dark:bg-slate-900/50 dark:text-slate-300"
+                                  >
+                                    Siguiente <ChevronRight size={13} />
+                                  </button>
+                                </div>
+                            }
+                          >
+                            {grupo.fotos.some((f) => f.es_objetivo) ? (
+                              <motion.div
+                                animate={{ opacity: [0.8, 1, 0.8] }}
+                                transition={{ duration: 2, repeat: Infinity }}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-violet-100 border border-violet-200 text-violet-700 text-[10px] font-bold mb-1.5"
+                              >
+                                🎯 Con Objetivo
+                              </motion.div>
+                            ) : null}
 
-                    <Separator className="my-2" />
-                    <div className="pb-2 flex flex-col gap-2 rounded-xl border border-[var(--shelfy-border)]/70 bg-[var(--shelfy-bg)]/40 p-2.5">
-                      <p className="text-[10px] font-black text-[var(--shelfy-muted)] uppercase tracking-widest">
-                        Observaciones
-                      </p>
-                      <Textarea
-                        placeholder="Escribe una observación…"
-                        rows={3}
-                        value={comentario}
-                        onChange={(e) => setComentario(e.target.value)}
-                        className="resize-none text-xs min-h-[72px] bg-[var(--shelfy-bg)] border-[var(--shelfy-border)] text-[var(--shelfy-text)] placeholder:text-[var(--shelfy-muted)] focus-visible:ring-[var(--shelfy-primary)]/30"
+                            <VisorPanelFieldList>
+                              <VisorPanelExhibicionGrid
+                                vendedor={
+                                  loadingERP && user?.usa_contexto_erp && !skipErpFetch
+                                    ? "…"
+                                    : vendedorExhibicion
+                                }
+                                sucursal={sucursalExhibicion}
+                                tipoPdv={grupo.tipo_pdv || "—"}
+                                envio={formatFechaAR(grupo.fecha_hora)}
+                              />
+                            </VisorPanelFieldList>
+
+                            {user?.usa_contexto_erp && !skipErpFetch ? (
+                              <div className="mt-1.5 rounded-md border border-slate-200/80 dark:border-slate-700/60 bg-white/60 dark:bg-slate-950/25 px-2.5 py-1.5">
+                                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1 leading-none">
+                                  Contexto ERP
+                                </p>
+                                {loadingERP ? (
+                                  <div className="flex flex-col gap-1">
+                                    <Skeleton className="h-3.5 w-full rounded" />
+                                    <Skeleton className="h-3.5 w-3/4 rounded" />
+                                  </div>
+                                ) : erpContext?.encontrado ? (
+                                  <div className="flex flex-col gap-1">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="text-[11px] text-slate-500 leading-tight">Tipo comercio</span>
+                                      <Badge
+                                        variant="outline"
+                                        className={cn(
+                                          "h-5 px-1.5 text-[9px] font-bold border-0",
+                                          conIngresoComercio
+                                            ? "bg-emerald-100 text-emerald-700"
+                                            : "bg-red-100 text-red-600",
+                                        )}
+                                      >
+                                        {conIngresoComercio ? "Con ingreso" : "Sin ingreso"}
+                                      </Badge>
+                                    </div>
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="text-[11px] text-slate-500 leading-tight">Compró 30d</span>
+                                      <Badge
+                                        variant="outline"
+                                        className={cn(
+                                          "h-5 px-1.5 text-[9px] font-black border-0",
+                                          compraUltimos30
+                                            ? "bg-emerald-100 text-emerald-700"
+                                            : "bg-red-100 text-red-600",
+                                        )}
+                                      >
+                                        {compraUltimos30 ? "SÍ" : "NO"}
+                                      </Badge>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <span className="text-[10px] text-amber-600 font-semibold">No encontrado en ERP</span>
+                                )}
+                              </div>
+                            ) : null}
+                          </VisorPanelCard>
+                        </motion.div>
+
+                        <motion.div layout transition={VISOR_LAYOUT_TRANSITION}>
+                          <VisorPanelCard
+                            title="Info del PDV"
+                            icon={Store}
+                            accent="sky"
+                            footer={
+                              pdvInfo && !pdvLoading ? (
+                                <PdvVitalidadBadges activoComercial={activoComercial} className="pt-0" />
+                              ) : undefined
+                            }
+                          >
+                      {pdvLoading ? (
+                        <div className="flex flex-col gap-1.5 animate-pulse">
+                          <Skeleton className="h-4 w-4/5 rounded" />
+                          <Skeleton className="h-3 w-full rounded" />
+                          <Skeleton className="h-12 w-full rounded-md" />
+                        </div>
+                      ) : pdvInfo ? (
+                        <>
+                          <VisorPdvIdentityHeader
+                            nombreFantasia={pdvInfo.nombre_fantasia}
+                            nombreRazon={pdvInfo.nombre_razon_social}
+                            codigoCliente={nroForErp || grupo.nro_cliente}
+                          />
+                          <VisorPanelFieldList>
+                            <VisorPanelLocationFields
+                              domicilio={pdvInfo.domicilio}
+                              provincia={pdvInfo.provincia}
+                              localidad={pdvInfo.localidad}
+                              telefono={pdvInfo.telefono}
+                              celular={pdvInfo.celular}
+                            />
+                          </VisorPanelFieldList>
+                          {erpContext?.nro_ruta || erpContext?.dia_visita ? (
+                            <VisorPanelFieldList className="mt-1.5">
+                              <VisorPanelField
+                                icon={Calendar}
+                                label="Ruta / Visita"
+                                value={[erpContext?.nro_ruta && `R${erpContext.nro_ruta}`, erpContext?.dia_visita]
+                                  .filter(Boolean)
+                                  .join(" · ")}
+                              />
+                            </VisorPanelFieldList>
+                          ) : null}
+                        </>
+                      ) : skipErpFetch ? (
+                        <p className="text-[11px] text-slate-500 italic">Sin código ERP en la exhibición</p>
+                      ) : erpContext?.encontrado ? (
+                        <>
+                          <VisorPdvIdentityHeader
+                            nombreFantasia={erpContext.nombre_fantasia}
+                            nombreRazon={erpContext.razon_social}
+                            codigoCliente={nroForErp || grupo.nro_cliente}
+                          />
+                          <VisorPanelFieldList>
+                            <VisorPanelLocationFields
+                              domicilio={erpContext.domicilio}
+                              localidad={erpContext.localidad}
+                              telefono={erpContext.telefono}
+                              celular={erpContext.celular}
+                            />
+                          </VisorPanelFieldList>
+                          {erpContext.nro_ruta || erpContext.dia_visita ? (
+                            <VisorPanelFieldList className="mt-1.5">
+                              <VisorPanelField
+                                icon={Calendar}
+                                label="Ruta / Visita"
+                                value={[erpContext.nro_ruta && `R${erpContext.nro_ruta}`, erpContext.dia_visita]
+                                  .filter(Boolean)
+                                  .join(" · ")}
+                              />
+                            </VisorPanelFieldList>
+                          ) : null}
+                        </>
+                      ) : !skipErpFetch && user?.usa_contexto_erp && !loadingERP ? (
+                        <p className="text-[11px] text-amber-600 font-semibold">No encontrado en ERP</p>
+                      ) : (
+                        <p className="text-[11px] text-slate-500 italic">Sin datos en padrón</p>
+                      )}
+                          </VisorPanelCard>
+                        </motion.div>
+                          </>
+                        )}
+                      </div>
+                    )}
+                    remito={(remitoExpanded) => (
+                      <UltimaCompraRemitoCard
+                        layout="panel-fill"
+                        adaptive
+                        density="compact"
+                        focusMode={remitoExpanded}
+                        fillHeight={!remitoExpanded}
+                        fecha={ultimaCompraFuente!}
+                        comprobantes={ultimaCompraComprobantes}
+                        comprobante={ultimoComprobante}
+                        articulos={ultimaCompraArticulos}
+                        resumen={ultimaCompraResumen}
+                        diasDesde={diasUltCompra}
+                        className="w-full"
                       />
-                      {frasesPopover(false)}
-                    </div>
-                  </div>
+                    )}
+                  />
                 </div>
 
                 {/* ── CENTER CANVAS ───────────────────────────────────────── */}
@@ -1389,32 +1352,30 @@ export default function VisorPage() {
                     </AnimatePresence>
                   </div>
 
-                  {/* Action bar below image */}
-                  <div className="shrink-0 flex flex-col items-center gap-2 py-1">
-                    {/* Buttons row */}
-                    <div className="flex items-center gap-3">
-                      {evalButtons}
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <button
-                            type="button"
-                            title="Ver atajos"
-                            className="size-8 flex items-center justify-center rounded-full bg-[var(--shelfy-bg)] border border-[var(--shelfy-border)] text-[var(--shelfy-muted)] hover:text-[var(--shelfy-text)] hover:bg-[var(--shelfy-panel)] transition-colors"
-                          >
-                            <CircleHelp size={15} />
-                          </button>
-                        </PopoverTrigger>
-                        <PopoverContent
-                          side="top"
-                          align="center"
-                          className="w-[min(920px,86vw)] border-[var(--shelfy-border)] bg-[var(--shelfy-panel)] p-3"
-                        >
-                          <p className="text-[10px] font-black text-[var(--shelfy-muted)] uppercase tracking-wider mb-2">
-                            Atajos de teclado
-                          </p>
-                          {kbdLegend}
-                        </PopoverContent>
-                      </Popover>
+                  {/* Evaluar (70%) | Observaciones (30%) — bajo la foto, misma altura */}
+                  <div className="shrink-0 px-4 pb-3 pt-2">
+                    <div className="grid w-full grid-cols-[minmax(0,7fr)_minmax(0,3fr)] gap-2 min-h-[10.5rem] auto-rows-[1fr]">
+                      <VisorEvalPanel className="min-w-0 h-full min-h-0">
+                        <VisorEvalBar
+                          prominent
+                          onRevertir={handleRevertir}
+                          onRechazado={() => handleEvaluar("Rechazado")}
+                          onDestacado={() => handleEvaluar("Destacado")}
+                          onAprobado={() => handleEvaluar("Aprobado")}
+                          onRefresh={() => queryClient.invalidateQueries({ queryKey: ["pendientes", distId] })}
+                          canRevertir={lastEvalIds.current.length > 0}
+                          revertirPending={mutationRevertir.isPending}
+                          evaluarPending={mutationEvaluar.isPending}
+                          evaluarDisabled={!todasVistas || isValidacion}
+                          kbdLegend={kbdLegend}
+                        />
+                      </VisorEvalPanel>
+                      <VisorObservacionesCard
+                        className="min-w-0 h-full min-h-0"
+                        value={comentario}
+                        onChange={setComentario}
+                        frasesSlot={frasesPopover(false)}
+                      />
                     </div>
                   </div>
                 </div>
@@ -1463,7 +1424,7 @@ export default function VisorPage() {
                               🏪 Cód. {grupo.nro_cliente ?? "—"}
                             </span>
                             <span className="text-[10px] font-bold truncate text-white/70">
-                              👤 {grupo.vendedor ?? "—"}
+                              👤 {vendedorExhibicion}
                             </span>
                             {grupo.fotos.some((f) => f.es_objetivo) && (
                               <motion.span
@@ -1575,7 +1536,7 @@ export default function VisorPage() {
                         }}
                       >
                         <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[9px] leading-tight">
-                          <span className="font-bold truncate max-w-[45%]">{grupo.vendedor || "—"}</span>
+                          <span className="font-bold truncate max-w-[45%]">{vendedorExhibicion}</span>
                           <span className="text-white/50 font-mono">#{nroForErp || grupo.nro_cliente || "—"}</span>
                           <span className="text-white/45">{formatFechaAR(grupo.fecha_hora)}</span>
                           {erpContext?.encontrado && !loadingERP && (

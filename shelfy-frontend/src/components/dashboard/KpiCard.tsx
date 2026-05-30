@@ -452,7 +452,7 @@ export function KpiCard({
 
         {isCompact ? (
           /* ── Compact Figma ref: bloque icono+nro+label centrado, acento izq 4px ── */
-          <CardContent className="p-0 flex h-full w-full items-center justify-start pl-3 pr-2 py-3 sm:pl-4 sm:pr-3 sm:py-4 min-h-0">
+          <CardContent className="p-0 flex h-full w-full items-center justify-start pl-3 pr-2 py-2 sm:pl-4 sm:pr-3 sm:py-2.5 min-h-0">
             <div className="flex min-w-0 max-w-full flex-row items-center gap-2.5 sm:gap-3">
             <div
               className="flex size-12 sm:size-14 shrink-0 items-center justify-center rounded-2xl text-white [&_svg]:size-7 sm:[&_svg]:size-7"

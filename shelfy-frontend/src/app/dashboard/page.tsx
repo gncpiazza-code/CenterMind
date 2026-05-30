@@ -226,13 +226,13 @@ export default function DashboardPage() {
 
           {/* KPIs (izq) + filtros/tema/fullscreen en columna (der) */}
           <motion.div
-            className="shrink-0 mb-3 flex flex-col sm:flex-row items-stretch justify-between gap-2 md:gap-3 w-full min-w-0"
+            className="shrink-0 mb-2 flex flex-col sm:flex-row items-stretch justify-between gap-2 md:gap-3 w-full min-w-0"
             variants={sectionVariants}
             initial="hidden"
             animate="show"
             custom={0}
           >
-            <div className="flex-1 min-w-0 min-h-[188px] sm:min-h-0 overflow-hidden w-full">
+            <div className="flex-1 min-w-0 min-h-[136px] sm:min-h-0 overflow-hidden w-full">
               <DashboardKpiCarousel
                 kpis={kpis}
                 evolucion={evolucion}

@@ -37,7 +37,7 @@ interface DashboardKpiCarouselProps {
 type SlideKey = 0 | 1 | 2;
 const SLIDE_LABELS = ["Estados", "Evolución", "Rendimiento"];
 const SLIDE_ROTATE_MS = 8000;
-const SLIDE_HEIGHT_CLASS = "h-[188px] sm:h-[168px] md:h-[160px]";
+const SLIDE_HEIGHT_CLASS = "h-[160px] sm:h-[143px] md:h-[136px]";
 
 function useCompactViewport() {
   const [compact, setCompact] = useState(false);

@@ -18,6 +18,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/Button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
+import { Sidebar } from "@/components/layout/Sidebar";
+import { BottomNav } from "@/components/layout/BottomNav";
+import { Topbar } from "@/components/layout/Topbar";
 
 import { useAuth } from "@/hooks/useAuth";
 import {
@@ -168,23 +171,28 @@ export default function FuerzaVentasPage() {
   if (!user) return null;
 
   return (
-    <div className="p-6 max-w-6xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Fuerza de Ventas</h1>
-          <p className="text-sm text-muted-foreground">
-            Vinculación Telegram ↔ Vendedor ERP por grupo
-          </p>
-        </div>
-        <Button variant="outline" size="sm" onClick={handleScan} disabled={scanning}>
-          {scanning ? (
-            <Loader2 className="h-4 w-4 animate-spin mr-2" />
-          ) : (
-            <RefreshCw className="h-4 w-4 mr-2" />
-          )}
-          Escanear ahora
-        </Button>
-      </div>
+    <div className="flex h-screen overflow-hidden" style={{ background: "var(--shelfy-bg)" }}>
+      <Sidebar />
+      <BottomNav />
+
+      <div className="flex flex-col flex-1 min-w-0 h-full">
+        <Topbar title="Fuerza de Ventas" />
+
+        <main className="flex-1 overflow-y-auto p-4 md:p-6 pb-24 md:pb-8">
+          <div className="max-w-6xl mx-auto space-y-6">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm text-muted-foreground">
+                Vinculación Telegram ↔ Vendedor ERP por grupo
+              </p>
+              <Button variant="outline" size="sm" onClick={handleScan} disabled={scanning}>
+                {scanning ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : (
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                )}
+                Escanear ahora
+              </Button>
+            </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {healthLoading ? (
@@ -283,6 +291,9 @@ export default function FuerzaVentasPage() {
           setSelectedGrupo(null);
         }}
       />
+          </div>
+        </main>
+      </div>
     </div>
   );
 }

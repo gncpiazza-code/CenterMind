@@ -1812,6 +1812,8 @@ export interface DeudorDetalle {
   deuda: {
     total_deuda: number;
     antiguedad_dias: number;
+    antiguedad_cc?: number;
+    antiguedad_desde_padron?: boolean;
     rango_antiguedad: string | null;
     cantidad_comprobantes: number;
     desglose_antiguedad: Array<{ rango: string; monto: number }>;

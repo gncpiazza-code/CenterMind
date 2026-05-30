@@ -2460,11 +2460,13 @@ def supervision_deuda_detalle(
             "id_cliente_erp": erp_raw,
         }
 
+        fuc_pdv: str | None = None
         if id_cliente_pk:
             pdv_res = (
                 sb.table(t_clientes)
                 .select("id_cliente, nombre_fantasia, nombre_razon_social, "
-                        "telefono, celular, domicilio, latitud, longitud, id_ruta")
+                        "telefono, celular, domicilio, latitud, longitud, id_ruta, "
+                        "fecha_ultima_compra")
                 .eq("id_distribuidor", d_id)
                 .eq("id_cliente", int(id_cliente_pk))
                 .limit(1)
@@ -2473,6 +2475,7 @@ def supervision_deuda_detalle(
             )
             if pdv_res:
                 p = pdv_res[0]
+                fuc_pdv = p.get("fecha_ultima_compra")
                 perfil["nombre_fantasia"] = p.get("nombre_fantasia") or cc_row.get("cliente_nombre")
                 perfil["razon_social"] = p.get("nombre_razon_social")
                 perfil["telefono"] = p.get("telefono")
@@ -2497,11 +2500,20 @@ def supervision_deuda_detalle(
                         perfil["ruta_numero"] = str(r.get("id_ruta_erp") or "")
                         perfil["ruta_nombre"] = str(r.get("id_ruta_erp") or "")
 
+        # Antigüedad coherente con tabla CC (padrón si CHESS marca 0d).
+        antig_cc = int(cc_row.get("antiguedad_dias") or 0)
+        deuda_total_cc = float(cc_row.get("deuda_total") or 0)
+        hoy = _today_ar()
+        dias_uc = _dias_desde_fecha(fuc_pdv, hoy) if fuc_pdv else None
+        antig_show, rango_show, desde_padron = _antiguedad_supervision_display(
+            antig_cc, dias_uc, deuda_total_cc
+        )
+
         # ── 3. Ventas del cliente en ventana (para matcheo) ───────────────────
         from datetime import timedelta as _td
-        antiguedad_dias = int(cc_row.get("antiguedad_dias") or 0)
-        hoy = _today_ar()
-        ventana_inicio = (hoy - _td(days=antiguedad_dias + 42)).isoformat()
+        antig_match = max(antig_cc, antig_show)
+        cc_match_row = {**cc_row, "antiguedad_dias_match": antig_match}
+        ventana_inicio = (hoy - _td(days=antig_match + 42)).isoformat()
 
         t_ventas = tenant_table_name("ventas_enriched_v2", d_id)
         ventas_rows: list[dict] = []
@@ -2527,7 +2539,7 @@ def supervision_deuda_detalle(
             offset += PAGE
 
         # ── 4. Matchear ────────────────────────────────────────────────────────
-        match = match_deuda_comprobantes(cc_row, ventas_rows)
+        match = match_deuda_comprobantes(cc_match_row, ventas_rows)
 
         # ── 5. Desglose por antigüedad ─────────────────────────────────────────
         desglose = [
@@ -2542,8 +2554,10 @@ def supervision_deuda_detalle(
             "perfil": perfil,
             "deuda": {
                 "total_deuda": match["total_deuda"],
-                "antiguedad_dias": antiguedad_dias,
-                "rango_antiguedad": cc_row.get("rango_antiguedad"),
+                "antiguedad_dias": antig_show,
+                "antiguedad_cc": antig_cc,
+                "antiguedad_desde_padron": desde_padron,
+                "rango_antiguedad": rango_show or cc_row.get("rango_antiguedad"),
                 "cantidad_comprobantes": int(cc_row.get("cantidad_comprobantes") or 0),
                 "desglose_antiguedad": desglose,
             },

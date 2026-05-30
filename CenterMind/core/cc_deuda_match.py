@@ -23,6 +23,40 @@ _TOLERANCE_PCT = 0.15
 # usamos 35 días para no perder comprobantes recientes.
 _VENTANA_MARGEN_DIAS = 35
 
+# Antigüedad representativa por bucket cuando CHESS reporta 0d pero hay saldo en el rango.
+_BUCKET_ANTIGUEDAD_DIAS = (
+    ("deuda_mas_60_dias", 61),
+    ("deuda_60_dias", 45),
+    ("deuda_30_dias", 22),
+    ("deuda_15_dias", 12),
+    ("deuda_7_dias", 4),
+)
+
+
+def _infer_antiguedad_efectiva(cc_row: dict[str, Any]) -> int:
+    """Antigüedad para ventana/ancla de matcheo (buckets CC si CHESS marca 0d)."""
+    antig = int(cc_row.get("antiguedad_dias") or 0)
+    if antig > 0:
+        return antig
+    deuda_total = float(cc_row.get("deuda_total") or 0)
+    if deuda_total <= 0:
+        return 0
+    for field, dias in _BUCKET_ANTIGUEDAD_DIAS:
+        if float(cc_row.get(field) or 0) > 0:
+            return dias
+    return antig
+
+
+def _antiguedad_para_match(cc_row: dict[str, Any]) -> int:
+    """Prioriza antigüedad explícita de supervisión (padrón) si viene en cc_row."""
+    explicit = cc_row.get("antiguedad_dias_match")
+    if explicit is not None:
+        try:
+            return max(0, int(explicit))
+        except (TypeError, ValueError):
+            pass
+    return _infer_antiguedad_efectiva(cc_row)
+
 
 def _ventas_es_recaudacion(tipo: str | None) -> bool:
     if not tipo:
@@ -52,7 +86,7 @@ def match_deuda_comprobantes(
     """
     deuda_total: float = float(cc_row.get("deuda_total") or 0)
     n_cbtes: int = int(cc_row.get("cantidad_comprobantes") or 0)
-    antiguedad_dias: int = int(cc_row.get("antiguedad_dias") or 0)
+    antiguedad_dias: int = _antiguedad_para_match(cc_row)
 
     # Sin datos suficientes → sin_comprobantes
     if n_cbtes == 0 or not ventas_rows:
@@ -115,36 +149,49 @@ def match_deuda_comprobantes(
         # Sin ventas en ventana → sin_comprobantes
         return _sin_comprobantes(deuda_total)
 
-    # Ordenar por cercanía a la antigüedad (los más probablemente impagos primero)
     ancla = hoy - timedelta(days=antiguedad_dias)
-    candidatos.sort(
-        key=lambda d: abs((d["_fecha_obj"] - ancla).days) if d["_fecha_obj"] else 999_999
-    )
 
-    # Tomar los N más probables
-    seleccionados = candidatos[:n_cbtes]
+    def _sort_key(d: dict[str, Any]) -> tuple[float, int]:
+        amt = abs(d["importe_total"] - deuda_total) if deuda_total > 0 else d["importe_total"]
+        if d["_fecha_obj"] is not None:
+            date_dist = abs((d["_fecha_obj"] - ancla).days)
+        else:
+            date_dist = 999_999
+        return (amt, date_dist)
+
+    candidatos.sort(key=_sort_key)
+
+    # Elegir hasta N comprobantes cuya suma mejor aproxime la deuda (greedy por monto).
+    seleccionados: list[dict[str, Any]] = []
+    restantes = list(candidatos)
+    while len(seleccionados) < n_cbtes and restantes:
+        if n_cbtes == 1:
+            seleccionados.append(restantes.pop(0))
+            break
+        best_idx = 0
+        best_gap = float("inf")
+        acum = sum(d["importe_total"] for d in seleccionados)
+        for i, cand in enumerate(restantes):
+            gap = abs((acum + cand["importe_total"]) - deuda_total)
+            if gap < best_gap:
+                best_gap = gap
+                best_idx = i
+        seleccionados.append(restantes.pop(best_idx))
+
     suma = sum(d["importe_total"] for d in seleccionados)
 
-    # Limpiar campo interno antes de retornar
     for d in seleccionados:
         d.pop("_fecha_obj", None)
 
-    confianza: str
-    estado: str
-    if deuda_total > 0 and abs(suma - deuda_total) / deuda_total <= _TOLERANCE_PCT:
-        estado = "matched"
-        confianza = "alta"
-        for d in seleccionados:
-            d["match_status"] = "matched"
-    else:
-        estado = "partial"
-        confianza = "baja"
-        for d in seleccionados:
-            d["match_status"] = "estimado"
+    if deuda_total <= 0 or abs(suma - deuda_total) / deuda_total > _TOLERANCE_PCT:
+        return _sin_comprobantes(deuda_total)
+
+    for d in seleccionados:
+        d["match_status"] = "matched"
 
     return {
-        "estado": estado,
-        "confianza": confianza,
+        "estado": "matched",
+        "confianza": "alta",
         "comprobantes": seleccionados,
         "total_deuda": deuda_total,
     }

@@ -179,7 +179,14 @@ function ProfileContent({
         <div className="flex items-center gap-4 mt-2 pt-2 border-t border-border/40 text-[11px]">
           <span>
             <span className="text-muted-foreground">Antig. </span>
-            <span className="font-bold tabular-nums">{deuda.antiguedad_dias}d</span>
+            <span
+              className={cn(
+                "font-bold tabular-nums",
+                deuda.antiguedad_desde_padron && "text-amber-700",
+              )}
+            >
+              {deuda.antiguedad_dias}d
+            </span>
           </span>
           <span>
             <span className="text-muted-foreground">Comprobantes </span>

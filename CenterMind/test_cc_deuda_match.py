@@ -63,26 +63,59 @@ class TestMatched:
             assert "_fecha_obj" not in cbte
 
 
-class TestPartial:
-    """Suma fuera de ±15% → estado 'partial', confianza baja."""
+class TestSinMatchPorMonto:
+    """Sin comprobantes dentro de ±15% → sin_comprobantes (no mostrar estimados erróneos)."""
 
-    def test_partial_por_monto(self):
+    def test_sin_match_por_monto(self):
         cc = {"deuda_total": 10000.0, "cantidad_comprobantes": 2, "antiguedad_dias": 30}
         ventas = [
             _make_venta("F001", HACE_20, 3000.0),
-            _make_venta("F002", HACE_35, 2000.0),  # suma=5000 → -50% de 10000
+            _make_venta("F002", HACE_35, 2000.0),
         ]
         result = match_deuda_comprobantes(cc, ventas)
-        assert result["estado"] == "partial"
-        assert result["confianza"] == "baja"
-        for cbte in result["comprobantes"]:
-            assert cbte["match_status"] == "estimado"
+        assert result["estado"] == "sin_comprobantes"
+        assert result["comprobantes"] == []
 
-    def test_total_sigue_siendo_autoritativo_en_partial(self):
+    def test_total_sigue_siendo_autoritativo_sin_match(self):
         cc = {"deuda_total": 10000.0, "cantidad_comprobantes": 1, "antiguedad_dias": 5}
         ventas = [_make_venta("F001", AYER, 1000.0)]
         result = match_deuda_comprobantes(cc, ventas)
         assert result["total_deuda"] == 10000.0
+        assert result["estado"] == "sin_comprobantes"
+
+
+class TestCaso44413:
+    """CHESS $8000 / 1 cbte / antig 0d; ventas solo con factura vieja $13500 → sin match."""
+
+    def test_deuda_hoy_sin_venta_reciente(self):
+        cc = {
+            "deuda_total": 8000.0,
+            "cantidad_comprobantes": 1,
+            "antiguedad_dias": 0,
+            "deuda_7_dias": 8000.0,
+            "deuda_15_dias": 0.0,
+        }
+        ventas = [_make_venta("274691", HACE_20, 13500.0)]
+        result = match_deuda_comprobantes(cc, ventas)
+        assert result["estado"] == "sin_comprobantes"
+        assert result["comprobantes"] == []
+        assert result["total_deuda"] == 8000.0
+
+    def test_match_cuando_ingresa_factura_del_dia(self):
+        cc = {
+            "deuda_total": 8000.0,
+            "cantidad_comprobantes": 1,
+            "antiguedad_dias": 0,
+            "deuda_7_dias": 8000.0,
+        }
+        ventas = [
+            _make_venta("274691", HACE_20, 13500.0),
+            _make_venta("999001", HOY, 8000.0),
+        ]
+        result = match_deuda_comprobantes(cc, ventas)
+        assert result["estado"] == "matched"
+        assert len(result["comprobantes"]) == 1
+        assert result["comprobantes"][0]["numero"] == "999001"
 
 
 class TestSinComprobantes:

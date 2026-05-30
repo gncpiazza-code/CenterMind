@@ -26,7 +26,16 @@ type SlideKey = 0 | 1 | 2;
 const SLIDE_LABELS = ["Estados", "Evolución", "Rendimiento"];
 const SLIDE_ROTATE_MS = 8000;
 /** Altura fija compartida por cards y gráfico para evitar saltos al rotar */
-const SLIDE_HEIGHT_CLASS = "h-[120px] md:h-[108px]";
+const SLIDE_HEIGHT_CLASS = "h-[140px] md:h-[132px]";
+
+const SLIDE_TRANSITION = {
+  duration: 0.32,
+  ease: [0.16, 1, 0.3, 1] as const,
+};
+const SLIDE_EXIT_TRANSITION = {
+  duration: 0.22,
+  ease: [0.7, 0, 0.84, 0] as const,
+};
 
 function CustomTooltip({ active, payload, label }: {
   active?: boolean;
@@ -97,40 +106,33 @@ export function DashboardKpiCarousel({
 
   return (
     <div className="shrink-0">
-      {/* Slide nav dots */}
-      <div className="flex items-center justify-between mb-2">
-        <p className={cn(
-          "text-[10px] font-black uppercase tracking-widest min-h-4",
-          isDark ? "text-slate-500" : "text-violet-600/80",
-        )}>
-          {SLIDE_LABELS[slide]}
-        </p>
-        <div className="flex items-center gap-1.5">
-          {([0, 1, 2] as SlideKey[]).map((s) => (
-            <button
-              key={s}
-              type="button"
-              onClick={() => handleSlideClick(s)}
-              aria-label={SLIDE_LABELS[s]}
-              className={cn(
-                "h-1.5 rounded-full transition-all duration-300",
-                slide === s ? (isDark ? "bg-slate-400 w-5" : "bg-violet-500 w-5") : (isDark ? "w-1.5 bg-slate-600 hover:bg-slate-500" : "w-1.5 bg-slate-300 hover:bg-slate-400"),
-              )}
-            />
-          ))}
-        </div>
+      {/* Slide nav dots — right-aligned only */}
+      <div className="flex items-center justify-end mb-2 gap-1.5">
+        {([0, 1, 2] as SlideKey[]).map((s) => (
+          <button
+            key={s}
+            type="button"
+            onClick={() => handleSlideClick(s)}
+            aria-label={SLIDE_LABELS[s]}
+            className={cn(
+              "h-1.5 rounded-full transition-all duration-300 ease-out",
+              slide === s
+                ? isDark ? "bg-slate-300 w-6" : "bg-violet-500 w-6"
+                : isDark ? "w-1.5 bg-slate-700 hover:bg-slate-500" : "w-1.5 bg-slate-200 hover:bg-slate-300",
+            )}
+          />
+        ))}
       </div>
 
-      <div className={cn("relative overflow-hidden", SLIDE_HEIGHT_CLASS)}>
+      <div className={cn("relative overflow-hidden rounded-2xl", SLIDE_HEIGHT_CLASS)}>
         <AnimatePresence mode="wait">
           {/* ── Slide 0: Estados ── */}
           {slide === 0 && kpis && (
             <motion.div
               key="slide-0"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              transition={{ duration: 0.25 }}
+              initial={{ opacity: 0, y: 14 }}
+              animate={{ opacity: 1, y: 0, transition: SLIDE_TRANSITION }}
+              exit={{ opacity: 0, y: -10, transition: SLIDE_EXIT_TRANSITION }}
               className="absolute inset-0 grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3 h-full min-h-0"
             >
             <KpiCard variant="compact" immersive={isDark} label="Pendientes"  value={kpis.pendientes}  icon={<Clock size={18} />}        colorName="amber"   bgColor="bg-gradient-to-br from-amber-100/70 via-amber-50/50 to-white" />
@@ -144,10 +146,9 @@ export function DashboardKpiCarousel({
           {slide === 1 && (
             <motion.div
               key="slide-1"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              transition={{ duration: 0.25 }}
+              initial={{ opacity: 0, y: 14 }}
+              animate={{ opacity: 1, y: 0, transition: SLIDE_TRANSITION }}
+              exit={{ opacity: 0, y: -10, transition: SLIDE_EXIT_TRANSITION }}
               className={cn(
                 "absolute inset-0 h-full min-h-0 rounded-2xl px-3 py-2 flex flex-col overflow-hidden",
                 isDark
@@ -155,9 +156,6 @@ export function DashboardKpiCarousel({
                   : "bg-gradient-to-br from-violet-100/50 via-white to-indigo-100/40 border-2 border-violet-200/60 shadow-md shadow-violet-500/10",
               )}
             >
-              <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 shrink-0 leading-none mb-1">
-                Evolución
-              </p>
               <div className="flex-1 min-h-0 w-full">
                 {hasEvolucion ? (
                   <ResponsiveContainer width="100%" height="100%">
@@ -183,10 +181,9 @@ export function DashboardKpiCarousel({
           {slide === 2 && kpis && (
             <motion.div
               key="slide-2"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              transition={{ duration: 0.25 }}
+              initial={{ opacity: 0, y: 14 }}
+              animate={{ opacity: 1, y: 0, transition: SLIDE_TRANSITION }}
+              exit={{ opacity: 0, y: -10, transition: SLIDE_EXIT_TRANSITION }}
               className="absolute inset-0 grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3 h-full min-h-0"
             >
             <KpiCard

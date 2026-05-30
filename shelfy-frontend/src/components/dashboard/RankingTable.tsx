@@ -9,8 +9,6 @@ import { Button } from '@/components/ui/Button';
 import { fetchRankingCompania } from '@/lib/api';
 import type { VendedorRanking, SucursalStats, KPIs, EvolucionTiempo, RankingCompaniaRow } from '@/lib/api';
 import { sucursalFilterKey } from '@/lib/api';
-import { DashboardFullscreenButton } from './DashboardFullscreenButton';
-import { DashboardThemeToggle } from './DashboardThemeToggle';
 import { cn } from '@/lib/utils';
 
 interface RankingTableProps {
@@ -343,19 +341,6 @@ export function RankingTable({
             </button>
           )}
 
-          {/* Tema claro/oscuro */}
-          {onToggleTheme && (
-            <DashboardThemeToggle isDark={isDark} onToggle={onToggleTheme} />
-          )}
-
-          {/* Fullscreen */}
-          {onToggleFullscreen && (
-            <DashboardFullscreenButton
-              isImmersive={isFullscreen}
-              isDark={isDark}
-              onToggle={onToggleFullscreen}
-            />
-          )}
         </div>
       </div>
 

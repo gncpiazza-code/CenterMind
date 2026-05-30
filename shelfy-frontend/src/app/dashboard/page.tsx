@@ -21,7 +21,7 @@ import { cn } from "@/lib/utils";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
 import { DashboardKpiCarousel } from "@/components/dashboard/DashboardKpiCarousel";
-import { DashboardToolbar } from "@/components/dashboard/DashboardToolbar";
+import { DashboardFilterBar } from "@/components/dashboard/DashboardFilterBar";
 import { HeroCarousel } from "@/components/dashboard/HeroCarousel";
 import { RankingTable } from "@/components/dashboard/RankingTable";
 import { CCDifusionGuiaDialog } from "@/components/onboarding/CCDifusionGuiaDialog";
@@ -224,31 +224,15 @@ export default function DashboardPage() {
             </Alert>
           )}
 
-          {/* Carrusel KPI — 3 slides */}
-          <motion.div
-            className="shrink-0 mb-3"
-            variants={sectionVariants}
-            initial="hidden"
-            animate="show"
-            custom={0}
-          >
-            <DashboardKpiCarousel
-              kpis={kpis}
-              evolucion={evolucion}
-              loading={loadingKpis}
-              isDark={isDark}
-            />
-          </motion.div>
-
-          {/* Toolbar: Sucursal + Período + Hint */}
+          {/* Barra compacta top-right: filtros + tema + fullscreen */}
           <motion.div
             className="shrink-0 mb-2"
             variants={sectionVariants}
             initial="hidden"
             animate="show"
-            custom={1}
+            custom={0}
           >
-            <DashboardToolbar
+            <DashboardFilterBar
               periodPreset={periodPreset}
               customYear={customYear}
               customMonth={customMonth}
@@ -258,19 +242,37 @@ export default function DashboardPage() {
               onSucursal={setSucursalFiltro}
               isDark={isDark}
               onToggleTheme={toggleTheme}
+              isFullscreen={isFullscreen}
+              onToggleFullscreen={toggleFullscreen}
+            />
+          </motion.div>
+
+          {/* Carrusel KPI — 3 slides */}
+          <motion.div
+            className="shrink-0 mb-3"
+            variants={sectionVariants}
+            initial="hidden"
+            animate="show"
+            custom={1}
+          >
+            <DashboardKpiCarousel
+              kpis={kpis}
+              evolucion={evolucion}
+              loading={loadingKpis}
+              isDark={isDark}
             />
           </motion.div>
 
           {/* Layout 25% hero / 75% ranking */}
           <div className="relative flex-1 min-h-0 w-full">
             {!isDark && (
-              <div className="hidden md:block absolute left-[25%] top-0 bottom-0 w-px -translate-x-1/2 bg-gradient-to-b from-transparent via-violet-300/50 to-transparent pointer-events-none z-10" />
+              <div className="hidden md:block absolute left-[40%] top-0 bottom-0 w-px -translate-x-1/2 bg-gradient-to-b from-transparent via-violet-300/50 to-transparent pointer-events-none z-10" />
             )}
 
             <div className="flex flex-col md:flex-row md:items-stretch gap-4 h-full min-h-0 overflow-hidden">
-              {/* HeroCarousel — 25% */}
+              {/* HeroCarousel — 40% */}
               <motion.div
-                className="relative w-full md:w-1/4 md:min-w-0 flex flex-col min-h-0 md:h-full"
+                className="relative w-full md:w-2/5 md:min-w-0 flex flex-col min-h-0 md:h-full"
                 variants={sectionVariants}
                 initial="hidden"
                 animate="show"
@@ -304,9 +306,9 @@ export default function DashboardPage() {
                 )}
               </motion.div>
 
-              {/* RankingTable — 75% */}
+              {/* RankingTable — 60% */}
               <motion.div
-                className="relative w-full md:w-3/4 md:min-w-0 flex flex-col min-h-0 flex-1 md:h-full overflow-hidden"
+                className="relative w-full md:w-3/5 md:min-w-0 flex flex-col min-h-0 flex-1 md:h-full overflow-hidden"
                 variants={sectionVariants}
                 initial="hidden"
                 animate="show"
@@ -337,9 +339,6 @@ export default function DashboardPage() {
                     nombreEmpresa={user?.nombre_empresa || "Distribuidora"}
                     isCompania={isCompania}
                     isDark={isDark}
-                    isFullscreen={isFullscreen}
-                    onToggleFullscreen={toggleFullscreen}
-                    onToggleTheme={toggleTheme}
                   />
                 </div>
               </motion.div>

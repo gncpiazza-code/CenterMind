@@ -5,12 +5,12 @@ import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Link2,
-  Users,
   Bell,
   RefreshCw,
   Loader2,
   AlertTriangle,
   CheckCircle2,
+  Users,
 } from "lucide-react";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -23,16 +23,14 @@ import {
   fetchBindingHealth,
   fetchBindingSuggestions,
   fetchBindingGrupos,
-  fetchFuerzaVentasVendedores,
   triggerBindingScan,
   type BindingHealthKPIs,
   type AuthResponse,
-  type FuerzaVentasVendedor,
+  type GrupoBindingStatus,
 } from "@/lib/api";
 import { BindingAlertInbox } from "@/components/fuerza-ventas/BindingAlertInbox";
 import { GrupoBindingCard } from "@/components/fuerza-ventas/GrupoBindingCard";
-import { VendedorCard } from "@/components/fuerza-ventas/VendedorCard";
-import { VendedorEditSheet } from "@/components/fuerza-ventas/VendedorEditSheet";
+import { GrupoBindingSheet } from "@/components/fuerza-ventas/GrupoBindingSheet";
 
 function canAccessFV(user: AuthResponse): boolean {
   if (user.is_superadmin || user.rol === "superadmin") return true;
@@ -80,9 +78,9 @@ export default function FuerzaVentasPage() {
     }
   }, [user, router]);
 
-  const [activeTab, setActiveTab] = useState("alertas");
+  const [activeTab, setActiveTab] = useState("grupos");
   const [scanning, setScanning] = useState(false);
-  const [selectedVendedorId, setSelectedVendedorId] = useState<number | null>(null);
+  const [selectedGrupo, setSelectedGrupo] = useState<GrupoBindingStatus | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
 
   const { data: health, isLoading: healthLoading } = useQuery<BindingHealthKPIs>({
@@ -95,21 +93,14 @@ export default function FuerzaVentasPage() {
   const { data: suggestions = [], isLoading: suggestionsLoading } = useQuery({
     queryKey: ["binding-suggestions", distId],
     queryFn: () => fetchBindingSuggestions(distId),
-    enabled: distId > 0 && activeTab === "alertas",
+    enabled: distId > 0,
     staleTime: 30_000,
   });
 
   const { data: grupos = [], isLoading: gruposLoading } = useQuery({
     queryKey: ["binding-grupos", distId],
-    queryFn: () => fetchBindingGrupos(distId),
-    enabled: distId > 0 && activeTab === "grupos",
-    staleTime: 60_000,
-  });
-
-  const { data: vendedores = [], isLoading: vendedoresLoading } = useQuery<FuerzaVentasVendedor[]>({
-    queryKey: ["fv-vendedores", distId],
-    queryFn: () => fetchFuerzaVentasVendedores(distId),
-    enabled: distId > 0 && activeTab === "vendedores",
+    queryFn: () => fetchBindingGrupos(distId, 0, 200),
+    enabled: distId > 0,
     staleTime: 60_000,
   });
 
@@ -126,6 +117,11 @@ export default function FuerzaVentasPage() {
     }
   }
 
+  function openGrupo(grupo: GrupoBindingStatus) {
+    setSelectedGrupo(grupo);
+    setSheetOpen(true);
+  }
+
   if (!user) return null;
 
   return (
@@ -134,7 +130,7 @@ export default function FuerzaVentasPage() {
         <div>
           <h1 className="text-2xl font-bold">Fuerza de Ventas</h1>
           <p className="text-sm text-muted-foreground">
-            Gestión de vinculaciones Telegram ↔ Vendedor ERP
+            Vinculación Telegram ↔ Vendedor ERP por grupo
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={handleScan} disabled={scanning}>
@@ -178,7 +174,11 @@ export default function FuerzaVentasPage() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid grid-cols-3 w-full max-w-md">
+        <TabsList className="grid grid-cols-2 w-full max-w-sm">
+          <TabsTrigger value="grupos">
+            <Link2 className="h-4 w-4 mr-1.5" />
+            Grupos
+          </TabsTrigger>
           <TabsTrigger value="alertas" className="relative">
             Alertas
             {(health?.sugerencias_pendientes ?? 0) > 0 && (
@@ -187,26 +187,12 @@ export default function FuerzaVentasPage() {
               </Badge>
             )}
           </TabsTrigger>
-          <TabsTrigger value="grupos">
-            <Link2 className="h-4 w-4 mr-1.5" />
-            Grupos
-          </TabsTrigger>
-          <TabsTrigger value="vendedores">Vendedores</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="alertas" className="mt-4">
-          {suggestionsLoading ? (
-            <div className="space-y-3">
-              {Array.from({ length: 3 }).map((_, i) => (
-                <Skeleton key={i} className="h-32 rounded-xl" />
-              ))}
-            </div>
-          ) : (
-            <BindingAlertInbox suggestions={suggestions} distId={distId} />
-          )}
-        </TabsContent>
-
         <TabsContent value="grupos" className="mt-4">
+          <p className="text-sm text-muted-foreground mb-4">
+            Hacé clic en un grupo para asignar vendedor ERP y UID Telegram.
+          </p>
           {gruposLoading ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
               {Array.from({ length: 6 }).map((_, i) => (
@@ -220,47 +206,38 @@ export default function FuerzaVentasPage() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
               {grupos.map((g) => (
-                <GrupoBindingCard key={g.telegram_chat_id} grupo={g} />
+                <GrupoBindingCard key={g.telegram_chat_id} grupo={g} onConfigure={openGrupo} />
               ))}
             </div>
           )}
         </TabsContent>
 
-        <TabsContent value="vendedores" className="mt-4">
-          {vendedoresLoading ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {Array.from({ length: 6 }).map((_, i) => (
-                <Skeleton key={i} className="h-36 rounded-xl" />
+        <TabsContent value="alertas" className="mt-4">
+          {suggestionsLoading ? (
+            <div className="space-y-3">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Skeleton key={i} className="h-32 rounded-xl" />
               ))}
             </div>
-          ) : vendedores.length === 0 ? (
-            <p className="text-center py-12 text-muted-foreground">
-              No hay vendedores disponibles.
-            </p>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {vendedores.map((v) => (
-                <VendedorCard
-                  key={v.id_vendedor}
-                  vendedor={v}
-                  onClick={() => {
-                    setSelectedVendedorId(v.id_vendedor);
-                    setSheetOpen(true);
-                  }}
-                />
-              ))}
-            </div>
+            <BindingAlertInbox
+              suggestions={suggestions}
+              distId={distId}
+              onApplied={() => {
+                qc.invalidateQueries({ queryKey: ["binding-grupos", distId] });
+              }}
+            />
           )}
         </TabsContent>
       </Tabs>
 
-      <VendedorEditSheet
-        idVendedor={selectedVendedorId}
+      <GrupoBindingSheet
+        grupo={selectedGrupo}
         distId={distId}
         open={sheetOpen}
         onClose={() => {
           setSheetOpen(false);
-          setSelectedVendedorId(null);
+          setSelectedGrupo(null);
         }}
       />
     </div>

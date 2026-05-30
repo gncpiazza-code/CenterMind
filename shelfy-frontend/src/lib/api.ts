@@ -3346,7 +3346,15 @@ export interface GrupoBindingStatus {
   binding_status: string;
   bound_at?: string;
   bound_by?: string;
+  dominant_uploader_uid?: number | null;
   integrantes_count: number;
+}
+
+export interface BindingGroupCandidate {
+  id_vendedor: number;
+  nombre_erp: string;
+  score: number;
+  reasons: string[];
 }
 
 export interface BindingHealthKPIs {
@@ -3390,17 +3398,42 @@ export async function applyBindingDirect(
   distId: number,
   telegramChatId: number,
   idVendedorV2: number,
-  performedBy: string
+  performedBy: string,
+  telegramUserId?: number | null,
 ): Promise<void> {
   await apiFetch<unknown>(`/api/fuerza-ventas/binding/apply/${distId}`, {
     method: "POST",
     body: JSON.stringify({
       telegram_chat_id: telegramChatId,
       id_vendedor_v2: idVendedorV2,
+      telegram_user_id: telegramUserId ?? undefined,
       source: "portal",
       performed_by: performedBy,
     }),
   });
+}
+
+export async function unlinkBindingDirect(
+  distId: number,
+  telegramChatId: number,
+  performedBy: string,
+): Promise<void> {
+  await apiFetch<unknown>(`/api/fuerza-ventas/binding/unlink/${distId}`, {
+    method: "POST",
+    body: JSON.stringify({
+      telegram_chat_id: telegramChatId,
+      performed_by: performedBy,
+    }),
+  });
+}
+
+export async function fetchBindingGroupCandidates(
+  distId: number,
+  chatId: number,
+): Promise<BindingGroupCandidate[]> {
+  return apiFetch<BindingGroupCandidate[]>(
+    `/api/fuerza-ventas/binding/grupos/${distId}/${chatId}/candidates`,
+  );
 }
 
 export async function triggerBindingScan(distId: number): Promise<object> {

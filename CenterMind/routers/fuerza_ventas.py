@@ -1844,7 +1844,10 @@ def binding_list_grupos(
     try:
         grupos_r = (
             sb.table("grupos")
-            .select("telegram_chat_id, nombre_grupo, binding_status, id_vendedor_v2")
+            .select(
+                "telegram_chat_id, nombre_grupo, binding_status, id_vendedor_v2, "
+                "dominant_uploader_uid, bound_at, bound_by"
+            )
             .eq("id_distribuidor", dist_id)
             .order("nombre_grupo")
             .range(skip, skip + limit - 1)
@@ -1907,7 +1910,10 @@ def binding_list_grupos(
                 "binding_status": g.get("binding_status", "unlinked"),
                 "id_vendedor_v2": vend_id,
                 "nombre_erp": vend_names.get(int(vend_id)) if vend_id is not None else None,
-                "total_integrantes": integrante_counts.get(int(chat_id), 0) if chat_id is not None else 0,
+                "dominant_uploader_uid": g.get("dominant_uploader_uid"),
+                "bound_at": g.get("bound_at"),
+                "bound_by": g.get("bound_by"),
+                "integrantes_count": integrante_counts.get(int(chat_id), 0) if chat_id is not None else 0,
             })
         return result
     except HTTPException:
@@ -1930,18 +1936,58 @@ def binding_apply_direct(dist_id: int, req: GroupBindingApplyRequest, payload=De
             id_vendedor_v2=req.id_vendedor_v2,
             source=req.source or "manual_portal",
             performed_by=performed_by,
+            telegram_user_id=req.telegram_user_id,
         )
         return {
             "ok": True,
             "dist_id": dist_id,
             "telegram_chat_id": req.telegram_chat_id,
             "id_vendedor_v2": req.id_vendedor_v2,
+            "telegram_user_id": req.telegram_user_id,
             "performed_by": performed_by,
         }
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"[binding] apply_direct dist={dist_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/fuerza-ventas/binding/unlink/{dist_id}", tags=["Binding"])
+def binding_unlink_direct(dist_id: int, req: dict, payload=Depends(verify_auth)):
+    """Desvincula un grupo (limpia anclaje en grupos; integrantes conservan mapping legacy)."""
+    _check_fv_access(payload, dist_id)
+    try:
+        chat_id = int(req.get("telegram_chat_id"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="telegram_chat_id requerido")
+    try:
+        from core.telegram_group_matcher import unlink_group
+        performed_by = req.get("performed_by") or payload.get("usuario", "portal")
+        unlink_group(
+            dist_id,
+            chat_id,
+            reason=req.get("reason") or "portal_manual",
+            performed_by=performed_by,
+        )
+        return {"ok": True, "telegram_chat_id": chat_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[binding] unlink dist={dist_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/fuerza-ventas/binding/grupos/{dist_id}/{chat_id}/candidates", tags=["Binding"])
+def binding_group_candidates(dist_id: int, chat_id: int, payload=Depends(verify_auth)):
+    """Candidatos ERP sugeridos para un grupo (mismo motor que /vincular)."""
+    _check_fv_access(payload, dist_id)
+    try:
+        from core.telegram_group_matcher import score_group_vendor_candidates
+        rows = score_group_vendor_candidates(dist_id, chat_id)
+        return rows[:10]
+    except Exception as e:
+        logger.error(f"[binding] candidates dist={dist_id} chat={chat_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

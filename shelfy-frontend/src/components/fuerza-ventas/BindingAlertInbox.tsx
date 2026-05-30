@@ -13,6 +13,7 @@ import { useAuth } from "@/hooks/useAuth";
 interface Props {
   suggestions: BindingSuggestion[];
   distId: number;
+  onApplied?: () => void;
 }
 
 function scoreColor(score: number): string {
@@ -21,7 +22,7 @@ function scoreColor(score: number): string {
   return "bg-red-100 text-red-800";
 }
 
-export function BindingAlertInbox({ suggestions, distId }: Props) {
+export function BindingAlertInbox({ suggestions, distId, onApplied }: Props) {
   const { user } = useAuth();
   const qc = useQueryClient();
   const username = user?.usuario || "portal";
@@ -32,6 +33,8 @@ export function BindingAlertInbox({ suggestions, distId }: Props) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["binding-suggestions", distId] });
       qc.invalidateQueries({ queryKey: ["binding-health", distId] });
+      qc.invalidateQueries({ queryKey: ["binding-grupos", distId] });
+      onApplied?.();
     },
     onError: () => toast.error("Error al procesar sugerencia"),
   });

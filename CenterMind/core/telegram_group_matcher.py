@@ -320,6 +320,7 @@ def apply_group_binding(
     id_vendedor_v2: int,
     source: str = "manual",
     performed_by: str = "system",
+    telegram_user_id: int | None = None,
 ) -> None:
     """
     Vincula el grupo con el vendedor:
@@ -334,14 +335,18 @@ def apply_group_binding(
         now_iso = datetime.now(timezone.utc).isoformat()
 
         # Actualizar grupos
-        sb.table("grupos").update({
+        grupo_update: dict = {
             "id_vendedor_v2": id_vendedor_v2,
             "binding_status": "linked",
             "bound_at": now_iso,
             "bound_by": performed_by,
-            # Guardar nombre actual como previo para detección de drift futura
             "nombre_grupo_prev": grupo.get("nombre_grupo") if grupo else None,
-        }).eq("id_distribuidor", dist_id).eq("telegram_chat_id", telegram_chat_id).execute()
+        }
+        if telegram_user_id is not None:
+            grupo_update["dominant_uploader_uid"] = int(telegram_user_id)
+        sb.table("grupos").update(grupo_update).eq("id_distribuidor", dist_id).eq(
+            "telegram_chat_id", telegram_chat_id
+        ).execute()
 
         # Propagar a integrantes_grupo (paginado)
         offset = 0
@@ -364,6 +369,18 @@ def apply_group_binding(
             if len(batch) < PAGE:
                 break
             offset += PAGE
+
+        if telegram_user_id is not None:
+            sb.table("vendedores_telegram_binding").upsert(
+                {
+                    "id_distribuidor": dist_id,
+                    "id_vendedor_v2": id_vendedor_v2,
+                    "telegram_user_id": int(telegram_user_id),
+                    "telegram_group_id": telegram_chat_id,
+                    "updated_by": performed_by,
+                },
+                on_conflict="id_distribuidor,id_vendedor_v2",
+            ).execute()
 
         # Auditoría
         sb.table("telegram_binding_audit").insert({

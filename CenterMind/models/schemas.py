@@ -420,6 +420,7 @@ class BindingSuggestionResolve(BaseModel):
 class GroupBindingApplyRequest(BaseModel):
     telegram_chat_id: int
     id_vendedor_v2: int
+    telegram_user_id: Optional[int] = None
     source: str = "portal"
     performed_by: str = "portal"
 

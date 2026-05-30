@@ -15,8 +15,16 @@ import { useAuth } from "@/hooks/useAuth";
 import { useEffect, useMemo, useState } from "react";
 import { Loader2, RefreshCw, ShieldCheck, Wand2 } from "lucide-react";
 import { toast } from "sonner";
+import type { AuthResponse } from "@/lib/api";
 
 type DistOption = { id_distribuidor: number; nombre_dist: string };
+
+function canAccessMatchCenter(user: AuthResponse): boolean {
+  if (user.is_superadmin || user.rol === "superadmin") return true;
+  if (user.rol === "directorio") return true;
+  if (user.id_distribuidor === 4 && ["admin", "supervisor"].includes(user.rol)) return true;
+  return false;
+}
 
 function vendorText(v: MatchCenterRow["current_vendor"] | MatchCenterRow["suggested_vendor"]) {
   if (!v) return "—";
@@ -39,7 +47,7 @@ export default function MatchCenterPage() {
   const [testIds, setTestIds] = useState<number[]>([]);
 
   useEffect(() => {
-    if (!user?.is_superadmin) return;
+    if (!user || !canAccessMatchCenter(user)) return;
     fetchDistribuidores(false)
       .then((data: any) => {
         const normalized = (data || []).map((d: any) => ({
@@ -55,7 +63,7 @@ export default function MatchCenterPage() {
         console.error(e);
         toast.error("No se pudieron cargar distribuidores.");
       });
-  }, [user?.is_superadmin, selectedDist]);
+  }, [user, selectedDist]);
 
   const load = async () => {
     if (!selectedDist) return;
@@ -107,7 +115,7 @@ export default function MatchCenterPage() {
     }
   };
 
-  if (!user?.is_superadmin) return null;
+  if (!user || !canAccessMatchCenter(user)) return null;
 
   return (
     <div className="h-screen bg-[var(--shelfy-bg)] text-[var(--shelfy-text)] flex">

@@ -297,6 +297,16 @@ class GaleriaVendedorStats(BaseModel):
     pendientes: int
 
 
+class UltimoComprobanteResumen(BaseModel):
+    fecha: Optional[str] = None
+    tipo_documento: Optional[str] = None
+    numero_documento: Optional[str] = None
+    serie: Optional[str] = None
+    importe_final: Optional[float] = None
+    nombre_vendedor: Optional[str] = None
+    label: Optional[str] = None
+
+
 class GaleriaClienteCard(BaseModel):
     id_cliente: int
     id_cliente_erp: Optional[str] = None
@@ -306,6 +316,7 @@ class GaleriaClienteCard(BaseModel):
     ultima_exhibicion_fecha: Optional[str] = None
     ultimo_estado: Optional[str] = None
     fecha_ultima_compra: Optional[str] = None
+    ultimo_comprobante: Optional[UltimoComprobanteResumen] = None
     total_exhibiciones: int
     es_sin_referencia: bool = False
     motivo_no_referencia: Optional[str] = None
@@ -383,3 +394,51 @@ class PortalFeedbackMessageCreate(BaseModel):
 
 class PortalFeedbackReplyIn(BaseModel):
     respuesta: str = Field(..., min_length=1, max_length=24_000)
+
+
+# ── Telegram Binding ──────────────────────────────────────────────────────────
+
+class BindingSuggestion(BaseModel):
+    id: int
+    id_distribuidor: int
+    telegram_chat_id: int
+    id_vendedor_v2: int
+    nombre_erp: Optional[str] = None
+    nombre_grupo: Optional[str] = None
+    score: float
+    reasons: List[str] = []
+    status: str  # pending/applied/rejected/auto_applied
+    source: Optional[str] = None
+    created_at: Optional[str] = None
+
+
+class BindingSuggestionResolve(BaseModel):
+    action: str  # "apply" | "reject"
+    performed_by: str = "portal"
+
+
+class GroupBindingApplyRequest(BaseModel):
+    telegram_chat_id: int
+    id_vendedor_v2: int
+    source: str = "portal"
+    performed_by: str = "portal"
+
+
+class GrupoBindingStatus(BaseModel):
+    telegram_chat_id: int
+    nombre_grupo: Optional[str] = None
+    id_vendedor_v2: Optional[int] = None
+    nombre_erp: Optional[str] = None
+    binding_status: str = "unlinked"
+    bound_at: Optional[str] = None
+    bound_by: Optional[str] = None
+    dominant_uploader_uid: Optional[int] = None
+    integrantes_count: int = 0
+
+
+class BindingHealthKPIs(BaseModel):
+    grupos_total: int
+    grupos_vinculados: int
+    grupos_review: int
+    grupos_sin_vincular: int
+    sugerencias_pendientes: int

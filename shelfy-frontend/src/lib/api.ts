@@ -173,7 +173,12 @@ export interface ERPContexto {
   fecha_alta?: string;
   ultimo_comprobante?: UltimoComprobanteResumen | null;
   ultima_compra_articulos?: UltimaCompraArticulo[] | null;
+  ultima_compra_comprobantes?: UltimaCompraComprobanteBlock[] | null;
   ultima_compra_articulos_resumen?: string | null;
+  /** Consolido anulado; false si hay compra en ventas (no puede figurar anulado). */
+  padron_anulado?: boolean;
+  /** Compra en últimos 30 días (fecha operativa). */
+  activo_comercial?: boolean;
 }
 
 // PASO 10: ROI Analítico
@@ -821,7 +826,15 @@ export interface UltimoComprobanteResumen {
 export interface UltimaCompraArticulo {
   descripcion: string;
   bultos_total: number;
+  /** Unidades (Consolido o conversión desde bultos en API). */
+  unidades_total?: number;
   importe_final: number;
+}
+
+/** Un comprobante de la última fecha (puede haber varios el mismo día). */
+export interface UltimaCompraComprobanteBlock {
+  comprobante?: UltimoComprobanteResumen | null;
+  articulos?: UltimaCompraArticulo[] | null;
 }
 
 export interface GaleriaVendedorStats {
@@ -1608,8 +1621,9 @@ export interface ClienteSupervision {
   id_ruta: number | null;
   tiene_exhibicion_reciente: boolean; // Server-calculated flag (last 30 days)
   total_exhibiciones?: number;
-  /** Padrón: `inactivo` = dado de baja (tombstone); omitido = activo en listados vivos */
+  /** Legacy; anulado en Consolido → `motivo_inactivo` padron_anulado (ver padron_anulado en API enriquecida). */
   estado?: string | null;
+  motivo_inactivo?: string | null;
 }
 
 export async function fetchVendedoresSupervision(
@@ -1648,9 +1662,14 @@ export interface ClienteContacto {
   latitud: number | null;
   longitud: number | null;
   fecha_ultima_compra: string | null;
+  /** Legacy DB; usar padron_anulado + activo_comercial en UI. */
   estado: string | null;
+  motivo_inactivo?: string | null;
+  padron_anulado?: boolean;
+  activo_comercial?: boolean;
   ultimo_comprobante?: UltimoComprobanteResumen | null;
   ultima_compra_articulos?: UltimaCompraArticulo[] | null;
+  ultima_compra_comprobantes?: UltimaCompraComprobanteBlock[] | null;
   ultima_compra_articulos_resumen?: string | null;
 }
 
@@ -3301,4 +3320,91 @@ export async function fetchEstadisticasIdealHistorial(
     `/api/estadisticas/ideal/historial/${configId}`
   );
   return data.historial;
+}
+
+// ── Binding Telegram ───────────────────────────────────────────────────────
+
+export interface BindingSuggestion {
+  id: number;
+  id_distribuidor: number;
+  telegram_chat_id: number;
+  id_vendedor_v2: number;
+  nombre_erp?: string;
+  nombre_grupo?: string;
+  score: number;
+  reasons: string[];
+  status: string;
+  source?: string;
+  created_at?: string;
+}
+
+export interface GrupoBindingStatus {
+  telegram_chat_id: number;
+  nombre_grupo?: string;
+  id_vendedor_v2?: number;
+  nombre_erp?: string;
+  binding_status: string;
+  bound_at?: string;
+  bound_by?: string;
+  integrantes_count: number;
+}
+
+export interface BindingHealthKPIs {
+  grupos_total: number;
+  grupos_vinculados: number;
+  grupos_review: number;
+  grupos_sin_vincular: number;
+  sugerencias_pendientes: number;
+}
+
+export async function fetchBindingHealth(distId: number): Promise<BindingHealthKPIs> {
+  return apiFetch<BindingHealthKPIs>(`/api/fuerza-ventas/binding/health/${distId}`);
+}
+
+export async function fetchBindingSuggestions(distId: number): Promise<BindingSuggestion[]> {
+  return apiFetch<BindingSuggestion[]>(`/api/fuerza-ventas/binding/suggestions/${distId}`);
+}
+
+export async function resolveBindingSuggestion(
+  suggestionId: number,
+  action: "apply" | "reject",
+  performedBy: string
+): Promise<void> {
+  await apiFetch<unknown>(
+    `/api/fuerza-ventas/binding/suggestions/${suggestionId}/resolve`,
+    { method: "POST", body: JSON.stringify({ action, performed_by: performedBy }) }
+  );
+}
+
+export async function fetchBindingGrupos(
+  distId: number,
+  skip = 0,
+  limit = 50
+): Promise<GrupoBindingStatus[]> {
+  return apiFetch<GrupoBindingStatus[]>(
+    `/api/fuerza-ventas/binding/grupos/${distId}?skip=${skip}&limit=${limit}`
+  );
+}
+
+export async function applyBindingDirect(
+  distId: number,
+  telegramChatId: number,
+  idVendedorV2: number,
+  performedBy: string
+): Promise<void> {
+  await apiFetch<unknown>(`/api/fuerza-ventas/binding/apply/${distId}`, {
+    method: "POST",
+    body: JSON.stringify({
+      telegram_chat_id: telegramChatId,
+      id_vendedor_v2: idVendedorV2,
+      source: "portal",
+      performed_by: performedBy,
+    }),
+  });
+}
+
+export async function triggerBindingScan(distId: number): Promise<object> {
+  return apiFetch<object>(`/api/fuerza-ventas/binding/scan/${distId}`, {
+    method: "POST",
+  });
 }

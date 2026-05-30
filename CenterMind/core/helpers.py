@@ -901,3 +901,63 @@ def load_active_vendedor_ids(dist_id: int) -> set[int]:
     except Exception as e:
         logger.warning(f"load_active_vendedor_ids dist={dist_id}: {e}")
         return set()
+
+
+def resolve_vendedor_for_group(dist_id: int, telegram_chat_id: int) -> int | None:
+    """
+    Fuente de verdad group-first para comandos de bot.
+
+    Precedencia:
+    1. grupos.id_vendedor_v2 (si existe y vendor activo en ERP)
+    2. Fallback: grupos.id_vendedor_erp → lookup en vendedores_v2
+    3. None → bot invita a /vincular
+    """
+    try:
+        from core.telegram_group_matcher import get_group_binding
+        binding = get_group_binding(dist_id, telegram_chat_id)
+        if binding and binding.get("id_vendedor_v2"):
+            vid = binding["id_vendedor_v2"]
+            # Verificar que el vendedor esté activo
+            t_vend = tenant_table_name("vendedores_v2", dist_id)
+            vres = (
+                sb.table(t_vend)
+                .select("id_vendedor, activo")
+                .eq("id_vendedor", vid)
+                .eq("id_distribuidor", dist_id)
+                .limit(1)
+                .execute()
+            )
+            if vres.data and vres.data[0].get("activo", True):
+                return vid
+    except Exception as e:
+        logger.warning(f"resolve_vendedor_for_group dist={dist_id} chat={telegram_chat_id}: {e}")
+
+    # Fallback legacy: grupos.id_vendedor_erp
+    try:
+        g_res = (
+            sb.table("grupos")
+            .select("id_vendedor_erp")
+            .eq("id_distribuidor", dist_id)
+            .eq("telegram_chat_id", telegram_chat_id)
+            .limit(1)
+            .execute()
+        )
+        if g_res.data:
+            legacy_erp = (g_res.data[0].get("id_vendedor_erp") or "").strip()
+            if legacy_erp:
+                t_vend = tenant_table_name("vendedores_v2", dist_id)
+                v_res = (
+                    sb.table(t_vend)
+                    .select("id_vendedor")
+                    .eq("id_distribuidor", dist_id)
+                    .eq("id_vendedor_erp", legacy_erp)
+                    .eq("activo", True)
+                    .limit(1)
+                    .execute()
+                )
+                if v_res.data:
+                    return int(v_res.data[0]["id_vendedor"])
+    except Exception as e:
+        logger.warning(f"resolve_vendedor_for_group legacy dist={dist_id}: {e}")
+
+    return None

@@ -40,6 +40,11 @@ from models.schemas import (
     GaleriaTimelineItem,
     GaleriaTimelineResponse,
     GaleriaReevaluacionItem,
+    BindingSuggestion,
+    BindingSuggestionResolve,
+    GroupBindingApplyRequest,
+    GrupoBindingStatus,
+    BindingHealthKPIs,
 )
 
 logger = logging.getLogger("ShelfyAPI")
@@ -1412,6 +1417,25 @@ def galeria_list_clientes_por_vendedor(
 
         result = list(result_by_key.values())
 
+        try:
+            from core.objetivos_compradores import _norm_erp
+            from core.ultima_compra import fetch_ultima_compra_por_erp, resolve_fecha_ultima_compra
+            from models.schemas import UltimoComprobanteResumen
+
+            erps_gal = [c.id_cliente_erp for c in result if c.id_cliente_erp]
+            by_erp_gal = fetch_ultima_compra_por_erp(dist_id, erps_gal)
+            for card in result:
+                if not card.id_cliente_erp:
+                    continue
+                ent = by_erp_gal.get(_norm_erp(card.id_cliente_erp) or "")
+                fuc, cbte = resolve_fecha_ultima_compra(card.fecha_ultima_compra, ent)
+                if fuc:
+                    card.fecha_ultima_compra = fuc
+                if cbte:
+                    card.ultimo_comprobante = UltimoComprobanteResumen(**cbte)
+        except Exception as e_gal_uc:
+            logger.warning("[galeria] ultima compra enriched overlay dist=%s: %s", dist_id, e_gal_uc)
+
         logger.info(
             "[galeria] clientes_por_vendedor vid=%s dist=%s desde=%s hasta=%s "
             "integrantes=%d exhibiciones=%d clientes=%d base_clientes=%d",
@@ -1429,6 +1453,24 @@ def galeria_list_clientes_por_vendedor(
         )
         # No bloquear la vista si el esquema del tenant difiere.
         return []
+
+
+# ── Binding — helper de autorización ─────────────────────────────────────────
+
+def _check_fv_access(user_payload: dict, dist_id: int) -> None:
+    """Raises HTTPException 403 si el usuario no tiene acceso a Fuerza de Ventas."""
+    rol = user_payload.get("rol", "")
+    is_super = user_payload.get("is_superadmin", False) or rol == "superadmin"
+
+    if is_super:
+        return
+    if rol == "directorio":
+        check_dist_permission(user_payload, dist_id)
+        return
+    # Excepción ALOMA (dist_id=4): admin y supervisor
+    if dist_id == 4 and rol in ("admin", "supervisor"):
+        return
+    raise HTTPException(status_code=403, detail="Acceso denegado")
 
 
 @router.get("/api/galeria/cliente/{id_cliente_pdv}/timeline", tags=["Galería"])
@@ -1613,3 +1655,306 @@ def galeria_timeline_cliente(
             status_code=500,
             detail=f"galeria_timeline_error: {type(e).__name__}: {e}",
         )
+
+
+# ── Binding Queue — endpoints ─────────────────────────────────────────────────
+
+@router.get("/api/fuerza-ventas/binding/health/{dist_id}", tags=["Binding"])
+def binding_health(dist_id: int, payload=Depends(verify_auth)):
+    """KPIs de salud del binding para un distribuidor."""
+    _check_fv_access(payload, dist_id)
+    try:
+        grupos_r = (
+            sb.table("grupos")
+            .select("telegram_chat_id, binding_status")
+            .eq("id_distribuidor", dist_id)
+            .execute()
+        )
+        grupos = grupos_r.data or []
+
+        grupos_total = len(grupos)
+        grupos_vinculados = sum(1 for g in grupos if g.get("binding_status") == "linked")
+        grupos_review = sum(1 for g in grupos if g.get("binding_status") == "review")
+        grupos_sin_vincular = sum(
+            1 for g in grupos
+            if g.get("binding_status") in ("unlinked", None)
+        )
+
+        sugerencias_r = (
+            sb.table("telegram_binding_suggestions")
+            .select("id")
+            .eq("id_distribuidor", dist_id)
+            .eq("status", "pending")
+            .execute()
+        )
+        sugerencias_pendientes = len(sugerencias_r.data or [])
+
+        return {
+            "dist_id": dist_id,
+            "grupos_total": grupos_total,
+            "grupos_vinculados": grupos_vinculados,
+            "grupos_review": grupos_review,
+            "grupos_sin_vincular": grupos_sin_vincular,
+            "sugerencias_pendientes": sugerencias_pendientes,
+        }
+    except Exception as e:
+        logger.error(f"[binding] health dist={dist_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/fuerza-ventas/binding/suggestions/{dist_id}", tags=["Binding"])
+def binding_list_suggestions(dist_id: int, payload=Depends(verify_auth)):
+    """Cola pendiente de sugerencias de binding para revisión humana."""
+    _check_fv_access(payload, dist_id)
+    try:
+        sugg_r = (
+            sb.table("telegram_binding_suggestions")
+            .select("*")
+            .eq("id_distribuidor", dist_id)
+            .eq("status", "pending")
+            .order("created_at", desc=True)
+            .execute()
+        )
+        suggestions = sugg_r.data or []
+
+        if not suggestions:
+            return []
+
+        # Enriquecer con nombre_grupo desde grupos
+        chat_ids = list({s.get("telegram_chat_id") for s in suggestions if s.get("telegram_chat_id")})
+        grupo_names: dict[int, str] = {}
+        if chat_ids:
+            try:
+                g_r = (
+                    sb.table("grupos")
+                    .select("telegram_chat_id, nombre_grupo")
+                    .eq("id_distribuidor", dist_id)
+                    .in_("telegram_chat_id", chat_ids)
+                    .execute()
+                )
+                for g in (g_r.data or []):
+                    gid = g.get("telegram_chat_id")
+                    if gid is not None:
+                        grupo_names[int(gid)] = g.get("nombre_grupo") or f"Grupo {gid}"
+            except Exception:
+                pass
+
+        # Enriquecer con nombre_erp del vendedor sugerido
+        vend_ids = list({s.get("id_vendedor_v2") for s in suggestions if s.get("id_vendedor_v2")})
+        vend_names: dict[int, str] = {}
+        if vend_ids:
+            try:
+                v_r = (
+                    sb.table(tenant_table_name("vendedores_v2", dist_id))
+                    .select("id_vendedor, nombre_erp")
+                    .eq("id_distribuidor", dist_id)
+                    .in_("id_vendedor", vend_ids)
+                    .execute()
+                )
+                for v in (v_r.data or []):
+                    vid = v.get("id_vendedor")
+                    if vid is not None:
+                        vend_names[int(vid)] = v.get("nombre_erp") or ""
+            except Exception:
+                pass
+
+        result = []
+        for s in suggestions:
+            chat_id = s.get("telegram_chat_id")
+            vend_id = s.get("id_vendedor_v2")
+            result.append({
+                **s,
+                "nombre_grupo": grupo_names.get(int(chat_id)) if chat_id is not None else None,
+                "nombre_erp": vend_names.get(int(vend_id)) if vend_id is not None else None,
+            })
+        return result
+    except Exception as e:
+        logger.error(f"[binding] list_suggestions dist={dist_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/fuerza-ventas/binding/suggestions/{suggestion_id}/resolve", tags=["Binding"])
+def binding_resolve_suggestion(
+    suggestion_id: int,
+    body: BindingSuggestionResolve,
+    payload=Depends(verify_auth),
+):
+    """Aprobar (apply) o rechazar (reject) una sugerencia de binding."""
+    try:
+        # Obtener la sugerencia para validar acceso al dist
+        sugg_r = (
+            sb.table("telegram_binding_suggestions")
+            .select("*")
+            .eq("id", suggestion_id)
+            .limit(1)
+            .execute()
+        )
+        if not sugg_r.data:
+            raise HTTPException(status_code=404, detail="Sugerencia no encontrada")
+        sugg = sugg_r.data[0]
+        dist_id = sugg.get("id_distribuidor")
+        _check_fv_access(payload, dist_id)
+
+        now_iso = datetime.utcnow().isoformat()
+        resolved_by = payload.get("usuario", "portal")
+
+        if body.action == "apply":
+            from core.telegram_group_matcher import apply_group_binding
+            apply_group_binding(
+                dist_id=dist_id,
+                telegram_chat_id=sugg.get("telegram_chat_id"),
+                id_vendedor_v2=sugg.get("id_vendedor_v2"),
+                source="suggestion_apply",
+                performed_by=resolved_by,
+            )
+            sb.table("telegram_binding_suggestions").update({
+                "status": "applied",
+                "resolved_at": now_iso,
+                "resolved_by": resolved_by,
+            }).eq("id", suggestion_id).execute()
+            return {"ok": True, "action": "applied", "suggestion_id": suggestion_id}
+
+        elif body.action == "reject":
+            sb.table("telegram_binding_suggestions").update({
+                "status": "rejected",
+                "resolved_at": now_iso,
+                "resolved_by": resolved_by,
+            }).eq("id", suggestion_id).execute()
+            return {"ok": True, "action": "rejected", "suggestion_id": suggestion_id}
+
+        else:
+            raise HTTPException(status_code=400, detail="action debe ser 'apply' o 'reject'")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[binding] resolve_suggestion id={suggestion_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/fuerza-ventas/binding/grupos/{dist_id}", tags=["Binding"])
+def binding_list_grupos(
+    dist_id: int,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    payload=Depends(verify_auth),
+):
+    """Lista de grupos con estado de binding y datos de vendedor vinculado."""
+    _check_fv_access(payload, dist_id)
+    try:
+        grupos_r = (
+            sb.table("grupos")
+            .select("telegram_chat_id, nombre_grupo, binding_status, id_vendedor_v2")
+            .eq("id_distribuidor", dist_id)
+            .order("nombre_grupo")
+            .range(skip, skip + limit - 1)
+            .execute()
+        )
+        grupos = grupos_r.data or []
+
+        if not grupos:
+            return []
+
+        # Enriquecer con nombre_erp del vendedor vinculado
+        vend_ids = list({
+            int(g["id_vendedor_v2"])
+            for g in grupos
+            if g.get("id_vendedor_v2") is not None
+        })
+        vend_names: dict[int, str] = {}
+        if vend_ids:
+            try:
+                v_r = (
+                    sb.table(tenant_table_name("vendedores_v2", dist_id))
+                    .select("id_vendedor, nombre_erp")
+                    .eq("id_distribuidor", dist_id)
+                    .in_("id_vendedor", vend_ids)
+                    .execute()
+                )
+                for v in (v_r.data or []):
+                    vid = v.get("id_vendedor")
+                    if vid is not None:
+                        vend_names[int(vid)] = v.get("nombre_erp") or ""
+            except Exception:
+                pass
+
+        # Contar integrantes por grupo desde integrantes_grupo
+        chat_ids = [g.get("telegram_chat_id") for g in grupos if g.get("telegram_chat_id")]
+        integrante_counts: dict[int, int] = {}
+        if chat_ids:
+            try:
+                ig_r = (
+                    sb.table("integrantes_grupo")
+                    .select("id_integrante, telegram_group_id")
+                    .eq("id_distribuidor", dist_id)
+                    .in_("telegram_group_id", chat_ids)
+                    .execute()
+                )
+                for ig in (ig_r.data or []):
+                    gid = ig.get("telegram_group_id")
+                    if gid is not None:
+                        integrante_counts[int(gid)] = integrante_counts.get(int(gid), 0) + 1
+            except Exception:
+                pass
+
+        result = []
+        for g in grupos:
+            chat_id = g.get("telegram_chat_id")
+            vend_id = g.get("id_vendedor_v2")
+            result.append({
+                "telegram_chat_id": chat_id,
+                "nombre_grupo": g.get("nombre_grupo"),
+                "binding_status": g.get("binding_status", "unlinked"),
+                "id_vendedor_v2": vend_id,
+                "nombre_erp": vend_names.get(int(vend_id)) if vend_id is not None else None,
+                "total_integrantes": integrante_counts.get(int(chat_id), 0) if chat_id is not None else 0,
+            })
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[binding] list_grupos dist={dist_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/fuerza-ventas/binding/apply/{dist_id}", tags=["Binding"])
+def binding_apply_direct(dist_id: int, req: GroupBindingApplyRequest, payload=Depends(verify_auth)):
+    """Aplica un binding directo grupo↔vendedor (acción de directorio/superadmin)."""
+    _check_fv_access(payload, dist_id)
+    try:
+        from core.telegram_group_matcher import apply_group_binding
+        performed_by = req.performed_by or payload.get("usuario", "portal")
+        apply_group_binding(
+            dist_id=dist_id,
+            telegram_chat_id=req.telegram_chat_id,
+            id_vendedor_v2=req.id_vendedor_v2,
+            source=req.source or "manual_portal",
+            performed_by=performed_by,
+        )
+        return {
+            "ok": True,
+            "dist_id": dist_id,
+            "telegram_chat_id": req.telegram_chat_id,
+            "id_vendedor_v2": req.id_vendedor_v2,
+            "performed_by": performed_by,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[binding] apply_direct dist={dist_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/fuerza-ventas/binding/scan/{dist_id}", tags=["Binding"])
+def binding_scan_manual(dist_id: int, payload=Depends(verify_auth)):
+    """Dispara un scan manual del watcher de binding para el distribuidor."""
+    _check_fv_access(payload, dist_id)
+    try:
+        from services.telegram_binding_watcher_service import scan_distribuidor
+        result = scan_distribuidor(dist_id)
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[binding] scan_manual dist={dist_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

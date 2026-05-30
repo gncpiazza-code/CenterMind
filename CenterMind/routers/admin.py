@@ -852,12 +852,25 @@ def set_mapeo_vendedor(id_integrante: int, req: MapeoVendedorRequest, user_paylo
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ─── Match Center (SuperAdmin) ───────────────────────────────────────────────
+# ─── Match Center ────────────────────────────────────────────────────────────
+
+def _check_match_center_access(user_payload: dict, dist_id: int) -> None:
+    """Valida acceso a Match Center: superadmin, directorio, o ALOMA con admin/supervisor."""
+    rol = user_payload.get("rol", "")
+    is_super = user_payload.get("is_superadmin", False) or rol == "superadmin"
+    if is_super:
+        return
+    if rol == "directorio":
+        check_dist_permission(user_payload, dist_id)
+        return
+    if dist_id == 4 and rol in ("admin", "supervisor"):
+        return
+    raise HTTPException(status_code=403, detail="Acceso denegado a Match Center")
+
 
 @router.get("/api/admin/match-center/candidates/{dist_id}", tags=["Admin"])
 def match_center_candidates(dist_id: int, user_payload=Depends(verify_auth)):
-    if not user_payload.get("is_superadmin"):
-        raise HTTPException(status_code=403, detail="Solo accesible para SuperAdmin")
+    _check_match_center_access(user_payload, dist_id)
     try:
         payload = _build_match_center_rows(dist_id)
         return {
@@ -873,14 +886,13 @@ def match_center_candidates(dist_id: int, user_payload=Depends(verify_auth)):
 
 @router.post("/api/admin/match-center/apply", tags=["Admin"])
 def match_center_apply(data: dict, user_payload=Depends(verify_auth)):
-    if not user_payload.get("is_superadmin"):
-        raise HTTPException(status_code=403, detail="Solo accesible para SuperAdmin")
     try:
         dist_id = int(data.get("dist_id"))
         id_integrante = int(data.get("id_integrante"))
         target_v2 = int(data.get("id_vendedor_v2"))
     except Exception:
         raise HTTPException(status_code=400, detail="Payload inválido: dist_id/id_integrante/id_vendedor_v2 requeridos")
+    _check_match_center_access(user_payload, dist_id)
 
     try:
         vend = (
@@ -936,8 +948,7 @@ def match_center_apply(data: dict, user_payload=Depends(verify_auth)):
 
 @router.post("/api/admin/match-center/apply-safe/{dist_id}", tags=["Admin"])
 def match_center_apply_safe(dist_id: int, user_payload=Depends(verify_auth)):
-    if not user_payload.get("is_superadmin"):
-        raise HTTPException(status_code=403, detail="Solo accesible para SuperAdmin")
+    _check_match_center_access(user_payload, dist_id)
     try:
         payload = _build_match_center_rows(dist_id)
         safe_rows = [r for r in payload["rows"] if r.get("can_apply") and r.get("suggested_vendor")]

@@ -160,6 +160,28 @@ Toda metrica de **ranking**, **KPIs de exhibicion**, **stats Telegram** (`/stats
 - Util nuevo: `lib/dashboard-period.ts`.
 - FiltrosBar y ChartCarousel conservados pero NO usados en `page.tsx` (pueden eliminarse en limpieza futura).
 
+## 9.4) Binding Telegram ↔ Vendedor ERP (implementado 2026-05-30)
+
+- Fuente de verdad: `grupos.id_vendedor_v2` (un grupo = un vendedor anclado).
+- **Modulo unico obligatorio:** `CenterMind/core/telegram_group_matcher.py`
+
+| Uso | Funcion |
+|-----|---------|
+| Scoring candidatos | `score_group_vendor_candidates(dist_id, chat_id)` |
+| Deteccion drift | `detect_group_drift(dist_id, chat_id)` |
+| Aplicar binding | `apply_group_binding(dist_id, chat_id, id_vendedor_v2, source, performed_by)` |
+| Desanclar grupo | `unlink_group(dist_id, chat_id, reason, performed_by)` |
+| Leer binding actual | `get_group_binding(dist_id, chat_id)` → dict | None |
+| Crear sugerencia | `create_suggestion(dist_id, chat_id, id_vendedor_v2, score, reasons, source)` |
+
+- **Resolucion group-first en bot:** `helpers.resolve_vendedor_for_group(dist_id, chat_id)` → id_vendedor | None. Prioridad: `grupos.id_vendedor_v2` (activo) → legacy `id_vendedor_erp` → None.
+- **NO** duplicar logica de scoring fuera del matcher.
+- **NO** leer `grupos.id_vendedor_v2` directamente en bot sin pasar por `resolve_vendedor_for_group`.
+- Semi-auto: aplica solo si score ≥ 0.95 + candidato unico + vendor activo + sin `allow_dual_vendor`.
+- Cola sugerencias: tabla `telegram_binding_suggestions`; gestionada desde Fuerza de Ventas (directorio + ALOMA admin/supervisor).
+- Historial: tabla `telegram_binding_audit` (append-only).
+- DB migration: `CenterMind/migrations/20260530_telegram_binding.sql` — **pendiente ejecutar en Supabase**.
+
 ## 9.2) Tickets de portal (operativo)
 
 - Superadmin debe poder filtrar tickets por estado, categoria, distribuidora y texto.

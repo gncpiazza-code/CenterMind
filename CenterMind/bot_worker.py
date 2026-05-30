@@ -1319,7 +1319,7 @@ class BotWorker:
             return
         uid = update.message.from_user.id
         m = update.message
-        
+
         if not await self._check_compliance(update):
             return
 
@@ -1332,10 +1332,82 @@ class BotWorker:
                 await m.reply_text("⚠️ <b>Esta cuenta ha sido desactivada o unificada.</b>", parse_mode=ParseMode.HTML)
                 return
 
-            related_uids = LUCIANO_UIDS if uid in LUCIANO_UIDS else [uid]
-
             now = datetime.now(AR_TZ)
             prev_m = 12 if now.month == 1 else now.month - 1
+
+            # ── Group-first: si el grupo tiene un vendedor anclado, usarlo ──
+            group_vid = self._resolve_group_vendor(m.chat.id)
+            if group_vid is not None:
+                # Obtener nombre ERP del vendedor
+                t_vend = f"vendedores_v2_d{self.distribuidor_id}"
+                v_info = await asyncio.to_thread(
+                    lambda: self.db.sb.table(t_vend)
+                    .select("nombre_erp")
+                    .eq("id_vendedor", group_vid)
+                    .limit(1)
+                    .execute()
+                )
+                group_display_name = (
+                    v_info.data[0]["nombre_erp"]
+                    if v_info.data
+                    else m.from_user.first_name
+                )
+
+                # TODO: adaptar get_stats_vendedor para vendor_v2_id group-first
+                try:
+                    stats = await asyncio.to_thread(
+                        self.db.get_stats_vendedor,
+                        self.distribuidor_id,
+                        vendor_v2_id=group_vid,
+                        telegram_group_id=m.chat.id,
+                    )
+                except TypeError:
+                    # get_stats_vendedor aún no acepta vendor_v2_id — fallback legacy
+                    stats = None
+
+                if not stats:
+                    await m.reply_text(
+                        "⚠️ Este grupo no tiene exhibiciones registradas. "
+                        "Usá /vincular para asignar un vendedor.",
+                        parse_mode=ParseMode.HTML,
+                    )
+                    return
+
+                display_name = group_display_name
+                counts_actual = {
+                    **stats["mes_actual"],
+                    "total_logicas": stats["mes_actual"]["total"],
+                }
+                counts_prev = {
+                    **stats["mes_anterior"],
+                    "total_logicas": stats["mes_anterior"]["total"],
+                }
+                total_actual = counts_actual["total_logicas"]
+                total_prev = counts_prev["total_logicas"]
+
+                msg = (
+                    f"📊 <b>Tus Estadísticas — {self.nombre_dist}</b>\n"
+                    f"👤 Identidad: {display_name}\n\n"
+                    f"🗓️ <b>Mes Actual ({self.MESES[now.month]}):</b>\n"
+                    f"   • ✅ Aprobadas:  {counts_actual['aprobadas']}\n"
+                    f"   • 🔥 Destacadas: {counts_actual['destacadas']}\n"
+                    f"   • ❌ Rechazadas: {counts_actual['rechazadas']}\n"
+                    f"   • ⏳ Pendientes: {counts_actual['pendientes']}\n"
+                    f"   • 🏆 <b>Puntos: {counts_actual['puntos']}</b>  (exhibiciones: {total_actual})\n\n"
+                    f"📅 <b>Mes Anterior ({self.MESES[prev_m]}):</b>\n"
+                    f"   • ✅ Aprobadas:  {counts_prev['aprobadas']}\n"
+                    f"   • 🔥 Destacadas: {counts_prev['destacadas']}\n"
+                    f"   • ❌ Rechazadas: {counts_prev['rechazadas']}\n"
+                    f"   • ⏳ Pendientes: {counts_prev['pendientes']}\n"
+                    f"   • 🏆 <b>Puntos: {counts_prev['puntos']}</b>  (exhibiciones: {total_prev})\n"
+                    f"<i>(Exhibiciones únicas por cliente y día)</i>"
+                )
+                await m.reply_text(msg, parse_mode=ParseMode.HTML)
+                return
+
+            # ── Fallback legacy: resolver por uid del sender ──────────────────
+            related_uids = LUCIANO_UIDS if uid in LUCIANO_UIDS else [uid]
+
             stats = await asyncio.to_thread(
                 self.db.get_stats_vendedor,
                 self.distribuidor_id,
@@ -1343,7 +1415,10 @@ class BotWorker:
                 telegram_group_id=m.chat.id,
             )
             if not stats:
-                await m.reply_text("⚠️ <b>No estás registrado en el sistema.</b>", parse_mode=ParseMode.HTML)
+                await m.reply_text(
+                    "⚠️ No estás registrado. Contactá al supervisor o usá /vincular en este grupo.",
+                    parse_mode=ParseMode.HTML,
+                )
                 return
 
             counts_actual = {
@@ -1380,6 +1455,73 @@ class BotWorker:
             self.logger.error(f"[stats] Error uid={uid} dist={self.distribuidor_id}: {type(e).__name__}: {e}", exc_info=True)
             await m.reply_text("❌ Error al obtener estadísticas. Intentá de nuevo en un momento.")
 
+    async def cmd_vincular(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Vincula el grupo actual a un vendedor ERP."""
+        if not update.message:
+            return
+        m = update.message
+        chat_id = m.chat.id
+        dist_id = self.distribuidor_id
+
+        # Solo funciona en grupos
+        if m.chat.type not in ("group", "supergroup"):
+            await m.reply_text("⚠️ Este comando solo funciona en grupos.")
+            return
+
+        await m.reply_text("🔍 Buscando vendedores candidatos...")
+
+        try:
+            from core.telegram_group_matcher import score_group_vendor_candidates, apply_group_binding
+
+            candidates = await asyncio.to_thread(
+                score_group_vendor_candidates, dist_id, chat_id
+            )
+
+            if not candidates:
+                await m.reply_text(
+                    "⚠️ No encontré candidatos para este grupo.\n"
+                    "Asegurate de que el nombre del grupo incluya el nombre del vendedor, "
+                    "o contactá al directorio."
+                )
+                return
+
+            top = candidates[:5]
+
+            # Semi-auto: un solo candidato con score >= 0.95
+            if len(top) == 1 and top[0]["score"] >= 0.95:
+                cand = top[0]
+                keyboard = InlineKeyboardMarkup([[
+                    InlineKeyboardButton("✅ Sí, confirmar", callback_data=f"VINCULAR_CONFIRM_{chat_id}_{cand['id_vendedor']}"),
+                    InlineKeyboardButton("❌ No", callback_data=f"VINCULAR_CANCEL_{chat_id}"),
+                ]])
+                await m.reply_text(
+                    f"🎯 Detecté que este grupo corresponde a <b>{cand['nombre_erp']}</b> "
+                    f"(confianza {int(cand['score']*100)}%).\n"
+                    f"¿Confirmás la vinculación?",
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=keyboard,
+                )
+                return
+
+            # Varios candidatos: mostrar lista
+            buttons = []
+            for c in top:
+                label = f"{c['nombre_erp']} ({int(c['score']*100)}%)"
+                buttons.append([InlineKeyboardButton(
+                    label,
+                    callback_data=f"VINCULAR_CONFIRM_{chat_id}_{c['id_vendedor']}"
+                )])
+            buttons.append([InlineKeyboardButton("❌ Cancelar", callback_data=f"VINCULAR_CANCEL_{chat_id}")])
+
+            await m.reply_text(
+                "👥 <b>Seleccioná el vendedor para este grupo:</b>",
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup(buttons),
+            )
+        except Exception as e:
+            self.logger.error(f"[vincular] Error chat={chat_id}: {e}", exc_info=True)
+            await m.reply_text("❌ Error al buscar candidatos. Intentá de nuevo.")
+
     async def cmd_ranking(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not update.message:
             return
@@ -1407,6 +1549,15 @@ class BotWorker:
             parse_mode=ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup(buttons)
         )
+
+    def _resolve_group_vendor(self, chat_id: int) -> int | None:
+        """Group-first vendor resolution. Llama a helpers.resolve_vendedor_for_group."""
+        try:
+            from core.helpers import resolve_vendedor_for_group
+            return resolve_vendedor_for_group(self.distribuidor_id, chat_id)
+        except Exception as e:
+            self.logger.warning(f"[group-vendor] chat={chat_id}: {e}")
+            return None
 
     def _resolve_vendedor_v2_for_objetivos(self, dist_id: int, uid: int, chat_id: int) -> dict:
         """
@@ -1473,16 +1624,37 @@ class BotWorker:
         dist_id = self.distribuidor_id
 
         try:
-            row_ig = await asyncio.to_thread(
-                self._resolve_vendedor_v2_for_objetivos, dist_id, uid, chat_id
-            )
-            id_vendedor = row_ig.get("id_vendedor_v2")
-            vendedor_nombre = row_ig.get("nombre_integrante") or (m.from_user.first_name or "Vendedor")
+            # ── Group-first: si el grupo tiene un vendedor anclado, usarlo ──
+            group_vid = self._resolve_group_vendor(chat_id)
+            if group_vid is not None:
+                id_vendedor = group_vid
+                # Obtener nombre ERP del vendedor para display
+                t_vend = f"vendedores_v2_d{dist_id}"
+                v_info = await asyncio.to_thread(
+                    lambda: self.db.sb.table(t_vend)
+                    .select("nombre_erp")
+                    .eq("id_vendedor", group_vid)
+                    .limit(1)
+                    .execute()
+                )
+                vendedor_nombre = (
+                    v_info.data[0]["nombre_erp"]
+                    if v_info.data
+                    else (m.from_user.first_name or "Vendedor")
+                )
+            else:
+                # Fallback legacy: integrantes_grupo + grupos.id_vendedor_erp
+                row_ig = await asyncio.to_thread(
+                    self._resolve_vendedor_v2_for_objetivos, dist_id, uid, chat_id
+                )
+                id_vendedor = row_ig.get("id_vendedor_v2")
+                vendedor_nombre = row_ig.get("nombre_integrante") or (m.from_user.first_name or "Vendedor")
 
             if not id_vendedor:
                 await m.reply_text(
                     "⚠️ No pude vincular tu usuario a un vendedor en este grupo.\n"
-                    "Pedile al admin que revise el mapeo en Fuerza de Ventas.",
+                    "Pedile al admin que revise el mapeo en Fuerza de Ventas, "
+                    "o usá /vincular para asignar este grupo a un vendedor.",
                     parse_mode=ParseMode.HTML,
                 )
                 return
@@ -2389,6 +2561,45 @@ class BotWorker:
                 pass
             return
 
+        # ── VINCULAR_CONFIRM_ / VINCULAR_CANCEL_ ─────────────────────────────
+        if data.startswith("VINCULAR_CONFIRM_"):
+            parts = data.split("_")
+            # VINCULAR_CONFIRM_{chat_id}_{id_vendedor}
+            if len(parts) >= 4:
+                target_chat_id = int(parts[2])
+                id_vendedor_v2 = int(parts[3])
+                try:
+                    from core.telegram_group_matcher import apply_group_binding
+                    await asyncio.to_thread(
+                        apply_group_binding,
+                        self.distribuidor_id, target_chat_id, id_vendedor_v2,
+                        "bot_vincular",
+                        str(update.callback_query.from_user.id),
+                    )
+                    # Obtener nombre del vendedor para confirmación
+                    t_vend = f"vendedores_v2_d{self.distribuidor_id}"
+                    v_res = await asyncio.to_thread(
+                        lambda: self.db.sb.table(t_vend)
+                        .select("nombre_erp")
+                        .eq("id_vendedor", id_vendedor_v2)
+                        .limit(1)
+                        .execute()
+                    )
+                    nombre = v_res.data[0]["nombre_erp"] if v_res.data else f"Vendedor #{id_vendedor_v2}"
+                    await update.callback_query.edit_message_text(
+                        f"✅ Grupo vinculado a <b>{nombre}</b>.\n"
+                        f"Los comandos /stats, /objetivos y /ranking ahora usan este vendedor.",
+                        parse_mode=ParseMode.HTML,
+                    )
+                except Exception as e:
+                    self.logger.error(f"[vincular-confirm] {e}", exc_info=True)
+                    await update.callback_query.answer("Error al vincular. Intentá de nuevo.", show_alert=True)
+            return
+
+        if data.startswith("VINCULAR_CANCEL_"):
+            await update.callback_query.edit_message_text("❌ Vinculación cancelada.")
+            return
+
         parsed = parse_type_callback(data)
         if not parsed:
             return
@@ -3111,10 +3322,33 @@ class BotWorker:
         chat_id = update.message.chat.id
         new_title = update.message.new_chat_title
         self.logger.info(f"🏷️ Nuevo título en chat {chat_id}: {new_title}")
-        await asyncio.to_thread(
-            self.db.upsert_grupo,
-            self.distribuidor_id, chat_id, new_title
-        )
+
+        # Guardar nuevo título (upsert existente)
+        await asyncio.to_thread(self.db.upsert_grupo, self.distribuidor_id, chat_id, new_title)
+
+        # Detectar drift si el grupo tenía un vendedor anclado
+        try:
+            from core.telegram_group_matcher import (
+                detect_group_drift,
+                unlink_group,
+                create_suggestion,
+                score_group_vendor_candidates,
+            )
+            drift = await asyncio.to_thread(detect_group_drift, self.distribuidor_id, chat_id)
+            if drift and drift.get("drift_type") == "title_changed":
+                self.logger.info(f"[drift] title_changed chat={chat_id}: {drift.get('details')}")
+                # Desvincular y crear sugerencia con los nuevos candidatos
+                await asyncio.to_thread(unlink_group, self.distribuidor_id, chat_id, "title_changed", "auto_drift")
+                candidates = await asyncio.to_thread(score_group_vendor_candidates, self.distribuidor_id, chat_id)
+                for c in candidates[:3]:
+                    if c["score"] > 0.5:
+                        await asyncio.to_thread(
+                            create_suggestion,
+                            self.distribuidor_id, chat_id,
+                            c["id_vendedor"], c["score"], c["reasons"], "drift_title",
+                        )
+        except Exception as e:
+            self.logger.warning(f"[drift-check] chat={chat_id}: {e}")
 
     async def handle_new_chat_members(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Se activa cuando alguien entra al grupo (o el bot es añadido)."""
@@ -3450,6 +3684,7 @@ class BotWorker:
         app.add_handler(CommandHandler("id",         self.cmd_id))
         app.add_handler(CommandHandler("status",     self.cmd_status))
         app.add_handler(CommandHandler("stats",      self.cmd_stats))
+        app.add_handler(CommandHandler("vincular",   self.cmd_vincular))
         app.add_handler(CommandHandler("ranking",    self.cmd_ranking))
         app.add_handler(CommandHandler("objetivos",  self.cmd_objetivos))
         app.add_handler(CommandHandler("cadenaone",  self.cmd_cadenaone))

@@ -173,8 +173,25 @@ async def lifespan(app: FastAPI):
         id="lanzar_objetivos_0800",
     )
 
+    def _binding_watcher_scan():
+        """07:30 AR: scan diario de grupos para detectar drift y sugerencias."""
+        try:
+            from services.telegram_binding_watcher_service import scan_all_distributors
+            results = scan_all_distributors()
+            total_drifts = sum(r.get("drifts", 0) for r in results)
+            total_auto = sum(r.get("auto_applied", 0) for r in results)
+            logger.info(f"[binding-watcher] Scan completo: drifts={total_drifts} auto_applied={total_auto}")
+        except Exception as e:
+            logger.warning(f"[binding-watcher] Error en scan: {e}")
+
+    scheduler.add_job(
+        _binding_watcher_scan, "cron",
+        hour=10, minute=30,  # 07:30 AR = 10:30 UTC (UTC-3)
+        id="binding_watcher_daily"
+    )
+
     scheduler.start()
-    logger.info("📅 Scheduler iniciado (ERP Sync 04:00 + digest motores + Lanzar Objetivos 08:00 AR)")
+    logger.info("📅 Scheduler iniciado (ERP Sync 04:00 + digest motores + Lanzar Objetivos 08:00 AR + Binding Watcher 07:30 AR)")
 
     yield
 

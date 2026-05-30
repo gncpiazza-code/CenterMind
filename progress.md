@@ -1,6 +1,6 @@
 # Progress — Shelfy CenterMind (Lean)
 
-**Ultima actualizacion:** 29 de Mayo, 2026 (v6)  
+**Ultima actualizacion:** 30 de Mayo, 2026 (v7)  
 **Objetivo:** estado operativo actual, riesgos y prioridades.  
 **Historial largo:** `docs/changelog/archive/2026-05.md`.
 
@@ -23,6 +23,8 @@
 - 🟡 Pendiente: tenant `extra`, clusters en mapa para zoom out masivo.
 
 ## Cambios Recientes (resumen ejecutivo)
+
+28. Matcheo inteligente Telegram ↔ Vendedor ERP (2026-05-30): anclaje por grupo como fuente de verdad. `core/telegram_group_matcher.py` — scoring (ERP exacto 1.0, nombre grupo 0.85–0.95, capping multi-candidato 0.49), `detect_group_drift` (título, uploader dominante, vendor inactivo), `apply_group_binding` + propagación integrantes, `unlink_group`. `services/telegram_binding_watcher_service.py` — `scan_distribuidor` (3 fases: drift, semi-auto 0.95, sugerencias >0.5), `scan_all_distributors`. Bot: comando `/vincular` (inline keyboard, semi-auto), `_resolve_group_vendor` group-first en `cmd_stats` y `cmd_objetivos`, `handle_new_chat_title` detecta drift. API: 6 endpoints `/api/fuerza-ventas/binding/*` (health, suggestions, resolve, grupos, apply, scan); guard acceso directorio + ALOMA. Match Center: ampliado a directorio + ALOMA admin/supervisor. Cron: 07:30 AR scan diario. Frontend FV rediseñado: tabs Alertas/Grupos/Vendedores, KPIs banner binding health, `BindingAlertInbox`, `GrupoBindingCard`. DB: `20260530_telegram_binding.sql` (columnas en grupos + 2 tablas nuevas). Tests: `test_telegram_group_matcher.py`. **SQL pendiente ejecutar en Supabase.**
 
 1. Modal objetivos: calendario prorrateo (`buildProrrateoGrid`) muestra avance diario; texto alteo sin referencia a compra.
 2. Objetivos LAG: `nombre_vendedor` de Luciano Gonzalez (ex LUCIANO AID) corregido en BD; API enriquece desde `vendedores_v2`; filtros panel por `id_vendedor`.

@@ -1,221 +1,267 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
-import { UserCog, Search, Filter, Wifi, WifiOff, Loader2 } from "lucide-react";
-
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  Link2,
+  Users,
+  Bell,
+  RefreshCw,
+  Loader2,
+  AlertTriangle,
+  CheckCircle2,
+} from "lucide-react";
 
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/Button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Badge } from "@/components/ui/badge";
+
+import { useAuth } from "@/hooks/useAuth";
+import {
+  fetchBindingHealth,
+  fetchBindingSuggestions,
+  fetchBindingGrupos,
+  fetchFuerzaVentasVendedores,
+  triggerBindingScan,
+  type BindingHealthKPIs,
+  type AuthResponse,
+  type FuerzaVentasVendedor,
+} from "@/lib/api";
+import { BindingAlertInbox } from "@/components/fuerza-ventas/BindingAlertInbox";
+import { GrupoBindingCard } from "@/components/fuerza-ventas/GrupoBindingCard";
 import { VendedorCard } from "@/components/fuerza-ventas/VendedorCard";
 import { VendedorEditSheet } from "@/components/fuerza-ventas/VendedorEditSheet";
-import { useAuth } from "@/hooks/useAuth";
-import { fetchFuerzaVentasVendedores, type FuerzaVentasVendedor } from "@/lib/api";
+
+function canAccessFV(user: AuthResponse): boolean {
+  if (user.is_superadmin || user.rol === "superadmin") return true;
+  if (user.rol === "directorio") return true;
+  if (user.id_distribuidor === 4 && ["admin", "supervisor"].includes(user.rol)) return true;
+  return false;
+}
+
+function KpiChip({
+  label,
+  value,
+  icon: Icon,
+  variant = "default",
+}: {
+  label: string;
+  value: number | undefined;
+  icon: React.ElementType;
+  variant?: "default" | "warning" | "success";
+}) {
+  const colors: Record<string, string> = {
+    default: "bg-muted",
+    warning: "bg-amber-50 border border-amber-200",
+    success: "bg-green-50 border border-green-200",
+  };
+  return (
+    <div className={`flex items-center gap-3 rounded-xl p-4 ${colors[variant]}`}>
+      <Icon className="h-5 w-5 text-muted-foreground shrink-0" />
+      <div>
+        <p className="text-2xl font-bold leading-none">{value ?? "—"}</p>
+        <p className="text-xs text-muted-foreground mt-0.5">{label}</p>
+      </div>
+    </div>
+  );
+}
 
 export default function FuerzaVentasPage() {
   const { user } = useAuth();
   const router = useRouter();
   const distId = user?.id_distribuidor ?? 0;
+  const qc = useQueryClient();
 
   useEffect(() => {
-    if (user && user.rol !== "superadmin") {
-      // Excepción para ALOMA
-      if (distId === 4 && user.rol === "admin") {
-        return; // Permite a admin de ALOMA
-      }
+    if (user && !canAccessFV(user)) {
       router.replace("/dashboard");
     }
-  }, [user, router, distId]);
+  }, [user, router]);
 
-  const [search, setSearch] = useState("");
-  const [filtroSucursal, setFiltroSucursal] = useState("todas");
-  const [filtroEstado, setFiltroEstado] = useState("todos");
-  const [filtroBinding, setFiltroBinding] = useState("todos");
+  const [activeTab, setActiveTab] = useState("alertas");
+  const [scanning, setScanning] = useState(false);
   const [selectedVendedorId, setSelectedVendedorId] = useState<number | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
 
-  const { data: vendedores = [], isLoading, error } = useQuery<FuerzaVentasVendedor[]>({
-    queryKey: ["fv-vendedores", distId],
-    queryFn: () => fetchFuerzaVentasVendedores(distId),
+  const { data: health, isLoading: healthLoading } = useQuery<BindingHealthKPIs>({
+    queryKey: ["binding-health", distId],
+    queryFn: () => fetchBindingHealth(distId),
     enabled: distId > 0,
     staleTime: 60_000,
   });
 
-  // Sucursales únicas
-  const sucursales = useMemo(() => {
-    const set = new Set<string>();
-    vendedores.forEach((v) => { if (v.sucursal_nombre) set.add(v.sucursal_nombre); });
-    return Array.from(set).sort();
-  }, [vendedores]);
+  const { data: suggestions = [], isLoading: suggestionsLoading } = useQuery({
+    queryKey: ["binding-suggestions", distId],
+    queryFn: () => fetchBindingSuggestions(distId),
+    enabled: distId > 0 && activeTab === "alertas",
+    staleTime: 30_000,
+  });
 
-  // Filtrado
-  const filtered = useMemo(() => {
-    return vendedores.filter((v) => {
-      if (search && !v.nombre_erp.toLowerCase().includes(search.toLowerCase())) return false;
-      if (filtroSucursal !== "todas" && v.sucursal_nombre !== filtroSucursal) return false;
-      if (filtroEstado === "activo" && v.activo === false) return false;
-      if (filtroEstado === "inactivo" && v.activo !== false) return false;
-      if (filtroBinding === "vinculado" && !v.tiene_binding) return false;
-      if (filtroBinding === "sin_vincular" && v.tiene_binding) return false;
-      return true;
-    });
-  }, [vendedores, search, filtroSucursal, filtroEstado, filtroBinding]);
+  const { data: grupos = [], isLoading: gruposLoading } = useQuery({
+    queryKey: ["binding-grupos", distId],
+    queryFn: () => fetchBindingGrupos(distId),
+    enabled: distId > 0 && activeTab === "grupos",
+    staleTime: 60_000,
+  });
 
-  // Stats
-  const stats = useMemo(() => ({
-    total: vendedores.length,
-    vinculados: vendedores.filter((v) => v.tiene_binding).length,
-    sin_vincular: vendedores.filter((v) => !v.tiene_binding).length,
-    activos: vendedores.filter((v) => v.activo !== false).length,
-  }), [vendedores]);
+  const { data: vendedores = [], isLoading: vendedoresLoading } = useQuery<FuerzaVentasVendedor[]>({
+    queryKey: ["fv-vendedores", distId],
+    queryFn: () => fetchFuerzaVentasVendedores(distId),
+    enabled: distId > 0 && activeTab === "vendedores",
+    staleTime: 60_000,
+  });
 
-  const handleCardClick = (v: FuerzaVentasVendedor) => {
-    setSelectedVendedorId(v.id_vendedor);
-    setSheetOpen(true);
-  };
+  async function handleScan() {
+    if (!distId) return;
+    setScanning(true);
+    try {
+      await triggerBindingScan(distId);
+      qc.invalidateQueries({ queryKey: ["binding-health", distId] });
+      qc.invalidateQueries({ queryKey: ["binding-suggestions", distId] });
+      qc.invalidateQueries({ queryKey: ["binding-grupos", distId] });
+    } finally {
+      setScanning(false);
+    }
+  }
+
+  if (!user) return null;
 
   return (
-    <div className="min-h-screen p-4 md:p-8" style={{ background: "var(--shelfy-bg)" }}>
-      {/* Header */}
-      <div className="mb-8">
-        <div className="flex items-center gap-3 mb-2">
-          <div
-            className="size-10 rounded-xl flex items-center justify-center shrink-0"
-            style={{ background: "var(--shelfy-primary)", boxShadow: "0 4px 14px var(--shelfy-glow)" }}
-          >
-            <UserCog size={20} className="text-white" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-black" style={{ color: "var(--shelfy-text)" }}>
-              Fuerza de Ventas
-            </h1>
-            <p className="text-sm" style={{ color: "var(--shelfy-muted)" }}>
-              Gestión operativa de vendedores — perfil, estado y vinculación Telegram
-            </p>
-          </div>
-        </div>
-
-        {/* KPI Pills */}
-        {!isLoading && (
-          <div className="flex flex-wrap gap-2 mt-4">
-            <Badge variant="outline" className="gap-1.5 px-3 py-1 text-xs font-bold">
-              <span>{stats.total}</span> vendedores
-            </Badge>
-            <Badge className="gap-1.5 px-3 py-1 text-xs font-bold bg-green-100 text-green-700 border border-green-200">
-              <Wifi size={11} />
-              {stats.vinculados} vinculados
-            </Badge>
-            <Badge className="gap-1.5 px-3 py-1 text-xs font-bold bg-amber-100 text-amber-700 border border-amber-200">
-              <WifiOff size={11} />
-              {stats.sin_vincular} sin vincular
-            </Badge>
-            <Badge variant="outline" className="gap-1.5 px-3 py-1 text-xs font-bold">
-              {stats.activos} activos
-            </Badge>
-          </div>
-        )}
-      </div>
-
-      {/* Filtros */}
-      <div
-        className="rounded-2xl border p-4 mb-6 flex flex-wrap gap-3"
-        style={{ background: "var(--shelfy-panel)", borderColor: "var(--shelfy-border)" }}
-      >
-        <div className="relative flex-1 min-w-[180px]">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "var(--shelfy-muted)" }} />
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar vendedor..."
-            className="pl-8 h-9 text-sm"
-          />
-        </div>
-
-        <Select value={filtroSucursal} onValueChange={setFiltroSucursal}>
-          <SelectTrigger className="h-9 w-[160px] text-sm">
-            <SelectValue placeholder="Sucursal" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="todas">Todas las sucursales</SelectItem>
-            {sucursales.map((s) => (
-              <SelectItem key={s} value={s}>{s}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Select value={filtroEstado} onValueChange={setFiltroEstado}>
-          <SelectTrigger className="h-9 w-[140px] text-sm">
-            <SelectValue placeholder="Estado" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="todos">Todos</SelectItem>
-            <SelectItem value="activo">Activos</SelectItem>
-            <SelectItem value="inactivo">Inactivos</SelectItem>
-          </SelectContent>
-        </Select>
-
-        <Select value={filtroBinding} onValueChange={setFiltroBinding}>
-          <SelectTrigger className="h-9 w-[150px] text-sm">
-            <SelectValue placeholder="Telegram" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="todos">Todos</SelectItem>
-            <SelectItem value="vinculado">Vinculados</SelectItem>
-            <SelectItem value="sin_vincular">Sin vincular</SelectItem>
-          </SelectContent>
-        </Select>
-
-        {filtered.length !== vendedores.length && (
-          <Badge variant="secondary" className="self-center text-xs font-semibold">
-            <Filter size={11} className="mr-1" />
-            {filtered.length} de {vendedores.length}
-          </Badge>
-        )}
-      </div>
-
-      {/* Content */}
-      {error ? (
-        <Alert variant="destructive">
-          <AlertTitle>Error</AlertTitle>
-          <AlertDescription>No se pudo cargar la fuerza de ventas. Reintenta más tarde.</AlertDescription>
-        </Alert>
-      ) : isLoading ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {Array.from({ length: 8 }).map((_, i) => (
-            <Skeleton key={i} className="h-40 rounded-2xl" />
-          ))}
-        </div>
-      ) : filtered.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-24 gap-3">
-          <UserCog size={48} style={{ color: "var(--shelfy-muted)" }} />
-          <p className="text-lg font-bold" style={{ color: "var(--shelfy-muted)" }}>
-            {vendedores.length === 0 ? "No hay vendedores cargados" : "Sin resultados para los filtros aplicados"}
+    <div className="p-6 max-w-6xl mx-auto space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Fuerza de Ventas</h1>
+          <p className="text-sm text-muted-foreground">
+            Gestión de vinculaciones Telegram ↔ Vendedor ERP
           </p>
         </div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {filtered.map((v) => (
-            <VendedorCard key={v.id_vendedor} vendedor={v} onClick={() => handleCardClick(v)} />
-          ))}
-        </div>
-      )}
+        <Button variant="outline" size="sm" onClick={handleScan} disabled={scanning}>
+          {scanning ? (
+            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+          ) : (
+            <RefreshCw className="h-4 w-4 mr-2" />
+          )}
+          Escanear ahora
+        </Button>
+      </div>
 
-      {/* Edit Sheet */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {healthLoading ? (
+          Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-20 rounded-xl" />
+          ))
+        ) : (
+          <>
+            <KpiChip label="Grupos totales" value={health?.grupos_total} icon={Users} />
+            <KpiChip
+              label="Vinculados"
+              value={health?.grupos_vinculados}
+              icon={CheckCircle2}
+              variant="success"
+            />
+            <KpiChip
+              label="Con alerta"
+              value={health?.grupos_review}
+              icon={AlertTriangle}
+              variant="warning"
+            />
+            <KpiChip
+              label="Cola pendiente"
+              value={health?.sugerencias_pendientes}
+              icon={Bell}
+              variant={health?.sugerencias_pendientes ? "warning" : "default"}
+            />
+          </>
+        )}
+      </div>
+
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="grid grid-cols-3 w-full max-w-md">
+          <TabsTrigger value="alertas" className="relative">
+            Alertas
+            {(health?.sugerencias_pendientes ?? 0) > 0 && (
+              <Badge className="ml-2 bg-amber-500 text-white text-xs px-1.5 py-0 h-5">
+                {health!.sugerencias_pendientes}
+              </Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="grupos">
+            <Link2 className="h-4 w-4 mr-1.5" />
+            Grupos
+          </TabsTrigger>
+          <TabsTrigger value="vendedores">Vendedores</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="alertas" className="mt-4">
+          {suggestionsLoading ? (
+            <div className="space-y-3">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Skeleton key={i} className="h-32 rounded-xl" />
+              ))}
+            </div>
+          ) : (
+            <BindingAlertInbox suggestions={suggestions} distId={distId} />
+          )}
+        </TabsContent>
+
+        <TabsContent value="grupos" className="mt-4">
+          {gruposLoading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <Skeleton key={i} className="h-28 rounded-xl" />
+              ))}
+            </div>
+          ) : grupos.length === 0 ? (
+            <p className="text-center py-12 text-muted-foreground">
+              No hay grupos registrados.
+            </p>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {grupos.map((g) => (
+                <GrupoBindingCard key={g.telegram_chat_id} grupo={g} />
+              ))}
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="vendedores" className="mt-4">
+          {vendedoresLoading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <Skeleton key={i} className="h-36 rounded-xl" />
+              ))}
+            </div>
+          ) : vendedores.length === 0 ? (
+            <p className="text-center py-12 text-muted-foreground">
+              No hay vendedores disponibles.
+            </p>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {vendedores.map((v) => (
+                <VendedorCard
+                  key={v.id_vendedor}
+                  vendedor={v}
+                  onClick={() => {
+                    setSelectedVendedorId(v.id_vendedor);
+                    setSheetOpen(true);
+                  }}
+                />
+              ))}
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
+
       <VendedorEditSheet
         idVendedor={selectedVendedorId}
         distId={distId}
         open={sheetOpen}
-        onClose={() => { setSheetOpen(false); setSelectedVendedorId(null); }}
+        onClose={() => {
+          setSheetOpen(false);
+          setSelectedVendedorId(null);
+        }}
       />
     </div>
   );

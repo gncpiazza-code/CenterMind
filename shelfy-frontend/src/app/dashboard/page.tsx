@@ -112,7 +112,7 @@ export default function DashboardPage() {
 
   const { data: ultimas = [], isLoading: loadingUltimas, isFetching: fetchingUltimas } = useQuery<UltimaEvaluada[]>({
     queryKey: ["dashboard", "ultimas", distId, sucursalFiltro],
-    queryFn: () => fetchUltimasEvaluadas(distId, 12, sucursalFiltro),
+    queryFn: () => fetchUltimasEvaluadas(distId, 0, sucursalFiltro),
     enabled,
     placeholderData: (prev: unknown) => prev as UltimaEvaluada[] | undefined,
     refetchInterval: 300_000,
@@ -226,23 +226,25 @@ export default function DashboardPage() {
 
           {/* KPIs (izq) + filtros/tema/fullscreen en columna (der) */}
           <motion.div
-            className="shrink-0 mb-3 flex flex-row items-stretch justify-between gap-2 md:gap-3 w-full min-w-0"
+            className="shrink-0 mb-3 flex flex-col sm:flex-row items-stretch justify-between gap-2 md:gap-3 w-full min-w-0"
             variants={sectionVariants}
             initial="hidden"
             animate="show"
             custom={0}
           >
-            <div className="flex-1 min-w-0 overflow-hidden">
+            <div className="flex-1 min-w-0 min-h-[188px] sm:min-h-0 overflow-hidden w-full">
               <DashboardKpiCarousel
                 kpis={kpis}
                 evolucion={evolucion}
                 loading={loadingKpis}
                 isDark={isDark}
+                chartYear={bounds.start.getFullYear()}
+                chartMonth={bounds.start.getMonth()}
               />
             </div>
             <DashboardFilterBar
               layout="stacked"
-              className="self-start"
+              className="self-end sm:self-start shrink-0"
               periodPreset={periodPreset}
               customYear={customYear}
               customMonth={customMonth}
@@ -291,12 +293,12 @@ export default function DashboardPage() {
                     <Skeleton className="h-8 w-full rounded-2xl" />
                   </Card>
                 ) : (
-                  <div className={cn(
-                    "h-full min-h-0 flex-1 rounded-3xl overflow-hidden bg-slate-950",
-                    isDark ? "ring-1 ring-slate-700" : "ring-1 ring-violet-500/20 shadow-lg shadow-violet-500/10",
-                  )}>
-                    <HeroCarousel items={ultimasCoherentes} compact isDark={isDark} />
-                  </div>
+                  <HeroCarousel
+                    items={ultimasCoherentes}
+                    compact
+                    isDark={isDark}
+                    className="h-full min-h-0 flex-1"
+                  />
                 )}
               </motion.div>
 

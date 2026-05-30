@@ -101,6 +101,7 @@ export interface UltimaEvaluada {
   timestamp_subida: string;
   fecha_evaluacion?: string;
   ciudad?: string;
+  nombre_fantasia?: string;
   razon_social?: string;
 }
 
@@ -475,6 +476,7 @@ export async function fetchUltimasEvaluadas(distribuidorId: number, n: number = 
       pdv_asignado_vendedor:
         typeof pdvAsignado === "boolean" ? pdvAsignado : undefined,
       nro_cliente: toNonEmptyString(row.nro_cliente) ?? "",
+      nombre_fantasia: toNonEmptyString(row.nombre_fantasia) ?? undefined,
       razon_social: toNonEmptyString(row.razon_social) ?? undefined,
       ciudad: toNonEmptyString(row.ciudad) ?? undefined,
     };

@@ -543,10 +543,10 @@ def _enrich_ultimas_dashboard_rows(rows: list[dict], distribuidor_id: int) -> li
         if cliente:
             erp_id = _ultimas_safe_text(cliente.get("id_cliente_erp")).strip()
             row["nro_cliente"] = erp_id or row.get("nro_cliente") or ""
-            row["razon_social"] = (
-                _ultimas_safe_text(cliente.get("nombre_razon_social")).strip()
-                or _ultimas_safe_text(cliente.get("nombre_fantasia")).strip()
-            )
+            row["nombre_fantasia"] = _ultimas_safe_text(cliente.get("nombre_fantasia")).strip()
+            row["razon_social"] = _ultimas_safe_text(cliente.get("nombre_razon_social")).strip()
+            if not row["razon_social"] and row["nombre_fantasia"]:
+                row["razon_social"] = row["nombre_fantasia"]
             row["ciudad"] = _ultimas_safe_text(cliente.get("localidad")).strip()
 
         erp_name = vendor_map.get(iid) if iid is not None else None
@@ -565,69 +565,94 @@ def _enrich_ultimas_dashboard_rows(rows: list[dict], distribuidor_id: int) -> li
 
 
 _ULTIMAS_ESTADOS = ("Aprobado", "Destacado", "Destacada")
+_MIN_ULTIMAS_HOY = 3
+_ULTIMAS_EX_SELECT = (
+    "id_exhibicion,id_integrante,estado,url_foto_drive,timestamp_subida,evaluated_at,"
+    "tipo_pdv,id_cliente_pdv,id_cliente,cliente_sombra_codigo"
+)
 
 
-def _fetch_ultimas_evaluadas_rows(distribuidor_id: int, n: int) -> list[dict]:
-    """Últimas exhibiciones evaluadas desde tabla exhibiciones (fuente con id_integrante y cliente)."""
-    ar_today = (datetime.utcnow() - timedelta(hours=3)).date()
-    pool: list[dict] = []
-    seen_ex: set[int] = set()
+def _ultimas_sort_key(row: dict) -> str:
+    return (
+        _ultimas_safe_text(row.get("fecha_evaluacion"))
+        or _ultimas_safe_text(row.get("timestamp_subida"))
+    )
 
-    for days_back in range(90):
-        if len(pool) >= n:
-            break
-        fecha = ar_today - timedelta(days=days_back)
-        start_iso = f"{fecha.isoformat()}T03:00:00"
-        end_iso = f"{(fecha + timedelta(days=1)).isoformat()}T03:00:00"
+
+def _ultimas_row_from_ex(ex: dict, seen_ex: set[int]) -> Optional[dict]:
+    eid = _ultimas_safe_int(ex.get("id_exhibicion"))
+    if eid is None or eid in seen_ex:
+        return None
+    seen_ex.add(eid)
+    return {
+        "id_exhibicion": eid,
+        "drive_link": _ultimas_safe_text(ex.get("url_foto_drive")),
+        "estado": _ultimas_safe_text(ex.get("estado")),
+        "tipo_pdv": _ultimas_safe_text(ex.get("tipo_pdv")),
+        "nro_cliente": _ultimas_safe_text(ex.get("cliente_sombra_codigo")).strip(),
+        "id_integrante": ex.get("id_integrante"),
+        "id_cliente_pdv": ex.get("id_cliente_pdv"),
+        "id_cliente": ex.get("id_cliente"),
+        "cliente_sombra_codigo": ex.get("cliente_sombra_codigo"),
+        "timestamp_subida": ex.get("timestamp_subida"),
+        "fecha_evaluacion": ex.get("evaluated_at"),
+    }
+
+
+def _fetch_ultimas_evaluadas_day(
+    distribuidor_id: int,
+    fecha,
+    seen_ex: set[int],
+) -> list[dict]:
+    """Todas las evaluadas aprobadas/destacadas de un día calendario AR (sin tope por día)."""
+    start_iso = f"{fecha.isoformat()}T03:00:00"
+    end_iso = f"{(fecha + timedelta(days=1)).isoformat()}T03:00:00"
+    page = 1000
+    offset = 0
+    day_rows: list[dict] = []
+    while True:
         try:
             chunk = (
                 sb.table("exhibiciones")
-                .select(
-                    "id_exhibicion,id_integrante,estado,url_foto_drive,timestamp_subida,evaluated_at,"
-                    "tipo_pdv,id_cliente_pdv,id_cliente,cliente_sombra_codigo"
-                )
+                .select(_ULTIMAS_EX_SELECT)
                 .eq("id_distribuidor", distribuidor_id)
                 .in_("estado", list(_ULTIMAS_ESTADOS))
                 .gte("timestamp_subida", start_iso)
                 .lt("timestamp_subida", end_iso)
                 .order("timestamp_subida", desc=True)
-                .limit(max(n * 2, 16))
+                .range(offset, offset + page - 1)
                 .execute()
                 .data
                 or []
             )
         except Exception as e:
             logger.warning(f"[ultimas] query exhibiciones dist={distribuidor_id} fecha={fecha}: {e}")
-            continue
-
+            break
         for ex in chunk:
-            eid = _ultimas_safe_int(ex.get("id_exhibicion"))
-            if eid is None or eid in seen_ex:
-                continue
-            seen_ex.add(eid)
-            pool.append(
-                {
-                    "id_exhibicion": eid,
-                    "drive_link": _ultimas_safe_text(ex.get("url_foto_drive")),
-                    "estado": _ultimas_safe_text(ex.get("estado")),
-                    "tipo_pdv": _ultimas_safe_text(ex.get("tipo_pdv")),
-                    "nro_cliente": _ultimas_safe_text(ex.get("cliente_sombra_codigo")).strip(),
-                    "id_integrante": ex.get("id_integrante"),
-                    "id_cliente_pdv": ex.get("id_cliente_pdv"),
-                    "id_cliente": ex.get("id_cliente"),
-                    "cliente_sombra_codigo": ex.get("cliente_sombra_codigo"),
-                    "timestamp_subida": ex.get("timestamp_subida"),
-                    "fecha_evaluacion": ex.get("evaluated_at"),
-                }
-            )
+            row = _ultimas_row_from_ex(ex, seen_ex)
+            if row:
+                day_rows.append(row)
+        if len(chunk) < page:
+            break
+        offset += page
+    return day_rows
 
-    pool.sort(
-        key=lambda r: (
-            _ultimas_safe_text(r.get("fecha_evaluacion")) or _ultimas_safe_text(r.get("timestamp_subida"))
-        ),
-        reverse=True,
-    )
-    return pool[:n]
+
+def _fetch_ultimas_evaluadas_rows(distribuidor_id: int, n: int) -> list[dict]:
+    """
+    Carrusel dashboard: todas las del día AR actual; si hay menos de 3, suma las de ayer.
+    Sin máximo por día. n<=0 devuelve el pool completo; n>0 recorta el total.
+    """
+    ar_today = (datetime.utcnow() - timedelta(hours=3)).date()
+    seen_ex: set[int] = set()
+    pool = _fetch_ultimas_evaluadas_day(distribuidor_id, ar_today, seen_ex)
+    if len(pool) < _MIN_ULTIMAS_HOY:
+        ayer = ar_today - timedelta(days=1)
+        pool.extend(_fetch_ultimas_evaluadas_day(distribuidor_id, ayer, seen_ex))
+    pool.sort(key=_ultimas_sort_key, reverse=True)
+    if n > 0:
+        return pool[:n]
+    return pool
 
 
 def _filter_ultimas_by_sucursal(rows: list[dict], allowed_integrantes: set[int] | None) -> list[dict]:
@@ -1337,8 +1362,8 @@ def dashboard_ultimas(
             logger.exception(f"[ultimas] enrich dist={distribuidor_id}: {e}")
             return rows
 
-    fetch_n = max(n * 4, 24)
-    rows = _fetch_ultimas_evaluadas_rows(distribuidor_id, fetch_n)
+    fetch_cap = n if n > 0 else 0
+    rows = _fetch_ultimas_evaluadas_rows(distribuidor_id, fetch_cap)
 
     if hide_qa:
         filtered_qa: list[dict] = []
@@ -1354,33 +1379,47 @@ def dashboard_ultimas(
         rows = filtered_qa
 
     rows = _filter_ultimas_by_sucursal(rows, allowed_integrantes)
-    rows = rows[:n]
+    if n > 0:
+        rows = rows[:n]
     if rows:
         return _safe_enrich(rows)
 
-    # Fallback RPC si la query directa no devolvió filas (esquema legacy)
-    for days_back in range(90):
+    # Fallback RPC: solo hoy y ayer (misma regla que query directa)
+    rpc_limit = n if n > 0 else 500
+    merged_rpc: list[dict] = []
+    seen_rpc: set[int] = set()
+    for days_back in range(2):
         fecha = (ar_today - timedelta(days=days_back)).isoformat()
         result = sb.rpc(
             "fn_ultimas_evaluadas",
-            {"p_dist_id": distribuidor_id, "p_fecha": fecha, "p_limit": n},
+            {"p_dist_id": distribuidor_id, "p_fecha": fecha, "p_limit": rpc_limit},
         ).execute()
         if not result.data:
             continue
-        rpc_rows = result.data
+        for r in result.data:
+            eid = _ultimas_safe_int(r.get("id_exhibicion"))
+            if eid is None or eid in seen_rpc:
+                continue
+            seen_rpc.add(eid)
+            merged_rpc.append(r)
+        if len(merged_rpc) >= _MIN_ULTIMAS_HOY and days_back == 0:
+            break
+    if merged_rpc:
         if hide_qa:
-            rpc_rows = [
+            merged_rpc = [
                 r
-                for r in rpc_rows
+                for r in merged_rpc
                 if _ultimas_safe_int(r.get("id_integrante")) not in qa_ids
                 and not is_exhibicion_qa_display_for_dist(
                     distribuidor_id,
                     erp_name_map.get((_ultimas_safe_text(r.get("vendedor")).strip().lower()), ""),
                 )
             ]
-        rpc_rows = _filter_ultimas_by_sucursal(rpc_rows, allowed_integrantes)
-        if rpc_rows:
-            return _safe_enrich(rpc_rows[:n])
+        merged_rpc = _filter_ultimas_by_sucursal(merged_rpc, allowed_integrantes)
+        merged_rpc.sort(key=_ultimas_sort_key, reverse=True)
+        if n > 0:
+            merged_rpc = merged_rpc[:n]
+        return _safe_enrich(merged_rpc)
     return []
 
 

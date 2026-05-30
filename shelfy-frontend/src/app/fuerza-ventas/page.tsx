@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import {
   Link2,
   Bell,
@@ -25,6 +26,7 @@ import {
   fetchBindingGrupos,
   triggerBindingScan,
   type BindingHealthKPIs,
+  type BindingScanResult,
   type AuthResponse,
   type GrupoBindingStatus,
 } from "@/lib/api";
@@ -108,10 +110,51 @@ export default function FuerzaVentasPage() {
     if (!distId) return;
     setScanning(true);
     try {
-      await triggerBindingScan(distId);
-      qc.invalidateQueries({ queryKey: ["binding-health", distId] });
-      qc.invalidateQueries({ queryKey: ["binding-suggestions", distId] });
-      qc.invalidateQueries({ queryKey: ["binding-grupos", distId] });
+      const result: BindingScanResult = await triggerBindingScan(distId);
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["binding-health", distId] }),
+        qc.invalidateQueries({ queryKey: ["binding-suggestions", distId] }),
+        qc.invalidateQueries({ queryKey: ["binding-grupos", distId] }),
+      ]);
+
+      if (result.error) {
+        toast.error(`Error en escaneo: ${result.error}`);
+        return;
+      }
+
+      const totalSuggestions =
+        (result.suggestions_created ?? 0) + (result.suggestions_updated ?? 0);
+
+      if (totalSuggestions > 0) {
+        const parts = [];
+        if (result.suggestions_created) {
+          parts.push(`${result.suggestions_created} nuevas`);
+        }
+        if (result.suggestions_updated) {
+          parts.push(`${result.suggestions_updated} actualizadas`);
+        }
+        toast.success(
+          `Escaneo: ${parts.join(", ")} sugerencias (≥50% confianza)`,
+          {
+            description:
+              result.prefetch_ready > 0
+                ? `${result.prefetch_ready} con ≥75% — listas para confirmar en Alertas`
+                : undefined,
+          },
+        );
+        setActiveTab("alertas");
+      } else if ((result.prefetch_ready ?? 0) > 0) {
+        toast.info(
+          `${result.prefetch_ready} grupos con match ≥75%. Revisá en Alertas o abrí el grupo.`,
+        );
+        setActiveTab("alertas");
+      } else {
+        toast.warning(
+          `Escaneados ${result.grupos_scanned} grupos sin coincidencias ≥50%`,
+        );
+      }
+    } catch {
+      toast.error("No se pudo completar el escaneo");
     } finally {
       setScanning(false);
     }

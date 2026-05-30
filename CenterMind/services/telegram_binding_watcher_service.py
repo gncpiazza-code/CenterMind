@@ -4,7 +4,7 @@ Servicio de vigilancia de bindings Telegram ↔ Vendedor ERP.
 
 scan_distribuidor:
   1. Grupos linked/review → detect_group_drift → si hay drift: unlink + create_suggestion.
-  2. Grupos unlinked con actividad reciente → create_suggestion (sin auto-apply en prod).
+  2. Grupos unlinked → create_suggestion para matches ≥50% (prefetch ≥75% contabilizado).
 
 scan_all_distributors: aplica scan_distribuidor a todos los tenants activos.
 """
@@ -14,7 +14,6 @@ import logging
 from datetime import datetime, timezone
 
 from db import sb
-from core.tenant_tables import tenant_table_name
 from core.telegram_group_matcher import (
     apply_group_binding,
     create_suggestion,
@@ -25,8 +24,10 @@ from core.telegram_group_matcher import (
 
 logger = logging.getLogger("ShelfyAPI")
 
-# Score mínimo para levantar una sugerencia
-_SUGGESTION_THRESHOLD = 0.5
+# Rango de confianza para cola de sugerencias (manual / alertas)
+_SUGGESTION_THRESHOLD = 0.50
+# Umbral de prefetch semi-automático (confirmar en sheet)
+_SCAN_PREFETCH_THRESHOLD = 0.75
 # Auto-apply deshabilitado en prod: directorio aprueba desde Fuerza de Ventas / Match Center
 _AUTO_APPLY_ENABLED = False
 _AUTO_APPLY_THRESHOLD = 0.95
@@ -61,25 +62,30 @@ def _fetch_all_grupos(dist_id: int) -> list[dict]:
     return rows
 
 
-def _grupo_tiene_actividad(dist_id: int, telegram_chat_id: int) -> bool:
-    """
-    Verifica si el grupo tiene al menos una exhibición registrada (proxy de actividad).
-    """
-    try:
-        res = (
-            sb.table("exhibiciones")
-            .select("id_exhibicion")
-            .eq("id_distribuidor", dist_id)
-            .eq("telegram_chat_id", telegram_chat_id)
-            .limit(1)
-            .execute()
-        )
-        return bool(res.data)
-    except Exception as exc:
-        logger.warning(
-            "_grupo_tiene_actividad dist=%s chat=%s err=%s", dist_id, telegram_chat_id, exc
-        )
-        return False
+def _record_suggestion(
+    stats: dict,
+    dist_id: int,
+    chat_id: int,
+    candidate: dict,
+    source: str,
+) -> None:
+    score = float(candidate.get("score") or 0)
+    if score < _SUGGESTION_THRESHOLD:
+        return
+    if score >= _SCAN_PREFETCH_THRESHOLD:
+        stats["prefetch_ready"] += 1
+    outcome = create_suggestion(
+        dist_id,
+        chat_id,
+        candidate["id_vendedor"],
+        score,
+        candidate.get("reasons") or [],
+        source=source,
+    )
+    if outcome == "created":
+        stats["suggestions_created"] += 1
+    elif outcome == "updated":
+        stats["suggestions_updated"] += 1
 
 
 def scan_distribuidor(dist_id: int) -> dict:
@@ -95,6 +101,8 @@ def scan_distribuidor(dist_id: int) -> dict:
         "drifts": 0,
         "auto_applied": 0,
         "suggestions_created": 0,
+        "suggestions_updated": 0,
+        "prefetch_ready": 0,
     }
 
     for grupo in grupos:
@@ -106,7 +114,6 @@ def scan_distribuidor(dist_id: int) -> dict:
 
         try:
             if status in ("linked", "review"):
-                # Paso 1: detectar drift en grupos ya vinculados
                 drift = detect_group_drift(dist_id, chat_id)
                 if drift:
                     logger.info(
@@ -121,34 +128,21 @@ def scan_distribuidor(dist_id: int) -> dict:
                     )
                     stats["drifts"] += 1
 
-                    # Generar sugerencia post-drift para los mejores candidatos
                     candidates = score_group_vendor_candidates(dist_id, chat_id)
-                    for c in candidates:
-                        if c["score"] > _SUGGESTION_THRESHOLD:
-                            create_suggestion(
-                                dist_id,
-                                chat_id,
-                                c["id_vendedor"],
-                                c["score"],
-                                c["reasons"],
-                                source="drift",
-                            )
-                            stats["suggestions_created"] += 1
+                    if candidates:
+                        _record_suggestion(stats, dist_id, chat_id, candidates[0], "drift")
 
             else:
-                # Paso 2 y 3: grupos no vinculados
-                if not _grupo_tiene_actividad(dist_id, chat_id):
-                    continue
-
                 candidates = score_group_vendor_candidates(dist_id, chat_id)
                 if not candidates:
                     continue
 
                 top = candidates[0]
+                top_score = float(top.get("score") or 0)
 
                 if (
                     _AUTO_APPLY_ENABLED
-                    and top["score"] >= _AUTO_APPLY_THRESHOLD
+                    and top_score >= _AUTO_APPLY_THRESHOLD
                 ):
                     apply_group_binding(
                         dist_id,
@@ -174,19 +168,9 @@ def scan_distribuidor(dist_id: int) -> dict:
                             dist_id, chat_id, exc,
                         )
                     stats["auto_applied"] += 1
-
                 else:
-                    for c in candidates:
-                        if c["score"] > _SUGGESTION_THRESHOLD:
-                            create_suggestion(
-                                dist_id,
-                                chat_id,
-                                c["id_vendedor"],
-                                c["score"],
-                                c["reasons"],
-                                source="cron",
-                            )
-                            stats["suggestions_created"] += 1
+                    # Solo el mejor candidato por grupo (evita spam en alertas)
+                    _record_suggestion(stats, dist_id, chat_id, top, "manual_scan")
 
         except Exception as exc:
             logger.warning(
@@ -209,7 +193,6 @@ def scan_all_distributors() -> list[dict]:
             .execute()
             .data or []
         )
-        # Compat: algunos registros usan 'id' y otros no tienen campo activo
         dist_ids = [
             int(r["id"])
             for r in rows
@@ -232,6 +215,8 @@ def scan_all_distributors() -> list[dict]:
                 "drifts": 0,
                 "auto_applied": 0,
                 "suggestions_created": 0,
+                "suggestions_updated": 0,
+                "prefetch_ready": 0,
             })
 
     return results

@@ -994,10 +994,12 @@ def create_suggestion(
     score: float,
     reasons: list[str],
     source: str,
-) -> None:
+) -> str:
     """
-    Inserta en telegram_binding_suggestions solo si no existe una sugerencia
+    Inserta o actualiza en telegram_binding_suggestions si no existe una sugerencia
     pending idéntica (mismo dist, chat y vendedor).
+
+    Returns: 'created' | 'updated' | 'skipped'
     """
     try:
         existing = (
@@ -1012,7 +1014,12 @@ def create_suggestion(
             .data or []
         )
         if existing:
-            return
+            sb.table("telegram_binding_suggestions").update({
+                "score": score,
+                "reasons": reasons,
+                "source": source,
+            }).eq("id", existing[0]["id"]).execute()
+            return "updated"
 
         sb.table("telegram_binding_suggestions").insert({
             "id_distribuidor": dist_id,
@@ -1023,9 +1030,11 @@ def create_suggestion(
             "status": "pending",
             "source": source,
         }).execute()
+        return "created"
 
     except Exception as exc:
         logger.warning(
             "create_suggestion dist=%s chat=%s vendedor=%s err=%s",
             dist_id, telegram_chat_id, id_vendedor_v2, exc,
         )
+        return "skipped"

@@ -16,14 +16,7 @@ import { Button } from "@/components/ui/Button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-
+import { VendedorSearchCombobox } from "@/components/fuerza-ventas/VendedorSearchCombobox";
 import {
   applyBindingDirect,
   unlinkBindingDirect,
@@ -34,6 +27,13 @@ import {
   type GroupBindingSuggestResponse,
 } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface Props {
   grupo: GrupoBindingStatus | null;
@@ -324,6 +324,7 @@ export function GrupoBindingSheet({ grupo, distId, open, onClose }: Props) {
     a.nombre_erp.localeCompare(b.nombre_erp, "es"),
   );
 
+  const vendorCandidates = suggestion?.vendedor_candidates ?? [];
   const vendorHint = suggestion?.vendedor_sugerido;
   const uidHint = suggestion?.uid_sugerido;
   const showVendorHint =
@@ -397,23 +398,14 @@ export function GrupoBindingSheet({ grupo, distId, open, onClose }: Props) {
 
             <div className="space-y-2">
               <Label>Vendedor ERP</Label>
-              <Select
-                value={vendedorId || undefined}
-                onValueChange={(v) => void handleVendedorChange(v)}
+              <VendedorSearchCombobox
+                vendedores={sortedVendedores}
+                value={vendedorId}
+                onChange={(v) => void handleVendedorChange(v)}
                 disabled={loadingVendedores}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar vendedor..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {sortedVendedores.map((v) => (
-                    <SelectItem key={v.id_vendedor} value={String(v.id_vendedor)}>
-                      {v.nombre_erp}
-                      {v.sucursal_nombre ? ` · ${v.sucursal_nombre}` : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                loading={loadingVendedores}
+                candidates={vendorCandidates}
+              />
               {showVendorHint && (
                 <SuggestionHint
                   label={vendorHint.nombre_erp}

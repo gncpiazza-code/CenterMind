@@ -3473,8 +3473,19 @@ export async function fetchBindingSuggest(
   );
 }
 
-export async function triggerBindingScan(distId: number): Promise<object> {
-  return apiFetch<object>(`/api/fuerza-ventas/binding/scan/${distId}`, {
+export interface BindingScanResult {
+  dist_id: number;
+  grupos_scanned: number;
+  drifts: number;
+  auto_applied: number;
+  suggestions_created: number;
+  suggestions_updated: number;
+  prefetch_ready: number;
+  error?: string;
+}
+
+export async function triggerBindingScan(distId: number): Promise<BindingScanResult> {
+  return apiFetch<BindingScanResult>(`/api/fuerza-ventas/binding/scan/${distId}`, {
     method: "POST",
   });
 }

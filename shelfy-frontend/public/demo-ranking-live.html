@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Shelfy — Demo animación ranking en vivo</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: linear-gradient(145deg, #f5f3ff 0%, #fff 40%, #eef2ff 100%);
+      min-height: 100vh;
+      padding: 24px;
+      color: #0f172a;
+    }
+    h1 {
+      font-size: 1.1rem;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      text-align: center;
+      margin-bottom: 6px;
+    }
+    .hint {
+      text-align: center;
+      font-size: 12px;
+      color: #64748b;
+      margin-bottom: 20px;
+      max-width: 520px;
+      margin-left: auto;
+      margin-right: auto;
+      line-height: 1.5;
+    }
+    .panel {
+      max-width: 720px;
+      margin: 0 auto;
+      background: #fff;
+      border-radius: 24px;
+      border: 1px solid rgba(139, 92, 246, 0.25);
+      box-shadow: 0 20px 50px rgba(139, 92, 246, 0.12);
+      overflow: hidden;
+    }
+    .panel-head {
+      padding: 20px 24px 12px;
+      border-bottom: 1px solid #ede9fe;
+      background: linear-gradient(180deg, #faf5ff, #fff);
+    }
+    .panel-head h2 {
+      font-size: 14px;
+      font-weight: 900;
+      text-transform: uppercase;
+      text-align: center;
+    }
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: center;
+      padding: 14px 16px;
+      background: #f8fafc;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    button {
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      padding: 8px 14px;
+      border-radius: 12px;
+      border: 1px solid #c4b5fd;
+      background: #7c3aed;
+      color: #fff;
+      cursor: pointer;
+      transition: transform 0.15s, background 0.15s;
+    }
+    button:hover { transform: scale(1.03); background: #6d28d9; }
+    button.secondary {
+      background: #fff;
+      color: #6d28d9;
+      border-color: #ddd6fe;
+    }
+    button.secondary:hover { background: #f5f3ff; }
+    .cols {
+      display: grid;
+      grid-template-columns: 3rem 1fr 4rem 4rem;
+      gap: 8px;
+      padding: 10px 20px;
+      font-size: 9px;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 0.15em;
+      color: #94a3b8;
+      background: #f5f3ff;
+      border-bottom: 1px solid #ede9fe;
+    }
+    .cols span:nth-child(n+3) { text-align: right; }
+    #list {
+      padding: 12px 16px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-height: 320px;
+      position: relative;
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 3rem 1fr 4rem 4rem;
+      gap: 8px;
+      align-items: center;
+      padding: 10px 12px;
+      border-radius: 16px;
+      border: 1px solid #e2e8f0;
+      background: #fff;
+      position: relative;
+      z-index: 1;
+      will-change: transform;
+    }
+    .row.top1 {
+      background: linear-gradient(90deg, rgba(251,191,36,0.15), #fff);
+      border-color: rgba(251, 191, 36, 0.45);
+      z-index: 5;
+    }
+    .row.top2 { background: #f8fafc; }
+    .row.top3 { background: #fff7ed; border-color: #fed7aa; }
+    .row.surging-up {
+      z-index: 50 !important;
+      border: 2px solid #10b981 !important;
+      box-shadow: 0 26px 56px rgba(16, 185, 129, 0.32);
+    }
+    .row.surging-down {
+      z-index: 50 !important;
+      border: 2px solid #ef4444 !important;
+      box-shadow: 0 24px 52px rgba(239, 68, 68, 0.26);
+    }
+    .row.pushing {
+      z-index: 50 !important;
+      transform-origin: 50% 0%;
+    }
+    .row.displaced {
+      z-index: 5;
+      transform-origin: 50% 0%;
+    }
+    .row.surging-down {
+      box-shadow: 0 8px 16px rgba(239, 68, 68, 0.12);
+      outline: 1px solid rgba(248, 113, 113, 0.4);
+    }
+    .pos {
+      width: 28px;
+      height: 28px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 900;
+      background: #f1f5f9;
+      color: #64748b;
+    }
+    .top1 .pos { background: #fbbf24; color: #fff; }
+    .name-wrap { display: flex; align-items: center; gap: 6px; min-width: 0; }
+    .name {
+      font-weight: 900;
+      font-size: 13px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+      font-size: 10px;
+      font-weight: 900;
+      flex-shrink: 0;
+    }
+    .badge.up { color: #059669; }
+    .badge.down { color: #dc2626; }
+    .pts { text-align: right; font-weight: 900; font-size: 15px; }
+    .stat { text-align: right; font-size: 12px; font-weight: 800; color: #64748b; }
+    .crown { font-size: 14px; }
+    .note {
+      margin-top: 16px;
+      text-align: center;
+      font-size: 11px;
+      color: #94a3b8;
+    }
+  </style>
+</head>
+<body>
+  <h1>Demo — Ranking en vivo</h1>
+  <p class="hint">
+    Vista previa de la animación del portal: las filas se deslizan con resorte cuando cambia el orden,
+    el que sube “salta” un poco y empuja a los de abajo. Usá los botones para simular cambios.
+  </p>
+
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Ranking Distribuidora (demo)</h2>
+    </div>
+    <div class="toolbar">
+      <button type="button" id="btn-up">▲ Subir #3 al puesto 1</button>
+      <button type="button" id="btn-down">▼ Bajar #1 al puesto 4</button>
+      <button type="button" id="btn-random" class="secondary">⚡ Cambio aleatorio</button>
+      <button type="button" id="btn-reset" class="secondary">↺ Reset</button>
+    </div>
+    <div class="cols">
+      <span>Pos</span><span>Vendedor</span><span>Pts</span><span>Δ</span>
+    </div>
+    <div id="list"></div>
+  </div>
+  <p class="note">Archivo: <code>shelfy-frontend/public/demo-ranking-live.html</code> — abrilo en el navegador o en <code>/demo-ranking-live.html</code> con <code>npm run dev</code></p>
+
+  <script>
+    const LAYOUT_MS = 1400;
+    const SURGE_MS = 4500;
+
+    function easeOutSmooth(t) {
+      return t >= 1 ? 1 : 1 - Math.pow(1 - t, 3.2);
+    }
+
+    const INITIAL = [
+      { id: "a", name: "García, Juan", pts: 42 },
+      { id: "b", name: "López, María", pts: 38 },
+      { id: "c", name: "Rodríguez, Pedro", pts: 35 },
+      { id: "d", name: "Fernández, Ana", pts: 31 },
+      { id: "e", name: "Martínez, Luis", pts: 28 },
+      { id: "f", name: "Sosa, Carla", pts: 24 },
+    ];
+
+    let vendors = INITIAL.map((v, i) => ({ ...v, pos: i + 1 }));
+    let movements = {};
+    let rowEls = new Map();
+
+    const list = document.getElementById("list");
+
+    function sortByPts() {
+      vendors = [...vendors].sort((a, b) => b.pts - a.pts).map((v, i) => ({ ...v, pos: i + 1 }));
+    }
+
+    function applyMovement(id, fromPos, toPos) {
+      const diff = fromPos - toPos;
+      if (diff === 0) return;
+      movements[id] = {
+        dir: diff > 0 ? "up" : "down",
+        n: Math.abs(diff),
+        at: Date.now(),
+      };
+    }
+
+    function getMovement(id) {
+      const m = movements[id];
+      if (!m || Date.now() - m.at > SURGE_MS) return null;
+      return m;
+    }
+
+    function rowClass(v, i) {
+      const m = getMovement(v.id);
+      let c = "row";
+      if (i === 0) c += " top1";
+      else if (i === 1) c += " top2";
+      else if (i === 2) c += " top3";
+      if (m?.dir === "up") c += " surging-up";
+      if (m?.dir === "down") c += " surging-down";
+      return c;
+    }
+
+    function renderRow(v, index) {
+      const m = getMovement(v.id);
+      const el = document.createElement("div");
+      el.className = rowClass(v, index);
+      el.dataset.id = v.id;
+      const posLabel = index === 0 ? '<span class="crown" title="Primer puesto">👑</span>' : String(index + 1);
+      const badge = m
+        ? `<span class="badge ${m.dir}">${m.dir === "up" ? "↑" : "↓"}${m.n}</span>`
+        : "";
+      el.innerHTML = `
+        <div class="pos">${posLabel}</div>
+        <div class="name-wrap"><span class="name">${v.name}</span>${badge}</div>
+        <div class="pts">${v.pts}</div>
+        <div class="stat">—</div>
+      `;
+      return el;
+    }
+
+    let animating = false;
+
+    function lerpKeyframes(frames, times, t) {
+      if (t <= times[0]) return frames[0];
+      for (let i = 1; i < times.length; i++) {
+        if (t <= times[i]) {
+          const t0 = times[i - 1];
+          const t1 = times[i];
+          const local = (t - t0) / (t1 - t0);
+          return frames[i - 1] + (frames[i] - frames[i - 1]) * local;
+        }
+      }
+      return frames[frames.length - 1];
+    }
+
+    const PUSH_UP_SCALE = [1, 1.07, 1.16, 1.12, 1.06, 1.02, 1];
+    const PUSH_UP_Y = [0, -8, -18, -12, -5, -1, 0];
+    const PUSH_DOWN_SCALE = [1, 1.06, 1.14, 1.1, 1.04, 1.01, 1];
+    const PUSH_DOWN_Y = [0, 6, 14, 10, 4, 1, 0];
+    const PUSH_TIMES = [0, 0.1, 0.32, 0.52, 0.72, 0.9, 1];
+
+    function collectAllPositionChanges(before) {
+      const changed = new Set();
+      vendors.forEach((v) => {
+        const b = before.find((x) => x.id === v.id);
+        if (!b || b.pos === v.pos) return;
+        const diff = b.pos - v.pos;
+        changed.add(v.id);
+        movements[v.id] = {
+          dir: diff > 0 ? "up" : "down",
+          n: Math.abs(diff),
+          at: Date.now(),
+        };
+      });
+      return changed;
+    }
+
+    function runSmoothReorder(prevRects, changedSet) {
+      animating = true;
+      const start = performance.now();
+
+      const nextRects = new Map();
+      rowEls.forEach((el, id) => nextRects.set(id, el.getBoundingClientRect()));
+
+      function frame(now) {
+        const raw = Math.min(1, (now - start) / LAYOUT_MS);
+        const t = easeOutSmooth(raw);
+
+        rowEls.forEach((el, id) => {
+          const prev = prevRects.get(id);
+          const next = nextRects.get(id);
+          let ty = 0;
+          let sc = 1;
+          if (prev && next) {
+            ty = (prev.top - next.top) * (1 - t);
+          }
+          const m = movements[id];
+          if (changedSet.has(id) && m) {
+            const up = m.dir === "up";
+            sc = lerpKeyframes(up ? PUSH_UP_SCALE : PUSH_DOWN_SCALE, PUSH_TIMES, t);
+            ty += lerpKeyframes(up ? PUSH_UP_Y : PUSH_DOWN_Y, PUSH_TIMES, t);
+            el.classList.add("pushing", up ? "surging-up" : "surging-down");
+          }
+          el.style.transform = `translate3d(0, ${ty}px, 0) scale(${sc})`;
+        });
+
+        if (raw < 1) {
+          requestAnimationFrame(frame);
+        } else {
+          rowEls.forEach((el) => {
+            el.style.transform = "";
+            el.classList.remove("pushing", "surging-up", "surging-down");
+          });
+          animating = false;
+        }
+      }
+      requestAnimationFrame(frame);
+    }
+
+    function paint(animateLayout, changedSet) {
+      const prevRects = animateLayout ? new Map() : null;
+      if (animateLayout) {
+        rowEls.forEach((el, id) => prevRects.set(id, el.getBoundingClientRect()));
+      }
+
+      list.innerHTML = "";
+      rowEls.clear();
+      vendors.forEach((v, i) => {
+        const el = renderRow(v, i);
+        list.appendChild(el);
+        rowEls.set(v.id, el);
+      });
+
+      if (animateLayout && prevRects && changedSet && changedSet.size) {
+        runSmoothReorder(prevRects, changedSet);
+      }
+    }
+
+    function reorderWithAnim(reorderFn) {
+      if (animating) return;
+      const before = vendors.map((v) => ({ id: v.id, pos: v.pos }));
+      const prevRects = new Map();
+      rowEls.forEach((el, id) => prevRects.set(id, el.getBoundingClientRect()));
+      reorderFn();
+      const changed = collectAllPositionChanges(before);
+      paint(true, changed);
+    }
+
+    function moveVendor(id, newIndex) {
+      reorderWithAnim(() => {
+        const from = vendors.findIndex((v) => v.id === id);
+        if (from < 0) return;
+        const item = vendors[from];
+        vendors.splice(from, 1);
+        vendors.splice(newIndex, 0, item);
+        vendors = vendors.map((v, i) => ({ ...v, pos: i + 1 }));
+      });
+    }
+
+    function bumpPts(id, delta) {
+      if (animating) return;
+      const before = vendors.map((x) => ({ id: x.id, pos: x.pos }));
+      const v = vendors.find((x) => x.id === id);
+      if (!v) return;
+      v.pts += delta;
+      sortByPts();
+      vendors = vendors.map((x, i) => ({ ...x, pos: i + 1 }));
+      const changed = collectAllPositionChanges(before);
+      if (changed.size === 0) {
+        paint(false);
+        return;
+      }
+      paint(true, changed);
+    }
+
+    document.getElementById("btn-up").onclick = () => {
+      const idx = vendors.findIndex((v) => v.id === "c");
+      if (idx > 0) moveVendor("c", 0);
+      else bumpPts("c", 12);
+    };
+
+    document.getElementById("btn-down").onclick = () => {
+      bumpPts("a", -15);
+    };
+
+    document.getElementById("btn-random").onclick = () => {
+      if (animating) return;
+      const id = vendors[Math.floor(Math.random() * vendors.length)].id;
+      bumpPts(id, Math.floor(Math.random() * 7) + 3);
+    };
+
+    document.getElementById("btn-reset").onclick = () => {
+      movements = {};
+      vendors = INITIAL.map((v, i) => ({ ...v, pos: i + 1 }));
+      paint(false);
+    };
+
+    setInterval(() => {
+      let dirty = false;
+      Object.keys(movements).forEach((id) => {
+        if (Date.now() - movements[id].at > SURGE_MS) {
+          delete movements[id];
+          dirty = true;
+        }
+      });
+      if (dirty) paint(false);
+    }, 400);
+
+    paint(false);
+  </script>
+</body>
+</html>

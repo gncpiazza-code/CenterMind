@@ -1,12 +1,14 @@
 "use client";
 
-import React, { useMemo, useState, useRef, useEffect, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import React, { useMemo, useState, useRef, useEffect, useCallback, type ReactNode } from 'react';
+import { LayoutGroup, motion } from 'framer-motion';
 import { Award, Pause, Play, Check, X, Flame } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { fetchRankingCompania } from '@/lib/api';
+import { useLiveRankingMovements } from '@/hooks/use-live-ranking-movements';
+import { RankingMotionRow, rankingGridColumns } from '@/components/dashboard/RankingMotionRow';
 import type { VendedorRanking, SucursalStats, KPIs, EvolucionTiempo, RankingCompaniaRow } from '@/lib/api';
 import { sucursalFilterKey } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -65,25 +67,6 @@ const USER_SCROLL_COOLDOWN_MS = 2800;
 const STAT_ICON_CLASS = "shrink-0 stroke-[2.5]";
 const STAT_ICON_SIZE = 16;
 
-function RankingColgroup({ showCompaniaLens }: { showCompaniaLens: boolean }) {
-  return (
-    <colgroup>
-      <col style={{ width: "3rem" }} />
-      <col />
-      <col style={{ width: "4.5rem" }} />
-      <col style={{ width: "4.5rem" }} />
-      <col style={{ width: "4.5rem" }} />
-      <col style={{ width: "4.5rem" }} />
-      {showCompaniaLens && (
-        <>
-          <col style={{ width: "4rem" }} />
-          <col style={{ width: "3.5rem" }} />
-        </>
-      )}
-    </colgroup>
-  );
-}
-
 function rankingHeaderBandClass(isDark: boolean) {
   return isDark
     ? "bg-slate-800/90 border-slate-700"
@@ -98,48 +81,62 @@ function RankingColumnHeaders({
   showCompaniaLens: boolean;
 }) {
   const thBase = isDark ? "bg-slate-800/90" : "bg-violet-50/90";
+  const th = (extra: string, children: ReactNode, title?: string) => (
+    <div
+      className={cn("py-2.5 font-black uppercase tracking-[0.2em] text-[9px]", thBase, extra)}
+      title={title}
+    >
+      {children}
+    </div>
+  );
   return (
-    <tr className={cn("text-left border-b", isDark ? "border-slate-600/80" : "border-violet-200/50")}>
-      <th className={cn("py-2.5 px-3 font-black uppercase tracking-[0.2em] text-[9px]", isDark ? "text-slate-500" : "text-slate-400", thBase)}>
-        Pos
-      </th>
-      <th className={cn("py-2.5 px-2 font-black uppercase tracking-[0.2em] text-[9px]", isDark ? "text-slate-500" : "text-slate-400", thBase)}>
-        Vendedor
-      </th>
-      <th className={cn("py-2.5 px-2 text-right font-black uppercase tracking-[0.2em] text-[9px] text-emerald-500", isDark && "text-emerald-400", thBase)} title="Aprobadas">
+    <div
+      className={cn(
+        "grid w-full text-left border-b",
+        isDark ? "border-slate-600/80" : "border-violet-200/50",
+      )}
+      style={{ gridTemplateColumns: rankingGridColumns(showCompaniaLens) }}
+    >
+      {th("px-3 text-slate-400", "Pos")}
+      {th("px-2 text-slate-400", "Vendedor")}
+      {th(
+        "px-2 flex justify-end text-emerald-500",
         <span className={cn(
           "inline-flex items-center justify-end gap-1 rounded-lg px-2 py-1",
           isDark ? "bg-emerald-950/60 ring-1 ring-emerald-800" : "bg-emerald-100/80 ring-1 ring-emerald-200/60",
         )}>
           <Check size={STAT_ICON_SIZE} className={cn(STAT_ICON_CLASS, isDark ? "text-emerald-400" : "text-emerald-600")} />
-        </span>
-      </th>
-      <th className={cn("py-2.5 px-2 text-right font-black uppercase tracking-[0.2em] text-[9px] text-red-500", isDark && "text-red-400", thBase)} title="Rechazadas">
+        </span>,
+        "Aprobadas",
+      )}
+      {th(
+        "px-2 flex justify-end text-red-500",
         <span className={cn(
           "inline-flex items-center justify-end gap-1 rounded-lg px-2 py-1",
           isDark ? "bg-red-950/60 ring-1 ring-red-800" : "bg-red-100/80 ring-1 ring-red-200/60",
         )}>
           <X size={STAT_ICON_SIZE} className={cn(STAT_ICON_CLASS, isDark ? "text-red-400" : "text-red-500")} />
-        </span>
-      </th>
-      <th className={cn("py-2.5 px-2 text-right font-black uppercase tracking-[0.2em] text-[9px] text-amber-600", isDark && "text-amber-400", thBase)} title="Destacadas">
+        </span>,
+        "Rechazadas",
+      )}
+      {th(
+        "px-2 flex justify-end text-amber-600",
         <span className={cn(
           "inline-flex items-center justify-end gap-1 rounded-lg px-2 py-1",
           isDark ? "bg-amber-950/60 ring-1 ring-amber-800" : "bg-amber-100/80 ring-1 ring-amber-200/60",
         )}>
           <Flame size={STAT_ICON_SIZE} className={cn(STAT_ICON_CLASS, isDark ? "text-amber-400" : "text-amber-600")} />
-        </span>
-      </th>
-      <th className={cn("py-2.5 px-4 text-right font-black uppercase tracking-[0.2em] text-[9px]", isDark ? "text-slate-300" : "text-slate-950", thBase)}>
-        Pts
-      </th>
+        </span>,
+        "Destacadas",
+      )}
+      {th("px-4 flex justify-end text-slate-950", "Pts")}
       {showCompaniaLens && (
         <>
-          <th className={cn("py-2.5 px-2 text-right font-black uppercase tracking-[0.2em] text-[9px] text-violet-500", thBase)}>Cía</th>
-          <th className={cn("py-2.5 px-2 text-right font-black uppercase tracking-[0.2em] text-[9px] text-slate-400", thBase)}>Δ</th>
+          {th("px-2 flex justify-end text-violet-500", "Cía")}
+          {th("px-2 flex justify-end text-slate-400", "Δ")}
         </>
       )}
-    </tr>
+    </div>
   );
 }
 
@@ -172,12 +169,23 @@ export function RankingTable({
     return new Map(companiaData.map(r => [r.vendedor, r]));
   }, [companiaData]);
 
+  const {
+    moverVisuals: displayMovements,
+    pushing,
+    reorderActive,
+    animTick,
+  } = useLiveRankingMovements(ranking, distId, periodo, sucursalFiltro);
+
   const baseRows = useMemo(() => ranking.slice(0, 30), [ranking]);
   const isLoopDuplicated = baseRows.length > 1;
-  const displayRows = useMemo(
-    () => (isLoopDuplicated ? [...baseRows, ...baseRows] : baseRows),
-    [baseRows, isLoopDuplicated],
-  );
+  void animTick;
+
+  useEffect(() => {
+    if (!reorderActive) return;
+    setAutoScrollPaused(true);
+    const id = setTimeout(() => setAutoScrollPaused(false), 1_500);
+    return () => clearTimeout(id);
+  }, [reorderActive, animTick]);
 
   const markUserScrolling = useCallback(() => {
     userInteractingRef.current = true;
@@ -251,7 +259,7 @@ export function RankingTable({
 
     rafId = requestAnimationFrame(step);
     return () => cancelAnimationFrame(rafId);
-  }, [ranking.length, displayRows.length, autoScrollPaused, isLoopDuplicated]);
+  }, [ranking.length, baseRows.length, autoScrollPaused, isLoopDuplicated]);
 
   // Pause on hover
   function handleMouseEnter() {
@@ -358,19 +366,14 @@ export function RankingTable({
           dense ? "px-4 pb-1.5 pt-0" : "px-6 pb-2 pt-0",
         )}
       >
-        <table className="w-full text-sm table-fixed">
-          <RankingColgroup showCompaniaLens={showCompaniaLens} />
-          <thead>
-            <RankingColumnHeaders isDark={isDark} showCompaniaLens={showCompaniaLens} />
-          </thead>
-        </table>
+        <RankingColumnHeaders isDark={isDark} showCompaniaLens={showCompaniaLens} />
       </div>
 
       <div
         ref={scrollRef}
         tabIndex={0}
         className={cn(
-          "flex-1 min-h-0 overflow-y-auto overflow-x-hidden custom-scrollbar pb-4 pt-1 [overscroll-behavior:contain] focus:outline-none",
+          "flex-1 min-h-0 overflow-y-auto overflow-x-hidden custom-scrollbar pb-4 pt-1 [overscroll-behavior:contain] focus:outline-none relative",
           dense ? "px-4" : "px-6",
         )}
         style={{
@@ -380,174 +383,52 @@ export function RankingTable({
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
       >
-        <table className="w-full text-sm table-fixed border-separate border-spacing-y-1.5">
-          <RankingColgroup showCompaniaLens={showCompaniaLens} />
-          <tbody>
-            <AnimatePresence initial={false}>
-              {displayRows.map((v, i) => {
-                const rankIndex = i % Math.min(ranking.length, 30);
-                const isTop3 = rankIndex < 3;
-                const style  = isTop3 ? (isDark ? TOP3_IMMERSIVE[rankIndex] : TOP3_STYLES[rankIndex]) : null;
-                const ratio  = v.aprobadas + v.rechazadas > 0
-                  ? Math.round((v.aprobadas / (v.aprobadas + v.rechazadas)) * 100)
-                  : null;
-                const subtitulo = v.sucursal || v.ciudad_dominante || null;
-
-                return (
-                  <motion.tr
-                    key={`${v.vendedor}-${rankIndex}-${i}`}
-                    initial={{ opacity: 0, y: 12 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    whileHover={isDark ? undefined : { x: 4, transition: { duration: 0.15 } }}
-                    className={cn(
-                      "relative group rounded-2xl overflow-hidden transition-colors cursor-default",
-                      style?.row ?? (
-                        isDark
-                          ? rankIndex % 2 === 0
-                            ? "bg-slate-800/80 border border-slate-700/80"
-                            : "bg-slate-900 border border-slate-800"
-                          : rankIndex % 2 === 0
-                            ? "bg-white/90 border border-violet-100/60 hover:bg-violet-50/50"
-                            : "bg-indigo-50/35 border border-indigo-100/40 hover:bg-indigo-50/55"
-                      ),
-                    )}
-                  >
-                    <td className={cn("px-3 first:rounded-l-2xl", dense ? "py-2" : "py-2.5")}>
-                      <div className={cn(
-                        "w-7 h-7 flex items-center justify-center text-[11px] font-black rounded-xl transition-all",
-                        isDark ? "shadow-none" : "shadow-md group-hover:scale-110",
-                        style?.badge ?? (isDark ? "bg-slate-700 text-slate-300" : "bg-slate-100 text-slate-500 shadow-sm"),
-                      )}>
-                        {rankIndex + 1}
-                      </div>
-                    </td>
-
-                    <td className={cn("px-2", dense ? "py-2" : "py-2.5")}>
-                      <div className="flex flex-col min-w-0">
-                        <span
-                          className={cn(
-                            "font-black tracking-tight whitespace-nowrap",
-                            isDark ? "text-[14px]" : "text-[13px]",
-                            isTop3
-                              ? isDark ? "text-white" : "text-slate-900"
-                              : isDark ? "text-slate-200" : "text-slate-700",
-                          )}
-                          title={v.vendedor}
-                        >
-                          {v.vendedor}
-                        </span>
-                        <div className="flex items-center gap-1.5">
-                          {subtitulo && (
-                            <span className={cn(
-                              "text-[9px] font-bold uppercase tracking-wider whitespace-nowrap",
-                              isDark ? "text-slate-500" : "text-slate-400",
-                            )}>
-                              {subtitulo}
-                            </span>
-                          )}
-                          {ratio !== null && (
-                            <span className={cn(
-                              "text-[8px] font-black px-1 py-0 rounded-md",
-                              ratio >= 80 ? (isDark ? "bg-emerald-950 text-emerald-400" : "bg-emerald-50 text-emerald-600") :
-                              ratio >= 60 ? (isDark ? "bg-amber-950 text-amber-400" : "bg-amber-50 text-amber-600") :
-                                            (isDark ? "bg-red-950 text-red-400" : "bg-red-50 text-red-500"),
-                            )}>
-                              {ratio}%
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </td>
-
-                    <td className={cn("px-2 text-right", dense ? "py-2" : "py-2.5")}>
-                      <span className={cn(
-                        "inline-flex items-center justify-end gap-1.5 min-w-[3.25rem] text-xs font-black px-2.5 py-1 rounded-xl border",
-                        isDark
-                          ? "bg-emerald-950/70 text-emerald-400 border-emerald-800"
-                          : "bg-emerald-50 text-emerald-700 border-emerald-200/60 shadow-sm shadow-emerald-500/5",
-                      )}>
-                        <Check size={14} className={cn(STAT_ICON_CLASS, "text-emerald-600")} />
-                        {v.aprobadas}
-                      </span>
-                    </td>
-
-                    <td className={cn("px-2 text-right", dense ? "py-2" : "py-2.5")}>
-                      <span className={cn(
-                        "inline-flex items-center justify-end gap-1.5 min-w-[3.25rem] text-xs font-black px-2.5 py-1 rounded-xl border",
-                        v.rechazadas > 0
-                          ? isDark
-                            ? "bg-red-950/70 text-red-400 border-red-800"
-                            : "bg-red-50 text-red-600 border-red-200/60 shadow-sm shadow-red-500/5"
-                          : isDark
-                            ? "bg-slate-800 text-slate-500 border-slate-700"
-                            : "bg-slate-50 text-slate-400 border-slate-200/50",
-                      )}>
-                        <X size={14} className={cn(STAT_ICON_CLASS, v.rechazadas > 0 ? "text-red-500" : "text-slate-300")} />
-                        {v.rechazadas ?? 0}
-                      </span>
-                    </td>
-
-                    <td className={cn("px-2 text-right", dense ? "py-2" : "py-2.5")}>
-                      <span className={cn(
-                        "inline-flex items-center justify-end gap-1.5 min-w-[3.25rem] text-xs font-black px-2.5 py-1 rounded-xl border",
-                        isDark
-                          ? "bg-amber-950/70 text-amber-400 border-amber-800"
-                          : "bg-amber-50 text-amber-700 border-amber-200/60 shadow-sm shadow-amber-500/5",
-                      )}>
-                        <Flame size={14} className={cn(STAT_ICON_CLASS, "text-amber-600")} />
-                        {v.destacadas || 0}
-                      </span>
-                    </td>
-
-                    <td className={cn("px-4 text-right", dense ? "py-2" : "py-2.5", !showCompaniaLens ? 'last:rounded-r-2xl' : '')}>
-                      <div className="flex flex-col items-end">
-                        <span className={cn(
-                          "font-black tracking-tighter",
-                          isDark ? "text-lg" : "text-base",
-                          style?.pts ?? (isDark ? "text-slate-200" : "text-slate-800"),
-                        )}>
-                          {v.puntos}
-                        </span>
-                        <span className={cn(
-                          "text-[7px] font-black uppercase tracking-widest -mt-0.5",
-                          isDark ? "text-slate-500" : "text-slate-400",
-                        )}>Pts</span>
-                      </div>
-                    </td>
-
-                    {showCompaniaLens && (() => {
-                      const cr    = companiaByVendedor.get(v.vendedor);
-                      const delta = cr ? cr.delta_puntos : 0;
-                      return (
-                        <>
-                          <td className={cn("px-2 text-right", dense ? "py-2" : "py-2.5")}>
-                            <div className="flex flex-col items-end">
-                              <span className="font-black text-sm tracking-tighter text-violet-600">
-                                {cr ? cr.puntos_compania : v.puntos}
-                              </span>
-                              <span className="text-[7px] font-black text-violet-400 uppercase tracking-widest -mt-0.5">Cía</span>
-                            </div>
-                          </td>
-                          <td className={cn("px-3 text-right last:rounded-r-2xl", dense ? "py-2" : "py-2.5")}>
-                            <span className={`text-[11px] font-black px-1.5 py-0.5 rounded-lg border ${
-                              delta > 0
-                                ? 'bg-emerald-50 text-emerald-600 border-emerald-100/50'
-                                : delta < 0
-                                  ? 'bg-red-50 text-red-500 border-red-100/50'
-                                  : 'bg-slate-50 text-slate-400 border-slate-100/50'
-                            }`}>
-                              {delta > 0 ? `+${delta}` : delta}
-                            </span>
-                          </td>
-                        </>
-                      );
-                    })()}
-                  </motion.tr>
-                );
-              })}
-            </AnimatePresence>
-          </tbody>
-        </table>
+        <motion.div layoutRoot className="flex flex-col gap-2 w-full text-sm">
+          <LayoutGroup id={`ranking-layout-${distId}-${periodo}-${sucursalFiltro || "all"}`}>
+            {baseRows.map((v, rankIndex) => {
+              const isTop3 = rankIndex < 3;
+              const style = isTop3 ? (isDark ? TOP3_IMMERSIVE[rankIndex] : TOP3_STYLES[rankIndex]) : null;
+              return (
+                <RankingMotionRow
+                  key={v.vendedor}
+                  layoutId={v.vendedor}
+                  layoutEnabled
+                  v={v}
+                  rankIndex={rankIndex}
+                  isDark={isDark}
+                  dense={dense}
+                  showCompaniaLens={showCompaniaLens}
+                  style={style}
+                  movement={displayMovements.get(v.vendedor)}
+                  companiaRow={companiaByVendedor.get(v.vendedor)}
+                  surgeNow={Date.now()}
+                  isPushing={pushing.has(v.vendedor)}
+                />
+              );
+            })}
+          </LayoutGroup>
+          {isLoopDuplicated &&
+            baseRows.map((v, rankIndex) => {
+              const isTop3 = rankIndex < 3;
+              const style = isTop3 ? (isDark ? TOP3_IMMERSIVE[rankIndex] : TOP3_STYLES[rankIndex]) : null;
+              return (
+                <RankingMotionRow
+                  key={`loop-${v.vendedor}`}
+                  layoutEnabled={false}
+                  v={v}
+                  rankIndex={rankIndex}
+                  isDark={isDark}
+                  dense={dense}
+                  showCompaniaLens={showCompaniaLens}
+                  style={style}
+                  movement={displayMovements.get(v.vendedor)}
+                  companiaRow={companiaByVendedor.get(v.vendedor)}
+                  surgeNow={Date.now()}
+                  isPushing={false}
+                />
+              );
+            })}
+        </motion.div>
       </div>
     </Card>
   );

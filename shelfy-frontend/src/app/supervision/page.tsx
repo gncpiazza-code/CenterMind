@@ -16,7 +16,7 @@ import {
   rangoBadgeClass,
   sortClientesCC,
 } from "@/lib/cuentasCorrientes";
-import { formatCcKpiTrendDisplay } from "@/lib/supervision-cc-trend";
+import { formatCcKpiTrendDisplay, shouldShowCcKpiTrend } from "@/lib/supervision-cc-trend";
 import { CcSyncStatusBadge } from "@/components/supervision/CcSyncStatusBadge";
 import { useSupervisionPanelStore } from "@/store/useSupervisionPanelStore";
 import {
@@ -55,7 +55,7 @@ import {
 } from "@/components/ui/tooltip";
 import {
   CreditCard, Store, AlertTriangle, CalendarClock, Printer, HelpCircle,
-  TrendingUp, TrendingDown, ChevronRight,
+  TrendingUp, TrendingDown, Minus, ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
@@ -391,25 +391,33 @@ export default function SupervisionPage() {
                             {loadingCuentas && !!selectedVendedorNombre ? (
                               <div className="mt-1 h-6 w-20 rounded bg-muted animate-pulse" />
                             ) : (
-                              <div className="flex items-baseline gap-1.5 flex-wrap">
-                                <p className="mt-0.5 text-xl font-black text-foreground tracking-tight leading-none tabular-nums">
+                              <div className="mt-0.5 flex flex-col gap-1 min-w-0">
+                                <p className="text-xl font-black text-foreground tracking-tight leading-none tabular-nums">
                                   {fmt$$(deudaTotalDisplay)}
                                 </p>
-                                {deltas?.total_deuda && deltas.total_deuda.dir !== "neutral" && (
+                                {shouldShowCcKpiTrend(deltas?.total_deuda) ? (
                                   <span
                                     className={cn(
-                                      "inline-flex items-center gap-0.5 text-[10px] font-semibold",
-                                      deltas.total_deuda.dir === "up" ? "text-rose-600" : "text-emerald-600",
+                                      "inline-flex items-start gap-0.5 text-[10px] font-semibold tabular-nums w-full min-w-0",
+                                      deltas!.total_deuda!.dir === "up"
+                                        ? "text-rose-600"
+                                        : deltas!.total_deuda!.dir === "down"
+                                          ? "text-emerald-600"
+                                          : "text-slate-600",
                                     )}
                                   >
-                                    {deltas.total_deuda.dir === "up" ? (
-                                      <TrendingUp size={11} strokeWidth={2.5} />
+                                    {deltas!.total_deuda!.dir === "up" ? (
+                                      <TrendingUp size={11} strokeWidth={2.5} className="shrink-0 mt-0.5" />
+                                    ) : deltas!.total_deuda!.dir === "down" ? (
+                                      <TrendingDown size={11} strokeWidth={2.5} className="shrink-0 mt-0.5" />
                                     ) : (
-                                      <TrendingDown size={11} strokeWidth={2.5} />
+                                      <Minus size={11} strokeWidth={2.5} className="shrink-0 mt-0.5" />
                                     )}
-                                    {formatCcKpiTrendDisplay(deltas.total_deuda, "currency", fmt$$)}
+                                    <span className="leading-tight break-words">
+                                      {formatCcKpiTrendDisplay(deltas!.total_deuda!, "currency", fmt$$)}
+                                    </span>
                                   </span>
-                                )}
+                                ) : null}
                               </div>
                             )}
                             {showCcResumen && (
@@ -465,8 +473,10 @@ export default function SupervisionPage() {
                   </div>
                   <div className="flex-[1_1_0%] min-w-0 transition-[flex-grow] duration-300 ease-out">
                     <AnimatedKpiCard
-                      label="Atraso +15 días"
+                      label="atraso +15 dias"
+                      uppercaseLabel={false}
                       value={pdvsAtraso15}
+                      unitBelow="PDVs"
                       icon={AlertTriangle}
                       color="rose"
                       loading={loadingCuentas && !!selectedVendedorNombre}
@@ -477,13 +487,14 @@ export default function SupervisionPage() {
                   </div>
                   <div className="flex-[1_1_0%] min-w-0 transition-[flex-grow] duration-300 ease-out">
                     <AnimatedKpiCard
-                      label="Prom. días atraso"
+                      label="Dias de Atraso Promedio"
+                      uppercaseLabel={false}
                       value={Math.round(diasPromedio)}
+                      unitBelow="Dias"
                       icon={CalendarClock}
                       color="blue"
                       loading={loadingCuentas && !!selectedVendedorNombre}
                       delay={0.18}
-                      subtext="promedio de mora"
                     />
                   </div>
 

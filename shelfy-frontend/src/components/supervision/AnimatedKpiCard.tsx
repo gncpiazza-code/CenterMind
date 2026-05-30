@@ -1,13 +1,17 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { ChevronDown, TrendingUp, TrendingDown } from "lucide-react";
+import { ChevronDown, Minus, TrendingUp, TrendingDown } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/Card";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useCountUp } from "./useCountUp";
 import type { CcKpiDelta } from "@/lib/api";
-import { formatCcKpiTrendDisplay, type CcTrendUnit } from "@/lib/supervision-cc-trend";
+import {
+  formatCcKpiTrendDisplay,
+  shouldShowCcKpiTrend,
+  type CcTrendUnit,
+} from "@/lib/supervision-cc-trend";
 
 const COLOR_MAP = {
   violet:  { bg: "bg-violet-500/8",  icon: "text-violet-600",  border: "border-violet-200/60" },
@@ -22,6 +26,10 @@ interface AnimatedKpiCardProps {
   value: number;
   formatter?: (n: number) => string;
   subtext?: string;
+  /** Unidad debajo del valor (p. ej. PDVs, Días); visible aunque haya tendencia */
+  unitBelow?: string;
+  /** false = respeta mayúsculas del label (no forzar uppercase) */
+  uppercaseLabel?: boolean;
   icon: React.ElementType;
   color: keyof typeof COLOR_MAP;
   loading?: boolean;
@@ -42,6 +50,8 @@ export function AnimatedKpiCard({
   value,
   formatter = (n) => n.toLocaleString("es-AR"),
   subtext,
+  unitBelow,
+  uppercaseLabel = true,
   icon: Icon,
   color,
   loading = false,
@@ -56,27 +66,32 @@ export function AnimatedKpiCard({
   const animated = useCountUp(value);
   const { bg, icon: iconColor, border } = COLOR_MAP[color];
 
-  const trendLabel =
-    trend && trend.dir !== "neutral"
-      ? formatCcKpiTrendDisplay(
-          trend,
-          trendUnit,
-          trendUnit === "currency" ? formatter : undefined,
-        )
-      : "";
+  const trendLabel = shouldShowCcKpiTrend(trend)
+    ? formatCcKpiTrendDisplay(
+        trend,
+        trendUnit,
+        trendUnit === "currency" ? formatter : undefined,
+      )
+    : "";
 
   const trendEl = trendLabel ? (
     <span
       className={cn(
-        "inline-flex items-start gap-0.5 text-[10px] font-semibold tabular-nums max-w-[11rem]",
-        trend!.dir === "up" ? "text-rose-600" : "text-emerald-600",
+        "inline-flex items-start gap-0.5 text-[10px] font-semibold tabular-nums w-full min-w-0",
+        trend!.dir === "up"
+          ? "text-rose-600"
+          : trend!.dir === "down"
+            ? "text-emerald-600"
+            : "text-slate-600",
       )}
       title={trendLabel}
     >
       {trend!.dir === "up" ? (
         <TrendingUp size={11} strokeWidth={2.5} className="shrink-0 mt-0.5" />
-      ) : (
+      ) : trend!.dir === "down" ? (
         <TrendingDown size={11} strokeWidth={2.5} className="shrink-0 mt-0.5" />
+      ) : (
+        <Minus size={11} strokeWidth={2.5} className="shrink-0 mt-0.5" />
       )}
       <span className="leading-tight break-words">{trendLabel}</span>
     </span>
@@ -91,17 +106,25 @@ export function AnimatedKpiCard({
       <CardContent className="p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
-            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide truncate">
+            <p
+              className={cn(
+                "text-[11px] font-semibold text-muted-foreground tracking-wide truncate",
+                uppercaseLabel ? "uppercase" : "normal-case",
+              )}
+            >
               {label}
             </p>
             {loading ? (
               <Skeleton className="mt-1 h-7 w-24 rounded" />
             ) : (
-              <div className="flex flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-2">
-                <p className="mt-1 text-2xl font-black text-foreground tracking-tight leading-none tabular-nums">
+              <div className="mt-1 flex flex-col gap-1 min-w-0">
+                <p className="text-2xl font-black text-foreground tracking-tight leading-none tabular-nums">
                   {formatter(animated)}
                 </p>
-                {trendEl ? <span className="mt-0.5 sm:mt-1">{trendEl}</span> : null}
+                {trendEl}
+                {unitBelow && !loading ? (
+                  <p className="text-[11px] font-semibold text-muted-foreground">{unitBelow}</p>
+                ) : null}
               </div>
             )}
             {expandable && !loading && (
@@ -109,7 +132,7 @@ export function AnimatedKpiCard({
                 {expanded ? "Ocultar desglose" : expandHint}
               </p>
             )}
-            {subtext && !loading && !expandable && !trendEl && (
+            {subtext && !loading && !expandable && !trendEl && !unitBelow && (
               <p className="mt-1 text-[10px] text-muted-foreground">{subtext}</p>
             )}
           </div>

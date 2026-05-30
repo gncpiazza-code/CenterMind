@@ -2,6 +2,12 @@ import type { CcKpiDelta } from "@/lib/api";
 
 export type CcTrendUnit = "currency" | "pdv";
 
+export function shouldShowCcKpiTrend(trend: CcKpiDelta | null | undefined): trend is CcKpiDelta {
+  if (!trend) return false;
+  if (trend.dir !== "neutral") return true;
+  return trend.anterior != null && Number.isFinite(trend.anterior);
+}
+
 function fmtPct(pct: number): string {
   return Math.abs(pct).toLocaleString("es-AR", { maximumFractionDigits: 1 });
 }
@@ -31,6 +37,8 @@ export function formatCcKpiTrendDisplay(
 
   if (trend.pct != null) {
     parts.push(`${fmtPct(trend.pct)}%`);
+  } else if (trend.dir === "neutral" && trend.diff === 0) {
+    parts.push("0%");
   }
 
   if (trend.diff !== 0) {

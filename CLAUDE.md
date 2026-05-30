@@ -89,6 +89,7 @@ Toda metrica de **ranking**, **KPIs de exhibicion**, **stats Telegram** (`/stats
 
 - `padron.py`: corrida diaria 07:00 (AR).
 - `cuentas_corrientes.py`: 07:00 y 14:30 (AR).
+- `informe_ventas.py`: 09:30 (AR) exporta **ayer**; 13:00 / 17:00 / 21:00 exportan **hoy** (alinear con CC intradía).
 - `real` usa split por sucursal en cuentas.
 - Variables clave: `PADRON_INCLUIR_ANULADOS`, `RPA_CUENTAS_ENGINE`, `RPA_CUENTAS_FORCE_EXCEL`.
 

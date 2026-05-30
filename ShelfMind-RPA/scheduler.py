@@ -43,6 +43,7 @@ _SLOTS_CUENTAS = [(7, 0), (14, 30)]
 # Padrón (AR): 08:30, 11:30, 15:30, 18:30
 _SLOTS_PADRON = [(8, 30), (11, 30), (15, 30), (18, 30)]
 # Informe de ventas enriquecido (AR): 09:30, 13:00, 17:00, 21:00
+# 09:30 → día anterior; 13/17/21 → día actual (ver informe_ventas.py)
 _SLOTS_INFORME_VENTAS = [(9, 30), (13, 0), (17, 0), (21, 0)]
 
 
@@ -227,20 +228,21 @@ async def _run_padron():
         logger.warning(f"Digest Telegram padrón omitido: {e}")
 
 
-async def _run_ventas():
+async def _run_ventas(*, usar_fecha_hoy: bool = False):
     from motores.informe_ventas import run
-    resumen = await run()
+    resumen = await run(usar_fecha_hoy=usar_fecha_hoy)
     logger.info(
-        f"INFORME_VENTAS completo — ok={resumen.get('ok', '?')}, "
+        f"INFORME_VENTAS completo — fecha={'hoy' if usar_fecha_hoy else 'ayer'}, "
+        f"ok={resumen.get('ok', '?')}, "
         f"errores={resumen.get('errores', '?')}, "
         f"sin_cambios={resumen.get('sin_cambios', '?')}"
     )
 
 
-def job_ventas():
-    logger.info("⏰ Trigger VENTAS")
+def job_ventas(usar_fecha_hoy: bool = False):
+    logger.info("⏰ Trigger VENTAS (fecha=%s)", "hoy" if usar_fecha_hoy else "ayer")
     try:
-        asyncio.run(_run_ventas())
+        asyncio.run(_run_ventas(usar_fecha_hoy=usar_fecha_hoy))
     except Exception as e:
         logger.error(f"Error en job_ventas: {e}")
         asyncio.run(_notify_motor_crash("ventas_enriched", f"job_ventas crash: {e}"))
@@ -443,10 +445,12 @@ def main():
             **job_defaults,
         )
 
-    for hi, mi in _SLOTS_INFORME_VENTAS:
+    for idx, (hi, mi) in enumerate(_SLOTS_INFORME_VENTAS):
+        usar_hoy = idx > 0
         scheduler.add_job(
             job_ventas,
             CronTrigger(hour=hi, minute=mi, timezone=AR_TZ),
+            kwargs={"usar_fecha_hoy": usar_hoy},
             id=f"informe_ventas_{hi:02d}{mi:02d}",
             **job_defaults,
         )

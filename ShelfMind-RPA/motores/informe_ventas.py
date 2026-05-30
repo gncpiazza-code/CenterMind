@@ -6,14 +6,16 @@ Reglas clave:
 - Reutiliza tenants de `rpa_consolido_tenants` (mismo modelo que padrón).
 - Consolido: UN usuario/password; por tenant solo cambia el checkbox «Empresas» (id_empresa).
 - Un solo login por corrida (sin re-login entre tenants).
-- Siempre consulta día anterior (fecha desde = fecha hasta = ayer).
+- Fecha del reporte (AR):
+  - Primera corrida del día (09:30): día anterior (cierre de ayer).
+  - Resto (13:00, 17:00, 21:00): día actual (alinear con CC intradía).
 """
 
 from __future__ import annotations
 
 import asyncio
 import os
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -45,13 +47,18 @@ RPA_BASE_DIR = Path(os.environ.get("RPA_BASE_DIR", str(Path(__file__).resolve().
 DOWNLOADS_DIR = RPA_BASE_DIR / "downloads"
 
 
-def _fecha_ayer_label_es() -> str:
-    meses = [
-        "enero", "febrero", "marzo", "abril", "mayo", "junio",
-        "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
-    ]
-    d = datetime.now(AR_TZ).date() - timedelta(days=1)
-    return f"{d.day} de {meses[d.month - 1]} de {d.year}"
+_MESES_ES = (
+    "enero", "febrero", "marzo", "abril", "mayo", "junio",
+    "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+)
+
+
+def _fecha_reporte_label_es(usar_fecha_hoy: bool) -> tuple[date, str]:
+    """Devuelve (fecha ISO, etiqueta calendario CHESS) para Fecha Desde/Hasta."""
+    hoy = datetime.now(AR_TZ).date()
+    d = hoy if usar_fecha_hoy else hoy - timedelta(days=1)
+    label = f"{d.day} de {_MESES_ES[d.month - 1]} de {d.year}"
+    return d, label
 
 
 async def _esperar_panel_informe_ventas(page: Page) -> None:
@@ -136,9 +143,10 @@ async def _abrir_reporteador_y_seleccionar_informe(page: Page) -> None:
     logger.info(f"  ✅ Panel de parámetros listo ({selected_label})")
 
 
-async def _set_fechas_ayer(page: Page) -> None:
+async def _set_fechas_reporte(page: Page, *, usar_fecha_hoy: bool) -> None:
     await _cerrar_overlays(page)
-    label = _fecha_ayer_label_es()
+    fecha_obj, label = _fecha_reporte_label_es(usar_fecha_hoy)
+    modo = "hoy" if usar_fecha_hoy else "ayer"
     t = COMBO_TIMEOUT_MS
     for campo in ("Fecha Desde", "Fecha Hasta"):
         await page.locator("mat-form-field").filter(has_text=campo).get_by_label(
@@ -148,7 +156,12 @@ async def _set_fechas_ayer(page: Page) -> None:
         await page.get_by_role("button", name=label, exact=True).click(timeout=t)
         await _cerrar_overlays(page)
         await page.wait_for_timeout(300)
-    logger.info(f"  ✅ Fecha desde/hasta fijada en ayer: {label}")
+    logger.info(
+        "  ✅ Fecha desde/hasta fijada en %s: %s (%s)",
+        modo,
+        label,
+        fecha_obj.isoformat(),
+    )
 
 
 async def _preparar_siguiente_tenant(page: Page) -> None:
@@ -157,11 +170,24 @@ async def _preparar_siguiente_tenant(page: Page) -> None:
     await page.wait_for_timeout(400)
 
 
-async def run() -> dict:
+async def run(*, usar_fecha_hoy: bool = False) -> dict:
+    """
+    Exporta Informe de Ventas por tenant.
+
+    usar_fecha_hoy=False → día anterior (primera corrida del día).
+    usar_fecha_hoy=True  → día actual (corridas 13:00, 17:00, 21:00).
+    """
     resumen = {"ok": 0, "errores": 0, "sin_cambios": 0, "detalle": []}
     tenants = _filtrar_tenants_para_debug(_cargar_tenants_desde_supabase())
     if not tenants:
         return resumen
+
+    _, fecha_label = _fecha_reporte_label_es(usar_fecha_hoy)
+    logger.info(
+        "INFORME_VENTAS inicio — fecha=%s (%s)",
+        fecha_label,
+        "hoy" if usar_fecha_hoy else "ayer",
+    )
 
     usuario, password = _resolver_credenciales_consolido()
 
@@ -180,7 +206,7 @@ async def run() -> dict:
                     try:
                         logger.info(f"\n  ┌─ Procesando Informe Ventas: {tenant['nombre']}")
                         await _preparar_siguiente_tenant(page)
-                        await _set_fechas_ayer(page)
+                        await _set_fechas_reporte(page, usar_fecha_hoy=usar_fecha_hoy)
                         await _esperar_comboboxes_parametros(page, min_count=1)
                         await _set_empresa_padron(page, tenant)
                         await _ejecutar_reporte(page)

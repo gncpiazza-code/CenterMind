@@ -102,12 +102,12 @@ async def correr_rendcalle() -> None:
     _log_resumen(resumen, "RENDCALLE")
 
 
-async def correr_informe_ventas() -> None:
+async def correr_informe_ventas(usar_fecha_hoy: bool = False) -> None:
     """Motor 6: Informe de Ventas (Consolido Reporteador)."""
     _banner("INFORME VENTAS -- Consolido Reporteador")
     _verificar_vault_o_salir()
     from motores.informe_ventas import run as _run
-    resumen = await _run()
+    resumen = await _run(usar_fecha_hoy=usar_fecha_hoy)
     _log_resumen(resumen, "INFORME_VENTAS")
 
 
@@ -135,7 +135,9 @@ async def main() -> None:
     elif motor == "rendcalle":
         await correr_rendcalle()
     elif motor == "informe_ventas":
-        await correr_informe_ventas()
+        # Manual: `informe_ventas` = ayer (como 09:30); `informe_ventas hoy` = día actual
+        usar_hoy = len(sys.argv) > 2 and sys.argv[2].lower().strip() in ("hoy", "today", "1", "true")
+        await correr_informe_ventas(usar_fecha_hoy=usar_hoy)
     elif motor == "todos":
         logger.info("Corriendo todos los motores en secuencia...")
         await correr_padron()

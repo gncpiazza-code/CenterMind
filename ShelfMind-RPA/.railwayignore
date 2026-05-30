@@ -1,0 +1,7 @@
+downloads/
+logs/
+**/.venv
+venv/
+__pycache__/
+*.xlsx
+.git/

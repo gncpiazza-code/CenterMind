@@ -31,6 +31,8 @@ interface DashboardFilterBarProps {
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
   className?: string;
+  /** vertical: columna fija a la derecha del dashboard (iconos apilados) */
+  layout?: "horizontal" | "stacked";
 }
 
 export function DashboardFilterBar({
@@ -46,7 +48,9 @@ export function DashboardFilterBar({
   isFullscreen,
   onToggleFullscreen,
   className,
+  layout = "horizontal",
 }: DashboardFilterBarProps) {
+  const stacked = layout === "stacked";
   const [open, setOpen] = useState(false);
 
   const bounds = resolvePeriodBounds(periodPreset, customYear, customMonth);
@@ -62,9 +66,26 @@ export function DashboardFilterBar({
 
   const isFiltered = sucursalFiltro !== "" || periodPreset !== "mes";
 
-  return (
-    <div className={cn("flex items-center justify-end gap-1.5", className)}>
-      {/* Badge trigger */}
+  const filterTriggerClass = cn(
+    "relative flex items-center justify-center rounded-xl border transition-all duration-200 outline-none focus-visible:ring-2 focus-visible:ring-violet-400",
+    stacked ? "h-8 w-8 shrink-0" : "gap-2 h-8 px-3 text-[10px] font-black uppercase tracking-widest",
+    isDark
+      ? "bg-slate-800 border-slate-600/80 text-slate-200 hover:bg-slate-750 hover:border-slate-500"
+      : [
+          "bg-white/90 backdrop-blur-sm text-slate-700",
+          "border-violet-200/60 hover:border-violet-300",
+          "shadow-sm shadow-violet-500/8 ring-1 ring-violet-500/10",
+          "hover:bg-violet-50/80 hover:shadow-violet-500/15",
+        ].join(" "),
+    open && (
+      isDark
+        ? "bg-slate-750 border-slate-500"
+        : "bg-violet-50/90 border-violet-300 shadow-violet-500/15"
+    ),
+  );
+
+  const controls = (
+    <>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <motion.button
@@ -72,25 +93,10 @@ export function DashboardFilterBar({
             whileHover={{ scale: 1.015 }}
             whileTap={{ scale: 0.975 }}
             transition={{ duration: 0.15, ease: [0.25, 0.46, 0.45, 0.94] }}
-            className={cn(
-              "relative flex items-center gap-2 h-8 px-3 rounded-xl border text-[10px] font-black uppercase tracking-widest",
-              "transition-all duration-200 outline-none focus-visible:ring-2 focus-visible:ring-violet-400",
-              isDark
-                ? "bg-slate-800 border-slate-600/80 text-slate-200 hover:bg-slate-750 hover:border-slate-500"
-                : [
-                    "bg-white/90 backdrop-blur-sm text-slate-700",
-                    "border-violet-200/60 hover:border-violet-300",
-                    "shadow-sm shadow-violet-500/8 ring-1 ring-violet-500/10",
-                    "hover:bg-violet-50/80 hover:shadow-violet-500/15",
-                  ].join(" "),
-              open && (
-                isDark
-                  ? "bg-slate-750 border-slate-500"
-                  : "bg-violet-50/90 border-violet-300 shadow-violet-500/15"
-              ),
-            )}
+            className={filterTriggerClass}
+            title={`${sucursalLabel} · ${periodLabel}`}
+            aria-label={`Filtros: ${sucursalLabel}, ${periodLabel}`}
           >
-            {/* Dot indicator when filtered */}
             <AnimatePresence>
               {isFiltered && (
                 <motion.span
@@ -107,7 +113,7 @@ export function DashboardFilterBar({
             </AnimatePresence>
 
             <SlidersHorizontal
-              size={10}
+              size={stacked ? 14 : 10}
               className={cn(
                 "transition-colors duration-200 shrink-0",
                 isDark
@@ -116,20 +122,23 @@ export function DashboardFilterBar({
               )}
             />
 
-            <span className="tracking-widest">
-              {sucursalLabel}
-              <span className={cn("mx-1.5", isDark ? "text-slate-600" : "text-slate-300")}>·</span>
-              {periodLabel}
-            </span>
-
-            <ChevronDown
-              size={9}
-              className={cn(
-                "transition-transform duration-250 ease-[cubic-bezier(0.34,1.56,0.64,1)] shrink-0",
-                open && "rotate-180",
-                isDark ? "text-slate-500" : "text-slate-400",
-              )}
-            />
+            {!stacked && (
+              <>
+                <span className="tracking-widest">
+                  {sucursalLabel}
+                  <span className={cn("mx-1.5", isDark ? "text-slate-600" : "text-slate-300")}>·</span>
+                  {periodLabel}
+                </span>
+                <ChevronDown
+                  size={9}
+                  className={cn(
+                    "transition-transform duration-250 ease-[cubic-bezier(0.34,1.56,0.64,1)] shrink-0",
+                    open && "rotate-180",
+                    isDark ? "text-slate-500" : "text-slate-400",
+                  )}
+                />
+              </>
+            )}
           </motion.button>
         </PopoverTrigger>
 
@@ -216,18 +225,37 @@ export function DashboardFilterBar({
         </PopoverContent>
       </Popover>
 
-      {/* Acciones inline */}
       <DashboardThemeToggle
         isDark={isDark}
         onToggle={onToggleTheme}
-        className="h-8 w-8"
+        className="h-8 w-8 shrink-0"
       />
       <DashboardFullscreenButton
         isImmersive={isFullscreen}
         isDark={isDark}
         onToggle={onToggleFullscreen}
-        className="h-8 w-8"
+        className="h-8 w-8 shrink-0"
       />
+    </>
+  );
+
+  if (stacked) {
+    return (
+      <aside
+        className={cn(
+          "flex flex-col flex-nowrap items-center justify-start gap-2 shrink-0 w-8 ml-auto",
+          className,
+        )}
+        aria-label="Controles del dashboard"
+      >
+        {controls}
+      </aside>
+    );
+  }
+
+  return (
+    <div className={cn("flex flex-row items-center justify-end gap-1.5", className)}>
+      {controls}
     </div>
   );
 }

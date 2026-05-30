@@ -84,6 +84,12 @@ function RankingColgroup({ showCompaniaLens }: { showCompaniaLens: boolean }) {
   );
 }
 
+function rankingHeaderBandClass(isDark: boolean) {
+  return isDark
+    ? "bg-slate-800/90 border-slate-700"
+    : "bg-violet-50/90 border-violet-100/80";
+}
+
 function RankingColumnHeaders({
   isDark,
   showCompaniaLens,
@@ -91,9 +97,9 @@ function RankingColumnHeaders({
   isDark: boolean;
   showCompaniaLens: boolean;
 }) {
-  const thBase = isDark ? "bg-slate-900" : "bg-white";
+  const thBase = isDark ? "bg-slate-800/90" : "bg-violet-50/90";
   return (
-    <tr className={cn("text-left border-b", isDark ? "border-slate-700" : "border-slate-100")}>
+    <tr className={cn("text-left border-b", isDark ? "border-slate-600/80" : "border-violet-200/50")}>
       <th className={cn("py-2.5 px-3 font-black uppercase tracking-[0.2em] text-[9px]", isDark ? "text-slate-500" : "text-slate-400", thBase)}>
         Pos
       </th>
@@ -287,11 +293,11 @@ export function RankingTable({
 
       {/* Header título */}
       <div className={cn(
-        "border-b flex items-center justify-between shrink-0 gap-3",
+        "flex items-center justify-between shrink-0 gap-3",
         isDark
-          ? "bg-slate-900 border-slate-700"
-          : "border-violet-100/60 bg-white shadow-sm",
-        dense ? "pt-5 px-4 pb-3" : "pt-7 px-6 pb-4",
+          ? "bg-slate-900 border-b border-slate-700"
+          : "border-b border-violet-100/60 bg-white shadow-sm",
+        dense ? "pt-5 px-4 pb-2" : "pt-7 px-6 pb-3",
       )}>
         {/* Título centrado */}
         <div className="flex-1 text-center">
@@ -344,11 +350,29 @@ export function RankingTable({
         </div>
       </div>
 
-      {/* Tabla única: thead sticky evita hueco donde se ven nombres al hacer scroll */}
+      {/* Encabezados de columnas — fijos, pegados al título (solo el tbody hace scroll) */}
+      <div
+        className={cn(
+          "shrink-0 border-b",
+          rankingHeaderBandClass(isDark),
+          dense ? "px-4 pb-1.5 pt-0" : "px-6 pb-2 pt-0",
+        )}
+      >
+        <table className="w-full text-sm table-fixed">
+          <RankingColgroup showCompaniaLens={showCompaniaLens} />
+          <thead>
+            <RankingColumnHeaders isDark={isDark} showCompaniaLens={showCompaniaLens} />
+          </thead>
+        </table>
+      </div>
+
       <div
         ref={scrollRef}
         tabIndex={0}
-        className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden custom-scrollbar px-5 pb-4 [overscroll-behavior:contain] focus:outline-none"
+        className={cn(
+          "flex-1 min-h-0 overflow-y-auto overflow-x-hidden custom-scrollbar pb-4 pt-1 [overscroll-behavior:contain] focus:outline-none",
+          dense ? "px-4" : "px-6",
+        )}
         style={{
           scrollbarWidth: "none",
           WebkitOverflowScrolling: "touch",
@@ -358,14 +382,6 @@ export function RankingTable({
       >
         <table className="w-full text-sm table-fixed border-separate border-spacing-y-1.5">
           <RankingColgroup showCompaniaLens={showCompaniaLens} />
-          <thead
-            className={cn(
-              "sticky top-0 z-30",
-              isDark ? "bg-slate-900" : "bg-white",
-            )}
-          >
-            <RankingColumnHeaders isDark={isDark} showCompaniaLens={showCompaniaLens} />
-          </thead>
           <tbody>
             <AnimatePresence initial={false}>
               {displayRows.map((v, i) => {

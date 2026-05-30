@@ -224,15 +224,25 @@ export default function DashboardPage() {
             </Alert>
           )}
 
-          {/* Barra compacta top-right: filtros + tema + fullscreen */}
+          {/* KPIs (izq) + filtros/tema/fullscreen en columna (der) */}
           <motion.div
-            className="shrink-0 mb-2"
+            className="shrink-0 mb-3 flex flex-row items-stretch justify-between gap-2 md:gap-3 w-full min-w-0"
             variants={sectionVariants}
             initial="hidden"
             animate="show"
             custom={0}
           >
+            <div className="flex-1 min-w-0 overflow-hidden">
+              <DashboardKpiCarousel
+                kpis={kpis}
+                evolucion={evolucion}
+                loading={loadingKpis}
+                isDark={isDark}
+              />
+            </div>
             <DashboardFilterBar
+              layout="stacked"
+              className="self-start"
               periodPreset={periodPreset}
               customYear={customYear}
               customMonth={customMonth}
@@ -244,22 +254,6 @@ export default function DashboardPage() {
               onToggleTheme={toggleTheme}
               isFullscreen={isFullscreen}
               onToggleFullscreen={toggleFullscreen}
-            />
-          </motion.div>
-
-          {/* Carrusel KPI — 3 slides */}
-          <motion.div
-            className="shrink-0 mb-3"
-            variants={sectionVariants}
-            initial="hidden"
-            animate="show"
-            custom={1}
-          >
-            <DashboardKpiCarousel
-              kpis={kpis}
-              evolucion={evolucion}
-              loading={loadingKpis}
-              isDark={isDark}
             />
           </motion.div>
 

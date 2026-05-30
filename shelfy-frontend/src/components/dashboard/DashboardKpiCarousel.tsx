@@ -29,6 +29,8 @@ interface DashboardKpiCarouselProps {
   evolucion: EvolucionTiempo[];
   loading?: boolean;
   isDark?: boolean;
+  /** Altura fija de la banda (px); si no se pasa, usa clases responsive */
+  bandHeightPx?: number;
   /** Año/mes del período del gráfico (para día de la semana en picos) */
   chartYear?: number;
   chartMonth?: number;
@@ -37,7 +39,17 @@ interface DashboardKpiCarouselProps {
 type SlideKey = 0 | 1 | 2;
 const SLIDE_LABELS = ["Estados", "Evolución", "Rendimiento"];
 const SLIDE_ROTATE_MS = 8000;
-const SLIDE_HEIGHT_CLASS = "h-[160px] sm:h-[143px] md:h-[136px]";
+const SLIDE_HEIGHT_CLASS = "h-[160px] sm:h-[148px] md:h-[136px]";
+
+function kpiBandSizing(bandHeightPx?: number) {
+  if (bandHeightPx != null) {
+    return {
+      className: "shrink-0",
+      style: { height: bandHeightPx, maxHeight: bandHeightPx, minHeight: bandHeightPx },
+    };
+  }
+  return { className: SLIDE_HEIGHT_CLASS, style: undefined as React.CSSProperties | undefined };
+}
 
 function useCompactViewport() {
   const [compact, setCompact] = useState(false);
@@ -218,17 +230,21 @@ function SlideNav({
   slide,
   isDark,
   onSelect,
+  bandHeightPx,
 }: {
   slide: SlideKey;
   isDark: boolean;
   onSelect: (s: SlideKey) => void;
+  bandHeightPx?: number;
 }) {
+  const band = kpiBandSizing(bandHeightPx);
   return (
     <div
       className={cn(
         "flex flex-col items-center justify-center gap-2 shrink-0 self-stretch py-1",
-        SLIDE_HEIGHT_CLASS,
+        band.className,
       )}
+      style={band.style}
       role="tablist"
       aria-label="Vistas de métricas"
     >
@@ -752,9 +768,11 @@ export function DashboardKpiCarousel({
   evolucion,
   loading = false,
   isDark = false,
+  bandHeightPx,
   chartYear,
   chartMonth,
 }: DashboardKpiCarouselProps) {
+  const band = kpiBandSizing(bandHeightPx);
   const cal = arCalendarRef();
   const refYear = chartYear ?? cal.year;
   const refMonth = chartMonth ?? cal.month;
@@ -818,12 +836,18 @@ export function DashboardKpiCarousel({
   if (loading && !kpis) {
     return (
       <div className="flex items-stretch gap-2 md:gap-3 shrink-0">
-        <div className={cn("flex flex-col items-center justify-center gap-2 shrink-0", SLIDE_HEIGHT_CLASS)}>
+        <div
+          className={cn("flex flex-col items-center justify-center gap-2 shrink-0", band.className)}
+          style={band.style}
+        >
           {[0, 1, 2].map((i) => (
             <Skeleton key={i} className="h-1.5 w-1.5 rounded-full" />
           ))}
         </div>
-        <div className={cn("flex-1 min-w-0 grid grid-cols-4 gap-2 md:gap-3", SLIDE_HEIGHT_CLASS)}>
+        <div
+          className={cn("flex-1 min-w-0 grid grid-cols-4 gap-2 md:gap-3", band.className)}
+          style={band.style}
+        >
           {[0, 1, 2, 3].map((i) => (
             <Skeleton key={i} className="h-full w-full rounded-2xl" />
           ))}
@@ -833,16 +857,20 @@ export function DashboardKpiCarousel({
   }
 
   return (
-    <div className={cn("flex items-stretch gap-2 md:gap-3 shrink-0 min-w-0", SLIDE_HEIGHT_CLASS)}>
-      <SlideNav slide={slide} isDark={isDark} onSelect={handleSlideClick} />
+    <div
+      className={cn("flex items-stretch gap-2 md:gap-3 shrink-0 min-w-0", band.className)}
+      style={band.style}
+    >
+      <SlideNav slide={slide} isDark={isDark} onSelect={handleSlideClick} bandHeightPx={bandHeightPx} />
 
       <div
         className={cn(
           "flex-1 min-w-0 relative rounded-2xl",
           slide === 1 ? "overflow-visible" : "overflow-hidden",
-          SLIDE_HEIGHT_CLASS,
+          band.className,
           isDark ? "bg-slate-950/30" : "bg-white/20",
         )}
+        style={band.style}
       >
         <AnimatePresence mode="wait" onExitComplete={onSlideExitComplete}>
           {slide === 0 && kpis && (

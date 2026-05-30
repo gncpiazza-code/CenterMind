@@ -32,6 +32,12 @@ import {
 } from "@/lib/dashboard-period";
 import { filterUltimasCoherentes } from "@/lib/dashboard-ultimas";
 import { loadDashboardTheme, saveDashboardTheme } from "@/lib/dashboard-theme";
+import {
+  loadDashboardLayout,
+  saveDashboardLayout,
+  type DashboardLayoutConfig,
+} from "@/lib/dashboard-layout";
+import { DashboardLayoutTuner } from "@/components/dashboard/DashboardLayoutTuner";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -60,9 +66,16 @@ export default function DashboardPage() {
   // Pantalla completa + tema
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isDark, setIsDark] = useState(false);
+  const [dashLayout, setDashLayout] = useState<DashboardLayoutConfig>(() => loadDashboardLayout());
 
   useEffect(() => {
     setIsDark(loadDashboardTheme() === "dark");
+    setDashLayout(loadDashboardLayout());
+  }, []);
+
+  const handleDashLayoutChange = useCallback((next: DashboardLayoutConfig) => {
+    setDashLayout(next);
+    saveDashboardLayout(next);
   }, []);
 
   const toggleTheme = useCallback(() => {
@@ -226,18 +239,22 @@ export default function DashboardPage() {
 
           {/* KPIs (izq) + filtros/tema/fullscreen en columna (der) */}
           <motion.div
-            className="shrink-0 mb-2 flex flex-col sm:flex-row items-stretch justify-between gap-2 md:gap-3 w-full min-w-0"
+            className="shrink-0 mb-1.5 flex flex-col sm:flex-row items-stretch justify-between gap-2 md:gap-3 w-full min-w-0"
             variants={sectionVariants}
             initial="hidden"
             animate="show"
             custom={0}
           >
-            <div className="flex-1 min-w-0 min-h-[136px] sm:min-h-0 overflow-hidden w-full">
+            <div
+              className="flex-1 min-w-0 overflow-hidden w-full shrink-0"
+              style={{ height: dashLayout.kpiHeightPx, maxHeight: dashLayout.kpiHeightPx }}
+            >
               <DashboardKpiCarousel
                 kpis={kpis}
                 evolucion={evolucion}
                 loading={loadingKpis}
                 isDark={isDark}
+                bandHeightPx={dashLayout.kpiHeightPx}
                 chartYear={bounds.start.getFullYear()}
                 chartMonth={bounds.start.getMonth()}
               />
@@ -262,13 +279,19 @@ export default function DashboardPage() {
           {/* Layout 25% hero / 75% ranking */}
           <div className="relative flex-1 min-h-0 w-full">
             {!isDark && (
-              <div className="hidden md:block absolute left-[40%] top-0 bottom-0 w-px -translate-x-1/2 bg-gradient-to-b from-transparent via-violet-300/50 to-transparent pointer-events-none z-10" />
+              <div
+                className="hidden md:block absolute top-0 bottom-0 w-px bg-gradient-to-b from-transparent via-violet-300/50 to-transparent pointer-events-none z-10"
+                style={{ left: `${dashLayout.heroWidthPercent}%`, transform: "translateX(-50%)" }}
+              />
             )}
 
-            <div className="flex flex-col md:flex-row md:items-stretch gap-4 h-full min-h-0 overflow-hidden">
-              {/* HeroCarousel — 40% */}
+            <div
+              className="flex flex-col md:flex-row md:items-stretch gap-4 h-full min-h-0 overflow-hidden flex-1"
+              style={{ ["--dash-hero-w" as string]: `${dashLayout.heroWidthPercent}%` }}
+            >
+              {/* HeroCarousel */}
               <motion.div
-                className="relative w-full md:w-2/5 md:min-w-0 flex flex-col min-h-0 md:h-full"
+                className="relative w-full md:w-[var(--dash-hero-w)] md:max-w-[var(--dash-hero-w)] md:shrink-0 md:min-w-0 flex flex-col min-h-0 md:h-full"
                 variants={sectionVariants}
                 initial="hidden"
                 animate="show"
@@ -302,9 +325,9 @@ export default function DashboardPage() {
                 )}
               </motion.div>
 
-              {/* RankingTable — 60% */}
+              {/* RankingTable */}
               <motion.div
-                className="relative w-full md:w-3/5 md:min-w-0 flex flex-col min-h-0 flex-1 md:h-full overflow-hidden"
+                className="relative w-full md:flex-1 md:min-w-0 flex flex-col min-h-0 flex-1 md:h-full overflow-hidden"
                 variants={sectionVariants}
                 initial="hidden"
                 animate="show"
@@ -345,6 +368,7 @@ export default function DashboardPage() {
       </div>
 
       <CCDifusionGuiaDialog autoOpenIfUnseen sessionReady={!!user} />
+      <DashboardLayoutTuner layout={dashLayout} onChange={handleDashLayoutChange} />
     </div>
   );
 }

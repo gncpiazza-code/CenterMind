@@ -113,7 +113,7 @@ def _fetch_vendedores(dist_id: int) -> list[dict]:
 
 def _fetch_binding_history(dist_id: int, telegram_chat_id: int) -> set[int]:
     """Conjunto de id_vendedor_v2 que alguna vez estuvieron vinculados a este chat."""
-    known: set[int] = []
+    known: set[int] = set()
     try:
         rows = (
             sb.table("vendedores_telegram_binding")
@@ -234,6 +234,19 @@ def score_group_vendor_candidates(
                     if "multi_candidate_capped" not in c["reasons"]:
                         c["reasons"].append("multi_candidate_capped")
 
+        # Señal 5: integrantes del grupo ya mapeados a este vendedor
+        integrante_counts = _integrante_vendor_counts(dist_id, telegram_chat_id)
+        for c in candidates:
+            cnt = integrante_counts.get(c["id_vendedor"], 0)
+            if cnt > 0:
+                bonus = min(0.40, 0.22 + 0.06 * (cnt - 1))
+                if c["score"] < bonus:
+                    c["score"] = round(bonus, 4)
+                    c["reasons"].append(f"integrantes_grupo:{cnt}")
+                else:
+                    c["score"] = round(min(1.0, c["score"] + 0.08), 4)
+                    c["reasons"].append(f"integrantes_grupo_bonus:{cnt}")
+
         candidates.sort(key=lambda x: x["score"], reverse=True)
         return candidates
     except Exception as exc:
@@ -242,6 +255,343 @@ def score_group_vendor_candidates(
             dist_id, telegram_chat_id, exc,
         )
         return []
+
+
+def _fetch_integrantes_grupo(dist_id: int, telegram_chat_id: int) -> list[dict]:
+    rows: list[dict] = []
+    offset = 0
+    PAGE = 1000
+    try:
+        while True:
+            batch = (
+                sb.table("integrantes_grupo")
+                .select(
+                    "id_integrante,nombre_integrante,telegram_user_id,"
+                    "id_vendedor_v2,id_vendedor_erp"
+                )
+                .eq("id_distribuidor", dist_id)
+                .eq("telegram_group_id", telegram_chat_id)
+                .range(offset, offset + PAGE - 1)
+                .execute()
+                .data or []
+            )
+            rows.extend(batch)
+            if len(batch) < PAGE:
+                break
+            offset += PAGE
+    except Exception as exc:
+        logger.warning(
+            "_fetch_integrantes_grupo dist=%s chat=%s err=%s",
+            dist_id, telegram_chat_id, exc,
+        )
+    return rows
+
+
+def _integrante_vendor_counts(dist_id: int, telegram_chat_id: int) -> dict[int, int]:
+    counts: dict[int, int] = {}
+    for ig in _fetch_integrantes_grupo(dist_id, telegram_chat_id):
+        vid = ig.get("id_vendedor_v2")
+        if vid is not None:
+            counts[int(vid)] = counts.get(int(vid), 0) + 1
+    return counts
+
+
+def _fetch_vendor_row(dist_id: int, id_vendedor_v2: int) -> dict | None:
+    t = tenant_table_name("vendedores_v2", dist_id)
+    try:
+        res = (
+            sb.table(t)
+            .select("id_vendedor,id_vendedor_erp,nombre_erp")
+            .eq("id_distribuidor", dist_id)
+            .eq("id_vendedor", id_vendedor_v2)
+            .limit(1)
+            .execute()
+        )
+        rows = res.data or []
+        return rows[0] if rows else None
+    except Exception as exc:
+        logger.warning(
+            "_fetch_vendor_row dist=%s vid=%s err=%s", dist_id, id_vendedor_v2, exc
+        )
+        return None
+
+
+def _fetch_binding_uid_for_vendor(
+    dist_id: int, id_vendedor_v2: int, telegram_chat_id: int
+) -> int | None:
+    try:
+        res = (
+            sb.table("vendedores_telegram_binding")
+            .select("telegram_user_id,telegram_group_id")
+            .eq("id_distribuidor", dist_id)
+            .eq("id_vendedor_v2", id_vendedor_v2)
+            .limit(1)
+            .execute()
+        )
+        rows = res.data or []
+        if not rows:
+            return None
+        row = rows[0]
+        gid = row.get("telegram_group_id")
+        if gid is not None and int(gid) != int(telegram_chat_id):
+            return None
+        uid = row.get("telegram_user_id")
+        return int(uid) if uid is not None else None
+    except Exception as exc:
+        logger.warning(
+            "_fetch_binding_uid dist=%s vid=%s err=%s", dist_id, id_vendedor_v2, exc
+        )
+        return None
+
+
+def score_uid_candidates_for_group(
+    dist_id: int,
+    telegram_chat_id: int,
+    id_vendedor_v2: int | None = None,
+) -> list[dict]:
+    """
+    Puntúa integrantes / UIDs del grupo contra un vendedor (opcional).
+
+    Señales:
+    1. integrante.id_vendedor_v2 == vendedor           → 1.0
+    2. id_vendedor_erp coincide                          → 0.95
+    3. Cobertura de nombre ERP ↔ nombre integrante     → [0.0, 0.85]
+    4. vendedores_telegram_binding para ese par          → 0.92
+    5. Uploader dominante en exhibiciones recientes      → 0.72 (con vendor) / 0.65
+    """
+    try:
+        integrantes = _fetch_integrantes_grupo(dist_id, telegram_chat_id)
+        vendor = (
+            _fetch_vendor_row(dist_id, id_vendedor_v2) if id_vendedor_v2 else None
+        )
+        binding_uid = (
+            _fetch_binding_uid_for_vendor(dist_id, id_vendedor_v2, telegram_chat_id)
+            if id_vendedor_v2
+            else None
+        )
+        dominant = _fetch_dominant_uploader(dist_id, telegram_chat_id)
+
+        v_nombre = str(vendor.get("nombre_erp") or "") if vendor else ""
+        v_erp_id = str(vendor.get("id_vendedor_erp") or "").strip() if vendor else ""
+
+        candidates: list[dict] = []
+        seen: set[int] = set()
+
+        for ig in integrantes:
+            uid_raw = ig.get("telegram_user_id")
+            if uid_raw is None:
+                continue
+            uid = int(uid_raw)
+            score = 0.0
+            reasons: list[str] = []
+
+            if id_vendedor_v2 is not None:
+                ig_v2 = ig.get("id_vendedor_v2")
+                if ig_v2 is not None and int(ig_v2) == int(id_vendedor_v2):
+                    score = 1.0
+                    reasons.append("integrante_id_vendedor_v2")
+                else:
+                    ig_erp = str(ig.get("id_vendedor_erp") or "").strip()
+                    if v_erp_id and ig_erp and v_erp_id == ig_erp:
+                        score = 0.95
+                        reasons.append("integrante_erp_id_match")
+                    elif v_nombre:
+                        ig_nombre = str(ig.get("nombre_integrante") or "")
+                        cov = _name_coverage(v_nombre, ig_nombre)
+                        if cov > 0:
+                            name_score = round(cov * 0.85, 4)
+                            if name_score > score:
+                                score = name_score
+                                reasons.append(f"name_match:{cov:.2f}")
+
+            if binding_uid is not None and uid == binding_uid:
+                score = max(score, 0.92)
+                reasons.append("binding_table")
+
+            if dominant is not None and uid == dominant:
+                floor = 0.72 if id_vendedor_v2 else 0.65
+                score = max(score, floor)
+                reasons.append("dominant_uploader")
+
+            if score > 0 or (dominant is not None and uid == dominant):
+                if score <= 0 and dominant is not None and uid == dominant:
+                    score = 0.65
+                    reasons.append("dominant_uploader")
+                candidates.append({
+                    "telegram_user_id": uid,
+                    "nombre_integrante": ig.get("nombre_integrante"),
+                    "score": round(score, 4),
+                    "reasons": reasons,
+                })
+                seen.add(uid)
+
+        if dominant is not None and dominant not in seen:
+            candidates.append({
+                "telegram_user_id": dominant,
+                "nombre_integrante": None,
+                "score": 0.55,
+                "reasons": ["dominant_uploader_only"],
+            })
+
+        candidates.sort(key=lambda x: x["score"], reverse=True)
+        return candidates
+    except Exception as exc:
+        logger.warning(
+            "score_uid_candidates dist=%s chat=%s err=%s",
+            dist_id, telegram_chat_id, exc,
+        )
+        return []
+
+
+AUTO_FILL_THRESHOLD = 0.45
+
+
+def suggest_group_binding_fields(
+    dist_id: int,
+    telegram_chat_id: int,
+    *,
+    id_vendedor_v2: int | None = None,
+    telegram_user_id: int | None = None,
+) -> dict:
+    """
+    Sugerencias bidireccionales para el panel de vinculación por grupo.
+
+    - Solo chat_id → mejor vendedor + UID coherente
+    - chat_id + vendedor → mejor UID para ese vendedor en el grupo
+    - chat_id + UID → mejor vendedor para ese integrante
+    """
+    grupo = _fetch_grupo(dist_id, telegram_chat_id)
+    vendor_cands = score_group_vendor_candidates(dist_id, telegram_chat_id)
+
+    def _vendor_candidate(vid: int) -> dict | None:
+        for c in vendor_cands:
+            if c["id_vendedor"] == vid:
+                return c
+        row = _fetch_vendor_row(dist_id, vid)
+        if row:
+            return {
+                "id_vendedor": int(row["id_vendedor"]),
+                "nombre_erp": row.get("nombre_erp") or "",
+                "score": 0.0,
+                "reasons": ["manual_selection"],
+            }
+        return None
+
+    def _pack_vendor(c: dict | None) -> dict | None:
+        if c is None:
+            return None
+        return {
+            **c,
+            "auto_fill": float(c.get("score") or 0) >= AUTO_FILL_THRESHOLD,
+        }
+
+    def _pack_uid(c: dict | None) -> dict | None:
+        if c is None:
+            return None
+        return {
+            **c,
+            "auto_fill": float(c.get("score") or 0) >= AUTO_FILL_THRESHOLD,
+        }
+
+    suggested_vendor: dict | None = None
+    suggested_uid: dict | None = None
+    integrantes = _fetch_integrantes_grupo(dist_id, telegram_chat_id)
+
+    if telegram_user_id is not None and id_vendedor_v2 is None:
+        ig_match = next(
+            (
+                ig
+                for ig in integrantes
+                if ig.get("telegram_user_id") is not None
+                and int(ig["telegram_user_id"]) == int(telegram_user_id)
+            ),
+            None,
+        )
+        suggested_uid = _pack_uid({
+            "telegram_user_id": int(telegram_user_id),
+            "nombre_integrante": ig_match.get("nombre_integrante") if ig_match else None,
+            "score": 1.0,
+            "reasons": ["selected_uid"],
+        })
+        if ig_match and ig_match.get("id_vendedor_v2") is not None:
+            vid = int(ig_match["id_vendedor_v2"])
+            vc = _vendor_candidate(vid)
+            if vc:
+                vc = dict(vc)
+                vc["score"] = max(float(vc.get("score") or 0), 0.88)
+                if "integrante_id_vendedor_v2" not in vc.get("reasons", []):
+                    vc.setdefault("reasons", []).append("integrante_id_vendedor_v2")
+                suggested_vendor = _pack_vendor(vc)
+        if suggested_vendor is None and vendor_cands:
+            suggested_vendor = _pack_vendor(vendor_cands[0])
+
+    elif id_vendedor_v2 is not None and telegram_user_id is None:
+        suggested_vendor = _pack_vendor(_vendor_candidate(id_vendedor_v2))
+        uid_cands = score_uid_candidates_for_group(
+            dist_id, telegram_chat_id, id_vendedor_v2
+        )
+        suggested_uid = _pack_uid(uid_cands[0] if uid_cands else None)
+
+    else:
+        if id_vendedor_v2 is not None:
+            suggested_vendor = _pack_vendor(_vendor_candidate(id_vendedor_v2))
+        elif vendor_cands:
+            suggested_vendor = _pack_vendor(vendor_cands[0])
+
+        vid_for_uid = id_vendedor_v2
+        if vid_for_uid is None and suggested_vendor:
+            vid_for_uid = suggested_vendor.get("id_vendedor")
+
+        uid_cands = score_uid_candidates_for_group(
+            dist_id, telegram_chat_id, vid_for_uid
+        )
+
+        if telegram_user_id is not None:
+            uid_row = next(
+                (u for u in uid_cands if u["telegram_user_id"] == int(telegram_user_id)),
+                None,
+            )
+            if uid_row is None:
+                ig_match = next(
+                    (
+                        ig
+                        for ig in integrantes
+                        if ig.get("telegram_user_id") is not None
+                        and int(ig["telegram_user_id"]) == int(telegram_user_id)
+                    ),
+                    None,
+                )
+                uid_row = {
+                    "telegram_user_id": int(telegram_user_id),
+                    "nombre_integrante": ig_match.get("nombre_integrante") if ig_match else None,
+                    "score": 1.0,
+                    "reasons": ["selected_uid"],
+                }
+            suggested_uid = _pack_uid(uid_row)
+        else:
+            suggested_uid = _pack_uid(uid_cands[0] if uid_cands else None)
+
+    uid_cands_full = score_uid_candidates_for_group(
+        dist_id,
+        telegram_chat_id,
+        id_vendedor_v2
+        or (suggested_vendor.get("id_vendedor") if suggested_vendor else None),
+    )
+
+    return {
+        "telegram_chat_id": telegram_chat_id,
+        "nombre_grupo": grupo.get("nombre_grupo") if grupo else None,
+        "vendedor_sugerido": suggested_vendor,
+        "uid_sugerido": suggested_uid,
+        "vendedor_candidates": [
+            {**c, "auto_fill": float(c.get("score") or 0) >= AUTO_FILL_THRESHOLD}
+            for c in vendor_cands[:8]
+        ],
+        "uid_candidates": [
+            {**c, "auto_fill": float(c.get("score") or 0) >= AUTO_FILL_THRESHOLD}
+            for c in uid_cands_full[:8]
+        ],
+    }
 
 
 def detect_group_drift(dist_id: int, telegram_chat_id: int) -> dict | None:

@@ -3355,6 +3355,24 @@ export interface BindingGroupCandidate {
   nombre_erp: string;
   score: number;
   reasons: string[];
+  auto_fill?: boolean;
+}
+
+export interface BindingUidCandidate {
+  telegram_user_id: number;
+  nombre_integrante?: string | null;
+  score: number;
+  reasons: string[];
+  auto_fill?: boolean;
+}
+
+export interface GroupBindingSuggestResponse {
+  telegram_chat_id: number;
+  nombre_grupo?: string | null;
+  vendedor_sugerido?: BindingGroupCandidate | null;
+  uid_sugerido?: BindingUidCandidate | null;
+  vendedor_candidates: BindingGroupCandidate[];
+  uid_candidates: BindingUidCandidate[];
 }
 
 export interface BindingHealthKPIs {
@@ -3433,6 +3451,23 @@ export async function fetchBindingGroupCandidates(
 ): Promise<BindingGroupCandidate[]> {
   return apiFetch<BindingGroupCandidate[]>(
     `/api/fuerza-ventas/binding/grupos/${distId}/${chatId}/candidates`,
+  );
+}
+
+export async function fetchBindingSuggest(
+  distId: number,
+  chatId: number,
+  opts?: { idVendedor?: number; telegramUserId?: number },
+): Promise<GroupBindingSuggestResponse> {
+  const params = new URLSearchParams({ telegram_chat_id: String(chatId) });
+  if (opts?.idVendedor != null) {
+    params.set("id_vendedor_v2", String(opts.idVendedor));
+  }
+  if (opts?.telegramUserId != null) {
+    params.set("telegram_user_id", String(opts.telegramUserId));
+  }
+  return apiFetch<GroupBindingSuggestResponse>(
+    `/api/fuerza-ventas/binding/suggest/${distId}?${params.toString()}`,
   );
 }
 

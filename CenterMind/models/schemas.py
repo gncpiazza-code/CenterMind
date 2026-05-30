@@ -443,3 +443,28 @@ class BindingHealthKPIs(BaseModel):
     grupos_review: int
     grupos_sin_vincular: int
     sugerencias_pendientes: int
+
+
+class BindingFieldSuggestionVendor(BaseModel):
+    id_vendedor: int
+    nombre_erp: str
+    score: float
+    reasons: list[str] = []
+    auto_fill: bool = False
+
+
+class BindingFieldSuggestionUid(BaseModel):
+    telegram_user_id: int
+    nombre_integrante: Optional[str] = None
+    score: float
+    reasons: list[str] = []
+    auto_fill: bool = False
+
+
+class GroupBindingSuggestResponse(BaseModel):
+    telegram_chat_id: int
+    nombre_grupo: Optional[str] = None
+    vendedor_sugerido: Optional[BindingFieldSuggestionVendor] = None
+    uid_sugerido: Optional[BindingFieldSuggestionUid] = None
+    vendedor_candidates: list[BindingFieldSuggestionVendor] = []
+    uid_candidates: list[BindingFieldSuggestionUid] = []

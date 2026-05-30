@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Link2, Loader2, Save, Unlink, Wand2 } from "lucide-react";
+import { Link2, Loader2, Save, Sparkles, Unlink } from "lucide-react";
 
 import {
   Sheet,
@@ -27,10 +27,11 @@ import {
 import {
   applyBindingDirect,
   unlinkBindingDirect,
-  fetchBindingGroupCandidates,
+  fetchBindingSuggest,
   fetchFuerzaVentasVendedores,
   fetchTelegramUsuariosGrupoFuerzaVentas,
   type GrupoBindingStatus,
+  type GroupBindingSuggestResponse,
 } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -39,6 +40,29 @@ interface Props {
   distId: number;
   open: boolean;
   onClose: () => void;
+}
+
+function scoreLabel(score: number): string {
+  return `${Math.round(score * 100)}%`;
+}
+
+function SuggestionHint({
+  label,
+  score,
+}: {
+  label: string;
+  score: number;
+}) {
+  const variant = score >= 0.8 ? "default" : score >= 0.5 ? "secondary" : "outline";
+  return (
+    <p className="text-xs text-muted-foreground flex items-center gap-2 flex-wrap">
+      <Sparkles className="h-3 w-3 shrink-0 text-amber-500" />
+      <span>Sugerido: {label}</span>
+      <Badge variant={variant} className="text-[10px] px-1.5 py-0">
+        {scoreLabel(score)}
+      </Badge>
+    </p>
+  );
 }
 
 export function GrupoBindingSheet({ grupo, distId, open, onClose }: Props) {
@@ -50,7 +74,14 @@ export function GrupoBindingSheet({ grupo, distId, open, onClose }: Props) {
 
   const [vendedorId, setVendedorId] = useState<string>("");
   const [telegramUserId, setTelegramUserId] = useState<string>("");
+  const [suggestion, setSuggestion] = useState<GroupBindingSuggestResponse | null>(
+    null,
+  );
   const [suggestLoading, setSuggestLoading] = useState(false);
+
+  const skipVendorSuggest = useRef(false);
+  const skipUidSuggest = useRef(false);
+  const initialLoadDone = useRef(false);
 
   const { data: vendedores = [], isLoading: loadingVendedores } = useQuery({
     queryKey: ["fv-vendedores", distId],
@@ -72,7 +103,75 @@ export function GrupoBindingSheet({ grupo, distId, open, onClose }: Props) {
     setTelegramUserId(
       grupo.dominant_uploader_uid != null ? String(grupo.dominant_uploader_uid) : "",
     );
+    setSuggestion(null);
+    skipVendorSuggest.current = false;
+    skipUidSuggest.current = false;
+    initialLoadDone.current = false;
   }, [grupo]);
+
+  const runSuggest = useCallback(
+    async (
+      opts?: { idVendedor?: number; telegramUserId?: number; silent?: boolean },
+    ) => {
+      if (chatId == null) return null;
+      setSuggestLoading(true);
+      try {
+        const result = await fetchBindingSuggest(distId, chatId, opts);
+        setSuggestion(result);
+        return result;
+      } catch {
+        if (!opts?.silent) toast.error("No se pudo calcular sugerencias");
+        return null;
+      } finally {
+        setSuggestLoading(false);
+      }
+    },
+    [chatId, distId],
+  );
+
+  useEffect(() => {
+    if (!open) {
+      initialLoadDone.current = false;
+    }
+  }, [open]);
+
+  // Auto-sugerir al abrir el sheet (semi-automático)
+  useEffect(() => {
+    if (!open || chatId == null || !grupo || initialLoadDone.current) return;
+
+    void (async () => {
+      const result = await runSuggest({ silent: true });
+      initialLoadDone.current = true;
+      if (!result) return;
+
+      const isUnlinked = grupo.binding_status !== "linked";
+      const hasVendor = grupo.id_vendedor_v2 != null;
+      const hasUid = grupo.dominant_uploader_uid != null;
+      let filled = false;
+
+      if (isUnlinked && !hasVendor && result.vendedor_sugerido?.auto_fill) {
+        skipUidSuggest.current = true;
+        setVendedorId(String(result.vendedor_sugerido.id_vendedor));
+        filled = true;
+      }
+
+      if (
+        (isUnlinked || !hasUid) &&
+        result.uid_sugerido?.auto_fill
+      ) {
+        skipVendorSuggest.current = true;
+        setTelegramUserId(String(result.uid_sugerido.telegram_user_id));
+        filled = true;
+      }
+
+      if (filled && result.vendedor_sugerido && result.uid_sugerido) {
+        toast.info(
+          `Sugerencia automática: ${result.vendedor_sugerido.nombre_erp} · UID ${result.uid_sugerido.telegram_user_id}`,
+          { duration: 4000 },
+        );
+      }
+    })();
+  }, [open, chatId, grupo, runSuggest]);
 
   const invalidateAll = useCallback(() => {
     qc.invalidateQueries({ queryKey: ["binding-grupos", distId] });
@@ -116,30 +215,96 @@ export function GrupoBindingSheet({ grupo, distId, open, onClose }: Props) {
     onError: () => toast.error("Error al desvincular"),
   });
 
-  const handleSugerir = useCallback(async () => {
-    if (chatId == null) return;
-    setSuggestLoading(true);
-    try {
-      const candidates = await fetchBindingGroupCandidates(distId, chatId);
-      if (!candidates.length) {
-        toast.warning("No hay candidatos para este grupo");
+  const handleVendedorChange = useCallback(
+    async (value: string) => {
+      setVendedorId(value);
+      if (skipVendorSuggest.current) {
+        skipVendorSuggest.current = false;
         return;
       }
-      const top = candidates[0];
-      setVendedorId(String(top.id_vendedor));
-      toast.success(
-        `Sugerido: ${top.nombre_erp} (${Math.round(top.score * 100)}% confianza)`,
-      );
-    } catch {
-      toast.error("No se pudo obtener sugerencias");
-    } finally {
-      setSuggestLoading(false);
+      const result = await runSuggest({
+        idVendedor: Number(value),
+        silent: true,
+      });
+      if (
+        result?.uid_sugerido?.auto_fill &&
+        !skipUidSuggest.current
+      ) {
+        skipUidSuggest.current = true;
+        setTelegramUserId(String(result.uid_sugerido.telegram_user_id));
+        const name =
+          result.uid_sugerido.nombre_integrante ||
+          String(result.uid_sugerido.telegram_user_id);
+        toast.info(
+          `UID sugerido para este vendedor: ${name} (${scoreLabel(result.uid_sugerido.score)})`,
+          { duration: 3500 },
+        );
+      }
+    },
+    [runSuggest],
+  );
+
+  const handleUidSelect = useCallback(
+    async (value: string) => {
+      setTelegramUserId(value);
+      if (skipUidSuggest.current) {
+        skipUidSuggest.current = false;
+        return;
+      }
+      const result = await runSuggest({
+        telegramUserId: Number(value),
+        silent: true,
+      });
+      if (
+        result?.vendedor_sugerido?.auto_fill &&
+        !skipVendorSuggest.current &&
+        !vendedorId
+      ) {
+        skipVendorSuggest.current = true;
+        setVendedorId(String(result.vendedor_sugerido.id_vendedor));
+        toast.info(
+          `Vendedor sugerido: ${result.vendedor_sugerido.nombre_erp} (${scoreLabel(result.vendedor_sugerido.score)})`,
+          { duration: 3500 },
+        );
+      }
+    },
+    [runSuggest, vendedorId],
+  );
+
+  const handleRecalcular = useCallback(async () => {
+    const vid = vendedorId ? Number(vendedorId) : undefined;
+    const uid = telegramUserId.trim() ? Number(telegramUserId) : undefined;
+    const result = await runSuggest({ idVendedor: vid, telegramUserId: uid });
+    if (!result) return;
+
+    if (result.vendedor_sugerido?.auto_fill) {
+      skipUidSuggest.current = true;
+      setVendedorId(String(result.vendedor_sugerido.id_vendedor));
     }
-  }, [chatId, distId]);
+    if (result.uid_sugerido?.auto_fill) {
+      skipVendorSuggest.current = true;
+      setTelegramUserId(String(result.uid_sugerido.telegram_user_id));
+    }
+
+    if (!result.vendedor_sugerido && !result.uid_sugerido) {
+      toast.warning("No hay sugerencias con confianza suficiente");
+    } else {
+      toast.success("Sugerencias actualizadas");
+    }
+  }, [runSuggest, telegramUserId, vendedorId]);
 
   const sortedVendedores = [...vendedores].sort((a, b) =>
     a.nombre_erp.localeCompare(b.nombre_erp, "es"),
   );
+
+  const vendorHint = suggestion?.vendedor_sugerido;
+  const uidHint = suggestion?.uid_sugerido;
+  const showVendorHint =
+    vendorHint &&
+    (!vendedorId || String(vendorHint.id_vendedor) === vendedorId);
+  const showUidHint =
+    uidHint &&
+    (!telegramUserId || String(uidHint.telegram_user_id) === telegramUserId);
 
   return (
     <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
@@ -171,27 +336,31 @@ export function GrupoBindingSheet({ grupo, distId, open, onClose }: Props) {
               </p>
             </div>
 
+            <div className="flex items-center justify-between rounded-md border border-dashed px-3 py-2 bg-amber-50/50 dark:bg-amber-950/20">
+              <p className="text-xs text-muted-foreground">
+                Al elegir vendedor o UID se completa el otro campo automáticamente.
+              </p>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => void handleRecalcular()}
+                disabled={suggestLoading}
+              >
+                {suggestLoading ? (
+                  <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                ) : (
+                  <Sparkles className="h-3 w-3 mr-1" />
+                )}
+                Recalcular
+              </Button>
+            </div>
+
             <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label>Vendedor ERP</Label>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleSugerir}
-                  disabled={suggestLoading}
-                >
-                  {suggestLoading ? (
-                    <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                  ) : (
-                    <Wand2 className="h-3 w-3 mr-1" />
-                  )}
-                  Sugerir
-                </Button>
-              </div>
+              <Label>Vendedor ERP</Label>
               <Select
                 value={vendedorId || undefined}
-                onValueChange={setVendedorId}
+                onValueChange={(v) => void handleVendedorChange(v)}
                 disabled={loadingVendedores}
               >
                 <SelectTrigger>
@@ -206,6 +375,12 @@ export function GrupoBindingSheet({ grupo, distId, open, onClose }: Props) {
                   ))}
                 </SelectContent>
               </Select>
+              {showVendorHint && (
+                <SuggestionHint
+                  label={vendorHint.nombre_erp}
+                  score={vendorHint.score}
+                />
+              )}
             </div>
 
             <div className="space-y-2">
@@ -213,7 +388,7 @@ export function GrupoBindingSheet({ grupo, distId, open, onClose }: Props) {
               {usuarios.length > 0 ? (
                 <Select
                   value={telegramUserId || undefined}
-                  onValueChange={setTelegramUserId}
+                  onValueChange={(v) => void handleUidSelect(v)}
                   disabled={loadingUsuarios}
                 >
                   <SelectTrigger>
@@ -239,8 +414,19 @@ export function GrupoBindingSheet({ grupo, distId, open, onClose }: Props) {
                 value={telegramUserId}
                 onChange={(e) => setTelegramUserId(e.target.value.replace(/\D/g, ""))}
               />
+              {showUidHint && (
+                <SuggestionHint
+                  label={
+                    uidHint.nombre_integrante
+                      ? `${uidHint.nombre_integrante} (${uidHint.telegram_user_id})`
+                      : String(uidHint.telegram_user_id)
+                  }
+                  score={uidHint.score}
+                />
+              )}
               <p className="text-xs text-muted-foreground">
-                Uploader principal del grupo. Opcional pero recomendado para drift y legacy binding.
+                Uploader principal del grupo. Se infiere por integrantes, historial y
+                exhibiciones recientes.
               </p>
             </div>
 

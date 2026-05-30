@@ -45,6 +45,7 @@ from models.schemas import (
     GroupBindingApplyRequest,
     GrupoBindingStatus,
     BindingHealthKPIs,
+    GroupBindingSuggestResponse,
 )
 
 logger = logging.getLogger("ShelfyAPI")
@@ -1988,6 +1989,46 @@ def binding_group_candidates(dist_id: int, chat_id: int, payload=Depends(verify_
         return rows[:10]
     except Exception as e:
         logger.error(f"[binding] candidates dist={dist_id} chat={chat_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get(
+    "/api/fuerza-ventas/binding/suggest/{dist_id}",
+    tags=["Binding"],
+    response_model=GroupBindingSuggestResponse,
+)
+def binding_suggest_fields(
+    dist_id: int,
+    telegram_chat_id: int = Query(..., description="Chat ID del grupo Telegram"),
+    id_vendedor_v2: Optional[int] = Query(None, description="Vendedor ERP seleccionado"),
+    telegram_user_id: Optional[int] = Query(None, description="UID Telegram seleccionado"),
+    payload=Depends(verify_auth),
+):
+    """
+    Sugerencias bidireccionales para vincular grupo ↔ vendedor ↔ UID.
+
+    - Sin vendedor ni UID: propone el par más probable para el grupo.
+    - Con vendedor: propone UID coherente en ese grupo.
+    - Con UID: propone vendedor ERP asociado.
+    """
+    _check_fv_access(payload, dist_id)
+    try:
+        from core.telegram_group_matcher import suggest_group_binding_fields
+
+        result = suggest_group_binding_fields(
+            dist_id,
+            telegram_chat_id,
+            id_vendedor_v2=id_vendedor_v2,
+            telegram_user_id=telegram_user_id,
+        )
+        return GroupBindingSuggestResponse(**result)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            f"[binding] suggest dist={dist_id} chat={telegram_chat_id} "
+            f"v={id_vendedor_v2} uid={telegram_user_id}: {e}"
+        )
         raise HTTPException(status_code=500, detail=str(e))
 
 

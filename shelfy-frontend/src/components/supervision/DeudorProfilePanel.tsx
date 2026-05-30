@@ -203,15 +203,19 @@ function ProfileContent({
 
       {/* ── Comprobantes ── */}
       <div className="px-4 pt-2.5 pb-2 shrink-0">
-        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1.5 flex items-center gap-1.5">
+        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-0.5 flex items-center gap-1.5">
           <CreditCard size={10} />
-          Comprobantes de deuda
+          Comprobantes que adeuda
+        </p>
+        <p className="text-[9px] text-muted-foreground mb-1.5">
+          Deuda CHESS · comprobantes desde Informe de Ventas
         </p>
         <DeudorComprobantesList
           deuda={data.deuda}
           estado={data.estado}
           confianza={data.confianza}
           comprobantes={data.comprobantes}
+          resumen={data.comprobantes_adeuda_resumen}
         />
       </div>
 

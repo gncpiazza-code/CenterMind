@@ -26,9 +26,10 @@ interface Props {
   estado: DeudorDetalle["estado"];
   confianza: DeudorDetalle["confianza"];
   comprobantes: DeudorDetalle["comprobantes"];
+  resumen?: string | null;
 }
 
-export function DeudorComprobantesList({ deuda, estado, confianza, comprobantes }: Props) {
+export function DeudorComprobantesList({ deuda, estado, confianza, comprobantes, resumen }: Props) {
   /** Por defecto expandido; el usuario puede compactar. */
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
@@ -71,6 +72,11 @@ export function DeudorComprobantesList({ deuda, estado, confianza, comprobantes 
 
   return (
     <div className="flex flex-col gap-1.5">
+      {resumen ? (
+        <p className="text-[11px] text-foreground/90 font-medium leading-snug" title={resumen}>
+          Adeuda (estimado): {resumen}
+        </p>
+      ) : null}
       {confianza === "baja" && (
         <p className="flex items-center gap-1 text-[10px] text-amber-700/90 mb-0.5">
           <AlertCircle size={11} className="shrink-0" />
@@ -97,7 +103,9 @@ export function DeudorComprobantesList({ deuda, estado, confianza, comprobantes 
               >
                 <div className="flex items-center gap-2 min-w-0">
                   <Package size={12} className="text-muted-foreground shrink-0" />
-                  <span className="text-xs font-mono font-medium truncate">{cbte.numero}</span>
+                  <span className="text-xs font-medium truncate">
+                    {cbte.label || cbte.tipo_documento ? `${cbte.tipo_documento ?? ""} ${cbte.numero}`.trim() : cbte.numero}
+                  </span>
                   <span className="text-[10px] text-muted-foreground shrink-0">{fmtFecha(cbte.fecha)}</span>
                   {cbte.match_status === "estimado" && (
                     <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 border-amber-300 text-amber-600 shrink-0">

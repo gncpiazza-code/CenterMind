@@ -1,0 +1,426 @@
+# -*- coding: utf-8 -*-
+"""
+Última compra operativa desde ventas_enriched_v2 (Informe Consolido).
+
+Regla:
+  1) Si hay filas en ventas_enriched para el ERP → fecha + detalle del comprobante más reciente.
+  2) Fallback padrón: clientes_pdv_v2.fecha_ultima_compra.
+
+Usar este módulo en endpoints que hoy leen solo el padrón.
+"""
+from __future__ import annotations
+
+from datetime import date, timedelta
+from typing import Any, Iterable
+
+from db import sb
+from core.objetivos_compradores import _norm_erp
+from core.tenant_tables import tenant_table_name
+
+PAGE = 1000
+
+_VENTAS_SELECT = (
+    "id_cliente_erp,fecha_factura,tipo_documento,numero_documento,serie,"
+    "importe_final,nombre_vendedor,anulado"
+)
+
+_VENTAS_SELECT_DETALLE = (
+    "id_cliente_erp,fecha_factura,tipo_documento,numero_documento,serie,"
+    "importe_final,nombre_vendedor,anulado,cod_articulo,descripcion_articulo,bultos_total"
+)
+
+_MAX_ARTICULOS_UI = 8
+
+
+def comprobante_label(tipo: str | None, numero: str | None, serie: str | None = None) -> str:
+    """Etiqueta corta para UI: 'FAC A 00123456'."""
+    parts: list[str] = []
+    t = (tipo or "").strip()
+    s = (serie or "").strip()
+    n = (numero or "").strip()
+    if t:
+        parts.append(t)
+    if s:
+        parts.append(s)
+    if n:
+        parts.append(n)
+    return " ".join(parts) if parts else ""
+
+
+def comprobante_from_venta_row(row: dict[str, Any]) -> dict[str, Any]:
+    tipo = (row.get("tipo_documento") or "").strip()
+    numero = (row.get("numero_documento") or "").strip()
+    serie = (row.get("serie") or "").strip() or None
+    return {
+        "fecha": str(row.get("fecha_factura") or "")[:10],
+        "tipo_documento": tipo or None,
+        "numero_documento": numero or None,
+        "serie": serie,
+        "importe_final": float(row.get("importe_final") or 0),
+        "nombre_vendedor": (row.get("nombre_vendedor") or "").strip() or None,
+        "label": comprobante_label(tipo, numero, serie),
+    }
+
+
+def _venta_cuenta_como_compra(row: dict[str, Any]) -> bool:
+    if row.get("anulado"):
+        return False
+    return float(row.get("importe_final") or 0) >= 0
+
+
+def _mejor_ultima(actual: dict[str, Any] | None, candidato: dict[str, Any]) -> dict[str, Any]:
+    if actual is None:
+        return candidato
+    f_act = str(actual.get("fecha") or "")[:10]
+    f_new = str(candidato.get("fecha") or "")[:10]
+    if f_new > f_act:
+        return candidato
+    if f_new < f_act:
+        return actual
+    imp_act = float((actual.get("comprobante") or {}).get("importe_final") or 0)
+    imp_new = float((candidato.get("comprobante") or {}).get("importe_final") or 0)
+    return candidato if imp_new >= imp_act else actual
+
+
+def resolve_fecha_ultima_compra(
+    padron_fuc: Any,
+    enriched: dict[str, Any] | None,
+) -> tuple[str | None, dict[str, Any] | None]:
+    """(fecha ISO YYYY-MM-DD, comprobante | None)."""
+    if enriched and enriched.get("fecha"):
+        return str(enriched["fecha"])[:10], enriched.get("comprobante")
+    if padron_fuc:
+        f = str(padron_fuc).strip()[:10]
+        if len(f) >= 10:
+            return f, None
+    return None, None
+
+
+def fetch_ultima_compra_por_erp(
+    dist_id: int,
+    erp_ids: Iterable[str],
+    *,
+    ventana_dias: int = 450,
+    fecha_hasta: date | None = None,
+) -> dict[str, dict[str, Any]]:
+    """
+    Mapa erp normalizado → {fecha, comprobante}.
+    Escanea ventas_enriched en ventana [hasta - ventana_dias, hasta].
+    """
+    erp_raw: list[str] = []
+    erp_norm_set: set[str] = set()
+    for e in erp_ids:
+        s = str(e or "").strip()
+        if not s:
+            continue
+        erp_raw.append(s)
+        n = _norm_erp(s)
+        if n:
+            erp_norm_set.add(n)
+    if not erp_norm_set:
+        return {}
+
+    hasta = fecha_hasta or date.today()
+    desde = (hasta - timedelta(days=max(1, ventana_dias))).isoformat()
+    hasta_s = hasta.isoformat()
+
+    t_ventas = tenant_table_name("ventas_enriched_v2", dist_id)
+    best: dict[str, dict[str, Any]] = {}
+
+    # PostgREST: .in_ con lista grande; trocear ERPs crudos (incluye variantes con ceros).
+    chunk_size = 400
+    for i in range(0, len(erp_raw), chunk_size):
+        chunk = erp_raw[i : i + chunk_size]
+        offset = 0
+        while True:
+            batch = (
+                sb.table(t_ventas)
+                .select(_VENTAS_SELECT)
+                .eq("id_distribuidor", dist_id)
+                .eq("anulado", False)
+                .in_("id_cliente_erp", chunk)
+                .gte("fecha_factura", desde)
+                .lte("fecha_factura", hasta_s)
+                .range(offset, offset + PAGE - 1)
+                .execute()
+                .data or []
+            )
+            for row in batch:
+                if not _venta_cuenta_como_compra(row):
+                    continue
+                n = _norm_erp(row.get("id_cliente_erp"))
+                if not n or n not in erp_norm_set:
+                    continue
+                cand = {
+                    "fecha": str(row.get("fecha_factura") or "")[:10],
+                    "comprobante": comprobante_from_venta_row(row),
+                }
+                best[n] = _mejor_ultima(best.get(n), cand)
+            if len(batch) < PAGE:
+                break
+            offset += PAGE
+
+    return best
+
+
+def ultima_compra_en_periodo_por_cliente(
+    dist_id: int,
+    client_by_id: dict[int, dict],
+    desde: str,
+    hasta: str,
+) -> dict[int, dict[str, Any]]:
+    """
+    Por id_cliente: última venta en [desde, hasta] con detalle de comprobante.
+    """
+    desde_d = desde[:10]
+    hasta_d = hasta[:10]
+    erp_to_cid: dict[str, int] = {}
+    erp_list: list[str] = []
+    for cid, row in client_by_id.items():
+        raw = str(row.get("id_cliente_erp") or "").strip()
+        if not raw:
+            continue
+        erp_list.append(raw)
+        n = _norm_erp(raw)
+        if n:
+            erp_to_cid[n] = int(cid)
+
+    if not erp_to_cid:
+        return {}
+
+    t_ventas = tenant_table_name("ventas_enriched_v2", dist_id)
+    best: dict[int, dict[str, Any]] = {}
+
+    for i in range(0, len(erp_list), 400):
+        chunk = erp_list[i : i + 400]
+        offset = 0
+        while True:
+            batch = (
+                sb.table(t_ventas)
+                .select(_VENTAS_SELECT)
+                .eq("id_distribuidor", dist_id)
+                .eq("anulado", False)
+                .in_("id_cliente_erp", chunk)
+                .gte("fecha_factura", desde_d)
+                .lte("fecha_factura", hasta_d)
+                .range(offset, offset + PAGE - 1)
+                .execute()
+                .data or []
+            )
+            for row in batch:
+                if not _venta_cuenta_como_compra(row):
+                    continue
+                n = _norm_erp(row.get("id_cliente_erp"))
+                cid = erp_to_cid.get(n) if n else None
+                if cid is None:
+                    continue
+                cand = {
+                    "fecha": str(row.get("fecha_factura") or "")[:10],
+                    "comprobante": comprobante_from_venta_row(row),
+                }
+                best[cid] = _mejor_ultima(best.get(cid), cand)
+            if len(batch) < PAGE:
+                break
+            offset += PAGE
+
+    return best
+
+
+def enrich_filas_fecha_ultima_compra(
+    dist_id: int,
+    filas: list[dict],
+    *,
+    erp_key: str = "id_cliente_erp",
+    fecha_key: str = "fecha_ultima_compra",
+    comprobante_key: str = "ultimo_comprobante",
+) -> None:
+    """
+    In-place: setea fecha_ultima_compra y ultimo_comprobante en cada fila con ERP.
+    """
+    erps = [str(r.get(erp_key) or "").strip() for r in filas if r.get(erp_key)]
+    by_erp = fetch_ultima_compra_por_erp(dist_id, erps)
+    for r in filas:
+        raw = str(r.get(erp_key) or "").strip()
+        if not raw:
+            continue
+        ent = by_erp.get(_norm_erp(raw) or "")
+        fuc, cbte = resolve_fecha_ultima_compra(r.get(fecha_key), ent)
+        if fuc:
+            r[fecha_key] = fuc
+        if cbte:
+            r[comprobante_key] = cbte
+
+
+def overlay_padron_fuc_maps_from_ventas(
+    dist_id: int,
+    erp_fuc_map: dict[str, Any],
+    id_cliente_fuc_map: dict[int, Any],
+    erp_to_id_cliente: dict[str, int],
+    erp_ids_raw: Iterable[str],
+) -> dict[str, dict[str, Any]]:
+    """
+    Actualiza mapas FUC del padrón con ventas_enriched (solo si la venta es más reciente).
+    Retorna comprobante por ERP normalizado para la UI.
+    """
+    by_erp = fetch_ultima_compra_por_erp(dist_id, erp_ids_raw)
+    comprobante_by_erp: dict[str, dict[str, Any]] = {}
+    for norm, ent in by_erp.items():
+        f = str(ent.get("fecha") or "")[:10]
+        if len(f) < 10:
+            continue
+        prev = str(erp_fuc_map.get(norm) or "")[:10]
+        if not prev or f > prev:
+            erp_fuc_map[norm] = f
+            cbte = ent.get("comprobante")
+            if cbte:
+                comprobante_by_erp[norm] = cbte
+        pk = erp_to_id_cliente.get(norm)
+        if pk is not None:
+            prev_pk = str(id_cliente_fuc_map.get(pk) or "")[:10]
+            if not prev_pk or f > prev_pk:
+                id_cliente_fuc_map[pk] = f
+    return comprobante_by_erp
+
+
+def _doc_key_row(row: dict[str, Any]) -> tuple[str, str, str]:
+    return (
+        str(row.get("fecha_factura") or "")[:10],
+        (row.get("numero_documento") or "").strip(),
+        (row.get("tipo_documento") or "").strip(),
+    )
+
+
+def fetch_ultima_compra_detalle_por_erp(
+    dist_id: int,
+    erp_id: str,
+    *,
+    ventana_dias: int = 450,
+    fecha_hasta: date | None = None,
+) -> dict[str, Any] | None:
+    """
+    Última compra de un ERP con líneas de artículos del comprobante ganador.
+    Retorna {fecha, comprobante, articulos, articulos_resumen} o None.
+    """
+    raw = str(erp_id or "").strip()
+    if not raw:
+        return None
+
+    hasta = fecha_hasta or date.today()
+    desde = (hasta - timedelta(days=max(1, ventana_dias))).isoformat()
+    hasta_s = hasta.isoformat()
+    t_ventas = tenant_table_name("ventas_enriched_v2", dist_id)
+
+    docs: dict[tuple[str, str, str], dict[str, Any]] = {}
+    offset = 0
+    while True:
+        batch = (
+            sb.table(t_ventas)
+            .select(_VENTAS_SELECT_DETALLE)
+            .eq("id_distribuidor", dist_id)
+            .eq("anulado", False)
+            .eq("id_cliente_erp", raw)
+            .gte("fecha_factura", desde)
+            .lte("fecha_factura", hasta_s)
+            .range(offset, offset + PAGE - 1)
+            .execute()
+            .data or []
+        )
+        for row in batch:
+            if not _venta_cuenta_como_compra(row):
+                continue
+            key = _doc_key_row(row)
+            if not key[0] or not key[1]:
+                continue
+            doc = docs.get(key)
+            if doc is None:
+                doc = {
+                    "fecha": key[0],
+                    "comprobante": comprobante_from_venta_row(row),
+                    "importe_total": 0.0,
+                    "articulos_map": {},
+                }
+                docs[key] = doc
+            imp = float(row.get("importe_final") or 0)
+            doc["importe_total"] += imp
+            doc["comprobante"]["importe_final"] = doc["importe_total"]
+            desc = (row.get("descripcion_articulo") or "").strip()
+            cod = (row.get("cod_articulo") or "").strip()
+            label = desc or cod or "Artículo"
+            prev = doc["articulos_map"].get(label, {"descripcion": label, "bultos_total": 0.0, "importe_final": 0.0})
+            prev["bultos_total"] += float(row.get("bultos_total") or 0)
+            prev["importe_final"] += imp
+            doc["articulos_map"][label] = prev
+        if len(batch) < PAGE:
+            break
+        offset += PAGE
+
+    if not docs:
+        return None
+
+    def _sort_doc(item: tuple[tuple[str, str, str], dict[str, Any]]) -> tuple[str, float]:
+        _k, d = item
+        return (d["fecha"], d["importe_total"])
+
+    _win_key, winner = max(docs.items(), key=_sort_doc)
+    articulos = sorted(
+        winner["articulos_map"].values(),
+        key=lambda a: float(a.get("importe_final") or 0),
+        reverse=True,
+    )[:_MAX_ARTICULOS_UI]
+    resumen_parts = [
+        f"{a['descripcion']} ({a['bultos_total']:.0f} bts)"
+        if float(a.get("bultos_total") or 0) > 0
+        else a["descripcion"]
+        for a in articulos[:3]
+    ]
+    return {
+        "fecha": winner["fecha"],
+        "comprobante": winner["comprobante"],
+        "articulos": articulos,
+        "articulos_resumen": " · ".join(resumen_parts) if resumen_parts else None,
+    }
+
+
+def apply_ultima_compra_enriched(
+    cliente: dict[str, Any],
+    enriched: dict[str, Any] | None,
+    *,
+    detalle: dict[str, Any] | None = None,
+) -> None:
+    """In-place: fecha_ultima_compra, ultimo_comprobante, ultima_compra_articulos."""
+    fuc, cbte = resolve_fecha_ultima_compra(cliente.get("fecha_ultima_compra"), enriched)
+    if detalle:
+        fuc = str(detalle.get("fecha") or fuc or "")[:10] or fuc
+        cbte = detalle.get("comprobante") or cbte
+    if fuc:
+        cliente["fecha_ultima_compra"] = fuc
+    if cbte:
+        cliente["ultimo_comprobante"] = cbte
+    if detalle and detalle.get("articulos"):
+        cliente["ultima_compra_articulos"] = detalle["articulos"]
+    if detalle and detalle.get("articulos_resumen"):
+        cliente["ultima_compra_articulos_resumen"] = detalle["articulos_resumen"]
+
+
+def enrich_cliente_dict(
+    dist_id: int,
+    cliente: dict,
+    *,
+    enriched_by_erp: dict[str, dict[str, Any]] | None = None,
+    con_articulos: bool = False,
+) -> dict:
+    """Retorna copia superficial con fecha/comprobante resueltos."""
+    erp = str(cliente.get("id_cliente_erp") or "").strip()
+    ent = None
+    if enriched_by_erp is not None and erp:
+        ent = enriched_by_erp.get(_norm_erp(erp) or "")
+    elif erp:
+        ent = fetch_ultima_compra_por_erp(dist_id, [erp]).get(_norm_erp(erp) or "")
+    detalle = None
+    if con_articulos and erp:
+        detalle = fetch_ultima_compra_detalle_por_erp(dist_id, erp)
+        if detalle and not ent:
+            ent = {"fecha": detalle["fecha"], "comprobante": detalle.get("comprobante")}
+    out = {**cliente}
+    apply_ultima_compra_enriched(out, ent, detalle=detalle if con_articulos else None)
+    return out

@@ -453,27 +453,40 @@ def _fetch_cc_snapshot(dist_id: int, fecha: str | None = None) -> tuple[str | No
             break
         offset += 1000
 
-    # Enrich with fecha_ultima_compra from clientes_pdv_v2
+    # Última compra: ventas_enriched (Informe Ventas); fallback padrón. Deuda = CHESS.
+    from core.tenant_tables import tenant_table_name
+    from core.ultima_compra import enrich_filas_fecha_ultima_compra
+
+    t_cli = tenant_table_name("clientes_pdv_v2", dist_id)
     id_erps = [r["id_cliente_erp"] for r in rows if r.get("id_cliente_erp")]
-    fuc_map = {}
+    padron_fuc: dict[str, str] = {}
     if id_erps:
-        from core.tenant_tables import tenant_table_name
-        t_cli = tenant_table_name("clientes_pdv_v2", dist_id)
-        # Fetch in batches if there are many
         chunk_size = 500
         for i in range(0, len(id_erps), chunk_size):
-            chunk = id_erps[i:i+chunk_size]
+            chunk = id_erps[i : i + chunk_size]
             try:
-                c_res = sb.table(t_cli).select("id_cliente_erp, fecha_ultima_compra").eq("id_distribuidor", dist_id).in_("id_cliente_erp", chunk).execute()
-                for c in (c_res.data or []):
+                c_res = (
+                    sb.table(t_cli)
+                    .select("id_cliente_erp, fecha_ultima_compra")
+                    .eq("id_distribuidor", dist_id)
+                    .in_("id_cliente_erp", chunk)
+                    .execute()
+                )
+                for c in c_res.data or []:
                     if c.get("fecha_ultima_compra"):
-                        fuc_map[str(c["id_cliente_erp"]).strip().upper()] = c["fecha_ultima_compra"][:10]
+                        padron_fuc[str(c["id_cliente_erp"]).strip().upper()] = str(
+                            c["fecha_ultima_compra"]
+                        )[:10]
             except Exception as e:
                 logger.warning(f"[CCDifusion] Error fetching fecha_ultima_compra for chunk: {e}")
 
     for r in rows:
         erp_key = str(r.get("id_cliente_erp")).strip().upper()
-        r["fecha_ultima_compra"] = fuc_map.get(erp_key)
+        r["fecha_ultima_compra"] = padron_fuc.get(erp_key)
+    try:
+        enrich_filas_fecha_ultima_compra(dist_id, rows)
+    except Exception as e:
+        logger.warning(f"[CCDifusion] ventas enriched FUC overlay: {e}")
 
     return fecha_snapshot, rows
 

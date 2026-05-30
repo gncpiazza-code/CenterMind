@@ -302,6 +302,30 @@ def get_erp_contexto(id_distribuidor: int, nro_cliente: str, user_payload=Depend
                     ruta_obj = ruta_res.data[0]
                     ctx["nro_ruta"] = ruta_obj.get("id_ruta_erp")
                     ctx["dia_visita"] = ruta_obj.get("dia_semana")
+
+        # Última compra operativa (Informe Ventas); deuda CC sigue en RPC si aplica.
+        erp_ventas = None
+        for cand in candidates:
+            if cand:
+                erp_ventas = cand
+                break
+        if erp_ventas:
+            try:
+                from core.ultima_compra import fetch_ultima_compra_detalle_por_erp, apply_ultima_compra_enriched
+
+                detalle = fetch_ultima_compra_detalle_por_erp(id_distribuidor, erp_ventas)
+                if detalle:
+                    ent = {"fecha": detalle["fecha"], "comprobante": detalle.get("comprobante")}
+                    ctx["ultima_compra"] = detalle["fecha"]
+                    apply_ultima_compra_enriched(ctx, ent, detalle=detalle)
+            except Exception as e_uc:
+                logger.warning(
+                    "[erp contexto] ultima compra enriched dist=%s erp=%s: %s",
+                    id_distribuidor,
+                    erp_ventas,
+                    e_uc,
+                )
+
         return ctx
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

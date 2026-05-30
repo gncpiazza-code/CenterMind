@@ -2151,6 +2151,25 @@ def supervision_cuentas(
             logger.warning(f"[supervision_cuentas] PDV metadata scoped error dist={d_id}: {e}")
             fecha_uc_map, erp_fuc_map, erp_id_map, id_cliente_map, erp_to_id_cliente, id_cliente_fuc_map = {}, {}, {}, {}, {}, {}
 
+        comprobante_by_erp: dict = {}
+        try:
+            from core.ultima_compra import overlay_padron_fuc_maps_from_ventas
+
+            erp_raw_cc = [
+                str(r.get("id_cliente_erp") or "").strip()
+                for r in rows
+                if r.get("id_cliente_erp")
+            ]
+            comprobante_by_erp = overlay_padron_fuc_maps_from_ventas(
+                d_id,
+                erp_fuc_map,
+                id_cliente_fuc_map,
+                erp_to_id_cliente,
+                erp_raw_cc,
+            )
+        except Exception as e_v:
+            logger.warning(f"[supervision_cuentas] ventas FUC overlay dist={d_id}: {e_v}")
+
         vendors: dict = {}
         for item in rows:
             # Normalize vendor keys for grouping
@@ -2213,7 +2232,7 @@ def supervision_cuentas(
                 or (_norm_erp_cliente_id(erp_label) if erp_label else None)
             )
             incoherente = _cc_padron_incoherente(deuda, antig_cc, dias_uc) and not erp_cc
-            vd["clientes"].append({
+            cli_out = {
                 "cliente": item.get("cliente_nombre"), "id_cliente_erp": erp_resolved,
                 "id_cliente": id_cliente_pk,
                 "sucursal": item.get("sucursal_nombre"), "deuda_total": deuda,
@@ -2230,7 +2249,10 @@ def supervision_cuentas(
                 "fecha_ultima_compra": fuc,
                 "dias_desde_ultima_compra": dias_uc,
                 "padron_cc_alerta": incoherente,
-            })
+            }
+            if erp_cc and erp_cc in comprobante_by_erp:
+                cli_out["ultimo_comprobante"] = comprobante_by_erp[erp_cc]
+            vd["clientes"].append(cli_out)
 
         for vd in vendors.values():
             vd["clientes"].sort(key=lambda x: x["antiguedad"] or 0, reverse=True)
@@ -2416,7 +2438,7 @@ def supervision_deuda_detalle(
     Perfil del deudor: cabecera (contacto + ruta), deuda de cc_detalle y comprobantes
     matcheados desde ventas_enriched_v2.
     """
-    from core.cc_deuda_match import match_deuda_comprobantes
+    from core.cc_deuda_match import match_comprobantes_adeudo_cc
 
     check_dist_permission(user_payload, dist_id)
     try:
@@ -2461,6 +2483,7 @@ def supervision_deuda_detalle(
         }
 
         fuc_pdv: str | None = None
+        pdv_res: list[dict] = []
         if id_cliente_pk:
             pdv_res = (
                 sb.table(t_clientes)
@@ -2476,6 +2499,16 @@ def supervision_deuda_detalle(
             if pdv_res:
                 p = pdv_res[0]
                 fuc_pdv = p.get("fecha_ultima_compra")
+                try:
+                    from core.ultima_compra import fetch_ultima_compra_detalle_por_erp, apply_ultima_compra_enriched
+
+                    detalle_uc = fetch_ultima_compra_detalle_por_erp(d_id, erp_raw)
+                    if detalle_uc:
+                        ent_uc = {"fecha": detalle_uc["fecha"], "comprobante": detalle_uc.get("comprobante")}
+                        apply_ultima_compra_enriched(p, ent_uc, detalle=detalle_uc)
+                        fuc_pdv = p.get("fecha_ultima_compra")
+                except Exception as e_uc:
+                    logger.warning(f"[deuda-detalle] ultima compra enriched erp={erp_raw}: {e_uc}")
                 perfil["nombre_fantasia"] = p.get("nombre_fantasia") or cc_row.get("cliente_nombre")
                 perfil["razon_social"] = p.get("nombre_razon_social")
                 perfil["telefono"] = p.get("telefono")
@@ -2499,6 +2532,19 @@ def supervision_deuda_detalle(
                         perfil["dia_visita"] = r.get("dia_semana")
                         perfil["ruta_numero"] = str(r.get("id_ruta_erp") or "")
                         perfil["ruta_nombre"] = str(r.get("id_ruta_erp") or "")
+        elif erp_raw:
+            try:
+                from core.ultima_compra import fetch_ultima_compra_detalle_por_erp, apply_ultima_compra_enriched
+
+                detalle_uc = fetch_ultima_compra_detalle_por_erp(d_id, erp_raw)
+                if detalle_uc:
+                    stub = {"fecha_ultima_compra": None}
+                    ent_uc = {"fecha": detalle_uc["fecha"], "comprobante": detalle_uc.get("comprobante")}
+                    apply_ultima_compra_enriched(stub, ent_uc, detalle=detalle_uc)
+                    fuc_pdv = stub.get("fecha_ultima_compra")
+                    pdv_res = [stub]
+            except Exception as e_uc:
+                logger.warning(f"[deuda-detalle] ultima compra enriched erp={erp_raw}: {e_uc}")
 
         # Antigüedad coherente con tabla CC (padrón si CHESS marca 0d).
         antig_cc = int(cc_row.get("antiguedad_dias") or 0)
@@ -2509,37 +2555,14 @@ def supervision_deuda_detalle(
             antig_cc, dias_uc, deuda_total_cc
         )
 
-        # ── 3. Ventas del cliente en ventana (para matcheo) ───────────────────
-        from datetime import timedelta as _td
+        # ── 3. Comprobantes que adeuda (ventas_enriched; deuda sigue en cc_detalle/CHESS) ──
         antig_match = max(antig_cc, antig_show)
-        cc_match_row = {**cc_row, "antiguedad_dias_match": antig_match}
-        ventana_inicio = (hoy - _td(days=antig_match + 42)).isoformat()
-
-        t_ventas = tenant_table_name("ventas_enriched_v2", d_id)
-        ventas_rows: list[dict] = []
-        PAGE = 1000
-        offset = 0
-        while True:
-            batch = (
-                sb.table(t_ventas)
-                .select("fecha_factura, tipo_documento, numero_documento, "
-                        "cod_articulo, descripcion_articulo, bultos_total, "
-                        "importe_final, anulado")
-                .eq("id_distribuidor", d_id)
-                .eq("id_cliente_erp", erp_raw)
-                .gte("fecha_factura", ventana_inicio)
-                .order("fecha_factura", desc=True)
-                .range(offset, offset + PAGE - 1)
-                .execute()
-                .data or []
-            )
-            ventas_rows.extend(batch)
-            if len(batch) < PAGE:
-                break
-            offset += PAGE
-
-        # ── 4. Matchear ────────────────────────────────────────────────────────
-        match = match_deuda_comprobantes(cc_match_row, ventas_rows)
+        match = match_comprobantes_adeudo_cc(
+            {**cc_row, "antiguedad_dias_match": antig_match},
+            d_id,
+            erp_raw,
+            hoy=hoy,
+        )
 
         # ── 5. Desglose por antigüedad ─────────────────────────────────────────
         desglose = [
@@ -2549,6 +2572,15 @@ def supervision_deuda_detalle(
             {"rango": "31-60d","monto": float(cc_row.get("deuda_60_dias") or 0)},
             {"rango": "+60d",  "monto": float(cc_row.get("deuda_mas_60_dias") or 0)},
         ]
+
+        if fuc_pdv:
+            perfil["fecha_ultima_compra"] = str(fuc_pdv)[:10]
+        if pdv_res and pdv_res[0].get("ultimo_comprobante"):
+            perfil["ultimo_comprobante"] = pdv_res[0]["ultimo_comprobante"]
+        if pdv_res and pdv_res[0].get("ultima_compra_articulos"):
+            perfil["ultima_compra_articulos"] = pdv_res[0]["ultima_compra_articulos"]
+        if pdv_res and pdv_res[0].get("ultima_compra_articulos_resumen"):
+            perfil["ultima_compra_articulos_resumen"] = pdv_res[0]["ultima_compra_articulos_resumen"]
 
         return {
             "perfil": perfil,
@@ -2564,6 +2596,9 @@ def supervision_deuda_detalle(
             "estado": match["estado"],
             "confianza": match["confianza"],
             "comprobantes": match["comprobantes"],
+            "comprobantes_adeuda_resumen": match.get("resumen"),
+            "fuente_deuda": "cc_detalle",
+            "fuente_comprobantes": "ventas_enriched_v2",
         }
     except HTTPException:
         raise
@@ -2646,7 +2681,7 @@ def _supervision_compradores_mes(
     client_by_id: dict[int, dict],
     fecha_desde: str,
     fecha_hasta: str,
-) -> tuple[Set[int], dict[int, str]]:
+) -> tuple[Set[int], dict[int, str], dict[int, dict]]:
     """
     PDVs compradores en mes calendario:
     1) ventas_enriched_v2 (Informe de Ventas Consolido), si hay ingesta.
@@ -2671,7 +2706,21 @@ def _supervision_compradores_mes(
         if len(fuc) >= 10 and desde <= fuc <= hasta:
             ultima_compra_mes[int(cid)] = fuc
 
-    return comprador_ids, ultima_compra_mes
+    from core.ultima_compra import ultima_compra_en_periodo_por_cliente
+
+    ventas_uc = ultima_compra_en_periodo_por_cliente(
+        dist_id, client_by_id, fecha_desde, fecha_hasta
+    )
+    comprobante_mes: dict[int, dict] = {}
+    for cid, ent in ventas_uc.items():
+        f = str(ent.get("fecha") or "")[:10]
+        if len(f) >= 10:
+            ultima_compra_mes[int(cid)] = f
+        cbte = ent.get("comprobante")
+        if cbte:
+            comprobante_mes[int(cid)] = cbte
+
+    return comprador_ids, ultima_compra_mes, comprobante_mes
 
 
 def _supervision_exhibido_en_mes(dist_id: int, id_cl: int, fecha_inicio: str, fecha_fin: str) -> bool:
@@ -2842,7 +2891,7 @@ def supervision_pdvs_movimiento(
                 route_ids,
                 "id_cliente, id_cliente_erp, nombre_fantasia, nombre_razon_social, domicilio, localidad, fecha_ultima_compra",
             )
-            comprador_ids, ultima_compra_mes = _supervision_compradores_mes(
+            comprador_ids, ultima_compra_mes, comprobante_mes = _supervision_compradores_mes(
                 dist_id,
                 client_by_id,
                 fecha_inicio,
@@ -2853,15 +2902,18 @@ def supervision_pdvs_movimiento(
             )
             for id_cl in sorted(comprador_ids):
                 f_compra = ultima_compra_mes.get(id_cl)
+                cbte_mes = comprobante_mes.get(id_cl)
                 if id_cl in seen_ids:
                     idx = item_index_by_cid.get(id_cl)
                     if idx is not None:
                         items[idx]["es_comprador_mes"] = True
                         if f_compra:
                             items[idx]["fecha_compra_mes"] = f_compra
+                        if cbte_mes:
+                            items[idx]["ultimo_comprobante"] = cbte_mes
                     continue
                 r = client_by_id.get(id_cl) or {}
-                items.append({
+                item_comprador = {
                     "id_cliente_erp": r.get("id_cliente_erp"),
                     "nombre": (r.get("nombre_fantasia") or r.get("nombre_razon_social") or "").strip(),
                     "razon_social": (r.get("nombre_razon_social") or "").strip(),
@@ -2871,7 +2923,10 @@ def supervision_pdvs_movimiento(
                     "exhibido": id_cl in comprador_exhib,
                     "fecha_evento": f_compra,
                     "es_comprador_mes": True,
-                })
+                }
+                if cbte_mes:
+                    item_comprador["ultimo_comprobante"] = cbte_mes
+                items.append(item_comprador)
                 seen_ids.add(id_cl)
                 item_index_by_cid[id_cl] = len(items) - 1
 
@@ -2903,6 +2958,26 @@ def supervision_pdvs_movimiento(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _enrich_cliente_info_ultima_compra(dist_id: int, rows: list[dict]) -> list[dict]:
+    """Última compra + artículos desde ventas_enriched (visor Evaluar)."""
+    if not rows:
+        return rows
+    try:
+        from core.ultima_compra import fetch_ultima_compra_detalle_por_erp, apply_ultima_compra_enriched
+
+        for row in rows:
+            erp = str(row.get("id_cliente_erp") or "").strip()
+            if not erp:
+                continue
+            detalle = fetch_ultima_compra_detalle_por_erp(dist_id, erp)
+            if detalle:
+                ent = {"fecha": detalle["fecha"], "comprobante": detalle.get("comprobante")}
+                apply_ultima_compra_enriched(row, ent, detalle=detalle)
+    except Exception as e_en:
+        logger.warning(f"[cliente-info] ultima compra enriched dist={dist_id}: {e_en}")
+    return rows
+
+
 @router.get("/api/supervision/cliente-info/{dist_id}", tags=["Supervisión"])
 def supervision_cliente_info(
     dist_id: int, nombre: str,
@@ -2922,7 +2997,7 @@ def supervision_cliente_info(
             t_clientes = tenant_table_name("clientes_pdv_v2", dist_id)
             r = sb.table(t_clientes).select(fields).eq("id_distribuidor", dist_id).eq("id_cliente_erp", id_cliente_erp.strip()).limit(3).execute()
             if r.data:
-                return r.data
+                return _enrich_cliente_info_ultima_compra(dist_id, r.data)
 
         def _search(col: str, val: str, substring: bool = False) -> list:
             pattern = f"%{val}%" if substring else val
@@ -2932,16 +3007,20 @@ def supervision_cliente_info(
 
         for col in ("nombre_razon_social", "nombre_fantasia"):
             data = _search(col, nombre_s)
-            if data: return data
+            if data:
+                return _enrich_cliente_info_ultima_compra(dist_id, data)
         for col in ("nombre_razon_social", "nombre_fantasia"):
             data = _search(col, nombre_plain)
-            if data: return data
+            if data:
+                return _enrich_cliente_info_ultima_compra(dist_id, data)
         for col in ("nombre_razon_social", "nombre_fantasia"):
             data = _search(col, nombre_s, substring=True)
-            if data: return data
+            if data:
+                return _enrich_cliente_info_ultima_compra(dist_id, data)
         for col in ("nombre_razon_social", "nombre_fantasia"):
             data = _search(col, nombre_plain, substring=True)
-            if data: return data
+            if data:
+                return _enrich_cliente_info_ultima_compra(dist_id, data)
 
         words = [w for w in _strip_accents(nombre_s).split() if len(w) > 2]
         if words:
@@ -2952,7 +3031,8 @@ def supervision_cliente_info(
                     for w in words:
                         q = q.ilike(col, f"%{w}%")
                     r = q.limit(3).execute()
-                    if r.data: return r.data
+                    if r.data:
+                        return _enrich_cliente_info_ultima_compra(dist_id, r.data)
                 except Exception:
                     pass
         return []
@@ -4636,7 +4716,7 @@ def supervision_vendedor_kpi_mapa(
                 route_ids,
                 "id_cliente,id_cliente_erp,fecha_ultima_compra",
             )
-            compradores, _ = _supervision_compradores_mes(
+            compradores, _, _ = _supervision_compradores_mes(
                 dist_id, client_by_id, fecha_inicio, fecha_fin,
             )
             out["mes"] = mes

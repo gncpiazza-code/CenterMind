@@ -82,6 +82,9 @@ def compradores_en_periodo_for_clients(
             for row in batch:
                 if float(row.get("importe_final") or 0) < 0:
                     continue
+                f = str(row.get("fecha_factura") or "")[:10]
+                if len(f) < 10 or f < desde_d or f > hasta_d:
+                    continue
                 n = _norm_erp(row.get("id_cliente_erp"))
                 cid = erp_norm_to_id.get(n) if n else None
                 if cid is not None:

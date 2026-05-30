@@ -16,6 +16,11 @@ Retorna un dict con:
 from datetime import date, timedelta
 from typing import Any
 
+from db import sb
+from core.tenant_tables import tenant_table_name
+
+PAGE = 1000
+
 # Tolerancia de monto para considerar match "alto".
 _TOLERANCE_PCT = 0.15
 # Margen extra sobre antiguedad_dias para la ventana de búsqueda.
@@ -119,10 +124,13 @@ def match_deuda_comprobantes(
             by_doc[num] = {
                 "numero": num,
                 "fecha": fecha_str,
+                "tipo_documento": (tipo or "").strip() or None,
                 "_fecha_obj": fecha_doc,
                 "importe_total": 0.0,
                 "articulos": [],
             }
+        elif tipo and not by_doc[num].get("tipo_documento"):
+            by_doc[num]["tipo_documento"] = (tipo or "").strip()
 
         by_doc[num]["importe_total"] += importe
 
@@ -188,13 +196,84 @@ def match_deuda_comprobantes(
 
     for d in seleccionados:
         d["match_status"] = "matched"
+        d["label"] = _comprobante_label(d.get("tipo_documento"), d.get("numero"))
 
     return {
         "estado": "matched",
         "confianza": "alta",
         "comprobantes": seleccionados,
         "total_deuda": deuda_total,
+        "resumen": _resumen_comprobantes(seleccionados),
     }
+
+
+def _comprobante_label(tipo: str | None, numero: str | None) -> str:
+    parts = [(tipo or "").strip(), (numero or "").strip()]
+    return " ".join(p for p in parts if p)
+
+
+def _resumen_comprobantes(comprobantes: list[dict[str, Any]], max_items: int = 3) -> str | None:
+    labels = [c.get("label") or _comprobante_label(c.get("tipo_documento"), c.get("numero")) for c in comprobantes]
+    labels = [x for x in labels if x]
+    if not labels:
+        return None
+    if len(labels) <= max_items:
+        return ", ".join(labels)
+    return ", ".join(labels[:max_items]) + f" (+{len(labels) - max_items})"
+
+
+def fetch_ventas_enriched_para_match(
+    dist_id: int,
+    id_cliente_erp: str,
+    ventana_inicio: str,
+) -> list[dict[str, Any]]:
+    """Filas ventas_enriched_v2 para matchear deuda CC (no altera montos CHESS)."""
+    t_ventas = tenant_table_name("ventas_enriched_v2", dist_id)
+    erp_raw = str(id_cliente_erp).strip()
+    rows: list[dict] = []
+    offset = 0
+    while True:
+        batch = (
+            sb.table(t_ventas)
+            .select(
+                "fecha_factura, tipo_documento, numero_documento, serie, "
+                "cod_articulo, descripcion_articulo, bultos_total, importe_final, anulado"
+            )
+            .eq("id_distribuidor", dist_id)
+            .eq("id_cliente_erp", erp_raw)
+            .gte("fecha_factura", ventana_inicio)
+            .order("fecha_factura", desc=True)
+            .range(offset, offset + PAGE - 1)
+            .execute()
+            .data or []
+        )
+        rows.extend(batch)
+        if len(batch) < PAGE:
+            break
+        offset += PAGE
+    return rows
+
+
+def match_comprobantes_adeudo_cc(
+    cc_row: dict[str, Any],
+    dist_id: int,
+    id_cliente_erp: str,
+    *,
+    hoy: date | None = None,
+) -> dict[str, Any]:
+    """
+    Deuda autoritativa = cc_row (CHESS). Comprobantes candidatos = ventas_enriched_v2.
+    """
+    hoy = hoy or date.today()
+    antig_cc = int(cc_row.get("antiguedad_dias") or 0)
+    antig_match = max(antig_cc, int(cc_row.get("antiguedad_dias_match") or antig_cc))
+    ventana_inicio = (hoy - timedelta(days=antig_match + _VENTANA_MARGEN_DIAS)).isoformat()
+    ventas_rows = fetch_ventas_enriched_para_match(dist_id, id_cliente_erp, ventana_inicio)
+    match_row = {**cc_row, "antiguedad_dias_match": antig_match}
+    out = match_deuda_comprobantes(match_row, ventas_rows)
+    if "resumen" not in out:
+        out["resumen"] = _resumen_comprobantes(out.get("comprobantes") or [])
+    return out
 
 
 def _sin_comprobantes(deuda_total: float) -> dict[str, Any]:
@@ -203,4 +282,5 @@ def _sin_comprobantes(deuda_total: float) -> dict[str, Any]:
         "confianza": None,
         "comprobantes": [],
         "total_deuda": deuda_total,
+        "resumen": None,
     }

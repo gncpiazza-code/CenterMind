@@ -2431,7 +2431,17 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                                                             <ShoppingCart className="w-3 h-3 text-[var(--shelfy-muted)] shrink-0" />
                                                             <span className={`text-[11px] font-semibold ${inactivo ? "text-red-400" : "text-emerald-400"}`}>
                                                               {ultimaComp
-                                                                ? <>Últ. compra: {ultimaComp} <span className="font-normal opacity-70">({diasDesde(c.fecha_ultima_compra)})</span></>
+                                                                ? (
+                                                                  <>
+                                                                    Últ. compra: {ultimaComp}{" "}
+                                                                    <span className="font-normal opacity-70">({diasDesde(c.fecha_ultima_compra)})</span>
+                                                                    {c.ultimo_comprobante?.label ? (
+                                                                      <span className="font-normal opacity-60 block truncate max-w-[220px]" title={c.ultimo_comprobante.label}>
+                                                                        {c.ultimo_comprobante.label}
+                                                                      </span>
+                                                                    ) : null}
+                                                                  </>
+                                                                )
                                                                 : "Sin compras"}
                                                             </span>
                                                           </div>

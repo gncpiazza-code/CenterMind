@@ -171,6 +171,9 @@ export interface ERPContexto {
   localidad?: string;
   canal?: string;
   fecha_alta?: string;
+  ultimo_comprobante?: UltimoComprobanteResumen | null;
+  ultima_compra_articulos?: UltimaCompraArticulo[] | null;
+  ultima_compra_articulos_resumen?: string | null;
 }
 
 // PASO 10: ROI Analítico
@@ -804,6 +807,23 @@ export async function adoptarLegacyBindingFuerzaVentas(
 
 // ── Galería de Exhibiciones ───────────────────────────────────────────────────
 
+/** Última venta desde ventas_enriched_v2 (Consolido). */
+export interface UltimoComprobanteResumen {
+  fecha?: string | null;
+  tipo_documento?: string | null;
+  numero_documento?: string | null;
+  serie?: string | null;
+  importe_final?: number | null;
+  nombre_vendedor?: string | null;
+  label?: string | null;
+}
+
+export interface UltimaCompraArticulo {
+  descripcion: string;
+  bultos_total: number;
+  importe_final: number;
+}
+
 export interface GaleriaVendedorStats {
   id_vendedor: number;
   nombre_erp: string;
@@ -825,6 +845,7 @@ export interface GaleriaClienteCard {
   ultima_exhibicion_fecha: string | null;
   ultimo_estado: string | null;
   fecha_ultima_compra: string | null;
+  ultimo_comprobante?: UltimoComprobanteResumen | null;
   total_exhibiciones: number;
   es_sin_referencia?: boolean;
   motivo_no_referencia?: string | null;
@@ -1628,6 +1649,9 @@ export interface ClienteContacto {
   longitud: number | null;
   fecha_ultima_compra: string | null;
   estado: string | null;
+  ultimo_comprobante?: UltimoComprobanteResumen | null;
+  ultima_compra_articulos?: UltimaCompraArticulo[] | null;
+  ultima_compra_articulos_resumen?: string | null;
 }
 
 export async function fetchClienteInfo(distId: number, nombre: string, idClienteErp?: string | null): Promise<ClienteContacto[]> {
@@ -1726,7 +1750,8 @@ export interface ClienteCuenta {
   rango_antiguedad: string | null;
   cantidad_comprobantes: number | null;
   fecha_ultima_compra: string | null;
-  /** Días entre fecha_ultima_compra y snapshot CC (referencia padrón). */
+  ultimo_comprobante?: UltimoComprobanteResumen | null;
+  /** Días entre fecha_ultima_compra (Informe Ventas o padrón) y snapshot CC. */
   dias_desde_ultima_compra?: number | null;
   /** Mora CC baja pero última compra padrón demasiado antigua → revisar vínculo ERP. */
   padron_cc_alerta?: boolean;
@@ -1792,6 +1817,10 @@ export interface DeudorPerfil {
   ruta_numero: string | null;
   ruta_nombre: string | null;
   id_cliente_erp: string;
+  fecha_ultima_compra?: string | null;
+  ultimo_comprobante?: UltimoComprobanteResumen | null;
+  ultima_compra_articulos?: UltimaCompraArticulo[] | null;
+  ultima_compra_articulos_resumen?: string | null;
 }
 
 export interface DeudorArticulo {
@@ -1804,6 +1833,8 @@ export interface DeudorArticulo {
 export interface DeudorComprobante {
   numero: string;
   fecha: string;
+  tipo_documento?: string | null;
+  label?: string | null;
   importe_total: number;
   articulos: DeudorArticulo[];
   match_status?: "matched" | "estimado";
@@ -1822,7 +1853,11 @@ export interface DeudorDetalle {
   };
   estado: "matched" | "partial" | "sin_comprobantes";
   confianza: "alta" | "baja" | null;
+  /** Candidatos desde ventas_enriched (matcheo con deuda CHESS). */
   comprobantes: DeudorComprobante[];
+  comprobantes_adeuda_resumen?: string | null;
+  fuente_deuda?: "cc_detalle";
+  fuente_comprobantes?: "ventas_enriched_v2";
 }
 
 export async function fetchCcKpis(

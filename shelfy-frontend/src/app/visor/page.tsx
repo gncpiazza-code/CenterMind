@@ -391,6 +391,9 @@ export default function VisorPage() {
         ...erpRaw,
         nombre_fantasia: erpRaw.nombre_fantasia || erpRaw.razon_social || undefined,
         ultima_compra: erpRaw.ultima_compra ?? undefined,
+        ultimo_comprobante: erpRaw.ultimo_comprobante ?? undefined,
+        ultima_compra_articulos: erpRaw.ultima_compra_articulos ?? undefined,
+        ultima_compra_articulos_resumen: erpRaw.ultima_compra_articulos_resumen ?? undefined,
         promedio_factura: erpRaw.promedio_factura ?? undefined,
         deuda_total: erpRaw.deuda_total ?? 0,
         cant_facturas: erpRaw.cant_facturas ?? undefined,
@@ -401,10 +404,18 @@ export default function VisorPage() {
       }
     : null;
 
-  const diasUltCompra = daysSinceIso(erpContext?.ultima_compra);
+  const ultimaCompraFuente = pdvInfo?.fecha_ultima_compra ?? erpContext?.ultima_compra;
+  const ultimaCompraArticulos =
+    pdvInfo?.ultima_compra_articulos ?? erpContext?.ultima_compra_articulos;
+  const ultimaCompraResumen =
+    pdvInfo?.ultima_compra_articulos_resumen ?? erpContext?.ultima_compra_articulos_resumen;
+  const ultimoComprobanteLabel =
+    pdvInfo?.ultimo_comprobante?.label ?? erpContext?.ultimo_comprobante?.label;
+
+  const diasUltCompra = daysSinceIso(ultimaCompraFuente);
   const ventas30 = typeof erpContext?.total_30d === "number" && erpContext.total_30d > 0;
   const compraUltimos30 =
-    ventas30 || (diasUltCompra !== null && diasUltCompra <= 30 && !!erpContext?.ultima_compra);
+    ventas30 || (diasUltCompra !== null && diasUltCompra <= 30 && !!ultimaCompraFuente);
   const conIngresoComercio =
     !!erpContext?.encontrado &&
     (ventas30 ||
@@ -1169,15 +1180,34 @@ export default function VisorPage() {
                               <Tag className="w-3 h-3" />{pdvInfo.canal}
                             </p>
                           )}
-                          {pdvInfo.fecha_ultima_compra && (
-                            <p className={`text-[10px] flex items-center gap-1 font-medium ${
-                              new Date(pdvInfo.fecha_ultima_compra) >= new Date(Date.now() - 30 * 86_400_000)
-                                ? "text-emerald-500"
-                                : "text-amber-500"
-                            }`}>
-                              <ShoppingCart className="w-3 h-3" />
-                              Últ. compra: {new Date(pdvInfo.fecha_ultima_compra).toLocaleDateString("es-AR")}
-                            </p>
+                          {ultimaCompraFuente && (
+                            <div className="flex flex-col gap-0.5">
+                              <p className={`text-[10px] flex items-center gap-1 font-medium ${
+                                new Date(ultimaCompraFuente) >= new Date(Date.now() - 30 * 86_400_000)
+                                  ? "text-emerald-500"
+                                  : "text-amber-500"
+                              }`}>
+                                <ShoppingCart className="w-3 h-3" />
+                                Últ. compra: {new Date(ultimaCompraFuente).toLocaleDateString("es-AR")}
+                                {ultimoComprobanteLabel ? (
+                                  <span className="font-normal opacity-80">· {ultimoComprobanteLabel}</span>
+                                ) : null}
+                              </p>
+                              {ultimaCompraResumen ? (
+                                <p className="text-[9px] text-[var(--shelfy-muted)] leading-snug pl-4">
+                                  {ultimaCompraResumen}
+                                </p>
+                              ) : ultimaCompraArticulos?.length ? (
+                                <ul className="text-[9px] text-[var(--shelfy-muted)] pl-4 list-disc leading-snug">
+                                  {ultimaCompraArticulos.slice(0, 4).map((a) => (
+                                    <li key={a.descripcion}>
+                                      {a.descripcion}
+                                      {a.bultos_total > 0 ? ` (${a.bultos_total} bts)` : ""}
+                                    </li>
+                                  ))}
+                                </ul>
+                              ) : null}
+                            </div>
                           )}
                           {pdvInfo.estado && pdvInfo.estado !== "activo" && (
                             <p className="text-[10px] text-red-400 font-medium capitalize">{pdvInfo.estado}</p>
@@ -1209,24 +1239,36 @@ export default function VisorPage() {
                         {erpContext.domicilio && (
                           <InfoRow icon={MapPin} label="Dirección" value={erpContext.domicilio} valueClass="text-[var(--shelfy-text-soft)]" />
                         )}
-                        {erpContext.ultima_compra && (
+                        {ultimaCompraFuente && (
                           <InfoRow
                             icon={ShoppingCart}
                             label="Última Compra"
                             value={
-                              <span className={cn(
-                                diasUltCompra !== null && diasUltCompra > 60
-                                  ? "text-red-500"
-                                  : diasUltCompra !== null && diasUltCompra > 30
-                                  ? "text-amber-500"
-                                  : "text-emerald-600"
-                              )}>
-                                {erpContext.ultima_compra.slice(0, 10)}
-                                {diasUltCompra !== null && (
-                                  <span className="text-[var(--shelfy-muted)] font-normal ml-1">
-                                    (hace {diasUltCompra}d)
+                              <span className="flex flex-col gap-0.5">
+                                <span className={cn(
+                                  diasUltCompra !== null && diasUltCompra > 60
+                                    ? "text-red-500"
+                                    : diasUltCompra !== null && diasUltCompra > 30
+                                    ? "text-amber-500"
+                                    : "text-emerald-600"
+                                )}>
+                                  {String(ultimaCompraFuente).slice(0, 10)}
+                                  {diasUltCompra !== null && (
+                                    <span className="text-[var(--shelfy-muted)] font-normal ml-1">
+                                      (hace {diasUltCompra}d)
+                                    </span>
+                                  )}
+                                  {ultimoComprobanteLabel ? (
+                                    <span className="text-[var(--shelfy-muted)] font-normal block text-[10px]">
+                                      {ultimoComprobanteLabel}
+                                    </span>
+                                  ) : null}
+                                </span>
+                                {ultimaCompraResumen ? (
+                                  <span className="text-[10px] text-[var(--shelfy-muted)] font-normal">
+                                    {ultimaCompraResumen}
                                   </span>
-                                )}
+                                ) : null}
                               </span>
                             }
                           />

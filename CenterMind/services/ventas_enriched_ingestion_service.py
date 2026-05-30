@@ -6,6 +6,7 @@ Ingesta de ventas enriquecidas (Reporteador Genérico: Informe de Ventas).
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 from db import sb
@@ -14,6 +15,34 @@ from services.ventas_enriched_parser import parse_informe_ventas_enriched
 from services.ventas_ingestion_service import TENANT_DIST_MAP
 
 logger = logging.getLogger("VentasEnrichedIngestion")
+
+_UPSERT_BATCH = 100
+_UPSERT_MAX_RETRIES = 5
+
+
+def _upsert_ventas_chunk(table: str, chunk: list[dict[str, Any]]) -> None:
+    """Upsert con reintentos y subdivisión ante statement timeout (MTD grande)."""
+    if not chunk:
+        return
+    last_err: Exception | None = None
+    for attempt in range(1, _UPSERT_MAX_RETRIES + 1):
+        try:
+            sb.table(table).upsert(
+                chunk,
+                on_conflict="id_distribuidor,fecha_factura,numero_documento,id_cliente_erp,cod_articulo",
+            ).execute()
+            return
+        except Exception as e:
+            last_err = e
+            msg = str(e).lower()
+            if ("57014" in msg or "statement timeout" in msg) and len(chunk) > 25:
+                mid = len(chunk) // 2
+                _upsert_ventas_chunk(table, chunk[:mid])
+                _upsert_ventas_chunk(table, chunk[mid:])
+                return
+            time.sleep(min(2 * attempt, 12))
+    if last_err:
+        raise last_err
 
 
 def ingest_enriched(tenant_id: str, file_bytes: bytes) -> dict[str, Any]:
@@ -97,18 +126,18 @@ def ingest_enriched(tenant_id: str, file_bytes: bytes) -> dict[str, Any]:
             ids_cliente_erp_actualizados[id_cliente_erp_str] = fecha
 
     upserted = 0
-    BATCH = 500
-    for i in range(0, len(records), BATCH):
-        chunk = records[i : i + BATCH]
-        sb.table("ventas_enriched_v2").upsert(
-            chunk,
-            on_conflict="id_distribuidor,fecha_factura,numero_documento,id_cliente_erp,cod_articulo",
-        ).execute()
-        sb.table(tenant_table).upsert(
-            chunk,
-            on_conflict="id_distribuidor,fecha_factura,numero_documento,id_cliente_erp,cod_articulo",
-        ).execute()
+    for i in range(0, len(records), _UPSERT_BATCH):
+        chunk = records[i : i + _UPSERT_BATCH]
+        _upsert_ventas_chunk("ventas_enriched_v2", chunk)
+        _upsert_ventas_chunk(tenant_table, chunk)
         upserted += len(chunk)
+        if i and i % 2000 == 0:
+            logger.info(
+                "[ventas_enriched] dist=%s progreso upsert %s/%s",
+                dist_id,
+                min(i + _UPSERT_BATCH, len(records)),
+                len(records),
+            )
 
     logger.info("[ventas_enriched] dist=%s rows=%s upserted=%s", dist_id, len(rows), upserted)
 

@@ -3,16 +3,15 @@
 runner.py
 =========
 Motores disponibles:
-    python runner.py padron          <- Motor 1: Padrón de Clientes (Consolido/Nextbyn)
-    python runner.py ventas          <- Motor 2: Comprobantes de Ventas (CHESS)
-    python runner.py cuentas         <- Motor 3: CC CHESS (v2 red+fallback Excel; v1 con RPA_CUENTAS_ENGINE=v1)
-    python runner.py sigo            <- Motor 4: Reporte Sigo (Nextbyn)
-    python runner.py rendcalle       <- Motor 5: Rendimiento en calle (Nextbyn)
-    python runner.py informe_ventas  <- Motor 6: Informe de Ventas (Consolido Reporteador)
-    python runner.py todos           <- Todos los motores en secuencia
+    python runner.py padron          <- Padrón de Clientes (Consolido)
+    python runner.py cuentas         <- Cuentas corrientes (CHESS)
+    python runner.py informe_ventas  <- Informe de Ventas enriquecido (Consolido) — fuente ventas_enriched_v2
+    python runner.py informe_ventas 01/06/2026 07/06/2026  <- rango custom (PADRON_DEBUG_TENANT=tabaco)
+    python runner.py sigo            <- Reporte Sigo (Nextbyn)
+    python runner.py rendcalle       <- Rendimiento en calle (Nextbyn)
+    python runner.py todos           <- Motores activos en secuencia
 
-Ventas con fechas custom:
-    python runner.py ventas 01/03/2026 14/03/2026
+Informe ventas: mtd | hoy | 7d | DD/MM/YYYY DD/MM/YYYY
 """
 
 import asyncio
@@ -66,15 +65,6 @@ async def correr_padron() -> None:
     _log_resumen(resumen, "PADRON")
 
 
-async def correr_ventas(fecha_desde: str = None, fecha_hasta: str = None) -> None:
-    """Motor 2: Comprobantes de Ventas (CHESS). Ver horarios en scheduler.py (6 ventanas AR / día)."""
-    _banner("VENTAS -- CHESS ERP")
-    _verificar_vault_o_salir()
-    from motores.ventas import run as _run
-    resumen = await _run(fecha_desde, fecha_hasta)
-    _log_resumen(resumen, "VENTAS")
-
-
 async def correr_cuentas() -> None:
     """Motor 3: Cuentas Corrientes / Saldos Totales (CHESS). Scheduler: 07:30 y 17:30 AR."""
     _banner("CUENTAS CORRIENTES -- CHESS ERP")
@@ -102,12 +92,32 @@ async def correr_rendcalle() -> None:
     _log_resumen(resumen, "RENDCALLE")
 
 
-async def correr_informe_ventas(usar_fecha_hoy: bool = False) -> None:
+def _arg_parece_fecha(s: str) -> bool:
+    s = (s or "").strip()
+    return "/" in s or (
+        len(s) == 10 and s[4] == "-" and s[7] == "-"
+    )
+
+
+async def correr_informe_ventas(
+    usar_fecha_hoy: bool = False,
+    modo_rango: str | None = None,
+    fecha_desde: str | None = None,
+    fecha_hasta: str | None = None,
+) -> None:
     """Motor 6: Informe de Ventas (Consolido Reporteador)."""
     _banner("INFORME VENTAS -- Consolido Reporteador")
     _verificar_vault_o_salir()
-    from motores.informe_ventas import run as _run
-    resumen = await _run(usar_fecha_hoy=usar_fecha_hoy)
+    from motores.informe_ventas import _parse_fecha_es, run as _run
+
+    fd = _parse_fecha_es(fecha_desde) if fecha_desde else None
+    fh = _parse_fecha_es(fecha_hasta) if fecha_hasta else None
+    resumen = await _run(
+        usar_fecha_hoy=usar_fecha_hoy,
+        modo_rango=modo_rango,
+        fecha_desde=fd,
+        fecha_hasta=fh,
+    )
     _log_resumen(resumen, "INFORME_VENTAS")
 
 
@@ -115,8 +125,8 @@ async def main() -> None:
     if len(sys.argv) < 2:
         logger.error(
             "Falta el argumento del motor.\n"
-            "Uso: python runner.py padron|ventas|cuentas|sigo|rendcalle|informe_ventas|todos\n"
-            "Ventas con fechas: python runner.py ventas DD/MM/YYYY DD/MM/YYYY"
+            "Uso: python runner.py padron|cuentas|informe_ventas|sigo|rendcalle|todos\n"
+            "Informe ventas: python runner.py informe_ventas [mtd|hoy|7d|DD/MM/YYYY DD/MM/YYYY]"
         )
         sys.exit(1)
 
@@ -127,7 +137,11 @@ async def main() -> None:
     if motor == "padron":
         await correr_padron()
     elif motor == "ventas":
-        await correr_ventas(fecha_desde, fecha_hasta)
+        logger.error(
+            "Motor CHESS comprobantes (runner.py ventas) retirado. "
+            "Usar: python runner.py informe_ventas"
+        )
+        sys.exit(1)
     elif motor == "cuentas":
         await correr_cuentas()
     elif motor == "sigo":
@@ -135,14 +149,42 @@ async def main() -> None:
     elif motor == "rendcalle":
         await correr_rendcalle()
     elif motor == "informe_ventas":
-        # Manual: `informe_ventas` = ayer (como 09:30); `informe_ventas hoy` = día actual
-        usar_hoy = len(sys.argv) > 2 and sys.argv[2].lower().strip() in ("hoy", "today", "1", "true")
-        await correr_informe_ventas(usar_fecha_hoy=usar_hoy)
+        # rolling7 | hoy | mtd | DD/MM/YYYY DD/MM/YYYY (custom)
+        usar_hoy = False
+        modo_rango = None
+        iv_desde = None
+        iv_hasta = None
+        args_iv = sys.argv[2:]
+        i = 0
+        while i < len(args_iv):
+            arg = args_iv[i]
+            a = arg.lower().strip()
+            if (
+                _arg_parece_fecha(arg)
+                and i + 1 < len(args_iv)
+                and _arg_parece_fecha(args_iv[i + 1])
+            ):
+                iv_desde, iv_hasta = arg, args_iv[i + 1]
+                modo_rango = "custom"
+                i += 2
+                continue
+            if a in ("hoy", "today", "1", "true"):
+                usar_hoy = True
+            elif a in ("mtd", "full_mtd", "mayo"):
+                modo_rango = "full_mtd"
+                usar_hoy = True
+            elif a in ("7d", "rolling7"):
+                modo_rango = "rolling7"
+            i += 1
+        await correr_informe_ventas(
+            usar_fecha_hoy=usar_hoy,
+            modo_rango=modo_rango,
+            fecha_desde=iv_desde,
+            fecha_hasta=iv_hasta,
+        )
     elif motor == "todos":
         logger.info("Corriendo todos los motores en secuencia...")
         await correr_padron()
-        await asyncio.sleep(30)
-        await correr_ventas()
         await asyncio.sleep(30)
         await correr_cuentas()
         await asyncio.sleep(30)
@@ -152,7 +194,10 @@ async def main() -> None:
         await asyncio.sleep(30)
         await correr_informe_ventas()
     else:
-        logger.error(f"Motor desconocido: '{motor}'. Validos: padron, ventas, cuentas, sigo, rendcalle, informe_ventas, todos")
+        logger.error(
+            f"Motor desconocido: '{motor}'. "
+            "Validos: padron, cuentas, informe_ventas, sigo, rendcalle, todos"
+        )
         sys.exit(1)
 
 

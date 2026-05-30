@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Tenants CHESS ERP (cuentas corrientes + comprobantes ventas).
+Tenants CHESS ERP (cuentas corrientes). Ventas KPIs: Consolido informe_ventas, no CHESS comprobantes.
 
 Vault: chess_{tenant_id}_usuario / chess_{tenant_id}_password
 Mantener id_dist alineado con CenterMind/core/rpa_tenant_registry.py CONSOLIDO_TENANTS

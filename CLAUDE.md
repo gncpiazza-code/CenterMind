@@ -89,7 +89,7 @@ Toda metrica de **ranking**, **KPIs de exhibicion**, **stats Telegram** (`/stats
 
 - `padron.py`: corrida diaria 07:00 (AR).
 - `cuentas_corrientes.py`: 07:00 y 14:30 (AR).
-- `informe_ventas.py`: 09:30 (AR) exporta **ayer**; 13:00 / 17:00 / 21:00 exportan **hoy** (alinear con CC intradía).
+- `informe_ventas.py` (Consolido → `ventas_enriched_v2`): 09:30 **rolling7 → ayer**; 13/17/21 **rolling7 → hoy** (mín. día 1 del mes; el 1º del mes a las 09:30 solo cierra el último día del mes anterior). Backfill: `mtd` o `DD/MM/YYYY DD/MM/YYYY`. **Retirado:** CHESS comprobantes (`runner.py ventas`).
 - `real` usa split por sucursal en cuentas.
 - Variables clave: `PADRON_INCLUIR_ANULADOS`, `RPA_CUENTAS_ENGINE`, `RPA_CUENTAS_FORCE_EXCEL`.
 

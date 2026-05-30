@@ -29,12 +29,12 @@
 | Variable | Descripción |
 |----------|-------------|
 | `RPA_HEADLESS` | `true` (defecto en imagen) — no poner `false` en Railway salvo depuración excepcional. |
-| `RPA_START_MODE` | `scheduler` (defecto), o una corrida única: `cuentas`, `ventas`, `padron`, `sigo`, `todos` (útil para pruebas; en producción conviene `scheduler`). |
+| `RPA_START_MODE` | `scheduler` (defecto), o una corrida única: `cuentas`, `informe_ventas`, `padron`, `sigo`, `todos` (útil para pruebas; en producción conviene `scheduler`). |
 | `RPA_DATA_DIR` | Si más adelante montás un volumen, ruta base para `downloads/.hashes.json` (por defecto `/app/downloads` dentro del contenedor). |
 
 ## Horarios (scheduler)
 
-Definidos en `scheduler.py`: solo cuentas **07:00 y 14:30** (hora **Argentina**, `America/Argentina/Buenos_Aires`). Padrón y ventas no van en el scheduler por defecto; ventas: `python runner.py ventas`.
+Horarios en `scheduler.py` (hora **Argentina**): padrón 08:30/11:30/15:30/18:30; cuentas 07:00/14:30; **informe ventas** 09:30/13:00/17:00/21:00 (rolling7). El motor CHESS comprobantes (`runner.py ventas`) está retirado.
 
 ## Notas
 

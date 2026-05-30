@@ -110,6 +110,8 @@ PADRON_INCLUIR_ANULADOS = os.environ.get("PADRON_INCLUIR_ANULADOS", "true").lowe
 TIMEOUT_MS = 120_000  # Consolido puede ser lento (aumentado a 2 min porque reportes grandes tardan >1 min)
 COMBO_TIMEOUT_MS = int(os.environ.get("RPA_COMBO_TIMEOUT_MS", "15000"))
 ADMIN_PROCESOS_URL = "https://consolido.nextbyn.com/#/parametrizaciones/reportes/administrador-de-procesos"
+# Glyph Font Awesome (fa-file-excel) como accessible name — selector Playwright codegen.
+BTN_EXPORTAR_EXCEL_ICON = "\uf1c3"
 
 # ─────────────────────────────────────────────────────────────────
 # DEFINICIÓN DE TENANTS (LEGACY / FALLBACK)
@@ -366,6 +368,34 @@ async def _cerrar_overlays(page: Page) -> None:
     except Exception:
         pass
     await page.wait_for_timeout(150)
+
+
+async def _cerrar_dialogo_post_reporte(page: Page) -> None:
+    """Cierra el modal de éxito tras Ejecutar (no el de exportación)."""
+    for sel in (
+        "#button-continuar-superior",
+        "#button-continuar-inferior",
+    ):
+        loc = page.locator(sel)
+        try:
+            if await loc.count() == 0:
+                continue
+            btn = loc.first
+            await btn.wait_for(state="visible", timeout=3_000)
+            logger.info("    Cerrando modal post-ejecución (%s)", sel)
+            await btn.click(timeout=8_000)
+            await page.wait_for_timeout(600)
+            await _cerrar_overlays(page)
+            return
+        except Exception:
+            continue
+    await _cerrar_overlays(page)
+
+
+def _loc_botones_exportar_excel(page: Page):
+    """Botón(es) Excel del reporteador — `get_by_role('button', name=\\uf1c3)` (codegen)."""
+    loc = page.get_by_role("button", name=BTN_EXPORTAR_EXCEL_ICON)
+    return loc
 
 
 async def _esperar_comboboxes_parametros(page: Page, min_count: int = 1) -> None:
@@ -732,169 +762,58 @@ async def _ejecutar_reporte(page: Page) -> None:
 
 async def _descargar_excel(page: Page, tenant: dict) -> Optional[Path]:
     """
-    Descarga el Excel del reporte Padrón clickeando el botón de exportación.
+    Descarga Excel del reporteador Consolido.
 
-    ESTRATEGIA VERIFICADA EN VIVO (28/04/2026):
-    El botón está en la barra de herramientas como el SEGUNDO de 3 botones pequeños,
-    junto al campo "Buscar". Lo buscamos en esa región específica, no globalmente.
+    Selector verificado con Playwright codegen:
+      page.get_by_role("button", name="\\uf1c3")  # ícono fa-file-excel
+    Dos clics: toolbar (abre modal) → mismo botón en modal (dispara descarga).
     """
-    logger.info("  🔍 Buscando botón de exportación en barra de herramientas...")
+    logger.info("  🔍 Exportación: get_by_role(button, ícono Excel \\uf1c3)...")
 
-    # Preparar carpeta de descargas
     DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    click_timeout = int(os.environ.get("RPA_EXPORT_CLICK_TIMEOUT_MS", "120000"))
+    download_timeout = int(os.environ.get("RPA_EXPORT_DOWNLOAD_TIMEOUT_MS", "600000"))
 
-    # PASO 0: Cerrar cualquier diálogo modal que esté bloqueando
-    logger.info("  Paso 0: Cerrando diálogos modales si hay...")
+    await _cerrar_dialogo_post_reporte(page)
+    await page.wait_for_timeout(500)
+
+    btns = _loc_botones_exportar_excel(page)
     try:
-        continuar_btn = page.locator("#button-continuar-superior, #button-continuar-inferior").first
-        count = await continuar_btn.count()
-        if count > 0:
-            logger.info("    ⚠️ Diálogo modal detectado, cerrando...")
-            await continuar_btn.click(timeout=3000, force=True)
-            await page.wait_for_timeout(1000)
-            logger.info("    ✅ Diálogo cerrado")
-    except Exception as e:
-        logger.info(f"    No hay diálogo: {type(e).__name__}")
-
-    # PASO 1: Buscar los 3 botones de la BARRA DE HERRAMIENTAS (después del Buscar)
-    # Estrategia: Buscar específicamente en la región de la barra, no en toda la página
-    exportar_btn = None
+        await btns.first.wait_for(state="visible", timeout=10_000)
+    except Exception:
+        btns = page.locator("button:has(i.fa-file-excel), button:has(i.fas.fa-file-excel)")
+        await btns.first.wait_for(state="visible", timeout=10_000)
 
     try:
-        logger.info("  Paso 1: Buscando región de herramientas...")
+        download: Optional[Download] = None
+        quick_ms = min(15_000, download_timeout)
+        try:
+            logger.info("  🔲 Clic ícono Excel (intento descarga directa)")
+            async with page.expect_download(timeout=quick_ms) as download_info:
+                await btns.first.click(timeout=click_timeout)
+            download = await download_info.value
+        except Exception:
+            await page.wait_for_timeout(400)
+            n = await btns.count()
+            target = btns.nth(1) if n > 1 else btns.first
+            logger.info(
+                "  🔲 Clic 2 — confirmar export (ícono \\uf1c3, botones=%s)", n
+            )
+            async with page.expect_download(timeout=download_timeout) as download_info:
+                await target.click(timeout=click_timeout)
+                download = await download_info.value
 
-        # Estrategia A (prioritaria): botón con ícono Excel (el correcto según evidencia en vivo).
-        excel_icon_btn = page.locator("button:has(i.fa-file-excel), button:has(i.fas.fa-file-excel)").first
-        if await excel_icon_btn.count() > 0:
-            try:
-                await excel_icon_btn.wait_for(state="visible", timeout=8_000)
-                logger.info("  ✅ Botón localizado por ícono Excel (fa-file-excel)")
-                exportar_btn = excel_icon_btn
-            except Exception as e:
-                logger.warning(f"  ⚠️ Encontrado por ícono pero no visible aún: {type(e).__name__}")
-
-        # ESTRATEGIA: Usar JavaScript para encontrar el botón de exportar específicamente.
-        # Regla pedida: segundo botón de la barra de resultados (no autoajustar columnas).
-        export_via_js = await page.evaluate(
-            """
-            () => {
-              const isVisible = (el) => {
-                if (!el) return false;
-                const st = window.getComputedStyle(el);
-                if (st.display === 'none' || st.visibility === 'hidden' || st.opacity === '0') return false;
-                const r = el.getBoundingClientRect();
-                return r.width > 0 && r.height > 0;
-              };
-
-              // Buscar elemento con tooltip "Exportar resultados"
-              const allBtns = Array.from(document.querySelectorAll('button'));
-
-              // Estrategia 0: icono excel explícito.
-              let btn = allBtns.find(b => b.querySelector('i.fa-file-excel, i.fas.fa-file-excel') && isVisible(b));
-              if (btn) {
-                return { found: true, method: 'excel-icon', idx: allBtns.indexOf(btn) };
-              }
-
-              // Estrategia 1: Buscar por title o aria-label que contenga "Exportar"
-              btn = allBtns.find(b => {
-                const title = b.getAttribute('title') || '';
-                const aria = b.getAttribute('aria-label') || '';
-                return (title.includes('Exportar') || aria.includes('Exportar')) && isVisible(b);
-              });
-
-              if (btn) {
-                return { found: true, method: 'title/aria-label', idx: allBtns.indexOf(btn) };
-              }
-
-              // Estrategia 2: Buscar toolbar cercana al input "Buscar" y tomar el 2do botón visible.
-              const searchInput = document.querySelector('input[placeholder*="Buscar"]');
-              if (searchInput) {
-                const candidates = [
-                  searchInput.closest('.box-botones-grilla'),
-                  searchInput.closest('mat-toolbar'),
-                  searchInput.closest('[class*="toolbar"]'),
-                  searchInput.parentElement,
-                ].filter(Boolean);
-
-                for (const parent of candidates) {
-                  const toolbarBtns = Array.from(parent.querySelectorAll('button')).filter(isVisible);
-                  if (toolbarBtns.length >= 2) {
-                    const secondBtn = toolbarBtns[1];
-                    const txt = (secondBtn.textContent || '').trim();
-                    const title = secondBtn.getAttribute('title') || '';
-                    const aria = secondBtn.getAttribute('aria-label') || '';
-                    // Evitar autoajuste explícitamente si lo detectamos.
-                    const marker = `${txt} ${title} ${aria}`.toLowerCase();
-                    if (!marker.includes('autoaj') && !marker.includes('configurar columnas')) {
-                      return {
-                        found: true,
-                        method: 'toolbar-second-button',
-                        idx: allBtns.indexOf(secondBtn),
-                      };
-                    }
-                  }
-                }
-              }
-
-              return { found: false, method: 'none' };
-            }
-            """
-        )
-
-        logger.info(f"    JS búsqueda: {export_via_js}")
-
-        if exportar_btn is None and export_via_js and export_via_js.get("found"):
-            logger.info(f"  ✅ Botón encontrado por: {export_via_js['method']}")
-            idx = export_via_js.get("idx", -1)
-
-            try:
-                all_buttons = page.locator("button")
-                export_candidate = all_buttons.nth(idx)
-                title = await export_candidate.get_attribute("title")
-                aria_label = await export_candidate.get_attribute("aria-label")
-                logger.info(f"    Button [{idx}]: title='{title}', aria-label='{aria_label}'")
-
-                await export_candidate.wait_for(state="visible", timeout=3000)
-                logger.info("    ✅ Botón encontrado y visible")
-                exportar_btn = export_candidate
-            except Exception as e:
-                logger.warning(f"    ⚠️ Intento por índice falló: {e}")
-
-        if exportar_btn is None:
-            logger.error("  ❌ No se pudo encontrar el botón de exportación")
-            return None
-
-        logger.info("  ✅ Botón de exportación localizado")
-
-    except Exception as e:
-        logger.error(f"  ❌ Error buscando botón: {type(e).__name__}: {str(e)[:150]}")
-        return None
-
-    # PASO 2: Interceptar descarga y clickear botón
-    logger.info("  Clickeando botón e interceptando descarga...")
-    try:
-        # Interceptar descarga con expect_download()
-        async with page.expect_download() as download_info:
-            logger.info("    🔲 Clickeando botón de exportación...")
-            await exportar_btn.click(timeout=5_000, force=True)
-            logger.info("    ✅ Botón clickeado, esperando descarga...")
-
-        logger.info("    ⏳ Esperando a que se complete la descarga...")
-        download: Download = await download_info.value
         fecha = datetime.now(AR_TZ).strftime("%Y%m%d_%H%M%S")
-        # tenant['id'] debe traer el prefijo deseado (ej. padron_tabaco, ventas_enriched_tabaco).
         nuevo_nombre = f"{tenant['id']}_{fecha}.xlsx"
         ruta_final = DOWNLOADS_DIR / nuevo_nombre
-
-        logger.info(f"    💾 Guardando archivo como: {nuevo_nombre}")
         await download.save_as(str(ruta_final))
-        logger.info(f"  ✅ Excel descargado exitosamente: {nuevo_nombre}")
+        logger.info(f"  ✅ Excel descargado: {nuevo_nombre}")
         return ruta_final
 
     except Exception as e:
         logger.error(f"  ❌ Error en descarga: {type(e).__name__}: {str(e)[:150]}")
         import traceback
-        logger.error(f"    Traceback: {traceback.format_exc()[:200]}")
+        logger.error(f"    Traceback: {traceback.format_exc()[:300]}")
         return None
 
 

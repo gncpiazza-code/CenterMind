@@ -2,7 +2,7 @@
 set -e
 cd /app
 
-# RPA_START_MODE: scheduler (default) | cuentas | ventas | padron | sigo | todos
+# RPA_START_MODE: scheduler (default) | cuentas | informe_ventas | padron | sigo | todos
 # "scheduler" = APScheduler 24/7 (recomendado en Railway)
 mode="${RPA_START_MODE:-scheduler}"
 
@@ -13,8 +13,8 @@ case "$mode" in
   cuentas)
     exec python runner.py cuentas
     ;;
-  ventas)
-    exec python runner.py ventas
+  informe_ventas)
+    exec python runner.py informe_ventas
     ;;
   padron)
     exec python runner.py padron
@@ -26,7 +26,7 @@ case "$mode" in
     exec python runner.py todos
     ;;
   *)
-    echo "RPA_START_MODE desconocido: $mode (válido: scheduler, cuentas, ventas, padron, sigo, todos)" >&2
+    echo "RPA_START_MODE desconocido: $mode (válido: scheduler, cuentas, informe_ventas, padron, sigo, todos)" >&2
     exit 1
     ;;
 esac

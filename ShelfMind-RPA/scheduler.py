@@ -43,7 +43,7 @@ _SLOTS_CUENTAS = [(7, 0), (14, 30)]
 # Padrón (AR): 08:30, 11:30, 15:30, 18:30
 _SLOTS_PADRON = [(8, 30), (11, 30), (15, 30), (18, 30)]
 # Informe de ventas enriquecido (AR): 09:30, 13:00, 17:00, 21:00
-# 09:30 → día anterior; 13/17/21 → día actual (ver informe_ventas.py)
+# 09:30 → últimos 7 días → ayer; 13/17/21 → últimos 7 días → hoy (ver informe_ventas.py)
 _SLOTS_INFORME_VENTAS = [(9, 30), (13, 0), (17, 0), (21, 0)]
 
 
@@ -239,13 +239,18 @@ async def _run_ventas(*, usar_fecha_hoy: bool = False):
     )
 
 
-def job_ventas(usar_fecha_hoy: bool = False):
-    logger.info("⏰ Trigger VENTAS (fecha=%s)", "hoy" if usar_fecha_hoy else "ayer")
+def job_informe_ventas(usar_fecha_hoy: bool = False):
+    logger.info(
+        "⏰ Trigger INFORME_VENTAS Consolido (fecha=%s)",
+        "hoy" if usar_fecha_hoy else "ayer",
+    )
     try:
         asyncio.run(_run_ventas(usar_fecha_hoy=usar_fecha_hoy))
     except Exception as e:
-        logger.error(f"Error en job_ventas: {e}")
-        asyncio.run(_notify_motor_crash("ventas_enriched", f"job_ventas crash: {e}"))
+        logger.error(f"Error en job_informe_ventas: {e}")
+        asyncio.run(
+            _notify_motor_crash("ventas_enriched", f"job_informe_ventas crash: {e}")
+        )
 
 
 def _hours_since_last_motor_run(motors: list[str]) -> float | None:
@@ -448,7 +453,7 @@ def main():
     for idx, (hi, mi) in enumerate(_SLOTS_INFORME_VENTAS):
         usar_hoy = idx > 0
         scheduler.add_job(
-            job_ventas,
+            job_informe_ventas,
             CronTrigger(hour=hi, minute=mi, timezone=AR_TZ),
             kwargs={"usar_fecha_hoy": usar_hoy},
             id=f"informe_ventas_{hi:02d}{mi:02d}",

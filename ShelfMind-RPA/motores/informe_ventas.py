@@ -7,8 +7,10 @@ Reglas clave:
 - Consolido: UN usuario/password; por tenant solo cambia el checkbox «Empresas» (id_empresa).
 - Un solo login por corrida (sin re-login entre tenants).
 - Fecha del reporte (AR):
-  - Primera corrida del día (09:30): día anterior (cierre de ayer).
-  - Resto (13:00, 17:00, 21:00): día actual (alinear con CC intradía).
+  - Scheduler 09:30: últimos 7 días → ayer (mín. día 1 del mes).
+  - Scheduler 13/17/21: últimos 7 días → hoy (mín. día 1 del mes).
+  - Manual `mtd` / RPA_VENTAS_MODO=full_mtd: día 1 del mes → hoy (backfill).
+  - Manual custom: `runner.py informe_ventas DD/MM/YYYY DD/MM/YYYY` o RPA_VENTAS_DESDE/HASTA.
 """
 
 from __future__ import annotations
@@ -53,12 +55,86 @@ _MESES_ES = (
 )
 
 
-def _fecha_reporte_label_es(usar_fecha_hoy: bool) -> tuple[date, str]:
-    """Devuelve (fecha ISO, etiqueta calendario CHESS) para Fecha Desde/Hasta."""
+def _fecha_label_calendario_es(d: date) -> str:
+    return f"{d.day} de {_MESES_ES[d.month - 1]} de {d.year}"
+
+
+def _parse_fecha_es(value: str) -> date:
+    """DD/MM/YYYY o YYYY-MM-DD."""
+    v = (value or "").strip()
+    for fmt in ("%d/%m/%Y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(v, fmt).date()
+        except ValueError:
+            continue
+    raise ValueError(f"Fecha inválida (use DD/MM/YYYY): {value}")
+
+
+def _fecha_reporte_label_es(
+    usar_fecha_hoy: bool,
+    modo: str | None = None,
+    *,
+    fecha_desde: date | None = None,
+    fecha_hasta: date | None = None,
+) -> tuple[date, str]:
+    """Compat tests: etiqueta del día «desde» del rango."""
+    desde, _, _ = _fecha_reporte_rango_es(
+        usar_fecha_hoy,
+        modo=modo,
+        fecha_desde=fecha_desde,
+        fecha_hasta=fecha_hasta,
+    )
+    return desde, _fecha_label_calendario_es(desde)
+
+
+def _resolve_modo_rango(modo: str | None, usar_fecha_hoy: bool) -> str:
+    explicit = (modo or os.environ.get("RPA_VENTAS_MODO") or "").strip().lower()
+    if explicit in ("full_mtd", "mtd", "mes_completo"):
+        return "full_mtd"
+    if explicit in ("rolling7", "ultimos7", "7d"):
+        return "rolling7"
+    return "rolling7"
+
+
+def _fecha_reporte_rango_es(
+    usar_fecha_hoy: bool,
+    modo: str | None = None,
+    *,
+    fecha_desde: date | None = None,
+    fecha_hasta: date | None = None,
+) -> tuple[date, date, str]:
+    """
+    Rango Fecha Desde / Fecha Hasta para el Informe de Ventas.
+
+    - rolling7 (scheduler): últimos 7 días calendario, acotado al mes en curso.
+    - full_mtd (manual): día 1 del mes → hoy.
+    - custom: fechas explícitas (CLI o RPA_VENTAS_DESDE / RPA_VENTAS_HASTA).
+    """
+    env_desde = (os.environ.get("RPA_VENTAS_DESDE") or "").strip()
+    env_hasta = (os.environ.get("RPA_VENTAS_HASTA") or "").strip()
+    if fecha_desde is None and env_desde:
+        fecha_desde = _parse_fecha_es(env_desde)
+    if fecha_hasta is None and env_hasta:
+        fecha_hasta = _parse_fecha_es(env_hasta)
+    if fecha_desde is not None and fecha_hasta is not None:
+        if fecha_desde > fecha_hasta:
+            raise ValueError(
+                f"Rango inválido: desde {fecha_desde} > hasta {fecha_hasta}"
+            )
+        return fecha_desde, fecha_hasta, "custom"
+
     hoy = datetime.now(AR_TZ).date()
-    d = hoy if usar_fecha_hoy else hoy - timedelta(days=1)
-    label = f"{d.day} de {_MESES_ES[d.month - 1]} de {d.year}"
-    return d, label
+    modo_eff = _resolve_modo_rango(modo, usar_fecha_hoy)
+    inicio_mes = hoy.replace(day=1)
+
+    if modo_eff == "full_mtd":
+        return inicio_mes, hoy, "full_mtd"
+
+    hasta = hoy if usar_fecha_hoy else hoy - timedelta(days=1)
+    if hasta < inicio_mes:
+        return hasta, hasta, "ayer"
+    desde = max(inicio_mes, hasta - timedelta(days=6))
+    return desde, hasta, "rolling7"
 
 
 async def _esperar_panel_informe_ventas(page: Page) -> None:
@@ -143,12 +219,24 @@ async def _abrir_reporteador_y_seleccionar_informe(page: Page) -> None:
     logger.info(f"  ✅ Panel de parámetros listo ({selected_label})")
 
 
-async def _set_fechas_reporte(page: Page, *, usar_fecha_hoy: bool) -> None:
+async def _set_fechas_reporte(
+    page: Page,
+    *,
+    usar_fecha_hoy: bool,
+    modo: str | None = None,
+    fecha_desde: date | None = None,
+    fecha_hasta: date | None = None,
+) -> None:
     await _cerrar_overlays(page)
-    fecha_obj, label = _fecha_reporte_label_es(usar_fecha_hoy)
-    modo = "hoy" if usar_fecha_hoy else "ayer"
+    desde, hasta, modo = _fecha_reporte_rango_es(
+        usar_fecha_hoy,
+        modo=modo,
+        fecha_desde=fecha_desde,
+        fecha_hasta=fecha_hasta,
+    )
     t = COMBO_TIMEOUT_MS
-    for campo in ("Fecha Desde", "Fecha Hasta"):
+    for campo, fecha_obj in (("Fecha Desde", desde), ("Fecha Hasta", hasta)):
+        label = _fecha_label_calendario_es(fecha_obj)
         await page.locator("mat-form-field").filter(has_text=campo).get_by_label(
             "Open calendar"
         ).click(timeout=t)
@@ -157,11 +245,29 @@ async def _set_fechas_reporte(page: Page, *, usar_fecha_hoy: bool) -> None:
         await _cerrar_overlays(page)
         await page.wait_for_timeout(300)
     logger.info(
-        "  ✅ Fecha desde/hasta fijada en %s: %s (%s)",
+        "  ✅ Fecha desde/hasta (%s): %s → %s",
         modo,
-        label,
-        fecha_obj.isoformat(),
+        desde.isoformat(),
+        hasta.isoformat(),
     )
+
+
+async def _reporte_sin_movimientos(page: Page) -> bool:
+    """True si el reporteador no devolvió filas (ej. domingo sin ventas)."""
+    try:
+        heading = await page.locator(
+            "text=/Resultados\\s*\\(\\s*0\\s*\\)/i"
+        ).first.text_content(timeout=3_000)
+        return bool(heading and "0" in heading)
+    except Exception:
+        pass
+    try:
+        msg = await page.locator(
+            "text=/sin resultados|no se encontraron|0 registros/i"
+        ).first.text_content(timeout=2_000)
+        return bool(msg)
+    except Exception:
+        return False
 
 
 async def _preparar_siguiente_tenant(page: Page) -> None:
@@ -170,23 +276,69 @@ async def _preparar_siguiente_tenant(page: Page) -> None:
     await page.wait_for_timeout(400)
 
 
-async def run(*, usar_fecha_hoy: bool = False) -> dict:
+def _ingest_local_sync(tenant_id: str, archivo: Path) -> dict:
+    """Ingesta directa a Supabase (evita timeout Cloudflare en MTD grande)."""
+    import sys
+
+    cm = Path(__file__).resolve().parents[2] / "CenterMind"
+    if str(cm) not in sys.path:
+        sys.path.insert(0, str(cm))
+    from services.ventas_enriched_ingestion_service import ingest_enriched
+
+    return ingest_enriched(tenant_id, archivo.read_bytes())
+
+
+def _force_ingest() -> bool:
+    return os.environ.get("RPA_VENTAS_FORCE_INGEST", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
+
+def _use_ingest_local() -> bool:
+    return os.environ.get("RPA_VENTAS_INGEST_LOCAL", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
+
+async def run(
+    *,
+    usar_fecha_hoy: bool = False,
+    modo_rango: str | None = None,
+    fecha_desde: date | None = None,
+    fecha_hasta: date | None = None,
+) -> dict:
     """
     Exporta Informe de Ventas por tenant.
 
-    usar_fecha_hoy=False → día anterior (primera corrida del día).
-    usar_fecha_hoy=True  → día actual (corridas 13:00, 17:00, 21:00).
+    Scheduler: rolling7 (7 días → ayer/hoy).
+    Backfill manual: modo_rango=full_mtd o `runner.py informe_ventas mtd`.
+    Rango custom: `runner.py informe_ventas 01/05/2026 06/05/2026`.
     """
-    resumen = {"ok": 0, "errores": 0, "sin_cambios": 0, "detalle": []}
+    resumen = {"ok": 0, "errores": 0, "sin_cambios": 0, "detalle": [], "rango": {}}
     tenants = _filtrar_tenants_para_debug(_cargar_tenants_desde_supabase())
     if not tenants:
         return resumen
 
-    _, fecha_label = _fecha_reporte_label_es(usar_fecha_hoy)
+    desde, hasta, modo = _fecha_reporte_rango_es(
+        usar_fecha_hoy,
+        modo=modo_rango,
+        fecha_desde=fecha_desde,
+        fecha_hasta=fecha_hasta,
+    )
+    resumen["rango"] = {
+        "desde": desde.isoformat(),
+        "hasta": hasta.isoformat(),
+        "modo": modo,
+    }
     logger.info(
-        "INFORME_VENTAS inicio — fecha=%s (%s)",
-        fecha_label,
-        "hoy" if usar_fecha_hoy else "ayer",
+        "INFORME_VENTAS inicio — rango=%s → %s (%s)",
+        desde.isoformat(),
+        hasta.isoformat(),
+        modo,
     )
 
     usuario, password = _resolver_credenciales_consolido()
@@ -206,10 +358,29 @@ async def run(*, usar_fecha_hoy: bool = False) -> dict:
                     try:
                         logger.info(f"\n  ┌─ Procesando Informe Ventas: {tenant['nombre']}")
                         await _preparar_siguiente_tenant(page)
-                        await _set_fechas_reporte(page, usar_fecha_hoy=usar_fecha_hoy)
+                        await _set_fechas_reporte(
+                            page,
+                            usar_fecha_hoy=usar_fecha_hoy,
+                            modo=modo_rango,
+                            fecha_desde=fecha_desde,
+                            fecha_hasta=fecha_hasta,
+                        )
                         await _esperar_comboboxes_parametros(page, min_count=1)
                         await _set_empresa_padron(page, tenant)
                         await _ejecutar_reporte(page)
+                        if await _reporte_sin_movimientos(page):
+                            logger.info(
+                                "  ℹ️ Sin movimientos en el rango — omitiendo export/ingesta"
+                            )
+                            resumen["sin_cambios"] += 1
+                            item["sin_cambios"] = 1
+                            logger.info(
+                                "  🏁 Tenant %s terminado — sin movimientos (OK)",
+                                tid,
+                            )
+                            resumen["detalle"].append(item)
+                            await asyncio.sleep(2)
+                            continue
                         archivo = await _descargar_excel(
                             page, {"id": f"ventas_enriched_{tid}"}
                         )
@@ -217,17 +388,43 @@ async def run(*, usar_fecha_hoy: bool = False) -> dict:
                             raise RuntimeError("No se pudo descargar excel de informe de ventas")
 
                         hk = f"ventas_enriched_{tid}"
-                        if es_duplicado(hk, str(archivo)):
+                        skip_hash = _force_ingest() or modo in ("full_mtd", "custom")
+                        if not skip_hash and es_duplicado(hk, str(archivo)):
                             logger.info("  ⏭️  Sin cambios (hash igual al anterior)")
                             resumen["sin_cambios"] += 1
                             item["sin_cambios"] = 1
                         else:
-                            ok = await subir_ventas_enriched(archivo, tid)
-                            if not ok:
-                                raise RuntimeError("Upload ventas-enriched rechazado por API")
+                            if _use_ingest_local():
+                                logger.info(
+                                    "  📥 Ingesta local Supabase (%s)...",
+                                    archivo.name,
+                                )
+                                ingest_out = await asyncio.to_thread(
+                                    _ingest_local_sync, tid, archivo
+                                )
+                                logger.info("  ✅ Ingesta local: %s", ingest_out)
+                                item["ingest"] = ingest_out
+                                if not ingest_out.get("ok"):
+                                    raise RuntimeError(
+                                        f"Ingesta local falló: {ingest_out}"
+                                    )
+                            else:
+                                ok = await subir_ventas_enriched(archivo, tid)
+                                if not ok:
+                                    raise RuntimeError(
+                                        "Upload ventas-enriched rechazado por API"
+                                    )
                             guardar_hash(hk, str(archivo))
                             resumen["ok"] += 1
                             item["ok"] = 1
+                            item["archivo"] = str(archivo)
+                        logger.info(
+                            "  🏁 Tenant %s terminado — ok=%s errores=%s sin_cambios=%s",
+                            tid,
+                            item["ok"],
+                            item["errores"],
+                            item["sin_cambios"],
+                        )
                     except Exception as e:
                         logger.error(f"  ❌ Error tenant {tid}: {e}")
                         resumen["errores"] += 1
@@ -244,6 +441,7 @@ async def run(*, usar_fecha_hoy: bool = False) -> dict:
                                 dist,
                                 notify_exc,
                             )
+                        logger.info("  🏁 Tenant %s terminado — ERROR", tid)
                     resumen["detalle"].append(item)
                     await asyncio.sleep(2)
             finally:

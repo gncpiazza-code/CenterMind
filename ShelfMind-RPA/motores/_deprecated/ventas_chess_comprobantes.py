@@ -1,8 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-motores/ventas.py
+DEPRECADO 2026-05-30 — no usar. Ver motores/_deprecated/README.md.
+Fuente activa: motores/informe_ventas.py (Consolido → ventas_enriched_v2).
+
+motores/ventas.py (archivo histórico)
 =================
-Motor 2: Comprobantes de Ventas — CHESS ERP (Multi-tenant)
+Comprobantes de Ventas — CHESS ERP (Multi-tenant)
 
 ¿Qué hace este archivo?
 -----------------------

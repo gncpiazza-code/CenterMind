@@ -5,6 +5,8 @@ import { motion, AnimatePresence, type Variants } from "framer-motion";
 import { ImageOff, MapPin, ChevronLeft, ChevronRight, Activity } from "lucide-react";
 import { resolveImageUrl, type UltimaEvaluada } from "@/lib/api";
 import { isUltimaCoherenteConVendedor } from "@/lib/dashboard-ultimas";
+import { preloadStoryImageUrl, preloadStoryItems } from "@/lib/hero-carousel-prefetch";
+import { HeroCarouselSkeleton } from "@/components/dashboard/HeroCarouselSkeleton";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 
@@ -290,6 +292,7 @@ function StoryImage({ src, alt, onError }: { src: string; alt: string; onError: 
         src={src}
         alt={alt}
         decoding="async"
+        fetchPriority="high"
         className={cn(
           "absolute inset-0 w-full h-full object-contain transition-opacity duration-150",
           ready ? "opacity-100" : "opacity-0",
@@ -451,16 +454,15 @@ function HeroSlide({
 
 function preloadStoryImage(item: UltimaEvaluada) {
   const src = resolveImageUrl(item.drive_link, item.id_exhibicion);
-  if (!src) return;
-  const img = new Image();
-  img.decoding = "async";
-  img.src = src;
+  if (src) void preloadStoryImageUrl(src);
 }
 
 export function HeroCarousel({ items, compact = false, isDark: _isDark = false, className }: HeroCarouselProps) {
   const filtered = items.filter(
     (e) => !/rechaz/i.test(e.estado) && isUltimaCoherenteConVendedor(e),
   );
+  const [mediaReady, setMediaReady] = useState(false);
+  const filteredSig = filtered.map((e) => e.id_exhibicion).join(",");
   const [ci, setCi] = useState(0);
   const [progressKey, setProgressKey] = useState(0);
   const [direction, setDirection] = useState(1);
@@ -509,6 +511,21 @@ export function HeroCarousel({ items, compact = false, isDark: _isDark = false, 
   }, [filtered.length, ci]);
 
   useEffect(() => {
+    if (filtered.length === 0) {
+      setMediaReady(true);
+      return;
+    }
+    let cancelled = false;
+    setMediaReady(false);
+    void preloadStoryItems(filtered, 4).then(() => {
+      if (!cancelled) setMediaReady(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [filteredSig]);
+
+  useEffect(() => {
     if (filtered.length === 0) return;
     const neighbors = [
       filtered[(safeIdx + 1) % filtered.length],
@@ -529,7 +546,7 @@ export function HeroCarousel({ items, compact = false, isDark: _isDark = false, 
     resetTimer();
   };
 
-  if (filtered.length === 0) {
+  if (filtered.length === 0 && mediaReady) {
     return (
       <StoriesFrame className={cn("h-full min-h-0", className)}>
         <IpadStatusBar />
@@ -548,6 +565,10 @@ export function HeroCarousel({ items, compact = false, isDark: _isDark = false, 
         </div>
       </StoriesFrame>
     );
+  }
+
+  if (!mediaReady) {
+    return <HeroCarouselSkeleton className={className} />;
   }
 
   const item = filtered[safeIdx];

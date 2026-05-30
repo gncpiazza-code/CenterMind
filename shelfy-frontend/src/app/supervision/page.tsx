@@ -16,7 +16,8 @@ import {
   rangoBadgeClass,
   sortClientesCC,
 } from "@/lib/cuentasCorrientes";
-import { formatCcKpiTrendLabel } from "@/lib/supervision-cc-trend";
+import { formatCcKpiTrendDisplay } from "@/lib/supervision-cc-trend";
+import { CcSyncStatusBadge } from "@/components/supervision/CcSyncStatusBadge";
 import { useSupervisionPanelStore } from "@/store/useSupervisionPanelStore";
 import {
   useSupervisionPanelQueries,
@@ -189,6 +190,7 @@ export default function SupervisionPage() {
     loadingCuentas,
     fetchingCuentas,
     ccKpisData,
+    syncStatus,
     prefetchDeudor,
   } = useSupervisionPanelQueries(distId, selectedSucursal, selectedVendedorNombre);
 
@@ -286,19 +288,22 @@ export default function SupervisionPage() {
 
               {/* ── NIVEL 1: Sticky subheader — solo filtros, sin badges ni título ── */}
               <div className="sticky top-0 z-20 bg-[var(--shelfy-bg)]/90 backdrop-blur-md border-b border-[var(--shelfy-border)] px-4 md:px-6 py-3">
-                <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    <CreditCard size={15} className="text-rose-500" />
-                    <span className="text-sm font-black text-[var(--shelfy-text)] tracking-tight">
-                      Cuentas Corrientes
-                    </span>
-                    {isRefreshing && (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--shelfy-muted)]" />
-                    )}
+                <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-3">
+                  <div className="flex flex-col sm:flex-row sm:items-end gap-3 min-w-0">
+                    <div className="flex items-center gap-2 shrink-0">
+                      <CreditCard size={15} className="text-rose-500" />
+                      <span className="text-sm font-black text-[var(--shelfy-text)] tracking-tight">
+                        Cuentas Corrientes
+                      </span>
+                      {isRefreshing && (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--shelfy-muted)]" />
+                      )}
+                    </div>
+                    <CcSyncStatusBadge entry={syncStatus?.cuentas_corrientes} className="max-w-md" />
                   </div>
 
                   {/* ── Filtros jerarquizados ─────────────────────────────── */}
-                  <div className="flex items-end gap-3 flex-wrap">
+                  <div className="flex items-end gap-3 flex-wrap shrink-0">
                     {sucursales.length > 0 && (
                       <div className="flex flex-col gap-1">
                         <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide pl-0.5">
@@ -402,7 +407,7 @@ export default function SupervisionPage() {
                                     ) : (
                                       <TrendingDown size={11} strokeWidth={2.5} />
                                     )}
-                                    {formatCcKpiTrendLabel(deltas.total_deuda, fmt$$)}
+                                    {formatCcKpiTrendDisplay(deltas.total_deuda, "currency", fmt$$)}
                                   </span>
                                 )}
                               </div>
@@ -455,6 +460,7 @@ export default function SupervisionPage() {
                       loading={loadingCuentas && !!selectedVendedorNombre}
                       delay={0.06}
                       trend={deltas?.clientes_deudores}
+                      trendUnit="pdv"
                     />
                   </div>
                   <div className="flex-[1_1_0%] min-w-0 transition-[flex-grow] duration-300 ease-out">
@@ -466,6 +472,7 @@ export default function SupervisionPage() {
                       loading={loadingCuentas && !!selectedVendedorNombre}
                       delay={0.12}
                       trend={deltas?.pdvs_atraso_15}
+                      trendUnit="pdv"
                     />
                   </div>
                   <div className="flex-[1_1_0%] min-w-0 transition-[flex-grow] duration-300 ease-out">

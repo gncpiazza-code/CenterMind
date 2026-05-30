@@ -1807,6 +1807,9 @@ export interface CcKpiDelta {
   pct: number | null;
   /** "up" = subió (rojo), "down" = bajó (verde), "neutral" */
   dir: "up" | "down" | "neutral";
+  /** Valor corrida anterior (referencia del delta) */
+  anterior?: number;
+  actual?: number;
 }
 
 export interface CcKpis {
@@ -1913,6 +1916,10 @@ export interface CuentasSupervision {
 export interface SyncStatusEntry {
   last_updated: string | null;
   count: number;
+  /** Última corrida exitosa del motor (motor_runs estado=ok) */
+  last_run_ok_at?: string | null;
+  /** ISO próxima corrida programada CC (07:00 / 14:30 AR) */
+  next_run_at?: string | null;
   // padrón-only fields
   activos?: number;
   anulados?: number;

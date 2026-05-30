@@ -31,6 +31,8 @@ import {
   resolvePeriodBounds,
 } from "@/lib/dashboard-period";
 import { filterUltimasCoherentes } from "@/lib/dashboard-ultimas";
+import { dashboardKeys } from "@/lib/query-keys";
+import { HeroCarouselSkeleton } from "@/components/dashboard/HeroCarouselSkeleton";
 import { loadDashboardTheme, saveDashboardTheme } from "@/lib/dashboard-theme";
 import {
   loadDashboardLayout,
@@ -123,13 +125,26 @@ export default function DashboardPage() {
     refetchInterval: 300_000,
   });
 
+  const ultimasSucursalKey = sucursalFiltro || null;
+
   const { data: ultimas = [], isLoading: loadingUltimas, isFetching: fetchingUltimas } = useQuery<UltimaEvaluada[]>({
-    queryKey: ["dashboard", "ultimas", distId, sucursalFiltro],
-    queryFn: () => fetchUltimasEvaluadas(distId, 0, sucursalFiltro),
+    queryKey: dashboardKeys.ultimas(distId, ultimasSucursalKey),
+    queryFn: () => fetchUltimasEvaluadas(distId, 0, sucursalFiltro || undefined),
     enabled,
     placeholderData: (prev: unknown) => prev as UltimaEvaluada[] | undefined,
+    staleTime: 5 * 60_000,
+    gcTime: 30 * 60_000,
     refetchInterval: 300_000,
   });
+
+  useEffect(() => {
+    if (!enabled) return;
+    void queryClient.prefetchQuery({
+      queryKey: dashboardKeys.ultimas(distId, ultimasSucursalKey),
+      queryFn: () => fetchUltimasEvaluadas(distId, 0, sucursalFiltro || undefined),
+      staleTime: 5 * 60_000,
+    });
+  }, [enabled, distId, ultimasSucursalKey, sucursalFiltro, queryClient]);
 
   const { data: sucursales = [], isLoading: loadingSucursales } = useQuery<SucursalStats[]>({
     queryKey: ["dashboard", "sucursales", distId, periodo, sucursalFiltro],
@@ -147,10 +162,11 @@ export default function DashboardPage() {
     refetchInterval: 300_000,
   });
 
-  const loading = loadingKpis || loadingRanking || loadingUltimas || loadingSucursales;
+  const loading = loadingKpis || loadingRanking || loadingSucursales;
+  const loadingHero = loadingUltimas && ultimas.length === 0;
   const error   = errorKpis || errorRanking;
 
-  const isFetchingLeft  = fetchingUltimas && !loadingUltimas;
+  const isFetchingLeft  = fetchingUltimas && !loadingUltimas && ultimas.length > 0;
   const isFetchingRight = (fetchingKpis && !loadingKpis) || (fetchingRanking && !loadingRanking);
 
   // WS: invalida todas las queries del dashboard al recibir eventos
@@ -308,13 +324,8 @@ export default function DashboardPage() {
                     )} />
                   </div>
                 )}
-                {loading && ultimas.length === 0 ? (
-                  <Card className={cn(
-                    "h-full min-h-0 flex items-center justify-center p-12 rounded-3xl",
-                    isDark ? "bg-slate-900 border-slate-700" : "bg-white",
-                  )}>
-                    <Skeleton className="h-8 w-full rounded-2xl" />
-                  </Card>
+                {loadingHero ? (
+                  <HeroCarouselSkeleton className="h-full min-h-0 flex-1" />
                 ) : (
                   <HeroCarousel
                     items={ultimasCoherentes}

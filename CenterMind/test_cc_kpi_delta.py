@@ -14,6 +14,8 @@ def test_cc_kpi_delta_subio_deuda():
     assert d["dir"] == "up"
     assert d["diff"] == 100
     assert d["pct"] == 10.0
+    assert d["anterior"] == 1000
+    assert d["actual"] == 1100
 
 
 def test_cc_kpi_delta_bajo_sin_pct_previo_cero():

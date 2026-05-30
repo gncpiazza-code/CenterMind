@@ -619,7 +619,13 @@ def cc_kpi_delta(actual: dict, anterior: dict | None, campo: str) -> dict | None
     diff = round(a - p, 2)
     pct = round(diff / p * 100, 1) if p else None
     dir_ = "up" if diff > 0 else ("down" if diff < 0 else "neutral")
-    return {"diff": diff, "pct": pct, "dir": dir_}
+    return {
+        "diff": diff,
+        "pct": pct,
+        "dir": dir_,
+        "anterior": p,
+        "actual": a,
+    }
 
 
 # ─── Exhibiciones de prueba (Tabaco & Hnos): ranking + evaluación ───────────

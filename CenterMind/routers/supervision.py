@@ -4619,8 +4619,31 @@ def supervision_sync_status(dist_id: int, user_payload=Depends(verify_auth)):
         except Exception as e:
             logger.warning(f"[sync-status] error leyendo padrón dist={dist_id}: {e}")
 
-        cc_data: dict = {"last_updated": None, "count": 0}
+        cc_data: dict = {
+            "last_updated": None,
+            "count": 0,
+            "last_run_ok_at": None,
+            "next_run_at": None,
+        }
         try:
+            from core.cc_schedule import next_cc_run_ar
+
+            run_cc_ok = (
+                sb.table("motor_runs")
+                .select("finalizado_en,iniciado_en,estado")
+                .eq("motor", "cuentas_corrientes")
+                .eq("dist_id", dist_id)
+                .eq("estado", "ok")
+                .order("finalizado_en", desc=True)
+                .limit(1)
+                .execute()
+            )
+            if run_cc_ok.data:
+                row = run_cc_ok.data[0]
+                cc_data["last_run_ok_at"] = row.get("finalizado_en") or row.get("iniciado_en")
+
+            cc_data["next_run_at"] = next_cc_run_ar().isoformat()
+
             res_cc = (
                 sb.table("cc_detalle")
                 .select("created_at")
@@ -4637,6 +4660,8 @@ def supervision_sync_status(dist_id: int, user_payload=Depends(verify_auth)):
             )
             if res_cc.data:
                 cc_data["last_updated"] = res_cc.data[0]["created_at"]
+            if not cc_data["last_run_ok_at"]:
+                cc_data["last_run_ok_at"] = cc_data["last_updated"]
             cc_data["count"] = count_cc.count or 0
         except Exception as e:
             logger.warning(f"[sync-status] error leyendo CC dist={dist_id}: {e}")

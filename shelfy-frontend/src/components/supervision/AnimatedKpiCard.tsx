@@ -3,10 +3,11 @@
 import { motion } from "framer-motion";
 import { ChevronDown, TrendingUp, TrendingDown } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/Card";
+import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useCountUp } from "./useCountUp";
 import type { CcKpiDelta } from "@/lib/api";
-import { formatCcKpiTrendLabel } from "@/lib/supervision-cc-trend";
+import { formatCcKpiTrendDisplay, type CcTrendUnit } from "@/lib/supervision-cc-trend";
 
 const COLOR_MAP = {
   violet:  { bg: "bg-violet-500/8",  icon: "text-violet-600",  border: "border-violet-200/60" },
@@ -27,8 +28,8 @@ interface AnimatedKpiCardProps {
   delay?: number;
   /** Flecha de tendencia (delta vs corrida CC anterior). */
   trend?: CcKpiDelta | null;
-  /** Formato de la diferencia absoluta cuando no hay % (p. ej. moneda). */
-  trendFormatAbs?: (n: number) => string;
+  /** Unidad del delta absoluto y referencia. */
+  trendUnit?: CcTrendUnit;
   /** Card clickeable que despliega contenido debajo (p. ej. resumen CC). */
   expandable?: boolean;
   expanded?: boolean;
@@ -46,7 +47,7 @@ export function AnimatedKpiCard({
   loading = false,
   delay = 0,
   trend,
-  trendFormatAbs,
+  trendUnit = "pdv",
   expandable = false,
   expanded = false,
   onToggle,
@@ -55,18 +56,29 @@ export function AnimatedKpiCard({
   const animated = useCountUp(value);
   const { bg, icon: iconColor, border } = COLOR_MAP[color];
 
-  const trendEl = trend && trend.dir !== "neutral" ? (
+  const trendLabel =
+    trend && trend.dir !== "neutral"
+      ? formatCcKpiTrendDisplay(
+          trend,
+          trendUnit,
+          trendUnit === "currency" ? formatter : undefined,
+        )
+      : "";
+
+  const trendEl = trendLabel ? (
     <span
-      className={`inline-flex items-center gap-0.5 text-[10px] font-semibold tabular-nums ${
-        trend.dir === "up" ? "text-rose-600" : "text-emerald-600"
-      }`}
-    >
-      {trend.dir === "up" ? (
-        <TrendingUp size={11} strokeWidth={2.5} />
-      ) : (
-        <TrendingDown size={11} strokeWidth={2.5} />
+      className={cn(
+        "inline-flex items-start gap-0.5 text-[10px] font-semibold tabular-nums max-w-[11rem]",
+        trend!.dir === "up" ? "text-rose-600" : "text-emerald-600",
       )}
-      {formatCcKpiTrendLabel(trend, trendFormatAbs)}
+      title={trendLabel}
+    >
+      {trend!.dir === "up" ? (
+        <TrendingUp size={11} strokeWidth={2.5} className="shrink-0 mt-0.5" />
+      ) : (
+        <TrendingDown size={11} strokeWidth={2.5} className="shrink-0 mt-0.5" />
+      )}
+      <span className="leading-tight break-words">{trendLabel}</span>
     </span>
   ) : null;
 
@@ -85,11 +97,11 @@ export function AnimatedKpiCard({
             {loading ? (
               <Skeleton className="mt-1 h-7 w-24 rounded" />
             ) : (
-              <div className="flex items-baseline gap-2">
+              <div className="flex flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-2">
                 <p className="mt-1 text-2xl font-black text-foreground tracking-tight leading-none tabular-nums">
                   {formatter(animated)}
                 </p>
-                {trendEl && <span className="mt-1">{trendEl}</span>}
+                {trendEl ? <span className="mt-0.5 sm:mt-1">{trendEl}</span> : null}
               </div>
             )}
             {expandable && !loading && (

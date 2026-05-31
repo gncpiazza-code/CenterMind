@@ -10,6 +10,7 @@ import { VendorCardExpanded } from "./VendorCardExpanded";
 import { useEstadisticasStore } from "@/store/useEstadisticasStore";
 import type { VendorCartaResumen } from "@/lib/api";
 import { computeStatLeadersByVendor } from "@/lib/vendor-card-fusion-kpi";
+import { mesForRecapEvolucion } from "@/lib/recap-utils";
 import {
   prefetchEstadisticasDetalle,
   useEstadisticasWarmCache,
@@ -124,6 +125,8 @@ export function VendorCollection({
     },
     [queryClient, distId, meses],
   );
+
+  const evolucionMes = useMemo(() => mesForRecapEvolucion(meses), [meses]);
 
   return (
     <LayoutGroup id="estadisticas-vendor-cards">

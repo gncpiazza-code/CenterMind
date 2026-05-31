@@ -52,10 +52,15 @@ def _make_sb_miss():
 # ── Tests ──────────────────────────────────────────────────────────────────────
 
 def test_pendientes_is_list():
-    """bundle['pendientes'] debe ser una list."""
+    """bundle['pendientes'] debe ser una list de grupos con fotos[]."""
     pendientes = [
-        {"id_exhibicion": 1, "vendedor": "V1", "estado": "Pendiente"},
-        {"id_exhibicion": 2, "vendedor": "V2", "estado": "Pendiente"},
+        {
+            "vendedor": "V1",
+            "nro_cliente": "123",
+            "tipo_pdv": "S/D",
+            "fecha_hora": "2026-05-30T10:00:00",
+            "fotos": [{"id_exhibicion": 1, "drive_link": "x", "estado": "Pendiente"}],
+        },
     ]
     payload = _make_visor_payload(pendientes=pendientes)
     sb_mock = _make_sb_hit(payload)
@@ -127,9 +132,43 @@ def test_meta_cache_hit_false_on_miss():
 
 def test_pendientes_count_matches_payload():
     """La cantidad de pendientes en bundle coincide con el payload computado."""
-    pendientes = [{"id_exhibicion": i} for i in range(5)]
+    pendientes = [
+        {
+            "vendedor": "V1",
+            "nro_cliente": "123",
+            "tipo_pdv": "S/D",
+            "fecha_hora": "2026-05-30T10:00:00",
+            "fotos": [{"id_exhibicion": i, "drive_link": "x"} for i in range(5)],
+        }
+    ]
     payload = _make_visor_payload(pendientes=pendientes)
     sb_mock = _make_sb_hit(payload)
     with patch("services.snapshot_visor_service.sb", sb_mock):
         bundle = get_or_refresh_visor(1)
-    assert len(bundle["pendientes"]) == 5
+    assert len(bundle["pendientes"]) == 1
+    assert len(bundle["pendientes"][0]["fotos"]) == 5
+
+
+def test_legacy_flat_pendientes_cache_is_recomputed():
+    """Snapshots legacy (filas planas sin fotos[]) deben recomputarse."""
+    legacy = [{"id_exhibicion": 1, "vendedor": "V1", "estado": "Pendiente"}]
+    payload = _make_visor_payload(pendientes=legacy)
+    grouped = [
+        {
+            "vendedor": "V1",
+            "nro_cliente": "123",
+            "tipo_pdv": "S/D",
+            "fecha_hora": "2026-05-30T10:00:00",
+            "fotos": [{"id_exhibicion": 1, "drive_link": "x"}],
+        }
+    ]
+    fresh_payload = _make_visor_payload(pendientes=grouped)
+    sb_mock = _make_sb_hit(payload)
+    with patch("services.snapshot_visor_service.sb", sb_mock):
+        with patch(
+            "services.snapshot_visor_service._compute_visor",
+            return_value=fresh_payload,
+        ) as compute_mock:
+            bundle = get_or_refresh_visor(1)
+    compute_mock.assert_called_once()
+    assert isinstance(bundle["pendientes"][0].get("fotos"), list)

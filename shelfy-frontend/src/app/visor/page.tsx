@@ -12,7 +12,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   fetchVisorBundle, fetchVendedores,
   evaluar, revertir,
-  resolveImageUrl,
+  resolveImageUrl, getWSUrl,
   type GrupoPendiente, type VisorBundle,
 } from "@/lib/api";
 import { bundleKeys } from "@/lib/query-keys";
@@ -272,7 +272,7 @@ function useEagerPreload(grupos: GrupoPendiente[]) {
   useEffect(() => {
     if (!grupos.length) return;
     const allUrls = grupos
-      .flatMap((g) => g.fotos.map((f) => resolveImageUrl(f.drive_link, f.id_exhibicion)))
+      .flatMap((g) => (g.fotos ?? []).map((f) => resolveImageUrl(f.drive_link, f.id_exhibicion)))
       .filter((u): u is string => !!u);
     [...new Set(allUrls)].forEach((url) => {
       const img = new Image();
@@ -341,7 +341,8 @@ export default function VisorPage() {
   });
 
   // Extract data from bundle (field names adapted to match existing JSX)
-  const grupos: GrupoPendiente[] = (visorBundle?.pendientes ?? []) as GrupoPendiente[];
+  const grupos: GrupoPendiente[] = (visorBundle?.pendientes ?? [])
+    .filter((g) => Array.isArray(g.fotos) && g.fotos.length > 0) as GrupoPendiente[];
   const stats = visorBundle?.stats
     ? {
         pendientes: visorBundle.stats.pendientes,
@@ -367,7 +368,7 @@ export default function VisorPage() {
   const filtrados = (() => {
     let base = filtroVendedor === "Todos" ? grupos : grupos.filter((g) => g.vendedor === filtroVendedor);
     base = filtroSucursal === "Todas" ? base : base.filter((g) => (g.sucursal || "Sin sucursal") === filtroSucursal);
-    if (visorTab === "objetivo") base = base.filter((g) => g.fotos.some((f) => f.es_objetivo));
+    if (visorTab === "objetivo") base = base.filter((g) => (g.fotos ?? []).some((f) => f.es_objetivo));
     return base;
   })();
 
@@ -444,9 +445,10 @@ export default function VisorPage() {
   );
 
   const totalGrupos = filtrados.length;
-  const totalFotos = grupo?.fotos.length ?? 0;
+  const fotosGrupo = grupo?.fotos ?? [];
+  const totalFotos = fotosGrupo.length;
   const todasVistas = vistas.size >= totalFotos;
-  const isValidacion = grupo?.fotos.some((f) => f.estado === "VALIDACION") ?? false;
+  const isValidacion = fotosGrupo.some((f) => f.estado === "VALIDACION");
 
   useEagerPreload(filtrados);
 
@@ -466,7 +468,7 @@ export default function VisorPage() {
         if (!old) return old;
         const firstEvalId = variables.ids[0];
         const nextPendientes = old.pendientes.filter(
-          (g: GrupoPendiente) => !g.fotos.some((f) => f.id_exhibicion === firstEvalId)
+          (g: GrupoPendiente) => !(g.fotos ?? []).some((f) => f.id_exhibicion === firstEvalId)
         );
         setCurrentIndex(Math.min(currentIndex, Math.max(0, nextPendientes.length - 1)));
         resetGroupState();
@@ -540,6 +542,51 @@ export default function VisorPage() {
     setCommentTemplates(readCommentTemplates());
   }, []);
 
+  // WS: refrescar bundle al evaluar o cargar nueva exhibición
+  useEffect(() => {
+    if (!distId) return;
+    let socket: WebSocket | null = null;
+    let alive = true;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const closeSocket = () => {
+      if (!socket) return;
+      socket.onclose = null;
+      if (socket.readyState === WebSocket.CONNECTING) {
+        socket.onopen = () => socket?.close();
+      } else {
+        socket.close();
+      }
+    };
+
+    const connect = () => {
+      socket = new WebSocket(getWSUrl(distId));
+      socket.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === "new_exhibition" || data.type === "evaluation_updated") {
+            queryClient.invalidateQueries({ queryKey: bundleKeys.visor(distId) });
+          }
+        } catch {
+          /* ignore */
+        }
+      };
+      socket.onclose = () => {
+        if (!alive) return;
+        reconnectTimer = setTimeout(connect, 5000);
+      };
+      socket.onerror = () => {};
+    };
+
+    connect();
+
+    return () => {
+      alive = false;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      closeSocket();
+    };
+  }, [distId, queryClient]);
+
   // ── Combined keyboard handler ─────────────────────────────────────────────────
 
   useEffect(() => {
@@ -592,7 +639,7 @@ export default function VisorPage() {
           if (!canEval) return;
           isSubmittingRef.current = true;
           {
-            const ids = grupo!.fotos.map((f) => f.id_exhibicion);
+            const ids = fotosGrupo.map((f) => f.id_exhibicion);
             lastEvalIds.current = ids;
             mutationEvaluar.mutate({ ids, estado: "Aprobado", comentario });
           }
@@ -605,7 +652,7 @@ export default function VisorPage() {
           if (!canEval) return;
           isSubmittingRef.current = true;
           {
-            const ids = grupo!.fotos.map((f) => f.id_exhibicion);
+            const ids = fotosGrupo.map((f) => f.id_exhibicion);
             lastEvalIds.current = ids;
             mutationEvaluar.mutate({ ids, estado: "Rechazado", comentario });
           }
@@ -618,7 +665,7 @@ export default function VisorPage() {
           if (!canEval) return;
           isSubmittingRef.current = true;
           {
-            const ids = grupo!.fotos.map((f) => f.id_exhibicion);
+            const ids = fotosGrupo.map((f) => f.id_exhibicion);
             lastEvalIds.current = ids;
             mutationEvaluar.mutate({ ids, estado: "Destacado", comentario });
           }
@@ -685,7 +732,7 @@ export default function VisorPage() {
       window.removeEventListener("blur", onBlur);
     };
   }, [
-    grupo, todasVistas, isValidacion, comentario,
+    grupo, fotosGrupo, todasVistas, isValidacion, comentario,
     mutationEvaluar, mutationRevertir,
     currentIndex, currentFotoIdx, totalFotos, totalGrupos,
     setCurrentIndex, setCurrentFotoIdx, resetGroupState,
@@ -712,7 +759,7 @@ export default function VisorPage() {
   async function handleEvaluar(estado: "Aprobado" | "Destacado" | "Rechazado") {
     if (!grupo || !user || mutationEvaluar.isPending || !todasVistas || isSubmittingRef.current) return;
     isSubmittingRef.current = true;
-    const ids = grupo.fotos.map((f) => f.id_exhibicion);
+    const ids = fotosGrupo.map((f) => f.id_exhibicion);
     lastEvalIds.current = ids;
     mutationEvaluar.mutate({ ids, estado, comentario });
   }
@@ -1102,7 +1149,7 @@ export default function VisorPage() {
                                 </div>
                             }
                           >
-                            {grupo.fotos.some((f) => f.es_objetivo) ? (
+                            {fotosGrupo.some((f) => f.es_objetivo) ? (
                               <motion.div
                                 animate={{ opacity: [0.8, 1, 0.8] }}
                                 transition={{ duration: 2, repeat: Infinity }}
@@ -1295,8 +1342,8 @@ export default function VisorPage() {
                         className="absolute inset-0"
                       >
                         <FotoViewer
-                          driveUrl={grupo.fotos[currentFotoIdx]?.drive_link ?? ""}
-                          idExhibicion={grupo.fotos[currentFotoIdx]?.id_exhibicion}
+                          driveUrl={fotosGrupo[currentFotoIdx]?.drive_link ?? ""}
+                          idExhibicion={fotosGrupo[currentFotoIdx]?.id_exhibicion}
                           priority
                         />
                       </motion.div>
@@ -1315,7 +1362,7 @@ export default function VisorPage() {
                     )}
 
                     {/* Photo navigation arrows */}
-                    {grupo.fotos.length > 1 && (
+                    {fotosGrupo.length > 1 && (
                       <>
                         <button
                           onClick={handlePrevFoto}
@@ -1326,14 +1373,14 @@ export default function VisorPage() {
                         </button>
                         <button
                           onClick={handleNextFoto}
-                          disabled={currentFotoIdx >= grupo.fotos.length - 1}
+                          disabled={currentFotoIdx >= fotosGrupo.length - 1}
                           className="absolute right-2 top-1/2 -translate-y-1/2 z-20 size-9 flex items-center justify-center rounded-full bg-black/40 backdrop-blur-md text-white border border-white/20 hover:bg-black/60 disabled:opacity-25 transition-all"
                         >
                           <ChevronRight size={18} />
                         </button>
                         {/* Photo dots */}
                         <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-10 flex items-center gap-1">
-                          {grupo.fotos.map((_, i) => (
+                          {fotosGrupo.map((_, i) => (
                             <button
                               key={i}
                               onClick={() => setCurrentFotoIdx(i)}
@@ -1409,8 +1456,8 @@ export default function VisorPage() {
                       className="absolute inset-0"
                     >
                       <FotoViewer
-                        driveUrl={grupo.fotos[currentFotoIdx]?.drive_link ?? ""}
-                        idExhibicion={grupo.fotos[currentFotoIdx]?.id_exhibicion}
+                        driveUrl={fotosGrupo[currentFotoIdx]?.drive_link ?? ""}
+                        idExhibicion={fotosGrupo[currentFotoIdx]?.id_exhibicion}
                         priority
                       />
                     </motion.div>
@@ -1428,7 +1475,7 @@ export default function VisorPage() {
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2 min-w-0 flex-1 flex-wrap">
                             <span className="text-[10px] font-black bg-violet-600/90 px-2 py-0.5 rounded-md">
-                              #{grupo.fotos[currentFotoIdx]?.id_exhibicion || "—"}
+                              #{fotosGrupo[currentFotoIdx]?.id_exhibicion || "—"}
                             </span>
                             <span className="text-[10px] font-bold truncate text-white/90">
                               🏪 Cód. {grupo.nro_cliente ?? "—"}
@@ -1436,7 +1483,7 @@ export default function VisorPage() {
                             <span className="text-[10px] font-bold truncate text-white/70">
                               👤 {vendedorExhibicion}
                             </span>
-                            {grupo.fotos.some((f) => f.es_objetivo) && (
+                            {fotosGrupo.some((f) => f.es_objetivo) && (
                               <motion.span
                                 animate={{ scale: [1, 1.08, 1] }}
                                 transition={{ duration: 1.6, repeat: Infinity }}
@@ -1506,7 +1553,7 @@ export default function VisorPage() {
                   )}
 
                   {/* Photo navigation */}
-                  {grupo.fotos.length > 1 && (
+                  {fotosGrupo.length > 1 && (
                     <>
                       <button
                         onClick={handlePrevFoto}
@@ -1517,13 +1564,13 @@ export default function VisorPage() {
                       </button>
                       <button
                         onClick={handleNextFoto}
-                        disabled={currentFotoIdx >= grupo.fotos.length - 1}
+                        disabled={currentFotoIdx >= fotosGrupo.length - 1}
                         className="absolute right-2 top-1/2 -translate-y-1/2 z-20 size-9 flex items-center justify-center rounded-full bg-black/40 backdrop-blur-md text-white border border-white/20 hover:bg-black/60 disabled:opacity-25 transition-all"
                       >
                         <ChevronRight size={18} />
                       </button>
                       <div className="absolute top-10 right-3 z-20 bg-black/35 backdrop-blur-md px-2 py-1 rounded-full text-white/90 text-[10px] font-bold font-mono border border-white/15">
-                        {currentFotoIdx + 1}/{grupo.fotos.length}
+                        {currentFotoIdx + 1}/{fotosGrupo.length}
                       </div>
                     </>
                   )}

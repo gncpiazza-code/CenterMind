@@ -18,13 +18,14 @@ VISOR_MAX_STALE_SECONDS = 90  # 1.5 min — dato operativo en tiempo casi-real
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
-def get_or_refresh_visor(dist_id: int) -> dict:
+def get_or_refresh_visor(dist_id: int, hide_qa: bool = False) -> dict:
     snap = _read_visor_snapshot(dist_id)
     if snap is not None and _is_fresh(snap["generated_at"], VISOR_MAX_STALE_SECONDS):
         payload = snap["payload"]
-        payload.setdefault("meta", {})["cache_hit"] = True
-        return payload
-    payload = _compute_visor(dist_id)
+        if _pendientes_payload_valid(payload.get("pendientes") or []):
+            payload.setdefault("meta", {})["cache_hit"] = True
+            return payload
+    payload = _compute_visor(dist_id, hide_qa=hide_qa)
     payload.setdefault("meta", {})["cache_hit"] = False
     _upsert_visor_snapshot(dist_id, payload)
     return payload
@@ -45,14 +46,21 @@ def mark_visor_stale(dist_id: int) -> None:
 
 # ── Compute ───────────────────────────────────────────────────────────────────
 
-def _compute_visor(dist_id: int) -> dict:
+def _pendientes_payload_valid(pendientes: list) -> bool:
+    """Snapshots legacy guardaban filas planas de fn_pendientes sin fotos[]."""
+    if not pendientes:
+        return True
+    return isinstance(pendientes[0].get("fotos"), list)
+
+
+def _compute_visor(dist_id: int, hide_qa: bool = False) -> dict:
     generated_at = datetime.now(timezone.utc).isoformat()
 
-    # Pendientes via RPC
     pendientes: list[dict] = []
     try:
-        pendientes_res = sb.rpc("fn_pendientes", {"p_dist_id": dist_id}).execute()
-        pendientes = pendientes_res.data or []
+        from services.pendientes_grupo_service import build_pendientes_grupos
+
+        pendientes = build_pendientes_grupos(dist_id, hide_qa=hide_qa)
     except Exception as e:
         logger.warning(f"[snap_visor] pendientes dist={dist_id}: {e}")
 

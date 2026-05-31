@@ -14,6 +14,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 
+from core.helpers import should_apply_exhibicion_qa_filter
 from core.security import verify_auth, check_dist_permission
 from services.snapshot_dashboard_service import get_or_refresh_dashboard
 from services.snapshot_supervision_service import get_or_refresh_supervision
@@ -86,4 +87,5 @@ def bundle_visor(
     Bundle del visor operativo: pendientes del día + stats hoy (TTL 90s).
     """
     check_dist_permission(payload, dist_id)
-    return get_or_refresh_visor(dist_id)
+    hide_qa = should_apply_exhibicion_qa_filter(dist_id, payload)
+    return get_or_refresh_visor(dist_id, hide_qa=hide_qa)

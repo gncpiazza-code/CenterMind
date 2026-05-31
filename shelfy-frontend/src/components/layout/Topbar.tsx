@@ -352,6 +352,7 @@ export function Topbar({ title, live = false }: TopbarProps) {
     if (!isSuperadmin) return;
     const wsUrl = getSuperadminWSUrl();
     if (!wsUrl) return;
+    let alive = true;
     const ws = new WebSocket(wsUrl);
     ws.onmessage = (ev) => {
       try {
@@ -389,10 +390,16 @@ export function Topbar({ title, live = false }: TopbarProps) {
       }
     };
     return () => {
-      try {
-        ws.close();
-      } catch {
-        /* ignore */
+      alive = false;
+      ws.onclose = null;
+      if (ws.readyState === WebSocket.CONNECTING) {
+        ws.onopen = () => ws.close();
+      } else {
+        try {
+          ws.close();
+        } catch {
+          /* ignore */
+        }
       }
     };
   }, [isSuperadmin, qc]);

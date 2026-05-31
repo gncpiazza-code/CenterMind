@@ -55,6 +55,10 @@ import { VisorEvalPanel } from "@/components/visor/VisorEvalPanel";
 import { VisorObservacionesCard } from "@/components/visor/VisorObservacionesCard";
 import { FotoViewer, resolveVisorImageSrc, type FotoViewerHandle } from "@/components/visor/FotoViewer";
 import { VisorPhotoControls } from "@/components/visor/VisorPhotoControls";
+import {
+  VisorGlassTunePanel,
+  VisorGlassTuneProvider,
+} from "@/components/visor/visor-glass-tune";
 import { useVisorPublicDemo } from "@/components/visor/VisorDemoContext";
 import {
   VISOR_DEMO_STATS,
@@ -1594,6 +1598,19 @@ export function VisorPageContent() {
   );
 }
 
+function VisorPageWithGlassTune() {
+  const searchParams = useSearchParams();
+  const glassTuneEnabled =
+    process.env.NODE_ENV === "development" && searchParams.get("glassTune") !== "0";
+
+  return (
+    <VisorGlassTuneProvider enabled={glassTuneEnabled}>
+      <VisorPageContent />
+      {glassTuneEnabled ? <VisorGlassTunePanel /> : null}
+    </VisorGlassTuneProvider>
+  );
+}
+
 export default function VisorPage() {
   return (
     <Suspense
@@ -1603,7 +1620,7 @@ export default function VisorPage() {
         </div>
       }
     >
-      <VisorPageContent />
+      <VisorPageWithGlassTune />
     </Suspense>
   );
 }

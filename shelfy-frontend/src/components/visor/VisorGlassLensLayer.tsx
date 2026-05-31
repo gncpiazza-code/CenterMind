@@ -4,6 +4,7 @@ import { useEffect, useRef, useCallback } from "react";
 import { LENS_FILTER_ID, injectLensSvgDefs } from "./visor-glass-lens.svg";
 import { pickLensStrategy, type LensStrategy } from "./visor-glass-lens-strategy";
 import { updateCanvasLens } from "./visor-glass-canvas-lens";
+import { useVisorGlassTune } from "./visor-glass-tune";
 
 /** Cambia si el bundle cargó esta versión (sin WebGL). Ver consola en dev. */
 export const VISOR_GLASS_LENS_REV = "canvas-only-2026-05-31";
@@ -22,6 +23,8 @@ type Props = {
  * Safari: sin lens — Clear backdrop + vibrancy compensan.
  */
 export function VisorGlassLensLayer({ pillRef, getImg, lensScale }: Props) {
+  const tune = useVisorGlassTune();
+  const lensOpacity = tune?.enabled ? tune.lensOpacity : 0.5;
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const strategyRef = useRef<LensStrategy>("none");
   const rafRef = useRef<number | null>(null);
@@ -93,7 +96,7 @@ export function VisorGlassLensLayer({ pillRef, getImg, lensScale }: Props) {
         pointerEvents: "none",
         filter: `url(#${LENS_FILTER_ID})`,
         mixBlendMode: "soft-light",
-        opacity: 0.26,
+        opacity: lensOpacity,
         borderRadius: "inherit",
       }}
     />

@@ -5,6 +5,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -87,8 +88,9 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
   ref,
 ) {
   const src = resolveVisorImageSrc(driveUrl, idExhibicion);
+  const srcCached = isVisorImageCached(src);
   const [err, setErr] = useState(false);
-  const [imgPainted, setImgPainted] = useState(() => isVisorImageCached(src));
+  const [imgPainted, setImgPainted] = useState(() => srcCached);
   const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null);
   const [shellSize, setShellSize] = useState({ w: 0, h: 0 });
   const [userZoom, setUserZoom] = useState(1);
@@ -167,10 +169,10 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
     setPan({ x: 0, y: 0 });
     setDragging(false);
     dblClickZoomCountRef.current = 0;
-    setImgPainted(isVisorImageCached(src));
+    const cached = isVisorImageCached(src);
+    setImgPainted(cached);
 
     const intrinsic = parseIntrinsicFromSrc(src);
-    const cached = isVisorImageCached(src);
 
     if (intrinsic) {
       setNaturalSize(intrinsic);
@@ -194,6 +196,17 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
   useEffect(() => {
     notifyZoom(userZoom, presentationZoom);
   }, [presentationZoom, notifyZoom, userZoom]);
+
+  useLayoutEffect(() => {
+    const img = imgRef.current;
+    if (!src || !img) return;
+    if (img.complete && img.naturalWidth > 0) {
+      markVisorImageCached(src);
+      setImgPainted(true);
+    }
+  }, [src]);
+
+  const showImg = srcCached || imgPainted;
 
   const clampPan = useCallback(
     (nextX: number, nextY: number, zoom: number) => {
@@ -442,8 +455,8 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
             width={naturalSize?.w ?? undefined}
             height={naturalSize?.h ?? undefined}
             className={cn(
-              "block max-w-none w-full h-full transition-opacity duration-75 ease-out",
-              imgPainted ? "opacity-100" : "opacity-0",
+              "block max-w-none w-full h-full",
+              showImg ? "opacity-100" : "opacity-0",
               !hasIntrinsic && "object-contain max-w-full max-h-full w-auto h-auto",
             )}
             style={
@@ -451,7 +464,7 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
                 ? { maxWidth: availSize.w, maxHeight: availSize.h }
                 : undefined
             }
-            loading={priority || isVisorImageCached(src) ? "eager" : "lazy"}
+            loading={priority || srcCached ? "eager" : "lazy"}
             crossOrigin={src && !src.startsWith("data:") && !src.startsWith("blob:") && !src.startsWith("/") ? "anonymous" : undefined}
             onLoad={(e) => {
               const img = e.currentTarget;

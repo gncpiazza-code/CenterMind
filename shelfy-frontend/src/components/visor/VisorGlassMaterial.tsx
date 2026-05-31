@@ -9,7 +9,8 @@ import {
   useState,
 } from "react";
 import { cn } from "@/lib/utils";
-import { GLASS_TOKENS, type GlassVariant } from "./visor-glass-tokens";
+import { type GlassVariant } from "./visor-glass-tokens";
+import { useGlassTokensForVariant } from "./visor-glass-tune";
 import { type GlyphMode } from "./visor-glass-luminance";
 import { VisorGlassLensLayer } from "./VisorGlassLensLayer";
 
@@ -53,7 +54,7 @@ export const VisorGlassMaterial = forwardRef<HTMLDivElement, Props>(
     },
     forwardedRef,
   ) {
-    const tokens = GLASS_TOKENS[variant];
+    const tokens = useGlassTokensForVariant(variant);
     const radius = compact ? tokens.radiusCompact : tokens.radius;
     const shouldLens = enableLens ?? tokens.enableLens;
 
@@ -140,6 +141,7 @@ export const VisorGlassMaterial = forwardRef<HTMLDivElement, Props>(
           className="absolute inset-0 pointer-events-none"
           style={{
             borderRadius: radius,
+            backgroundColor: tokens.refractBase,
             WebkitBackdropFilter: backdropFilterValue,
             backdropFilter: backdropFilterValue,
           }}

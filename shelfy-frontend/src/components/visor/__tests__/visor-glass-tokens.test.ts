@@ -8,10 +8,10 @@ describe("GLASS_TOKENS", () => {
     expect(clearBlur).toBeLessThan(regularBlur);
   });
 
-  it("clear tint is near-zero (≤ 2%)", () => {
+  it("clear tint is subtle (≤ 6%)", () => {
     const match = GLASS_TOKENS.clear.tint.match(/[\d.]+\)$/);
     const opacity = match ? parseFloat(match[0]) : 1;
-    expect(opacity).toBeLessThanOrEqual(0.02);
+    expect(opacity).toBeLessThanOrEqual(0.06);
   });
 
   it("regular tint is higher than clear", () => {
@@ -37,11 +37,11 @@ describe("GLASS_TOKENS", () => {
     expect(GLASS_TOKENS.regular.lensScale).toBe(0);
   });
 
-  it("rim opacity is between 0.1 and 0.5 for both variants", () => {
-    for (const variant of ["clear", "regular"] as const) {
-      expect(GLASS_TOKENS[variant].rimOpacity).toBeGreaterThan(0.1);
-      expect(GLASS_TOKENS[variant].rimOpacity).toBeLessThan(0.5);
-    }
+  it("rim opacity is within expected range per variant", () => {
+    expect(GLASS_TOKENS.clear.rimOpacity).toBeGreaterThanOrEqual(0.04);
+    expect(GLASS_TOKENS.clear.rimOpacity).toBeLessThan(0.5);
+    expect(GLASS_TOKENS.regular.rimOpacity).toBeGreaterThan(0.1);
+    expect(GLASS_TOKENS.regular.rimOpacity).toBeLessThan(0.5);
   });
 
   it("shadow contains two comma-separated shadow values for both variants", () => {

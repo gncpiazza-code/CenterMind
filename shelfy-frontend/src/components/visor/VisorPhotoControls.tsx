@@ -1,6 +1,5 @@
 "use client";
 
-import { motion } from "framer-motion";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FotoViewerHandle } from "@/components/visor/FotoViewer";
@@ -69,10 +68,7 @@ export function VisorPhotoControls({
   }, [userZoom]);
 
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 0.22, ease: "easeOut" }}
+    <div
       className={cn(
         "absolute inset-x-0 bottom-0 flex justify-center px-3 pointer-events-none",
         "pb-[max(1rem,env(safe-area-inset-bottom))]",
@@ -153,6 +149,6 @@ export function VisorPhotoControls({
           </>
         ) : null}
       </VisorWaterGlass>
-    </motion.div>
+    </div>
   );
 }

@@ -30,6 +30,10 @@ import {
 import { GlassIcon } from "@/components/visor/VisorGlassVibrancy";
 import { useVisorGlassGlyphMode } from "@/components/visor/useVisorGlassGlyphMode";
 import { pickLensStrategy } from "@/components/visor/visor-glass-lens-strategy";
+import {
+  VisorGlassTunePanel,
+  VisorGlassTuneProvider,
+} from "@/components/visor/visor-glass-tune";
 import { cn } from "@/lib/utils";
 
 type Variant = "clear" | "regular";
@@ -54,11 +58,15 @@ export default function GlassBenchPage() {
   const lensStrategy =
     typeof window !== "undefined" ? pickLensStrategy() : "none";
 
+  const glassTuneEnabled = process.env.NODE_ENV === "development";
+
   return (
+    <VisorGlassTuneProvider enabled={glassTuneEnabled}>
     <div
       className="min-h-screen bg-[#0f172a] p-6"
       style={{ fontFamily: "system-ui, sans-serif" }}
     >
+      {glassTuneEnabled ? <VisorGlassTunePanel /> : null}
       {/* Header */}
       <div className="mb-6">
         <h1 className="text-white/90 text-xl font-black tracking-tight mb-1">
@@ -324,6 +332,7 @@ function BenchCard({
         </div>
       </div>
     </div>
+    </VisorGlassTuneProvider>
   );
 }
 

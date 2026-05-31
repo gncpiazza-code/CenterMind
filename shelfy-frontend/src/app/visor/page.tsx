@@ -5,14 +5,15 @@ import { BottomNav } from "@/components/layout/BottomNav";
 import { Topbar } from "@/components/layout/Topbar";
 import { PageSpinner } from "@/components/ui/Spinner";
 import { useAuth } from "@/hooks/useAuth";
-import { useEffect, useState, useCallback, useRef, useMemo } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useViewerStore } from "../../store/useViewerStore";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   fetchVisorBundle, fetchVendedores,
   evaluar, revertir,
-  resolveImageUrl, getWSUrl,
+  getWSUrl,
   type GrupoPendiente, type VisorBundle,
 } from "@/lib/api";
 import { bundleKeys } from "@/lib/query-keys";
@@ -45,6 +46,14 @@ import { VisorPdvIdentityHeader } from "@/components/visor/VisorPdvIdentityHeade
 import { VisorEvalBar } from "@/components/visor/VisorEvalBar";
 import { VisorEvalPanel } from "@/components/visor/VisorEvalPanel";
 import { VisorObservacionesCard } from "@/components/visor/VisorObservacionesCard";
+import { FotoViewer, resolveVisorImageSrc, type FotoViewerHandle } from "@/components/visor/FotoViewer";
+import { VisorPhotoControls } from "@/components/visor/VisorPhotoControls";
+import { useVisorPublicDemo } from "@/components/visor/VisorDemoContext";
+import {
+  VISOR_DEMO_STATS,
+  VISOR_DEMO_USER,
+  VISOR_MOCK_GRUPOS,
+} from "@/lib/visor-demo-data";
 import {
   VisorPanelCard,
   VisorPanelExhibicionGrid,
@@ -55,6 +64,12 @@ import {
 } from "@/components/visor/VisorPanelCard";
 
 const VISOR_TEMPLATE_KEY = "shelfy:visor:comment-templates";
+
+function isVisorMockMode(mockParam: string | null): boolean {
+  if (mockParam === "live" || mockParam === "0") return false;
+  if (mockParam === "fit" || mockParam === "1") return true;
+  return process.env.NODE_ENV === "development";
+}
 
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
@@ -107,173 +122,11 @@ function daysSinceIso(iso: string | null | undefined): number | null {
   return Math.floor((Date.now() - t) / 86_400_000);
 }
 
-// ── FotoViewer ────────────────────────────────────────────────────────────────
-
-function FotoViewer({
-  driveUrl,
-  idExhibicion,
-  priority = false,
-}: {
-  driveUrl: string;
-  idExhibicion?: number;
-  priority?: boolean;
-}) {
-  const [err, setErr] = useState(false);
-  const [zoom, setZoom] = useState(1);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [dragging, setDragging] = useState(false);
-  const dragStartRef = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
-  const frameRef = useRef<HTMLDivElement | null>(null);
-  const src = resolveImageUrl(driveUrl, idExhibicion);
-
-  useEffect(() => {
-    setErr(false);
-    setZoom(1);
-    setPan({ x: 0, y: 0 });
-    setDragging(false);
-  }, [src]);
-
-  const clampPan = useCallback((nextX: number, nextY: number, nextZoom: number) => {
-    const frame = frameRef.current;
-    if (!frame || nextZoom <= 1) return { x: 0, y: 0 };
-    const w = frame.clientWidth;
-    const h = frame.clientHeight;
-    const maxX = ((nextZoom - 1) * w) / 2;
-    const maxY = ((nextZoom - 1) * h) / 2;
-    return {
-      x: Math.max(-maxX, Math.min(maxX, nextX)),
-      y: Math.max(-maxY, Math.min(maxY, nextY)),
-    };
-  }, []);
-
-  const applyZoom = useCallback(
-    (nextZoomRaw: number) => {
-      const nextZoom = Math.max(1, Math.min(5, Number(nextZoomRaw.toFixed(2))));
-      setZoom(nextZoom);
-      setPan((prev) => clampPan(prev.x, prev.y, nextZoom));
-    },
-    [clampPan],
-  );
-
-  const onWheelZoom = useCallback(
-    (e: React.WheelEvent<HTMLDivElement>) => {
-      e.preventDefault();
-      applyZoom(zoom + (e.deltaY < 0 ? 0.2 : -0.2));
-    },
-    [applyZoom, zoom],
-  );
-
-  const onDoubleClickZoom = useCallback(() => {
-    applyZoom(zoom <= 1 ? 2 : 1);
-  }, [applyZoom, zoom]);
-
-  const onPointerDown = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>) => {
-      if (zoom <= 1) return;
-      setDragging(true);
-      dragStartRef.current = { x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y };
-      e.currentTarget.setPointerCapture(e.pointerId);
-    },
-    [pan.x, pan.y, zoom],
-  );
-
-  const onPointerMove = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>) => {
-      if (!dragging || zoom <= 1) return;
-      const dx = e.clientX - dragStartRef.current.x;
-      const dy = e.clientY - dragStartRef.current.y;
-      setPan(clampPan(dragStartRef.current.panX + dx, dragStartRef.current.panY + dy, zoom));
-    },
-    [clampPan, dragging, zoom],
-  );
-
-  const onPointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    setDragging(false);
-    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-      e.currentTarget.releasePointerCapture(e.pointerId);
-    }
-  }, []);
-
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (isTypingTarget(e.target)) return;
-      if (!(e.ctrlKey || e.metaKey)) return;
-      if (e.key === "+" || e.key === "=") {
-        e.preventDefault();
-        applyZoom(zoom + 0.2);
-        return;
-      }
-      if (e.key === "-") {
-        e.preventDefault();
-        applyZoom(zoom - 0.2);
-        return;
-      }
-      if (e.key === "0") {
-        e.preventDefault();
-        applyZoom(1);
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [applyZoom, zoom]);
-
-  if (!src || err) {
-    return (
-      <div className="flex flex-col items-center justify-center w-full h-full bg-slate-100 text-slate-400 gap-2 rounded-2xl">
-        <ImageOff size={40} className="opacity-40" />
-        <span className="text-xs font-medium">Sin imagen disponible</span>
-      </div>
-    );
-  }
-
-  return (
-    <div
-      ref={frameRef}
-      className="relative w-full h-full rounded-2xl overflow-hidden bg-slate-900/20 border border-white/5 shadow-[0_8px_26px_rgba(2,6,23,0.22)] select-none"
-      onWheel={onWheelZoom}
-      onDoubleClick={onDoubleClickZoom}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerCancel={onPointerUp}
-      tabIndex={-1}
-      title="Doble click o rueda para zoom. Arrastrar para mover."
-      style={{ cursor: zoom > 1 ? (dragging ? "grabbing" : "grab") : "zoom-in" }}
-    >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={src}
-        alt=""
-        aria-hidden
-        className="absolute inset-0 w-full h-full object-cover blur-2xl scale-110 opacity-30"
-      />
-      <div className="absolute inset-0 bg-gradient-to-b from-slate-900/18 via-slate-900/8 to-slate-900/20" />
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={src}
-        alt={`Exhibición ${idExhibicion}`}
-        className="relative z-[1] w-full h-full object-contain rounded-2xl p-1 md:p-2"
-        loading={priority ? "eager" : "lazy"}
-        onError={() => setErr(true)}
-        draggable={false}
-        style={{
-          transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-          transformOrigin: "center center",
-          transition: dragging ? "none" : "transform 120ms ease-out",
-        }}
-      />
-      <div className="absolute z-[2] left-2 bottom-2 text-[10px] px-1.5 py-0.5 rounded bg-black/35 text-white/80 font-mono">
-        {zoom.toFixed(1)}×
-      </div>
-    </div>
-  );
-}
-
 function useEagerPreload(grupos: GrupoPendiente[]) {
   useEffect(() => {
     if (!grupos.length) return;
     const allUrls = grupos
-      .flatMap((g) => (g.fotos ?? []).map((f) => resolveImageUrl(f.drive_link, f.id_exhibicion)))
+      .flatMap((g) => (g.fotos ?? []).map((f) => resolveVisorImageSrc(f.drive_link, f.id_exhibicion)))
       .filter((u): u is string => !!u);
     [...new Set(allUrls)].forEach((url) => {
       const img = new Image();
@@ -301,10 +154,50 @@ function ShortcutItem({
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-export default function VisorPage() {
-  const { user } = useAuth();
+export function VisorPageContent() {
+  const searchParams = useSearchParams();
+  const mockParam = searchParams.get("mock");
+  const publicDemo = useVisorPublicDemo();
+  const mockFitDemo = publicDemo || isVisorMockMode(mockParam);
+  const { user: authUser } = useAuth();
+  const user = publicDemo ? VISOR_DEMO_USER : authUser;
   const queryClient = useQueryClient();
   const lastEvalIds = useRef<number[]>([]);
+  const desktopFotoViewerRef = useRef<FotoViewerHandle>(null);
+  const mobileFotoViewerRef = useRef<FotoViewerHandle>(null);
+  const [photoZoom, setPhotoZoom] = useState(1);
+  const [photoBaselineZoom, setPhotoBaselineZoom] = useState(1);
+
+  const handlePhotoZoomChange = useCallback((user: number, baseline: number) => {
+    setPhotoZoom(user);
+    setPhotoBaselineZoom(baseline);
+  }, []);
+
+  const [isMdUp, setIsMdUp] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      window.matchMedia("(min-width: 768px)").matches,
+  );
+
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 768px)");
+    const apply = () => setIsMdUp(mq.matches);
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, []);
+
+  const getActiveFotoViewer = useCallback((): FotoViewerHandle | null => {
+    return isMdUp ? desktopFotoViewerRef.current : mobileFotoViewerRef.current;
+  }, [isMdUp]);
+
+  const photoZoomActions = useMemo(
+    () => ({
+      zoomIn: () => getActiveFotoViewer()?.zoomIn(),
+      zoomOut: () => getActiveFotoViewer()?.zoomOut(),
+      resetZoom: () => getActiveFotoViewer()?.resetZoom(),
+    }),
+    [getActiveFotoViewer],
+  );
 
   const {
     currentIndex, currentFotoIdx, vistas,
@@ -335,7 +228,7 @@ export default function VisorPage() {
   } = useQuery({
     queryKey: bundleKeys.visor(distId),
     queryFn: () => fetchVisorBundle(distId),
-    enabled: !!user && distId > 0,
+    enabled: !!user && distId > 0 && !mockFitDemo,
     staleTime: BUNDLE_STALE_MS,
     gcTime: BUNDLE_GC_MS,
     placeholderData: (prev) => prev,
@@ -344,17 +237,31 @@ export default function VisorPage() {
 
 
   // Extract data from bundle (field names adapted to match existing JSX)
-  const grupos: GrupoPendiente[] = (visorBundle?.pendientes ?? [])
+  const gruposFromApi: GrupoPendiente[] = (visorBundle?.pendientes ?? [])
     .filter((g) => Array.isArray(g.fotos) && g.fotos.length > 0) as GrupoPendiente[];
-  const stats = visorBundle?.stats
-    ? {
-        pendientes: visorBundle.stats.pendientes,
-        aprobadas: visorBundle.stats.aprobados,
-        rechazadas: 0, // not provided by bundle; display suppressed when 0
-        destacadas: visorBundle.stats.destacados,
-        total: visorBundle.stats.total,
-      }
-    : undefined;
+  const grupos: GrupoPendiente[] = mockFitDemo ? VISOR_MOCK_GRUPOS : gruposFromApi;
+
+  useEffect(() => {
+    if (!mockFitDemo) return;
+    setFiltroVendedor("Todos");
+    setFiltroSucursal("Todas");
+    setVisorTab("todas");
+    setCurrentIndex(0);
+    setCurrentFotoIdx(0);
+    resetGroupState();
+  }, [mockFitDemo, resetGroupState, setCurrentFotoIdx, setCurrentIndex]);
+
+  const stats = mockFitDemo
+    ? VISOR_DEMO_STATS
+    : visorBundle?.stats
+      ? {
+          pendientes: visorBundle.stats.pendientes,
+          aprobadas: visorBundle.stats.aprobados,
+          rechazadas: 0,
+          destacadas: visorBundle.stats.destacados,
+          total: visorBundle.stats.total,
+        }
+      : undefined;
 
   const { data: vendedores = [] } = useQuery({
     queryKey: ["vendedores", distId],
@@ -612,7 +519,12 @@ export default function VisorPage() {
       if (isTypingTarget(e.target)) return;
 
       const canEval =
-        grupo && todasVistas && !isValidacion && !mutationEvaluar.isPending && !isSubmittingRef.current;
+        !publicDemo &&
+        grupo &&
+        todasVistas &&
+        !isValidacion &&
+        !mutationEvaluar.isPending &&
+        !isSubmittingRef.current;
       const withMod = e.ctrlKey || e.metaKey;
 
       switch (e.key) {
@@ -760,6 +672,11 @@ export default function VisorPage() {
   }
 
   async function handleEvaluar(estado: "Aprobado" | "Destacado" | "Rechazado") {
+    if (publicDemo) {
+      setFlash({ msg: "Solo vista demo (sin guardar)", type: "err" });
+      setTimeout(() => setFlash(null), 2200);
+      return;
+    }
     if (!grupo || !user || mutationEvaluar.isPending || !todasVistas || isSubmittingRef.current) return;
     isSubmittingRef.current = true;
     const ids = fotosGrupo.map((f) => f.id_exhibicion);
@@ -782,7 +699,7 @@ export default function VisorPage() {
 
   // ── Loading state ─────────────────────────────────────────────────────────────
 
-  if (loadingPendientes) {
+  if (loadingPendientes && !mockFitDemo) {
     return (
       <div className="flex min-h-screen bg-[var(--shelfy-bg)]">
         <Sidebar />
@@ -1047,6 +964,30 @@ export default function VisorPage() {
 
         {/* Filter bar */}
         {filterBarContent}
+
+        {mockFitDemo && (
+          <div className="shrink-0 px-4 py-2 bg-violet-600/90 text-white text-xs font-semibold text-center border-b border-violet-500/50">
+            {publicDemo ? (
+              <>
+                Vista demo completa (PDV + evaluación simulados, sin login). Con sesión:{" "}
+                <a href="/visor?mock=fit" className="underline font-bold">
+                  /visor?mock=fit
+                </a>
+              </>
+            ) : (
+              <>
+                Mocks auto-fit (4 proporciones). Sin login:{" "}
+                <a href="/visor/demo" className="underline font-bold">
+                  /visor/demo
+                </a>
+                {" · "}Datos reales:{" "}
+                <a href="/visor?mock=live" className="underline font-bold">
+                  ?mock=live
+                </a>
+              </>
+            )}
+          </div>
+        )}
 
         {/* Content area */}
         <div className="flex-1 flex min-h-0">
@@ -1329,32 +1270,50 @@ export default function VisorPage() {
                 </div>
 
                 {/* ── CENTER CANVAS ───────────────────────────────────────── */}
-                <div className="flex-1 flex flex-col min-h-0 p-3 gap-2 relative">
+                <div className="order-first flex-1 flex flex-col min-h-0 min-w-0 relative z-[1]">
                   {/* Flash */}
                   {flashEl}
 
-                  {/* Image area */}
-                  <div className="flex-1 min-h-0 relative">
+                  {/* Image area — edge-to-edge, sin caja anidada */}
+                  <div className="flex-1 min-h-0 relative overflow-hidden">
                     <AnimatePresence mode="wait">
                       <motion.div
                         key={`${currentIndex}-${currentFotoIdx}`}
-                        initial={{ opacity: 0, x: 14 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0, x: -14 }}
-                        transition={{ duration: 0.2, ease: "easeOut" }}
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.18, ease: "easeOut" }}
                         className="absolute inset-0"
                       >
-                        <FotoViewer
-                          driveUrl={fotosGrupo[currentFotoIdx]?.drive_link ?? ""}
-                          idExhibicion={fotosGrupo[currentFotoIdx]?.id_exhibicion}
-                          priority
-                        />
+                        {isMdUp ? (
+                          <FotoViewer
+                            ref={desktopFotoViewerRef}
+                            driveUrl={fotosGrupo[currentFotoIdx]?.drive_link ?? ""}
+                            idExhibicion={fotosGrupo[currentFotoIdx]?.id_exhibicion}
+                            priority
+                            onZoomChange={handlePhotoZoomChange}
+                            overlay={
+                              !focusHoldActive ? (
+                                <VisorPhotoControls
+                                  zoomActions={photoZoomActions}
+                                  userZoom={photoZoom}
+                                  presentationZoom={photoBaselineZoom}
+                                  totalFotos={fotosGrupo.length}
+                                  currentFotoIdx={currentFotoIdx}
+                                  onPrevFoto={handlePrevFoto}
+                                  onNextFoto={handleNextFoto}
+                                  onSelectFoto={setCurrentFotoIdx}
+                                />
+                              ) : null
+                            }
+                          />
+                        ) : null}
                       </motion.div>
                     </AnimatePresence>
 
                     {/* Validation lock overlay */}
                     {isValidacion && (
-                      <div className="absolute inset-0 bg-amber-900/60 backdrop-blur-sm flex flex-col items-center justify-center gap-3 z-20 pointer-events-none rounded-2xl">
+                      <div className="absolute inset-0 bg-amber-900/60 backdrop-blur-sm flex flex-col items-center justify-center gap-3 z-20 pointer-events-none">
                         <Lock size={40} className="text-amber-200" />
                         <p className="text-white font-black text-base tracking-tight">VALIDACIÓN ERP</p>
                         <p className="text-amber-100 text-xs font-semibold text-center px-8">
@@ -1364,41 +1323,6 @@ export default function VisorPage() {
                       </div>
                     )}
 
-                    {/* Photo navigation arrows */}
-                    {fotosGrupo.length > 1 && (
-                      <>
-                        <button
-                          onClick={handlePrevFoto}
-                          disabled={currentFotoIdx === 0}
-                          className="absolute left-2 top-1/2 -translate-y-1/2 z-20 size-9 flex items-center justify-center rounded-full bg-black/40 backdrop-blur-md text-white border border-white/20 hover:bg-black/60 disabled:opacity-25 transition-all"
-                        >
-                          <ChevronLeft size={18} />
-                        </button>
-                        <button
-                          onClick={handleNextFoto}
-                          disabled={currentFotoIdx >= fotosGrupo.length - 1}
-                          className="absolute right-2 top-1/2 -translate-y-1/2 z-20 size-9 flex items-center justify-center rounded-full bg-black/40 backdrop-blur-md text-white border border-white/20 hover:bg-black/60 disabled:opacity-25 transition-all"
-                        >
-                          <ChevronRight size={18} />
-                        </button>
-                        {/* Photo dots */}
-                        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-10 flex items-center gap-1">
-                          {fotosGrupo.map((_, i) => (
-                            <button
-                              key={i}
-                              onClick={() => setCurrentFotoIdx(i)}
-                              className={cn(
-                                "rounded-full transition-all",
-                                i === currentFotoIdx
-                                  ? "w-4 h-2 bg-white"
-                                  : "size-2 bg-white/40 hover:bg-white/70"
-                              )}
-                            />
-                          ))}
-                        </div>
-                      </>
-                    )}
-
                     {/* Focus-hold hint (subtle) */}
                     <AnimatePresence>
                       {focusHoldActive && (
@@ -1406,7 +1330,7 @@ export default function VisorPage() {
                           initial={{ opacity: 0 }}
                           animate={{ opacity: 1 }}
                           exit={{ opacity: 0 }}
-                          className="absolute inset-0 z-30 rounded-2xl ring-4 ring-[var(--shelfy-primary)]/40 pointer-events-none"
+                          className="absolute inset-0 z-30 ring-4 ring-inset ring-[var(--shelfy-primary)]/40 pointer-events-none"
                         />
                       )}
                     </AnimatePresence>
@@ -1426,7 +1350,7 @@ export default function VisorPage() {
                           canRevertir={lastEvalIds.current.length > 0}
                           revertirPending={mutationRevertir.isPending}
                           evaluarPending={mutationEvaluar.isPending}
-                          evaluarDisabled={!todasVistas || isValidacion}
+                          evaluarDisabled={publicDemo || !todasVistas || isValidacion}
                           kbdLegend={kbdLegend}
                         />
                       </VisorEvalPanel>
@@ -1448,21 +1372,39 @@ export default function VisorPage() {
                 {flashEl}
 
                 {/* Canvas + overlays */}
-                <div className="flex-1 min-h-0 relative bg-[radial-gradient(circle_at_top,_rgba(148,163,184,0.18),_rgba(15,23,42,0.2)_52%,_rgba(2,6,23,0.35)_100%)]">
+                <div className="flex-1 min-h-0 relative">
                   <AnimatePresence mode="wait">
                     <motion.div
                       key={`mob-${currentIndex}-${currentFotoIdx}`}
-                      initial={{ opacity: 0, x: 14 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0, x: -14 }}
-                      transition={{ duration: 0.2 }}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.18 }}
                       className="absolute inset-0"
                     >
-                      <FotoViewer
-                        driveUrl={fotosGrupo[currentFotoIdx]?.drive_link ?? ""}
-                        idExhibicion={fotosGrupo[currentFotoIdx]?.id_exhibicion}
-                        priority
-                      />
+                      {!isMdUp ? (
+                        <FotoViewer
+                          ref={mobileFotoViewerRef}
+                          driveUrl={fotosGrupo[currentFotoIdx]?.drive_link ?? ""}
+                          idExhibicion={fotosGrupo[currentFotoIdx]?.id_exhibicion}
+                          priority
+                          onZoomChange={handlePhotoZoomChange}
+                          overlay={
+                            !focusHoldActive ? (
+                              <VisorPhotoControls
+                                zoomActions={photoZoomActions}
+                                userZoom={photoZoom}
+                                presentationZoom={photoBaselineZoom}
+                                totalFotos={fotosGrupo.length}
+                                currentFotoIdx={currentFotoIdx}
+                                onPrevFoto={handlePrevFoto}
+                                onNextFoto={handleNextFoto}
+                                onSelectFoto={setCurrentFotoIdx}
+                              />
+                            ) : null
+                          }
+                        />
+                      ) : null}
                     </motion.div>
                   </AnimatePresence>
 
@@ -1555,29 +1497,6 @@ export default function VisorPage() {
                     </div>
                   )}
 
-                  {/* Photo navigation */}
-                  {fotosGrupo.length > 1 && (
-                    <>
-                      <button
-                        onClick={handlePrevFoto}
-                        disabled={currentFotoIdx === 0}
-                        className="absolute left-2 top-1/2 -translate-y-1/2 z-20 size-9 flex items-center justify-center rounded-full bg-black/40 backdrop-blur-md text-white border border-white/20 hover:bg-black/60 disabled:opacity-25 transition-all"
-                      >
-                        <ChevronLeft size={18} />
-                      </button>
-                      <button
-                        onClick={handleNextFoto}
-                        disabled={currentFotoIdx >= fotosGrupo.length - 1}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 z-20 size-9 flex items-center justify-center rounded-full bg-black/40 backdrop-blur-md text-white border border-white/20 hover:bg-black/60 disabled:opacity-25 transition-all"
-                      >
-                        <ChevronRight size={18} />
-                      </button>
-                      <div className="absolute top-10 right-3 z-20 bg-black/35 backdrop-blur-md px-2 py-1 rounded-full text-white/90 text-[10px] font-bold font-mono border border-white/15">
-                        {currentFotoIdx + 1}/{fotosGrupo.length}
-                      </div>
-                    </>
-                  )}
-
                   {/* Mobile bottom bar */}
                   <AnimatePresence>
                     {!focusHoldActive && (
@@ -1634,21 +1553,21 @@ export default function VisorPage() {
                           </button>
                           <button
                             onClick={() => handleEvaluar("Rechazado")}
-                            disabled={mutationEvaluar.isPending || !todasVistas || isValidacion}
+                            disabled={publicDemo || mutationEvaluar.isPending || !todasVistas || isValidacion}
                             className="size-11 flex items-center justify-center rounded-full bg-[#fa5252] text-white shadow-[0_2px_10px_rgba(250,82,82,0.4)] disabled:opacity-20 transition-all active:scale-90"
                           >
                             <X size={20} strokeWidth={3.5} />
                           </button>
                           <button
                             onClick={() => handleEvaluar("Destacado")}
-                            disabled={mutationEvaluar.isPending || !todasVistas || isValidacion}
+                            disabled={publicDemo || mutationEvaluar.isPending || !todasVistas || isValidacion}
                             className="size-12 flex items-center justify-center rounded-full bg-[#f97316] text-white shadow-[0_2px_12px_rgba(249,115,22,0.45)] disabled:opacity-20 transition-all active:scale-90"
                           >
                             <Flame size={22} strokeWidth={3} className="fill-white/20" />
                           </button>
                           <button
                             onClick={() => handleEvaluar("Aprobado")}
-                            disabled={mutationEvaluar.isPending || !todasVistas || isValidacion}
+                            disabled={publicDemo || mutationEvaluar.isPending || !todasVistas || isValidacion}
                             className="size-11 flex items-center justify-center rounded-full bg-[#10b981] text-white shadow-[0_2px_10px_rgba(16,185,129,0.4)] disabled:opacity-20 transition-all active:scale-90"
                           >
                             <Check size={20} strokeWidth={3.5} />
@@ -1676,5 +1595,19 @@ export default function VisorPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function VisorPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen bg-[var(--shelfy-bg)] items-center justify-center">
+          <PageSpinner />
+        </div>
+      }
+    >
+      <VisorPageContent />
+    </Suspense>
   );
 }

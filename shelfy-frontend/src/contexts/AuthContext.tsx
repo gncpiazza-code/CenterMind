@@ -99,7 +99,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return (
       pathname === "/login" ||
       pathname === "/" ||
-      pathname.startsWith("/estadisticas/preview-fusion")
+      pathname.startsWith("/estadisticas/preview-fusion") ||
+      pathname.startsWith("/visor/demo")
     );
   }, []);
 

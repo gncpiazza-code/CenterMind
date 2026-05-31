@@ -22,6 +22,8 @@ import {
   visorQueryKeys,
 } from "@/lib/visor-query-keys";
 import { useVisorContextStore } from "@/store/useVisorContextStore";
+import { useVisorPublicDemo } from "@/components/visor/VisorDemoContext";
+import { VISOR_DEMO_ERP, VISOR_DEMO_PDV } from "@/lib/visor-demo-data";
 
 export function pdvContactoQueryOptions(
   distId: number,
@@ -113,6 +115,7 @@ export function useVisorClienteContext(params: {
   usaContextoErp: boolean;
 }) {
   const { distId, grupo, usaContextoErp } = params;
+  const publicDemo = useVisorPublicDemo();
   const nroForErp = visorErpFromGrupo(grupo);
   const skipErpFetch = visorErpSkip(nroForErp);
   const vendedor = grupo?.vendedor ?? "";
@@ -124,8 +127,10 @@ export function useVisorClienteContext(params: {
 
   const pdvQuery = useQuery({
     ...pdvContactoQueryOptions(distId, nroForErp, vendedor),
-    enabled: distId > 0 && !skipErpFetch,
+    enabled: distId > 0 && !skipErpFetch && !publicDemo,
+    initialData: publicDemo ? [VISOR_DEMO_PDV] : undefined,
     placeholderData: () => {
+      if (publicDemo) return [VISOR_DEMO_PDV];
       const cached = getPdvCached(distId, nroForErp);
       return cached;
     },
@@ -133,8 +138,10 @@ export function useVisorClienteContext(params: {
 
   const erpQuery = useQuery({
     ...erpContextoQueryOptions(distId, nroForErp),
-    enabled: usaContextoErp && distId > 0 && !skipErpFetch,
+    enabled: usaContextoErp && distId > 0 && !skipErpFetch && !publicDemo,
+    initialData: publicDemo ? VISOR_DEMO_ERP : undefined,
     placeholderData: () => {
+      if (publicDemo) return VISOR_DEMO_ERP;
       const cached = getErpCached(distId, nroForErp);
       if (cached === undefined) return undefined;
       return cached;
@@ -179,10 +186,17 @@ export function useVisorClienteContext(params: {
   }, [erpQuery.data]);
 
   const pdvResolved =
-    skipErpFetch || pdvQuery.isFetched || getPdvCached(distId, nroForErp) !== undefined;
-  const pdvLoading = !skipErpFetch && !pdvResolved;
+    publicDemo ||
+    skipErpFetch ||
+    pdvQuery.isFetched ||
+    getPdvCached(distId, nroForErp) !== undefined;
+  const pdvLoading = !publicDemo && !skipErpFetch && !pdvResolved;
   const loadingERP =
-    usaContextoErp && !skipErpFetch && erpQuery.isFetching && !erpQuery.data;
+    !publicDemo &&
+    usaContextoErp &&
+    !skipErpFetch &&
+    erpQuery.isFetching &&
+    !erpQuery.data;
 
   return {
     nroForErp,

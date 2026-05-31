@@ -1,0 +1,406 @@
+"use client";
+
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { ImageOff, Smartphone } from "lucide-react";
+import { resolveImageUrl } from "@/lib/api";
+import { parseIntrinsicFromSrc } from "@/components/visor/foto-viewer-intrinsic";
+import { cn } from "@/lib/utils";
+
+const PORTRAIT_ASPECT_MAX = 0.88;
+/** Zoom inicial vertical — más cerca para leer la exhibición. */
+const PORTRAIT_DEFAULT_USER_ZOOM = 1.48;
+/** Zoom “fit” — imagen completa en el canvas (reversible desde vertical). */
+export const FIT_ZOOM = 1;
+const ZOOM_MIN = FIT_ZOOM;
+const ZOOM_MAX = 5;
+const ZOOM_STEP = 0.35;
+
+export type FotoViewerHandle = {
+  zoomIn: () => void;
+  zoomOut: () => void;
+  resetZoom: () => void;
+  /** Returns the rendered <img> element for luminance sampling */
+  getImgElement: () => HTMLImageElement | null;
+};
+
+export function resolveVisorImageSrc(
+  driveUrl: string | null | undefined,
+  idExhibicion?: number,
+): string | null {
+  const raw = (driveUrl ?? "").trim();
+  if (!raw) return null;
+  if (raw.startsWith("data:") || raw.startsWith("blob:")) return raw;
+  if (raw.startsWith("/")) return raw;
+  return resolveImageUrl(raw, idExhibicion);
+}
+
+function isTypingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tag = target.tagName.toLowerCase();
+  return tag === "input" || tag === "textarea" || tag === "select" || target.isContentEditable;
+}
+
+function readNaturalSize(img: HTMLImageElement): { w: number; h: number } | null {
+  if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+    return { w: img.naturalWidth, h: img.naturalHeight };
+  }
+  const attrW = Number(img.getAttribute("width"));
+  const attrH = Number(img.getAttribute("height"));
+  if (attrW > 0 && attrH > 0) return { w: attrW, h: attrH };
+  if (img.width > 0 && img.height > 0) return { w: img.width, h: img.height };
+  return null;
+}
+
+/** Zoom de presentación inicial (vertical entra acercada). */
+function presentationZoomForPortrait(isPortrait: boolean): number {
+  return isPortrait ? PORTRAIT_DEFAULT_USER_ZOOM : FIT_ZOOM;
+}
+
+function isNearZoom(a: number, b: number, eps = 0.05): boolean {
+  return Math.abs(a - b) <= eps;
+}
+
+type FotoViewerProps = {
+  driveUrl: string;
+  idExhibicion?: number;
+  priority?: boolean;
+  /** Segundo valor = zoom de presentación (default vertical), no el mínimo. */
+  onZoomChange?: (userZoom: number, presentationZoom: number) => void;
+  /** Controles glass — deben vivir en el mismo shell que la foto para backdrop-filter. */
+  overlay?: ReactNode;
+};
+
+export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function FotoViewer(
+  { driveUrl, idExhibicion, priority = false, onZoomChange, overlay },
+  ref,
+) {
+  const [err, setErr] = useState(false);
+  const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null);
+  const [shellSize, setShellSize] = useState({ w: 0, h: 0 });
+  const [userZoom, setUserZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [dragging, setDragging] = useState(false);
+  const dragStartRef = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
+  const userZoomRef = useRef(1);
+  const presentationZoomRef = useRef(1);
+  const shellRef = useRef<HTMLDivElement | null>(null);
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  const src = resolveVisorImageSrc(driveUrl, idExhibicion);
+
+  const isPortrait = useMemo(() => {
+    if (!naturalSize) return false;
+    return naturalSize.w / naturalSize.h < PORTRAIT_ASPECT_MAX;
+  }, [naturalSize]);
+
+  const presentationZoom = useMemo(
+    () => presentationZoomForPortrait(isPortrait),
+    [isPortrait],
+  );
+
+  const shellW = shellSize.w > 0 ? shellSize.w : 640;
+  const shellH = shellSize.h > 0 ? shellSize.h : 480;
+
+  const availSize = useMemo(
+    () => ({
+      w: Math.max(1, shellW),
+      h: Math.max(1, shellH),
+    }),
+    [shellH, shellW],
+  );
+
+  const fitScale = useMemo(() => {
+    if (!naturalSize || availSize.w < 1 || availSize.h < 1) return 1;
+    return Math.min(availSize.w / naturalSize.w, availSize.h / naturalSize.h);
+  }, [availSize, naturalSize]);
+
+  const totalScale = fitScale * userZoom;
+
+  useEffect(() => {
+    userZoomRef.current = userZoom;
+  }, [userZoom]);
+
+  useEffect(() => {
+    presentationZoomRef.current = presentationZoom;
+  }, [presentationZoom]);
+
+  const notifyZoom = useCallback(
+    (zoom: number, baseline: number) => {
+      onZoomChange?.(zoom, baseline);
+    },
+    [onZoomChange],
+  );
+
+  const commitNatural = useCallback((size: { w: number; h: number } | null) => {
+    setNaturalSize(size);
+  }, []);
+
+  useEffect(() => {
+    const shell = shellRef.current;
+    if (!shell) return;
+    const measure = () => setShellSize({ w: shell.clientWidth, h: shell.clientHeight });
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(shell);
+    return () => ro.disconnect();
+  }, []);
+
+  useEffect(() => {
+    setErr(false);
+    setPan({ x: 0, y: 0 });
+    setDragging(false);
+
+    const intrinsic = parseIntrinsicFromSrc(src);
+    if (intrinsic) {
+      setNaturalSize(intrinsic);
+      const pres = presentationZoomForPortrait(
+        intrinsic.w / intrinsic.h < PORTRAIT_ASPECT_MAX,
+      );
+      userZoomRef.current = pres;
+      setUserZoom(pres);
+      notifyZoom(pres, pres);
+      return;
+    }
+
+    setNaturalSize(null);
+    userZoomRef.current = 1;
+    setUserZoom(1);
+    notifyZoom(1, 1);
+  }, [notifyZoom, src]);
+
+  useEffect(() => {
+    notifyZoom(userZoom, presentationZoom);
+  }, [presentationZoom, notifyZoom, userZoom]);
+
+  const clampPan = useCallback(
+    (nextX: number, nextY: number, zoom: number) => {
+      if (!naturalSize || zoom <= ZOOM_MIN + 0.02) return { x: 0, y: 0 };
+      const scale = fitScale * zoom;
+      const scaledW = naturalSize.w * scale;
+      const scaledH = naturalSize.h * scale;
+      const maxX = Math.max(0, (scaledW - availSize.w) / 2);
+      const maxY = Math.max(0, (scaledH - availSize.h) / 2);
+      return {
+        x: Math.max(-maxX, Math.min(maxX, nextX)),
+        y: Math.max(-maxY, Math.min(maxY, nextY)),
+      };
+    },
+    [availSize.h, availSize.w, fitScale, naturalSize],
+  );
+
+  const applyUserZoom = useCallback(
+    (nextZoomRaw: number) => {
+      const nextZoom = Math.max(
+        ZOOM_MIN,
+        Math.min(ZOOM_MAX, Number(nextZoomRaw.toFixed(2))),
+      );
+      userZoomRef.current = nextZoom;
+      setUserZoom(nextZoom);
+      setPan((prev) => clampPan(prev.x, prev.y, nextZoom));
+      notifyZoom(nextZoom, presentationZoomRef.current);
+    },
+    [clampPan, notifyZoom],
+  );
+
+  /** Alterna fit completo ↔ zoom de presentación (vertical). */
+  const togglePresentationZoom = useCallback(() => {
+    const pres = presentationZoomRef.current;
+    const current = userZoomRef.current;
+    const target = isNearZoom(current, ZOOM_MIN) ? pres : ZOOM_MIN;
+    userZoomRef.current = target;
+    setUserZoom(target);
+    setPan({ x: 0, y: 0 });
+    notifyZoom(target, pres);
+  }, [notifyZoom]);
+
+  const zoomIn = useCallback(() => {
+    applyUserZoom(userZoomRef.current + ZOOM_STEP);
+  }, [applyUserZoom]);
+
+  const zoomOut = useCallback(() => {
+    applyUserZoom(userZoomRef.current - ZOOM_STEP);
+  }, [applyUserZoom]);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      zoomIn,
+      zoomOut,
+      resetZoom: togglePresentationZoom,
+      getImgElement: () => imgRef.current,
+    }),
+    [togglePresentationZoom, zoomIn, zoomOut],
+  );
+
+  const onWheelZoom = useCallback(
+    (e: React.WheelEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      applyUserZoom(userZoomRef.current + (e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP));
+    },
+    [applyUserZoom],
+  );
+
+  const onDoubleClickZoom = useCallback(() => {
+    if (isNearZoom(userZoom, ZOOM_MIN)) applyUserZoom(presentationZoom);
+    else if (isNearZoom(userZoom, presentationZoom)) applyUserZoom(presentationZoom * 1.35);
+    else togglePresentationZoom();
+  }, [applyUserZoom, presentationZoom, togglePresentationZoom, userZoom]);
+
+  const onPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (userZoom <= ZOOM_MIN + 0.02) return;
+      setDragging(true);
+      dragStartRef.current = { x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y };
+      e.currentTarget.setPointerCapture(e.pointerId);
+    },
+    [pan.x, pan.y, userZoom],
+  );
+
+  const onPointerMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!dragging || userZoom <= ZOOM_MIN + 0.02) return;
+      const dx = e.clientX - dragStartRef.current.x;
+      const dy = e.clientY - dragStartRef.current.y;
+      setPan(clampPan(dragStartRef.current.panX + dx, dragStartRef.current.panY + dy, userZoom));
+    },
+    [clampPan, dragging, userZoom],
+  );
+
+  const onPointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    setDragging(false);
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+  }, []);
+
+  useEffect(() => {
+    const shell = shellRef.current;
+    if (!shell) return;
+    const onWheel = (e: WheelEvent) => {
+      if (isTypingTarget(e.target)) return;
+      e.preventDefault();
+      applyUserZoom(userZoomRef.current + (e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP));
+    };
+    shell.addEventListener("wheel", onWheel, { passive: false });
+    return () => shell.removeEventListener("wheel", onWheel);
+  }, [applyUserZoom]);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (isTypingTarget(e.target)) return;
+      if (!(e.ctrlKey || e.metaKey)) return;
+      if (e.key === "+" || e.key === "=") {
+        e.preventDefault();
+        zoomIn();
+        return;
+      }
+      if (e.key === "-") {
+        e.preventDefault();
+        zoomOut();
+        return;
+      }
+      if (e.key === "0") {
+        e.preventDefault();
+        togglePresentationZoom();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [togglePresentationZoom, zoomIn, zoomOut]);
+
+  if (!src || err) {
+    return (
+      <div className="flex flex-col items-center justify-center w-full h-full bg-slate-100 text-slate-400 gap-2">
+        <ImageOff size={40} className="opacity-40" />
+        <span className="text-xs font-medium">Sin imagen disponible</span>
+        {driveUrl ? (
+          <span className="text-[10px] text-slate-400 font-mono max-w-[90%] truncate">{driveUrl}</span>
+        ) : null}
+      </div>
+    );
+  }
+
+  const hasIntrinsic = naturalSize != null;
+  const displayW = hasIntrinsic ? naturalSize.w * totalScale : 0;
+  const displayH = hasIntrinsic ? naturalSize.h * totalScale : 0;
+  const canPan = userZoom > ZOOM_MIN + 0.02;
+
+  return (
+    <div
+      ref={shellRef}
+      className={cn(
+        "relative w-full h-full min-h-[200px] overflow-hidden select-none",
+        canPan ? (dragging ? "cursor-grabbing" : "cursor-grab") : "cursor-zoom-in",
+      )}
+      onWheel={onWheelZoom}
+      onDoubleClick={onDoubleClickZoom}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+      tabIndex={-1}
+      title={
+        isPortrait
+          ? "Vertical con zoom inicial. ↺ o − para ver imagen completa."
+          : "Ajuste al canvas. Rueda o botones para acercar."
+      }
+    >
+      <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
+        <div
+          className="shrink-0"
+          style={{
+            width: hasIntrinsic ? displayW : availSize.w,
+            height: hasIntrinsic ? displayH : availSize.h,
+            transform: `translate(${pan.x}px, ${pan.y}px)`,
+            transition: dragging
+              ? "none"
+              : "transform 140ms ease-out, width 140ms ease-out, height 140ms ease-out",
+          }}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            ref={imgRef}
+            src={src}
+            alt={`Exhibición ${idExhibicion ?? ""}`}
+            width={naturalSize?.w ?? undefined}
+            height={naturalSize?.h ?? undefined}
+            className={cn(
+              "block max-w-none w-full h-full",
+              !hasIntrinsic && "object-contain max-w-full max-h-full w-auto h-auto",
+            )}
+            style={
+              !hasIntrinsic
+                ? { maxWidth: availSize.w, maxHeight: availSize.h }
+                : undefined
+            }
+            loading={priority ? "eager" : "lazy"}
+            onLoad={(e) => {
+              const img = e.currentTarget;
+              const size = readNaturalSize(img) ?? parseIntrinsicFromSrc(src);
+              if (size) commitNatural(size);
+            }}
+            onError={() => setErr(true)}
+            draggable={false}
+          />
+        </div>
+      </div>
+
+      {isPortrait ? (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[2] flex items-center gap-1 px-2.5 py-1 rounded-full bg-black/35 backdrop-blur-[6px] border border-white/25 text-[9px] font-bold text-white/95 uppercase tracking-wide pointer-events-none">
+          <Smartphone size={10} />
+          Vertical
+        </div>
+      ) : null}
+
+      {overlay ? <div className="absolute inset-0 z-[20] pointer-events-none">{overlay}</div> : null}
+    </div>
+  );
+});

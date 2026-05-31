@@ -17,7 +17,7 @@ import { KpiHelpTip } from "@/components/estadisticas/KpiHelpTip";
 import { useEstadisticasStore } from "@/store/useEstadisticasStore";
 import type { VendorCartaResumen } from "@/lib/api";
 import {
-  useEstadisticasCartas,
+  useEstadisticasCartasBundle,
   useEstadisticasMeses,
   useEstadisticasSucursales,
 } from "@/hooks/useEstadisticasQueries";
@@ -94,11 +94,13 @@ export default function EstadisticasPage() {
   }, [mesesDisponibles, mesesSeleccionados, setMesesSeleccionados]);
 
   const {
-    data: vendors = [],
+    data: cartasBundle,
     isLoading: loadingCards,
     isFetching,
     isPlaceholderData,
-  } = useEstadisticasCartas(distId, mesesSeleccionados, filterSucursal);
+  } = useEstadisticasCartasBundle(distId, mesesSeleccionados, filterSucursal);
+
+  const vendors: VendorCartaResumen[] = cartasBundle?.cartas ?? [];
 
   const showLoadingStrip = loadingCards && vendors.length === 0;
   const showRefreshingOverlay =

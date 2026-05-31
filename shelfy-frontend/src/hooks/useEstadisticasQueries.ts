@@ -102,15 +102,14 @@ export function prefetchEstadisticasDetalle(
   void queryClient.prefetchQuery(detalleQueryOptions(distId, vendedorId, meses));
 }
 
-/** Precarga cartas al cambiar meses (misma sucursal) para navegación más fluida */
+/** Precarga cartas al cambiar meses (misma sucursal) — bundle snapshot */
 export function prefetchEstadisticasCartas(
   queryClient: QueryClient,
   distId: number,
   meses: string[],
   sucursal: string | null,
 ) {
-  if (!distId || meses.length === 0) return;
-  void queryClient.prefetchQuery(cartasQueryOptions(distId, meses, sucursal));
+  prefetchEstadisticasCartasBundle(queryClient, distId, meses, sucursal);
 }
 
 /** Vecinos del modal + cartas del período al montar la página */

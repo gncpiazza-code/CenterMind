@@ -41,6 +41,8 @@ import {
   type FuerzaVentasVendedorDetalle,
 } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
+import { formatExhibicionMeta90d } from "@/lib/fuerza-ventas-binding-utils";
+import type { TelegramIntegrante } from "@/lib/api";
 
 interface VendedorEditSheetProps {
   idVendedor: number | null;
@@ -87,6 +89,7 @@ export function VendedorEditSheet({ idVendedor, distId, open, onClose }: Vendedo
   const [activo, setActivo] = useState(true);
   const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
+  const [selectedUserIdSecondary, setSelectedUserIdSecondary] = useState<number | null>(null);
   const [uploadingFoto, setUploadingFoto] = useState(false);
   const [adoptingLegacy, setAdoptingLegacy] = useState(false);
 
@@ -109,8 +112,35 @@ export function VendedorEditSheet({ idVendedor, distId, open, onClose }: Vendedo
       setActivo(vendedor.activo ?? true);
       setSelectedGroupId(vendedor.telegram_group_id ?? null);
       setSelectedUserId(vendedor.telegram_user_id ?? null);
+      setSelectedUserIdSecondary(vendedor.telegram_user_id_secondary ?? null);
     }
   }, [vendedor]);
+
+  const usuariosOrdenados = [...usuarios].sort((a, b) => {
+    const ca = a.exhibiciones_90d ?? a.total_exhibiciones ?? 0;
+    const cb = b.exhibiciones_90d ?? b.total_exhibiciones ?? 0;
+    return cb - ca;
+  });
+
+  const renderUidOption = (u: TelegramIntegrante) => {
+    const uid = u.telegram_user_id;
+    if (uid == null) return null;
+    const meta = formatExhibicionMeta90d(
+      u.ultima_exhibicion_90d ?? u.ultima_exhibicion,
+      u.exhibiciones_90d ?? u.total_exhibiciones,
+    );
+    return (
+      <SelectItem key={`${u.id}-${uid}`} value={String(uid)} className="text-sm py-2.5">
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <span className="truncate">
+            {u.nombre_integrante}{" "}
+            <span className="text-muted-foreground font-mono text-[11px]">· {uid}</span>
+          </span>
+          <span className="truncate text-[11px] text-muted-foreground">{meta}</span>
+        </div>
+      </SelectItem>
+    );
+  };
 
   // Autocompletar
   const [autoLoading, setAutoLoading] = useState(false);
@@ -176,7 +206,17 @@ export function VendedorEditSheet({ idVendedor, distId, open, onClose }: Vendedo
       updateFuerzaVentasVendedor(
         idVendedor!,
         { nombre_erp: nombreErp || undefined, foto_url: fotoUrl || undefined, ciudad: ciudad || undefined, localidad: localidad || undefined, fecha_ingreso: fechaIngreso || undefined, activo },
-        selectedUserId != null ? { telegram_user_id: selectedUserId, telegram_group_id: selectedGroupId ?? undefined } : undefined,
+        selectedUserId != null
+          ? {
+              telegram_user_id: selectedUserId,
+              telegram_group_id: selectedGroupId ?? undefined,
+              telegram_user_id_secondary:
+                selectedUserIdSecondary != null &&
+                selectedUserIdSecondary !== selectedUserId
+                  ? selectedUserIdSecondary
+                  : undefined,
+            }
+          : undefined,
       ),
     onSuccess: () => {
       toast.success("Perfil guardado correctamente");
@@ -224,16 +264,6 @@ export function VendedorEditSheet({ idVendedor, distId, open, onClose }: Vendedo
       setAdoptingLegacy(false);
     }
   }, [idVendedor, qc, distId]);
-
-  const formatExhibicionMeta = useCallback((ultima?: string | null, total?: number) => {
-    const count = total ?? 0;
-    if (!count) return "Sin exhibiciones registradas";
-    const fecha = ultima ? new Date(ultima) : null;
-    const fechaLabel = fecha && !Number.isNaN(fecha.getTime())
-      ? fecha.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" })
-      : "s/f";
-    return `${count} exhibición${count === 1 ? "" : "es"} · última ${fechaLabel}`;
-  }, []);
 
   return (
     <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
@@ -446,7 +476,12 @@ export function VendedorEditSheet({ idVendedor, distId, open, onClose }: Vendedo
                   <Badge variant="secondary" className="text-[10px]">Sin vincular</Badge>
                 )}
                 {vendedor?.telegram_user_id && (
-                  <span className="text-xs ml-auto" style={{ color: "var(--shelfy-muted)" }}>UID: {vendedor.telegram_user_id}</span>
+                  <span className="text-xs ml-auto" style={{ color: "var(--shelfy-muted)" }}>
+                    UID: {vendedor.telegram_user_id}
+                    {vendedor.telegram_user_id_secondary
+                      ? ` + ${vendedor.telegram_user_id_secondary}`
+                      : ""}
+                  </span>
                 )}
               </div>
 
@@ -456,7 +491,11 @@ export function VendedorEditSheet({ idVendedor, distId, open, onClose }: Vendedo
                     <Label className="text-xs font-semibold" style={{ color: "var(--shelfy-muted)" }}>Grupo Telegram</Label>
                     <Select
                       value={selectedGroupId?.toString() ?? ""}
-                      onValueChange={(v) => { setSelectedGroupId(Number(v)); setSelectedUserId(null); }}
+                      onValueChange={(v) => {
+                        setSelectedGroupId(Number(v));
+                        setSelectedUserId(null);
+                        setSelectedUserIdSecondary(null);
+                      }}
                     >
                       <SelectTrigger className="mt-1 h-9 text-sm">
                         <SelectValue placeholder="Seleccionar grupo..." />
@@ -472,7 +511,9 @@ export function VendedorEditSheet({ idVendedor, distId, open, onClose }: Vendedo
                   </div>
 
                   <div>
-                    <Label className="text-xs font-semibold" style={{ color: "var(--shelfy-muted)" }}>Usuario Telegram</Label>
+                    <Label className="text-xs font-semibold" style={{ color: "var(--shelfy-muted)" }}>
+                      Usuario Telegram (principal)
+                    </Label>
                     <Select
                       value={selectedUserId?.toString() ?? ""}
                       onValueChange={(v) => setSelectedUserId(Number(v))}
@@ -482,18 +523,41 @@ export function VendedorEditSheet({ idVendedor, distId, open, onClose }: Vendedo
                         <SelectValue placeholder={selectedGroupId ? "Seleccionar usuario..." : "Primero elige grupo"} />
                       </SelectTrigger>
                       <SelectContent className="max-h-72">
-                        {usuarios.map((u) => (
-                          <SelectItem key={u.id} value={(u.telegram_user_id ?? u.id).toString()} className="text-sm py-2.5">
-                            <div className="flex min-w-0 flex-col gap-0.5">
-                              <span className="truncate">{u.nombre_integrante}</span>
-                              <span className="truncate text-[11px] text-muted-foreground">
-                                {formatExhibicionMeta(u.ultima_exhibicion, u.total_exhibiciones)}
-                              </span>
-                            </div>
-                          </SelectItem>
-                        ))}
+                        {usuariosOrdenados.map((u) => renderUidOption(u))}
                       </SelectContent>
                     </Select>
+                  </div>
+
+                  <div>
+                    <Label className="text-xs font-semibold" style={{ color: "var(--shelfy-muted)" }}>
+                      UID adicional (opcional)
+                    </Label>
+                    <Select
+                      value={
+                        selectedUserIdSecondary != null
+                          ? String(selectedUserIdSecondary)
+                          : "__none__"
+                      }
+                      onValueChange={(v) =>
+                        setSelectedUserIdSecondary(v === "__none__" ? null : Number(v))
+                      }
+                      disabled={!selectedGroupId}
+                    >
+                      <SelectTrigger className="mt-1 h-9 text-sm">
+                        <SelectValue placeholder="Sin UID adicional" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-72">
+                        <SelectItem value="__none__" className="text-sm">
+                          Sin UID adicional
+                        </SelectItem>
+                        {usuariosOrdenados
+                          .filter((u) => u.telegram_user_id !== selectedUserId)
+                          .map((u) => renderUidOption(u))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-[11px] mt-1" style={{ color: "var(--shelfy-muted)" }}>
+                      Si el vendedor cambió de cuenta Telegram, vinculá ambos UUID. Las stats de 90 días ayudan a elegir el activo.
+                    </p>
                   </div>
                 </div>
               )}

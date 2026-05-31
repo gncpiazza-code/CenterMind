@@ -703,6 +703,7 @@ export interface FuerzaVentasVendedor {
 export interface FuerzaVentasVendedorDetalle extends FuerzaVentasVendedor {
   id_sucursal: number | null;
   id_distribuidor: number;
+  telegram_user_id_secondary?: number | null;
   binding_updated_by: string | null;
   binding_updated_at: string | null;
 }
@@ -718,6 +719,7 @@ export interface FuerzaVentasPerfilUpdate {
 export interface FuerzaVentasTelegramBinding {
   telegram_group_id?: number;
   telegram_user_id?: number;
+  telegram_user_id_secondary?: number;
 }
 
 export interface AutocompletarResponse {
@@ -743,6 +745,9 @@ export interface TelegramIntegrante {
   telegram_user_id: number | null;
   rol_telegram: string | null;
   id_grupo: number | null;
+  exhibiciones_90d?: number;
+  ultima_exhibicion_90d?: string | null;
+  /** Alias legacy — mismos valores que exhibiciones_90d / ultima_exhibicion_90d */
   total_exhibiciones?: number;
   ultima_exhibicion?: string | null;
 }
@@ -3431,6 +3436,7 @@ export async function applyBindingDirect(
   idVendedorV2: number,
   performedBy: string,
   telegramUserId?: number | null,
+  telegramUserIdSecondary?: number | null,
 ): Promise<void> {
   await apiFetch<unknown>(`/api/fuerza-ventas/binding/apply/${distId}`, {
     method: "POST",
@@ -3438,6 +3444,7 @@ export async function applyBindingDirect(
       telegram_chat_id: telegramChatId,
       id_vendedor_v2: idVendedorV2,
       telegram_user_id: telegramUserId ?? undefined,
+      telegram_user_id_secondary: telegramUserIdSecondary ?? undefined,
       source: "portal",
       performed_by: performedBy,
     }),

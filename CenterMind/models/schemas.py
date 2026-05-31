@@ -257,6 +257,7 @@ class VendedorPerfilUpdateRequest(BaseModel):
 class VendedorTelegramBindingRequest(BaseModel):
     telegram_group_id: Optional[int] = None
     telegram_user_id: Optional[int] = None
+    telegram_user_id_secondary: Optional[int] = None
     autocompletado_origen: Optional[dict] = None
 
 
@@ -316,6 +317,7 @@ class GaleriaClienteCard(BaseModel):
     ultima_exhibicion_fecha: Optional[str] = None
     ultimo_estado: Optional[str] = None
     fecha_ultima_compra: Optional[str] = None
+    fecha_compra_anterior: Optional[str] = None
     ultimo_comprobante: Optional[UltimoComprobanteResumen] = None
     total_exhibiciones: int
     es_sin_referencia: bool = False
@@ -421,6 +423,7 @@ class GroupBindingApplyRequest(BaseModel):
     telegram_chat_id: int
     id_vendedor_v2: int
     telegram_user_id: Optional[int] = None
+    telegram_user_id_secondary: Optional[int] = None
     source: str = "portal"
     performed_by: str = "portal"
 

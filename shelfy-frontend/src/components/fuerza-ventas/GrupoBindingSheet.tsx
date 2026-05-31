@@ -22,10 +22,13 @@ import {
   unlinkBindingDirect,
   fetchBindingSuggest,
   fetchFuerzaVentasVendedores,
+  fetchFuerzaVentasVendedor,
   fetchTelegramUsuariosGrupoFuerzaVentas,
   type GrupoBindingStatus,
   type GroupBindingSuggestResponse,
+  type TelegramIntegrante,
 } from "@/lib/api";
+import { formatExhibicionMeta90d } from "@/lib/fuerza-ventas-binding-utils";
 import { useAuth } from "@/hooks/useAuth";
 import {
   Select,
@@ -74,6 +77,7 @@ export function GrupoBindingSheet({ grupo, distId, open, onClose }: Props) {
 
   const [vendedorId, setVendedorId] = useState<string>("");
   const [telegramUserId, setTelegramUserId] = useState<string>("");
+  const [telegramUserIdSecondary, setTelegramUserIdSecondary] = useState<string>("");
   const [suggestion, setSuggestion] = useState<GroupBindingSuggestResponse | null>(
     null,
   );
@@ -91,6 +95,20 @@ export function GrupoBindingSheet({ grupo, distId, open, onClose }: Props) {
     staleTime: 60_000,
   });
 
+  const { data: vendedorBinding } = useQuery({
+    queryKey: ["fv-vendedor", vendedorId],
+    queryFn: () => fetchFuerzaVentasVendedor(Number(vendedorId)),
+    enabled: open && !!vendedorId,
+    staleTime: 30_000,
+  });
+
+  useEffect(() => {
+    const sec = vendedorBinding?.telegram_user_id_secondary;
+    if (sec != null) {
+      setTelegramUserIdSecondary(String(sec));
+    }
+  }, [vendedorBinding?.telegram_user_id_secondary]);
+
   const { data: usuarios = [], isLoading: loadingUsuarios } = useQuery({
     queryKey: ["fv-usuarios", distId, chatId],
     queryFn: () => fetchTelegramUsuariosGrupoFuerzaVentas(distId, chatId ?? undefined),
@@ -104,6 +122,7 @@ export function GrupoBindingSheet({ grupo, distId, open, onClose }: Props) {
     setTelegramUserId(
       grupo.dominant_uploader_uid != null ? String(grupo.dominant_uploader_uid) : "",
     );
+    setTelegramUserIdSecondary("");
     setSuggestion(null);
     setPrefetchReady(false);
     skipVendorSuggest.current = false;
@@ -211,12 +230,16 @@ export function GrupoBindingSheet({ grupo, distId, open, onClose }: Props) {
         throw new Error("Seleccioná un vendedor ERP");
       }
       const uid = telegramUserId.trim() ? Number(telegramUserId) : null;
+      const uidSec = telegramUserIdSecondary.trim()
+        ? Number(telegramUserIdSecondary)
+        : null;
       await applyBindingDirect(
         distId,
         chatId,
         Number(vendedorId),
         username,
         uid,
+        uidSec != null && uidSec !== uid ? uidSec : null,
       );
     },
     onSuccess: () => {
@@ -324,6 +347,32 @@ export function GrupoBindingSheet({ grupo, distId, open, onClose }: Props) {
     a.nombre_erp.localeCompare(b.nombre_erp, "es"),
   );
 
+  const usuariosOrdenados = [...usuarios].sort((a, b) => {
+    const ca = a.exhibiciones_90d ?? a.total_exhibiciones ?? 0;
+    const cb = b.exhibiciones_90d ?? b.total_exhibiciones ?? 0;
+    return cb - ca;
+  });
+
+  const renderUidOption = (u: TelegramIntegrante) => {
+    const uid = u.telegram_user_id;
+    if (uid == null) return null;
+    const meta = formatExhibicionMeta90d(
+      u.ultima_exhibicion_90d ?? u.ultima_exhibicion,
+      u.exhibiciones_90d ?? u.total_exhibiciones,
+    );
+    return (
+      <SelectItem key={`uid-${uid}`} value={String(uid)} className="py-2.5">
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <span className="truncate text-sm">
+            {u.nombre_integrante}{" "}
+            <span className="font-mono text-[11px] text-muted-foreground">· {uid}</span>
+          </span>
+          <span className="text-[11px] text-muted-foreground">{meta}</span>
+        </div>
+      </SelectItem>
+    );
+  };
+
   const vendorCandidates = suggestion?.vendedor_candidates ?? [];
   const vendorHint = suggestion?.vendedor_sugerido;
   const uidHint = suggestion?.uid_sugerido;
@@ -415,7 +464,7 @@ export function GrupoBindingSheet({ grupo, distId, open, onClose }: Props) {
             </div>
 
             <div className="space-y-2">
-              <Label>Usuario Telegram (UID)</Label>
+              <Label>Usuario Telegram (UID principal)</Label>
               {usuarios.length > 0 ? (
                 <Select
                   value={telegramUserId || undefined}
@@ -425,17 +474,8 @@ export function GrupoBindingSheet({ grupo, distId, open, onClose }: Props) {
                   <SelectTrigger>
                     <SelectValue placeholder="Integrante del grupo..." />
                   </SelectTrigger>
-                  <SelectContent>
-                    {usuarios.map((u) =>
-                      u.telegram_user_id != null ? (
-                        <SelectItem
-                          key={u.id}
-                          value={String(u.telegram_user_id)}
-                        >
-                          {u.nombre_integrante} ({u.telegram_user_id})
-                        </SelectItem>
-                      ) : null,
-                    )}
+                  <SelectContent className="max-h-72">
+                    {usuariosOrdenados.map((u) => renderUidOption(u))}
                   </SelectContent>
                 </Select>
               ) : null}
@@ -459,8 +499,47 @@ export function GrupoBindingSheet({ grupo, distId, open, onClose }: Props) {
                 />
               )}
               <p className="text-xs text-muted-foreground">
-                Uploader principal del grupo. Se infiere por integrantes, historial y
-                exhibiciones recientes.
+                Subidas en los últimos 90 días y fecha de la última ayudan a identificar la cuenta activa.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label>UID adicional (opcional)</Label>
+              {usuarios.length > 0 ? (
+                <Select
+                  value={telegramUserIdSecondary || "__none__"}
+                  onValueChange={(v) => {
+                    setPrefetchReady(false);
+                    setTelegramUserIdSecondary(v === "__none__" ? "" : v);
+                  }}
+                  disabled={loadingUsuarios}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Sin segundo UUID" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-72">
+                    <SelectItem value="__none__">Sin UID adicional</SelectItem>
+                    {usuariosOrdenados
+                      .filter(
+                        (u) =>
+                          u.telegram_user_id != null &&
+                          String(u.telegram_user_id) !== telegramUserId,
+                      )
+                      .map((u) => renderUidOption(u))}
+                  </SelectContent>
+                </Select>
+              ) : null}
+              <Input
+                inputMode="numeric"
+                placeholder="Segundo UID si hubo cambio de cuenta"
+                value={telegramUserIdSecondary}
+                onChange={(e) => {
+                  setPrefetchReady(false);
+                  setTelegramUserIdSecondary(e.target.value.replace(/\D/g, ""));
+                }}
+              />
+              <p className="text-xs text-muted-foreground">
+                Vinculá ambos UUID cuando no estés seguro cuál sigue en uso.
               </p>
             </div>
 

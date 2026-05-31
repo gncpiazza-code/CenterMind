@@ -17,7 +17,7 @@ Rutas:
 """
 import logging
 import unicodedata
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 from uuid import uuid4
 
@@ -50,6 +50,13 @@ from models.schemas import (
 
 logger = logging.getLogger("ShelfyAPI")
 router = APIRouter()
+
+BINDING_EXHIB_DAYS = 90
+
+
+def _exhib_cutoff_iso_utc() -> str:
+    cutoff = datetime.now(timezone.utc) - timedelta(days=BINDING_EXHIB_DAYS)
+    return cutoff.isoformat()
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -229,7 +236,10 @@ def _resolve_binding_progressive(dist_id: int, id_vendedor: int) -> dict:
     try:
         b = (
             sb.table("vendedores_telegram_binding")
-            .select("telegram_group_id, telegram_user_id, updated_by, updated_at")
+            .select(
+                "telegram_group_id, telegram_user_id, telegram_user_id_secondary, "
+                "updated_by, updated_at"
+            )
             .eq("id_distribuidor", dist_id)
             .eq("id_vendedor_v2", id_vendedor)
             .limit(1)
@@ -241,6 +251,7 @@ def _resolve_binding_progressive(dist_id: int, id_vendedor: int) -> dict:
                 return {
                     "telegram_group_id": row.get("telegram_group_id"),
                     "telegram_user_id": row.get("telegram_user_id"),
+                    "telegram_user_id_secondary": row.get("telegram_user_id_secondary"),
                     "binding_source": "fuerza_ventas",
                     "binding_updated_by": row.get("updated_by"),
                     "binding_updated_at": row.get("updated_at"),
@@ -399,6 +410,7 @@ def fuerza_ventas_get_vendedor(id_vendedor: int, payload=Depends(verify_auth)):
             "activo": perfil.get("activo", True),
             "telegram_group_id": binding.get("telegram_group_id"),
             "telegram_user_id": binding.get("telegram_user_id"),
+            "telegram_user_id_secondary": binding.get("telegram_user_id_secondary"),
             "binding_updated_by": binding.get("binding_updated_by"),
             "binding_updated_at": binding.get("binding_updated_at"),
             "binding_source": binding.get("binding_source"),
@@ -472,18 +484,19 @@ def fuerza_ventas_update_vendedor(
                 }, on_conflict="id_distribuidor,id_vendedor_v2").execute()
 
                 tg_uid = _safe_int(binding_data.get("telegram_user_id"))
+                tg_uid_sec = _safe_int(binding_data.get("telegram_user_id_secondary"))
                 tg_gid = _safe_int(binding_data.get("telegram_group_id"))
-                if tg_uid is not None:
-                    # 1) El user Telegram elegido queda explícitamente vinculado al vendedor.
-                    integ_update = {"id_vendedor_v2": id_vendedor}
-                    if vendedor_erp:
-                        integ_update["id_vendedor_erp"] = vendedor_erp
-                    if tg_gid is not None:
-                        integ_update["telegram_group_id"] = tg_gid
-                    sb.table("integrantes_grupo").update(integ_update).eq("id_distribuidor", dist_id).eq("telegram_user_id", tg_uid).execute()
+                tg_uids = [u for u in (tg_uid, tg_uid_sec) if u is not None]
+                if tg_uids:
+                    from core.fv_telegram_binding import propagate_telegram_users_to_vendedor
 
-                    # 2) Evita dobles asignaciones del mismo vendedor a otros users.
-                    sb.table("integrantes_grupo").update({"id_vendedor_v2": None}).eq("id_distribuidor", dist_id).eq("id_vendedor_v2", id_vendedor).neq("telegram_user_id", tg_uid).execute()
+                    propagate_telegram_users_to_vendedor(
+                        dist_id,
+                        id_vendedor,
+                        vendedor_erp,
+                        tg_uids,
+                        tg_gid,
+                    )
 
         return {"ok": True, "id_vendedor": id_vendedor}
     except HTTPException:
@@ -729,6 +742,7 @@ def fuerza_ventas_list_usuarios_grupo(
             id_integrantes_for_stats.add(iid)
 
         exhib_stats: dict[tuple[str, int], dict] = {}
+        cutoff_iso = _exhib_cutoff_iso_utc()
         if id_integrantes_for_stats:
             exhibiciones: list[dict] = []
             batch, offset_e = 1000, 0
@@ -738,6 +752,7 @@ def fuerza_ventas_list_usuarios_grupo(
                     .select("id_integrante, timestamp_subida")
                     .eq("id_distribuidor", dist_id)
                     .in_("id_integrante", list(id_integrantes_for_stats))
+                    .gte("timestamp_subida", cutoff_iso)
                     .order("timestamp_subida", desc=True)
                     .range(offset_e, offset_e + batch - 1)
                     .execute()
@@ -758,17 +773,19 @@ def fuerza_ventas_list_usuarios_grupo(
                 timestamp = _safe_text(ex.get("timestamp_subida")) or None
                 if key not in exhib_stats:
                     exhib_stats[key] = {
-                        "total_exhibiciones": 0,
-                        "ultima_exhibicion": timestamp,
+                        "exhibiciones_90d": 0,
+                        "ultima_exhibicion_90d": timestamp,
                     }
-                exhib_stats[key]["total_exhibiciones"] += 1
-                prev_ts = exhib_stats[key].get("ultima_exhibicion")
+                exhib_stats[key]["exhibiciones_90d"] += 1
+                prev_ts = exhib_stats[key].get("ultima_exhibicion_90d")
                 if timestamp and (not prev_ts or timestamp > prev_ts):
-                    exhib_stats[key]["ultima_exhibicion"] = timestamp
+                    exhib_stats[key]["ultima_exhibicion_90d"] = timestamp
 
         out = []
         for key, row in normalized_rows.items():
             stats = exhib_stats.get(key, {})
+            ex90 = stats.get("exhibiciones_90d", 0)
+            ult90 = stats.get("ultima_exhibicion_90d")
             out.append(
                 {
                     "id": row.get("id_integrante"),
@@ -776,8 +793,10 @@ def fuerza_ventas_list_usuarios_grupo(
                     "telegram_user_id": row.get("telegram_user_id"),
                     "rol_telegram": row.get("rol_telegram"),
                     "id_grupo": row.get("telegram_group_id"),
-                    "total_exhibiciones": stats.get("total_exhibiciones", 0),
-                    "ultima_exhibicion": stats.get("ultima_exhibicion"),
+                    "exhibiciones_90d": ex90,
+                    "ultima_exhibicion_90d": ult90,
+                    "total_exhibiciones": ex90,
+                    "ultima_exhibicion": ult90,
                 }
             )
 
@@ -1938,6 +1957,7 @@ def binding_apply_direct(dist_id: int, req: GroupBindingApplyRequest, payload=De
             source=req.source or "manual_portal",
             performed_by=performed_by,
             telegram_user_id=req.telegram_user_id,
+            telegram_user_id_secondary=req.telegram_user_id_secondary,
         )
         return {
             "ok": True,
@@ -1945,6 +1965,7 @@ def binding_apply_direct(dist_id: int, req: GroupBindingApplyRequest, payload=De
             "telegram_chat_id": req.telegram_chat_id,
             "id_vendedor_v2": req.id_vendedor_v2,
             "telegram_user_id": req.telegram_user_id,
+            "telegram_user_id_secondary": req.telegram_user_id_secondary,
             "performed_by": performed_by,
         }
     except HTTPException:

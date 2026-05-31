@@ -816,6 +816,7 @@ def apply_group_binding(
     source: str = "manual",
     performed_by: str = "system",
     telegram_user_id: int | None = None,
+    telegram_user_id_secondary: int | None = None,
 ) -> None:
     """
     Vincula el grupo con el vendedor:
@@ -865,17 +866,56 @@ def apply_group_binding(
                 break
             offset += PAGE
 
+        tg_uids: list[int] = []
         if telegram_user_id is not None:
+            tg_uids.append(int(telegram_user_id))
+        if telegram_user_id_secondary is not None:
+            sec = int(telegram_user_id_secondary)
+            if sec not in tg_uids:
+                tg_uids.append(sec)
+
+        if telegram_user_id is not None or telegram_user_id_secondary is not None:
+            binding_row: dict = {
+                "id_distribuidor": dist_id,
+                "id_vendedor_v2": id_vendedor_v2,
+                "telegram_group_id": telegram_chat_id,
+                "updated_by": performed_by,
+            }
+            if telegram_user_id is not None:
+                binding_row["telegram_user_id"] = int(telegram_user_id)
+            if telegram_user_id_secondary is not None:
+                binding_row["telegram_user_id_secondary"] = int(telegram_user_id_secondary)
             sb.table("vendedores_telegram_binding").upsert(
-                {
-                    "id_distribuidor": dist_id,
-                    "id_vendedor_v2": id_vendedor_v2,
-                    "telegram_user_id": int(telegram_user_id),
-                    "telegram_group_id": telegram_chat_id,
-                    "updated_by": performed_by,
-                },
+                binding_row,
                 on_conflict="id_distribuidor,id_vendedor_v2",
             ).execute()
+
+        if tg_uids:
+            from core.fv_telegram_binding import propagate_telegram_users_to_vendedor
+
+            vendedor_erp = None
+            try:
+                from core.tenant_tables import tenant_table_name
+
+                t_v = tenant_table_name("vendedores_v2", dist_id)
+                v_r = (
+                    sb.table(t_v)
+                    .select("id_vendedor_erp")
+                    .eq("id_vendedor", id_vendedor_v2)
+                    .limit(1)
+                    .execute()
+                )
+                if v_r.data:
+                    vendedor_erp = str(v_r.data[0].get("id_vendedor_erp") or "") or None
+            except Exception:
+                pass
+            propagate_telegram_users_to_vendedor(
+                dist_id,
+                id_vendedor_v2,
+                vendedor_erp,
+                tg_uids,
+                telegram_chat_id,
+            )
 
         # Auditoría
         sb.table("telegram_binding_audit").insert({

@@ -12,6 +12,7 @@ import {
 } from "react";
 import { ImageOff } from "lucide-react";
 import { resolveImageUrl } from "@/lib/api";
+import { markVisorImageCached } from "@/lib/visor-image-prefetch";
 import { parseIntrinsicFromSrc } from "@/components/visor/foto-viewer-intrinsic";
 import { cn } from "@/lib/utils";
 
@@ -23,6 +24,8 @@ export const FIT_ZOOM = 1;
 const ZOOM_MIN = FIT_ZOOM;
 const ZOOM_MAX = 5;
 const ZOOM_STEP = 0.35;
+/** Paso más agresivo que los botones ± (doble clic ×4). */
+const DBL_CLICK_ZOOM_STEP = 0.75;
 
 export type FotoViewerHandle = {
   zoomIn: () => void;
@@ -200,17 +203,41 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
   );
 
   const applyUserZoom = useCallback(
-    (nextZoomRaw: number) => {
+    (
+      nextZoomRaw: number,
+      focal?: { clientX: number; clientY: number },
+    ) => {
       const nextZoom = Math.max(
         ZOOM_MIN,
         Math.min(ZOOM_MAX, Number(nextZoomRaw.toFixed(2))),
       );
+      const prevZoom = userZoomRef.current;
       userZoomRef.current = nextZoom;
       setUserZoom(nextZoom);
-      setPan((prev) => clampPan(prev.x, prev.y, nextZoom));
+
+      if (focal && shellRef.current && naturalSize && Math.abs(nextZoom - prevZoom) > 0.001) {
+        const rect = shellRef.current.getBoundingClientRect();
+        const relX = focal.clientX - rect.left;
+        const relY = focal.clientY - rect.top;
+        const shellCx = rect.width / 2;
+        const shellCy = rect.height / 2;
+        const factor = nextZoom / prevZoom;
+        setPan((prev) => {
+          const ox = relX - shellCx - prev.x;
+          const oy = relY - shellCy - prev.y;
+          return clampPan(
+            prev.x - ox * (factor - 1),
+            prev.y - oy * (factor - 1),
+            nextZoom,
+          );
+        });
+      } else {
+        setPan((prev) => clampPan(prev.x, prev.y, nextZoom));
+      }
+
       notifyZoom(nextZoom, presentationZoomRef.current);
     },
-    [clampPan, notifyZoom],
+    [clampPan, naturalSize, notifyZoom],
   );
 
   /** Alterna fit completo ↔ zoom de presentación (vertical). */
@@ -251,19 +278,25 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
     [applyUserZoom],
   );
 
-  const onDoubleClickZoom = useCallback(() => {
-    const pres = presentationZoomRef.current;
-    if (dblClickZoomCountRef.current >= 4) {
-      dblClickZoomCountRef.current = 0;
-      userZoomRef.current = pres;
-      setUserZoom(pres);
-      setPan({ x: 0, y: 0 });
-      notifyZoom(pres, pres);
-      return;
-    }
-    dblClickZoomCountRef.current += 1;
-    applyUserZoom(userZoomRef.current + ZOOM_STEP);
-  }, [applyUserZoom, notifyZoom]);
+  const onDoubleClickZoom = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      const pres = presentationZoomRef.current;
+      if (dblClickZoomCountRef.current >= 4) {
+        dblClickZoomCountRef.current = 0;
+        userZoomRef.current = pres;
+        setUserZoom(pres);
+        setPan({ x: 0, y: 0 });
+        notifyZoom(pres, pres);
+        return;
+      }
+      dblClickZoomCountRef.current += 1;
+      applyUserZoom(userZoomRef.current + DBL_CLICK_ZOOM_STEP, {
+        clientX: e.clientX,
+        clientY: e.clientY,
+      });
+    },
+    [applyUserZoom, notifyZoom],
+  );
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
@@ -368,9 +401,7 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
             width: hasIntrinsic ? displayW : availSize.w,
             height: hasIntrinsic ? displayH : availSize.h,
             transform: `translate(${pan.x}px, ${pan.y}px)`,
-            transition: dragging
-              ? "none"
-              : "transform 140ms ease-out, width 140ms ease-out, height 140ms ease-out",
+            transition: dragging ? "none" : "transform 90ms ease-out",
           }}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -393,6 +424,7 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
             crossOrigin={src && !src.startsWith("data:") && !src.startsWith("blob:") && !src.startsWith("/") ? "anonymous" : undefined}
             onLoad={(e) => {
               const img = e.currentTarget;
+              if (src) markVisorImageCached(src);
               const size = readNaturalSize(img) ?? parseIntrinsicFromSrc(src);
               if (size) commitNatural(size);
             }}

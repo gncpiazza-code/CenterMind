@@ -566,6 +566,7 @@ def _enrich_ultimas_dashboard_rows(rows: list[dict], distribuidor_id: int) -> li
 
 _ULTIMAS_ESTADOS = ("Aprobado", "Destacado", "Destacada")
 _MIN_ULTIMAS_HOY = 3
+_MAX_ULTIMAS_LOOKBACK_DAYS = 14
 _ULTIMAS_EX_SELECT = (
     "id_exhibicion,id_integrante,estado,url_foto_drive,timestamp_subida,evaluated_at,"
     "tipo_pdv,id_cliente_pdv,id_cliente,cliente_sombra_codigo"
@@ -599,34 +600,48 @@ def _ultimas_row_from_ex(ex: dict, seen_ex: set[int]) -> Optional[dict]:
     }
 
 
-def _fetch_ultimas_evaluadas_day(
+def _ultimas_day_bounds_ar(fecha) -> tuple[str, str]:
+    start_iso = f"{fecha.isoformat()}T03:00:00"
+    end_iso = f"{(fecha + timedelta(days=1)).isoformat()}T03:00:00"
+    return start_iso, end_iso
+
+
+def _fetch_ultimas_evaluadas_day_field(
     distribuidor_id: int,
     fecha,
     seen_ex: set[int],
+    *,
+    time_field: str,
+    require_null_evaluated_at: bool = False,
 ) -> list[dict]:
-    """Todas las evaluadas aprobadas/destacadas de un día calendario AR (sin tope por día)."""
-    start_iso = f"{fecha.isoformat()}T03:00:00"
-    end_iso = f"{(fecha + timedelta(days=1)).isoformat()}T03:00:00"
+    """Aprobadas/destacadas de un día calendario AR por `evaluated_at` o `timestamp_subida`."""
+    start_iso, end_iso = _ultimas_day_bounds_ar(fecha)
     page = 1000
     offset = 0
     day_rows: list[dict] = []
     while True:
         try:
-            chunk = (
+            q = (
                 sb.table("exhibiciones")
                 .select(_ULTIMAS_EX_SELECT)
                 .eq("id_distribuidor", distribuidor_id)
                 .in_("estado", list(_ULTIMAS_ESTADOS))
-                .gte("timestamp_subida", start_iso)
-                .lt("timestamp_subida", end_iso)
-                .order("timestamp_subida", desc=True)
+                .gte(time_field, start_iso)
+                .lt(time_field, end_iso)
+            )
+            if require_null_evaluated_at:
+                q = q.is_("evaluated_at", "null")
+            chunk = (
+                q.order(time_field, desc=True)
                 .range(offset, offset + page - 1)
                 .execute()
                 .data
                 or []
             )
         except Exception as e:
-            logger.warning(f"[ultimas] query exhibiciones dist={distribuidor_id} fecha={fecha}: {e}")
+            logger.warning(
+                f"[ultimas] query exhibiciones dist={distribuidor_id} fecha={fecha} field={time_field}: {e}"
+            )
             break
         for ex in chunk:
             row = _ultimas_row_from_ex(ex, seen_ex)
@@ -638,17 +653,41 @@ def _fetch_ultimas_evaluadas_day(
     return day_rows
 
 
+def _fetch_ultimas_evaluadas_day(
+    distribuidor_id: int,
+    fecha,
+    seen_ex: set[int],
+) -> list[dict]:
+    """Día AR: prioriza `evaluated_at`; legacy sin evaluación usa `timestamp_subida`."""
+    rows = _fetch_ultimas_evaluadas_day_field(
+        distribuidor_id, fecha, seen_ex, time_field="evaluated_at"
+    )
+    rows.extend(
+        _fetch_ultimas_evaluadas_day_field(
+            distribuidor_id,
+            fecha,
+            seen_ex,
+            time_field="timestamp_subida",
+            require_null_evaluated_at=True,
+        )
+    )
+    return rows
+
+
 def _fetch_ultimas_evaluadas_rows(distribuidor_id: int, n: int) -> list[dict]:
     """
-    Carrusel dashboard: todas las del día AR actual; si hay menos de 3, suma las de ayer.
-    Sin máximo por día. n<=0 devuelve el pool completo; n>0 recorta el total.
+    Carrusel dashboard: recorre hasta 14 días AR hacia atrás hasta reunir suficientes historias.
+    n<=0 devuelve el pool completo; n>0 recorta el total.
     """
     ar_today = (datetime.utcnow() - timedelta(hours=3)).date()
     seen_ex: set[int] = set()
-    pool = _fetch_ultimas_evaluadas_day(distribuidor_id, ar_today, seen_ex)
-    if len(pool) < _MIN_ULTIMAS_HOY:
-        ayer = ar_today - timedelta(days=1)
-        pool.extend(_fetch_ultimas_evaluadas_day(distribuidor_id, ayer, seen_ex))
+    pool: list[dict] = []
+    target = max(n, _MIN_ULTIMAS_HOY) if n > 0 else _MIN_ULTIMAS_HOY
+    for days_back in range(_MAX_ULTIMAS_LOOKBACK_DAYS):
+        fecha = ar_today - timedelta(days=days_back)
+        pool.extend(_fetch_ultimas_evaluadas_day(distribuidor_id, fecha, seen_ex))
+        if len(pool) >= target:
+            break
     pool.sort(key=_ultimas_sort_key, reverse=True)
     if n > 0:
         return pool[:n]

@@ -172,11 +172,15 @@ export default function DashboardPage() {
     : ranking;
 
   const ultimasCoherentes = filterUltimasCoherentes(ultimas, rankingFiltrado);
-  // Si el filtro de ciudad deja vacío el hero pero hay últimas, mostrar las asignadas al vendedor
+  const ultimasAsignadas = ultimas.filter((u) => u.pdv_asignado_vendedor !== false);
+  const ultimasNoRechazadas = ultimas.filter((u) => !/rechaz/i.test(u.estado ?? ""));
+  // Fallbacks: coherentes → asignadas al vendedor → cualquier evaluada no rechazada (evita hero vacío)
   const ultimasHero =
     ultimasCoherentes.length > 0
       ? ultimasCoherentes
-      : ultimas.filter((u) => u.pdv_asignado_vendedor !== false);
+      : ultimasAsignadas.length > 0
+        ? ultimasAsignadas
+        : ultimasNoRechazadas;
 
   return (
     <div className={cn(

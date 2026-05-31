@@ -38,6 +38,12 @@ import { Button } from "@/components/ui/Button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { daysSinceFechaAR } from "@/lib/fecha-ar";
+import {
+  isVisorImageCached,
+  preloadVisorFotoNeighbors,
+  preloadVisorImageUrl,
+  preloadVisorQueueIdle,
+} from "@/lib/visor-image-prefetch";
 import { UltimaCompraRemitoCard } from "@/components/visor/UltimaCompraDetalle";
 import { VisorRemitoFocusLayout } from "@/components/visor/VisorRemitoFocusLayout";
 import { VisorMetaMinimizedBar } from "@/components/visor/VisorMetaMinimizedBar";
@@ -114,20 +120,6 @@ function saveCommentTemplates(templates: string[]) {
   } catch {
     /* ignore */
   }
-}
-
-
-function useEagerPreload(grupos: GrupoPendiente[]) {
-  useEffect(() => {
-    if (!grupos.length) return;
-    const allUrls = grupos
-      .flatMap((g) => (g.fotos ?? []).map((f) => resolveVisorImageSrc(f.drive_link, f.id_exhibicion)))
-      .filter((u): u is string => !!u);
-    [...new Set(allUrls)].forEach((url) => {
-      const img = new Image();
-      img.src = url;
-    });
-  }, [grupos]);
 }
 
 // ── Subcomponents for panels ──────────────────────────────────────────────────
@@ -355,7 +347,34 @@ export function VisorPageContent() {
   const todasVistas = vistas.size >= totalFotos;
   const isValidacion = fotosGrupo.some((f) => f.estado === "VALIDACION");
 
-  useEagerPreload(filtrados);
+  const currentFotoSrc = useMemo(
+    () =>
+      resolveVisorImageSrc(
+        fotosGrupo[currentFotoIdx]?.drive_link ?? "",
+        fotosGrupo[currentFotoIdx]?.id_exhibicion,
+      ),
+    [fotosGrupo, currentFotoIdx],
+  );
+  const fotoCached = isVisorImageCached(currentFotoSrc);
+  const fotoMotion = useMemo(
+    () => ({
+      initial: { opacity: fotoCached ? 1 : 0 },
+      animate: { opacity: 1 },
+      exit: { opacity: 0 },
+      transition: { duration: fotoCached ? 0.04 : 0.07, ease: "linear" as const },
+    }),
+    [fotoCached],
+  );
+
+  useEffect(() => {
+    if (!filtrados.length) return;
+    preloadVisorFotoNeighbors(filtrados, currentIndex, currentFotoIdx);
+  }, [filtrados, currentIndex, currentFotoIdx]);
+
+  useEffect(() => {
+    if (!filtrados.length) return;
+    preloadVisorQueueIdle(filtrados);
+  }, [filtrados]);
 
   // ── Mutations ────────────────────────────────────────────────────────────────
 
@@ -680,10 +699,16 @@ export function VisorPageContent() {
   }
 
   function handleNextFoto() {
-    setCurrentFotoIdx(Math.min(totalFotos - 1, currentFotoIdx + 1));
+    const next = Math.min(totalFotos - 1, currentFotoIdx + 1);
+    const f = fotosGrupo[next];
+    if (f) void preloadVisorImageUrl(resolveVisorImageSrc(f.drive_link, f.id_exhibicion));
+    setCurrentFotoIdx(next);
   }
   function handlePrevFoto() {
-    setCurrentFotoIdx(Math.max(0, currentFotoIdx - 1));
+    const prev = Math.max(0, currentFotoIdx - 1);
+    const f = fotosGrupo[prev];
+    if (f) void preloadVisorImageUrl(resolveVisorImageSrc(f.drive_link, f.id_exhibicion));
+    setCurrentFotoIdx(prev);
   }
 
   async function handleRevertir() {
@@ -1271,13 +1296,13 @@ export function VisorPageContent() {
 
                   {/* Image area — edge-to-edge, sin caja anidada */}
                   <div className="flex-1 min-h-0 relative overflow-hidden">
-                    <AnimatePresence mode="wait">
+                    <AnimatePresence initial={false}>
                       <motion.div
                         key={`${currentIndex}-${currentFotoIdx}`}
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        transition={{ duration: 0.18, ease: "easeOut" }}
+                        initial={fotoMotion.initial}
+                        animate={fotoMotion.animate}
+                        exit={fotoMotion.exit}
+                        transition={fotoMotion.transition}
                         className="absolute inset-0"
                       >
                         {isMdUp ? (
@@ -1368,13 +1393,13 @@ export function VisorPageContent() {
 
                 {/* Canvas + overlays */}
                 <div className="flex-1 min-h-0 relative">
-                  <AnimatePresence mode="wait">
+                  <AnimatePresence initial={false}>
                     <motion.div
                       key={`mob-${currentIndex}-${currentFotoIdx}`}
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ duration: 0.18 }}
+                      initial={fotoMotion.initial}
+                      animate={fotoMotion.animate}
+                      exit={fotoMotion.exit}
+                      transition={fotoMotion.transition}
                       className="absolute inset-0"
                     >
                       {!isMdUp ? (

@@ -15,6 +15,11 @@ import { GlassIcon } from "@/components/visor/VisorGlassVibrancy";
 import { useVisorGlassGlyphMode } from "@/components/visor/useVisorGlassGlyphMode";
 import { cn } from "@/lib/utils";
 
+/** Evita que FotoViewer capture el puntero / doble-clic al usar la píldora con zoom. */
+function stopShellPointerBubble(e: React.SyntheticEvent) {
+  e.stopPropagation();
+}
+
 type Props = {
   viewerRef?: React.RefObject<FotoViewerHandle | null>;
   zoomActions?: VisorPhotoZoomActions;
@@ -69,8 +74,9 @@ export function VisorPhotoControls({
 
   return (
     <div
+      data-visor-photo-controls
       className={cn(
-        "absolute inset-x-0 bottom-0 flex justify-center px-3 pointer-events-none",
+        "absolute inset-x-0 bottom-0 z-30 flex justify-center px-3 pointer-events-none",
         "pb-[max(1rem,env(safe-area-inset-bottom))]",
         "max-md:pb-[max(5.75rem,env(safe-area-inset-bottom))]",
         className,
@@ -88,6 +94,7 @@ export function VisorPhotoControls({
             <button
               type="button"
               onClick={onPrevFoto}
+              onPointerDown={stopShellPointerBubble}
               disabled={currentFotoIdx === 0}
               className={WATER_GLASS_BTN_BASE}
               aria-label="Foto anterior"
@@ -107,6 +114,7 @@ export function VisorPhotoControls({
                     key={i}
                     type="button"
                     onClick={() => onSelectFoto(i)}
+                    onPointerDown={stopShellPointerBubble}
                     className={waterGlassDotClass(i === currentFotoIdx)}
                     aria-label={`Foto ${i + 1}`}
                   />
@@ -137,6 +145,7 @@ export function VisorPhotoControls({
             <button
               type="button"
               onClick={onNextFoto}
+              onPointerDown={stopShellPointerBubble}
               disabled={currentFotoIdx >= totalFotos - 1}
               className={WATER_GLASS_BTN_BASE}
               aria-label="Foto siguiente"

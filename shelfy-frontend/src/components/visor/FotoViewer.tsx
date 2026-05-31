@@ -311,6 +311,9 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
 
   const onDoubleClickZoom = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
+      if (e.target instanceof Element && e.target.closest("[data-visor-photo-controls]")) {
+        return;
+      }
       e.preventDefault();
       e.stopPropagation();
       const pres = presentationZoomRef.current;
@@ -336,6 +339,10 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
+      const target = e.target;
+      if (target instanceof Element && target.closest("[data-visor-photo-controls]")) {
+        return;
+      }
       trackPointer(e.clientX, e.clientY);
       if (userZoom <= ZOOM_MIN + 0.02) return;
       setDragging(true);
@@ -489,7 +496,9 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
         </div>
       </div>
 
-      {overlay ? <div className="absolute inset-0 z-[20] pointer-events-none">{overlay}</div> : null}
+      {overlay ? (
+        <div className="absolute inset-0 z-[30] pointer-events-none">{overlay}</div>
+      ) : null}
     </div>
   );
 });

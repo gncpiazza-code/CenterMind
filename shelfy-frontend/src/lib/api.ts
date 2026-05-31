@@ -514,6 +514,9 @@ export async function fetchEvolucionTiempo(distribuidorId: number, periodo: stri
 export interface BundleMeta {
   generated_at?: string;
   cache_hit?: boolean;
+  stale?: boolean;
+  revalidating?: boolean;
+  age_seconds?: number;
   periodo?: string;
   sucursal_id?: string | null;
   dist_id?: number;
@@ -692,6 +695,17 @@ export interface VisorBundle {
 
 export async function fetchVisorBundle(distId: number): Promise<VisorBundle> {
   return apiFetch<VisorBundle>(`/api/bundle/visor/${distId}`);
+}
+
+/** Pre-calienta snapshots en background (202 Accepted, no bloquea). */
+export async function warmPortalBundles(
+  distId: number,
+  domains?: string[],
+): Promise<void> {
+  const q = domains?.length ? `?domains=${encodeURIComponent(domains.join(","))}` : "";
+  await apiFetch<{ ok: boolean }>(`/api/bundle/warm/${distId}${q}`, {
+    method: "POST",
+  });
 }
 
 export async function fetchRendimientoCiudad(distribuidorId: number, periodo: string = "mes", sucursalId?: string): Promise<RendimientoCiudad[]> {

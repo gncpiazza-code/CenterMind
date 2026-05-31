@@ -12,7 +12,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response, status
 
 from core.helpers import should_apply_exhibicion_qa_filter
 from core.security import verify_auth, check_dist_permission
@@ -20,6 +20,7 @@ from services.snapshot_dashboard_service import get_or_refresh_dashboard
 from services.snapshot_supervision_service import get_or_refresh_supervision
 from services.snapshot_estadisticas_service import get_or_refresh_estadisticas
 from services.snapshot_visor_service import get_or_refresh_visor
+from services.snapshot_refresh_service import warm_portal_bundles
 
 logger = logging.getLogger("bundle_router")
 router = APIRouter(prefix="/api/bundle", tags=["Bundle"])
@@ -89,3 +90,27 @@ def bundle_visor(
     check_dist_permission(payload, dist_id)
     hide_qa = should_apply_exhibicion_qa_filter(dist_id, payload)
     return get_or_refresh_visor(dist_id, hide_qa=hide_qa)
+
+
+@router.post("/warm/{dist_id}", status_code=status.HTTP_202_ACCEPTED)
+def bundle_warm(
+    dist_id: int,
+    response: Response,
+    domains: Optional[str] = Query(
+        None,
+        description="CSV de dominios: dashboard,supervision,estadisticas,visor. Default: todos.",
+    ),
+    payload=Depends(verify_auth),
+):
+    """
+    Pre-calienta snapshots en background (fire-and-forget).
+    No bloquea; útil post-login o desde cron externo.
+    """
+    check_dist_permission(payload, dist_id)
+    domain_list: list[str] | None = None
+    if domains:
+        domain_list = [d.strip() for d in domains.split(",") if d.strip()]
+    warm_portal_bundles(dist_id, domain_list)
+    warmed = domain_list or ["dashboard", "estadisticas", "supervision", "visor"]
+    response.headers["X-Bundle-Warm"] = "accepted"
+    return {"ok": True, "dist_id": dist_id, "warming": warmed}

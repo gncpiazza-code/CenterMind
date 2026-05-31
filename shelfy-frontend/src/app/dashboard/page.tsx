@@ -38,6 +38,7 @@ import {
   type DashboardLayoutConfig,
 } from "@/lib/dashboard-layout";
 import { DashboardLayoutTuner } from "@/components/dashboard/DashboardLayoutTuner";
+import { BundleRevalidatingBadge } from "@/components/shared/BundleRevalidatingBadge";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -119,7 +120,8 @@ export default function DashboardPage() {
     placeholderData: (prev) => prev,
     staleTime: BUNDLE_STALE_MS,
     gcTime: BUNDLE_GC_MS,
-    refetchInterval: 300_000,
+    refetchInterval: (query) =>
+      query.state.data?.meta?.revalidating ? 15_000 : 300_000,
   });
 
   // Desestructurar para mantener compatibilidad con el JSX existente
@@ -129,7 +131,8 @@ export default function DashboardPage() {
   const sucursales = bundle?.sucursales ?? [];
   const evolucion = bundle?.evolucion ?? [];
 
-  const loading = loadingBundle;
+  const revalidating = !!bundle?.meta?.revalidating;
+  const loading = loadingBundle && !bundle;
   const loadingHero = loadingBundle && !bundle;
   const error = errorBundle;
 
@@ -202,6 +205,12 @@ export default function DashboardPage() {
 
         {!isFullscreen && <Topbar title="Dashboard" live />}
 
+        {revalidating && (
+          <div className="shrink-0 px-4 md:px-6 pb-1 z-10">
+            <BundleRevalidatingBadge visible />
+          </div>
+        )}
+
         <main className={cn(
           "flex-1 flex flex-col min-h-0 overflow-hidden p-4 md:p-6 pb-20 md:pb-4 w-full max-w-[1800px] mx-auto z-10",
           isFullscreen && "pb-4",
@@ -231,7 +240,7 @@ export default function DashboardPage() {
               <DashboardKpiCarousel
                 kpis={kpis}
                 evolucion={evolucion}
-                loading={loadingBundle}
+                loading={loading && !kpis}
                 isDark={isDark}
                 bandHeightPx={dashLayout.kpiHeightPx}
                 chartYear={bounds.start.getFullYear()}

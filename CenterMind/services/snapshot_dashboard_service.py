@@ -12,13 +12,36 @@ from datetime import datetime, timezone, timedelta
 from typing import Any
 
 from db import sb
+from services.snapshot_common import (
+    apply_meta_flags,
+    is_fresh,
+    is_serveable_stale,
+    trigger_background_refresh,
+)
 
 logger = logging.getLogger("snapshot_dashboard_service")
 
-DASHBOARD_MAX_STALE_SECONDS = 300  # 5 min
+DASHBOARD_MAX_STALE_SECONDS = 300  # 5 min fresh TTL
+DASHBOARD_SERVE_STALE_SECONDS = 86400  # 24 h — SWR serve window
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
+
+def _refresh_dashboard_background(
+    dist_id: int,
+    periodo: str,
+    sucursal_id: str | None,
+    hide_qa: bool,
+) -> None:
+    payload = _compute_dashboard(dist_id, periodo, sucursal_id, hide_qa)
+    apply_meta_flags(
+        payload.setdefault("meta", {}),
+        cache_hit=False,
+        stale=False,
+        revalidating=False,
+    )
+    _upsert_dashboard_snapshot(dist_id, periodo, sucursal_id, payload)
+
 
 def get_or_refresh_dashboard(
     dist_id: int,
@@ -27,12 +50,40 @@ def get_or_refresh_dashboard(
     hide_qa: bool = False,
 ) -> dict:
     snap = _read_dashboard_snapshot(dist_id, periodo, sucursal_id)
-    if snap is not None and _is_fresh(snap["generated_at"], DASHBOARD_MAX_STALE_SECONDS):
-        payload = _normalize_dashboard_payload(snap["payload"], dist_id)
-        payload.setdefault("meta", {})["cache_hit"] = True
-        return payload
+    if snap is not None:
+        gen = snap["generated_at"]
+        if is_fresh(gen, DASHBOARD_MAX_STALE_SECONDS):
+            payload = _normalize_dashboard_payload(snap["payload"], dist_id)
+            apply_meta_flags(
+                payload.setdefault("meta", {}),
+                cache_hit=True,
+                stale=False,
+                revalidating=False,
+                generated_at=gen,
+            )
+            return payload
+        if is_serveable_stale(gen, DASHBOARD_SERVE_STALE_SECONDS):
+            payload = _normalize_dashboard_payload(snap["payload"], dist_id)
+            apply_meta_flags(
+                payload.setdefault("meta", {}),
+                cache_hit=False,
+                stale=True,
+                revalidating=True,
+                generated_at=gen,
+            )
+            key = f"dashboard:{dist_id}:{periodo}:{sucursal_id}:{hide_qa}"
+            trigger_background_refresh(
+                key,
+                lambda: _refresh_dashboard_background(dist_id, periodo, sucursal_id, hide_qa),
+            )
+            return payload
     payload = _compute_dashboard(dist_id, periodo, sucursal_id, hide_qa)
-    payload.setdefault("meta", {})["cache_hit"] = False
+    apply_meta_flags(
+        payload.setdefault("meta", {}),
+        cache_hit=False,
+        stale=False,
+        revalidating=False,
+    )
     _upsert_dashboard_snapshot(dist_id, periodo, sucursal_id, payload)
     return payload
 
@@ -304,16 +355,3 @@ def _upsert_dashboard_snapshot(
         logger.warning(f"[snap_dashboard] upsert dist={dist_id}: {e}")
 
 
-# ── Shared freshness check ────────────────────────────────────────────────────
-
-def _is_fresh(generated_at_iso: str, max_stale_seconds: int) -> bool:
-    try:
-        if generated_at_iso.startswith("1970"):
-            return False
-        generated_at = datetime.fromisoformat(
-            generated_at_iso.replace("Z", "+00:00")
-        )
-        age = (datetime.now(timezone.utc) - generated_at).total_seconds()
-        return age < max_stale_seconds
-    except Exception:
-        return False

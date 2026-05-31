@@ -13,10 +13,17 @@ import logging
 from datetime import datetime, timezone
 
 from db import sb
+from services.snapshot_common import (
+    apply_meta_flags,
+    is_fresh,
+    is_serveable_stale,
+    trigger_background_refresh,
+)
 
 logger = logging.getLogger("snapshot_estadisticas_service")
 
 ESTADISTICAS_MAX_STALE_SECONDS = 900  # 15 min
+ESTADISTICAS_SERVE_STALE_SECONDS = 86400  # 24 h
 
 
 def _normalize_cartas_payload(raw) -> list:
@@ -32,6 +39,48 @@ def _normalize_cartas_payload(raw) -> list:
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
+def _build_estadisticas_response(
+    cartas: list,
+    dist_id: int,
+    meses: list[str],
+    sucursal: str | None,
+    generated_at: str,
+    *,
+    cache_hit: bool,
+    stale: bool,
+    revalidating: bool,
+) -> dict:
+    cartas_norm = _normalize_cartas_payload(cartas)
+    meta = apply_meta_flags(
+        {
+            "meses": meses,
+            "sucursal": sucursal,
+            "dist_id": dist_id,
+        },
+        cache_hit=cache_hit,
+        stale=stale,
+        revalidating=revalidating,
+        generated_at=generated_at,
+    )
+    return {
+        "meta": meta,
+        "cartas": cartas_norm,
+        "total": len(cartas_norm),
+    }
+
+
+def _refresh_estadisticas_background(
+    dist_id: int,
+    meses: list[str],
+    sucursal: str | None,
+    meses_hash: str,
+) -> None:
+    from services.estadisticas_service import build_carta_resumen
+
+    cartas = _normalize_cartas_payload(build_carta_resumen(dist_id, meses, sucursal))
+    _upsert_estadisticas_snapshot(dist_id, meses_hash, sucursal, cartas)
+
+
 def get_or_refresh_estadisticas(
     dist_id: int,
     meses: list[str],
@@ -39,37 +88,51 @@ def get_or_refresh_estadisticas(
 ) -> dict:
     meses_hash = _hash_meses(meses)
     snap = _read_estadisticas_snapshot(dist_id, meses_hash, sucursal)
-    if snap is not None and _is_fresh(snap["generated_at"], ESTADISTICAS_MAX_STALE_SECONDS):
-        cartas = _normalize_cartas_payload(snap["payload"])
-        return {
-            "meta": {
-                "cache_hit": True,
-                "generated_at": snap["generated_at"],
-                "meses": meses,
-                "sucursal": sucursal,
-                "dist_id": dist_id,
-            },
-            "cartas": cartas,
-            "total": len(cartas) if isinstance(cartas, list) else 0,
-        }
+    if snap is not None:
+        gen = snap["generated_at"]
+        if is_fresh(gen, ESTADISTICAS_MAX_STALE_SECONDS):
+            return _build_estadisticas_response(
+                snap["payload"],
+                dist_id,
+                meses,
+                sucursal,
+                gen,
+                cache_hit=True,
+                stale=False,
+                revalidating=False,
+            )
+        if is_serveable_stale(gen, ESTADISTICAS_SERVE_STALE_SECONDS):
+            key = f"estadisticas:{dist_id}:{meses_hash}:{sucursal}"
+            trigger_background_refresh(
+                key,
+                lambda: _refresh_estadisticas_background(dist_id, meses, sucursal, meses_hash),
+            )
+            return _build_estadisticas_response(
+                snap["payload"],
+                dist_id,
+                meses,
+                sucursal,
+                gen,
+                cache_hit=False,
+                stale=True,
+                revalidating=True,
+            )
 
     from services.estadisticas_service import build_carta_resumen
 
     cartas = _normalize_cartas_payload(build_carta_resumen(dist_id, meses, sucursal))
     _upsert_estadisticas_snapshot(dist_id, meses_hash, sucursal, cartas)
-
     generated_at = datetime.now(timezone.utc).isoformat()
-    return {
-        "meta": {
-            "cache_hit": False,
-            "generated_at": generated_at,
-            "meses": meses,
-            "sucursal": sucursal,
-            "dist_id": dist_id,
-        },
-        "cartas": cartas,
-        "total": len(cartas),
-    }
+    return _build_estadisticas_response(
+        cartas,
+        dist_id,
+        meses,
+        sucursal,
+        generated_at,
+        cache_hit=False,
+        stale=False,
+        revalidating=False,
+    )
 
 
 def mark_estadisticas_stale(dist_id: int) -> None:
@@ -149,14 +212,3 @@ def _hash_meses(meses: list[str]) -> str:
     return hashlib.md5(",".join(sorted(meses)).encode()).hexdigest()[:16]
 
 
-def _is_fresh(generated_at_iso: str, max_stale_seconds: int) -> bool:
-    try:
-        if generated_at_iso.startswith("1970"):
-            return False
-        generated_at = datetime.fromisoformat(
-            generated_at_iso.replace("Z", "+00:00")
-        )
-        age = (datetime.now(timezone.utc) - generated_at).total_seconds()
-        return age < max_stale_seconds
-    except Exception:
-        return False

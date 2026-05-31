@@ -8,6 +8,7 @@ Usar desde motor_runs / ingestion hooks tras completar una ingesta.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta
 
 logger = logging.getLogger("snapshot_refresh_service")
 
@@ -67,39 +68,78 @@ def handle_ingestion_event(event_type: str, dist_id: int) -> None:
     mark_all_stale(dist_id, domains)
 
 
+def _recompute_domain(dist_id: int, domain: str) -> None:
+    """Recompute síncrono de un dominio (usado en background threads)."""
+    try:
+        if domain == "dashboard":
+            from services.snapshot_dashboard_service import get_or_refresh_dashboard
+            get_or_refresh_dashboard(dist_id, "mes", None, hide_qa=False)
+        elif domain == "supervision":
+            from services.snapshot_supervision_service import get_or_refresh_supervision
+            get_or_refresh_supervision(dist_id, None, None)
+        elif domain == "estadisticas":
+            from services.snapshot_estadisticas_service import get_or_refresh_estadisticas
+            mes_actual = (datetime.utcnow() - timedelta(hours=3)).strftime("%Y-%m")
+            get_or_refresh_estadisticas(dist_id, [mes_actual], None)
+        elif domain == "visor":
+            from services.snapshot_visor_service import get_or_refresh_visor
+            get_or_refresh_visor(dist_id)
+        else:
+            logger.warning(f"[snap_refresh] recompute dominio desconocido: {domain}")
+    except Exception as e:
+        logger.warning(f"[snap_refresh] recompute domain={domain} dist={dist_id}: {e}")
+
+
+def warm_portal_bundles(dist_id: int, domains: list[str] | None = None) -> None:
+    """
+    Pre-calienta snapshots en background sin marcar stale (login / cron / warm endpoint).
+    Dedup por dominio vía snapshot_common.trigger_background_refresh.
+    """
+    from services.snapshot_common import trigger_background_refresh
+
+    all_domains = domains or ["dashboard", "estadisticas", "supervision", "visor"]
+    for domain in all_domains:
+        key = f"warm:{dist_id}:{domain}"
+        trigger_background_refresh(key, lambda d=domain: _recompute_domain(dist_id, d))
+
+
 def refresh_eager(dist_id: int, domains: list[str] | None = None) -> None:
     """
-    Pre-calienta snapshots de forma no bloqueante tras una ingesta.
-
-    Primero marca stale, luego dispara recompute en background usando
-    FastAPI BackgroundTasks o threading según contexto de llamada.
+    Pre-calienta snapshots tras ingesta: marca stale y recomputa en background.
     """
-    import threading
     all_domains = domains or ["dashboard", "estadisticas"]
-
-    def _recompute():
-        for domain in all_domains:
-            try:
-                if domain == "dashboard":
-                    from services.snapshot_dashboard_service import get_or_refresh_dashboard
-                    # Recomputa período más común (mes actual) sin sucursal
-                    get_or_refresh_dashboard(dist_id, "mes", None, hide_qa=False)
-                elif domain == "supervision":
-                    from services.snapshot_supervision_service import get_or_refresh_supervision
-                    get_or_refresh_supervision(dist_id, None, None)
-                elif domain == "estadisticas":
-                    from services.snapshot_estadisticas_service import get_or_refresh_estadisticas
-                    from datetime import datetime, timedelta
-                    mes_actual = (datetime.utcnow() - timedelta(hours=3)).strftime("%Y-%m")
-                    get_or_refresh_estadisticas(dist_id, [mes_actual], None)
-                elif domain == "visor":
-                    from services.snapshot_visor_service import get_or_refresh_visor
-                    get_or_refresh_visor(dist_id)
-            except Exception as e:
-                logger.warning(f"[snap_refresh] refresh_eager domain={domain} dist={dist_id}: {e}")
-
-    # Primero marcar stale para que cualquier request entrante durante el compute obtenga dato fresco
     mark_all_stale(dist_id, all_domains)
-    # Luego recomputar en hilo daemon para no bloquear el request entrante
-    t = threading.Thread(target=_recompute, daemon=True)
-    t.start()
+    warm_portal_bundles(dist_id, all_domains)
+
+
+def prewarm_all_active_distributors(domains: list[str] | None = None) -> None:
+    """Cron matutino: warm de todos los distribuidores activos (paginado)."""
+    from db import sb
+
+    target_domains = domains or ["dashboard", "estadisticas", "supervision"]
+    PAGE = 1000
+    offset = 0
+    warmed = 0
+    while True:
+        try:
+            batch = (
+                sb.table("distribuidores")
+                .select("id_distribuidor")
+                .eq("estado", "activo")
+                .range(offset, offset + PAGE - 1)
+                .execute()
+                .data
+                or []
+            )
+        except Exception as e:
+            logger.warning(f"[snap_refresh] prewarm list dists offset={offset}: {e}")
+            break
+        for row in batch:
+            dist_id = row.get("id_distribuidor")
+            if dist_id:
+                warm_portal_bundles(int(dist_id), target_domains)
+                warmed += 1
+        if len(batch) < PAGE:
+            break
+        offset += PAGE
+    logger.info(f"[snap_refresh] prewarm_all queued dists={warmed} domains={target_domains}")

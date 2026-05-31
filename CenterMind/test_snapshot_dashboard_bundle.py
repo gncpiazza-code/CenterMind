@@ -26,7 +26,19 @@ def _sb_hit(payload: dict):
     chain.execute.return_value.data = [
         {"payload": payload, "generated_at": _fresh_generated_at()}
     ]
-    sb.table.return_value.select.return_value.eq.return_value.eq.return_value.limit.return_value = chain
+    chain.is_.return_value = chain
+    chain.limit.return_value = chain
+    sb.table.return_value.select.return_value.eq.return_value.eq.return_value = chain
+    return sb
+
+
+def _sb_stale_hit(payload: dict, generated_at: str):
+    sb = MagicMock()
+    chain = MagicMock()
+    chain.execute.return_value.data = [{"payload": payload, "generated_at": generated_at}]
+    chain.is_.return_value = chain
+    chain.limit.return_value = chain
+    sb.table.return_value.select.return_value.eq.return_value.eq.return_value = chain
     return sb
 
 
@@ -34,7 +46,7 @@ def test_dashboard_bundle_ranking_is_list_on_hit():
     rows = [{"vendedor": "A", "puntos": 2, "aprobadas": 1, "destacadas": 1, "rechazadas": 0}]
     sb = _sb_hit(_payload(rows))
     with patch("services.snapshot_dashboard_service.sb", sb), patch(
-        "services.snapshot_dashboard_service._is_fresh", return_value=True
+        "services.snapshot_dashboard_service.is_fresh", return_value=True
     ):
         out = get_or_refresh_dashboard(1, "mes", None)
     assert isinstance(out["ranking"], list)
@@ -58,7 +70,9 @@ def test_dashboard_bundle_cache_miss_flag():
     sb = MagicMock()
     miss = MagicMock()
     miss.execute.return_value.data = []
-    sb.table.return_value.select.return_value.eq.return_value.eq.return_value.limit.return_value = miss
+    miss.is_.return_value = miss
+    miss.limit.return_value = miss
+    sb.table.return_value.select.return_value.eq.return_value.eq.return_value = miss
     sb.table.return_value.delete.return_value.eq.return_value.eq.return_value.execute.return_value = MagicMock()
     sb.table.return_value.insert.return_value.execute.return_value = MagicMock()
     with patch("services.snapshot_dashboard_service.sb", sb), patch(

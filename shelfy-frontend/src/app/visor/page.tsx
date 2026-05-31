@@ -17,6 +17,7 @@ import {
 } from "@/lib/api";
 import { bundleKeys } from "@/lib/query-keys";
 import { BUNDLE_STALE_MS, BUNDLE_GC_MS } from "@/components/providers/ReactQueryProvider";
+import { BundleRevalidatingBadge } from "@/components/shared/BundleRevalidatingBadge";
 import {
   useVisorClienteContext,
   useVisorPdvPrefetch,
@@ -337,8 +338,12 @@ export default function VisorPage() {
     enabled: !!user && distId > 0,
     staleTime: BUNDLE_STALE_MS,
     gcTime: BUNDLE_GC_MS,
-    refetchInterval: 90_000, // 1.5 min — dato operativo
+    placeholderData: (prev) => prev,
+    refetchInterval: (query) =>
+      query.state.data?.meta?.revalidating ? 10_000 : 90_000,
   });
+
+  const revalidatingVisor = !!visorBundle?.meta?.revalidating;
 
   // Extract data from bundle (field names adapted to match existing JSX)
   const grupos: GrupoPendiente[] = (visorBundle?.pendientes ?? [])
@@ -1040,6 +1045,11 @@ export default function VisorPage() {
         {/* Topbar (desktop) */}
         <div className="hidden md:block shrink-0">
           <Topbar title="Evaluar Exhibiciones" />
+          {revalidatingVisor && (
+            <div className="px-4 pb-1">
+              <BundleRevalidatingBadge visible />
+            </div>
+          )}
         </div>
 
         {/* Filter bar */}

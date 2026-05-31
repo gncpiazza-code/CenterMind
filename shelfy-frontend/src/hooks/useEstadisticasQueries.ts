@@ -143,6 +143,8 @@ export function cartasBundleQueryOptions(
     staleTime: BUNDLE_STALE_MS,
     gcTime: BUNDLE_GC_MS,
     placeholderData: keepPreviousData,
+    refetchInterval: (query) =>
+      query.state.data?.meta?.revalidating ? 15_000 : false,
   } as const;
 }
 

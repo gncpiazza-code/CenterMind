@@ -25,6 +25,7 @@ import { mesActual } from "@/lib/estadisticas-period";
 import { VENDEDOR_IDEAL_HELP } from "@/lib/estadisticas-kpi-help";
 import { loadDashboardTheme, saveDashboardTheme } from "@/lib/dashboard-theme";
 import { DashboardThemeToggle } from "@/components/dashboard/DashboardThemeToggle";
+import { BundleRevalidatingBadge } from "@/components/shared/BundleRevalidatingBadge";
 import {
   Settings2,
   TrendingUp,
@@ -105,6 +106,7 @@ export default function EstadisticasPage() {
   const showLoadingStrip = loadingCards && vendors.length === 0;
   const showRefreshingOverlay =
     isFetching && isPlaceholderData && vendors.length > 0;
+  const revalidating = !!cartasBundle?.meta?.revalidating;
 
   // Activar overlay ideal por defecto la primera vez que hay config
   const overlayInitRef = useRef(false);
@@ -269,11 +271,17 @@ export default function EstadisticasPage() {
             <PeriodSelector mesesDisponibles={mesesDisponibles} />
             <SucursalSelector sucursales={sucursales} />
 
-            {/* Fetching indicator */}
-            {isFetching && !isLoading && (
+            {/* Fetching / SWR revalidating indicator */}
+            {(revalidating || (isFetching && !isLoading && vendors.length > 0)) && (
               <div style={{ display: "flex", alignItems: "center", gap: 6, paddingTop: 8 }}>
-                <Loader2 size={13} style={{ color: "#a855f7", animation: "spin 1s linear infinite" }} />
-                <span style={{ fontSize: 11, color: "var(--shelfy-muted)" }}>Actualizando…</span>
+                {revalidating ? (
+                  <BundleRevalidatingBadge visible />
+                ) : (
+                  <>
+                    <Loader2 size={13} style={{ color: "#a855f7", animation: "spin 1s linear infinite" }} />
+                    <span style={{ fontSize: 11, color: "var(--shelfy-muted)" }}>Actualizando…</span>
+                  </>
+                )}
               </div>
             )}
           </div>

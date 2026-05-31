@@ -11,13 +11,35 @@ import logging
 from datetime import datetime, timezone
 
 from db import sb
+from services.snapshot_common import (
+    apply_meta_flags,
+    is_fresh,
+    is_serveable_stale,
+    trigger_background_refresh,
+)
 
 logger = logging.getLogger("snapshot_supervision_service")
 
 SUPERVISION_MAX_STALE_SECONDS = 900  # 15 min
+SUPERVISION_SERVE_STALE_SECONDS = 86400  # 24 h
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
+
+def _refresh_supervision_background(
+    dist_id: int,
+    sucursal: str | None,
+    id_vendedor: int | None,
+) -> None:
+    payload = _compute_supervision(dist_id, sucursal, id_vendedor)
+    apply_meta_flags(
+        payload.setdefault("meta", {}),
+        cache_hit=False,
+        stale=False,
+        revalidating=False,
+    )
+    _upsert_supervision_snapshot(dist_id, sucursal, id_vendedor, payload)
+
 
 def get_or_refresh_supervision(
     dist_id: int,
@@ -25,12 +47,40 @@ def get_or_refresh_supervision(
     id_vendedor: int | None,
 ) -> dict:
     snap = _read_supervision_snapshot(dist_id, sucursal, id_vendedor)
-    if snap is not None and _is_fresh(snap["generated_at"], SUPERVISION_MAX_STALE_SECONDS):
-        payload = snap["payload"]
-        payload.setdefault("meta", {})["cache_hit"] = True
-        return payload
+    if snap is not None:
+        gen = snap["generated_at"]
+        if is_fresh(gen, SUPERVISION_MAX_STALE_SECONDS):
+            payload = snap["payload"]
+            apply_meta_flags(
+                payload.setdefault("meta", {}),
+                cache_hit=True,
+                stale=False,
+                revalidating=False,
+                generated_at=gen,
+            )
+            return payload
+        if is_serveable_stale(gen, SUPERVISION_SERVE_STALE_SECONDS):
+            payload = snap["payload"]
+            apply_meta_flags(
+                payload.setdefault("meta", {}),
+                cache_hit=False,
+                stale=True,
+                revalidating=True,
+                generated_at=gen,
+            )
+            key = f"supervision:{dist_id}:{sucursal}:{id_vendedor}"
+            trigger_background_refresh(
+                key,
+                lambda: _refresh_supervision_background(dist_id, sucursal, id_vendedor),
+            )
+            return payload
     payload = _compute_supervision(dist_id, sucursal, id_vendedor)
-    payload.setdefault("meta", {})["cache_hit"] = False
+    apply_meta_flags(
+        payload.setdefault("meta", {}),
+        cache_hit=False,
+        stale=False,
+        revalidating=False,
+    )
     _upsert_supervision_snapshot(dist_id, sucursal, id_vendedor, payload)
     return payload
 
@@ -396,16 +446,3 @@ def _upsert_supervision_snapshot(
         logger.warning(f"[snap_supervision] upsert dist={dist_id}: {e}")
 
 
-# ── Shared freshness check ────────────────────────────────────────────────────
-
-def _is_fresh(generated_at_iso: str, max_stale_seconds: int) -> bool:
-    try:
-        if generated_at_iso.startswith("1970"):
-            return False
-        generated_at = datetime.fromisoformat(
-            generated_at_iso.replace("Z", "+00:00")
-        )
-        age = (datetime.now(timezone.utc) - generated_at).total_seconds()
-        return age < max_stale_seconds
-    except Exception:
-        return False

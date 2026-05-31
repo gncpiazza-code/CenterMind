@@ -10,23 +10,68 @@ import logging
 from datetime import datetime, timezone, timedelta
 
 from db import sb
+from services.snapshot_common import (
+    apply_meta_flags,
+    is_fresh,
+    is_serveable_stale,
+    trigger_background_refresh,
+)
 
 logger = logging.getLogger("snapshot_visor_service")
 
-VISOR_MAX_STALE_SECONDS = 90  # 1.5 min — dato operativo en tiempo casi-real
+VISOR_MAX_STALE_SECONDS = 90  # 1.5 min
+VISOR_SERVE_STALE_SECONDS = 1800  # 30 min — SWR window (operativo)
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
+def _refresh_visor_background(dist_id: int, hide_qa: bool) -> None:
+    payload = _compute_visor(dist_id, hide_qa=hide_qa)
+    apply_meta_flags(
+        payload.setdefault("meta", {}),
+        cache_hit=False,
+        stale=False,
+        revalidating=False,
+    )
+    _upsert_visor_snapshot(dist_id, payload)
+
+
 def get_or_refresh_visor(dist_id: int, hide_qa: bool = False) -> dict:
     snap = _read_visor_snapshot(dist_id)
-    if snap is not None and _is_fresh(snap["generated_at"], VISOR_MAX_STALE_SECONDS):
+    if snap is not None:
+        gen = snap["generated_at"]
         payload = snap["payload"]
-        if _pendientes_payload_valid(payload.get("pendientes") or []):
-            payload.setdefault("meta", {})["cache_hit"] = True
+        pendientes_ok = _pendientes_payload_valid(payload.get("pendientes") or [])
+        if is_fresh(gen, VISOR_MAX_STALE_SECONDS) and pendientes_ok:
+            apply_meta_flags(
+                payload.setdefault("meta", {}),
+                cache_hit=True,
+                stale=False,
+                revalidating=False,
+                generated_at=gen,
+            )
+            return payload
+        if is_serveable_stale(gen, VISOR_SERVE_STALE_SECONDS) and pendientes_ok:
+            apply_meta_flags(
+                payload.setdefault("meta", {}),
+                cache_hit=False,
+                stale=True,
+                revalidating=True,
+                generated_at=gen,
+            )
+            key = f"visor:{dist_id}:{hide_qa}"
+            trigger_background_refresh(
+                key,
+                lambda: _refresh_visor_background(dist_id, hide_qa),
+            )
             return payload
     payload = _compute_visor(dist_id, hide_qa=hide_qa)
-    payload.setdefault("meta", {})["cache_hit"] = False
+    apply_meta_flags(
+        payload.setdefault("meta", {}),
+        cache_hit=False,
+        stale=False,
+        revalidating=False,
+    )
     _upsert_visor_snapshot(dist_id, payload)
     return payload
 
@@ -144,16 +189,3 @@ def _upsert_visor_snapshot(dist_id: int, payload: dict) -> None:
         logger.warning(f"[snap_visor] upsert dist={dist_id}: {e}")
 
 
-# ── Shared freshness check ────────────────────────────────────────────────────
-
-def _is_fresh(generated_at_iso: str, max_stale_seconds: int) -> bool:
-    try:
-        if generated_at_iso.startswith("1970"):
-            return False
-        generated_at = datetime.fromisoformat(
-            generated_at_iso.replace("Z", "+00:00")
-        )
-        age = (datetime.now(timezone.utc) - generated_at).total_seconds()
-        return age < max_stale_seconds
-    except Exception:
-        return False

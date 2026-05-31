@@ -190,8 +190,25 @@ async def lifespan(app: FastAPI):
         id="binding_watcher_daily"
     )
 
+    def _snapshot_prewarm_morning():
+        """06:45 AR: pre-calienta bundles dashboard + estadísticas + supervisión."""
+        try:
+            from services.snapshot_refresh_service import prewarm_all_active_distributors
+            prewarm_all_active_distributors(["dashboard", "estadisticas", "supervision"])
+        except Exception as e:
+            logger.warning("[snap_refresh] cron prewarm omitido: %s", e)
+
+    scheduler.add_job(
+        _snapshot_prewarm_morning,
+        "cron",
+        hour=6,
+        minute=45,
+        timezone=_ZoneInfoL("America/Argentina/Buenos_Aires"),
+        id="snapshot_prewarm_0645_ar",
+    )
+
     scheduler.start()
-    logger.info("📅 Scheduler iniciado (ERP Sync 04:00 + digest motores + Lanzar Objetivos 08:00 AR + Binding Watcher 07:30 AR)")
+    logger.info("📅 Scheduler iniciado (ERP Sync 04:00 + digest motores + Lanzar Objetivos 08:00 AR + Binding Watcher 07:30 AR + Snapshot Prewarm 06:45 AR)")
 
     yield
 

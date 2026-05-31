@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { loginApi, type AuthResponse } from "@/lib/api";
+import { loginApi, warmPortalBundles, type AuthResponse } from "@/lib/api";
 import { TOKEN_KEY, JWT_EXPIRE_HOURS } from "@/lib/constants";
 
 function readShelfActiveDistId(): number | null {
@@ -118,6 +118,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const data = await loginApi(usuario, password);
       setToken(data.access_token);
       setUser(data);
+      const distId = data.id_distribuidor ?? readShelfActiveDistId();
+      if (distId && distId > 0) {
+        void warmPortalBundles(distId).catch(() => {});
+      }
       try {
         sessionStorage.setItem("shelfy_login_pulse_guia", "1");
       } catch {

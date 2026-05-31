@@ -3,6 +3,7 @@
 import { Images, ShoppingCart, CheckCircle2, XCircle, Flame, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { GaleriaClienteCard as GaleriaClienteCardType } from "@/lib/api";
+import { daysSinceFechaAR, parseFechaShelf, TZ_AR } from "@/lib/fecha-ar";
 
 interface Props {
   cliente: GaleriaClienteCardType;
@@ -21,21 +22,22 @@ const ESTADO_CONFIG: Record<string, { label: string; cls: string; Icon: React.El
 
 function formatDate(iso: string | null): string {
   if (!iso) return "—";
+  const d = parseFechaShelf(iso);
+  if (!d) return iso;
   try {
-    return new Date(iso).toLocaleDateString("es-AR", { day: "2-digit", month: "short", year: "numeric" });
+    return d.toLocaleDateString("es-AR", {
+      timeZone: TZ_AR,
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
   } catch {
     return iso;
   }
 }
 
 function daysSince(iso: string | null): number | null {
-  if (!iso) return null;
-  try {
-    const diff = Date.now() - new Date(iso).getTime();
-    return Math.floor(diff / 86_400_000);
-  } catch {
-    return null;
-  }
+  return daysSinceFechaAR(iso);
 }
 
 function DaysChip({ days }: { days: number }) {

@@ -178,7 +178,7 @@ export const VisorGlassMaterial = forwardRef<HTMLDivElement, Props>(
             className="absolute inset-0 pointer-events-none"
             style={{
               borderRadius: radius,
-              background: `radial-gradient(ellipse 70% 55% at ${specular.x}% ${specular.y}%, rgba(255,255,255,0.16) 0%, transparent 72%)`,
+              background: `radial-gradient(ellipse 70% 55% at ${specular.x}% ${specular.y}%, rgba(255,255,255,0.09) 0%, transparent 72%)`,
             }}
           />
         )}

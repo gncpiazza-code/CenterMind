@@ -22,13 +22,13 @@ export interface GlassTokenSet {
 
 export const GLASS_TOKENS = {
   clear: {
-    blur: "10px",
-    saturate: 1.2,
-    brightness: 1.08,
-    tint: "rgba(255,255,255,0.015)",
-    rimOpacity: 0.26,
-    rimTopOpacity: 0.44,
-    shadow: "0 6px 20px rgba(15,23,42,0.09), 0 2px 6px rgba(15,23,42,0.06)",
+    blur: "8px",
+    saturate: 1.15,
+    brightness: 1.05,
+    tint: "rgba(255,255,255,0.006)",
+    rimOpacity: 0.18,
+    rimTopOpacity: 0.28,
+    shadow: "0 4px 16px rgba(15,23,42,0.06), 0 1px 4px rgba(15,23,42,0.04)",
     lensScale: 5,
     enableLens: true,
     radius: 40,

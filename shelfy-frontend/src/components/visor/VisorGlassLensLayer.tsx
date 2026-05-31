@@ -104,7 +104,7 @@ export function VisorGlassLensLayer({ pillRef, getImg, lensScale }: Props) {
           pointerEvents: "none",
           filter: `url(#${LENS_FILTER_ID})`,
           mixBlendMode: "soft-light",
-          opacity: 0.35,
+          opacity: 0.26,
           borderRadius: "inherit",
         }}
       />
@@ -121,7 +121,7 @@ export function VisorGlassLensLayer({ pillRef, getImg, lensScale }: Props) {
         left: 0,
         pointerEvents: "none",
         mixBlendMode: "soft-light",
-        opacity: 0.38,
+        opacity: 0.28,
         borderRadius: "inherit",
       }}
     />

@@ -149,6 +149,7 @@ Shadcn instalados: `toggle-group` (toggle.tsx + toggle-group.tsx).
 - Bench dev: `/visor/glass-bench` — HUD luma/mode/strategy; toggle vibrancy.
 - **Nunca** `filter` en ancestro del material ni `transform` en wrapper de controles.
 - `pickLensStrategy()` — Chromium→`"canvas"`, Firefox+WebGL→`"webgl"`, Safari→`"none"`.
+- Fechas compra/padrón (`YYYY-MM-DD`): usar `lib/fecha-ar.ts` (`parseFechaShelf`, `formatFechaDiaAR`, `daysSinceFechaAR`) — **no** `new Date("2026-05-29")` (UTC −1 día en AR).
 
 ### `galeria/ReevaluarCompaniaSheet.tsx` + `SlideToConfirm.tsx`
 

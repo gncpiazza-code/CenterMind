@@ -10,7 +10,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { ImageOff, Smartphone } from "lucide-react";
+import { ImageOff } from "lucide-react";
 import { resolveImageUrl } from "@/lib/api";
 import { parseIntrinsicFromSrc } from "@/components/visor/foto-viewer-intrinsic";
 import { cn } from "@/lib/utils";
@@ -92,6 +92,8 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
   const dragStartRef = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
   const userZoomRef = useRef(1);
   const presentationZoomRef = useRef(1);
+  /** Doble clic: 4 acercamientos seguidos; el 5.º vuelve al zoom inicial de la foto. */
+  const dblClickZoomCountRef = useRef(0);
   const shellRef = useRef<HTMLDivElement | null>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
   const src = resolveVisorImageSrc(driveUrl, idExhibicion);
@@ -157,6 +159,7 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
     setErr(false);
     setPan({ x: 0, y: 0 });
     setDragging(false);
+    dblClickZoomCountRef.current = 0;
 
     const intrinsic = parseIntrinsicFromSrc(src);
     if (intrinsic) {
@@ -249,10 +252,18 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
   );
 
   const onDoubleClickZoom = useCallback(() => {
-    if (isNearZoom(userZoom, ZOOM_MIN)) applyUserZoom(presentationZoom);
-    else if (isNearZoom(userZoom, presentationZoom)) applyUserZoom(presentationZoom * 1.35);
-    else togglePresentationZoom();
-  }, [applyUserZoom, presentationZoom, togglePresentationZoom, userZoom]);
+    const pres = presentationZoomRef.current;
+    if (dblClickZoomCountRef.current >= 4) {
+      dblClickZoomCountRef.current = 0;
+      userZoomRef.current = pres;
+      setUserZoom(pres);
+      setPan({ x: 0, y: 0 });
+      notifyZoom(pres, pres);
+      return;
+    }
+    dblClickZoomCountRef.current += 1;
+    applyUserZoom(userZoomRef.current + ZOOM_STEP);
+  }, [applyUserZoom, notifyZoom]);
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
@@ -348,11 +359,7 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
       tabIndex={-1}
-      title={
-        isPortrait
-          ? "Vertical con zoom inicial. ↺ o − para ver imagen completa."
-          : "Ajuste al canvas. Rueda o botones para acercar."
-      }
+      title="Doble clic para acercar (hasta 4 veces); el 5.º vuelve al tamaño inicial. Rueda o botones ±."
     >
       <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
         <div
@@ -394,13 +401,6 @@ export const FotoViewer = forwardRef<FotoViewerHandle, FotoViewerProps>(function
           />
         </div>
       </div>
-
-      {isPortrait ? (
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[2] flex items-center gap-1 px-2.5 py-1 rounded-full bg-black/35 backdrop-blur-[6px] border border-white/25 text-[9px] font-bold text-white/95 uppercase tracking-wide pointer-events-none">
-          <Smartphone size={10} />
-          Vertical
-        </div>
-      ) : null}
 
       {overlay ? <div className="absolute inset-0 z-[20] pointer-events-none">{overlay}</div> : null}
     </div>

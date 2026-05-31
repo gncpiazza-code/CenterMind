@@ -8,6 +8,7 @@ import type {
   UltimoComprobanteResumen,
 } from "@/lib/api";
 import { FileText, ShoppingCart } from "lucide-react";
+import { daysSinceFechaAR, formatFechaDiaAR } from "@/lib/fecha-ar";
 
 export function fmtUltimaCompraImporte(n?: number | null): string | null {
   if (n == null || !Number.isFinite(n) || n <= 0) return null;
@@ -113,22 +114,11 @@ function recenciaFromDias(dias: number | null | undefined): RecenciaCompra {
 }
 
 function recenciaFromFecha(fecha: string): RecenciaCompra {
-  const t = new Date(fecha).getTime();
-  if (!Number.isFinite(t)) return "reciente";
-  const dias = Math.floor((Date.now() - t) / 86_400_000);
-  return recenciaFromDias(dias);
+  return recenciaFromDias(daysSinceFechaAR(fecha));
 }
 
 function fmtFechaRemito(fecha: string): string {
-  try {
-    return new Date(fecha).toLocaleDateString("es-AR", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-    });
-  } catch {
-    return String(fecha).slice(0, 10);
-  }
+  return formatFechaDiaAR(fecha);
 }
 
 function tipoBadgeClass(tipo: string): string {

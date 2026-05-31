@@ -37,6 +37,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/Button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import { daysSinceFechaAR } from "@/lib/fecha-ar";
 import { UltimaCompraRemitoCard } from "@/components/visor/UltimaCompraDetalle";
 import { VisorRemitoFocusLayout } from "@/components/visor/VisorRemitoFocusLayout";
 import { VisorMetaMinimizedBar } from "@/components/visor/VisorMetaMinimizedBar";
@@ -115,12 +116,6 @@ function saveCommentTemplates(templates: string[]) {
   }
 }
 
-function daysSinceIso(iso: string | null | undefined): number | null {
-  if (!iso) return null;
-  const t = new Date(iso).getTime();
-  if (Number.isNaN(t)) return null;
-  return Math.floor((Date.now() - t) / 86_400_000);
-}
 
 function useEagerPreload(grupos: GrupoPendiente[]) {
   useEffect(() => {
@@ -315,7 +310,7 @@ export function VisorPageContent() {
   const ultimaCompraComprobantes =
     pdvInfo?.ultima_compra_comprobantes ?? erpContext?.ultima_compra_comprobantes;
 
-  const diasUltCompra = daysSinceIso(ultimaCompraFuente);
+  const diasUltCompra = daysSinceFechaAR(ultimaCompraFuente);
   const ventas30 = typeof erpContext?.total_30d === "number" && erpContext.total_30d > 0;
   const compraUltimos30 =
     ventas30 || (diasUltCompra !== null && diasUltCompra <= 30 && !!ultimaCompraFuente);

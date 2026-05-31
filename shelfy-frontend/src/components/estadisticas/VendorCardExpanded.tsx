@@ -53,6 +53,9 @@ import {
   OVERLAY_MODE_HELP,
 } from "@/lib/estadisticas-kpi-help";
 import { groupRutasByDia, formatFechaAR } from "@/lib/estadisticas-utils";
+import { RecapEvolucionButton } from "./recap/RecapEvolucionModal";
+import { mesForRecapEvolucion } from "@/lib/recap-utils";
+import { useRecapEvolucionBundle } from "@/hooks/useRecapQueries";
 
 type TabKey = "pdvs" | "altas" | "exhibiciones" | "bultos" | "compradores";
 
@@ -122,6 +125,9 @@ export function VendorCardExpanded({
     nextVendor?.id_vendedor,
   ].filter(Boolean) as string[];
   useEstadisticasWarmCache(queryClient, distId, meses, null, neighborIds);
+
+  const evolucionMes = mesForRecapEvolucion(meses);
+  useRecapEvolucionBundle(distId, evolucionMes, null);
 
   const { data: detalle, isLoading, isError, refetch } = useQuery(
     detalleQueryOptions(distId, vendor.id_vendedor, meses),
@@ -349,6 +355,14 @@ export function VendorCardExpanded({
                   );
                 })}
               </motion.div>
+
+              <RecapEvolucionButton
+                distId={distId}
+                vendedorId={vendor.id_vendedor}
+                mes={mesForRecapEvolucion(meses)}
+                vendorName={vendor.nombre}
+                variant="panel"
+              />
             </div>
 
             {/* Right column */}
@@ -382,14 +396,15 @@ export function VendorCardExpanded({
                       fontSize: 12,
                       fontWeight: activeTab === tab.key ? 700 : 500,
                       color: activeTab === tab.key ? F.accent : "var(--shelfy-muted)",
-                      borderBottom: activeTab === tab.key ? `2px solid ${F.accent}` : "2px solid transparent",
                       background: "none",
-                      border: "none",
+                      borderTop: "none",
+                      borderLeft: "none",
+                      borderRight: "none",
                       borderBottomWidth: 2,
                       borderBottomStyle: "solid",
                       borderBottomColor: activeTab === tab.key ? F.accent : "transparent",
                       cursor: "pointer",
-                      transition: "all 0.18s ease",
+                      transition: "color 0.18s ease, border-bottom-color 0.18s ease",
                       whiteSpace: "nowrap",
                     }}
                   >
@@ -844,16 +859,34 @@ function TabBultos({ detalle }: { detalle: VendorDetalle }) {
       </p>
     );
   }
-  const top = detalle.bultos_top.slice(0, 20);
-  const maxBultos = Math.max(...top.map((b) => b.bultos), 1);
+  const items = detalle.bultos_top;
+  const sumDisplay = items.reduce((acc, item) => acc + item.bultos, 0);
+  const totalLabel =
+    detalle.bultos_desglose_total != null
+      ? fmtBultos(detalle.bultos_desglose_total)
+      : fmtBultos(sumDisplay);
+  const maxBultos = Math.max(...items.map((b) => b.bultos), 1);
 
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="show" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      <p style={{ fontSize: 11, color: "var(--shelfy-muted)", margin: 0 }}>
-        Top {top.length} artículos — bultos con 2 dec.; debajo, entero + unidades del decimal
-      </p>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "baseline",
+          justifyContent: "space-between",
+          gap: 12,
+          flexWrap: "wrap",
+        }}
+      >
+        <p style={{ fontSize: 11, color: "var(--shelfy-muted)", margin: 0 }}>
+          {detalle.bultos_desglose_count ?? items.length} artículos — bultos con 2 dec.; debajo, entero + unidades del decimal
+        </p>
+        <p style={{ fontSize: 12, fontWeight: 800, color: ESTADISTICAS_FIFA.accentDark, margin: 0 }}>
+          Total desglose: {totalLabel} bultos
+        </p>
+      </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {top.map((item, i) => (
+        {items.map((item, i) => (
           <motion.div
             key={`${item.articulo}-${i}`}
             variants={itemVariants}
@@ -896,6 +929,11 @@ function TabBultos({ detalle }: { detalle: VendorDetalle }) {
                     wordBreak: "break-word",
                   }}
                 >
+                  {item.cod_articulo ? (
+                    <span style={{ fontFamily: "monospace", fontSize: 10, color: "var(--shelfy-muted)", marginRight: 6 }}>
+                      {item.cod_articulo}
+                    </span>
+                  ) : null}
                   {item.articulo}
                 </p>
               </div>

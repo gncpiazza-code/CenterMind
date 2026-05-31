@@ -289,7 +289,7 @@ def _ventas_select_cols() -> str:
     return (
         "codigo_vendedor,nombre_vendedor,id_cliente_erp,tipo_documento,"
         "importe_final,fecha_factura,bultos_total,unidades_total,"
-        "descripcion_articulo,agrupacion_art_2"
+        "cod_articulo,descripcion_articulo,agrupacion_art_2"
     )
 
 
@@ -322,6 +322,139 @@ def _acumular_bultos_unidades(
     if volumen_es_convertido(kind):
         unidades_cig_acc += float(row.get("unidades_total") or 0)
     return bultos_acc, unidades_cig_acc
+
+
+def _venta_pertenece_vendedor(row: dict, vctx: dict) -> bool:
+    """Misma asignación de fila Consolido → vendedor que el batch de cartas."""
+    idx = vctx.get("match_indexes")
+    target_vid = vctx.get("id_vendedor")
+    if idx and target_vid is not None:
+        resolved = _resolve_vid_from_venta_row(row, idx)
+        if resolved is not None:
+            return resolved == int(target_vid)
+    return _venta_matches_vendor(row, vctx)
+
+
+def _fetch_ventas_rows_vendedor(
+    dist_id: int,
+    vctx: dict,
+    fecha_desde: str,
+    fecha_hasta: str,
+    *,
+    select_cols: str | None = None,
+) -> list[dict]:
+    """
+    Ventas del vendedor en el rango, con el mismo criterio que _aggregate_kpis_from_rows
+    (franquicia + resolve por código/nombre ERP), no solo filtro por codigo_vendedor.
+    """
+    ventas_ctx = vctx.get("ventas_ctx") or resolve_estadisticas_ventas_fetch(dist_id, None)
+    cols = select_cols or (
+        "cod_articulo,descripcion_articulo,bultos_total,unidades_total,agrupacion_art_2,"
+        "tipo_documento,importe_final,fecha_factura,codigo_vendedor,"
+        "nombre_vendedor,id_cliente_erp,nombre_cliente,anulado"
+    )
+    t_v = tenant_table_name("ventas_enriched_v2", int(ventas_ctx["table_dist"]))
+    rows: list[dict] = []
+
+    def fetch_chunk(desde: str, hasta: str) -> list[dict]:
+        out: list[dict] = []
+        offset = 0
+        while True:
+            q = (
+                sb.table(t_v)
+                .select(cols)
+                .eq("id_distribuidor", int(ventas_ctx["filter_dist"]))
+                .gte("fecha_factura", desde)
+                .lte("fecha_factura", hasta)
+                .eq("anulado", False)
+            )
+            q = _apply_ventas_scope(q, ventas_ctx)
+            batch = q.range(offset, offset + PAGE - 1).execute().data or []
+            out.extend(batch)
+            if len(batch) < PAGE:
+                break
+            offset += PAGE
+        return out
+
+    for desde, hasta in _ventas_date_chunks(fecha_desde, fecha_hasta):
+        rows.extend(fetch_chunk(desde, hasta))
+    return [r for r in rows if _venta_pertenece_vendedor(r, vctx)]
+
+
+def _bultos_linea_desglose(row: dict) -> float:
+    """
+    Bultos por línea para desglose por artículo.
+    Prefer bultos_excel (crudo Consolido pre-conversión) si está en raw_json.
+    """
+    raw_j = row.get("raw_json") or {}
+    excel = raw_j.get("bultos_excel")
+    if excel is not None:
+        return float(excel or 0)
+    bc = float(raw_j.get("bultos_con_cargo") or 0)
+    bs = float(raw_j.get("bultos_sin_cargo") or 0)
+    if bc or bs:
+        return bc + bs
+    return float(row.get("bultos_total") or 0)
+
+
+def _build_bultos_desglose(
+    venta_rows: list[dict],
+    meses_set: set[str],
+) -> tuple[list[dict], float]:
+    """
+    Agrupa bultos por cod_articulo (como ERP Consolido). Retorna (filas, total crudo).
+    El total debe coincidir con el KPI batch del vendedor.
+    """
+    bultos_by_key: dict[str, dict] = defaultdict(
+        lambda: {"bultos": 0.0, "kind": None, "desc": "", "cod": ""}
+    )
+    bultos_total = 0.0
+    for r in venta_rows:
+        if not _in_meses(r.get("fecha_factura", ""), meses_set):
+            continue
+        tipo = r.get("tipo_documento")
+        imp = float(r.get("importe_final") or 0)
+        if not _es_operacion_bultos_neto(tipo, imp):
+            continue
+        cod = str(r.get("cod_articulo") or "").strip()
+        desc = (r.get("descripcion_articulo") or "").strip() or "Sin descripción"
+        key = cod if cod else desc
+        b = float(r.get("bultos_total") or 0)
+        bucket = bultos_by_key[key]
+        bucket["bultos"] += b
+        bucket["desc"] = desc
+        bucket["cod"] = cod
+        bultos_total += b
+        kind = classify_volumen(
+            r.get("agrupacion_art_2") or "",
+            desc,
+            "",
+        )
+        if volumen_es_convertido(kind):
+            bucket["kind"] = kind
+
+    rows_out: list[dict] = []
+    for _key, v in bultos_by_key.items():
+        b_raw = v["bultos"]
+        b = bultos_display_2dec(b_raw)
+        row: dict = {
+            "articulo": v["desc"],
+            "cod_articulo": v["cod"] or None,
+            "bultos": b,
+            "bultos_raw": b_raw,
+        }
+        kind = v.get("kind")
+        if kind and volumen_es_convertido(kind):
+            factor = unidades_por_bulto(kind) or 250.0
+            enteros, resto = bultos_desglose_decimal(b_raw, factor)
+            row["bultos_enteros"] = enteros
+            row["unidades_resto"] = resto
+        rows_out.append(row)
+    rows_out.sort(
+        key=lambda x: (float(x.get("bultos_raw") or 0), x.get("cod_articulo") or ""),
+        reverse=True,
+    )
+    return rows_out, bultos_total
 
 
 def _apply_ventas_scope(
@@ -673,6 +806,232 @@ def aggregate_kpis_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) ->
         "cobertura_pct": round(cobertura_pct, 1),
         "objetivos_pct": round(objetivos_pct, 1),
     }
+
+
+def aggregate_kpis_vendedor_bounds(
+    dist_id: int,
+    id_vendedor: str,
+    fecha_desde: str,
+    fecha_hasta: str,
+) -> dict:
+    """KPIs de un vendedor en un rango de fechas exacto (repaso Q1/Q2/C)."""
+    fd = (fecha_desde or "")[:10]
+    fh = (fecha_hasta or "")[:10]
+
+    rutas_rows = _fetch_rutas_vendedor(dist_id, id_vendedor, "id_ruta")
+    ruta_ids = [r["id_ruta"] for r in rutas_rows if r.get("id_ruta")]
+
+    t_pdv = tenant_table_name("clientes_pdv_v2", dist_id)
+    pdvs_unicos: set = set()
+    if ruta_ids:
+        for i in range(0, len(ruta_ids), 50):
+            batch_ids = ruta_ids[i : i + 50]
+            q = (
+                sb.table(t_pdv)
+                .select("id_cliente_erp")
+                .eq("id_distribuidor", dist_id)
+                .in_("id_ruta", batch_ids)
+                .or_(_PADRON_VISIBLE_OR)
+            )
+            rows = q.execute().data or []
+            for r in rows:
+                eid = r.get("id_cliente_erp")
+                if eid:
+                    pdvs_unicos.add(str(eid))
+    pdvs_activos = len(pdvs_unicos)
+
+    altas = 0
+    if ruta_ids:
+        for i in range(0, len(ruta_ids), 50):
+            batch_ids = ruta_ids[i : i + 50]
+            q = (
+                sb.table(t_pdv)
+                .select("fecha_alta")
+                .eq("id_distribuidor", dist_id)
+                .in_("id_ruta", batch_ids)
+                .gte("fecha_alta", fd)
+                .lte("fecha_alta", fh)
+            )
+            altas += len(q.execute().data or [])
+
+    vctx = _vendor_context(dist_id, id_vendedor)
+    int_ids = vctx["integrante_ids"]
+
+    t_ex = tenant_table_name("exhibiciones", dist_id)
+    ex_rows: list[dict] = []
+    if int_ids:
+        for i in range(0, len(int_ids), 50):
+            batch = int_ids[i : i + 50]
+
+            def q_fn(offset, b=batch):
+                return (
+                    sb.table(t_ex)
+                    .select(EXHIBICION_ROW_COLS)
+                    .eq("id_distribuidor", dist_id)
+                    .in_("id_integrante", b)
+                    .gte("timestamp_subida", fd)
+                    .lte("timestamp_subida", fh + "T23:59:59")
+                )
+
+            ex_rows.extend(_paginate(q_fn))
+
+    ex_counts = aggregate_exhibicion_counts_vendor_scope(ex_rows)
+    exhibiciones_logicas = ex_counts.get("total_logicas", 0)
+
+    vend_all = (
+        sb.table(tenant_table_name("vendedores_v2", dist_id))
+        .select("id_vendedor,id_vendedor_erp,nombre_erp")
+        .eq("id_distribuidor", dist_id)
+        .execute()
+        .data
+        or []
+    )
+    ventas_ctx = resolve_estadisticas_ventas_fetch(dist_id, vend_all)
+    t_v = tenant_table_name("ventas_enriched_v2", int(ventas_ctx["table_dist"]))
+    compradores: set = set()
+
+    def venta_q(offset):
+        q = (
+            sb.table(t_v)
+            .select(
+                "id_cliente_erp,codigo_vendedor,nombre_vendedor,tipo_documento,"
+                "importe_final,fecha_factura,anulado,bultos_total,unidades_total,"
+                "descripcion_articulo,agrupacion_art_2"
+            )
+            .eq("id_distribuidor", int(ventas_ctx["filter_dist"]))
+            .gte("fecha_factura", fd)
+            .lte("fecha_factura", fh)
+            .eq("anulado", False)
+        )
+        codigos = vctx.get("codigos_vendedor") or []
+        return _apply_ventas_scope(q, ventas_ctx, codigos or None)
+
+    venta_rows = _paginate(venta_q)
+    if not vctx.get("codigos_vendedor") and not vctx.get("codigo_vendedor"):
+        venta_rows = [r for r in venta_rows if _venta_matches_vendor(r, vctx)]
+
+    bultos_total = 0.0
+    unidades_cig = 0.0
+    for r in venta_rows:
+        if not _venta_matches_vendor(r, vctx):
+            continue
+        tipo = r.get("tipo_documento")
+        imp = float(r.get("importe_final") or 0)
+        if not _es_operacion_bultos_neto(tipo, imp):
+            continue
+        if not _es_devolucion(tipo, imp):
+            ceid = r.get("id_cliente_erp")
+            if ceid:
+                compradores.add(str(ceid))
+        bultos_total, unidades_cig = _acumular_bultos_unidades(r, bultos_total, unidades_cig)
+
+    ex_pdvs_unique: set = set()
+    for r in ex_rows:
+        ck = r.get("id_cliente_pdv") or r.get("id_cliente") or r.get("cliente_sombra_codigo") or ""
+        if ck:
+            ex_pdvs_unique.add(str(ck))
+
+    cobertura_pct = 0.0
+    if pdvs_activos > 0:
+        cobertura_pct = min(100.0, len(ex_pdvs_unique) / pdvs_activos * 100)
+
+    hoy = date.today()
+    obj_res = sb.table("objetivos").select("*").eq("id_distribuidor", dist_id).execute()
+    obj_rows = obj_res.data or []
+    activos = [o for o in obj_rows if objetivo_activo_para_vendedor(o, hoy)]
+    vendor_activos = [o for o in activos if str(o.get("id_vendedor", "")) == str(id_vendedor)]
+    cumplidos = sum(1 for o in vendor_activos if o.get("cumplido"))
+    objetivos_pct = (cumplidos / len(vendor_activos) * 100) if vendor_activos else 0.0
+
+    return {
+        "pdvs": pdvs_activos,
+        "altas": altas,
+        "exhibiciones": exhibiciones_logicas,
+        "compradores": _count_compradores_en_cartera(compradores, pdvs_unicos),
+        "bultos": bultos_display_2dec(bultos_total),
+        "bultos_raw": bultos_total,
+        "unidades_cigarrillos": bultos_display_2dec(unidades_cig),
+        "cobertura_pct": round(cobertura_pct, 1),
+        "objetivos_pct": round(objetivos_pct, 1),
+    }
+
+
+def build_carta_for_vendor_period(
+    dist_id: int,
+    id_vendedor: str,
+    fecha_desde: str,
+    fecha_hasta: str,
+) -> dict | None:
+    """Carta FIFA de un vendedor acotada a un rango de fechas (repaso comercial)."""
+    raw = aggregate_kpis_vendedor_bounds(dist_id, id_vendedor, fecha_desde, fecha_hasta)
+    if raw.get("pdvs", 0) == 0:
+        return None
+
+    t_vend = tenant_table_name("vendedores_v2", dist_id)
+    vend_res = (
+        sb.table(t_vend)
+        .select("id_vendedor,nombre_erp,id_sucursal")
+        .eq("id_distribuidor", dist_id)
+        .eq("id_vendedor", int(id_vendedor))
+        .limit(1)
+        .execute()
+    )
+    vend = (vend_res.data or [None])[0]
+    if not vend:
+        return None
+
+    nombre = (vend.get("nombre_erp") or "").strip()
+    if is_exhibicion_qa_display_for_dist(dist_id, nombre):
+        return None
+    if is_vendedor_excluido_objetivos(nombre):
+        return None
+
+    suc_nombre = ""
+    sid = vend.get("id_sucursal")
+    if sid is not None:
+        suc_res = (
+            sb.table(tenant_table_name("sucursales_v2", dist_id))
+            .select("nombre_erp")
+            .eq("id_sucursal", sid)
+            .limit(1)
+            .execute()
+        )
+        suc_nombre = ((suc_res.data or [{}])[0]).get("nombre_erp") or ""
+
+    ideal_dist = get_ideal(dist_id, "distribuidora")
+    ideal_comp = get_ideal(dist_id, "compania")
+    scoring_ideal, active_pesos = resolve_scoring_ideal(ideal_dist, ideal_comp)
+
+    fd = datetime.strptime(fecha_desde[:10], "%Y-%m-%d").date()
+    fh = datetime.strptime(fecha_hasta[:10], "%Y-%m-%d").date()
+    period_days = max(1, (fh - fd).days + 1)
+    n_meses = max(1, round(period_days / 30))
+
+    meta_score = _build_meta_kpis(scoring_ideal, n_meses) if scoring_ideal else {k: 0 for k in KPI_KEYS}
+    batch_caps = _batch_caps_from_raw({str(id_vendedor): raw})
+
+    radar = build_radar_normalized(
+        raw, meta_score, ideal=scoring_ideal, batch_caps=batch_caps
+    )
+    score = score_vendedor(radar, active_pesos) if scoring_ideal else 0
+
+    card: dict = {
+        "id_vendedor": str(id_vendedor),
+        "nombre": nombre,
+        "sucursal": suc_nombre,
+        "radar": radar,
+        "score": score,
+        "raw_kpis": raw,
+        "has_ideal_compania": bool(ideal_comp),
+        "has_ideal_distribuidora": bool(ideal_dist),
+    }
+    if ideal_comp:
+        card["radar_ideal_compania"] = radar_ideal_target()
+        card["ideal_meta_compania"] = ideal_meta_display_values(ideal_comp, n_meses, raw)
+    if ideal_dist:
+        card["radar_ideal_dist"] = radar_ideal_target()
+        card["ideal_meta_dist"] = ideal_meta_display_values(ideal_dist, n_meses, raw)
+    return card
 
 
 def _get_ideal(dist_id: int | None, origen: str) -> dict | None:
@@ -1239,69 +1598,23 @@ def build_detalle_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) -> 
     ex_rows = [r for r in ex_rows if _in_meses(r.get("timestamp_subida", ""), meses_set)]
     ex_counts = aggregate_exhibicion_counts_vendor_scope(ex_rows)
 
-    # Bultos top 20
-    ventas_ctx = vctx.get("ventas_ctx") or resolve_estadisticas_ventas_fetch(dist_id, None)
-    t_vb = tenant_table_name("ventas_enriched_v2", int(ventas_ctx["table_dist"]))
-
-    def ventas_detalle_q(offset):
-        q = (
-            sb.table(t_vb)
-            .select(
-                "descripcion_articulo,bultos_total,unidades_total,agrupacion_art_2,"
-                "tipo_documento,importe_final,fecha_factura,codigo_vendedor,"
-                "nombre_vendedor,id_cliente_erp,nombre_cliente,anulado"
-            )
-            .eq("id_distribuidor", int(ventas_ctx["filter_dist"]))
-            .gte("fecha_factura", fecha_desde)
-            .lte("fecha_factura", fecha_hasta)
-            .eq("anulado", False)
-        )
-        codigos = vctx.get("codigos_vendedor") or []
-        return _apply_ventas_scope(q, ventas_ctx, codigos or None)
-
-    ventas_det = _paginate(ventas_detalle_q)
-    if not (vctx.get("codigos_vendedor") or vctx.get("codigo_vendedor")):
-        ventas_det = [r for r in ventas_det if _venta_matches_vendor(r, vctx)]
-
-    bultos_by_art: dict[str, dict] = defaultdict(
-        lambda: {"bultos": 0.0, "kind": None}
+    # Bultos por artículo (misma asignación de ventas que KPI batch)
+    ventas_vend = _fetch_ventas_rows_vendedor(
+        dist_id, vctx, fecha_desde, fecha_hasta
     )
+    bultos_top, bultos_desglose_raw = _build_bultos_desglose(ventas_vend, meses_set)
+
     comp_map: dict[str, str] = {}
-    for r in ventas_det:
+    for r in ventas_vend:
         if not _in_meses(r.get("fecha_factura", ""), meses_set):
-            continue
-        if not _venta_matches_vendor(r, vctx):
             continue
         tipo = r.get("tipo_documento")
         imp = float(r.get("importe_final") or 0)
-        if not _es_operacion_bultos_neto(tipo, imp):
+        if not _es_operacion_bultos_neto(tipo, imp) or _es_devolucion(tipo, imp):
             continue
-        art = r.get("descripcion_articulo") or "Sin descripción"
-        bucket = bultos_by_art[art]
-        bucket["bultos"] += float(r.get("bultos_total") or 0)
-        kind = classify_volumen(
-            r.get("agrupacion_art_2") or "",
-            r.get("descripcion_articulo") or "",
-            "",
-        )
-        if volumen_es_convertido(kind):
-            bucket["kind"] = kind
         eid = str(r.get("id_cliente_erp") or "")
         if eid and eid not in comp_map:
             comp_map[eid] = r.get("nombre_cliente") or eid
-
-    bultos_top_rows: list[dict] = []
-    for k, v in bultos_by_art.items():
-        b = bultos_display_2dec(v["bultos"])
-        row: dict = {"articulo": k, "bultos": b}
-        kind = v.get("kind")
-        if kind and volumen_es_convertido(kind):
-            factor = unidades_por_bulto(kind) or 250.0
-            enteros, resto = bultos_desglose_decimal(b, factor)
-            row["bultos_enteros"] = enteros
-            row["unidades_resto"] = resto
-        bultos_top_rows.append(row)
-    bultos_top = sorted(bultos_top_rows, key=lambda x: x["bultos"], reverse=True)[:20]
 
     compradores = [{"id_cliente_erp": k, "razon_social": v} for k, v in comp_map.items()]
 
@@ -1311,6 +1624,8 @@ def build_detalle_vendedor(dist_id: int, id_vendedor: str, meses: list[str]) -> 
         "altas": altas[:100],
         "exhibiciones_resumen": ex_counts,
         "bultos_top": bultos_top,
+        "bultos_desglose_total": bultos_display_2dec(bultos_desglose_raw),
+        "bultos_desglose_count": len(bultos_top),
         "compradores": compradores[:200],
     }
 

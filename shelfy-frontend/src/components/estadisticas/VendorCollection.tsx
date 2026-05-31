@@ -4,15 +4,18 @@ import { useRef, useEffect, useCallback, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import type { Variants } from "framer-motion";
+import { MousePointerClick } from "lucide-react";
 import { VendorCard } from "./VendorCard";
 import { VendorCardExpanded } from "./VendorCardExpanded";
 import { useEstadisticasStore } from "@/store/useEstadisticasStore";
 import type { VendorCartaResumen } from "@/lib/api";
 import { computeStatLeadersByVendor } from "@/lib/vendor-card-fusion-kpi";
+import { mesForRecapEvolucion } from "@/lib/recap-utils";
 import {
   prefetchEstadisticasDetalle,
   useEstadisticasWarmCache,
 } from "@/hooks/useEstadisticasQueries";
+import { useRecapEvolucionBundle } from "@/hooks/useRecapQueries";
 
 interface VendorCollectionProps {
   vendors: VendorCartaResumen[];
@@ -124,9 +127,34 @@ export function VendorCollection({
     [queryClient, distId, meses],
   );
 
+  const evolucionMes = useMemo(() => mesForRecapEvolucion(meses), [meses]);
+
+  useRecapEvolucionBundle(distId, evolucionMes, filterSucursal);
+
   return (
     <LayoutGroup id="estadisticas-vendor-cards">
     <div style={{ position: "relative", width: "100%" }}>
+      {!activeVendorId && (
+        <div
+          style={{
+            margin: "0 24px 12px",
+            padding: "8px 14px",
+            borderRadius: 10,
+            background: "rgba(124,58,237,0.08)",
+            border: "1px solid rgba(124,58,237,0.22)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 8,
+          }}
+        >
+          <MousePointerClick size={15} color="#7c3aed" strokeWidth={2.25} />
+          <span style={{ fontSize: 12, fontWeight: 600, color: "var(--shelfy-text)" }}>
+            Hace click en la carta para ver detalle
+          </span>
+        </div>
+      )}
+
       <motion.div
         ref={scrollRef}
         variants={containerVariants}
@@ -166,6 +194,9 @@ export function VendorCollection({
               nombreDistribuidora={nombreDistribuidora}
               statLeaders={leadersByVendor.get(vendor.id_vendedor) ?? []}
               onPrefetchDetalle={() => handlePrefetchDetalle(vendor.id_vendedor)}
+              evolucionDistId={distId}
+              evolucionMes={evolucionMes}
+              evolucionVendorName={vendor.nombre}
             />
           </motion.div>
         ))}

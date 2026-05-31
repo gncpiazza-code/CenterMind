@@ -669,9 +669,18 @@ export async function fetchEstadisticasBundle(
 ): Promise<EstadisticasBundle> {
   const q = new URLSearchParams({ meses: meses.join(",") });
   if (sucursal) q.append("sucursal", sucursal);
-  const data = await apiFetch<EstadisticasBundle & { cartas?: unknown }>(
-    `/api/bundle/estadisticas/${distId}?${q.toString()}`,
-  );
+  const url = `${API_URL}/api/bundle/estadisticas/${distId}?${q.toString()}`;
+  const res = await fetch(url, {
+    headers: getHeaders(),
+    signal: AbortSignal.timeout(120_000),
+  });
+  if (!res.ok) {
+    handleSessionExpired401(`/api/bundle/estadisticas/${distId}`, res.status);
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    const detailMsg = typeof err.detail === "string" ? err.detail : (err.detail?.mensaje ?? `HTTP ${res.status}`);
+    throw new ApiError(detailMsg, res.status, err.detail);
+  }
+  const data = await res.json() as EstadisticasBundle & { cartas?: unknown };
   const cartas = coerceBundleList<VendorCartaResumen>(data.cartas);
   return {
     meta: data.meta ?? {},
@@ -3421,10 +3430,14 @@ export interface VendorDetalle {
   };
   bultos_top: {
     articulo: string;
+    cod_articulo?: string | null;
     bultos: number;
+    bultos_raw?: number;
     bultos_enteros?: number;
     unidades_resto?: number;
   }[];
+  bultos_desglose_total?: number;
+  bultos_desglose_count?: number;
   compradores: { id_cliente_erp: string; razon_social: string }[];
 }
 
@@ -3711,4 +3724,120 @@ export async function triggerBindingScan(distId: number): Promise<BindingScanRes
   return apiFetch<BindingScanResult>(`/api/fuerza-ventas/binding/scan/${distId}`, {
     method: "POST",
   });
+}
+
+// ── Repaso Comercial ───────────────────────────────────────────────────────────
+// Types live in ./recap-types. Re-exported here for convenience.
+
+import type { RecapStory, RecapHistorialItem, RecapPendienteItem, RecapCarrusel, RecapPeriodoDistItem, RecapEvolucion, RecapEvolucionBundle } from "./recap-types";
+import { normalizeRecapPendientes } from "./recap-utils";
+
+export type { RecapStory, RecapHistorialItem, RecapPendienteItem, RecapCarrusel, RecapPeriodoDistItem, RecapEvolucion, RecapEvolucionBundle };
+
+export async function fetchRecapStory(
+  distId: number,
+  vendedorId: string,
+  periodoKey: string,
+): Promise<RecapStory> {
+  return apiFetch<RecapStory>(
+    `/api/recap/story/${distId}/${encodeURIComponent(vendedorId)}?periodo_key=${encodeURIComponent(periodoKey)}`,
+  );
+}
+
+export async function fetchRecapHistorial(
+  distId: number,
+  vendedorId: string,
+): Promise<RecapHistorialItem[]> {
+  return apiFetch<RecapHistorialItem[]>(
+    `/api/recap/historial/${distId}/${encodeURIComponent(vendedorId)}`,
+  );
+}
+
+export async function markRecapVisto(
+  distId: number,
+  periodoKey: string,
+): Promise<void> {
+  await apiFetch<void>(`/api/recap/visto/${distId}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ periodo_key: periodoKey }),
+  });
+}
+
+export async function fetchRecapPeriodos(distId: number): Promise<RecapPeriodoDistItem[]> {
+  return apiFetch<RecapPeriodoDistItem[]>(`/api/recap/periodos/${distId}`);
+}
+
+export async function fetchRecapPendientes(distId: number): Promise<RecapPendienteItem[]> {
+  const raw = await apiFetch<unknown>(`/api/recap/pendientes/${distId}`);
+  return normalizeRecapPendientes(raw).filter((item) => item.periodo_key);
+}
+
+async function fetchRecapSampleVendedor(
+  distId: number,
+  periodoKey: string,
+): Promise<string | null> {
+  try {
+    const res = await apiFetch<{ id_vendedor: string }>(
+      `/api/recap/sample-vendedor/${distId}?periodo_key=${encodeURIComponent(periodoKey)}`,
+    );
+    return res.id_vendedor || null;
+  } catch {
+    return null;
+  }
+}
+
+export { fetchRecapSampleVendedor };
+
+export async function fetchRecapCarrusel(
+  distId: number,
+  periodoKey: string,
+): Promise<RecapCarrusel> {
+  return apiFetch<RecapCarrusel>(
+    `/api/recap/carrusel/${distId}?periodo_key=${encodeURIComponent(periodoKey)}`,
+  );
+}
+
+export type RecapSession = {
+  carrusel: RecapCarrusel;
+  story: RecapStory;
+};
+
+export async function fetchRecapSession(
+  distId: number,
+  vendedorId: string,
+  periodoKey: string,
+): Promise<RecapSession> {
+  return apiFetch<RecapSession>(
+    `/api/recap/session/${distId}/${encodeURIComponent(vendedorId)}?periodo_key=${encodeURIComponent(periodoKey)}`,
+  );
+}
+
+export async function fetchRecapEvolucion(
+  distId: number,
+  vendedorId: string,
+  mes: string,
+): Promise<RecapEvolucion> {
+  return apiFetch<RecapEvolucion>(
+    `/api/recap/evolucion/${distId}/${encodeURIComponent(vendedorId)}?mes=${encodeURIComponent(mes)}`,
+  );
+}
+
+export async function fetchRecapEvolucionBundle(
+  distId: number,
+  mes: string,
+  sucursal: string | null = null,
+): Promise<RecapEvolucionBundle> {
+  const q = new URLSearchParams({ mes });
+  if (sucursal) q.append("sucursal", sucursal);
+  return apiFetch<RecapEvolucionBundle>(
+    `/api/bundle/recap-evolucion/${distId}?${q.toString()}`,
+  );
+}
+
+export async function fetchRecapExcelBlob(distId: number, mes: string): Promise<Blob> {
+  const headers = getHeaders();
+  const res = await fetch(`${API_URL}/api/recap/export/${distId}?mes=${encodeURIComponent(mes)}`, { headers });
+  if (!res.ok) throw new Error(`recap export error ${res.status}`);
+  return res.blob();
 }

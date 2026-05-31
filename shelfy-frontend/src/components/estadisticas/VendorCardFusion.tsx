@@ -15,6 +15,7 @@ import {
   VENDOR_CARD_RADAR_H,
 } from "@/lib/vendor-card-tier";
 import type { VendorStatLeaderKey } from "@/lib/vendor-card-fusion-kpi";
+import { RecapEvolucionButton } from "./recap/RecapEvolucionModal";
 
 /** Morph carta ↔ modal (compartido con VendorCardExpanded). */
 export const VENDOR_CARD_LAYOUT_TRANSITION = {
@@ -34,8 +35,14 @@ export interface VendorCardFusionProps {
   nombreDistribuidora?: string | null;
   previewMode?: boolean;
   animationPaused?: boolean;
+  /** Estira la carta al alto del contenedor (repaso comercial). */
+  fillHeight?: boolean;
   statLeaders?: VendorStatLeaderKey[];
   onPrefetchDetalle?: () => void;
+  /** Si se pasan, muestra botón "Ver evolución" del repaso comercial. */
+  evolucionDistId?: number;
+  evolucionMes?: string | null;
+  evolucionVendorName?: string;
 }
 
 export function VendorCardFusion({
@@ -46,8 +53,12 @@ export function VendorCardFusion({
   nombreDistribuidora,
   previewMode = false,
   animationPaused = false,
+  fillHeight = false,
   statLeaders = [],
   onPrefetchDetalle,
+  evolucionDistId,
+  evolucionMes,
+  evolucionVendorName,
 }: VendorCardFusionProps) {
   const setActiveVendorId = useEstadisticasStore((s) => s.setActiveVendorId);
   const tier = scoreToTier(vendor.score);
@@ -86,21 +97,28 @@ export function VendorCardFusion({
       style={{
         width: compact ? VENDOR_CARD_W : "100%",
         flexShrink: 0,
+        height: fillHeight ? "100%" : undefined,
+        minHeight: fillHeight ? 0 : undefined,
         display: "flex",
         flexDirection: "column",
       }}
     >
-      <div className="vendor-fifa-card-shell" style={{ width: "100%" }}>
+      <div
+        className="vendor-fifa-card-shell"
+        style={{ width: "100%", height: fillHeight ? "100%" : undefined, minHeight: fillHeight ? 0 : undefined, flex: fillHeight ? 1 : undefined, display: fillHeight ? "flex" : undefined, flexDirection: fillHeight ? "column" : undefined }}
+      >
       <motion.div
         className={`vendor-fifa-card vendor-fifa-card--${tier}${animationPaused ? " vendor-fifa-card--paused" : ""}`}
-        whileHover={{ y: -4, scale: 1.01 }}
-        whileTap={{ scale: 0.99 }}
+        whileHover={fillHeight ? undefined : { y: -4, scale: 1.01 }}
+        whileTap={fillHeight ? undefined : { scale: 0.99 }}
         transition={{ type: "spring", stiffness: 400, damping: 28 }}
         onClick={openDetail}
         onPointerEnter={onPrefetchDetalle}
         style={{
           width: "100%",
-          height: VENDOR_CARD_FACE_H,
+          height: fillHeight ? "100%" : VENDOR_CARD_FACE_H,
+          flex: fillHeight ? 1 : undefined,
+          minHeight: fillHeight ? 0 : undefined,
           cursor: previewMode ? "default" : "pointer",
           position: "relative",
           background: theme.faceGradient,
@@ -108,9 +126,11 @@ export function VendorCardFusion({
           ["--fifa-card-shadow" as string]: theme.shadow,
           ["--fifa-glow" as string]: theme.glow,
           display: "grid",
-          gridTemplateRows: `auto ${VENDOR_CARD_RADAR_H}px auto auto`,
-          padding: "14px 10px 10px",
-          rowGap: 8,
+          gridTemplateRows: fillHeight
+            ? "auto minmax(0, 1fr) auto auto"
+            : `auto ${VENDOR_CARD_RADAR_H}px auto auto`,
+          padding: fillHeight ? "16px 12px 12px" : "14px 10px 10px",
+          rowGap: fillHeight ? 10 : 8,
           boxSizing: "border-box",
         }}
       >
@@ -174,6 +194,9 @@ export function VendorCardFusion({
             background: theme.radarPanel,
             overflow: "visible",
             zIndex: 2,
+            minHeight: fillHeight ? 0 : undefined,
+            display: fillHeight ? "flex" : undefined,
+            flexDirection: fillHeight ? "column" : undefined,
           }}
         >
           <VendorCardRadar
@@ -249,29 +272,16 @@ export function VendorCardFusion({
         </div>
       )}
 
-      <button
-        type="button"
-        className="vendor-fifa-ver-detalle"
-        onClick={openDetail}
-        onPointerEnter={onPrefetchDetalle}
-        disabled={previewMode}
-        style={{
-          marginTop: 8,
-          width: "100%",
-          padding: "9px 12px",
-          border: "none",
-          background: "var(--est-fifa-detail-btn-bg, #0f172a)",
-          color: "var(--est-fifa-detail-btn-text, #c4b5fd)",
-          fontSize: 11,
-          fontWeight: 800,
-          cursor: previewMode ? "not-allowed" : "pointer",
-          letterSpacing: "0.08em",
-          textTransform: "uppercase",
-          opacity: previewMode ? 0.65 : 1,
-        }}
-      >
-        Ver detalle
-      </button>
+      {!previewMode && evolucionDistId && evolucionMes && (
+        <RecapEvolucionButton
+          distId={evolucionDistId}
+          vendedorId={vendor.id_vendedor}
+          mes={evolucionMes}
+          vendorName={evolucionVendorName ?? vendor.nombre}
+          nombreDistribuidora={nombreDistribuidora}
+          variant="card"
+        />
+      )}
     </motion.div>
   );
 }

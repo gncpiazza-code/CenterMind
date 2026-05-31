@@ -169,4 +169,6 @@ export const bundleKeys = {
     ['bundle', 'estadisticas', distId, meses.join(','), sucursal ?? null] as const,
   visor: (distId: number) =>
     ['bundle', 'visor', distId] as const,
+  recapEvolucion: (distId: number, mes: string, sucursal?: string | null) =>
+    ['bundle', 'recap-evolucion', distId, mes, sucursal ?? null] as const,
 };

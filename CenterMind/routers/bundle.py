@@ -20,6 +20,7 @@ from services.snapshot_dashboard_service import get_or_refresh_dashboard
 from services.snapshot_supervision_service import get_or_refresh_supervision
 from services.snapshot_estadisticas_service import get_or_refresh_estadisticas
 from services.snapshot_visor_service import get_or_refresh_visor
+from services.snapshot_recap_evolucion_service import get_or_refresh_recap_evolucion_bundle
 from services.snapshot_refresh_service import warm_portal_bundles
 
 logger = logging.getLogger("bundle_router")
@@ -77,6 +78,21 @@ def bundle_estadisticas(
     else:
         meses_list = [ar_now.strftime("%Y-%m")]
     return get_or_refresh_estadisticas(dist_id, meses_list, sucursal)
+
+
+@router.get("/recap-evolucion/{dist_id}")
+def bundle_recap_evolucion(
+    dist_id: int,
+    mes: str = Query(..., pattern=r"^\d{4}-\d{2}$", description="Mes YYYY-MM"),
+    sucursal: Optional[str] = Query(None, description="Filtrar por sucursal"),
+    payload=Depends(verify_auth),
+):
+    """
+    Evolución Q1 → Q2 → C de todos los vendedores con carta en el mes.
+    Una sola ida al abrir Estadísticas; alimenta cache por vendedor en el FE.
+    """
+    check_dist_permission(payload, dist_id)
+    return get_or_refresh_recap_evolucion_bundle(dist_id, mes.strip(), sucursal)
 
 
 @router.get("/visor/{dist_id}")

@@ -164,6 +164,7 @@ export default function GlassBenchPage() {
         <TokenTable variant={variant} />
       </div>
     </div>
+    </VisorGlassTuneProvider>
   );
 }
 
@@ -332,7 +333,6 @@ function BenchCard({
         </div>
       </div>
     </div>
-    </VisorGlassTuneProvider>
   );
 }
 

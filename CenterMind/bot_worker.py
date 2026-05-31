@@ -1384,22 +1384,22 @@ class BotWorker:
             now = datetime.now(AR_TZ)
             prev_m = 12 if now.month == 1 else now.month - 1
 
-            # ── Group-first con fallback legacy si no hay stats ──
-            group_vid = self._resolve_group_vendor(m.chat.id)
+            # ── Misma resolución que /objetivos (grupo → integrantes → no el remitente) ──
+            group_vid, vendor_name = await asyncio.to_thread(
+                self._resolve_vendor_for_group_command,
+                self.distribuidor_id,
+                m.chat.id,
+                uid,
+            )
             stats = None
-            display_name = "LUCIANO ITURRIA" if uid in LUCIANO_UIDS else (m.from_user.first_name or "Vendedor")
+            if uid in LUCIANO_UIDS:
+                display_name = "LUCIANO ITURRIA"
+            elif vendor_name:
+                display_name = vendor_name
+            else:
+                display_name = m.from_user.first_name or "Vendedor"
 
             if group_vid is not None:
-                t_vend = f"vendedores_v2_d{self.distribuidor_id}"
-                v_info = await asyncio.to_thread(
-                    lambda: self.db.sb.table(t_vend)
-                    .select("nombre_erp")
-                    .eq("id_vendedor", group_vid)
-                    .limit(1)
-                    .execute()
-                )
-                if v_info.data:
-                    display_name = v_info.data[0]["nombre_erp"]
                 stats = await asyncio.to_thread(
                     self.db.get_stats_vendedor,
                     self.distribuidor_id,
@@ -1577,6 +1577,34 @@ class BotWorker:
             self.logger.warning(f"[group-vendor] chat={chat_id}: {e}")
             return None
 
+    def _resolve_vendor_for_group_command(
+        self, dist_id: int, chat_id: int, uid: int
+    ) -> tuple[int | None, str | None]:
+        """
+        Vendedor para comandos de grupo (/stats, /objetivos): misma cadena en ambos.
+        1) grupos / FV binding (resolve_vendedor_for_group)
+        2) integrantes_grupo del chat (como /objetivos legacy)
+        """
+        vid = self._resolve_group_vendor(chat_id)
+        nombre: str | None = None
+        if vid is None:
+            row = self._resolve_vendedor_v2_for_objetivos(dist_id, uid, chat_id)
+            vid = row.get("id_vendedor_v2")
+            nombre = row.get("nombre_integrante")
+        if vid is not None:
+            t_vend = tenant_table_name("vendedores_v2", dist_id)
+            v_info = (
+                self.db.sb.table(t_vend)
+                .select("nombre_erp")
+                .eq("id_distribuidor", dist_id)
+                .eq("id_vendedor", vid)
+                .limit(1)
+                .execute()
+            )
+            if v_info.data and v_info.data[0].get("nombre_erp"):
+                nombre = v_info.data[0]["nombre_erp"]
+        return vid, nombre
+
     def _resolve_vendedor_v2_for_objetivos(self, dist_id: int, uid: int, chat_id: int) -> dict:
         """
         Vendedor para /objetivos: usuario+grupo → cualquier integrante del grupo → ERP en tabla grupos.
@@ -1642,31 +1670,12 @@ class BotWorker:
         dist_id = self.distribuidor_id
 
         try:
-            # ── Group-first: si el grupo tiene un vendedor anclado, usarlo ──
-            group_vid = self._resolve_group_vendor(chat_id)
-            if group_vid is not None:
-                id_vendedor = group_vid
-                # Obtener nombre ERP del vendedor para display
-                t_vend = f"vendedores_v2_d{dist_id}"
-                v_info = await asyncio.to_thread(
-                    lambda: self.db.sb.table(t_vend)
-                    .select("nombre_erp")
-                    .eq("id_vendedor", group_vid)
-                    .limit(1)
-                    .execute()
-                )
-                vendedor_nombre = (
-                    v_info.data[0]["nombre_erp"]
-                    if v_info.data
-                    else (m.from_user.first_name or "Vendedor")
-                )
-            else:
-                # Fallback legacy: integrantes_grupo + grupos.id_vendedor_erp
-                row_ig = await asyncio.to_thread(
-                    self._resolve_vendedor_v2_for_objetivos, dist_id, uid, chat_id
-                )
-                id_vendedor = row_ig.get("id_vendedor_v2")
-                vendedor_nombre = row_ig.get("nombre_integrante") or (m.from_user.first_name or "Vendedor")
+            group_vid, vendedor_nombre = await asyncio.to_thread(
+                self._resolve_vendor_for_group_command, dist_id, chat_id, uid
+            )
+            id_vendedor = group_vid
+            if not vendedor_nombre:
+                vendedor_nombre = m.from_user.first_name or "Vendedor"
 
             if not id_vendedor:
                 await m.reply_text(

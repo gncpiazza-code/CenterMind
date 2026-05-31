@@ -141,20 +141,23 @@ def ingest_enriched(tenant_id: str, file_bytes: bytes) -> dict[str, Any]:
 
     logger.info("[ventas_enriched] dist=%s rows=%s upserted=%s", dist_id, len(rows), upserted)
 
-    # Actualizar fecha_ultima_compra en clientes_pdv_v2
+    # Actualizar fecha_ultima_compra + fecha_compra_anterior (días distintos)
     actualizados = 0
-    for id_cliente_erp, fecha_str in ids_cliente_erp_actualizados.items():
-        try:
-            sb.table(tenant_table_name("clientes_pdv_v2", dist_id)) \
-                .update({"fecha_ultima_compra": fecha_str}) \
-                .eq("id_cliente_erp", id_cliente_erp) \
-                .lt("fecha_ultima_compra", fecha_str) \
-                .execute()
-            actualizados += 1
-        except Exception as e:
-            logger.warning(f"[ventas_enriched] No se pudo actualizar cliente_erp {id_cliente_erp}: {e}")
+    try:
+        from core.compras_fechas import batch_update_fechas_compra_desde_ventas
 
-    logger.info(f"[ventas_enriched] fecha_ultima_compra actualizada: {actualizados} clientes")
+        actualizados = batch_update_fechas_compra_desde_ventas(
+            dist_id,
+            ids_cliente_erp_actualizados.keys(),
+            nuevas_por_erp=ids_cliente_erp_actualizados,
+        )
+    except Exception as e:
+        logger.warning(f"[ventas_enriched] batch fechas compra falló: {e}")
+
+    logger.info(
+        "[ventas_enriched] fechas compra (ultima+anterior) actualizadas: %s clientes",
+        actualizados,
+    )
 
     # Actualizar progreso de objetivos activos
     try:
@@ -175,9 +178,9 @@ def ingest_enriched(tenant_id: str, file_bytes: bytes) -> dict[str, Any]:
         logger.warning(f"[ventas_enriched] No se pudo registrar en motor_runs: {e}")
 
     try:
-        from services.snapshot_refresh_service import handle_ingestion_event
-        handle_ingestion_event("ventas_enriched", dist_id)
+        from services.snapshot_refresh_service import refresh_eager
+        refresh_eager(dist_id, ["estadisticas", "dashboard"])
     except Exception as e_snap:
-        logger.warning(f"[ventas_enriched] snapshot invalidate omitido: {e_snap}")
+        logger.warning(f"[ventas_enriched] snapshot refresh_eager omitido: {e_snap}")
 
     return {"ok": True, "rows": len(rows), "upserted": upserted, "actualizados": actualizados, "dist_id": dist_id}

@@ -1407,7 +1407,7 @@ class BotWorker:
                     telegram_group_id=m.chat.id,
                 )
 
-            if not stats:
+            if not stats and group_vid is None:
                 related_uids = LUCIANO_UIDS if uid in LUCIANO_UIDS else [uid]
                 stats = await asyncio.to_thread(
                     self.db.get_stats_vendedor,
@@ -1417,8 +1417,19 @@ class BotWorker:
                 )
                 if uid in LUCIANO_UIDS:
                     display_name = "LUCIANO ITURRIA"
-                elif group_vid is None:
+                else:
                     display_name = m.from_user.first_name or "Vendedor"
+            elif not stats and group_vid is not None:
+                # Grupo vinculado: no usar stats del usuario que ejecutó /stats (p. ej. supervisor)
+                empty = {
+                    "aprobadas": 0,
+                    "destacadas": 0,
+                    "rechazadas": 0,
+                    "pendientes": 0,
+                    "total": 0,
+                    "puntos": 0,
+                }
+                stats = {"mes_actual": empty, "mes_anterior": dict(empty)}
 
             if not stats:
                 hint = (

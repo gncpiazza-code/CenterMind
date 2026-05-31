@@ -832,6 +832,8 @@ def _aggregate_kpis_from_rows(parallel: dict[str, object], meses: list[str]) -> 
     bultos_by_vend: dict[int, float] = defaultdict(float)
     unidades_cig_by_vend: dict[int, float] = defaultdict(float)
     compradores_by_vend: dict[int, set] = defaultdict(set)
+    ventas_total = 0
+    ventas_unmatched = 0
     for row in parallel.get("ventas") or []:
         if not _in_meses(row.get("fecha_factura", ""), meses_set):
             continue
@@ -839,8 +841,10 @@ def _aggregate_kpis_from_rows(parallel: dict[str, object], meses: list[str]) -> 
         imp = float(row.get("importe_final") or 0)
         if _es_recaudacion(tipo) or _es_devolucion(tipo, imp):
             continue
+        ventas_total += 1
         vid = _resolve_vid_from_venta_row(row, match_indexes)
         if vid is None:
+            ventas_unmatched += 1
             continue
         bultos_by_vend[vid], unidades_cig_by_vend[vid] = _acumular_bultos_unidades(
             row, bultos_by_vend[vid], unidades_cig_by_vend[vid]
@@ -868,6 +872,7 @@ def _aggregate_kpis_from_rows(parallel: dict[str, object], meses: list[str]) -> 
         obj_pct = (cumplidos / len(objs) * 100) if objs else 0.0
         ex_u = ex_pdvs_unique_by_vend.get(vid, 0)
         cob = min(100.0, ex_u / pdvs * 100) if pdvs else 0.0
+        bultos_raw = bultos_by_vend.get(vid, 0.0)
         out[str(vid)] = {
             "pdvs": pdvs,
             "altas": altas_by_vend.get(vid, 0),
@@ -876,11 +881,18 @@ def _aggregate_kpis_from_rows(parallel: dict[str, object], meses: list[str]) -> 
                 compradores_by_vend.get(vid) or set(),
                 pdv_set,
             ),
-            "bultos": bultos_display_2dec(bultos_by_vend.get(vid, 0)),
+            "bultos": bultos_display_2dec(bultos_raw),
+            "bultos_raw": bultos_raw,
             "unidades_cigarrillos": bultos_display_2dec(unidades_cig_by_vend.get(vid, 0)),
             "cobertura_pct": round(cob, 1),
             "objetivos_pct": round(obj_pct, 1),
         }
+    unmatched_pct = round(ventas_unmatched / max(ventas_total, 1) * 100, 1)
+    out["__ventas_meta__"] = {  # type: ignore[assignment]
+        "ventas_total": ventas_total,
+        "ventas_unmatched": ventas_unmatched,
+        "ventas_unmatched_pct": unmatched_pct,
+    }
     return out
 
 
@@ -890,12 +902,19 @@ def _aggregate_kpis_all_vendors(dist_id: int, meses: list[str]) -> dict[str, dic
     return _aggregate_kpis_from_rows(rows, meses)
 
 
+_ERP_SYNC_VENTAS_UMBRAL = 100   # filas mínimas en dist para disparar alerta
+_ERP_SYNC_UNMATCHED_UMBRAL = 50.0  # % de ventas sin match para flagear
+
+
 def _build_carta_resumen_impl(dist_id: int, meses: list[str], sucursal: str | None) -> list[dict]:
     n_meses = len(meses)
     source = _fetch_carta_source_rows(dist_id, meses)
     all_raw = _aggregate_kpis_from_rows(source, meses)
+    ventas_meta: dict = all_raw.pop("__ventas_meta__", {})  # type: ignore[call-overload]
     vend_rows = source.get("vendedores") or []
     all_raw, hidden_vids = apply_tabaco_rollups(dist_id, all_raw, vend_rows)
+    ventas_total_dist: int = ventas_meta.get("ventas_total", 0)
+    ventas_unmatched_pct: float = ventas_meta.get("ventas_unmatched_pct", 0.0)
 
     suc_map = {
         str(r["id_sucursal"]): r.get("nombre_erp", "")
@@ -937,6 +956,16 @@ def _build_carta_resumen_impl(dist_id: int, meses: list[str], sucursal: str | No
         )
         score = score_vendedor(radar, active_pesos) if scoring_ideal else 0
 
+        compradores_val = float(raw.get("compradores") or 0)
+        bultos_val = float(raw.get("bultos_raw") or 0)
+        erp_sync_alert = (
+            ventas_total_dist >= _ERP_SYNC_VENTAS_UMBRAL
+            and int(raw.get("pdvs") or 0) > 0
+            and compradores_val == 0
+            and bultos_val == 0
+            and ventas_unmatched_pct >= _ERP_SYNC_UNMATCHED_UMBRAL
+        )
+
         card: dict = {
             "id_vendedor": vid,
             "nombre": nombre,
@@ -947,6 +976,10 @@ def _build_carta_resumen_impl(dist_id: int, meses: list[str], sucursal: str | No
             "has_ideal_compania": bool(ideal_comp),
             "has_ideal_distribuidora": bool(ideal_dist),
         }
+        if erp_sync_alert:
+            card["erp_sync_alert"] = True
+            card["erp_sync_reason"] = "ventas_sin_match_vendedor"
+            card["erp_sync_unmatched_pct"] = ventas_unmatched_pct
 
         if ideal_comp:
             card["radar_ideal_compania"] = radar_ideal_target()

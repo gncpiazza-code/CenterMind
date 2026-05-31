@@ -532,7 +532,7 @@ export interface DashboardBundle {
 }
 
 /** Snapshots viejos guardaban ranking como dict de aggregate_ranking_by_vendor, no array. */
-function coerceDashboardRankingRows(raw: unknown): Record<string, unknown>[] {
+export function coerceDashboardRankingRows(raw: unknown): Record<string, unknown>[] {
   if (Array.isArray(raw)) return raw;
   if (raw && typeof raw === "object") {
     const entries = Object.entries(raw as Record<string, unknown>);
@@ -550,6 +550,16 @@ function coerceDashboardRankingRows(raw: unknown): Record<string, unknown>[] {
       }));
     }
     return Object.values(raw as Record<string, Record<string, unknown>>);
+  }
+  return [];
+}
+
+/** Normaliza listas de bundle que pudieron persistirse como dict indexado. */
+export function coerceBundleList<T>(raw: unknown): T[] {
+  if (Array.isArray(raw)) return raw as T[];
+  if (raw && typeof raw === "object") {
+    const vals = Object.values(raw as Record<string, unknown>);
+    if (vals.length > 0 && typeof vals[0] === "object") return vals as T[];
   }
   return [];
 }
@@ -626,13 +636,14 @@ export async function fetchSupervisionBundle(
   const qs = qp.toString() ? `?${qp.toString()}` : "";
   const data = await apiFetch<{
     meta: BundleMeta;
-    cuentas: CuentasSupervision & { vendedores?: Record<string, unknown>[] };
+    cuentas: CuentasSupervision & { vendedores?: unknown };
   }>(`/api/bundle/supervision/${distId}${qs}`);
+  const vendedores = coerceBundleList<Record<string, unknown>>(data.cuentas?.vendedores);
   return {
     meta: data.meta ?? {},
     cuentas: {
       ...data.cuentas,
-      vendedores: (data.cuentas?.vendedores ?? []).map((row) => ({
+      vendedores: vendedores.map((row) => ({
         ...(row as unknown as VendedorCuentas),
         vendedor:
           resolveVendorERPName(row, ["nombre_erp", "vendedor_erp", "nombre_vendedor", "vendedor"]) ??
@@ -655,7 +666,15 @@ export async function fetchEstadisticasBundle(
 ): Promise<EstadisticasBundle> {
   const q = new URLSearchParams({ meses: meses.join(",") });
   if (sucursal) q.append("sucursal", sucursal);
-  return apiFetch<EstadisticasBundle>(`/api/bundle/estadisticas/${distId}?${q.toString()}`);
+  const data = await apiFetch<EstadisticasBundle & { cartas?: unknown }>(
+    `/api/bundle/estadisticas/${distId}?${q.toString()}`,
+  );
+  const cartas = coerceBundleList<VendorCartaResumen>(data.cartas);
+  return {
+    meta: data.meta ?? {},
+    cartas,
+    total: data.total ?? cartas.length,
+  };
 }
 
 export interface VisorBundleStats {
@@ -3340,6 +3359,10 @@ export interface VendorCartaResumen {
   raw_kpis: VendorRawKpis;
   has_ideal_compania?: boolean;
   has_ideal_distribuidora?: boolean;
+  /** Error de sincronización ERP: ventas no resuelven a este vendedor */
+  erp_sync_alert?: boolean;
+  erp_sync_reason?: string;
+  erp_sync_unmatched_pct?: number;
 }
 
 export interface VendorDetallePdv {

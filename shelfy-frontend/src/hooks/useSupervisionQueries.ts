@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import {
   keepPreviousData,
   useQuery,
@@ -16,7 +16,6 @@ import {
   fetchVendedoresSupervision,
   fetchSupervisionBundle,
   type CcKpisResponse,
-  type CuentasSupervision,
   type DeudorDetalle,
   type SyncStatus,
   type VendedorSupervision,
@@ -106,17 +105,16 @@ export function prefetchDeudorDetalle(
   return qc.prefetchQuery(deudorDetalleQueryOptions(distId, idClienteErp));
 }
 
+/** @deprecated Usar prefetchSupervisionBundle — cartera CC es sucursal-wide en bundle. */
 export function prefetchCuentasSupervision(
   qc: QueryClient,
   distId: number,
   sucursal: string | undefined,
-  vendedorNombre: string,
-  vendedorId: number,
+  _vendedorNombre?: string,
+  _vendedorId?: number,
 ) {
-  if (!distId || !vendedorNombre || !vendedorId) return Promise.resolve();
-  return qc.prefetchQuery(
-    cuentasQueryOptions(distId, sucursal, vendedorNombre, vendedorId),
-  );
+  if (!distId) return Promise.resolve();
+  return prefetchSupervisionBundle(qc, distId, sucursal ?? null, null);
 }
 
 export function prefetchCcKpis(
@@ -168,6 +166,7 @@ export function useSupervisionPanelQueries(
 ) {
   const sucursalParam = selectedSucursal === "__all__" ? undefined : selectedSucursal;
   const qc = useQueryClient();
+  const prevCcSyncRef = useRef<string | null>(null);
 
   const vendedoresLiteQuery = useQuery<VendedorSupervision[]>({
     ...vendedoresLiteQueryOptions(distId),
@@ -195,16 +194,15 @@ export function useSupervisionPanelQueries(
     refetchInterval: 60_000,
   });
 
-  const cuentasQuery = useQuery<CuentasSupervision>({
-    ...cuentasQueryOptions(
-      distId,
-      sucursalParam,
-      selectedVendedorNombre ?? "",
-      selectedVendedorId ?? 0,
-    ),
-    enabled: !!distId && !!selectedVendedorNombre && !!selectedVendedorId,
+  // Bundle: carga snapshot sucursal-wide al entrar (no depende de vendedor seleccionado)
+  const bundleQuery = useQuery<SupervisionBundle>({
+    ...supervisionBundleQueryOptions(distId, sucursalParam ?? null, null),
+    enabled: !!distId,
     placeholderData: keepPreviousData,
   });
+  const cuentasData = bundleQuery.data?.cuentas ?? undefined;
+  const loadingCuentas = bundleQuery.isLoading && !bundleQuery.data;
+  const fetchingCuentas = bundleQuery.isFetching;
 
   const ccKpisQuery = useQuery<CcKpisResponse>({
     ...ccKpisQueryOptions(distId, selectedVendedorId ?? 0),
@@ -212,18 +210,37 @@ export function useSupervisionPanelQueries(
     placeholderData: keepPreviousData,
   });
 
-  // Precarga KPIs + cuentas en cuanto hay vendedor (antes del render pesado)
+  // Precarga bundle al entrar / cambiar sucursal (sin esperar vendedor)
   useEffect(() => {
-    if (!distId || !selectedVendedorNombre || !selectedVendedorId) return;
-    void prefetchCuentasSupervision(
-      qc,
-      distId,
-      sucursalParam,
-      selectedVendedorNombre,
-      selectedVendedorId,
-    );
+    if (!distId) return;
+    prefetchSupervisionBundle(qc, distId, sucursalParam ?? null, null);
+  }, [distId, sucursalParam, qc]);
+
+  // Tras ingesta CC (sync-status cambia), invalidar snapshots de supervisión
+  useEffect(() => {
+    const ccKey =
+      syncQuery.data?.cuentas_corrientes?.last_updated ??
+      syncQuery.data?.cuentas_corrientes?.last_run_ok_at ??
+      null;
+    if (!distId || !ccKey) return;
+    if (prevCcSyncRef.current && prevCcSyncRef.current !== ccKey) {
+      void qc.invalidateQueries({
+        queryKey: ["bundle", "supervision", distId],
+      });
+    }
+    prevCcSyncRef.current = ccKey;
+  }, [
+    distId,
+    syncQuery.data?.cuentas_corrientes?.last_updated,
+    syncQuery.data?.cuentas_corrientes?.last_run_ok_at,
+    qc,
+  ]);
+
+  // Precarga KPIs al seleccionar vendedor
+  useEffect(() => {
+    if (!distId || !selectedVendedorId) return;
     void prefetchCcKpis(qc, distId, selectedVendedorId);
-  }, [distId, sucursalParam, selectedVendedorNombre, selectedVendedorId, qc]);
+  }, [distId, selectedVendedorId, qc]);
 
   return {
     vendedores,
@@ -232,9 +249,9 @@ export function useSupervisionPanelQueries(
     vendedoresStatsPending: !vendedoresFullQuery.data && vendedoresLiteQuery.isSuccess,
     selectedVendedorObj,
     selectedVendedorId,
-    cuentasData: cuentasQuery.data,
-    loadingCuentas: cuentasQuery.isLoading && !cuentasQuery.data,
-    fetchingCuentas: cuentasQuery.isFetching,
+    cuentasData,
+    loadingCuentas,
+    fetchingCuentas,
     syncStatus: syncQuery.data,
     ccKpisData: ccKpisQuery.data,
     loadingCcKpis: ccKpisQuery.isLoading && !ccKpisQuery.data,

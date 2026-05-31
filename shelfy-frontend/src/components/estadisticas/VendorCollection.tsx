@@ -70,7 +70,18 @@ export function VendorCollection({
     ? vendors.filter((v) => v.sucursal === filterSucursal)
     : vendors;
 
-  const visibleVendors = filtered;
+  // Render progresivo: monta las primeras 12 cartas de inmediato y el resto en el siguiente tick
+  // (evita bloquear el hilo principal con 30+ cartas complejas a la vez)
+  const vendorsKey = vendors.length;
+  const [renderLimit, setRenderLimit] = useState(12);
+  useEffect(() => { setRenderLimit(12); }, [vendorsKey]);
+  useEffect(() => {
+    if (renderLimit < filtered.length) {
+      const id = setTimeout(() => setRenderLimit((p) => p + 20), 80);
+      return () => clearTimeout(id);
+    }
+  }, [renderLimit, filtered.length]);
+  const visibleVendors = filtered.slice(0, renderLimit);
 
   const leadersByVendor = useMemo(
     () => computeStatLeadersByVendor(filtered),

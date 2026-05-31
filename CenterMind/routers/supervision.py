@@ -13,7 +13,7 @@ import unicodedata
 from datetime import date, datetime, timedelta
 from typing import Optional, Set
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Response, UploadFile
 
 from core.helpers import (
     _get_erp_name_map,
@@ -2057,6 +2057,7 @@ def _exhibido_cliente_ids_en_mes(
 
 @router.get("/api/supervision/cuentas/{dist_id}", tags=["Supervisión"])
 def supervision_cuentas(
+    response: Response,
     dist_id: int,
     sucursal: Optional[str] = Query(None),
     fecha: Optional[str] = Query(None),
@@ -2064,6 +2065,10 @@ def supervision_cuentas(
     id_vendedor: Optional[int] = Query(None, description="Filtrar por PK vendedores_v2 (más fiable que nombre)"),
     user_payload=Depends(verify_auth),
 ):
+    response.headers["Deprecation"] = "true"
+    response.headers["Link"] = (
+        f'</api/bundle/supervision/{dist_id}>; rel="successor-version"'
+    )
     check_dist_permission(user_payload, dist_id)
     try:
         try:

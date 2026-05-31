@@ -498,6 +498,20 @@ def fuerza_ventas_update_vendedor(
                         tg_gid,
                     )
 
+                # Bot /stats y /ranking leen `grupos.id_vendedor_v2` (group-first)
+                if tg_gid is not None:
+                    from core.telegram_group_matcher import apply_group_binding
+
+                    apply_group_binding(
+                        dist_id=dist_id,
+                        telegram_chat_id=int(tg_gid),
+                        id_vendedor_v2=id_vendedor,
+                        source="fuerza_ventas_portal",
+                        performed_by=payload.get("sub") or payload.get("usuario") or "portal",
+                        telegram_user_id=tg_uid,
+                        telegram_user_id_secondary=tg_uid_sec,
+                    )
+
         return {"ok": True, "id_vendedor": id_vendedor}
     except HTTPException:
         raise

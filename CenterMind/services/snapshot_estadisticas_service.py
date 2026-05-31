@@ -19,6 +19,17 @@ logger = logging.getLogger("snapshot_estadisticas_service")
 ESTADISTICAS_MAX_STALE_SECONDS = 900  # 15 min
 
 
+def _normalize_cartas_payload(raw) -> list:
+    """Snapshots corruptos pueden guardar cartas como dict; el FE espera list."""
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, dict):
+        vals = list(raw.values())
+        if vals and isinstance(vals[0], dict):
+            return vals
+    return []
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def get_or_refresh_estadisticas(
@@ -29,7 +40,7 @@ def get_or_refresh_estadisticas(
     meses_hash = _hash_meses(meses)
     snap = _read_estadisticas_snapshot(dist_id, meses_hash, sucursal)
     if snap is not None and _is_fresh(snap["generated_at"], ESTADISTICAS_MAX_STALE_SECONDS):
-        cartas = snap["payload"]
+        cartas = _normalize_cartas_payload(snap["payload"])
         return {
             "meta": {
                 "cache_hit": True,
@@ -44,7 +55,7 @@ def get_or_refresh_estadisticas(
 
     from services.estadisticas_service import build_carta_resumen
 
-    cartas = build_carta_resumen(dist_id, meses, sucursal)
+    cartas = _normalize_cartas_payload(build_carta_resumen(dist_id, meses, sucursal))
     _upsert_estadisticas_snapshot(dist_id, meses_hash, sucursal, cartas)
 
     generated_at = datetime.now(timezone.utc).isoformat()

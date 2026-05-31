@@ -168,8 +168,8 @@ def finish_cc_motor_run(
 
     if estado == "ok":
         try:
-            from services.snapshot_refresh_service import handle_ingestion_event
-            handle_ingestion_event("cuentas_corrientes", dist_id)
+            from services.snapshot_refresh_service import refresh_eager
+            refresh_eager(dist_id, ["supervision"])
         except Exception as e_snap:
             logger.debug("[CCMotor] snapshot invalidate omitido: %s", e_snap)
 

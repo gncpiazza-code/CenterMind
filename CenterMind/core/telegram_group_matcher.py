@@ -830,8 +830,10 @@ def apply_group_binding(
 
         now_iso = datetime.now(timezone.utc).isoformat()
 
-        # Actualizar grupos
+        # Actualizar o crear fila en grupos (FV puede vincular antes de que el bot registre el chat)
         grupo_update: dict = {
+            "id_distribuidor": dist_id,
+            "telegram_chat_id": telegram_chat_id,
             "id_vendedor_v2": id_vendedor_v2,
             "binding_status": "linked",
             "bound_at": now_iso,
@@ -840,9 +842,19 @@ def apply_group_binding(
         }
         if telegram_user_id is not None:
             grupo_update["dominant_uploader_uid"] = int(telegram_user_id)
-        sb.table("grupos").update(grupo_update).eq("id_distribuidor", dist_id).eq(
-            "telegram_chat_id", telegram_chat_id
-        ).execute()
+        if grupo is None:
+            grupo_update.setdefault(
+                "nombre_grupo",
+                f"Grupo {telegram_chat_id}",
+            )
+            sb.table("grupos").upsert(
+                grupo_update,
+                on_conflict="telegram_chat_id",
+            ).execute()
+        else:
+            sb.table("grupos").update(grupo_update).eq("id_distribuidor", dist_id).eq(
+                "telegram_chat_id", telegram_chat_id
+            ).execute()
 
         # Propagar a integrantes_grupo (paginado)
         offset = 0

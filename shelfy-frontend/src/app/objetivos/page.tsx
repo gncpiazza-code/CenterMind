@@ -24,7 +24,7 @@ import {
   lanzarObjetivo,
   fetchVendedoresSupervision,
   fetchRutasSupervision,
-  fetchCuentasSupervision,
+  fetchSupervisionBundle,
   fetchPDVCatalog,
   previewObjetivoTelegram,
   getWSUrl,
@@ -33,7 +33,6 @@ import {
   type ObjetivoTipo,
   type ResumenVendedorObjetivos,
   type RutaSupervision,
-  type CuentasSupervision,
   type ObjetivoTimeline,
   type PDVCatalogItem,
 } from "@/lib/api";
@@ -1229,13 +1228,14 @@ function NuevoObjetivoModal({ distId, vendedores, onClose, onCreate, loading, us
         .catch(() => setRutas([]))
         .finally(() => setLoadingCtx(false));
     } else if (tipo === "cobranza") {
-      fetchCuentasSupervision(distId)
-        .then((data: CuentasSupervision) => {
+      fetchSupervisionBundle(distId, null, null)
+        .then((data) => {
           const norm = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
           const targetNorm = norm(nombre);
+          const bundleVendedores = data.cuentas.vendedores ?? [];
 
-          let vend = data.vendedores.find(v => norm(v.vendedor) === targetNorm);
-          if (!vend) vend = data.vendedores.find(v => norm(v.vendedor).includes(targetNorm) || targetNorm.includes(norm(v.vendedor)));
+          let vend = bundleVendedores.find(v => norm(v.vendedor) === targetNorm);
+          if (!vend) vend = bundleVendedores.find(v => norm(v.vendedor).includes(targetNorm) || targetNorm.includes(norm(v.vendedor)));
 
           if (vend) {
             setDeudores(

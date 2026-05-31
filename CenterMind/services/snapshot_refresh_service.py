@@ -65,3 +65,41 @@ def handle_ingestion_event(event_type: str, dist_id: int) -> None:
         return
     logger.info(f"[snap_refresh] event_type={event_type} dist={dist_id} → invalida domains={domains}")
     mark_all_stale(dist_id, domains)
+
+
+def refresh_eager(dist_id: int, domains: list[str] | None = None) -> None:
+    """
+    Pre-calienta snapshots de forma no bloqueante tras una ingesta.
+
+    Primero marca stale, luego dispara recompute en background usando
+    FastAPI BackgroundTasks o threading según contexto de llamada.
+    """
+    import threading
+    all_domains = domains or ["dashboard", "estadisticas"]
+
+    def _recompute():
+        for domain in all_domains:
+            try:
+                if domain == "dashboard":
+                    from services.snapshot_dashboard_service import get_or_refresh_dashboard
+                    # Recomputa período más común (mes actual) sin sucursal
+                    get_or_refresh_dashboard(dist_id, "mes", None, hide_qa=False)
+                elif domain == "supervision":
+                    from services.snapshot_supervision_service import get_or_refresh_supervision
+                    get_or_refresh_supervision(dist_id, None, None)
+                elif domain == "estadisticas":
+                    from services.snapshot_estadisticas_service import get_or_refresh_estadisticas
+                    from datetime import datetime, timedelta
+                    mes_actual = (datetime.utcnow() - timedelta(hours=3)).strftime("%Y-%m")
+                    get_or_refresh_estadisticas(dist_id, [mes_actual], None)
+                elif domain == "visor":
+                    from services.snapshot_visor_service import get_or_refresh_visor
+                    get_or_refresh_visor(dist_id)
+            except Exception as e:
+                logger.warning(f"[snap_refresh] refresh_eager domain={domain} dist={dist_id}: {e}")
+
+    # Primero marcar stale para que cualquier request entrante durante el compute obtenga dato fresco
+    mark_all_stale(dist_id, all_domains)
+    # Luego recomputar en hilo daemon para no bloquear el request entrante
+    t = threading.Thread(target=_recompute, daemon=True)
+    t.start()

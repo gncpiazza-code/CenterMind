@@ -1,6 +1,6 @@
 # Progress — Shelfy CenterMind (Lean)
 
-**Ultima actualizacion:** 30 de Mayo, 2026 (v7)  
+**Ultima actualizacion:** 31 de Mayo, 2026 (v8)  
 **Objetivo:** estado operativo actual, riesgos y prioridades.  
 **Historial largo:** `docs/changelog/archive/2026-05.md`.
 
@@ -23,6 +23,8 @@
 - 🟡 Pendiente: tenant `extra`, clusters en mapa para zoom out masivo.
 
 ## Cambios Recientes (resumen ejecutivo)
+
+29. Supervisión CC + bundle tests + Estadísticas (2026-05-31): migración 100% — `useSupervisionPanelQueries` usa bundle sucursal-wide; invalidación FE al cambiar `sync-status` CC; `prefetchCuentasSupervision` → bundle; `TabSupervision` carga bundle si panel CC visible en mapOnly; `GET /api/supervision/cuentas` header `Deprecation`. Estadísticas: bundle + badge ERP sync + render progresivo cartas + `coerceBundleList` en FE. Tests: `test_snapshot_dashboard_bundle.py`, `test_estadisticas_erp_sync_alert.py`, suite T1–T4 (dashboard/estad/supervision/visor/refresh), Vitest `api.bundle.test.ts`, bench `scripts/bench_bundle_vs_legacy.py`. Plan cerrado: `plans/plan-supervision-bundle-migracion-100-2026-05-31.md`.
 
 28. Matcheo inteligente Telegram ↔ Vendedor ERP (2026-05-30): anclaje por grupo como fuente de verdad. `core/telegram_group_matcher.py` — scoring (ERP exacto 1.0, nombre grupo 0.85–0.95, capping multi-candidato 0.49), `detect_group_drift` (título, uploader dominante, vendor inactivo), `apply_group_binding` + propagación integrantes, `unlink_group`. `services/telegram_binding_watcher_service.py` — `scan_distribuidor` (3 fases: drift, semi-auto 0.95, sugerencias >0.5), `scan_all_distributors`. Bot: comando `/vincular` (inline keyboard, semi-auto), `_resolve_group_vendor` group-first en `cmd_stats` y `cmd_objetivos`, `handle_new_chat_title` detecta drift. API: 6 endpoints `/api/fuerza-ventas/binding/*` (health, suggestions, resolve, grupos, apply, scan); guard acceso directorio + ALOMA. Match Center: ampliado a directorio + ALOMA admin/supervisor. Cron: 07:30 AR scan diario. Frontend FV rediseñado: tabs Alertas/Grupos/Vendedores, KPIs banner binding health, `BindingAlertInbox`, `GrupoBindingCard`. DB: `20260530_telegram_binding.sql` (columnas en grupos + 2 tablas nuevas). Tests: `test_telegram_group_matcher.py`. **SQL pendiente ejecutar en Supabase.**
 

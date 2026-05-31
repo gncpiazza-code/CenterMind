@@ -29,7 +29,6 @@ import {
   fetchVendedoresSupervision,
   fetchRutasSupervision,
   fetchClientesSupervision,
-  fetchCuentasSupervision,
   fetchSyncStatus,
   type CuentasSupervision,
   type SyncStatus,
@@ -45,6 +44,9 @@ import {
   type ObjetivoCreate,
   type ObjetivoTipo,
   fetchVendedorKpiMapa,
+  fetchSupervisionBundle,
+  type SupervisionBundle,
+  type VendedorCuentas,
 } from "@/lib/api";
 import { openCuentasCorrientesPrintWindow } from "@/lib/printCuentasCorrientes";
 import type { PinCliente, VendedorKpis } from "./MapaRutas";
@@ -82,6 +84,8 @@ import {
 } from "@/hooks/useAltasCompradores";
 import { useInView } from "@/hooks/useInView";
 import { useSupervisionPanelStore } from "@/store/useSupervisionPanelStore";
+import { useSupervisionBundle } from "@/hooks/useSupervisionQueries";
+import { bundleKeys } from "@/lib/query-keys";
 
 // ── Map: SSR off ──────────────────────────────────────────────────────────────
 const MapaRutas = dynamic(() => import("./MapaRutas"), {
@@ -669,7 +673,7 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
             toast.success(
               `Cuentas corrientes actualizadas. ${status.registros ?? 0} registros procesados.`
             );
-            queryClient.invalidateQueries({ queryKey: ["supervision-cuentas"] });
+            queryClient.invalidateQueries({ queryKey: ['bundle', 'supervision'] });
             resetCCDialog();
             setCCDialogOpen(false);
           } else if (status.estado === "error") {
@@ -771,14 +775,21 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
     queryClient.removeQueries({ queryKey: ['supervision-clientes'] });
   }, [selectedDist, clearAll, queryClient]);
 
-  const { data: cuentasData = null, isLoading: loadingCuentas } = useQuery({
-    queryKey: ["supervision-cuentas", selectedDist, selectedSucursal],
-    queryFn: () => fetchCuentasSupervision(selectedDist!, selectedSucursal!),
-    enabled: !!selectedDist && !!selectedSucursal && !mapOnly && ccPanelVisible,
-    placeholderData: keepPreviousData,
-    staleTime: 5 * 60_000,
-    gcTime: 15 * 60_000,
-  });
+  const supervisionBundleDist =
+    selectedDist && (!mapOnly || ccPanelVisible) ? selectedDist : 0;
+  const { data: supervisionBundle, isLoading: loadingCuentas } = useSupervisionBundle(
+    supervisionBundleDist,
+    selectedSucursal ?? null,
+    null, // id_vendedor: null para cargar todos, filtrar en FE
+  );
+  // Adaptar shape para compatibilidad con JSX existente:
+  const cuentasData: CuentasSupervision | null = supervisionBundle?.cuentas
+    ? {
+        fecha: supervisionBundle.cuentas.fecha ?? null,
+        metadatos: (supervisionBundle.cuentas as any).metadatos ?? {},
+        vendedores: (supervisionBundle.cuentas.vendedores ?? []) as VendedorCuentas[],
+      }
+    : null;
 
   const { data: syncStatus = null } = useQuery<SyncStatus>({
     queryKey: ['supervision-sync-status', selectedDist],
@@ -1275,13 +1286,18 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
         .finally(() => setObjLoadingContext(false));
     } else if (objTipo === "cobranza") {
       setObjLoadingContext(true);
-      fetchCuentasSupervision(selectedDist)
-        .then((data: CuentasSupervision) => {
-          // Match by vendor name since VendedorCuentas doesn't expose id_vendedor
-          const firstPin = pines.find(p => p.id === selectedPDVsForObjective[0] && p.id_vendedor);
-          const vendorName = firstPin?.vendedor ?? "";
-          const norm = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
-          const vend = data.vendedores.find((v) => norm(v.vendedor) === norm(vendorName));
+      {
+        // Match by vendor name since VendedorCuentas doesn't expose id_vendedor
+        const firstPin = pines.find(p => p.id === selectedPDVsForObjective[0] && p.id_vendedor);
+        const vendorName = firstPin?.vendedor ?? "";
+        const norm = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+        const bundleData = queryClient.getQueryData<SupervisionBundle>(
+          bundleKeys.supervision(selectedDist ?? 0, null, null)
+        );
+        if (bundleData?.cuentas?.vendedores) {
+          const vend = (bundleData.cuentas.vendedores as VendedorCuentas[]).find(
+            (v) => norm(v.vendedor ?? "") === norm(vendorName)
+          );
           if (vend) {
             setObjDebtList(
               (vend.clientes ?? [])
@@ -1291,9 +1307,28 @@ export default function TabSupervision({ distId, isSuperadmin, fullscreen = fals
                 .map((c) => ({ cliente_nombre: c.cliente ?? "–", deuda_total: c.deuda_total ?? 0 }))
             );
           }
-        })
-        .catch(() => setObjDebtList([]))
-        .finally(() => setObjLoadingContext(false));
+          setObjLoadingContext(false);
+        } else {
+          // Fallback: llamar API directamente si no hay cache
+          fetchSupervisionBundle(selectedDist)
+            .then((bundle: SupervisionBundle) => {
+              const vend = (bundle.cuentas?.vendedores ?? []).find(
+                (v: any) => norm(v.vendedor ?? "") === norm(vendorName)
+              );
+              if (vend) {
+                setObjDebtList(
+                  (vend.clientes ?? [])
+                    .filter((c: any) => (c.deuda_total ?? 0) > 0)
+                    .sort((a: any, b: any) => (b.deuda_total ?? 0) - (a.deuda_total ?? 0))
+                    .slice(0, 10)
+                    .map((c: any) => ({ cliente_nombre: c.cliente ?? "–", deuda_total: c.deuda_total ?? 0 }))
+                );
+              }
+            })
+            .catch(() => setObjDebtList([]))
+            .finally(() => setObjLoadingContext(false));
+        }
+      }
     } else if (objTipo === "ruteo") {
       const vendorIds = selectedVendorIdsKey
         ? selectedVendorIdsKey

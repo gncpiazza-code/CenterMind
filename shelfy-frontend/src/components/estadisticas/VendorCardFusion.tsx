@@ -1,6 +1,7 @@
 "use client";
 
 import "./vendor-card-fusion.css";
+import { AlertTriangle } from "lucide-react";
 import { motion } from "framer-motion";
 import { VendorCardRadar } from "./VendorCardRadar";
 import { VendorCardFusionStats } from "./VendorCardFusionStats";
@@ -224,6 +225,29 @@ export function VendorCardFusion({
         </div>
       </motion.div>
       </div>
+
+      {vendor.erp_sync_alert && (
+        <div
+          title={`${vendor.erp_sync_unmatched_pct ?? 0}% de ventas sin match ERP. Comunicate con desarrollo.`}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "5px 8px",
+            background: "rgba(234,88,12,0.12)",
+            border: "1px solid rgba(234,88,12,0.28)",
+            borderRadius: 7,
+            marginTop: 6,
+          }}
+        >
+          <AlertTriangle size={12} color="#ea580c" strokeWidth={2.5} />
+          <span style={{ fontSize: 10, fontWeight: 700, color: "#ea580c", lineHeight: 1.3 }}>
+            Error de sincronización con ERP
+            <br />
+            <span style={{ fontWeight: 500 }}>Comunicate con desarrollo.</span>
+          </span>
+        </div>
+      )}
 
       <button
         type="button"

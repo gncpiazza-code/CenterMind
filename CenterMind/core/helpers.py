@@ -1049,4 +1049,33 @@ def resolve_vendedor_for_group(dist_id: int, telegram_chat_id: int) -> int | Non
     except Exception as e:
         logger.warning(f"resolve_vendedor_for_group legacy dist={dist_id}: {e}")
 
+    # Fuerza de Ventas (portal): binding por grupo sin anclar en `grupos` aún
+    try:
+        b_res = (
+            sb.table("vendedores_telegram_binding")
+            .select("id_vendedor_v2")
+            .eq("id_distribuidor", dist_id)
+            .eq("telegram_group_id", telegram_chat_id)
+            .not_.is_("id_vendedor_v2", "null")
+            .limit(1)
+            .execute()
+        )
+        if b_res.data:
+            vid = int(b_res.data[0]["id_vendedor_v2"])
+            t_vend = tenant_table_name("vendedores_v2", dist_id)
+            vres = (
+                sb.table(t_vend)
+                .select("id_vendedor, activo")
+                .eq("id_vendedor", vid)
+                .eq("id_distribuidor", dist_id)
+                .limit(1)
+                .execute()
+            )
+            if vres.data and vres.data[0].get("activo", True):
+                return vid
+    except Exception as e:
+        logger.warning(
+            f"resolve_vendedor_for_group fv_binding dist={dist_id} chat={telegram_chat_id}: {e}"
+        )
+
     return None

@@ -386,10 +386,10 @@ class PadronIngestionService:
                 logger.debug("[Padrón] notify ops omitido: %s", e_ops)
         if estado == "ok" and dist_id is not None:
             try:
-                from services.snapshot_refresh_service import handle_ingestion_event
-                handle_ingestion_event("padron", dist_id)
+                from services.snapshot_refresh_service import refresh_eager
+                refresh_eager(dist_id, ["estadisticas", "dashboard"])
             except Exception as e_snap:
-                logger.debug("[Padrón] snapshot invalidate omitido: %s", e_snap)
+                logger.debug("[Padrón] snapshot refresh_eager omitido: %s", e_snap)
 
     def record_sin_cambios_run(self, dist_id: int, source: str = "rpa_hash_guard") -> int:
         """
@@ -992,11 +992,12 @@ class PadronIngestionService:
             erp_ids = [str((it.get("id_cliente_erp") or "")).strip() for it in batch if it.get("id_cliente_erp")]
             existing_by_erp: dict[str, int] = {}
             existing_fuc_by_erp: dict[str, str] = {}
+            existing_ant_by_erp: dict[str, str] = {}
             if erp_ids:
                 try:
                     existing_res = (
                         sb.table(cli_table)
-                        .select("id_cliente,id_cliente_erp,fecha_ultima_compra")
+                        .select("id_cliente,id_cliente_erp,fecha_ultima_compra,fecha_compra_anterior")
                         .eq("id_distribuidor", dist_id)
                         .in_("id_cliente_erp", list(dict.fromkeys(erp_ids)))
                         .execute()
@@ -1011,6 +1012,9 @@ class PadronIngestionService:
                                 existing_fuc_by_erp[erp] = _fuc_iso_max(
                                     existing_fuc_by_erp.get(erp), str(prev_fuc)[:10]
                                 ) or str(prev_fuc)[:10]
+                            prev_ant = row.get("fecha_compra_anterior")
+                            if prev_ant:
+                                existing_ant_by_erp[erp] = str(prev_ant)[:10]
                 except Exception as e_lookup:
                     logger.warning(f"[Padrón] Lookup existentes batch {i//BATCH} falló: {e_lookup}")
 
@@ -1023,12 +1027,24 @@ class PadronIngestionService:
                     upd = dict(item)
                     upd["id_cliente"] = existing_pk
                     db_fuc = existing_fuc_by_erp.get(erp)
+                    db_ant = existing_ant_by_erp.get(erp)
                     new_fuc = upd.get("fecha_ultima_compra")
                     if db_fuc and new_fuc and str(new_fuc)[:10] < str(db_fuc)[:10]:
                         fuc_downgrade_skipped += 1
                         upd["fecha_ultima_compra"] = str(db_fuc)[:10]
+                        if db_ant:
+                            upd["fecha_compra_anterior"] = str(db_ant)[:10]
                     elif db_fuc and not new_fuc:
                         upd["fecha_ultima_compra"] = str(db_fuc)[:10]
+                        if db_ant:
+                            upd["fecha_compra_anterior"] = str(db_ant)[:10]
+                    elif new_fuc:
+                        from core.compras_fechas import advance_fechas_compra
+
+                        nu, na = advance_fechas_compra(db_fuc, db_ant, str(new_fuc)[:10])
+                        if nu:
+                            upd["fecha_ultima_compra"] = nu
+                        upd["fecha_compra_anterior"] = na
                     if upd.get("motivo_inactivo") != "padron_anulado":
                         merged = upd.get("fecha_ultima_compra")
                         est, mot, finact = _estado_cliente_desde_padron(

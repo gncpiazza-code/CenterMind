@@ -53,3 +53,45 @@ def test_dashboard_ranking_rows_returns_sorted_list():
     assert isinstance(result, list)
     assert result[0]["vendedor"] == "A"
     assert result[0]["puntos"] == 2
+
+
+# ── T5: Shape tests ────────────────────────────────────────────────────────────
+
+def test_kpis_shape():
+    """_normalize_dashboard_payload preserva 'kpis' como dict."""
+    kpis = {"total": 5, "aprobadas": 3, "destacadas": 2, "rechazadas": 0}
+    payload = {
+        "kpis": kpis,
+        "ranking": [{"vendedor": "X", "puntos": 1, "aprobadas": 1, "destacadas": 0, "rechazadas": 0}],
+        "ultimas": [],
+    }
+    out = _normalize_dashboard_payload(payload, 1)
+    assert "kpis" in out
+    assert isinstance(out["kpis"], dict)
+    assert out["kpis"] == kpis
+
+
+def test_ultimas_defaults_to_empty_list():
+    """_normalize_dashboard_payload normaliza 'ultimas=None' a []."""
+    payload = {
+        "kpis": {"total": 0},
+        "ranking": [],
+        "ultimas": None,
+    }
+    out = _normalize_dashboard_payload(payload, 1)
+    assert out["ultimas"] == []
+    assert isinstance(out["ultimas"], list)
+
+
+def test_ranking_list_shape_fields():
+    """Ranking normalizado (ya lista) conserva campos 'vendedor' y 'puntos'."""
+    rows = [
+        {"vendedor": "VENDEDOR A", "puntos": 5, "aprobadas": 3, "destacadas": 2, "rechazadas": 0},
+        {"vendedor": "VENDEDOR B", "puntos": 2, "aprobadas": 2, "destacadas": 0, "rechazadas": 0},
+    ]
+    payload = {"kpis": {}, "ranking": rows, "ultimas": []}
+    out = _normalize_dashboard_payload(payload, 1)
+    assert isinstance(out["ranking"], list)
+    for row in out["ranking"]:
+        assert "vendedor" in row
+        assert "puntos" in row

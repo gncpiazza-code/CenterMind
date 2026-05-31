@@ -198,6 +198,34 @@ class TestGroupFirstStats:
 
         assert result is None
 
+    def test_resolve_falls_back_to_fuerza_ventas_binding_table(self):
+        """Portal FV: vendedores_telegram_binding.telegram_group_id sin grupos.id_vendedor_v2."""
+        sb_mock, chain = _make_sb_mock()
+        binding_mock = MagicMock(return_value={"id_vendedor_v2": None, "binding_status": "unlinked"})
+
+        def table_side(name):
+            c = MagicMock()
+            c.select.return_value = c
+            c.eq.return_value = c
+            c.not_.is_.return_value = c
+            c.limit.return_value = c
+            if name == "vendedores_telegram_binding":
+                c.execute.return_value = MagicMock(data=[{"id_vendedor_v2": 77}])
+            elif "vendedores_v2" in str(name):
+                c.execute.return_value = MagicMock(data=[{"id_vendedor": 77, "activo": True}])
+            else:
+                c.execute.return_value = MagicMock(data=[])
+            return c
+
+        sb_mock.table.side_effect = table_side
+
+        with patch("core.helpers.sb", sb_mock), \
+             patch("core.telegram_group_matcher.get_group_binding", binding_mock):
+            from core.helpers import resolve_vendedor_for_group
+            result = resolve_vendedor_for_group(dist_id=3, telegram_chat_id=-100222333)
+
+        assert result == 77
+
     def test_vendor_inactive_returns_none(self):
         """Si el vendor anclado está inactivo en ERP, no usarlo."""
         sb_mock, chain = _make_sb_mock()
